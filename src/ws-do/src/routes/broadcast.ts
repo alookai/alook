@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import type { RouterContext } from "../router-context"
 import {
   COMMUNITY_BULK_BODY_MAX_BYTES,
@@ -123,19 +124,6 @@ async function broadcastCommunityToBulkTarget(
     return { ok: false, failureKind: "invalid-sent", status: response.status }
   }
   return { ok: true, sent: payload.sent }
-}
-
-export async function handleDaemonBroadcast({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
-  const daemonBroadcast = url.pathname.match(/^\/broadcast\/daemon\/(.+)$/)
-  if (!daemonBroadcast || request.method !== "POST") return null
-
-  const daemonId = daemonBroadcast[1]
-  const reqLog = log.child({ traceId, daemonId })
-  reqLog.debug("broadcasting to daemon")
-
-  const doId = env.WS_DO.idFromName("daemon:" + daemonId)
-  const stub = env.WS_DO.get(doId)
-  return stub.fetch(new Request("http://internal/broadcast", { method: "POST", body: request.body, duplex: "half" } as RequestInit))
 }
 
 export async function handleUserBroadcast({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
@@ -295,8 +283,8 @@ export async function handleCommunityUsersBroadcast({ request, env, url, traceId
     return invalidCommunityBrowserEventResponse(failure)
   }
   const version = request.headers.get(COMMUNITY_CONTRACT_HEADER)
-  if (version !== null && version !== "1" && version !== "2" && version !== "3") return invalidCommunityBrowserEventResponse(strictFailure("invalid-payload", parsed.byteCount))
-  const event = normalizeCommunityBrowserEvent(body.message, undefined, version === "3" ? 3 : version === "1" ? 1 : 2)
+  if (version !== String(BUSINESS_SCHEMA_VERSION)) return invalidCommunityBrowserEventResponse(strictFailure("invalid-payload", parsed.byteCount))
+  const event = normalizeCommunityBrowserEvent(body.message, undefined, BUSINESS_SCHEMA_VERSION)
   if (!event.ok) {
     logCommunityBrowserEventRejected(log, "strict-bulk", event, body.userIds.length)
     return invalidCommunityBrowserEventResponse(event)

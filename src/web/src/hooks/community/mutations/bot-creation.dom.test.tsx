@@ -1,3 +1,4 @@
+import { messageSeedFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
@@ -15,7 +16,7 @@ vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => api(...ar
 beforeEach(() => api.mockReset())
 async function owner() {
   const state = await createCommunityQueryOwner()
-  ingestMessages(state.registry, "dm-1", [{ id: "message-1", type: "chat", seq: 1, content: "", botCreation: botCreationFixture() }])
+  ingestMessages(state.registry, "dm-1", messageSeedFixture("dm-1", [{ id: "message-1", type: "chat", seq: 1, content: "", botCreation: botCreationFixture() }]))
   state.client.setQueryData(communityKeys.bots(), { bots: [] })
   state.client.setQueryData(communityKeys.machines(), { machines: [] })
   function Wrapper({ children }: PropsWithChildren) { return createElement(CommunityTestProvider, { ...state, retainOwner: true }, children) }
@@ -33,7 +34,7 @@ describe("bot creation owner decision", () => {
   it("does not overwrite a renamed bot when an old approved card is loaded", async () => {
     const state = await owner()
     writeCommunityProfilePatches([{ id: "created-1", identityAbout: { name: "Renamed Bot", discriminator: "0042" }, avatar: { avatar: "new-avatar", avatarVersion: 2 } }], state.registry, { command: true })
-    ingestMessages(state.registry, "dm-1", [{ id: "historical-card", type: "chat", seq: 2, botCreation: approved() }])
+    ingestMessages(state.registry, "dm-1", messageSeedFixture("dm-1", [{ id: "historical-card", type: "chat", seq: 2, botCreation: approved() }]))
     expect(state.registry.collections.profiles.get("created-1")).toMatchObject({ name: "Renamed Bot", avatar: "new-avatar", avatarVersion: 2 })
     api.mockResolvedValueOnce({ botCreation: approved() })
     await act(async () => { await state.view.result.current.mutateAsync(input) })

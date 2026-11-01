@@ -1,3 +1,4 @@
+import { communityFixtureFetch } from "./_fixtures/business-contract"
 import type { Locator, Page, TestInfo } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
@@ -9,7 +10,7 @@ import type { CaseActors } from "./_fixtures/case-fixture"
 async function prepareCase(actors: CaseActors) {
   const { sessionCookie } = actors
   async function seedTags(forumId: string, threadId: string, tags: string[]): Promise<void> {
-    const listResponse = await fetch(`${WEB_URL}/api/community/channels/${forumId}/threads?order=createdAt&limit=50`, { headers: { Cookie: sessionCookie("bob"), Origin: WEB_URL } })
+    const listResponse = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${forumId}/threads?order=createdAt&limit=50`, { headers: { Cookie: sessionCookie("bob"), Origin: WEB_URL } })
     expect(listResponse.ok).toBe(true)
     const page = await listResponse.json() as {
       threads: Array<{
@@ -19,7 +20,7 @@ async function prepareCase(actors: CaseActors) {
     }
     const openerMessageId = page.threads.find((thread) => thread.id === threadId)?.parentMessageId
     expect(openerMessageId).toBeTruthy()
-    const tagResponse = await fetch(`${WEB_URL}/api/community/messages/${openerMessageId}/tags`, {
+    const tagResponse = await communityFixtureFetch(`${WEB_URL}/api/community/messages/${openerMessageId}/tags`, {
       method: "PUT",
       headers: {
         Cookie: sessionCookie("bob"),
@@ -78,7 +79,7 @@ async function postActionGeometry(card: Locator, postId: string) {
     return {
       card: readRect(element),
       title: readRect(element.querySelector(`[data-testid="${titleId}"]`)),
-      preview: readRect(element.querySelector(":scope > p")),
+      preview: readRect(element.querySelector('[data-slot="community-forum-post-preview"]')),
       row: readRect(row),
       virtualHeight: readRect(row?.parentElement ?? null).height,
     }
@@ -196,9 +197,10 @@ async function expectMobileGeometry(
   postId: string,
   visibleTags: string[],
   expectedTitle: string,
-  titleState: "single" | "double" | "truncated",
+  titleState: "single" | "truncated",
   role: "author" | "manager",
   width: (typeof MOBILE_WIDTHS)[number],
+  twoLinePreview = false,
 ): Promise<void> {
   await page.setViewportSize({ width, height: 844 })
   const tagButton = page.getByTestId(tid.forumThreadTagBtn(postId))
@@ -249,8 +251,13 @@ async function expectMobileGeometry(
     }
     return { lines: lineTops.length, last: { top: last.top, bottom: last.bottom, right: last.right } }
   })
-  const expectedLines = titleState === "single" ? 1 : 2
+  const expectedLines = 1
   expect(titleMetrics.lines, `${role}/${postId}@${width}: actual inline lines`).toBe(expectedLines)
+  if (twoLinePreview) {
+    const previewLines = await card.locator('[data-slot="community-forum-post-preview"]').evaluate((element) =>
+      element.getBoundingClientRect().height / Number.parseFloat(getComputedStyle(element).lineHeight))
+    expect(previewLines, `${role}/${postId}@${width}: actual preview lines`).toBeCloseTo(2, 1)
+  }
   const sequenceMetrics = await sequence.evaluate((element, titleId) => {
     const bounds = element.getBoundingClientRect()
     return {
@@ -262,14 +269,10 @@ async function expectMobileGeometry(
   expect(sequenceMetrics.insideTitleText, `${role}/${postId}@${width}: complete sequence outside cut text`).toBe(false)
   expect(sequenceMetrics.scrollWidth, `${role}/${postId}@${width}: complete sequence width`).toBeLessThanOrEqual(sequenceMetrics.width + 1)
   const sameLine = Math.abs(sequenceRect!.bottom - titleMetrics.last.bottom) <= 3
-  if (sameLine) {
-    const gap = sequenceRect!.left - titleMetrics.last.right
-    expect(gap, `${role}/${postId}@${width}: last visible character to seq gap`).toBeGreaterThanOrEqual(4)
-    expect(gap, `${role}/${postId}@${width}: last visible character to seq gap`).toBeLessThanOrEqual(8)
-  } else {
-    expect(sequenceRect!.top, `${role}/${postId}@${width}: whole sequence naturally wraps`).toBeGreaterThan(titleMetrics.last.top)
-    expect(sequenceRect!.left - titleRect!.left, `${role}/${postId}@${width}: wrapped sequence starts at inline inset`).toBeLessThanOrEqual(8)
-  }
+  expect(sameLine, `${role}/${postId}@${width}: sequence stays on the title line`).toBe(true)
+  const gap = sequenceRect!.left - titleMetrics.last.right
+  expect(gap, `${role}/${postId}@${width}: last visible character to seq gap`).toBeGreaterThanOrEqual(4)
+  expect(gap, `${role}/${postId}@${width}: last visible character to seq gap`).toBeLessThanOrEqual(8)
   expect(sequenceRect!.right, `${role}/${postId}@${width}: sequence containment`).toBeLessThanOrEqual(titleRect!.right + 0.5)
   const controls = [tagRect!, deleteRect!]
   for (const controlRect of controls) {
@@ -280,6 +283,8 @@ async function expectMobileGeometry(
     expect(controlRect.top, `${role}/${postId}@${width}: control top`).toBeGreaterThanOrEqual(cardRect!.top)
     expect(controlRect.bottom, `${role}/${postId}@${width}: control bottom`).toBeLessThanOrEqual(cardRect!.bottom)
     expect(intersects(titleRect!, controlRect), `${role}/${postId}@${width}: title/action overlap`).toBe(false)
+    expect(Math.abs((titleRect!.top + titleRect!.bottom) / 2 - (controlRect.top + controlRect.bottom) / 2),
+      `${role}/${postId}@${width}: title/action vertical centers`).toBeLessThanOrEqual(0.5)
     const centerTarget = await page.evaluate(({ x, y }) => {
       const target = document.elementFromPoint(x, y)
       return target?.closest("button")?.getAttribute("data-testid") ?? null
@@ -529,13 +534,13 @@ test("forum post actions stay discoverable on mobile without changing permission
   await seedJoinServer("alice", "bob", serverId)
   await seedJoinServer("alice", "carol", serverId)
   const primaryTitle = `UnbrokenForumTitle${Date.now()}${"abcdefghij".repeat(12)}`
-  const cjkTitle = `移动端论坛标题必须换到第二行展示${stamp}`
+  const cjkTitle = `移动端论坛长标题省略且编号保持同行${stamp}`
   const noTagTitle = `One line ${stamp}`
   const primaryPostId = await seedForumThread(
     "bob",
     forumId,
     primaryTitle,
-    "mobile action geometry",
+    "Forum preview text uses two visible lines on narrow screens while the single-line title and its action group stay centered together. The preview remains below that row and retains its existing truncation.",
   )
   const cjkPostId = await seedForumThread(
     "bob",
@@ -561,7 +566,7 @@ test("forum post actions stay discoverable on mobile without changing permission
   await seedTags(compactForumId, compactPostId, ["solo"])
   const postCases = [
     { id: primaryPostId, title: primaryTitle, tags: TAGS.slice(0, 2), titleState: "truncated" as const },
-    { id: cjkPostId, title: cjkTitle, tags: [], titleState: "double" as const },
+    { id: cjkPostId, title: cjkTitle, tags: [], titleState: "truncated" as const },
     { id: noTagPostId, title: noTagTitle, tags: [], titleState: "single" as const },
   ]
   const route = `/c/channels/${serverId}/${forumId}`
@@ -591,6 +596,7 @@ test("forum post actions stay discoverable on mobile without changing permission
         post.titleState,
         "author",
         width,
+        post.id === primaryPostId,
       )
     }
     await testInfo.attach(`author-${width}.png`, {
@@ -638,6 +644,7 @@ test("forum post actions stay discoverable on mobile without changing permission
         post.titleState,
         "manager",
         width,
+        post.id === primaryPostId,
       )
     }
     await testInfo.attach(`manager-${width}.png`, {
@@ -668,11 +675,15 @@ test("forum post actions stay discoverable on mobile without changing permission
     await managerTagButton.evaluate((button) => button.blur())
     await manager.page.mouse.move(0, 0)
     await managerCard.scrollIntoViewIfNeeded()
+    const titleRect = await rect(manager.page.getByTestId(tid.forumThreadTitle(primaryPostId)))
+    expect(titleRect, `title geometry@${width}`).not.toBeNull()
     for (const button of [managerTagButton, managerArchiveButton, managerDeleteButton]) {
       await expect(button).toHaveCSS("opacity", width < 640 ? "1" : "0")
       const buttonRect = await rect(button)
       expect(buttonRect?.width, `action width@${width}`).toBe(32)
       expect(buttonRect?.height, `action height@${width}`).toBe(32)
+      expect(Math.abs((titleRect!.top + titleRect!.bottom) / 2 - (buttonRect!.top + buttonRect!.bottom) / 2),
+        `title/action vertical centers@${width}`).toBeLessThanOrEqual(0.5)
     }
     const baseline = await postActionGeometry(managerCard, primaryPostId)
     await managerCard.hover()

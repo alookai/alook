@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -56,7 +57,7 @@ import { GET } from "./route"
 function req(server: string | undefined, headers: Record<string, string> = {}): NextRequest {
   const url = new URL("http://localhost/api/community/servers/resolve/channels")
   if (server !== undefined) url.searchParams.set("server", server)
-  return new NextRequest(url, { method: "GET", headers: { ...headers } })
+  return new NextRequest(url, { method: "GET", headers: { ...(new Headers(headers).has("Authorization") ? {} : { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }), ...headers } })
 }
 const ctx = { params: { id: "resolve" } } as unknown as { params: { id: string } }
 

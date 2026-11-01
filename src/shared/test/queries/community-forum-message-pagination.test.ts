@@ -67,7 +67,7 @@ describe("forum opener message pagination against real SQLite", () => {
       .run('[{"title":"Native"}]', "nonce", "friendship", "m1")
     const reads = [
       { row: await messageQueries.getMessage(db as never, "m1"), extra: ["seq", "authorEmail"] },
-      { row: await messageQueries.getMessageByAuthorAndNonce(db as never, "u1", "nonce"), extra: ["seq", "authorEmail"] },
+      { row: await messageQueries.getMessageByAuthorAndNonce(db as never, "u1", "nonce"), extra: ["seq", "clientNonce", "authorEmail"] },
       { row: (await messageQueries.getMessagesByIds(db as never, ["m1"]))[0], extra: ["seq", "authorEmail"] },
       { row: await messageQueries.getMessageInScope(db as never, "m1", { channelId: "c1" }), extra: ["authorEmail"] },
       { row: (await messageQueries.getMessagesByIdsInChannels(db as never, ["m1"], ["c1"]))[0], extra: ["seq", "clientNonce", "discriminator", "authorEmail"] },

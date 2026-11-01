@@ -1,3 +1,4 @@
+import { communityFixtureFetch } from "./_fixtures/business-contract"
 import type { Page, Route } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 
@@ -8,7 +9,7 @@ import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
 async function prepareCase(actors: CaseActors) {
   const { sessionCookie } = actors
   async function setReadCheckpoint(channelId: string, messageId: string): Promise<void> {
-    const response = await fetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
+    const response = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
       method: "PUT",
       headers: {
         Cookie: sessionCookie("alice"),

@@ -1,3 +1,4 @@
+import { communityFixtureFetch } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 
 import { tid } from "./_fixtures/testids"
@@ -19,7 +20,7 @@ test("anchored channel jumps to the newest tail with one request", async ({ case
   for (let index = 1; index <= 36; index++) {
     latestId = await seedMessage(index % 2 === 0 ? "bob" : "carol", channelId, `newer message ${index}`)
   }
-  const readResponse = await fetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
+  const readResponse = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
     method: "PUT",
     headers: {
       Cookie: sessionCookie("alice"),
@@ -33,8 +34,10 @@ test("anchored channel jumps to the newest tail with one request", async ({ case
   const { page } = await asUser("alice")
   await page.goto(`/c/channels/${serverId}/${channelId}`)
   await expect(page.getByTestId(tid.message(anchorId))).toBeVisible({ timeout: 30_000 })
-  const jumpButton = page.getByRole("button", { name: /^Jump to present, \d+ unread below$/ })
+  const jumpButton = page.getByRole("button", { name: "Jump to present", exact: true })
   await expect(jumpButton).toBeVisible({ timeout: 20_000 })
+  await expect(jumpButton).toHaveAttribute("data-testid", tid.scrollToPresent)
+  await expect(jumpButton).toHaveText("Jump to present")
 
   let newestGets = 0
   let anchorGets = 0

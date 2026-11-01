@@ -8,6 +8,8 @@ import {
   COMMUNITY_RESOURCE_CONTRACT_VERSION,
   type AccountAttentionSnapshot,
 } from "@alook/shared"
+import { isAbortError } from "@/lib/errors"
+import { conversationReadRetryPolicy } from "@/lib/community/conversation-read"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import {
@@ -15,6 +17,7 @@ import {
   useAttentionScopes,
 } from "@/lib/community-db/projections"
 import {
+  beginCommunityCommandRevision,
   captureCommunityLiveSnapshotToken,
   assertCommunityLiveSnapshotTokenCurrent,
   publishAccountAttentionSnapshot,
@@ -43,26 +46,55 @@ async function fetchAccountAttention(options: ApiRequestOptions): Promise<Accoun
   return AccountAttentionSnapshotSchema.parse(response)
 }
 
-const accountAttentionQueryFn = (queryClient: QueryClient) =>
-  async ({ signal }: { signal?: AbortSignal } = {}) => {
-    const token = captureCommunityLiveSnapshotToken(queryClient)
-    const snapshot = await fetchAccountAttention(communityRequestOptions(queryClient, token, signal))
-    publishAccountAttentionSnapshot(queryClient, {
-      snapshot,
-      proof: { token, signal },
-    })
-    return { loaded: true }
+function currentReadRevision(registry: CommunityDbRegistry | null) {
+  let revision = registry?.collections.readStateClock.get("account")?.revision ?? -1
+  for (const row of registry?.collections.readStates.values() ?? []) revision = Math.max(revision, row.observedRevision ?? -1)
+  return revision
+}
+
+export function accountAttentionMatchesReadState(registry: CommunityDbRegistry) {
+  const query = registry.queryClient.getQueryCache().find<{ loaded: boolean; readRevision: number }>({ queryKey: communityKeys.accountAttention(), exact: true })
+  return query?.state.status === "success" && query.state.fetchStatus === "idle"
+    && query.state.data?.readRevision === currentReadRevision(registry)
+}
+
+const accountAttentionQueryFn = (queryClient: QueryClient) => {
+  const token = getCommunityDbRegistry(queryClient) ? captureCommunityLiveSnapshotToken(queryClient) : null
+  return async ({ signal, meta }: { signal?: AbortSignal; meta?: Record<string, unknown> } = {}) => {
+    if (!token) throw new DOMException("Attention owner retired", "AbortError")
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+    const requestToken = beginCommunityCommandRevision(queryClient, token)
+    const readRevision = currentReadRevision(token.registry)
+    const query = queryClient.getQueryCache().find({ queryKey: communityKeys.accountAttention(), exact: true })
+    if (meta) meta.attentionReadRevision = readRevision
+    const snapshot = await fetchAccountAttention(communityRequestOptions(queryClient, requestToken, signal))
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+    if (!query || queryClient.getQueryCache().get(query.queryHash) !== query) throw new DOMException("Attention query retired", "AbortError")
+    if (currentReadRevision(token.registry) !== readRevision) throw new StaleAttentionReadError()
+    publishAccountAttentionSnapshot(queryClient, { snapshot, proof: { token: requestToken, signal } })
+    return { loaded: true, readRevision }
   }
+}
+
+function accountAttentionOptions(queryClient: QueryClient) {
+  const meta = queryClient.getQueryCache().find({ queryKey: communityKeys.accountAttention(), exact: true })?.meta ?? {}
+  return {
+    queryKey: communityKeys.accountAttention(),
+    queryFn: accountAttentionQueryFn(queryClient),
+    meta,
+    retry: attentionReadRetryPolicy(queryClient),
+    staleTime: 0,
+  }
+}
 
 export function useAccountAttention() {
   const queryClient = useQueryClient()
   const scopes = useAttentionScopes()
   const items = useAttentionItems()
   const query = useQuery({
-    queryKey: communityKeys.accountAttention(),
-    queryFn: accountAttentionQueryFn(queryClient),
-    staleTime: 0,
+    ...accountAttentionOptions(queryClient),
     refetchOnMount: "always",
+    refetchInterval: query => query.state.status === "error" && !isAbortError(query.state.error) ? 5_000 : false,
   })
   return { ...query, scopes, items }
 }
@@ -76,8 +108,7 @@ export function useAccountAttentionProjection() {
   const scopes = useAttentionScopes()
   const items = useAttentionItems()
   const query = useQuery({
-    queryKey: communityKeys.accountAttention(),
-    queryFn: accountAttentionQueryFn(queryClient),
+    ...accountAttentionOptions(queryClient),
     enabled: false,
   })
   return { ...query, scopes, items }
@@ -86,13 +117,25 @@ export function useAccountAttentionProjection() {
 export async function reconcileAccountAttention(
   registry: CommunityDbRegistry,
 ) {
+  const client = registry.queryClient, token = captureCommunityLiveSnapshotToken(client)
+  const query = client.getQueryCache().find({ queryKey: communityKeys.accountAttention(), exact: true })
+  if (query?.state.fetchStatus === "fetching" && query.meta?.attentionReadRevision !== currentReadRevision(registry)) {
+    await client.cancelQueries({ queryKey: communityKeys.accountAttention(), exact: true })
+    assertCommunityLiveSnapshotTokenCurrent(client, token, undefined)
+    const completed = client.getQueryState<{ loaded: boolean; readRevision: number }>(communityKeys.accountAttention())
+    if (completed && !completed.isInvalidated && accountAttentionMatchesReadState(registry)) return completed.data!
+  }
   const snapshot = await registry.queryClient.query({
-    queryKey: communityKeys.accountAttention(),
-    queryFn: accountAttentionQueryFn(registry.queryClient),
-    staleTime: 0,
+    ...accountAttentionOptions(registry.queryClient),
+    retry: (failures, error) => error instanceof StaleAttentionReadError && failures < 3,
     select: undefined,
   })
   return snapshot
+}
+
+function attentionReadRetryPolicy(queryClient: QueryClient) {
+  const retry = conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.accountAttention() }).retry)
+  return (failures: number, error: Error) => error instanceof StaleAttentionReadError ? failures < 3 : retry(failures, error)
 }
 
 export function scheduleAccountAttentionReconcile(queryClient: QueryClient, message?: { channelId?: string; messageId?: string }) {

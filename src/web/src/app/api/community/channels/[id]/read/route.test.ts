@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -67,10 +68,10 @@ vi.mock("@alook/shared", async () => {
 })
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
-  }),
+  humanAuthPolicy: { resolve: async (req: any) => {
+
+    return ({ context: { env: { DB: {} }, userId: "u1", email: "u@t.com" } })
+  } },
 }))
 
 vi.mock("@/lib/community/fanout", () => ({
@@ -90,6 +91,7 @@ import { PUT } from "./route"
 function putReq(body?: unknown) {
   return new NextRequest("http://localhost/api/community/channels/c1/read", {
     method: "PUT",
+    headers: { "x-alook-community-contract": String(BUSINESS_SCHEMA_VERSION), "Content-Type": "application/json" },
     ...(body !== undefined
       ? { body: typeof body === "string" ? body : JSON.stringify(body) }
       : {}),
@@ -118,7 +120,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
     mockIsBlocked.mockResolvedValue(false)
   })
 
-  it.each([2, 3] as const)("confirms contract %s with the committed exact target and revision", async (contract) => {
+  it.each([BUSINESS_SCHEMA_VERSION])("confirms contract %s with the committed exact target and revision", async (contract) => {
     allow()
     mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1", createdAt: "now", seq: 6 })
     const request = putReq({ lastReadMessageId: "m1" })
@@ -182,7 +184,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
         { __builder: "current" },
       ])
       expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(1)
-      await expect(res.json()).resolves.toEqual({ changed: true, targetSeq: 42, revision: 7 })
+      await expect(res.json()).resolves.toEqual({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", changed: true, targetSeq: 42, revision: 7 })
     },
   )
 
@@ -193,7 +195,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
 
     const res = await PUT(putReq({ lastReadMessageId: "m42" }), { params: { id: "c1" } } as any)
 
-    await expect(res.json()).resolves.toEqual({ changed: false, targetSeq: 42, revision: 9 })
+    await expect(res.json()).resolves.toEqual({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", changed: false, targetSeq: 42, revision: 9 })
     expect(mockBroadcastToUserSafe).not.toHaveBeenCalled()
   })
 
@@ -204,7 +206,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
 
     const res = await PUT(putReq({ lastReadMessageId: "m42" }), { params: { id: "c1" } } as any)
 
-    await expect(res.json()).resolves.toEqual({ changed: false, targetSeq: 42, revision: 9 })
+    await expect(res.json()).resolves.toEqual({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", changed: false, targetSeq: 42, revision: 9 })
     expect(mockCanonicalReadTargetExistsCondition).toHaveBeenCalledOnce()
     expect(mockBroadcastToUserSafe).not.toHaveBeenCalled()
   })

@@ -7,6 +7,8 @@ import { createPublicRuntimeCaching } from "../lib/service-worker/public-cache-r
 
 import { clearOutdatedPublicWorkerCaches } from "../lib/service-worker/public-cache-storage"
 import { communityShellHash, isCommunityShellAssetRequest, isCommunityShellNavigation, isCommunityShellResponse } from "../lib/service-worker/community-shell"
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared/business-schema-version"
+import { CURRENT_DOCUMENT_REQUEST, WORKER_VERSION_PROBE, upgradeBusinessWindow } from "../lib/service-worker/business-upgrade"
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -24,7 +26,8 @@ const shellUrl = shells[0]
 const serwist = new Serwist({
   precacheEntries: entries,
   cacheId: publicWorkerCacheNames().cacheId,
-  clientsClaim: true,
+  clientsClaim: false,
+  skipWaiting: true,
   runtimeCaching: createPublicRuntimeCaching(self.location.origin, {
     code: { maxEntries: 80, maxAgeSeconds: 30 * 24 * 60 * 60 },
     fonts: { maxEntries: 160, maxAgeSeconds: 30 * 24 * 60 * 60 },
@@ -54,4 +57,29 @@ navigation.match = options => isCommunityShellNavigation(options.request, self.l
 serwist.registerRoute(navigation)
 serwist.addEventListeners()
 
-self.addEventListener("activate", event => event.waitUntil(clearOutdatedPublicWorkerCaches()))
+self.addEventListener("activate", event => event.waitUntil((async () => {
+  await clearOutdatedPublicWorkerCaches()
+  if (!await serwist.matchPrecache(shellUrl)) throw new Error("Current community shell unavailable")
+  await self.clients.claim()
+  const clients = await self.clients.matchAll({ type: "window" })
+  await Promise.allSettled(clients.map(client => upgradeBusinessWindow(client, self.location.origin)))
+})()))
+
+self.addEventListener("message", event => {
+  if (event.data?.type === WORKER_VERSION_PROBE) {
+    event.ports[0]?.postMessage({ schemaVersion: BUSINESS_SCHEMA_VERSION })
+    return
+  }
+  if (event.data?.type !== CURRENT_DOCUMENT_REQUEST) return
+  event.waitUntil((async () => {
+    const source = event.source
+    if (!source || !("id" in source) || event.data.schemaVersion !== BUSINESS_SCHEMA_VERSION || !await serwist.matchPrecache(shellUrl)) {
+      event.ports[0]?.postMessage({ navigating: false })
+      return
+    }
+    const client = (await self.clients.matchAll({ type: "window" })).find(client => client.id === source.id)
+    if (!client) { event.ports[0]?.postMessage({ navigating: false }); return }
+    const navigating = await upgradeBusinessWindow(client, self.location.origin, true, event.data.explicitRetry === true)
+    event.ports[0]?.postMessage({ navigating })
+  })())
+})

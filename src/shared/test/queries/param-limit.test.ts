@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import Sqlite from "better-sqlite3";
 import { drizzle } from "drizzle-orm/d1";
 import {
   communityMention,
@@ -21,6 +22,7 @@ import * as agentQueries from "../../src/db/queries/agent";
 import * as conversationQueries from "../../src/db/queries/conversation";
 import * as meetingQueries from "../../src/db/queries/meeting-session";
 import * as userQueries from "../../src/db/queries/user";
+import * as userProfileQueries from "../../src/db/queries/community/user-profile";
 import { D1_MAX_BIND_PARAMS } from "../../src/db/queries/_chunk";
 
 const fakeDb = drizzle({} as never);
@@ -434,5 +436,132 @@ describe("high-cardinality query bind matrix", () => {
     for (const { params } of capture.statements) {
       expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
     }
+  });
+});
+
+
+describe("resource reads through the D1 adapter and local SQLite", () => {
+  const connections: Sqlite.Database[] = [];
+  const cases = [
+    { count: 0, sizes: [] },
+    { count: 90, sizes: [90] },
+    { count: 91, sizes: [90, 1] },
+    { count: 181, sizes: [90, 90, 1] },
+  ];
+
+  afterEach(() => {
+    for (const sqlite of connections) sqlite.close();
+    connections.length = 0;
+  });
+
+  function resourceDb() {
+    const sqlite = new Sqlite(":memory:");
+    connections.push(sqlite);
+    sqlite.exec(`
+      CREATE TABLE community_channel_member (
+        channel_id TEXT, user_id TEXT, relation TEXT, source TEXT,
+        PRIMARY KEY (channel_id, user_id, relation)
+      );
+      CREATE TABLE community_user_profile (
+        user_id TEXT PRIMARY KEY, about_me TEXT, banner_color TEXT,
+        status_emoji TEXT, status_text TEXT
+      );
+    `);
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const client = {
+      prepare(sql: string) {
+        return {
+          bind(...params: unknown[]) {
+            statements.push({ sql, params });
+            expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+            return { raw: async () => sqlite.prepare(sql).raw(true).all(...params) };
+          },
+        };
+      },
+    };
+    return { sqlite, db: drizzle(client as never), statements };
+  }
+
+  it.each(cases)("reads all $count requested channels for only the original viewer", async ({ count, sizes }) => {
+    const { sqlite, db, statements } = resourceDb();
+    const ids = Array.from({ length: count }, (_, index) => `channel_${index}`);
+    const insert = sqlite.prepare("INSERT INTO community_channel_member VALUES (?, ?, ?, ?)");
+    for (const id of ids) {
+      insert.run(id, "viewer-a", "access", "added");
+      insert.run(id, "viewer-b", "access", "added");
+    }
+    insert.run("outside-channel", "viewer-a", "access", "added");
+    if (ids.length) insert.run(ids[0], "viewer-a", "notify", "mention");
+
+    const rows = await channelQueries.listChannelMembershipsForUserInChannels(db as never, "viewer-a", ids);
+    const expected = ids.map(channelId => ({ channelId, userId: "viewer-a", relation: "access", source: "added" }));
+    if (ids.length) expected.push({ channelId: ids[0]!, userId: "viewer-a", relation: "notify", source: "mention" });
+    const ordered = (values: typeof rows) => [...values].sort((a, b) => `${a.channelId}:${a.relation}`.localeCompare(`${b.channelId}:${b.relation}`));
+
+    expect(ordered(rows)).toEqual(ordered(expected));
+    expect(statements.map(({ params }) => params.length)).toEqual(sizes.map(size => size + 1));
+    expect(statements.flatMap(({ params }) => params.slice(1))).toEqual(ids);
+    for (const statement of statements) {
+      expect(statement.sql).toContain('"community_channel_member"."user_id" = ?');
+      expect(statement.sql).toContain('"community_channel_member"."channel_id" in');
+      expect(statement.params[0]).toBe("viewer-a");
+    }
+    console.info(JSON.stringify({ case: "resource-memberships-local-sqlite", ids: count, binds: statements.map(row => row.params.length), rows: rows.length }));
+  });
+
+  it.each(cases)("reads all $count requested public profiles without unrequested IDs", async ({ count, sizes }) => {
+    const { sqlite, db, statements } = resourceDb();
+    const ids = Array.from({ length: count }, (_, index) => `profile_${index}`);
+    const insert = sqlite.prepare("INSERT INTO community_user_profile VALUES (?, ?, ?, ?, ?)");
+    for (const id of ids) insert.run(id, `about-${id}`, null, null, `status-${id}`);
+    insert.run("outside-profile", "outside", null, null, "outside");
+
+    const rows = await userProfileQueries.getProfilesByUserIds(db as never, ids);
+
+    expect([...rows].sort((a, b) => a.userId.localeCompare(b.userId))).toEqual(ids.map(userId => ({ userId, aboutMe: `about-${userId}`, bannerColor: null, statusEmoji: null, statusText: `status-${userId}` })).sort((a, b) => a.userId.localeCompare(b.userId)));
+    expect(statements.map(({ params }) => params.length)).toEqual(sizes);
+    expect(statements.flatMap(({ params }) => params)).toEqual(ids);
+    console.info(JSON.stringify({ case: "resource-profiles-local-sqlite", ids: count, binds: statements.map(row => row.params.length), rows: rows.length }));
+  });
+
+  it("deduplicates membership IDs across slices and preserves input and both relations", async () => {
+    const { sqlite, db, statements } = resourceDb();
+    const ids = Array.from({ length: 91 }, (_, index) => `channel_${index}`);
+    const input = [...ids.slice(0, 90), ids[0]!, ids[90]!, ids[50]!];
+    const original = [...input];
+    const insert = sqlite.prepare("INSERT INTO community_channel_member VALUES (?, ?, ?, ?)");
+    for (const id of ids) insert.run(id, "viewer-a", "access", "added");
+    insert.run(ids[0], "viewer-a", "notify", "mention");
+    insert.run(ids[0], "viewer-b", "access", "added");
+    insert.run("outside-channel", "viewer-a", "access", "added");
+
+    const rows = await channelQueries.listChannelMembershipsForUserInChannels(db as never, "viewer-a", input);
+
+    expect(rows).toHaveLength(92);
+    expect(new Set(rows.map(row => `${row.channelId}:${row.userId}:${row.relation}`)).size).toBe(92);
+    expect(rows.every(row => row.userId === "viewer-a" && ids.includes(row.channelId))).toBe(true);
+    expect(rows.filter(row => row.channelId === ids[0]).map(row => row.relation).sort()).toEqual(["access", "notify"]);
+    expect(statements.map(({ params }) => params.length)).toEqual([91, 2]);
+    expect(statements.flatMap(({ params }) => params.slice(1))).toEqual(ids);
+    expect(input).toEqual(original);
+  });
+
+  it("deduplicates profile IDs across slices without changing input or nullable facts", async () => {
+    const { sqlite, db, statements } = resourceDb();
+    const ids = Array.from({ length: 91 }, (_, index) => `profile_${index}`);
+    const input = [...ids.slice(0, 90), ids[0]!, ids[90]!, ids[50]!];
+    const original = [...input];
+    const insert = sqlite.prepare("INSERT INTO community_user_profile VALUES (?, ?, ?, ?, ?)");
+    for (const id of ids) insert.run(id, null, null, null, "");
+    insert.run("outside-profile", "outside", null, null, "outside");
+
+    const rows = await userProfileQueries.getProfilesByUserIds(db as never, input);
+
+    expect(rows.map(row => row.userId).sort()).toEqual([...ids].sort());
+    expect(new Set(rows.map(row => row.userId)).size).toBe(91);
+    expect(rows.every(row => row.aboutMe === null && row.bannerColor === null && row.statusEmoji === null && row.statusText === "")).toBe(true);
+    expect(statements.map(({ params }) => params.length)).toEqual([90, 1]);
+    expect(statements.flatMap(({ params }) => params)).toEqual(ids);
+    expect(input).toEqual(original);
   });
 });

@@ -1,3 +1,4 @@
+import { messageSeedFixture } from "@/test/community-resource-fixtures"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createElement, type PropsWithChildren } from "react"
@@ -22,9 +23,6 @@ const reservation = vi.hoisted(() => ({
   release: vi.fn(),
   promote: vi.fn(),
   negative: vi.fn(() => true),
-}))
-const projection = vi.hoisted(() => ({
-  recordOptimisticRead: vi.fn(),
 }))
 const hookState = vi.hoisted(() => ({
   candidate: null as null | {
@@ -55,11 +53,6 @@ vi.mock("./inbox-read-reservation", async () => ({
   releaseInboxReadReservationSurface: (...args: unknown[]) => reservation.release(...args),
   promoteInboxReadReservation: (...args: unknown[]) => reservation.promote(...args),
   takeInboxReadReservationNegative: (...args: unknown[]) => reservation.negative(...args),
-}))
-
-vi.mock("./account-unread-projection", async () => ({
-  ...await vi.importActual<typeof import("./account-unread-projection")>("./account-unread-projection"),
-  getAccountUnreadProjection: () => projection,
 }))
 
 import { useTimelineReadObserver } from "./use-read-observer"
@@ -197,7 +190,7 @@ function useTestRender(options: Partial<Parameters<typeof useTimelineReadObserve
     scrollRootEl: root, snapshotStatus: "ready", feedStatus: "ready", tailAttached: true,
     confirmedSeq: 2, catchUp: () => Promise.resolve(), ...options,
   }
-  act(() => ingestMessages(owner.registry, props.channelId ?? "channel-1", props.messages.map((message) => ({ ...message, type: "chat" }))))
+  act(() => ingestMessages(owner.registry, props.channelId ?? "channel-1", messageSeedFixture(props.channelId ?? "channel-1", props.messages.map((message) => ({ ...message, type: "chat" })))))
   if (refState.persistent && activeView) activeView.rerender(props)
   else {
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "viewer-1", retainOwner: true }, children)
@@ -302,7 +295,6 @@ describe("useTimelineReadObserver", () => {
       expect(coordinator.submit).toHaveBeenCalledExactlyOnceWith({ lease: "timeline" }, {
         kind: "timeline", channelId: "channel-1", messageId: "message-4", seq: 4,
       })
-      expect(projection.recordOptimisticRead).toHaveBeenCalledWith("channel-1", 4, 1)
     } finally { clock.mockRestore() }
   })
 
@@ -319,7 +311,7 @@ describe("useTimelineReadObserver", () => {
       confirmedSeq: 2,
       catchUp: () => Promise.resolve(),
     }
-    act(() => ingestMessages(owner.registry, channelId, props.messages))
+    act(() => ingestMessages(owner.registry, channelId, messageSeedFixture(channelId, props.messages)))
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "viewer-1", retainOwner: true }, children)
     const view = kind === "channel"
       ? renderHook(useChannelWatermark, { wrapper, initialProps: props })
@@ -361,7 +353,6 @@ describe("useTimelineReadObserver", () => {
       messageId: "message-4",
       seq: 4,
     })
-    expect(projection.recordOptimisticRead).toHaveBeenCalledWith("channel-1", 4, 1)
   })
 
   it("does not clear projection or promote an Inbox lease when the coordinator rejects intent", () => {
@@ -371,7 +362,6 @@ describe("useTimelineReadObserver", () => {
 
     trigger(observers[0]!, row)
 
-    expect(projection.recordOptimisticRead).not.toHaveBeenCalled()
     expect(reservation.promote).not.toHaveBeenCalled()
   })
 
@@ -454,7 +444,6 @@ describe("useTimelineReadObserver", () => {
     trigger(observers[0]!, row)
     for (const listener of pageShowListeners) listener()
     expect(coordinator.submit).not.toHaveBeenCalled()
-    expect(projection.recordOptimisticRead).not.toHaveBeenCalled()
     expect(coordinator.resume).not.toHaveBeenCalled()
     parent.removeAttribute("inert")
     act(() => mutationCallback!([{
@@ -487,7 +476,6 @@ describe("useTimelineReadObserver", () => {
     for (const listener of pageShowListeners) listener()
 
     expect(coordinator.submit).not.toHaveBeenCalled()
-    expect(projection.recordOptimisticRead).not.toHaveBeenCalled()
     expect(reservation.promote).not.toHaveBeenCalled()
     expect(reservation.negative).not.toHaveBeenCalled()
     expect(coordinator.resume).not.toHaveBeenCalled()
@@ -505,7 +493,6 @@ describe("useTimelineReadObserver", () => {
     queueEntry(record, row)
     const stale = record.queued[0]!
     expect(coordinator.submit).not.toHaveBeenCalled()
-    expect(projection.recordOptimisticRead).not.toHaveBeenCalled()
     expect(reservation.promote).not.toHaveBeenCalled()
     boundary.setAttribute("data-read-position-ready", "true")
     act(() => mutationCallback!([presentationAttributeRecord(boundary, "data-read-position-ready")], {} as MutationObserver))
@@ -514,7 +501,6 @@ describe("useTimelineReadObserver", () => {
     expect(coordinator.submit).not.toHaveBeenCalled()
     trigger(observers.at(-1)!, row)
     expect(coordinator.submit).toHaveBeenCalledOnce()
-    expect(projection.recordOptimisticRead).toHaveBeenCalledOnce()
     expect(reservation.promote).toHaveBeenCalledOnce()
   })
 

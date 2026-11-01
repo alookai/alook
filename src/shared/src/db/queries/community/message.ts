@@ -1084,8 +1084,7 @@ export async function getMessageClientNonceForDelivery(
 /**
  * Idempotency lookup for the message-send dedup path (mutation-idempotency
  * plan). Returns the message this author already committed under `nonce`, or
- * null if none. Same select/return shape as `getMessage` so the send handler
- * can return the existing row as-is (deduped resend). Backed by the partial
+ * null if none. Backed by the partial
  * unique index `uq_message_author_client_nonce (author_id, client_nonce)`.
  */
 export async function getMessageByAuthorAndNonce(
@@ -1097,6 +1096,7 @@ export async function getMessageByAuthorAndNonce(
     .select({
       ...messageProjection,
       seq: communityMessage.seq,
+      clientNonce: communityMessage.clientNonce,
       authorEmail: user.email,
     })
     .from(communityMessage)
@@ -1111,20 +1111,6 @@ export async function getMessageByAuthorAndNonce(
   const row = rows[0];
   if (!row) return null;
   return parseEmbeds(row);
-}
-
-/** Update only the author's own message content. The author predicate lives in
- * the write itself so a stale permission check cannot edit another row. */
-export async function updateOwnMessageContent(
-  db: Database,
-  data: { messageId: string; authorId: string; content: string }
-) {
-  const [updated] = await db
-    .update(communityMessage)
-    .set({ content: data.content })
-    .where(and(eq(communityMessage.id, data.messageId), eq(communityMessage.authorId, data.authorId)))
-    .returning({ id: communityMessage.id, channelId: communityMessage.channelId, content: communityMessage.content });
-  return updated ?? null;
 }
 
 // No ordering guarantee — callers build a Map<id, row> and hydrate by id.

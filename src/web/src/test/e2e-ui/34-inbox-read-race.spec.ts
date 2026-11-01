@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse, currentCommunityFixtureError } from "./_fixtures/business-contract"
 import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
@@ -259,9 +260,9 @@ test.describe("Inbox/read refresh ownership", () => {
     expect(attentionIndex).toBeGreaterThanOrEqual(0)
     expect(attentionIndex).toBeLessThan(readIndex)
 
-    const snapshot = await (await page.request.get(
-      "/api/community/users/me/read-state",
-    )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
+    const snapshot = await (await confirmCommunityFixtureApiResponse(page.request.get(
+      "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+    ))).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
     const readSeq = (channelId: string) => (
       snapshot.readStates.find((row) => row.channelId === channelId)?.lastReadSeq ?? 0
     )
@@ -300,11 +301,7 @@ test.describe("Inbox/read refresh ownership", () => {
       if (route.request().method() !== "PUT") return route.continue()
       puts += 1
       if (puts === 1) {
-        await route.fulfill({
-          status: 503,
-          contentType: "application/json",
-          body: '{"error":"retry"}',
-        })
+        await route.fulfill(currentCommunityFixtureError("retry", 503))
         return
       }
       await retryGate.promise
@@ -333,10 +330,10 @@ test.describe("Inbox/read refresh ownership", () => {
     await seedJoinServer("alice", "bob", serverId)
     const alice = await asUser("alice")
     const createEmptyPost = async (label: string) => {
-      const response = await alice.page.request.post(
+      const response = await confirmCommunityFixtureApiResponse(alice.page.request.post(
         `/api/community/channels/${forumId}/messages`,
-        { data: { content: label, nonce: `e2e:${crypto.randomUUID()}:opener` } },
-      )
+        { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, data: { content: label, nonce: `e2e:${crypto.randomUUID()}:opener` } },
+      ))
       expect(response.status()).toBe(201)
       return (await response.json() as { threadId: string }).threadId
     }
@@ -345,7 +342,7 @@ test.describe("Inbox/read refresh ownership", () => {
 
     const { page } = await asUser("bob")
     await gotoAfterUserWsAuth(page, "/c/me")
-    const unreadResponse = await page.request.get("/api/community/users/me/attention")
+    const unreadResponse = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/users/me/attention", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(unreadResponse.status()).toBe(200)
     const unread = await unreadResponse.json() as {
       items: Array<{
@@ -392,9 +389,9 @@ test.describe("Inbox/read refresh ownership", () => {
     await expect(page.getByTestId(tid.inboxUnreadChannel(forumId))).toBeVisible()
     await expect(page.getByTestId(tid.inboxUnreadChild(firstChildId))).toHaveCount(0)
     await expect(page.getByTestId(tid.inboxUnreadChild(laterChildId))).toBeVisible()
-    const snapshot = await (await page.request.get(
-      "/api/community/users/me/read-state",
-    )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
+    const snapshot = await (await confirmCommunityFixtureApiResponse(page.request.get(
+      "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+    ))).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
     expect(snapshot.readStates.find((row) => row.channelId === forumId)?.lastReadSeq)
       .toBe(first!.openerSeq)
     expect(snapshot.readStates.some((row) => row.channelId === firstChildId)).toBe(false)
@@ -416,9 +413,9 @@ test.describe("Inbox/read refresh ownership", () => {
     await seedMessage("alice", readChildId, `Unread reply under read opener ${stamp}`)
 
     const { page } = await asUser("bob")
-    const markRead = await page.request.put(`/api/community/channels/${parentId}/read`, {
+    const markRead = await confirmCommunityFixtureApiResponse(page.request.put(`/api/community/channels/${parentId}/read`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
       data: { lastReadMessageId: readOpenerId },
-    })
+    }))
     expect(markRead.status()).toBe(200)
 
     const unreadOpenerId = await seedMessage("alice", parentId, `Unread opener ${stamp}`)
@@ -437,7 +434,7 @@ test.describe("Inbox/read refresh ownership", () => {
 
     await page.setViewportSize({ width: 768, height: 844 })
     await gotoAfterUserWsAuth(page, "/c/me")
-    const unreadResponse = await page.request.get("/api/community/users/me/attention")
+    const unreadResponse = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/users/me/attention", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(unreadResponse.status()).toBe(200)
     const unread = await unreadResponse.json() as {
       scopes: Array<{ channelId: string; lastUnreadSeq: number }>
@@ -462,9 +459,9 @@ test.describe("Inbox/read refresh ownership", () => {
       openerUnread: true,
     })
     expect(children.some((child) => child.id === nonParticipantChildId)).toBe(false)
-    const beforeSnapshot = await (await page.request.get(
-      "/api/community/users/me/read-state",
-    )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
+    const beforeSnapshot = await (await confirmCommunityFixtureApiResponse(page.request.get(
+      "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+    ))).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
     const beforeCursor = (channelId: string) => beforeSnapshot.readStates
       .find((row) => row.channelId === channelId)?.lastReadSeq ?? 0
 
@@ -494,9 +491,9 @@ test.describe("Inbox/read refresh ownership", () => {
     expect(puts.some((put) => put.channelId === readChildId)).toBe(false)
     expect(puts.some((put) => put.channelId === unreadChildId)).toBe(false)
 
-    const snapshot = await (await page.request.get(
-      "/api/community/users/me/read-state",
-    )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
+    const snapshot = await (await confirmCommunityFixtureApiResponse(page.request.get(
+      "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+    ))).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
     const cursor = (channelId: string) => snapshot.readStates
       .find((row) => row.channelId === channelId)?.lastReadSeq ?? 0
     expect(cursor(parentId)).toBe(parent?.lastUnreadSeq)

@@ -11,14 +11,14 @@ export type RequestObservation = { id: string; start: number; origin: number; ge
 const responses = new WeakMap<Response, RequestObservation>()
 const requestContext = createContextKey("alook.request")
 const transportRequests = new WeakMap<Span, RequestObservation>()
-export function startRequest(path: string, options?: { method?: string; kind?: Attributes["request_kind"]; observation?: { action?: Action; page?: Action; reason?: Attributes["request_reason"] } }): RequestObservation | undefined {
+export function startRequest(path: string, options?: { method?: string; kind?: Attributes["request_kind"]; observation?: { action?: Action; page?: Action; reason?: Attributes["request_reason"]; role?: "entry" | "window" | "reconcile" | "pagination"; windowMode?: "newest" | "anchor" | "since" | "older" | "newer" } }): RequestObservation | undefined {
   if (!isTelemetryEligible()) return
   const origin = typeof window === "undefined" ? "https://alook.ai" : window.location.origin
   const explicit = options?.observation
   const candidate = explicit?.action ?? explicit?.page ?? (explicit === undefined ? currentPageObservation() : undefined)
   const action = candidate?.generation === telemetryGeneration() && (!candidate.done || candidate.name === "navigation") ? candidate : undefined
   const clock = action?.origin ?? observationOrigin()
-  const fields = { ...actionAttributes(action), route_template: routeTemplate(path, origin), method: options?.method ?? "GET", request_reason: options?.observation?.reason ?? "unknown", request_kind: options?.kind ?? "api", eligibility: "unknown", observation_origin_ms: clock, clock_source: "operation_monotonic", clock_domain: "browser", clock_alignment: "unverified" }
+  const fields = { ...actionAttributes(action), route_template: routeTemplate(path, origin), method: options?.method ?? "GET", request_reason: options?.observation?.reason ?? "unknown", request_role: explicit?.role, window_mode: explicit?.windowMode, request_kind: options?.kind ?? "api", eligibility: "unknown", observation_origin_ms: clock, clock_source: "operation_monotonic", clock_domain: "browser", clock_alignment: "unverified" }
   const request = { id: telemetryId(), start: performance.now(), origin: clock, generation: telemetryGeneration(), fields, done: false, action }
   emitTelemetry("request.start", { ...fields, request_id: request.id, start_ms: request.start })
   return request

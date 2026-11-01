@@ -16,10 +16,7 @@ import {
   mockGetCoMemberUserIds,
   mockGetDM,
   mockGetFriendUserIds,
-  mockGetLatestTokenForUser,
-  mockGetMachineByDaemon,
   mockGetMachineByIdForUser,
-  mockGetMachineTokenByToken,
   mockGetPrivateChannelAudienceUserIds,
   mockGetProfile,
   mockGetRuntimeIdsByDaemon,
@@ -54,6 +51,22 @@ import {
 describe("WebSocketDurableObject", () => {
   beforeEach(() => resetHarness())
   afterEach(() => cleanupHarness())
+
+  it("forwards preview input only to PII-capable machines without persisting it", async () => {
+    const { durable, getWebSockets, storage, store } = createDO()
+    const supported = createMockWebSocket()
+    const legacy = createMockWebSocket()
+    supported.serializeAttachment({ type: "community-machine", authenticated: true, machineId: "machine", userId: "owner", pii: true })
+    legacy.serializeAttachment({ type: "community-machine", authenticated: true, machineId: "machine", userId: "owner" })
+    getWebSockets.mockReturnValue([supported, legacy])
+    const command = { type: "pii:manage", botId: "bot", requestId: "preview", operation: { action: "preview", text: "private-input-fixture", expectedRevision: 1 } }
+    const response = await durable.fetch(new Request("http://internal/pii", { method: "POST", body: JSON.stringify(command) }))
+    expect(await response.json()).toEqual({ sent: 1, unsupported: 1 })
+    expect(JSON.parse(supported.send.mock.calls[0]![0] as string)).toEqual(command)
+    expect(legacy.send).not.toHaveBeenCalled()
+    expect(storage.put).not.toHaveBeenCalled()
+    expect(JSON.stringify([...store])).not.toContain(command.operation.text)
+  })
 
   describe("machine Stop dispatch", () => {
     it("sends only to authenticated stop-capable machines without force-closing or clearing state", async () => {
@@ -534,6 +547,33 @@ describe("on-demand model discovery dispatch", () => {
     expect(JSON.parse(sockets[0].send.mock.calls[0][0])).toEqual({ type: "runtime:discover_models", runtimeId: "codex", requestId: "request" })
     expect(sockets[1].send).not.toHaveBeenCalled()
     expect(sockets[2].send).not.toHaveBeenCalled()
+  })
+  it("returns a fingerprint-matched cached wait result without dispatching to a daemon", async () => {
+    const { durable, store, getWebSockets, storage } = createDO()
+    const socket = createMockWebSocket()
+    socket.serializeAttachment({ type: "community-machine", authenticated: true, machineId: "machine", userId: "owner", modelDiscovery: true })
+    getWebSockets.mockReturnValue([socket])
+    const observedAt = Date.now()
+    const catalogFingerprint = "a".repeat(64)
+    store.set("model-discovery-cache:codex", { observedAt, catalogFingerprint })
+    const response = await durable.fetch(new Request("http://internal/discover-models?wait=1&cache=1", { method: "POST", headers: { "x-model-catalog-fingerprint": catalogFingerprint }, body: JSON.stringify({ type: "runtime:discover_models", runtimeId: "codex", requestId: "request" }) }))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ sent: 0, unsupported: 0, cached: true, observedAt: new Date(observedAt).toISOString(), catalogFingerprint })
+    expect(socket.send).not.toHaveBeenCalled()
+    expect(storage.put).not.toHaveBeenCalled()
+  })
+  it("returns an unavailable wait response on pending overload without sending or leaking storage details", async () => {
+    const { durable, getWebSockets, storage } = createDO()
+    const socket = createMockWebSocket()
+    socket.serializeAttachment({ type: "community-machine", authenticated: true, machineId: "machine", userId: "owner", modelDiscovery: true })
+    getWebSockets.mockReturnValue([socket])
+    const entries = new Map(Array.from({ length: 16 }, (_, i) => [`model-discovery-wait:${i}`, { runtimeId: "codex", expiresAt: Date.now() + 45_000 }]))
+    Object.assign(storage, { transaction: async (run: (txn: { list: () => Promise<typeof entries> }) => Promise<unknown>) => run({ list: async () => entries }) })
+    const response = await durable.fetch(new Request("http://internal/discover-models?wait=1", { method: "POST", body: JSON.stringify({ type: "runtime:discover_models", runtimeId: "codex", requestId: "request" }) }))
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: "model discovery unavailable" })
+    expect(socket.send).not.toHaveBeenCalled()
+    expect(storage.put).not.toHaveBeenCalled()
   })
   it("rejects extra command fields without socket delivery", async () => {
     const { durable, getWebSockets } = createDO()

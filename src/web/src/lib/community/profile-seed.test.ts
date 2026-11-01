@@ -147,11 +147,10 @@ describe("profile seeding boundaries", () => {
     }], registry)
     expect(registry.collections.profiles.get("complete")).toMatchObject({
       id: "complete", name: "Complete", discriminator: "12345", avatar, avatarVersion: 4,
-      aboutMe: "actual bio", statusEmoji: null, statusText: "actual status", identityComplete: true,
+      aboutMe: "actual bio", statusEmoji: null, statusText: "actual status",
     })
     writeCommunityProfilePatches([{ id: "partial", identityAbout: { name: "Partial", discriminator: "67890" }, avatar: { avatarVersion: 4 } }], registry)
-    expect(registry.collections.profiles.get("partial")).toMatchObject({ identityComplete: false, avatarVersion: 4 })
-    expect(registry.collections.profiles.get("partial")).not.toHaveProperty("avatar")
+    expect(registry.collections.profiles.get("partial")).toBeUndefined()
   })
 
   it("writes profile patches into the canonical collection", () => {
@@ -172,6 +171,7 @@ describe("profile seeding boundaries", () => {
     writeCommunityProfilePatches([{
       id: "u-cache-gap",
       identityAbout: { name: "Before", discriminator: "0009" },
+      avatar: { avatar: null, avatarVersion: 0 },
     }], registry)
     const queryKey = communityKeys.communityDbCollection(registry.scopeId, "profiles")
     registry.queryClient.removeQueries({ queryKey, exact: true })
@@ -188,14 +188,14 @@ describe("profile seeding boundaries", () => {
     })
   })
 
-  it("keeps a known number when a name-only or unknown-number identity is seeded", () => {
-    writeCommunityProfilePatches([{ id: "numbered", identityAbout: { name: "Original", discriminator: "123456" }, status: { statusEmoji: "🌱", statusText: "Known" } }], registry)
+  it("rejects malformed empty discriminator patches without overwriting known identity", () => {
+    writeCommunityProfilePatches([{ id: "numbered", identityAbout: { name: "Original", discriminator: "123456" }, avatar: { avatar: null, avatarVersion: 0 }, status: { statusEmoji: "🌱", statusText: "Known" } }], registry)
     const patch = communityUserProfilePatch("numbered", { name: "Renamed", discriminator: "", avatar: "avatar", avatarVersion: 1 })
-    expect(patch.identityAbout).toEqual({ name: "Renamed" })
+    expect(patch.identityAbout).toEqual({ name: "Renamed", discriminator: "" })
     expect(patch).not.toHaveProperty("status")
     writeCommunityProfilePatches([patch], registry)
     writeCommunityProfilePatches([{ id: "numbered", identityAbout: { name: "Latest", discriminator: "" } }], registry)
-    expect(registry.collections.profiles.get("numbered")).toMatchObject({ name: "Latest", discriminator: "123456", statusEmoji: "🌱", statusText: "Known" })
+    expect(registry.collections.profiles.get("numbered")).toMatchObject({ name: "Original", discriminator: "123456", statusEmoji: "🌱", statusText: "Known" })
   })
 
   it("rejects a request snapshot captured by a different registry", async () => {
@@ -213,14 +213,15 @@ describe("profile seeding boundaries", () => {
   })
 
   it("returns the raw API object while updating its canonical profile projection", async () => {
-    const raw = { member: { id: "u2", name: "API Alice" } }
+    const raw = { member: { id: "u2", name: "API Alice", discriminator: "0042", avatar: null, avatarVersion: 0 } }
     apiFetch.mockResolvedValueOnce(raw)
 
     const result = await apiFetchProfiles(
       "/profiles",
       (data: typeof raw) => [{
         id: data.member.id,
-        identityAbout: { name: data.member.name },
+        identityAbout: { name: data.member.name, discriminator: data.member.discriminator },
+        avatar: { avatar: data.member.avatar, avatarVersion: data.member.avatarVersion },
       }],
       undefined,
       registry,
@@ -261,12 +262,37 @@ describe("profile seeding boundaries", () => {
 
 
 describe("partial identity facts", () => {
-  it("keeps the actual legacy avatar version and does not manufacture an unknown identity", () => {
-    expect(communityUserProfilePatch("peer", { name: "Peer", avatar: "P", avatarVersion: 4 }, { legacyPresentation: true }))
-      .toEqual({ id: "peer", identityAbout: { name: "Peer" }, avatar: { avatarVersion: 4 } })
+  it("keeps exact avatar facts and does not manufacture an unknown identity", () => {
+    expect(communityUserProfilePatch("peer", { name: "Peer", avatar: "P", avatarVersion: 4 }))
+      .toEqual({ id: "peer", identityAbout: { name: "Peer" }, avatar: { avatar: "P", avatarVersion: 4 } })
     expect(communityUserProfilePatch("peer", {})).toEqual({ id: "peer", identityAbout: {} })
     expect(communityUserProfilePatch("peer", { name: "Peer", avatar: "P", avatarVersion: 4 }).avatar).toEqual({ avatar: "P", avatarVersion: 4 })
     expect(messageProfilePatches([{ thread: { id: "thread", participants: [{ id: "peer", avatar: null, avatarVersion: 4 }] } }]))
       .toEqual([{ id: "peer", avatar: { avatar: null, avatarVersion: 4 } }])
+  })
+})
+
+describe("actual card facts through canonical mapper ownership",()=>{
+  it.each(["human","other-bot","owned-bot"] as const)("keeps actual %s null/zero/false and single-field card facts",async kind=>{
+    const {CommunityUserCardReadSchema}=await import("@alook/shared")
+    const {userProfileQueryFn}=await import("@/hooks/community/use-user-profile")
+    const profile=CommunityUserCardReadSchema.parse({id:"card-peer",name:"Peer",discriminator:"0042",image:null,avatarVersion:0,aboutMe:"",bannerColor:null,statusEmoji:null,statusText:null,mutualServers:0,
+      ...(kind==="human"?{kind:"human"}:{kind:"bot",ownerProfile:{id:kind==="owned-bot"?"viewer":"other",handle:"Owner#0043"},ownedByViewer:kind==="owned-bot"})})
+    apiFetch.mockResolvedValueOnce(profile)
+    expect(await registry.queryClient.query({queryKey:communityKeys.profile(profile.id),queryFn:userProfileQueryFn(profile.id)})).toEqual({id:profile.id})
+    const canonical=registry.collections.profiles.get(profile.id)!
+    const card={ownerHandle:kind==="human"?null:"Owner#0043",mutualServers:0,ownedByViewer:kind==="owned-bot"}
+    expect(canonical).toMatchObject(card)
+    expect(communityUserProfilePatch(profile.id,canonical).card).toEqual(card)
+    for(const fields of [{ownerHandle:canonical.ownerHandle},{mutualServers:canonical.mutualServers},{ownedByViewer:canonical.ownedByViewer}]) {
+      const patch=communityUserProfilePatch(profile.id,fields)
+      expect(patch.card).toEqual(fields)
+      writeCommunityProfilePatches([patch],registry)
+      expect(registry.collections.profiles.get(profile.id)).toMatchObject(card)
+    }
+    const ordinary=communityUserProfilePatch(profile.id,{name:"New resource name",discriminator:"0042",avatar:null,avatarVersion:0})
+    expect(ordinary).not.toHaveProperty("card")
+    writeCommunityProfilePatches([ordinary],registry)
+    expect(registry.collections.profiles.get(profile.id)).toMatchObject({...card,name:"New resource name"})
   })
 })

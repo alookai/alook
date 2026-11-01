@@ -16,10 +16,10 @@ vi.mock("@alook/shared", async () => ({
   },
 }))
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: "database" }, userId: "viewer-1", params })
-  }),
+  humanAuthPolicy: { resolve: async (req: any) => {
+
+    return ({ context: { env: { DB: "database" }, userId: "viewer-1" } })
+  } },
 }))
 
 import { GET, allowedExternalAvatarUrl } from "./route"

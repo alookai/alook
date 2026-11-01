@@ -1,4 +1,4 @@
-import { isMobile, isTauri, tauriInvoke } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION, isMobile, isTauri, tauriInvoke } from "@alook/shared"
 import { createStore } from "@tanstack/store"
 import { QueryClient } from "@tanstack/react-query"
 
@@ -216,7 +216,7 @@ export async function postMobileSystemNotificationRegistration(
       method: "POST",
       signal: options.signal,
       credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
       body: JSON.stringify({
         installationId: snapshot.installationId,
         platform: snapshot.platform,
@@ -243,7 +243,7 @@ export async function deleteMobileSystemNotificationRegistration(
     options.assertActive?.()
     const response = await fetchImpl(
       `/api/community/notifications/devices/${encodeURIComponent(installationId)}`,
-      { method: "DELETE", credentials: "same-origin", signal: options.signal },
+      { method: "DELETE", credentials: "same-origin", signal: options.signal, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } },
     )
     options.assertActive?.()
     if (!response.ok) throw new Error("unregistration_failed")

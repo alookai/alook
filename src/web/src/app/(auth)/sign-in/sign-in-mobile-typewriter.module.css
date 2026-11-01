@@ -1,0 +1,53 @@
+.stage {
+  --tw-scale: 0.46;
+  --tw-rx: 10deg;
+  --tw-ry: -20deg;
+  --tw-tx: 0px;
+  --tw-ty: 0px;
+}
+
+.typewriter:global(.typewriter-visual) {
+  pointer-events: none;
+  flex-shrink: 0;
+  zoom: 1;
+  width: 420px;
+  height: 260px;
+  justify-content: center;
+  transform: translate3d(var(--tw-tx), var(--tw-ty), 0);
+  transition: transform 90ms ease-out;
+  will-change: transform;
+}
+
+.typewriter :global(.typewriter-blob) {
+  top: 50%;
+  bottom: auto;
+  left: 50%;
+  width: 560px;
+  height: 460px;
+  opacity: 0.72;
+  transform: translate3d(
+      calc(-50% + var(--tw-tx) * -0.55),
+      calc(-50% + 16px * var(--tw-scale) + var(--tw-ty) * -0.55),
+      0
+    )
+    scale(calc(var(--tw-scale) * var(--blob-scale, 0.95)));
+  transition: transform 120ms ease-out;
+}
+
+.typewriter :global(.typewriter-scene) {
+  transform-origin: 50% 15px;
+  transform: translate3d(0, 115px, 0)
+    scale3d(var(--tw-scale), var(--tw-scale), var(--tw-scale))
+    rotateY(var(--tw-ry))
+    rotateX(var(--tw-rx)) !important;
+  transition: transform 90ms ease-out;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typewriter:global(.typewriter-visual),
+  .typewriter :global(.typewriter-blob),
+  .typewriter :global(.typewriter-scene) {
+    transition: none;
+  }
+}

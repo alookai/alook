@@ -23,3 +23,13 @@ export type RuntimeModelDiscoveryError = z.infer<typeof RuntimeModelDiscoveryErr
 export type RuntimeModelDiscoveryResult =
   | { status: "complete"; catalog: RuntimeReasoningCatalog | null }
   | RuntimeModelDiscoveryError;
+
+export const RUNTIME_MODEL_CATALOG_FINGERPRINT_HEADER = "x-model-catalog-fingerprint";
+
+export async function fingerprintRuntimeModelCatalog(catalog: RuntimeReasoningCatalog | null): Promise<string> {
+  const canonical = JSON.stringify(catalog, (_key, value) => value && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, value[key]]))
+    : value);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}

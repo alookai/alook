@@ -9,9 +9,6 @@ export interface TestSeed {
   daemonId: string
   agentId: string
   agentEmailHandle: string
-  /** Raw machine token (starts with al_) */
-  machineToken: string
-  machineTokenId: string
   whitelistId: string
   /** Email used for better-auth sign-in */
   authEmail: string
@@ -30,8 +27,6 @@ export function seedTestData(): TestSeed {
   const runtimeId = `rt_${nanoid()}`
   const agentId = `ag_${nanoid()}`
   const daemonId = `daemon_${nanoid()}`
-  const machineTokenId = `mt_${nanoid()}`
-  const rawToken = `al_${randomUUID().replace(/-/g, "")}`
   const emailHandle = `e2e-${nanoid()}`
   const whitelistId = `wl_${nanoid()}`
 
@@ -44,7 +39,6 @@ export function seedTestData(): TestSeed {
   sqlRun(`INSERT INTO machine (daemon_id, workspace_id, device_info, last_seen_at, created_at, updated_at, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?)`, daemonId, workspaceId, 'test-device', now, now, now, userId)
   sqlRun(`INSERT INTO agent_runtime (id, workspace_id, daemon_id, runtime_mode, provider, status, device_info, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, runtimeId, workspaceId, daemonId, 'local', 'claude', 'online', 'test-device', now, now)
   sqlRun(`INSERT INTO agent (id, workspace_id, name, runtime_id, email_handle, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, agentId, workspaceId, 'Test Agent', runtimeId, emailHandle, userId, now, now)
-  sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, machineTokenId, userId, workspaceId, rawToken, 'test-token', 'active', now)
   sqlRun(`INSERT INTO agent_whitelist (id, agent_id, workspace_id, email, created_at) VALUES (?, ?, ?, ?, ?)`, whitelistId, agentId, workspaceId, `${userId}@test.local`, now)
 
   // Insert account record for better-auth credential provider (scrypt hash of "e2e-test-pass")
@@ -55,7 +49,7 @@ export function seedTestData(): TestSeed {
   const authEmail = `${userId}@test.local`
   const authPassword = "e2e-test-pass"
 
-  return { userId, workspaceId, memberId, runtimeId, daemonId, agentId, agentEmailHandle: emailHandle, machineToken: rawToken, machineTokenId, whitelistId, authEmail, authPassword }
+  return { userId, workspaceId, memberId, runtimeId, daemonId, agentId, agentEmailHandle: emailHandle, whitelistId, authEmail, authPassword }
 }
 
 export function cleanupTestData(seed: TestSeed) {

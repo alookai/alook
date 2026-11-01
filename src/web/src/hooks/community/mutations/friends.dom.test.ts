@@ -1,3 +1,4 @@
+import { attentionSnapshotScenarioFixture, dmListRowFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query"
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
@@ -15,7 +16,7 @@ type Row = Parameters<typeof publishCommunityFriendships>[1][number]
 const incoming = (id: string): Row => ({ id, userId: `u_${id}`, kind: "incoming" })
 function attention() {
   const rows = Array.from(registry.collections.friendships.values()).filter((row) => row.kind === "incoming")
-  return { scopes: [], limit: 50, truncated: false, items: rows.map((row) => ({ id: `friend_request:${row.id}`, kind: "friend_request" as const, sourceId: row.id, actorUserId: row.userId, createdAt: "2026-09-27T00:00:00.000Z" })), included: { servers: [], channels: [], dms: [], messages: [], profiles: rows.map((row) => ({ userId: row.userId, name: row.id, discriminator: "0001", avatar: row.id, avatarVersion: 1 })) } }
+  return attentionSnapshotScenarioFixture({ scopes: [], limit: 50, truncated: false, items: rows.map((row) => ({ id: `friend_request:${row.id}`, kind: "friend_request" as const, sourceId: row.id, actorUserId: row.userId, createdAt: "2026-09-27T00:00:00.000Z" })), included: { servers: [], channels: [], dms: [], messages: [], profiles: rows.map((row) => ({ userId: row.userId, name: row.id, discriminator: "0001", avatar: row.id, avatarVersion: 1 })) } })
 }
 beforeEach(async () => {
   api.mockReset()
@@ -155,8 +156,8 @@ describe("native friendship commands", () => {
   })
   it("publishes a canonical block and invalidates Friends", async () => {
     seed()
-    ingestDms(registry, { conversations: [{ id: "dm_a", userId: "u_a", name: "A", discriminator: "0001", avatar: "A", avatarVersion: 0, status: "offline", preview: "private preview" }] })
-    ingestMessages(registry, "dm_a", [{ id: "private", type: "chat", content: "private body", seq: 1 }])
+    ingestDms(registry, { conversations: [dmListRowFixture({ id: "dm_a", userId: "u_a", name: "A", discriminator: "0001", avatar: "A", avatarVersion: 0, status: "offline", preview: "private preview" })] })
+    ingestMessages(registry, "dm_a", [messageResourceFixture({ id: "private", channelId: "dm_a", content: "private body" })])
     const rendered = mount(commands.useBlockUser), invalidate = vi.spyOn(client, "invalidateQueries"), success = vi.fn()
     await act(async () => { await rendered.result.current.command.mutateAsync({ userId: "u_a" }, { onSuccess: success }) })
     expect(registry.collections.friendships.get("blocked:u_a")?.kind).toBe("blocked")
@@ -168,8 +169,8 @@ describe("native friendship commands", () => {
   })
   it("keeps visible DM reading intact when the normal block command fails", async () => {
     seed()
-    ingestDms(registry, { conversations: [{ id: "dm_a", userId: "u_a", name: "A", discriminator: "0001", avatar: "A", avatarVersion: 0, status: "offline", preview: "private preview" }] })
-    ingestMessages(registry, "dm_a", [{ id: "private", type: "chat", content: "private body", seq: 1 }])
+    ingestDms(registry, { conversations: [dmListRowFixture({ id: "dm_a", userId: "u_a", name: "A", discriminator: "0001", avatar: "A", avatarVersion: 0, status: "offline", preview: "private preview" })] })
+    ingestMessages(registry, "dm_a", [messageResourceFixture({ id: "private", channelId: "dm_a", content: "private body" })])
     const held = hold(), rendered = mount(commands.useBlockUser), pending = start(rendered.result.current.command, { userId: "u_a" })
     await waitFor(() => expect(api).toHaveBeenCalledOnce())
     await act(async () => { held.reject(new Error("block failed")); await pending })
@@ -179,7 +180,7 @@ describe("native friendship commands", () => {
   })
   it("starts a new permission generation after a confirmed own unblock", async () => {
     seed([{ id: "blocked:u_a", userId: "u_a", kind: "blocked" }])
-    ingestDms(registry, { conversations: [{ id: "dm_a", userId: "u_a", name: "A", discriminator: "0001", avatar: "A", avatarVersion: 0, status: "offline", preview: "" }] })
+    ingestDms(registry, { conversations: [dmListRowFixture({ id: "dm_a", userId: "u_a", name: "A", discriminator: "0001", avatar: "A", avatarVersion: 0, status: "offline", preview: "" })] })
     registry.runtime.ws.actions.revokeChannelAccess(null, "dm_a")
     const generation = registry.runtime.ws.get().channelAccessScopes.get("dm_a")!.generation
     const rendered = mount(commands.useUnblockUser)

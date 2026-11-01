@@ -1,7 +1,8 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { nanoid } from "nanoid"
 import { queries, makeRuntimeConfig, resolveModelConfig, formatHandle } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { pushAgentResetToMachine } from "@/lib/community/bot-push"
 
@@ -17,7 +18,7 @@ import { pushAgentResetToMachine } from "@/lib/community/bot-push"
  * frame at reborn-ready), so the record reflects "the reset actually completed"
  * rather than "the command was dispatched."
  */
-export const POST = withAuth(async (_req, ctx) => {
+export const POST = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const id = ctx.params?.id as string
   const db = getDb(ctx.env.DB)
 

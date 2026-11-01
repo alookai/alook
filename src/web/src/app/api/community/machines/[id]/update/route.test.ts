@@ -25,15 +25,15 @@ vi.mock("@/lib/community/bot-push", () => ({
   pushMachineUpdate: (...args: unknown[]) => mockPushMachineUpdate(...args),
 }))
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => async (request: any, context?: any) => {
-    const params = context?.params instanceof Promise ? await context.params : context?.params
-    return handler(request, {
+  humanAuthPolicy: { resolve: async (request: any) => {
+
+    return ({ context: {
       env: { DB: {} },
       userId: context?.actor ?? "owner_1",
       email: "owner@example.com",
-      params,
-    })
-  },
+
+    } })
+  } },
 }))
 
 import { POST } from "./route"

@@ -1,3 +1,4 @@
+import { communityFixtureFetch } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
@@ -31,7 +32,7 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
     )
   }
 
-  const readResponse = await fetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
+  const readResponse = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
     method: "PUT",
     headers: {
       Cookie: sessionCookie("alice"),
@@ -153,7 +154,7 @@ test("New reading near the tail survives peer and remote-self messages until the
   await seedJoinServer("alice", "carol", serverId)
   let readThroughId = ""
   for (let index = 0; index < 18; index++) readThroughId = await seedMessage("alice", channelId, `read ${index}`)
-  const read = await fetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
+  const read = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
     method: "PUT",
     headers: { Cookie: sessionCookie("alice"), "Content-Type": "application/json", Origin: WEB_URL },
     body: JSON.stringify({ lastReadMessageId: readThroughId }),

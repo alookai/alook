@@ -1,5 +1,6 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
@@ -20,7 +21,7 @@ const REF_PLACEHOLDER_ID = "resolve"
  * need its ID to trigger an anchor fetch. Also the folded `resolve` bot verb's
  * seq→id lookup.
  *
- * Dual-actor door (route/disc trunk — message-keyed faces). withCommunityActor
+ * Dual-actor door (route/disc trunk — message-keyed faces). communityActorPolicy
  * serves human (session, id-in-path) + bot (crk_, ref-in-query). Two steps,
  * both arms:
  *   1. arrive at a channelId — human: path id; bot: `resolveTargetForMember`
@@ -39,7 +40,7 @@ const REF_PLACEHOLDER_ID = "resolve"
  *
  * Returns: { id: string } | { error: "not_found" }
  */
-export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const seqStr = ctx.params?.seq
   if (typeof seqStr !== "string") {
     return writeJSON({ error: "invalid_params" }, 400)

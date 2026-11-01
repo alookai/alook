@@ -4,12 +4,11 @@ import { NextRequest } from "next/server"
 const sendDeletionCode = vi.fn()
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withCookieHumanAuth: (handler: (...args: any[]) => Promise<Response>) =>
-    (request: NextRequest) => handler(request, {
+  cookieHumanAuthPolicy: { resolve: async (request: NextRequest) => ({ context: {
       env: { DB: {} },
       userId: "user-1",
       email: "owner@example.com",
-    }),
+    } }) },
 }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({}) }))
 vi.mock("@/lib/account-deletion/challenge", () => ({

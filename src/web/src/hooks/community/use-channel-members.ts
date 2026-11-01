@@ -6,7 +6,7 @@ import { useCallback,useMemo } from "react"
 import { QueryObserver,useMutation,useQuery,useQueryClient,type QueryClient,type QueryFunctionContext,type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import { communityReadSchemas, CommunityResourceProfileSchema, type CommunityMembersRead, type CommunityRole, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile } from "@alook/shared"
+import { type CommunityMembersRead, type CommunityRole, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile } from "@alook/shared"
 import type { CommunityProfile, CommunityUserCore, Presence } from "@/lib/community/models/people"
 import { fetchAllServerMembers } from "./fetch-all-server-members"
 
@@ -26,15 +26,9 @@ export type ChannelMember = CommunityUserCore & Pick<CommunityMemberRelation, "u
   source: NonNullable<ChannelMembershipRow["source"]>
 }
 
-function normalizeChannelRoster(channelId: string, relation: CommunityMemberRelation["relation"], response: { members: ChannelMember[] } | CommunityMembersRead): Omit<CommunityMembersRead, "contractVersion"> & { contractVersion: 2 | 3 } {
-  if ("contractVersion" in response) return response
-  return communityReadSchemas(2).members.parse({ contractVersion: 2, channelId, relation,
-    members: response.members.map((member) => ({ channelId, userId: member.userId, relation, memberId: member.id, source: member.source, isCreator: member.isCreator, role: member.role })),
-    profiles: response.members.map((member) => CommunityResourceProfileSchema.strip().parse({ ...member, id: member.userId, discriminator: member.discriminator || null, statusEmoji: member.statusEmoji ?? null, statusText: member.statusText ?? "" })),
-  })
-}
 export type AddableMember = Pick<ChannelMember, "userId" | "avatar" | "avatarVersion"> & { [Field in "name" | "discriminator"]: ChannelMember[Field] | null }
 type ChannelRosterWindow = {
+  creatorIds: string[]
   serverId: CommunityChannelResource["serverId"]
   relation: CommunityMemberRelation["relation"]
   members: Array<Pick<CommunityMemberRelation, "userId"> & { id: NonNullable<CommunityMemberRelation["memberId"]> }>
@@ -59,12 +53,12 @@ function channelMembersOptions(client: QueryClient, channelId: string, serverId?
       const scopeId = serverId ?? channel?.serverId ?? (channel?.type === "dm" ? null : undefined)
       if (scopeId === undefined) throw new DOMException("Missing channel roster scope", "AbortError")
       const dimension = relation ?? "access"
-      const response = await apiFetch<{ members: ChannelMember[] } | CommunityMembersRead>("/api/community/channels/" + encodeURIComponent(channelId) + "/members?relation=" + dimension, communityRequestOptions(client, token, signal, assert))
+      const response = await apiFetch<CommunityMembersRead>("/api/community/channels/" + encodeURIComponent(channelId) + "/members?relation=" + dimension, communityRequestOptions(client, token, signal, assert))
       assert()
-      const resources = normalizeChannelRoster(channelId, dimension, response)
-      publishCommunityChannelMembersSnapshot(client, scopeId, channelId, dimension, resources.members, { token, signal }, resources.profiles, { legacyPresentation: resources.contractVersion !== 3 })
+      const resources = response
+      publishCommunityChannelMembersSnapshot(client, scopeId, channelId, dimension, resources.members, { token, signal }, resources.profiles)
       assert()
-      return { serverId: scopeId, relation: dimension, members: resources.members.map(({ memberId, userId }) => ({ id: memberId ?? userId, userId })) }
+      return { serverId: scopeId, relation: dimension, creatorIds: resources.members.filter(member => member.isCreator).map(member => member.userId), members: resources.members.map(({ memberId, userId }) => ({ id: memberId ?? userId, userId })) }
     },
   }
 }
@@ -110,10 +104,10 @@ export function useChannelMembers(channelId: string, enabled = true, serverId?: 
       const member = byUser.get(participant.userId)
       if (query.data?.serverId !== null && !member?.memberId) return []
       const profile = readCommunityProfile(profiles.get(participant.userId), participant.userId)
-      return [{ id: member?.memberId ?? participant.userId, userId: participant.userId, name: member?.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: member ? member.role as CommunityRole : null, sub: "", status: member?.viewer ? "online" : profile.presence, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "", source: participant.source ?? "explicit", isCreator: participant.isCreator ?? false }]
+      return [{ id: member?.memberId ?? participant.userId, userId: participant.userId, name: member?.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: member ? member.role as CommunityRole : null, sub: "", status: member?.viewer ? "online" : profile.presence, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "", source: participant.source, isCreator: query.data?.creatorIds.includes(participant.userId) === true }]
     })
-  }, [profiles, membershipProjection.data, roster, query.data?.serverId])
-  const readState = getMemberReadState(active, { pending: !query.data || query.isRefetching, failed: query.isError && !query.isFetching }, query.data?.serverId === null ? [rosterProjection, profileProjection] : [rosterProjection, membershipProjection, profileProjection], members.filter((member) => member.userId !== rosterProjection.registry?.accountId).map((member) => member.userId), profiles)
+  }, [profiles, membershipProjection.data, roster, query.data?.serverId, query.data?.creatorIds])
+  const readState = getMemberReadState(active, { pending: !query.data || query.isRefetching, failed: query.isError && !query.isFetching }, query.data?.serverId === null ? [rosterProjection, profileProjection] : [rosterProjection, membershipProjection, profileProjection], (roster ?? []).filter((member) => member.userId !== rosterProjection.registry?.accountId).map((member) => member.userId), profileProjection.resourceProfiles)
   const data = useMemo(() => active && query.data ? { members } : undefined, [active, query.data, members])
   return { ...query, data, members, profiles, ...readState } as UseQueryResult<{ members: ChannelMember[] }> & { members: ChannelMember[]; profiles: typeof profiles; loading: boolean; failed: boolean }
 }

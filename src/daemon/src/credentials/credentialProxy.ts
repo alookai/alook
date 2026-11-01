@@ -46,6 +46,7 @@ import * as path from "path";
 import { URL } from "url";
 import { formatRef, parseRef, type Cursor, type Message } from "../server/contract.js";
 import { parseNameAndTag } from "@alook/shared/lib/discriminator";
+import { LOCAL_PII_PATH, handleLocalPii, filterPiiRequest, forwardPiiSendResponse, writePiiError, type PiiProxy } from "../pii/proxy.js";
 
 export const LOCAL_MESSAGE_REMINDER_PATH = "/__alook/local/message-reminder";
 const LOCAL_MESSAGE_REMINDER_BODY_MAX_BYTES = 4 * 1024;
@@ -305,6 +306,7 @@ export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
 
 export interface CredentialProxyOptions {
+  pii?: PiiProxy;
   /** Bind host (default loopback). Keep it loopback in production. */
   host?: string;
   /** Port (default 0 ⇒ OS picks a free port). */
@@ -545,8 +547,15 @@ export async function startCredentialProxy(
     }
   };
 
-  const server = http.createServer((req, res) => {
-    const pathname = new URL(req.url ?? "/", "http://placeholder").pathname;
+  const server = http.createServer(async (req, res) => {
+    const requestUrl = new URL(req.url ?? "/", "http://placeholder");
+    const pathname = requestUrl.pathname;
+    if (pathname === LOCAL_PII_PATH && (req.method === "GET" || req.method === "POST")) {
+      const localVerdict = broker.check(req.headers["authorization"], req.method === "GET" ? "read" : "send");
+      if (!localVerdict.ok) { writeJson(res, localVerdict.status, { error: localVerdict.error, code: localVerdict.code }); req.resume(); return; }
+      await handleLocalPii(req, res, localVerdict.reg.agentId, options.pii);
+      return;
+    }
     if (pathname.startsWith("/__alook/local/")) {
       if (req.url !== LOCAL_MESSAGE_REMINDER_PATH) {
         writeJson(res, 404, { error: "unknown local route", code: "not_found" });
@@ -605,6 +614,22 @@ export async function startCredentialProxy(
     }
 
     const reg = verdict.reg;
+    if (/^\/api\/community\/bots\/[^/]+\/pii\/?$/.test(pathname)) {
+      writeJson(res, 403, { error: "PII management requires a human owner session", code: "forbidden" });
+      req.resume();
+      return;
+    }
+    let filteredBody: Buffer | undefined;
+    let piiTriggeredFilters: { id: string; name: string }[] = [];
+    if (options.pii && req.method === "POST" && /^\/api\/community\/channels\/[^/]+\/messages\/?$/.test(pathname)) {
+      try {
+        const filtered = await filterPiiRequest(req, reg.agentId, options.pii);
+        filteredBody = filtered.body;
+        piiTriggeredFilters = filtered.triggeredFilters;
+      }
+      catch (error) { writePiiError(res, error); return; }
+      if (res.destroyed) return;
+    }
     // Tightened from `.endsWith("/inboxPull")` — the attachment-download
     // endpoint returns raw binary, and a loose match here would try to JSON-
     // parse it as an inbox response. Exact-path match the canonical inbox-pull
@@ -664,6 +689,10 @@ export async function startCredentialProxy(
     outHeaders[broker.headerNames.client.toLowerCase()] = broker.clientLabel;
     outHeaders[broker.headerNames.capabilities.toLowerCase()] = [...reg.capabilities].join(",");
     if (isInboxPull || isInboxAck) outHeaders["accept-encoding"] = "identity";
+    if (filteredBody) {
+      delete outHeaders["transfer-encoding"];
+      outHeaders["content-length"] = filteredBody.byteLength;
+    }
 
     // `responded` guards only against writing a second response to the
     // DOWNSTREAM client (writeHead/end can't fire twice) — it does NOT gate
@@ -674,6 +703,7 @@ export async function startCredentialProxy(
     // tracked so close/timeout can destroy it too once it exists — an
     // in-flight `.pipe(res)` doesn't end `res` on a non-graceful destroy.
     let responded = false;
+    if (piiTriggeredFilters.length) outHeaders["accept-encoding"] = "identity";
     let upstreamRes: http.IncomingMessage | undefined;
 
     const upstreamReq = upstreamClient.request(
@@ -804,6 +834,9 @@ export async function startCredentialProxy(
             res.writeHead(res_.statusCode!, res_.headers);
             res.end(body);
           });
+        } else if (piiTriggeredFilters.length && res_.statusCode !== undefined && res_.statusCode >= 200 && res_.statusCode < 300
+          && normalizeContentEncoding(res_.headers["content-encoding"]) === "identity") {
+          forwardPiiSendResponse(res_, res, piiTriggeredFilters);
         } else {
           res.writeHead(res_.statusCode ?? 502, res_.headers);
           res_.pipe(res);
@@ -824,7 +857,8 @@ export async function startCredentialProxy(
     // so it keeps firing across the whole exchange, not just while waiting
     // for headers — always destroy, but only write a 504 if we haven't
     // already committed to a response.
-    const upstreamTimeoutMs = options.upstreamTimeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS;
+    const waitingForModels = req.method === "POST" && /^\/api\/community\/machines\/[^/]+\/discover-models$/.test(pathname) && requestUrl.searchParams.get("wait") === "1";
+    const upstreamTimeoutMs = options.upstreamTimeoutMs ?? (waitingForModels ? 55_000 : DEFAULT_UPSTREAM_TIMEOUT_MS);
     upstreamReq.setTimeout(upstreamTimeoutMs, () => {
       upstreamReq.destroy();
       upstreamRes?.destroy();
@@ -852,7 +886,8 @@ export async function startCredentialProxy(
       upstreamReq.destroy();
       upstreamRes?.destroy();
     });
-    req.pipe(upstreamReq);
+    if (filteredBody) upstreamReq.end(filteredBody);
+    else req.pipe(upstreamReq);
   });
 
   await new Promise<void>((resolve, reject) => {

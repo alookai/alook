@@ -50,6 +50,9 @@ describe("rendered article contract", () => {
   });
 });
 
+const tutorialFixtures = vi.hoisted(() => ({ guides: [] as { slug: string; title: string }[] }));
+vi.mock("../../src/lib/step-guides", () => ({ stepGuides: tutorialFixtures.guides }));
+
 vi.mock("../src/lib/blog/topics", () => ({ blogTopics: [{ entries: [{ slug: "example" }] }] }));
 
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -72,6 +75,7 @@ describe("Blog build gate", () => {
       put(".next/server/app/blog/feed.xml.body", "<rss><channel><item><link>https://alook.ai/blog/example</link></item></channel></rss>");
       put(".next/server/app/blog.html", '<a href="/blog/example">Example</a>');
       put(".next/server/app/guides.html", "<h1>Guides</h1>");
+      put(".next/server/app/tutorials.html", "<h1>Tutorials</h1>");
       expect(() => validateBlogBuild(root)).not.toThrow();
       put(".next/server/app/blog/example.html", html.replace("<h1>Example</h1>", ""));
       expect(() => validateBlogBuild(root)).toThrow("one H1");
@@ -99,8 +103,16 @@ describe("Blog build gate", () => {
       put(".next/server/app/blog/example.html", html);
       put("src/content/draft.mdx", source({ ...metadata, slug: "draft", draft: true }));
       expect(() => validateBlogBuild(root)).not.toThrow();
+      tutorialFixtures.guides.push({ slug: "two-agents", title: "Two agents" });
+      put(".next/server/app/tutorials.html", '<a href="/tutorials/two-agents">Two agents</a>');
+      const tutorial = `<title>Two agents</title><meta name="description" content="Connect two agents"><meta property="og:image" content="https://alook.ai/og.png"><link rel="canonical" href="https://alook.ai/tutorials/two-agents"><article data-step-guide><h1>Two agents</h1>${["one", "two", "three", "four"].map(id => `<section id="${id}"><h2>${id}</h2><p>${"Complete this step. ".repeat(10)}</p></section>`).join("")}<a href="/c">Open Alook</a></article><footer>Home</footer>`;
+      put(".next/server/app/tutorials/two-agents.html", tutorial);
+      expect(() => validateBlogBuild(root)).not.toThrow();
+      put(".next/server/app/tutorials/two-agents.html", tutorial.replace("<footer>Home</footer>", ""));
+      expect(() => validateBlogBuild(root)).toThrow("missing footer");
+      put(".next/server/app/tutorials/two-agents.html", tutorial);
       put(".next/server/app/blog/draft.html", html);
       expect(() => validateBlogBuild(root)).toThrow("Draft was prerendered");
-    } finally { rmSync(root, { recursive: true, force: true }); }
+    } finally { tutorialFixtures.guides.length = 0; rmSync(root, { recursive: true, force: true }); }
   });
 });

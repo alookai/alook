@@ -46,6 +46,9 @@ describe("platform command registration through the real proxy API client", () =
   })
   it("reads target models with the full model ID and never sends a self-asserted identity", async () => {
     const result = await run(["platform", "machine", "--models", "--id", "machine/one", "--backend", "codex", "--model", "provider/model"])
-    expect(result.fetchImpl.mock.calls[0][0]).toBe("http://proxy/api/community/machines/machine%2Fone/models?backend=codex&model=provider%2Fmodel")
+    expect(result.fetchImpl.mock.calls[0][0]).toBe("http://proxy/api/community/machines/machine%2Fone/discover-models?wait=1&model=provider%2Fmodel")
+    const init = (result.fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1]
+    expect(init.method).toBe("POST")
+    expect(JSON.parse(init.body as string)).toEqual({ requestId: expect.any(String), runtimeId: "codex" })
   })
 })

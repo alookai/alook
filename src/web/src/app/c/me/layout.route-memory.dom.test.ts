@@ -1,3 +1,4 @@
+import { attentionSnapshotScenarioFixture } from "@/test/community-resource-fixtures"
 import { createElement } from "react"
 import type { QueryClient } from "@tanstack/react-query"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
@@ -254,10 +255,10 @@ describe("MeLayout route memory", () => {
       servers: [],
       dms: [],
     })
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, attentionSnapshotScenarioFixture({
       scopes: [], items: [{ id: `friend_request:${request.id}`, kind: "friend_request", sourceId: request.id, scopeId: null, messageId: null, actorUserId: request.userId, createdAt: "2026-09-12T00:00:00.000Z" }],
       included: { servers: [], channels: [], dms: [], messages: [], profiles: [{ userId: request.userId, name: request.name, discriminator: "0001", avatar: request.avatar, avatarVersion: 1 }] }, limit: 100, truncated: false,
-    })
+    }, "viewer-1"))
     publishCommunityFriendDecision(queryClient, request.id, "reject", { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined })
 
     const rendered = renderLayout(queryClient)

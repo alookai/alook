@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
-import type { MessageDeliveryBatch } from "@alook/shared"
+import { messageResourceFixture, profileResourceFixture } from "../community-resource-fixtures"
+import { BUSINESS_SCHEMA_VERSION, type MessageDeliveryBatch } from "@alook/shared"
 
 const fake = vi.hoisted(() => ({ url: "" }))
 
@@ -18,12 +19,15 @@ let server: Server
 
 function batch(): MessageDeliveryBatch {
   return {
+    communityContract: BUSINESS_SCHEMA_VERSION,
     messageId: "message-qa-1",
     messageEvent: {
       type: "community:message.create",
       channelId: "channel-qa-1",
       serverId: "server-qa-1",
-      message: {
+      profiles: [profileResourceFixture({ id: "author", name: "Author", avatarVersion: 0 })],
+      message: messageResourceFixture({
+        channelId: "channel-qa-1",
         id: "message-qa-1",
         seq: 3,
         authorId: "author",
@@ -32,7 +36,7 @@ function batch(): MessageDeliveryBatch {
         content: "failed-only retry",
         type: "chat",
         createdAt: "2026-08-18T00:00:00.000Z",
-      },
+      }),
     },
     contentUserIds: ["author", "healthy", "retry"],
     unreadPlainUserIds: ["healthy", "retry"],

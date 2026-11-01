@@ -4,7 +4,8 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { useCallback, useEffect, useMemo, type ComponentProps, type ReactNode } from "react"
 import { toast } from "sonner"
-import { isForum, type CommunityRole as Role, type CommunityChannelIdentity } from "@alook/shared"
+import { supportsSidebarThreads } from "@/lib/community/forum-sidebar"
+import { type CommunityRole as Role, type CommunityChannelIdentity } from "@alook/shared"
 import type { Category, Channel } from "@/lib/community/models/navigation"
 import { AddMembersDialog } from "@/components/community/members/add-members-dialog"
 import type { CommunityPanel } from "@/components/community/shell/community-panel"
@@ -180,7 +181,7 @@ export function useChannelMemberViewModel({
       ?.flatMap((category) => category.channels)
       .find((channel) => channel.id === currentChannelMeta.parentChannelId)
     : null
-  const forumSidebarServerId = isChildChannel && isForum(parentChannel?.type)
+  const forumSidebarServerId = isChildChannel && supportsSidebarThreads(parentChannel?.type)
     ? serverId
     : undefined
   const addThreadParticipantMut = useAddThreadParticipant(

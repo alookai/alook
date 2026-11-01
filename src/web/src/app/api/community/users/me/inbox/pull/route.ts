@@ -1,9 +1,10 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { flattenError } from "zod"
 import { NextResponse, type NextRequest } from "next/server"
 import { queries, withD1Retry, CommunityAgentInboxPullRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { log } from "@/lib/logger"
-import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
+import { communityActorPolicy, requireBot } from "@/lib/middleware/community-actor"
 
 const MAX_PULL = 200
 
@@ -23,7 +24,7 @@ const MAX_PULL = 200
  * unread drained fully before the next (`seq` is per-scope). Excludes the bot's
  * own authored messages. Never mutates read state — `ack` is the only mutator.
  */
-export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
+export const POST = withAuth(communityActorPolicy({ allowInactiveBot: true }), async (req: NextRequest, ctx) => {
   const gate = requireBot(ctx.actor)
   if (!gate.ok) return gate.response
   const { userId: botUserId, isActive } = gate.bot
@@ -111,4 +112,4 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     { route: "community/users/me/inbox/pull:hydrate" },
   )
   return NextResponse.json({ messages, hasMore, markedCount })
-}, { allowInactiveBot: true })
+})

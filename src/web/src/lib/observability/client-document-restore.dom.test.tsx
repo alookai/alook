@@ -74,7 +74,7 @@ it("retires the old document before native resume, then exports one original Bac
   expect(sent.flatMap(body => body.events ?? []).filter(event => event.name === "navigation.ready")).toHaveLength(1)
 
   const generation = telemetryGeneration()
-  const retired = startAction("message.edit")!
+  const retired = startAction("message.mark.command")!
   collectorStatus = 429
   const beforeRetry = sent.length
   emitTelemetry("business.result", { action_id: retired.id, outcome: "success" })

@@ -14,6 +14,7 @@ import { serverMembershipKey } from "@/lib/community-db/schema"
 import { useCommunityViewSource } from "./use-community-view-source"
 import { communityKeys } from "@/lib/query-keys"
 import type { Member } from "@/lib/community/models/people"
+import { parseCommunityServerMembersRead } from "@alook/shared"
 import type { CommunityMemberJoin, CommunityMemberLeave, CommunityMemberUpdate, CommunityRole } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 
@@ -45,7 +46,7 @@ export function applyJoinEvent(
       id: event.member.id,
       userId: event.member.userId,
       name: event.member.name,
-      discriminator: event.member.discriminator,
+      discriminator: event.member.discriminator ?? "",
       avatar: event.member.avatar ?? avatarInitial(event.member.name),
       avatarVersion: event.member.avatarVersion,
       status: "online",
@@ -78,13 +79,6 @@ export type MembersEnvelope = {
   cursor?: string
   limit: number
   total: number
-}
-
-type SearchEnvelope = {
-  members: Member[]
-  limit: number
-  hasMore: boolean
-  cursor?: string
 }
 
 export function mergeMemberSearchPage(
@@ -268,10 +262,10 @@ export const membersPageQueryFn = (serverId: string, search = "", limit?: number
     if (search) params.set("q", search)
     if (limit) params.set("limit", String(limit))
     const path = "/api/community/servers/" + serverId + "/members" + (search ? "/search" : "") + (params.size ? "?" + params : "")
-    const data = await apiFetch<MembersEnvelope | SearchEnvelope>(path, communityRequestOptions(client, token, signal, assert))
+    const data = parseCommunityServerMembersRead(await apiFetch<unknown>(path, communityRequestOptions(client, token, signal, assert)), serverId, registry.accountId!, !!search)
     assert()
     if (data.hasMore && !data.cursor) throw new Error("members page missing cursor")
-    writeCommunityProfilePatches(data.members.map((member) => communityUserProfilePatch(member.userId, member, { legacyPresentation: true })), registry, { snapshot: profileSnapshot })
+    writeCommunityProfilePatches(data.members.map((member) => communityUserProfilePatch(member.userId, member)), registry, { snapshot: profileSnapshot })
     publishCommunityMembersSnapshot(client, serverId, data.members, { token, signal })
     assert()
     return { members: data.members.map(({ id, userId }) => ({ id, userId })), hasMore: data.hasMore, cursor: data.cursor, limit: data.limit, ...("total" in data ? { total: data.total } : {}), liveRevision: protocol.liveRevision }
@@ -430,7 +424,7 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     })
   }, [identities, membershipProjection.data, profiles])
   const active = searching ? search : infinite
-  const readState = getMemberReadState(!!serverId, { pending: !data || active.isRefetching, failed: (!searching || searchReady) && active.isError && !active.isFetching }, [membershipProjection, profileProjection], members.filter((member) => member.userId !== membershipProjection.registry?.accountId).map((member) => member.userId), profiles)
+  const readState = getMemberReadState(!!serverId, { pending: !data || active.isRefetching, failed: (!searching || searchReady) && active.isError && !active.isFetching }, [membershipProjection, profileProjection], identities.filter((member) => member.userId !== membershipProjection.registry?.accountId).map((member) => member.userId), profileProjection.resourceProfiles)
   const pendingKicks = useMutationState({ filters: { mutationKey: ["community", "member-command"], status: "pending" }, select: (mutation) => {
     const variables = mutation.state.variables as { kind: string; input: { serverId: string; memberId: string } }
     const current = queryClient.getQueryData<MembersWindowCache>(key)

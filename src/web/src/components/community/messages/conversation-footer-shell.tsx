@@ -3,6 +3,8 @@
 import { useAtom, useCreateAtom, type Atom } from "@tanstack/react-store";
 import { createContext, useCallback, useContext, useMemo, type HTMLAttributes, type ReactNode } from "react"
 import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
+import { useNativeKeyboard } from "@/hooks/use-native-keyboard"
+import { useConversationPresentation } from "@/contexts/community/conversation-activity"
 
 type ConversationFooterSlot = {
   target: HTMLDivElement | null
@@ -50,10 +52,13 @@ export function useConversationFooterSlot(): ConversationFooterSlot | null {
 export function ConversationFooterShell({
   children,
   className,
+  style,
   ...props
 }: Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
   children: ReactNode
 }) {
+  const keyboard = useNativeKeyboard()
+  const presented = useConversationPresentation()
   const footerSlot = useConversationFooterSlot()
   const setFooterTarget = footerSlot?.setTarget
   const setAccessoryTarget = footerSlot?.setAccessoryTarget
@@ -71,6 +76,7 @@ export function ConversationFooterShell({
       data-slot="community-conversation-footer"
       data-selection-active={selectionActive ? "true" : "false"}
       className={`relative shrink-0${className ? ` ${className}` : ""}`}
+      style={presented && keyboard.bottomInset > 0 ? { ...style, marginBottom: keyboard.bottomInset } : style}
     >
       <div
         ref={bindAccessoryTarget}

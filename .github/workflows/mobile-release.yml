@@ -64,7 +64,7 @@ jobs:
           "$llvm_objcopy" --version
 
       - name: Restore Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: src/desktop/src-tauri
           key: ios-arm64
@@ -178,6 +178,10 @@ jobs:
 
           assert info["CFBundleIdentifier"] == "ai.alook.ios"
           assert info["WKAppBoundDomains"] == ["localhost", "alook.ai"]
+          assert info["UISupportedInterfaceOrientations"] == ["UIInterfaceOrientationPortrait"]
+          assert info["UISupportedInterfaceOrientations~ipad"] == ["UIInterfaceOrientationPortrait"]
+          assert info.get("UIRequiresFullScreen") is True
+          assert info.get("UIRequiresFullScreen~iphone") is False
           assert info["CFBundleURLTypes"] == [
               {"CFBundleURLName": "ai.alook", "CFBundleURLSchemes": ["ai.alook"]}
           ]
@@ -268,11 +272,12 @@ jobs:
           sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null || [[ ${PIPESTATUS[1]} -eq 0 ]]
-          "$sdkmanager" \
-            "platforms;android-36" \
-            "build-tools;36.0.0" \
-            "ndk;29.0.13846066"
-          ndk_home="$ANDROID_HOME/ndk/29.0.13846066"
+          sdk_selection="$(node scripts/ci/android-toolchain.mjs)"
+          sdk_components=()
+          while IFS= read -r component; do sdk_components+=("$component"); done <<< "$sdk_selection"
+          test "${#sdk_components[@]}" -eq 3
+          "$sdkmanager" "${sdk_components[@]}"
+          ndk_home="$ANDROID_HOME/ndk/${sdk_components[2]#ndk;}"
           test -x "$ndk_home/ndk-build"
           echo "NDK_HOME=$ndk_home" >> "$GITHUB_ENV"
 
@@ -282,7 +287,7 @@ jobs:
           targets: aarch64-linux-android,armv7-linux-androideabi
 
       - name: Restore Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: src/desktop/src-tauri
           key: android-universal

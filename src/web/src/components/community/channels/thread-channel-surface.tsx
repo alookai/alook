@@ -7,7 +7,7 @@ import { useCommunityRouter } from "@/contexts/community/module-route"
 import { toastApiError, apiFetch } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
-import { useEditMessage, useToggleReactionApi } from "@/hooks/community/mutations"
+import { useToggleReactionApi } from "@/hooks/community/mutations"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { ChannelShell } from "@/components/community/channels/channel-shell"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
@@ -17,17 +17,18 @@ import {
   ConversationFooterSlotProvider,
 } from "@/components/community/messages/conversation-footer-shell"
 import { MessageChannelController } from "@/components/community/messages/message-channel-controller"
-import { MessagePaneNavigationProvider } from "@/components/community/messages/message-pane-navigation"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { MessageList } from "@/components/community/messages/message-list"
 import { useAuthorMentionInsertion } from "@/components/community/messages/use-author-mention-insertion"
 import { ThreadOpener } from "@/components/community/messages/thread-opener"
 import { ThreadPanelActions } from "@/components/community/channels/thread-panel-actions"
+import type { MessageHeaderTitleState } from "./message-header"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
 import { tid } from "@/lib/community/testids"
+import { ConversationActivityContext, useConversationActivity } from "@/contexts/community/conversation-activity"
 import {
   useClaimThreadOpenerReadHandoff,
   type ThreadOpenerReadHandoff,
@@ -40,6 +41,9 @@ export function ThreadChannelSurface({
   serverId,
   serverParam,
   channelName,
+  channelTitleState = "ready",
+  onRetryTitle,
+  retryingTitle,
   viewer,
   canManagePins,
   anchorMessageId,
@@ -47,7 +51,6 @@ export function ThreadChannelSurface({
   parentMessageId,
   parentIsForum,
   threadOpenerHandoff,
-  childCreatorId,
   canRenameThread,
   onNavigateParent,
   notificationLevel,
@@ -69,6 +72,9 @@ export function ThreadChannelSurface({
   serverId: string
   serverParam: string
   channelName: string
+  channelTitleState?: MessageHeaderTitleState
+  onRetryTitle?: () => void
+  retryingTitle?: boolean
   viewer: { id: string; name: string; discriminator?: string; avatar: string }
   canManagePins: boolean
   anchorMessageId: string | null
@@ -76,7 +82,6 @@ export function ThreadChannelSurface({
   parentMessageId: string | null
   parentIsForum: boolean
   threadOpenerHandoff?: ThreadOpenerReadHandoff | null
-  childCreatorId?: string | null
   canRenameThread: boolean
   onNavigateParent: () => void
   notificationLevel: ChannelNotifLevel
@@ -109,7 +114,6 @@ export function ThreadChannelSurface({
     viewerName: viewer.name,
     viewerDiscriminator: viewer.discriminator,
   })
-  const { mutateAsync: editMessageAsync } = useEditMessage()
   const toggleReactionApi = useToggleReactionApi()
   const toggleOpenerReaction = useCallback((emoji: string) => {
     if (!parentChannelId || !parentMessageId) return
@@ -128,8 +132,11 @@ export function ThreadChannelSurface({
     viewerUserId: viewer.id,
     isChildChannel: true,
     anchorMessageId,
+    threadsEnabled: rightPanel === "threads",
   })
   const displayName = localName ?? channelName
+  const routeActive = useConversationActivity()
+  const inputActive = routeActive && feed.navigationBlocked === false
   const Body = embedded ? "div" : "main"
   const compactActions = !!splitActions && !layoutPending
 
@@ -142,23 +149,7 @@ export function ThreadChannelSurface({
     setRightPanel((current) => current === panel ? null : panel)
   }, [setRightPanel])
   const openPinned = useCallback(() => setRightPanel("pinned"), [setRightPanel])
-  const rename = parentIsForum && parentChannelId && parentMessageId && childCreatorId === viewer.id
-    ? async (name: string) => {
-        try {
-          await editMessageAsync({
-            serverId,
-            channelId: parentChannelId,
-            messageId: parentMessageId,
-            content: name,
-            forumChannelId: parentChannelId,
-            forumThreadId: channelId,
-          })
-        } catch (error) {
-          toastApiError(error, "Failed to edit post")
-          throw error
-        }
-      }
-    : !parentIsForum && canRenameThread
+  const rename = !parentIsForum && canRenameThread
       ? async (name: string) => {
           try {
             await apiFetch(`/api/community/channels/${channelId}`, {
@@ -201,7 +192,7 @@ export function ThreadChannelSurface({
       serverId={serverId}
       serverParam={serverParam}
       channelName={displayName}
-      forumParentChannelId={parentIsForum ? parentChannelId ?? undefined : undefined}
+      forumParentChannelId={parentChannelId ?? undefined}
       viewer={viewer}
       anchorMessageId={anchorMessageId}
       feed={feed}
@@ -211,15 +202,13 @@ export function ThreadChannelSurface({
       resolveUserName={resolveUserName}
     >
       {(controller) => (
-        <MessagePaneNavigationProvider
-          channelId={channelId}
-          jumpToSeq={controller.jumpToSeq}
-          openMessageContext={controller.setContextTarget}
-        >
-          <ChannelShell
-            header={(
+        <ChannelShell
+          header={(
             <ChannelHeader
               channel={displayName}
+              titleState={localName !== null ? "ready" : channelTitleState}
+              onRetryTitle={onRetryTitle}
+              retryingTitle={retryingTitle}
               kind="thread"
               rightPanel={rightPanel}
               onToggle={togglePanel}
@@ -228,7 +217,6 @@ export function ThreadChannelSurface({
               mobileBack={compactActions ? undefined : onNavigateParent}
               mobileBackDisplay="always"
               tools={{ threads: false }}
-              titleRename={parentIsForum}
               onRename={parentChannelId && !compactActions ? rename : undefined}
               compactActions={compactActions}
               endActions={splitActions ? (
@@ -239,10 +227,14 @@ export function ThreadChannelSurface({
               ) : undefined}
             />
           )}
-            body={(
+          body={(
             <Body
               data-slot="community-conversation-surface"
               data-channel-id={channelId}
+              data-testid={!embedded && controller.feed.isLoading ? tid.conversationResolutionPending : undefined}
+              aria-busy={!embedded && controller.feed.isLoading ? true : undefined}
+              aria-label={!embedded && controller.feed.isLoading ? "Loading thread" : undefined}
+              data-community-conversation-subtype="thread"
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
               <ConversationFooterSlotProvider>
@@ -252,6 +244,7 @@ export function ThreadChannelSurface({
                   messages={controller.feed.messages}
                   loading={controller.feed.isLoading}
                   initialLoadError={controller.feed.initialLoadError}
+                  targetLoadError={controller.feed.targetLoadError}
                   observation={controller.feed.observation}
                   retryingInitialLoad={controller.feed.retryingInitialLoad}
                   onRetryInitialLoad={controller.feed.retryInitialLoad}
@@ -268,13 +261,16 @@ export function ThreadChannelSurface({
                   hero={opener}
                   onScrollRoot={controller.feed.setScrollRootEl}
                   viewerUserId={viewer.id}
-                  initialScrollReady={!controller.feed.readSnapshotFetching && controller.feed.anchorInCache}
+                  initialScrollReady={controller.feed.initialDisplayReady}
+                  preserveInitialPresentation={controller.feed.preserveInitialPresentation}
+                  onUserTakeover={controller.feed.onUserTakeover}
                   onScrollTargetConsumed={controller.consumeScrollTarget}
                   hasMore={controller.feed.hasMoreOlder}
                   historyStartKnown={controller.feed.historyStartKnown}
                   initialPositionMessageId={controller.feed.initialPositionMessageId}
                   positionEntry={controller.feed.positionEntry}
-                  positionDataState={controller.feed.positionDataState}
+                  positionScope={controller.feed.positionScope}
+                  positionDataState={controller.feed.positionDataState} targetPositionDataState={controller.feed.targetPositionDataState}
                   messageWindow={controller.feed.messageWindow}
                   isFetching={controller.feed.isFetching}
                   isFetchingOlder={controller.feed.isFetchingOlder}
@@ -292,27 +288,30 @@ export function ThreadChannelSurface({
                 <ConversationFooterShell
                   data-onboarding-target="channel-composer"
                   data-testid={tid.channelComposerShell}
+                  inert={!inputActive}
                 >
-                  <Composer
-                    ref={mentionInsertion.composerRef}
-                    channel={displayName}
-                    context="thread"
-                    members={composerMembers}
-                    mentionCandidates={composerMentionCandidates}
-                    channelRefCandidates={channelRefCandidates}
-                    sendContract="accepted"
-                    onAcceptSend={controller.acceptMessage}
-                    onTyping={controller.handleTyping}
-                    replyingTo={controller.replyTo ?? undefined}
-                    onCancelReply={() => controller.setReplyTo(null)}
-                    autoFocus={breakpoint === "desktop"}
-                    draftKey={`${serverId}/${channelId}`}
-                  />
+                  <ConversationActivityContext value={inputActive}>
+                    <Composer
+                      ref={mentionInsertion.composerRef}
+                      channel={displayName}
+                      context="thread"
+                      members={composerMembers}
+                      mentionCandidates={composerMentionCandidates}
+                      channelRefCandidates={channelRefCandidates}
+                      sendContract="accepted"
+                      onAcceptSend={controller.acceptMessage}
+                      onTyping={controller.handleTyping}
+                      replyingTo={controller.replyTo ?? undefined}
+                      onCancelReply={() => controller.setReplyTo(null)}
+                      autoFocus={breakpoint === "desktop"}
+                      draftKey={`${serverId}/${channelId}`}
+                    />
+                  </ConversationActivityContext>
                 </ConversationFooterShell>
               </ConversationFooterSlotProvider>
             </Body>
           )}
-            panels={(
+          panels={(
             <CommunityPanel
               open={rightPanel !== null}
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
@@ -327,7 +326,7 @@ export function ThreadChannelSurface({
               onOpenProfile={onOpenProfile}
             />
           )}
-            dialogs={(
+          dialogs={(
             <>
               {manageMembersDialog}
               <MessageContextSheet
@@ -346,8 +345,7 @@ export function ThreadChannelSurface({
               />
             </>
           )}
-          />
-        </MessagePaneNavigationProvider>
+        />
       )}
     </MessageChannelController>
   )

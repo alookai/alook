@@ -27,7 +27,7 @@ async function listen(server: http.Server): Promise<number> {
 
 describe("development zone selection", () => {
   it("matches the approved Cloudflare route prefixes exactly", () => {
-    expect(BLOG_ROUTE_PREFIXES).toEqual(["/blog", "/og/blog", "/guides"])
+    expect(BLOG_ROUTE_PREFIXES).toEqual(["/blog", "/og/blog", "/guides", "/tutorials"])
     expect([
       "/blog",
       "/blog/post?draft=1",
@@ -37,6 +37,7 @@ describe("development zone selection", () => {
     ].map(selectZone)).toEqual(["blog", "blog", "blog", "blog", "blog"])
     expect(["/guides", "/guides/", "/guides?topic=coding"].map(selectZone)).toEqual(["blog", "blog", "blog"])
     expect(selectZone("/guides-other")).toBe("blog")
+    expect(["/tutorials", "/tutorials/", "/tutorials/codex-and-claude-code"].map(selectZone)).toEqual(["blog", "blog", "blog"])
     expect(["/", "/Blog", "/og/Blog", "/api/blog", "/_next/app.js"].map(selectZone)).toEqual([
       "main",
       "main",

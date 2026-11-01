@@ -1,9 +1,11 @@
 "use client"
 
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { parseCommunityUserCardRead, type CommunityUserCardRead } from "@alook/shared"
+import { apiFetch } from "@/lib/api/client"
 import type { QueryFunctionContext } from "@tanstack/react-query"
 
-import { apiFetchProfiles } from "@/lib/community/profile-seed"
+import { loadAndSeedProfiles } from "@/lib/community/profile-seed"
 
 /**
  * Fetches a public user profile card (avatar, name, aboutMe, mutual-server
@@ -13,31 +15,12 @@ import { apiFetchProfiles } from "@/lib/community/profile-seed"
  * returns viewer-relative bot ownership. The community query cache is cleared
  * on logout, so this response remains scoped to the current viewer session.
  */
-type UserProfileBase = {
-  id: string
-  name: string
-  discriminator: string
-  image: string | null
-  avatarVersion: number
-  aboutMe: string
-  bannerColor: string | null
-  mutualServers: number
-  statusEmoji: string | null
-  statusText: string | null
-}
-
-export type UserProfile = UserProfileBase & (
-  | { kind: "human" }
-  | {
-      kind: "bot"
-      ownerProfile: { id: string; handle: string }
-      ownedByViewer: boolean
-    }
-)
+export type UserProfile = CommunityUserCardRead
 
 export const userProfileQueryFn = (userId: string) => async (context: QueryFunctionContext) => {
-  const profile = await apiFetchProfiles<UserProfile>(
-    `/api/community/users/${userId}/profile`,
+  const registry = getCommunityDbRegistry(context.client)
+  const profile = await loadAndSeedProfiles(
+    async origin => parseCommunityUserCardRead(await apiFetch<unknown>(`/api/community/users/${userId}/profile`, { ...origin, signal: context.signal }), userId, registry!.accountId!),
     (profile) => [{
       id: profile.id,
       identityAbout: {
@@ -61,7 +44,7 @@ export const userProfileQueryFn = (userId: string) => async (context: QueryFunct
         ownerHandle: profile.kind === "bot" ? profile.ownerProfile.handle : null,
         ownedByViewer: profile.kind === "bot" && profile.ownedByViewer,
       },
-    }], { signal: context.signal }, getCommunityDbRegistry(context.client),
+    }], registry, context.signal,
   )
   return { id: profile.id }
 }

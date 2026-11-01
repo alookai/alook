@@ -11,15 +11,15 @@ vi.mock("@/lib/community/diagnostic-report-push", () => ({
   pushDiagnosticReportToMachine: (...args: unknown[]) => pushDiagnostic(...args),
 }));
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => async (req: NextRequest, context?: any) => {
-    const params = context?.params instanceof Promise ? await context.params : context?.params;
-    return handler(req, {
+  humanAuthPolicy: { resolve: async (req: NextRequest) => {
+
+    return ({ context: {
       env: { DB: {} },
       userId: "owner_1",
       email: "owner@example.test",
-      params,
-    });
-  },
+
+    } });
+  } },
 }));
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared");

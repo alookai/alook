@@ -1,7 +1,8 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextResponse } from "next/server";
 import { DiagnosticReportIdSchema } from "@alook/shared";
 import { getDb } from "@/lib/db";
-import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth";
+import { machineAuthPolicy } from "@/lib/middleware/community-daemon-auth";
 import {
   createDiagnosticUploadQueryPort,
   createDiagnosticUploadService,
@@ -16,7 +17,7 @@ function responseStatus(result: DiagnosticUploadResult): number {
   return result.status === "uploaded" ? 200 : 409;
 }
 
-export const PUT = withCommunityDaemonAuth(async (request, ctx) => {
+export const PUT = withAuth(machineAuthPolicy, async (request, ctx) => {
   const parsedReportId = DiagnosticReportIdSchema.safeParse(ctx.params?.reportId);
   if (!parsedReportId.success) {
     return NextResponse.json({ error: "invalid diagnostic report id" }, { status: 400 });

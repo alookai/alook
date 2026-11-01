@@ -1,3 +1,5 @@
+import { CommunityAcceptedFriendsReadSchema } from "@alook/shared"
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse, currentCommunityFixtureError } from "./_fixtures/business-contract"
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { GEOMETRY_EPSILON, gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
@@ -17,7 +19,7 @@ async function clearMessageInbox(page: Page) {
     "/api/community/users/me/inbox/unreads/read-all",
     "/api/community/users/me/inbox/dms/read-all",
   ]) {
-    expect((await page.request.post(path)).ok()).toBe(true)
+    expect((await confirmCommunityFixtureApiResponse(page.request.post(path, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))).ok()).toBe(true)
   }
 }
 
@@ -221,7 +223,7 @@ test.describe("actionable Inbox friend requests", () => {
       if (attempts === 1) {
         markFirstAttempt()
         await failureGate
-        await route.fulfill({ status: 503, json: { error: "forced retry" } })
+        await route.fulfill(currentCommunityFixtureError("forced retry", 503))
         return
       }
       await route.continue()
@@ -267,12 +269,12 @@ test.describe("actionable Inbox friend requests", () => {
 
       await bob.page.getByTestId(tid.inboxTrigger).click()
       await bob.page.getByRole("link", { name: "Friends", exact: true }).click()
-      const accepted = await bob.page.request.get("/api/community/friends/accepted")
+      const accepted = await confirmCommunityFixtureApiResponse(bob.page.request.get("/api/community/friends/accepted", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
       expect(accepted.ok()).toBe(true)
-      const acceptedBody = await accepted.json() as {
-        friends: Array<{ userId: string; name: string; discriminator: string }>
-      }
-      const alice = acceptedBody.friends.find((friend) => friend.userId === userId("alice"))
+      const acceptedBody = CommunityAcceptedFriendsReadSchema.parse(await accepted.json())
+      if (acceptedBody.stale) throw new Error("Accepted friend fixture read is stale")
+      const relation = acceptedBody.friends.find(friend => friend.userId === userId("alice"))
+      const alice = acceptedBody.resources.profiles.find(profile => profile.id === relation?.userId)
       expect(alice).toBeDefined()
       const allFriends = bob.page.getByRole("tabpanel", { name: "All", exact: true })
         .getByText("All friends — 1", { exact: true }).locator("..")
@@ -401,10 +403,10 @@ test.describe("actionable Inbox friend requests", () => {
       if (!bob.page.isClosed()) await bob.page.unroute(`**${friendsAcceptPath}`)
     })
     await bob.page.route(`**${inboxAcceptPath}`, async (route) => {
-      await route.fulfill({ status: 503, json: { error: "forced inbox geometry retry" } })
+      await route.fulfill(currentCommunityFixtureError("forced inbox geometry retry", 503))
     })
     await bob.page.route(`**${friendsAcceptPath}`, async (route) => {
-      await route.fulfill({ status: 503, json: { error: "forced friends geometry retry" } })
+      await route.fulfill(currentCommunityFixtureError("forced friends geometry retry", 503))
     })
 
     try {

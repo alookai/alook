@@ -23,11 +23,12 @@
  *     — the `driverFor` is INJECTED by the caller.
  */
 import { homedir } from "os";
+import { PiiStore } from "../pii/store.js";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { createRotatingFileSink, type RotatingFileSink } from "../util/rotatingFileSink.js";
 import { createTraceSampler, DEFAULT_TRACE_FILE_MAX_BYTES } from "../util/traceSampler.js";
 import { writeStatusFile } from "../util/statusFile.js";
-import { WsControlChannel } from "../server/wsControlChannel.js";
+import { WS_CONTROL_COMMAND_CONSUMED, WsControlChannel } from "../server/wsControlChannel.js";
 import { CredentialBroker, startCredentialProxy } from "../credentials/index.js";
 import { AgentProcessManager, AgentRouter, createTypingScopeTracker } from "../manager/index.js";
 import type { ManagerTraceRecord, SessionFactory, TypingScopeTracker } from "../manager/index.js";
@@ -334,7 +335,7 @@ export interface CreateDaemonOptions {
   /** Injectable daemon-local reminder clock; tests only, defaults to Node timers. */
   messageReminderClock?: Pick<MessageReminderSchedulerOptions, "now" | "setTimer" | "clearTimer">;
   providerQuotaReader?: (backend: BuiltinBackendId) => Promise<ProviderQuotaObservation | null>;
-  /** Called after one continuous 15-day window with no new message and no working agent. */
+  /** Called after one continuous 7-day window with no new message and no working agent. */
   onSelfSleep?: () => void;
   /** Injectable self-sleep clock; tests only, defaults to Node timers. */
   selfSleepClock?: DaemonSelfSleepClock;
@@ -405,6 +406,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const workingDirectoryBase = opts.workingDirectoryBase ?? fallbackBase;
   const workdirFor = (agentId: string) => `${workingDirectoryBase}/${agentId}`;
   const dailyTokenUsage = new DailyTokenUsageStore(workingDirectoryBase);
+  const localPiiStore = new PiiStore(opts.fsmTraceDir ?? workingDirectoryBase);
   let stopping = false;
   let usageSealed = false;
   let stopPromise: Promise<void> | undefined;
@@ -556,6 +558,10 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
 
   const broker = new CredentialBroker({ upstreamBaseUrl: opts.serverUrl });
   const proxy = await startCredentialProxy(broker, {
+    pii: {
+      filterWithResult: (botId, text) => localPiiStore.filterWithResult(botId, text),
+      local: (botId, input) => localPiiStore.local(botId, input),
+    },
     onInboxPullStart: (agentId) => ({
       owner: managerRef?.timelineTurnOwner(agentId) ?? null,
     }),
@@ -687,7 +693,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   >();
   let botCacheReady = false;
 
-  async function listMyBotsHttp(): Promise<
+  async function listMyBotsHttp(includeInactive = false): Promise<
     Array<{
       id: string;
       name: string;
@@ -697,7 +703,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       ownerDiscriminator?: string;
     }>
   > {
-    const res = await fetch(`${opts.serverUrl}/api/community/daemon/bots`, {
+    const res = await fetch(`${opts.serverUrl}/api/community/daemon/bots${includeInactive ? "?includeInactive=true" : ""}`, {
       method: "GET",
       headers: { authorization: `Bearer ${opts.machineKey}` },
     });
@@ -1170,6 +1176,20 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
 
   // Machine lifecycle commands are claimed before diagnostics, bot observers,
   // and AgentRouter; updates never enter agent lifecycle routing.
+  channel.onCommand((command) => {
+    if (command.type !== "pii:manage") return;
+    void (async () => {
+      try {
+        const bots = await listMyBotsHttp(true);
+        const bound = bots.some((bot) => bot.id === command.botId);
+        channel.reportPiiResult({ type: "pii_result", botId: command.botId, requestId: command.requestId,
+          result: bound ? await localPiiStore.manage(command.botId, command.operation) : { status: "error", code: "PII_BOT_NOT_FOUND" } });
+      } catch {
+        channel.reportPiiResult({ type: "pii_result", botId: command.botId, requestId: command.requestId, result: { status: "error", code: "PII_UNAVAILABLE" } });
+      }
+    })();
+    return WS_CONTROL_COMMAND_CONSUMED;
+  });
   channel.onCommand(createSelfUpdateCommandListener(opts.handleSelfUpdate));
   channel.onCommand(createMachineStopCommandListener(opts.onStopRequested));
   // Diagnostics likewise claims its machine-level command before bot/router.
@@ -1235,6 +1255,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       const failures: unknown[] = [];
       stopPromise = Promise.resolve().then(async () => {
         try {
+          try { await localPiiStore.close(); } catch (error) { failures.push(error); }
           try { await proxy.close(); } catch (error) { failures.push(error); }
           try { await manager.stopAll(); } catch (error) { failures.push(error); }
         } finally {

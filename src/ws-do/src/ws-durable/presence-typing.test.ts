@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { createMockWebSocket } from "../__mocks__/cf"
@@ -22,10 +23,7 @@ import {
   mockIsThreadParticipant,
   mockAreFriends,
   mockGetFriendUserIds,
-  mockGetLatestTokenForUser,
-  mockGetMachineByDaemon,
   mockGetMachineByIdForUser,
-  mockGetMachineTokenByToken,
   mockGetPrivateChannelAudienceUserIds,
   mockGetProfile,
   mockGetRuntimeIdsByDaemon,
@@ -71,7 +69,7 @@ describe("WebSocketDurableObject", () => {
 
       // Set up two WebSockets: one authenticated, one not
       const wsAuth = createMockWebSocket()
-      wsAuth.serializeAttachment({ type: "user", userId: "u1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      wsAuth.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "u1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       const wsUnauth = createMockWebSocket()
       wsUnauth.serializeAttachment({ type: "user", userId: "", authenticated: false })
         ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth, wsUnauth])
@@ -112,9 +110,9 @@ describe("WebSocketDurableObject", () => {
       const { durable, ctx } = createDO()
 
       const wsOpen = createMockWebSocket(WebSocket.OPEN)
-      wsOpen.serializeAttachment({ type: "user", userId: "u1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      wsOpen.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "u1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       const wsClosed = createMockWebSocket(WebSocket.CLOSED)
-      wsClosed.serializeAttachment({ type: "user", userId: "u1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      wsClosed.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "u1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       wsClosed.send.mockImplementation(() => { throw new Error("Connection closed") })
         ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsOpen, wsClosed])
 
@@ -134,7 +132,7 @@ describe("WebSocketDurableObject", () => {
     it("sweeps an authenticated historical mismatch before sending", async () => {
       const { durable, ctx } = createDO()
       const attacker = createMockWebSocket()
-      attacker.serializeAttachment({ type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      attacker.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([attacker])
 
       const res = await durable.fetch(new Request("http://internal/broadcast", {
@@ -167,9 +165,9 @@ describe("WebSocketDurableObject", () => {
     it("sends only to the matching user while sweeping mixed historical sockets", async () => {
       const { durable, ctx } = createDO()
       const victim = createMockWebSocket()
-      victim.serializeAttachment({ type: "user", userId: "victim", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      victim.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "victim", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       const attacker = createMockWebSocket()
-      attacker.serializeAttachment({ type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      attacker.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([attacker, victim])
 
       const res = await durable.fetch(new Request("http://internal/broadcast", {
@@ -208,34 +206,6 @@ describe("WebSocketDurableObject", () => {
   })
 
 
-  describe("fetch — /check-alive characterization", () => {
-    it("reports alive only when an authenticated daemon socket is attached", async () => {
-      const { durable, ctx } = createDO()
-      const daemon = createMockWebSocket()
-      daemon.serializeAttachment({ type: "daemon", daemonId: "daemon-1", userId: "user-1", authenticated: true })
-      const user = createMockWebSocket()
-      user.serializeAttachment({ type: "user", userId: "user-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
-      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([user, daemon])
-
-      const response = await durable.fetch(new Request("http://internal/check-alive"))
-
-      expect(await response.json()).toEqual({ alive: true })
-    })
-
-    it("reports not alive for unauthenticated daemon and authenticated non-daemon attachments", async () => {
-      const { durable, ctx } = createDO()
-      const daemon = createMockWebSocket()
-      daemon.serializeAttachment({ type: "daemon", daemonId: "daemon-1", userId: "user-1", authenticated: false })
-      const machine = createMockWebSocket()
-      machine.serializeAttachment({ type: "community-machine", machineId: "machine-1", userId: "user-1", authenticated: true })
-      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([daemon, machine])
-
-      const response = await durable.fetch(new Request("http://internal/check-alive"))
-
-      expect(await response.json()).toEqual({ alive: false })
-    })
-  })
-
 
   describe("fetch — /check-user-online (bot-aware, keyed by ?userId=)", () => {
     // This DO instance is keyed by `user:<id>` (idFromName) but can't read
@@ -268,7 +238,7 @@ describe("WebSocketDurableObject", () => {
       const { durable, ctx } = createDO()
       mockGetUserInternal.mockResolvedValue({ isBot: false } as any)
       const wsAuth = createMockWebSocket()
-      wsAuth.serializeAttachment({ type: "user", userId: "human-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      wsAuth.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "human-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
         ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth])
 
       const res = await durable.fetch(new Request("http://internal/check-user-online?userId=human-1"))
@@ -280,7 +250,7 @@ describe("WebSocketDurableObject", () => {
     it("fails closed and sweeps user sockets when userId is missing entirely", async () => {
       const { durable, ctx } = createDO()
       const wsAuth = createMockWebSocket()
-      wsAuth.serializeAttachment({ type: "user", userId: "u1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      wsAuth.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "u1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
         ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth])
 
       const res = await durable.fetch(new Request("http://internal/check-user-online"))
@@ -299,7 +269,7 @@ describe("WebSocketDurableObject", () => {
       const { durable, ctx } = createDO()
       mockGetUserInternal.mockResolvedValue({ isBot: false } as any)
       const attacker = createMockWebSocket()
-      attacker.serializeAttachment({ type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      attacker.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([attacker])
 
       const res = await durable.fetch(
@@ -407,7 +377,7 @@ describe("WebSocketDurableObject", () => {
       await (durable as unknown as PresenceInternals).sendPresenceSnapshot(ws as any, "user-1")
 
       expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: "community:presence.update", userId: "friend-c", online: true }),
+        JSON.stringify({ type: "community:presence.update", userId: "friend-c", online: true, schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
     })
 
@@ -441,12 +411,12 @@ describe("WebSocketDurableObject", () => {
         authenticated: false,
       })
 
-      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "valid-token" }))
+      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "valid-token", communityContract: BUSINESS_SCHEMA_VERSION }))
       await flushAsyncWork()
 
-      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION }))
       expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: "community:presence.update", userId: "online", online: true }),
+        JSON.stringify({ type: "community:presence.update", userId: "online", online: true, schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       expect(ws.send).toHaveBeenCalledTimes(2)
     })
@@ -629,11 +599,11 @@ describe("WebSocketDurableObject", () => {
     it("does nothing when a typing frame has no channelId", async () => {
       const { durable } = createDO()
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start" }),
+        JSON.stringify({ type: "community:typing.start", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flush()
 
@@ -646,25 +616,25 @@ describe("WebSocketDurableObject", () => {
       mockGetChannelForMember.mockResolvedValue({ id: "channel-1", serverId: "server-1" })
       mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       const now = vi.spyOn(Date, "now")
       try {
         now.mockReturnValue(10_000)
         await durable.webSocketMessage(
           ws as any,
-          JSON.stringify({ type: "community:typing.start", channelId: "channel-1" }),
+          JSON.stringify({ type: "community:typing.start", channelId: "channel-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
         )
         await flushAsyncWork()
         now.mockReturnValue(17_999)
         await durable.webSocketMessage(
           ws as any,
-          JSON.stringify({ type: "community:typing.start", channelId: "channel-1" }),
+          JSON.stringify({ type: "community:typing.start", channelId: "channel-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
         )
         await flushAsyncWork()
         now.mockReturnValue(18_000)
         await durable.webSocketMessage(
           ws as any,
-          JSON.stringify({ type: "community:typing.start", channelId: "channel-1" }),
+          JSON.stringify({ type: "community:typing.start", channelId: "channel-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
         )
         await flushAsyncWork()
 
@@ -678,20 +648,20 @@ describe("WebSocketDurableObject", () => {
       const { durable } = createDO()
       mockGetChannelForMember.mockResolvedValue(null)
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       let timestamp = 100_000
       const now = vi.spyOn(Date, "now").mockImplementation(() => timestamp)
       try {
         for (let index = 0; index < 200; index++) {
           await durable.webSocketMessage(
             ws as any,
-            JSON.stringify({ type: "community:typing.start", channelId: `stale-${index}` }),
+            JSON.stringify({ type: "community:typing.start", channelId: `stale-${index}`, schemaVersion: BUSINESS_SCHEMA_VERSION }),
           )
         }
         timestamp = 140_001
         await durable.webSocketMessage(
           ws as any,
-          JSON.stringify({ type: "community:typing.start", channelId: "current" }),
+          JSON.stringify({ type: "community:typing.start", channelId: "current", schemaVersion: BUSINESS_SCHEMA_VERSION }),
         )
 
         const typingDedup = (durable as unknown as {
@@ -709,11 +679,11 @@ describe("WebSocketDurableObject", () => {
       mockGetChannelForMember.mockResolvedValueOnce(null)
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", channelId: "chan-private" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-private", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flush()
 
@@ -732,11 +702,11 @@ describe("WebSocketDurableObject", () => {
       mockResolveScopeMemberUserIds.mockResolvedValueOnce(["member-1", "member-2", "sender-1"])
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", channelId: "chan-1" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flush()
 
@@ -761,11 +731,11 @@ describe("WebSocketDurableObject", () => {
       mockResolveScopeMemberUserIds.mockResolvedValueOnce(["sender-1", "member-1"])
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", channelId: "chan-p" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-p", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flush()
 
@@ -789,11 +759,11 @@ describe("WebSocketDurableObject", () => {
       mockResolveScopeMemberUserIds.mockResolvedValueOnce(["sender-1", "reader-1"])
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", channelId: "t-1" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "t-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flush()
 
@@ -813,8 +783,8 @@ describe("WebSocketDurableObject", () => {
       let clock = 10_000
       const now = vi.spyOn(Date, "now").mockImplementation(() => clock)
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
-      const start = JSON.stringify({ type: "community:typing.start", channelId: "t-1" })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      const start = JSON.stringify({ type: "community:typing.start", channelId: "t-1", schemaVersion: BUSINESS_SCHEMA_VERSION })
       try {
         await durable.webSocketMessage(ws as any, start)
         await flushAsyncWork()
@@ -826,7 +796,7 @@ describe("WebSocketDurableObject", () => {
         expect(mockStubFetch).toHaveBeenCalledTimes(1)
         expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledTimes(1)
         expect(mockIsThreadParticipant).toHaveBeenCalledTimes(2)
-        await durable.webSocketMessage(ws as any, JSON.stringify({ type: "community:typing.stop", channelId: "t-1" }))
+        await durable.webSocketMessage(ws as any, JSON.stringify({ type: "community:typing.stop", channelId: "t-1", schemaVersion: BUSINESS_SCHEMA_VERSION }))
         await flushAsyncWork()
         expect(mockStubFetch).toHaveBeenCalledTimes(2)
         mockIsThreadParticipant.mockResolvedValue(true)
@@ -850,11 +820,11 @@ describe("WebSocketDurableObject", () => {
       mockGetChannelForMember.mockResolvedValueOnce(null)
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", channelId: "dm-1" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "dm-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flush()
 
@@ -871,11 +841,11 @@ describe("WebSocketDurableObject", () => {
       mockGetDMPeer.mockResolvedValueOnce({ otherUserId: "bob" })
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "alice", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", channelId: "dm-1" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "dm-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flush()
 
@@ -892,15 +862,15 @@ describe("WebSocketDurableObject", () => {
       mockAreFriends.mockResolvedValue(false)
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "alice", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", channelId: "dm-1" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "dm-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.stop", channelId: "dm-1" }),
+        JSON.stringify({ type: "community:typing.stop", channelId: "dm-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flushAsyncWork()
 
@@ -919,10 +889,10 @@ describe("WebSocketDurableObject", () => {
       mockAreFriends.mockResolvedValue(true)
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "alice", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", channelId: "dm-1" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "dm-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flushAsyncWork()
 
@@ -941,11 +911,11 @@ describe("WebSocketDurableObject", () => {
         try { return await fn() } catch { return fn() }
       })
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", channelId: "chan-1" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flushAsyncWork()
 
@@ -957,7 +927,7 @@ describe("WebSocketDurableObject", () => {
         "ws-do:agent-typing-recipients",
       ])
       const request = mockStubFetch.mock.calls[0]![0] as Request
-      expect(JSON.parse(await request.text())).toEqual({
+      expect(JSON.parse(await request.text())).toEqual({ schemaVersion: BUSINESS_SCHEMA_VERSION,
         type: "community:typing.start",
         channelId: "chan-1",
         userId: "sender-1",
@@ -981,11 +951,11 @@ describe("WebSocketDurableObject", () => {
       })
       ;(env.WS_DO.get as ReturnType<typeof vi.fn>).mockReturnValue({ fetch })
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", channelId: "chan-1" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flushAsyncWork()
 
@@ -1000,15 +970,15 @@ describe("WebSocketDurableObject", () => {
         .mockResolvedValueOnce({ id: "chan-1", serverId: "server-1" })
       mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.start", channelId: "chan-1" }),
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.stop", channelId: "chan-1" }),
+        JSON.stringify({ type: "community:typing.stop", channelId: "chan-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
 
       expect(mockLogWarn).toHaveBeenCalledWith("community:typing.start fan-out failed", {
@@ -1016,7 +986,7 @@ describe("WebSocketDurableObject", () => {
       })
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
       const request = mockStubFetch.mock.calls[0]![0] as Request
-      expect(JSON.parse(await request.text())).toEqual({
+      expect(JSON.parse(await request.text())).toEqual({ schemaVersion: BUSINESS_SCHEMA_VERSION,
         type: "community:typing.stop",
         channelId: "chan-1",
         userId: "sender-1",
@@ -1030,7 +1000,7 @@ describe("WebSocketDurableObject", () => {
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.stop", channelId: "chan-1" }),
+        JSON.stringify({ type: "community:typing.stop", channelId: "chan-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flushAsyncWork()
 
@@ -1042,11 +1012,11 @@ describe("WebSocketDurableObject", () => {
     it("consumes a typing.stop without a channel and does not fan out", async () => {
       const { durable } = createDO()
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.stop" }),
+        JSON.stringify({ type: "community:typing.stop", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flushAsyncWork()
 
@@ -1067,15 +1037,11 @@ describe("WebSocketDurableObject", () => {
       mockGetChannelForMember.mockResolvedValue({ id: "chan-1", serverId: "server-1" })
       mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({
-          type: "community:typing.stop",
-          channelId: "chan-1",
-          userId: "spoofed-user",
-        }),
+        JSON.stringify({ type: "community:typing.stop", channelId: "chan-1", userId: "spoofed-user", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flushAsyncWork()
 
@@ -1085,7 +1051,7 @@ describe("WebSocketDurableObject", () => {
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:recipient-1")
       expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
       const request = mockStubFetch.mock.calls[0]![0] as Request
-      expect(JSON.parse(await request.text())).toEqual({
+      expect(JSON.parse(await request.text())).toEqual({ schemaVersion: BUSINESS_SCHEMA_VERSION,
         type: "community:typing.stop",
         channelId: "chan-1",
         userId: "sender-1",
@@ -1096,11 +1062,11 @@ describe("WebSocketDurableObject", () => {
       const { durable } = createDO()
       mockGetChannelForMember.mockResolvedValue(null)
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "community:typing.stop", channelId: "chan-private" }),
+        JSON.stringify({ type: "community:typing.stop", channelId: "chan-private", schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       await flushAsyncWork()
 
@@ -1118,7 +1084,7 @@ describe("WebSocketDurableObject", () => {
       mockGetChannelForMember.mockResolvedValue({ id: "chan-1", serverId: "server-1" })
       mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       let releaseFirstFetch!: () => void
       mockStubFetch.mockImplementationOnce(() => new Promise<Response>((resolve) => {
         releaseFirstFetch = () => resolve(new Response(null, { status: 200 }))
@@ -1132,7 +1098,7 @@ describe("WebSocketDurableObject", () => {
         ].map((type) => (
           durable.webSocketMessage(
             ws as any,
-            JSON.stringify({ type, channelId: "chan-1" }),
+            JSON.stringify({ type, channelId: "chan-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
           )
         ))
         await flushAsyncWork()

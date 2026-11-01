@@ -1,3 +1,5 @@
+import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import faroPackage from "@grafana/faro-web-sdk/package.json"
 import { afterEach, expect, it, vi } from "vitest"
 import { act } from "@/test/react-dom-harness"
 import type { Faro } from "@grafana/faro-web-sdk"
@@ -23,7 +25,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
     const url = String(_url instanceof Request ? _url.url : _url)
     if (url === "https://collector.example/collect/public" && options?.body) sent.push(JSON.parse(String(options.body)))
     if (url === "https://collector.example/collect/public") return new Response(null, { status: collectorStatus })
-    return url.endsWith("/api/community/channels/private/messages") ? new Response("{}", { status: 201 }) : new Response(null, { status: 204 })
+    return url.endsWith("/api/community/channels/private/messages") ? new Response("{}", { status: 201, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } }) : new Response(null, { status: 204, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
   }))
   const { bootstrapObservability, setTelemetryUser } = await import("./client")
   const { emitTelemetry, telemetryGeneration, isTelemetryEligible } = await import("./telemetry")
@@ -49,7 +51,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(JSON.stringify(sent)).toContain("business.result")
   expect(sent.length).toBeGreaterThan(0)
   expect(sent.some(body => (body as { events?: Array<{ name: string }> }).events?.some(event => event.name === "session_start"))).toBe(true)
-  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: "2.12.1" } } })
+  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: faroPackage.version } } })
   const controls = document.createElement("div")
   controls.innerHTML = '<a href="/c/me/machines">Machines</a><button>Command</button>'
   document.body.append(controls)
@@ -84,7 +86,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(JSON.stringify(sent.slice(beforeRecovery))).not.toContain("delivery_failure_count")
   controls.remove()
   const generation = telemetryGeneration()
-  emitTelemetry("business.result", { action_name: "message.edit", outcome: "success" })
+  emitTelemetry("business.result", { action_name: "message.mark", outcome: "success" })
   const beforeAccount = sent.length
   setTelemetryUser("account-c")
   await vi.waitFor(() => {
@@ -96,7 +98,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(telemetryGeneration()).toBeGreaterThan(generation)
   emitTelemetry("business.result", { action_name: "message.pin", outcome: "success" })
   await vi.advanceTimersByTimeAsync(1500)
-  expect(JSON.stringify(sent.slice(beforeAccount))).not.toContain("message.edit")
+  expect(JSON.stringify(sent.slice(beforeAccount))).not.toContain("message.mark")
   expect(JSON.stringify(sent.slice(beforeAccount))).toContain("message.pin")
   expect((native.vitals as { initialize: unknown }).initialize).toBe(native.initialize)
   expect(native.faro!.instrumentations.instrumentations.filter(item => item.name.endsWith("instrumentation-web-vitals"))).toHaveLength(1)
@@ -132,7 +134,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(spans.some(span => span.name === "navigation" && JSON.stringify(span).includes(first.id) && JSON.stringify(span).includes(extended))).toBe(true)
   const { apiFetchResponse } = await import("@/lib/api/client")
   const beforeRequests = sent.length
-  const one = startAction("message.edit")!, two = startAction("message.pin")!
+  const one = startAction("message.mark")!, two = startAction("message.pin")!
   const firstContext = one.span!.spanContext(), secondContext = two.span!.spanContext()
   await Promise.all([
     apiFetchResponse("/api/community/bots", { observation: { action: one, reason: "command" } }),
@@ -166,7 +168,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(child).toMatchObject({ name: "POST /api/community/channels/[id]/messages", kind: 3, traceId: dmContext.traceId, parentSpanId: dmContext.spanId })
   expect(attributes(child)).toMatchObject({ "http.request.method": "POST", "http.response.status_code": "201", session_id: extended })
   expect(JSON.stringify(sent.slice(beforeDm))).not.toContain("fixture-private-body")
-  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: "2.12.1" } } })
+  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: faroPackage.version } } })
   consent("denied")
   const size = sent.length
   emitTelemetry("business.result", { outcome: "success" })

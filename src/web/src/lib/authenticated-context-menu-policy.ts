@@ -138,6 +138,7 @@ export function contextMenuDisposition({
 }): ContextMenuDisposition {
   const path = contextMenuElementPath(event)
   if (isEditableContextPath(path) || hasNativeContextMenuEscape(path)) return "native"
+  if (path.some((element) => element.closest('[data-message-context-menu="true"]'))) return "product"
   return selectionContainsClientPoint(selection, ownerDocument, event)
     ? "native"
     : "product"

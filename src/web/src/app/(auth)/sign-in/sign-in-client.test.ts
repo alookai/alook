@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import { SignInEmailField, SignInOtpField } from "./sign-in-fields"
 
-describe("sign-in field errors", () => {
-  it("renders an email error once after its input and links the input to it", () => {
+describe("sign-in field errors and focus policy", () => {
+  it("renders an email error once after its input, hides the visual label for screen readers, and omits initial autofocus", () => {
     const html = renderToStaticMarkup(createElement(SignInEmailField, {
       email: "person@example.com",
       error: "Failed to send code",
@@ -16,6 +16,8 @@ describe("sign-in field errors", () => {
     expect(html.indexOf('id="email"')).toBeLessThan(html.indexOf('id="sign-in-email-error"'))
     expect(html).toContain('aria-invalid="true"')
     expect(html).toContain('aria-describedby="sign-in-email-error"')
+    expect(html).toContain("sr-only")
+    expect(html.toLowerCase()).not.toContain("autofocus")
   })
 
   it("renders an OTP error once after the six slots and links the OTP input to it", () => {

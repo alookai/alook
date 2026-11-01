@@ -1,3 +1,5 @@
+import type { CommunityActorHandler } from "@/lib/middleware/community-actor"
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import {
   isStoredChannelType,
@@ -8,7 +10,7 @@ import { getDb, getPrimaryDb } from "@/lib/db"
 import { listForumTagsForActor, mutateForumTagsForActor } from "@/lib/community/forum-tag-operations"
 import { listReactionsForActor, removeReactionForActor, setReactionForActor } from "@/lib/community/reaction-operations"
 import { resolveMessageRefForBot } from "@/lib/community/resolve-message-ref"
-import { requireBot, withCommunityActor } from "@/lib/middleware/community-actor"
+import { requireBot, communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { queries } from "@alook/shared"
 
@@ -68,7 +70,7 @@ function unsupportedProperty(type: PropertyType, channelType: string, capabiliti
   }, 400)
 }
 
-export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const gate = requireBot(ctx.actor)
   if (!gate.ok) return gate.response
   if (ctx.params?.id !== "resolve") return writeError("not found", 404)
@@ -109,7 +111,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   return writeJSON({ capabilities, properties })
 })
 
-async function mutate(req: NextRequest, ctx: Parameters<Parameters<typeof withCommunityActor>[0]>[1], action: "set" | "remove") {
+async function mutate(req: NextRequest, ctx: Parameters<CommunityActorHandler>[1], action: "set" | "remove") {
   const gate = requireBot(ctx.actor)
   if (!gate.ok) return gate.response
   if (ctx.params?.id !== "resolve") return writeError("not found", 404)
@@ -186,5 +188,5 @@ async function mutate(req: NextRequest, ctx: Parameters<Parameters<typeof withCo
   return writeJSON({ type: "emoji", value: result.value.emoji, changed: result.value.changed })
 }
 
-export const PUT = withCommunityActor((req, ctx) => mutate(req, ctx, "set"))
-export const DELETE = withCommunityActor((req, ctx) => mutate(req, ctx, "remove"))
+export const PUT = withAuth(communityActorPolicy(), (req, ctx) => mutate(req, ctx, "set"))
+export const DELETE = withAuth(communityActorPolicy(), (req, ctx) => mutate(req, ctx, "remove"))

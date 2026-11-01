@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "./business-schema-version";
 import { z } from "zod";
 import {
   communityWsEventSchemaForContract,
@@ -13,21 +14,14 @@ export const MESSAGE_DELIVERY_MAX_USERS = 1_000;
 export const MESSAGE_DELIVERY_BODY_MAX_BYTES = 837_347;
 export const MESSAGE_DELIVERY_MAX_EVENTS_PER_USER = 5;
 
-export type MessageDeliveryMemberAdded = {
-  userId: string;
-  serverId: string;
-  channelId: string;
-};
-
 export type MessageDeliveryBatch = {
-  communityContract?: 3;
+  communityContract: typeof BUSINESS_SCHEMA_VERSION;
   messageId: string;
   messageEvent: CommunityMessageCreate;
   contentUserIds: string[];
   unreadPlainUserIds: string[];
   unreadMentionUserIds: string[];
   mentionUserIds: string[];
-  memberAdded?: MessageDeliveryMemberAdded;
   joinedParticipantUserIds?: string[];
   rosterRefreshUserId?: string;
   parentProjection?: CommunityChildChannelUpdate;
@@ -38,21 +32,14 @@ export type MessageDeliveryPartial = { failedUserIds: string[] };
 
 const target = z.string().refine(isValidCommunityUserTarget);
 const targetList = z.array(target).max(MESSAGE_DELIVERY_MAX_USERS);
-const memberAddedSchema = z.strictObject({
-  userId: target,
-  serverId: z.string().min(1),
-  channelId: z.string().min(1),
-});
-
 const batchShape = z.strictObject({
-  communityContract: z.literal(3).optional(),
+  communityContract: z.literal(BUSINESS_SCHEMA_VERSION),
   messageId: z.string().min(1),
   messageEvent: z.unknown(),
   contentUserIds: targetList,
   unreadPlainUserIds: targetList,
   unreadMentionUserIds: targetList,
   mentionUserIds: targetList,
-  memberAdded: memberAddedSchema.optional(),
   joinedParticipantUserIds: targetList.optional(),
   rosterRefreshUserId: target.optional(),
   parentProjection: z.unknown().optional(),
@@ -75,7 +62,7 @@ export function parseMessageDeliveryBatch(value: unknown): MessageDeliveryBatchP
   const outer = batchShape.safeParse(value);
   if (!outer.success) return { ok: false, reason: "invalid-payload" };
   const data = outer.data;
-  const schema = communityWsEventSchemaForContract(data.communityContract ?? 2);
+  const schema = communityWsEventSchemaForContract(data.communityContract);
   const message = schema.safeParse(data.messageEvent);
   if (!message.success || message.data.type !== "community:message.create") {
     return { ok: false, reason: "invalid-payload" };
@@ -120,17 +107,6 @@ export function parseMessageDeliveryBatch(value: unknown): MessageDeliveryBatchP
   if (data.unreadPlainUserIds.some((id) => unreadMention.has(id))) {
     return { ok: false, reason: "invalid-payload" };
   }
-  if (data.memberAdded) {
-    if (
-      !content.has(data.memberAdded.userId)
-      || message.data.serverId === undefined
-      || data.memberAdded.channelId !== message.data.channelId
-      || data.memberAdded.serverId !== message.data.serverId
-    ) {
-      return { ok: false, reason: "invalid-payload" };
-    }
-  }
-
   if ((data.joinedParticipantUserIds === undefined) !== (data.rosterRefreshUserId === undefined)
     || (data.joinedParticipantUserIds && (hasDuplicates(data.joinedParticipantUserIds)
       || !isSubset(data.joinedParticipantUserIds, content) || !message.data.serverId))) return { ok: false, reason: "invalid-payload" };
@@ -146,14 +122,13 @@ export function parseMessageDeliveryBatch(value: unknown): MessageDeliveryBatchP
   return {
     ok: true,
     batch: {
-      ...(data.communityContract === 3 ? { communityContract: 3 } : {}),
+      communityContract: BUSINESS_SCHEMA_VERSION,
       messageId: data.messageId,
       messageEvent: message.data,
       contentUserIds: data.contentUserIds,
       unreadPlainUserIds: data.unreadPlainUserIds,
       unreadMentionUserIds: data.unreadMentionUserIds,
       mentionUserIds: data.mentionUserIds,
-      ...(data.memberAdded ? { memberAdded: data.memberAdded } : {}),
       ...(data.joinedParticipantUserIds ? { joinedParticipantUserIds: data.joinedParticipantUserIds, rosterRefreshUserId: data.rosterRefreshUserId } : {}),
       ...(parentProjection ? { parentProjection } : {}),
       ...(data.parentProjectionUserIds

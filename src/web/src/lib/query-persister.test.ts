@@ -1,3 +1,4 @@
+import { messageResourceFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
 import "fake-indexeddb/auto"
 import { describe, expect, it, beforeEach } from "vitest"
 import { del, get, set } from "idb-keyval"
@@ -41,7 +42,7 @@ describe("shouldPersistQueryKey", () => {
     expect(shouldPersistQueryKey(communityKeys.servers())).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.folders())).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.dms())).toBe(false)
-    expect(shouldPersistQueryKey(communityKeys.server("srv_1"))).toBe(false)
+    expect(shouldPersistQueryKey(communityKeys.server("srv_1"))).toBe(true)
   })
 
   it("does NOT persist channel entry qualification", () => {
@@ -59,8 +60,8 @@ describe("shouldPersistQueryKey", () => {
   it("does NOT persist presence, members, sentinels, or unrelated account data", () => {
     expect(shouldPersistQueryKey(communityKeys.presence("srv_1"))).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.members("srv_1"))).toBe(false)
-    expect(shouldPersistQueryKey(communityKeys.server("__none__"))).toBe(false)
-    expect(shouldPersistQueryKey(communityKeys.server("__pending__"))).toBe(false)
+    expect(shouldPersistQuery(communityKeys.server("__none__"), undefined)).toBe(false)
+    expect(shouldPersistQuery(communityKeys.server("__pending__"), undefined)).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.friends())).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.inbox())).toBe(false)
   })
@@ -74,7 +75,7 @@ describe("shouldPersistQueryKey", () => {
     expect(shouldPersistQueryKey(communityKeys.forumSidebarThreads("srv_1"))).toBe(true)
     expect(shouldPersistQueryKey(communityKeys.channelMeta("srv_1", "thread_1"))).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.message("opener_1"))).toBe(false)
-    expect(shouldPersistQueryKey(communityKeys.channelRefDirectory())).toBe(false)
+    expect(shouldPersistQuery(communityKeys.channelRefDirectory(), undefined)).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.presence("srv_1"))).toBe(false)
     expect(shouldPersistQueryKey(
       communityKeys.communityDbCollection("u_1", "channels"),
@@ -172,10 +173,18 @@ function validServerDetail(id = "srv_1") {
 
 async function readPersistedBlob(userId: string | null): Promise<PersistedClient> {
   const raw = await get<string>(
-    `alook:qc:cache:${userId ?? "anon"}:client`,
+    `${PERSIST_CACHE_PREFIX}:${userId ?? "anon"}:client`,
   )
   if (!raw) throw new Error("no persisted blob")
   return JSON.parse(raw) as PersistedClient
+}
+
+async function injectQualifiedSnapshot(userId: string, snapshot: PersistedClient) {
+  const owner = createIdbPersister(userId)
+  await owner.persistClient({ ...snapshot, clientState: { mutations: [], queries: [] } })
+  const key = `${PERSIST_CACHE_PREFIX}:${userId}:client`
+  const current = JSON.parse((await get<string>(key))!)
+  await set(key, JSON.stringify({ ...current, ...snapshot }))
 }
 
 describe("createIdbPersister — serialize filter", () => {
@@ -298,15 +307,15 @@ describe("createIdbPersister — serialize filter", () => {
     expect(blob.clientState.queries.map((query) => query.queryKey)).toEqual([])
   })
 
-  it("round trips full nullable raw resources through qualified version 6", async () => {
+  it("round trips full nullable raw resources through qualified current version", async () => {
     const qc = new QueryClient()
-    const channel = canonicalChannelRow({ id: "dm_1", type: "dm", serverId: null, categoryId: null, name: null, topic: "Raw topic", parentChannelId: null, parentMessageId: null, creatorId: null, position: 0, archived: false, createdAt: "2026-10-11T00:00:00Z", lastMessageAt: null, messageCount: 1, resourceComplete: true })
-    const message = { id: "raw", channelId: channel.id, seq: 1, type: "chat", authorId: "peer", authorName: "Peer", authorAvatar: null, authorAvatarVersion: 4, createdAt: channel.createdAt, content: "raw", replyToId: null, clientNonce: "nonce", resourceComplete: true,
+    const channel = canonicalChannelRow({ id: "dm_1", type: "dm", serverId: null, categoryId: null, name: null, topic: "Raw topic", parentChannelId: null, parentMessageId: null, creatorId: null, position: 0, archived: false, createdAt: "2026-10-11T00:00:00Z", lastMessageAt: null, messageCount: 1 })
+    const message = { id: "raw", channelId: channel.id, seq: 1, type: "chat", authorId: "peer", authorName: "Peer", authorAvatar: null, authorAvatarVersion: 4, createdAt: channel.createdAt, content: "raw", replyToId: null, clientNonce: "nonce",
       attachments: [{ id: "second", name: "raw", url: "/raw", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null }, { id: "first", name: "image", url: "/image", thumbnailUrl: null, contentType: "image/png", sizeBytes: 1024, width: 20, height: 30 }], embeds: [null, { unsupported: true }] }
     const data: Record<string, unknown[]> = {
       channels: [channel], messages: [message],
-      profiles: [{ id: "peer", name: "Peer", discriminator: "0002", avatar: null, avatarVersion: 4, identityComplete: true }],
-      channelMemberships: [{ id: "dm_1:u_1:access", channelId: "dm_1", userId: "u_1", relation: "access" }],
+      profiles: [{ id: "peer", name: "Peer", discriminator: "0002", avatar: null, avatarVersion: 4 }],
+      channelMemberships: [{ id: "dm_1:u_1:access", channelId: "dm_1", userId: "u_1", relation: "access", source: "explicit" }],
     }
     const keys = Object.entries(data).map(([name, rows]) => {
       const key = communityKeys.communityDbCollection("u_1", name)
@@ -315,8 +324,8 @@ describe("createIdbPersister — serialize filter", () => {
     })
     const owner = createIdbPersister("u_1")
     await owner.persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: { mutations: [], queries: keys.map((queryKey) => ({ queryKey, queryHash: JSON.stringify(queryKey), state: qc.getQueryState(queryKey)! })) } })
-    const raw = JSON.parse((await get<string>("alook:qc:cache:u_1:client"))!)
-    expect(raw.version).toBe(6)
+    const raw = JSON.parse((await get<string>(`${PERSIST_CACHE_PREFIX}:u_1:client`))!)
+    expect(raw.version).toBe(PERSIST_VERSION)
     const restored = await createIdbPersister("u_1").restoreClient()
     const collection = (name: string) => restored!.clientState.queries.find((query) => query.queryKey[3] === name)!.state.data
     expect(collection("channels")).toEqual([expect.objectContaining(channel)])
@@ -341,8 +350,8 @@ describe("createIdbPersister — serialize filter", () => {
       creatorId: null,
       position: 0,
       archived: false,
+      topic: "", createdAt: "2026-09-01T00:00:00.000Z", messageCount: 0,
       muted: false,
-      unread: false,
       tags: [],
       pending: false,
       lastMessageAt: null,
@@ -400,7 +409,7 @@ describe("createIdbPersister — serialize filter", () => {
       },
     )
     const collectionData = {
-      servers: Array.from({ length: 7 }, (_, index) => ({
+      servers: Array.from({ length: 7 }, (_, index) => serverResourceFixture({ position: index,
         id: `srv_${index}`,
         name: `Server ${index}`,
         discriminator: "0001",
@@ -409,8 +418,6 @@ describe("createIdbPersister — serialize filter", () => {
         icon: null,
         official: false,
         isOwner: false,
-        unread: false,
-        mentions: 0,
       })),
       channels: [...dmChannels, ...serverChannels],
       categories: Array.from({ length: 7 }, (_, index) => ({
@@ -419,23 +426,23 @@ describe("createIdbPersister — serialize filter", () => {
         name: "Channels",
         position: 0,
         private: false,
-        pending: false,
+        creatorId: null, pending: false,
       })),
-      messages,
+      messages: messages.map(row => messageResourceFixture(row)),
       profiles: [
         ...Array.from({ length: MAX_PERSISTED_MESSAGE_SCOPES + 2 }, (_, index) => ({
           id: `author_${index}`,
           name: `Author ${index}`,
           discriminator: "0001",
           avatar: "A",
-          avatarVersion: 0, identityComplete: true,
+          avatarVersion: 0,
         })),
         ...Array.from({ length: 7 }, (_, index) => ({
           id: `owner_${index}`,
           name: `Owner ${index}`,
           discriminator: "0001",
           avatar: "O",
-          avatarVersion: 0, identityComplete: true,
+          avatarVersion: 0,
         })),
         ...[
           "approval_other", "approval_bot", "approval_waiting", "reply_author",
@@ -446,23 +453,23 @@ describe("createIdbPersister — serialize filter", () => {
             name: userId,
             discriminator: "0001",
             avatar: "P",
-            avatarVersion: 0, identityComplete: true,
+            avatarVersion: 0,
           }),
         ),
-        { id: "u_1", name: "Viewer", discriminator: "0001", avatar: "V", avatarVersion: 0, identityComplete: true },
-        { id: "orphan", name: "Orphan", discriminator: "0001", avatar: "O", avatarVersion: 0, identityComplete: true },
+        { id: "u_1", name: "Viewer", discriminator: "0001", avatar: "V", avatarVersion: 0 },
+        { id: "orphan", name: "Orphan", discriminator: "0001", avatar: "O", avatarVersion: 0 },
       ],
       serverMemberships: [
-        { id: "srv_6:u_1", serverId: "srv_6", userId: "u_1", role: "member", viewer: true },
-        { id: "srv_6:roster_only", serverId: "srv_6", userId: "roster_only", role: "member", viewer: false },
+        { id: "srv_6:u_1", serverId: "srv_6", userId: "u_1", memberId: "member-viewer", role: "member", viewer: true },
+        { id: "srv_6:roster_only", serverId: "srv_6", userId: "roster_only", memberId: "member-roster", role: "member", viewer: false },
       ],
       channelMemberships: [
-        { id: "dm_0:u_1:access", channelId: "dm_0", userId: "u_1", relation: "access" },
-        { id: "dm_0:dm_peer:access", channelId: "dm_0", userId: "dm_peer", relation: "access" },
-        { id: "dm_0:notify_only:notify", channelId: "dm_0", userId: "notify_only", relation: "notify" },
-        { id: "ch_6:u_1:access", channelId: "ch_6", userId: "u_1", relation: "access" },
-        { id: "ch_6:u_1:notify", channelId: "ch_6", userId: "u_1", relation: "notify" },
-        { id: "ch_6:roster_only:access", channelId: "ch_6", userId: "roster_only", relation: "access" },
+        { id: "dm_0:u_1:access", channelId: "dm_0", userId: "u_1", relation: "access", source: "explicit" },
+        { id: "dm_0:dm_peer:access", channelId: "dm_0", userId: "dm_peer", relation: "access", source: "added" },
+        { id: "dm_0:notify_only:notify", channelId: "dm_0", userId: "notify_only", relation: "notify", source: "spoke" },
+        { id: "ch_6:u_1:access", channelId: "ch_6", userId: "u_1", relation: "access", source: "explicit" },
+        { id: "ch_6:u_1:notify", channelId: "ch_6", userId: "u_1", relation: "notify", source: "spoke" },
+        { id: "ch_6:roster_only:access", channelId: "ch_6", userId: "roster_only", relation: "access", source: "explicit" },
       ],
       readStates: [
         { channelId: "ch_0", lastReadMessageId: "old", lastReadAt: "2026-09-01T00:00:00.000Z", lastReadSeq: 1 },
@@ -521,7 +528,7 @@ describe("createIdbPersister — serialize filter", () => {
       position: row.position,
     }))).toEqual(Array.from({ length: 7 }, (_, index) => ({
       id: `srv_${index}`,
-      position: undefined,
+      position: index,
     })))
     expect((collection("channels") as Array<{ serverId: string | null }>).filter(
       (row) => row.serverId !== null,
@@ -549,10 +556,10 @@ describe("createIdbPersister — serialize filter", () => {
       expect.objectContaining({ userId: "u_1", viewer: true }),
     ])
     expect(collection("channelMemberships")).toEqual(expect.arrayContaining([
-      expect.objectContaining({ channelId: "dm_0", userId: "u_1", relation: "access" }),
-      expect.objectContaining({ channelId: "dm_0", userId: "dm_peer", relation: "access" }),
-      expect.objectContaining({ channelId: "ch_6", userId: "u_1", relation: "access" }),
-      expect.objectContaining({ channelId: "ch_6", userId: "u_1", relation: "notify" }),
+      expect.objectContaining({ channelId: "dm_0", userId: "u_1", relation: "access", source: "explicit" }),
+      expect.objectContaining({ channelId: "dm_0", userId: "dm_peer", relation: "access", source: "added" }),
+      expect.objectContaining({ channelId: "ch_6", userId: "u_1", relation: "access", source: "explicit" }),
+      expect.objectContaining({ channelId: "ch_6", userId: "u_1", relation: "notify", source: "spoke" }),
     ]))
     expect(collection("channelMemberships")).toHaveLength(4)
     expect((collection("readStates") as Array<{ channelId: string }>).map((row) => row.channelId))
@@ -581,7 +588,7 @@ describe("createIdbPersister — serialize filter", () => {
         })),
       },
     }
-    await set("alook:qc:cache:u_1:client", JSON.stringify({ ...injected, version: PERSIST_VERSION, channelFences: [] }))
+    await injectQualifiedSnapshot("u_1", injected)
     expect((await createIdbPersister("u_1").restoreClient())?.clientState.queries).toEqual([])
   })
 
@@ -642,7 +649,7 @@ describe("createIdbPersister — serialize filter", () => {
         }],
       },
     }
-    await set("alook:qc:cache:u_1:client", JSON.stringify({ ...injected, version: PERSIST_VERSION, channelFences: [] }))
+    await injectQualifiedSnapshot("u_1", injected)
 
     expect((await createIdbPersister("u_1").restoreClient())?.clientState.queries).toEqual([])
   })
@@ -713,7 +720,7 @@ describe("createIdbPersister — user scoping", () => {
     await clearPersistedCache("u_alice")
 
     // Alice's blob is gone but Bob's is untouched.
-    expect(await get(`alook:qc:cache:u_alice:client`)).toBeUndefined()
+    expect(await get(`${PERSIST_CACHE_PREFIX}:u_alice:client`)).toBeUndefined()
     const bobBlob = await readPersistedBlob("u_bob")
     expect(bobBlob.timestamp).toBe(2)
   })
@@ -728,7 +735,7 @@ describe("createIdbPersister — user scoping", () => {
 
     await persister.removeClient()
 
-    expect(await get("alook:qc:cache:u_remove:client")).toBeUndefined()
+    expect(await get(`${PERSIST_CACHE_PREFIX}:u_remove:client`)).toBeUndefined()
   })
 
   it("blocks a delayed writer created before clear", async () => {
@@ -739,7 +746,7 @@ describe("createIdbPersister — user scoping", () => {
       buster: PERSIST_BUSTER,
       clientState: { mutations: [], queries: [] },
     })
-    expect(await get(`alook:qc:cache:u_alice:client`)).toBeUndefined()
+    expect(await get(`${PERSIST_CACHE_PREFIX}:u_alice:client`)).toBeUndefined()
   })
 })
 
@@ -755,7 +762,8 @@ describe("all-account persisted cache management", () => {
     const persister = createIdbPersister("u-version-source")
     const client = { timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: { mutations: [], queries: [] } }
     await persister.persistClient(client)
-    expect(await get(`${PERSIST_CACHE_PREFIX}:u-version-source:client`)).toBe(JSON.stringify({ ...client, version: PERSIST_VERSION, channelFences: [] }))
+    const raw = JSON.parse((await get<string>(`${PERSIST_CACHE_PREFIX}:u-version-source:client`))!)
+    expect(raw).toEqual({ ...client, version: PERSIST_VERSION, ownerEpochs: { device: expect.any(String), account: expect.any(String) }, channelFences: [] })
     await expect(persister.restoreClient()).resolves.toEqual(client)
   })
 

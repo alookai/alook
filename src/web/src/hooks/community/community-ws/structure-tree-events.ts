@@ -14,6 +14,7 @@ import type {
   CommunityServerDelete,
   CommunityServerUpdate,
 } from "@alook/shared"
+import { supportsSidebarThreads } from "@/lib/community/forum-sidebar"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -25,7 +26,6 @@ import {
   isForumSidebarParent,
   patchForumSidebarActivityExact,
   reconcileForumSidebarArchiveTag,
-  removeForumSidebarUnreadChild,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import type { StructureTreeEventContext } from "@/hooks/community/community-ws/handler-context"
 import {
@@ -36,17 +36,18 @@ import {
   invalidateChannelMessages,
   invalidateForumSidebar,
   invalidateChannelRefDirectory,
+  invalidateChannelRefTargets,
   invalidateInvites,
   invalidateServerDetail,
   invalidateServersList,
   invalidateThreads,
 } from "./invalidation-projections"
-import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 
 export function handleChildChannelCreate(event: CommunityChildChannelCreate, { queryClient, projection }: StructureTreeEventContext) {
-  const parent = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && row.type === "forum")
+  invalidateChannelRefTargets(projection)
+  const parent = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && supportsSidebarThreads(row.type))
   if (parent?.serverId) invalidateForumSidebar(projection, parent.serverId)
-  invalidateThreads(projection, event.parentChannelId)
+  projection.fence("threads", { queryKey: communityKeys.threads(event.parentChannelId) })
   if (event.parentMessageId) invalidateChannelMessages(projection, event.parentChannelId)
 }
 
@@ -56,22 +57,22 @@ export function handleChildChannelUpdate(
 ) {
   invalidateThreads(projection, event.parentChannelId)
   const changes = event.changes
+  if (changes.name !== undefined || changes.archived !== undefined || changes.tags !== undefined) invalidateChannelRefTargets(projection)
   if (changes.tags !== undefined) {
     projection.fence("threads", {
       queryKey: communityKeys.threads(event.parentChannelId),
     })
     invalidateChannelMessages(projection, event.parentChannelId)
-    projection.invalidate("forum-post-tags", {
+    projection.fence("forum-post-tags", {
       queryKey: communityKeys.forumTags(event.parentChannelId),
     })
   }
-  const sidebarServerId = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && row.type === "forum")?.serverId
+  const sidebarServerId = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && supportsSidebarThreads(row.type))?.serverId
   if (
     sidebarServerId &&
     isForumSidebarParent(queryClient, sidebarServerId, event.parentChannelId)
   ) {
     if (changes.archived === true || changes.archived === false) {
-      removeForumSidebarUnreadChild(queryClient, sidebarServerId, event.channelId)
       void reconcileForumSidebarArchiveTag(
         queryClient,
         sidebarServerId,
@@ -172,10 +173,6 @@ export function handleChannelEvent(
         exact: true,
       })
     } else {
-      getActiveAccountUnreadProjection(queryClient).retireAccessScope({
-        kind: "channel",
-        channelId: event.channelId,
-      })
       const registry = getCommunityDbRegistry(queryClient)
       if (registry) retireCommunityChannelReading(registry, event.channelId, { reason: "resource-deleted", serverId: event.serverId })
     }

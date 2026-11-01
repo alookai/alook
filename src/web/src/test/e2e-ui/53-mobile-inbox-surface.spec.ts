@@ -1,3 +1,4 @@
+import { communityFixtureFetch } from "./_fixtures/business-contract"
 import { expectInertBackground } from "./_fixtures/inert-background"
 import type { Page, Request } from "@playwright/test"
 import { expect, test, type CaseActors } from "./_fixtures/case-fixture"
@@ -36,11 +37,11 @@ type BorderGeometry = Record<"top" | "right" | "bottom" | "left", {
 
 async function removeServerChannels(serverId: string, sessionCookie: CaseActors["sessionCookie"]) {
   const headers = { Cookie: sessionCookie("alice"), Origin: WEB_URL }
-  const response = await fetch(`${WEB_URL}/api/community/servers/${serverId}/channels`, { headers })
+  const response = await communityFixtureFetch(`${WEB_URL}/api/community/servers/${serverId}/channels`, { headers })
   if (!response.ok) throw new Error(`list server channels failed (${response.status})`)
   const body = await response.json() as { channels: Array<{ id: string }> }
   for (const channel of body.channels) {
-    const deleted = await fetch(`${WEB_URL}/api/community/channels/${channel.id}`, {
+    const deleted = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channel.id}`, {
       method: "DELETE",
       headers,
     })

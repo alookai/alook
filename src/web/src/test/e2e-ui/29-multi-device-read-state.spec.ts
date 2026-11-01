@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
 import type { Route } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
@@ -113,9 +114,9 @@ test("one human account converges read state across two browser profiles", async
     await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toHaveCount(0)
   }
 
-  const accountSnapshot = async () => await (await deviceB.page.request.get(
-    "/api/community/users/me/read-state",
-  )).json() as {
+  const accountSnapshot = async () => await (await confirmCommunityFixtureApiResponse(deviceB.page.request.get(
+    "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))).json() as {
     revision: number
     readStates: Array<{ channelId: string; lastReadSeq: number }>
   }
@@ -319,9 +320,9 @@ test("one human account converges read state across two browser profiles", async
     expect(events.every((event) => event.inboxChanged && !("readStates" in event))).toBe(true)
   }
 
-  const snapshot = await (await deviceB.page.request.get(
-    "/api/community/users/me/read-state",
-  )).json() as {
+  const snapshot = await (await confirmCommunityFixtureApiResponse(deviceB.page.request.get(
+    "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))).json() as {
     revision: number
     readStates: Array<{ channelId: string; lastReadSeq: number }>
   }
@@ -412,9 +413,9 @@ test("hidden eager channel and DM mounts defer cross-device reads until visible"
     await expect.poll(() => deviceA.page.evaluate(() => document.visibilityState))
       .toBe(state)
   }
-  const accountSnapshot = async () => await (await deviceB.page.request.get(
-    "/api/community/users/me/read-state",
-  )).json() as {
+  const accountSnapshot = async () => await (await confirmCommunityFixtureApiResponse(deviceB.page.request.get(
+    "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))).json() as {
     revision: number
     readStates: Array<{ channelId: string; lastReadSeq: number }>
   }
@@ -565,9 +566,9 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
     await expect.poll(() => deviceA.page.evaluate(() => document.visibilityState))
       .toBe(state)
   }
-  const beforeHidden = await (await deviceA.page.request.get(
-    "/api/community/users/me/read-state",
-  )).json() as {
+  const beforeHidden = await (await confirmCommunityFixtureApiResponse(deviceA.page.request.get(
+    "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))).json() as {
     revision: number
     readStates: Array<{ channelId: string; lastReadSeq: number }>
   }
@@ -596,9 +597,9 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
   await deviceA.page.waitForTimeout(1_000) // hidden active-profile read exclusion window
   expect(hiddenReadResponses).toEqual([])
-  const afterHidden = await (await deviceA.page.request.get(
-    "/api/community/users/me/read-state",
-  )).json() as {
+  const afterHidden = await (await confirmCommunityFixtureApiResponse(deviceA.page.request.get(
+    "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))).json() as {
     revision: number
     readStates: Array<{ channelId: string; lastReadSeq: number }>
   }
@@ -615,9 +616,9 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
   deviceA.page.off("response", trackHiddenReads)
 
-  const beforeUnseen = await (await deviceA.page.request.get(
-    "/api/community/users/me/read-state",
-  )).json() as {
+  const beforeUnseen = await (await confirmCommunityFixtureApiResponse(deviceA.page.request.get(
+    "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))).json() as {
     revision: number
     readStates: Array<{ channelId: string; lastReadSeq: number }>
   }
@@ -648,9 +649,9 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
   await deviceA.page.waitForTimeout(1_000) // unseen-tail read exclusion window
   expect(unseenReadResponses).toEqual([])
-  const afterUnseen = await (await deviceA.page.request.get(
-    "/api/community/users/me/read-state",
-  )).json() as {
+  const afterUnseen = await (await confirmCommunityFixtureApiResponse(deviceA.page.request.get(
+    "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))).json() as {
     revision: number
     readStates: Array<{ channelId: string; lastReadSeq: number }>
   }
@@ -682,10 +683,10 @@ test("forum cards use the ordinary parent cursor while child cursors stay indepe
 
   const alice = await asUser("alice")
   const createEmptyPost = async (label: string) => {
-    const response = await alice.page.request.post(
+    const response = await confirmCommunityFixtureApiResponse(alice.page.request.post(
       `/api/community/channels/${forumId}/messages`,
-      { data: { content: label, nonce: `e2e:${crypto.randomUUID()}:opener` } },
-    )
+      { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, data: { content: label, nonce: `e2e:${crypto.randomUUID()}:opener` } },
+    ))
     expect(response.status()).toBe(201)
     return await response.json() as { threadId: string }
   }
@@ -698,9 +699,9 @@ test("forum cards use the ordinary parent cursor while child cursors stay indepe
   const proxyB = await proxyCommunityWebSockets(deviceB.context)
   await gotoAfterUserWsAuth(deviceB.page, "/c/me")
 
-  const threadsResponse = await deviceA.page.request.get(
-    `/api/community/channels/${forumId}/threads?order=createdAt&limit=50`,
-  )
+  const threadsResponse = await confirmCommunityFixtureApiResponse(deviceA.page.request.get(
+    `/api/community/channels/${forumId}/threads?order=createdAt&limit=50`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))
   expect(threadsResponse.status()).toBe(200)
   const threads = await threadsResponse.json() as {
     threads: Array<{ id: string; parentMessageId: string | null }>
@@ -710,9 +711,9 @@ test("forum cards use the ordinary parent cursor while child cursors stay indepe
   expect(firstOpener).toBeTruthy()
   expect(secondOpener).toBeTruthy()
 
-  const accountSnapshot = async () => await (await deviceA.page.request.get(
-    "/api/community/users/me/read-state",
-  )).json() as {
+  const accountSnapshot = async () => await (await confirmCommunityFixtureApiResponse(deviceA.page.request.get(
+    "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))).json() as {
     revision: number
     readStates: Array<{ channelId: string; lastReadSeq: number }>
   }
@@ -782,10 +783,10 @@ test("forum cards use the ordinary parent cursor while child cursors stay indepe
   expect(forumResponses).toHaveLength(beforeNavigationWrites)
   expect((await accountSnapshot()).revision).toBe(afterVisible.revision)
 
-  const directForumRead = await deviceA.page.request.put(
+  const directForumRead = await confirmCommunityFixtureApiResponse(deviceA.page.request.put(
     `/api/community/channels/${forumId}/read`,
-    { data: { lastReadMessageId: firstOpener } },
-  )
+    { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, data: { lastReadMessageId: firstOpener } },
+  ))
   expect(directForumRead.status()).toBe(200)
   expect(await directForumRead.json()).toMatchObject({ changed: false, revision: afterVisible.revision })
 
@@ -844,14 +845,14 @@ test("human author-send replaces both profiles while notification policy preserv
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(notificationChannelId))).toBeVisible()
 
   const authorStarts = [proxyA.frames.length, proxyB.frames.length]
-  const authorStatus = await deviceA.page.evaluate(async ({ channelId, content }) => {
+  const authorStatus = await deviceA.page.evaluate(async ({ businessHeaders, channelId, content }) => {
     const response = await fetch(`/api/community/channels/${channelId}/messages`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...businessHeaders },
       body: JSON.stringify({ content }),
-    })
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
     return response.status
-  }, { channelId: authorChannelId, content: `bob author send ${stamp}` })
+  }, { ...{ channelId: authorChannelId, content: `bob author send ${stamp}` }, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(authorStatus).toBe(201)
 
   for (const [proxy, start] of [[proxyA, authorStarts[0]], [proxyB, authorStarts[1]]] as const) {
@@ -870,14 +871,14 @@ test("human author-send replaces both profiles while notification policy preserv
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(notificationChannelId))).toBeVisible()
 
   const notificationStarts = [proxyA.frames.length, proxyB.frames.length]
-  const notificationStatus = await deviceA.page.evaluate(async (channelId) => {
+  const notificationStatus = await deviceA.page.evaluate(async ({ value: channelId, businessHeaders }) => {
     const response = await fetch(`/api/community/users/me/notifications/channel/${channelId}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...businessHeaders },
       body: JSON.stringify({ level: "mentions" }),
-    })
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
     return response.status
-  }, notificationChannelId)
+  }, { value: notificationChannelId, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(notificationStatus).toBe(200)
 
   for (const [proxy, start] of [[proxyA, notificationStarts[0]], [proxyB, notificationStarts[1]]] as const) {
@@ -905,23 +906,23 @@ test("human author-send replaces both profiles while notification policy preserv
   expect(notificationEvents[0].revision).toBe(notificationEvents[1].revision)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(notificationChannelId))).toHaveCount(0)
 
-  const writerSnapshot = await (await deviceB.page.request.get(
-    "/api/community/users/me/read-state",
-  )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
+  const writerSnapshot = await (await confirmCommunityFixtureApiResponse(deviceB.page.request.get(
+    "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
   expect(writerSnapshot.readStates.find((state) => state.channelId === authorChannelId)?.lastReadSeq)
     .toBeGreaterThan(0)
   expect(writerSnapshot.readStates.find((state) => state.channelId === notificationChannelId)?.lastReadSeq ?? 0)
     .toBe(0)
 
   const restoreStarts = [proxyA.frames.length, proxyB.frames.length]
-  const restoreStatus = await deviceA.page.evaluate(async (channelId) => {
+  const restoreStatus = await deviceA.page.evaluate(async ({ value: channelId, businessHeaders }) => {
     const response = await fetch(`/api/community/users/me/notifications/channel/${channelId}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...businessHeaders },
       body: JSON.stringify({ level: "all" }),
-    })
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
     return response.status
-  }, notificationChannelId)
+  }, { value: notificationChannelId, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(restoreStatus).toBe(200)
 
   for (const [proxy, start] of [[proxyA, restoreStarts[0]], [proxyB, restoreStarts[1]]] as const) {
@@ -948,9 +949,9 @@ test("human author-send replaces both profiles while notification policy preserv
   ]
   expect(restoreEvents[0].revision).toBe(restoreEvents[1].revision)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(notificationChannelId))).toBeVisible()
-  const restoredSnapshot = await (await deviceB.page.request.get(
-    "/api/community/users/me/read-state",
-  )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
+  const restoredSnapshot = await (await confirmCommunityFixtureApiResponse(deviceB.page.request.get(
+    "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
   expect(restoredSnapshot.readStates.find((state) => state.channelId === notificationChannelId)?.lastReadSeq ?? 0)
     .toBe(0)
 })
@@ -977,9 +978,9 @@ test("forum delete broadcasts replacement and removal to both active profiles", 
   await gotoAfterUserWsAuth(deviceB.page, `/c/channels/${serverId}/${forumId}`)
   await expect(deviceB.page.getByTestId(tid.forumThreadCard(deletedChildId))).toBeVisible()
 
-  const threadsResponse = await deviceB.page.request.get(
-    `/api/community/channels/${forumId}/threads?order=createdAt&limit=50`,
-  )
+  const threadsResponse = await confirmCommunityFixtureApiResponse(deviceB.page.request.get(
+    `/api/community/channels/${forumId}/threads?order=createdAt&limit=50`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))
   expect(threadsResponse.status()).toBe(200)
   const threads = (await threadsResponse.json()) as {
     threads: Array<{ id: string; parentMessageId: string | null }>
@@ -989,15 +990,15 @@ test("forum delete broadcasts replacement and removal to both active profiles", 
   expect(priorOpenerId).toBeTruthy()
   expect(deletedOpenerId).toBeTruthy()
 
-  const beforeDeleteSnapshot = await (await deviceB.page.request.get(
-    "/api/community/users/me/read-state",
-  )).json() as { revision: number }
+  const beforeDeleteSnapshot = await (await confirmCommunityFixtureApiResponse(deviceB.page.request.get(
+    "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))).json() as { revision: number }
 
   const starts = [proxyA.frames.length, proxyB.frames.length]
-  const deleteStatus = await deviceA.page.evaluate(async (messageId) => {
-    const response = await fetch(`/api/community/messages/${messageId}`, { method: "DELETE" })
+  const deleteStatus = await deviceA.page.evaluate(async ({ value: messageId, businessHeaders }) => {
+    const response = await fetch(`/api/community/messages/${messageId}`, { headers: businessHeaders, method: "DELETE" }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
     return response.status
-  }, deletedOpenerId!)
+  }, { value: deletedOpenerId!, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(deleteStatus).toBe(204)
 
   for (const [proxy, start] of [[proxyA, starts[0]], [proxyB, starts[1]]] as const) {
@@ -1015,9 +1016,9 @@ test("forum delete broadcasts replacement and removal to both active profiles", 
   expect(eventsByProfile.flat().every((event) => !("readStates" in event))).toBe(true)
   const profileBRevisions = new Set(eventsByProfile[1].map((event) => event.revision))
   expect(eventsByProfile[0].some((event) => profileBRevisions.has(event.revision))).toBe(true)
-  const deletedSnapshot = await (await deviceB.page.request.get(
-    "/api/community/users/me/read-state",
-  )).json() as {
+  const deletedSnapshot = await (await confirmCommunityFixtureApiResponse(deviceB.page.request.get(
+    "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))).json() as {
     revision: number
     readStates: Array<{ channelId: string; lastReadMessageId: string | null }>
   }

@@ -22,7 +22,7 @@ export type CapturedConnectionFrame = {
   direction: "client-to-server" | "server-to-client"
   type: "auth" | "auth.ok" | "connection.ping" | "connection.pong" | "raw.ping" | "raw.pong"
   nonce?: string
-  communityContract?: 1 | 2
+  communityContract?: number
   at: number
 }
 
@@ -104,7 +104,7 @@ function parseConnectionFrame(
       direction,
       type: value.type,
       ...(typeof value.nonce === "string" ? { nonce: value.nonce } : {}),
-      ...(value.communityContract === 1 || value.communityContract === 2 ? { communityContract: value.communityContract } : {}),
+      ...(typeof value.communityContract === "number" ? { communityContract: value.communityContract } : {}),
       at: Date.now(),
     }
   } catch {

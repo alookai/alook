@@ -16,7 +16,7 @@ it("reveals the home-logo faces over the combined hero brand and restores them o
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   }));
-  render(<HeroSection isLoggedIn={false} showClipboard={false} showCommunityLinks={false} />);
+  render(<HeroSection isLoggedIn={false} showCommunityLinks={false} />);
   const brand = screen.getByRole("link", { name: "Alook home" });
   const logo = screen.getByRole("img", { name: "Alook" });
   expect(logo.parentElement).toBe(brand);

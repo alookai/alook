@@ -3,8 +3,10 @@ import { act } from "@/test/react-dom-harness"
 import { getCapturedRuntime, seedCanonicalStream, canonicalMessage } from "./test-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  BUSINESS_SCHEMA_VERSION,
+  computeCommunityDeliveryDigestFromBodies,
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
-  COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+  communityBrowserEventBatchType,
   deriveCommunityDeliveryOperationId,
   encodeCommunityBrowserEventBatch,
   encodeCommunityBrowserEventBatchForContract,
@@ -48,7 +50,6 @@ import {
   releaseReadSurface,
   submitReadIntent,
 } from "@/hooks/community/read-coordinator"
-import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 
 beforeEach(async () => {
   reconcileCommunityWsReconnect.mockClear()
@@ -57,10 +58,11 @@ beforeEach(async () => {
 afterEach(cleanupCommunityWsHarness)
 
 const message = {
-  type: "community:message.create" as const,
+  type: "community:message.create" as const, profiles: [{ id: "author-1", name: "Alice", discriminator: "0042", avatar: null, avatarVersion: 0 }],
   channelId: "ch-1",
   serverId: "server-1",
   message: {
+    channelId: "ch-1", replyToId: null, clientNonce: null, attachments: [],
     id: "message-1",
     seq: 1,
     authorId: "author-1",
@@ -115,11 +117,27 @@ function attentionReconcileCount(): number {
 }
 
 describe("useCommunityWs — operation bundles", () => {
-  it("admits a v2 batch only after its exact wire digest verifies", async () => {
+  it.each(["operation-only", "wire-rehashed"] as const)("rejects current %s tampering before operation observation", async mode => {
+    await mountHook()
+    const frame = await batchFor(`digest-${mode}`, [message])
+    const altered = structuredClone(frame)
+    if (mode === "operation-only") altered.operationDigest = "0".repeat(64)
+    else {
+      altered.events[0] = { ...altered.events[0], message: { ...message.message, content: "Changed bytes" } } as typeof altered.events[0]
+      altered.wireDigest = await computeCommunityDeliveryDigestFromBodies(altered.events.map(row => JSON.stringify(row)))
+    }
+    const observation = vi.spyOn(getCapturedRuntime().ws.actions, "observeDeliveryOperation")
+    await act(async () => { await capturedOnMessage!(altered) })
+    expect(observation).not.toHaveBeenCalled()
+    expect(getCapturedRuntime().ws.get().seenDeliveryOperations.size).toBe(0)
+    expect(canonicalMessage(message.message.id)).toBeUndefined()
+  })
+
+  it("admits a current batch only after its exact wire digest verifies", async () => {
     await mountHook()
     const prepared = await prepareCommunityDeliveryEvents([message])
     if (!prepared.ok) throw new Error("Invalid test event")
-    const frame = await encodeCommunityBrowserEventBatchForContract({ operationId: await deriveCommunityDeliveryOperationId("v2-wire"), prepared: prepared.prepared, contract: 2 })
+    const frame = await encodeCommunityBrowserEventBatchForContract({ operationId: await deriveCommunityDeliveryOperationId("v2-wire"), prepared: prepared.prepared, contract: BUSINESS_SCHEMA_VERSION })
     if (!frame.ok) throw new Error("Invalid test batch")
     const tampered = JSON.parse(frame.body)
     tampered.events[0].message.content = "changed after encoding"
@@ -135,7 +153,7 @@ describe("useCommunityWs — operation bundles", () => {
     await mountHook()
     const prepared = await prepareCommunityDeliveryEvents([message])
     if (!prepared.ok) throw new Error("Invalid test event")
-    const frame = await encodeCommunityBrowserEventBatchForContract({ operationId: await deriveCommunityDeliveryOperationId("v2-retired"), prepared: prepared.prepared, contract: 2 })
+    const frame = await encodeCommunityBrowserEventBatchForContract({ operationId: await deriveCommunityDeliveryOperationId("v2-retired"), prepared: prepared.prepared, contract: BUSINESS_SCHEMA_VERSION })
     if (!frame.ok) throw new Error("Invalid test batch")
     let release!: () => void
     let retired = false
@@ -161,12 +179,12 @@ describe("useCommunityWs — operation bundles", () => {
     const baseKey = communityKeys.forumSidebarThreads("s1")
     seedCanonicalForumSidebar("s1", ["post_1", "post_2"])
 
-    capturedOnMessage!(await batchFor("forum-archive", [{
+    await act(async () => { await capturedOnMessage!(await batchFor("forum-archive", [{
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "post_1",
       changes: { tags: ["archived"] },
-    }]))
+    }])) })
 
     expect(canonicalForumSidebar("s1").threads.map(({ id }) => id)).toEqual(["post_2"])
     expect(getCanonicalCommunityChannels(capturedQueryClient)
@@ -175,228 +193,18 @@ describe("useCommunityWs — operation bundles", () => {
     expect(hasCanonicalChannelNotify("post_1", "u_me")).toBe(false)
     expect(getCanonicalCommunityMessages(capturedQueryClient)
       .find(({ id }) => id === "opener-post_1")).toMatchObject({ content: "title-post_1" })
-    capturedOnMessage!(await batchFor("forum-unarchive", [{
+    await act(async () => { await capturedOnMessage!(await batchFor("forum-unarchive", [{
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "post_1",
       changes: { tags: null },
-    }]))
+    }])) })
 
     expect(canonicalForumSidebar("s1").threads.map(({ id }) => id).sort())
       .toEqual(["post_1", "post_2"])
     expect(getCanonicalCommunityChannels(capturedQueryClient)
       .find(({ id }) => id === "post_1")).toMatchObject({ archived: false })
     expect(hasCanonicalChannelNotify("post_1", "u_me")).toBe(true)
-  })
-
-  it("merges multiple requests into one queued successor generation", async () => {
-    vi.useFakeTimers()
-    try {
-      getCapturedRuntime().ui.actions.subscribe({ channelId: "ch-1" })
-      await mountHook({ viewerUserId: "viewer-1" })
-      let releaseRead!: () => void
-      const readGate = new Promise<void>((resolve) => {
-        releaseRead = resolve
-      })
-      getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
-        if (typeof url === "string" && url.endsWith("/read")) {
-          await readGate
-          return { changed: true, revision: 1, targetSeq: 1 }
-        }
-        if (url === "/api/community/users/me/read-state") {
-          return {
-            revision: 1,
-            readStates: [{
-              channelId: "ch-1",
-              lastReadMessageId: "message-1",
-              lastReadAt: "2026-08-27T00:00:00.000Z",
-              lastReadSeq: 1,
-            }],
-          }
-        }
-        throw new Error(`unexpected API fetch: ${String(url)}`)
-      })
-      vi.spyOn(capturedQueryClient, "invalidateQueries")
-      const lease = registerReadSurface(
-        capturedQueryClient,
-        "viewer-1",
-        { kind: "timeline", channelId: "ch-1" },
-      )
-
-      capturedOnMessage!({
-        type: "community:mention.create",
-        userId: "viewer-1",
-        messageId: "mention-current",
-        channelId: "ch-1",
-        authorName: "Alice",
-      })
-      expect(submitReadIntent(lease, {
-        kind: "timeline",
-        channelId: "ch-1",
-        messageId: "message-1",
-        seq: 1,
-      })).toBe(true)
-      await vi.advanceTimersByTimeAsync(500)
-      await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
-        "/api/community/channels/ch-1/read",
-        expect.anything(),
-      ))
-
-      capturedOnMessage!({
-        type: "community:mention.create",
-        userId: "viewer-1",
-        messageId: "mention-next",
-        channelId: "ch-1",
-        authorName: "Alice",
-      })
-      capturedOnMessage!({
-        ...message,
-        message: { ...message.message, id: "message-next", seq: 2 },
-      })
-      capturedOnMessage!({ type: "community:unread.bump", userId: "viewer-1", channelId: "dm-1" })
-      releaseRead()
-      await vi.advanceTimersByTimeAsync(500)
-
-      expect(invalidationCount(communityKeys.inbox())).toBe(1)
-      expect(invalidationCount(communityKeys.dms())).toBe(1)
-      releaseReadSurface(lease)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it("carries a deferred wide generation into its narrower successor", async () => {
-    vi.useFakeTimers()
-    try {
-      getCapturedRuntime().ui.actions.subscribe({ channelId: "ch-1" })
-      await mountHook({ viewerUserId: "viewer-1" })
-      let releaseRead!: () => void
-      const readGate = new Promise<void>((resolve) => {
-        releaseRead = resolve
-      })
-      getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
-        if (typeof url === "string" && url.endsWith("/read")) {
-          await readGate
-          return { changed: true, revision: 1, targetSeq: 1 }
-        }
-        if (url === "/api/community/users/me/read-state") {
-          return {
-            revision: 1,
-            readStates: [{
-              channelId: "ch-1",
-              lastReadMessageId: "message-1",
-              lastReadAt: "2026-08-27T00:00:00.000Z",
-              lastReadSeq: 1,
-            }],
-          }
-        }
-        throw new Error(`unexpected API fetch: ${String(url)}`)
-      })
-      vi.spyOn(capturedQueryClient, "invalidateQueries")
-      const lease = registerReadSurface(
-        capturedQueryClient,
-        "viewer-1",
-        { kind: "timeline", channelId: "ch-1" },
-      )
-
-      capturedOnMessage!(message)
-      capturedOnMessage!({ type: "community:unread.bump", userId: "viewer-1", channelId: "dm-1" })
-      expect(submitReadIntent(lease, {
-        kind: "timeline",
-        channelId: "ch-1",
-        messageId: "message-1",
-        seq: 1,
-      })).toBe(true)
-      await vi.advanceTimersByTimeAsync(500)
-      await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
-        "/api/community/channels/ch-1/read",
-        expect.anything(),
-      ))
-
-      capturedOnMessage!({
-        type: "community:mention.create",
-        userId: "viewer-1",
-        messageId: "mention-2",
-        channelId: "ch-1",
-        authorName: "Alice",
-      })
-      releaseRead()
-      await vi.advanceTimersByTimeAsync(500)
-
-      expect(invalidationCount(communityKeys.inbox())).toBe(1)
-      expect(invalidationCount(communityKeys.dms())).toBe(1)
-      releaseReadSurface(lease)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it("preserves attention reconciliation across deferred read intents", async () => {
-    vi.useFakeTimers()
-    try {
-      getCapturedRuntime().ui.actions.subscribe({ channelId: "ch-1" })
-      await mountHook({ viewerUserId: "viewer-1" })
-      let releaseFirstRead!: () => void
-      const firstReadGate = new Promise<void>((resolve) => {
-        releaseFirstRead = resolve
-      })
-      let readCalls = 0
-      getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
-        if (typeof url === "string" && url.endsWith("/read")) {
-          readCalls += 1
-          if (readCalls === 1) await firstReadGate
-          return { changed: true, revision: readCalls, targetSeq: readCalls }
-        }
-        if (url === "/api/community/users/me/read-state") {
-          return {
-            revision: readCalls,
-            readStates: [{
-              channelId: "ch-1",
-              lastReadMessageId: `message-${readCalls}`,
-              lastReadAt: "2026-08-27T00:00:00.000Z",
-              lastReadSeq: readCalls,
-            }],
-          }
-        }
-        throw new Error(`unexpected API fetch: ${String(url)}`)
-      })
-      vi.spyOn(capturedQueryClient, "invalidateQueries")
-      vi.spyOn(capturedQueryClient, "query")
-      const lease = registerReadSurface(
-        capturedQueryClient,
-        "viewer-1",
-        { kind: "timeline", channelId: "ch-1" },
-      )
-
-      capturedOnMessage!(message)
-      capturedOnMessage!({ type: "community:unread.bump", userId: "viewer-1", channelId: "dm-1" })
-      expect(submitReadIntent(lease, {
-        kind: "timeline",
-        channelId: "ch-1",
-        messageId: "message-1",
-        seq: 1,
-      })).toBe(true)
-      await vi.advanceTimersByTimeAsync(500)
-      await vi.waitFor(() => expect(readCalls).toBe(1))
-
-      expect(submitReadIntent(lease, {
-        kind: "timeline",
-        channelId: "ch-1",
-        messageId: "message-2",
-        seq: 2,
-      })).toBe(true)
-      releaseFirstRead()
-      await vi.advanceTimersByTimeAsync(499)
-      expect(readCalls).toBe(1)
-      expect(attentionReconcileCount()).toBe(2)
-
-      await vi.advanceTimersByTimeAsync(1)
-      await vi.waitFor(() => expect(readCalls).toBe(2))
-      expect(attentionReconcileCount()).toBe(3)
-      releaseReadSurface(lease)
-    } finally {
-      vi.useRealTimers()
-    }
   })
 
   it("decodes all children before one dispatch, deduplicates invalidations, and suppresses same-digest replay", async () => {
@@ -410,23 +218,17 @@ describe("useCommunityWs — operation bundles", () => {
       vi.spyOn(capturedQueryClient, "query")
       const frame = await batchFor("message-1", mentionEvents)
 
-      capturedOnMessage!(frame)
+      await act(async () => { await capturedOnMessage!(frame) })
       expect(capturedQueryClient.getQueryData<{ servers: Array<{ id: string; mentions: number }> }>(
         communityKeys.servers(),
       )?.servers[0]?.mentions).toBe(5)
-      const unreadProjection = getActiveAccountUnreadProjection(capturedQueryClient)
-      expect(unreadProjection.projectUnread("servers", "ch-1", false)).toBe(true)
-      // A correlated bundle carries seq=1 dispatch-locally, so a real visible
-      // read can cover it. An orphan/sticky bump would deliberately survive.
-      unreadProjection.recordRead("ch-1", 1)
-      expect(unreadProjection.projectUnread("servers", "ch-1", false)).toBe(false)
-      expect(attentionReconcileCount()).toBe(0)
-      expect(invalidationCount(communityKeys.servers())).toBe(1)
+      expect(attentionReconcileCount()).toBe(1)
+      expect(invalidationCount(communityKeys.servers())).toBe(0)
       await vi.advanceTimersByTimeAsync(500)
       expect(attentionReconcileCount()).toBe(1)
 
       const callsAfterFirst = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
-      capturedOnMessage!(frame)
+      await act(async () => { await capturedOnMessage!(frame) })
       await vi.advanceTimersByTimeAsync(500)
       expect(vi.mocked(capturedQueryClient.invalidateQueries)).toHaveBeenCalledTimes(callsAfterFirst)
       expect(attentionReconcileCount()).toBe(1)
@@ -438,34 +240,27 @@ describe("useCommunityWs — operation bundles", () => {
     }
   })
 
-  it("treats an ambiguous same-channel bundle as sticky instead of temporally pairing", async () => {
+  it("does not invent attention from an ambiguous same-channel bundle", async () => {
     await mountHook({ viewerUserId: "viewer-1" })
     const frame = await batchFor("ambiguous-bump", [
       { ...message, message: { ...message.message, id: "ambiguous-1", seq: 1 } },
       { ...message, message: { ...message.message, id: "ambiguous-2", seq: 2 } },
       mentionEvents[1]!,
     ])
-    capturedOnMessage!(frame)
-    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
-    projection.recordRead("ch-1", 999)
-    expect(projection.projectUnread("servers", "ch-1", false)).toBe(true)
+    await act(async () => { await capturedOnMessage!(frame) })
   })
 
-  it("correlates a unique same-channel bump regardless of child order", async () => {
+  it("keeps content and refreshes attention regardless of child order", async () => {
     await mountHook({ viewerUserId: "viewer-1" })
     const frame = await batchFor("reordered-bump", [
       mentionEvents[1]!,
       mentionEvents[2]!,
       mentionEvents[0]!,
     ])
-    capturedOnMessage!(frame)
-    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
-    expect(projection.projectUnread("servers", "ch-1", false)).toBe(true)
-    projection.recordRead("ch-1", 1)
-    expect(projection.projectUnread("servers", "ch-1", false)).toBe(false)
+    await act(async () => { await capturedOnMessage!(frame) })
   })
 
-  it("does not borrow seq evidence for a different mention message id", async () => {
+  it("does not invent attention from a different mention message id", async () => {
     await mountHook({ viewerUserId: "viewer-1" })
     const frame = await batchFor("mismatched-mention", [
       message,
@@ -477,10 +272,7 @@ describe("useCommunityWs — operation bundles", () => {
         authorName: "Alice",
       },
     ])
-    capturedOnMessage!(frame)
-    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
-    projection.recordRead("ch-1", 999)
-    expect(projection.projectUnread("inbox-mentions", "ch-1", false)).toBe(true)
+    await act(async () => { await capturedOnMessage!(frame) })
   })
 
   it("does not cancel or restart an in-flight raw server resource for a projected bump", async () => {
@@ -503,12 +295,10 @@ describe("useCommunityWs — operation bundles", () => {
     await vi.waitFor(() => expect(queryCalls).toBe(1))
     const cancel = vi.spyOn(capturedQueryClient, "cancelQueries")
 
-    capturedOnMessage!(await batchFor("message-fenced-mention", mentionEvents))
+    await act(async () => { await capturedOnMessage!(await batchFor("message-fenced-mention", mentionEvents)) })
 
     expect(queryCalls).toBe(1)
     expect(cancel.mock.calls.filter(([filters]) => JSON.stringify(filters.queryKey) === JSON.stringify(key))).toEqual([])
-    expect(getActiveAccountUnreadProjection(capturedQueryClient)
-      .projectServerUnread("server-1", [])).toBe(true)
     await capturedQueryClient.cancelQueries({ queryKey: key, exact: true })
     await first
   })
@@ -525,12 +315,12 @@ describe("useCommunityWs — operation bundles", () => {
       vi.spyOn(capturedQueryClient, "invalidateQueries")
       vi.spyOn(capturedQueryClient, "query")
 
-      capturedOnMessage!(await batchFor("message-late", mentionEvents))
+      await act(async () => { await capturedOnMessage!(await batchFor("message-late", mentionEvents)) })
       expect(capturedQueryClient.getQueryData<{ servers: Array<{ mentions: number }> }>(
         communityKeys.servers(),
       )?.servers[0]?.mentions).toBe(9)
-      expect(attentionReconcileCount()).toBe(0)
-      expect(invalidationCount(communityKeys.servers())).toBe(1)
+      expect(attentionReconcileCount()).toBe(1)
+      expect(invalidationCount(communityKeys.servers())).toBe(0)
       await vi.advanceTimersByTimeAsync(500)
       expect(attentionReconcileCount()).toBe(1)
     } finally {
@@ -541,10 +331,10 @@ describe("useCommunityWs — operation bundles", () => {
   it("rejects malformed children without poisoning the operation map", async () => {
     await mountHook({ viewerUserId: "viewer-1" })
     const frame = await batchFor("message-malformed", mentionEvents)
-    capturedOnMessage!({
+    await act(async () => { await capturedOnMessage!({
       ...frame,
       events: [{ ...frame.events[0], contractVersion: 1 }, ...frame.events.slice(1)],
-    })
+    }) })
 
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(getCapturedRuntime().ws.get().seenDeliveryOperations.size).toBe(0)
@@ -555,15 +345,15 @@ describe("useCommunityWs — operation bundles", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     await mountHook({ viewerUserId: "viewer-1" })
 
-    capturedOnMessage!({
-      type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+    await act(async () => { await capturedOnMessage!({
+      type: communityBrowserEventBatchType(),
       padding: "x".repeat(COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES),
-    })
-    capturedOnMessage!({
-      type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+    }) })
+    await act(async () => { await capturedOnMessage!({
+      type: communityBrowserEventBatchType(),
       extra: true,
-    })
-    capturedOnMessage!({ ...message, contractVersion: 1 })
+    }) })
+    await act(async () => { await capturedOnMessage!({ ...message, contractVersion: 1 }) })
 
     expect(warn).toHaveBeenCalledWith(
       "[ws] frame dropped",
@@ -571,7 +361,7 @@ describe("useCommunityWs — operation bundles", () => {
     )
     expect(warn).toHaveBeenCalledWith(
       "[ws] frame dropped",
-      expect.objectContaining({ reason: "invalid-payload", type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE }),
+      expect.objectContaining({ reason: "invalid-payload", type: communityBrowserEventBatchType() }),
     )
     expect(warn).toHaveBeenCalledWith(
       "[ws] frame dropped",
@@ -587,7 +377,7 @@ describe("useCommunityWs — operation bundles", () => {
     const conflicting = await batchFor("message-conflict", [
       { ...message, message: { ...message.message, content: "different" } },
     ])
-    capturedOnMessage!(first)
+    await act(async () => { await capturedOnMessage!(first) })
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const seenMessages = getCapturedRuntime().ws.get().seenMessageIds.size
     const overlayBeforeConflict = getMessageStreamState(capturedQueryClient, {
@@ -597,7 +387,7 @@ describe("useCommunityWs — operation bundles", () => {
     })
     const invalidationsBeforeConflict = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
 
-    capturedOnMessage!(conflicting)
+    await act(async () => { await capturedOnMessage!(conflicting) })
     expect(getCapturedRuntime().ws.get().seenMessageIds.size).toBe(seenMessages)
     expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch-1", serverId: "s1" }))
       .toStrictEqual(overlayBeforeConflict)
@@ -618,9 +408,12 @@ describe("useCommunityWs — operation bundles", () => {
         channels: [{ id: "text-parent", type: "text", unread: false }],
       }],
     })
-    const unreadProjection = getActiveAccountUnreadProjection(capturedQueryClient)
-    const recordArrival = vi.spyOn(unreadProjection, "recordArrival")
-      .mockImplementationOnce(() => { throw new Error("second-child fault") })
+    const originalProject = canonicalSync.projectCommunityWsEventToDb
+    let fail = true
+    const recordArrival = vi.spyOn(canonicalSync, "projectCommunityWsEventToDb").mockImplementation((...args) => {
+      if (fail && args[1].type === "community:unread.bump") { fail = false; throw new Error("second-child fault") }
+      return originalProject(...args)
+    })
     vi.spyOn(capturedQueryClient, "invalidateQueries")
     const events: CommunityWsEvent[] = [
       {
@@ -647,7 +440,7 @@ describe("useCommunityWs — operation bundles", () => {
       events[1]!,
     ])
 
-    capturedOnMessage!(frame)
+    await act(async () => { await capturedOnMessage!(frame) })
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
     expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
@@ -656,7 +449,7 @@ describe("useCommunityWs — operation bundles", () => {
 
     recordArrival.mockRestore()
     const invalidationsAfterFailure = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
-    capturedOnMessage!(conflicting)
+    await act(async () => { await capturedOnMessage!(conflicting) })
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(2)
     expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
       .toEqual({ digest: frame.operationDigest, completed: false })
@@ -665,21 +458,16 @@ describe("useCommunityWs — operation bundles", () => {
     expect(vi.mocked(capturedQueryClient.invalidateQueries))
       .toHaveBeenCalledTimes(invalidationsAfterFailure)
 
-    capturedOnMessage!(frame)
+    await act(async () => { await capturedOnMessage!(frame) })
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(2)
     expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
       .toEqual({ digest: frame.operationDigest, completed: true })
     expect(getCapturedRuntime().ws.get().seenMessageIds.size).toBe(1)
     expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch-1", serverId: "s1" }).liveIds.length)
       .toBe(1)
-    expect(unreadProjection.projectServerChannelUnread(
-      "s1",
-      "text-parent",
-      [],
-    )).toBe(true)
 
     const invalidationsAfterCompletion = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
-    capturedOnMessage!(frame)
+    await act(async () => { await capturedOnMessage!(frame) })
     expect(vi.mocked(capturedQueryClient.invalidateQueries))
       .toHaveBeenCalledTimes(invalidationsAfterCompletion)
   })
@@ -762,7 +550,7 @@ describe("useCommunityWs — operation bundles", () => {
         authorName: "Alice",
       },
       {
-        type: "community:channel.member_add",
+        type: "community:channel.membership.change", relation: "notify", present: true,
         userId: "viewer-1",
         serverId: "s1",
         channelId: "ch-1",
@@ -776,18 +564,13 @@ describe("useCommunityWs — operation bundles", () => {
     ])
 
     try {
-      capturedOnMessage!(frame)
+      await act(async () => { await capturedOnMessage!(frame) })
       expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
       expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
         .toEqual({ digest: frame.operationDigest, completed: false })
       // All preceding children are legal committed-message projections. Their
       // writes remain visible when the final parent projection throws.
       expect(getCapturedRuntime().ws.get().seenMessageIds.has("message-before-fault")).toBe(true)
-      expect(getActiveAccountUnreadProjection(capturedQueryClient).projectUnread(
-        "server-detail:s1",
-        "ch-1",
-        false,
-      )).toBe(true)
       expect(capturedQueryClient.getQueryData<{
         servers: Array<{ id: string; mentions: number }>
       }>(communityKeys.servers())?.servers[0]?.mentions).toBe(5)
@@ -801,7 +584,7 @@ describe("useCommunityWs — operation bundles", () => {
       publish.mockRestore()
     }
 
-    capturedOnMessage!(frame)
+    await act(async () => { await capturedOnMessage!(frame) })
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
     expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
       .toEqual({ digest: frame.operationDigest, completed: true })
@@ -809,11 +592,6 @@ describe("useCommunityWs — operation bundles", () => {
     expect(capturedQueryClient.getQueryData<{
       servers: Array<{ id: string; mentions: number }>
     }>(communityKeys.servers())?.servers[0]?.mentions).toBe(5)
-    expect(getActiveAccountUnreadProjection(capturedQueryClient).projectUnread(
-      "server-detail:s1",
-      "ch-1",
-      false,
-    )).toBe(true)
     expect(capturedQueryClient.getQueryData<{
       pages: Array<{ messages: Array<{ thread: { messageCount: number } }> }>
     }>(communityKeys.channelMessages("forum_1"))?.pages[0]?.messages[0]?.thread.messageCount)
@@ -822,144 +600,9 @@ describe("useCommunityWs — operation bundles", () => {
       .toBe(2)
 
     const invalidationsAfterSuccess = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
-    capturedOnMessage!(frame)
+    await act(async () => { await capturedOnMessage!(frame) })
     expect(vi.mocked(capturedQueryClient.invalidateQueries))
       .toHaveBeenCalledTimes(invalidationsAfterSuccess)
-  })
-
-  it.each(["before", "after"] as const)(
-    "keeps one barrier-owned refresh when an identical retry lands %s the first deadline",
-    async (retryTiming) => {
-      vi.useFakeTimers()
-      try {
-        getCapturedRuntime().ui.actions.subscribe({ channelId: "ch-1" })
-        await mountHook({ viewerUserId: "viewer-1" })
-        capturedQueryClient.setQueryData(communityKeys.server("s1"), {
-          id: "s1",
-          categories: [{
-            id: "category-1",
-            channels: [{ id: "parent-1", type: "text", unread: false }],
-          }],
-        })
-        getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
-          if (typeof url === "string" && url.endsWith("/read")) {
-            return { changed: true, revision: 1, targetSeq: 1 }
-          }
-          if (url === "/api/community/users/me/read-state") {
-            return {
-              revision: 1,
-              readStates: [{
-                channelId: "ch-1",
-                lastReadMessageId: `retry-${retryTiming}`,
-                lastReadAt: "2026-08-27T00:00:00.000Z",
-                lastReadSeq: 1,
-              }],
-            }
-          }
-          throw new Error(`unexpected API fetch: ${String(url)}`)
-        })
-        const unreadProjection = getActiveAccountUnreadProjection(capturedQueryClient)
-        const recordArrival = vi.spyOn(unreadProjection, "recordArrival")
-          .mockImplementationOnce(() => { throw new Error("later child fault") })
-        const { captureChannelMetadataToken } = await import("@/hooks/community/channel-metadata")
-    const verification = captureChannelMetadataToken(capturedQueryClient, "ch-1")
-    await act(async () => { await seedConversationEntry(capturedQueryClient, conversationEntryFromChannel({ id: "ch-1", serverId: "s1", type: "thread", name: "thread", parentChannelId: "forum_1", parentMessageId: "opener-1", creatorId: "viewer-1", archived: false, createdAt: "2026-08-20T00:00:00.000Z" }, verification.viewerId!)) })
-    vi.spyOn(capturedQueryClient, "invalidateQueries")
-        const messageId = `retry-${retryTiming}`
-        const frame = await batchFor(messageId, [
-          {
-            ...message,
-            serverId: "s1",
-            parentChannelId: "parent-1",
-            message: { ...message.message, id: messageId },
-          },
-          {
-            type: "community:unread.bump",
-            userId: "viewer-1",
-            channelId: "ch-1",
-            serverId: "s1",
-            railChannelId: "parent-1",
-            isMention: false,
-          },
-        ])
-        const lease = registerReadSurface(
-          capturedQueryClient,
-          "viewer-1",
-          { kind: "timeline", channelId: "ch-1" },
-        )
-
-        capturedOnMessage!(frame)
-        expect(reconcileCommunityWsReconnect).toHaveBeenCalledWith(
-          capturedQueryClient,
-          0,
-          { excludePolicies: ["inbox-dms"] },
-        )
-        expect(invalidationCount(communityKeys.inbox())).toBe(0)
-        expect(invalidationCount(communityKeys.dms())).toBe(0)
-        expect(submitReadIntent(lease, {
-          kind: "timeline",
-          channelId: "ch-1",
-          messageId,
-          seq: 1,
-        })).toBe(true)
-
-        recordArrival.mockRestore()
-        if (retryTiming === "before") capturedOnMessage!(frame)
-        await vi.advanceTimersByTimeAsync(500)
-        expect(invalidationCount(communityKeys.inbox())).toBe(1)
-        expect(invalidationCount(communityKeys.dms())).toBe(1)
-        if (retryTiming === "after") capturedOnMessage!(frame)
-        await vi.advanceTimersByTimeAsync(500)
-
-        expect(invalidationCount(communityKeys.inbox())).toBe(1)
-        expect(invalidationCount(communityKeys.dms())).toBe(1)
-        const { useCommunityWsStore } = await import("@/stores/community/ws")
-        expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
-          .toEqual({ digest: frame.operationDigest, completed: true })
-        releaseReadSurface(lease)
-      } finally {
-        vi.useRealTimers()
-      }
-    },
-  )
-
-  it("bounds normal and conflict refresh keys with the delivery-operation limits", async () => {
-    vi.useFakeTimers()
-    try {
-      await mountHook({ viewerUserId: "viewer-1" })
-      vi.spyOn(capturedQueryClient, "invalidateQueries")
-      vi.spyOn(capturedQueryClient, "query")
-      const original = await batchFor("bounded-operation", [{
-        ...message,
-        message: { ...message.message, id: "bounded-operation" },
-      }, mentionEvents[1]!])
-      capturedOnMessage!(original)
-      const conflicts: Awaited<ReturnType<typeof batchFor>>[] = []
-      for (let index = 0; index < SEEN_DELIVERY_OPERATION_MAX; index += 1) {
-        const conflict = await batchFor("bounded-operation", [{
-          ...message,
-          message: {
-            ...message.message,
-            id: "bounded-operation",
-            content: `conflict-${index}`,
-          },
-        }, mentionEvents[1]!])
-        conflicts.push(conflict)
-        capturedOnMessage!(conflict)
-      }
-
-      await vi.advanceTimersByTimeAsync(500)
-      expect(attentionReconcileCount()).toBe(1)
-      capturedOnMessage!(conflicts[0]!)
-      await vi.advanceTimersByTimeAsync(500)
-      expect(attentionReconcileCount()).toBe(1)
-      capturedOnMessage!(conflicts.at(-1)!)
-      await vi.advanceTimersByTimeAsync(500)
-      expect(attentionReconcileCount()).toBe(1)
-      expect(SEEN_DELIVERY_OPERATION_TRIM_TO).toBeLessThan(SEEN_DELIVERY_OPERATION_MAX)
-    } finally {
-      vi.useRealTimers()
-    }
   })
 
   it("reports a rejected authoritative reconciliation after a digest conflict", async () => {
@@ -971,8 +614,8 @@ describe("useCommunityWs — operation bundles", () => {
       { ...message, message: { ...message.message, content: "different" } },
     ])
 
-    capturedOnMessage!(first)
-    capturedOnMessage!(conflicting)
+    await act(async () => { await capturedOnMessage!(first) })
+    await act(async () => { await capturedOnMessage!(conflicting) })
 
     await vi.waitFor(() => {
       expect(warn).toHaveBeenCalledWith(

@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { withPrivateMediaCache } from "@/lib/middleware/private-media-cache"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -17,7 +18,7 @@ import {
 
 const log = createLogger({ service: "community-server-icon" })
 
-export const GET = withPrivateMediaCache(withAuth(async (req: NextRequest, ctx) => {
+export const GET = withPrivateMediaCache(withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 
@@ -49,7 +50,7 @@ export const GET = withPrivateMediaCache(withAuth(async (req: NextRequest, ctx) 
   })
 }))
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 

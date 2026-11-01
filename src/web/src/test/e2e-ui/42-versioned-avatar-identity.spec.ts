@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import type { Page } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
@@ -34,7 +35,7 @@ function deferred(caseResources: CaseResources) {
 }
 
 async function uploadSolidAvatar(page: Page, color: string): Promise<AvatarUpload> {
-  return page.evaluate(async (fill) => {
+  return page.evaluate(async ({ value: fill, businessHeaders }) => {
     const canvas = document.createElement("canvas")
     canvas.width = 48
     canvas.height = 48
@@ -53,16 +54,16 @@ async function uploadSolidAvatar(page: Page, color: string): Promise<AvatarUploa
     ))
     const form = new FormData()
     form.append("file", new File([blob], "avatar.png", { type: "image/png" }))
-    const response = await fetch("/api/community/users/me/avatar", {
+    const response = await fetch("/api/community/users/me/avatar", { headers: businessHeaders,
       method: "POST",
       body: form,
       credentials: "include",
-    })
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
     return {
       status: response.status,
       ...await response.json() as { url: string; avatarVersion: number },
     }
-  }, color)
+  }, { value: color, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
 }
 
 async function expectPhoto(locator: ReturnType<Page["locator"]>, url: string) {
@@ -265,7 +266,7 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
   await expectPhoto(uploader.page.locator("body"), winner.url)
   await expectPhoto(sameAccount.page.locator("body"), winner.url)
   await expectPhoto(cold.page.locator(`[data-msg-id="${messageId}"]`), winner.url)
-  const selfProfile = await uploader.page.request.get("/api/community/users/me/profile")
+  const selfProfile = await confirmCommunityFixtureApiResponse(uploader.page.request.get("/api/community/users/me/profile", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(selfProfile.status()).toBe(200)
   expect(await selfProfile.json()).toMatchObject({
     id: aliceId,

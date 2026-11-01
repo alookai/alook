@@ -7,6 +7,7 @@ import {
   type NativeOauthPlatform,
   type NativeOauthProvider,
 } from "@alook/shared";
+import { formatLastLoginMethodSetCookie } from "@/lib/last-login-method";
 export {
   nativeOauthExchangeSchema,
   nativeOauthProofSchema,
@@ -251,6 +252,7 @@ export function setWebViewAnalyticsCookie(
   const name = authKind === "signup" ? "is_new_signup" : "is_sign_in";
   const suffix = `Max-Age=60; Path=/; SameSite=Lax${secure ? "; Secure" : ""}`;
   headers.append("Set-Cookie", `${name}=${provider}; ${suffix}`);
+  headers.append("Set-Cookie", formatLastLoginMethodSetCookie(provider, secure));
 }
 
 export function isNativeOauthAttemptId(value: string | null): value is string {

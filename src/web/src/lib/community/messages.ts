@@ -22,19 +22,11 @@ export function parseCommunityMessageWindow(params: URLSearchParams) {
 }
 
 // Parse cursor from query params (format: "createdAt|id")
-export function parseCursor(cursorParam: string | null): { createdAt: string; id: string } | undefined {
+function parseCursor(cursorParam: string | null): { createdAt: string; id: string } | undefined {
   if (!cursorParam) return undefined
   const [createdAt, id] = cursorParam.split("|")
   if (createdAt && id) return { createdAt, id }
   return undefined
-}
-
-// The anchor param is a raw message id (not a cursor tuple). Empty string
-// coerces to `undefined` so `?anchor=` still routes through the legacy path.
-export function parseAnchor(anchorParam: string | null): string | undefined {
-  if (!anchorParam) return undefined
-  const trimmed = anchorParam.trim()
-  return trimmed.length > 0 ? trimmed : undefined
 }
 
 // Parse a member cursor from query params (format: "joinedAt|id"). Members
@@ -45,12 +37,6 @@ export function parseMemberCursor(cursorParam: string | null): { joinedAt: strin
   const [joinedAt, id] = cursorParam.split("|")
   if (joinedAt && id) return { joinedAt, id }
   return undefined
-}
-
-// Parse page size from query params with bounds
-export function parsePageSize(limitParam: string | null): number {
-  if (!limitParam) return DEFAULT_MESSAGE_PAGE_SIZE
-  return Math.min(Math.max(parseInt(limitParam, 10) || DEFAULT_MESSAGE_PAGE_SIZE, 1), MAX_MESSAGE_PAGE_SIZE)
 }
 
 // Parse a positive integer query param with default + ceiling.

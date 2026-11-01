@@ -1,3 +1,5 @@
+import { messageSeedFixture } from "@/test/community-resource-fixtures"
+import { communityUserProfilePatch, writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import React from "react"
 import { act } from "@/test/react-dom-harness"
 import { render as renderDom } from "@/test/react-dom-harness"
@@ -23,7 +25,7 @@ const mocks = vi.hoisted(() => {
   }
   const messageActions = {
     onToggleReaction: vi.fn(), onReact: vi.fn(), onReply: vi.fn(), onPin: vi.fn(),
-    onMark: vi.fn(), onCreateThread: vi.fn(async () => {}), onCopy: vi.fn(), onEdit: vi.fn(),
+    onMark: vi.fn(), onCreateThread: vi.fn(async () => {}), onCopy: vi.fn(),
     onRetry: vi.fn(), onDismiss: vi.fn(), onPreviewImage: vi.fn(),
     onPreviewAttachment: vi.fn(),
   }
@@ -46,7 +48,6 @@ const mocks = vi.hoisted(() => {
     pinMutation: vi.fn(),
     unpinMutation: vi.fn(),
     markMutation: vi.fn(),
-    editMutation: vi.fn(),
     threadMutation: vi.fn(),
     uploadMutation: vi.fn(),
     typingScopes: { users: [] as string[], names: [] as string[] },
@@ -97,7 +98,6 @@ vi.mock("@/hooks/community/mutations", () => ({
   usePinMessage: () => { mocks.order.push("pin"); return { mutate: mocks.pinMutation } },
   useUnpinMessage: () => { mocks.order.push("unpin"); return { mutate: mocks.unpinMutation } },
   useToggleMark: () => { mocks.order.push("mark"); return mocks.markMutation },
-  useEditMessage: () => { mocks.order.push("edit"); return { mutate: mocks.editMutation } },
   useCreateThread: () => { mocks.order.push("thread"); return { mutateAsync: mocks.threadMutation } },
   useUploadFile: () => { mocks.order.push("upload"); return { mutateAsync: mocks.uploadMutation } },
 }))
@@ -116,6 +116,7 @@ const feed = {
   messages: [{ id: "m1", seq: 1, type: "chat", authorName: "Alice", content: "hi" }],
   pinned: [],
   isError: false,
+  navigationBlocked: false,
 } as MessageChannelControllerProps["feed"]
 
 function props(overrides: Partial<MessageChannelControllerProps> = {}): Omit<MessageChannelControllerProps, "children"> {
@@ -137,7 +138,7 @@ function props(overrides: Partial<MessageChannelControllerProps> = {}): Omit<Mes
 
 let latest: MessageChannelControllerValue
 function Probe({ value }: { value: Omit<MessageChannelControllerProps, "children"> }) {
-  React.useLayoutEffect(() => { ingestMessages(fixtureOwner.registry, value.channelId, value.feed.messages) }, [value.channelId, value.feed.messages])
+  React.useLayoutEffect(() => { ingestMessages(fixtureOwner.registry, value.channelId, messageSeedFixture(value.channelId, value.feed.messages)) }, [value.channelId, value.feed.messages])
   const controller = useMessageChannelController(value)
   React.useLayoutEffect(() => { latest = controller }, [controller])
   return null
@@ -148,7 +149,7 @@ function PassiveActionProbe({
 }: {
   value: Omit<MessageChannelControllerProps, "children">
 }) {
-  React.useLayoutEffect(() => { ingestMessages(fixtureOwner.registry, value.channelId, value.feed.messages) }, [value.channelId, value.feed.messages])
+  React.useLayoutEffect(() => { ingestMessages(fixtureOwner.registry, value.channelId, messageSeedFixture(value.channelId, value.feed.messages)) }, [value.channelId, value.feed.messages])
   const controller = useMessageChannelController(value)
   React.useLayoutEffect(() => { latest = controller }, [controller])
   React.useEffect(() => { controller.messageActions.onReply("probe") })
@@ -178,8 +179,8 @@ describe("useMessageChannelController", () => {
     const valueProps = props()
     let renderer: ReturnType<typeof rtlRender>
     act(() => { renderer = rtlRender(React.createElement(Probe, { value: valueProps })) })
-    expect(mocks.order.slice(0, 12)).toEqual([
-      "send", "reaction", "reaction-add", "pin", "unpin", "mark", "edit", "thread", "upload",
+    expect(mocks.order.slice(0, 11)).toEqual([
+      "send", "reaction", "reaction-add", "pin", "unpin", "mark", "thread", "upload",
       "typing-users", "typing-names", "pending-store",
     ])
     expect(mocks.typingScopes.users.length).toBeGreaterThan(0)
@@ -230,6 +231,45 @@ describe("useMessageChannelController", () => {
     expect(latest.contextTarget).toBeNull()
     expect(latest.scrollTargetId).toBe("m1")
     expect(mocks.apiFetch).not.toHaveBeenCalled()
+  })
+
+  it("rejects new send admission while the current feed window is blocked without consuming reply or uploads", () => {
+    const reply = { id: "reply", authorName: "Alice", text: "keep reply" }
+    rtlRender(React.createElement(Probe, { value: props({ feed: { ...feed, navigationBlocked: true } }) }))
+    act(() => latest.setReplyTo(reply))
+    let accepted = true
+    act(() => { accepted = latest.acceptMessage("keep draft", [{ file: {} as File }]) })
+    expect(accepted).toBe(false)
+    expect(mocks.accept).not.toHaveBeenCalled()
+    expect(mocks.run).not.toHaveBeenCalled()
+    expect(mocks.uploadMutation).not.toHaveBeenCalled()
+    expect(mocks.sendMutation).not.toHaveBeenCalled()
+    expect(latest.replyTo).toEqual(reply)
+    expect(latest.localSubmitVersion).toBe(0)
+  })
+
+  it("rejects a retained earlier send callback after its current committed feed loses readiness", () => {
+    const value = props()
+    const view = rtlRender(React.createElement(Probe, { value }))
+    const earlier = latest.acceptMessage
+    view.rerender(React.createElement(Probe, { value: { ...value, feed: { ...feed, navigationBlocked: true } } }))
+    let accepted = true
+    act(() => { accepted = earlier("keep draft") })
+    expect(accepted).toBe(false)
+    expect(mocks.accept).not.toHaveBeenCalled()
+    expect(mocks.run).not.toHaveBeenCalled()
+  })
+
+  it("keeps an already accepted command under its original guards when the feed later blocks new sends", async () => {
+    const value = props()
+    const view = rtlRender(React.createElement(Probe, { value }))
+    act(() => { expect(latest.acceptMessage("accepted draft")).toBe(true) })
+    const accepted = mocks.accept.mock.calls.at(-1)?.[0] as { runAcceptedIntent: (nonce: string) => Promise<void> }
+    view.rerender(React.createElement(Probe, { value: { ...value, feed: { ...feed, navigationBlocked: true } } }))
+    await act(async () => { await accepted.runAcceptedIntent("accepted-nonce") })
+    expect(mocks.run).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ nonce: "accepted-nonce", assertCommand: expect.any(Function) }))
+    const command = mocks.run.mock.calls[0]?.[0] as { assertCommand: () => void }
+    expect(() => command.assertCommand()).not.toThrow()
   })
 
   it("forwards complete accept input, run-helper wiring, and helper-owned reply clearing", async () => {
@@ -508,8 +548,9 @@ describe("useMessageChannelController", () => {
     const runtime = fixtureOwner.registry.runtime
     const scope = { kind: "channel" as const, id: "channel_1", serverId: "server_1" }
     act(() => {
-      ingestMessages(fixtureOwner.registry, scope.id, [{ id: "m1", seq: 1, type: "chat", content: "current body", authorId: "u1", authorName: "Current Author", authorAvatar: "current.png", authorAvatarVersion: 7 }])
-      ingestMessages(fixtureOwner.registry, "other_channel", [{ id: "other", seq: 2, type: "chat", content: "private other" }])
+      writeCommunityProfilePatches([communityUserProfilePatch("u1", { name: "Current Author", discriminator: "0001", avatar: "current.png", avatarVersion: 7 })], fixtureOwner.registry)
+      ingestMessages(fixtureOwner.registry, scope.id, messageSeedFixture(scope.id, [{ id: "m1", seq: 1, type: "chat", content: "current body", authorId: "u1", authorName: "Current Author", authorAvatar: "current.png", authorAvatarVersion: 7 }]))
+      ingestMessages(fixtureOwner.registry, "other_channel", messageSeedFixture("other_channel", [{ id: "other", seq: 2, type: "chat", content: "private other" }]))
       runtime.messageStream.actions.accept(scope, { nonce: "clicked_failed", tempId: "temp_clicked_failed", message: { type: "chat", authorId: "u1", content: "local body" }, localUploads: [] })
       runtime.messageStream.actions.dispatch(scope, { type: "postFail", nonce: "clicked_failed" })
     })
@@ -517,7 +558,7 @@ describe("useMessageChannelController", () => {
     expect(getMessage("temp_clicked_failed")).toMatchObject({ content: "local body", failed: true, clientNonce: "clicked_failed", authorName: "Current Author", authorAvatarVersion: 7 })
     expect(getMessage("other")).toBeUndefined()
     act(() => {
-      const confirmed = { id: "confirmed", seq: 3, type: "chat" as const, content: "confirmed body", authorId: "u1", clientNonce: "clicked_failed" }
+      const confirmed = messageSeedFixture(scope.id, [{ id: "confirmed", seq: 3, content: "confirmed body", authorId: "u1", clientNonce: "clicked_failed" }])[0]
       ingestMessages(fixtureOwner.registry, scope.id, [confirmed])
       runtime.messageStream.actions.dispatch(scope, { type: "wsMessage", message: confirmed })
     })
@@ -552,11 +593,27 @@ describe("useMessageChannelController", () => {
     ])
     const actionKeys = [
       "onToggleReaction", "onReact", "onReply", "onPin", "onMark", "onCreateThread",
-      "onCopy", "onEdit", "onRetry", "onDismiss", "onPreviewImage",
+      "onCopy", "onRetry", "onDismiss", "onPreviewImage",
       "onPreviewAttachment",
     ]
     expect(Object.keys(latest.messageActions)).toEqual(actionKeys)
     expect(Object.keys(latest.threadActions)).toEqual(actionKeys)
     expect(latest.threadActions.onCreateThread).toBeUndefined()
   })
+
+  it("rejects direct and retained typing admission after the committed window blocks", () => {
+    const value = props()
+    const view = rtlRender(React.createElement(Probe, { value }))
+    const earlier = latest.handleTyping
+    act(() => earlier())
+    expect(mocks.sendTyping).toHaveBeenCalledOnce()
+    view.rerender(React.createElement(Probe, { value: { ...value, feed: { ...feed, navigationBlocked: true } } }))
+    mocks.sendTyping.mockClear()
+    act(() => { earlier(); latest.handleTyping() })
+    expect(mocks.sendTyping).not.toHaveBeenCalled()
+    view.rerender(React.createElement(Probe, { value }))
+    act(() => latest.handleTyping())
+    expect(mocks.sendTyping).toHaveBeenCalledOnce()
+  })
+
 })

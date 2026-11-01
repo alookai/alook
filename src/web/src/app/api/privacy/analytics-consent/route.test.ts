@@ -9,8 +9,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withOptionalAuth: (handler: (request: NextRequest, context: { env: typeof mocks.env; userId?: string }) => Promise<Response>) =>
-    (request: NextRequest) => handler(request, { env: mocks.env, userId: mocks.userId }),
+  optionalAuthPolicy: { resolve: async (request: NextRequest) => ({ context: { env: mocks.env, userId: mocks.userId } }) },
 }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => mocks.env.DB }))
 vi.mock("@alook/shared", async original => ({ ...await original<typeof import("@alook/shared")>(), queries: { billing: { recordAnalyticsConsent: mocks.recordAnalyticsConsent } } }))

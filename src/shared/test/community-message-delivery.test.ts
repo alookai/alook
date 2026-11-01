@@ -1,13 +1,15 @@
+import { BUSINESS_SCHEMA_VERSION } from "../src/business-schema-version";
 import { describe, expect, it } from "vitest";
 import { parseMessageDeliveryBatch } from "../src/community-message-delivery";
 
 const messageEvent = {
   type: "community:message.create" as const,
+  profiles: [{ id: "u1", name: "Alice", discriminator: "0042", avatar: null, avatarVersion: 0 }],
   channelId: "thread-1",
   serverId: "server-1",
   parentChannelId: "forum-1",
   message: {
-    id: "message-1",
+    id: "message-1", channelId: "thread-1", replyToId: null, clientNonce: null, attachments: [],
     seq: 4,
     authorId: "u1",
     authorName: "Alice",
@@ -19,13 +21,13 @@ const messageEvent = {
 };
 
 const valid = {
+  communityContract: BUSINESS_SCHEMA_VERSION,
   messageId: "message-1",
   messageEvent,
   contentUserIds: ["u1", "u2"],
   unreadPlainUserIds: [],
   unreadMentionUserIds: ["u2"],
   mentionUserIds: ["u2"],
-  memberAdded: { userId: "u1", serverId: "server-1", channelId: "thread-1" },
   parentProjection: {
     type: "community:channel.child_update" as const,
     parentChannelId: "forum-1",
@@ -68,8 +70,8 @@ describe("message delivery batch", () => {
     { ...valid, unreadPlainUserIds: ["outside"] },
     { ...valid, unreadPlainUserIds: ["u2"], unreadMentionUserIds: ["u2"] },
     { ...valid, parentProjectionUserIds: undefined },
-    { ...valid, memberAdded: { ...valid.memberAdded, channelId: "other" } },
-    { ...valid, memberAdded: { ...valid.memberAdded, serverId: "other" } },
+    { ...valid, memberAdded: { userId: "u1", serverId: "server-1", channelId: "other" } },
+    { ...valid, memberAdded: { userId: "u1", serverId: "other", channelId: "thread-1" } },
     {
       ...valid,
       messageEvent: { ...messageEvent, serverId: undefined, parentChannelId: undefined },

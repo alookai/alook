@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process"
-import { createHash } from "node:crypto"
 import { once } from "node:events"
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
@@ -8,20 +7,23 @@ import { createRequire } from "node:module"
 import { resolve } from "node:path"
 import sharp from "sharp"
 import { describe, expect, it, vi } from "vitest"
-import { captures, captureArtwork, captureInputHashes, main, stopCaptureProcess } from "../../src/web/app-store-capture/capture.mjs"
+import { captures, selectCaptures, captureArtwork, captureInputHashes, main, stopCaptureProcess } from "../../src/web/app-store-capture/capture.mjs"
+import { assertArtworkHash, assertArtworkProvenance } from "./artwork-manifest"
 
 const root = resolve(import.meta.dirname, "../..")
 const captureRoot = resolve(root, "src/web/app-store-capture")
 const { chromium } = createRequire(resolve(root, "src/web/package.json"))("@playwright/test")
 
 describe("component-rendered App Store artwork", () => {
-  it("maps fourteen RGB artwork canvases outside the production router", async () => {
-    expect(captures).toHaveLength(14)
-    expect(new Set(captures.map(capture => capture.filename)).size).toBe(14)
+  it("maps twenty-four RGB artwork canvases outside the production router", async () => {
+    expect(captures).toHaveLength(24)
+    expect(new Set(captures.map(capture => capture.filename)).size).toBe(24)
     expect(captures.filter(capture => capture.width === 1206 && capture.height === 2622)).toHaveLength(6)
     expect(captures.filter(capture => capture.width === 1320 && capture.height === 2868)).toHaveLength(6)
-    expect(captures[12]).toMatchObject({ width: 2064, height: 2752, url: "/?kind=tablet" })
-    expect(captures[13]).toMatchObject({ width: 2007, height: 2853, url: "/?kind=duo" })
+    expect(selectCaptures({ device: "tablet" })).toHaveLength(6)
+    expect(captures[12]).toMatchObject({ width: 2752, height: 2064, url: "/?kind=tablet&story=1" })
+    expect(selectCaptures({ device: "duo" })).toHaveLength(6)
+    expect(captures[18]).toMatchObject({ width: 2007, height: 2853, url: "/?kind=duo&story=1" })
     expect(existsSync(resolve(captureRoot, "app/page.tsx"))).toBe(true)
     expect(existsSync(resolve(root, "src/web/src/app/app-store-capture/page.tsx"))).toBe(false)
     const readme = await readFile(resolve(captureRoot, "README.md"), "utf8")
@@ -48,16 +50,18 @@ describe("component-rendered App Store artwork", () => {
     expect(lintProject.include).toContain("app-store-capture/**/*")
   })
 
-  it("ships actual component viewports and JPEGs bound to the current direct source inputs", async () => {
+  it("ships actual component viewports and JPEGs bound to their recorded render inputs", async () => {
     const manifest = JSON.parse(await readFile(resolve(root, "assets/app-store/manifest.json"), "utf8"))
     expect(manifest).toMatchObject({ clock: "2026-10-25T00:00:00Z", locale: "en-US", timezone: "UTC" })
+    expect(manifest.renderer).toMatch(/^\d+\./)
+    expect(manifest.repositoryHead).toMatch(/^[a-f0-9]{40}$/)
     expect(manifest.outputs.filter(output => output.path !== "overview.jpg").map(output => output.path)).toEqual(captures.map(capture => capture.filename))
     for (const capture of captures) {
       const bytes = await readFile(resolve(root, "assets/app-store", capture.filename))
       const metadata = await sharp(bytes).metadata()
       expect(metadata).toMatchObject({ format: "jpeg", width: capture.width, height: capture.height, channels: 3, hasAlpha: false, space: "srgb" })
       const output = manifest.outputs.find(output => output.path === capture.filename)
-      expect(output.sha256).toBe(createHash("sha256").update(bytes).digest("hex"))
+      assertArtworkHash(bytes, output.sha256)
       expect(output.surfaces.length).toBeGreaterThan(0)
       for (const surface of output.surfaces) {
         expect(surface.rootFontSize).toBe("16px")
@@ -68,9 +72,9 @@ describe("component-rendered App Store artwork", () => {
         }
       }
     }
-    const duo = manifest.outputs.find(output => output.path.startsWith("duo-"))
+    const duo = manifest.outputs.find(output => output.path === "duo-2007x2853/06-existing-setup.jpg")
     expect(duo.surfaces.map(surface => [surface.width, surface.height])).toEqual([[951, 669], [466, 678]])
-    expect(manifest.inputs).toEqual(await captureInputHashes())
+    assertArtworkProvenance(manifest, captures.map(capture => capture.filename))
   })
 
   it("keeps the original source-package manifests as history rather than live screenshot inputs", async () => {
@@ -83,6 +87,17 @@ describe("component-rendered App Store artwork", () => {
     const inputs = Object.keys(await captureInputHashes())
     expect(inputs).toContain("src/web/src/components/home/landing-interactive-shell-data.ts")
     expect(inputs.some(input => /demo-(phone|desktop)\.png|duo-(open|closed)-demo\.jpg|\.html$/.test(input))).toBe(false)
+  })
+
+  it("selects each requested device/story without recapturing unrelated artwork", () => {
+    expect(selectCaptures()).toEqual(captures)
+    expect(selectCaptures({ story: 3 }).map(capture => capture.filename)).toEqual([
+      "phone-1206x2622/03-companion.jpg", "phone-1320x2868/03-companion.jpg",
+      "tablet-2752x2064/03-companion.jpg", "duo-2007x2853/03-companion.jpg",
+    ])
+    expect(selectCaptures({ device: "duo", story: 5 })).toEqual([expect.objectContaining({ filename: "duo-2007x2853/05-phone.jpg", url: "/?kind=duo&story=5" })])
+    for (const story of [0, 7, 1.5, Number.NaN, "3"]) expect(() => selectCaptures({ story })).toThrow("Invalid story")
+    expect(() => selectCaptures({ device: "watch" })).toThrow("Invalid device")
   })
 
   it("stops its owned process group and leaves an unrelated listener alive", async () => {
@@ -112,6 +127,8 @@ describe("component-rendered App Store artwork", () => {
     const launch = vi.spyOn(chromium, "launch")
     try {
       await expect(captureArtwork({ signal: AbortSignal.abort(new Error("cancelled")) })).rejects.toThrow("cancelled")
+      await expect(main(["--device", "watch"])).rejects.toThrow("Invalid device")
+      for (const args of [["--device"], ["--story"], ["--story", "7"], ["--story", "1.5"]]) await expect(main(args)).rejects.toThrow("Usage:")
       expect(launch).not.toHaveBeenCalled()
     } finally { vi.restoreAllMocks() }
   })

@@ -1,5 +1,7 @@
 "use client"
 
+import { CommunityChannelResourceSchema, type CommunityChannelResource, type CommunityMessagePosted } from "@alook/shared"
+
 import { captureOnboardingFirstMessage } from "@/lib/product-analytics"
 
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
@@ -13,11 +15,10 @@ import { getCommunityRuntime } from "@/stores/community/runtime"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { apiFetch, toastApiError } from "@/lib/api/client"
+import { toastApiError } from "@/lib/api/client"
 import { ApiError, isAbortError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
-import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
-import { captureCommunityLiveSnapshotToken, publishCommunityMessageFields, publishCommunityMessages, publishCommunityCreatedChannel, updateCommunityMessageContentOptimistically } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishCommunityMessages, publishCommunityCreatedChannel } from "@/lib/community-db/sync"
 import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
 import { attachmentThumbnailUrl, attachmentUrl } from "@/lib/community/storage"
 import {
@@ -40,12 +41,6 @@ import {
   patchForumSidebarActivityExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import { isBlocked, type MentionType, type CommunityResourceProfile } from "@alook/shared"
-import {
-  getActiveAccountUnreadProjection,
-  type AccountUnreadDomain,
-  type AccountUnreadDismissToken,
-  type MarkAllToken,
-} from "@/hooks/community/account-unread-projection"
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { reconcileAccountAttention } from "@/hooks/community/use-account-attention"
 
@@ -53,65 +48,16 @@ import {
   clearAttentionOptimistically,
   commitAttentionOptimisticSnapshot,
   commitAttentionItemsOptimisticSnapshot,
-  getCanonicalCommunityMessages,
   removeAttentionItemsOptimistically,
   restoreAttentionOptimisticDomains,
   restoreAttentionOptimisticSnapshot,
   restoreAttentionItemsOptimisticSnapshot,
+  type AttentionDomain,
   type AttentionIntent,
 } from "@/lib/community-db/sync"
 
 
 type OriginalView = (() => void) & { signal: AbortSignal }
-
-type EditMessageArgs = {
-  assertActive?: OriginalView
-  serverId: string
-  channelId: string
-  messageId: string
-  content: string
-  forumChannelId?: string
-  forumThreadId?: string
-}
-
-export function useEditMessage() {
-  const origin = useCommunityMutationOrigin()
-  const queryClient = useQueryClient()
-  type Intent = EditMessageArgs & { original: ReturnType<typeof origin.begin>["token"] }
-  const native = useMutation<void, Error, Intent>({ meta: { observabilityAction: "message.edit" },
-    scope: { id: "community-message-field-commands" },
-    mutationFn: async ({ channelId, messageId, content, original: token, assertActive }) => {
-      origin.assert(token); assertActive?.()
-      const registry = origin.registry
-      await registry?.ready
-      origin.assert(token); assertActive?.()
-      await Promise.all([registry!.collections.messages.preload(), registry!.collections.channels.preload()])
-      origin.assert(token); assertActive?.()
-      await Promise.all([
-        queryClient.cancelQueries({ queryKey: communityKeys.channelMessages(channelId) }),
-        queryClient.cancelQueries({ queryKey: communityKeys.message(messageId), exact: true }),
-      ])
-      origin.assert(token); assertActive?.()
-      const persist = async () => {
-        try {
-          await apiFetch(`/api/community/messages/${messageId}`, {
-            method: "PATCH",
-            body: JSON.stringify({ content }),
-            ...communityRequestOptions(queryClient, token, assertActive?.signal, () => { origin.assert(token); assertActive?.() }),
-          })
-          origin.assert(token); assertActive?.()
-          publishCommunityMessageFields(queryClient, messageId, { content }, { token, signal: assertActive?.signal })
-        } catch (error) { origin.assert(token); throw error }
-      }
-      const transaction = registry!.dbClient.createTransaction({ autoCommit: false, mutationFn: persist })
-      transaction.mutate(() => updateCommunityMessageContentOptimistically(registry!, messageId, content))
-      try { if (transaction.mutations.length) await transaction.commit(); else await persist() } catch (error) { origin.assert(token); throw error }
-    },
-  })
-  const capture = useCallback((input: EditMessageArgs): Intent => { input.assertActive?.(); return { ...input, original: origin.begin().token } }, [origin])
-  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assertActive?.() }, [origin])
-  return useNativeMutationFacade(native, capture, assertCurrent)
-}
 
 /**
  * Materialize the attachment view-model from the API attachment shape.
@@ -180,7 +126,7 @@ export type SendMessageArgs = {
 // the same nonce — `message` is the canonical (original) row, nothing new was
 // inserted. The caller treats it as success (reconcile the optimistic row,
 // clear the failed pill), never as a failure to resend.
-export type SendMessageResult = { message: PostedMessage; deduped?: boolean }
+export type SendMessageResult = Pick<CommunityMessagePosted, "message" | "profiles"> & { deduped?: boolean }
 
 /**
  * Channel/thread send. The server infers thread-vs-channel routing from the
@@ -215,16 +161,8 @@ export function getConfirmedSentMessage(
   }
 }
 
-function postedMessageForIntent(message: PostedMessage, nonce: string, channelId: string, attachments?: readonly UploadFileResult[]) {
-  const canonical = projectPostedMessage(message, nonce, channelId)
-  if (canonical.resourceComplete || canonical.attachments !== undefined || !attachments?.length) return canonical
-  return { ...canonical, attachments: attachments.map((attachment) => ({
-    id: attachment.id, name: attachment.filename, url: attachmentUrl(channelId, attachment.id),
-    contentType: attachment.contentType, sizeBytes: attachment.size,
-    ...(attachment.hasThumbnail === undefined ? {} : { thumbnailUrl: attachment.hasThumbnail ? attachmentThumbnailUrl(channelId, attachment.id) : null }),
-    ...(attachment.width === undefined ? {} : { width: attachment.width }),
-    ...(attachment.height === undefined ? {} : { height: attachment.height }),
-  })) }
+function postedMessageForIntent(message: PostedMessage, nonce: string, channelId: string) {
+  return projectPostedMessage(message, nonce, channelId)
 }
 
 function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(kind: MessageScope["kind"]) {
@@ -246,8 +184,8 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       })
       await origin.registry!.collections.messages.preload()
       origin.assert(token); (assertCommand ?? assertActive)?.()
-      const message = postedMessageForIntent(result.message, nonce ?? "", scope.id, attachments)
-      publishCommunityMessages(queryClient, { channelId: scope.id,
+      const message = postedMessageForIntent(result.message, nonce ?? "", scope.id)
+      publishCommunityMessages(queryClient, { channelId: scope.id, profiles: result.profiles,
         messages: [{ ...message, ...(acceptedReply && !("replyTo" in result.message) && (!("replyToId" in result.message) || result.message.replyToId === acceptedReply.id) ? { replyTo: acceptedReply } : {}) }],
         proof: { token, ...(scope.kind === "channel" && !assertCommand ? { signal: assertActive?.signal } : {}) } })
       return result
@@ -299,7 +237,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       const scope = sendMessageScope(args)
       const nonce = args.nonce ?? ""
       if (scope.kind === "dm" || args.nonce) getCommunityRuntime(queryClient).messageStream.actions.dispatch(scope, {
-        type: "postAck", nonce, message: postedMessageForIntent(data.message, nonce, scope.id, args.attachments),
+        type: "postAck", nonce, message: postedMessageForIntent(data.message, nonce, scope.id),
       })
     },
   })
@@ -336,7 +274,7 @@ export type CreateThreadArgs = {
   name: string
 }
 
-export type CreateThreadResult = { id: string }
+export type CreateThreadResult = CommunityChannelResource
 
 export function useCreateThread() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
@@ -350,7 +288,10 @@ export function useCreateThread() {
       await Promise.all([origin.registry!.collections.channels.preload(), origin.registry!.collections.messages.preload()])
       origin.assert(token); args.assertActive?.()
       const data = await origin.request<CreateThreadResult>(token, "/api/community/channels", { method: "POST", signal: args.assertActive?.signal, assertActive: args.assertActive, body: JSON.stringify({ type: "thread", messageId: args.messageId, name: args.name }) })
-      publishCommunityCreatedChannel(queryClient, { id: data.id, serverId: args.serverId, categoryId: null, name: args.name, type: "thread", parentChannelId: args.channelId, parentMessageId: args.messageId, creatorId: origin.registry!.accountId, position: 0, archived: false, muted: false, unread: false, tags: [], pending: false, messageCount: 0 }, { token, signal: args.assertActive?.signal })
+      origin.assert(token); args.assertActive?.()
+      const channel = CommunityChannelResourceSchema.parse(data)
+      if (channel.type !== "thread" || channel.serverId !== args.serverId || channel.parentChannelId !== args.channelId || channel.parentMessageId !== args.messageId) throw new Error("Created thread scope mismatch")
+      publishCommunityCreatedChannel(queryClient, { ...channel, pending: false }, { token, signal: args.assertActive?.signal })
       if (args.resource && queryClient.getQueryCache().find({ queryKey: communityKeys.threads(args.channelId), exact: true }) === args.resource) void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.channelId), exact: true }, { cancelRefetch: false }).catch(() => undefined)
       return data
     },
@@ -365,14 +306,12 @@ export function useCreateThread() {
 export function useMarkAllInboxRead() {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
-  const unreadProjection = getActiveAccountUnreadProjection(queryClient)
   type ReadAllResponse = { revision: number }
   type DomainResult = {
-    domain: AccountUnreadDomain
+    domain: AttentionDomain
     result: PromiseSettledResult<ReadAllResponse>
   }
   type MarkAllContext = {
-    tokens: Map<AccountUnreadDomain, MarkAllToken>
     snapshot?: AttentionIntent
   }
   type Original = ReturnType<typeof origin.begin>["token"]
@@ -407,11 +346,6 @@ export function useMarkAllInboxRead() {
       await Promise.all([registry!.collections.attentionScopes.preload(), registry!.collections.attentionItems.preload()])
       origin.assert(token)
       return {
-        tokens: new Map<AccountUnreadDomain, MarkAllToken>([
-          ["channels", unreadProjection.beginMarkAll("channels")],
-          ["dms", unreadProjection.beginMarkAll("dms")],
-          ["mentions", unreadProjection.beginMarkAll("mentions")],
-        ]),
         snapshot: registry ? clearAttentionOptimistically(registry) : undefined,
       }
     },
@@ -419,15 +353,11 @@ export function useMarkAllInboxRead() {
       origin.assert(original)
       let targetRevision = 0
       let firstFailure: unknown
-      const failedDomains = new Set<AccountUnreadDomain>()
+      const failedDomains = new Set<AttentionDomain>()
       for (const { domain, result } of results) {
-        const token = context.tokens.get(domain)
-        if (!token) continue
         if (result.status === "fulfilled") {
           targetRevision = Math.max(targetRevision, result.value?.revision ?? 0)
-          unreadProjection.commitMarkAll(token, result.value?.revision ?? 0)
         } else {
-          unreadProjection.rollbackMarkAll(token)
           failedDomains.add(domain)
           firstFailure ??= result.reason
         }
@@ -441,17 +371,12 @@ export function useMarkAllInboxRead() {
         }
       }
       origin.assert(original)
-      if (registry) void reconcileAccountAttention(registry).catch(() => undefined)
       if (firstFailure) toastApiError(firstFailure, "Some inbox items could not be marked read")
       void reconcileAccountReadState(queryClient, {
-        surfaceMode: "all",
         targetRevision,
       }).catch(() => undefined)
     },
     onError: (e, original, context) => {
-      for (const token of context?.tokens.values() ?? []) {
-        unreadProjection.rollbackMarkAll(token)
-      }
       const registry = origin.registry
       if (registry && context?.snapshot) {
         restoreAttentionOptimisticSnapshot(registry, context.snapshot)
@@ -460,8 +385,6 @@ export function useMarkAllInboxRead() {
       if (isAbortError(e)) return
       if (registry) void reconcileAccountAttention(registry).catch(() => undefined)
       toastApiError(e, "Failed to mark inbox read")
-      void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
-      void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
     },
   })
   return {
@@ -475,15 +398,12 @@ export type DeleteMentionArgs = { mentionId: string }
 
 export function useDeleteMention() {
   const origin = useCommunityMutationOrigin()
-  const queryClient = useQueryClient()
-  const unreadProjection = getActiveAccountUnreadProjection(queryClient)
   type Original = ReturnType<typeof origin.begin>["token"]
   const mutation = useMutation<
     { revision: number },
     Error,
     { input: DeleteMentionArgs; original: Original },
     {
-      token?: AccountUnreadDismissToken
       attentionSnapshot?: AttentionIntent
     }
   >({ meta: { observabilityAction: "mention.dismiss" },
@@ -500,7 +420,6 @@ export function useDeleteMention() {
       origin.assert(original)
       await Promise.all([registry!.collections.attentionScopes.preload(), registry!.collections.attentionItems.preload()])
       origin.assert(original)
-      const removed = Array.from(registry!.collections.attentionItems.values()).find((item) => item.sourceId === args.mentionId && (item.kind === "mention" || item.kind === "reply"))
       const attentionSnapshot = registry
         ? removeAttentionItemsOptimistically(
             registry,
@@ -510,35 +429,19 @@ export function useDeleteMention() {
             ),
           )
         : undefined
-      const message = removed?.messageId
-        ? getCanonicalCommunityMessages(queryClient)
-          .find((candidate) => candidate.id === removed.messageId)
-        : undefined
-      const token = removed?.scopeId && message?.seq !== undefined
-        ? unreadProjection.beginDismissMention({
-            mentionId: args.mentionId,
-            channelId: removed.scopeId,
-            seq: message.seq,
-            countsServerMention: removed.kind === "mention",
-          })
-        : undefined
-      return { token, attentionSnapshot }
+      return { attentionSnapshot }
     },
     onSuccess: async (result, { original }, context) => {
       origin.assert(original)
-      if (context.token) unreadProjection.commitDismissMention(context.token, result?.revision)
       const registry = origin.registry
       if (registry && context.attentionSnapshot) {
         await commitAttentionItemsOptimisticSnapshot(registry, context.attentionSnapshot)
         origin.assert(original)
         void reconcileAccountAttention(registry).catch(() => undefined)
       }
-      // Deleting a mention row removes it from the unread-mention aggregate
-      // that feeds the server rail badge — refresh so the count drops.
-      void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+
     },
     onError: (err, { original }, ctx) => {
-      if (ctx?.token) unreadProjection.rollbackDismissMention(ctx.token)
       const registry = origin.registry
       if (registry && ctx?.attentionSnapshot) {
         restoreAttentionItemsOptimisticSnapshot(registry, ctx.attentionSnapshot)

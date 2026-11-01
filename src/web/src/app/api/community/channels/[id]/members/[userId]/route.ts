@@ -1,5 +1,6 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, WS_EVENTS, isThread, DM_SERVER, parseRef } from "@alook/shared"
@@ -16,10 +17,8 @@ const REF_PLACEHOLDER_ID = "resolve"
  *     else is the creator's call; admins have no content privilege here).
  *   - A creator may self-leave after deterministic creator handoff. Removing
  *     another current creator remains out of scope.
- * The removed user gets a CHANNEL_MEMBER_REMOVE so their sidebar drops the
- * channel + evicts its caches.
  */
-export const DELETE = withCommunityActor(async (req: NextRequest, ctx) => {
+export const DELETE = withAuth(communityActorPolicy({ allowInactiveBot: true }), async (req: NextRequest, ctx) => {
   const pathChannelId = ctx.params?.id
   const pathTargetUserId = ctx.params?.userId
   if (!pathChannelId || !pathTargetUserId) return writeError("missing params", 400)
@@ -89,7 +88,6 @@ export const DELETE = withCommunityActor(async (req: NextRequest, ctx) => {
   await Promise.all(
     [...new Set([...recipients, targetUserId])].map((uid) => broadcastToUserSafe(uid, event))
   )
-
 
   return new Response(null, { status: 204 })
 })

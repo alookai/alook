@@ -11,24 +11,16 @@ vi.mock("@/lib/community/fanout", () => ({
 
 vi.mock("@/lib/middleware/auth", async () => {
   return {
-    withAuth: (
-      handler: (req: NextRequest, ctx: {
-        userId: string
-        email: string
-        env: { DB: unknown }
-        params: Record<string, string>
-      }) => Promise<Response>,
-    ) => {
-      return async (req: NextRequest, ctx: { params?: Promise<Record<string, string>> }) => {
-        const params = (await ctx.params) ?? {}
-        return handler(req, {
+    resolveHumanAuth: async () => ({ context: { userId: "u_caller", email: "caller@example.com", env: { DB: {} } } }),
+    humanAuthPolicy: { resolve: async (req: NextRequest) => {
+        const params = (await undefined) ?? {}
+        return ({ context: {
           userId: "u_caller",
           email: "caller@example.com",
           env: { DB: {} },
-          params,
-        })
-      }
-    },
+
+        } })
+      } },
   }
 })
 
@@ -100,6 +92,7 @@ describe("POST /api/community/invites/[token]/join", () => {
         joinedAt: "2026-07-03T00:00:00.000Z",
         userName: "Alice",
         userImage: null,
+        userAvatarVersion: 0, discriminator: "0042",
         discriminator: "0042",
       },
     })
@@ -119,13 +112,16 @@ describe("POST /api/community/invites/[token]/join", () => {
         joinedAt: "2026-07-03T00:00:00.000Z",
         userName: "Alice",
         userImage: null,
+        userAvatarVersion: 0, discriminator: "0042",
       },
     })
 
     await callPOST("tok_abc")
     const [, event] = mockFanOut.mock.calls[0]!
     expect(event.member.name).toBe("Alice")
-    expect(event.member.avatar).toBeUndefined()
+    expect(event.member.avatar).toBeNull()
+    expect(event.member.avatarVersion).toBe(0)
+    expect(event.member.discriminator).toBe("0042")
   })
 
   it("returns 400 for expired/invalid invite (useInvite → null)", async () => {

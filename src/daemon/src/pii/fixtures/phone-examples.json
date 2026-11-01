@@ -1,0 +1,1526 @@
+[
+  {
+    "region": "AC",
+    "callingCode": "247",
+    "national": "62889",
+    "prefix": ""
+  },
+  {
+    "region": "AD",
+    "callingCode": "376",
+    "national": "712345",
+    "prefix": ""
+  },
+  {
+    "region": "AE",
+    "callingCode": "971",
+    "national": "22345678",
+    "prefix": "0"
+  },
+  {
+    "region": "AF",
+    "callingCode": "93",
+    "national": "234567890",
+    "prefix": "0"
+  },
+  {
+    "region": "AG",
+    "callingCode": "1",
+    "national": "2684601234",
+    "prefix": "1"
+  },
+  {
+    "region": "AI",
+    "callingCode": "1",
+    "national": "2644612345",
+    "prefix": "1"
+  },
+  {
+    "region": "AL",
+    "callingCode": "355",
+    "national": "22345678",
+    "prefix": "0"
+  },
+  {
+    "region": "AM",
+    "callingCode": "374",
+    "national": "10123456",
+    "prefix": "0"
+  },
+  {
+    "region": "AO",
+    "callingCode": "244",
+    "national": "222123456",
+    "prefix": ""
+  },
+  {
+    "region": "AR",
+    "callingCode": "54",
+    "national": "1123456789",
+    "prefix": "0"
+  },
+  {
+    "region": "AS",
+    "callingCode": "1",
+    "national": "6846221234",
+    "prefix": "1"
+  },
+  {
+    "region": "AT",
+    "callingCode": "43",
+    "national": "1234567890",
+    "prefix": "0"
+  },
+  {
+    "region": "AU",
+    "callingCode": "61",
+    "national": "212345678",
+    "prefix": "0"
+  },
+  {
+    "region": "AW",
+    "callingCode": "297",
+    "national": "5212345",
+    "prefix": ""
+  },
+  {
+    "region": "AX",
+    "callingCode": "358",
+    "national": "181234567",
+    "prefix": "0"
+  },
+  {
+    "region": "AZ",
+    "callingCode": "994",
+    "national": "123123456",
+    "prefix": "0"
+  },
+  {
+    "region": "BA",
+    "callingCode": "387",
+    "national": "30212345",
+    "prefix": "0"
+  },
+  {
+    "region": "BB",
+    "callingCode": "1",
+    "national": "2464123456",
+    "prefix": "1"
+  },
+  {
+    "region": "BD",
+    "callingCode": "880",
+    "national": "27111234",
+    "prefix": "0"
+  },
+  {
+    "region": "BE",
+    "callingCode": "32",
+    "national": "12345678",
+    "prefix": "0"
+  },
+  {
+    "region": "BF",
+    "callingCode": "226",
+    "national": "20491234",
+    "prefix": ""
+  },
+  {
+    "region": "BG",
+    "callingCode": "359",
+    "national": "2123456",
+    "prefix": "0"
+  },
+  {
+    "region": "BH",
+    "callingCode": "973",
+    "national": "17001234",
+    "prefix": ""
+  },
+  {
+    "region": "BI",
+    "callingCode": "257",
+    "national": "22201234",
+    "prefix": ""
+  },
+  {
+    "region": "BJ",
+    "callingCode": "229",
+    "national": "0120211234",
+    "prefix": ""
+  },
+  {
+    "region": "BL",
+    "callingCode": "590",
+    "national": "590271234",
+    "prefix": "0"
+  },
+  {
+    "region": "BM",
+    "callingCode": "1",
+    "national": "4414123456",
+    "prefix": "1"
+  },
+  {
+    "region": "BN",
+    "callingCode": "673",
+    "national": "2345678",
+    "prefix": ""
+  },
+  {
+    "region": "BO",
+    "callingCode": "591",
+    "national": "22123456",
+    "prefix": "0"
+  },
+  {
+    "region": "BQ",
+    "callingCode": "599",
+    "national": "7151234",
+    "prefix": ""
+  },
+  {
+    "region": "BR",
+    "callingCode": "55",
+    "national": "1123456789",
+    "prefix": "0"
+  },
+  {
+    "region": "BS",
+    "callingCode": "1",
+    "national": "2423456789",
+    "prefix": "1"
+  },
+  {
+    "region": "BT",
+    "callingCode": "975",
+    "national": "2345678",
+    "prefix": ""
+  },
+  {
+    "region": "BW",
+    "callingCode": "267",
+    "national": "2401234",
+    "prefix": ""
+  },
+  {
+    "region": "BY",
+    "callingCode": "375",
+    "national": "152450911",
+    "prefix": "8"
+  },
+  {
+    "region": "BZ",
+    "callingCode": "501",
+    "national": "2221234",
+    "prefix": ""
+  },
+  {
+    "region": "CA",
+    "callingCode": "1",
+    "national": "5062345678",
+    "prefix": "1"
+  },
+  {
+    "region": "CC",
+    "callingCode": "61",
+    "national": "891621234",
+    "prefix": "0"
+  },
+  {
+    "region": "CD",
+    "callingCode": "243",
+    "national": "1234567",
+    "prefix": "0"
+  },
+  {
+    "region": "CF",
+    "callingCode": "236",
+    "national": "21612345",
+    "prefix": ""
+  },
+  {
+    "region": "CG",
+    "callingCode": "242",
+    "national": "222123456",
+    "prefix": ""
+  },
+  {
+    "region": "CH",
+    "callingCode": "41",
+    "national": "212345678",
+    "prefix": "0"
+  },
+  {
+    "region": "CI",
+    "callingCode": "225",
+    "national": "2123456789",
+    "prefix": ""
+  },
+  {
+    "region": "CK",
+    "callingCode": "682",
+    "national": "21234",
+    "prefix": ""
+  },
+  {
+    "region": "CL",
+    "callingCode": "56",
+    "national": "600123456",
+    "prefix": ""
+  },
+  {
+    "region": "CM",
+    "callingCode": "237",
+    "national": "222123456",
+    "prefix": ""
+  },
+  {
+    "region": "CN",
+    "callingCode": "86",
+    "national": "1012345678",
+    "prefix": "0"
+  },
+  {
+    "region": "CO",
+    "callingCode": "57",
+    "national": "6012345678",
+    "prefix": "0"
+  },
+  {
+    "region": "CR",
+    "callingCode": "506",
+    "national": "22123456",
+    "prefix": ""
+  },
+  {
+    "region": "CU",
+    "callingCode": "53",
+    "national": "71234567",
+    "prefix": "0"
+  },
+  {
+    "region": "CV",
+    "callingCode": "238",
+    "national": "2211234",
+    "prefix": ""
+  },
+  {
+    "region": "CW",
+    "callingCode": "599",
+    "national": "94351234",
+    "prefix": ""
+  },
+  {
+    "region": "CX",
+    "callingCode": "61",
+    "national": "891641234",
+    "prefix": "0"
+  },
+  {
+    "region": "CY",
+    "callingCode": "357",
+    "national": "22345678",
+    "prefix": ""
+  },
+  {
+    "region": "CZ",
+    "callingCode": "420",
+    "national": "212345678",
+    "prefix": ""
+  },
+  {
+    "region": "DE",
+    "callingCode": "49",
+    "national": "30123456",
+    "prefix": "0"
+  },
+  {
+    "region": "DJ",
+    "callingCode": "253",
+    "national": "21360003",
+    "prefix": ""
+  },
+  {
+    "region": "DK",
+    "callingCode": "45",
+    "national": "32123456",
+    "prefix": ""
+  },
+  {
+    "region": "DM",
+    "callingCode": "1",
+    "national": "7674201234",
+    "prefix": "1"
+  },
+  {
+    "region": "DO",
+    "callingCode": "1",
+    "national": "8092345678",
+    "prefix": "1"
+  },
+  {
+    "region": "DZ",
+    "callingCode": "213",
+    "national": "12345678",
+    "prefix": "0"
+  },
+  {
+    "region": "EC",
+    "callingCode": "593",
+    "national": "22123456",
+    "prefix": "0"
+  },
+  {
+    "region": "EE",
+    "callingCode": "372",
+    "national": "3212345",
+    "prefix": ""
+  },
+  {
+    "region": "EG",
+    "callingCode": "20",
+    "national": "234567890",
+    "prefix": "0"
+  },
+  {
+    "region": "EH",
+    "callingCode": "212",
+    "national": "528812345",
+    "prefix": "0"
+  },
+  {
+    "region": "ER",
+    "callingCode": "291",
+    "national": "8370362",
+    "prefix": "0"
+  },
+  {
+    "region": "ES",
+    "callingCode": "34",
+    "national": "810123456",
+    "prefix": ""
+  },
+  {
+    "region": "ET",
+    "callingCode": "251",
+    "national": "111112345",
+    "prefix": "0"
+  },
+  {
+    "region": "FI",
+    "callingCode": "358",
+    "national": "131234567",
+    "prefix": "0"
+  },
+  {
+    "region": "FJ",
+    "callingCode": "679",
+    "national": "3212345",
+    "prefix": ""
+  },
+  {
+    "region": "FK",
+    "callingCode": "500",
+    "national": "31234",
+    "prefix": ""
+  },
+  {
+    "region": "FM",
+    "callingCode": "691",
+    "national": "3201234",
+    "prefix": ""
+  },
+  {
+    "region": "FO",
+    "callingCode": "298",
+    "national": "201234",
+    "prefix": ""
+  },
+  {
+    "region": "FR",
+    "callingCode": "33",
+    "national": "123456789",
+    "prefix": "0"
+  },
+  {
+    "region": "GA",
+    "callingCode": "241",
+    "national": "01441234",
+    "prefix": ""
+  },
+  {
+    "region": "GB",
+    "callingCode": "44",
+    "national": "1212345678",
+    "prefix": "0"
+  },
+  {
+    "region": "GD",
+    "callingCode": "1",
+    "national": "4732691234",
+    "prefix": "1"
+  },
+  {
+    "region": "GE",
+    "callingCode": "995",
+    "national": "322123456",
+    "prefix": "0"
+  },
+  {
+    "region": "GF",
+    "callingCode": "594",
+    "national": "594101234",
+    "prefix": "0"
+  },
+  {
+    "region": "GG",
+    "callingCode": "44",
+    "national": "1481256789",
+    "prefix": "0"
+  },
+  {
+    "region": "GH",
+    "callingCode": "233",
+    "national": "302345678",
+    "prefix": "0"
+  },
+  {
+    "region": "GI",
+    "callingCode": "350",
+    "national": "20012345",
+    "prefix": ""
+  },
+  {
+    "region": "GL",
+    "callingCode": "299",
+    "national": "321000",
+    "prefix": ""
+  },
+  {
+    "region": "GM",
+    "callingCode": "220",
+    "national": "5661234",
+    "prefix": ""
+  },
+  {
+    "region": "GN",
+    "callingCode": "224",
+    "national": "30241234",
+    "prefix": ""
+  },
+  {
+    "region": "GP",
+    "callingCode": "590",
+    "national": "590201234",
+    "prefix": "0"
+  },
+  {
+    "region": "GQ",
+    "callingCode": "240",
+    "national": "333091234",
+    "prefix": ""
+  },
+  {
+    "region": "GR",
+    "callingCode": "30",
+    "national": "2123456789",
+    "prefix": ""
+  },
+  {
+    "region": "GT",
+    "callingCode": "502",
+    "national": "22456789",
+    "prefix": ""
+  },
+  {
+    "region": "GU",
+    "callingCode": "1",
+    "national": "6713001234",
+    "prefix": "1"
+  },
+  {
+    "region": "GW",
+    "callingCode": "245",
+    "national": "443201234",
+    "prefix": ""
+  },
+  {
+    "region": "GY",
+    "callingCode": "592",
+    "national": "2201234",
+    "prefix": ""
+  },
+  {
+    "region": "HK",
+    "callingCode": "852",
+    "national": "21234567",
+    "prefix": ""
+  },
+  {
+    "region": "HN",
+    "callingCode": "504",
+    "national": "22123456",
+    "prefix": ""
+  },
+  {
+    "region": "HR",
+    "callingCode": "385",
+    "national": "12345678",
+    "prefix": "0"
+  },
+  {
+    "region": "HT",
+    "callingCode": "509",
+    "national": "22453300",
+    "prefix": ""
+  },
+  {
+    "region": "HU",
+    "callingCode": "36",
+    "national": "12345678",
+    "prefix": "06"
+  },
+  {
+    "region": "ID",
+    "callingCode": "62",
+    "national": "218350123",
+    "prefix": "0"
+  },
+  {
+    "region": "IE",
+    "callingCode": "353",
+    "national": "2212345",
+    "prefix": "0"
+  },
+  {
+    "region": "IL",
+    "callingCode": "972",
+    "national": "21234567",
+    "prefix": "0"
+  },
+  {
+    "region": "IM",
+    "callingCode": "44",
+    "national": "1624756789",
+    "prefix": "0"
+  },
+  {
+    "region": "IN",
+    "callingCode": "91",
+    "national": "7410410123",
+    "prefix": "0"
+  },
+  {
+    "region": "IO",
+    "callingCode": "246",
+    "national": "3709100",
+    "prefix": ""
+  },
+  {
+    "region": "IQ",
+    "callingCode": "964",
+    "national": "12345678",
+    "prefix": "0"
+  },
+  {
+    "region": "IR",
+    "callingCode": "98",
+    "national": "2123456789",
+    "prefix": "0"
+  },
+  {
+    "region": "IS",
+    "callingCode": "354",
+    "national": "4101234",
+    "prefix": ""
+  },
+  {
+    "region": "IT",
+    "callingCode": "39",
+    "national": "0212345678",
+    "prefix": ""
+  },
+  {
+    "region": "JE",
+    "callingCode": "44",
+    "national": "1534456789",
+    "prefix": "0"
+  },
+  {
+    "region": "JM",
+    "callingCode": "1",
+    "national": "8765230123",
+    "prefix": "1"
+  },
+  {
+    "region": "JO",
+    "callingCode": "962",
+    "national": "62001234",
+    "prefix": "0"
+  },
+  {
+    "region": "JP",
+    "callingCode": "81",
+    "national": "312345678",
+    "prefix": "0"
+  },
+  {
+    "region": "KE",
+    "callingCode": "254",
+    "national": "202012345",
+    "prefix": "0"
+  },
+  {
+    "region": "KG",
+    "callingCode": "996",
+    "national": "312123456",
+    "prefix": "0"
+  },
+  {
+    "region": "KH",
+    "callingCode": "855",
+    "national": "23756789",
+    "prefix": "0"
+  },
+  {
+    "region": "KI",
+    "callingCode": "686",
+    "national": "31234",
+    "prefix": "0"
+  },
+  {
+    "region": "KM",
+    "callingCode": "269",
+    "national": "7712345",
+    "prefix": ""
+  },
+  {
+    "region": "KN",
+    "callingCode": "1",
+    "national": "8692361234",
+    "prefix": "1"
+  },
+  {
+    "region": "KP",
+    "callingCode": "850",
+    "national": "21234567",
+    "prefix": "0"
+  },
+  {
+    "region": "KR",
+    "callingCode": "82",
+    "national": "22123456",
+    "prefix": "0"
+  },
+  {
+    "region": "KW",
+    "callingCode": "965",
+    "national": "22345678",
+    "prefix": ""
+  },
+  {
+    "region": "KY",
+    "callingCode": "1",
+    "national": "3452221234",
+    "prefix": "1"
+  },
+  {
+    "region": "KZ",
+    "callingCode": "7",
+    "national": "7123456789",
+    "prefix": "8"
+  },
+  {
+    "region": "LA",
+    "callingCode": "856",
+    "national": "21212862",
+    "prefix": "0"
+  },
+  {
+    "region": "LB",
+    "callingCode": "961",
+    "national": "1123456",
+    "prefix": "0"
+  },
+  {
+    "region": "LC",
+    "callingCode": "1",
+    "national": "7584305678",
+    "prefix": "1"
+  },
+  {
+    "region": "LI",
+    "callingCode": "423",
+    "national": "2345678",
+    "prefix": "0"
+  },
+  {
+    "region": "LK",
+    "callingCode": "94",
+    "national": "112345678",
+    "prefix": "0"
+  },
+  {
+    "region": "LR",
+    "callingCode": "231",
+    "national": "21234567",
+    "prefix": "0"
+  },
+  {
+    "region": "LS",
+    "callingCode": "266",
+    "national": "22123456",
+    "prefix": ""
+  },
+  {
+    "region": "LT",
+    "callingCode": "370",
+    "national": "31234567",
+    "prefix": "0"
+  },
+  {
+    "region": "LU",
+    "callingCode": "352",
+    "national": "27123456",
+    "prefix": ""
+  },
+  {
+    "region": "LV",
+    "callingCode": "371",
+    "national": "63123456",
+    "prefix": ""
+  },
+  {
+    "region": "LY",
+    "callingCode": "218",
+    "national": "212345678",
+    "prefix": "0"
+  },
+  {
+    "region": "MA",
+    "callingCode": "212",
+    "national": "520123456",
+    "prefix": "0"
+  },
+  {
+    "region": "MC",
+    "callingCode": "377",
+    "national": "99123456",
+    "prefix": "0"
+  },
+  {
+    "region": "MD",
+    "callingCode": "373",
+    "national": "22212345",
+    "prefix": "0"
+  },
+  {
+    "region": "ME",
+    "callingCode": "382",
+    "national": "30234567",
+    "prefix": "0"
+  },
+  {
+    "region": "MF",
+    "callingCode": "590",
+    "national": "590271234",
+    "prefix": "0"
+  },
+  {
+    "region": "MG",
+    "callingCode": "261",
+    "national": "202123456",
+    "prefix": "0"
+  },
+  {
+    "region": "MH",
+    "callingCode": "692",
+    "national": "2471234",
+    "prefix": "1"
+  },
+  {
+    "region": "MK",
+    "callingCode": "389",
+    "national": "22012345",
+    "prefix": "0"
+  },
+  {
+    "region": "ML",
+    "callingCode": "223",
+    "national": "20212345",
+    "prefix": ""
+  },
+  {
+    "region": "MM",
+    "callingCode": "95",
+    "national": "1234567",
+    "prefix": "0"
+  },
+  {
+    "region": "MN",
+    "callingCode": "976",
+    "national": "53123456",
+    "prefix": "0"
+  },
+  {
+    "region": "MO",
+    "callingCode": "853",
+    "national": "28212345",
+    "prefix": ""
+  },
+  {
+    "region": "MP",
+    "callingCode": "1",
+    "national": "6702345678",
+    "prefix": "1"
+  },
+  {
+    "region": "MQ",
+    "callingCode": "596",
+    "national": "596301234",
+    "prefix": "0"
+  },
+  {
+    "region": "MR",
+    "callingCode": "222",
+    "national": "35123456",
+    "prefix": ""
+  },
+  {
+    "region": "MS",
+    "callingCode": "1",
+    "national": "6644912345",
+    "prefix": "1"
+  },
+  {
+    "region": "MT",
+    "callingCode": "356",
+    "national": "21001234",
+    "prefix": ""
+  },
+  {
+    "region": "MU",
+    "callingCode": "230",
+    "national": "54480123",
+    "prefix": ""
+  },
+  {
+    "region": "MV",
+    "callingCode": "960",
+    "national": "6701234",
+    "prefix": ""
+  },
+  {
+    "region": "MW",
+    "callingCode": "265",
+    "national": "1234567",
+    "prefix": "0"
+  },
+  {
+    "region": "MX",
+    "callingCode": "52",
+    "national": "2001234567",
+    "prefix": ""
+  },
+  {
+    "region": "MY",
+    "callingCode": "60",
+    "national": "323856789",
+    "prefix": "0"
+  },
+  {
+    "region": "MZ",
+    "callingCode": "258",
+    "national": "21123456",
+    "prefix": ""
+  },
+  {
+    "region": "NA",
+    "callingCode": "264",
+    "national": "61221234",
+    "prefix": "0"
+  },
+  {
+    "region": "NC",
+    "callingCode": "687",
+    "national": "201234",
+    "prefix": ""
+  },
+  {
+    "region": "NE",
+    "callingCode": "227",
+    "national": "20201234",
+    "prefix": ""
+  },
+  {
+    "region": "NF",
+    "callingCode": "672",
+    "national": "106609",
+    "prefix": ""
+  },
+  {
+    "region": "NG",
+    "callingCode": "234",
+    "national": "2033123456",
+    "prefix": "0"
+  },
+  {
+    "region": "NI",
+    "callingCode": "505",
+    "national": "21234567",
+    "prefix": ""
+  },
+  {
+    "region": "NL",
+    "callingCode": "31",
+    "national": "101234567",
+    "prefix": "0"
+  },
+  {
+    "region": "NO",
+    "callingCode": "47",
+    "national": "21234567",
+    "prefix": ""
+  },
+  {
+    "region": "NP",
+    "callingCode": "977",
+    "national": "14567890",
+    "prefix": "0"
+  },
+  {
+    "region": "NR",
+    "callingCode": "674",
+    "national": "4441234",
+    "prefix": ""
+  },
+  {
+    "region": "NU",
+    "callingCode": "683",
+    "national": "7012",
+    "prefix": ""
+  },
+  {
+    "region": "NZ",
+    "callingCode": "64",
+    "national": "32345678",
+    "prefix": "0"
+  },
+  {
+    "region": "OM",
+    "callingCode": "968",
+    "national": "23123456",
+    "prefix": ""
+  },
+  {
+    "region": "PA",
+    "callingCode": "507",
+    "national": "2001234",
+    "prefix": ""
+  },
+  {
+    "region": "PE",
+    "callingCode": "51",
+    "national": "11234567",
+    "prefix": "0"
+  },
+  {
+    "region": "PF",
+    "callingCode": "689",
+    "national": "40412345",
+    "prefix": ""
+  },
+  {
+    "region": "PG",
+    "callingCode": "675",
+    "national": "3123456",
+    "prefix": ""
+  },
+  {
+    "region": "PH",
+    "callingCode": "63",
+    "national": "232345678",
+    "prefix": "0"
+  },
+  {
+    "region": "PK",
+    "callingCode": "92",
+    "national": "2123456789",
+    "prefix": "0"
+  },
+  {
+    "region": "PL",
+    "callingCode": "48",
+    "national": "123456789",
+    "prefix": ""
+  },
+  {
+    "region": "PM",
+    "callingCode": "508",
+    "national": "430123",
+    "prefix": "0"
+  },
+  {
+    "region": "PR",
+    "callingCode": "1",
+    "national": "7872345678",
+    "prefix": "1"
+  },
+  {
+    "region": "PS",
+    "callingCode": "970",
+    "national": "22234567",
+    "prefix": "0"
+  },
+  {
+    "region": "PT",
+    "callingCode": "351",
+    "national": "212345678",
+    "prefix": ""
+  },
+  {
+    "region": "PW",
+    "callingCode": "680",
+    "national": "2771234",
+    "prefix": ""
+  },
+  {
+    "region": "PY",
+    "callingCode": "595",
+    "national": "212345678",
+    "prefix": "0"
+  },
+  {
+    "region": "QA",
+    "callingCode": "974",
+    "national": "44123456",
+    "prefix": ""
+  },
+  {
+    "region": "RE",
+    "callingCode": "262",
+    "national": "262161234",
+    "prefix": "0"
+  },
+  {
+    "region": "RO",
+    "callingCode": "40",
+    "national": "211234567",
+    "prefix": "0"
+  },
+  {
+    "region": "RS",
+    "callingCode": "381",
+    "national": "10234567",
+    "prefix": "0"
+  },
+  {
+    "region": "RU",
+    "callingCode": "7",
+    "national": "3011234567",
+    "prefix": "8"
+  },
+  {
+    "region": "RW",
+    "callingCode": "250",
+    "national": "250123456",
+    "prefix": "0"
+  },
+  {
+    "region": "SA",
+    "callingCode": "966",
+    "national": "112345678",
+    "prefix": "0"
+  },
+  {
+    "region": "SB",
+    "callingCode": "677",
+    "national": "40123",
+    "prefix": ""
+  },
+  {
+    "region": "SC",
+    "callingCode": "248",
+    "national": "4217123",
+    "prefix": ""
+  },
+  {
+    "region": "SD",
+    "callingCode": "249",
+    "national": "153123456",
+    "prefix": "0"
+  },
+  {
+    "region": "SE",
+    "callingCode": "46",
+    "national": "8123456",
+    "prefix": "0"
+  },
+  {
+    "region": "SG",
+    "callingCode": "65",
+    "national": "61234567",
+    "prefix": ""
+  },
+  {
+    "region": "SH",
+    "callingCode": "290",
+    "national": "22158",
+    "prefix": ""
+  },
+  {
+    "region": "SI",
+    "callingCode": "386",
+    "national": "12345678",
+    "prefix": "0"
+  },
+  {
+    "region": "SJ",
+    "callingCode": "47",
+    "national": "79123456",
+    "prefix": ""
+  },
+  {
+    "region": "SK",
+    "callingCode": "421",
+    "national": "221234567",
+    "prefix": "0"
+  },
+  {
+    "region": "SL",
+    "callingCode": "232",
+    "national": "22221234",
+    "prefix": "0"
+  },
+  {
+    "region": "SM",
+    "callingCode": "378",
+    "national": "0549886377",
+    "prefix": ""
+  },
+  {
+    "region": "SN",
+    "callingCode": "221",
+    "national": "301012345",
+    "prefix": ""
+  },
+  {
+    "region": "SO",
+    "callingCode": "252",
+    "national": "4012345",
+    "prefix": "0"
+  },
+  {
+    "region": "SR",
+    "callingCode": "597",
+    "national": "211234",
+    "prefix": ""
+  },
+  {
+    "region": "SS",
+    "callingCode": "211",
+    "national": "181234567",
+    "prefix": "0"
+  },
+  {
+    "region": "ST",
+    "callingCode": "239",
+    "national": "2221234",
+    "prefix": ""
+  },
+  {
+    "region": "SV",
+    "callingCode": "503",
+    "national": "21234567",
+    "prefix": ""
+  },
+  {
+    "region": "SX",
+    "callingCode": "1",
+    "national": "7215425678",
+    "prefix": "1"
+  },
+  {
+    "region": "SY",
+    "callingCode": "963",
+    "national": "112345678",
+    "prefix": "0"
+  },
+  {
+    "region": "SZ",
+    "callingCode": "268",
+    "national": "22171234",
+    "prefix": ""
+  },
+  {
+    "region": "TA",
+    "callingCode": "290",
+    "national": "8999",
+    "prefix": ""
+  },
+  {
+    "region": "TC",
+    "callingCode": "1",
+    "national": "6497121234",
+    "prefix": "1"
+  },
+  {
+    "region": "TD",
+    "callingCode": "235",
+    "national": "22501234",
+    "prefix": ""
+  },
+  {
+    "region": "TG",
+    "callingCode": "228",
+    "national": "22212345",
+    "prefix": ""
+  },
+  {
+    "region": "TH",
+    "callingCode": "66",
+    "national": "21234567",
+    "prefix": "0"
+  },
+  {
+    "region": "TJ",
+    "callingCode": "992",
+    "national": "372123456",
+    "prefix": ""
+  },
+  {
+    "region": "TK",
+    "callingCode": "690",
+    "national": "3101",
+    "prefix": ""
+  },
+  {
+    "region": "TL",
+    "callingCode": "670",
+    "national": "2112345",
+    "prefix": ""
+  },
+  {
+    "region": "TM",
+    "callingCode": "993",
+    "national": "12345678",
+    "prefix": "8"
+  },
+  {
+    "region": "TN",
+    "callingCode": "216",
+    "national": "30010123",
+    "prefix": ""
+  },
+  {
+    "region": "TO",
+    "callingCode": "676",
+    "national": "20123",
+    "prefix": ""
+  },
+  {
+    "region": "TR",
+    "callingCode": "90",
+    "national": "2123456789",
+    "prefix": "0"
+  },
+  {
+    "region": "TT",
+    "callingCode": "1",
+    "national": "8682211234",
+    "prefix": "1"
+  },
+  {
+    "region": "TV",
+    "callingCode": "688",
+    "national": "20123",
+    "prefix": ""
+  },
+  {
+    "region": "TW",
+    "callingCode": "886",
+    "national": "221234567",
+    "prefix": "0"
+  },
+  {
+    "region": "TZ",
+    "callingCode": "255",
+    "national": "222345678",
+    "prefix": "0"
+  },
+  {
+    "region": "UA",
+    "callingCode": "380",
+    "national": "311234567",
+    "prefix": "0"
+  },
+  {
+    "region": "UG",
+    "callingCode": "256",
+    "national": "312345678",
+    "prefix": "0"
+  },
+  {
+    "region": "US",
+    "callingCode": "1",
+    "national": "2015550123",
+    "prefix": "1"
+  },
+  {
+    "region": "UY",
+    "callingCode": "598",
+    "national": "21231234",
+    "prefix": "0"
+  },
+  {
+    "region": "UZ",
+    "callingCode": "998",
+    "national": "669050123",
+    "prefix": ""
+  },
+  {
+    "region": "VA",
+    "callingCode": "39",
+    "national": "0669812345",
+    "prefix": ""
+  },
+  {
+    "region": "VC",
+    "callingCode": "1",
+    "national": "7842661234",
+    "prefix": "1"
+  },
+  {
+    "region": "VE",
+    "callingCode": "58",
+    "national": "2121234567",
+    "prefix": "0"
+  },
+  {
+    "region": "VG",
+    "callingCode": "1",
+    "national": "2842291234",
+    "prefix": "1"
+  },
+  {
+    "region": "VI",
+    "callingCode": "1",
+    "national": "3406421234",
+    "prefix": "1"
+  },
+  {
+    "region": "VN",
+    "callingCode": "84",
+    "national": "2101234567",
+    "prefix": "0"
+  },
+  {
+    "region": "VU",
+    "callingCode": "678",
+    "national": "22123",
+    "prefix": ""
+  },
+  {
+    "region": "WF",
+    "callingCode": "681",
+    "national": "721234",
+    "prefix": ""
+  },
+  {
+    "region": "WS",
+    "callingCode": "685",
+    "national": "22123",
+    "prefix": ""
+  },
+  {
+    "region": "XK",
+    "callingCode": "383",
+    "national": "28012345",
+    "prefix": "0"
+  },
+  {
+    "region": "YE",
+    "callingCode": "967",
+    "national": "1234567",
+    "prefix": "0"
+  },
+  {
+    "region": "YT",
+    "callingCode": "262",
+    "national": "269601234",
+    "prefix": "0"
+  },
+  {
+    "region": "ZA",
+    "callingCode": "27",
+    "national": "101234567",
+    "prefix": "0"
+  },
+  {
+    "region": "ZM",
+    "callingCode": "260",
+    "national": "211234567",
+    "prefix": "0"
+  },
+  {
+    "region": "ZW",
+    "callingCode": "263",
+    "national": "1312345",
+    "prefix": "0"
+  },
+  {
+    "region": "001",
+    "callingCode": "800",
+    "national": "12345678",
+    "prefix": ""
+  },
+  {
+    "region": "001",
+    "callingCode": "808",
+    "national": "12345678",
+    "prefix": ""
+  },
+  {
+    "region": "001",
+    "callingCode": "870",
+    "national": "301234567",
+    "prefix": ""
+  },
+  {
+    "region": "001",
+    "callingCode": "878",
+    "national": "101234567890",
+    "prefix": ""
+  },
+  {
+    "region": "001",
+    "callingCode": "881",
+    "national": "612345678",
+    "prefix": ""
+  },
+  {
+    "region": "001",
+    "callingCode": "882",
+    "national": "3421234",
+    "prefix": ""
+  },
+  {
+    "region": "001",
+    "callingCode": "883",
+    "national": "510012345",
+    "prefix": ""
+  },
+  {
+    "region": "001",
+    "callingCode": "888",
+    "national": "12345678901",
+    "prefix": ""
+  },
+  {
+    "region": "001",
+    "callingCode": "979",
+    "national": "123456789",
+    "prefix": ""
+  }
+]

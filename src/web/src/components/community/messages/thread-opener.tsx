@@ -3,6 +3,7 @@
 import { MessagesSquare, ArrowUpRight } from "lucide-react"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
+import { selectHtmlPreviews } from "@/lib/community/html-preview-markdown"
 import { MessageAuthorLine } from "./message-author-line"
 import { attachmentImageFrameStyle } from "./attachment-layout"
 import { formatMessageTime } from "@/lib/community/format-time"
@@ -18,6 +19,7 @@ import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { MessageReactions } from "./message-reactions"
 import { RemoteContentImage } from "@/components/remote-image/remote-image"
+import { Button } from "@/components/ui/button"
 
 // Thread opener — the parent message the thread was created from, pinned at
 // the top of the thread's message list. Deliberately styled like a REGULAR
@@ -58,7 +60,7 @@ export function ThreadOpener({
   onJump?: () => void
 }) {
   const hoverCapable = useHoverCapable()
-  const { message: msg, isLoading, isError } = useMessage(parentMessageId, {
+  const { message: msg, isLoading, isError, refetch, isFetching } = useMessage(parentMessageId, {
     ...(parentChannelId ? { channelId: parentChannelId } : {}),
     serverId,
   })
@@ -91,6 +93,8 @@ export function ThreadOpener({
           <span>Thread started from a message</span>
         </div>
         <p className="text-sm italic text-muted-foreground">Original message is unavailable.</p>
+        <Button variant="ghost" size="sm" className="h-11 self-start sm:h-8" disabled={isFetching}
+          onClick={() => { void refetch({ cancelRefetch: false }) }}>Retry original message</Button>
       </div>
     )
   }
@@ -102,6 +106,7 @@ export function ThreadOpener({
     ? (authorProfile?.avatar ?? avatarInitial(authorName))
     : (msg.authorAvatar ?? avatarInitial(authorName))
   const visibleContent = msg.content ?? ""
+  const htmlPreviews = selectHtmlPreviews(visibleContent, msg.attachments)
 
   return (
     <div data-thread-opener className="group relative flex flex-col gap-2">
@@ -145,6 +150,7 @@ export function ThreadOpener({
             <MessageBody
               key={msg.id}
               text={visibleContent}
+              attachments={msg.attachments}
               onOpenProfile={onOpenProfile}
               perspective={msg.authorId === viewerUserId ? "sender" : "recipient"}
             />
@@ -153,6 +159,7 @@ export function ThreadOpener({
           {msg.attachments && msg.attachments.length > 0 && (
             <div className="flex flex-col gap-2">
               {msg.attachments.map((a, i) => {
+                if (a.id && htmlPreviews.has(a.id)) return null
                 if (a.kind === "image") {
                   const frameStyle = attachmentImageFrameStyle(a.width, a.height)
                   return (

@@ -1,3 +1,4 @@
+import { channelResourceFixture } from "@/test/community-resource-fixtures"
 import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { channelMetadataOptions } from "./channel-metadata"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
@@ -17,11 +18,11 @@ vi.mock("@/lib/api/client", () => ({
 
 import { useChannelMetadata } from "./use-channel-metadata"
 
-const meta = (overrides: Partial<ReturnType<typeof channelSchema.parse>> = {}) => channelSchema.parse({ categoryId: null, topic: "", messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
+const meta = (overrides: Partial<ReturnType<typeof channelResourceFixture>> = {}) => channelResourceFixture({ categoryId: null, topic: "", messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
   id: "post-1", serverId: "server-1", name: "post", type: "thread",
   parentChannelId: "forum-1", parentMessageId: "opener-1", creatorId: "user-1",
   archived: false, lastMessageAt: "2026-08-09T00:00:00.000Z",
-  position: 0, muted: false, unread: false, tags: [], pending: false, ...overrides,
+  position: 0, ...overrides,
 })
 
 async function fixture() {
@@ -133,7 +134,7 @@ describe("child channel metadata stale rendering", () => {
     )
     const cached = meta()
     createCommunityDbRegistry(queryClient, "viewer").collections.channels.utils.writeUpsert(channelSchema.parse({
-      ...cached, position: 0, muted: false, unread: false, tags: [], pending: false,
+      ...cached, position: 0, muted: false, tags: [], pending: false,
       lastMessageAt: cached.lastMessageAt,
     }))
     const rendered = renderHook(
@@ -163,8 +164,8 @@ describe("child channel metadata stale rendering", () => {
       parentMessageId: "opener-1",
       creatorId: null,
       archived: false,
-      lastMessageAt: undefined,
-      position: 0, muted: false, unread: false, tags: [], pending: false,
+      lastMessageAt: null,
+      position: 0, muted: false, tags: [], pending: false,
     }))
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,

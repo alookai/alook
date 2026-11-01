@@ -26,7 +26,6 @@ function allTargetUserIds(batch: MessageDeliveryBatch): string[] {
     ...batch.unreadPlainUserIds,
     ...batch.unreadMentionUserIds,
     ...batch.mentionUserIds,
-    ...(batch.memberAdded ? [batch.memberAdded.userId] : []),
     ...(batch.parentProjectionUserIds ?? []),
   ])]
 }
@@ -35,7 +34,7 @@ function selectTargets(batch: MessageDeliveryBatch, selected: ReadonlySet<string
   const keep = (ids: readonly string[]) => ids.filter((id) => selected.has(id))
   const parentProjectionUserIds = keep(batch.parentProjectionUserIds ?? [])
   return {
-    ...(batch.communityContract === 3 ? { communityContract: 3 as const } : {}),
+    communityContract: batch.communityContract,
     messageId: batch.messageId,
     messageEvent: batch.messageEvent,
     contentUserIds: keep(batch.contentUserIds),
@@ -43,9 +42,6 @@ function selectTargets(batch: MessageDeliveryBatch, selected: ReadonlySet<string
     unreadMentionUserIds: keep(batch.unreadMentionUserIds),
     mentionUserIds: keep(batch.mentionUserIds),
     ...(batch.joinedParticipantUserIds ? { joinedParticipantUserIds: keep(batch.joinedParticipantUserIds), rosterRefreshUserId: batch.rosterRefreshUserId } : {}),
-    ...(batch.memberAdded && selected.has(batch.memberAdded.userId)
-      ? { memberAdded: batch.memberAdded }
-      : {}),
     ...(batch.parentProjection && parentProjectionUserIds.length > 0
       ? { parentProjection: batch.parentProjection, parentProjectionUserIds }
       : {}),

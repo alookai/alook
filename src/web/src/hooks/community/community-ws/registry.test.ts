@@ -21,11 +21,12 @@ const handlers = vi.hoisted(() => new Proxy({} as Record<string, ReturnType<type
   },
 }))
 
+vi.mock("./pii-events", () => ({ handleBotPii: handlers.handleBotPii }))
+
 vi.mock("./server-rail-reconciliation", () => ({ handleServerRailChanged: handlers.handleServerRailChanged }))
 
 vi.mock("./message-events", () => ({
   handleMessageCreate: handlers.handleMessageCreate,
-  handleMessageEdited: handlers.handleMessageEdited,
   handleMessageUpdated: handlers.handleMessageUpdated,
   handlePinEvent: handlers.handlePinEvent,
   handleReactionEvent: handlers.handleReactionEvent,
@@ -82,7 +83,7 @@ function dispatchContext(queryClient = new QueryClient()): CommunityWsDispatchCo
     sub: {},
     viewerUserIdRef: { current: null },
     matchesFocus: () => false,
-    scheduleInboxInvalidate: vi.fn(),
+
   }
 }
 
@@ -90,7 +91,9 @@ describe("community WebSocket registry", () => {
   it("has exactly one entry for each runtime event type", () => {
     const eventTypes = Object.values(WS_EVENTS).sort()
     const registryTypes = Object.keys(communityWsRegistry).sort()
-    expect(eventTypes).toHaveLength(48)
+    expect(eventTypes).toHaveLength(46)
+    expect(eventTypes).not.toContain("community:channel.member_add")
+    expect(eventTypes).not.toContain("community:channel.member_remove")
     expect(registryTypes).toEqual(eventTypes)
   })
 
@@ -110,7 +113,7 @@ describe("community WebSocket registry", () => {
     "community:server.update",
     "community:category.update",
     "community:channel.update",
-    "community:channel.member_add",
+    "community:channel.membership.change",
     "community:member.update",
     "community:unread.bump",
     "community:presence.update",
@@ -140,6 +143,7 @@ describe("community WebSocket registry", () => {
     ["community:profile.update", "handleProfileUpdate"],
     ["community:machine.created", "handleMachineCreated"],
     ["community:runtime.models", "handleRuntimeModels"],
+    ["community:bot.pii", "handleBotPii"],
     ["community:bot.audit_event", "handleBotAuditEvent"],
   ] as const)("dispatches %s through its existing handler group", (type, handlerName) => {
     const context = dispatchContext()

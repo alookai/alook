@@ -1,12 +1,14 @@
 import { spawnSync } from "node:child_process"
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
 
+import { readAndroidToolchain, androidSdkComponents } from "./android-toolchain.mjs"
 import { runIfMain, verifyAndroidProject } from "./verify-android-project.mjs"
 
+const selected = readAndroidToolchain()
 const directories: string[] = []
 const canonical = resolve(import.meta.dirname, "../../src/desktop/src-tauri/gen/android")
 
@@ -18,9 +20,9 @@ function fixture() {
     cpSync(join(canonical, file), join(root, file))
   }
   mkdirSync(join(root, "buildSrc"))
-  writeFileSync(join(root, "buildSrc/build.gradle.kts"), 'plugins { `kotlin-dsl` }\ndependencies {\n    implementation("com.android.tools.build:gradle:9.3.1")\n}\n')
+  writeFileSync(join(root, "buildSrc/build.gradle.kts"), `plugins { \`kotlin-dsl\` }\ndependencies {\n    implementation("com.android.tools.build:gradle:${selected.agp}")\n}\n`)
   mkdirSync(join(root, "gradle/wrapper"), { recursive: true })
-  writeFileSync(join(root, "gradle/wrapper/gradle-wrapper.properties"), 'distributionUrl=https\\://services.gradle.org/distributions/gradle-9.6.1-bin.zip\n')
+  writeFileSync(join(root, "gradle/wrapper/gradle-wrapper.properties"), `distributionUrl=https\\://services.gradle.org/distributions/gradle-${selected.gradle}-bin.zip\n`)
   return root
 }
 
@@ -39,7 +41,7 @@ describe("post-init Android toolchain validation", () => {
     const app = readFileSync(join(root, "app/build.gradle.kts"))
     const manifest = readFileSync(join(root, "app/src/main/AndroidManifest.xml"))
     expect(verifyAndroidProject(root)).toEqual({
-      agp: "9.3.1", supportAgp: "9.3.1", kotlin: "2.2.10", gradle: "9.6.1", builtInKotlin: false, newDsl: false, failOnMissingProguardFiles: false, jvmTarget: "11", tauriScriptFile: true, releaseLint: true,
+      agp: selected.agp, supportAgp: selected.agp, kotlin: selected.kotlin, gradle: selected.gradle, builtInKotlin: false, newDsl: false, failOnMissingProguardFiles: false, jvmTarget: "11", tauriScriptFile: true, releaseLint: true,
     })
     expect(readFileSync(join(root, "app/build.gradle.kts"))).toEqual(app)
     expect(readFileSync(join(root, "app/src/main/AndroidManifest.xml"))).toEqual(manifest)
@@ -75,14 +77,65 @@ describe("post-init Android toolchain validation", () => {
   })
 
   it.each([
-    ["build.gradle.kts", "gradle:9.3.1", "gradle:8.11.0"],
-    ["build.gradle.kts", "kotlin-gradle-plugin:2.2.10", "kotlin-gradle-plugin:1.9.25"],
-    ["buildSrc/build.gradle.kts", "gradle:9.3.1", "gradle:8.11.0"],
-    ["gradle/wrapper/gradle-wrapper.properties", "gradle-9.6.1-bin.zip", "gradle-8.14.3-bin.zip"],
+    ["build.gradle.kts", '${alookToolchain.getProperty("alook.agp")}', "8.11.0"],
+    ["build.gradle.kts", '${alookToolchain.getProperty("alook.kotlin")}', "1.9.25"],
+    ["buildSrc/build.gradle.kts", `gradle:${selected.agp}`, "gradle:8.11.0"],
+    ["gradle/wrapper/gradle-wrapper.properties", `gradle-${selected.gradle}-bin.zip`, "gradle-8.14.3-bin.zip"],
   ])("rejects incompatible post-init declaration in %s", (file, before, after) => {
     const root = fixture()
     change(root, file, before, after)
     expect(() => verifyAndroidProject(root)).toThrow("Android toolchain must match")
+  })
+
+
+  it.each(Object.keys(selected))("rejects an unsupported post-init %s selection", name => {
+    const root = fixture()
+    const value = selected[name as keyof typeof selected]
+    change(root, "gradle.properties", `alook.${name}=${value}`, `alook.${name}=0`)
+    expect(() => verifyAndroidProject(root)).toThrow(`must match supported alook.${name}`)
+  })
+
+  it.each(["compileSdk", "targetSdk", "buildToolsVersion", "ndkVersion"])("rejects an app %s that ignores the selected configuration", name => {
+    const root = fixture()
+    const file = "app/build.gradle.kts"
+    const text = readFileSync(join(root, file), "utf8")
+    writeFileSync(join(root, file), text.replace(new RegExp(`(${name}\\s*=)[^\\n]+`), '$1 "0"'))
+    expect(() => verifyAndroidProject(root)).toThrow(`${name} must use the selected supported toolchain`)
+  })
+
+  it("exports exactly the selected SDK, build tools and NDK to the actual release shell", () => {
+    const helper = resolve(import.meta.dirname, "android-toolchain.mjs")
+    const output = spawnSync(process.execPath, [helper], { encoding: "utf8" })
+    expect(output.status, output.stderr).toBe(0)
+    expect(output.stdout.trim().split("\n")).toEqual(androidSdkComponents())
+  })
+
+  it.skipIf(process.platform === "win32")("installs the supported components and refuses a missing or nonexecutable selected NDK", () => {
+    const root = fixture()
+    const sdk = join(root, "Android SDK with spaces")
+    const manager = join(sdk, "cmdline-tools/latest/bin/sdkmanager")
+    const ndk = join(sdk, "ndk", selected.ndk, "ndk-build")
+    const log = join(root, "installed-components")
+    const environment = join(root, "github-env")
+    mkdirSync(dirname(manager), { recursive: true })
+    writeFileSync(manager, '#!/bin/sh\nif [ "$1" = --licenses ]; then exit 0; fi\nprintf "%s\\n" "$@" > "$SDK_FIXTURE_LOG"\n', { mode: 0o755 })
+    const workflow = readFileSync(resolve(import.meta.dirname, "../../.github/workflows/mobile-release.yml"), "utf8")
+    const step = workflow.split("      - name: Install Android SDK components\n")[1].split("      - name:")[0]
+    const shell = step.split("        run: |\n")[1].replace(/^          /gm, "")
+    const run = () => spawnSync("bash", ["-c", shell], {
+      cwd: resolve(import.meta.dirname, "../.."),
+      env: { ...process.env, ANDROID_HOME: sdk, GITHUB_ENV: environment, SDK_FIXTURE_LOG: log },
+      encoding: "utf8", timeout: 10_000,
+    })
+    expect(run().status).not.toBe(0)
+    expect(readFileSync(log, "utf8").trim().split("\n")).toEqual(androidSdkComponents())
+    mkdirSync(dirname(ndk), { recursive: true })
+    writeFileSync(ndk, "#!/bin/sh\nexit 0\n", { mode: 0o644 })
+    expect(run().status).not.toBe(0)
+    chmodSync(ndk, 0o755)
+    const valid = run()
+    expect(valid.status, valid.stderr).toBe(0)
+    expect(readFileSync(environment, "utf8").trim()).toBe(`NDK_HOME=${dirname(ndk)}`)
   })
 
   it.each(["android.builtInKotlin", "android.newDsl", "android.proguard.failOnMissingFiles"])("rejects missing or enabled %s", name => {
@@ -151,7 +204,7 @@ describe("post-init Android toolchain validation", () => {
     const helper = resolve(import.meta.dirname, "verify-android-project.mjs")
     const valid = spawnSync(process.execPath, [helper, "--project", root], { encoding: "utf8" })
     expect(valid.status, valid.stderr).toBe(0)
-    expect(JSON.parse(valid.stdout).gradle).toBe("9.6.1")
+    expect(JSON.parse(valid.stdout).gradle).toBe(selected.gradle)
     change(root, "gradle.properties", "android.builtInKotlin=false", "android.builtInKotlin=true")
     const invalid = spawnSync(process.execPath, [helper, "--project", root], { encoding: "utf8" })
     expect(invalid.status).not.toBe(0)

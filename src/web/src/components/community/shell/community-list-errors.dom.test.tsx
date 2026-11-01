@@ -1,3 +1,4 @@
+import { friendBucketScenarioFixture, dmListRowFixture } from "@/test/community-resource-fixtures"
 import { beforeEach, expect, it, vi } from "vitest"
 import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
@@ -7,9 +8,8 @@ import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { CommunityModuleRouteContext } from "@/contexts/community/module-route"
 import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { communityKeys } from "@/lib/query-keys"
-import { friendsQueryFn } from "@/hooks/community/use-friends"
+import { friendsQueryFn, useFriends } from "@/hooks/community/use-friends"
 import { dmsProjectedQueryFn } from "@/hooks/community/use-dms"
-import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import FriendsRoute from "../social/friends-route"
 import { DmSidebarSlot } from "./dm-sidebar-slot"
 
@@ -22,21 +22,23 @@ vi.mock("@/hooks/community/use-inbox", () => ({ useInboxUnreads: () => ({ friend
 beforeEach(() => { load.mockReset() })
 
 type Kind = "friends" | "dms"
-const friend = { id: "friendship", userId: "peer", name: "Cached person", discriminator: "0001", avatar: "P", status: "offline", sub: "" }
-const dm = { id: "dm", userId: "peer", name: "Cached person", discriminator: "0001", avatar: "P", status: "offline", preview: "Cached conversation" }
+const friend = { id: "friendship", userId: "peer", name: "Cached person", discriminator: "0001", avatar: "P", avatarVersion: 0, status: "offline" as const, sub: "" }
+const dm = { id: "dm", userId: "peer", name: "Cached person", discriminator: "0001", avatar: "P", avatarVersion: 0, status: "offline" as const, preview: "Cached conversation" }
 const primaryPath = (kind: Kind) => kind === "friends" ? "/api/community/friends/accepted" : "/api/community/users/me/dms"
 const key = (kind: Kind) => kind === "friends" ? communityKeys.friends() : communityKeys.dms()
 const emptyText = (kind: Kind) => kind === "friends" ? "No friends yet. Add someone from the New tab." : "Your direct messages will appear here."
 function response(path: string, populated = false) {
-  if (path.endsWith("/accepted")) return { friends: populated ? [friend] : [] }
-  if (path.endsWith("/blocked")) return { blocked: [] }
-  if (path.endsWith("/pending")) return { pending: [] }
-  if (path.endsWith("/dms")) return { conversations: populated ? [dm] : [] }
+  if (path.endsWith("/accepted")) return friendBucketScenarioFixture("friends", populated ? [friend] : [])
+  if (path.endsWith("/blocked")) return friendBucketScenarioFixture("blocked", [])
+  if (path.endsWith("/pending")) return friendBucketScenarioFixture("pending", [])
+  if (path.endsWith("/dms")) return { conversations: populated ? [dmListRowFixture(dm)] : [] }
   throw new Error(`Unexpected list request: ${path}`)
 }
+function SharedAccountReader() { useFriends(); return null }
 function node(owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>, kind: Kind) {
   const href = kind === "friends" ? "/c/me/friends" : "/c/me"
   return <CommunityTestProvider client={owner.client} registry={owner.registry}>
+    {kind === "friends" && <SharedAccountReader />}
     <CurrentUserProvider initialUser={{ id: "viewer", name: "Viewer", avatar: "V", email: "viewer@example.test" }}>
       <CommunityRouteContext value={{ frame: { ...normalizeCommunityHref(href), revision: 1 } } as never}>
         <CommunityModuleRouteContext value={{ href, routeCommitted: false }}>
@@ -84,7 +86,7 @@ it.each([
   const owner = await createCommunityQueryOwner()
   load.mockImplementation(async (path: string) => response(path, populated))
   const queryKey = key(kind)
-  await owner.client.query({ queryKey, queryFn: kind === "friends" ? friendsQueryFn : dmsProjectedQueryFn(getActiveAccountUnreadProjection(owner.client), owner.client) })
+  await owner.client.query({ queryKey, queryFn: kind === "friends" ? friendsQueryFn : dmsProjectedQueryFn(owner.client) })
   let reject!: (error: Error) => void
   const held = new Promise<never>((_, fail) => { reject = fail })
   load.mockImplementation((path: string) => path === primaryPath(kind) ? held : Promise.resolve(response(path, populated)))

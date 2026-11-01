@@ -1,3 +1,4 @@
+import { currentCommunityEventFixture } from "@/test/community-resource-fixtures"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 import { decodeCommunityBrowserEvent } from "@alook/shared"
@@ -40,10 +41,10 @@ vi.mock("@/lib/community/fanout", () => ({
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
-  }),
+  humanAuthPolicy: { resolve: async (req: any) => {
+
+    return ({ context: { env: { DB: {} }, userId: "u1", email: "u@t.com" } })
+  } },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {
@@ -92,7 +93,7 @@ describe("POST /channels/[id]/participants", () => {
     expect(res.status).toBe(201)
     for (const [, event] of mockBroadcastToUserSafe.mock.calls) {
       expect(Object.keys(event).sort()).toEqual(["channelId", "present", "relation", "serverId", "type", "userId"])
-      expect(decodeCommunityBrowserEvent(event).ok).toBe(true)
+      expect(decodeCommunityBrowserEvent(currentCommunityEventFixture(event)).ok).toBe(true)
     }
     expect(mockAddThreadParticipant).toHaveBeenCalledWith(expect.anything(), {
       threadChannelId: "t1", userId: "u2", source: "added",

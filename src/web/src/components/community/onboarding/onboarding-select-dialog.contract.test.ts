@@ -10,7 +10,7 @@ const source = readFileSync(
 
 describe("OnboardingSelectDialog contract", () => {
   it("builds on the shared shadcn dialog, field, and radio primitives", () => {
-    expect(source).toContain('from "@/components/ui/dialog"')
+    expect(source).toContain('from "./onboarding-surface"')
     expect(source).toContain('from "@/components/ui/field"')
     expect(source).toContain('from "@/components/ui/radio-group"')
     expect(source).toContain('from "@/components/provider-logo"')

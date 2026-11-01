@@ -5,6 +5,7 @@ import { renderCommunity as render } from "@/test/community-owner-harness"
 import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { extractTableDataFromElement } from "streamdown"
 import fullMessagePlugins from "./message-body-full"
 import { MessageBodyView } from "./message-body-view"
 
@@ -15,6 +16,26 @@ function MessageBody(props: Omit<React.ComponentProps<typeof MessageBodyView>, "
 const componentDirectory = dirname(fileURLToPath(import.meta.url))
 
 describe("MessageBody — plain URL rendering", () => {
+  it.each([
+    ["Contact hello@example.com", "hello@example.com", "mailto:hello@example.com"],
+    ["<hello@example.com>", "hello@example.com", "mailto:hello@example.com"],
+    ["[Email the team](mailto:hello+team@example.com?subject=Hello&body=Hi%20there)", "Email the team", "mailto:hello+team@example.com?subject=Hello&body=Hi%20there"],
+  ])("renders an email badge without rewriting the link: %s", (text, label, href) => {
+    const renderer = render(React.createElement(MessageBody, { text }))
+    const link = renderer.getByRole("link", { name: `Email: ${href}` })
+    expect(link).toHaveAttribute("href", href)
+    expect(link).toHaveAttribute("data-platform-link", "email")
+    expect(link).toHaveClass("platform-link-badge")
+    expect(link).toHaveTextContent(label)
+    expect(link.querySelector("svg.lucide-mail")).toHaveAttribute("aria-hidden", "true")
+  })
+
+  it("leaves email addresses inside inline code as code", () => {
+    const renderer = render(React.createElement(MessageBody, { text: "`hello@example.com`" }))
+    expect(renderer.container.querySelector("a")).toBeNull()
+    expect(renderer.container.querySelector("code")).toHaveTextContent("hello@example.com")
+  })
+
   it("renders an unsupported HTTPS URL as a generic clickable link badge", () => {
     let renderer: ReturnType<typeof render>
     act(() => {
@@ -270,5 +291,78 @@ describe("MessageBody — single newlines render as hard breaks (remark-breaks)"
     })
     const paras = renderer!.container.querySelectorAll("p")
     expect(paras.length).toBe(2)
+  })
+})
+
+
+describe("MessageBody — redacted content", () => {
+  it("renders builtin, custom and adjacent placeholders without changing surrounding prose", () => {
+    const text = "邮箱：[REDACTED_EMAIL]，key [REDACTED_ENV_KEY] [REDACTED][REDACTED_PHONE]。"
+    let renderer: ReturnType<typeof render>
+    act(() => { renderer = render(React.createElement(MessageBody, { text })) })
+    expect(renderer!.container.querySelectorAll("[data-redacted]")).toHaveLength(4)
+    expect(renderer!.container.textContent).toBe(text)
+  })
+
+  it("keeps badges inside emphasis, quotes, tables and hidden spoilers", () => {
+    let renderer: ReturnType<typeof render>
+    act(() => {
+      renderer = render(React.createElement(MessageBody, {
+        text: "**[REDACTED_SECRET]**\n\n> [REDACTED_ID_CARD]\n\n| Value |\n| --- |\n| [REDACTED_BANK_CARD] |\n\n||[REDACTED_TOKEN]||",
+      }))
+    })
+    for (const selector of ['[data-streamdown="strong"]', "blockquote", "td", "button"]) {
+      expect(renderer!.container.querySelector(`${selector} [data-redacted]`), selector).not.toBeNull()
+    }
+    expect(extractTableDataFromElement(renderer!.container.querySelector("table")!).rows).toEqual([["[REDACTED_BANK_CARD]"]])
+    const spoiler = renderer!.container.querySelector("button [data-redacted]")!.parentElement!
+    expect(spoiler.className).toContain("[&_[data-redacted]]:invisible")
+    act(() => { fireEvent.click(spoiler) })
+    expect(spoiler.className).not.toContain("[&_[data-redacted]]:invisible")
+  })
+
+  it("prioritizes badges in inline code, fenced code, links and escaped text", async () => {
+    const copy = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("navigator", { clipboard: { writeText: copy } })
+    const text = "`[REDACTED_SECRET]`\n\n```js\nconst key = '[REDACTED_ENV_KEY]';\n  next();\n```\n\n[[REDACTED_EMAIL]](https://example.com)\n\n\\[REDACTED_PHONE] &#91;REDACTED_TOKEN]"
+    let renderer: ReturnType<typeof render>
+    try {
+      act(() => { renderer = render(React.createElement(MessageBody, { text })) })
+      expect(renderer!.container.querySelectorAll("[data-redacted]")).toHaveLength(5)
+      expect(renderer!.container.querySelector('code[data-streamdown="inline-code"] [data-redacted]')).not.toBeNull()
+      expect(renderer!.container.querySelector("pre code [data-redacted]"), renderer!.container.innerHTML).not.toBeNull()
+      expect(renderer!.container.querySelector("a [data-redacted]")).not.toBeNull()
+      expect(renderer!.container.querySelector("pre code")!.textContent).toBe("const key = '[REDACTED_ENV_KEY]';\n  next();\n")
+      await act(async () => { fireEvent.click(renderer!.container.querySelector('[data-streamdown="code-block-copy-button"]')!) })
+      expect(copy).toHaveBeenCalledWith("const key = '[REDACTED_ENV_KEY]';\n  next();\n")
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("leaves incomplete and lowercase markers unchanged", () => {
+    const text = "[redacted_email] [REDACTED_] [REDACTED_EMAIL"
+    let renderer: ReturnType<typeof render>
+    act(() => { renderer = render(React.createElement(MessageBody, { text })) })
+    expect(renderer!.container.querySelectorAll("[data-redacted]")).toHaveLength(0)
+    expect(renderer!.container.textContent).toBe(text)
+  })
+
+  it("does not turn user-authored HTML into redaction badges", () => {
+    let renderer: ReturnType<typeof render>
+    act(() => { renderer = render(React.createElement(MessageBody, { text: "<redacted>ordinary text</redacted>" })) })
+    expect(renderer!.container.querySelectorAll("[data-redacted]")).toHaveLength(0)
+    expect(renderer!.container.textContent).toContain("ordinary text")
+  })
+})
+
+
+describe("MessageBody — specialized redaction rendering", () => {
+  it("preserves inline and display math with redacted badges", () => {
+    let renderer: ReturnType<typeof render>
+    act(() => { renderer = render(React.createElement(MessageBody, { text: "$x + [REDACTED_EMAIL]$\n\n$$\ny + [REDACTED_TOKEN]\n$$" })) })
+    expect(renderer!.container.querySelectorAll(".katex")).toHaveLength(2)
+    expect(renderer!.container.querySelectorAll(".katex-html [data-redacted]")).toHaveLength(2)
+    expect(renderer!.container.querySelector(".katex-display")).not.toBeNull()
   })
 })

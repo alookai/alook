@@ -31,8 +31,7 @@ export interface MessageRowProps {
   onPinId?: (id: string) => void
   onMarkId?: (id: string) => void
   onCreateThreadId?: (id: string) => void
-  onCopyId?: (id: string) => void
-  onEditId?: (id: string) => void
+  onCopyId?: (id: string, selectedText?: string) => void
   onRetryId?: (id: string) => void
   onDismissId?: (id: string) => void
   onJumpToId?: (id: string) => void
@@ -56,7 +55,7 @@ function MessageRowImpl(props: MessageRowProps) {
   const {
     m, viewerUserId, hoverCapable, pinned, highlighted, onOpenThread, onOpenProfile,
     onToggleReactionId, onReactId, onReplyId, mentionText, onInsertMentionText, onPinId, onMarkId, onCreateThreadId,
-    onCopyId, onEditId, onRetryId, onDismissId, onJumpToId, onPreviewImage, onPreviewAttachment,
+    onCopyId, onRetryId, onDismissId, onJumpToId, onPreviewImage, onPreviewAttachment,
     resolveUserName, onImageLoad,
     selectMode, selected, onToggleSelectId, onEnterSelectId, onShareSingleId,
   } = props
@@ -78,8 +77,7 @@ function MessageRowImpl(props: MessageRowProps) {
   const onPin = useCallback(() => onPinId?.(id), [onPinId, id])
   const onMark = useCallback(() => onMarkId?.(id), [onMarkId, id])
   const onCreateThread = useCallback(() => onCreateThreadId?.(id), [onCreateThreadId, id])
-  const onCopy = useCallback(() => onCopyId?.(id), [onCopyId, id])
-  const onEdit = useCallback(() => onEditId?.(id), [onEditId, id])
+  const onCopy = useCallback((selectedText?: string) => onCopyId?.(id, selectedText), [onCopyId, id])
   const onRetry = useCallback(() => onRetryId?.(id), [onRetryId, id])
   const onDismiss = useCallback(() => onDismissId?.(id), [onDismissId, id])
   const onJumpReply = useCallback(() => { if (replyToId) onJumpToId?.(replyToId) }, [onJumpToId, replyToId])
@@ -110,7 +108,6 @@ function MessageRowImpl(props: MessageRowProps) {
       onMark={onMarkId ? onMark : undefined}
       onCreateThread={onCreateThreadId ? onCreateThread : undefined}
       onCopy={onCopyId ? onCopy : undefined}
-      onEdit={onEditId ? onEdit : undefined}
       onRetry={onRetryId ? onRetry : undefined}
       onDismiss={onDismissId ? onDismiss : undefined}
       onPreviewImage={onPreviewImage}

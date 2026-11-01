@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { forwardRef, createElement, createRef } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act } from "@/test/react-dom-harness"
+import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
@@ -141,6 +142,7 @@ type TestEditor = {
   }
   setEditable: ReturnType<typeof vi.fn>
   commands: {
+    blur: ReturnType<typeof vi.fn>
     clearContent: ReturnType<typeof vi.fn>
     focus: ReturnType<typeof vi.fn>
     liftEmptyBlock: ReturnType<typeof vi.fn>
@@ -221,6 +223,7 @@ describe("useComposerController", () => {
       view: { dispatch, dom: { setAttribute: setDomAttribute } },
       setEditable: vi.fn(),
       commands: {
+        blur: vi.fn(),
         clearContent,
         focus,
         liftEmptyBlock: vi.fn(() => false),
@@ -1369,4 +1372,103 @@ describe("useComposerController", () => {
       .toBeLessThan(source.indexOf("editor.commands.clearContent()"))
     expect(source).toContain("typingTimer.current = null")
   })
+
+  it.each(["emoji", "upload", "file", "drop", "paste", "remove", "cancel", "send", "drag-enter", "drag-over"] as const)("rejects a retained %s input callback after activity is lost", async kind => {
+    const accept = vi.fn(() => true), cancel = vi.fn()
+    const node = (active: boolean) => createElement(ConversationActivityContext.Provider, { value: active },
+      createElement(Harness, { ...acceptedProps(accept), onCancelReply: cancel }))
+    const view = render(node(true))
+    const retained = controllerView
+    const attachment = mocks.useFileAttachments.mock.results.at(-1)!.value
+    view.rerender(node(false))
+    vi.clearAllMocks()
+    const event = { preventDefault: vi.fn(), stopPropagation: vi.fn(), currentTarget: { value: "picked" },
+      clipboardData: { items: [], getData: () => "paste" } }
+    await act(async () => {
+      if (kind === "emoji") retained.onEmojiPick("x")
+      if (kind === "upload") retained.onUploadFile()
+      if (kind === "file") retained.onFileSelect(event as unknown as Parameters<typeof retained.onFileSelect>[0])
+      if (kind === "drop") retained.onDrop(event as unknown as Parameters<typeof retained.onDrop>[0])
+      if (kind === "paste") editorOptions.editorProps.handlePaste({}, event as unknown as ClipboardEvent)
+      if (kind === "remove") retained.removePendingFile(0)
+      if (kind === "cancel") retained.onCancelReply?.()
+      if (kind === "send") retained.onSend()
+      if (kind === "drag-enter") retained.onDragEnter(event as unknown as Parameters<typeof retained.onDragEnter>[0])
+      if (kind === "drag-over") retained.onDragOver(event as unknown as Parameters<typeof retained.onDragOver>[0])
+    })
+    expect(accept).not.toHaveBeenCalled()
+    expect(cancel).not.toHaveBeenCalled()
+    expect(insertContent).not.toHaveBeenCalled()
+    expect(filePickerClick).not.toHaveBeenCalled()
+    expect(handleDropRaw).not.toHaveBeenCalled()
+    expect(attachment.handleFileSelect).not.toHaveBeenCalled()
+    expect(attachment.removePendingFile).not.toHaveBeenCalled()
+    expect(attachment.handleDragEnter).not.toHaveBeenCalled()
+    expect(attachment.handleDragOver).not.toHaveBeenCalled()
+    expect(mocks.addPendingFiles).not.toHaveBeenCalled()
+    expect(mocks.preservePlainTextPaste).not.toHaveBeenCalled()
+    expect(mocks.clearDraft).not.toHaveBeenCalled()
+    expect(controllerView.sendDisabled).toBe(true)
+    view.rerender(node(true))
+    expect(editor.setEditable).toHaveBeenLastCalledWith(true, false)
+    view.unmount()
+  })
+
+  it.each(["upload", "file", "drop", "remove", "drag-enter", "drag-over"] as const)("delegates retained %s attachment input before and after reactivation", async kind => {
+    const accept = vi.fn(() => true)
+    const node = (active: boolean) => createElement(ConversationActivityContext.Provider, { value: active },
+      createElement(Harness, acceptedProps(accept)))
+    const view = render(node(true))
+    const retained = controllerView
+    const attachment = mocks.useFileAttachments.mock.results.at(-1)!.value
+    const raw = { upload: filePickerClick, file: attachment.handleFileSelect, drop: handleDropRaw,
+      remove: attachment.removePendingFile, "drag-enter": attachment.handleDragEnter, "drag-over": attachment.handleDragOver }[kind]
+    for (const active of [true, false, true]) {
+      view.rerender(node(active))
+      vi.clearAllMocks()
+      const event = { preventDefault: vi.fn(), stopPropagation: vi.fn(), currentTarget: { value: "picked" } }
+      await act(async () => {
+        if (kind === "upload") retained.onUploadFile()
+        if (kind === "file") retained.onFileSelect(event as unknown as Parameters<typeof retained.onFileSelect>[0])
+        if (kind === "drop") retained.onDrop(event as unknown as Parameters<typeof retained.onDrop>[0])
+        if (kind === "remove") retained.removePendingFile(0)
+        if (kind === "drag-enter") retained.onDragEnter(event as unknown as Parameters<typeof retained.onDragEnter>[0])
+        if (kind === "drag-over") retained.onDragOver(event as unknown as Parameters<typeof retained.onDragOver>[0])
+      })
+      expect(raw).toHaveBeenCalledTimes(active ? 1 : 0)
+      expect(editor.commands.focus).toHaveBeenCalledTimes(active && kind === "drop" ? 1 : 0)
+      if (active && kind === "drop") {
+        expect(handleDropRaw.mock.invocationCallOrder[0]).toBeLessThan(editor.commands.focus.mock.invocationCallOrder[0])
+      }
+      if (active && ["file", "drop", "drag-enter", "drag-over"].includes(kind)) expect(raw).toHaveBeenCalledWith(event)
+      if (active && kind === "remove") expect(raw).toHaveBeenCalledWith(0)
+      if (!active && kind === "file") expect(event.currentTarget.value).toBe("")
+      if (!active && ["drop", "drag-enter", "drag-over"].includes(kind)) {
+        expect(event.preventDefault).toHaveBeenCalledOnce()
+        expect(event.stopPropagation).toHaveBeenCalledOnce()
+      }
+      expect(accept).not.toHaveBeenCalled()
+      expect(mocks.clearDraft).not.toHaveBeenCalled()
+    }
+    view.unmount()
+  })
+
+  it("retains drag-leave cleanup while attachment input is inactive", () => {
+    const node = (active: boolean) => createElement(ConversationActivityContext.Provider, { value: active },
+      createElement(Harness, acceptedProps(vi.fn(() => true))))
+    const view = render(node(true))
+    const retained = controllerView
+    const attachment = mocks.useFileAttachments.mock.results.at(-1)!.value
+    for (const active of [true, false, true]) {
+      view.rerender(node(active))
+      vi.clearAllMocks()
+      const event = { relatedTarget: null }
+      act(() => retained.onDragLeave(event as unknown as Parameters<typeof retained.onDragLeave>[0]))
+      expect(attachment.handleDragLeave).toHaveBeenCalledExactlyOnceWith(event)
+      expect(editor.commands.focus).not.toHaveBeenCalled()
+      expect(mocks.addPendingFiles).not.toHaveBeenCalled()
+    }
+    view.unmount()
+  })
+
 })

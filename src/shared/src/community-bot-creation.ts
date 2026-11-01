@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { CommunityResourceProfileSchema } from "./community-profile-resource"
 import { resolveReasoningEffort } from "./community/bot-reasoning-effort"
 import { requiresExplicitModel } from "./community/bot-model"
 import type { CommunityMachineRuntime } from "./schemas"
@@ -18,13 +19,9 @@ export const BotCreationSubmitSchema = z.strictObject({
   bots: z.array(BotCreationProposalSchema).min(1).max(BOT_CREATION_MAX_ITEMS),
 })
 
-export const BotCreationIdentitySchema = z.strictObject({
-  id: z.string(),
-  name: z.string(),
-  discriminator: z.string(),
-  image: z.string().nullable(),
-  avatarVersion: z.number().int().nonnegative(),
-})
+export const BotCreationIdentitySchema = CommunityResourceProfileSchema.pick({
+  id: true, name: true, discriminator: true, avatarVersion: true,
+}).extend({ image: CommunityResourceProfileSchema.shape.avatar })
 
 export const BotCreationItemSchema = BotCreationProposalSchema.extend({
   itemId: z.string(),

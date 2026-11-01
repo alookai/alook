@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, communityFixtureFetch } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { WEB_URL } from "./_setup/paths"
@@ -14,7 +15,7 @@ async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
     }
   }
   async function pairMachine(): Promise<string> {
-    const pair = await fetch(`${WEB_URL}/api/community/machines/pair`, {
+    const pair = await communityFixtureFetch(`${WEB_URL}/api/community/machines/pair`, {
       method: "POST",
       headers: aliceHeaders(),
     })
@@ -47,7 +48,7 @@ async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
     }
     const machineId = body.machineId
     caseResources.own(machineId, async (id) => {
-      const response = await fetch(`${WEB_URL}/api/community/machines/${id}`, { method: "DELETE", headers: aliceHeaders() })
+      const response = await communityFixtureFetch(`${WEB_URL}/api/community/machines/${id}`, { method: "DELETE", headers: aliceHeaders() })
       expect([204, 404]).toContain(response.status)
     })
     activationProof.response = activate
@@ -57,7 +58,7 @@ async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
     return machineId
   }
   async function createBot(machineId: string, name: string): Promise<string> {
-    const response = await fetch(`${WEB_URL}/api/community/bots`, {
+    const response = await communityFixtureFetch(`${WEB_URL}/api/community/bots`, {
       method: "POST",
       headers: aliceHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ name, machineId, runtime: "codex" }),
@@ -70,7 +71,7 @@ async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
     }
     const botId = body.bot.id
     caseResources.own(botId, async (id) => {
-      const response = await fetch(`${WEB_URL}/api/community/bots/${id}`, { method: "DELETE", headers: aliceHeaders() })
+      const response = await communityFixtureFetch(`${WEB_URL}/api/community/bots/${id}`, { method: "DELETE", headers: aliceHeaders() })
       expect([204, 404]).toContain(response.status)
     })
     return botId
@@ -86,21 +87,21 @@ async function uploadAvatar(
   botId: string,
 ): Promise<{ status: number; url: string; avatarVersion: number }> {
   return page.evaluate(async (
-    { id, base64 }: { id: string; base64: string },
+    { businessHeaders, id, base64 }: ({ id: string; base64: string }) & { businessHeaders: Record<string, string> },
   ) => {
     const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
     const form = new FormData()
     form.append("file", new File([bytes], "avatar.png", { type: "image/png" }))
-    const response = await fetch(`/api/community/bots/${id}/avatar`, {
+    const response = await fetch(`/api/community/bots/${id}/avatar`, { headers: businessHeaders,
       method: "POST",
       body: form,
       credentials: "include",
-    })
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
     return {
       status: response.status,
       ...await response.json() as { url: string; avatarVersion: number },
     }
-  }, { id: botId, base64: ONE_PIXEL_PNG_BASE64 })
+  }, { id: botId, base64: ONE_PIXEL_PNG_BASE64, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
 }
 
 test("real bot avatars become unreadable after single delete and authenticated machine cascade", async ({ caseActors, caseResources }) => {
@@ -168,12 +169,12 @@ test("real bot avatars become unreadable after single delete and authenticated m
     await fetch(`${path}?before=${crypto.randomUUID()}`, { cache: "no-store" })
   ).status, avatarPath)).toBe(200)
 
-  const deleteStatus = await alice.page.evaluate(async (id) => (
-    await fetch(`/api/community/bots/${id}`, {
+  const deleteStatus = await alice.page.evaluate(async ({ value: id, businessHeaders }) => (
+    await fetch(`/api/community/bots/${id}`, { headers: businessHeaders,
       method: "DELETE",
       credentials: "include",
-    })
-  ).status, botId)
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
+  ).status, { value: botId, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(deleteStatus).toBe(204)
 
   expect(await alice.page.evaluate(async (path) => (
@@ -187,7 +188,7 @@ test("real bot avatars become unreadable after single delete and authenticated m
     await fetch(`${path}?reload=${crypto.randomUUID()}`, { cache: "no-store" })
   ).status, avatarPath)).toBe(404)
 
-  const machineDelete = await fetch(`${WEB_URL}/api/community/machines/${machineId}`, {
+  const machineDelete = await communityFixtureFetch(`${WEB_URL}/api/community/machines/${machineId}`, {
     method: "DELETE",
     headers: aliceHeaders(),
   })
@@ -206,36 +207,36 @@ test("real bot avatars become unreadable after single delete and authenticated m
     await fetch(`${path}?before-cascade=${crypto.randomUUID()}`, { cache: "no-store" })
   ).status, cascadeAvatarPath)).toBe(200)
 
-  const preflightStatus = await alice.page.evaluate(async (id) => (
-    await fetch(`/api/community/machines/${id}`, {
+  const preflightStatus = await alice.page.evaluate(async ({ value: id, businessHeaders }) => (
+    await fetch(`/api/community/machines/${id}`, { headers: businessHeaders,
       method: "DELETE",
       credentials: "include",
-    })
-  ).status, cascadeMachineId)
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
+  ).status, { value: cascadeMachineId, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(preflightStatus).toBe(409)
 
-  const cascadeStatus = await alice.page.evaluate(async (id) => (
+  const cascadeStatus = await alice.page.evaluate(async ({ value: id, businessHeaders }) => (
     await fetch(`/api/community/machines/${id}`, {
       method: "DELETE",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...businessHeaders },
       body: JSON.stringify({ cascade: true }),
-    })
-  ).status, cascadeMachineId)
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
+  ).status, { value: cascadeMachineId, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(cascadeStatus).toBe(204)
 
   expect(await alice.page.evaluate(async (path) => (
     await fetch(`${path}?after-cascade=${crypto.randomUUID()}`, { cache: "no-store" })
   ).status, cascadeAvatarPath)).toBe(404)
-  const listedBotIds = await alice.page.evaluate(async () => {
-    const response = await fetch("/api/community/bots", {
+  const listedBotIds = await alice.page.evaluate(async ({ businessHeaders }) => {
+    const response = await fetch("/api/community/bots", { headers: businessHeaders,
       credentials: "include",
       cache: "no-store",
-    })
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
     if (!response.ok) throw new Error(`bot list failed: ${response.status}`)
     const body = await response.json() as { bots: Array<{ id: string }> }
     return body.bots.map((bot) => bot.id)
-  })
+  }, { businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(listedBotIds).not.toContain(cascadeBotId)
   await alice.page.reload()
   await expect(alice.page.getByText(cascadeBotName, { exact: true })).toHaveCount(0)

@@ -1,3 +1,4 @@
+import faroPackage from "@grafana/faro-web-sdk/package.json"
 import { afterEach, expect, it, vi } from "vitest";
 import { initializeFaro, InternalLoggerLevel, SessionInstrumentation, VolatileSessionsManager } from "@grafana/faro-web-sdk";
 import { act, render } from "@/test/react-dom-harness";
@@ -59,7 +60,7 @@ it("boots the actual Blog entry with the native resumed session and exports its 
   expect(exported.map(event => event.name)).toEqual(expect.arrayContaining(["action.start", "navigation.intent", "navigation.commit", "region.ready_commit", "action.finish"]));
   expect(exported.filter(event => event.name === "action.finish").map(event => event.attributes?.outcome)).toEqual(["success"]);
   for (const event of exported) expect(event.attributes).toMatchObject({ session_id: prior.sessionId, frontend_surface: "blog", route_template: "/blog/[slug]", navigation_id: navigation.navigationId });
-  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: "2.12.1" }, session: { id: prior.sessionId } } });
+  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: faroPackage.version }, session: { id: prior.sessionId } } });
   expect(VolatileSessionsManager.fetchUserSession()).toMatchObject({ sessionId: prior.sessionId, started: prior.started });
   expect(JSON.stringify(sent)).not.toContain("alook_account");
   expect(JSON.stringify(exported)).not.toContain("article-title");

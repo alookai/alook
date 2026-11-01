@@ -16,7 +16,7 @@ describe("community invite quota consumption", () => {
         image TEXT,
         avatarVersion INTEGER NOT NULL DEFAULT 0,
         avatarObjectKey TEXT,
-        discriminator TEXT,
+        discriminator TEXT NOT NULL DEFAULT '0000',
         isBot INTEGER NOT NULL DEFAULT 0,
         ownerUserId TEXT,
         deletedAt TEXT
@@ -106,6 +106,22 @@ describe("community invite quota consumption", () => {
 
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_funnel_analytics_event").get())
       .toEqual({ count: 0 });
+  });
+
+  it("does not consume capacity or create membership when the joining person is absent", async () => {
+    seedInvite(1);
+    await expect(useInvite(db as never, "token1", "missing")).resolves.toBeNull();
+    expect(sqlite.prepare("SELECT uses FROM community_server_invite WHERE id='iv1'").get()).toEqual({ uses: 0 });
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_server_member").get()).toEqual({ count: 0 });
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_funnel_analytics_event").get()).toEqual({ count: 0 });
+  });
+
+  it("rejects an invalid complete identity before member or capacity writes", async () => {
+    seedInvite(1);
+    sqlite.prepare("UPDATE user SET discriminator='' WHERE id='u1'").run();
+    await expect(useInvite(db as never, "token1", "u1")).rejects.toThrow();
+    expect(sqlite.prepare("SELECT uses FROM community_server_invite WHERE id='iv1'").get()).toEqual({ uses: 0 });
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_server_member").get()).toEqual({ count: 0 });
   });
 
   it("enforces the active invite cap inside the insert statement", async () => {

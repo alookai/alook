@@ -1,3 +1,4 @@
+import { currentCommunityEventFixture, dmListRowFixture } from "@/test/community-resource-fixtures"
 import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { getCapturedRuntime } from "./test-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -13,7 +14,6 @@ import {
 } from "@alook/shared"
 import { getMessageStreamState } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
-import { getActiveAccountUnreadProjection } from "../account-unread-projection"
 import { act } from "@/test/react-dom-harness"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, ingestDms, publishCommunityMessages } from "@/lib/community-db/sync"
@@ -94,106 +94,6 @@ describe("useCommunityWs — account unread projection", () => {
     }
   }
 
-  it("records a viewer bump without mutating raw server resources", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const key = communityKeys.server("srv_open")
-    const raw = serverDetailFixture("ch_random")
-    capturedQueryClient.setQueryData(key, raw)
-
-    capturedOnMessage!(unreadBump("ch_random", "u_me", { serverId: "srv_open" }))
-
-    expect(capturedQueryClient.getQueryData(key)).toBe(raw)
-    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
-    expect(projection.projectServerChannelUnread(
-      "srv_open",
-      "ch_random",
-      [],
-    )).toBe(true)
-    expect(projection.projectServerUnread("srv_open", [])).toBe(true)
-  })
-
-  it("keeps a focused bump unread until the visible-row observer submits a read", async () => {
-    const { useCommunityStore } = await import("@/stores/community")
-    getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_focused" })
-    resetHookMemoization()
-    await mountHook({ viewerUserId: "u_me" })
-
-    capturedOnMessage!(unreadBump("ch_focused", "u_me", { serverId: "srv_open" }))
-
-    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
-    expect(projection.projectUnread(
-      "server-detail:srv_open",
-      "ch_focused",
-      false,
-    )).toBe(true)
-    projection.recordRead("ch_focused", 999)
-    expect(projection.projectUnread(
-      "server-detail:srv_open",
-      "ch_focused",
-      false,
-    )).toBe(true)
-  })
-
-  it("uses railChannelId only as a parent fallback and leaves raw rows untouched", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const key = communityKeys.server("srv_open")
-    const raw = serverDetailFixture("forum_1")
-    capturedQueryClient.setQueryData(key, raw)
-
-    capturedOnMessage!(unreadBump("post_1", "u_me", {
-      serverId: "srv_open",
-      railChannelId: "forum_1",
-    }))
-
-    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
-    expect(projection.projectForumParentUnread(
-      "srv_open",
-      "forum_1",
-      false,
-      undefined,
-      new Set(),
-    )).toBe(true)
-    expect(capturedQueryClient.getQueryData(key)).toBe(raw)
-  })
-
-  it("never increments a numeric rail badge from an unsequenced isMention hint", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    capturedOnMessage!(unreadBump("ch_a", "u_me", {
-      serverId: "srv_x",
-      isMention: true,
-    }))
-    expect(getActiveAccountUnreadProjection(capturedQueryClient)
-      .projectServerMentionCount("srv_x", [], 7)).toBe(0)
-  })
-
-  it("merges a valid WS bump before applying the current policy overlay", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
-    projection.setNotificationPolicy({ server: { srv_x: "nothing" } })
-
-    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x" }))
-
-    expect(projection.inspectForTests().sourceCount).toBe(1)
-    expect(projection.projectUnread("servers", "ch_a", false)).toBe(false)
-    projection.setNotificationPolicy({ server: { srv_x: "all" } })
-    expect(projection.projectUnread("servers", "ch_a", false)).toBe(true)
-  })
-
-  it("ignores bumps addressed to a different account", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    capturedOnMessage!(unreadBump("ch_random", "someone_else", { serverId: "srv_open" }))
-    expect(getActiveAccountUnreadProjection(capturedQueryClient)
-      .projectServerUnread("srv_open", [])).toBe(false)
-  })
-
-  it("message.create alone syncs content but does not manufacture unread authority", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    capturedOnMessage!(messageCreate("ch_random"))
-    expect(getActiveAccountUnreadProjection(capturedQueryClient)
-      .projectServerUnread("s1", [])).toBe(false)
-    expect(notificationMocks.show).not.toHaveBeenCalled()
-  })
-
   it("notifies only when message.create and the viewer's unread.bump share one bundle", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const create = messageCreate("dm_1", "message_1")
@@ -216,7 +116,7 @@ describe("useCommunityWs — account unread projection", () => {
 
   it("does not notify for an orphan unread.bump", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    capturedOnMessage!(unreadBump("dm_1", "u_me"))
+    capturedOnMessage!(currentCommunityEventFixture(unreadBump("dm_1", "u_me")))
     expect(notificationMocks.show).not.toHaveBeenCalled()
   })
 
@@ -255,7 +155,7 @@ describe("useCommunityWs — account unread projection", () => {
       await mountHook({ viewerUserId: "u_me" })
       const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
 
-      capturedOnMessage!(messageCreate("ch_focused"))
+      capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_focused")))
       await vi.advanceTimersByTimeAsync(500)
 
       expect(getMessageStreamState(capturedQueryClient, {
@@ -291,7 +191,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
   ])("$type invalidates Friends and reconciles canonical attention once", async (event) => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
       "/api/community/users/me/attention",
       expect.objectContaining({ signal: expect.anything() }),
@@ -317,25 +217,24 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
       scope: { kind: "server", serverId: "server_1", channelId: "channel_1" },
       actors: [],
     })
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:friend.block",
       userId: "blocked_1",
-    } satisfies CommunityFriendBlock)
+    } satisfies CommunityFriendBlock))
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("dm_message"))).toBeUndefined()
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("server_message"))).toBeDefined()
   })
 
   it.each([false, true])("retires a visible DM and late reads with viewer-owned Block=%s, preserving siblings", async (blockedByViewer) => {
     const registry = getCommunityDbRegistry(capturedQueryClient)!
-    ingestDms(registry, { conversations: ["u_a", "u_other"].map((userId) => ({
+    ingestDms(registry, { conversations: ["u_a", "u_other"].map((userId) => dmListRowFixture({
       id: `dm_${userId}`, userId, name: userId, discriminator: "0001", avatar: "A", avatarVersion: 0,
       status: "offline" as const, preview: "old private preview",
-    })) })
+    }, "u_me")) })
     seedCanonicalMessages("dm_u_a", [{ id: "private", content: "private body" }])
     seedCanonicalMessages("dm_u_other", [{ id: "other", content: "other body" }])
     const baseMetadata = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, id: "dm_u_a", serverId: null, name: null, type: "dm", parentChannelId: null,
-      parentMessageId: null, creatorId: null, archived: false, lastMessageAt: null, createdAt: "2026-10-08T00:00:00Z",
-      readContractVersion: 2, accessDecision: { channelId: "dm_u_a", canRead: true, canSend: true, canCreateDiscussion: false } }, "u_me")
+      parentMessageId: null, creatorId: null, archived: false, lastMessageAt: null, createdAt: "2026-10-08T00:00:00Z" }, "u_me")
     const metadata = { ...baseMetadata, peer: { ...baseMetadata.peer!, id: "u_a" } }
     const api = getCommunityApiFetchMock()
     const original = api.getMockImplementation()!
@@ -355,7 +254,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
       getCapturedRuntime().ui.setState((state) => ({ ...state, subscription: { dmConversationId: "dm_u_a" } }))
     })
     await mountHook({ viewerUserId: "u_me" })
-    capturedOnMessage!({ type: "community:friend.block", userId: "u_a", ...(blockedByViewer ? { blockedByViewer: true } : {}) })
+    capturedOnMessage!(currentCommunityEventFixture({ type: "community:friend.block", userId: "u_a", ...(blockedByViewer ? { blockedByViewer: true } : {}) }))
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("dm_u_a", null)).toBe(true)
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("dm_u_other", null)).toBe(false)
     expect(isChannelMetadataTokenCurrent(oldMetadata)).toBe(false)
@@ -366,7 +265,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     expect(registry.collections.friendships.has("blocked:u_a")).toBe(blockedByViewer)
     expect(getCapturedRuntime().ui.get().subscription.dmConversationId).toBeUndefined()
     expect(() => publishCommunityMessages(capturedQueryClient, { channelId: "dm_u_a", messages: [{ id: "late", content: "late body", type: "chat", seq: 2 }], proof: { token: proof } })).toThrow("Stale community live snapshot")
-    capturedOnMessage!(messageCreate("dm_u_a", "late-ws"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("dm_u_a", "late-ws")))
     expect(registry.collections.messages.has("late-ws")).toBe(false)
     await act(async () => { release(metadata); await pending })
     expect(capturedQueryClient.getQueryData(communityKeys.channelMeta(null, "dm_u_a"))).toBeUndefined()
@@ -375,14 +274,14 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
 
   it("does not retire the focused DM for an unrelated block or a retired provider", async () => {
     const registry = getCommunityDbRegistry(capturedQueryClient)!
-    ingestDms(registry, { conversations: [{ id: "dm_keep", userId: "peer", name: "Peer", discriminator: "0001", avatar: "P", avatarVersion: 0, status: "offline", preview: "keep" }] })
+    ingestDms(registry, { conversations: [dmListRowFixture({ id: "dm_keep", userId: "peer", name: "Peer", discriminator: "0001", avatar: "P", avatarVersion: 0, status: "offline", preview: "keep" }, "u_me")] })
     seedCanonicalMessages("dm_keep", [{ id: "keep", content: "keep body" }])
     await mountHook({ viewerUserId: "u_me" })
-    capturedOnMessage!({ type: "community:friend.block", userId: "unrelated" })
-    capturedOnMessage!({ type: "community:friend.block", userId: "u_me" })
+    capturedOnMessage!(currentCommunityEventFixture({ type: "community:friend.block", userId: "unrelated" }))
+    capturedOnMessage!(currentCommunityEventFixture({ type: "community:friend.block", userId: "u_me" }))
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("dm_keep", null)).toBe(false)
     act(() => getCapturedRuntime().lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 })))
-    capturedOnMessage!({ type: "community:friend.block", userId: "peer" })
+    capturedOnMessage!(currentCommunityEventFixture({ type: "community:friend.block", userId: "peer" }))
     expect(registry.collections.messages.get("keep")?.content).toBe("keep body")
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("dm_keep", null)).toBe(false)
   })
@@ -396,10 +295,10 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     }).catch(() => undefined)
     expect(capturedQueryClient.getQueryState(key)).toBeDefined()
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:friend.block",
       userId: "blocked_1",
-    } satisfies CommunityFriendBlock)
+    } satisfies CommunityFriendBlock))
 
     expect(capturedQueryClient.getQueryState(key)).toBeUndefined()
   })
@@ -414,7 +313,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
         messageId: "m_1",
         authorName: "A",
       }
-      capturedOnMessage!(event)
+      capturedOnMessage!(currentCommunityEventFixture(event))
       await vi.advanceTimersByTimeAsync(500)
       expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => (
         path === "/api/community/users/me/attention"
@@ -424,7 +323,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     }
   })
 
-  it("mention.create invalidates servers so authoritative source counts refresh", async () => {
+  it("mention.create leaves server structure untouched", async () => {
     await mountHook({ viewerUserId: "u_1" })
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event: CommunityMentionCreate = {
@@ -433,45 +332,10 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
       messageId: "m_1",
       authorName: "A",
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     expect(spy.mock.calls.filter((call) => {
       const key = call[0]?.queryKey as unknown[] | undefined
       return key?.length === 2 && key[0] === "community" && key[1] === "servers"
-    })).toHaveLength(1)
-  })
-
-  it("projects a mention-only delivery into its server and parent scope immediately", async () => {
-    await mountHook({ viewerUserId: "u_1" })
-    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
-    projection.setNotificationPolicy({
-      server: { srv_1: "mentions" },
-      channel: { forum_1: "mentions" },
-    })
-
-    capturedOnMessage!(await batchFor("m_1", [
-      unreadBump("post_1", "u_1", {
-        serverId: "srv_1",
-        railChannelId: "forum_1",
-        isMention: true,
-      }),
-      {
-        type: "community:mention.create",
-        userId: "u_1",
-        messageId: "m_1",
-        channelId: "post_1",
-        authorName: "A",
-      },
-    ]))
-
-    expect(projection.projectServerUnread("srv_1", [])).toBe(true)
-    expect(projection.projectForumParentUnread(
-      "srv_1",
-      "forum_1",
-      false,
-      undefined,
-      new Set(),
-    )).toBe(true)
-    projection.retireAccessScope({ kind: "server", serverId: "srv_1" })
-    expect(projection.projectServerUnread("srv_1", [])).toBe(false)
+    })).toHaveLength(0)
   })
 })

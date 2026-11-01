@@ -208,7 +208,7 @@ test.describe("production public static resource cache", () => {
     expect(paths).toEqual(expect.arrayContaining([
       "/favicon.ico", "/manifest.json", "/contact/gus-photo.jpeg", "/fonts/jgs5/jgs5.ttf",
       "/landing/people/alex.webp", "/landing/people/lin.webp", "/landing/people/nina.webp",
-      "/landing/people/priya.webp", "/landing/people/sam.webp", "/social/readme-card-58c75311e5ba.png",
+      "/landing/people/priya.webp", "/landing/people/sam.webp", "/social/readme-card-7470c72ef1c3.png",
     ]))
     expect(paths.some(path => /^\/_next\/static\/media\/pdf\.worker\.min\.[a-zA-Z0-9_-]+\.mjs$/.test(path))).toBe(true)
     for (const name of ["_buildManifest.js", "_clientMiddlewareManifest.js", "_ssgManifest.js"]) expect(paths.some(path => path.startsWith("/_next/static/") && path.endsWith(`/${name}`))).toBe(true)

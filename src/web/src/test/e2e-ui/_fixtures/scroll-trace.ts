@@ -312,6 +312,26 @@ export async function abortScrollTrace(page: Page): Promise<void> {
   }).catch(() => {})
 }
 
+export async function startAnalyzedScrollTrace(page: Page, input: {
+  scenario: string
+  identity: ScrollTraceIdentity
+  dataTransitionSource: ScrollTraceDataSource
+}) {
+  await installScrollTraceInCurrentDocument(page)
+  await startScrollTrace(page, input)
+  await beginScrollTraceAnalysis(page, input.scenario, { dataTransitionSource: input.dataTransitionSource })
+  let pending = true
+  return async (testInfo: TestInfo) => {
+    if (!pending) return
+    pending = false
+    await endScrollTraceAnalysis(page, input.scenario)
+    await markScrollTrace(page, "final-stimulus")
+    const result = await finishScrollTrace(page)
+    await attachScrollTrace(testInfo, result)
+    return result
+  }
+}
+
 export async function attachScrollTrace(
   testInfo: TestInfo,
   result: ScrollTraceResult,

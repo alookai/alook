@@ -1,3 +1,5 @@
+import { CommunityChannelResourceSchema } from "@alook/shared"
+import { channelResourceFixture } from "@/test/community-resource-fixtures"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -23,13 +25,13 @@ vi.mock("@/lib/db", () => ({
 // reject; dm/thread defensive, no bot verb today) → bot → 403 before any target
 // touch. The human arm dispatches to the creation cores.
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: any) => async (req: any) => {
+  communityActorPolicy: () => ({ resolve: async (req: any) => {
     const authz = req?.headers?.get?.("Authorization") ?? ""
     const actor = authz.startsWith("Bearer crk_")
       ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
       : { kind: "human", userId: "u1", email: "u@t.com" }
-    return handler(req, { env: { DB: {} }, actor })
-  },
+    return ({ context: { env: { DB: {} }, actor } })
+  } }),
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {
@@ -68,7 +70,7 @@ describe("POST /api/community/channels (create door — human arm)", () => {
     vi.clearAllMocks()
     mockCreateServerChannel.mockResolvedValue({ ok: true, value: { id: "c-new", name: "general", type: "text" } })
     mockCreateDm.mockResolvedValue({ ok: true, value: { id: "dm-1" } })
-    mockCreateThread.mockResolvedValue({ ok: true, value: { id: "t-1", parentMessageId: "msg-p" } })
+    mockCreateThread.mockResolvedValue({ ok: true, value: { ...channelResourceFixture({ id: "t-1", type: "thread", parentChannelId: "ch-parent", parentMessageId: "msg-p" }), archived: 0, storageOnly: "private" } })
   })
 
   it("dispatches type=text to the server-channel core, 201 {channel}", async () => {
@@ -129,6 +131,8 @@ describe("POST /api/community/channels (create door — human arm)", () => {
     )
     const body = await res.json()
     expect(body.id).toBe("t-1")
+    expect(CommunityChannelResourceSchema.safeParse(body).success).toBe(true)
+    expect(body).not.toHaveProperty("storageOnly")
   })
 
   it("400s a thread create with no messageId (before touching the core)", async () => {

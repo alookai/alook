@@ -1,6 +1,6 @@
 import { createElement } from "react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
-import { act, mockElementGeometry, render } from "@/test/react-dom-harness"
+import { act, fireEvent, mockElementGeometry, render } from "@/test/react-dom-harness"
 import type { ForumThread } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import { ForumView } from "./forum-view"
@@ -40,6 +40,91 @@ beforeEach(() => {
 })
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it.each([{ kind: "short", name: "Short title" }, { kind: "long", name: "Long title ".repeat(40).trim() }])("preserves $kind title and action ownership while capabilities change", ({ name }) => {
+  const open = vi.fn()
+  const edit = vi.fn()
+  const remove = vi.fn()
+  const post = { ...posts[0], name, parentSeq: 42 }
+  const props = {
+    forumChannelId: "forum-actions", members: [], posts: [post], tag: "All",
+    onTagChange: () => {}, onOpenPost: open, onEditPostTags: edit, onDeletePost: remove,
+    onScrollRoot: (node: HTMLDivElement | null) => {
+      if (node) mockElementGeometry(node, { clientHeight: 751, clientWidth: 390 })
+    },
+  }
+  const view = render(createElement(ForumView, { ...props, canEditPostTags: () => false, canDeletePost: () => false }))
+  const card = view.getByTestId(tid.forumThreadCard(post.id))
+  const title = view.getByTestId(tid.forumThreadTitle(post.id))
+  const text = view.getByTestId(tid.forumThreadTitleText(post.id))
+  for (const actions of [1, 2, 3, 0]) {
+    view.rerender(createElement(ForumView, {
+      ...props, canEditPostTags: () => actions >= 2, canDeletePost: () => actions === 1 || actions === 3,
+    }))
+    expect(view.getByTestId(tid.forumThreadCard(post.id))).toBe(card)
+    expect(view.getByTestId(tid.forumThreadTitle(post.id))).toBe(title)
+    expect(view.getByTestId(tid.forumThreadTitleText(post.id))).toBe(text)
+    expect(title).toHaveAccessibleName(`${name} #42`)
+    expect(card.querySelectorAll("button")).toHaveLength(actions)
+    if (actions >= 2) {
+      fireEvent.click(view.getByTestId(tid.forumThreadArchiveBtn(post.id)))
+      expect(edit).toHaveBeenLastCalledWith(post.id, ["archived"])
+      expect(open).not.toHaveBeenCalled()
+    }
+  }
+  fireEvent.click(text)
+  fireEvent.keyDown(card, { key: "Enter" })
+  expect(open.mock.calls).toEqual([[post.id], [post.id]])
+  expect(remove).not.toHaveBeenCalled()
+})
+
+it("reveals each card only after its own action decisions settle", () => {
+  const cards = posts.slice(0, 3)
+  const decisions = new Map<string, boolean | undefined>([[cards[0].id, true], [cards[1].id, undefined], [cards[2].id, undefined]])
+  const open = vi.fn()
+  const edit = vi.fn()
+  const permission = (post: ForumThread) => decisions.get(post.id)
+  const node = () => createElement(ForumView, {
+    forumChannelId: "forum-pending-actions", members: [], posts: cards, tag: "All",
+    onTagChange: () => {}, onOpenPost: open, onEditPostTags: edit, onDeletePost: vi.fn(),
+    canEditPostTags: permission, canDeletePost: permission,
+    onScrollRoot: (root: HTMLDivElement | null) => {
+      if (root) mockElementGeometry(root, { clientHeight: 751, clientWidth: 390 })
+    },
+  })
+  const view = render(node())
+  const readyPeer = view.getByTestId(tid.forumThreadCard(cards[0].id))
+  for (const post of cards.slice(1)) {
+    const pending = view.getByTestId(tid.forumThreadCard(post.id))
+    expect(pending).toHaveAttribute("aria-busy", "true")
+    expect(pending).not.toHaveAttribute("role")
+    expect(pending).not.toHaveAttribute("tabindex")
+    expect(pending).not.toHaveAttribute("data-msg-id")
+    expect(pending.querySelector("button")).toBeNull()
+    expect(view.queryByTestId(tid.forumThreadTitle(post.id))).toBeNull()
+    fireEvent.click(pending)
+    fireEvent.keyDown(pending, { key: "Enter" })
+  }
+  expect(open).not.toHaveBeenCalled()
+  decisions.set(cards[1].id, false)
+  view.rerender(node())
+  const denied = view.getByTestId(tid.forumThreadCard(cards[1].id))
+  expect(denied).not.toHaveAttribute("aria-busy", "true")
+  expect(view.getByTestId(tid.forumThreadTitle(cards[1].id))).toBeInTheDocument()
+  expect(denied.querySelectorAll("button")).toHaveLength(0)
+  expect(view.getByTestId(tid.forumThreadCard(cards[2].id))).toHaveAttribute("aria-busy", "true")
+  expect(view.getByTestId(tid.forumThreadCard(cards[0].id))).toBe(readyPeer)
+  decisions.set(cards[2].id, true)
+  view.rerender(node())
+  const allowed = view.getByTestId(tid.forumThreadCard(cards[2].id))
+  expect(allowed).not.toHaveAttribute("aria-busy", "true")
+  expect(allowed.querySelectorAll("button")).toHaveLength(3)
+  expect(view.getByTestId(tid.forumThreadCard(cards[1].id))).toBe(denied)
+  expect(view.getByTestId(tid.forumThreadCard(cards[0].id))).toBe(readyPeer)
+  fireEvent.click(view.getByTestId(tid.forumThreadArchiveBtn(cards[2].id)))
+  expect(edit).toHaveBeenCalledWith(cards[2].id, ["archived"])
+  expect(open).not.toHaveBeenCalled()
+})
 
 it("keeps native forum rows positioned without individual transforms across scrolling and append", () => {
   const onLoadMore = vi.fn()

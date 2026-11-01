@@ -1,7 +1,7 @@
 "use client";
 
-import { ErrorContent } from "@/components/error-content";
+import { DeferredBlogError } from "@blog/components/deferred-blog-failure";
 
 export default function BlogError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
-	return <ErrorContent reset={reset} hardHomeNavigation />;
+	return <DeferredBlogError reset={reset} />;
 }

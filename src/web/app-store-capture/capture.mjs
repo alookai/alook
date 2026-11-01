@@ -1,7 +1,7 @@
 import { spawn, execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
+import { mkdir, readdir, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { createRequire } from "node:module"
 import path from "node:path"
@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 import { chromium } from "@playwright/test"
 import sharp from "sharp"
+import { artworkInputHashes, sourceInputs } from "./provenance.mjs"
 
 const captureRoot = path.dirname(fileURLToPath(import.meta.url))
 const webRoot = path.resolve(captureRoot, "..")
@@ -17,11 +18,21 @@ const stories = ["share-agents", "teamwork", "companion", "context", "phone", "e
 const require = createRequire(import.meta.url)
 
 export const captures = [
-  ...[{ width: 1206, height: 2622 }, { width: 1320, height: 2868 }].flatMap(({ width, height }) =>
-    stories.map((story, index) => ({ width, height, url: `/?story=${index + 1}${width === 1320 ? "&large=1" : ""}`, filename: `phone-${width}x${height}/${String(index + 1).padStart(2, "0")}-${story}.jpg` }))),
-  { width: 2064, height: 2752, url: "/?kind=tablet", filename: "tablet-2064x2752/01-share-agents.jpg" },
-  { width: 2007, height: 2853, url: "/?kind=duo", filename: "duo-2007x2853/06-existing-setup.jpg" },
-]
+  { device: "phone", width: 1206, height: 2622 },
+  { device: "phone", width: 1320, height: 2868 },
+  { device: "tablet", width: 2752, height: 2064 },
+  { device: "duo", width: 2007, height: 2853 },
+].flatMap(({ device, width, height }) => stories.map((name, index) => ({
+  device, story: index + 1, width, height,
+  url: `/?kind=${device}&story=${index + 1}${width === 1320 ? "&large=1" : ""}`,
+  filename: `${device}-${width}x${height}/${String(index + 1).padStart(2, "0")}-${name}.jpg`,
+})))
+
+export function selectCaptures({ device, story } = {}) {
+  if (device !== undefined && !["phone", "tablet", "duo"].includes(device)) throw new Error("Invalid device: use phone, tablet or duo")
+  if (story !== undefined && (!Number.isInteger(story) || story < 1 || story > stories.length)) throw new Error("Invalid story: use 1 through 6")
+  return captures.filter(capture => (!device || capture.device === device) && (story === undefined || capture.story === story))
+}
 
 export async function captureInputHashes() {
   const files = ["capture.mjs", "next.config.ts", "postcss.config.mjs", "tsconfig.json"].map(file => path.join(captureRoot, file))
@@ -34,12 +45,13 @@ export async function captureInputHashes() {
   }
   await walk(path.join(captureRoot, "app"))
   await walk(path.join(captureRoot, "captures"))
-  files.push(path.join(repositoryRoot, "pnpm-lock.yaml"), path.join(webRoot, "src/app/globals.css"), path.join(webRoot, "src/app/fonts.ts"), path.join(webRoot, "src/app/favicon.ico"), path.join(webRoot, "public/alook.svg"))
+  files.push(path.join(webRoot, "src/app/globals.css"), path.join(webRoot, "src/app/fonts.ts"), path.join(webRoot, "src/app/favicon.ico"), path.join(webRoot, "public/alook.svg"))
   for (const name of ["landing-interactive-shell.tsx", "landing-interactive-shell-data.ts", "landing-interactive-shell.module.css", "landing-shell-motion.tsx", "landing-shell-motion-timeline.ts", "landing-shell-motion.module.css", "landing-profile-content.tsx", "landing-human-avatars.ts", "landing-demo-copy.ts"]) files.push(path.join(webRoot, "src/components/home", name))
   for (const name of ["caveat-latin", "dm-sans-latin", "dm-mono-latin-400", "instrument-serif-latin-400", "instrument-serif-latin-400-italic", "literata-latin", "vt323-latin-400"]) files.push(path.join(webRoot, "src/app/fonts", `${name}.woff2`))
   for (const color of ["red", "purple", "teal", "blue", "orange"]) files.push(path.join(captureRoot, "assets", `face-${color}.svg`))
   for (const name of ["lin", "alex", "nina", "priya", "sam"]) files.push(path.join(webRoot, "public/landing/people", `${name}.webp`))
-  return Object.fromEntries(await Promise.all(files.sort().map(async filename => [path.relative(repositoryRoot, filename), createHash("sha256").update(await readFile(filename)).digest("hex")])))
+  const inputs = sourceInputs(files)
+  return artworkInputHashes(inputs.files, [...inputs.roots, ...["next", "@tailwindcss/postcss"].map(name => ({ importer: "src/web", name }))])
 }
 
 function availablePort() {
@@ -149,7 +161,8 @@ async function render(browser, origin, capture) {
   } finally { await context.close() }
 }
 
-export async function captureArtwork({ output = path.join(repositoryRoot, "assets/app-store"), overview = false, signal } = {}) {
+export async function captureArtwork({ output = path.join(repositoryRoot, "assets/app-store"), overview = false, device, story, signal } = {}) {
+  const selected = selectCaptures({ device, story })
   signal?.throwIfAborted()
   const app = await startCaptureApp({ signal })
   let browser
@@ -159,7 +172,7 @@ export async function captureArtwork({ output = path.join(repositoryRoot, "asset
     signal?.throwIfAborted()
     signal?.addEventListener("abort", abort, { once: true })
     const outputs = []
-    for (const capture of captures) {
+    for (const capture of selected) {
       signal?.throwIfAborted()
       const { bytes, surfaces } = await render(browser, app.origin, capture)
       const metadata = await sharp(bytes).metadata()
@@ -170,10 +183,14 @@ export async function captureArtwork({ output = path.join(repositoryRoot, "asset
       outputs.push({ path: capture.filename, width: metadata.width, height: metadata.height, sha256: createHash("sha256").update(bytes).digest("hex"), surfaces })
     }
     if (overview) {
-      const tiles = await Promise.all(outputs.slice(0, 6).map(async (entry, index) => ({ input: await sharp(path.join(output, entry.path)).resize(368, 800).toBuffer(), left: 28 + (index % 3) * 391, top: 28 + Math.floor(index / 3) * 823 })))
-      const bytes = await sharp({ create: { width: 1206, height: 1679, channels: 3, background: "#f3e6d4" } }).composite(tiles).jpeg({ quality: 80 }).toBuffer()
+      const first = outputs.slice(0, 6)
+      const columns = Math.min(first.length, 3)
+      const width = 56 + columns * 368 + (columns - 1) * 23
+      const height = 56 + Math.ceil(first.length / columns) * 800 + (Math.ceil(first.length / columns) - 1) * 23
+      const tiles = await Promise.all(first.map(async (entry, index) => ({ input: await sharp(path.join(output, entry.path)).resize(368, 800, { fit: "contain", background: "#f3e6d4" }).toBuffer(), left: 28 + (index % columns) * 391, top: 28 + Math.floor(index / columns) * 823 })))
+      const bytes = await sharp({ create: { width, height, channels: 3, background: "#f3e6d4" } }).composite(tiles).jpeg({ quality: 80 }).toBuffer()
       await writeFile(path.join(output, "overview.jpg"), bytes)
-      outputs.push({ path: "overview.jpg", width: 1206, height: 1679, sha256: createHash("sha256").update(bytes).digest("hex"), surfaces: [] })
+      outputs.push({ path: "overview.jpg", width, height, sha256: createHash("sha256").update(bytes).digest("hex"), surfaces: [] })
     }
     const { stdout } = await promisify(execFile)("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot })
     const manifest = { renderer: browser.version(), encoding: "RGB JPEG quality 80", clock: "2026-10-25T00:00:00Z", locale: "en-US", timezone: "UTC", repositoryHead: stdout.trim(), inputs: await captureInputHashes(), outputs }
@@ -189,8 +206,10 @@ export async function main(args = process.argv.slice(2)) {
   const options = {}
   for (let index = 0; index < args.length; index++) {
     if (args[index] === "--overview") options.overview = true
+    else if (args[index] === "--device" && args[index + 1] && !args[index + 1].startsWith("--")) options.device = args[++index]
+    else if (args[index] === "--story" && args[index + 1] && /^[1-6]$/.test(args[index + 1])) options.story = Number(args[++index])
     else if (args[index] === "--output" && args[index + 1] && !args[index + 1].startsWith("--")) options.output = path.resolve(args[++index])
-    else throw new Error("Usage: pnpm app-store:capture [--output directory] [--overview]")
+    else throw new Error("Usage: pnpm app-store:capture [--output directory] [--overview] [--device phone|tablet|duo] [--story 1..6]")
   }
   const controller = new AbortController()
   const interrupt = () => {

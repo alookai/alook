@@ -26,6 +26,12 @@ export class CFResponse {
   private _body: BodyInit | null
   private _headers: Headers
 
+  static json(body: unknown, init: ResponseInit = {}) {
+    const headers = new Headers(init.headers)
+    if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json")
+    return new CFResponse(JSON.stringify(body), { ...init, headers })
+  }
+
   constructor(body: BodyInit | null = null, init: ResponseInit & { webSocket?: unknown } = {}) {
     this._body = body
     this._headers = new Headers(init.headers)
@@ -81,10 +87,7 @@ vi.mock("cloudflare:workers", () => ({
 export const mockGetValidSession = vi.fn<(db: unknown, token: string) => Promise<string | null>>()
 export const mockGetValidSessionByIdForUser = vi.fn().mockResolvedValue({ expiresAt: "2099-01-01T00:00:00.000Z" })
 export const mockGetValidSessionWithIdentity = vi.fn<(db: unknown, token: string) => Promise<{ userId: string; name: string; discriminator: string } | null>>()
-export const mockGetMachineTokenByToken = vi.fn()
-export const mockGetLatestTokenForUser = vi.fn()
 export const mockGetRuntimeIdsByDaemon = vi.fn()
-export const mockGetMachineByDaemon = vi.fn().mockResolvedValue({ daemonId: "my-daemon", workspaceId: "sp_ws1" })
 export const mockCreateDb = vi.fn().mockReturnValue({})
 export const mockHashCredential = vi.fn(async (bearer: string) => `hash:${bearer}`)
 export const mockFindCredentialByHash = vi.fn()
@@ -390,12 +393,7 @@ vi.mock("@alook/shared", async () => {
         },
         getValidSessionByIdForUser: (...args: unknown[]) => mockGetValidSessionByIdForUser(...args),
       },
-      machineToken: {
-        getMachineTokenByToken: (...a: any[]) => mockGetMachineTokenByToken(...a),
-        getLatestTokenForUser: (...a: any[]) => mockGetLatestTokenForUser(...a),
-      },
       runtime: { getRuntimeIdsByDaemon: (...a: any[]) => mockGetRuntimeIdsByDaemon(...a) },
-      machine: { getMachineByDaemon: (...a: any[]) => mockGetMachineByDaemon(...a) },
       communityMachine: {
         hashCredential: (bearer: string) => mockHashCredential(bearer),
         findCredentialByHash: (...a: any[]) => mockFindCredentialByHash(...a),
@@ -586,7 +584,6 @@ export function resetHarness() {
     // Daemon-auth binds the token to a machine row for daemonId+workspace;
     // default to a present row so auth-flow success tests pass. Tests that
     // exercise a missing machine override this.
-    mockGetMachineByDaemon.mockResolvedValue({ daemonId: "my-daemon", workspaceId: "sp_ws1" })
 
 }
 

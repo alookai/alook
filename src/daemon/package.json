@@ -1,6 +1,6 @@
 {
   "name": "@alook/daemon",
-  "version": "0.1.59",
+  "version": "0.1.62",
   "description": "Alook agent daemon — host-side runtime backend, process manager, credential proxy, and control plane.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/alookai/alook#readme",
@@ -27,7 +27,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "engines": {
     "node": ">=20.9"
@@ -37,7 +38,7 @@
   },
   "scripts": {
     "prebuild": "pnpm -C agent-driver run build",
-    "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external ws --external sharp && bun build src/cli/index.ts --outdir dist/cli --target node --format esm --external commander --external ws --external sharp && node scripts/prepare-dist.mjs",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external ws --external sharp --external quickjs-emscripten && bun build src/cli/index.ts --outdir dist/cli --target node --format esm --external commander --external ws --external sharp --external quickjs-emscripten && node scripts/prepare-dist.mjs",
     "prepack": "pnpm run build",
     "typecheck": "tsc --noEmit",
     "test": "pnpm test:unit && pnpm test:packed",
@@ -50,7 +51,9 @@
   },
   "dependencies": {
     "commander": "^15.0.0",
+    "quickjs-emscripten": "^0.32.0",
     "sharp": "^0.35.5",
+    "sucrase": "^3.35.1",
     "ws": "^8.22.0"
   },
   "devDependencies": {
@@ -61,7 +64,8 @@
     "eslint": "^9.39.5",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.2",
-    "vitest": "4.1.12"
+    "typescript-eslint": "^8.72.0",
+    "vitest": "4.1.12",
+    "zod": "^4.6.7"
   }
 }

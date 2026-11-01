@@ -2,6 +2,8 @@ import { readBoundedJsonRequest as readBoundedHttpJsonRequest } from "@alook/sha
 import {
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   COMMUNITY_CONTRACT_HEADER,
+  BUSINESS_SCHEMA_VERSION,
+  type CommunityBrowserEventEnvelope,
   type CommunityContract,
   MESSAGE_DELIVERY_BODY_MAX_BYTES,
   MESSAGE_DELIVERY_MAX_EVENTS_PER_USER,
@@ -29,7 +31,7 @@ export type CommunityBrowserEventIngressFailure = {
 type CommunityBrowserEventIngressSuccess = {
   ok: true
   event: CommunityWsEvent
-  envelope: CommunityWsEvent
+  envelope: CommunityBrowserEventEnvelope
   body: string
   byteCount: number
   contract: CommunityContract
@@ -51,7 +53,7 @@ export async function readBoundedJsonRequest(request: Request, maxBytes: number)
 export function normalizeCommunityBrowserEvent(
   value: unknown,
   byteCount?: number,
-  contract: CommunityContract = 2,
+  contract: CommunityContract = BUSINESS_SCHEMA_VERSION,
 ): CommunityBrowserEventIngressResult {
   const decoded = decodeCommunityBrowserEvent(value, contract)
   if (!decoded.ok) return { ...decoded, ok: false, ...(byteCount === undefined ? {} : { byteCount }) }
@@ -67,7 +69,7 @@ export function normalizeCommunityBrowserEvent(
   return {
     ok: true,
     event: decoded.event,
-    envelope: encoded.event,
+    envelope: encoded.envelope,
     body: encoded.body,
     byteCount: encoded.byteLength,
     contract,
@@ -79,9 +81,8 @@ export async function readCommunityBrowserEventRequest(
 ): Promise<CommunityBrowserEventIngressResult> {
   const parsed = await readBoundedJsonRequest(request, COMMUNITY_BROWSER_EVENT_MAX_BYTES)
   if (!parsed.ok) return parsed
-  const version = request.headers.get(COMMUNITY_CONTRACT_HEADER)
-  if (version !== null && version !== "1" && version !== "2" && version !== "3") return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
-  return normalizeCommunityBrowserEvent(parsed.value, parsed.byteCount, version === "3" ? 3 : version === "1" ? 1 : 2)
+  if (request.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION)) return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
+  return normalizeCommunityBrowserEvent(parsed.value, parsed.byteCount, BUSINESS_SCHEMA_VERSION)
 }
 
 export async function readCommunityBrowserEventBundleRequest(
@@ -98,11 +99,12 @@ export async function readCommunityBrowserEventBundleRequest(
 > {
   const parsed = await readBoundedJsonRequest(request, MESSAGE_DELIVERY_BODY_MAX_BYTES)
   if (!parsed.ok) return parsed
+  if (request.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION)) return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
   if (
     typeof parsed.value !== "object"
     || parsed.value === null
     || Array.isArray(parsed.value)
-    || Object.keys(parsed.value).length !== ("communityContract" in parsed.value && parsed.value.communityContract === 3 ? 4 : 3)
+    || Object.keys(parsed.value).length !== 4
     || !Object.prototype.hasOwnProperty.call(parsed.value, "operationId")
     || !Object.prototype.hasOwnProperty.call(parsed.value, "operationDigest")
     || !Object.prototype.hasOwnProperty.call(parsed.value, "events")
@@ -116,7 +118,7 @@ export async function readCommunityBrowserEventBundleRequest(
     events?: unknown
   }
   if (
-    (Object.hasOwn(input, "communityContract") && input.communityContract !== 3)
+    input.communityContract !== BUSINESS_SCHEMA_VERSION
     || !isCommunityDeliveryOperationId(input.operationId)
     || !isCommunityDeliveryDigest(input.operationDigest)
   ) {
@@ -130,7 +132,9 @@ export async function readCommunityBrowserEventBundleRequest(
   ) {
     return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
   }
-  const prepared = await prepareCommunityDeliveryEvents(events, input.communityContract === 3 ? 3 : 2)
+  const decoded = events.map(event => decodeCommunityBrowserEvent(event))
+  if (decoded.some(event => !event.ok)) return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
+  const prepared = await prepareCommunityDeliveryEvents(decoded.flatMap(result => result.ok ? [result.event] : []), BUSINESS_SCHEMA_VERSION)
   if (!prepared.ok || prepared.prepared.digest !== input.operationDigest) {
     return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
   }

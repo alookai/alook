@@ -75,9 +75,11 @@ vi.mock("@/components/ui/tooltip", async () => {
   }
 })
 
-vi.mock("@/components/ui/context-menu", async () => {
+vi.mock("@/components/ui/context-menu", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/ui/context-menu")>()
   const ReactModule = await import("react")
   return {
+    isSecondaryContextPointer: actual.isSecondaryContextPointer,
     ContextMenu: ({ children, ...props }: { children: React.ReactNode }) =>
       ReactModule.createElement("mock-context-menu", props, children),
     ContextMenuTrigger: ({
@@ -91,8 +93,8 @@ vi.mock("@/components/ui/context-menu", async () => {
       style: { ...props.style, ...render.props.style },
       "data-slot": "context-menu-trigger",
     } as React.HTMLAttributes<HTMLElement>),
-    ContextMenuContent: ({ children }: { children: React.ReactNode }) =>
-      ReactModule.createElement("mock-context-menu-content", null, children),
+    ContextMenuContent: ({ children, ...props }: { children: React.ReactNode; finalFocus?: unknown }) =>
+      ReactModule.createElement("mock-context-menu-content", props, children),
     ContextMenuItem: ({
       children,
       ...props
@@ -1699,6 +1701,71 @@ describe("Message desktop text selection", () => {
     expect(selectionBelongsToRow(null, rowElement)).toBe(false)
   })
 
+  it("recognizes a fully covered middle row in a cross-message selection", () => {
+    const row = document.createElement("div")
+    const before = document.createTextNode("first")
+    const after = document.createTextNode("last")
+    const container = document.createElement("div")
+    container.append(before, row, after)
+    row.textContent = "middle"
+    const range = document.createRange()
+    range.setStart(before, 1)
+    range.setEnd(after, 2)
+    expect(selectionBelongsToRow({
+      isCollapsed: false, anchorNode: before, focusNode: after,
+      rangeCount: 1, getRangeAt: () => range,
+    }, row)).toBe(true)
+    range.setEnd(before, 3)
+    expect(selectionBelongsToRow({
+      isCollapsed: false, anchorNode: before, focusNode: before,
+      rangeCount: 1, getRangeAt: () => range,
+    }, row)).toBe(false)
+  })
+
+  it("preserves secondary-click selection and copies its snapshot without reusing it on another open", async () => {
+    const onCopy = vi.fn()
+    const selectedNode = {} as Node
+    const target = { closest: () => null }
+    const owner = { contains: (node: unknown) => node === selectedNode || node === target }
+    let selection: { isCollapsed: boolean; anchorNode: Node; focusNode: Node; toString: () => string } | null = {
+      isCollapsed: false, anchorNode: selectedNode, focusNode: selectedNode, toString: () => " chosen text ",
+    }
+    vi.stubGlobal("window", { getSelection: () => selection })
+    let renderer: DomRenderer
+    await act(async () => {
+      renderer = render(makeTree({ m: baseMsg(), onOpenThread: vi.fn(), onCopy }), { createNodeMock: () => genericMock })
+    })
+    const row = () => renderer!.root.find((node) => typeof node.props.className === "string"
+      && node.props.className.includes("group relative -mx-2"))
+    act(() => row().props.onPointerEnter({ target, currentTarget: owner, nativeEvent: { type: "pointerenter", pointerType: "mouse" } }))
+    const preventDefault = vi.fn()
+    act(() => row().props.onPointerDownCapture({
+      target, currentTarget: owner, button: 2, preventDefault,
+      nativeEvent: { type: "pointerdown", pointerType: "mouse", button: 2, ctrlKey: false },
+    }))
+    expect(preventDefault).toHaveBeenCalledOnce()
+    act(() => row().props.onContextMenuCapture({ target, currentTarget: owner }))
+    selection = null
+    const copy = () => renderer!.root.findAllByProps({ "data-slot": "context-menu-item" })
+      .find((item) => textContent(item).trim() === "Copy Text")!
+    act(() => copy().props.onClick())
+    expect(onCopy).toHaveBeenLastCalledWith(" chosen text ")
+    act(() => renderer!.root.findByType("mock-context-menu").props.onOpenChange(false))
+    act(() => row().props.onContextMenuCapture({ target, currentTarget: owner }))
+    act(() => copy().props.onClick())
+    expect(onCopy).toHaveBeenLastCalledWith(undefined)
+    selection = { isCollapsed: false, anchorNode: {} as Node, focusNode: {} as Node, toString: () => "other row" }
+    preventDefault.mockClear()
+    act(() => row().props.onPointerDownCapture({
+      target, currentTarget: owner, button: 2, preventDefault,
+      nativeEvent: { type: "pointerdown", pointerType: "mouse", button: 2, ctrlKey: false },
+    }))
+    expect(preventDefault).not.toHaveBeenCalled()
+    act(() => row().props.onContextMenuCapture({ target, currentTarget: owner }))
+    act(() => copy().props.onClick())
+    expect(onCopy).toHaveBeenLastCalledWith(undefined)
+  })
+
   it("observes the desktop context target without taking over authenticated contextmenu policy", () => {
     let renderer: DomRenderer
     act(() => {
@@ -2095,5 +2162,39 @@ describe("Message lazy overlays", () => {
     expect(expectedCallback(onRetry, onDismiss)).toHaveBeenCalledOnce()
     const otherCallback = label === "Dismiss" ? onRetry : onDismiss
     expect(otherCallback).not.toHaveBeenCalled()
+  })
+})
+
+
+describe("Message selected-text menu focus", () => {
+  it("retains keyboard focus policy through close and leaves pointer focus alone", () => {
+    const view = rtlRender(makeTree({ m: baseMsg({ content: "selected message" }), hoverCapable: true, onCopy: vi.fn() }))
+    const row = view.container.querySelector('[data-slot="context-menu-trigger"]') as HTMLElement
+    fireEvent.pointerEnter(row, { pointerType: "mouse" })
+    const popup = () => view.container.querySelector("mock-context-menu-content")!
+    expect(hostProps(popup()).finalFocus).toBeUndefined()
+    const body = row.querySelector("[data-community-message-body]")!
+    const range = document.createRange()
+    range.selectNodeContents(body)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    fireEvent.contextMenu(body)
+    const menu = view.container.querySelector("mock-context-menu")!
+    act(() => (hostProps(menu).onOpenChange as (open: boolean) => void)(false))
+    const finalFocus = hostProps(popup()).finalFocus as (type: string) => boolean
+    expect(finalFocus).toBeTypeOf("function")
+    const focus = vi.spyOn(row, "focus")
+    expect(finalFocus("mouse")).toBe(false)
+    expect(focus).not.toHaveBeenCalled()
+    expect(finalFocus("keyboard")).toBe(false)
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+    expect(row).toHaveFocus()
+    // jsdom collapses selection on every focus(); real preservation is covered by browser test23.
+    selection.removeAllRanges()
+    fireEvent.contextMenu(body)
+    expect(hostProps(popup()).finalFocus).toBeUndefined()
+    view.unmount()
+    expect(finalFocus("keyboard")).toBe(false)
   })
 })

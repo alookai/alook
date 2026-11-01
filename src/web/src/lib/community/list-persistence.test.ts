@@ -10,7 +10,7 @@ const bot = { id: "bot", machineId: "machine", runtime: "codex", modelName: "mod
 
 describe("native list resource persistence", () => {
   it("keeps stable metadata while removing machine observations and account allowance", () => {
-    const live = { machines: [machine], machineCapacity: { ownedCount: 1, limit: 20 } }
+    const live = { complete: true, machines: [machine], machineCapacity: { ownedCount: 1, limit: 20 } }
     const stable = persistentCommunityListResource(communityKeys.machines(), live)!
     expect(stable).toEqual({ machines: [{ id: "machine", hostname: "host", displayName: "Computer", platform: "darwin", arch: "arm64", osRelease: "24", daemonVersion: "1", createdAt: "created", updatedAt: "updated" }], complete: true, observed: false, source: "restored_idb" })
     expect(live.machines[0].status).toBe("online")
@@ -27,10 +27,10 @@ describe("native list resource persistence", () => {
 
   it("roundtrips only stable native resources and their canonical bot profile without replacing live query data", async () => {
     const client = new QueryClient()
-    const liveMachines = { machines: [machine], machineCapacity: { ownedCount: 1 } }
+    const liveMachines = { complete: true, machines: [machine], machineCapacity: { ownedCount: 1 } }
     client.setQueryData(communityKeys.machines(), liveMachines)
     client.setQueryData(communityKeys.bots(), { bots: [bot], limit: 20 })
-    client.setQueryData(communityKeys.communityDbCollection("list-viewer", "profiles"), [{ id: "bot", name: "Canonical bot", discriminator: "0042", avatar: null, avatarVersion: 5, identityComplete: true }])
+    client.setQueryData(communityKeys.communityDbCollection("list-viewer", "profiles"), [{ id: "bot", name: "Canonical bot", discriminator: "0042", avatar: null, avatarVersion: 5 }])
     const persister = createIdbPersister("list-viewer")
     await persister.persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(client) })
     const restored = await persister.restoreClient()

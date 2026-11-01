@@ -74,8 +74,9 @@ export function ThreadSplitParentSurface({
     isNotifyUnit: false,
     currentUser: viewer,
     accessAllowed: active && metadata.canRead,
+    roleDisplayAllowed: metadata.canRead,
   })
-  const notifs = useNotificationSettings()
+  const notifs = useNotificationSettings(false)
   const { mutate: setChannelNotif } = useSetChannelNotif()
   const notificationLevel = (notifs.channel[channel.id] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT
   const setNotificationLevel = (level: ChannelNotifLevel) => {
@@ -101,6 +102,7 @@ export function ThreadSplitParentSurface({
         serverId={serverId}
         channelId={channel.id}
         channelName={channel.name}
+        channelTitleState={!metadata.canonical ? "pending" : metadata.canonical.name === null ? "unavailable" : "ready"}
         viewer={viewer}
         viewerRole={members.myRole}
         onNavigateParent={onNavigateParent}
@@ -123,6 +125,7 @@ export function ThreadSplitParentSurface({
       serverId={serverId}
       serverParam={serverParam}
       channelName={channel.name}
+      channelTitleState={!metadata.canonical ? "pending" : metadata.canonical.name === null ? "unavailable" : "ready"}
       viewer={viewer}
       canManagePins={canManageServer(members.myRole)}
       anchorMessageId={null}

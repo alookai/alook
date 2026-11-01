@@ -1,7 +1,8 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 
@@ -10,7 +11,7 @@ import { broadcastToUserSafe } from "@/lib/community/fanout"
  * bot owner approves or denies a gated friend row via their DM card.
  * Dispatches to `ownerDecideOnRow`, which encapsulates all four cases.
  */
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const id = ctx.params?.id as string
 
@@ -42,7 +43,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   for (const b of result.broadcasts) {
     await broadcastToUserSafe(b.userId, b.event)
   }
-
 
   return writeJSON({ status: result.friendship.status, friendshipId: id })
 })

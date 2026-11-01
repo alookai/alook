@@ -23,9 +23,7 @@ vi.mock("@/lib/community/permissions", () => ({
   requireServerMember: (...args: unknown[]) => requireServerMember(...args),
 }))
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => (req: NextRequest, ctx: any) => handler(req, {
-    env: { DB: {} }, userId: ctx.actor ?? "owner", email: "owner@test", params: ctx.params,
-  }),
+  humanAuthPolicy: { resolve: async (req: NextRequest) => ({ context: { env: { DB: {} }, userId: ctx.actor ?? "owner", email: "owner@test" } }) },
 }))
 
 import { PUT } from "./route"

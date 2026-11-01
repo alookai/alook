@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { createAnalyticsConsentProof } from "@/lib/analytics-consent-server"
@@ -39,7 +40,7 @@ const owner = { id: "owner", email: "current@example.test", isBot: false, delete
 const request = (body?: string, headers: Record<string, string> = {}) => new NextRequest("https://alook.ai/api/billing", {
   method: "POST", body, headers: { origin: "https://alook.ai", ...headers },
 })
-const getRequest = (headers: Record<string, string> = {}) => new NextRequest("https://alook.ai/api/community/billing", { headers })
+const getRequest = (headers: Record<string, string> = {}) => new NextRequest("https://alook.ai/api/community/billing", { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION), ...headers } })
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -62,7 +63,7 @@ describe("billing HTTP route boundaries", () => {
     })
     const response = await GET(getRequest())
     expect(response.status).toBe(200)
-    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0")
     expect(await response.json()).toEqual(summary)
     expect(mocks.summary).toHaveBeenCalledWith(mocks.db, expect.any(Function), mocks.env, owner.id)
   })
@@ -206,7 +207,7 @@ describe("billing HTTP route boundaries", () => {
     mocks.owner.mockRejectedValue(new Error("private database detail"))
     const response = await GET(getRequest())
     expect(response.status).toBe(503)
-    expect(await response.json()).toEqual({ error: "BILLING_UNAVAILABLE" })
+    expect(await response.json()).toEqual({ contractVersion: BUSINESS_SCHEMA_VERSION, error: { code: "temporarily_unavailable", message: "BILLING_UNAVAILABLE", retryable: true } })
   })
 })
 

@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { MessagePositionState, MessageRequest } from "@/lib/community/message-position"
+import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 
 export type MessageListProps = {
   observation?: import("@/lib/observability/regions").ResourceObservation
@@ -9,6 +10,7 @@ export type MessageListProps = {
   messages: Msg[]
   loading?: boolean
   initialLoadError?: Error | null
+  targetLoadError?: Error | null
   retryingInitialLoad?: boolean
   onRetryInitialLoad?: () => void
   pinnedIds?: Set<string>
@@ -24,8 +26,7 @@ export type MessageListProps = {
   onPin?: (id: string) => void
   onMark?: (id: string) => void
   onCreateThread?: (id: string) => void
-  onCopy?: (id: string) => void
-  onEdit?: (id: string) => void
+  onCopy?: (id: string, selectedText?: string) => void
   onRetry?: (id: string) => void
   onDismiss?: (id: string) => void
   onPreviewImage?: (image: ImagePreview) => void
@@ -34,7 +35,9 @@ export type MessageListProps = {
   scrollToMessageId?: string | null
   initialPositionMessageId?: string | null
   positionEntry?: object | null
+  positionScope?: ConversationListScope
   positionDataState?: MessagePositionState
+  targetPositionDataState?: MessagePositionState
   messageWindow?: object
   active?: boolean
   positioningActive?: boolean
@@ -43,7 +46,9 @@ export type MessageListProps = {
   onScrollRoot?: (el: HTMLDivElement | null) => void
   viewerUserId?: string
   initialScrollReady?: boolean
+  preserveInitialPresentation?: boolean
   onScrollTargetConsumed?: (id: string) => void
+  onUserTakeover?: () => void
   hasMore?: boolean
   historyStartKnown?: boolean
   isFetching?: boolean

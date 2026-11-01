@@ -1,5 +1,4 @@
 import { CommunityConnectingIndicator } from "./community-connecting-indicator"
-import { AppEdgeFade } from "@/components/ui/app-edge-fade"
 
 export function UnresolvedMainSkeleton() {
   return (
@@ -10,7 +9,6 @@ export function UnresolvedMainSkeleton() {
       <div className="relative z-20 flex w-full max-w-xs flex-col items-center text-center text-foreground">
         <CommunityConnectingIndicator />
       </div>
-      <AppEdgeFade />
     </div>
   )
 }

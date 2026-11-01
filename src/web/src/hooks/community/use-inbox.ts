@@ -1,5 +1,4 @@
 "use client"
-import { useSelector } from "@tanstack/react-store"
 import { useMemo } from "react"
 import {
 keepPreviousData,
@@ -14,7 +13,7 @@ import { communityRequestOptions } from "@/lib/community-db/sync"
 import { apiFetch } from "@/lib/api/client"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
-import { communityMessagePreviewFromLegacy } from "@alook/shared"
+import type { CommunityResourceBundle } from "@alook/shared"
 import type {
 InboxFriendRequest,
 Marked,
@@ -22,9 +21,12 @@ Mention,
 UnreadDm,
 UnreadServer,
 } from "@/lib/community/models/inbox"
-import { accountUnreadAllowsAccess,getActiveAccountUnreadProjection } from "./account-unread-projection"
+import { communityScopeAllowsAccess } from "@/stores/community/ws-store"
+import { communityServerRetirementId, communityServerRetirementKey } from "@/lib/community-db/message-access-scope"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import {
 materializeCanonicalMessage,
+useOptionalCommunityDbRegistry,
 useCanonicalChannelsById,
 useCanonicalMessagesById,
 useCanonicalProfilesByUserId,
@@ -33,7 +35,7 @@ useDmProjection,
 } from "@/lib/community-db/projections"
 import {
 captureCommunityLiveSnapshotToken,
-publishCommunityEmbeddedMessages,
+publishCommunityResourceBundle,
 } from "@/lib/community-db/sync"
 import { useAccountAttentionProjection } from "./use-account-attention"
 
@@ -278,7 +280,7 @@ export function useInboxUnreads() {
   return useInboxAttention()
 }
 
-type MarkedResponse = { marked: Marked[] }
+type MarkedResponse = MarkedWindowResponse & { resources: CommunityResourceBundle }
 type MarkedWindowResponse = { marked: Array<Omit<Marked, "m"> & { m: Pick<Marked["m"], "id"> }> }
 
 const inboxMarkedQueryFn = (queryClient: QueryClient) =>
@@ -288,15 +290,7 @@ const inboxMarkedQueryFn = (queryClient: QueryClient) =>
       "/api/community/users/me/marks",
       signal ? { signal } : undefined, publicationToken,
     ))
-    {
-      publishCommunityEmbeddedMessages(queryClient, {
-        entries: data.marked.map((marked) => ({
-          channelId: marked.channelId,
-          message: { ...communityMessagePreviewFromLegacy(marked.m, marked.channelId), resourceComplete: false },
-        })),
-        proof: { token: publicationToken, signal },
-      })
-    }
+    publishCommunityResourceBundle(queryClient, data.resources, { token: publicationToken, signal }, data.marked.map(row => ({ id: row.m.id, channelId: row.channelId })))
     return { marked: data.marked.map((row) => ({ ...row, m: { id: row.m.id } })) }
   }
 
@@ -305,10 +299,6 @@ export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedWindowRes
   canonicalPending: boolean
 } {
   const queryClient = useQueryClient()
-  const unreadProjection = useMemo(
-    () => getActiveAccountUnreadProjection(queryClient),
-    [queryClient],
-  )
   const query = useQuery({
     queryKey: communityKeys.inboxMarked(),
     queryFn: inboxMarkedQueryFn(queryClient),
@@ -318,16 +308,18 @@ export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedWindowRes
   const messageIds = useMemo(() => query.data?.marked.map((row) => row.m.id) ?? [], [query.data?.marked])
   const canonicalMessages = useCanonicalMessagesById(messageIds)
   const pendingMarks = useMutationState({ filters: { mutationKey: ["community", "mark-command"], status: "pending" }, select: (mutation) => ({ messageId: (mutation.state.variables as { messageId: string }).messageId, marked: mutation.options.mutationKey?.[2] === true }) })
-  const markedAccess = useSelector(unreadProjection.state, (state) => (query.data?.marked ?? []).map((row) => accountUnreadAllowsAccess(state, row)), { compare: (left, right) => left.length === right.length && left.every((value, index) => value === right[index]) })
+  const registry = useOptionalCommunityDbRegistry()
+  const retiringServers = useMutationState({ filters: { mutationKey: communityServerRetirementKey, status: "pending" }, select: mutation => communityServerRetirementId(mutation, registry) })
+  const markedAccess = useCommunityWsStore((state) => state)
   const marked = useMemo(() => {
     const source = query.data?.marked ?? (EMPTY_MARKED as Marked[])
-    return source.flatMap((marked, index) => {
+    return source.flatMap((marked) => {
       if (pendingMarks.filter((command) => command.messageId === marked.m.id).at(-1)?.marked === false) return []
-      if (!markedAccess[index]) return []
+      if (!communityScopeAllowsAccess(markedAccess, marked) || marked.serverId && retiringServers.includes(marked.serverId)) return []
       const message = materializeCanonicalMessage(marked.m, canonicalMessages)
       return message ? [{ ...marked, m: message }] : []
     })
-  }, [canonicalMessages, query.data?.marked, markedAccess, pendingMarks])
+  }, [canonicalMessages, query.data?.marked, markedAccess, pendingMarks, retiringServers])
   return { ...query, marked, canonicalPending: enabled && !!query.data && !query.isError && canonicalMessages === undefined }
 }
 

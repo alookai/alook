@@ -19,17 +19,19 @@ import { useAuthorMentionInsertion } from "@/components/community/messages/use-a
 import {
   MessageChannelController,
 } from "@/components/community/messages/message-channel-controller"
-import { MessagePaneNavigationProvider } from "@/components/community/messages/message-pane-navigation"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import { tid } from "@/lib/community/testids"
+import { ConversationActivityContext, useConversationActivity } from "@/contexts/community/conversation-activity"
+import type { MessageHeaderTitleState } from "./message-header"
 
 export function TextChannelSurface({
   channelId,
   serverId,
   serverParam,
   channelName,
+  channelTitleState = "ready",
   viewer,
   canManagePins,
   anchorMessageId,
@@ -51,6 +53,7 @@ export function TextChannelSurface({
   serverId: string
   serverParam: string
   channelName: string
+  channelTitleState?: MessageHeaderTitleState
   viewer: { id: string; name: string; discriminator?: string; avatar: string }
   canManagePins: boolean
   anchorMessageId: string | null
@@ -73,6 +76,7 @@ export function TextChannelSurface({
   embedded?: boolean
 }) {
   const breakpoint = useBreakpoint()
+  const routeActive = useConversationActivity()
   const [rightPanel, setRightPanel] = useAtom(useCreateAtom<RightPanel>(null))
   const mentionInsertion = useAuthorMentionInsertion({
     members: composerMembers,
@@ -86,6 +90,7 @@ export function TextChannelSurface({
     viewerUserId: viewer.id,
     isChildChannel: false,
     anchorMessageId,
+    threadsEnabled: rightPanel === "threads",
   })
   useEffect(() => {
     setRightPanel(null)
@@ -95,6 +100,7 @@ export function TextChannelSurface({
     setRightPanel((current) => current === panel ? null : panel)
   }
   const Body = embedded ? "div" : "main"
+  const inputActive = routeActive && feed.navigationBlocked === false
 
   return (
     <MessageChannelController
@@ -111,15 +117,11 @@ export function TextChannelSurface({
       resolveUserName={resolveUserName}
     >
       {(controller) => (
-        <MessagePaneNavigationProvider
-          channelId={channelId}
-          jumpToSeq={controller.jumpToSeq}
-          openMessageContext={controller.setContextTarget}
-        >
-          <ChannelShell
-            header={(
+        <ChannelShell
+          header={(
             <ChannelHeader
               channel={channelName}
+              titleState={channelTitleState}
               kind="text"
               rightPanel={rightPanel}
               onToggle={togglePanel}
@@ -128,10 +130,14 @@ export function TextChannelSurface({
               mobileBack={onNavigateParent}
             />
           )}
-            body={(
+          body={(
             <Body
               data-slot="community-conversation-surface"
               data-channel-id={channelId}
+              data-testid={!embedded && feed.isLoading ? tid.conversationResolutionPending : undefined}
+              aria-busy={!embedded && feed.isLoading ? true : undefined}
+              aria-label={!embedded && feed.isLoading ? "Loading conversation" : undefined}
+              data-community-conversation-subtype="text"
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
               <ConversationFooterSlotProvider>
@@ -141,6 +147,7 @@ export function TextChannelSurface({
                   messages={feed.messages}
                   loading={feed.isLoading}
                   initialLoadError={feed.initialLoadError}
+                  targetLoadError={feed.targetLoadError}
                   observation={feed.observation}
                   retryingInitialLoad={feed.retryingInitialLoad}
                   onRetryInitialLoad={feed.retryInitialLoad}
@@ -156,13 +163,16 @@ export function TextChannelSurface({
                   scrollToMessageId={controller.scrollTargetId}
                   onScrollRoot={feed.setScrollRootEl}
                   viewerUserId={viewer.id}
-                  initialScrollReady={!feed.readSnapshotFetching && feed.anchorInCache}
+                  initialScrollReady={feed.initialDisplayReady}
+                  preserveInitialPresentation={feed.preserveInitialPresentation}
+                  onUserTakeover={feed.onUserTakeover}
                   onScrollTargetConsumed={controller.consumeScrollTarget}
                   hasMore={feed.hasMoreOlder}
                   historyStartKnown={feed.historyStartKnown}
                   initialPositionMessageId={feed.initialPositionMessageId}
                   positionEntry={feed.positionEntry}
-                  positionDataState={feed.positionDataState}
+                  positionScope={feed.positionScope}
+                  positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState}
                   messageWindow={feed.messageWindow}
                   isFetching={feed.isFetching}
                   isFetchingOlder={feed.isFetchingOlder}
@@ -180,27 +190,30 @@ export function TextChannelSurface({
                 <ConversationFooterShell
                   data-onboarding-target="channel-composer"
                   data-testid={tid.channelComposerShell}
+                  inert={!inputActive}
                 >
-                  <Composer
-                    ref={mentionInsertion.composerRef}
-                    channel={channelName}
-                    context="channel"
-                    members={composerMembers}
-                    mentionCandidates={composerMentionCandidates}
-                    channelRefCandidates={channelRefCandidates}
-                    sendContract="accepted"
-                    onAcceptSend={controller.acceptMessage}
-                    onTyping={controller.handleTyping}
-                    replyingTo={controller.replyTo ?? undefined}
-                    onCancelReply={() => controller.setReplyTo(null)}
-                    autoFocus={breakpoint === "desktop" && !embedded}
-                    draftKey={`${serverId}/${channelId}`}
-                  />
+                  <ConversationActivityContext value={inputActive}>
+                    <Composer
+                      ref={mentionInsertion.composerRef}
+                      channel={channelName}
+                      context="channel"
+                      members={composerMembers}
+                      mentionCandidates={composerMentionCandidates}
+                      channelRefCandidates={channelRefCandidates}
+                      sendContract="accepted"
+                      onAcceptSend={controller.acceptMessage}
+                      onTyping={controller.handleTyping}
+                      replyingTo={controller.replyTo ?? undefined}
+                      onCancelReply={() => controller.setReplyTo(null)}
+                      autoFocus={breakpoint === "desktop" && !embedded}
+                      draftKey={`${serverId}/${channelId}`}
+                    />
+                  </ConversationActivityContext>
                 </ConversationFooterShell>
               </ConversationFooterSlotProvider>
             </Body>
           )}
-            panels={(
+          panels={(
             <CommunityPanel
               open={rightPanel !== null}
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
@@ -215,7 +228,7 @@ export function TextChannelSurface({
               onJumpToMessage={controller.jumpToSeq}
             />
           )}
-            dialogs={(
+          dialogs={(
             <>
               {manageMembersDialog}
               <MessageContextSheet
@@ -234,8 +247,7 @@ export function TextChannelSurface({
               />
             </>
           )}
-          />
-        </MessagePaneNavigationProvider>
+        />
       )}
     </MessageChannelController>
   )

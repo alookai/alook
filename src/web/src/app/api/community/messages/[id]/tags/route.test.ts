@@ -32,11 +32,7 @@ vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...args: unknown[]) => mockFanOutToChannel(...args),
 }))
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => (req: any, routeCtx: any) => handler(req, {
-    env: { DB: {} },
-    userId: "u1",
-    params: routeCtx.params,
-  }),
+  humanAuthPolicy: { resolve: async (req: any) => ({ context: { env: { DB: {} }, userId: "u1" } }) },
 }))
 vi.mock("@/lib/middleware/helpers", () => {
   const { NextResponse } = require("next/server")

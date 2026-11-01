@@ -1,3 +1,4 @@
+import faroPackage from "@grafana/faro-web-sdk/package.json"
 import { afterEach, expect, it, vi } from "vitest"
 import { initializeFaro, InternalLoggerLevel, SessionInstrumentation, VolatileSessionsManager } from "@grafana/faro-web-sdk"
 import { act } from "@/test/react-dom-harness"
@@ -35,7 +36,7 @@ it("resumes the actual previous SDK document and preserves its initial session_r
   await act(async () => {
     bootstrapObservability("web")
     initialGeneration = telemetryGeneration()
-    early = startAction("message.edit")
+    early = startAction("message.mark")
     emitTelemetry("business.result", { ...actionAttributes(early), outcome: "success" })
     vi.setSystemTime(earlyTimestamp + 400)
   })
@@ -54,9 +55,9 @@ it("resumes the actual previous SDK document and preserves its initial session_r
   expect(sent.some(body => body.events?.some(event => event.name === "business.result"))).toBe(true)
   const earlyExport = sent.flatMap(body => (body.events ?? []).filter(event => event.attributes?.action_id === early!.id).map(event => ({ event, meta: body.meta })))
   expect(earlyExport.map(record => record.event.name)).toEqual(["action.start", "business.result", "action.finish"])
-  for (const { event, meta } of earlyExport) expect(event.attributes).toMatchObject({ action_id: early!.id, action_name: "message.edit", session_id: meta.session.id, start_ms: String(early!.start) })
+  for (const { event, meta } of earlyExport) expect(event.attributes).toMatchObject({ action_id: early!.id, action_name: "message.mark", session_id: meta.session.id, start_ms: String(early!.start) })
   expect(Date.parse(earlyExport[0]!.event.timestamp)).toBe(earlyTimestamp)
   expect(Date.parse(earlyExport[1]!.event.timestamp)).toBe(earlyTimestamp)
-  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: "2.12.1" }, session: { id: prior.sessionId } } })
+  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: faroPackage.version }, session: { id: prior.sessionId } } })
   expect(JSON.stringify(sent)).not.toContain("alook_account")
 })

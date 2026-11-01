@@ -1,5 +1,7 @@
+import type { z } from "zod"
+import { communityFixtureFetch } from "./_fixtures/business-contract"
 import { devices, type Page } from "@playwright/test"
-import { COMMUNITY_CONTRACT_HEADER, DEFAULT_MESSAGE_PAGE_SIZE, type CommunityConversationEntryRead } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, DEFAULT_MESSAGE_PAGE_SIZE, type CommunityConversationEntryRead, CommunityMessageReadSchema } from "@alook/shared"
 import { expect, test } from "./_fixtures/case-fixture"
 import { composerEditable } from "./_fixtures/actions"
 import { expectPublicCommunityDocument } from "./_fixtures/community-ssr-frame"
@@ -76,13 +78,13 @@ async function foregroundActivation(page: Page, activation: Activation) {
 
 type MessageDoorEvidence = {
   status: number
-  payload: { id?: string; channelId?: string }
+  payload: z.infer<typeof CommunityMessageReadSchema>
 }
 
 test.describe("mobile notification chat routes (native bridge simulation)", () => {
   async function prepareCase1(actors: CaseActors) {
     async function deleteAsAlice(path: string) {
-      const response = await fetch(`${WEB_URL}${path}`, { method: "DELETE", headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL } })
+      const response = await communityFixtureFetch(`${WEB_URL}${path}`, { method: "DELETE", headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL } })
       expect(response.ok, `${path}: ${response.status}`).toBeTruthy()
     }
     async function captureMessageDoor(page: Page, targetId: string, messageId: string) {
@@ -124,7 +126,7 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
     const dmId: string = await seedDm("alice", userId("bob"))
     const dmMessageId: string = await seedDmMessage("alice", dmId, "DM notification route evidence")
     const seqs = await Promise.all([[dmId, dmMessageId], [channelId, channelMessageId]].map(async ([targetId, messageId]) => {
-      const response = await fetch(`${WEB_URL}/api/community/channels/${targetId}/messages?anchor=${messageId}&limit=1`, { headers: { Cookie: sessionCookie("bob") } })
+      const response = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${targetId}/messages?anchor=${messageId}&limit=1`, { headers: { Cookie: sessionCookie("bob") } })
       expect(response.status).toBe(200)
       const payload = await response.json() as {
         messages: Array<{
@@ -165,7 +167,9 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
         const evidence = door.evidence()
         if (evidence) {
           expect(evidence.status).toBe(200)
-          expect(evidence.payload.id).toBe(messageId)
+          expect(evidence.payload.contractVersion).toBe(BUSINESS_SCHEMA_VERSION)
+          expect(evidence.payload.message.id).toBe(messageId)
+          expect(evidence.payload.message.channelId).toBe(targetId)
           expect(evidence.payload.channelId).toBe(targetId)
         }
         else expect(door.requestCount()).toBe(0)
@@ -301,13 +305,13 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
       laterIds.push(await actors.seed.seedMessage("alice", channelId, `Later window message ${index}`))
     }
     const readPointer = laterIds[DEFAULT_MESSAGE_PAGE_SIZE]
-    const checkpoint = await fetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
+    const checkpoint = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
       method: "PUT",
       headers: { Cookie: actors.sessionCookie("bob"), Origin: WEB_URL, "Content-Type": "application/json" },
       body: JSON.stringify({ lastReadMessageId: readPointer }),
     })
     expect(checkpoint.ok).toBe(true)
-    const defaultResponse = await fetch(`${WEB_URL}/api/community/channels/${channelId}/messages?entry=1`, { headers: { Cookie: actors.sessionCookie("bob"), [COMMUNITY_CONTRACT_HEADER]: "3" } })
+    const defaultResponse = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/messages?entry=1`, { headers: { Cookie: actors.sessionCookie("bob"), [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
     expect(defaultResponse.ok, `entry precondition status ${defaultResponse.status}`).toBe(true)
     const defaultEntry = await defaultResponse.json() as CommunityConversationEntryRead
     expect(defaultEntry.selection).toEqual({ reason: "read_pointer", anchorMessageId: readPointer })

@@ -14,6 +14,10 @@ static UIColor *alookDarkColor(void) {
 static const void *kAlookResolvedDarkThemeKey = &kAlookResolvedDarkThemeKey;
 static const void *kAlookWebDarkThemeKey = &kAlookWebDarkThemeKey;
 static const void *kAlookSafeAreaTopKey = &kAlookSafeAreaTopKey;
+static const void *kAlookKeyboardLayoutViewKey = &kAlookKeyboardLayoutViewKey;
+static const void *kAlookCommunityRootScrollDelegateKey = &kAlookCommunityRootScrollDelegateKey;
+static const void *kAlookCommunityRootURLObserversKey = &kAlookCommunityRootURLObserversKey;
+static const void *kAlookPublishedKeyboardSnapshotKey = &kAlookPublishedKeyboardSnapshotKey;
 static const void *kAlookStartupOverlayKey = &kAlookStartupOverlayKey;
 static const void *kAlookStartupCompletedKey = &kAlookStartupCompletedKey;
 static const NSInteger kAlookStartupLogoTag = 8738;
@@ -25,6 +29,188 @@ static BOOL gAlookStartupFailed = NO;
 static BOOL alookIsTauriRootController(UIViewController *viewController) {
     Class taoViewController = NSClassFromString(@"TaoUIViewController");
     return taoViewController != Nil && [viewController isKindOfClass:taoViewController];
+}
+
+@interface AlookCommunityRootScrollDelegate : NSObject <UIScrollViewDelegate>
+@property (nonatomic, weak) WKWebView *webView;
+@property (nonatomic, weak) UIView *hostView;
+@property (nonatomic, weak) id<UIScrollViewDelegate> previousDelegate;
+@property (nonatomic) BOOL correcting;
+- (void)constrainRootScrollView:(UIScrollView *)scrollView;
+@end
+
+@implementation AlookCommunityRootScrollDelegate
+
+- (BOOL)respondsToSelector:(SEL)selector {
+    return [super respondsToSelector:selector] || [self.previousDelegate respondsToSelector:selector];
+}
+
+- (id)forwardingTargetForSelector:(SEL)selector {
+    id<UIScrollViewDelegate> previous = self.previousDelegate;
+    if ([previous respondsToSelector:selector]) return previous;
+    return [super forwardingTargetForSelector:selector];
+}
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    id<UIScrollViewDelegate> previous = self.previousDelegate;
+    if ([previous respondsToSelector:_cmd]) [previous scrollViewDidScroll:scrollView];
+    [self constrainRootScrollView:scrollView];
+}
+
+- (void)constrainRootScrollView:(UIScrollView *)scrollView {
+    WKWebView *webView = self.webView;
+    UIView *host = self.hostView;
+    NSString *path = webView.URL.path;
+    if (self.correcting || webView == nil || host == nil || webView.superview != host ||
+        scrollView != webView.scrollView ||
+        scrollView.delegate != self ||
+        !([path isEqualToString:@"/c"] || [path hasPrefix:@"/c/"]) ||
+        CGPointEqualToPoint(scrollView.contentOffset, CGPointZero)) return;
+
+    self.correcting = YES;
+    [scrollView setContentOffset:CGPointZero animated:NO];
+    self.correcting = NO;
+}
+
+@end
+
+@interface AlookCommunityRootURLObserver : NSObject
+@property (nonatomic, strong, readonly) WKWebView *webView;
+@property (nonatomic, weak) AlookCommunityRootScrollDelegate *scrollDelegate;
+@property (nonatomic) BOOL observing;
+- (instancetype)initWithWebView:(WKWebView *)webView delegate:(AlookCommunityRootScrollDelegate *)delegate;
+- (void)startObserving;
+@end
+
+@implementation AlookCommunityRootURLObserver
+
+- (instancetype)initWithWebView:(WKWebView *)webView delegate:(AlookCommunityRootScrollDelegate *)delegate {
+    self = [super init];
+    if (self) {
+        _webView = webView;
+        _scrollDelegate = delegate;
+    }
+    return self;
+}
+
+- (void)startObserving {
+    if (_observing) return;
+    [_webView addObserver:self forKeyPath:@"URL"
+                 options:NSKeyValueObservingOptionInitial | NSKeyValueObservingOptionNew
+                 context:(void *)kAlookCommunityRootURLObserversKey];
+    _observing = YES;
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object
+                       change:(NSDictionary<NSKeyValueChangeKey, id> *)change context:(void *)context {
+    if (context == kAlookCommunityRootURLObserversKey && object == self.webView) {
+        [self.scrollDelegate constrainRootScrollView:self.webView.scrollView];
+        return;
+    }
+    [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+}
+
+- (void)dealloc {
+    if (_observing) [_webView removeObserver:self forKeyPath:@"URL" context:(void *)kAlookCommunityRootURLObserversKey];
+}
+
+@end
+
+static void alookInstallCommunityRootScrollLock(UIView *host, WKWebView *webView) {
+    if (webView.superview != host) return;
+    NSMutableArray<AlookCommunityRootURLObserver *> *observers = objc_getAssociatedObject(host, kAlookCommunityRootURLObserversKey);
+    if (observers == nil) {
+        observers = [NSMutableArray array];
+        objc_setAssociatedObject(host, kAlookCommunityRootURLObserversKey, observers, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    BOOL observing = NO;
+    for (AlookCommunityRootURLObserver *observer in [observers copy]) {
+        if (observer.webView.superview != host) [observers removeObject:observer];
+        else if (observer.webView == webView) observing = YES;
+    }
+    if (observing) return;
+
+    AlookCommunityRootScrollDelegate *delegate = objc_getAssociatedObject(webView, kAlookCommunityRootScrollDelegateKey);
+    if (delegate == nil) {
+        delegate = [[AlookCommunityRootScrollDelegate alloc] init];
+        delegate.webView = webView;
+        delegate.previousDelegate = webView.scrollView.delegate;
+        objc_setAssociatedObject(webView, kAlookCommunityRootScrollDelegateKey, delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        webView.scrollView.delegate = delegate;
+    }
+    delegate.hostView = host;
+    AlookCommunityRootURLObserver *observer = [[AlookCommunityRootURLObserver alloc] initWithWebView:webView delegate:delegate];
+    [observers addObject:observer];
+    [observer startObserving];
+}
+
+static NSDictionary *alookMeasureKeyboardSnapshot(UIViewController *controller, WKWebView *webView) {
+    UIView *host = controller.view;
+    CGRect keyboardFrame = [webView convertRect:host.keyboardLayoutGuide.layoutFrame fromView:host];
+    CGRect bounds = webView.bounds;
+    CGFloat bottomInset = CGRectIntersectsRect(bounds, keyboardFrame)
+        ? MIN(bounds.size.height, MAX(0, CGRectGetMaxY(bounds) - CGRectGetMinY(keyboardFrame)))
+        : 0;
+    return @{
+        @"bottomInset": @(bottomInset),
+        @"viewportWidth": @(bounds.size.width)
+    };
+}
+
+static void alookPublishKeyboardSnapshots(UIViewController *controller) {
+    if (!alookIsTauriRootController(controller) || !controller.isViewLoaded) return;
+    for (UIView *subview in controller.view.subviews) {
+        if (![subview isKindOfClass:[WKWebView class]]) continue;
+        WKWebView *webView = (WKWebView *)subview;
+        NSDictionary *snapshot = alookMeasureKeyboardSnapshot(controller, webView);
+        NSDictionary *published = objc_getAssociatedObject(webView, kAlookPublishedKeyboardSnapshotKey);
+        if (![snapshot isEqualToDictionary:published]) {
+            objc_setAssociatedObject(webView, kAlookPublishedKeyboardSnapshotKey, snapshot, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [webView evaluateJavaScript:@"window.dispatchEvent(new Event('alook:keyboard-change'))" completionHandler:nil];
+        }
+    }
+}
+
+@interface AlookKeyboardLayoutView : UIView
+@property (nonatomic, weak) UIViewController *viewController;
+@end
+
+@implementation AlookKeyboardLayoutView
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    UIViewController *controller = self.viewController;
+    if (controller != nil && self.superview == controller.view) alookPublishKeyboardSnapshots(controller);
+}
+
+@end
+
+static void alookInstallKeyboardLayout(UIViewController *controller) {
+    if (!alookIsTauriRootController(controller)) return;
+    UIView *host = controller.view;
+    AlookKeyboardLayoutView *previous = objc_getAssociatedObject(controller, kAlookKeyboardLayoutViewKey);
+    if (previous.superview == host) return;
+    [previous removeFromSuperview];
+    AlookKeyboardLayoutView *content = [[AlookKeyboardLayoutView alloc] init];
+    content.viewController = controller;
+    content.accessibilityIdentifier = @"alook.keyboard-layout";
+    content.accessibilityElementsHidden = YES;
+    content.userInteractionEnabled = NO;
+    content.opaque = NO;
+    content.backgroundColor = UIColor.clearColor;
+    content.translatesAutoresizingMaskIntoConstraints = NO;
+    [host insertSubview:content atIndex:0];
+    NSLayoutConstraint *bottom = [content.bottomAnchor constraintEqualToAnchor:host.keyboardLayoutGuide.topAnchor];
+    bottom.priority = UILayoutPriorityRequired - 1;
+    [NSLayoutConstraint activateConstraints:@[
+        [content.topAnchor constraintEqualToAnchor:host.safeAreaLayoutGuide.topAnchor],
+        [content.leadingAnchor constraintEqualToAnchor:host.safeAreaLayoutGuide.leadingAnchor],
+        [content.trailingAnchor constraintEqualToAnchor:host.safeAreaLayoutGuide.trailingAnchor],
+        [content.heightAnchor constraintGreaterThanOrEqualToConstant:0],
+        bottom
+    ]];
+    objc_setAssociatedObject(controller, kAlookKeyboardLayoutViewKey, content, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [host setNeedsLayout];
 }
 
 static UIView *alookStartupHostView(UIViewController *viewController) {
@@ -212,6 +398,32 @@ static NSString *const kThemeObserverScript =
 
 @end
 
+@interface AlookKeyboardHandler : NSObject <WKScriptMessageHandlerWithReply>
+@property (nonatomic, weak) WKWebView *webView;
+@property (nonatomic, weak) UIViewController *viewController;
+@end
+
+@implementation AlookKeyboardHandler
+
+- (void)userContentController:(WKUserContentController *)userContentController
+      didReceiveScriptMessage:(WKScriptMessage *)message
+                 replyHandler:(void (^)(id, NSString *))replyHandler {
+    WKWebView *webView = self.webView;
+    UIViewController *controller = self.viewController;
+    if (webView == nil || controller == nil || webView.superview != controller.view ||
+        message.webView != webView || ![message.frameInfo isMainFrame]) {
+        replyHandler(nil, @"Keyboard view unavailable");
+        return;
+    }
+    if (![message.body isEqual:@"snapshot"]) {
+        replyHandler(nil, @"Invalid keyboard command");
+        return;
+    }
+    replyHandler(alookMeasureKeyboardSnapshot(controller, webView), nil);
+}
+
+@end
+
 @implementation UIViewController (AlookSafeArea)
 
 + (BOOL)alook_finishStartupOverlayForController:(UIViewController *)controller
@@ -289,12 +501,15 @@ static NSString *const kThemeObserverScript =
 - (void)alook_viewDidLayoutSubviews {
     [self alook_viewDidLayoutSubviews];
     BOOL isTauriRoot = alookIsTauriRootController(self);
-    if (isTauriRoot) alookPrepareStartupOverlay(self);
+    if (isTauriRoot) {
+        alookInstallKeyboardLayout(self);
+        alookPrepareStartupOverlay(self);
+    }
     UIEdgeInsets insets = self.view.safeAreaInsets;
     for (UIView *subview in self.view.subviews) {
         if ([subview isKindOfClass:[WKWebView class]]) {
             CGRect bounds = self.view.bounds;
-            subview.frame = CGRectMake(
+            CGRect contentFrame = CGRectMake(
                 insets.left,
                 insets.top,
                 bounds.size.width - insets.left - insets.right,
@@ -303,6 +518,7 @@ static NSString *const kThemeObserverScript =
 
             WKWebView *webView = (WKWebView *)subview;
             if (isTauriRoot) {
+                alookInstallCommunityRootScrollLock(self.view, webView);
                 NSNumber *previousTop = objc_getAssociatedObject(webView, kAlookSafeAreaTopKey);
                 if (previousTop == nil) {
                     AlookSafeAreaHandler *handler = [[AlookSafeAreaHandler alloc] init];
@@ -311,12 +527,20 @@ static NSString *const kThemeObserverScript =
                         addScriptMessageHandlerWithReply:handler
                         contentWorld:WKContentWorld.pageWorld
                         name:@"alookSafeArea"];
+                    AlookKeyboardHandler *keyboard = [[AlookKeyboardHandler alloc] init];
+                    keyboard.webView = webView;
+                    keyboard.viewController = self;
+                    [webView.configuration.userContentController
+                        addScriptMessageHandlerWithReply:keyboard
+                        contentWorld:WKContentWorld.pageWorld
+                        name:@"alookKeyboard"];
                 }
                 if (previousTop == nil || previousTop.doubleValue != insets.top) {
                     objc_setAssociatedObject(webView, kAlookSafeAreaTopKey, @(insets.top), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                     [webView evaluateJavaScript:@"window.dispatchEvent(new Event('alook:safe-area-change'))" completionHandler:nil];
                 }
             }
+            if (!CGRectEqualToRect(webView.frame, contentFrame)) webView.frame = contentFrame;
             static dispatch_once_t scriptToken;
             dispatch_once(&scriptToken, ^{
                 AlookThemeHandler *handler = [[AlookThemeHandler alloc] init];
@@ -333,7 +557,7 @@ static NSString *const kThemeObserverScript =
             alookApplyTheme(self, alookEffectiveDarkTheme(self));
         }
     }
-
+    if (isTauriRoot) alookPublishKeyboardSnapshots(self);
 }
 
 @end

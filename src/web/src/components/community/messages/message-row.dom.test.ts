@@ -6,11 +6,14 @@ import { MessageRow } from "./message-row"
 vi.mock("./message", () => ({
   Message: ({
     onReply,
+    onCopy,
     onMentionAuthor,
   }: {
     onReply?: () => void
+    onCopy?: (selectedText?: string) => void
     onMentionAuthor?: () => void
   }) => createElement("div", null,
+    onCopy && createElement("button", { type: "button", onClick: () => onCopy("selected") }, "Copy selection"),
     onReply && createElement("button", {
       type: "button",
       onClick: onReply,
@@ -52,6 +55,17 @@ describe("MessageRow", () => {
     expect(onReplyId).toHaveBeenCalledWith("message_42")
     expect(onInsertMentionText).toHaveBeenCalledOnce()
     expect(onInsertMentionText).toHaveBeenCalledWith("@Alice#1234 ")
+  })
+
+  it("forwards selected text with the exact message id", async () => {
+    const user = setupUser()
+    const onCopyId = vi.fn()
+    render(createElement(MessageRow, {
+      m: { id: "m42", type: "chat", content: "selected text", grouped: false },
+      hoverCapable: true, onOpenThread: vi.fn(), onCopyId,
+    }))
+    await user.click(screen.getByRole("button", { name: "Copy selection" }))
+    expect(onCopyId).toHaveBeenCalledExactlyOnceWith("m42", "selected")
   })
 
   it("does not expose mention behavior without both text and an insertion seam", () => {

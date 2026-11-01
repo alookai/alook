@@ -1,3 +1,5 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { holdRoute } from "./_fixtures/held-route"
@@ -8,7 +10,7 @@ import type { CaseActors } from "./_fixtures/case-fixture"
 
 async function prepareCase(_actors: CaseActors) {
   async function participantUserIds(page: Page, channelId: string): Promise<string[]> {
-    const response = await page.request.get(`/api/community/channels/${channelId}/members`)
+    const response = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${channelId}/members?relation=notify`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(response.status()).toBe(200)
     const payload = await response.json() as {
       members: Array<{
@@ -83,9 +85,9 @@ async function strictSidebar(page: Page, serverId: string, retainId?: string) {
     include: "parentMessage",
   })
   if (retainId) params.set("retainId", retainId)
-  const response = await page.request.get(
-    `/api/community/servers/${serverId}/channels?${params.toString()}`,
-  )
+  const response = await confirmCommunityFixtureApiResponse(page.request.get(
+    `/api/community/servers/${serverId}/channels?${params.toString()}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))
   expect(response.status()).toBe(200)
   return await response.json() as {
     canonicalChannels: Array<{ id: string }>
@@ -149,22 +151,37 @@ test.describe("forum sidebar Stage B request shape", () => {
     const { serverId, threadId, forumTitle } = await prepareCase1(actors)
 
     const { page } = await asUser("alice")
+    const readRequests: string[] = []
     const requests: string[] = []
     const successfulResponses: string[] = []
-    page.on("request", request => { if (request.method() === "GET") requests.push(request.url()) })
+    page.on("request", request => {
+      if (request.method() === "GET") requests.push(request.url())
+      if (request.method() === "PUT" && new URL(request.url()).pathname === `/api/community/channels/${threadId}/read`) readRequests.push(request.url())
+    })
     page.on("response", response => { if (response.request().method() === "GET" && response.ok()) successfulResponses.push(response.url()) })
     for (const refresh of [false, true]) {
       const entryGate = await holdRoute(page, url => isConversationEntryRequest(url.href, threadId), caseResources)
+      const sidebarGate = !refresh ? await holdRoute(page, url => isSidebarRequest(url.href, serverId), caseResources) : null
+      readRequests.length = 0
       requests.length = 0
       successfulResponses.length = 0
       const combined = page.waitForResponse(response => response.ok() && isSidebarRequest(response.url(), serverId))
       if (refresh) await page.reload({ waitUntil: "commit" })
       else await page.goto(`/c/channels/${serverId}/${threadId}`)
+      await expect.poll(entryGate.held).toBe(1)
+      if (sidebarGate) {
+        await expect.poll(sidebarGate.held).toBe(1)
+        await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)
+        await expect(page.getByText("post body", { exact: true })).toHaveCount(0)
+        await expect(page.locator('[data-slot="skeleton"]').first()).toBeVisible()
+        await sidebarGate.release()
+      }
       await combined
       await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
       await expect.poll(entryGate.held).toBe(1)
       await expect(childPanel(page).getByText("post body", { exact: true })).toHaveCount(0)
-      await expect(childPanel(page).getByTestId(tid.composerInput)).toHaveCount(0)
+      await expect(childPanel(page).getByTestId(tid.composerInput)).toBeVisible()
+      expect(readRequests).toEqual([])
       await entryGate.release()
       await expect(childPanel(page).getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
       await expect(childPanel(page).getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
@@ -303,7 +320,7 @@ test.describe("forum sidebar Stage B request shape", () => {
     expect(await participantUserIds(page, threadId)).not.toContain(userId("carol"))
   })
 
-  test("a grouped ordinary thread never asks the forum sidebar to retain it", async ({ caseActors }) => {
+  test("an ordinary thread checks sidebar retention without enrolling a nonparticipant", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser, userId } = actors
     const { participantUserIds, serverId, ordinaryThreadId } = await prepareCase1(actors)
@@ -329,10 +346,11 @@ test.describe("forum sidebar Stage B request shape", () => {
 
     expect(successfulResponses.filter((url) => isConversationEntryRequest(url, ordinaryThreadId)))
       .toHaveLength(1)
-    expect(requests.filter((url) =>
+    await expect.poll(() => requests.filter((url) =>
       isSidebarRequest(url, serverId)
       && new URL(url).searchParams.get("retainId") === ordinaryThreadId
-    )).toHaveLength(0)
+    ).length).toBe(1)
+    await expect(page.getByTestId(tid.forumSidebarThread(ordinaryThreadId))).toHaveCount(0)
     expect(await routeStability(page)).toEqual({ mounts: 1, losses: 0, present: true })
     expect(await participantUserIds(page, ordinaryThreadId)).not.toContain(userId("bob"))
   })
@@ -414,7 +432,7 @@ test.describe("forum sidebar Stage B request shape", () => {
       warmVisibleMs = Date.now() - clickStartedAt
       expect(requests.filter((url) => isConversationEntryRequest(url, threadId))).toHaveLength(1)
       const entryResponse = await firstChildEntry
-      expect(entryResponse.headers()["x-alook-community-contract"]).toBe("3")
+      expect(entryResponse.headers()[COMMUNITY_CONTRACT_HEADER.toLowerCase()]).toBe(String(BUSINESS_SCHEMA_VERSION))
       expect(await entryResponse.json()).toMatchObject({
         channelId: threadId, channel: { id: threadId, serverId, archived: false },
         access: { channelId: threadId, canRead: true },
@@ -529,9 +547,9 @@ test.describe("forum sidebar archived opener projection", () => {
     expect(archivedProjection.canonicalChannels.map(({ id }) => id)).toEqual(
       initialIds.filter((id) => id !== archivedId).concat(refillId),
     )
-    const exact = await viewer.page.request.get(`/api/community/channels/${archivedId}`)
+    const exact = await confirmCommunityFixtureApiResponse(viewer.page.request.get(`/api/community/channels/${archivedId}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(exact.status()).toBe(200)
-    expect((await exact.json() as { archived: boolean | number }).archived).toBeFalsy()
+    expect((await exact.json() as { channel: { archived: boolean } }).channel.archived).toBeFalsy()
 
     await viewer.page.goto(`/c/channels/${serverId}/${archivedId}`)
     await expect(childPanel(viewer.page).getByRole("heading", { name: titles.get(archivedId)! })).toBeVisible({

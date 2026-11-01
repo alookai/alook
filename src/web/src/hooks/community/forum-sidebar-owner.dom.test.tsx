@@ -1,3 +1,5 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { channelResourceFixture, messageResourceFixture, serverResourceFixture, fullResourceBundleFixture, serverDirectoryFixture } from "@/test/community-resource-fixtures"
 import { useLayoutEffect } from "react"
 import "fake-indexeddb/auto"
 import React from "react"
@@ -22,9 +24,16 @@ function Root({ id = sdk.id, consumers = 2 }: { id?: string; consumers?: number 
 type Request = { signal: AbortSignal; authenticationAccount?: string; resolve: (value: unknown) => void }
 const requests: Request[] = []
 function seedForum(current: QueryClient) {
-  ingestServerDetail(getCommunityDbRegistry(current)!, { id: "server", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: sdk.id, categories: [{ id: "category", name: "Channels", channels: [{ id: "forum", name: "Forum", type: "forum", active: false, unread: false }] }] })
+  ingestServerDetail(getCommunityDbRegistry(current)!, serverDirectoryFixture({ id: "server", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: sdk.id, categories: [{ id: "category", name: "Channels", channels: [{ id: "forum", name: "Forum", type: "forum", active: false, unread: false }] }] }))
 }
-function envelope(content: string) { return { channels: [{ id: "child", serverId: "server", type: "thread", name: "Thread", parentChannelId: "forum", parentMessageId: "opener", creatorId: "peer", archived: false, activityAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 72 * 3600_000).toISOString(), unread: false }], included: { parentMessages: [{ id: "opener", content, seq: 1, channelId: "forum", type: "chat" }] }, serverNow: new Date().toISOString() } }
+function envelope(content: string, viewerId = "A") {
+  const now = new Date().toISOString()
+  const parent = channelResourceFixture({ id: "forum", serverId: "server", type: "forum" })
+  const child = channelResourceFixture({ id: "child", serverId: "server", type: "thread", name: "Thread", parentChannelId: "forum", parentMessageId: "opener", creatorId: "peer", lastMessageAt: now })
+  const channel = { id: "child", serverId: "server", name: "Thread", parentChannelId: "forum", parentMessageId: "opener", activityAt: now, expiresAt: new Date(Date.now() + 72 * 3600_000).toISOString(), unread: false }
+  return { schemaVersion: BUSINESS_SCHEMA_VERSION, serverId: "server", channels: [channel], canonicalChannels: [channel], retainedChannel: null, retainedDisposition: null,
+    resources: fullResourceBundleFixture(viewerId, [serverResourceFixture({ id: "server", ownerId: viewerId, isOwner: true })], [parent, child], [messageResourceFixture({ id: "opener", channelId: "forum", content })]), serverNow: now }
+}
 beforeEach(async () => { await clearAllPersistedCaches(); requests.length = 0; api.mockReset(); sdk.id = "A"; api.mockImplementation((_path: string, options: Omit<Request, "resolve">) => new Promise((resolve) => { requests.push({ ...options, resolve }) })) })
 describe("actual native forum sidebar reads", () => {
   it("deduplicates StrictMode consumers and publishes canonical sidebar rows with metadata-only transport", async () => {
@@ -53,7 +62,7 @@ describe("actual native forum sidebar reads", () => {
     await waitFor(() => expect(client).not.toBe(original))
     await waitFor(() => expect(requests).toHaveLength(2))
     expect(requests[1].authenticationAccount).toBe("B")
-    await act(async () => { seedForum(client); requests[1].resolve(envelope("B own")); await new Promise((done) => setTimeout(done, 0)) })
+    await act(async () => { seedForum(client); requests[1].resolve(envelope("B own", "B")); await new Promise((done) => setTimeout(done, 0)) })
     await waitFor(() => expect(screen.getByTestId("sidebar-0").textContent).toBe("B own"))
     await act(async () => { requests[0].resolve(envelope("late A")); await new Promise((done) => setTimeout(done, 0)) })
     expect(screen.getByTestId("sidebar-0").textContent).toBe("B own")

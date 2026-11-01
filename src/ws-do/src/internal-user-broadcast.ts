@@ -1,4 +1,5 @@
 import {
+  BUSINESS_SCHEMA_VERSION,
   encodeCommunityBrowserEvent,
   COMMUNITY_CONTRACT_HEADER,
   type CommunityContract,
@@ -31,13 +32,13 @@ export function createInternalUserBroadcastRequest(
 export function createInternalCommunityUserBroadcastRequest(
   targetUserId: string,
   body: BodyInit | null,
-  contract: CommunityContract = 2,
+  contract: CommunityContract = BUSINESS_SCHEMA_VERSION,
 ): Request {
   const headers = new Headers({
     "content-type": "application/json",
     [INTERNAL_USER_TARGET_HEADER]: encodeURIComponent(targetUserId),
   })
-  if (contract === 3) headers.set(COMMUNITY_CONTRACT_HEADER, "3")
+  headers.set(COMMUNITY_CONTRACT_HEADER, String(contract))
   return new Request("http://internal/community-broadcast", {
     method: "POST",
     headers,
@@ -50,16 +51,17 @@ export function createInternalCommunityUserBundleRequest(
   operationId: string,
   operationDigest: string,
   events: readonly unknown[],
-  contract: CommunityContract = 2,
+  contract: CommunityContract = BUSINESS_SCHEMA_VERSION,
 ): Request {
   const headers = new Headers({
     "content-type": "application/json",
     [INTERNAL_USER_TARGET_HEADER]: encodeURIComponent(targetUserId),
   })
+  headers.set(COMMUNITY_CONTRACT_HEADER, String(contract))
   return new Request("http://internal/community-broadcast-bundle", {
     method: "POST",
     headers,
-    body: JSON.stringify({ operationId, operationDigest, events, ...(contract === 3 ? { communityContract: 3 } : {}) }),
+    body: JSON.stringify({ operationId, operationDigest, events, communityContract: contract }),
   })
 }
 

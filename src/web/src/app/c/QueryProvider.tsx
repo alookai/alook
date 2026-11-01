@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { useIsRestoring, type QueryClient } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
@@ -16,14 +16,7 @@ import {
 } from "@/lib/query-persister"
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
-import {
-  disposeAccountUnreadProjection,
-  getAccountUnreadProjection,
-} from "@/hooks/community/account-unread-projection"
-import {
-  communityKeys,
-  isCommunityServerDetailQueryKey,
-} from "@/lib/query-keys"
+
 import {
   createCommunityDbRegistry,
   registerCommunityDbRegistry,
@@ -34,10 +27,9 @@ import { useSession, currentSessionViewer } from "@/lib/auth-client"
 import { useRouter } from "next/navigation"
 import { usePersistedAccountLifecycle } from "@/lib/use-persisted-account-lifecycle"
 import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
+import { registerBusinessSchemaOwner } from "@/lib/business-schema-lifecycle"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { discardCommunityRestoreReplacements, installCommunityDbSync, restoreCommunityCollections } from "@/lib/community-db/sync"
-import { profileSchema } from "@/lib/community-db/schema"
-import { avatarInitial } from "@/lib/community/avatar"
 import type { CurrentUser } from "@/contexts/community/current-user"
 import { observeHydration, discardHydration } from "@/lib/observability/restore"
 import { captureTelemetryIdentityRetirement, setTelemetryUser } from "@/lib/observability/client"
@@ -77,7 +69,6 @@ function CommunityDbRuntime({
         })
         disposeReadCoordinator(queryClient)
         disposeAccountReadStateReconciliation(queryClient)
-        disposeAccountUnreadProjection(queryClient)
         void registry.cleanup().finally(() => queryClient.clear()).catch((error: unknown) => {
           if (!isAbortError(error)) console.error("Community collection cleanup failed", error)
         })
@@ -115,7 +106,6 @@ export function QueryProvider(props: { children: ReactNode; userId: string | nul
 function ScopedQueryProvider({
   children,
   userId,
-  initialUser,
   session,
   sessionViewer,
 }: {
@@ -125,44 +115,9 @@ function ScopedQueryProvider({
   session: ReturnType<typeof useSession>
   sessionViewer: () => string | null | undefined
 }) {
-  const [queryClient] = useState(() => {
-    const client = createQueryClient()
-    if (initialUser && initialUser.id === userId) {
-      client.setQueryData(communityKeys.communityDbCollection(userId, "profiles"), [profileSchema.parse({
-        id: userId, name: initialUser.name, discriminator: initialUser.discriminator || null,
-        ...(initialUser.avatar === avatarInitial(initialUser.name) ? {} : { avatar: initialUser.avatar }),
-        avatarVersion: initialUser.avatarVersion,
-        identityComplete: !!initialUser.discriminator && initialUser.avatar !== avatarInitial(initialUser.name) && initialUser.avatarVersion !== undefined,
-        aboutMe: initialUser.aboutMe, statusEmoji: initialUser.statusEmoji, statusText: initialUser.statusText,
-      })], { updatedAt: 0 })
-    }
-    return client
-  })
+  const [queryClient] = useState(createQueryClient)
   const [restoreGate] = useState(createRestoreGate)
   const [communityDb] = useState(() => createCommunityDbRegistry(queryClient, userId, { waitForRestore: restoreGate.ready }))
-  const unreadProjection = useMemo(
-    () => userId ? getAccountUnreadProjection(queryClient, userId) : null,
-    [queryClient, userId],
-  )
-  useEffect(() => {
-    if (!unreadProjection) return
-    unreadProjection.setReconcileScheduler(() => {
-      void queryClient.invalidateQueries({
-        queryKey: communityKeys.inboxUnreads(),
-        exact: true,
-      })
-      void queryClient.invalidateQueries({
-        queryKey: communityKeys.inboxMentions(),
-        exact: true,
-      })
-      void queryClient.invalidateQueries({ queryKey: communityKeys.dms(), exact: true })
-      void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
-      void queryClient.invalidateQueries({
-        predicate: ({ queryKey }) => isCommunityServerDetailQueryKey(queryKey),
-      })
-    })
-    return () => unreadProjection.setReconcileScheduler(null)
-  }, [queryClient, unreadProjection])
   // Persister is bound to the userId at construction; on account switch the
   // whole community subtree unmounts and the shell re-renders with the new
   // id, so we don't need to reactively rebuild the persister mid-session.
@@ -171,6 +126,11 @@ function ScopedQueryProvider({
   const active = useSelector(communityDb.runtime.lifecycle, (state) => state.active)
   const router = useRouter()
   useLayoutEffect(() => { communityDb.bindAuthentication(sessionViewer, persister.retireAccount, persister.retireChannels) }, [communityDb, sessionViewer, persister])
+  useLayoutEffect(() => registerBusinessSchemaOwner(async () => {
+    restoreGate.release()
+    retireCommunityAccount(communityDb)
+    await communityDb.retireDisk()
+  }), [communityDb, restoreGate])
   const retireTelemetryIdentity = useRef<() => void>(() => undefined)
   useLayoutEffect(() => { setTelemetryUser(userId); retireTelemetryIdentity.current = captureTelemetryIdentityRetirement() }, [userId])
   const identityRetired = useRef(false)

@@ -1,4 +1,5 @@
-import { withOptionalAuth } from "@/lib/middleware/auth"
+import { withAuth } from "@/lib/middleware/auth-policy"
+import { optionalAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
@@ -11,11 +12,11 @@ import { avatarInitial } from "@/lib/community/avatar"
 const MEMBER_PREVIEW_LIMIT = 5
 
 // Viewable logged-in OR anonymous — the invite landing page loads before any
-// login (preview-first journey), so `withOptionalAuth` never 401s on a missing
+// login (preview-first journey), so `optionalAuthPolicy` never 401s on a missing
 // session. The invite token stays the sole capability: an invalid/expired token
 // is still rejected below (404/410). Every field returned is the same for any
 // caller (no per-viewer projection), so the handler ignores `ctx.userId`.
-export const GET = withOptionalAuth(async (_req, ctx) => {
+export const GET = withAuth(optionalAuthPolicy, async (_req, ctx) => {
   const token = ctx.params?.token
   if (!token) return writeError("missing token", 400)
 

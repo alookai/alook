@@ -30,7 +30,9 @@ export const MESSAGE_SEND_STDIN_POLICY = [
     "and boundaries needed for the current question. Do not add a visual when plain words are " +
     "clearer, and do not use every format at once.",
   "- The message body is limited to 1 KiB. Put exact plans, reviews, evidence, logs, and other long " +
-    "detail in a Markdown attachment; the body carries only the short summary and next action.",
+    "detail in a Markdown attachment; put HTML pages for inline display (charts, diagrams, or interface " +
+    "mockups) in an HTML attachment and reference them in the body using the required inline HTML format; " +
+    "the body carries only the short summary and next action.",
 ].join("\n");
 
 /* ------------------------------------------------------------------ */
@@ -167,11 +169,26 @@ function cliCommandsSection(): string {
     "",
     `1. \`${CLI} platform machine --list\` — list your owner's machines.`,
     `2. \`${CLI} platform machine --backends --id <machine-id>\` — read the selected online machine's backends.`,
-    `3. \`${CLI} platform machine --models --id <machine-id> --backend <backend-id> [--model <full-model-id>] [--refresh]\` — read reported models and model-specific effort options. \`--refresh\` only dispatches an asynchronous refresh; read once later without \`--refresh\` for the stored report. Do not poll.`,
+    `3. \`${CLI} platform machine --models --id <machine-id> --backend <backend-id> [--model <full-model-id>] [--refresh]\` — read models and model-specific effort options using a five-minute server cache. A cache miss or expiry fetches fresh models and waits for the result; \`--refresh\` bypasses the cache. Failures do not return an old list. Do not poll.`,
     `4. \`${CLI} platform bot --list\` — list your owner's bots.`,
     `5. \`${CLI} platform bot --create '<bot-json>'\` — request new bots for your owner. Each JSON requires \`name\`, \`machineId\`, \`backendId\` and \`reason\`; optional fields are \`description\`, \`model\` and \`reasoningEffort\`. ` +
       `Use an online machine and its backend. The \`reason\` explains to your owner why the bot is needed and what work it will do; this text appears on the approval card. Repeat \`--create\` for up to 20 bots in one request. ` +
       `The command submits one approval card to the DM between you and your owner. It creates no bots until your human owner approves the request.`,
+    "",
+    "### PII",
+    "",
+    "Alook PII filters your outgoing Alook message text locally, in pipeline order, before sending. " +
+      "Attachments and requests to AI models are outside this pipeline.",
+    "",
+    `1. \`${CLI} pii list\` — list this bot's filters in execution order.`,
+    `2. \`${CLI} pii add --file <path.ts> --description <text>\` — append a new filter to this bot's pipeline.`,
+    "",
+    "To add a filter, write a TS module with a pure, synchronous default export `(text: string) => ({ text: string, triggered: boolean })`. Set triggered explicitly when the filter matches. " +
+      "Use one sentence for its description. Plugins cannot import modules or access files, network, or environment variables.",
+    "Adding stores a source copy. Later edits to the input file do not update the installed filter. " +
+      "Do not edit daemon-managed copies.",
+    "The CLI only lists or appends filters; it cannot replace, reorder, enable, disable, or delete them. " +
+      "Your human owner manages enabled state and deletion in Privacy. Filter errors block sending.",
     "",
     "### Settings",
     "",
@@ -225,6 +242,26 @@ function messagingSection(): string {
       "quoted-heredoc form under *Message formatting*.",
     `- Long detail: upload it with \`${CLI} message attachment upload --file <path>.md\`; ` +
       "add the returned id as `--attachment <id>` on the short stdin send.",
+    `- Inline HTML: upload a self-contained UTF-8 \`<path>.html\` file with \`${CLI} message attachment upload --file <path>.html\`. ` +
+      "Inline CSS and JavaScript in the file; do not depend on local paths on the sender's computer. " +
+      "Include the returned ID with `--attachment <id>` when sending. Put `[alook-html-preview](attachment-id)` " +
+      "in its own paragraph at the intended position in the message, with a blank line before and after; " +
+      "do not put the marker in a code block. " +
+      "Use the Alook theme CSS variables injected by the host on `:root`: " +
+      "`--background`, `--foreground`, `--card`, `--card-foreground`, `--popover`, `--popover-foreground`, " +
+      "`--primary`, `--primary-foreground`, `--secondary`, `--secondary-foreground`, `--muted`, `--muted-foreground`, " +
+      "`--accent`, `--accent-foreground`, `--border`, `--input`, `--ring`, `--destructive`, `--warning`, " +
+      "`--radius`, `--font-sans`, and `--font-mono`. Use their values directly with `var(...)`; " +
+      "do not hardcode page theme colors to one light or dark scheme. " +
+      "Do not add background colors to `html`, `body`, or the outermost element. Do not add an outer card, " +
+      "border, banner title, or side padding. This rule takes priority over other page-background authoring rules. " +
+      "An internal box that needs a background uses a theme variable, 16px padding, and `var(--radius)` corners. " +
+      "Adapt to the available width and different screen sizes; do not hardcode a desktop page width. " +
+      "Give charts fixed pixel heights. Let content set the page height. Do not use `vh`, `dvh`, `svh`, or `lvh`, " +
+      "and do not set `height:100%` on `html` or `body`. The current preview validator rejects those viewport units; " +
+      "percentage heights on the document roots can cause a measurement loop. " +
+      "Alook measures the frame height automatically in CSS pixels, currently 80–2000px inline. " +
+      "Sending a message requires no height parameter. Keep the original HTML within the current 2 MiB preview limit.",
     "- Reuse files: to forward an attachment or send the same file again, pass its existing ID with `--attachment <id>`. " +
       "Do not download and upload it again. Reuse works across channels, DMs, and threads while you can still read the file. " +
       "Upload only a new or changed file.",

@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { expect, test } from "./_fixtures/case-fixture"
@@ -57,15 +58,15 @@ async function reloadWithUnavailableImage(page: Page, route: string, image: Loca
 
 async function uploadAvatar(page: Page, color = "rgb(220, 35, 60)"): Promise<void> {
   const bytes = await solidPng(page, color, 48, 48)
-  const status = await page.evaluate(async (png) => {
+  const status = await page.evaluate(async ({ value: png, businessHeaders }) => {
     const form = new FormData()
     form.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "avatar.png")
-    return (await fetch("/api/community/users/me/avatar", {
+    return (await fetch("/api/community/users/me/avatar", { headers: businessHeaders,
       method: "POST",
       body: form,
       credentials: "include",
-    })).status
-  }, bytes)
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })).status
+  }, { value: bytes, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(status).toBe(200)
 }
 
@@ -75,71 +76,71 @@ async function seedMessage(
   content: string,
   attachmentIds: string[] = [],
 ) {
-  const result = await page.evaluate(async ({ targetId, body, attachments }) => {
+  const result = await page.evaluate(async ({ businessHeaders, targetId, body, attachments }) => {
     const response = await fetch(`/api/community/channels/${targetId}/messages`, {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...businessHeaders },
       body: JSON.stringify({
         content: body,
         attachments,
         nonce: `e2e:${crypto.randomUUID()}`,
       }),
-    })
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
     const payload = await response.json() as { message: { id: string; createdAt: string } }
     return { status: response.status, ...payload.message }
-  }, { targetId: channelId, body: content, attachments: attachmentIds })
+  }, { targetId: channelId, body: content, attachments: attachmentIds, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(result.status).toBe(201)
   return result
 }
 
 async function uploadAttachment(page: Page, channelId: string) {
   const bytes = await solidPng(page, "rgb(20, 105, 220)", 96, 64)
-  const result = await page.evaluate(async ({ targetId, png }) => {
+  const result = await page.evaluate(async ({ businessHeaders, targetId, png }) => {
     const form = new FormData()
     form.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "blue.png")
-    const response = await fetch(`/api/community/channels/${targetId}/attachments`, {
+    const response = await fetch(`/api/community/channels/${targetId}/attachments`, { headers: businessHeaders,
       method: "POST",
       body: form,
       credentials: "include",
-    })
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
     const payload = await response.json() as { id: string }
     return { status: response.status, id: payload.id }
-  }, { targetId: channelId, png: bytes })
+  }, { targetId: channelId, png: bytes, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(result.status).toBe(200)
   return result.id
 }
 
 async function uploadAnimatedAttachment(page: Page, channelId: string) {
-  const result = await page.evaluate(async ({ targetId, base64 }) => {
+  const result = await page.evaluate(async ({ businessHeaders, targetId, base64 }) => {
     const binary = atob(base64)
     const bytes = new Uint8Array(binary.length)
     for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
     const form = new FormData()
     form.append("file", new Blob([bytes], { type: "image/gif" }), "red-blue.gif")
-    const response = await fetch(`/api/community/channels/${targetId}/attachments`, {
+    const response = await fetch(`/api/community/channels/${targetId}/attachments`, { headers: businessHeaders,
       method: "POST",
       body: form,
       credentials: "include",
-    })
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
     const payload = await response.json() as { id: string }
     return { status: response.status, id: payload.id }
-  }, { targetId: channelId, base64: TWO_FRAME_GIF_BASE64 })
+  }, { targetId: channelId, base64: TWO_FRAME_GIF_BASE64, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(result.status).toBe(200)
   return result.id
 }
 
 async function uploadServerIcon(page: Page, serverId: string): Promise<void> {
   const bytes = await solidPng(page, "rgb(25, 180, 80)", 64, 64)
-  const status = await page.evaluate(async ({ targetId, png }) => {
+  const status = await page.evaluate(async ({ businessHeaders, targetId, png }) => {
     const form = new FormData()
     form.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "icon.png")
-    return (await fetch(`/api/community/servers/${targetId}/icon`, {
+    return (await fetch(`/api/community/servers/${targetId}/icon`, { headers: businessHeaders,
       method: "POST",
       body: form,
       credentials: "include",
-    })).status
-  }, { targetId: serverId, png: bytes })
+    }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })).status
+  }, { targetId: serverId, png: bytes, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(status).toBe(200)
 }
 

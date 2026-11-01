@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 
@@ -162,7 +163,7 @@ test.describe("channel & member admin", () => {
     await toggle.click()
     await expect(row).toBeVisible()
     expect(responses).toEqual([200])
-    const messages = await page.request.get(`/api/community/channels/${privateId}/messages`)
+    const messages = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${privateId}/messages`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(messages.status()).toBe(403)
     await page.getByTestId(tid.settingsTab("members")).click()
     await expectFiniteMembersFrame()
@@ -182,7 +183,7 @@ test.describe("channel & member admin", () => {
     await page.getByTestId(tid.serverSettingsOpen).click()
     await expect(page.getByTestId(tid.settingsShell)).toHaveCount(0)
     await expect(page.getByTestId(tid.settingsTab("channels"))).toHaveCount(0)
-    const result = await page.request.get(`/api/community/servers/${serverId}/channels/admin`)
+    const result = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/servers/${serverId}/channels/admin`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(result.status()).toBe(403)
   })
 })

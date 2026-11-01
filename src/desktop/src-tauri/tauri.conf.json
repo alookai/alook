@@ -1,6 +1,6 @@
 {
   "productName": "Alook",
-  "version": "0.1.59",
+  "version": "0.1.62",
   "identifier": "ai.alook.desktop",
   "build": {
     "devUrl": "http://localhost:3000/c",
@@ -18,7 +18,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "shortDescription": "Share your agents with people you trust",
+    "shortDescription": "Multi-Agent Collaboration for Team and Friends",
     "longDescription": "Bring the agents you already use into shared rooms where people can talk and work with them, while they keep running on your own machine."
   },
   "app": {
@@ -37,6 +37,7 @@
         "visible": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
+        "disableInputAccessoryView": true,
         "trafficLightPosition": {
           "x": 16,
           "y": 21

@@ -11,6 +11,7 @@ import { createQueryClient } from "@/lib/query-client"
 import type { ApiRequestOptions } from "@/lib/api/client"
 import { captureTelemetryIdentityRetirement, setTelemetryUser } from "@/lib/observability/client"
 import { disposeQueryDiagnostics } from "@/lib/observability/query-observer"
+import { registerBusinessSchemaOwner } from "@/lib/business-schema-lifecycle"
 
 export function createApplicationOwner(userId: string, queryClient = createQueryClient()) {
   const bindings = createStore({ retireDisk: () => clearPersistedCache(userId), sessionViewer: () => userId as string | null | undefined })
@@ -65,6 +66,11 @@ function ScopedPublicQueryProvider({ userId, children }: { userId: string; child
   const [owner] = useState(() => createApplicationOwner(userId))
   const [persister] = useState(() => createIdbPersister(accountId))
   useLayoutEffect(() => { owner.bindAuthentication(currentSessionViewer, persister.retireAccount) }, [owner, persister])
+  useLayoutEffect(() => registerBusinessSchemaOwner(async () => {
+    retireApplicationOwner(owner)
+    owner.queryClient.clear()
+    await owner.retireDisk()
+  }), [owner])
   const onRetired = useCallback(() => {
     if (!owner.lifecycle.get().active) return
     retireApplicationOwner(owner)

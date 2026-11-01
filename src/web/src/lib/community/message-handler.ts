@@ -19,8 +19,8 @@ import { nanoid } from "nanoid"
 import { dispatchCommittedMessage } from "./message-dispatcher"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 import { broadcastToUserSafe, fanOutToChannel } from "./fanout"
-import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { communityProducerContract } from "./producer-contract"
+
+
 import { extractChatMentionedUserIds } from "./chat-markdown"
 
 const log = createLogger({ service: "community-message-handler" })
@@ -115,7 +115,7 @@ export async function getCommunityMessageReplay(params: {
 }
 
 type FullMessageRow = NonNullable<
-  Awaited<ReturnType<typeof queries.communityMessage.getMessage>>
+  Awaited<ReturnType<typeof queries.communityMessage.getMessageByAuthorAndNonce>>
 >
 
 type CreateMessageError = {
@@ -564,17 +564,14 @@ export async function createCommunityMessage(params: {
       }))
     }
     if (created.createdThread && !params.suppressThreadFanout) {
-      const contract = communityProducerContract(getCloudflareContext().env as Env)
-      const child = contract === 3 ? await queries.communityChannel.getThreadChannelByParentMessage(db, target.channelId, created.id) : null
+      const child = await queries.communityChannel.getThreadChannelByParentMessage(db, target.channelId, created.id)
       const event = {
         type: WS_EVENTS.CHILD_CHANNEL_CREATE,
         parentChannelId: target.channelId,
         parentMessageId: created.id,
-        channel: contract === 3 ? communityChannelResourceFromStorage(child) : { ...created.createdThread, type: "thread" as const, creatorId: authorId },
+        channel: communityChannelResourceFromStorage(child),
       }
-      deliveries.push(fanOutToChannel(target.channelId, contract === 3 ? CommunityResourceWsEventSchema.parse(event) : {
-        ...event, channel: { ...created.createdThread, type: "thread", creatorId: authorId },
-      }))
+      deliveries.push(fanOutToChannel(target.channelId, CommunityResourceWsEventSchema.parse(event)))
     }
     await Promise.all(deliveries)
   }
@@ -599,8 +596,9 @@ export async function createCommunityMessage(params: {
     throw new Error("message not found after insert")
   }
 
+  const postedRow = { ...row, clientNonce: created.clientNonce }
   if (!suppressBroadcast && deferBroadcast) {
-    return { ok: true, row, attachments, broadcast: doBroadcast }
+    return { ok: true, row: postedRow, attachments, broadcast: doBroadcast }
   }
-  return { ok: true, row, attachments }
+  return { ok: true, row: postedRow, attachments }
 }

@@ -1,7 +1,8 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { queries, NOTIFICATION_LEVEL_VALUES, WS_EVENTS } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
@@ -15,7 +16,7 @@ async function broadcastRevision(userId: string, revision: number) {
   })
 }
 
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
+export const PUT = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
@@ -45,7 +46,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   return writeJSON(result.setting)
 })
 
-export const DELETE = withAuth(async (_req, ctx) => {
+export const DELETE = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 

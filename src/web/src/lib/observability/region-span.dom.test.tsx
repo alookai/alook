@@ -26,7 +26,7 @@ it("records only the visible component commit-to-ready wait as a native child wi
   await act(async () => view.rerender(<Component ready />))
   const child = exporter.getFinishedSpans().find(span => span.name === "region.wait")!
   expect(child.parentSpanContext).toEqual(action.span!.spanContext())
-  expect(child.attributes).toMatchObject({ region: "bots", span_role: "region_readiness", phase: "commit", source: "unknown", snapshot_source: "rsc", target_coverage: "uncovered", wait_reason: "identity", outcome: "success" })
+  expect(child.attributes).toMatchObject({ region: "bots", span_role: "region_readiness", phase: "commit", source: "unknown", snapshot_source: "rsc", target_coverage: "covered", initial_wait_reason: "identity", last_wait_reason: "identity", wait_reason: "none", outcome: "success" })
   expect(child.startTime).toEqual(observationTime(100, action.origin))
   expect(child.endTime).toEqual(observationTime(180, action.origin))
   expect(action.done).toBe(true)

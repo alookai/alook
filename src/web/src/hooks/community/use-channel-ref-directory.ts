@@ -1,7 +1,9 @@
 "use client"
+import type { CommunityResourceBundle } from "@alook/shared"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 
 import {
+  type QueryFunctionContext,
   useQuery,
   QueryObserver,
   useQueryClient,
@@ -19,11 +21,11 @@ import {
 
 const EMPTY_DIRECTORY = Object.freeze([]) as unknown as ChannelRefDirectory
 
-export const channelRefDirectoryQueryFn = async (options: ApiRequestOptions): Promise<ChannelRefDirectory> => {
-  const data = await apiFetch<{ directory: ChannelRefDirectory }>(
+export const channelRefDirectoryQueryFn = async (options: ApiRequestOptions): Promise<{ directory: ChannelRefDirectory; resources: CommunityResourceBundle }> => {
+  const data = await apiFetch<{ directory: ChannelRefDirectory; resources: CommunityResourceBundle }>(
     "/api/community/users/me/channel-directory", options,
   )
-  return data.directory
+  return data
 }
 
 export function useChannelRefDirectory(enabled = true): {
@@ -35,25 +37,26 @@ export function useChannelRefDirectory(enabled = true): {
 } {
   const queryClient = useQueryClient()
   const dbDirectory = useChannelRefDirectoryProjection()
+  const queryFn = async ({ signal }: QueryFunctionContext): Promise<string[]> => {
+    const observer = new QueryObserver<string[]>(queryClient, { queryKey: communityKeys.channelRefDirectory(), queryFn, enabled: false })
+    const release = observer.subscribe(() => {
+      if (queryClient.getQueryState(communityKeys.channelRefDirectory())?.fetchStatus === "idle") {
+        signal.removeEventListener("abort", release)
+        release()
+      }
+    })
+    signal.addEventListener("abort", release, { once: true })
+    const token = captureCommunityLiveSnapshotToken(queryClient)
+    const { directory, resources } = await channelRefDirectoryQueryFn(communityRequestOptions(queryClient, token, signal))
+    publishCommunityChannelDirectory(queryClient, {
+      directory, resources,
+      proof: { token, signal },
+    })
+    return directory.map((server) => server.id)
+  }
   const query = useQuery<string[]>({
     queryKey: communityKeys.channelRefDirectory(),
-    queryFn: async ({ signal }) => {
-      const observer = new QueryObserver<string[]>(queryClient, { queryKey: communityKeys.channelRefDirectory(), enabled: false })
-      const release = observer.subscribe(() => {
-        if (queryClient.getQueryState(communityKeys.channelRefDirectory())?.fetchStatus === "idle") {
-          signal.removeEventListener("abort", release)
-          release()
-        }
-      })
-      signal.addEventListener("abort", release, { once: true })
-      const token = captureCommunityLiveSnapshotToken(queryClient)
-      const directory = await channelRefDirectoryQueryFn(communityRequestOptions(queryClient, token, signal))
-      publishCommunityChannelDirectory(queryClient, {
-        directory,
-        proof: { token, signal },
-      })
-      return directory.map((server) => server.id)
-    },
+    queryFn,
     enabled,
     staleTime: Infinity,
     refetchOnReconnect: true,

@@ -1,4 +1,8 @@
-import { withAuth } from "@/lib/middleware/auth"
+import { withAuth } from "@/lib/middleware/auth-policy"
+import { BUSINESS_SCHEMA_VERSION, CommunityInvitesReadSchema } from "@alook/shared"
+import { readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
+import { writeCommunityContractJSON } from "@/lib/community/read-contract"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -13,7 +17,7 @@ import type { CommunityInviteCreate } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { requireServerMember } from "@/lib/community/permissions"
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("server id is required", 400)
 
@@ -22,11 +26,13 @@ export const GET = withAuth(async (_req, ctx) => {
   const auth = await requireServerMember(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const invites = await queries.communityInvite.listServerInvites(db, serverId)
-  return writeJSON({ invites })
+  const rows = await queries.communityInvite.listServerInvites(db, serverId)
+  const invites = rows.map(row => ({ id: row.id, token: row.token, maxUses: row.maxUses, uses: row.uses, expiresAt: row.expiresAt, createdAt: row.createdAt, creatorId: row.creatorId }))
+  const resources = await readCommunityResourceBundle(db, ctx.userId, { channelIds: [], serverIds: [serverId], profileIds: [...new Set(invites.flatMap(row => row.creatorId === null ? [] : [row.creatorId]))] })
+  return writeCommunityContractJSON(CommunityInvitesReadSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, serverId, invites, resources }))
 })
 
-export const POST = withAuth(async (req, ctx) => {
+export const POST = withAuth(humanAuthPolicy, async (req, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("server id is required", 400)
 
@@ -84,7 +90,6 @@ export const POST = withAuth(async (req, ctx) => {
       409,
     )
   }
-
 
   const event: CommunityInviteCreate = {
     type: WS_EVENTS.INVITE_CREATE,

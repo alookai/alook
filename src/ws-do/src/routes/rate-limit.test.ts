@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { handleRateLimit } from "./rate-limit"
 import {
   createRouterTestContext,
   loadRouter,
@@ -100,4 +101,19 @@ describe("ws-do router", () => {
       expect(await res.json()).toEqual({ allowed: true })
     })
   })
+})
+
+
+it("leaves unrelated paths and non-POST requests for the router", async () => {
+  for (const [pathname, method] of [["/rate-limit/automation", "GET"], ["/rate-limit/check", "GET"], ["/unrelated", "POST"]]) {
+    const req = new Request(`http://localhost${pathname}`, { method })
+    expect(await handleRateLimit(req, {} as Env, new URL(req.url))).toBeNull()
+  }
+})
+
+it("rejects a null automation policy before selecting a Durable Object", async () => {
+  const req = new Request("http://localhost/rate-limit/automation", { method: "POST", body: "null" })
+  const response = await handleRateLimit(req, {} as Env, new URL(req.url))
+  expect(response?.status).toBe(400)
+  expect(await response?.text()).toBe("name required")
 })

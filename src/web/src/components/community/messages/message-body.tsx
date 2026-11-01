@@ -7,7 +7,10 @@ import type { OpenProfile } from "../social/profile-types"
 import type { MessagePerspective } from "./message-presentation-types"
 import { MessageBodyView } from "./message-body-view"
 
+import type { Attachment } from "@/lib/community/models/message"
+
 type MessageBodyProps = {
+  attachments?: readonly Attachment[]
   text: string
   onOpenProfile?: OpenProfile
   perspective?: MessagePerspective

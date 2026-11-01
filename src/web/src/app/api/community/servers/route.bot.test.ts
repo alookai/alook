@@ -1,9 +1,10 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 // Bot-path coverage for the UNIFIED server-list route (listServers folded onto
 // GET /servers, plan §4/§9 phase 4-5). A `crk_` bearer drives
-// withCommunityActor's bot path; GET lists via listUserServers(actor.userId).
+// communityActorPolicy's bot path; GET lists via listUserServers(actor.userId).
 // The route returns the SUPERSET (full rows + icon) — the daemon/CLI projects
 // each row down to the lean {handle} shape. That daemon-side lean
 // projection is asserted by the daemon projection test, NOT here; here we lock
@@ -60,7 +61,7 @@ import { GET } from "./route"
 function req(headers: Record<string, string> = {}): NextRequest {
   return new NextRequest("http://localhost/api/community/servers", {
     method: "GET",
-    headers: { ...headers },
+    headers: { ...(new Headers(headers).has("Authorization") ? {} : { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }), ...headers },
   })
 }
 

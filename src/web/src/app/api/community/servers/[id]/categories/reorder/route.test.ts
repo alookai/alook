@@ -27,10 +27,10 @@ vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...args: unknown[]) => fanOut(...args),
 }))
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: {}, userId: "u1", email: "u@t.com", params })
-  }),
+  humanAuthPolicy: { resolve: async (req: any) => {
+
+    return ({ context: { env: {}, userId: "u1", email: "u@t.com" } })
+  } },
 }))
 vi.mock("@/lib/middleware/helpers", async () => {
   const { NextResponse } = require("next/server")

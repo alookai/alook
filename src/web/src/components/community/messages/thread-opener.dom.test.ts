@@ -26,6 +26,18 @@ import { ThreadOpener } from "./thread-opener"
 import { attachmentImageFrameStyle } from "./attachment-layout"
 
 describe("ThreadOpener image attachment layout", () => {
+  it("retries an unavailable opener locally and disables its control while that read is pending", () => {
+    const refetch = vi.fn()
+    useMessageMock.mockReturnValue({ message: undefined, isLoading: false, isError: true, isFetching: false, refetch })
+    const tree = () => React.createElement(ThreadOpener, { parentMessageId: "opener", parentChannelId: "parent", serverId: "server", viewerUserId: "viewer" })
+    const view = render(tree())
+    fireEvent.click(view.getByRole("button", { name: "Retry original message" }))
+    expect(refetch).toHaveBeenCalledExactlyOnceWith({ cancelRefetch: false })
+    useMessageMock.mockReturnValue({ message: undefined, isLoading: false, isError: true, isFetching: true, refetch })
+    view.rerender(tree())
+    expect(view.getByRole("button", { name: "Retry original message" })).toBeDisabled()
+  })
+
   afterEach(() => {
     profileState.name = "Alice"
     vi.useRealTimers()

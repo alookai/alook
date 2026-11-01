@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
@@ -135,7 +136,7 @@ test.describe("DM presence stability on refresh", () => {
 
     const bob = await asUser("bob")
     await expect.poll(async () => {
-      const response = await bob.page.request.get(`/api/community/servers/${serverId}/presence`)
+      const response = await confirmCommunityFixtureApiResponse(bob.page.request.get(`/api/community/servers/${serverId}/presence`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
       if (!response.ok()) return false
       const body = await response.json() as { online?: string[] }
       return body.online?.includes(userId("alice")) ?? false

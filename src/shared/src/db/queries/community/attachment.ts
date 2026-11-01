@@ -1,11 +1,10 @@
-import { and, asc, eq, exists, getTableColumns, inArray, isNull, ne, notExists, or, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
-import { communityAttachment, communityChannel, communityChannelMember, communityFriendship, communityMessage, communityMessageAttachment } from "../../community-schema";
+import { and, asc, eq, exists, getTableColumns, inArray, isNull, or, sql } from "drizzle-orm";
+import { communityAttachment, communityChannel, communityMessage, communityMessageAttachment } from "../../community-schema";
 import { nanoid } from "nanoid";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
-import { channelReadableSql } from "./channel";
+import { messageChannelReadableSql } from "./channel";
 
 export async function createAttachment(db: Database, data: typeof communityAttachment.$inferInsert) {
   const [row] = await db.insert(communityAttachment).select(db.select({
@@ -25,20 +24,11 @@ export async function createAttachment(db: Database, data: typeof communityAttac
 }
 
 export function attachmentReadableSql(db: Database, userId: string) {
-  const peer = alias(communityChannelMember, "attachment_dm_peer");
-  const hasPeer = db.select({ id: peer.id }).from(peer)
-    .where(and(eq(peer.channelId, communityChannel.id), eq(peer.relation, "access"), ne(peer.userId, userId)));
-  const blocked = db.select({ id: communityFriendship.id }).from(communityFriendship)
-    .innerJoin(peer, and(eq(peer.channelId, communityChannel.id), eq(peer.relation, "access"), ne(peer.userId, userId)))
-    .where(and(eq(communityFriendship.status, "blocked"), or(
-      and(eq(communityFriendship.requesterId, userId), eq(communityFriendship.addresseeId, peer.userId)),
-      and(eq(communityFriendship.addresseeId, userId), eq(communityFriendship.requesterId, peer.userId)),
-    )));
   const readableMessage = db.select({ id: communityMessage.id }).from(communityMessageAttachment)
     .innerJoin(communityMessage, eq(communityMessage.id, communityMessageAttachment.messageId))
     .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
     .where(and(eq(communityMessageAttachment.attachmentId, communityAttachment.id),
-      channelReadableSql(userId, { id: communityChannel.id, type: communityChannel.type, serverId: communityChannel.serverId, parentChannelId: communityChannel.parentChannelId }), or(ne(communityChannel.type, "dm"), and(exists(hasPeer), notExists(blocked)))));
+      messageChannelReadableSql(db, userId, { id: communityChannel.id, type: communityChannel.type, serverId: communityChannel.serverId, parentChannelId: communityChannel.parentChannelId })));
   const activeActor = db.select({ id: user.id }).from(user)
     .where(and(eq(user.id, userId), isNull(user.deletedAt)));
   return and(exists(activeActor), or(eq(communityAttachment.uploaderId, userId), exists(readableMessage)))!;

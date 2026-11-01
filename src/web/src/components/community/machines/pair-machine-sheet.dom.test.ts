@@ -51,7 +51,7 @@ vi.mock("@/components/community/shell/community-sheet", () => ({
   ),
 }))
 
-import { PairMachineSheet, PairMachineSteps } from "./pair-machine-sheet"
+import { buildPairCommand, PairMachineSheet, PairMachineSteps } from "./pair-machine-sheet"
 import { tid } from "@/lib/community/testids"
 
 describe("PairMachineSheet desktop daemon integration", () => {
@@ -281,8 +281,25 @@ describe("PairMachineSheet desktop daemon integration", () => {
     }))
 
     const command = (await renderer.findByTestId(tid.machinePairCommand)).textContent ?? ""
-    expect(command).toContain("pnpm daemon start --machine-key cmt_local_token")
+    expect(command).toContain("npx --yes @alook/daemon@latest daemon start --machine-key cmt_local_token")
     expect(command).toContain("--server-url http://localhost:3000")
     expect(command).toContain("--ws-url ws://localhost:8788/api/ws/community-daemon")
+  })
+})
+
+
+describe("portable pairing commands", () => {
+  it.each([false, true])("uses an installable CLI for start and reconnect (local=%s)", (local) => {
+    mocks.isLocalServiceEnvironment.mockReturnValue(local)
+    vi.stubGlobal("location", { origin: "http://localhost:3235" })
+    const endpoints = local
+      ? " --server-url http://localhost:3235 --ws-url ws://localhost:8788/api/ws/community-daemon"
+      : ""
+    expect(buildPairCommand("test-key")).toBe(
+      `npx --yes @alook/daemon@latest daemon start --machine-key test-key${endpoints}`,
+    )
+    expect(buildPairCommand("test-key", "test-machine")).toBe(
+      `npx --yes @alook/daemon@latest daemon reconnect --id test-machine --machine-key test-key${endpoints}`,
+    )
   })
 })

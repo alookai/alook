@@ -5,17 +5,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   db: { primary: true },
   registerPushDevice: vi.fn(),
-  withCookieHumanAuth: vi.fn(
-    (handler: (req: NextRequest, ctx: Record<string, unknown>) => Promise<Response>) =>
-      async (req: NextRequest) => handler(req, {
+  cookieHumanAuthPolicy: { resolve: async (req: NextRequest) => ({ context: {
         env: {
           DB: {},
           ENCRYPTION_KEY: "fake-encryption-key",
         },
         userId: "session-user",
         email: "session@example.test",
-      }),
-  ),
+      } }) },
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -32,15 +29,10 @@ vi.mock("@alook/shared", () => ({
 }));
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withCookieHumanAuth: mocks.withCookieHumanAuth,
+  cookieHumanAuthPolicy: mocks.cookieHumanAuthPolicy,
 }));
 
 import { POST } from "./route";
-
-const cookieHumanHandler = mocks.withCookieHumanAuth.mock.calls[0]![0] as (
-  req: NextRequest,
-  ctx: Record<string, unknown>,
-) => Promise<Response>;
 
 const token = "fake-provider-token-123";
 const previousToken = "fake-previous-token-123";
@@ -91,7 +83,7 @@ describe("POST /api/community/notifications/devices", () => {
   });
 
   it("is defined through the cookie-human-only authentication boundary", () => {
-    expect(cookieHumanHandler).toEqual(expect.any(Function));
+    expect(mocks.cookieHumanAuthPolicy.resolve).toEqual(expect.any(Function));
   });
 
   it("derives identity, hashes, ciphertext, and timestamps on the server", async () => {
@@ -155,10 +147,11 @@ describe("POST /api/community/notifications/devices", () => {
   });
 
   it("fails closed when encryption is not configured", async () => {
-    const response = await cookieHumanHandler(request(validBody()), {
-      env: { DB: {}, ENCRYPTION_KEY: "" },
-      userId: "session-user",
-    });
+    const resolve = vi.spyOn(mocks.cookieHumanAuthPolicy, "resolve").mockResolvedValueOnce({ context: {
+      env: { DB: {}, ENCRYPTION_KEY: "" }, userId: "session-user", email: "session@example.test",
+    } });
+    const response = await POST(request(validBody()));
+    resolve.mockRestore();
 
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "encryption not configured" });

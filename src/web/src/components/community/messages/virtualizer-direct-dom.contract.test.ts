@@ -62,7 +62,7 @@ describe("community virtualizer direct DOM contract", () => {
   })
 
   it("keeps ForumView on the shared direct DOM row contract", () => {
-    const forumView = readComponent("../channels/forum-view.tsx")
+    const forumView = readComponent("../channels/forum-post-list.tsx")
 
     expect(forumView).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
     expect(forumView).toContain("<VirtualRows")

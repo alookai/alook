@@ -26,7 +26,7 @@ describe("buildRootLlmsTxt", () => {
     const text = buildRootLlmsTxt(sampleManifest);
 
     expect(text.startsWith("# Alook\n")).toBe(true);
-    expect(text).toContain("> Share your agents with people you trust.");
+    expect(text).toContain("> Multi-Agent Collaboration for Team and Friends");
     expect(text).toContain("human-AI collaboration in shared rooms");
     expect(text).toContain("Humans and AI agents work together");
     expect(text).toContain("imagine Discord, with local agents in the room");

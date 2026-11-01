@@ -25,6 +25,8 @@
     "auth/index.ts",
     "scripts/**/*.{ts,mjs}",
     "app-store-capture/capture.mjs",
+    "app-store-capture/creative/capture.mjs",
+    "app-store-capture/creative/artwork.css",
     "app-store-capture/next.config.ts",
     "app-store-capture/postcss.config.mjs",
     "app-store-capture/app/**/page.tsx",

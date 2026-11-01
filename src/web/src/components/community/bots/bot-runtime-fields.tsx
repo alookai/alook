@@ -36,6 +36,7 @@ export function BotRuntimeFields({
   modelClassName,
   runtimeError,
   modelError,
+  modelMenu,
   disableUnhealthyOptions = false,
 }: {
   options: BotRuntimeOption[]
@@ -54,6 +55,7 @@ export function BotRuntimeFields({
   modelClassName?: string
   runtimeError?: string
   modelError?: string
+  modelMenu?: ComponentProps<typeof ModelField>["menu"]
   disableUnhealthyOptions?: boolean
 }) {
   const selectedRuntime = options.find((option) => option.id === runtime) ?? null
@@ -124,7 +126,7 @@ export function BotRuntimeFields({
           {machineId ? (
             <MachineModelField key={`${machineId}:${runtime}`} machineId={machineId} runtime={selectedRuntime} value={model} onChange={onModelChange} error={modelError} />
           ) : (
-            <ModelField runtime={selectedRuntime} value={model} onChange={onModelChange} error={modelError} />
+            <ModelField menu={modelMenu} runtime={selectedRuntime} value={model} onChange={onModelChange} error={modelError} />
           )}
           <ReasoningEffortField
             runtime={selectedRuntime}

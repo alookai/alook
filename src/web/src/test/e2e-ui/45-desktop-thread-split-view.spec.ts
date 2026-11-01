@@ -243,7 +243,7 @@ test.describe("desktop thread split view", () => {
   test("keeps a cold parent placeholder until its own entry is readable", async ({ caseActors, caseResources }) => {
     const actors = await caseActors(["alice"])
     const { asUser } = actors
-    const { serverId, forumId, forumPostId } = await prepareCase1(actors)
+    const { serverId, forumId, forumPostId, forumTitle } = await prepareCase1(actors)
 
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 900 })
@@ -262,10 +262,12 @@ test.describe("desktop thread split view", () => {
       await requested
       const parent = page.getByTestId(tid.threadSplitParent)
       await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-layout", "split")
-      await expect(parent.getByTestId(tid.forumPostList)).toHaveCount(0)
-      await expect(parent.getByRole("main").locator('[data-slot="skeleton"]').first()).toBeVisible()
+      const list = parent.getByTestId(tid.forumPostList)
+      await expect(list).toBeVisible()
+      await expect(list.getByText(forumTitle, { exact: true })).toHaveCount(0)
+      await expect(list.locator('[data-slot="skeleton"]').first()).toBeVisible()
       releaseEntry()
-      await expect(parent.getByTestId(tid.forumPostList)).toBeVisible()
+      await expect(list.getByText(forumTitle, { exact: true })).toBeVisible()
       await expect(page.getByTestId(tid.threadSplitPanel).getByText("Forum reply", { exact: false }))
         .toBeVisible()
     } finally {
@@ -296,6 +298,7 @@ test.describe("desktop thread split view", () => {
     await expect(shell).toHaveAttribute("data-layout", "split", { timeout: 20_000 })
     await expect(thread.getByText("Switch reply A", { exact: false })).toBeVisible()
     await resizeThreadPanel(page, 520)
+    await expect(list.locator('[data-message-list-content][data-read-position-ready="true"][aria-hidden="false"]')).toBeVisible()
     await list.evaluate((node) => { node.scrollTop = node.scrollHeight })
     await expect(parent.getByTestId(tid.forumThreadCard(forumPostId))).toBeVisible()
     const scrollTop = await list.evaluate((node) => node.scrollTop)

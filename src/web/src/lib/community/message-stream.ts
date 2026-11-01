@@ -1,5 +1,5 @@
 import type { Msg, SendAttachment, CanonicalMessage } from "@/lib/community/models/message"
-import type { MentionType, CommunityMessagePreview } from "@alook/shared"
+import type { MentionType } from "@alook/shared"
 import { presentCanonicalMessage } from "@/lib/community/message-wire"
 import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
 
@@ -104,7 +104,7 @@ function updateIntent(
   return { state: { ...state, outboxByNonce }, effects: [] }
 }
 
-function compoundIdentity(message: Pick<CommunityMessagePreview, "authorId" | "clientNonce">): string | undefined {
+function compoundIdentity(message: Partial<Pick<CanonicalMessage, "authorId" | "clientNonce">>): string | undefined {
   return message.authorId && message.clientNonce && !message.clientNonce.startsWith("srv:")
     ? JSON.stringify([message.authorId, message.clientNonce]) : undefined
 }

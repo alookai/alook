@@ -77,7 +77,6 @@ export function renderMessageListRow(
             onMarkId={props.onMark}
             onCreateThreadId={props.onCreateThread}
             onCopyId={props.onCopy}
-            onEditId={item.m.authorId === props.viewerUserId ? props.onEdit : undefined}
             onRetryId={props.onRetry}
             onDismissId={props.onDismiss}
             onJumpToId={controller.jumpTo}

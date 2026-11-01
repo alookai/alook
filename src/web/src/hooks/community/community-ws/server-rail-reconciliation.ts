@@ -20,8 +20,11 @@ export async function reconcileCommunityServerRail(queryClient: QueryClient) {
     })
   }
   if (!current()) return
-  const queries = [communityKeys.servers(), communityKeys.folders(), communityKeys.channelRefDirectory()]
-    .flatMap((queryKey) => queryClient.getQueryCache().findAll({ queryKey, exact: true }))
+  const queries = [
+    ...[communityKeys.servers(), communityKeys.folders(), communityKeys.channelRefDirectory()]
+      .flatMap((queryKey) => queryClient.getQueryCache().findAll({ queryKey, exact: true })),
+    ...queryClient.getQueryCache().findAll({ queryKey: communityKeys.channelRefTargets() }),
+  ]
   await Promise.all(queries.map((query) => queryClient.cancelQueries({ queryKey: query.queryKey, exact: true, predicate: (candidate) => candidate === query })))
   if (!current()) return
   await Promise.all(queries.filter((query) => queryClient.getQueryCache().get(query.queryHash) === query)

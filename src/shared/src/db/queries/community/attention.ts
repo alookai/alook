@@ -1,5 +1,5 @@
 import type {
-  AccountAttentionSnapshot,
+  AccountAttentionProjection,
   AttentionItem,
   AttentionScope,
 } from "../../../community-attention"
@@ -18,19 +18,19 @@ import { getServersByIds } from "./server"
 export const DEFAULT_ATTENTION_ITEM_LIMIT = 100
 export const MAX_ATTENTION_ITEM_LIMIT = 200
 
-type IncludedProfile = AccountAttentionSnapshot["included"]["profiles"][number]
-type IncludedMessage = AccountAttentionSnapshot["included"]["messages"][number]
+type IncludedProfile = AccountAttentionProjection["included"]["profiles"][number]
+type IncludedMessage = AccountAttentionProjection["included"]["messages"][number]
 
 /**
  * Stateless account-attention projection over the existing inbox facts.
  * The item cap applies only to mention/reply rows; actionable friend requests
  * stay complete so every consumer can derive an exact badge from this result.
  */
-export async function getAccountAttentionSnapshot(
+export async function getAccountAttentionProjection(
   db: Database,
   userId: string,
   requestedLimit = DEFAULT_ATTENTION_ITEM_LIMIT,
-): Promise<AccountAttentionSnapshot> {
+): Promise<AccountAttentionProjection> {
   const limit = Math.max(1, Math.min(requestedLimit, MAX_ATTENTION_ITEM_LIMIT))
   const visibleChannelIds = await listVisibleChannelIdsForUser(db, userId)
   const [channelRows, dmRows, friendRows, mentionScopeRows, allMentionRows] = await Promise.all([
@@ -148,7 +148,7 @@ export async function getAccountAttentionSnapshot(
     userId: row.otherUserId,
     name: row.otherUserName,
     discriminator: row.otherUserDiscriminator,
-    avatar: row.otherUserImage ?? "",
+    avatar: row.otherUserImage,
     avatarVersion: row.otherUserAvatarVersion,
     lastMessageAt: row.lastMessageAt,
     lastUnreadSeq: row.lastUnreadSeq,
@@ -243,7 +243,7 @@ export async function getAccountAttentionSnapshot(
       userId: row.author.id,
       name: row.author.name,
       discriminator: row.author.discriminator,
-      avatar: row.author.image ?? "",
+      avatar: row.author.image,
       avatarVersion: row.author.avatarVersion,
     })
   }
@@ -252,7 +252,7 @@ export async function getAccountAttentionSnapshot(
       userId: row.otherUserId,
       name: row.otherUserName,
       discriminator: row.otherUserDiscriminator,
-      avatar: row.otherUserImage ?? "",
+      avatar: row.otherUserImage,
       avatarVersion: row.otherUserAvatarVersion,
     })
   }

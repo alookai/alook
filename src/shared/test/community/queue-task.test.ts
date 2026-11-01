@@ -4,16 +4,11 @@ import { parseQueueTask, parseQueueTaskBatch } from "../../src/community/queue-t
 describe("parseQueueTask", () => {
   it.each([
     {
-      name: "legacy",
-      value: { messageId: "message-1", botUserId: "bot-1" },
-      source: "legacy",
-    },
-    {
       name: "v1 bot-wake",
       value: { version: 1, kind: "bot-wake", messageId: "message-1", botUserId: "bot-1" },
       source: "v1",
     },
-  ])("normalizes a valid $name task", ({ value, source }) => {
+  ])("accepts a valid $name task", ({ value, source }) => {
     expect(parseQueueTask(value)).toEqual({
       ok: true,
       source,
@@ -27,6 +22,7 @@ describe("parseQueueTask", () => {
   })
 
   it.each([
+    { name: "unversioned old wake", value: { messageId: "message-1", botUserId: "bot-1" } },
     { name: "null", value: null },
     { name: "array", value: [] },
     { name: "primitive", value: "wake" },
@@ -82,9 +78,9 @@ describe("parseQueueTask", () => {
 })
 
 describe("parseQueueTaskBatch", () => {
-  it("normalizes the complete legacy/v1 batch", () => {
+  it("accepts the complete current versioned batch", () => {
     expect(parseQueueTaskBatch([
-      { messageId: "message-1", botUserId: "bot-1" },
+      { version: 1, kind: "bot-wake", messageId: "message-1", botUserId: "bot-1" },
       { version: 1, kind: "bot-wake", messageId: "message-2", botUserId: "bot-2" },
       { version: 1, kind: "mobile-push", messageId: "message-3", userId: "user-3" },
     ])).toEqual({
@@ -97,11 +93,18 @@ describe("parseQueueTaskBatch", () => {
     })
   })
 
+  it("rejects an unversioned member of a mixed batch without returning migrated tasks", () => {
+    expect(parseQueueTaskBatch([
+      { version: 1, kind: "bot-wake", messageId: "current", botUserId: "bot" },
+      { messageId: "old", botUserId: "bot" },
+    ])).toEqual({ ok: false, reason: "malformed", itemIndex: 1 })
+  })
+
   it("reports the first rejected item without returning partial payloads", () => {
     expect(parseQueueTaskBatch([
-      { messageId: "message-1", botUserId: "bot-1" },
+      { version: 1, kind: "bot-wake", messageId: "message-1", botUserId: "bot-1" },
       { version: 1, kind: "email", messageId: "message-2", userId: "user-2" },
-      { messageId: "message-3", botUserId: "bot-3" },
+      { version: 1, kind: "bot-wake", messageId: "message-3", botUserId: "bot-3" },
     ])).toEqual({ ok: false, reason: "unknown_kind", itemIndex: 1 })
   })
 

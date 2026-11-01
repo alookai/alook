@@ -55,7 +55,7 @@ const {
   mockHeaderServerNavigate: { current: undefined as undefined | (() => void) },
   mockHeaderParentNavigate: { current: undefined as undefined | (() => void) },
   mockOpenerGate: vi.fn(() => null),
-  mockForumOpener: { data: null as null | { content: string }, isLoading: false, isError: false, error: null as Error | null, isFetching: false, refetch: vi.fn(() => Promise.resolve()) },
+  mockForumOpener: { data: null as null | { content: string }, isLoading: false, isError: false, isSuccess: false, error: null as Error | null, isFetching: false, refetch: vi.fn(() => Promise.resolve()) },
   mockSearchParams: { value: "msg=m_target&keep=1" },
   mockSplitMode: { value: "full" as "pending" | "split" | "full" },
   mockSplitContainerRef: vi.fn(),
@@ -102,6 +102,7 @@ const {
     retryingMetadata: false,
     retryMetadata: vi.fn(),
     routeHydrated: true,
+    windowReady: true,
     routeLifecycle: "ready" as "pending" | "ready" | "terminal-error",
     skeletonSubtype: "unknown" as "unknown" | "text" | "forum" | "thread",
     layoutHint: {
@@ -151,14 +152,25 @@ vi.mock("@/components/community/channels/channel-header", () => ({
     mobileBack,
     kind,
     endActions,
+    channel,
+    titleState = "ready",
+    onRetryTitle,
+    retryingTitle,
   }: {
     mobileBack?: () => void
     kind?: string
     endActions?: React.ReactNode
+    channel: string
+    titleState?: "ready" | "pending" | "unavailable"
+    onRetryTitle?: () => void
+    retryingTitle?: boolean
   }) => {
     mockHeaderServerNavigate.current = kind === "thread" ? undefined : mobileBack
     mockHeaderParentNavigate.current = kind === "thread" ? mobileBack : undefined
-    return React.createElement("header", { "data-header-kind": kind }, endActions)
+    return React.createElement("header", { "data-header-kind": kind },
+      titleState === "ready" ? React.createElement("span", { "data-testid": "resolved-header-title" }, channel)
+        : React.createElement("div", { "data-testid": "community-message-header-title-loading", "data-title-state": titleState }),
+      titleState === "unavailable" && onRetryTitle ? React.createElement("button", { "aria-label": "Retry title", onClick: onRetryTitle, disabled: retryingTitle }) : null, endActions)
   },
   ChannelHeaderSkeleton: ({ kind = "text" }: { kind?: string }) =>
     React.createElement("div", { "data-testid": "channel-header-skeleton", "data-kind": kind }),
@@ -322,7 +334,6 @@ vi.mock("@/hooks/community/mutations", () => ({
   usePinMessage: () => ({ mutate: vi.fn() }),
   useUnpinMessage: () => ({ mutate: vi.fn() }),
   useToggleMark: () => vi.fn(),
-  useEditMessage: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
   useCreateThread: () => ({ mutateAsync: vi.fn() }),
   useCreateForumThread: () => ({ mutateAsync: vi.fn() }),
   useUpdatePostTags: () => ({ mutate: vi.fn(), isPending: false }),
@@ -431,7 +442,7 @@ describe("ChannelRoute message surface ownership", () => {
     vi.useFakeTimers()
     mockedMessageList.mockClear()
     mockOpenerGate.mockClear()
-    Object.assign(mockForumOpener, { data: null, isLoading: false, isError: false, error: null, isFetching: false })
+    Object.assign(mockForumOpener, { data: null, isLoading: false, isError: false, isSuccess: false, error: null, isFetching: false })
     mockForumOpener.refetch.mockClear()
     mockSearchParams.value = "msg=m_target&keep=1"
     mockSplitMode.value = "full"
@@ -473,6 +484,7 @@ describe("ChannelRoute message surface ownership", () => {
       metadataError: false,
       retryingMetadata: false,
       routeHydrated: true,
+      windowReady: true,
       routeLifecycle: "ready",
       skeletonSubtype: "unknown",
       layoutHint: { subtype: "unknown", parentChannelId: null, parentSubtype: "unknown" },
@@ -490,8 +502,8 @@ describe("ChannelRoute message surface ownership", () => {
     vi.mocked(useChannelRouteModel).mockImplementation((_server, _param, id) => (id === "channel_1" ? parent : child) as never)
     const base = conversationEntryFixture().channel
     registry.collections.channels.utils.writeUpsert([
-      channelSchema.parse({ ...base, id: "channel_1", serverId: "server_1", muted: false, unread: false, tags: [], pending: false, resourceComplete: true }),
-      channelSchema.parse({ ...base, id: "child_1", serverId: "server_1", type: "thread", parentChannelId: "channel_1", parentMessageId: "opener_1", muted: false, unread: false, tags: [], pending: false, resourceComplete: true }),
+      channelSchema.parse({ ...base, id: "channel_1", serverId: "server_1", muted: false, tags: [], pending: false }),
+      channelSchema.parse({ ...base, id: "child_1", serverId: "server_1", type: "thread", parentChannelId: "channel_1", parentMessageId: "opener_1", muted: false, tags: [], pending: false }),
     ])
     mockBreakpoint.value = "mobile"
     mockSearchParams.value = ""
@@ -530,7 +542,11 @@ describe("ChannelRoute message surface ownership", () => {
     if (boundary === "forward") mockNavigation.entryIntent = { href: "/c/channels/server_1/channel_1" }
     if (boundary === "unhydrated") mockRouteModel.routeHydrated = false
     if (boundary === "pending") mockRouteModel.routeLifecycle = "pending"
-    if (boundary === "text") mockRouteModel.isForum = false
+    if (boundary === "text") {
+      mockRouteModel.isForum = false
+      mockRouteModel.channel = { id: "channel_1", name: "Text", type: "text" }
+      mockedUseChannelMessageFeed.mockReturnValue(feed())
+    }
     render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1", routeCommitted: false }))
     const model = mockedUseChannelMemberViewModel.mock.calls.at(-1)![0]
     expect(model.accessAllowed).toBe(false)
@@ -724,9 +740,16 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({channelId: "parent_1"}))
     expect(mockClaimSecondary).not.toHaveBeenCalled()
     expect(mockedUseChannelMemberViewModel).toHaveBeenCalledWith(expect.objectContaining({channelId: "parent_1", accessAllowed: false}))
+    expect(mockedUseChannelMemberViewModel).toHaveBeenCalledWith(expect.objectContaining({channelId: "parent_1", roleDisplayAllowed: true}))
     renderer.rerender(node(true))
     expect(mockClaimSecondary).toHaveBeenLastCalledWith(expect.anything(), expect.any(Symbol), "parent_1")
     expect(mockedUseChannelMemberViewModel).toHaveBeenCalledWith(expect.objectContaining({channelId: "parent_1", accessAllowed: true}))
+    mockedUseChannelMemberViewModel.mockClear()
+    renderer.rerender(node(false))
+    expect(mockedUseChannelMemberViewModel).toHaveBeenCalledWith(expect.objectContaining({channelId: "parent_1", accessAllowed: false, roleDisplayAllowed: true}))
+    mockedUseChannelMemberViewModel.mockClear()
+    renderer.rerender(node(true))
+    expect(mockedUseChannelMemberViewModel).toHaveBeenCalledWith(expect.objectContaining({channelId: "parent_1", accessAllowed: true, roleDisplayAllowed: true}))
   })
 
   it("lets the real parent surface read independently and retires it when its own proof is lost", async () => {
@@ -753,6 +776,7 @@ describe("ChannelRoute message surface ownership", () => {
     expect(screen.getByTestId("community-thread-split-parent").querySelector("[data-message-list-skeleton]")).not.toBeNull()
     expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
     expect(mockedUseChannelMemberViewModel).toHaveBeenCalledWith(expect.objectContaining({ channelId: "parent_1", accessAllowed: false }))
+    expect(mockedUseChannelMemberViewModel).toHaveBeenCalledWith(expect.objectContaining({ channelId: "parent_1", roleDisplayAllowed: false }))
     expect(mockUseThreadSplitMode).toHaveBeenLastCalledWith({ breakpoint: "desktop", enabled: true, forceFullscreen: false })
     expect(mockReleaseSecondary).toHaveBeenLastCalledWith(runtime, owner)
     expect(screen.queryByLabelText("Resolving conversation")).not.toBeInTheDocument()
@@ -1206,7 +1230,7 @@ describe("ChannelRoute message surface ownership", () => {
     renderer.unmount()
   })
 
-  it("lets the qualified parent load while the forum opener still fences the child", () => {
+  it.each(["Post title", "Post"])("keeps qualified parent and child while the Forum title waits for %s", title => {
     configureThreadRoute()
     mockRouteModel.isForumPostChild = true
     mockSplitMode.value = "split"
@@ -1214,41 +1238,82 @@ describe("ChannelRoute message surface ownership", () => {
     const props = { serverParam: "server_1", channelId: "channel_1" }
     const renderer = render(React.createElement(ChannelRoute, props))
     const split = screen.getByTestId("community-thread-split")
+    expect(screen.getByTestId("community-message-header-title-loading")).toBeInTheDocument()
+    expect(screen.queryByTestId("resolved-header-title")).toBeNull()
     expect(mockSplitParentSurface).toHaveBeenLastCalledWith(expect.objectContaining({ channel: expect.objectContaining({ id: "parent_1" }) }), undefined)
-    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
-    expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
-    expect(screen.getByTestId("community-thread-split-panel").querySelector("[data-message-list-skeleton]")).not.toBeNull()
-    Object.assign(mockForumOpener, { data: { content: "Post title" }, isLoading: false })
-    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: "channel_1" }))
+    Object.assign(mockForumOpener, { data: { content: title }, isLoading: false })
     renderer.rerender(React.createElement(ChannelRoute, props))
     expect(screen.getByTestId("community-thread-split")).toBe(split)
-    expect(mockedUseChannelMessageFeed).toHaveBeenCalledOnce()
-    expect(mockCommitLastCommunityRoute).toHaveBeenCalledOnce()
+    expect(screen.queryByTestId("community-message-header-title-loading")).toBeNull()
+    expect(screen.getByTestId("resolved-header-title")).toHaveTextContent(title)
+    expect(mockCommitLastCommunityRoute).toHaveBeenCalled()
     renderer.unmount()
   })
 
-  it("shows a required cold forum opener failure, keeps Retry feedback while pending, then opens body", async () => {
+  it("keeps the qualified child mounted through a failed title hint and its recovery", () => {
     configureThreadRoute()
     mockRouteModel.isForumPostChild = true
     Object.assign(mockForumOpener, { isError: true, error: new Error("deadline") })
-    let release!: () => void
-    mockForumOpener.refetch.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
     const props = { serverParam: "server_1", channelId: "channel_1" }
     const renderer = render(React.createElement(ChannelRoute, props))
-    expect(screen.getByRole("button", { name: "Retry" })).not.toBeDisabled()
-    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
-    expect(mockForumOpener.refetch).toHaveBeenCalledOnce()
-    Object.assign(mockForumOpener, { isError: false, error: null, isFetching: true, isLoading: true })
-    renderer.rerender(React.createElement(ChannelRoute, props))
-    expect(screen.getByRole("button", { name: "Retrying…" })).toBeDisabled()
-    await act(async () => { release() })
-    Object.assign(mockForumOpener, { data: { content: "Recovered title" }, isFetching: false, isLoading: false })
-    mockedUseChannelMessageFeed.mockReturnValue(feed())
-    renderer.rerender(React.createElement(ChannelRoute, props))
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: "channel_1" }))
+    expect(screen.getByTestId("community-message-header-title-loading")).toBeInTheDocument()
     expect(screen.queryByRole("alert")).toBeNull()
-    expect(mockedUseChannelMessageFeed).toHaveBeenCalled()
+    expect(screen.getByTestId("community-message-header-title-loading")).toHaveAttribute("data-title-state", "unavailable")
+    fireEvent.click(screen.getByRole("button", { name: "Retry title" }))
+    expect(mockForumOpener.refetch).toHaveBeenCalledWith({ cancelRefetch: false })
+    Object.assign(mockForumOpener, { data: { content: "Recovered title" }, isError: false, error: null, isFetching: false, isLoading: false })
+    renderer.rerender(React.createElement(ChannelRoute, props))
+    expect(screen.getByTestId("resolved-header-title")).toHaveTextContent("Recovered title")
+    expect(screen.queryByRole("alert")).toBeNull()
     renderer.unmount()
+  })
+
+  it("keeps a real Forum title visible through a secondary opener refetch error", () => {
+    configureThreadRoute()
+    mockRouteModel.isForumPostChild = true
+    Object.assign(mockForumOpener, { data: { content: "Post" }, isError: true, isFetching: true, error: new Error("refetch") })
+    const view = render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
+    expect(screen.queryByTestId("community-message-header-title-loading")).toBeNull()
+    expect(screen.getByTestId("resolved-header-title")).toHaveTextContent("Post")
+    expect(screen.queryByRole("button", { name: "Retry title" })).toBeNull()
+    view.unmount()
+  })
+
+  it("treats a missing Post opener as unavailable instead of an in-flight read", () => {
+    configureThreadRoute()
+    mockRouteModel.isForumPostChild = true
+    mockRouteModel.currentChannelMeta!.parentMessageId = null
+    const view = render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
+    expect(screen.getByTestId("community-message-header-title-loading")).toHaveAttribute("data-title-state", "unavailable")
+    expect(screen.queryByRole("button", { name: "Retry title" })).toBeNull()
+    expect(mockForumOpener.refetch).not.toHaveBeenCalled()
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it.each(["text", "forum", "thread"] as const)("uses the current %s name resource to distinguish known absence from a ready literal name", async kind => {
+    if (kind === "thread") configureThreadRoute()
+    else {
+      mockRouteModel.isForum = kind === "forum"
+      mockRouteModel.channel!.type = kind
+    }
+    const registry = renderCommunityHook(() => useOptionalCommunityDbRegistry()).result.current!
+    const base = { ...conversationEntryFixture().channel, id: "channel_1", serverId: "server_1", type: kind, muted: false, tags: [], pending: false }
+    registry.collections.channels.utils.writeUpsert(channelSchema.parse({ ...base, name: null }))
+    const view = render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
+    if (kind === "forum") expect(mockedForumChannelSurface.mock.lastCall![0].channelTitleState).toBe("unavailable")
+    else expect(screen.getByTestId("community-message-header-title-loading")).toHaveAttribute("data-title-state", "unavailable")
+    if (kind === "thread") mockRouteModel.currentChannelMeta = { ...mockRouteModel.currentChannelMeta!, name: "Post" }
+    else mockRouteModel.channel = { ...mockRouteModel.channel!, name: "Post" }
+    await act(async () => registry.collections.channels.utils.writeUpsert(channelSchema.parse({ ...base, name: "Post" })))
+    if (kind === "forum") expect(mockedForumChannelSurface.mock.lastCall![0]).toEqual(expect.objectContaining({ channelTitleState: "ready", channelName: "Post" }))
+    else {
+      expect(screen.queryByTestId("community-message-header-title-loading")).toBeNull()
+      expect(screen.getByTestId("resolved-header-title")).toHaveTextContent("Post")
+    }
+    view.unmount()
   })
 
   it("keeps a qualified target readable while the secondary server directory fails", () => {
@@ -1446,6 +1511,17 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockRouter.replace).toHaveBeenCalledExactlyOnceWith("/c/me")
     expect(mockClearLastChannel).toHaveBeenCalledExactlyOnceWith("server_1")
     expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+  })
+
+  it("mounts a qualified child composer while window-dependent read actions remain pending", () => {
+    configureThreadRoute()
+    mockRouteModel.windowReady = false
+    mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: true, navigationBlocked: true, messages: [] }))
+    const view = render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
+    expect(view.container.querySelector('textarea[data-draft-key="server_1/channel_1"]')).not.toBeNull()
+    expect(mockDismissConversation).toHaveBeenCalledExactlyOnceWith("viewer_1", { kind: "server", serverId: "server_1", channelId: "channel_1" }, false)
+    expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+    expect(mockOpenerGate).toHaveBeenCalledWith(expect.objectContaining({ lifecycle: "pending" }))
   })
 
   it("commits and dismisses only a ready top-level channel for the active account", async () => {

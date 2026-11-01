@@ -31,7 +31,7 @@ describe("original observation ownership", () => {
       retireTelemetry(); clearActions(); configureTelemetry({ session_id: "account-b" }, true); installTelemetrySink(event => events.push(event))
       return { end } as unknown as Span
     })
-    expect(startAction("message.edit")).toBeUndefined()
+    expect(startAction("message.mark")).toBeUndefined()
     expect(end).toHaveBeenCalledTimes(1)
     expect(events.filter(event => event.name.startsWith("action."))).toEqual([])
   })
@@ -55,7 +55,7 @@ describe("original observation ownership", () => {
   })
   it("keeps concurrent commands and their requests on their original tokens", async () => {
     const one = { original: {} }, two = { original: {} }
-    const a = startAction("message.edit")!, b = startAction("message.pin")!
+    const a = startAction("message.mark")!, b = startAction("message.pin")!
     bindCommandAction(one, a); bindCommandAction(two, b)
     const request = startRequest("/api/community/messages/private", { method: "PATCH", observation: commandObservation(one.original) })
     const response = new Response("{}", { headers: { "cf-ray": "a".repeat(16) + "-SJC" } })
@@ -68,7 +68,7 @@ describe("original observation ownership", () => {
     expect(JSON.stringify(events)).not.toContain("private")
   })
   it("rejects old parsed responses, actions and command contexts after retirement", async () => {
-    const intent = { original: {} }, action = startAction("message.edit")!
+    const intent = { original: {} }, action = startAction("message.mark")!
     bindCommandAction(intent, action)
     const request = startRequest("/api/community/messages/private", { observation: commandObservation(intent.original) })
     const response = new Response("{}")
@@ -112,7 +112,7 @@ describe("original observation ownership", () => {
   it("preserves an accepted unsent intent, request ownership and timestamp across initial native identity alignment", async () => {
     retireTelemetry(); clearActions(); configureTelemetry({ session_id: "provisional" }, true)
     const generation = telemetryGeneration(), timestamp = Date.now()
-    const action = startAction("message.edit")!
+    const action = startAction("message.mark")!
     const request = startRequest("/api/community/messages/private", { observation: { action, reason: "command" } })
     const response = new Response("{}")
     vi.setSystemTime(timestamp + 500)

@@ -56,6 +56,7 @@ const timelineSweepHarness = vi.hoisted(() => {
 });
 
 const credentialProxyHarness = vi.hoisted(() => ({
+  pii: undefined as import("../pii/proxy.js").PiiProxy | undefined,
   onInboxPullStart: undefined as ((agentId: string) => unknown) | undefined,
   onInboxPullResponse: undefined as (
     ((agentId: string, messages: unknown[], observationToken?: unknown) => void) | undefined
@@ -105,6 +106,7 @@ vi.mock("../credentials/index.js", async (importOriginal) => {
     startCredentialProxy: (
       ...args: Parameters<typeof actual.startCredentialProxy>
     ): ReturnType<typeof actual.startCredentialProxy> => {
+      credentialProxyHarness.pii = args[1]?.pii;
       credentialProxyHarness.onInboxPullStart = args[1]?.onInboxPullStart;
       credentialProxyHarness.onInboxPullResponse = args[1]?.onInboxPullResponse as
         | ((agentId: string, messages: unknown[], observationToken?: unknown) => void)
@@ -131,6 +133,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   timelineSweepHarness.reset();
+  credentialProxyHarness.pii = undefined;
   credentialProxyHarness.onInboxPullStart = undefined;
   credentialProxyHarness.onInboxPullResponse = undefined;
   credentialProxyHarness.onInboxPullObservationError = undefined;
@@ -3245,6 +3248,64 @@ describe("emitImplicitTypingStopOnSend", () => {
         reportAgentTypingStop: undefined,
       }),
     ).not.toThrow();
+  });
+});
+
+describe("createDaemon — inactive bot PII management", () => {
+  it("uses fresh inclusive inventory for configuration without starting a model, and rejects a bot after unbinding", async () => {
+    const sockets: FakeSocket[] = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-inactive-pii-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    let bound = true;
+    let inventoryFailure = false;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (inventoryFailure) throw new Error("inventory unavailable");
+      const url = new URL(String(input));
+      return Response.json({ bots: bound && url.searchParams.get("includeInactive") === "true"
+        ? [{ id: "inactive", name: "Inactive", discriminator: "0001" }]
+        : [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const sessionFactory = vi.fn();
+    const routerEntry = spyOnRouterCommandEntry();
+    const logger = stubLogger();
+    const daemon = await createDaemon({
+      machineKey: "synthetic-pii-machine", serverUrl: "http://server.invalid", serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never, runtimeReport: [], driverFor: () => fakeDriver,
+      capabilities: [], workingDirectoryBase, logger, sessionFactory,
+    });
+    sockets[0]!.emit("open");
+    const manage = async (requestId: string, operation: import("@alook/shared").PiiOperation = { action: "list" }) => {
+      sockets[0]!.emit("message", JSON.stringify({ type: "pii:manage", botId: "inactive", requestId, operation }));
+      let response: { result: { status: string; code?: string; output?: string; snapshot?: { plugins: unknown[] } } } | undefined;
+      await vi.waitFor(() => {
+        response = sockets[0]!.sent.map(frame => JSON.parse(frame)).find(frame => frame.type === "pii_result" && frame.requestId === requestId);
+        expect(response).toBeDefined();
+      });
+      return response!.result;
+    };
+    try {
+      const listed = await manage("before-unbind");
+      expect(listed.status).toBe("complete");
+      expect(listed.snapshot?.plugins).toHaveLength(5);
+      expect(await credentialProxyHarness.pii!.local("inactive", { action: "list" })).toMatchObject({ revision: 0, plugins: expect.any(Array) });
+      expect(await credentialProxyHarness.pii!.filterWithResult("inactive", "person@company.cn")).toEqual({ text: "[REDACTED_EMAIL]", triggeredFilters: [{ id: "builtin.emails", name: "Email addresses" }] });
+      const configFile = join(workingDirectoryBase, "inactive", "pii", "pipelines.json");
+      const configuration = readFileSync(configFile, "utf8");
+      expect(await manage("preview", { action: "preview", text: "person@company.cn", expectedRevision: 0 }))
+        .toMatchObject({ status: "complete", output: "[REDACTED_EMAIL]" });
+      expect(readFileSync(configFile, "utf8")).toBe(configuration);
+      expect(JSON.stringify(logger.calls)).not.toContain("person@company.cn");
+      expect(JSON.stringify(logger.calls)).not.toContain("[REDACTED_EMAIL]");
+      bound = false;
+      expect(await manage("after-unbind")).toEqual({ status: "error", code: "PII_BOT_NOT_FOUND" });
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/daemon/bots"))).toBe(true);
+      expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/daemon/bots?includeInactive=true"))).toHaveLength(3);
+      inventoryFailure = true;
+      expect(await manage("inventory-down")).toEqual({ status: "error", code: "PII_UNAVAILABLE" });
+      expect(sessionFactory).not.toHaveBeenCalled();
+      expect(routerEntry).not.toHaveBeenCalledWith(expect.objectContaining({ type: "pii:manage" }));
+    } finally { await daemon.stop(); }
   });
 });
 

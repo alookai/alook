@@ -1,10 +1,11 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { queries, WS_EVENTS } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 
-export const DELETE = withAuth(async (_req, ctx) => {
+export const DELETE = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const mentionId = ctx.params?.id
   if (!mentionId) return writeError("missing mention id", 400)
 

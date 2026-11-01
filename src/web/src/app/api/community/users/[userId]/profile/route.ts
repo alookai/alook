@@ -1,10 +1,11 @@
-import { queries } from "@alook/shared"
+import { withAuth } from "@/lib/middleware/auth-policy"
+import { parseCommunityUserCardRead, queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { canonicalUserImage } from "@/lib/community/storage"
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const id = ctx.params?.userId
   if (!id) return writeError("missing user id", 400)
 
@@ -26,7 +27,7 @@ export const GET = withAuth(async (_req, ctx) => {
   const viewerSet = new Set(viewerServerIds)
   const mutualServers = targetServerIds.filter((sid) => viewerSet.has(sid)).length
 
-  return writeJSON({
+  return writeJSON(parseCommunityUserCardRead({
     id: profile.id,
     name: profile.name,
     discriminator: profile.discriminator,
@@ -38,5 +39,5 @@ export const GET = withAuth(async (_req, ctx) => {
     statusEmoji: profile.statusEmoji,
     statusText: profile.statusText,
     ...profile.identity,
-  })
+  }, id, ctx.userId))
 })

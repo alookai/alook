@@ -1,11 +1,12 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   let body: { parentChannelId?: unknown; channelIds?: unknown; limitPerChannel?: unknown }
   try { body = await req.json() } catch { return writeError("invalid request body", 400) }
   const ids = Array.isArray(body.channelIds) ? [...new Set(body.channelIds.filter((id): id is string => typeof id === "string"))] : []

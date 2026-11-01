@@ -83,18 +83,14 @@ export function createNativeSystemNotificationConversationDismissalQueue(
       const valid = values.every((value) => {
         if (!value || typeof value !== "object" || Array.isArray(value)) return false
         const entry = value as Record<string, unknown>
-        return ((Object.keys(entry).length === 4 && entry.version === 1)
-          || (Object.keys(entry).length === 5 && entry.version === CONVERSATION_VERSION
-            && typeof entry.revision === "string" && UUID.test(entry.revision)))
+        return (Object.keys(entry).length === 5 && entry.version === CONVERSATION_VERSION
+            && typeof entry.revision === "string" && UUID.test(entry.revision))
           && (entry.platform === "desktop" || entry.platform === "mobile")
           && validSafeId(entry.viewerUserId)
           && validConversation(entry.target)
       })
       if (!valid) throw new Error()
-      const migrated = values.map((value) => value.version === 1
-        ? { ...value, version: CONVERSATION_VERSION, revision: revision() } : value) as PendingConversationDismissal[]
-      if (values.some((value) => value.version === 1) && !write(migrated)) return []
-      return migrated
+      return values as PendingConversationDismissal[]
     } catch {
       remove()
       return []

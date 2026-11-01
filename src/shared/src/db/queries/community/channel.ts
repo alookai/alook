@@ -18,6 +18,7 @@ import { formatHandle } from "../../../lib/discriminator";
 import { user } from "../../schema";
 import { chunk, D1_MAX_IN_PARAMS, maxInParams, maxRowsPerInsert } from "../_chunk";
 import { jsonTextSet } from "../_json-set";
+import { dmPeerReadableSql } from "./dm";
 import type { ChannelCategoryMove } from "../../../community-channel-order";
 
 // Column selection shared by every read query.
@@ -107,6 +108,24 @@ export async function listReadableChannelsForUser(
       channelReadableSql(userId, CHANNEL_COLUMNS),
     )));
   return (await Promise.all(batches)).flat();
+}
+
+export function messageChannelReadableSql(
+  db: Database,
+  userId: string,
+  channel: Parameters<typeof channelReadableSql>[1],
+) {
+  return and(channelReadableSql(userId, channel),
+    or(ne(channel.type, "dm"), dmPeerReadableSql(db, userId, channel.id)))!;
+}
+
+export async function listReadableMessageChannelsForUser(db: Database, userId: string, channelIds: readonly string[]) {
+  const ids = [...new Set(channelIds)];
+  if (!ids.length) return [];
+  return db.select(CHANNEL_COLUMNS).from(communityChannel).where(and(
+    inArray(communityChannel.id, jsonTextSet(db, ids)),
+    messageChannelReadableSql(db, userId, CHANNEL_COLUMNS),
+  ));
 }
 
 export async function getReadableMessageChannelId(
@@ -549,6 +568,7 @@ export async function listChildChannelsByParentMessageIds(
   db: Database,
   parentChannelId: string,
   parentMessageIds: string[],
+  type: string | null = "thread",
 ) {
   if (parentMessageIds.length === 0) return [];
   return (
@@ -559,9 +579,10 @@ export async function listChildChannelsByParentMessageIds(
           .from(communityChannel)
           .where(and(
             eq(communityChannel.parentChannelId, parentChannelId),
-            eq(communityChannel.type, "thread"),
+            type === null ? undefined : eq(communityChannel.type, type),
             inArray(communityChannel.parentMessageId, ids),
           ))
+          .orderBy(...(type === null ? [desc(communityChannel.lastMessageAt)] : []))
       )
     )
   ).flat();
@@ -589,6 +610,13 @@ export async function getServerRootChannelsByIds(db: Database, serverId: string,
     eq(communityChannel.serverId, serverId), isNull(communityChannel.parentChannelId),
     inArray(communityChannel.id, jsonTextSet(db, channelIds)),
   ));
+}
+
+export async function listChannelMembershipsForUserInChannels(db: Database, userId: string, channelIds: string[]) {
+  return (await Promise.all(chunk([...new Set(channelIds)], D1_MAX_IN_PARAMS).map(ids =>
+    db.select({ channelId: communityChannelMember.channelId, userId: communityChannelMember.userId, relation: communityChannelMember.relation, source: communityChannelMember.source })
+      .from(communityChannelMember).where(and(eq(communityChannelMember.userId, userId), inArray(communityChannelMember.channelId, ids)))
+  ))).flat();
 }
 
 export async function getChannelsByIds(db: Database, channelIds: string[]) {
@@ -1079,7 +1107,7 @@ export function groupChannelRefDirectoryRows(
   }));
 }
 
-export async function listChannelRefDirectoryForUser(db: Database, userId: string) {
+export async function listChannelRefDirectoryForUser(db: Database, userId: string, options: { railOrder?: boolean } = {}) {
   const [servers, channels] = await Promise.all([
     db
       .select({
@@ -1140,7 +1168,7 @@ export async function listChannelRefDirectoryForUser(db: Database, userId: strin
         asc(communityChannel.id)
       ),
   ]);
-  return groupChannelRefDirectoryRows(sortServerRailRows(await readServerRailSnapshot(db, userId), servers), channels);
+  return groupChannelRefDirectoryRows(options.railOrder === false ? servers : sortServerRailRows(await readServerRailSnapshot(db, userId), servers), channels);
 }
 
 // Shared visibility computation for the nested-membership model. Assembles the

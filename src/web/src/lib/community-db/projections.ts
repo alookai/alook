@@ -1,14 +1,19 @@
 "use client"
 
+import type { CommunityResourceProfile } from "@alook/shared"
+
+import { getServerDirectoryWindow, readServerDirectoryWindow, serverDirectoryWindowComplete } from "@/lib/community/server-directory-window"
+import { communityKeys } from "@/lib/query-keys"
+import { useQueryClient } from "@tanstack/react-query"
 import { forumSidebarWindowComplete, type ForumSidebarWindow } from "@/lib/community/forum-sidebar-window"
 
-import { createContext, createElement, useContext, useMemo, type Context, type ReactNode } from "react"
+import { createContext, createElement, useContext, useMemo, useCallback, useSyncExternalStore, type Context, type ReactNode } from "react"
 import { ApplicationOwnerProvider, createApplicationOwner } from "@/lib/application-owner"
 import { DbProvider, and, eq, inArray, useLiveQuery as useNativeLiveQuery, type WhereCallback, type ContextFromSource } from "@tanstack/react-db"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { CommunityRuntimeProvider } from "@/stores/community/runtime"
 import { serverRailTopOrder, sortServerRailRows, notifLevelDisplay } from "@alook/shared"
-import { projectForumSidebar } from "@/lib/community/forum-sidebar"
+import { projectForumSidebar, supportsSidebarThreads } from "@/lib/community/forum-sidebar"
 import { avatarInitial } from "@/lib/community/avatar"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import type { DM } from "@/lib/community/models/people"
@@ -17,7 +22,7 @@ import type { CommunityProfile } from "@/lib/community/models/people"
 import type { Category, CommunityFolder, Server } from "@/lib/community/models/navigation"
 import type { Msg } from "@/lib/community/models/message"
 import { presentCanonicalMessage } from "@/lib/community/message-wire"
-import type { CommunityMessagePreview } from "@alook/shared"
+import type { CommunityMessageResource } from "@alook/shared"
 import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 import type { CommunityDbRegistry } from "./collections"
 import { communityCollectionQuery, communityJoinedMessagesQuery } from "./queries"
@@ -35,7 +40,7 @@ import type {
   ServerRow,
 } from "./schema"
 
-function projectedCanonicalMessage(message: MessageRow, child?: ChannelRow): CommunityMessagePreview & { resourceComplete: boolean } {
+function projectedCanonicalMessage(message: MessageRow, child?: ChannelRow): CommunityMessageResource {
   return { ...message, ...(child ? { thread: { id: child.id, name: child.name ?? "", messageCount: child.messageCount ?? 0, lastReplyAt: child.lastMessageAt ?? undefined, tags: child.tags, preview: child.preview, participantCount: child.participantCount } } : {}) }
 }
 
@@ -126,6 +131,7 @@ export function useServerRailProjection() {
     servers: useServerRows(),
     serverMemberships: useServerMembershipRows(),
     serverRail: useCollectionRows("serverRail"),
+    attention: useAttentionScopes(),
     folders: useFolderRows(),
     folderItems: useFolderItemRows(),
   }
@@ -152,8 +158,8 @@ export function useServerRailProjection() {
         ownerId: server.ownerId,
         initial: avatarInitial(server.name),
         active: false,
-        unread: server.unread,
-        mentions: server.mentions,
+        unread: rows.attention.some(scope => scope.serverId === server.id && scope.ordinaryUnread),
+        mentions: rows.attention.reduce((sum, scope) => sum + (scope.serverId === server.id ? scope.attentionCount : 0), 0),
         official: server.official,
         isOwner: server.isOwner,
         icon: server.icon,
@@ -191,27 +197,37 @@ export function useServerRailProjection() {
     const topOrder = serverRailTopOrder(state)
     const byFolder = new Map(folders.map((folder) => [folder.id, folder]))
     return { servers: sortServerRailRows(state, servers), folders: topOrder.flatMap((entry) => entry.kind === "folder" ? [byFolder.get(entry.id)!] : []), topOrder }
-  }, [rows.registry, rows.servers, rows.serverMemberships, rows.folders, rows.folderItems, rows.serverRail])
+  }, [rows.registry, rows.servers, rows.serverMemberships, rows.folders, rows.folderItems, rows.serverRail, rows.attention])
 }
 
 export function useServerTreeProjection(serverId: string | null) {
+  const registry = useOptionalCommunityDbRegistry()
+  const queryClient = useQueryClient()
+  const read = useCallback(() => queryClient.getQueryData(communityKeys.server(serverId ?? "__none__")), [queryClient, serverId])
+  const subscribe = useCallback((notify: () => void) => queryClient.getQueryCache().subscribe((event) => {
+    const key = event.query.queryKey
+    if (key.length === 3 && key[0] === "community" && key[1] === "servers" && key[2] === (serverId ?? "__none__")) notify()
+  }), [queryClient, serverId])
+  const snapshot = useSyncExternalStore(subscribe, read, read)
+  const directory = useMemo(() => readServerDirectoryWindow(snapshot), [snapshot])
   const servers = useCollectionQuery("servers", ({ row }) => eq(row.id, serverId ?? ""))
   const categories = useCollectionQuery("categories", ({ row }) => eq(row.serverId, serverId ?? ""))
   const channels = useCollectionQuery("channels", ({ row }) => eq(row.serverId, serverId ?? ""))
+  const attention = useAttentionScopes()
   const ready = servers.isReady && categories.isReady && channels.isReady
   const rows = { servers: servers.data, categories: categories.data, channels: channels.data }
   return useMemo(() => {
     if (!ready || !serverId || !rows.servers || !rows.categories || !rows.channels) return undefined
     const server = rows.servers.find((candidate) => candidate.id === serverId)
-    if (!server?.detailComplete) return undefined
+    if (!server || !registry || !directory || !serverDirectoryWindowComplete(directory, { servers: [...registry.collections.servers.base.values()], categories: [...registry.collections.categories.base.values()], channels: [...registry.collections.channels.base.values()] }, registry.accountId, serverId)) return undefined
     const channels = rows.channels.filter((channel) => (
-      channel.serverId === serverId && channel.type !== "thread"
+      channel.serverId === serverId && channel.type !== "thread" && (directory.channelIds.includes(channel.id) || channel.pending)
     ))
     const channelView = (channel: ChannelRow): Category["channels"][number] => ({
       id: channel.id,
       name: channel.name ?? "",
       active: false,
-      unread: channel.unread,
+      unread: attention.some((scope) => scope.serverId === serverId && (scope.channelId === channel.id || scope.parentChannelId === channel.id) && (scope.ordinaryUnread || scope.attentionCount > 0)),
       muted: channel.muted,
       type: channel.type === "forum" ? "forum" : "text",
       tags: channel.tags,
@@ -219,7 +235,7 @@ export function useServerTreeProjection(serverId: string | null) {
       pending: channel.pending,
     })
     const categories: Category[] = rows.categories
-      .filter((category) => category.serverId === serverId)
+      .filter((category) => category.serverId === serverId && (directory.categoryIds.includes(category.id) || category.pending))
       .sort((a, b) => a.position - b.position)
       .map((category) => ({
         id: category.id,
@@ -245,7 +261,7 @@ export function useServerTreeProjection(serverId: string | null) {
       ownerId: server.ownerId, categories,
     }
     return view
-  }, [ready, rows.servers, rows.categories, rows.channels, serverId])
+  }, [attention, ready, rows.servers, rows.categories, rows.channels, serverId, directory, registry])
 }
 
 export function useDmProjection() {
@@ -257,14 +273,13 @@ export function useDmProjection() {
     membership.relation === "access" && membership.userId !== registry?.accountId
   )).map((membership) => membership.userId), [channelMemberships, registry?.accountId])
   const profiles = useCollectionQuery("profiles", ({ row }) => inArray(row.id, userIds)).data
-  const readStates = useCollectionQuery("readStates", ({ row }) => inArray(row.channelId, channelIds)).data
-  const rows = { registry, channels, channelMemberships, profiles, readStates }
+  const attention = useAttentionScopes()
+  const rows = { registry, channels, channelMemberships, profiles }
   return useMemo(() => {
     const viewerId = rows.registry?.accountId
     if (!viewerId || !rows.channels || !rows.channelMemberships || !rows.profiles) return undefined
     const channelMemberships = rows.channelMemberships
     const profileById = new Map(rows.profiles.map((profile) => [profile.id, profile]))
-    const readStateByChannel = new Map((rows.readStates ?? []).map((state) => [state.channelId, state]))
     const result = sortDmsByActivity(rows.channels
       .filter((channel) => channel.type === "dm")
       .flatMap((channel): DM[] => {
@@ -276,7 +291,7 @@ export function useDmProjection() {
         if (!peerMembership) return []
         const profile = profileById.get(peerMembership.userId)
         if (!profile) return []
-        const readState = readStateByChannel.get(channel.id)
+        const scope = attention.find((scope) => scope.channelId === channel.id)
         return [{
           ...readCommunityProfile(profile, profile.id),
           id: channel.id,
@@ -284,14 +299,12 @@ export function useDmProjection() {
           status: "offline",
           preview: channel.preview ?? "",
           ...(channel.lastMessageAt ? { activityAt: channel.lastMessageAt } : {}),
-          unread: channel.unread,
-          ...(channel.lastUnreadSeq === undefined && !readState
-            ? {}
-            : { lastUnreadSeq: channel.lastUnreadSeq ?? readState?.lastReadSeq }),
+          unread: scope?.ordinaryUnread ?? false,
+          ...(scope ? { lastUnreadSeq: scope.lastUnreadSeq } : {}),
         }]
       }))
     return result
-  }, [rows.registry, rows.channels, rows.channelMemberships, rows.profiles, rows.readStates])
+  }, [attention, rows.registry, rows.channels, rows.channelMemberships, rows.profiles])
 }
 
 export function useRouteChannelProjection(channelId: string | null) {
@@ -387,6 +400,7 @@ export function useCanonicalProfilesProjection(userIds?: readonly string[]) {
   const previewProfiles = useCommunityPreviewProfiles()
   const projection = useCollectionQuery("profiles", ({ row }) => userIds === undefined ? eq(1, 1) : inArray(row.id, [...userIds]))
   const { registry } = projection
+  const resourceProfiles: ReadonlyMap<string, CommunityResourceProfile> = useMemo(() => new Map((projection.data ?? []).map(profile => [profile.id, profile])), [projection.data])
   const livePresence = useSelector(registry?.runtime.ws ?? absentPresence, (state) => previewProfiles ? null : userIds === undefined ? [...state.presenceByUserId] : userIds.map((id) => [id, state.presenceByUserId.get(id)] as const), { compare: (left, right) => left === right || (!!left && !!right && left.length === right.length && left.every(([id, presence], index) => id === right[index]?.[0] && presence === right[index]?.[1])) })
   const data: ReadonlyMap<string, CommunityProfile> = useMemo(() => {
     if (previewProfiles) return previewProfiles
@@ -402,7 +416,7 @@ export function useCanonicalProfilesProjection(userIds?: readonly string[]) {
     }
     return merged
   }, [projection.data, livePresence, previewProfiles])
-  return { ...projection, data, isReady: !!previewProfiles || projection.isReady, isError: !previewProfiles && projection.isError, isEnabled: !!previewProfiles || projection.isEnabled }
+  return { ...projection, data, resourceProfiles, isReady: !!previewProfiles || projection.isReady, isError: !previewProfiles && projection.isError, isEnabled: !!previewProfiles || projection.isEnabled }
 }
 
 export function useCanonicalProfilesByUserId(userIds?: readonly string[]): ReadonlyMap<string, CommunityProfile> {
@@ -414,12 +428,12 @@ export function getMemberReadState(
   transport: { pending: boolean; failed: boolean },
   projections: readonly { isReady: boolean; isError: boolean; isEnabled: boolean }[],
   userIds: readonly string[],
-  profiles: ReadonlyMap<string, CommunityProfile>,
+  profiles: ReadonlyMap<string, CommunityResourceProfile>,
 ) {
   if (!enabled) return { loading: false, failed: false }
   const failed = transport.failed || projections.some((projection) => projection.isError)
   const loading = !failed && (transport.pending || projections.some((projection) => !projection.isEnabled || !projection.isReady))
-  const missingProfile = !loading && userIds.some((id) => !profiles.get(id)?.name || !profiles.get(id)?.discriminator)
+  const missingProfile = !loading && userIds.some((id) => !profiles.has(id))
   return { loading, failed: failed || missingProfile }
 }
 
@@ -494,30 +508,36 @@ function useForumSidebarRows(serverId: string) {
   const messageProjection = useCollectionQuery("messages", ({ row }) => inArray(row.id, openerIds))
   const ready = serverProjection.isReady && channelProjection.isReady && membershipProjection.isReady && messageProjection.isReady
   return { registry: channelProjection.registry, ready, servers: serverProjection.data, channels,
-    channelMemberships: membershipProjection.data, messages: messageProjection.data }
+    channelMemberships: membershipProjection.data, messages: messageProjection.data, attention: useAttentionScopes() }
 }
 
 export function useForumSidebarProjection(serverId: string, retainId: string | null, serverNowMs: number | null) {
   const rows = useForumSidebarRows(serverId)
   return useMemo(() => {
     if (serverNowMs === null || !rows.ready || !rows.registry || !rows.channels || !rows.channelMemberships || !rows.messages) return undefined
-    return projectForumSidebar(rows.channels, rows.channelMemberships, rows.messages, rows.registry.accountId, serverId, retainId, serverNowMs)
-  }, [serverNowMs, rows.ready, rows.registry, rows.channels, rows.channelMemberships, rows.messages, serverId, retainId])
+    return projectForumSidebar(rows.channels, rows.channelMemberships, rows.messages, rows.registry.accountId, serverId, retainId, serverNowMs, rows.attention)
+  }, [rows.attention, serverNowMs, rows.ready, rows.registry, rows.channels, rows.channelMemberships, rows.messages, serverId, retainId])
 }
 
 export function useServerSidebarProjection(
   serverId: string, retainId: string | null, serverNowMs: number | null, window: ForumSidebarWindow | undefined, failed: boolean,
 ) {
   const server = useServerTreeProjection(serverId)
-  const { ready, registry, servers, channels, channelMemberships, messages } = useForumSidebarRows(serverId)
+  const { ready, registry, servers, channels, channelMemberships, messages, attention } = useForumSidebarRows(serverId)
   return useMemo(() => {
     if (serverNowMs === null || !ready || !registry || !servers || !channels || !channelMemberships || !messages) {
       return { server, projection: undefined, status: failed ? "error" as const : "pending" as const, needsRead: false }
     }
-    const complete = !!server && (!channels.some(row => row.type === "forum")
-      || !!window && forumSidebarWindowComplete(window, { servers, channels, channelMemberships, messages }, registry.accountId, serverId, retainId, serverNowMs))
-    const projection = projectForumSidebar(channels, channelMemberships, messages, registry.accountId, serverId, retainId, serverNowMs)
+    const complete = !!server && (!channels.some(row => supportsSidebarThreads(row.type))
+      || !!window && forumSidebarWindowComplete(window, { directory: getServerDirectoryWindow(registry, serverId), servers, channels, channelMemberships, messages }, registry.accountId, serverId, retainId, serverNowMs))
+    const projection = projectForumSidebar(channels, channelMemberships, messages, registry.accountId, serverId, retainId, serverNowMs, attention)
     return { server, projection, status: complete ? "ready" as const : failed ? "error" as const : "pending" as const,
       needsRead: !!server && !!window && !complete }
-  }, [server, serverNowMs, ready, registry, servers, channels, channelMemberships, messages, window, serverId, retainId, failed])
+  }, [attention, server, serverNowMs, ready, registry, servers, channels, channelMemberships, messages, window, serverId, retainId, failed])
+}
+
+export function useChannelReadStateProjection(channelId: string | null) {
+  const read = useCollectionQuery("readStates", ({ row }) => eq(row.channelId, channelId ?? ""), !!channelId)
+  const clock = useCollectionRows("readStateClock")
+  return { readState: read.data?.[0], hasSnapshot: (clock?.[0]?.revision ?? -1) >= 0 }
 }

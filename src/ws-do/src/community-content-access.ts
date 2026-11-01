@@ -5,7 +5,6 @@ type AccessKind = "channel" | "child-create" | "child-update" | "channel-create"
 export const communityContentAccessKinds = {
   "community:message.create": "channel",
   "community:message.updated": "channel",
-  "community:message.edited": "channel",
   "community:reaction.add": "channel",
   "community:reaction.remove": "channel",
   "community:pin.add": "channel",
@@ -19,10 +18,8 @@ export const communityContentAccessKinds = {
   "community:unread.bump": "notification",
   "community:mention.create": "mention",
   "community:channel.delete": "control",
-  "community:channel.member_remove": "control",
   "community:member.leave": "control",
   "community:server.delete": "control",
-  "community:channel.member_add": "control",
   "community:channel.membership.change": "control",
   "community:member.join": "control",
   "community:server.update": "control",
@@ -49,6 +46,7 @@ export const communityContentAccessKinds = {
   "community:machine.status": "control",
   "community:machine.updated": "control",
   "community:runtime.models": "control",
+  "community:bot.pii": "control",
   "community:machine.removed": "control",
   "community:bot.audit_event": "control",
 } as const satisfies Record<CommunityWsEvent["type"], AccessKind>
@@ -92,7 +90,6 @@ export async function canDeliverCommunityContent(
         scopes.push({ id: event.channel.id, serverId: event.serverId })
         break
       case "community:message.create":
-      case "community:message.edited":
         scopes.push({ id: event.channelId, serverId: event.serverId,
           parentChannelId: event.parentChannelId })
         break

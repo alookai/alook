@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const producerEnv = vi.hoisted(() => ({ COMMUNITY_EVENT_CONTRACT: "1" }))
+import { channelResourceFixture } from "@/test/community-resource-fixtures"
+
+const producerEnv = vi.hoisted(() => ({}))
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: () => ({ env: producerEnv, ctx: {} }) }))
 
 const mockCreateCommunityMessage = vi.fn()
@@ -70,19 +72,17 @@ import { createMessageWithThread, createThreadForUser, createServerChannelForUse
 describe("createServerChannelForUser producer contracts", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    producerEnv.COMMUNITY_EVENT_CONTRACT = "1"
     mockRequireServerMember.mockResolvedValue({ ok: true, value: { role: "owner" } })
   })
-  it.each([["1", false], ["1", true], ["3", false], ["3", true]] as const)("fans out contract %s only to the private=%s audience", async (contract, privateCategory) => {
-    producerEnv.COMMUNITY_EVENT_CONTRACT = contract
+  it.each([false, true])("fans out the current full resource only to the private=%s audience", async (privateCategory) => {
     const row = { id: "channel", type: "text", serverId: "server", name: "channel", categoryId: "category", topic: "Topic",
       parentChannelId: null, parentMessageId: null, creatorId: "viewer", position: 4, archived: 0, createdAt: "now", lastMessageAt: null, messageCount: 0 }
     mockGetCategory.mockResolvedValue({ id: "category", serverId: "server", private: privateCategory })
     mockCreateChannel.mockResolvedValue(row)
     const result = await createServerChannelForUser({} as never, { serverId: "server", actorUserId: "viewer", name: "channel", type: "text", categoryId: "category", topic: "Topic" })
-    const legacyChannel = { id: "channel", name: "channel", type: "text", categoryId: "category", topic: "Topic", position: 4, createdAt: "now" }
-    expect(result).toEqual({ ok: true, value: legacyChannel })
-    const event = { type: "community:channel.create", serverId: "server", channel: contract === "3" ? { ...row, archived: false } : legacyChannel }
+    const channel = { ...row, archived: false }
+    expect(result).toEqual({ ok: true, value: channel })
+    const event = { type: "community:channel.create", serverId: "server", channel }
     if (privateCategory) {
       expect(mockCreateChannelMember).toHaveBeenCalledWith(expect.anything(), { channelId: "channel", userId: "viewer", addedBy: "viewer" })
       expect(mockFanOutToChannel).toHaveBeenCalledExactlyOnceWith("channel", event)
@@ -92,7 +92,6 @@ describe("createServerChannelForUser producer contracts", () => {
       expect(mockFanOutToChannel).not.toHaveBeenCalled()
       expect(mockCreateChannelMember).not.toHaveBeenCalled()
     }
-    producerEnv.COMMUNITY_EVENT_CONTRACT = "1"
   })
 })
 
@@ -120,7 +119,7 @@ describe("createThreadForUser", () => {
       .mockResolvedValueOnce({ ok: true, value: {} })
     mockCreateChannel.mockImplementation(async () => {
       order.push("create")
-      return { id: "thread_1", name: "x".repeat(40), createdAt: "t0", creatorId: "cli_author" }
+      return { ...channelResourceFixture({ id: "thread_1", name: "x".repeat(40), createdAt: "t0", creatorId: "cli_author", type: "thread", serverId: "s1", parentChannelId: "parent_1", parentMessageId: "m1" }), archived: 0 }
     })
     mockAddThreadParticipants.mockImplementation(async () => {
       order.push("participants")

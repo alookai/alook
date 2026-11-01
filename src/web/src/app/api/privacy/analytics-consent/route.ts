@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextResponse, type NextRequest } from "next/server"
 import { queries } from "@alook/shared"
-import { withOptionalAuth } from "@/lib/middleware/auth"
+import { optionalAuthPolicy } from "@/lib/middleware/auth"
 import { getPrimaryDb } from "@/lib/db"
 import {
   ANALYTICS_CONSENT_COOKIE,
@@ -10,7 +11,6 @@ import {
   type AnalyticsConsentDecision,
 } from "@/lib/analytics-consent"
 import { createAnalyticsConsentProof } from "@/lib/analytics-consent-server"
-
 
 function sameOriginUrl(request: NextRequest): URL | null {
   const origin = request.headers.get("Origin")
@@ -37,7 +37,7 @@ function parseDecision(value: unknown): AnalyticsConsentDecision | null {
   return decision === "granted" || decision === "denied" ? decision : null
 }
 
-export const POST = withOptionalAuth(async (request, ctx) => {
+export const POST = withAuth(optionalAuthPolicy, async (request, ctx) => {
   const origin = sameOriginUrl(request)
   if (!origin) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 })

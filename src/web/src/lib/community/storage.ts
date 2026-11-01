@@ -1,3 +1,5 @@
+export { communityUserAvatarUrl as userAvatarUrl, communityBotAvatarUrl as botAvatarUrl, canonicalCommunityUserImage as canonicalUserImage } from "@alook/shared"
+
 export const ATTACHMENT_PRIVATE_IMMUTABLE_CACHE = "private, max-age=31536000, immutable"
 
 /**
@@ -52,11 +54,6 @@ export function isOwnedUserAvatarObjectKey(key: string, userId: string): boolean
   return suffix.length > 0 && !suffix.includes("/")
 }
 
-export function userAvatarUrl(userId: string, avatarVersion?: number): string {
-  const base = `/api/community/users/${userId}/avatar`
-  return avatarVersion && avatarVersion > 0 ? `${base}?v=${avatarVersion}` : base
-}
-
 export function buildBotAvatarKey(botId: string): string {
   return `bot-avatar/${botId}`
 }
@@ -69,22 +66,6 @@ export function isOwnedBotAvatarObjectKey(key: string, botId: string): boolean {
   const prefix = `${buildBotAvatarKey(botId)}/objects/`
   const suffix = key.startsWith(prefix) ? key.slice(prefix.length) : ""
   return suffix.length > 0 && !suffix.includes("/")
-}
-
-export function botAvatarUrl(botId: string, avatarVersion?: number): string {
-  const base = `/api/community/bots/${botId}/avatar`
-  return avatarVersion && avatarVersion > 0 ? `${base}?v=${avatarVersion}` : base
-}
-
-export function canonicalUserImage(
-  userId: string,
-  image: string | null,
-  avatarVersion: number,
-): string | null {
-  if (!image) return null
-  if (image === userAvatarUrl(userId)) return userAvatarUrl(userId, avatarVersion)
-  if (image === botAvatarUrl(userId)) return botAvatarUrl(userId, avatarVersion)
-  return image
 }
 
 /**

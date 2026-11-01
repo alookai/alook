@@ -31,24 +31,23 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
+  communityActorPolicy: () => ({ resolve: async (req: any) => {
+
     const bot = req.headers.get("authorization")?.startsWith("Bearer crk_")
-    return handler(req, {
+    return ({ context: {
       env: { DB: {} },
       actor: bot
         ? { kind: "bot", userId: "bot1", ownerUserId: "u1", machineId: "m1" }
         : { kind: "human", userId: "u1", email: "u@t.com" },
-      params,
-    })
-  }),
+
+    } })
+  } }),
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

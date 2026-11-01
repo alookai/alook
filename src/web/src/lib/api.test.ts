@@ -1,9 +1,16 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared";
+import { protectCommunityJsonResponse } from "./middleware/response-cache";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ApiError } from "./errors";
 import {
   beginAccountDeletionAuthTransition,
   cancelAccountDeletionAuthTransition,
 } from "./api/client";
+
+async function currentReply(status: number, body: unknown): Promise<Response> {
+  const request = new Request("https://alook.test/api/community/bots", { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } });
+  return protectCommunityJsonResponse(request, Response.json(body, { status }));
+}
 
 // Mock window globals needed by apiFetch
 Object.defineProperty(globalThis, "document", {
@@ -68,11 +75,7 @@ async function getApiFetch() {
 
 describe("apiFetch", () => {
   it("returns ApiError on 400 with { error } JSON body", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 400,
-      json: async () => ({ error: "name is required" }),
-    });
+    mockFetch.mockResolvedValueOnce(await currentReply(400, { error: "name is required" }));
 
     const { apiFetch } = await getApiFetch();
     try {
@@ -85,14 +88,10 @@ describe("apiFetch", () => {
   });
 
   it("propagates details on 400 with details array", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 400,
-      json: async () => ({
+    mockFetch.mockResolvedValueOnce(await currentReply(400, {
         error: "validation error",
         details: ["name: required", "email: invalid"],
-      }),
-    });
+      }));
 
     const { apiFetch } = await getApiFetch();
     try {
@@ -105,14 +104,10 @@ describe("apiFetch", () => {
   });
 
   it("turns validation details into a readable error message", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 400,
-      json: async () => ({
+    mockFetch.mockResolvedValueOnce(await currentReply(400, {
         error: "validation error",
         details: ["runtime_id: runtime_id is required"],
-      }),
-    });
+      }));
 
     const { apiFetch } = await getApiFetch();
     try {
@@ -139,11 +134,7 @@ describe("apiFetch", () => {
   });
 
   it("returns ApiError with 'Please wait' on 429", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 429,
-      json: async () => ({ error: "rate limited" }),
-    });
+    mockFetch.mockResolvedValueOnce(await currentReply(429, { error: "rate limited" }));
 
     const { apiFetch } = await getApiFetch();
     try {
@@ -157,11 +148,7 @@ describe("apiFetch", () => {
   });
 
   it("returns generic message on 500 with non-JSON body", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      json: async () => { throw new Error("not json"); },
-    });
+    mockFetch.mockResolvedValueOnce(new Response("gateway failure", { status: 500, headers: { "Content-Type": "text/plain" } }));
 
     const { apiFetch } = await getApiFetch();
     try {
@@ -174,11 +161,7 @@ describe("apiFetch", () => {
   });
 
   it("uses server error message on 500 with JSON body", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      json: async () => ({ error: "database connection failed" }),
-    });
+    mockFetch.mockResolvedValueOnce(await currentReply(500, { error: "database connection failed" }));
 
     const { apiFetch } = await getApiFetch();
     try {
@@ -190,11 +173,7 @@ describe("apiFetch", () => {
   });
 
   it("returns generic message on 502 with empty body", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 502,
-      json: async () => { throw new Error("empty"); },
-    });
+    mockFetch.mockResolvedValueOnce(new Response("gateway failure", { status: 502, headers: { "Content-Type": "text/plain" } }));
 
     const { apiFetch } = await getApiFetch();
     try {
@@ -207,11 +186,7 @@ describe("apiFetch", () => {
   });
 
   it("redirects on 401 and throws ApiError", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 401,
-      json: async () => ({ error: "unauthorized" }),
-    });
+    mockFetch.mockResolvedValueOnce(await currentReply(401, { error: "unauthorized" }));
 
     const { apiFetch } = await getApiFetch();
     try {
@@ -226,11 +201,7 @@ describe("apiFetch", () => {
   });
 
   it("does not let an in-flight 401 replace the account-deletion navigation", async () => {
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 401,
-      json: async () => ({ error: "unauthorized" }),
-    });
+    mockFetch.mockResolvedValue(await currentReply(401, { error: "unauthorized" }));
 
     const { apiFetch } = await getApiFetch();
     beginAccountDeletionAuthTransition();
@@ -259,11 +230,7 @@ describe("apiFetch — mock network delay", () => {
     process.env.NEXT_PUBLIC_MOCK_NETWORK = "true";
     vi.resetModules();
 
-    const localMockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => [{ id: "a1" }],
-    });
+    const localMockFetch = vi.fn().mockResolvedValue(await currentReply(200, [{ id: "a1" }]));
     vi.stubGlobal("fetch", localMockFetch);
 
     const { apiFetch } = await import("./api/client");
@@ -282,11 +249,7 @@ describe("apiFetch — mock network delay", () => {
     vi.useFakeTimers();
     vi.resetModules();
 
-    const localMockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => [{ id: "a1" }],
-    });
+    const localMockFetch = vi.fn().mockResolvedValue(await currentReply(200, [{ id: "a1" }]));
     vi.stubGlobal("fetch", localMockFetch);
 
     const { apiFetch } = await import("./api/client");
@@ -306,11 +269,7 @@ describe("apiFetch — mock network delay", () => {
     process.env.NEXT_PUBLIC_MOCK_NETWORK_DELAY_MS = "500";
     vi.resetModules();
 
-    const localMockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => [{ id: "a1" }],
-    });
+    const localMockFetch = vi.fn().mockResolvedValue(await currentReply(200, [{ id: "a1" }]));
     vi.stubGlobal("fetch", localMockFetch);
 
     const { apiFetch } = await import("./api/client");

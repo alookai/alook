@@ -1,3 +1,5 @@
+import { isServerDirectoryWindowKey, readServerDirectoryWindow, serverDirectoryWindowComplete, type ServerDirectoryWindow } from "@/lib/community/server-directory-window"
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { forumSidebarWindowComplete, isForumSidebarWindowKey, readForumSidebarWindowResult } from "@/lib/community/forum-sidebar-window"
 import { messageProfileIds, type Msg } from "@/lib/community/models/message"
 import { clearLegacyChatCaches, getLegacyChatCacheSizeBytes } from "@/lib/legacy-chat-persistence"
@@ -9,7 +11,7 @@ import type {
   PersistedClient,
   Persister,
 } from "@tanstack/react-query-persist-client"
-import { createStore, promisifyRequest } from "idb-keyval"
+import { createStore, get, promisifyRequest } from "idb-keyval"
 import { isCommunityListResourceKey, persistentCommunityListResource } from "@/lib/community/list-persistence"
 import {
   communityCollectionSchemas,
@@ -17,9 +19,10 @@ import {
   type CommunityCollectionRows,
 } from "@/lib/community-db/schema"
 
-export const PERSIST_VERSION = 6
+export const PERSIST_VERSION = BUSINESS_SCHEMA_VERSION
 export const PERSIST_BUSTER = String(PERSIST_VERSION)
-export const PERSIST_CACHE_PREFIX = "alook:qc:cache"
+export const PERSIST_CACHE_PREFIX = `alook:business:v${BUSINESS_SCHEMA_VERSION}`
+export const PERSIST_ACCOUNT_PREFIX = "alook:qc:cache"
 const IDB_PREFIX = PERSIST_CACHE_PREFIX
 
 /** Persister max-age; queries older than this are discarded on restore. */
@@ -40,7 +43,7 @@ function isCommunityDbCollectionKey(queryKey: readonly unknown[]): boolean {
 }
 
 export function shouldPersistQueryKey(queryKey: readonly unknown[]): boolean {
-  return isCommunityDbCollectionKey(queryKey) || isCommunityListResourceKey(queryKey) || isForumSidebarWindowKey(queryKey)
+  return isCommunityDbCollectionKey(queryKey) || isCommunityListResourceKey(queryKey) || isForumSidebarWindowKey(queryKey) || isServerDirectoryWindowKey(queryKey)
 }
 
 export function shouldPersistQuery(
@@ -48,6 +51,7 @@ export function shouldPersistQuery(
   data: unknown,
 ): boolean {
   return isCommunityDbCollectionKey(queryKey) || persistentCommunityListResource(queryKey, data) !== undefined
+    || isServerDirectoryWindowKey(queryKey) && readServerDirectoryWindow(data)?.serverId === queryKey[2]
     || isForumSidebarWindowKey(queryKey) && readForumSidebarWindowResult(data)?.window.serverId === queryKey[2]
 }
 
@@ -70,8 +74,7 @@ export function readCommunityRestoredCollections(snapshot: PersistedClient | und
     if (!schema) continue
     const parsed = schema.array().safeParse(query.state.data)
     if (!parsed.success) continue
-    const rows = name === "servers" ? parsed.data.map((row, position) => ({ ...row, position: (row as CommunityCollectionRows["servers"]).position ?? position })) : parsed.data
-    Object.assign(collections, { [name]: { rows, updatedAt: query.state.dataUpdatedAt } })
+    Object.assign(collections, { [name]: { rows: parsed.data, updatedAt: query.state.dataUpdatedAt } })
   }
   return collections
 }
@@ -132,7 +135,7 @@ function scrubDehydratedClient(
     const fence = retired.get(row.id)
     if (!fence) return [row]
     return row.type === "dm" && !fence.deleted
-      ? [{ ...row, preview: "", unread: false, baseUnread: false, lastUnreadSeq: undefined }]
+      ? [{ ...row, preview: "" }]
       : []
   })
   const attentionScopes = rows("attentionScopes").filter((row) => !retired.has(row.channelId))
@@ -231,6 +234,15 @@ function scrubDehydratedClient(
     const data = windowed[collectionName]
     if (data) queries.push({ ...q, state: { ...q.state, data } })
   }
+  const qualifiedDirectories = new Map<string, ServerDirectoryWindow>()
+  for (const q of client.clientState.queries) {
+    if (!userId || !isServerDirectoryWindowKey(q.queryKey)) continue
+    const directory = readServerDirectoryWindow(q.state.data)
+    if (!directory || directory.serverId !== q.queryKey[2] || directory.channelIds.some(id => retired.has(id))
+      || !serverDirectoryWindowComplete(directory, { servers: rows("servers"), categories: rows("categories"), channels: retainedChannels }, userId, directory.serverId)) continue
+    qualifiedDirectories.set(directory.serverId, directory)
+    queries.push({ ...q, state: { ...q.state, data: directory } })
+  }
   const retiredServerIds = new Set(rows("channels").filter(row => retired.has(row.id)).map(row => row.serverId))
   for (const q of client.clientState.queries) {
     if (!userId || !isForumSidebarWindowKey(q.queryKey)) continue
@@ -238,7 +250,7 @@ function scrubDehydratedClient(
     if (!data || data.window.serverId !== q.queryKey[2] || retiredServerIds.has(data.window.serverId)
       || data.window.parents.some(id => retired.has(id))
       || [...data.window.base, ...(data.window.retained?.disposition === "eligible" ? [data.window.retained.reference] : [])].some(row => retired.has(row.id) || retired.has(row.parentChannelId))
-      || !forumSidebarWindowComplete(data.window, { servers: rows("servers"), channels: retainedChannels, channelMemberships: retainedChannelMemberships, messages: retainedMessages }, userId, data.window.serverId, null, Date.now() + data.serverClockOffsetMs)) continue
+      || !forumSidebarWindowComplete(data.window, { directory: qualifiedDirectories.get(data.window.serverId), servers: rows("servers"), channels: retainedChannels, channelMemberships: retainedChannelMemberships, messages: retainedMessages }, userId, data.window.serverId, null, Date.now() + data.serverClockOffsetMs)) continue
     queries.push({ ...q, state: { ...q.state, data, status: "success", error: null, errorUpdatedAt: 0,
       errorUpdateCount: 0, isInvalidated: true, fetchFailureCount: 0, fetchFailureReason: null, fetchStatus: "idle", fetchMeta: null } })
   }
@@ -267,7 +279,7 @@ function blobKeyFor(userId: string | null, domain: PersistDomain = "community"):
 }
 
 function isPersistedCacheBlobKey(key: IDBValidKey): key is string {
-  return typeof key === "string" && /^alook:qc:[^:]+:[^:]+(?::application)?:client$/.test(key)
+  return typeof key === "string" && /^alook:(?:qc:[^:]+|business:v\d+):[^:]+(?::application)?:client$/.test(key)
 }
 
 export function formatBytes(bytes: number): string {
@@ -287,7 +299,7 @@ export function formatBytes(bytes: number): string {
 const cacheStore = createStore("keyval-store", "keyval")
 const DEVICE_EPOCH_KEY = "alook:qc:device-epoch"
 const scopeEpochKey = (key: string) => `${key}:epoch`
-const accountEpochKey = (userId: string | null) => `${namespaceFor(userId)}:account-epoch`
+const accountEpochKey = (userId: string | null) => `${PERSIST_ACCOUNT_PREFIX}:${userId ?? "anon"}:account-epoch`
 type ChannelDiskFence = { epoch: string; deleted: boolean }
 type PersistEligibility = { device: string; scope: string; account: string; channels: Map<string, ChannelDiskFence> }
 const channelFenceKey = (userId: string | null) => `${accountEpochKey(userId)}:channels`
@@ -301,11 +313,11 @@ function changedChannelFences(current: Map<string, ChannelDiskFence>, expected: 
 function decodeDiskSnapshot(raw: unknown) {
   try {
     if (typeof raw !== "string") return undefined
-    const { version, channelFences, ...snapshot } = JSON.parse(raw) as PersistedClient & { version?: unknown; channelFences?: unknown }
-    if (version !== PERSIST_VERSION || snapshot.buster !== PERSIST_BUSTER || !Array.isArray(channelFences)
+    const { version, channelFences, ownerEpochs, ...snapshot } = JSON.parse(raw) as PersistedClient & { version?: unknown; channelFences?: unknown; ownerEpochs?: { device?: unknown; account?: unknown } }
+    if (version !== PERSIST_VERSION || snapshot.buster !== PERSIST_BUSTER || !ownerEpochs || !isEpoch(ownerEpochs.device) || !isEpoch(ownerEpochs.account) || !Array.isArray(channelFences)
       || !channelFences.every((entry) => Array.isArray(entry) && entry.length === 2)) return undefined
     const fences = new Map(channelFences)
-    return isChannelFences(fences) ? { snapshot, fences } : undefined
+    return isChannelFences(fences) ? { snapshot, fences, ownerEpochs: { device: ownerEpochs.device, account: ownerEpochs.account } } : undefined
   } catch { return undefined }
 }
 
@@ -337,6 +349,10 @@ async function cacheTransaction<T>(
   })
 }
 
+export function preparePersistedCache(): Promise<void> {
+  return cacheTransaction("readonly", async () => undefined)
+}
+
 async function readEligibility(store: IDBObjectStore, key: string, userId: string | null) {
   const [device, scope, account, channels] = await Promise.all([
     promisifyRequest<unknown>(store.get(DEVICE_EPOCH_KEY)),
@@ -350,7 +366,7 @@ async function readEligibility(store: IDBObjectStore, key: string, userId: strin
 // Qualification starts when the account owner is created, before restore or
 // any throttled persistence. Missing/corrupt eligibility never revives an old
 // writer or trusts its payload; generation tombstones survive payload removal.
-function qualifyPersister(key: string, userId: string | null): Promise<PersistEligibility> {
+function qualifyPersister(key: string, userId: string | null, captureSnapshot: (raw: string, decoded: NonNullable<ReturnType<typeof decodeDiskSnapshot>>) => void): Promise<PersistEligibility> {
   return cacheTransaction("readwrite", async (store) => {
     await clearAccountRows(store, userId, true)
     const raw = await promisifyRequest<unknown>(store.get(key))
@@ -360,7 +376,8 @@ function qualifyPersister(key: string, userId: string | null): Promise<PersistEl
     const account = intact ? current.account as string : crypto.randomUUID()
     const channels = intact ? current.channels as Map<string, ChannelDiskFence> : new Map<string, ChannelDiskFence>()
     const currentScope = communityScopeEpoch(current.scope)
-    const compatiblePayload = raw === undefined || Boolean(decodeDiskSnapshot(raw))
+    const decoded = decodeDiskSnapshot(raw)
+    const compatiblePayload = raw === undefined || Boolean(decoded && decoded.ownerEpochs.device === device && decoded.ownerEpochs.account === account)
     let scope = currentScope && compatiblePayload ? currentScope : crypto.randomUUID()
     if (!intact) {
       for (const domain of ["community", "application"] as const) {
@@ -376,6 +393,7 @@ function qualifyPersister(key: string, userId: string | null): Promise<PersistEl
     if (!isEpoch(current.device) || !currentScope || !compatiblePayload) store.delete(key)
     if (!isEpoch(current.device)) store.put(device, DEVICE_EPOCH_KEY)
     store.put({ version: PERSIST_VERSION, epoch: scope }, scopeEpochKey(key))
+    if (intact && isEpoch(current.device) && currentScope && compatiblePayload && decoded && typeof raw === "string") captureSnapshot(raw, decoded)
     return { device, scope, account, channels }
   })
 }
@@ -399,21 +417,21 @@ async function withEligiblePersister<T>(
 /** Native TanStack persister, qualified against durable device/account epochs. */
 export function createIdbPersister(userId: string | null): QualifiedPersister {
   const key = blobKeyFor(userId)
-  const eligibility = qualifyPersister(key, userId)
+  let initialSnapshot: { raw: string; decoded: NonNullable<ReturnType<typeof decodeDiskSnapshot>> } | undefined
+  let captureInitialSnapshot = true
+  const discardInitialSnapshot = () => { captureInitialSnapshot = false; initialSnapshot = undefined }
+  const eligibility = qualifyPersister(key, userId, (raw, decoded) => { if (captureInitialSnapshot) initialSnapshot = { raw, decoded } })
   // An unavailable IDB must also fail restore through the provider's onError;
   // attach a handler immediately so qualification cannot reject unobserved.
   void eligibility.catch(() => undefined)
-  const persister = createAsyncStoragePersister({
+  const writer = createAsyncStoragePersister({
     storage: {
-      getItem: () => observeRestoreRead(() => withEligiblePersister(key, userId, eligibility, "readwrite", null, async (store, current) => {
-        const decoded = decodeDiskSnapshot(await promisifyRequest<unknown>(store.get(key)))
-        if (!decoded) store.delete(key)
-        return decoded ? JSON.stringify(scrubDehydratedClient(decoded.snapshot, userId, changedChannelFences(current, decoded.fences))) : null
-      }), persister),
+      getItem: (get<string>).bind(undefined, key, cacheStore),
       setItem: (_k: string, value: string) => withEligiblePersister(
         key, userId, eligibility, "readwrite", undefined, async (store, current, expected) => {
           const snapshot = scrubDehydratedClient(JSON.parse(value) as PersistedClient, userId, changedChannelFences(current, expected))
-          store.put(JSON.stringify({ ...snapshot, version: PERSIST_VERSION, channelFences: [...current] }), key)
+          const { device, account } = await eligibility
+          store.put(JSON.stringify({ ...snapshot, version: PERSIST_VERSION, ownerEpochs: { device, account }, channelFences: [...current] }), key)
         },
       ),
       // Expiry/buster removal removes only this payload. It does not retire
@@ -424,12 +442,32 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
     },
     key: "alook-query-cache",
     serialize: (client) => JSON.stringify(scrubDehydratedClient(client, userId)),
-    deserialize: (raw) => observeRestoreDecode(persister, () => scrubDehydratedClient(JSON.parse(raw) as PersistedClient, userId), PERSIST_BUSTER, PERSIST_MAX_AGE_MS),
   })
+  const persister: Persister = {
+    persistClient: (client) => { discardInitialSnapshot(); return writer.persistClient(client) },
+    restoreClient: async () => {
+      try {
+        const input = await observeRestoreRead(() => withEligiblePersister(key, userId, eligibility, "readwrite", undefined, async (store, current) => {
+          const raw = await promisifyRequest<unknown>(store.get(key))
+          const decoded = initialSnapshot && initialSnapshot.raw === raw ? initialSnapshot.decoded : decodeDiskSnapshot(raw)
+          discardInitialSnapshot()
+          const expected = await eligibility
+          if (!decoded || decoded.ownerEpochs.device !== expected.device || decoded.ownerEpochs.account !== expected.account) { store.delete(key); return undefined }
+          return { ...decoded, retired: changedChannelFences(current, decoded.fences) }
+        }), persister)
+        return input && observeRestoreDecode(persister, () => scrubDehydratedClient(input.snapshot, userId, input.retired), PERSIST_BUSTER, PERSIST_MAX_AGE_MS)
+      } finally { discardInitialSnapshot() }
+    },
+    removeClient: () => { discardInitialSnapshot(); return writer.removeClient() },
+  }
   return Object.assign(persister, {
     isCurrent: () => withEligiblePersister(key, userId, eligibility, "readonly", false, async () => true),
-    retireChannels: (ids: Iterable<string>, deleted = false) => withEligiblePersister(key, userId, eligibility, "readwrite", undefined, (store, current) => retireChannelRows(store, key, userId, current, ids, deleted)),
+    retireChannels: (ids: Iterable<string>, deleted = false) => {
+      discardInitialSnapshot()
+      return withEligiblePersister(key, userId, eligibility, "readwrite", undefined, (store, current) => retireChannelRows(store, key, userId, current, ids, deleted))
+    },
     retireAccount: async () => {
+      discardInitialSnapshot()
       const retired = await withEligiblePersister(key, userId, eligibility, "readwrite", false, async (store) => { await clearAccountRows(store, userId); return true })
       if (retired) publishCacheInvalidation()
     },
@@ -447,16 +485,21 @@ async function clearAccountRows(store: IDBObjectStore, userId: string | null, le
     }
   }
   await new Promise<void>((resolve, reject) => {
-    const request = store.openCursor()
+    const request = store.openKeyCursor()
     request.onerror = () => reject(request.error)
     request.onsuccess = () => {
       const cursor = request.result
       if (!cursor) { resolve(); return }
-      const match = typeof cursor.key === "string" && /^(alook:qc:[^:]+):([^:]+):((?:application:)?client(?::epoch)?|account-epoch(?::channels)?)$/.exec(cursor.key)
-      if (match && match[2] === (userId ?? "anon") && (!legacyOnly || match[1] !== IDB_PREFIX)) {
-        if (match[3] === "account-epoch:channels") cursor.update(new Map())
-        else if (match[3]?.endsWith("epoch")) cursor.update(crypto.randomUUID())
-        else cursor.delete()
+      const match = typeof cursor.key === "string" && /^(alook:(?:qc:[^:]+|business:v[1-9]\d*)):([^:]+):((?:application:)?client(?::epoch)?|account-epoch(?::channels)?)$/.exec(cursor.key)
+      if (match && match[2] === (userId ?? "anon")) {
+        const version = /^alook:(?:business|qc):v([1-9]\d*)$/.exec(match[1])
+        const older = match[1] === PERSIST_ACCOUNT_PREFIX || Boolean(version && Number.isSafeInteger(Number(version[1])) && Number(version[1]) < PERSIST_VERSION)
+        const payload = match[3].startsWith("client") || match[3].startsWith("application:client")
+        if (legacyOnly ? older && payload : older || match[1] === IDB_PREFIX) {
+          if (match[3] === "account-epoch:channels") store.put(new Map(), cursor.key)
+          else if (match[3].endsWith("epoch")) store.put(crypto.randomUUID(), cursor.key)
+          else store.delete(cursor.key)
+        }
       }
       cursor.continue()
     }
@@ -473,7 +516,7 @@ async function retireChannelRows(store: IDBObjectStore, key: string, userId: str
   const decoded = decodeDiskSnapshot(await promisifyRequest<unknown>(store.get(key)))
   if (decoded) {
     const snapshot = scrubDehydratedClient(decoded.snapshot, userId, changedChannelFences(fences, decoded.fences))
-    store.put(JSON.stringify({ ...snapshot, version: PERSIST_VERSION, channelFences: [...fences] }), key)
+    store.put(JSON.stringify({ ...snapshot, version: PERSIST_VERSION, ownerEpochs: decoded.ownerEpochs, channelFences: [...fences] }), key)
   } else store.delete(key)
 }
 

@@ -21,13 +21,13 @@ vi.mock("@alook/shared", async () => {
 })
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+  humanAuthPolicy: { resolve: async (req: any) => {
     const env = {
       DB: {},
       WS_DO_WORKER: { fetch: (...a: unknown[]) => mockWsDoWorkerFetch(...a) },
     }
-    return handler(req, { env, userId: "u1", email: "u@t.com", params: ctx?.params })
-  }),
+    return ({ context: { env, userId: "u1", email: "u@t.com" } })
+  } },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

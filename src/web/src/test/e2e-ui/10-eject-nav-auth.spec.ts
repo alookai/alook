@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { expectPublicCommunityDocument } from "./_fixtures/community-ssr-frame"
 import { test, expect } from "./_fixtures/case-fixture"
 
@@ -55,7 +56,7 @@ test.describe("eject, navigation & logout", () => {
     const publicDocumentResponse = await page.request.get("/c", { maxRedirects: 0 })
     expect(publicDocumentResponse.status()).toBe(200)
     expectPublicCommunityDocument(await publicDocumentResponse.text())
-    const protectedResponse = await page.request.get("/api/community/servers", { maxRedirects: 0 })
+    const protectedResponse = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/servers", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, maxRedirects: 0 }))
     expect(protectedResponse.status()).toBe(401)
     await page.goto("/c")
     await expect(page).toHaveURL(/\/sign-in\?redirect=%2Fc$/)

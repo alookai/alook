@@ -5,6 +5,7 @@ import { Drawer as SheetPrimitive } from "@base-ui/react/drawer"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { AppEdgeFade, appBackdropClassName } from "./app-edge-fade"
 import { XIcon } from "lucide-react"
 import { SwipeRoot, SwipeViewport, SwipePopup, SwipeBackdrop, type SwipeRootProps } from "./swipe-container"
 import type { SwipeDirection } from "./swipe-gesture-policy"
@@ -28,16 +29,20 @@ function SheetPortal({ ...props }: SheetPrimitive.Portal.Props) {
   return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />
 }
 
-function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
+function SheetOverlay({ className, children, ...props }: SheetPrimitive.Backdrop.Props) {
   return (
     <SwipeBackdrop
       data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-black/20 backdrop-blur-[2px] transition-[opacity,backdrop-filter] duration-200 ease-out data-ending-style:opacity-0 data-ending-style:backdrop-blur-none data-starting-style:opacity-0 data-starting-style:backdrop-blur-none",
+        appBackdropClassName,
+        "fixed inset-0 z-50 transition-[opacity,backdrop-filter] duration-200 ease-out data-ending-style:opacity-0 data-ending-style:backdrop-blur-none data-starting-style:opacity-0 data-starting-style:backdrop-blur-none",
         className
       )}
       {...props}
-    />
+    >
+      <AppEdgeFade />
+      {children}
+    </SwipeBackdrop>
   )
 }
 

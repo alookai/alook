@@ -66,7 +66,7 @@ describe("groupAttachments", () => {
   it("retains file dimensions while formatting them only for the read view", () => {
     const raw = groupAttachments([{ id: "att1", messageId: "m1", targetId: "c1", filename: "a.pdf", r2Key: "key", contentType: "application/pdf", size: 2048, width: 1920, height: 1080 }]).m1![0]!
     expect(raw).toMatchObject({ id: "att1", width: 1920, height: 1080, sizeBytes: 2048, thumbnailUrl: null })
-    expect(presentMessageAttachment(raw)).toEqual({ kind: "file", name: "a.pdf", url: "/api/community/channels/c1/attachments/att1", contentType: "application/pdf", sizeBytes: 2048, size: "2.0 KB" })
+    expect(presentMessageAttachment(raw)).toEqual({ id: "att1", kind: "file", name: "a.pdf", url: "/api/community/channels/c1/attachments/att1", contentType: "application/pdf", sizeBytes: 2048, size: "2.0 KB" })
   })
 
   it.each(["image/svg+xml", "image/x-forged"])("preserves unsafe %s metadata and renders a file", (contentType) => {

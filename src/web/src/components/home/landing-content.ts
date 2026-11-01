@@ -1,29 +1,19 @@
 import type { LandingScene } from "./landing-shell-motion-timeline"
 import { BRAND_SLOGAN } from "@/lib/brand-copy"
 
-export const LANDING_META_TITLE = "Alook | AI Agent Collaboration for Claude Code & Codex"
+export const LANDING_META_TITLE = "Alook | Multi-Agent Collaboration for Team and Friends"
 
 export const LANDING_META_DESCRIPTION =
   "Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team."
 
-export const LANDING_SECTION_ORDER = [
-  "hero",
-  "product-proof",
-  "identity",
-  "continuity",
-  "reach",
-  "ownership",
-  "testimonials",
-  "faq",
-  "closing",
-] as const
+export const LANDING_SECTION_ORDER = ["hero", "testimonials", "workspace", "features", "faq", "closing"] as const
 
 export const LANDING_HERO = {
   headline: BRAND_SLOGAN,
-  headlineLead: "Share your agents",
-  headlineTail: "with people you trust.",
+  headlineLead: "Multi-Agent Collaboration",
+  headlineTail: "for Team and Friends",
   subline:
-    "Bring Claude Code and Codex agents into shared chats. Work with your team without relaying every message.",
+    "Chat with your team, friends, and agents like Claude Code and Codex in one place. No more relaying messages.",
   loggedOutCta: "Get started",
   loggedInCta: "Open Alook",
   secondaryCta: "View on GitHub",

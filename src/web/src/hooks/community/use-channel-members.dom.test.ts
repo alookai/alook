@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, CommunityMembersReadSchema, type CommunityMemberRelation, type CommunityResourceProfile } from "@alook/shared"
 import { createElement, type PropsWithChildren } from "react"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
@@ -5,6 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { PARTICIPANT_SOURCE } from "@alook/shared/constants/community"
 import { channelMembershipKey, profileSchema, serverMembershipKey } from "@/lib/community-db/schema"
+
+const profile = (id: string, name: string, discriminator = "0042", avatarVersion = 0): CommunityResourceProfile => ({ id, name, discriminator, avatar: name[0], avatarVersion })
+const relationRow = (channelId: string, userId: string, relation: CommunityMemberRelation["relation"] = "access", source: CommunityMemberRelation["source"] = "explicit", role: string | null = "member", memberId: string | null = `membership_${userId}`, isCreator = false): CommunityMemberRelation => ({ channelId, userId, relation, source, role, memberId, isCreator })
+const roster = (channelId: string, relation: CommunityMemberRelation["relation"], members: CommunityMemberRelation[], profiles: CommunityResourceProfile[]) => CommunityMembersReadSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId, relation, members, profiles })
 
 const apiFetchMock = vi.fn()
 
@@ -21,14 +26,14 @@ describe("useChannelMembers", () => {
     const { useChannelMembers } = await import("./use-channel-members")
     const { publishCommunityChannelMembersSnapshot, captureCommunityLiveSnapshotToken } = await import("@/lib/community-db/sync")
     const owner = await createCommunityQueryOwner()
-    const peer = { id: "m-peer", userId: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 0, sub: "", role: "member", status: "offline", source: "explicit", isCreator: false }
-    publishCommunityChannelMembersSnapshot(owner.client, "server", "private", "access", [{ channelId: "private", userId: "peer", relation: "access", memberId: "m-peer", role: "member", source: "explicit", isCreator: false }], { token: captureCommunityLiveSnapshotToken(owner.client) }, [{ id: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 0 }])
+    const peer = relationRow("private", "peer", "access", "explicit", "member", "m-peer")
+    publishCommunityChannelMembersSnapshot(owner.client, "server", "private", "access", [peer], { token: captureCommunityLiveSnapshotToken(owner.client) }, [profile("peer", "Peer")])
     apiFetchMock.mockRejectedValue(new Error("controlled first read failure"))
     const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client }, children)
     const rendered = renderHook(() => useChannelMembers("private", true, "server", "access"), { wrapper })
     await waitFor(() => expect(rendered.result.current).toMatchObject({ isError: true, failed: true, members: [expect.objectContaining({ userId: "peer", discriminator: "0042" })] }))
     expect(rendered.result.current.data).toBeUndefined()
-    apiFetchMock.mockResolvedValue({ members: [peer] })
+    apiFetchMock.mockResolvedValue(roster("private", "access", [peer], [profile("peer", "Peer")]))
     await act(async () => { await rendered.result.current.refetch() })
     await waitFor(() => expect(rendered.result.current).toMatchObject({ isSuccess: true, loading: false, failed: false, members: [expect.objectContaining({ userId: "peer" })] }))
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
@@ -36,11 +41,11 @@ describe("useChannelMembers", () => {
   it("separates missing usable profiles from true empty and withdraws disabled access candidates", async () => {
     const { useChannelMembers } = await import("./use-channel-members")
     const owner = await createCommunityQueryOwner()
-    apiFetchMock.mockResolvedValue({ members: [{ id: "m-peer", userId: "peer", name: "Peer", discriminator: "", avatar: "P", avatarVersion: 0, sub: "", role: "member", status: "offline", source: "explicit", isCreator: false }] })
+    apiFetchMock.mockResolvedValue(roster("private", "access", [relationRow("private", "peer", "access", "explicit", "member", "m-peer")], []))
     const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client }, children)
     const rendered = renderHook(({ enabled }) => useChannelMembers("private", enabled, "server", "access"), { wrapper, initialProps: { enabled: true } })
     await waitFor(() => expect(rendered.result.current).toMatchObject({ isSuccess: true, loading: false, failed: true }))
-    await act(async () => owner.registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ identityComplete: false, id: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 0 })))
+    await act(async () => owner.registry.collections.profiles.utils.writeUpsert(profileSchema.parse(profile("peer", "Peer"))))
     await waitFor(() => expect(rendered.result.current).toMatchObject({ loading: false, failed: false, members: [expect.objectContaining({ userId: "peer", discriminator: "0042" })] }))
     expect(rendered.result.current.profiles.get("peer")?.discriminator).toBe("0042")
     await act(async () => owner.registry.collections.serverMemberships.utils.writeDelete(serverMembershipKey("server", "peer")))
@@ -51,23 +56,7 @@ describe("useChannelMembers", () => {
     expect(apiFetchMock).toHaveBeenCalledOnce()
   })
   it("fetches the roster through the identity-aware query function", async () => {
-    apiFetchMock.mockResolvedValue({
-      members: [{
-        id: "membership_1",
-        userId: "member_1",
-        name: "Alice",
-        discriminator: "0042",
-        avatar: "A",
-        avatarVersion: 4,
-        sub: "",
-        role: "member",
-        status: "offline",
-        statusEmoji: null,
-        statusText: "",
-        source: "explicit",
-        isCreator: false,
-      }],
-    })
+    apiFetchMock.mockResolvedValue(roster("private/channel", "access", [relationRow("private/channel", "member_1", "access", "explicit", "member", "membership_1")], [profile("member_1", "Alice", "0042", 4)]))
     const { useChannelMembers } = await import("./use-channel-members")
     const queryClient = (await createCommunityQueryOwner()).client
     const wrapper = ({ children }: PropsWithChildren) => createElement(
@@ -91,7 +80,7 @@ describe("useChannelMembers", () => {
     const { publishCommunityChannelMetadata, captureCommunityLiveSnapshotToken } = await import("@/lib/community-db/sync")
     const owner = await createCommunityQueryOwner()
     publishCommunityChannelMetadata(owner.client, { metadata: { categoryId: null, topic: "", position: 0, messageCount: 0, createdAt: "2026-10-01T00:00:00Z", id: "dm", serverId: null, name: null, type: "dm", parentChannelId: null, parentMessageId: null, creatorId: null, archived: false, lastMessageAt: null }, proof: { token: captureCommunityLiveSnapshotToken(owner.client) } })
-    apiFetchMock.mockResolvedValue({ members: ["viewer", "peer"].map((userId) => ({ id: userId, userId, name: userId, discriminator: "0001", avatar: "", avatarVersion: 0, sub: "", role: null, status: "offline", statusEmoji: null, statusText: "", source: "explicit", isCreator: false })) })
+    apiFetchMock.mockResolvedValue(roster("dm", "access", ["viewer", "peer"].map(userId => relationRow("dm", userId, "access", "explicit", null, null)), [profile("viewer", "viewer", "0001"), profile("peer", "peer", "0001")]))
     const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client }, children)
     const rendered = renderHook(() => useChannelMembers("dm", true, undefined, "access"), { wrapper })
     await waitFor(() => expect(rendered.result.current.members).toHaveLength(2))
@@ -109,17 +98,13 @@ describe("useChannelMembers", () => {
       const wrapper = ({ children }: PropsWithChildren) => createElement(
         QueryClientProvider, { client: owner.client }, children,
       )
-      const member = (userId: string, name: string) => ({
-        id: `membership_${userId}`, userId, name, discriminator: "0042", avatar: name,
-        avatarVersion: 0, sub: "", role: "member", status: "offline", statusEmoji: null,
-        statusText: "", isCreator: userId === "viewer",
-      })
+      const profiles = [profile("viewer", "Viewer"), profile("bob", "Bob"), profile("carol", "Carol")]
       const parentMembers = [
-        { ...member("viewer", "Viewer"), role: "owner", source: "admin" },
-        { ...member("bob", "Bob"), source: "explicit" },
-        { ...member("carol", "Carol"), source: "inherited" },
+        relationRow("parent", "viewer", "access", "admin", "owner", "membership_viewer", true),
+        relationRow("parent", "bob", "access", "explicit"),
+        relationRow("parent", "carol", "access", "inherited"),
       ]
-      const participants = parentMembers.slice(0, 2).map((row) => ({ ...row, source }))
+      const participants = parentMembers.slice(0, 2).map(row => ({ ...row, channelId: "thread", relation: "notify" as const, source }))
       let failParticipants = true
       let participantGets = 0
       let parentGets = 0
@@ -128,11 +113,11 @@ describe("useChannelMembers", () => {
           participantGets += 1
           return failParticipants
             ? Promise.reject(new Error("controlled first-load failure"))
-            : Promise.resolve({ members: participants })
+            : Promise.resolve(roster("thread", "notify", participants, profiles.slice(0, 2)))
         }
         if (url.endsWith("/parent/members?relation=access")) {
           parentGets += 1
-          return Promise.resolve({ members: parentMembers })
+          return Promise.resolve(roster("parent", "access", parentMembers, profiles))
         }
         throw new Error(`Unexpected roster request: ${url}`)
       })

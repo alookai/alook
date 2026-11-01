@@ -289,6 +289,61 @@ describe("useCommunityNavigationController", () => {
     expect(hook.current.pendingHref).toBeNull()
   })
 
+  it.each(["push", "pushImmediate", "replace"] as const)("keeps the admitted entry when idle cancellation precedes same-href %s", async method => {
+    const hook = await renderController(), href = "/c/channels/s1/c1"
+    await act(async () => hook.current.push(href))
+    mocks.pathname.current = href
+    mocks.frame.current = { ...normalizeCommunityHref(href), revision: 1 }
+    await hook.rerender()
+    const admitted = hook.current.entryIntent
+    expect(admitted).toEqual({ href })
+    mocks.push.mockClear()
+    await act(async () => { hook.current.cancelPendingNavigation(); hook.current[method](href) })
+    expect(hook.current.entryIntent).toBe(admitted)
+    expect(hook.current.navigationPending).toBe(false)
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.replace).not.toHaveBeenCalled()
+  })
+
+  it.each(["push", "pushImmediate", "replace"] as const)("keeps intentional repeated msg and seq targets with %s", async method => {
+    const hook = await renderController()
+    for (const search of ["msg=m1", "seq=12"]) {
+      const href = `/c/channels/s1/c1?${search}`
+      await act(async () => hook.current.push(href))
+      mocks.pathname.current = "/c/channels/s1/c1"
+      mocks.search.current = new URLSearchParams(search)
+      mocks.frame.current = { ...normalizeCommunityHref(href), revision: 1 }
+      await hook.rerender()
+      const previous = hook.current.entryIntent
+      mocks.push.mockClear()
+      await act(async () => hook.current[method](href))
+      expect(hook.current.entryIntent).not.toBe(previous)
+      expect(hook.current.entryIntent).toEqual({ href })
+      expect(hook.current.navigationPending).toBe(false)
+      expect(mocks.push).not.toHaveBeenCalled()
+      expect(mocks.replace).not.toHaveBeenCalled()
+    }
+  })
+
+  it("clears a submitted entry on synchronous router failure", async () => {
+    const hook = await renderController()
+    mocks.push.mockImplementationOnce(() => { throw new Error("router failed") })
+    await expect(act(async () => hook.current.push("/c/channels/s1/c1"))).rejects.toThrow("router failed")
+    expect(hook.current.entryIntent).toBeNull()
+    expect(hook.current.navigationPending).toBe(false)
+  })
+
+  it("clears an admitted entry on native history even with no pending navigation", async () => {
+    const hook = await renderController(), href = "/c/channels/s1/c1"
+    await act(async () => hook.current.push(href))
+    mocks.pathname.current = href
+    mocks.frame.current = { ...normalizeCommunityHref(href), revision: 1 }
+    await hook.rerender()
+    expect(hook.current.entryIntent).not.toBeNull()
+    await act(async () => window.dispatchEvent(new Event("popstate")))
+    expect(hook.current.entryIntent).toBeNull()
+  })
+
   it.each(["push", "replace"] as const)("lets %s to the published route supersede a pending resolver", async (method) => {
     const hook = await renderController()
     let resolve!: (href: string) => void

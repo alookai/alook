@@ -39,3 +39,15 @@ export function takeMessageIdsForAccessScope(
   }
   return messageIds
 }
+
+export const communityServerRetirementKey = ["community", "server-retirement"] as const
+
+export function communityServerRetirementId(
+  mutation: { options: { mutationKey?: readonly unknown[] }; state: { variables: unknown } },
+  registry: unknown,
+): string | undefined {
+  const key = mutation.options.mutationKey
+  const input = mutation.state.variables as { serverId?: string; original?: { registry?: unknown } } | undefined
+  return registry && communityServerRetirementKey.every((part, index) => key?.[index] === part) && (key?.[2] === "leave" || key?.[2] === "delete") && input?.original?.registry === registry
+    ? input.serverId : undefined
+}

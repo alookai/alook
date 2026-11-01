@@ -1,3 +1,4 @@
+import { messageSeedFixture, fullResourceBundleFixture, channelResourceFixture, serverResourceFixture, messageResourceFixture, resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { AccountAttentionSnapshotSchema } from "@alook/shared"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -61,7 +62,6 @@ import {
   settleInboxReadReservationGeneration,
   type InboxRowTarget,
 } from "./inbox-read-reservation"
-import { getAccountUnreadProjection } from "./account-unread-projection"
 
 const ownedClients = new Set<QueryClient>()
 function createOwnedClient() {
@@ -75,19 +75,24 @@ afterEach(async () => {
   ownedClients.clear()
 })
 
+const leaseClients = new WeakMap<object, QueryClient>()
 function timelineLease(queryClient: QueryClient, confirmedSeq = 0) {
-  return registerReadSurface(
+  const lease = registerReadSurface(
     queryClient,
     "user-1",
     { kind: "timeline", channelId: "channel-1" },
     confirmedSeq,
   )
+  leaseClients.set(lease, queryClient)
+  return lease
 }
 
 function submitTimeline(
   lease: ReturnType<typeof timelineLease>,
   seq: number,
 ) {
+  const registry = getCommunityDbRegistry(leaseClients.get(lease)!)
+  if (registry) ingestMessages(registry, "channel-1", messageSeedFixture("channel-1", [{ id: `message-${seq}`, type: "chat", authorId: "peer", seq, createdAt: new Date(seq * 1000).toISOString(), content: "Message" }]))
   return submitReadIntent(lease, {
     kind: "timeline",
     channelId: "channel-1",
@@ -100,7 +105,7 @@ describe("read coordinator", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     apiFetch.mockReset()
-    reconcileAccountReadState.mockReset().mockResolvedValue(undefined)
+    reconcileAccountReadState.mockReset().mockImplementation(async (client) => { const registry = getCommunityDbRegistry(client); if (registry) await reconcileAccountAttention(registry) })
     reconcileAccountAttention.mockReset().mockResolvedValue(undefined)
   })
 
@@ -197,35 +202,11 @@ describe("read coordinator", () => {
       }),
     )
     expect(reconcileAccountReadState).toHaveBeenCalledWith(queryClient, {
-      awaitSurfaceMode: "inbox-dms",
-      surfaceMode: "all",
+
+
       targetRevision: 9,
     })
     expect(submitTimeline(lease, 7)).toBe(false)
-  })
-
-  it("settles a queued optimistic generation when a higher target supersedes it", () => {
-    const queryClient = createOwnedClient()
-    const lease = timelineLease(queryClient)
-    const projection = getAccountUnreadProjection(queryClient, "user-1")
-    projection.recordArrival({ channelId: "channel-1", serverId: "server-1", seq: 4 })
-    const first = submitReadIntentGeneration(lease, {
-      kind: "timeline",
-      channelId: "channel-1",
-      messageId: "message-4",
-      seq: 4,
-    })!
-    projection.recordOptimisticRead("channel-1", 4, first)
-    const second = submitReadIntentGeneration(lease, {
-      kind: "timeline",
-      channelId: "channel-1",
-      messageId: "message-5",
-      seq: 5,
-    })!
-    projection.recordOptimisticRead("channel-1", 5, second)
-
-    projection.settleOptimisticRead(second, false)
-    expect(projection.projectUnread("servers", "channel-1", false)).toBe(true)
   })
 
   it("rejects hidden submissions without accepting a target", async () => {
@@ -246,25 +227,6 @@ describe("read coordinator", () => {
     submitTimeline(lease, 4)
     await vi.advanceTimersByTimeAsync(10_000)
     expect(apiFetch).toHaveBeenCalledTimes(1)
-  })
-
-  it("rolls back the matching optimistic projection on a terminal PUT failure", async () => {
-    const queryClient = createOwnedClient()
-    const lease = timelineLease(queryClient)
-    const projection = getAccountUnreadProjection(queryClient, "user-1")
-    projection.recordArrival({ channelId: "channel-1", serverId: "server-1", seq: 4 })
-    const generation = submitReadIntentGeneration(lease, {
-      kind: "timeline",
-      channelId: "channel-1",
-      messageId: "message-4",
-      seq: 4,
-    })!
-    projection.recordOptimisticRead("channel-1", 4, generation)
-    apiFetch.mockRejectedValue(new ApiError("forbidden", 403))
-
-    expect(projection.projectUnread("servers", "channel-1", false)).toBe(false)
-    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
-    expect(projection.projectUnread("servers", "channel-1", false)).toBe(true)
   })
 
   it("clears canonical attention while the read PUT is pending and restores it on failure", async () => {
@@ -291,7 +253,7 @@ describe("read coordinator", () => {
       actorUserId: "user-2",
       createdAt: "2026-09-27T01:00:00.000Z",
     }
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [scope],
       items: [item],
       limit: 100,
@@ -310,7 +272,7 @@ describe("read coordinator", () => {
 
       await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
       expect(apiFetch).toHaveBeenCalledOnce()
-      ingestAttentionSnapshot(registry, {
+      ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
         scopes: [scope],
         items: [item],
         limit: 100,
@@ -337,12 +299,12 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestMessages(registry, "channel-1", [3, 4].map((seq) => ({
+    ingestMessages(registry, "channel-1", messageSeedFixture("channel-1", [3, 4].map((seq) => ({
       id: `message-${seq}`,
       type: "chat" as const,
       authorId: "user-2",
       seq,
-    })))
+    }))))
     const items = [3, 4].map((seq) => ({
       id: `mention:${seq}`,
       kind: "mention" as const,
@@ -362,7 +324,7 @@ describe("read coordinator", () => {
       lastAttentionSeq: 4,
       attentionCount: 2,
     }
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [scope],
       items,
       limit: 100,
@@ -408,7 +370,7 @@ describe("read coordinator", () => {
       lastAttentionSeq: null,
       attentionCount: 0,
     }
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [scope],
       items: [],
       limit: 100,
@@ -418,7 +380,7 @@ describe("read coordinator", () => {
       .mockRejectedValueOnce(new ApiError("unavailable", 500))
       .mockResolvedValueOnce({ changed: true, revision: 9, targetSeq: 4 })
     reconcileAccountAttention.mockImplementationOnce(async () => {
-      ingestAttentionSnapshot(registry, {
+      ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
         scopes: [],
         items: [],
         limit: 100,
@@ -451,7 +413,7 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -475,17 +437,17 @@ describe("read coordinator", () => {
       const lease = timelineLease(queryClient)
       submitTimeline(lease, 4)
       await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
-      ingestMessages(registry, "other", [{ id: "event", type: "chat", content: "old" }])
+      ingestMessages(registry, "other", messageSeedFixture("other", [{ id: "event", type: "chat", content: "old" }]))
       projectCommunityWsEventToDb(queryClient, {
-        type: "community:message.edited",
+        type: "community:reaction.add",
         channelId: "other",
         messageId: "event",
-        content: "new",
+        emoji: "👍", userId: "peer",
       })
 
       rejectPut(new ApiError("forbidden", 403))
       await vi.waitFor(() => expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(4))
-      expect(registry.collections.messages.get("event")?.content).toBe("new")
+      expect(registry.collections.messages.get("event")?.reactions).toMatchObject([{ emoji: "👍", userIds: ["peer"] }])
       expect(reconcileAccountAttention).not.toHaveBeenCalled()
     } finally {
       disposeReadCoordinator(queryClient)
@@ -499,7 +461,7 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -543,7 +505,7 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -580,7 +542,7 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -656,7 +618,7 @@ describe("read coordinator", () => {
       const registry = createCommunityDbRegistry(queryClient, "user-1")
       await registry.preload()
       const unregister = registerCommunityDbRegistry(registry)
-      ingestAttentionSnapshot(registry, {
+      ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
         scopes: [{
           scopeId: "channel-1",
           channelId: "channel-1",
@@ -683,12 +645,12 @@ describe("read coordinator", () => {
       const ticket = registerInboxProjectionTicket(queryClient, 1, target, vi.fn())
       activateInboxProjectionTicket(ticket)
       if (conflict) {
-        ingestMessages(registry, "other", [{ id: "event", type: "chat", content: "old" }])
+        ingestMessages(registry, "other", messageSeedFixture("other", [{ id: "event", type: "chat", content: "old" }]))
         projectCommunityWsEventToDb(queryClient, {
-          type: "community:message.edited",
+          type: "community:reaction.add",
           channelId: "other",
           messageId: "event",
-          content: "new",
+          emoji: "👍", userId: "peer",
         })
       }
 
@@ -696,7 +658,7 @@ describe("read coordinator", () => {
         expect(cancelInboxProjectionTicket(ticket)).toBe(true)
         expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(4)
         expect(reconcileAccountAttention).not.toHaveBeenCalled()
-        if (conflict) expect(registry.collections.messages.get("event")?.content).toBe("new")
+        if (conflict) expect(registry.collections.messages.get("event")?.reactions).toMatchObject([{ emoji: "👍", userIds: ["peer"] }])
       } finally {
         disposeInboxReadReservation(queryClient)
         unregister()
@@ -714,7 +676,7 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -757,7 +719,7 @@ describe("read coordinator", () => {
       const registry = createCommunityDbRegistry(queryClient, "user-1")
       await registry.preload()
       const unregister = registerCommunityDbRegistry(registry)
-      ingestAttentionSnapshot(registry, {
+      ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
         scopes: [{
           scopeId: "channel-1",
           channelId: "channel-1",
@@ -807,7 +769,7 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -850,32 +812,12 @@ describe("read coordinator", () => {
     await registry.cleanup()
   })
 
-  it("rolls back the matching optimistic projection while a transient retry waits", async () => {
-    const queryClient = createOwnedClient()
-    const lease = timelineLease(queryClient)
-    const projection = getAccountUnreadProjection(queryClient, "user-1")
-    projection.recordArrival({ channelId: "channel-1", serverId: "server-1", seq: 4 })
-    const generation = submitReadIntentGeneration(lease, {
-      kind: "timeline",
-      channelId: "channel-1",
-      messageId: "message-4",
-      seq: 4,
-    })!
-    projection.recordOptimisticRead("channel-1", 4, generation)
-    apiFetch.mockRejectedValue(new ApiError("busy", 503))
-
-    expect(projection.projectUnread("servers", "channel-1", false)).toBe(false)
-    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
-    expect(apiFetch).toHaveBeenCalledOnce()
-    expect(projection.projectUnread("servers", "channel-1", false)).toBe(true)
-  })
-
   it("keeps canonical attention restored while a transient retry waits", async () => {
     const queryClient = createOwnedClient()
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -930,8 +872,8 @@ describe("read coordinator", () => {
     await vi.runAllTimersAsync()
     expect(apiFetch).toHaveBeenCalledTimes(5)
     expect(reconcileAccountReadState).toHaveBeenCalledWith(queryClient, {
-      awaitSurfaceMode: "inbox-dms",
-      surfaceMode: "all",
+
+
       targetRevision: 11,
     })
   })
@@ -1231,7 +1173,7 @@ describe("read coordinator", () => {
     const db = getCommunityDbRegistry(queryClient)!
     await db.preload()
     const at = "2026-10-08T00:00:00.000Z"
-    const snapshot = (seq: number) => AccountAttentionSnapshotSchema.parse({
+    const snapshot = (seq: number) => AccountAttentionSnapshotSchema.parse({ resources: { ...fullResourceBundleFixture("user-1", [serverResourceFixture({ id: "server-1" })], [channelResourceFixture({ id: "forum-1", serverId: "server-1", type: "forum", creatorId: "peer", lastMessageAt: at }), channelResourceFixture({ id: "channel-1", serverId: "server-1", type: "thread", parentChannelId: "forum-1", parentMessageId: "opener-1", creatorId: "peer", lastMessageAt: at })], [messageResourceFixture({ id: "opener-1", channelId: "forum-1", authorId: "peer", seq: 1, createdAt: at, content: "Title" }), messageResourceFixture({ id: `message-${seq}`, channelId: "channel-1", authorId: "peer", seq, createdAt: at, content: "Reply" })], [{ id: "peer", name: "Peer", discriminator: "0002", avatar: null, avatarVersion: 0 }]), memberships: [{ channelId: "forum-1", userId: "user-1", relation: "access", source: "explicit" }, { channelId: "channel-1", userId: "user-1", relation: "access", source: "explicit" }] },
       scopes: [{ scopeId: "channel-1", channelId: "channel-1", serverId: "server-1", parentChannelId: "forum-1", ordinaryUnread: true, lastUnreadSeq: seq, lastAttentionSeq: seq, attentionCount: 1 }],
       items: [{ id: `reply:message-${seq}`, kind: "reply", sourceId: `message-${seq}`, scopeId: "channel-1", messageId: `message-${seq}`, actorUserId: "peer", createdAt: at }],
       limit: 100, truncated: false,
@@ -1257,7 +1199,7 @@ describe("read coordinator", () => {
     await expect(flushPendingReadIntents(queryClient)).resolves.toMatchObject({ consumed: false, cutoff: 1 })
     releaseReadSurface(lease)
     await vi.advanceTimersByTimeAsync(1)
-    expect(db.collections.readStates.get("channel-1")).toBeUndefined()
+    expect(db.collections.readStates.get("channel-1")?.lastReadSeq).toBe(committed ? 4 : undefined)
     expect(publishAccountAttentionSnapshot(queryClient, { snapshot: snapshot(4), proof: { token, signal: undefined } })).toBe("published")
     if (committed) {
       expect(db.collections.attentionScopes.get("channel-1")).toBeUndefined()
@@ -1283,8 +1225,8 @@ describe("read coordinator", () => {
 
     expect(apiFetch).toHaveBeenCalledOnce()
     expect(reconcileAccountReadState).toHaveBeenCalledWith(queryClient, {
-      awaitSurfaceMode: "inbox-dms",
-      surfaceMode: "all",
+
+
       targetRevision: 14,
     })
   })
@@ -1315,8 +1257,8 @@ describe("read coordinator", () => {
     await expect(work).resolves.toEqual({ consumed: true, cutoff: 1 })
     expect(apiFetch).toHaveBeenCalledOnce()
     expect(reconcileAccountReadState).toHaveBeenCalledWith(queryClient, {
-      awaitSurfaceMode: "inbox-dms",
-      surfaceMode: "all",
+
+
       targetRevision: 15,
     })
   })
@@ -1369,8 +1311,8 @@ describe("read coordinator", () => {
       deferred: true,
     })
     expect(reconcileAccountReadState).toHaveBeenCalledWith(queryClient, {
-      awaitSurfaceMode: "none",
-      surfaceMode: "non-inbox",
+
+
       targetRevision: 18,
     })
     expect(apiFetch).toHaveBeenCalledTimes(1)
@@ -1399,8 +1341,8 @@ describe("read coordinator", () => {
       deferred: true,
     })
     expect(reconcileAccountReadState).toHaveBeenCalledWith(queryClient, {
-      awaitSurfaceMode: "none",
-      surfaceMode: "non-inbox",
+
+
       targetRevision: 20,
     })
   })
@@ -1644,7 +1586,7 @@ describe("read coordinator", () => {
     }
     await run("deferred")
     apiFetch.mockReset()
-    reconcileAccountReadState.mockReset().mockResolvedValue(undefined)
+    reconcileAccountReadState.mockReset().mockImplementation(async (client) => { const registry = getCommunityDbRegistry(client); if (registry) await reconcileAccountAttention(registry) })
     await run("error")
   })
 })

@@ -563,7 +563,7 @@ jobs:
         run: node scripts/ci/validate-execution-plan.mjs
       - name: Create local bindings
         run: |
-          printf 'BETTER_AUTH_SECRET=ci-e2e-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\n' > src/web/.dev.vars
+          printf 'BETTER_AUTH_SECRET=ci-e2e-secret\nBETTER_AUTH_URL=http://localhost:3000\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\n' > src/web/.dev.vars
           cp src/queue-worker/.dev.vars.example src/queue-worker/.dev.vars
           sed -i 's|^ENCRYPTION_KEY=$|ENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!|' src/queue-worker/.dev.vars
       - run: pnpm run db:migrate
@@ -626,7 +626,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           targets: ${{ runner.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: src/desktop/src-tauri
       - if: runner.os == 'Linux'
@@ -666,7 +666,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: printf 'BETTER_AUTH_SECRET=ci-lighthouse-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\n' > src/web/.dev.vars
+      - run: printf 'BETTER_AUTH_SECRET=ci-lighthouse-secret\nBETTER_AUTH_URL=http://localhost:3000\n' > src/web/.dev.vars
       - run: pnpm run db:migrate
       - working-directory: src/web
         run: npx @lhci/cli autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs
@@ -706,7 +706,7 @@ jobs:
         run: |
           printf 'artifact_name=ui-e2e-build-%s-%s\n' "${{ github.run_id }}" "${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
           printf 'artifact_attempt=%s\n' "${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
-      - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
+      - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
       - name: Build Web and Blog OpenNext workers
         env:
           NEXT_PUBLIC_WS_DO_PORT: "3000"
@@ -773,7 +773,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
+      - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: ${{ needs.ui-e2e-build.outputs.artifact_name }}
@@ -842,7 +842,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
+      - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: ${{ needs.ui-e2e-build.outputs.artifact_name }}
@@ -897,8 +897,12 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: blob-report-${{ github.run_id }}-*
-          path: downloaded-blob-reports
+          path: downloaded-blob-report-archives
           merge-multiple: false
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Extract report archives using central-directory metadata
+        run: python3 scripts/ci/extract-report-artifacts.py --root downloaded-blob-report-archives --output downloaded-blob-reports
       - env:
           E2E_MATRIX: ${{ needs.scope.outputs.e2e_matrix }}
           GITHUB_TOKEN: ${{ github.token }}

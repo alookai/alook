@@ -1,5 +1,6 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getPrimaryDb } from "@/lib/db"
 import { queries, WS_EVENTS } from "@alook/shared"
@@ -7,7 +8,7 @@ import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember, requireServerAdmin } from "@/lib/community/permissions"
 import { requirePinnableSurface } from "@/lib/community/channel-write-guard"
 
-export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
+export const DELETE = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   const messageId = ctx.params?.messageId
   if (!channelId || !messageId) return writeError("missing params", 400)
@@ -34,7 +35,6 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     channelId,
     messageId,
   })
-
 
   return new Response(null, { status: 204 })
 })

@@ -1,13 +1,16 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { contentDisposition, encodeRfc5987 } from "@/lib/content-disposition"
 import { NextResponse, type NextRequest } from "next/server"
 import { createLogger } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { withPrivateMediaCache } from "@/lib/middleware/private-media-cache"
 import { authorizeAttachment } from "@/lib/community/attachment-authorization"
 import { ATTACHMENT_PRIVATE_IMMUTABLE_CACHE } from "@/lib/community/storage"
 import { resolveAttachmentPresentation, resolveMediaContentType } from "@/lib/community/attachment-presentation"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
+import { isHtmlPreviewFile, MAX_HTML_PREVIEW_BYTES } from "@/lib/community/html-preview-policy"
+import { HTML_PREVIEW_CSP, HtmlPreviewValidationError, prepareHtmlPreview, readHtmlPreview } from "@/lib/community/html-attachment-preview"
 
 const log = createLogger({ service: "community-attachments-download" })
 
@@ -34,7 +37,6 @@ function parseByteRange(value: string, size: number): ParsedByteRange | null {
   return { offset, length: end - offset + 1, end }
 }
 
-
 /**
  * GET /api/community/channels/[id]/attachments/[attachmentId] — the canonical
  * attachment-download door. Dual-actor (route/disc trunk — folds the bot
@@ -51,7 +53,7 @@ function parseByteRange(value: string, size: number): ParsedByteRange | null {
  * when the DB row exists but R2 has drifted (infra fault, not a user-facing
  * gate). Response FORM forks by actor; the authz core is identical.
  */
-export const GET = withPrivateMediaCache(withCommunityActor(async (req: NextRequest, ctx) => {
+export const GET = withPrivateMediaCache(withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const attachmentId = ctx.params?.attachmentId
   if (!attachmentId) {
     return NextResponse.json({ error: "attachment not found" }, { status: 404 })
@@ -67,6 +69,33 @@ export const GET = withPrivateMediaCache(withCommunityActor(async (req: NextRequ
       return NextResponse.json({ error: "attachment not found" }, { status: 404 })
     }
     const row = authz.row
+
+    if (ctx.actor.kind === "human" && req.nextUrl.searchParams.get("preview") === "html") {
+      if (!isHtmlPreviewFile(row.filename, row.contentType)) {
+        return NextResponse.json({ error: "HTML preview unavailable" }, { status: 415 })
+      }
+      if (row.size !== null && row.size > MAX_HTML_PREVIEW_BYTES) {
+        return NextResponse.json({ error: "HTML exceeds the preview limit" }, { status: 422 })
+      }
+      const object = await ctx.env.COMMUNITY_MEDIA.get(row.r2Key)
+      if (!object) return NextResponse.json({ error: "attachment storage unavailable" }, { status: 502 })
+      try {
+        const html = prepareHtmlPreview(await readHtmlPreview(object.body, req.signal))
+        return new Response(html, { headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Disposition": contentDisposition("inline", row.filename),
+          "Content-Security-Policy": HTML_PREVIEW_CSP,
+          "Cache-Control": ATTACHMENT_PRIVATE_IMMUTABLE_CACHE,
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "no-referrer",
+        } })
+      } catch (error) {
+        if (error instanceof HtmlPreviewValidationError) {
+          return NextResponse.json({ error: error.message }, { status: 422 })
+        }
+        throw error
+      }
+    }
 
     const storedPresentation = resolveAttachmentPresentation(row.filename, row.contentType)
     const isStoredMedia = storedPresentation.category === "audio" || storedPresentation.category === "video"

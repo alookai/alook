@@ -1,3 +1,4 @@
+import { messageReadPageFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClientProvider, onlineManager } from "@tanstack/react-query"
@@ -82,7 +83,7 @@ describe("entry failure and explicit recovery", () => {
     await waitFor(() => expect(hook.result.current.positionDataState).toBe("error"))
     expect(hook.result.current.messages.map(row => row.id)).toEqual(["m1"])
     expect(hook.result.current.positionEntry).toBe(retry)
-    load.mockResolvedValue({ messages: conversationEntryFixture().messages, latestSeq: 1, hasMoreOlder: false, hasMoreNewer: false })
+    load.mockResolvedValue(messageReadPageFixture({ messages: conversationEntryFixture().messages, latestSeq: 1, hasMoreOlder: false, hasMoreNewer: false }))
     await act(async () => hook.result.current.retryInitialLoad())
     await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
     expect(hook.result.current.positionEntry).not.toBe(retry)
@@ -96,7 +97,8 @@ describe("entry failure and explicit recovery", () => {
     await waitFor(() => expect(hook.result.current.entryCanRead).toBe(true))
     expect(hook.result.current.entryDenied).toBe(false)
     expect(hook.result.current.entryAnchorMissing).toBe(true)
-    expect(hook.result.current.messages).toEqual([])
+    expect(hook.result.current.messages.map(message => message.id)).toEqual(["m1"])
+    expect(hook.result.current.readSnapshotFetching).toBe(true)
     expect(registry.collections.channels.has("c1")).toBe(true)
     expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&anchor=gone", "/api/community/channels/c1/messages?entry=1"])
     hook.unmount()

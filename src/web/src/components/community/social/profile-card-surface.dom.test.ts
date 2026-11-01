@@ -5,6 +5,7 @@ import { resolve } from "node:path"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, render, waitFor } from "@/test/react-dom-harness"
+import { appBackdropClassName } from "@/components/ui/app-edge-fade"
 import type { Profile } from "@/components/community/social/profile-types"
 
 const mockProps = vi.hoisted(() => new Map<string, Record<string, unknown>>())
@@ -176,7 +177,7 @@ describe("ProfileCard surface contracts", () => {
     renderer.unmount()
   })
 
-  it("uses the shared modal bottom Sheet without a copied or foreground-derived overlay", () => {
+  it("uses the shared modal bottom Sheet without a copied or foreground-derived overlay", async () => {
     const { renderer } = renderSurface("mobile")
     const root = mockProps.get("sheet-root")!
     const close = renderer.container.querySelector("sheet-close")!
@@ -213,8 +214,30 @@ describe("ProfileCard surface contracts", () => {
     expect(profileSource).not.toContain("bg-foreground/30")
     expect(profileSource).not.toContain("<SheetOverlay")
     expect(sheetSource).toContain("data-[side=bottom]:border-t")
-    expect(sheetSource).toContain("bg-black/20")
     expect(sheetSource).not.toContain("bg-foreground")
+
+    const sharedSheet = await vi.importActual<typeof import("@/components/ui/sheet")>("@/components/ui/sheet")
+    render(React.createElement(
+      sharedSheet.Sheet,
+      { defaultOpen: true },
+      React.createElement(
+        sharedSheet.SheetContent,
+        { showCloseButton: false },
+        React.createElement(sharedSheet.SheetTitle, null, "Shared profile backdrop"),
+      ),
+    ))
+    const overlay = document.querySelector('[data-slot="sheet-overlay"]')!
+    expect(overlay).toHaveClass(...appBackdropClassName.split(" "))
+    expect(overlay).toHaveClass("bg-black/10", "supports-backdrop-filter:backdrop-blur-xs")
+    const fades = overlay.querySelector('[data-slot="app-edge-fade"]')!
+    expect(fades).toHaveAttribute("aria-hidden", "true")
+    expect(fades).toHaveClass("pointer-events-none")
+    expect(fades.querySelectorAll("[data-app-edge]")).toHaveLength(4)
+    for (const side of ["top", "bottom", "left", "right"]) {
+      expect(fades.querySelector(`[data-app-edge="${side}"]`)).toHaveClass(
+        side === "top" || side === "bottom" ? "h-(--app-edge-fade-size)" : "w-(--app-edge-fade-size)",
+      )
+    }
   })
 
   it.each([

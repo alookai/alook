@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { createMockWebSocket } from "../__mocks__/cf"
 import {
@@ -25,7 +26,7 @@ describe("agent running-turn interrupt WS routing", () => {
 
   function userSocket(userId = "owner_1") {
     const ws = createMockWebSocket()
-    ws.serializeAttachment({ type: "user", userId, authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+    ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId, authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
     return ws
   }
 

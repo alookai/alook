@@ -1,6 +1,11 @@
 import { annotateWorkerSpan, observeWorkerOperation } from "./observability/worker"
 import { betterAuth } from "better-auth"
-import { emailOTP, deviceAuthorization, bearer, oneTimeToken } from "better-auth/plugins"
+import { emailOTP, lastLoginMethod, oneTimeToken } from "better-auth/plugins"
+import {
+  LAST_LOGIN_METHOD_COOKIE,
+  LAST_LOGIN_METHOD_MAX_AGE,
+  resolveAuthPathLoginMethod,
+} from "@/lib/last-login-method"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { nanoid } from "nanoid"
 import {
@@ -118,10 +123,19 @@ export function createAuth(env: Env) {
   const applePlugins = appleAuth.enabled
     ? [appleOauthHardeningPlugin(appleAuth.config.clientId)]
     : []
-  const validateClient = (clientId: string) => {
-    const allowed = (env.DEVICE_CLIENT_IDS || "").split(",").map((s) => s.trim()).filter(Boolean)
-    return allowed.includes(clientId)
-  }
+  const sharedPlugins = [
+    ...applePlugins,
+    lastLoginMethod({
+      cookieName: LAST_LOGIN_METHOD_COOKIE,
+      maxAge: LAST_LOGIN_METHOD_MAX_AGE,
+      customResolveMethod: (ctx) => resolveAuthPathLoginMethod(ctx.path),
+    }),
+    oneTimeToken({
+      expiresIn: 2,
+      disableClientRequest: true,
+      storeToken: "hashed",
+    }),
+  ]
 
   return betterAuth({
     baseURL: env.BETTER_AUTH_URL,
@@ -336,14 +350,7 @@ export function createAuth(env: Env) {
     },
     plugins: (isProd || (mode === "dev" && env.DEV_AUTH_OTP === "1"))
       ? [
-          ...applePlugins,
-          deviceAuthorization({ verificationUri: "/device", validateClient, expiresIn: "5m", schema: {} }),
-          bearer(),
-          oneTimeToken({
-            expiresIn: 2,
-            disableClientRequest: true,
-            storeToken: "hashed",
-          }),
+          ...sharedPlugins,
           emailOTP({
             expiresIn: 5 * 60,
             allowedAttempts: 3,
@@ -398,16 +405,7 @@ export function createAuth(env: Env) {
             },
           }),
         ]
-      : [
-          ...applePlugins,
-          deviceAuthorization({ verificationUri: "/device", validateClient, expiresIn: "5m", schema: {} }),
-          bearer(),
-          oneTimeToken({
-            expiresIn: 2,
-            disableClientRequest: true,
-            storeToken: "hashed",
-          }),
-        ],
+      : sharedPlugins,
   })
 }
 
@@ -440,7 +438,6 @@ function authConfiguration(env: Env): readonly (string | undefined)[] {
     env.APPLE_TEAM_ID,
     env.APPLE_KEY_ID,
     env.APPLE_PRIVATE_KEY,
-    env.DEVICE_CLIENT_IDS,
     env.APP_REVIEW_EMAIL,
     env.APP_REVIEW_OTP,
     env.DEV_AUTH_OTP,

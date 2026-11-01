@@ -22,7 +22,7 @@
  * (reconnect/heartbeat and frame (de)serialization) end to end, rather than
  * shortcut in-process.
  */
-import { BotAuditEventAckFrameSchema } from "@alook/shared";
+import { type PiiResultFrame, BotAuditEventAckFrameSchema } from "@alook/shared";
 import type {
   HostControlChannel,
   HostCommand,
@@ -147,6 +147,7 @@ type OutboundFrame =
   | { type: "diagnostics_ack"; reportId: string }
   | HostBotAuditEventFrame
   | HostRuntimeModelsFrame
+  | PiiResultFrame
   | SessionErrorFrame;
 
 type ResyncProvider = () => {
@@ -344,6 +345,8 @@ export class WsControlChannel implements HostControlChannel {
     }
     this.sendFrame(frame);
   }
+
+  reportPiiResult(frame: PiiResultFrame): void { this.sendFrame(frame); }
 
   reportRuntimeModels(frame: HostRuntimeModelsFrame): void {
     this.sendFrame(frame);

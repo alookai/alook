@@ -17,12 +17,12 @@ export function ComposerAccessoryRail({
   onScroll,
 }: {
   typingNames: string[]
-  scrollCount: number
+  scrollCount: number | undefined
   scrollMode: "scroll" | "jump"
   onScroll: () => void
 }) {
   const hasTyping = typingNames.length > 0
-  const hasScroll = scrollCount > 0
+  const hasScroll = scrollMode === "jump" || (scrollCount ?? 0) > 0
   const layout = allocateComposerAccessoryRail({
     mode: "normal",
     left: hasTyping,
@@ -132,13 +132,13 @@ function ScrollControl({
   mode,
   onClick,
 }: {
-  count: number
+  count: number | undefined
   mode: "scroll" | "jump"
   onClick: () => void
 }) {
-  if (count <= 0) return null
+  const knownCount = count !== undefined && count > 0
   const aria = mode === "jump"
-    ? `Jump to present, ${count} unread below`
+    ? knownCount ? `Jump to present, ${count} unread below` : "Jump to present"
     : `Scroll to bottom, ${count} more below`
   return (
     <button
@@ -149,7 +149,7 @@ function ScrollControl({
       className="pointer-events-auto flex h-full items-center gap-1.5 justify-self-center rounded-full border border-border bg-background/90 pl-2 pr-3 text-xs font-medium text-foreground shadow-(--e1) backdrop-blur-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
     >
       <ArrowDown className="size-3.5 text-muted-foreground" />
-      <NumberTicker value={count} />
+      {knownCount ? <NumberTicker value={count} /> : <span>Jump to present</span>}
     </button>
   )
 }

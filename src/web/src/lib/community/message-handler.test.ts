@@ -1,3 +1,4 @@
+import { channelResourceFixture } from "@/test/community-resource-fixtures"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: () => ({ env: {} }) }))
@@ -12,6 +13,7 @@ const mockListByMessageIds = vi.fn()
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
 const mockCreateMentions = vi.fn()
+const mockGetThreadChannelByParentMessage = vi.fn()
 const mockGetChannel = vi.fn()
 const mockIsChannelPrivate = vi.fn(() => false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
@@ -52,6 +54,7 @@ vi.mock("@alook/shared", async () => {
         createMentions: (...a: unknown[]) => mockCreateMentions(...a),
       },
       communityChannel: {
+        getThreadChannelByParentMessage: (...args: unknown[]) => mockGetThreadChannelByParentMessage(...args),
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
         isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
@@ -1022,6 +1025,7 @@ describe("post-commit notification registration", () => {
     mockGetMessage.mockResolvedValue(messageRow())
     mockListByMessageIds.mockResolvedValue([])
     mockDispatchCommittedMessage.mockResolvedValue(undefined)
+    mockGetThreadChannelByParentMessage.mockResolvedValue(channelResourceFixture({ id: "child", serverId: "s1", type: "thread", parentChannelId: "c1", parentMessageId: "msg_1", name: "post", createdAt: "2026-01-01" }))
   })
 
   const params = {
@@ -1031,16 +1035,22 @@ describe("post-commit notification registration", () => {
     body: { content: "hello" },
   }
 
-  it.each(["attachments", "message"])("registers message and child notices before a failed %s response read", async (projection) => {
+  it.each(["attachments", "message"])("starts delivery and child resource lookup before failed %s projection, then completes the full child notice", async (projection) => {
+    let releaseChild!: (value: unknown) => void
+    mockGetThreadChannelByParentMessage.mockImplementationOnce(() => new Promise(resolve => { releaseChild = resolve }))
     const fail = async () => {
       expect(mockDispatchCommittedMessage).toHaveBeenCalledOnce()
-      expect(mockFanOutToChannel).toHaveBeenCalledOnce()
+      expect(mockGetThreadChannelByParentMessage).toHaveBeenCalledExactlyOnceWith(expect.anything(), "c1", "msg_1")
+      expect(mockFanOutToChannel).not.toHaveBeenCalled()
       throw new Error("projection unavailable")
     }
     if (projection === "attachments") mockListByMessageIds.mockImplementationOnce(fail)
     else mockGetMessage.mockImplementationOnce(fail)
     await expect(createCommunityMessage({ ...params, attachmentIds: ["att_1"] })).rejects.toThrow("projection unavailable")
     expect(mockHardDeleteMessage).not.toHaveBeenCalled()
+    const channel = channelResourceFixture({ id: "child", serverId: "s1", type: "thread", parentChannelId: "c1", parentMessageId: "msg_1", name: "post", createdAt: "2026-01-01" })
+    releaseChild(channel)
+    await vi.waitFor(() => expect(mockFanOutToChannel).toHaveBeenCalledExactlyOnceWith("c1", { type: "community:channel.child_create", parentChannelId: "c1", parentMessageId: "msg_1", channel }))
   })
 
   it("surfaces a missing response projection after registering notifications without deleting committed data", async () => {

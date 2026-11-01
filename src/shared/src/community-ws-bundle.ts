@@ -1,6 +1,8 @@
 import {
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   decodeCommunityBrowserEvent,
+  validateCommunityWsEvent,
+  type CommunityBrowserEventEnvelope,
   encodeCommunityBrowserEvent,
   utf8ByteLength,
   type CommunityWsEvent,
@@ -11,11 +13,10 @@ import { COMMUNITY_CONTRACT_VERSION, type CommunityContract } from "./community-
 export const COMMUNITY_BROWSER_EVENT_BATCH_TYPE = "community:events.batch" as const
 
 export function communityBrowserEventBatchType(contract: number = COMMUNITY_CONTRACT_VERSION) {
-  if (contract === 1) return COMMUNITY_BROWSER_EVENT_BATCH_TYPE
-  if (contract === 2) return `${COMMUNITY_BROWSER_EVENT_BATCH_TYPE}.v2` as const
-  if (contract === 3) return `${COMMUNITY_BROWSER_EVENT_BATCH_TYPE}.v3` as const
-  throw new Error("unsupported community event contract")
+  if (contract !== COMMUNITY_CONTRACT_VERSION) throw new Error("unsupported community event contract")
+  return `${COMMUNITY_BROWSER_EVENT_BATCH_TYPE}.v${COMMUNITY_CONTRACT_VERSION}` as const
 }
+
 export const COMMUNITY_DELIVERY_OPERATION_ID_PREFIX = "message:" as const
 export const COMMUNITY_DELIVERY_OPERATION_ID_HEADER = "x-alook-community-operation-id" as const
 export const COMMUNITY_DELIVERY_OPERATION_ID_BYTES = 51
@@ -36,13 +37,13 @@ export type CommunityBrowserEventBatch = {
   wireDigest?: CommunityDeliveryDigest
   operationId: CommunityDeliveryOperationId
   operationDigest: CommunityDeliveryDigest
-  events: CommunityWsEvent[]
+  events: CommunityBrowserEventEnvelope[]
 }
 
 export type PreparedCommunityDeliveryEvents = {
   contract: CommunityContract
   events: CommunityWsEvent[]
-  envelopes: CommunityWsEvent[]
+  envelopes: CommunityBrowserEventEnvelope[]
   bodies: string[]
   digest: CommunityDeliveryDigest
 }
@@ -196,16 +197,16 @@ export async function computeCommunityDeliveryDigestFromBodies(
 
 export async function prepareCommunityDeliveryEvents(
   values: readonly unknown[],
-  contract: CommunityContract = 2,
+  contract: CommunityContract = COMMUNITY_CONTRACT_VERSION,
 ): Promise<CommunityDeliveryPrepareResult> {
   if (values.length < 1 || values.length > MESSAGE_DELIVERY_MAX_EVENTS_PER_USER) {
     return { ok: false, reason: "invalid-event-count" }
   }
   const events: CommunityWsEvent[] = []
-  const envelopes: CommunityWsEvent[] = []
+  const envelopes: CommunityBrowserEventEnvelope[] = []
   const bodies: string[] = []
   for (let eventIndex = 0; eventIndex < values.length; eventIndex += 1) {
-    const decoded = decodeCommunityBrowserEvent(values[eventIndex], contract)
+    const decoded = validateCommunityWsEvent(values[eventIndex], contract)
     if (!decoded.ok) return { ok: false, reason: "invalid-child", eventIndex }
     const encoded = encodeCommunityBrowserEvent(decoded.event, contract)
     if (!encoded.ok) {
@@ -217,7 +218,7 @@ export async function prepareCommunityDeliveryEvents(
       }
     }
     events.push(decoded.event)
-    envelopes.push(encoded.event)
+    envelopes.push(encoded.envelope)
     bodies.push(encoded.body)
   }
   return {
@@ -244,14 +245,14 @@ export async function encodeCommunityBrowserEventBatch(input: {
   if (!isCommunityDeliveryDigest(input.operationDigest)) {
     return { ok: false, reason: "invalid-operation-digest" }
   }
-  const prepared = await prepareCommunityDeliveryEvents(input.events, input.contract ?? 1)
+  const prepared = await prepareCommunityDeliveryEvents(input.events, input.contract ?? COMMUNITY_CONTRACT_VERSION)
   if (!prepared.ok) return prepared
   return encodePreparedCommunityBrowserEventBatch({
     operationId: input.operationId,
     operationDigest: input.operationDigest,
     prepared: prepared.prepared,
-    contract: input.contract ?? 1,
-    ...(input.contract === 2 || input.contract === 3 ? { sourceDigest: prepared.prepared.digest } : {}),
+    contract: input.contract ?? COMMUNITY_CONTRACT_VERSION,
+    sourceDigest: prepared.prepared.digest,
   })
 }
 
@@ -276,13 +277,14 @@ export function encodePreparedCommunityBrowserEventBatch(input: {
     }
   }
   if (input.sourceDigest !== undefined && !isCommunityDeliveryDigest(input.sourceDigest)) return { ok: false, reason: "invalid-operation-digest" }
-  const contract = input.contract ?? 1
-  if ((contract === 1) !== (input.sourceDigest === undefined) || (input.prepared.contract === 3) !== (contract === 3)) return { ok: false, reason: "invalid-contract" }
+  const contract = input.contract ?? COMMUNITY_CONTRACT_VERSION
+  if (contract !== COMMUNITY_CONTRACT_VERSION || input.prepared.contract !== COMMUNITY_CONTRACT_VERSION) return { ok: false, reason: "invalid-contract" }
+  if (input.sourceDigest !== undefined && input.sourceDigest !== input.prepared.digest) return { ok: false, reason: "digest-mismatch", actualDigest: input.prepared.digest }
   const envelope = {
     type: communityBrowserEventBatchType(contract),
     operationId: input.operationId,
     operationDigest: input.sourceDigest ?? input.operationDigest,
-    ...(input.sourceDigest === undefined ? {} : { wireDigest: input.prepared.digest }),
+    wireDigest: input.prepared.digest,
   }
   const prefix = JSON.stringify(envelope).slice(0, -1)
   const body = `${prefix},"events":[${input.prepared.bodies.join(",")}]}`
@@ -299,8 +301,8 @@ export function encodePreparedCommunityBrowserEventBatch(input: {
 
 export function isCommunityBrowserEventBatchCandidate(
   value: unknown,
-): value is Record<string, unknown> & { type: ReturnType<typeof communityBrowserEventBatchType> } {
-  return isRecord(value) && ([1, 2, 3] as const).some((contract) => value.type === communityBrowserEventBatchType(contract))
+): value is Record<string, unknown> & { type: `community:events.batch${string}` } {
+  return isRecord(value) && typeof value.type === "string" && value.type.startsWith(COMMUNITY_BROWSER_EVENT_BATCH_TYPE)
 }
 
 export function decodeCommunityBrowserEventBatch(
@@ -315,7 +317,7 @@ export function decodeCommunityBrowserEventBatch(
   if (typeof value.type !== "string" || value.type.length === 0) {
     return { ok: false, reason: "missing-type" }
   }
-  if (!([1, 2, 3] as const).some((contract) => value.type === communityBrowserEventBatchType(contract))) {
+  if (value.type !== communityBrowserEventBatchType()) {
     return { ok: false, reason: "wrong-type" }
   }
   if (!isCommunityDeliveryOperationId(value.operationId)) {
@@ -324,11 +326,10 @@ export function decodeCommunityBrowserEventBatch(
   if (!isCommunityDeliveryDigest(value.operationDigest)) {
     return { ok: false, reason: "invalid-operation-digest" }
   }
-  const contract: CommunityContract = value.type === communityBrowserEventBatchType(3) ? 3 : value.type === communityBrowserEventBatchType(2) ? 2 : 1
-  const current = contract !== 1
+  const contract = COMMUNITY_CONTRACT_VERSION
   if (
-    Object.keys(value).length !== (current ? 5 : 4)
-    || (current && !isCommunityDeliveryDigest(value.wireDigest))
+    Object.keys(value).length !== 5
+    || !isCommunityDeliveryDigest(value.wireDigest)
     || !Object.hasOwn(value, "type")
     || !Object.hasOwn(value, "operationId")
     || !Object.hasOwn(value, "operationDigest")
@@ -344,20 +345,20 @@ export function decodeCommunityBrowserEventBatch(
     return { ok: false, reason: "invalid-event-count" }
   }
   const events: CommunityWsEvent[] = []
-  const envelopes: CommunityWsEvent[] = []
+  const envelopes: CommunityBrowserEventEnvelope[] = []
   for (let eventIndex = 0; eventIndex < value.events.length; eventIndex += 1) {
     const child = decodeCommunityBrowserEvent(value.events[eventIndex], contract)
     if (!child.ok) {
       return { ok: false, reason: "invalid-child", eventIndex }
     }
     events.push(child.event)
-    envelopes.push(child.event)
+    envelopes.push({ ...child.event, schemaVersion: COMMUNITY_CONTRACT_VERSION })
   }
   return {
     ok: true,
     batch: {
       type: communityBrowserEventBatchType(contract),
-      ...(current ? { wireDigest: value.wireDigest as string } : {}),
+      wireDigest: value.wireDigest as string,
       operationId: value.operationId,
       operationDigest: value.operationDigest,
       events: envelopes,
@@ -366,43 +367,10 @@ export function decodeCommunityBrowserEventBatch(
   }
 }
 
-export function projectCommunityEventForContract(event: CommunityWsEvent, contract: CommunityContract, sourceContract: CommunityContract = 2): CommunityWsEvent | null {
-  let projected: unknown = event
-  if (sourceContract === 3 && contract !== 3) {
-    if (event.type === "community:message.create") {
-      const decoded = decodeCommunityBrowserEvent(event, 3)
-      if (!decoded.ok || decoded.event.type !== event.type) return null
-      const { channelId: _channelId, thread: _thread, reactions: _reactions, ...message } = decoded.event.message
-      projected = { ...event, message: {
-        ...message,
-        authorAvatar: message.authorAvatar ?? undefined, clientNonce: message.clientNonce ?? undefined,
-        attachments: message.attachments.length ? message.attachments.map((attachment) => ({
-          id: attachment.id, filename: attachment.name, url: attachment.url,
-          thumbnailUrl: attachment.thumbnailUrl ?? undefined, contentType: attachment.contentType ?? undefined,
-          size: attachment.sizeBytes ?? undefined, width: attachment.width, height: attachment.height,
-        })) : undefined,
-      } }
-    } else if (event.type === "community:channel.create") {
-      const channel = event.channel
-      projected = { ...event, channel: { id: channel.id, name: channel.name ?? "", type: channel.type,
-        categoryId: channel.categoryId, topic: channel.topic, position: channel.position, createdAt: channel.createdAt } }
-    } else if (event.type === "community:channel.child_create") {
-      const channel = event.channel
-      projected = { ...event, channel: { id: channel.id, name: channel.name ?? "", type: channel.type,
-        creatorId: channel.creatorId ?? undefined, createdAt: channel.createdAt } }
-    } else if (event.type === "community:identity.update") {
-      projected = { ...event, avatar: event.avatar ?? "" }
-    }
-  }
-  const decoded = decodeCommunityBrowserEvent(projected, contract)
-  if (!decoded.ok) return null
-  const admitted = decoded.event
-  if (contract !== 1) return admitted
-  if (admitted.type === "community:friend.block") return { type: admitted.type, userId: admitted.userId }
-  if (admitted.type !== "community:channel.membership.change") return admitted
-  if (admitted.serverId === null) return null
-  return { type: admitted.present ? "community:channel.member_add" : "community:channel.member_remove",
-    serverId: admitted.serverId, channelId: admitted.channelId, userId: admitted.userId }
+export function projectCommunityEventForContract(event: CommunityWsEvent, contract: number, sourceContract: number = COMMUNITY_CONTRACT_VERSION): CommunityWsEvent | null {
+  if (contract !== COMMUNITY_CONTRACT_VERSION || sourceContract !== COMMUNITY_CONTRACT_VERSION) return null
+  const decoded = validateCommunityWsEvent(event)
+  return decoded.ok ? decoded.event : null
 }
 
 export async function encodeCommunityBrowserEventBatchForContract(input: {
@@ -411,17 +379,14 @@ export async function encodeCommunityBrowserEventBatchForContract(input: {
   const source = await prepareCommunityDeliveryEvents(input.prepared.events, input.prepared.contract)
   if (!source.ok) return source
   if (source.prepared.digest !== input.prepared.digest) return { ok: false, reason: "digest-mismatch", actualDigest: source.prepared.digest }
-  const events = input.prepared.events.map((event) => projectCommunityEventForContract(event, input.contract, input.prepared.contract))
-  if (events.some((event) => event === null)) return { ok: false, reason: "invalid-child" }
-  const wire = await prepareCommunityDeliveryEvents(events, input.contract)
-  if (!wire.ok) return wire
-  return encodePreparedCommunityBrowserEventBatch({ operationId: input.operationId, operationDigest: wire.prepared.digest,
-    prepared: wire.prepared, contract: input.contract, ...(input.contract !== 1 ? { sourceDigest: input.prepared.digest } : {}) })
+  if (input.contract !== COMMUNITY_CONTRACT_VERSION || input.prepared.contract !== COMMUNITY_CONTRACT_VERSION) return { ok: false, reason: "invalid-contract" }
+  return encodePreparedCommunityBrowserEventBatch({ operationId: input.operationId, operationDigest: input.prepared.digest,
+    prepared: input.prepared, contract: input.contract, sourceDigest: input.prepared.digest })
 }
 
 export function admitCommunityBrowserEventBatch(value: unknown): CommunityBrowserEventBatchDecodeResult | Promise<CommunityBrowserEventBatchDecodeResult> {
   const decoded = decodeCommunityBrowserEventBatch(value)
-  if (!decoded.ok || decoded.batch.type === COMMUNITY_BROWSER_EVENT_BATCH_TYPE) return decoded
+  if (!decoded.ok) return decoded
   return computeCommunityDeliveryDigestFromBodies((value as { events: unknown[] }).events.map((event) => JSON.stringify(event)))
-    .then((digest) => digest === decoded.batch.wireDigest ? decoded : { ok: false, reason: "invalid-payload" })
+    .then((digest) => digest === decoded.batch.wireDigest && digest === decoded.batch.operationDigest ? decoded : { ok: false, reason: "invalid-payload" })
 }

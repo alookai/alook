@@ -1,0 +1,39 @@
+import type { ComponentProps } from "react";
+import { describe, expect, it, vi } from "vitest";
+import { render, screen, within } from "@/test/react-dom-harness";
+import TutorialsLayout from "./layout";
+
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...props }: ComponentProps<"a">) => (
+    <a data-next-link="true" href={href} {...props}>{children}</a>
+  ),
+}));
+vi.mock("next/image", () => ({
+  default: ({ src, alt }: { src: string; alt: string }) => <img src={src} alt={alt} />,
+}));
+
+describe("Tutorials layout", () => {
+  it("renders its breadcrumb and children with navigation across the correct zone boundaries", () => {
+    render(<TutorialsLayout><h1>Tutorial directory</h1></TutorialsLayout>);
+
+    expect(within(screen.getByRole("main")).getByRole("heading", { name: "Tutorial directory" })).toBeVisible();
+    const breadcrumb = within(screen.getByRole("navigation", { name: "", exact: true })).getByRole("link", { name: "Tutorials", exact: true });
+    expect(breadcrumb).toHaveAttribute("href", "/tutorials");
+    expect(breadcrumb).toHaveAttribute("data-next-link", "true");
+    expect(screen.getByRole("button", { name: "Toggle theme" })).toBeVisible();
+    for (const home of screen.getAllByRole("link", { name: /^Alook(?: Alook)?$/ })) {
+      expect(home).toHaveAttribute("href", "/");
+      expect(home).not.toHaveAttribute("data-next-link");
+    }
+
+    const footer = within(screen.getByRole("contentinfo"));
+    const navigation = within(footer.getByRole("navigation", { name: "Footer navigation" }));
+    expect(navigation.getAllByRole("link").map((link) => link.getAttribute("href")))
+      .toEqual(["/templates", "/blog", "/guides", "/tutorials", "/llms.txt", "/privacy"]);
+    expect(navigation.getByRole("link", { name: "Blog", exact: true })).toHaveAttribute("data-next-link", "true");
+    for (const name of ["Templates", "llms.txt", "Privacy"]) {
+      expect(navigation.getByRole("link", { name, exact: true })).not.toHaveAttribute("data-next-link");
+    }
+    expect(navigation.getByRole("link", { name: "Guides", exact: true })).toHaveAttribute("data-next-link", "true");
+  });
+});

@@ -1,3 +1,4 @@
+import { currentCommunityEventFixture, dmListRowFixture } from "@/test/community-resource-fixtures"
 import { act } from "react"
 import { getCapturedRuntime } from "./test-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -36,14 +37,14 @@ describe("useCommunityWs — presence", () => {
       userId: "u_pres",
       online: true,
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(getCapturedRuntime().ws.get().presenceByUserId.get("u_pres")).toBe("online")
     expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toEqual({
       online: ["friend_existing"],
     })
     const patchedSnapshot = capturedQueryClient.getQueryData(communityKeys.friendsPresence())
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toBe(patchedSnapshot)
     expect(spy).not.toHaveBeenCalled()
   })
@@ -63,7 +64,7 @@ describe("useCommunityWs — presence", () => {
       userId: "friend_non_member",
       online: false,
     }
-    capturedOnMessage!(offline)
+    capturedOnMessage!(currentCommunityEventFixture(offline))
     expect(getCapturedRuntime().ws.get().presenceByUserId.get("friend_non_member"))
       .toBe("offline")
     expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence()))
@@ -72,11 +73,11 @@ describe("useCommunityWs — presence", () => {
 
   it("does not create a friends presence cache from a live delta alone", async () => {
     await mountHook()
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:presence.update",
       userId: "u_pres",
       online: true,
-    } satisfies CommunityPresenceUpdate)
+    } satisfies CommunityPresenceUpdate))
 
     expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toBeUndefined()
   })
@@ -92,7 +93,7 @@ describe("useCommunityWs — status.update", () => {
       statusEmoji: "🎧",
       statusText: "Vibing",
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(getCapturedRuntime().ws.get()).not.toHaveProperty("profilesByUserId")
     expect(getCapturedRuntime().ws.get().presenceByUserId.has("u_status")).toBe(false)
@@ -114,7 +115,7 @@ describe("useCommunityWs — bot audit events", () => {
       createdAt: "2026-09-01T15:00:00.000Z",
     }
 
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(capturedQueryClient.getQueryData<{ pages: { events: unknown[] }[] }>(communityKeys.botAuditLog("bot_stop"))?.pages[0].events).toEqual([{
@@ -129,7 +130,7 @@ describe("useCommunityWs — bot audit events", () => {
 })
 
 describe("useCommunityWs — machines", () => {
-  const dispatchMachine = async (event: unknown) => { await act(async () => { await capturedOnMessage!(event) }) }
+  const dispatchMachine = async (event: unknown) => { await act(async () => { await capturedOnMessage!(currentCommunityEventFixture(event)) }) }
   const machine = (id: string, status: "online" | "offline" = "offline"): CommunityMachineSummary => ({
     id, hostname: id, displayName: id, platform: "darwin", arch: "arm64",
     osRelease: "24", daemonVersion: "0.1", lastSeenAt: null, status,

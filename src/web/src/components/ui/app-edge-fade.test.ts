@@ -6,17 +6,24 @@ import { describe, expect, it } from "vitest"
 import { AppEdgeFade } from "./app-edge-fade"
 
 describe("AppEdgeFade", () => {
-  it("paints only fixed top and bottom app-background fades without interaction", () => {
+  it("paints four fixed app-background edges without interaction or a center gradient", () => {
     const markup = renderToStaticMarkup(createElement(AppEdgeFade))
 
     expect(markup).toContain('data-slot="app-edge-fade"')
     expect(markup).toContain('aria-hidden="true"')
     expect(markup).toContain("pointer-events-none")
     expect(markup.match(/h-\(--app-edge-fade-size\)/g)).toHaveLength(2)
+    expect(markup.match(/w-\(--app-edge-fade-size\)/g)).toHaveLength(2)
+    expect(markup.match(/data-app-edge=/g)).toHaveLength(4)
     expect(markup).toContain("top-0")
     expect(markup).toContain("from-(--app-bg) to-transparent")
     expect(markup).toContain("bottom-0")
     expect(markup).toContain("from-transparent to-(--app-bg)")
+    expect(markup).toContain('data-app-edge="left"')
+    expect(markup).toContain('data-app-edge="right"')
+    expect(markup).toContain("left-0")
+    expect(markup).toContain("right-0")
+    expect(markup.match(/bg-linear-to-r/g)).toHaveLength(2)
     expect(markup).not.toContain("safe-area")
     expect(markup).not.toContain("animate")
     expect(markup).not.toMatch(/tabindex|button|href=/)

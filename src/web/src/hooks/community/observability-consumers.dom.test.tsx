@@ -1,3 +1,4 @@
+import { invitesReadFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
@@ -33,7 +34,7 @@ it("projects the native machines query and retains its original cache values", a
 it("preserves exact native mutation actions and original scoped requests for consumer commands", async () => {
   const { client, registry } = await createCommunityQueryOwner()
   const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client, registry }, children)
-  api.mockImplementation(async (path: string, options?: RequestInit) => path.endsWith("/invites") ? options?.method === "POST" ? { invite: { token: "invite-a", uses: 0, maxUses: null, expiresAt: null } } : { invites: [] } : path.endsWith("/avatar") ? { url: "/avatar.png", avatarVersion: 2 } : path.endsWith("/join") ? { serverId: "server-a" } : { conversation: { id: "dm-a" } })
+  api.mockImplementation(async (path: string, options?: RequestInit) => path.endsWith("/invites") ? options?.method === "POST" ? { invite: { token: "invite-a", uses: 0, maxUses: null, expiresAt: null } } : invitesReadFixture("server-a") : path.endsWith("/avatar") ? { url: "/avatar.png", avatarVersion: 2 } : path.endsWith("/join") ? { serverId: "server-a" } : { conversation: { id: "dm-a" } })
   const rendered = renderHook(() => ({ dm: useCreateOrGetDm(), invite: useResolveOrCreateInvite("server-a"), mark: useMarkMessage(), unmark: useUnmarkMessage(), avatar: useUploadUserAvatar(), join: useJoinServer(), notification: useSetBotNotificationSetting() }), { wrapper })
   const assert = Object.assign(vi.fn(), { signal: new AbortController().signal })
   await act(async () => {

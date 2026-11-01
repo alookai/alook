@@ -33,17 +33,16 @@ vi.mock("@/lib/community/bot-push", () => ({
 }))
 
 // Unified actor: nap is a bot-only verb moved from /agent/nap to /community/nap.
-// withCommunityActor injects the resolved actor; the bot acts on
+// communityActorPolicy injects the resolved actor; the bot acts on
 // ITSELF — botUserId/machineId come from the authenticated runner, not the body.
 // requireBot is a passthrough for a bot actor (human → 403, covered by the
 // community-actor unit test). This test mocks the wrapper directly (as the
 // incoming /agent/nap test did) so it stays focused on the nap handler logic.
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: any) => async (req: any) =>
-    handler(req, {
+  communityActorPolicy: () => ({ resolve: async (req: any) => ({ context: {
       env: { DB: {} },
       actor: { kind: "bot", userId: "b1", ownerUserId: "owner_1", machineId: "mac_1" },
-    }),
+    } }) }),
   requireBot: (actor: any) =>
     actor.kind === "bot"
       ? { ok: true, bot: actor }

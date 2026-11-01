@@ -41,7 +41,7 @@ describe("HTTP cache configuration", () => {
     ["public/_headers", "/fonts/jgs5/jgs5.ttf"],
     ["public/_headers", "/manifest.json"],
     ["public/_headers", "/favicon.ico"],
-    ["public/_headers", "/social/readme-card-58c75311e5ba.png"],
+    ["public/_headers", "/social/readme-card-7470c72ef1c3.png"],
     ["blog/public/_headers", "/blog/article/hero.webp"],
     ["blog/public/_headers", "/alook.svg"],
     ["blog/public/_headers", "/manifest.json"],

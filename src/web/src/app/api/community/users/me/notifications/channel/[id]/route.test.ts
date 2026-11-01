@@ -24,9 +24,7 @@ vi.mock("@alook/shared", async () => {
   }
 })
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => (req: NextRequest, ctx: any) => handler(req, {
-    env: { DB: {} }, userId: "user_1", email: "u@test", params: ctx.params,
-  }),
+  humanAuthPolicy: { resolve: async (req: NextRequest) => ({ context: { env: { DB: {} }, userId: "user_1", email: "u@test" } }) },
 }))
 
 import { DELETE, PUT } from "./route"

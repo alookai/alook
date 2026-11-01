@@ -1,8 +1,9 @@
-import { withCookieHumanAuth } from "@/lib/middleware/auth"
+import { withAuth } from "@/lib/middleware/auth-policy"
+import { cookieHumanAuthPolicy } from "@/lib/middleware/auth"
 import { getPrimaryDb } from "@/lib/db"
 import { sendDeletionCode } from "@/lib/account-deletion/challenge"
 
-export const POST = withCookieHumanAuth(async (_request, context) => {
+export const POST = withAuth(cookieHumanAuthPolicy, async (_request, context) => {
   const result = await sendDeletionCode(getPrimaryDb(context.env.DB), context.env, {
     userId: context.userId,
     email: context.email,

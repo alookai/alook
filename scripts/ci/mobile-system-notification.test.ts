@@ -130,10 +130,11 @@ describe("mobile system notification contract", () => {
     expect(androidManifest).toContain("com.google.firebase.MESSAGING_EVENT")
     expect(androidManifest).toContain('android:exported="false"')
     expect(androidManifest).toContain('android:value="alook_messages"')
-    expect(androidBuild).toContain("com.google.firebase:firebase-bom:34.19.0")
+    expect(androidBuild).toMatch(/implementation\(platform\("com\.google\.firebase:firebase-bom:\d+\.\d+\.\d+"\)\)/)
     expect(androidBuild).toContain("com.google.firebase:firebase-messaging")
     expect(androidBuild).not.toContain("firebase-messaging-ktx")
-    expect(androidRootBuild).toContain("com.google.gms:google-services:4.5.0")
+    expect(androidRootBuild).toMatch(/classpath\("com\.google\.gms:google-services:\d+\.\d+\.\d+"\)/)
+    expect(androidAppBuild).toContain('apply(plugin = "com.google.gms.google-services")')
     expect(androidAppBuild).toContain('file("google-services.json").exists()')
     expect(readRoot(".gitignore")).toContain(
       "src/desktop/src-tauri/gen/android/app/google-services.json",

@@ -5,6 +5,7 @@ import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import type { Member } from "@/lib/community/models/people"
 import type { ComposerProps, ComposerReplyTarget } from "./composer-types"
 import { prependReplyMention } from "./prepend-reply-mention"
+import { useConversationActivity } from "@/contexts/community/conversation-activity"
 
 export function useComposerReplyMention({
   editor, channelType, isForumThreadBody, replyingTo, members, suppressSuggestions,
@@ -17,12 +18,14 @@ export function useComposerReplyMention({
   suppressSuggestions: (operation: () => void) => void
 }) {
   const replyProfiles = useCanonicalProfilesByUserId()
+  const active = useConversationActivity()
   const previousReplyingToRef = useRef<ComposerReplyTarget | undefined>(undefined)
   useEffect(() => {
     if (!replyingTo) {
       previousReplyingToRef.current = undefined
       return
     }
+    if (!active) return
     if (previousReplyingToRef.current === replyingTo || !editor || isForumThreadBody) return
     if (channelType !== "dm") {
       const authorId = replyingTo.authorId
@@ -41,5 +44,5 @@ export function useComposerReplyMention({
     }
     previousReplyingToRef.current = replyingTo
     suppressSuggestions(() => editor.commands.focus("end"))
-  }, [replyingTo, replyProfiles, members, editor, channelType, isForumThreadBody, suppressSuggestions])
+  }, [active, replyingTo, replyProfiles, members, editor, channelType, isForumThreadBody, suppressSuggestions])
 }

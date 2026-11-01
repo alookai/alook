@@ -17,17 +17,21 @@ export function SignInEmailField({
 }) {
   return (
     <Field data-invalid={!!error}>
-      <FieldLabel htmlFor="email">Email</FieldLabel>
+      <FieldLabel htmlFor="email" className="sr-only">
+        Email
+      </FieldLabel>
       <Input
         id="email"
+        name="email"
         type="email"
+        autoComplete="email"
         placeholder="you@example.com"
+        className="h-11 px-4"
         value={email}
         onChange={onChange}
         aria-invalid={!!error}
         aria-describedby={error ? "sign-in-email-error" : undefined}
         required
-        autoFocus
       />
       {error && <FieldError id="sign-in-email-error">{error}</FieldError>}
     </Field>
@@ -38,11 +42,13 @@ export function SignInOtpField({
   code,
   error,
   loading,
+  autoFocus = true,
   onChange,
 }: {
   code: string
   error?: string
   loading: boolean
+  autoFocus?: boolean
   onChange: (value: string) => void
 }) {
   return (
@@ -59,15 +65,16 @@ export function SignInOtpField({
           aria-label="Verification code"
           aria-invalid={!!error}
           aria-describedby={error ? "sign-in-otp-error" : undefined}
-          autoFocus
+          autoFocus={autoFocus}
+          className="text-base"
         >
           <InputOTPGroup>
-            <InputOTPSlot index={0} />
-            <InputOTPSlot index={1} />
-            <InputOTPSlot index={2} />
-            <InputOTPSlot index={3} />
-            <InputOTPSlot index={4} />
-            <InputOTPSlot index={5} />
+            <InputOTPSlot index={0} className="size-11 text-base sm:size-10" />
+            <InputOTPSlot index={1} className="size-11 text-base sm:size-10" />
+            <InputOTPSlot index={2} className="size-11 text-base sm:size-10" />
+            <InputOTPSlot index={3} className="size-11 text-base sm:size-10" />
+            <InputOTPSlot index={4} className="size-11 text-base sm:size-10" />
+            <InputOTPSlot index={5} className="size-11 text-base sm:size-10" />
           </InputOTPGroup>
         </InputOTP>
         {error && (

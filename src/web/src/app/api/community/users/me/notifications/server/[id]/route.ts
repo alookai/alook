@@ -1,12 +1,13 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { queries, NOTIFICATION_LEVEL_VALUES, WS_EVENTS } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { requireServerMember } from "@/lib/community/permissions"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
+export const PUT = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 

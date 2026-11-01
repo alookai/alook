@@ -1,5 +1,6 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, WS_EVENTS, isThread, DM_SERVER, parseRef } from "@alook/shared"
@@ -17,7 +18,7 @@ const REF_PLACEHOLDER_ID = "resolve"
  * (Muting is NOT here — that's the outer channel-header notification level,
  * per-layer, same control a channel uses. Participation is add/leave only.)
  */
-export const DELETE = withCommunityActor(async (req: NextRequest, ctx) => {
+export const DELETE = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const pathChannelId = ctx.params?.id
   const pathTargetUserId = ctx.params?.userId
   if (!pathChannelId || !pathTargetUserId) return writeError("missing params", 400)

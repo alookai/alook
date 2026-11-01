@@ -37,10 +37,11 @@ vi.mock("@alook/shared", async () => {
 
 // Inject a BOT ctx to trip the local assertion.
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: {}, userId: "u_bot", email: "b@t.com", user: { isBot: true }, params })
-  }),
+  resolveHumanAuth: async () => ({ context: { env: {}, userId: "u_bot", email: "b@t.com", user: { isBot: true } } }),
+  humanAuthPolicy: { resolve: async (req: any) => {
+
+    return ({ context: { env: {}, userId: "u_bot", email: "b@t.com", user: { isBot: true } } })
+  } },
 }))
 
 vi.mock("@/lib/middleware/helpers", async () => {

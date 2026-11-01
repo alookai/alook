@@ -35,7 +35,7 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-// The route is `withOptionalAuth` (preview-first): it NEVER 401s on a missing
+// The route is `optionalAuthPolicy` (preview-first): it NEVER 401s on a missing
 // session — the handler runs either way, only `userId` differs. Two shapes:
 //   * `authed`     — the default: handler runs with a userId, as if signed in.
 //   * `anonymous`  — handler still runs, with userId undefined (no 401).
@@ -44,12 +44,12 @@ vi.mock("@alook/shared", async () => {
 let isAuthed = true
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withOptionalAuth: (handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
+  optionalAuthPolicy: { resolve: async (req: any) => {
+
     return isAuthed
-      ? handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
-      : handler(req, { env: { DB: {} }, params })
-  },
+      ? ({ context: { env: { DB: {} }, userId: "u1", email: "u@t.com" } })
+      : ({ context: { env: { DB: {} } } })
+  } },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

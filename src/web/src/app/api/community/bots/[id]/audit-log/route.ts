@@ -1,7 +1,8 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import type { NextRequest } from "next/server"
 import { queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { parseAuditLogPayload } from "@/lib/community/audit-log-payload"
 
@@ -20,7 +21,7 @@ const MAX_LIMIT = 100
  * (per plan §API — the ownership + deletedAt filter is scoped up-front, never
  * fetch-then-check).
  */
-export const GET = withAuth(async (req: NextRequest, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const id = ctx.params?.id as string
   const db = getDb(ctx.env.DB)
 

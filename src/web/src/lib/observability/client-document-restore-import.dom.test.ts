@@ -35,7 +35,7 @@ it("does not install or backfill a document generation whose SDK import resolves
   const initial = navigationForHref("/")!
   expect(initial).toBeDefined()
   const generation = telemetryGeneration()
-  const retired = startAction("message.edit")!
+  const retired = startAction("message.mark")!
   emitTelemetry("business.result", { action_id: retired.id, outcome: "success" })
   await act(async () => { window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })) })
   document.cookie = "alook_analytics_consent=v1.denied; path=/"

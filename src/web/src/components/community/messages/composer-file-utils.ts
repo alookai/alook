@@ -1,5 +1,6 @@
-import type { PendingFile } from "@/hooks/use-file-attachments"
+import type { PendingFile, useFileAttachments } from "@/hooks/use-file-attachments"
 import type { SendAttachment } from "@/lib/community/models/message"
+import type { ComposerViewProps } from "./composer-view"
 
 export const LONG_PASTE_ATTACHMENT_THRESHOLD = 1_000
 
@@ -51,4 +52,48 @@ export function clipboardFiles(
     if (file) files.push(file)
   }
   return files
+}
+
+type AttachmentViewHandlers = Pick<ComposerViewProps,
+  "onDragEnter" | "onDragLeave" | "onDragOver" | "onDrop" |
+  "onFileSelect" | "removePendingFile" | "onUploadFile">
+type AttachmentInputOwner = Pick<ReturnType<typeof useFileAttachments>,
+  "handleDragEnter" | "handleDragLeave" | "handleDragOver" | "handleDrop" |
+  "handleFileSelect" | "removePendingFile" | "fileInputRef">
+
+export function createComposerAttachmentInputHandlers(
+  isActive: () => boolean,
+  attachments: AttachmentInputOwner,
+  focusAfterDrop: () => void,
+): AttachmentViewHandlers {
+  const guardDrag = (handler: ComposerViewProps["onDrop"]): ComposerViewProps["onDrop"] => (event) => {
+    if (!isActive()) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+    handler(event)
+  }
+  return {
+    onDragEnter: guardDrag(attachments.handleDragEnter),
+    onDragLeave: attachments.handleDragLeave,
+    onDragOver: guardDrag(attachments.handleDragOver),
+    onDrop: guardDrag((event) => {
+      attachments.handleDrop(event)
+      focusAfterDrop()
+    }),
+    onFileSelect: (event) => {
+      if (!isActive()) {
+        event.currentTarget.value = ""
+        return
+      }
+      attachments.handleFileSelect(event)
+    },
+    removePendingFile: (index) => {
+      if (isActive()) attachments.removePendingFile(index)
+    },
+    onUploadFile: () => {
+      if (isActive()) attachments.fileInputRef.current?.click()
+    },
+  }
 }

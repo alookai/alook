@@ -1,3 +1,4 @@
+import { currentCommunityFixtureError } from "./_fixtures/business-contract"
 import { expect, test } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 
@@ -16,7 +17,7 @@ test("plan Contact stays usable without billing data and preserves the plan tab"
     actors.onCleanup(async () => { releaseBilling() })
     await page.route("**/api/community/billing", async (route) => {
       await billingGate
-      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Unavailable" }) })
+      await route.fulfill(currentCommunityFixtureError("Unavailable", 503))
     })
     await page.goto("/c/me/friends?settings=billing")
     const panel = page.getByTestId(tid.billingSheet)

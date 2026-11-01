@@ -52,12 +52,12 @@ vi.mock("@/lib/community/reaction-operations", () => ({
   removeReactionForActor: (...args: unknown[]) => mockRemoveReaction(...args),
 }))
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: any) => async (req: NextRequest, routeCtx?: any) => {
+  communityActorPolicy: () => ({ resolve: async (req: NextRequest) => {
     const actor = req.headers.get("Authorization") === "human"
       ? { kind: "human", userId: "u1" }
       : { kind: "bot", userId: "bot1", ownerUserId: "owner1", machineId: "machine1" }
-    return handler(req, { env: { DB: {} }, actor, params: routeCtx?.params })
-  },
+    return ({ context: { env: { DB: {} }, actor } })
+  } }),
   requireBot: (actor: any) => actor.kind === "bot"
     ? { ok: true, bot: actor }
     : { ok: false, response: NextResponse.json({ error: "forbidden: bot-only endpoint" }, { status: 403 }) },

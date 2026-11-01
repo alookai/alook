@@ -1,9 +1,10 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
-  queries,
+  queries, CommunityUserSearchReadSchema,
   MIN_SEARCH_LENGTH,
   MAX_SEARCH_LENGTH,
   DEFAULT_USER_SEARCH_LIMIT,
@@ -11,7 +12,7 @@ import {
 } from "@alook/shared"
 import { canonicalUserImage } from "@/lib/community/storage"
 
-export const GET = withAuth(async (req: NextRequest, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const url = new URL(req.url)
   const q = url.searchParams.get("q")?.trim()
 
@@ -39,7 +40,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
         limit: DEFAULT_USER_SEARCH_LIMIT,
       })
 
-  return writeJSON({
+  return writeJSON(CommunityUserSearchReadSchema.parse({
     users: users.map((u) => ({
       id: u.id,
       name: u.name,
@@ -47,5 +48,5 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       avatarVersion: u.avatarVersion,
       discriminator: u.discriminator,
     })),
-  })
+  }))
 })

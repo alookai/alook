@@ -15,8 +15,8 @@ const target = { id: "m_target", type: "chat" as const, authorId: "user_2", auth
 const unrelated = { ...target, id: "m_other", content: "Other" }
 const newer = { ...target, id: "m_newer", content: "Newer", createdAt: new Date(1).toISOString() }
 const consumed = vi.fn()
-function view(messages: typeof target[], scrollToMessageId: string | null) {
-  return React.createElement(MessageList, { channel: "general", messages, loading: false, initialScrollReady: false, positionDataState: "ready", hasMoreNewer: true, scrollToMessageId, onScrollTargetConsumed: consumed, onOpenThread: vi.fn() })
+function view(messages: typeof target[], scrollToMessageId: string | null, positionDataState: "pending" | "ready" = "ready") {
+  return React.createElement(MessageList, { channel: "general", messages, loading: false, initialScrollReady: false, positionDataState, hasMoreNewer: true, scrollToMessageId, onScrollTargetConsumed: consumed, onOpenThread: vi.fn() })
 }
 function highlighted(container: HTMLElement) {
   return container.querySelector('[data-row-id="m_target"]')?.getAttribute("data-highlighted") === "true"
@@ -26,7 +26,7 @@ describe("MessageList pending jump target with the installed native adapter", ()
   beforeEach(() => { installMessageScrollFixture(); consumed.mockClear() })
   afterEach(restoreMessageScrollFixture)
   it("waits for the actual target body, consumes once, and resets after null", () => {
-    const renderer = render(view([unrelated], "m_target"))
+    const renderer = render(view([unrelated], "m_target", "pending"))
     resize()
     expect(consumed).not.toHaveBeenCalled()
     expect(renderer.container.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "false")

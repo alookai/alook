@@ -1,3 +1,4 @@
+import { machineResourceFixture } from "@/test/community-resource-fixtures"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -22,8 +23,7 @@ vi.mock("@alook/shared", async () => {
 })
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => async (request: any) =>
-    handler(request, { env: { DB: {} }, userId: "u1", email: "u@t.com" }),
+  resolveHumanAuth: async () => ({ context: { env: { DB: {} }, userId: "u1", email: "u@t.com" } }),
 }))
 
 vi.mock("@/lib/middleware/helpers", async () => {
@@ -42,19 +42,19 @@ describe("GET /api/community/machines — provider quota", () => {
   })
 
   it("returns the list without requesting entitlement or quota observations", async () => {
-    const machines = [{ id: "machine", status: "online", availableRuntimes: [] }]
+    const machines = [machineResourceFixture({ id: "machine", status: "online", availableRuntimes: [] })]
     mockListMachinesForUser.mockResolvedValue(machines)
     mockListMachineBackendQuotasForUser.mockImplementation(() => new Promise(() => {}))
     const response = await GET(new NextRequest("http://localhost/api/community/machines?view=list"))
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ machines })
+    expect(await response.json()).toEqual({ machines, complete: true })
     expect(queries.productPlan.resolveMachinesMaxForUser).not.toHaveBeenCalled()
     expect(mockListMachineBackendQuotasForUser).not.toHaveBeenCalled()
     expect(mockListMachinesForUser).toHaveBeenCalledWith(expect.anything(), "u1")
   })
 
   it("keeps optional observations separate from the machine entity list", async () => {
-    mockListMachinesForUser.mockResolvedValue([{ id: "machine", status: "online", availableRuntimes: [] }])
+    mockListMachinesForUser.mockResolvedValue([machineResourceFixture({ id: "machine", status: "online", availableRuntimes: [] })])
     mockListMachineBackendQuotasForUser.mockResolvedValue(new Map())
     const response = await GET(new NextRequest("http://localhost/api/community/machines?view=observations"))
     const body = await response.json()

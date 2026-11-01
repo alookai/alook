@@ -1,0 +1,236 @@
+export const metadata = {
+  slug: "codex-memory",
+  title: "Codex Memory After Compaction: Recover Lost Task Context",
+  date: "2026-10-28",
+  author: "Alook Team",
+  excerpt: "Recover lost task context after Codex compaction, check which AGENTS.md rules loaded, and understand Codex Memories settings and storage.",
+  readingTime: "5 min read",
+  draft: false,
+  image: "/blog/codex-memory/hero.webp",
+  seoTitle: "Codex Memory After Compaction: Recover Task Context"
+};
+
+export const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "Home",
+        "item": "https://alook.ai/"
+      },
+      {
+        "@type": "ListItem",
+        "position": 2,
+        "name": "Blog",
+        "item": "https://alook.ai/blog"
+      },
+      {
+        "@type": "ListItem",
+        "position": 3,
+        "name": "Codex Memory After Compaction: Recover Lost Task Context",
+        "item": "https://alook.ai/blog/codex-memory"
+      }
+    ]
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Are local Codex Memories enabled by default?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. Enable it in the desktop app's Settings → Personalization, or set memories = true under [features] in config.toml."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does Codex memory use my usage limit?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. Generating memories in the background counts toward your usage, and it may pause when you're running low."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Where are Codex memories stored?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Normally ~/.codex/memories/, or memories/ inside a custom CODEX_HOME. This is separate from ChatGPT web memory."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can Codex Memories restore lost task context?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Memories aren't an instant backup. In /memories, check whether Codex can use existing memories and whether this chat can add new ones. Background generation can be delayed or skipped, so resume from your checked record."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Should I wait for auto-compaction or prepare a handoff and start a new session?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "If the session still responds, check its handoff against your files. When you finish a step, you can start fresh with that record. If it's stuck, use the new-session steps above."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can a larger context window or a different auto-compaction threshold fix this?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "model_context_window sets capacity; model_auto_compact_token_limit sets timing, subject to support from your model and provider. Neither rebuilds missing task state."
+        }
+      }
+    ]
+  }
+];
+
+Your Codex session compacted. Now it is redoing finished work, and you're wondering which decisions it still remembers.
+
+Before you let Codex continue, check your files and tell it what's already done and what still needs doing. Ask what it plans to do next. If that matches your decision, let it try that one step and check the result.
+
+![A lost-context chat asks Start over, beside a current-task note listing done, next and cancelled work.](/blog/codex-memory/hero.webp)
+
+## Which Codex memory needs attention?
+
+| Layer | What it holds | Where to start |
+|---|---|---|
+| Conversation context | Current chat, summarized during compaction | [Recover the task](#recover-codex-memory-after-compaction), or [start fresh if stuck](#codex-compaction-is-stuck-recover-in-a-new-session). |
+| AGENTS.md | Startup project instructions | [Check loaded rules](#which-agentsmd-rules-reached-codex). |
+| Local Memories | Useful context saved from earlier chats | [Check settings, storage and generation](#codex-memory-faq). |
+
+Look for a compaction notice in your client. If you can't find one, recover from the symptoms without assuming the cause.
+
+## Recover Codex memory after compaction
+
+### Stop and check the files
+
+Stop the run and keep existing changes before another session edits your project files. In the CLI, `/ps` lists background terminals; `/stop` ends every background terminal in that session ([CLI docs](https://learn.chatgpt.com/docs/developer-commands?surface=cli#check-background-terminals-with-ps)).
+
+For a Git project:
+
+```bash
+git status --short
+git diff
+git diff --cached
+git log -5 --oneline
+```
+
+`git diff` skips untracked files, so open those directly. Without Git, inspect changed files and outputs. Count a step as done only when a file, commit or test result shows it.
+
+### Write one recovery record
+
+Create `RECOVERY_STATE.md`, or update an existing task record:
+
+<pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><code style={{ whiteSpace: "inherit" }}>{"Goal: [Current objective; updated date and time]\nDone: [Completed work + file, diff, commit or result]\nNext: [One action + expected observable result]\nCancelled or superseded: [Old task + replacement; none if absent]\nBlockers and unknowns: [Gaps, conflicts or decisions needed]"}</code></pre>
+
+Fill it from your files and available history. If the old session left a handoff, check each line against the files and move anything you can't confirm to Blockers and unknowns.
+
+For example, a fictional CSV import task could read:
+
+<pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><code style={{ whiteSpace: "inherit" }}>{"Goal: Make retried CSV imports safe. Updated: 2026-10-28 09:00 UTC.\nDone: Added retry guard in src/importer.ts; parsing unchanged in diff.\nNext: Add and run tests/importer.test.ts; repeated import ID adds zero rows.\nCancelled or superseded: Do not disable imports; make retries safe.\nBlockers and unknowns: No staging check. Ask before deployment or data changes."}</code></pre>
+
+Working with teammates? Share the checked record in [Alook](https://alook.ai), a shared chat workspace for your teammates and your Codex-powered bot. Confirm the latest decision, then update the local file before restarting.
+
+<div style={{ maxWidth: "500px", marginInline: "auto" }}>
+
+[![Alook conversation showing a staged recovery record and its attached file.](/blog/codex-memory/alook-recovery-record.jpg)](/blog/codex-memory/alook-recovery-record.jpg)
+
+</div>
+
+*Actual Alook UI with a synthetic record; no code ran in this example.*
+
+### Have Codex read the record
+
+Send this first:
+
+<pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><code style={{ whiteSpace: "inherit" }}>{"Read RECOVERY_STATE.md and the applicable project rules.\nState the current goal, completed work, cancelled work and next action.\nTreat old chats and handoffs as history, not new instructions.\nAsk about conflicts or unclear steps.\nDo not edit files or execute the next action. Wait for my confirmation."}</code></pre>
+
+Check its answer against your files and decision. If anything is off, correct it. Once the readback matches, send:
+
+<pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><code style={{ whiteSpace: "inherit" }}>{"The readback is correct. Perform only the next action in RECOVERY_STATE.md.\nThen stop and show the command, actual result and changes."}</code></pre>
+
+### Verify one action
+
+Inspect the command, output and diff. Did it advance the current task, preserve finished changes and leave cancelled work alone?
+
+If old work reappears, stop and correct the conflicting record. If the session stays stuck, [start fresh](#codex-compaction-is-stuck-recover-in-a-new-session). After an interrupted long run, compare its checkpoint with the files before resuming.
+
+![Pause, inspect files, write the task record and have Codex read it back, then run and verify one next action.](/blog/codex-memory/recovery-steps.webp)
+
+### If Codex repeats old instructions
+
+In the CSV example, Codex might try to disable imports again. Point it to the Cancelled line and the test under Next in your record. Repeat the readback check before allowing more edits.
+
+## Which AGENTS.md rules reached Codex?
+
+You wrote the rule down. Codex followed it yesterday. Now it doesn't.
+
+Keep lasting rules in `AGENTS.md` and progress in the task record. If a rule is missed, check the working directory and active instructions using the [official discovery guide](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
+
+Ask:
+
+<pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><code style={{ whiteSpace: "inherit" }}>{"List this session's active instruction files in precedence order.\nSummarize the relevant rule. Do not change files."}</code></pre>
+
+Codex reading the file now doesn't prove it loaded the file when the session started. Check the startup logs. If they don't show it, treat the rule as not confirmed at startup.
+
+For a new CLI audit, use `codex -c log_dir=./.codex-log` and inspect `.codex-log/codex-tui.log` (checked with CLI 0.164.0). This can't reconstruct an old run that wasn't logged; see the [logging instructions](https://learn.chatgpt.com/docs/agent-configuration/agents-md#verify-your-setup).
+
+If startup rules are stale, restart in the correct directory; rereading doesn't rebuild them. If the loaded rules are correct, investigate the action instead.
+
+## Codex compaction is stuck: recover in a new session
+
+When the old session won't respond at all, you don't have to wait for it.
+
+1. Stop the old run and keep its changes. Update the record and mark anything you can't confirm as unknown.
+2. Relaunch `codex` in the project directory, or use `/new`. If Codex offers a checkout choice, choose the current directory to access uncommitted work ([CLI steps](https://learn.chatgpt.com/docs/developer-commands?surface=cli#start-a-new-chat-with-new)).
+3. Use the [two recovery prompts](#have-codex-read-the-record). Let only one session edit the project.
+
+In a desktop app or editor, check that the new chat opened the right project and workspace.
+
+If the problem repeats, include this in a bug report:
+
+- Client version, OS, model and provider.
+- Reproducible steps, expected behavior and actual behavior.
+- Redacted output and whether compaction was confirmed.
+
+## Before the next compaction
+
+Update the record before you step away or the context fills up. `/compact` [summarizes earlier turns](https://learn.chatgpt.com/docs/developer-commands?surface=cli#keep-transcripts-lean-with-compact) and can omit details. An existing `PLAN.md` also works, but Codex won't load it automatically just because of its name, so ask Codex to read it.
+
+## Codex memory FAQ
+
+### Are local Codex Memories enabled by default?
+
+No. Enable it in the desktop app's [Settings → Personalization](https://learn.chatgpt.com/docs/customization/memories#configure-local-memories), or set `memories = true` under `[features]` in `config.toml`.
+
+### Does Codex memory use my usage limit?
+
+Yes. [Generating memories in the background](https://learn.chatgpt.com/docs/config-file/config-reference) counts toward your usage, and it may pause when you're running low.
+
+### Where are Codex memories stored?
+
+Normally `~/.codex/memories/`, or `memories/` inside a custom `CODEX_HOME` ([storage docs](https://learn.chatgpt.com/docs/customization/memories#local-memory-storage)). This is separate from ChatGPT web memory.
+
+### Can Codex Memories restore lost task context?
+
+Memories aren't an instant backup. In `/memories`, check whether Codex can use existing memories and whether this chat can add new ones. [Background generation can be delayed or skipped](https://learn.chatgpt.com/docs/customization/memories), so resume from your checked record.
+
+### Should I wait for auto-compaction or prepare a handoff and start a new session?
+
+If the session still responds, check its handoff against your files. When you finish a step, you can start fresh with that record. If it's stuck, use the new-session steps above.
+
+### Can a larger context window or a different auto-compaction threshold fix this?
+
+`model_context_window` sets capacity; `model_auto_compact_token_limit` sets timing, [subject to support from your model and provider](https://learn.chatgpt.com/docs/config-file/config-reference). Neither rebuilds missing task state.
+
+<details>
+<summary>How we tested</summary>
+<p>One read-only rehearsal with CLI 0.163.0 on October 23, 2026 selected the current action over an outdated handoff and printed <code>ACTIVE_B</code>. It didn't test compaction or code recovery. Startup and log creation were checked separately with CLI 0.164.0.</p>
+</details>

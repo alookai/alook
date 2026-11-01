@@ -9,6 +9,7 @@ const daemonPkg = JSON.parse(readFileSync(path.resolve(__dirname, "../daemon/pac
 const observation = resolveObservationBuild(process.env);
 
 const nextConfig: NextConfig = {
+  experimental: { turbopackFileSystemCacheForDev: false },
   async headers() {
     return [{ source: "/community-shell/:hash", headers: [
       { key: "Cache-Control", value: "public, max-age=31536000, immutable" },

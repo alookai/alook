@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse, currentCommunityFixtureError } from "./_fixtures/business-contract"
 import type { Page, Request } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
@@ -99,7 +100,7 @@ async function expectNoUnreadDot(row: ReturnType<Page["getByTestId"]>) {
 }
 
 async function readSeq(page: Page, channelId: string): Promise<number> {
-  const response = await page.request.get("/api/community/users/me/read-state")
+  const response = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(response.ok()).toBe(true)
   const snapshot = await response.json() as {
     readStates: Array<{ channelId: string; lastReadSeq: number }>
@@ -107,7 +108,7 @@ async function readSeq(page: Page, channelId: string): Promise<number> {
   return snapshot.readStates.find((row) => row.channelId === channelId)?.lastReadSeq ?? 0
 }
 
-async function expectRailReplacementDoesNotBlockMessages({
+async function expectReadbackDoesNotBlockMessages({
   page,
   observerGate,
   href,
@@ -115,6 +116,7 @@ async function expectRailReplacementDoesNotBlockMessages({
   latestText,
   inboxRowTestId,
   triggerUnread,
+  triggerReadback,
 }: {
   page: Page
   observerGate: Awaited<ReturnType<typeof installReadObserverGate>>
@@ -123,8 +125,13 @@ async function expectRailReplacementDoesNotBlockMessages({
   latestText: string
   inboxRowTestId: string
   triggerUnread: () => Promise<string>
+  triggerReadback: () => Promise<void>
 }, caseResources: CaseResources) {
   const beforeReadSeq = await readSeq(page, channelId)
+  const latestId = await triggerUnread()
+  await page.getByTestId(tid.inboxTrigger).click()
+  await expect(page.getByTestId(inboxRowTestId)).toBeVisible({ timeout: 30_000 })
+  await page.getByTestId(tid.inboxTrigger).click()
   let releaseRailGate!: () => void
   const railRelease = new Promise<void>((resolve) => { releaseRailGate = resolve })
   caseResources.own(releaseRailGate, async (captured) => { captured() })
@@ -139,16 +146,17 @@ async function expectRailReplacementDoesNotBlockMessages({
     releaseRailGate()
     if (railRequestHeld) await railSettled
   }
-  let serverListRequests = 0
+  let readbackRequests = 0
   let messagesRequests = 0
 
-  await page.route("**/api/community/servers", async (route) => {
-    if (new URL(route.request().url()).pathname !== "/api/community/servers") {
+  const readbackPattern = "**/api/community/users/me/read-state"
+  await page.route(readbackPattern, async (route) => {
+    if (route.request().method() !== "GET") {
       await route.continue()
       return
     }
-    serverListRequests += 1
-    if (serverListRequests === 1) {
+    readbackRequests += 1
+    if (readbackRequests === 1) {
       railRequestHeld = true
       markRailHeld()
       await railRelease
@@ -170,7 +178,7 @@ async function expectRailReplacementDoesNotBlockMessages({
   page.on("request", countMessagesRequest)
 
   try {
-    const latestId = await triggerUnread()
+    await triggerReadback()
     await railHeld
     await page.getByTestId(tid.inboxTrigger).click()
     const inboxRow = page.getByTestId(inboxRowTestId)
@@ -183,7 +191,7 @@ async function expectRailReplacementDoesNotBlockMessages({
     await inboxRow.click()
 
     const response = await messagesResponse
-    expect(serverListRequests).toBeGreaterThanOrEqual(1)
+    expect(readbackRequests).toBeGreaterThanOrEqual(1)
     expect(messagesRequests).toBeGreaterThanOrEqual(1)
     expect(await readSeq(page, channelId)).toBe(beforeReadSeq)
     await releaseRail()
@@ -207,7 +215,7 @@ async function expectRailReplacementDoesNotBlockMessages({
   } finally {
     await releaseRail()
     page.off("request", countMessagesRequest)
-    await page.unroute("**/api/community/servers")
+    await page.unroute(readbackPattern)
   }
 }
 
@@ -232,7 +240,7 @@ test.setTimeout(180_000)
       "/api/community/users/me/inbox/unreads/read-all",
       "/api/community/users/me/inbox/dms/read-all",
     ]) {
-      expect((await bob.page.request.post(path)).ok()).toBe(true)
+      expect((await confirmCommunityFixtureApiResponse(bob.page.request.post(path, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))).ok()).toBe(true)
     }
     const observerGate = await installReadObserverGate(bob.page)
     const proxy = await proxyCommunityWebSockets(bob.context)
@@ -334,9 +342,9 @@ test.setTimeout(180_000)
     const proxy = await proxyCommunityWebSockets(context)
     await gotoAfterUserWsAuth(page, `/c/channels/${foregroundServer}/${foregroundChannel}`)
     await expect(page.getByTestId(tid.serverIcon(backgroundServer))).toBeVisible({ timeout: 30_000 })
-    const beforeSnapshot = await (await page.request.get(
-      "/api/community/users/me/read-state",
-    )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
+    const beforeSnapshot = await (await confirmCommunityFixtureApiResponse(page.request.get(
+      "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+    ))).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
     const beforeCursor = (channelId: string) => beforeSnapshot.readStates
       .find((row) => row.channelId === channelId)?.lastReadSeq ?? 0
 
@@ -424,9 +432,9 @@ test.setTimeout(180_000)
       fullPage: true,
     })
 
-    const snapshot = await (await page.request.get(
-      "/api/community/users/me/read-state",
-    )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
+    const snapshot = await (await confirmCommunityFixtureApiResponse(page.request.get(
+      "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+    ))).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
     const cursor = (channelId: string) => snapshot.readStates
       .find((row) => row.channelId === channelId)?.lastReadSeq ?? 0
     expect(cursor(unreadChannel)).toBeGreaterThan(beforeCursor(unreadChannel))
@@ -434,7 +442,7 @@ test.setTimeout(180_000)
     expect(cursor(dmId)).toBe(beforeCursor(dmId))
   })
 
-  test("a held rail server-list request does not block channel or child messages", async ({ caseActors, caseResources }) => {
+  test("a held canonical read-state request does not block channel or child messages", async ({ caseActors, caseResources }) => {
     const actors = await caseActors(["alice", "bob"])
     const { asUser, userId } = actors
     const { memberInfo, seedChannel, seedForumThread, seedJoinServer, seedMessage, seedServer } = actors.seed
@@ -502,33 +510,42 @@ test.setTimeout(180_000)
       await alice.page.getByTestId(tid.mentionOption(bobInfo.id)).click()
       await triggerComposer.pressSequentially(` ${label}`)
       await alice.page.keyboard.press("Enter")
-      expect((await response).status()).toBe(201)
+      const sent = await response
+      expect(sent.status()).toBe(201)
+      const body = await sent.json() as { message: { id: string } }
+      return body.message.id
     }
 
-    await expectRailReplacementDoesNotBlockMessages({
+    await expectReadbackDoesNotBlockMessages({
       page,
       observerGate: channelObserverGate,
       href: `/c/channels/${channelServer}/${channelId}`,
       channelId,
       latestText: channelText,
       inboxRowTestId: tid.inboxUnreadChannel(channelId),
-      triggerUnread: async () => {
-        await sendRailMention(`channel rail ${stamp}`)
-        return seedMessage("alice", channelId, channelText)
+      triggerUnread: () => seedMessage("alice", channelId, channelText),
+      triggerReadback: async () => {
+        const messageId = await sendRailMention(`channel readback ${stamp}`)
+        expect((await confirmCommunityFixtureApiResponse(page.request.put(`/api/community/channels/${railTriggerChannel}/read`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+          data: { lastReadMessageId: messageId },
+        }))).status()).toBe(200)
       },
     }, caseResources)
 
     await gotoAfterUserWsAuth(childPage, "/c/me")
-    await expectRailReplacementDoesNotBlockMessages({
+    await expectReadbackDoesNotBlockMessages({
       page: childPage,
       observerGate: childObserverGate,
       href: `/c/channels/${childServer}/${childId}`,
       channelId: childId,
       latestText: childText,
       inboxRowTestId: tid.inboxUnreadChild(childId),
-      triggerUnread: async () => {
-        await sendRailMention(`child rail ${stamp}`)
-        return seedMessage("alice", childId, childText)
+      triggerUnread: () => seedMessage("alice", childId, childText),
+      triggerReadback: async () => {
+        const messageId = await sendRailMention(`child readback ${stamp}`)
+        expect((await confirmCommunityFixtureApiResponse(childPage.request.put(`/api/community/channels/${railTriggerChannel}/read`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+          data: { lastReadMessageId: messageId },
+        }))).status()).toBe(200)
       },
     }, caseResources)
     await childPage.close()
@@ -559,11 +576,7 @@ test.setTimeout(180_000)
       if (request.method() === "POST" && path.endsWith("/read-all")) paths.push(path)
     })
     await page.route("**/api/community/users/me/inbox/dms/read-all", async (route) => {
-      await route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        body: '{"error":"dm read-all unavailable"}',
-      })
+      await route.fulfill(currentCommunityFixtureError("dm read-all unavailable", 503))
     })
     await page.getByRole("button", { name: "Mark all read" }).click()
     await expect.poll(() => paths.length, { timeout: 20_000 }).toBe(3)

@@ -1,3 +1,5 @@
+import { BUSINESS_SCHEMA_VERSION } from "../../../../../shared/src/business-schema-version"
+import { communityFixtureFetch } from "./business-contract"
 import { createHash } from "node:crypto"
 import { resolve } from "node:path"
 import { expect, type BrowserContext, type CDPSession, type Page, type Route, type TestInfo, type Worker } from "@playwright/test"
@@ -497,7 +499,7 @@ export async function qaApi<T>(actors: CaseActors, resources: CaseResources, rol
   const request = observation?.start(init?.method ?? "GET", path)
   let response: Response
   try {
-    response = await fetch(`${WEB_URL}${path}`, { ...init, signal: qaDeadlineSignal(resources), headers: { Cookie: actors.sessionCookie(role), Origin: WEB_URL, ...(init?.body ? { "content-type": "application/json" } : {}), ...init?.headers } })
+    response = await communityFixtureFetch(`${WEB_URL}${path}`, { ...init, signal: qaDeadlineSignal(resources), headers: { Cookie: actors.sessionCookie(role), Origin: WEB_URL, ...(init?.body ? { "content-type": "application/json" } : {}), ...init?.headers } })
   } catch (error) {
     if (request !== undefined) observation!.failed(request)
     throw error
@@ -552,7 +554,7 @@ export async function ownD1WsProbe(actors: CaseActors, resources: CaseResources,
       const machines = await qaApi<{ machines: Array<{ id: string; hostname: string }> }>(actors, resources, "alice", "/api/community/machines")
       const ids = new Set([state.machineId, ...machines.body.machines.filter(value => value.hostname.startsWith(hostname)).map(value => value.id)].filter(Boolean))
       for (const id of ids) {
-        const deleted = await fetch(`${WEB_URL}/api/community/machines/${id}`, { method: "DELETE", signal: qaDeadlineSignal(resources), headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL } })
+        const deleted = await communityFixtureFetch(`${WEB_URL}/api/community/machines/${id}`, { method: "DELETE", signal: qaDeadlineSignal(resources), headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL } })
         expect(deleted.status).toBe(204)
       }
       expect((await qaApi<{ machines: Array<{ id: string; hostname: string }> }>(actors, resources, "alice", "/api/community/machines")).body.machines.some(value => ids.has(value.id) || value.hostname.startsWith(hostname))).toBe(false)
@@ -812,7 +814,7 @@ export async function deviceSnapshot(page: Page): Promise<DeviceSnapshot> {
         const records = keys.result.map((key, index) => ({ key: String(key), encoded: JSON.stringify(values.result[index], (_, value) => value instanceof Map ? { nativeMap: [...value.entries()].sort(([a], [b]) => String(a).localeCompare(String(b))) } : value) })).sort((a, b) => a.key.localeCompare(b.key))
         const epoch = values.result[keys.result.indexOf("alook:qc:device-epoch")]
         db.close()
-        resolveRead({ epoch, records, payloadKeys: records.filter(record => /^alook:qc:[^:]+:[^:]+(?::application)?:client$/.test(record.key)).map(record => record.key) })
+        resolveRead({ epoch, records, payloadKeys: records.filter(record => /^alook:(?:qc:[^:]+|business:v\d+):[^:]+(?::application)?:client$/.test(record.key)).map(record => record.key) })
       }
       tx.onabort = tx.onerror = () => { db.close(); reject(tx.error) }
     }
@@ -824,14 +826,17 @@ export function preservedDeviceMetadata(snapshot: DeviceSnapshot) {
 }
 
 export async function insertArtificialRetiredResidual(page: Page, userId: string, captured: DeviceSnapshot) {
-  const key = `alook:qc:cache:${userId}:client`
+  const key = `alook:business:v${BUSINESS_SCHEMA_VERSION}:${userId}:client`
   const record = captured.records.find(record => record.key === key)
   if (!record) throw new Error("Retired residual requires a captured real account payload")
   const payload = JSON.parse(record.encoded) as unknown
   if (typeof payload !== "string") throw new Error("Captured native community payload is not its real JSON string")
-  const envelope = JSON.parse(payload) as { version: number; buster: string; clientState: unknown; channelFences: unknown[] }
-  if (envelope.version !== 6 || envelope.buster !== "6" || !envelope.clientState || !Array.isArray(envelope.channelFences)) throw new Error("Captured real persistence envelope is not the forwarded version 6 contract")
-  const keys = [key, `alook:qc:cache:${userId}:application:client`, `alook:qc:legacy:${userId}:client`]
+  const envelope = JSON.parse(payload) as { version: number; buster: string; clientState: unknown; channelFences: unknown[]; ownerEpochs?: { device: string; account: string } }
+  const accountRecord = captured.records.find(record => record.key === `alook:qc:cache:${userId}:account-epoch`)
+  const account = accountRecord ? JSON.parse(accountRecord.encoded) as unknown : undefined
+  if (envelope.version !== BUSINESS_SCHEMA_VERSION || envelope.buster !== String(BUSINESS_SCHEMA_VERSION) || !envelope.clientState || !Array.isArray(envelope.channelFences)
+    || !envelope.ownerEpochs || envelope.ownerEpochs.device !== captured.epoch || envelope.ownerEpochs.account !== account) throw new Error("Captured persistence envelope is not bound to the current business owner")
+  const keys = [key, `alook:business:v${BUSINESS_SCHEMA_VERSION}:${userId}:application:client`, `alook:qc:cache:${userId}:client`, `alook:qc:cache:${userId}:application:client`, `alook:qc:legacy:${userId}:client`]
   const channelFixture = { channelId: crypto.randomUUID(), epoch: crypto.randomUUID(), deleted: true }
   await page.evaluate(async ({ keys, payload, userId, channelFixture }) => new Promise<void>((resolveWrite, reject) => {
     const request = indexedDB.open("keyval-store")
@@ -850,7 +855,7 @@ export async function insertArtificialRetiredResidual(page: Page, userId: string
       tx.onabort = tx.onerror = () => { db.close(); reject(tx.error) }
     }
   }), { keys, payload, userId, channelFixture })
-  return { preparation: "artificial retired account residual and native Map tombstone for an unused fixture channel UUID; compatibility keys copy captured community bytes only for physical deletion", keys, channelFixture, bytes: Buffer.byteLength(payload), sha256: createHash("sha256").update(payload).digest("hex") }
+  return { preparation: "artificial retired account residual and native Map tombstone for an unused fixture channel UUID; obsolete-key negatives copy current community bytes only for physical deletion; no restore or migration", keys, channelFixture, bytes: Buffer.byteLength(payload), sha256: createHash("sha256").update(payload).digest("hex") }
 }
 
 export async function observeDeviceClear(page: Page, resources: CaseResources, previousEpoch: string) {
@@ -882,7 +887,7 @@ export async function observeDeviceClear(page: Page, resources: CaseResources, p
             retired = true
             clearTimeout(timerState.value)
             db!.close()
-            resolveRead({ epoch, records, payloadKeys: records.filter(record => /^alook:qc:[^:]+:[^:]+(?::application)?:client$/.test(record.key)).map(record => record.key) })
+            resolveRead({ epoch, records, payloadKeys: records.filter(record => /^alook:(?:qc:[^:]+|business:v\d+):[^:]+(?::application)?:client$/.test(record.key)).map(record => record.key) })
           }
         }
         probe()

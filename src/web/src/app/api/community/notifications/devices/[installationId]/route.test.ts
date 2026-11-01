@@ -8,14 +8,7 @@ const mocks = vi.hoisted(() => ({
   db: { primary: true },
   disablePushDevice: vi.fn(),
   params: { installationId: "installation-123" } as Record<string, string>,
-  withCommunityActor: vi.fn(
-    (handler: (req: NextRequest, ctx: Record<string, unknown>) => Promise<Response>) =>
-      async (req: NextRequest) => handler(req, {
-        env: { DB: {} },
-        actor: mocks.actor,
-        params: mocks.params,
-      }),
-  ),
+  communityActorPolicy: () => ({ resolve: async (req: NextRequest) => ({ context: { env: { DB: {} }, actor: mocks.actor } }) }),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -32,7 +25,7 @@ vi.mock("@alook/shared", () => ({
 }));
 
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: mocks.withCommunityActor,
+  communityActorPolicy: mocks.communityActorPolicy,
 }));
 
 import { DELETE } from "./route";
@@ -60,7 +53,7 @@ describe("DELETE /api/community/notifications/devices/:installationId", () => {
   it("scopes a decoded installation id to the current session user", async () => {
     mocks.params = { installationId: "safe%3Ainstallation_123" };
 
-    const response = await DELETE(request());
+    const response = await DELETE(request(), { params: mocks.params });
 
     expect(response.status).toBe(204);
     expect(await response.text()).toBe("");
@@ -93,7 +86,7 @@ describe("DELETE /api/community/notifications/devices/:installationId", () => {
     async (installationId) => {
       mocks.params = installationId === undefined ? {} : { installationId };
 
-      const response = await DELETE(request());
+      const response = await DELETE(request(), { params: mocks.params });
 
       expect(response.status).toBe(400);
       expect(mocks.disablePushDevice).not.toHaveBeenCalled();
@@ -103,7 +96,7 @@ describe("DELETE /api/community/notifications/devices/:installationId", () => {
   it("returns the same empty 204 for disabled, missing, or foreign rows", async () => {
     mocks.disablePushDevice.mockResolvedValue(false);
 
-    const response = await DELETE(request());
+    const response = await DELETE(request(), { params: mocks.params });
 
     expect(response.status).toBe(204);
     expect(await response.text()).toBe("");

@@ -14,6 +14,7 @@ import {
 } from "@/lib/analytics";
 
 type JourneyResources = {
+  setupMode?: "agent" | "manual";
   harness?: string;
   machineId?: string;
   model?: string | null;
@@ -84,6 +85,12 @@ export function updateCommunityOnboardingInitialization(runtime: CommunityRuntim
   return publish(runtime, { ...current, initialization: update(current.initialization ?? { checkpoint: {}, step: "creating-bots", result: null, pendingDestination: null }) });
 }
 
+export function switchCommunityOnboardingSetup(runtime: CommunityRuntime, setupMode: "agent" | "manual") {
+  const current = readCommunityOnboardingState(runtime);
+  if (!current?.harness || !["machine", "model", "identity"].includes(current.stage)) return current;
+  return publish(runtime, { ...current, stage: "machine", setupMode });
+}
+
 export function recoverCommunityOnboardingHarness(runtime: CommunityRuntime) {
   const currentState = readCommunityOnboardingState(runtime);
   if (currentState?.status !== "active" || currentState.stage !== "machine") {
@@ -119,6 +126,14 @@ export function completeCommunityOnboarding(runtime: CommunityRuntime, pathname?
   void captureProductAnalytics({ event: "community_onboarding_completed" }, () => {
     if (!runtime.lifecycle.get().active || runtime.lifecycle.get().generation !== generation) throw new DOMException("Retired onboarding owner", "AbortError");
   });
+  return null;
+}
+
+export function finishCommunityOnboardingAgentSetup(runtime: CommunityRuntime) {
+  const state = readCommunityOnboardingState(runtime);
+  if (state?.stage !== "machine" || state.setupMode !== "agent") return state;
+  publish(runtime, null);
+  trackCommunityOnboardingStageCompleted("machine");
   return null;
 }
 

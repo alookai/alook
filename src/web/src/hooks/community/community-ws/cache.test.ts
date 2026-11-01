@@ -1,8 +1,10 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { describe, expect, it } from "vitest"
 import type { CommunityReactionAdd, CommunityReactionRemove } from "@alook/shared"
 import { applyMessageReaction, type Msg } from "@/lib/community/models/message"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { ingestMessages, projectCommunityWsEventToDb } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishCommunityMessages, ingestMessages, projectCommunityWsEventToDb } from "@/lib/community-db/sync"
 import { findCachedMessage } from "../use-message"
 import { removeThreadFromCache, type PageCache } from "./cache"
 
@@ -15,23 +17,22 @@ const remove: CommunityReactionRemove = { ...add, type: "community:reaction.remo
 describe("community WS canonical publication and ID windows", () => {
   it("preserves undefined windows and missing canonical entities", async () => {
     const { client, registry } = await createCommunityQueryOwner("u_me")
-    ingestMessages(registry, "ch_1", [{ id: "m_1", content: "one" }])
+    ingestMessages(registry, "ch_1", [messageResourceFixture({ id: "m_1", channelId: "ch_1", content: "one" })])
     const row = registry.collections.messages.get("m_1"), cache = pageCache([{ id: "m_1" }])
-    projectCommunityWsEventToDb(client, { type: "community:message.edited", channelId: "ch_1", messageId: "missing", content: "New" })
+    projectCommunityWsEventToDb(client, { type: "community:reaction.add", channelId: "ch_1", messageId: "missing", emoji: "👍", userId: "peer" })
     expect(registry.collections.messages.get("m_1")).toBe(row)
     expect(registry.collections.messages.has("missing")).toBe(false)
     expect(removeThreadFromCache(undefined, "missing", "missing")).toBeUndefined()
     expect(removeThreadFromCache(cache, "missing", "missing")).toBe(cache)
   })
-  it("patches canonical approval and content while preserving non-target rows", async () => {
+  it("patches canonical approval while preserving non-target rows", async () => {
     const { client, registry } = await createCommunityQueryOwner("u_me")
-    ingestMessages(registry, "ch_1", [{ id: "m_1", content: "one" }, { id: "m_2", content: "two" }])
+    ingestMessages(registry, "ch_1", [messageResourceFixture({ id: "m_1", channelId: "ch_1", content: "one" }), messageResourceFixture({ id: "m_2", channelId: "ch_1", content: "two", seq: 2 })])
     const other = registry.collections.messages.get("m_2")
     const profile = { id: "u_1", name: "User", discriminator: "0001", image: null, avatarVersion: 0 }
     const approval = { friendshipId: "friendship_1", status: "approved" as const, waitingOn: null, otherProfile: profile, botProfile: { ...profile, id: "bot_1" } }
     projectCommunityWsEventToDb(client, { type: "community:message.updated", channelId: "ch_1", messageId: "m_1", approval })
-    projectCommunityWsEventToDb(client, { type: "community:message.edited", channelId: "ch_1", messageId: "m_1", content: "edited" })
-    expect(registry.collections.messages.get("m_1")).toMatchObject({ content: "edited", approval })
+    expect(registry.collections.messages.get("m_1")).toMatchObject({ content: "one", approval })
     expect(registry.collections.messages.get("m_2")).toBe(other)
   })
   it("evicts the proved opener ID across pages without changing sibling windows or page parameters", () => {
@@ -54,7 +55,7 @@ describe("community WS canonical publication and ID windows", () => {
   })
   it("patches canonical reactions and removes the last membership", async () => {
     const { client, registry } = await createCommunityQueryOwner("u_me")
-    ingestMessages(registry, "ch_1", [{ id: "m_1", reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_me"] }] }])
+    ingestMessages(registry, "ch_1", [messageResourceFixture({ id: "m_1", channelId: "ch_1", reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_me"] }] })])
     projectCommunityWsEventToDb(client, remove)
     expect(registry.collections.messages.get("m_1")?.reactions).toEqual([])
     projectCommunityWsEventToDb(client, add)
@@ -63,7 +64,9 @@ describe("community WS canonical publication and ID windows", () => {
   })
   it("reads the same canonical entity for every ID window and returns undefined for misses", async () => {
     const { client, registry } = await createCommunityQueryOwner("u_me")
-    ingestMessages(registry, "ch_1", [{ id: "m_1" }, { id: "m_2", content: "target", authorId: "author", createdAt: "2026-08-15T00:00:02.000Z" }])
+    ingestMessages(registry, "ch_1", [messageResourceFixture({ id: "m_1", channelId: "ch_1" }), messageResourceFixture({ id: "m_2", channelId: "ch_1", seq: 2, content: "target", authorId: "author", createdAt: "2026-08-15T00:00:02.000Z" })])
+    const messages = [...registry.collections.messages.values()].map(row => messageResourceFixture(Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith("$")))))
+    publishCommunityMessages(client, { channelId: "ch_1", messages, profiles: messageProfilesFixture(messages), proof: { token: captureCommunityLiveSnapshotToken(client) } })
     expect(findCachedMessage(client, "m_2")).toMatchObject({ id: "m_2", content: "target" })
     expect(findCachedMessage(client, "missing")).toBeUndefined()
   })

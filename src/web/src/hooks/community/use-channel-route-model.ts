@@ -64,6 +64,7 @@ export function useChannelRouteModel(
   channelId: string,
   accountId: string,
   anchorMessageId?: string | null,
+  tag?: string | null,
 ) {
   const active = useConversationActivity()
   const ownedChannel = useRef(channelId)
@@ -73,7 +74,7 @@ export function useChannelRouteModel(
   const queryClient = useQueryClient()
   const runtime = useCommunityRuntime()
   const { server } = useServer(serverId)
-  const metaQuery = useChannelMetadata(serverId, channelId, { anchorMessageId })
+  const metaQuery = useChannelMetadata(serverId, channelId, { anchorMessageId, tag })
   const identity = metaQuery.canRead && metaQuery.data?.id === channelId && metaQuery.data.serverId === serverId ? metaQuery.data : undefined
   const isChild = identity?.type === "thread"
   const renderableChannelMeta: ChannelMeta = useMemo(() => isChild && identity?.parentChannelId && identity.parentMessageId
@@ -94,7 +95,8 @@ export function useChannelRouteModel(
   const model = useMemo(() => buildChannelRouteModel(server, renderableChannelMeta, channelId,
     { channelId, settled: metaQuery.canRead }, identity, canonicalParent),
   [server, renderableChannelMeta, channelId, metaQuery.canRead, identity, canonicalParent])
-  const routeLifecycle = metaQuery.canRead && !metadataExit ? "ready" as const
+  const surfaceReady = model.routeHydrated && metaQuery.canRead && !metadataExit && !metadataError
+  const routeLifecycle = surfaceReady ? "ready" as const
     : metadataExit || metadataError ? "terminal-error" as const : "pending" as const
   const skeletonSubtype = routeLifecycle === "ready"
     ? model.isChild ? "thread" as const : model.isForum ? "forum" as const : "text" as const
@@ -143,7 +145,8 @@ export function useChannelRouteModel(
 
   return {
     ...model,
-    routeHydrated: model.routeHydrated && metaQuery.canRead && !metadataExit,
+    routeHydrated: surfaceReady,
+    windowReady: metaQuery.windowReady,
     routeLifecycle,
     skeletonSubtype,
     layoutHint,

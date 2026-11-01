@@ -1,3 +1,4 @@
+import { channelResourceFixture, serverResourceFixture, fullResourceBundleFixture } from "@/test/community-resource-fixtures"
 import { useLayoutEffect } from "react"
 import "fake-indexeddb/auto"
 import React from "react"
@@ -19,6 +20,9 @@ vi.mock("@/lib/auth-client", () => { const sessionSDK = { useSession: () => sdk.
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }) }))
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
 const directory = [{ id: "srv", name: "Studio", discriminator: "0001", channels: [{ id: "ch", name: "general", type: "text" as const }] }]
+function directoryResponse(viewerId: string) { return { directory, resources: fullResourceBundleFixture(viewerId,
+  [serverResourceFixture({ id: "srv", name: "Studio", discriminator: "0001", ownerId: viewerId, isOwner: true })],
+  [channelResourceFixture({ id: "ch", serverId: "srv", name: "general" })]) } }
 let current: ReturnType<typeof useRenameChannel>, currentClient: QueryClient
 function Probe() {
   const data = useChannelRefDirectory(), command = useRenameChannel(), client = useQueryClient(); useLayoutEffect(() => { current = command; currentClient = client; if (!clients.includes(client)) clients.push(client) })
@@ -33,7 +37,7 @@ async function mount() {
   api.mockImplementation((path: string, options?: { method?: string; authenticationAccount?: string; signal?: AbortSignal }) => {
     if (options?.method === "PATCH") return held.promise
     const account = options?.authenticationAccount ?? "unknown"
-    if (!seen.has(account)) { seen.add(account); return Promise.resolve({ directory }) }
+    if (!seen.has(account)) { seen.add(account); return Promise.resolve(directoryResponse(account)) }
     return new Promise((_, reject) => options?.signal?.addEventListener("abort", () => reject(new DOMException("Cancelled fresh read", "AbortError")), { once: true }))
   })
   const view = render(<Root />)
@@ -88,7 +92,7 @@ describe("native directory fact owner and channel transaction", () => {
     expect(qc.getQueryData(communityKeys.channelRefDirectory())).toBeUndefined()
   })
   it("retires the native warm read and its observers through actual QueryProvider unmount without manually clearing its client", async () => {
-    const held: Array<{ signal: AbortSignal; finish: (data: { directory: typeof directory }) => void }> = []
+    const held: Array<{ signal: AbortSignal; finish: (data: ReturnType<typeof directoryResponse>) => void }> = []
     api.mockImplementation((_path: string, options: { signal: AbortSignal }) => new Promise((finish) => { held.push({ signal: options.signal, finish }) }))
     const view = render(<Root />)
     await waitFor(() => expect(currentClient.getQueryCache().find({ queryKey: communityKeys.channelRefDirectory() })?.getObserversCount()).toBe(2))
@@ -99,7 +103,7 @@ describe("native directory fact owner and channel transaction", () => {
     await waitFor(() => expect(signal.aborted).toBe(true))
     expect(resource.getObserversCount()).toBe(0)
     await waitFor(() => expect(original.getQueryCache().getAll()).toHaveLength(0))
-    await act(async () => held.forEach((request) => request.finish({ directory })))
+    await act(async () => held.forEach((request) => request.finish(directoryResponse("A"))))
     expect(original.getQueryCache().getAll()).toHaveLength(0)
   })
 })

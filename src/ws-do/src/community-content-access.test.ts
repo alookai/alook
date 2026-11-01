@@ -34,7 +34,7 @@ describe("community target content access", () => {
   it("never lets a control child bypass mixed content access", async () => {
     readable.mockResolvedValue([])
     expect(await canDeliverCommunityContent({} as never, "user-1", [
-      communityWsEventFixtures["community:channel.member_add"],
+      communityWsEventFixtures["community:channel.membership.change"],
       communityWsEventFixtures["community:message.create"],
     ])).toBe(false)
   })
@@ -52,7 +52,7 @@ describe("community target content access", () => {
     expect(await canDeliverCommunityContent({} as never, "user-1", [event])).toBe(false)
     expect(await canDeliverCommunityContent({} as never, "user-1", [{ type: "community:unread.bump", userId: "other", channelId: "child" }])).toBe(false)
   })
-  it("resolves legacy attention scope and propagates transient lookup failure", async () => {
+  it("resolves the named message-only attention scope and propagates transient lookup failure", async () => {
     const event = { type: "community:mention.create" as const, userId: "user-1", messageId: "message-1", authorName: "Author" }
     expect(await canDeliverCommunityContent({} as never, "user-1", [event])).toBe(true)
     expect(messageScope).toHaveBeenCalledWith({}, "user-1", "message-1")

@@ -4,6 +4,7 @@ import {
   withD1Retry,
   WS_EVENTS,
   encodeCommunityBrowserEvent,
+  validateCommunityWsEvent,
   isCommunityEventCandidate,
   visibilityIsDmParticipant,
   type Database,
@@ -12,7 +13,6 @@ import type { UserConnectionState, WsDurableContext } from "./internal"
 import { createInternalBrowserBroadcastRequest } from "../internal-user-broadcast"
 import {
   logCommunityBrowserEventRejected,
-  normalizeCommunityBrowserEvent,
 } from "../community-browser-event-ingress"
 
 function normalizeBrowserPayload(
@@ -20,7 +20,7 @@ function normalizeBrowserPayload(
   payload: unknown,
 ): { ok: true; payload: unknown } | { ok: false } {
   if (!isCommunityEventCandidate(payload)) return { ok: true, payload }
-  const normalized = normalizeCommunityBrowserEvent(payload)
+  const normalized = validateCommunityWsEvent(payload)
   if (!normalized.ok) {
     logCommunityBrowserEventRejected(context.log, "ws-do-producer", normalized)
     return { ok: false }

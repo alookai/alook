@@ -8,7 +8,7 @@ import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotTo
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { useCallback, useEffect, useLayoutEffect, useMemo } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { materializeIntent } from "@/lib/community/message-stream"
 import { presentCanonicalMessage } from "@/lib/community/message-wire"
 import { messageScopeKey } from "@/stores/community/message-stream-store"
@@ -28,7 +28,6 @@ import {
 import {
   useAddReactionApi,
   useCreateThread,
-  useEditMessage,
   usePinMessage,
   useSendMessage,
   useToggleMark,
@@ -68,6 +67,8 @@ export function useMessageChannelController({
   resolveUserName,
 }: Omit<MessageChannelControllerProps, "children">): MessageChannelControllerValue {
   const active = useConversationActivity()
+  const committedFeed = useRef(feed)
+  useLayoutEffect(() => { committedFeed.current = feed }, [feed])
   const profileQueryClient = useQueryClient()
   const communityRuntime = useCommunityRuntime()
   const source = useCommunityViewSource(`message-actions:${serverId}:${channelId}`)
@@ -85,7 +86,6 @@ export function useMessageChannelController({
   const { mutate: pinMessageMutate } = usePinMessage()
   const { mutate: unpinMessageMutate } = useUnpinMessage()
   const toggleMark = useToggleMark()
-  const { mutate: editMessage } = useEditMessage()
   const { mutateAsync: createThreadAsync } = useCreateThread()
   const { mutateAsync: uploadFileAsync } = useUploadFile()
   const typingUserIds = useTypingUsersForScope(`ch:${channelId}`)
@@ -232,10 +232,9 @@ export function useMessageChannelController({
     pinMessageMutate,
     toggleMark,
     createThreadAsync,
-    editMessage,
     messageScope,
     runAcceptedIntent,
-  }), [communityRuntime, actionContext, getMessage, source.capture, serverId, channelId, viewer.id, setReplyTo, toggleReactionApi, addReactionApi, unpinMessageMutate, pinMessageMutate, toggleMark, createThreadAsync, editMessage, messageScope, runAcceptedIntent])
+  }), [communityRuntime, actionContext, getMessage, source.capture, serverId, channelId, viewer.id, setReplyTo, toggleReactionApi, addReactionApi, unpinMessageMutate, pinMessageMutate, toggleMark, createThreadAsync, messageScope, runAcceptedIntent])
 
   const { hasMoreNewer, jumpToPresent } = feed
   const acceptMessage = useCallback((
@@ -243,6 +242,7 @@ export function useMessageChannelController({
     attachments?: SendAttachment[],
     mentionType?: MentionType,
   ): boolean => {
+    if (committedFeed.current.navigationBlocked) return false
     const command = captureSendCommand()
     const accepted = acceptChannelMessage({
       runtime: communityRuntime,
@@ -280,7 +280,10 @@ export function useMessageChannelController({
     threadActions: { ...messageActions, onCreateThread: undefined },
     acceptMessage,
     localSubmitVersion,
-    handleTyping: () => communityWsSendTyping(communityRuntime, { channelId }),
+    handleTyping: () => {
+      if (committedFeed.current.navigationBlocked) return
+      communityWsSendTyping(communityRuntime, { channelId })
+    },
     typingUsers: typingUserIds.map((id) => typingNames[id] ?? resolveUserName(id)),
   }), [feed, pinnedIds, replyTo, setReplyTo, scrollTargetId, setScrollTargetId, consumeScrollTarget, contextTarget, setContextTarget, openContextSeq, onSheetReply, jumpToSeq, messageActions, acceptMessage, localSubmitVersion, typingUserIds, communityRuntime, channelId, typingNames, resolveUserName])
 }

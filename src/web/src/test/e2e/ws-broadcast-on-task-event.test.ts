@@ -1,11 +1,3 @@
-/**
- * Regression: WS broadcast HTTP endpoint on task lifecycle events
- * Verifies the broadcast HTTP endpoint responds correctly (server-side only).
- * Refs: #194 (Priority 5)
- *
- * NOTE: Tests are conditional on WS-DO being available at :8789.
- * If WS-DO is not running, tests skip gracefully.
- */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
 import { DEV_WS_DO_URL } from "@alook/shared"
@@ -29,14 +21,13 @@ beforeAll(async () => {
 })
 afterAll(() => cleanupTestData(seed))
 
-describe("regression: WS broadcast HTTP endpoint on task events", () => {
-  it("task completion broadcast returns 200", async () => {
+describe("WS user broadcast and retired daemon endpoint", () => {
+  it("current user email notification broadcast returns 200", async () => {
     if (!wsAvailable) return
 
     const eventPayload = {
-      type: "task.completed",
-      taskId: `task_${randomUUID().slice(0, 8)}`,
-      conversationId: `conv_${randomUUID().slice(0, 8)}`,
+      type: "email.received",
+      agentId: seed.agentId,
     }
     const broadcastRes = await fetch(`${DEV_WS_DO_URL}/broadcast/user/${seed.userId}`, {
       method: "POST",
@@ -60,13 +51,13 @@ describe("regression: WS broadcast HTTP endpoint on task events", () => {
     expect(data.sent).toBe(0)
   })
 
-  it("daemon broadcast endpoint delivers to daemon WS clients", async () => {
+  it("retired daemon broadcast cannot deliver legacy tasks", async () => {
     if (!wsAvailable) return
 
     const res = await fetch(`${DEV_WS_DO_URL}/broadcast/daemon/${seed.daemonId}`, {
       method: "POST",
       body: JSON.stringify({ type: "daemon.tasks", tasks: [] }),
     })
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(400)
   })
 })

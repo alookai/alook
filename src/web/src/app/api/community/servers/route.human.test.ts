@@ -13,11 +13,10 @@ vi.mock("@/lib/community/storage", () => ({
   serverIconUrl: vi.fn((row: { icon?: string | null }) => row.icon ?? null),
 }))
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: (...args: any[]) => unknown) =>
-    (req: NextRequest) => handler(req, {
+  communityActorPolicy: () => ({ resolve: async (req: NextRequest) => ({ context: {
       env: { DB: {} },
       actor: { kind: "human", userId: "viewer", email: "viewer@example.test" },
-    }),
+    } }) }),
   rejectBot: vi.fn(() => null),
 }))
 vi.mock("@/lib/middleware/helpers", () => ({

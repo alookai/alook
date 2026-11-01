@@ -32,7 +32,7 @@ function activate(id: string) {
 }
 async function seed(id: string) {
   const client = new QueryClient()
-  client.setQueryData(key(id), [{ id, identityComplete: true, name: "Private " + id, discriminator: "0001", avatar: "A", avatarVersion: 0 }], { updatedAt: Date.now() - 1000 })
+  client.setQueryData(key(id), [{ id, name: "Private " + id, discriminator: "0001", avatar: null, avatarVersion: 0 }], { updatedAt: Date.now() - 1000 })
   await createIdbPersister(id).persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(client) })
   client.clear()
 }

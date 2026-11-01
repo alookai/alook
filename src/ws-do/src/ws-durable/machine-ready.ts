@@ -1,3 +1,4 @@
+import { PII_CAPABILITY } from "@alook/shared"
 import {
   CONTROL_HEARTBEAT_CAPABILITY,
   MACHINE_STOP_CAPABILITY,
@@ -96,6 +97,7 @@ export async function handleReadyFrame(
     ws.serializeAttachment({
       ...state,
       controlHeartbeat,
+      pii: ready.capabilities.includes(PII_CAPABILITY),
       modelDiscovery: ready.capabilities.includes(RUNTIME_MODEL_DISCOVERY_CAPABILITY),
       machineStop: ready.capabilities.includes(MACHINE_STOP_CAPABILITY),
       ...(controlHeartbeat ? { lastHeartbeatAckAt: Date.now() } : {}),

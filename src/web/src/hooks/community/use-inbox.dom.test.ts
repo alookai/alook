@@ -1,3 +1,6 @@
+import { writeCommunityCollectionRows } from "@/lib/community-db/write"
+import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
+import { attentionSnapshotScenarioFixture, fullResourceBundleFixture, serverResourceFixture, channelResourceFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
 import React, { useLayoutEffect } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { AccountAttentionSnapshot } from "@alook/shared"
@@ -14,6 +17,10 @@ import {
 import {
   clearAttentionScopeOptimistically,
   ingestAttentionSnapshot,
+  captureCommunityLiveSnapshotToken,
+  publishAccountAttentionSnapshot,
+  projectCommunityWsEventToDb,
+  applyCommunityDmBlockAccess,
   ingestServers,
 } from "@/lib/community-db/sync"
 import { useCommunityWsStore } from "@/stores/community/ws"
@@ -49,7 +56,7 @@ function forumSnapshot(): AccountAttentionSnapshot {
     lastMessageAt: `2026-09-28T00:00:${openerSeq ?? 30}.000Z`,
     ...(openerSeq === undefined ? {} : { openerSeq, openerUnread: true }),
   })
-  return {
+  return attentionSnapshotScenarioFixture({
     scopes: [{
       scopeId: "forum",
       channelId: "forum",
@@ -92,11 +99,11 @@ function forumSnapshot(): AccountAttentionSnapshot {
         content: `Post ${seq}`,
       })),
     },
-  }
+  })
 }
 
 function truncatedAttentionOnlySnapshot(): AccountAttentionSnapshot {
-  return {
+  return attentionSnapshotScenarioFixture({
     scopes: [{
       scopeId: "channel",
       channelId: "channel",
@@ -127,12 +134,12 @@ function truncatedAttentionOnlySnapshot(): AccountAttentionSnapshot {
       profiles: [],
       messages: [],
     },
-  }
+  })
 }
 
 function truncatedAttentionWithBoundedItemSnapshot(): AccountAttentionSnapshot {
   const snapshot = truncatedAttentionOnlySnapshot()
-  return {
+  return attentionSnapshotScenarioFixture({
     ...snapshot,
     items: [{
       id: "mention:mention",
@@ -163,12 +170,12 @@ function truncatedAttentionWithBoundedItemSnapshot(): AccountAttentionSnapshot {
         content: "hello",
       }],
     },
-  }
+  })
 }
 
 function emptyAttentionScopeSnapshot(): AccountAttentionSnapshot {
   const snapshot = truncatedAttentionOnlySnapshot()
-  return {
+  return attentionSnapshotScenarioFixture({
     ...snapshot,
     scopes: [{
       ...snapshot.scopes[0]!,
@@ -178,11 +185,11 @@ function emptyAttentionScopeSnapshot(): AccountAttentionSnapshot {
     }],
     limit: 100,
     truncated: false,
-  }
+  })
 }
 
 function dmSnapshot({ mention = false }: { mention?: boolean } = {}): AccountAttentionSnapshot {
-  return {
+  return attentionSnapshotScenarioFixture({
     scopes: [{
       scopeId: "dm",
       channelId: "dm",
@@ -236,11 +243,11 @@ function dmSnapshot({ mention = false }: { mention?: boolean } = {}): AccountAtt
         content: "hello",
       }] : [],
     },
-  }
+  })
 }
 
 function childThreadSnapshot(): AccountAttentionSnapshot {
-  return {
+  return attentionSnapshotScenarioFixture({
     scopes: [{
       scopeId: "child",
       channelId: "child",
@@ -290,11 +297,11 @@ function childThreadSnapshot(): AccountAttentionSnapshot {
         content: "Child",
       }],
     },
-  }
+  })
 }
 
 function friendRequestSnapshot(): AccountAttentionSnapshot {
-  return {
+  return attentionSnapshotScenarioFixture({
     scopes: [],
     items: [{
       id: "friend_request:request",
@@ -320,7 +327,7 @@ function friendRequestSnapshot(): AccountAttentionSnapshot {
       }],
       messages: [],
     },
-  }
+  })
 }
 
 async function createHarness({
@@ -392,19 +399,75 @@ beforeEach(() => {
 })
 
 describe("useInboxAttention", () => {
+  it.each(["dm", "thread"] as const)("publishes current validated attention %s presentation through the HTTP owner", async (kind) => {
+    const snapshot = kind === "dm" ? dmSnapshot() : childThreadSnapshot()
+    apiFetchMock.mockResolvedValue(snapshot)
+    const harness = await createHarness({ owner: true })
+    try {
+      await waitFor(() => {
+        if (kind === "dm") {
+          expect(harness.latest.dms).toEqual([expect.objectContaining({ channelId: "dm", otherUserName: "Peer", lastUnreadSeq: 9 })])
+          expect(harness.registry.collections.channelMemberships.get("dm:peer:access")).toMatchObject({ channelId: "dm", userId: "peer", relation: "access" })
+        } else {
+          expect(harness.latest.servers[0]?.channels[0]?.children[0]).toMatchObject({ channelId: "child", openerSeq: 7, openerUnread: false })
+          expect(harness.registry.collections.channels.get("child")).toMatchObject({ openerSeq: 7, openerUnread: false })
+        }
+      })
+      expect(harness.latest.isSuccess).toBe(true)
+    } finally { harness.dispose() }
+  })
+
+  it("rejects a raw current attention DM descriptor before any collection changes", async () => {
+    const harness = await createHarness()
+    try {
+      const snapshot = dmSnapshot()
+      snapshot.included.dms[0].userId = "missing-full-peer"
+      const before = Object.fromEntries(Object.entries(harness.registry.collections).map(([name, collection]) => [name, [...collection.values()]]))
+      expect(() => ingestAttentionSnapshot(harness.registry, snapshot)).toThrow()
+      expect(Object.fromEntries(Object.entries(harness.registry.collections).map(([name, collection]) => [name, [...collection.values()]]))).toEqual(before)
+    } finally { harness.dispose() }
+  })
+
+  it("keeps newer canonical opener facts through a held attention query", async () => {
+    const harness = await createHarness()
+    try {
+      const snapshot = childThreadSnapshot()
+      ingestAttentionSnapshot(harness.registry, snapshot)
+      const token = captureCommunityLiveSnapshotToken(harness.queryClient)
+      const child = harness.registry.collections.channels.get("child")!
+      await writeCommunityCollectionRows(harness.registry, "channels", [{ ...child, openerSeq: 9, openerUnread: true }], row => row.id)
+      projectCommunityWsEventToDb(harness.queryClient, { type: "community:channel.update", channelId: "child", serverId: "server", changes: { name: "Newer child" } })
+      publishAccountAttentionSnapshot(harness.queryClient, { snapshot, proof: { token, signal: undefined } })
+      expect(harness.registry.collections.channels.get("child")).toMatchObject({ name: "Newer child", openerSeq: 9, openerUnread: true })
+    } finally { harness.dispose() }
+  })
+
+  it("rejects held attention after a current DM block retires its access", async () => {
+    const harness = await createHarness()
+    try {
+      const snapshot = dmSnapshot()
+      ingestAttentionSnapshot(harness.registry, snapshot)
+      const token = captureCommunityLiveSnapshotToken(harness.queryClient)
+      applyCommunityDmBlockAccess(harness.registry, "peer", true)
+      expect(harness.registry.runtime.ws.actions.isChannelAccessRevoked("dm", null)).toBe(true)
+      expect(() => publishAccountAttentionSnapshot(harness.queryClient, { snapshot, proof: { token, signal: undefined } })).toThrow("Stale community live snapshot")
+      expect(harness.registry.runtime.ws.actions.isChannelAccessRevoked("dm", null)).toBe(true)
+    } finally { harness.dispose() }
+  })
+
   it("keeps unread server identity aligned with its canonical owner", async () => {
     const harness = await createHarness()
     try {
       const server = { id: "server", name: "Server", discriminator: "0001", initial: "S", active: false, unread: true, mentions: 0, icon: "/first-server-icon.png" }
       act(() => {
-        ingestServers(harness.registry, { servers: [server] })
-        ingestAttentionSnapshot(harness.registry, forumSnapshot())
+        ingestServers(harness.registry, serverRailResponseFixture({ servers: [server] }, (harness.registry)!.accountId))
+        ingestAttentionSnapshot(harness.registry, { ...forumSnapshot(), resources: { ...forumSnapshot().resources, servers: [serverResourceFixture({ id: server.id, name: server.name, discriminator: server.discriminator, icon: server.icon, ownerId: "viewer" })] } })
       })
       await waitFor(() => expect(harness.latest.servers[0]).toMatchObject({
         serverName: "Server",
         serverIcon: "/first-server-icon.png",
       }))
-      act(() => ingestServers(harness.registry, { servers: [{ ...server, name: "Renamed", icon: null }] }))
+      act(() => ingestServers(harness.registry, serverRailResponseFixture({ servers: [{ ...server, name: "Renamed", icon: null }] }, (harness.registry)!.accountId)))
       await waitFor(() => expect(harness.latest.servers[0]).toMatchObject({
         serverName: "Renamed",
         serverIcon: null,
@@ -521,6 +584,8 @@ describe("useInboxAttention", () => {
       archived: false,
       lastMessageAt: "2026-09-28T00:00:40.000Z",
     })
+    snapshot.resources.channels.push(channelResourceFixture({ id: "direct", serverId: "server", name: "Direct", lastMessageAt: "2026-09-28T00:00:40.000Z" }))
+    snapshot.resources.memberships.push({ channelId: "direct", userId: "viewer", relation: "access", source: "explicit" })
     const harness = await createHarness()
     try {
       act(() => ingestAttentionSnapshot(harness.registry, snapshot))
@@ -588,6 +653,7 @@ describe("useInboxAttention", () => {
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
     apiFetchMock.mockResolvedValueOnce({
+      resources: fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "server" })], [channelResourceFixture({ id: "channel", serverId: "server" })], [messageResourceFixture({ id: "message", channelId: "channel", seq: 5, authorId: "peer", createdAt: "2026-09-28T00:00:05.000Z", content: "keep" })]),
       marked: [{
         id: "mark",
         server: "Server",

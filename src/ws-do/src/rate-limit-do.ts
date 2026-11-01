@@ -39,6 +39,16 @@ export class RateLimitDurableObject extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
+    if (url.pathname === "/check-automation" && request.method === "POST") {
+      let body: unknown
+      try { body = await request.json() } catch { return new Response("invalid json", { status: 400 }) }
+      const { max, period } = (body ?? {}) as { max?: unknown; period?: unknown }
+      if ((period !== "hour" && period !== "day") || typeof max !== "number" || !Number.isInteger(max) || max < 1 || max > (period === "hour" ? 64 : 1536)) {
+        return new Response("invalid automation policy", { status: 400 })
+      }
+      return Response.json(await this.checkAutomation(max, period))
+    }
+
     if (url.pathname === "/check" && request.method === "POST") {
       let body: unknown
       try {
@@ -57,6 +67,24 @@ export class RateLimitDurableObject extends DurableObject<Env> {
     }
 
     return new Response("not found", { status: 404 })
+  }
+
+  private async checkAutomation(max: number, period: "hour" | "day"): Promise<RateLimitResult> {
+    return this.ctx.storage.transaction(async (transaction) => {
+      const now = Date.now()
+      const hour = 3_600_000
+      const timestamps = (await transaction.get<number[]>("automation")) ?? []
+      const day = timestamps.filter((time) => time > now - 24 * hour)
+      const recentHour = day.filter((time) => time > now - hour)
+      const configured = period === "hour" ? recentHour : day
+      let retryMs = 0
+      if (recentHour.length >= 64) retryMs = recentHour[recentHour.length - 64]! + hour - now
+      if (configured.length >= max) retryMs = Math.max(retryMs, configured[configured.length - max]! + (period === "hour" ? hour : 24 * hour) - now)
+      if (retryMs > 0) return { allowed: false, retryAfterSec: Math.max(1, Math.ceil(retryMs / 1000)) }
+      day.push(now)
+      await transaction.put("automation", day)
+      return { allowed: true }
+    })
   }
 
   private async check(windowMs: number, max: number): Promise<RateLimitResult> {

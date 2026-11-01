@@ -1,14 +1,15 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import type { NextRequest } from "next/server"
 import { queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { avatarInitial } from "@/lib/community/avatar"
 import { canonicalUserImage } from "@/lib/community/storage"
 
 const PREVIEW_LIMIT = 4
 
-export const GET = withAuth(async (_req: NextRequest, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) => {
   const botId = ctx.params?.id as string
   const db = getDb(ctx.env.DB)
   const bot = await queries.communityBot.getBotOwnedBy(db, botId, ctx.userId)

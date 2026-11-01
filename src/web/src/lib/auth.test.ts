@@ -31,6 +31,7 @@ vi.mock("better-auth/plugins", () => ({
   deviceAuthorization: vi.fn((cfg: unknown) => ({ __plugin: "deviceAuthorization", cfg })),
   bearer: vi.fn(() => ({ __plugin: "bearer" })),
   oneTimeToken: vi.fn((cfg: unknown) => ({ __plugin: "oneTimeToken", cfg })),
+  lastLoginMethod: vi.fn((cfg: unknown) => ({ __plugin: "lastLoginMethod", cfg })),
 }))
 
 vi.mock("@/lib/apple-auth", async (importOriginal) => {
@@ -760,51 +761,14 @@ describe("createAuth Apple provider", () => {
   })
 })
 
-describe("createAuth device authorization plugin", () => {
-  beforeEach(() => vi.clearAllMocks())
-
-  it("includes deviceAuthorization and bearer plugins in production", async () => {
+describe("retired CLI authentication", () => {
+  it.each(["production", "development"])("does not enable device-code or session-Bearer plugins in %s", async nodeEnv => {
     const createAuth = await loadCreateAuth()
-    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: { plugins: any[] } }).__options
-    const pluginNames = opts.plugins.map((p: any) => p.__plugin)
-    expect(pluginNames).toContain("deviceAuthorization")
-    expect(pluginNames).toContain("bearer")
-  })
-
-  it("includes deviceAuthorization and bearer plugins in development", async () => {
-    const createAuth = await loadCreateAuth()
-    const opts = (createAuth(makeEnv({ NODE_ENV: "development" }) as never) as { __options: { plugins: any[] } }).__options
-    const pluginNames = opts.plugins.map((p: any) => p.__plugin)
-    expect(pluginNames).toContain("deviceAuthorization")
-    expect(pluginNames).toContain("bearer")
-  })
-
-  it("validateClient accepts client IDs listed in DEVICE_CLIENT_IDS", async () => {
-    const createAuth = await loadCreateAuth()
-    const env = makeEnv({ NODE_ENV: "production", DEVICE_CLIENT_IDS: "cli-app, web-app" })
-    const opts = (createAuth(env as never) as { __options: { plugins: any[] } }).__options
-    const devicePlugin = opts.plugins.find((p: any) => p.__plugin === "deviceAuthorization")
-    const { validateClient } = devicePlugin.cfg
-    expect(validateClient("cli-app")).toBe(true)
-    expect(validateClient("web-app")).toBe(true)
-  })
-
-  it("validateClient rejects client IDs not listed in DEVICE_CLIENT_IDS", async () => {
-    const createAuth = await loadCreateAuth()
-    const env = makeEnv({ NODE_ENV: "production", DEVICE_CLIENT_IDS: "cli-app" })
-    const opts = (createAuth(env as never) as { __options: { plugins: any[] } }).__options
-    const devicePlugin = opts.plugins.find((p: any) => p.__plugin === "deviceAuthorization")
-    const { validateClient } = devicePlugin.cfg
-    expect(validateClient("unknown-client")).toBe(false)
-  })
-
-  it("validateClient rejects empty string when DEVICE_CLIENT_IDS is unset", async () => {
-    const createAuth = await loadCreateAuth()
-    const env = makeEnv({ NODE_ENV: "production" })
-    const opts = (createAuth(env as never) as { __options: { plugins: any[] } }).__options
-    const devicePlugin = opts.plugins.find((p: any) => p.__plugin === "deviceAuthorization")
-    const { validateClient } = devicePlugin.cfg
-    expect(validateClient("")).toBe(false)
+    const opts = (createAuth(makeEnv({ NODE_ENV: nodeEnv }) as never) as { __options: AuthOptions }).__options
+    const names = opts.plugins?.map(plugin => plugin.__plugin)
+    expect(names).not.toContain("deviceAuthorization")
+    expect(names).not.toContain("bearer")
+    expect(names).toContain("oneTimeToken")
   })
 })
 
@@ -1060,5 +1024,29 @@ describe("development OTP opt-in", () => {
     expect(options.plugins).toContainEqual(expect.objectContaining({ __plugin: "emailOTP" }))
     const defaultOptions = (createAuth(makeEnv({ NODE_ENV: "development" }) as never) as { __options: AuthOptions }).__options
     expect(defaultOptions.plugins).not.toContainEqual(expect.objectContaining({ __plugin: "emailOTP" }))
+  })
+
+  it("registers lastLoginMethod across auth modes and resolves OAuth callback and email endpoints", async () => {
+    const { LAST_LOGIN_METHOD_COOKIE, LAST_LOGIN_METHOD_MAX_AGE } = await import("@/lib/last-login-method")
+    const createAuth = await loadCreateAuth()
+    for (const env of [
+      makeEnv({ NODE_ENV: "production" }),
+      makeEnv({ NODE_ENV: "development" }),
+    ]) {
+      const options = (createAuth(env as never) as { __options: AuthOptions }).__options
+      const plugin = (options.plugins as Array<{
+        __plugin?: string
+        cfg?: {
+          cookieName?: string
+          maxAge?: number
+          customResolveMethod?: (ctx: { path: string }) => string | null
+        }
+      }>).find((entry) => entry.__plugin === "lastLoginMethod")
+      expect(plugin?.cfg?.cookieName).toBe(LAST_LOGIN_METHOD_COOKIE)
+      expect(plugin?.cfg?.maxAge).toBe(LAST_LOGIN_METHOD_MAX_AGE)
+      expect(plugin?.cfg?.customResolveMethod?.({ path: "/callback/github" })).toBe("github")
+      expect(plugin?.cfg?.customResolveMethod?.({ path: "/sign-in/email-otp" })).toBe("email")
+      expect(plugin?.cfg?.customResolveMethod?.({ path: "/get-session" })).toBeNull()
+    }
   })
 })

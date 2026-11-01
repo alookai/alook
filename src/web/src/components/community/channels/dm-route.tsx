@@ -23,9 +23,10 @@ export function DmRoute({ dmId, routeCommitted = true }: { dmId: string; routeCo
   const currentUser = useCurrentUser()
   const verification = useChannelMetadata(null, dmId)
   const knownDm = useDmProjection()?.some(dm => dm.id === dmId) === true
+  const blocked = verification.denialCode === "blocked"
   const exitedTarget = useRef<string | null>(null)
   useEffect(() => {
-    if (!routeCommitted || verification.status !== "denied" || verification.identityKnown || knownDm) return
+    if (!routeCommitted || blocked || verification.status !== "denied" || verification.identityKnown || knownDm) return
     const target = JSON.stringify([currentUser.id, dmId])
     if (exitedTarget.current === target) return
     exitedTarget.current = target
@@ -36,13 +37,13 @@ export function DmRoute({ dmId, routeCommitted = true }: { dmId: string; routeCo
     if (getLastMeLeaf() === dmId) clearLastMeLocation()
     runtime.ui.get().uiHandlers.cancelPendingNavigation?.()
     router.replace(destination)
-  }, [currentUser.id, dmId, routeCommitted, router, runtime, verification.status, verification.identityKnown, knownDm])
+  }, [currentUser.id, dmId, routeCommitted, router, runtime, verification.status, verification.identityKnown, knownDm, blocked])
 
-  if (verification.status === "retryable-error" && !verification.identityKnown && !knownDm) {
+  if (!blocked && verification.status === "retryable-error" && !verification.identityKnown && !knownDm) {
     return <DmRouteErrorFrame onRetry={verification.retry} retrying={verification.retrying}
       reserveBackSlot />
   }
-  if (!verification.identityKnown && !knownDm && verification.status !== "readable") {
+  if (!blocked && !verification.identityKnown && !knownDm && verification.status !== "readable") {
     return <DmLoadingFrame reserveBackSlot />
   }
   return <DmView dmId={dmId} routeCommitted={routeCommitted} />

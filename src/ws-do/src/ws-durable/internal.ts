@@ -23,12 +23,12 @@ export type ConnectionState =
     communityContract?: CommunityContract
     communityDeliveryProgress?: CompactCommunityDeliveryProgress[]
   }
-  | { type: "daemon"; daemonId: string; userId: string; authenticated: boolean }
   | {
     type: "community-machine"
     machineId: string
     userId: string
     authenticated: boolean
+    pii?: boolean
     modelDiscovery?: boolean
     machineStop?: boolean
     controlHeartbeat?: boolean

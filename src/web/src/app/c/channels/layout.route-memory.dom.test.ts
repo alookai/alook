@@ -1,3 +1,4 @@
+import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
 import { createElement, useLayoutEffect } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act } from "@/test/react-dom-harness"
@@ -63,6 +64,8 @@ vi.mock("@/lib/perf/switch-mark", () => ({ markSwitch: vi.fn() }))
 vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => children,
   DialogContent: ({ children }: { children: React.ReactNode }) => children,
+  DialogHeader: ({ children }: { children: React.ReactNode }) => children,
+  DialogFooter: ({ children }: { children: React.ReactNode }) => children,
 }))
 vi.mock("@/components/community/channels/use-channel-tree", () => ({
   useChannelTree: () => [],
@@ -267,7 +270,7 @@ function ServerLayout({ children }: { children?: React.ReactNode }) {
 }
 
 function render(node: React.ReactNode) {
-  ingestServers(getCommunityDbRegistry(mocks.queryClient)!, { servers: mocks.servers.current.map(({ id }) => ({ id, name: id, unread: false, mentions: 0 })) })
+  ingestServers(getCommunityDbRegistry(mocks.queryClient)!, serverRailResponseFixture({ servers: mocks.servers.current.map(({ id }) => ({ id, name: id, unread: false, mentions: 0 })) }, getCommunityDbRegistry(mocks.queryClient)!.accountId))
   return renderDom(node, { wrapper: ({ children }) => createElement(CommunityTestProvider, { client: mocks.queryClient, userId: "viewer-1", retainOwner: true }, children) })
 }
 

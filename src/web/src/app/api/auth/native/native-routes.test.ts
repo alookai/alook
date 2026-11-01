@@ -535,6 +535,9 @@ describe("native OAuth routes", () => {
     expect(response.headers.getSetCookie().join(";")).toContain(
       "is_sign_in=github",
     );
+    expect(response.headers.getSetCookie().join(";")).toContain(
+      "alook_last_login_method=github",
+    );
     expect(queryMocks.claimExchange).toHaveBeenCalledWith(db, {
       attemptId: ATTEMPT,
       stateHash: await sha256Hex(STATE),

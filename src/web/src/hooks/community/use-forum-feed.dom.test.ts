@@ -1,3 +1,4 @@
+import { messageResourceFixture, forumFeedScenarioFixture, channelResourceFixture } from "@/test/community-resource-fixtures"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createElement, type PropsWithChildren } from "react"
 import { type QueryClient } from "@tanstack/react-query"
@@ -65,12 +66,12 @@ describe("forumFeedPageQueryFn", () => {
       else controller.abort(new DOMException("Retired", "AbortError"))
       await rejected
       expect(apiFetchMock.mock.calls[0]![1].signal.aborted).toBe(true)
-      release({ serverId: "server_1", parentType: "forum", threads: [], included: { ...emptyIncluded, parentMessages: [{ id: "late-opener", channelId: "forum_1", seq: 1, content: "late", authorId: "late-author", authorName: "Late", authorImage: null, authorAvatarVersion: 1 }] }, hasMore: false })
+      release(forumFeedScenarioFixture("forum_1", { serverId: "server_1", parentType: "forum", threads: [], included: { ...emptyIncluded, parentMessages: [{ id: "late-opener", channelId: "forum_1", seq: 1, content: "late", authorId: "late-author", authorName: "Late", authorImage: null, authorAvatarVersion: 1 }] }, hasMore: false }))
       await Promise.resolve()
       await Promise.resolve()
       expect(getCanonicalCommunityMessages(client)).toEqual([])
       expect(getCommunityDbRegistry(client)!.collections.profiles.get("late-author")).toBeUndefined()
-      apiFetchMock.mockResolvedValueOnce({ serverId: "server_1", parentType: "forum", threads: [], included: emptyIncluded, hasMore: false })
+      apiFetchMock.mockResolvedValueOnce(forumFeedScenarioFixture("forum_1", { serverId: "server_1", parentType: "forum", threads: [], included: emptyIncluded, hasMore: false }))
       await expect(forumFeedPageQueryFn("forum_1", null, client)({ pageParam: null })).resolves.toMatchObject({ threads: [], hasMore: false })
     } finally { vi.useRealTimers() }
   })
@@ -97,7 +98,7 @@ describe("forumFeedPageQueryFn", () => {
   })
 
   it("requests the canonical created-order collection with includes, tag, and cursor", async () => {
-    apiFetchMock.mockResolvedValue({ serverId: "server_1", parentType: "forum", threads: [], included: emptyIncluded, hasMore: false })
+    apiFetchMock.mockResolvedValue(forumFeedScenarioFixture("forum_one", { serverId: "server_1", parentType: "forum", threads: [], included: emptyIncluded, hasMore: false }))
     await forumFeedPageQueryFn("forum_one", "bug", client)({ pageParam: "opaque cursor" })
 
     const url = apiFetchMock.mock.calls[0]![0] as string
@@ -110,7 +111,7 @@ describe("forumFeedPageQueryFn", () => {
   })
 
   it("uses the archive tag as its own feed query", async () => {
-    apiFetchMock.mockResolvedValue({ serverId: "server_1", parentType: "forum", threads: [{ id: "archived-post", name: "Post", creatorId: "author", messageCount: 1, parentMessageId: "opener", lastMessageAt: null, createdAt: "2026-10-04T00:00:00Z", activityAt: "2026-10-04T00:00:00Z" }], included: { ...emptyIncluded, tags: [{ messageId: "opener", tag: "archived" }] }, hasMore: false })
+    apiFetchMock.mockResolvedValue(forumFeedScenarioFixture("forum_one", { serverId: "server_1", parentType: "forum", threads: [{ id: "archived-post", name: "Post", creatorId: "author", messageCount: 1, parentMessageId: "opener", lastMessageAt: null, createdAt: "2026-10-04T00:00:00Z", activityAt: "2026-10-04T00:00:00Z" }], included: { ...emptyIncluded, tags: [{ messageId: "opener", tag: "archived" }] }, hasMore: false }))
     await forumFeedPageQueryFn("forum_one", "archived", client)({ pageParam: null })
 
     const url = apiFetchMock.mock.calls[0]![0] as string
@@ -119,7 +120,7 @@ describe("forumFeedPageQueryFn", () => {
   })
 
   it("passes the query abort signal through to the request", async () => {
-    apiFetchMock.mockResolvedValue({ serverId: "server_1", parentType: "forum", threads: [], included: emptyIncluded, hasMore: false })
+    apiFetchMock.mockResolvedValue(forumFeedScenarioFixture("forum_one", { serverId: "server_1", parentType: "forum", threads: [], included: emptyIncluded, hasMore: false }))
     const controller = new AbortController()
 
     await forumFeedPageQueryFn("forum_one", null, client)({
@@ -133,8 +134,18 @@ describe("forumFeedPageQueryFn", () => {
     )
   })
 
+  it("publishes included full profiles for fresh opener and first-message reply authors without participants", async () => {
+    const feed = forumConversationEntryFixture("forum_one", "server_1").forumFeed!
+    const profiles = ["opener-author", "first-author", "reply-author"].map(id => ({ id, name: id, discriminator: "0042", avatar: null, avatarVersion: 1 }))
+    const messages = [messageResourceFixture({ id: "m1", channelId: "forum_one", authorId: "opener-author" }),
+      messageResourceFixture({ id: "first-t1", channelId: "t1", authorId: "first-author", replyToId: "previous", replyTo: { id: "previous", authorId: "reply-author", authorName: "reply-author", text: "Earlier" } })]
+    apiFetchMock.mockResolvedValue({ ...feed, included: { ...feed.included, profiles, messages } })
+    await forumFeedPageQueryFn("forum_one", null, client)({ pageParam: null })
+    for (const profile of profiles) expect(getCommunityDbRegistry(client)!.collections.profiles.get(profile.id)).toMatchObject(profile)
+  })
+
   it("seeds opener and participant profiles while returning only the ID window", async () => {
-    const page = {
+    const page = forumFeedScenarioFixture("forum_one", {
       serverId: "server_1", parentType: "forum",
       threads: [{ id: "thread_1", name: "post", creatorId: "author_1", messageCount: 1, parentMessageId: "m1", lastMessageAt: null, createdAt: "", activityAt: "" }],
       included: {
@@ -156,7 +167,7 @@ describe("forumFeedPageQueryFn", () => {
         ],
       },
       hasMore: false,
-    }
+    })
     apiFetchMock.mockResolvedValue(page)
 
     const result = await forumFeedPageQueryFn("forum_one", null, client)({ pageParam: null })
@@ -172,11 +183,11 @@ describe("forumFeedPageQueryFn", () => {
 describe("mapForumFeedPages", () => {
   it("retains full forum preview, empty activity and zero opener sequence", async () => {
     const preview = "preview".repeat(30)
-    const result = await projectPages([{
+    const result = await projectPages([forumFeedScenarioFixture("forum_1", {
       serverId: "server_1", parentType: "forum", hasMore: false,
-      threads: [{ id: "post", name: "Fallback", creatorId: "u1", messageCount: null, parentMessageId: "opener", lastMessageAt: null, createdAt: "created", activityAt: "created" }],
+      threads: [{ id: "post", name: "Fallback", creatorId: "u1", messageCount: 0, parentMessageId: "opener", lastMessageAt: null, createdAt: "created", activityAt: "created" }],
       included: { ...emptyIncluded, parentMessages: [{ id: "opener", channelId: "forum_1", seq: 0, content: "   ", authorId: "u1", authorName: "A", authorImage: null, authorAvatarVersion: 0 }], firstMessages: [{ channelId: "post", content: preview }] },
-    }])
+    })])
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({ name: "Fallback", messageCount: 0, lastMessageAt: "", parent: { authorId: "u1", authorName: "A", text: preview }, parentSeq: 0, openerMessageId: "opener", preview })
     const updatedPreview = "updated preview".repeat(30)
@@ -187,18 +198,20 @@ describe("mapForumFeedPages", () => {
   })
   it("keeps one operation baseline across pages and excludes duplicate profile publications", async () => {
     const registry = getCommunityDbRegistry(client)!
-    const page = (id: string, name: string, more: boolean): ForumFeedTransportPage => ({
+    const page = (id: string, name: string, more: boolean): ForumFeedTransportPage => (forumFeedScenarioFixture("forum_1", {
       serverId: "server_1", parentType: "forum", hasMore: more, ...(more ? { nextCursor: "next" } : {}),
       threads: [{ id, name: id, creatorId: "author", messageCount: 1, parentMessageId: `opener_${id}`, createdAt: "2026-08-08T00:00:00.000Z", lastMessageAt: null, activityAt: "2026-08-08T00:00:00.000Z" }],
       included: { parentMessages: [{ id: `opener_${id}`, channelId: "forum_1", seq: 1, content: id, authorId: "author", authorName: name, authorImage: null, authorAvatarVersion: 0 }], firstMessages: [], tags: [], participants: [{ channelId: id, userId: "author", userName: name, userImage: null, userAvatarVersion: 0 }] },
-    })
+    }))
     let release!: (value: ForumFeedTransportPage) => void
     apiFetchMock.mockResolvedValueOnce(page("first", "Initial", true)).mockReturnValueOnce(new Promise((resolve) => { release = resolve }))
     const request = client.infiniteQuery({ queryKey: communityKeys.forumFeed("forum_1", null), queryFn: forumFeedPageQueryFn("forum_1", null, client), initialPageParam: null as string | null, getNextPageParam: (last) => last.hasMore ? last.nextCursor : undefined, pages: 2 })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
     writeCommunityProfilePatches([{ id: "author", identityAbout: { name: "Newer WS" } }], registry, { event: true })
     const next = page("second", "Old later page", false), duplicate = page("first", "Old duplicate", false)
-    release({ ...next, threads: [...next.threads, ...duplicate.threads], included: { ...next.included, parentMessages: [...next.included.parentMessages, ...duplicate.included.parentMessages], participants: [...next.included.participants, ...duplicate.included.participants] } })
+    release({ ...next, threads: [...next.threads, ...duplicate.threads], included: { messages: [...next.included.messages, ...duplicate.included.messages], members: [...next.included.members, ...duplicate.included.members],
+      profiles: [...new Map([...next.included.profiles, ...duplicate.included.profiles].map(profile => [profile.id, profile])).values()],
+      tags: [...next.included.tags, ...duplicate.included.tags], participantCounts: [...next.included.participantCounts, ...duplicate.included.participantCounts] } })
     const result = await request
     expect(registry.collections.profiles.get("author")?.name).toBe("Newer WS")
     expect(result.pages).toHaveLength(2)
@@ -217,7 +230,7 @@ describe("mapForumFeedPages", () => {
       activityAt: "2026-08-23T00:00:00.000Z",
     })
     const data = {
-      pages: [{
+      pages: [forumFeedScenarioFixture("forum_1", {
         serverId: "server_1",
         parentType: "forum",
         threads: [thread("delete", "m_delete"), thread("keep", "m_keep")],
@@ -234,7 +247,7 @@ describe("mapForumFeedPages", () => {
           ],
         },
         hasMore: false,
-      }],
+      })],
       pageParams: [null],
     }
 
@@ -249,7 +262,7 @@ describe("mapForumFeedPages", () => {
 
   it("joins included resources, deduplicates pages, and keeps newest-created first", async () => {
     const pages: ForumFeedTransportPage[] = [
-      {
+      forumFeedScenarioFixture("forum_1", {
         serverId: "server_1",
         parentType: "forum",
         threads: [
@@ -288,8 +301,8 @@ describe("mapForumFeedPages", () => {
         },
         hasMore: true,
         nextCursor: "next",
-      },
-      {
+      }),
+      forumFeedScenarioFixture("forum_1", {
         serverId: "server_1",
         parentType: "forum",
         threads: [
@@ -309,7 +322,7 @@ describe("mapForumFeedPages", () => {
           participants: [{ channelId: "t2", userId: "u3", userName: "Duplicate Bob", userImage: "duplicate.png", userAvatarVersion: 0 }],
         },
         hasMore: false,
-      },
+      }),
     ]
 
     const result = await projectPages(pages)
@@ -339,7 +352,7 @@ describe("mapForumFeedPages", () => {
   })
 
   it("projects a canonical opener without reviving transport message fields", async () => {
-    const pages: ForumFeedTransportPage[] = [{
+    const pages: ForumFeedTransportPage[] = [forumFeedScenarioFixture("forum_1", {
       serverId: "server_1",
       parentType: "forum",
       threads: [{
@@ -369,7 +382,7 @@ describe("mapForumFeedPages", () => {
         participants: [],
       },
       hasMore: false,
-    }]
+    })]
     const canonical = new Map([[
       "opener-1",
       {
@@ -417,20 +430,20 @@ describe("mapForumFeedPages", () => {
       activityAt: "2026-08-17T06:35:00.000Z",
     }))
     const pages: ForumFeedTransportPage[] = [
-      {
+      forumFeedScenarioFixture("forum_1", {
         serverId: "server_1",
         parentType: "forum",
         threads: threads.slice(2),
         included: { ...emptyIncluded, parentMessages: threads.slice(2).map((thread) => ({ id: thread.parentMessageId, channelId: "forum_1", seq: 1, content: "", authorId: "creator", authorName: "Creator", authorImage: null, authorAvatarVersion: 0 })) },
         hasMore: true, nextCursor: "next",
-      },
-      {
+      }),
+      forumFeedScenarioFixture("forum_1", {
         serverId: "server_1",
         parentType: "forum",
         threads: threads.slice(0, 2),
         included: { ...emptyIncluded, parentMessages: threads.slice(0, 2).map((thread) => ({ id: thread.parentMessageId, channelId: "forum_1", seq: 1, content: "", authorId: "creator", authorName: "Creator", authorImage: null, authorAvatarVersion: 0 })) },
         hasMore: false,
-      },
+      }),
     ]
 
     expect((await projectPages(pages)).map((thread) => thread.id)).toEqual(expectedIds)
@@ -442,13 +455,13 @@ describe("useForumFeed", () => {
     const queryClient = client
     queryClient.setDefaultOptions({ queries: { retry: false, staleTime: Infinity } })
     queryClient.setQueryData(communityKeys.forumFeed("forum_one", null), {
-      pages: [{
+      pages: [forumFeedScenarioFixture("forum_1", {
         serverId: "server_one",
         parentType: "forum",
         threads: [],
         included: emptyIncluded,
         hasMore: false,
-      }],
+      })],
       pageParams: [null],
     })
     const target = { channelId: "forum_one", serverId: "server_one" }

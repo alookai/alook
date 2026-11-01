@@ -33,3 +33,31 @@ describe("model discovery worker routing", () => {
     expect((await (await loadRouter()).fetch(request(), env as any)).status).toBe(503)
   })
 })
+
+it("forwards the wait mode and returns only the selected credential's terminal discovery result", async () => {
+  const { env, doMock } = createRouterTestContext()
+  mocks.getActiveDoNamesForMachine.mockResolvedValue(["old", "current", "other"])
+  const result = { status: "complete", catalog: null }
+  doMock.stubFetch.mockResolvedValueOnce(Response.json({ sent: 0, unsupported: 0 })).mockResolvedValueOnce(Response.json({ sent: 1, unsupported: 0, observedAt: "2026-10-29T00:00:00Z", result }))
+  const response = await (await loadRouter()).fetch(new Request("http://localhost/community-machine/by-id/machine/discover-models?wait=1", { method: "POST", body: JSON.stringify({ requestId: "fresh", runtimeId: "codex" }) }), env as any)
+  expect(await response.json()).toEqual({ sent: 1, unsupported: 0, cached: false, observedAt: "2026-10-29T00:00:00Z", result })
+  expect(doMock.stubFetch).toHaveBeenCalledTimes(2)
+  expect((doMock.stubFetch.mock.calls[1][0] as Request).url).toBe("http://internal/discover-models?wait=1")
+})
+it("rejects a wait receipt without a terminal result", async () => {
+  const { env, doMock } = createRouterTestContext()
+  mocks.getActiveDoNamesForMachine.mockResolvedValue(["current"])
+  doMock.stubFetch.mockResolvedValue(Response.json({ sent: 1, unsupported: 0 }))
+  const response = await (await loadRouter()).fetch(new Request("http://localhost/community-machine/by-id/machine/discover-models?wait=1", { method: "POST", body: JSON.stringify({ requestId: "fresh", runtimeId: "codex" }) }), env as any)
+  expect(response.status).toBe(503)
+})
+
+it("preserves a cache hit with zero dispatches and forwards the cache flag", async () => {
+  const { env, doMock } = createRouterTestContext()
+  mocks.getActiveDoNamesForMachine.mockResolvedValue(["current"])
+  const receipt = { sent: 0, unsupported: 0, cached: true, observedAt: "2026-10-29T00:00:00Z", catalogFingerprint: "a".repeat(64) }
+  doMock.stubFetch.mockResolvedValue(Response.json(receipt))
+  const response = await (await loadRouter()).fetch(new Request("http://localhost/community-machine/by-id/machine/discover-models?wait=1&cache=1", { method: "POST", headers: { "x-model-catalog-fingerprint": "a".repeat(64) }, body: JSON.stringify({ requestId: "cache", runtimeId: "codex" }) }), env as any)
+  expect(await response.json()).toEqual(receipt)
+  expect((doMock.stubFetch.mock.calls[0][0] as Request).url).toBe("http://internal/discover-models?wait=1&cache=1")
+})

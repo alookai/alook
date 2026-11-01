@@ -1,3 +1,4 @@
+import { handleBotPii } from "./pii-events"
 import { handleServerRailChanged } from "./server-rail-reconciliation"
 
 import { getCommunityRuntime } from "@/stores/community/runtime"
@@ -13,7 +14,6 @@ import type {
 import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
 import {
   handleMessageCreate,
-  handleMessageEdited,
   handleMessageUpdated,
   handlePinEvent,
   handleReactionEvent,
@@ -29,7 +29,6 @@ import {
   handleServerUpdate,
 } from "@/hooks/community/community-ws/structure-tree-events"
 import {
-  handleChannelMemberEvent,
   handleChannelMembershipChange,
   handleMemberJoin,
   handleMemberLeave,
@@ -70,7 +69,6 @@ type CommunityWsRegistry = { [T in CommunityEventType]: RegistryEntry<T> }
 export const communityWsRegistry = {
   "community:message.create": { handler: handleMessageCreate, reconnectPolicies: ["focused-messages", "inbox-dms"] },
   "community:message.updated": { handler: handleMessageUpdated, reconnectPolicies: ["focused-messages", "friends"] },
-  "community:message.edited": { handler: handleMessageEdited, reconnectPolicies: ["focused-messages", "focused-opener", "focused-threads", "all-cached-servers"] },
   "community:reaction.add": { handler: handleReactionEvent, reconnectPolicies: ["focused-messages", "focused-opener"] },
   "community:reaction.remove": { handler: handleReactionEvent, reconnectPolicies: ["focused-messages", "focused-opener"] },
   "community:pin.add": { handler: handlePinEvent, reconnectPolicies: ["focused-messages", "focused-pins"] },
@@ -87,8 +85,6 @@ export const communityWsRegistry = {
   "community:channel.delete": { handler: handleChannelEvent, reconnectPolicies: ["all-cached-servers", "focused-messages"] },
   "community:channel.reorder": { handler: handleChannelEvent, reconnectPolicies: ["all-cached-servers"] },
   "community:channel.membership.change": { handler: handleChannelMembershipChange, reconnectPolicies: ["focused-channel-roster", "all-cached-servers"] },
-  "community:channel.member_add": { handler: handleChannelMemberEvent, reconnectPolicies: ["focused-channel-roster", "all-cached-servers"] },
-  "community:channel.member_remove": { handler: handleChannelMemberEvent, reconnectPolicies: ["focused-channel-roster", "all-cached-servers"] },
   "community:category.create": { handler: handleCategoryEvent, reconnectPolicies: ["all-cached-servers"] },
   "community:category.update": { handler: handleCategoryEvent, reconnectPolicies: ["all-cached-servers"] },
   "community:category.delete": { handler: handleCategoryEvent, reconnectPolicies: ["all-cached-servers"] },
@@ -114,6 +110,7 @@ export const communityWsRegistry = {
   "community:machine.status": { handler: handleMachineStatus, reconnectPolicies: ["machines"] },
   "community:machine.updated": { handler: handleMachineUpdated, reconnectPolicies: ["machines"] },
   "community:machine.removed": { handler: handleMachineRemoved, reconnectPolicies: ["machines"] },
+  "community:bot.pii": { handler: handleBotPii, reconnectPolicies: ["machines"] },
   "community:runtime.models": { handler: handleRuntimeModels, reconnectPolicies: ["machines"] },
   "community:bot.audit_event": { handler: handleBotAuditEvent, reconnectPolicies: ["bot-audits"] },
 } satisfies CommunityWsRegistry
@@ -187,7 +184,7 @@ export function dispatchCommunityWsEvents(
       const serverId = "serverId" in event ? event.serverId : undefined
       const parentChannelId = "parentChannelId" in event ? event.parentChannelId : undefined
       if (channelId
-        && !["community:channel.membership.change", "community:channel.member_add", "community:channel.member_remove", "community:channel.delete"].includes(event.type)
+        && !["community:channel.membership.change", "community:channel.delete"].includes(event.type)
         && getCommunityRuntime(context.queryClient).ws.actions.isChannelAccessRevoked(channelId, serverId, parentChannelId ?? undefined)) continue
       if (channelId && serverId) getCommunityRuntime(context.queryClient).ws.actions.observeChannelScope(serverId, channelId, parentChannelId)
       const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
@@ -199,7 +196,6 @@ export function dispatchCommunityWsEvents(
       if ([
         "community:server.delete",
         "community:channel.delete",
-        "community:channel.member_remove",
         "community:member.leave",
       ].includes(event.type) || event.type === "community:channel.membership.change" && !event.present) {
         scheduleAccountAttentionReconcile(context.queryClient)

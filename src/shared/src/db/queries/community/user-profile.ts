@@ -1,4 +1,7 @@
-import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
+import { CommunityResourceProfileSchema, canonicalCommunityUserImage } from "../../../community-resources"
+import { getUsersByIds } from "../user"
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { and, inArray, eq, isNotNull, isNull, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { communityUserProfile } from "../../community-schema";
 import { user } from "../../schema";
@@ -22,7 +25,7 @@ export type PublicProfileForViewer = {
   aboutMe: string;
   bannerColor: string | null;
   statusEmoji: string | null;
-  statusText: string;
+  statusText: string | null;
   identity: PublicProfileIdentity;
 };
 
@@ -98,9 +101,15 @@ export async function getPublicProfileForViewer(
     aboutMe: row.aboutMe ?? "",
     bannerColor: row.bannerColor ?? null,
     statusEmoji: row.statusEmoji ?? null,
-    statusText: row.statusText ?? "",
+    statusText: row.statusText,
     identity,
   };
+}
+
+export async function getProfilesByUserIds(db: Database, userIds: string[]) {
+  return (await Promise.all(chunk([...new Set(userIds)], D1_MAX_IN_PARAMS).map(ids =>
+    db.select().from(communityUserProfile).where(inArray(communityUserProfile.userId, ids))
+  ))).flat();
 }
 
 export async function getProfile(db: Database, userId: string) {
@@ -128,7 +137,7 @@ export async function updateProfile(
       aboutMe: data.aboutMe ?? "",
       bannerColor: data.bannerColor ?? null,
       statusEmoji: data.statusEmoji ?? null,
-      statusText: data.statusText ?? "",
+      statusText: data.statusText === undefined ? "" : data.statusText,
     })
     .onConflictDoUpdate({
       target: communityUserProfile.userId,
@@ -147,4 +156,16 @@ export async function updateProfile(
     })
     .returning();
   return row!;
+}
+
+
+export async function getResourceProfiles(db: Database, userIds: readonly string[]) {
+  const users = await getUsersByIds(db, [...new Set(userIds)])
+  const profileRows = await getProfilesByUserIds(db, users.map(row => row.id))
+  const profiles = new Map(profileRows.map(row => [row.userId, row]))
+  return users.map(row => CommunityResourceProfileSchema.parse({
+    id: row.id, name: row.name, discriminator: row.discriminator,
+    ...(profiles.has(row.id) ? { aboutMe: profiles.get(row.id)!.aboutMe, bannerColor: profiles.get(row.id)!.bannerColor, statusEmoji: profiles.get(row.id)!.statusEmoji, statusText: profiles.get(row.id)!.statusText } : {}),
+    avatar: canonicalCommunityUserImage(row.id, row.image, row.avatarVersion), avatarVersion: row.avatarVersion,
+  }))
 }

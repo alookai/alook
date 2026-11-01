@@ -29,15 +29,15 @@ vi.mock("@/lib/middleware/community-actor", async () => {
   )
   return {
     ...actual,
-    withCommunityActor: (handler: any) => async (req: any, ctx?: any) => {
-      const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
+    communityActorPolicy: () => ({ resolve: async (req: any) => {
+
       const authz = req?.headers?.get?.("Authorization") ?? ""
       const actor =
         ctx?.actor ??
         (authz.startsWith("Bearer crk_")
           ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
           : { kind: "human", userId: "u1", email: "u@t.com", isBot: false })
-      return handler(req, {
+      return ({ context: {
         env: {
           COMMUNITY_MEDIA: {
             get: (...a: unknown[]) => mockR2Get(...a),
@@ -45,13 +45,14 @@ vi.mock("@/lib/middleware/community-actor", async () => {
           },
         },
         actor,
-        params,
-      })
-    },
+
+      } })
+    } }),
   }
 })
 
 import { GET } from "./route"
+import { ATTACHMENT_PRIVATE_IMMUTABLE_CACHE } from "@/lib/community/storage"
 
 function req(headers: Record<string, string> = {}): NextRequest {
   return new NextRequest("http://localhost/api/community/channels/c1/attachments/att_1", {
@@ -360,5 +361,91 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     expect(res.status).toBe(500)
     expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(await res.json()).toEqual({ error: "internal error", code: "internal" })
+  })
+})
+
+describe("HTML attachment preview mode", () => {
+  const previewReq = (headers: Record<string, string> = {}, version = "1.2.3") => new NextRequest(`http://localhost/api/community/channels/c1/attachments/att_1?preview=html&v=${encodeURIComponent(version)}`, { headers })
+  const htmlRow = (over: Record<string, unknown> = {}) => persistedRow({ filename: "page.html", contentType: "text/html", size: 40, ...over })
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it.each(["1.2.3", "1.2.4+build &next=2"])("checks readability before type validation or reading the object at version %s", async (version) => {
+    mockGetReadableAttachmentById.mockResolvedValue(null)
+    const response = await GET(previewReq({}, version), ctx())
+    expect(response.status).toBe(404)
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+    expect(await response.json()).toEqual({ error: "attachment not found" })
+    expect(mockR2Get).not.toHaveBeenCalled()
+  })
+  it.each(["1.2.3", "1.2.4+build &next=2"])("returns privately cacheable HTML with opaque-origin CSP and an early bootstrap at version %s", async (version) => {
+    allowPersistedHuman(htmlRow())
+    mockR2Get.mockResolvedValue(r2Object({}, new TextEncoder().encode('<!doctype html><html><body><button onclick="this.textContent=2">1</button></body></html>')))
+    const response = await GET(previewReq({ Range: "bytes=0-5" }, version), ctx())
+    expect(response.status).toBe(200)
+    expect(mockGetReadableAttachmentById).toHaveBeenCalledWith(expect.anything(), "att_1", "u1")
+    expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8")
+    expect(response.headers.get("content-disposition")).toContain("inline")
+    expect(response.headers.get("content-security-policy")).toContain("sandbox allow-scripts")
+    expect(response.headers.get("content-security-policy")).not.toContain("allow-same-origin")
+    expect(response.headers.get("cache-control")).toBe(ATTACHMENT_PRIVATE_IMMUTABLE_CACHE)
+    expect(response.headers.get("vary")).toBe("Authorization")
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer")
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff")
+    expect(response.headers.get("content-length")).toBeNull()
+    expect(await response.text()).toContain("alook-html-ready")
+    expect(mockR2Get).toHaveBeenCalledExactlyOnceWith("channel/c_row/uuid/a.png")
+  })
+  it("preserves ordinary HTML download and the bot download contract", async () => {
+    for (const request of [req(), previewReq({ Authorization: "Bearer crk_abc" })]) {
+      allowPersistedHuman(htmlRow())
+      mockR2Get.mockResolvedValue(r2Object({}, new TextEncoder().encode("<p>original</p>")))
+      const response = await GET(request, ctx())
+      expect(await response.text()).toBe("<p>original</p>")
+      expect(response.headers.get("content-security-policy")).toContain("default-src 'none'")
+      expect(response.headers.get("content-security-policy")).not.toContain("allow-scripts")
+      if (request.headers.has("authorization")) {
+        expect(response.headers.get("x-alook-filename")).toBe("page.html")
+        expect(response.headers.get("cache-control")).toBeNull()
+      } else {
+        expect(response.headers.get("content-disposition")).toContain("attachment")
+        expect(response.headers.get("cache-control")).toBe(ATTACHMENT_PRIVATE_IMMUTABLE_CACHE)
+      }
+    }
+  })
+  it("rejects incompatible type and declared oversize without an object read", async () => {
+    for (const [row, status] of [[htmlRow({ contentType: "image/png" }), 415], [htmlRow({ size: 2 * 1024 * 1024 + 1 }), 422]] as const) {
+      allowPersistedHuman(row)
+      const response = await GET(previewReq(), ctx())
+      expect(response.status).toBe(status)
+      expect(response.headers.get("cache-control")).toBe("private, no-store")
+    }
+    expect(mockR2Get).not.toHaveBeenCalled()
+  })
+  it.each(["", "<style>body{height:100vh}</style>"])("fails invalid HTML in this one response", async (html) => {
+    allowPersistedHuman(htmlRow())
+    mockR2Get.mockResolvedValue(r2Object({}, new TextEncoder().encode(html)))
+    const response = await GET(previewReq(), ctx())
+    expect(response.status).toBe(422)
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+  })
+  it("rejects actual overflow even when the stored size is small", async () => {
+    allowPersistedHuman(htmlRow({ size: 1 }))
+    const cancel = vi.fn()
+    mockR2Get.mockResolvedValue(r2Object({ body: new ReadableStream({ start(c) { c.enqueue(new Uint8Array(2 * 1024 * 1024 + 1)) }, cancel }) }))
+    const response = await GET(previewReq(), ctx())
+    expect(response.status).toBe(422)
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+  })
+  it("separates missing storage from a failed object stream", async () => {
+    allowPersistedHuman(htmlRow())
+    mockR2Get.mockResolvedValue(null)
+    const missing = await GET(previewReq(), ctx())
+    expect(missing.status).toBe(502)
+    expect(missing.headers.get("cache-control")).toBe("private, no-store")
+    mockR2Get.mockResolvedValue(r2Object({ body: new ReadableStream({ start(c) { c.error(new Error("read failure")) } }) }))
+    const failed = await GET(previewReq(), ctx())
+    expect(failed.status).toBe(500)
+    expect(failed.headers.get("cache-control")).toBe("private, no-store")
   })
 })

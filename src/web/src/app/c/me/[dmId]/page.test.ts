@@ -12,7 +12,7 @@ describe("DM page loading ownership", () => {
     expect(source).toContain("useDmMessages(dmId")
     expect(source).toContain("if (!dm && !metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked && !initialLoadError")
     expect(source).toContain('metadata.status === "retryable-error"')
-    expect(source).toContain("if (loadingOwnership.fullFramePending)")
+    expect(source).toContain("if (!historyAllowed && loadingOwnership.fullFramePending)")
     expect(source).toContain("<DmHeader\n")
     expect(source).toContain("<Composer\n")
     expect(source).toContain("<ConversationFooterShell\n")
@@ -28,13 +28,13 @@ describe("DM page loading ownership", () => {
     expect(messageListProps).toContain("typingUsers")
     expect(source).not.toContain('data-onboarding-name={dm.name} className="shrink-0"')
     expect(source).toContain("loading={!historyAllowed || loadingOwnership.messageBodyLoading}")
-    expect(source).toContain("!historyAllowed ? <ComposerSkeleton")
-    expect(source).not.toContain("<DmHeaderSkeleton")
+    expect(source).toContain("!sendAllowed ? <ComposerSkeleton")
+    expect(source).toContain("<DmHeaderSkeleton")
   })
 
   it("uses the cache-first DM projection as the header and composer identity", () => {
     const source = readFileSync(new URL("../../../../components/community/channels/dm-view.tsx", import.meta.url), "utf8")
-    expect(source).toContain("dms.find((candidate) => candidate.id === dmId) ?? null")
+    expect(source).toContain("const directoryDm = dms.find(candidate => candidate.id === dmId)")
     expect(source).not.toContain("profilesByUserId.get(raw.userId)")
   })
 

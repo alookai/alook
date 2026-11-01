@@ -602,4 +602,27 @@ describe("ImageLightbox", () => {
     expect(original.style.transform).toBe("translate(0px, 0px) scale(1)")
   })
 
+  it("closes when clicking non-image backdrop or letterbox space, but stays open when clicking the painted image, controls, or dragging", async () => {
+    const { frame, original, renderer, onClose } = await readyPreview(100, 400)
+
+    fireEvent.click(original, { clientX: 300, clientY: 250 })
+    expect(onClose).not.toHaveBeenCalled()
+
+    fireEvent.click(renderer.getByRole("toolbar", { name: "Image controls" }))
+    expect(onClose).not.toHaveBeenCalled()
+
+    pointer(frame, "pointerdown", 1, 300, 250)
+    pointer(frame, "pointermove", 1, 160, 250)
+    pointer(frame, "pointerup", 1, 160, 250)
+    fireEvent.click(frame, { clientX: 160, clientY: 250 })
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.click(renderer.getByRole("button", { name: "Fit image" }))
+
+    fireEvent.click(original, { clientX: 160, clientY: 250 })
+    expect(onClose).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(frame.parentElement!, { clientX: 120, clientY: 40 })
+    expect(onClose).toHaveBeenCalledTimes(2)
+  })
+
 })

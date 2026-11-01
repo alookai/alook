@@ -7,7 +7,7 @@ import { observeResourceResponse } from "./resource"
 import { traceResponse } from "./trace-response"
 
 afterEach(() => { vi.restoreAllMocks() })
-it.each([true, false])("links the exact response server identity without replacing the browser parent when sampled=%s", async sampled => {
+it.each([true, false])("links the exact response server identity without replacing the browser parent when native flags=%s", async sampled => {
   const exporter = new InMemorySpanExporter()
   const provider = new WebTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] })
   const tracer = provider.getTracer("alook.frontend")
@@ -19,7 +19,7 @@ it.each([true, false])("links the exact response server identity without replaci
   observeResourceResponse(span, response.headers.get("server-timing")!)
   span.end()
   const recorded = exporter.getFinishedSpans()[0]!
-  expect(recorded.attributes).toMatchObject({ server_identity: "available", server_sampling: sampled ? "selected" : "not_selected", server_trace_id: server.traceId, server_span_id: server.spanId })
+  expect(recorded.attributes).toMatchObject({ server_identity: "available", server_sampling: "unavailable", server_trace_id: server.traceId, server_span_id: server.spanId })
   expect(recorded.links).toEqual([{ context: server, attributes: { relationship: "server_response" } }])
   expect(recorded.parentSpanContext).toEqual(root.spanContext())
   root.end()

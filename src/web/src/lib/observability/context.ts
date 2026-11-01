@@ -110,7 +110,17 @@ export function finishAction(action: Action | undefined, outcome: Attributes["ou
 }
 export function startRegionObservation(action: Action | undefined, region: Attributes["region"], evidence?: Attributes) {
   if (!action || action.done) return
-  return startPageOperation("region.wait", { region, phase: "commit", source: "unknown", ...evidence }, action)
+  return startPageOperation("region.wait", { region, phase: "commit", source: "unknown", ...evidence, initial_wait_reason: evidence?.wait_reason }, action)
+}
+export function updateRegionObservation(operation: PageOperation | undefined, evidence: Attributes) {
+  if (!operation || operation.done || operation.generation !== telemetryGeneration() || !isTelemetryEligible()) return
+  const next = cleanAttributes(evidence)
+  if (Object.entries(next).every(([key, value]) => operation.fields[key] === value)) return
+  const previous = operation.fields.wait_reason
+  if (previous && previous !== "none") next.last_wait_reason = String(previous)
+  operation.fields = { ...operation.fields, ...next }
+  try { operation.span?.setAttributes(cleanAttributes(operation.fields)) } catch {}
+  emitTelemetry("region.wait_change", { ...pageOperationAttributes(operation), ...next })
 }
 export function finishRegionObservation(operation: PageOperation | undefined, action: Action | undefined, outcome: Attributes["outcome"]) {
   if (!action || operation?.page !== action) return
@@ -222,7 +232,7 @@ export function finishPageOperation(operation: PageOperation | undefined, outcom
 }
 function endPageOperationSpan(operation: PageOperation) {
   if (!isTelemetryEligible() || operation.generation !== telemetryGeneration()) retireObservationSpan(operation.span)
-  try { operation.span?.setAttribute("outcome", String(operation.outcome)) } catch {}
+  try { operation.span?.setAttributes(cleanAttributes({ ...operation.fields, outcome: operation.outcome })) } catch {}
   try { operation.span?.end(observationTime(operation.end!, operation.page.origin)) } catch {}
 }
 const commandActions = new WeakMap<object, Action>()

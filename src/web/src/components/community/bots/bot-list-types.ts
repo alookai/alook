@@ -38,6 +38,11 @@ export type BotListController = {
   setEditingBot: (bot: BotSummary | null) => void
   editOpen: boolean
   setEditOpen: Atom<boolean>["set"]
+  membershipBot: BotSummary | null
+  membershipsOpen: boolean
+  setMembershipsOpen: (open: boolean) => void
+  membershipsGeneration: number
+  openMemberships: (bot: BotSummary) => void
   activityBot: BotSummary | null
   activityOpen: boolean
   activityGeneration: number
@@ -82,6 +87,7 @@ export type BotListOverlaySlots = {
   create: React.ReactElement
   help: React.ReactElement
   edit: React.ReactElement
+  memberships: React.ReactElement | null
   activity: React.ReactElement
   bug: React.ReactElement | null
   deleteDialog: React.ReactElement

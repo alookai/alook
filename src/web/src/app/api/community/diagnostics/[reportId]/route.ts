@@ -1,13 +1,14 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import {
   DiagnosticReportIdSchema,
   queries,
 } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { projectOwnerDiagnosticReport } from "@/lib/community/diagnostic-report";
-import { withAuth } from "@/lib/middleware/auth";
+import { humanAuthPolicy } from "@/lib/middleware/auth";
 import { writeError, writeJSON } from "@/lib/middleware/helpers";
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const parsedId = DiagnosticReportIdSchema.safeParse(ctx.params?.reportId);
   if (!parsedId.success) return writeError("invalid diagnostic report id", 400);
 

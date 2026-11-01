@@ -35,7 +35,7 @@ export function useMachines(options?: Pick<UseQueryOptions<MachinesResponse>, "s
     const quota = observations.data?.quotas?.find(row => row.machineId === machine.id)?.quota
     return quota ? { ...machine, quota } : machine
   }) ?? (EMPTY_MACHINES as MachineSummary[]), [query.data?.machines, observations.data])
-  const capacity = query.data?.complete !== false && query.data?.observed !== false && machines.every(machine => machine.status !== undefined)
+  const capacity = query.data?.complete === true && query.data?.observed === true && machines.every(machine => machine.status !== undefined)
     ? observations.data?.machineCapacity
     : undefined
   const data = useMemo(() => query.data ? { ...query.data, machines, ...(capacity ? { machineCapacity: { ...capacity, ownedCount: machines.length, onlineCount: machines.filter(machine => isPresenceOnline(machine.status)).length } } : {}) } : undefined, [query.data, machines, capacity])

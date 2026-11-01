@@ -12,13 +12,14 @@ const footerLinks = [
   { href: DISCORD_INVITE_URL, label: "Discord", external: true },
   { href: "https://x.com/alook_ai", label: "X", external: true },
   { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
 ];
 
 export type PublicZone = "main" | "blog";
 
 export function isCrossZoneNavigation(href: string, zone: PublicZone): boolean {
   if (!href.startsWith("/")) return false;
-  const blogOwned = href.startsWith("/blog") || href.startsWith("/og/blog") || href.startsWith("/guides");
+  const blogOwned = href.startsWith("/blog") || href.startsWith("/og/blog") || href.startsWith("/guides") || href.startsWith("/tutorials");
   return zone === "main" ? blogOwned : !blogOwned;
 }
 
@@ -49,6 +50,7 @@ export function PublicLayout({
   rightSlot,
   footer = "none",
   mainClassName,
+  navClassName,
   children,
 }: {
   zone?: PublicZone;
@@ -59,6 +61,7 @@ export function PublicLayout({
   rightSlot?: React.ReactNode;
   footer?: "simple" | "rich" | "none" | React.ReactElement;
   mainClassName?: string;
+  navClassName?: string;
   children: React.ReactNode;
 }) {
   const maxWClass = maxWidth === "4xl" ? "max-w-4xl" : "max-w-5xl";
@@ -66,7 +69,7 @@ export function PublicLayout({
   return (
     <div className="min-h-dvh flex flex-col bg-background text-foreground">
       <nav className="sticky top-0 z-50 bg-background/90 backdrop-blur-sm border-b border-border/40">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-2">
+        <div className={`mx-auto flex items-center justify-between py-2 ${navClassName ?? "max-w-5xl px-6"}`}>
           {leftSlot ? (
             <div className="flex items-center gap-2">{leftSlot}</div>
           ) : (

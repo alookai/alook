@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
 import {
@@ -19,7 +20,7 @@ import { requireChannelAccess, requireMessageSurfaceAccess } from "@/lib/communi
 import { writeCommunityChannelRead } from "@/lib/community/read-contract"
 import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
 
-export const GET = withAuth(async (req: NextRequest, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
@@ -36,7 +37,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     canCreateDiscussion: readable && !channel.parentChannelId && (channel.type === "text" || channel.type === "forum") })
 })
 
-export const PATCH = withAuth(async (req: NextRequest, ctx) => {
+export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
@@ -144,11 +145,10 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     })
   }
 
-
   return writeJSON(updated)
 })
 
-export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
+export const DELETE = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
@@ -215,7 +215,6 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   } else {
     await fanOutToServerMembers(channel.serverId, event)
   }
-
 
   return new Response(null, { status: 204 })
 })

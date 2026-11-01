@@ -71,3 +71,19 @@ describe("useUserProfile / userProfileQueryFn", () => {
     expect(registry.collections.profiles.get(profile.id)).toBeUndefined()
   })
 })
+
+it.each(["missing-core", "wrong-target", "invalid-late-field"])("rejects a warm complete card %s before any canonical write", async defect => {
+  const { communityRegistrySnapshot } = await import("@/test/community-registry-snapshot")
+  const { client, registry } = await createCommunityQueryOwner()
+  const options = { queryKey: communityKeys.profile(profile.id), queryFn: userProfileQueryFn(profile.id) }
+  apiFetchMock.mockResolvedValueOnce(profile)
+  await client.query(options)
+  const before = communityRegistrySnapshot(registry)
+  const malformed: Record<string, unknown> = { ...profile, name: "Must not publish" }
+  if (defect === "missing-core") delete malformed.avatarVersion
+  if (defect === "wrong-target") malformed.id = "foreign-target"
+  if (defect === "invalid-late-field") malformed.mutualServers = -1
+  apiFetchMock.mockResolvedValueOnce(malformed)
+  await expect(client.query(options)).rejects.toThrow()
+  expect(communityRegistrySnapshot(registry)).toEqual(before)
+})

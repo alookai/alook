@@ -1,7 +1,8 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { withPrivateMediaCache } from "@/lib/middleware/private-media-cache"
 import { writeError } from "@/lib/middleware/helpers"
 
@@ -73,7 +74,7 @@ async function readLimitedImage(response: Response): Promise<{ bytes: Uint8Array
   return { bytes, type }
 }
 
-export const GET = withPrivateMediaCache(withAuth(async (_req: NextRequest, ctx) => {
+export const GET = withPrivateMediaCache(withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) => {
   const userId = ctx.params?.userId
   if (!userId) return writeError("missing user id", 400)
 

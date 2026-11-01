@@ -1,6 +1,6 @@
 "use client"
 
-import { createAtom, useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { flattenMessageItems } from "@/lib/community/message-list-items"
@@ -17,11 +17,14 @@ export function useMessageListController({
   scrollToMessageId,
   initialPositionMessageId,
   positionEntry,
+  positionScope,
   positionDataState,
+  targetPositionDataState,
   messageWindow,
   active,
   positioningActive,
   initialScrollReady,
+  preserveInitialPresentation,
   hasMore,
   hasMoreNewer,
   isFetching,
@@ -36,11 +39,10 @@ export function useMessageListController({
   unreadCount,
   onScrollRoot,
   onScrollTargetConsumed,
+  onUserTakeover,
 }: ResolvedMessageListProps) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
-  const settledEntry = useMemo(() => ({ entry: positionEntry, atom: createAtom(false) }), [positionEntry])
-  const [anchorPositionSettled, setAnchorPositionSettled] = useAtom(settledEntry.atom)
 
   const items = useMemo(
     () => flattenMessageItems(messages, newDividerBefore, !!hasMore, !!hasMoreNewer),
@@ -90,7 +92,6 @@ export function useMessageListController({
 
   const isLoading = (!!loading || !!initialLoadError) && messages.length === 0
   const authoritativeEmpty = !loading && !initialLoadError && messages.length === 0
-  const settleAnchorPosition = useCallback(() => setAnchorPositionSettled(true), [setAnchorPositionSettled])
   const {
     scrollRef,
     virtualizer,
@@ -104,14 +105,19 @@ export function useMessageListController({
     paginationRequestPending,
     captureOlderPageAnchor,
     captureNewerPageAnchor,
+    positionOutcome,
   } = useScrollAnchor({
     items,
     newDividerBefore,
     initialScrollReady,
+    ...(preserveInitialPresentation ? { preserveInitialPresentation } : {}),
+    ...(onUserTakeover ? { onUserTakeover } : {}),
     scrollToMessageId,
     initialPositionMessageId,
     positionEntry,
+    positionScope,
     positionDataState: positionDataState ?? (initialLoadError ? "error" : loading ? "pending" : undefined),
+    targetPositionDataState,
     messageWindow,
     active,
     positioningActive,
@@ -124,12 +130,11 @@ export function useMessageListController({
     presentRequest,
     localSubmitVersion,
     hasMoreOlder: hasMore,
-    onInitialPositionSettled: settleAnchorPosition,
   })
   const initialPosition = useInitialPositionTransition({
     firstWindowReady: !isLoading && (messages.length > 0 || !initialLoadError),
     authoritativeEmpty,
-    positionSettled: anchorPositionSettled,
+    positionSettled: positionOutcome !== "pending",
   })
 
   useEffect(() => {
@@ -149,6 +154,7 @@ export function useMessageListController({
     onLoad: onLoadOlder,
     edge: "start",
     requestKey: messageWindow,
+    preloadWithinViewport: true,
   })
   useVirtualCursorPagination({
     virtualizer,
@@ -162,6 +168,7 @@ export function useMessageListController({
     onLoad: onLoadNewer,
     edge: "end",
     requestKey: messageWindow,
+    preloadWithinViewport: true,
   })
 
   const jumpClearTimerRef = useRef<number | null>(null)
@@ -219,7 +226,7 @@ export function useMessageListController({
   }, [jumped, jumpRevision, scrollRef, setJumped])
 
   const jumpMode = !!hasMoreNewer
-  const pillCount = jumpMode ? ((unreadCount ?? belowCount) || 0) : belowCount
+  const pillCount = jumpMode ? unreadCount : belowCount
   const jumpToPresent = useCallback(() => {
     requestPresentPosition(onJumpToPresent?.())
   }, [onJumpToPresent, requestPresentPosition])

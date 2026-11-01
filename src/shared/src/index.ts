@@ -1,4 +1,5 @@
 // Types
+export * from "./automation";
 export type {
   User,
   Workspace,
@@ -26,7 +27,6 @@ export type {
   Channel,
   WsMessage,
   WorkspaceFileResult,
-  DaemonPushMessage,
 } from "./types";
 
 // API types
@@ -250,7 +250,6 @@ export {
   UpdateAgentRequestSchema,
   CreateConversationRequestSchema,
   CreateMessageRequestSchema,
-  AgentDmRequestSchema,
   EmailAttachmentSchema,
   SendEmailRequestSchema,
   UpdateEmailStatusRequestSchema,
@@ -272,7 +271,6 @@ export {
   CreateStudioRequestSchema,
   RecruitAgentRequestSchema,
   CreateThreadRequestSchema,
-  DaemonPushMessageSchema,
   CommunityMachineRuntimeSchema,
   CommunityMachineRuntimeListSchema,
   ReasoningEffortSchema,
@@ -358,7 +356,6 @@ export type {
   DeregisterRequest,
   CompleteTaskRequest,
   FailTaskRequest,
-  AgentDmRequest,
   MessageItem,
   ReportMessagesRequest,
   CreateCalendarEventRequestInput,
@@ -387,7 +384,6 @@ export type {
   CreateStudioRequest,
   RecruitAgentRequest,
   CreateThreadRequest,
-  DaemonPushMessageType,
   CommunityDaemonReady,
   CommunityPairTokenResponse,
   CommunityDaemonActivateRequest,
@@ -558,7 +554,6 @@ export {
 export type {
   MessageDeliveryBatch,
   MessageDeliveryBatchParseResult,
-  MessageDeliveryMemberAdded,
   MessageDeliveryPartial,
 } from "./community-message-delivery";
 export type { DispatchOneWakeResult } from "./community/wake-dispatch";
@@ -594,7 +589,6 @@ export type {
 export type {
   CommunityMessageCreate,
   CommunityMessageUpdated,
-  CommunityMessageEdited,
   CommunityReactionAdd,
   CommunityReactionRemove,
   CommunityPinAdd,
@@ -610,8 +604,6 @@ export type {
   CommunityChannelUpdate,
   CommunityChannelDelete,
   CommunityChannelReorder,
-  CommunityChannelMemberAdd,
-  CommunityChannelMemberRemove,
   CommunityChannelMembershipChange,
   CommunityCategoryCreate,
   CommunityCategoryUpdate,
@@ -642,17 +634,16 @@ export type {
   CommunityMachineRemoved,
   CommunityBotAuditEvent,
   CommunityWsEvent,
-  CommunityLegacyWsEvent,
   CommunityResourceWsEvent,
-  CommunityLegacyMessageCreate,
+  CommunityBrowserEventEnvelope,
   CommunityBrowserEventFailureReason,
   CommunityBrowserEventDecodeResult,
   CommunityBrowserEventEncodeResult,
 } from "./community-ws-events";
 export {
+  CommunityInviteCreateSchema,
   CommunityWsEventSchema,
   CommunityResourceWsEventSchema,
-  CommunityLegacyMessageCreateSchema,
   communityWsEventSchemaForContract,
   FriendApprovalPayloadSchema,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
@@ -665,6 +656,7 @@ export {
   isValidCommunityUserTarget,
   encodeCommunityUserTargetPathSegment,
   utf8ByteLength,
+  validateCommunityWsEvent,
   decodeCommunityBrowserEvent,
   encodeCommunityBrowserEvent,
   WS_EVENTS,
@@ -832,7 +824,7 @@ export { parseReleaseVersion, releaseVersionGte, semverGte } from "./semver";
 export type { ReleaseVersion } from "./semver";
 export { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "./mode";
 export type { AlookMode, ModeSignals, BaseUrlSignals } from "./mode";
-export { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, COMMUNITY_RESOURCE_CONTRACT_VERSION, requestedCommunityContract, requestsCommunityContract, type CommunityContract } from "./community-contract";
+export { COMMUNITY_BOT_ACTOR_HEADER, COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, COMMUNITY_RESOURCE_CONTRACT_VERSION, requestedCommunityContract, requestsCommunityContract, type CommunityContract } from "./community-contract";
 export * from "./community-resources";
 export * from "./runtime-models-contract";
 
@@ -840,3 +832,21 @@ export { readBoundedJsonRequest } from "./http-json";
 export { channelReorderRequestSchema, type ChannelReorderRequest, type ChannelCategoryMove } from "./community-channel-order";
 
 export type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
+
+export * from "./pii-contract";
+
+export * from "./business-schema-version";
+export * from "./task-payload-cache";
+export * from "./community-cache";
+
+export * from "./community-forum-sidebar";
+
+export * from "./community-machine-resources"
+
+export * from "./community-friends";
+
+export { CommunityInviteListItemSchema, CommunityInvitesReadSchema, type CommunityInviteListItem, type CommunityInvitesRead } from "./community-invites";
+
+export { CommunityDmReadItemSchema, CommunityDmsReadSchema, parseCommunityDmsRead, type CommunityDmsRead } from "./community-dms";
+
+export * from "./community-profile-reads"

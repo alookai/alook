@@ -1,3 +1,5 @@
+import { channelResourceFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
+import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
@@ -64,11 +66,11 @@ function deferred() {
   return { promise, resolve, reject }
 }
 function payload(id = "post-1") {
-  return conversationEntryFromChannel({
+  return { ...conversationEntryFromChannel({
     categoryId: null, topic: "", position: 0, messageCount: 0, id, serverId: "server-1", name: "post", type: "thread", parentChannelId: "parent-1",
     parentMessageId: "opener-1", creatorId: "viewer-1", archived: false,
     lastMessageAt: "2026-08-09T00:00:00.000Z", createdAt: "2026-08-08T00:00:00.000Z",
-  }, "viewer-1")
+  }, "viewer-1"), parent: channelResourceFixture({ id: "parent-1", serverId: "server-1", type: "text" }) }
 }
 
 beforeEach(async () => {
@@ -300,10 +302,13 @@ describe("unresolved metadata terminal error and retry", () => {
     expect(mocks.replace).not.toHaveBeenCalled()
   })
 
-  it("keeps a legacy tag-derived archive bit pending without purging or revoking access", async () => {
+  it("rejects obsolete cache fields and keeps a valid local archive tag pending without purging or revoking access", async () => {
     const owner = getCommunityDbRegistry(client)!
-    owner.collections.channels.utils.writeUpsert([{ ...payload().channel, type: "thread", archived: true, tags: ["archived"], position: 0, muted: false, unread: false, pending: false }])
-    owner.collections.messages.utils.writeUpsert([{ id: "reply-1", channelId: "post-1", type: "chat", content: "kept" }])
+    const legacy = { ...payload().channel, archived: true, tags: ["archived"], muted: false, unread: false, pending: false }
+    await expect(async () => writeCommunityCollectionRows(owner, "channels", [legacy], row => row.id)).rejects.toThrow()
+    expect(owner.collections.channels.size).toBe(0)
+    await writeCommunityCollectionRows(owner, "channels", [{ ...payload().channel, tags: ["archived"], muted: false, pending: false }], row => row.id)
+    await writeCommunityCollectionRows(owner, "messages", [messageResourceFixture({ id: "reply-1", channelId: "post-1", content: "kept" })], row => row.id)
     const held = deferred()
     mocks.apiFetch.mockReturnValue(held.promise)
     await mount()

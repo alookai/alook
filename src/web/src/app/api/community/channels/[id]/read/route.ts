@@ -1,8 +1,9 @@
-import { requestsCommunityContract, requestedCommunityContract, communityReadSchemas } from "@alook/shared"
+import { withAuth } from "@/lib/middleware/auth-policy"
+import { COMMUNITY_RESOURCE_CONTRACT_VERSION, communityReadSchemas } from "@alook/shared"
 import { writeCommunityContractJSON } from "@/lib/community/read-contract"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
-import { writeJSON, writeError } from "@/lib/middleware/helpers"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
+import { writeError } from "@/lib/middleware/helpers"
 import { getPrimaryDb } from "@/lib/db"
 import { queries, WS_EVENTS, withD1Retry } from "@alook/shared"
 import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
@@ -16,7 +17,7 @@ import { broadcastToUserSafe } from "@/lib/community/fanout"
  * The server re-reads the canonical target row, rejects an unknown id (404)
  * or a row from another channel (400), and never falls back to the latest row.
  */
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
+export const PUT = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
@@ -123,9 +124,6 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     })
   }
 
-  if (requestsCommunityContract(req.headers)) {
-    const contract = requestedCommunityContract(req.headers) === 3 ? 3 : 2
-    return writeCommunityContractJSON(communityReadSchemas(contract).readAdvance.parse({ contractVersion: contract, channelId, changed, targetSeq: target.seq, revision }), contract)
-  }
-  return writeJSON({ changed, targetSeq: target.seq, revision })
+  const contract = COMMUNITY_RESOURCE_CONTRACT_VERSION
+  return writeCommunityContractJSON(communityReadSchemas(contract).readAdvance.parse({ contractVersion: contract, channelId, changed, targetSeq: target.seq, revision }), contract)
 })

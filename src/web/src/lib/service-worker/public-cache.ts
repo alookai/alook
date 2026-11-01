@@ -15,7 +15,7 @@ const publicAssets = new Set([
   "/landing/people/nina.webp",
   "/landing/people/priya.webp",
   "/landing/people/sam.webp",
-  "/social/readme-card-58c75311e5ba.png",
+  "/social/readme-card-7470c72ef1c3.png",
 ])
 
 export const publicFaviconQueryParameter = /^favicon\.[a-z0-9]+\.ico$/

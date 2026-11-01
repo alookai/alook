@@ -61,7 +61,7 @@ describe("ws-do router", () => {
       expect(res.status).toBe(200)
     })
 
-    it("prioritizes daemonId over userId when no community-machine bearer is present", async () => {
+    it("ignores the retired daemon target and routes only the supplied user", async () => {
       doMock.stubFetch.mockResolvedValue(new Response(null, { status: 200 }))
       const req = new Request("http://localhost/?daemonId=daemon-1&userId=user-1", {
         headers: { Upgrade: "websocket" },
@@ -71,7 +71,7 @@ describe("ws-do router", () => {
 
       expect(mockHashCredential).not.toHaveBeenCalled()
       expect(doMock.idFromName).toHaveBeenCalledTimes(1)
-      expect(doMock.idFromName).toHaveBeenCalledWith("daemon:daemon-1")
+      expect(doMock.idFromName).toHaveBeenCalledWith("user:user-1")
       expect(doMock.stubFetch).toHaveBeenCalledWith(req)
       expect(res.status).toBe(200)
     })

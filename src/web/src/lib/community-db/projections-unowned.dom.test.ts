@@ -1,3 +1,5 @@
+import { createElement, type PropsWithChildren } from "react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { expect, it, vi } from "vitest"
 import { renderHook } from "@/test/react-dom-harness"
 import { configureTelemetry, retireTelemetry } from "@/lib/observability/telemetry"
@@ -10,8 +12,10 @@ it("does not attribute an upstream cached tree snapshot to an absent community o
   const { useServerTreeProjection } = await import("./projections")
   configureTelemetry({ session_id: "snapshot-session" }, true)
   try {
-    const rendered = renderHook(() => useServerTreeProjection("server-a"))
-    expect(rendered.result.current).toMatchObject({ id: "server-a", name: "Unowned snapshot", categories: [] })
+    const client = new QueryClient()
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children)
+    const rendered = renderHook(() => useServerTreeProjection("server-a"), { wrapper })
+    expect(rendered.result.current).toBeUndefined()
     rendered.unmount()
   } finally { retireTelemetry() }
 })

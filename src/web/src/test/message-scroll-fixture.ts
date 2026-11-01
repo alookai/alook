@@ -14,6 +14,8 @@ let height: number
 let width: number
 let firstPrefix: number
 let bodyHeights: Map<string, number>
+let overflowHeights: Map<string, number>
+let overflowModes: Map<string, "visible" | "hidden">
 let frames: Map<number, FrameRequestCallback>
 let frameId: number
 let resizeObservers: Array<{
@@ -26,7 +28,7 @@ let scrollCalls: number[]
 let pendingScrollEvents: Set<HTMLElement>
 let scrollDescriptor: PropertyDescriptor | undefined
 
-const ROOT_SELECTOR = '[data-testid="scroll"], [data-testid="community-message-scroller"]'
+const ROOT_SELECTOR = '[data-testid="scroll"], [data-testid="community-message-scroller"], [data-testid="community-forum-post-list"]'
 function isScrollRoot(node: HTMLElement) { return node.matches(ROOT_SELECTOR) }
 function rootFor(node: HTMLElement) { return node.closest<HTMLElement>(ROOT_SELECTOR) }
 function deliverScrollEvents() {
@@ -93,7 +95,7 @@ function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) 
             "data-message-divider-for": item.kind === "divider" ? item.messageId : undefined,
           },
             item.kind === "divider" && item.newDivider ? createElement("div", { "data-new-divider": "" }) : null,
-            item.kind === "message" ? createElement("div", { "data-msg-id": item.m.id }) : null,
+            item.kind === "message" ? createElement("div", { "data-msg-id": item.m.id, style: { overflowY: overflowModes.get(item.m.id) } }) : null,
           ),
         }),
       ),
@@ -175,6 +177,8 @@ export function installMessageScrollFixture() {
   width = 320
   firstPrefix = 88
   bodyHeights = new Map()
+  overflowHeights = new Map()
+  overflowModes = new Map()
   frames = new Map()
   frameId = 0
   resizeObservers = []
@@ -205,8 +209,10 @@ export function installMessageScrollFixture() {
   })
   vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
     return isScrollRoot(this)
-      ? Math.max(this.clientHeight, Number.parseFloat(this.querySelector<HTMLElement>('[data-message-list-content] > div')?.style.height ?? "0") || 0)
-      : rowGeometry(this).height
+      ? Math.max(this.clientHeight, Number.parseFloat(this.querySelector<HTMLElement>('[data-message-list-content]')?.style.height
+        || this.querySelector<HTMLElement>('[data-message-list-content] > div')?.style.height || "0") || 0)
+      : Math.max(rowGeometry(this).height, this.matches('[data-index], [data-msg-id]')
+        ? overflowHeights.get(this.dataset.msgId ?? this.querySelector<HTMLElement>('[data-msg-id]')?.dataset.msgId ?? "") ?? 0 : 0)
   })
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     return isScrollRoot(this) ? DOMRect.fromRect({ width, height }) : rowGeometry(this)
@@ -238,6 +244,8 @@ export const scrollFixture = {
   get firstPrefix() { return firstPrefix },
   set firstPrefix(value: number) { firstPrefix = value },
   get bodyHeights() { return bodyHeights },
+  get overflowHeights() { return overflowHeights },
+  get overflowModes() { return overflowModes },
   get frames() { return frames },
   get scrollCalls() { return scrollCalls },
 }

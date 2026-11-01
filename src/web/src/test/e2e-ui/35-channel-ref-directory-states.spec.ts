@@ -1,3 +1,6 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, communityFixtureFetch, confirmCommunityFixtureApiResponse, currentCommunityFixtureError } from "./_fixtures/business-contract"
+import type { CommunityResourceBundle } from "../../../../shared/src/community-resources"
+import { WEB_URL } from "./_setup/paths"
 import type { Page } from "@playwright/test"
 import { expect, test, type CaseActors } from "./_fixtures/case-fixture"
 import { composerEditable } from "./_fixtures/actions"
@@ -14,8 +17,9 @@ function deferred() {
   return { promise, resolve }
 }
 
-function directoryEnvelope(serverId: string, channelId: string) {
+function directoryEnvelope(serverId: string, channelId: string, resources: CommunityResourceBundle) {
   return {
+    resources: { ...resources, servers: resources.servers.map(server => server.id === serverId ? { ...server, name: "Channel reference states", discriminator: "0042" } : server) },
     directory: [{
       id: serverId,
       name: "Channel reference states",
@@ -70,7 +74,10 @@ async function seedDirectoryCase(actors: CaseActors) {
   const channelId = await seedChannel("alice", serverId, "general")
   const firstDmId = await seedDm("alice", userId("bob"))
   const secondDmId = await seedDm("alice", userId("carol"))
-  return { serverId, channelId, firstDmId, secondDmId }
+  const response = await communityFixtureFetch(`${WEB_URL}${DIRECTORY_PATH}`, { headers: { Cookie: actors.sessionCookie("alice") } })
+  if (!response.ok) throw new Error(`Directory resource preparation failed (${response.status})`)
+  const { resources } = await response.json() as { resources: CommunityResourceBundle }
+  return { serverId, channelId, firstDmId, secondDmId, resources }
 }
 
 test.describe("DM channel-reference directory states", () => {
@@ -79,7 +86,7 @@ test.describe("DM channel-reference directory states", () => {
   test("cold pending stays anchored through query updates and resolves without false-empty", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { serverId, channelId, firstDmId } = await seedDirectoryCase(actors)
+    const { serverId, channelId, firstDmId, resources } = await seedDirectoryCase(actors)
 
     const { page } = await asUser("alice")
     const gate = deferred()
@@ -88,7 +95,7 @@ test.describe("DM channel-reference directory states", () => {
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {
       directoryGets += 1
       await gate.promise
-      await route.fulfill({ status: 200, json: directoryEnvelope(serverId, channelId) })
+      await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, json: directoryEnvelope(serverId, channelId, resources) })
     })
 
     await page.goto(`/c/me/${firstDmId}`)
@@ -117,13 +124,13 @@ test.describe("DM channel-reference directory states", () => {
   test("resolved empty stays anchored with explicit copy", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { firstDmId } = await seedDirectoryCase(actors)
+    const { firstDmId, resources } = await seedDirectoryCase(actors)
 
     const { page } = await asUser("alice")
     let directoryGets = 0
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {
       directoryGets += 1
-      await route.fulfill({ status: 200, json: { directory: [] } })
+      await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, json: { directory: [], resources: { ...resources, servers: [], serverMemberships: [], channels: [], memberships: [], profiles: [], messages: [] } } })
     })
 
     await page.goto(`/c/me/${firstDmId}`)
@@ -141,7 +148,7 @@ test.describe("DM channel-reference directory states", () => {
   test("cold 500 is one attempt, same-popup input is inert, and a new session retries once", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { serverId, channelId, firstDmId } = await seedDirectoryCase(actors)
+    const { serverId, channelId, firstDmId, resources } = await seedDirectoryCase(actors)
 
     const { page } = await asUser("alice")
     const statuses: number[] = []
@@ -149,10 +156,10 @@ test.describe("DM channel-reference directory states", () => {
       const status = statuses.length === 0 ? 500 : 200
       statuses.push(status)
       if (status === 500) {
-        await route.fulfill({ status, json: { error: "forced failure" } })
+        await route.fulfill(currentCommunityFixtureError("forced failure", status))
         return
       }
-      await route.fulfill({ status, json: directoryEnvelope(serverId, channelId) })
+      await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status, json: directoryEnvelope(serverId, channelId, resources) })
     })
 
     await page.goto(`/c/me/${firstDmId}`)
@@ -178,13 +185,13 @@ test.describe("DM channel-reference directory states", () => {
   test("warm cache crosses DM routes without a duplicate request or status flash", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { serverId, channelId, firstDmId, secondDmId } = await seedDirectoryCase(actors)
+    const { serverId, channelId, firstDmId, secondDmId, resources } = await seedDirectoryCase(actors)
 
     const { page } = await asUser("alice")
     let directoryGets = 0
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {
       directoryGets += 1
-      await route.fulfill({ status: 200, json: directoryEnvelope(serverId, channelId) })
+      await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, json: directoryEnvelope(serverId, channelId, resources) })
     })
 
     await page.goto(`/c/me/${firstDmId}`)
@@ -214,7 +221,7 @@ test.describe("DM channel-reference directory states", () => {
   test("late completion after exit and SPA route switch only warms the new DM", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { serverId, channelId, firstDmId, secondDmId } = await seedDirectoryCase(actors)
+    const { serverId, channelId, firstDmId, secondDmId, resources } = await seedDirectoryCase(actors)
 
     const { page } = await asUser("alice")
     const gate = deferred()
@@ -223,7 +230,7 @@ test.describe("DM channel-reference directory states", () => {
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {
       directoryGets += 1
       await gate.promise
-      await route.fulfill({ status: 200, json: directoryEnvelope(serverId, channelId) })
+      await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, json: directoryEnvelope(serverId, channelId, resources) })
     })
 
     await page.goto(`/c/me/${firstDmId}`)
@@ -275,5 +282,114 @@ test.describe("DM channel-reference directory states", () => {
     await expect(page.getByTestId(tid.channelRefOption(channelId))).toBeVisible()
     await expect(page.getByTestId(tid.channelRefStatus)).toHaveCount(0)
     expect(directoryGets).toBe(0)
+  })
+})
+
+async function serverHandle(page: Page, serverId: string) {
+  const response = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/users/me/channel-directory", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
+  expect(response.status()).toBe(200)
+  const data = await response.json() as { directory: Array<{ id: string; name: string; discriminator: string }> }
+  const server = data.directory.find(row => row.id === serverId)
+  expect(server).toBeTruthy()
+  return `${server!.name}#${server!.discriminator}`
+}
+
+async function prepare(actors: CaseActors) {
+  const serverId = await actors.seed.seedServer("alice", `Ref pages ${Date.now()}`)
+  const forumId = await actors.seed.seedChannel("alice", serverId, "ref-forum", "forum")
+  const textId = await actors.seed.seedChannel("alice", serverId, "ref-chat")
+  const archivedId = await actors.seed.seedForumThread("alice", forumId, "Archived reference destination", "Archived destination content")
+  const activeId = await actors.seed.seedForumThread("alice", forumId, "Active reference destination", "Active destination content")
+  const dmId = await actors.seed.seedDm("alice", actors.userId("bob"))
+  return { serverId, forumId, textId, archivedId, activeId, dmId }
+}
+
+test.describe("channel ref page navigation", () => {
+  test("DM numbered refs open active/archived pages with mouse, keyboard and touch while preserving archive state", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { serverId, forumId, textId, archivedId, activeId, dmId } = await prepare(actors)
+    const { page } = await actors.asUser("alice", { hasTouch: true, viewport: { width: 1280, height: 900 } })
+    const handle = await serverHandle(page, serverId)
+    const archiveRef = `/${handle}/ref-forum/#1#18`
+    const activeRef = `/${handle}/ref-forum/#2#11`
+    const textRef = `/${handle}/ref-chat#27`
+    await actors.seed.seedDmMessage("alice", dmId, `${archiveRef} ${activeRef} ${textRef}`)
+    await actors.seed.seedMessage("alice", textId, `${archiveRef} ${activeRef}`)
+    await page.goto(`/c/channels/${serverId}/${forumId}`)
+    const card = page.getByTestId(tid.forumThreadCard(archivedId))
+    await expect(card).toBeVisible({ timeout: 20_000 })
+    await card.hover()
+    const archived = page.waitForResponse(response => response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith("/tags"))
+    await page.getByTestId(tid.forumThreadArchiveBtn(archivedId)).click()
+    expect((await archived).status()).toBe(200)
+    await expect(card).toHaveCount(0)
+    const before = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${archivedId}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
+    expect(before.status()).toBe(200)
+    const { channel: beforeMetadata } = await before.json() as { channel: { archived: boolean } }
+
+    const resolvedRefs: string[] = []
+    page.on("request", request => {
+      const url = new URL(request.url())
+      if (url.pathname === "/api/community/channel-ref") {
+        expect(request.method()).toBe("GET")
+        resolvedRefs.push(url.searchParams.get("ref") ?? "")
+      }
+    })
+    for (const method of ["click", "Enter", "Space", "tap"] as const) {
+      await page.goto(`/c/me/${dmId}`)
+      const pill = page.getByTestId(tid.channelRefPill(archivedId))
+      await expect(pill).toHaveText(/Archived reference destination.*#18/, { timeout: 20_000 })
+      if (method === "click") await pill.click()
+      else if (method === "tap") await pill.tap()
+      else { await pill.focus(); await pill.press(method) }
+      await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}/${archivedId}$`))
+    }
+    await page.goto(`/c/me/${dmId}`)
+    await page.getByTestId(tid.channelRefPill(activeId)).click()
+    await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}/${activeId}$`))
+    await page.goto(`/c/me/${dmId}`)
+    await page.getByTestId(tid.channelRefPill(textId)).click()
+    await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}/${textId}$`))
+    await page.getByTestId(tid.channelRefPill(archivedId)).click()
+    await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}/${archivedId}$`))
+    expect(resolvedRefs).toContain(`/${handle.toLowerCase()}/ref-forum/#1`)
+    expect(resolvedRefs.every(ref => !ref.endsWith("#18") && !ref.endsWith("#11") && !ref.endsWith("#27"))).toBe(true)
+    const metadata = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${archivedId}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
+    expect(metadata.status()).toBe(200)
+    expect((await metadata.json() as { channel: { archived: boolean } }).channel.archived).toBe(beforeMetadata.archived)
+    const feed = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${forumId}/threads?archived=false`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
+    expect(feed.status()).toBe(200)
+    const rows = await feed.json() as { threads: Array<{ id: string }> }
+    expect(rows.threads.map(row => row.id)).not.toContain(archivedId)
+    expect(rows.threads.map(row => row.id)).toContain(activeId)
+    const archivedFeed = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${forumId}/threads?tag=archived`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
+    expect(archivedFeed.status()).toBe(200)
+    const archivedRows = await archivedFeed.json() as { threads: Array<{ id: string }> }
+    expect(archivedRows.threads.map(row => row.id)).toContain(archivedId)
+  })
+
+  test("a private-parent ref shared in DM stays unavailable to an unrostered server member", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const serverId = await actors.seed.seedServer("bob", `Private refs ${Date.now()}`)
+    await actors.seed.seedJoinServer("bob", "alice", serverId)
+    const categoryId = await actors.seed.seedCategory("bob", serverId, "Ref permissions", { private: true })
+    const forumId = await actors.seed.seedChannel("bob", serverId, "private-ref-forum", "forum", categoryId)
+    const postId = await actors.seed.seedForumThread("bob", forumId, "Private title must not appear", "Private body")
+    const dmId = await actors.seed.seedDm("bob", actors.userId("alice"))
+    const owner = await actors.asUser("bob")
+    const handle = await serverHandle(owner.page, serverId)
+    const ref = `/${handle}/private-ref-forum/#1#18`
+    await actors.seed.seedDmMessage("bob", dmId, ref)
+    const { page } = await actors.asUser("alice")
+    const response = page.waitForResponse(result => new URL(result.url()).pathname === "/api/community/channel-ref")
+    await page.goto(`/c/me/${dmId}`)
+    const denied = await response
+    expect(denied.status()).toBe(403)
+    expect(await denied.json()).toMatchObject({ error: { code: "not_allowed", message: "forbidden" } })
+    const pill = page.locator('[data-ref-state="forbidden"]').filter({ hasText: ref })
+    await expect(pill).toBeVisible()
+    await expect(page.getByTestId(tid.channelRefPill(postId))).toHaveCount(0)
+    await expect(page.getByText("Private title must not appear")).toHaveCount(0)
+    await expect(page).toHaveURL(new RegExp(`/c/me/${dmId}$`))
   })
 })

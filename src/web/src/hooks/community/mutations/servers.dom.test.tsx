@@ -1,3 +1,4 @@
+import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
 import "fake-indexeddb/auto"
 import React, { useMemo } from "react"
 import { useQueryClient, type QueryClient } from "@tanstack/react-query"
@@ -31,7 +32,7 @@ async function setup(serverId: string, callbacks: Omit<Callbacks, "routeToken">)
   await act(async () => {
     const registry = getCommunityDbRegistry(client)!
     await registry.ready; await registry.preload()
-    publishCommunityLiveSnapshot(client, { snapshot: { kind: "servers", data: { servers: [{ id: serverId, name: "Server", initial: "S", active: false, unread: false, mentions: 0, isOwner: true, ownerId: "viewer" }] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
+    publishCommunityLiveSnapshot(client, { snapshot: { kind: "servers", data: serverRailResponseFixture({ servers: [{ id: serverId, name: "Server", isOwner: true, ownerId: "viewer", role: "owner", memberId: `member-${serverId}` }] }) }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
     client.setQueryData(communityKeys.servers(), [serverId])
   })
   return { client, routeToken: originalToken, result: { get current() { return current } }, unmount: () => mounted.rerender(<Root visible={false} />), rerender: ({ activeCallbacks }: { activeCallbacks: Callbacks }) => mounted.rerender(<Root activeCallbacks={activeCallbacks} />) }

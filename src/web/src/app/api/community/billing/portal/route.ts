@@ -1,10 +1,11 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { BillingPortalRequestSchema, BillingRedirectResponseSchema } from "@alook/shared"
-import { withCookieHumanAuth } from "@/lib/middleware/auth"
+import { cookieHumanAuthPolicy } from "@/lib/middleware/auth"
 import { getPrimaryDb } from "@/lib/db"
 import { billingClient, billingFailure, billingResponse } from "@/lib/billing/client"
 import { createPortal } from "@/lib/billing/service"
 
-export const POST = withCookieHumanAuth(async (req, ctx) => {
+export const POST = withAuth(cookieHumanAuthPolicy, async (req, ctx) => {
   const text = await req.text()
   let body: unknown = {}
   try { if (text.trim()) body = JSON.parse(text) } catch { body = null }

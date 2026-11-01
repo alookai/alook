@@ -1,3 +1,5 @@
+import { resourceBundleFixture } from "@/test/community-resource-fixtures"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -13,6 +15,8 @@ vi.mock("@/lib/auth", () => ({
     api: { getSession: vi.fn(async () => ({ headers: new Headers(), response: null })) },
   })),
 }))
+
+vi.mock("@/lib/community/attention-resources.server", () => ({ readCommunityResourceBundle: async (_db: unknown, viewerId: string, { profileIds }: { profileIds: string[] }) => resourceBundleFixture({ viewerId, profiles: profileIds.map(id => ({ id, name: "X", discriminator: "0042", avatar: null, avatarVersion: 0 })) }) }))
 
 const mockFindActiveAgentRunnerKeyByBearer = vi.fn()
 const mockGetUserInternal = vi.fn()
@@ -33,13 +37,8 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-// The human arm delegates through the real withAuth; mock it so a human ctx is
-// injected without exercising Better-Auth.
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u_owner", email: "o@t.com", params })
-  }),
+  resolveHumanAuth: async () => ({ context: { env: { DB: {} }, userId: "u_owner", email: "o@t.com" } }),
 }))
 
 import { GET } from "./route"
@@ -47,7 +46,7 @@ import { GET } from "./route"
 function req(headers: Record<string, string> = {}): NextRequest {
   return new NextRequest("http://localhost/api/community/friends/blocked", {
     method: "GET",
-    headers: { ...headers },
+    headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION), ...headers },
   })
 }
 
@@ -73,8 +72,9 @@ describe("GET /api/community/friends/blocked", () => {
     const res = await GET(req())
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.resources.profiles).toEqual([expect.objectContaining({ id: "u_x", name: "X", avatar: null, avatarVersion: 0 })])
     expect(body.blocked).toEqual([
-      { id: "bk_1", userId: "u_x", name: "X", avatar: expect.any(String) },
+      { id: "bk_1", userId: "u_x" },
     ])
   })
 })

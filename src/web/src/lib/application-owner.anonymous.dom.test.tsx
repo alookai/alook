@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, CommunityReadErrorSchema } from "@alook/shared"
 import "fake-indexeddb/auto"
 import { createContext, useContext, useLayoutEffect } from "react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
@@ -41,7 +42,7 @@ beforeEach(async () => {
   vi.stubGlobal("window", new Proxy(real, { get(target, key) { return key === "location" ? { origin: "https://alook.test", reload } : Reflect.get(target, key, target) } }))
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
     expect(url).toBe("/api/community/invites/not-a-real-token/info")
-    return Response.json({ error: "Invite not found" }, { status: 404 })
+    return Response.json(CommunityReadErrorSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, error: { code: "not_found", message: "Invite not found", retryable: false } }), { status: 404, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
   }))
 })
 afterEach(async () => {

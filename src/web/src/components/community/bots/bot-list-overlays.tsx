@@ -9,6 +9,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { AgentHelpGallery } from "@/components/community/onboarding-tiles/agent-help-gallery"
+import { BotMembershipsSheet } from "./bot-memberships-sheet"
 import { BotActivityModal } from "./bot-activity-modal"
 import { BugReportDialog } from "./bug-report-dialog"
 import { CreateBotSheet } from "./create-bot-sheet"
@@ -42,6 +43,7 @@ export function renderBotListOverlaySlots(
         onOpenChange={controller.setEditOpen}
       />
     ),
+    memberships: controller.membershipBot ? <BotMembershipsSheet key={controller.membershipsGeneration} bot={controller.membershipBot} open={controller.membershipsOpen} onOpenChange={controller.setMembershipsOpen} /> : null,
     activity: (
       <BotActivityModal
         key={controller.activityGeneration}
@@ -95,7 +97,7 @@ export function renderBotListOverlaySlots(
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reset this bot&apos;s session?</AlertDialogTitle>
+            <AlertDialogTitle>Restart this bot?</AlertDialogTitle>
             <AlertDialogDescription>
               Its running process will stop and it&apos;ll start a fresh session
               that picks up unfinished work from its notes.
@@ -107,7 +109,7 @@ export function renderBotListOverlaySlots(
               data-testid="bot-reset-confirm"
               onClick={controller.resetConfirmedBot}
             >
-              Reset
+              Restart
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -121,7 +123,7 @@ export function renderBotListOverlaySlots(
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Reset all agents on {controller.confirmResetMachine
+              Restart all agents on {controller.confirmResetMachine
                 ? controller.machineName(controller.confirmResetMachine)
                 : "this machine"}?
             </AlertDialogTitle>
@@ -136,7 +138,7 @@ export function renderBotListOverlaySlots(
               data-testid="machine-reset-all-confirm"
               onClick={controller.resetConfirmedMachine}
             >
-              Reset all
+              Restart all
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

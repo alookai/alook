@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import type { Database } from "../../src/db";
 import {
-  createThreadChannel,
+  createThreadChannel, listChildChannelsByParentMessageIds,
 } from "../../src/db/queries/community/channel";
 
 /**
@@ -175,4 +175,19 @@ describe("createThreadChannel against real SQLite", () => {
       name: "Thread from a real query",
     });
   });
+  it("bounds message enrichment to parent and page IDs while retaining ordinary legacy types and archived indicators", async () => {
+    const insert = sqlite.prepare("INSERT INTO community_channel (id, server_id, type, parent_channel_id, parent_message_id, archived, last_message_at, created_at) VALUES (?, 'server_1', ?, ?, ?, ?, ?, 'now')");
+    insert.run("current", "thread", "parent_1", "page_1", 0, "3");
+    insert.run("archived", "thread", "parent_1", "page_1", 1, "1");
+    insert.run("legacy", "text", "parent_1", "page_2", 0, "2");
+    insert.run("off_page", "thread", "parent_1", "other_message", 0, "4");
+    insert.run("foreign_parent", "thread", "another_parent", "page_1", 0, "5");
+    const rows = await listChildChannelsByParentMessageIds(db, "parent_1", ["page_1", "page_2"], null);
+    expect(rows.map(row => row.id)).toEqual(["current", "legacy", "archived"]);
+    expect((await listChildChannelsByParentMessageIds(db, "parent_1", ["page_1", "page_2"])).map(row => row.id).sort()).toEqual(["archived", "current"]);
+    const select = vi.spyOn(db, "select");
+    expect(await listChildChannelsByParentMessageIds(db, "parent_1", [], null)).toEqual([]);
+    expect(select).not.toHaveBeenCalled();
+  });
+
 });

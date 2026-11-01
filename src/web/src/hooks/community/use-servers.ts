@@ -1,4 +1,6 @@
 "use client"
+import { ServerDirectorySnapshotSchema, getServerDirectoryWindow, type ServerDirectorySnapshot, type ServerDirectoryWindow } from "@/lib/community/server-directory-window"
+import { CommunityChannelResourceSchema, CommunityCategoryResourceSchema, serverSchema, type CommunityCategoryResource } from "@alook/shared"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { useSelector } from "@tanstack/react-store"
@@ -19,22 +21,14 @@ import type { ServerRow } from "@/lib/community-db/schema"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
-import { isServerOwner,UNCATEGORIZED_CATEGORY_ID, type CommunityRole } from "@alook/shared"
+import { isServerOwner, type CommunityRole } from "@alook/shared"
 import type { Server,Category,Channel } from "@/lib/community/models/navigation"
-import {
-getActiveAccountUnreadProjection,
-accountUnreadAllowsAccess,
-type AccountUnreadProjection,
-type AccountUnreadScope,
-type AccountUnreadSource,
-} from "./account-unread-projection"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { ApiError, isAbortError } from "@/lib/errors"
 import { evictServerChannelScopes } from "./community-ws/scope-eviction"
 import {
-useAttentionScopes,
 useOptionalCommunityDbRegistry,
 useServerRailProjection,
 useServerTreeProjection,
@@ -83,50 +77,22 @@ export const serversQueryFn = async (
   if (!context?.client) throw new DOMException("Missing server query owner", "AbortError")
   const token = captureCommunityLiveSnapshotToken(context.client)
   const data = await apiFetch<{ servers: RawServerRow[] }>("/api/community/servers", communityRequestOptions(context.client, token, context.signal))
-  const servers: Server[] = data.servers.map((s) => ({
-    id: s.id,
-    name: s.name,
-    discriminator: s.discriminator,
-    description: s.description ?? "",
-    ownerId: s.ownerId,
+  const servers: Server[] = data.servers.map((s, position) => ({
+    ...serverSchema.parse({ id: s.id, position, name: s.name, discriminator: s.discriminator, description: s.description, ownerId: s.ownerId, icon: s.icon, official: s.official, isOwner: isServerOwner(s.role) }),
     initial: avatarInitial(s.name),
     active: false,
-    unread: s.unread ?? false,
-    // Defensive fallback: the API always projects `mentions` now, but during
-    // rolling deploys or from cached stale responses the field could still be
-    // absent — treat it as 0 rather than NaN.
-    mentions: s.mentions ?? 0,
+    unread: false,
+    mentions: 0,
     isOwner: isServerOwner(s.role),
     ...(["owner", "admin", "member"].includes(s.role ?? "") ? { role: s.role as CommunityRole } : {}),
     ...(s.memberId ? { memberId: s.memberId } : {}),
-    icon: s.icon ?? null,
-    official: s.official === true,
-    ...(s.unreadSources ? { unreadSources: s.unreadSources } : {}),
-    ...(s.mentionSources ? { mentionSources: s.mentionSources } : {}),
+    icon: s.icon,
+    official: s.official,
   }))
   return { servers }
 }
 
-function serverListUnreadSources(data: ServersResponse): AccountUnreadSource[] {
-  return data.servers.flatMap((server) => (
-    [
-      ...(server.unreadSources ?? []).map((source) => ({
-        ...source,
-        serverId: server.id,
-      })),
-      ...(server.mentionSources ?? []).flatMap((source) => source.count > 0 ? [{
-        channelId: source.channelId,
-        serverId: server.id,
-        lastUnreadSeq: source.lastSeq,
-        lastMentionSeq: source.lastSeq,
-        isMention: true,
-      }] : []),
-    ]
-  ))
-}
-
 export const serversProjectedQueryFn = (
-  projection: AccountUnreadProjection,
   queryClient: QueryClient,
   onLiveSuccess?: (
     token: CommunityLiveSnapshotToken,
@@ -135,7 +101,6 @@ export const serversProjectedQueryFn = (
   ) => void,
 ) => async (context?: QueryFunctionContext) => {
   const structuralToken = captureCommunityLiveSnapshotToken(queryClient)
-  const token = projection.beginSnapshot("servers", "channels")
   try {
     const registry = structuralToken.registry
     await registry?.ready
@@ -144,12 +109,6 @@ export const serversProjectedQueryFn = (
     assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, context?.signal)
     const data = await serversQueryFn(context)
     assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, context?.signal)
-    projection.absorbSnapshot(token, serverListUnreadSources(data), {
-      confirmedAccessScopes: data.servers.map((server) => ({
-        kind: "server" as const,
-        serverId: server.id,
-      })),
-    })
     publishCommunityLiveSnapshot(queryClient, {
       snapshot: { kind: "servers", data },
       proof: { kind: "structural", token: structuralToken, signal: context?.signal },
@@ -161,14 +120,9 @@ export const serversProjectedQueryFn = (
       ownerGeneration: structuralToken.ownerGeneration,
       serverIdsSignature: canonicalServerIdsSignature(data.servers),
     }))
-    for (const server of data.servers) if (server.unreadSources) projection.absorbLegacyServerAggregate(server.id, server.unreadSources)
-    projection.recordLegacySnapshot(data, data.servers.flatMap((server) => server.unread && server.unreadSources === undefined
-      ? [{ family: "servers" as const, channelId: `\u0000legacy-server:${server.id}`, serverId: server.id }]
-      : []))
     onLiveSuccess?.(structuralToken, data, context?.signal)
     return data.servers.map((server) => server.id)
   } catch (error) {
-    projection.cancelSnapshot(token)
     throw error
   }
 }
@@ -176,7 +130,7 @@ export const serversProjectedQueryFn = (
 function serversQueryOptions(queryClient: QueryClient) {
   return {
     queryKey: communityKeys.servers(),
-    queryFn: serversProjectedQueryFn(getActiveAccountUnreadProjection(queryClient), queryClient),
+    queryFn: serversProjectedQueryFn(queryClient),
     staleTime: 30_000,
   } as const
 }
@@ -184,23 +138,16 @@ function serversQueryOptions(queryClient: QueryClient) {
 export function useServers(): UseQueryResult<string[]> & { servers: Server[]; isLiveAuthoritative: boolean } {
   const registry = useOptionalCommunityDbRegistry()
   const authority = useSelector(registry?.serverListAuthority ?? absentAuthority, (value) => value)
-  const attentionScopes = useAttentionScopes()
   const dbRail = useServerRailProjection()
   const queryClient = useQueryClient()
   const structuralGeneration = useCommunityWsStore((state) => `${state.profileViewerId ?? ""}:${state.profileAccountEpoch}:${state.accessEpoch}`)
-  const unreadProjection = useMemo(() => getActiveAccountUnreadProjection(queryClient), [queryClient])
-  const serverAccess = useSelector(unreadProjection.state, (state) => (dbRail?.servers ?? []).map((server) => accountUnreadAllowsAccess(state, { serverId: server.id })), { compare: (left, right) => left.length === right.length && left.every((value, index) => value === right[index]) })
+  const serverAccess = useCommunityWsStore((state) => state.revokedServerIds)
   const query = useQuery({ ...serversQueryOptions(queryClient), refetchOnReconnect: true })
   const servers = useMemo(() => {
-    const raw = dbRail?.servers.filter((_server, index) => serverAccess[index])
+    const raw = dbRail?.servers.filter((_server) => !serverAccess.has(_server.id))
     if (!raw) return EMPTY_SERVERS as Server[]
-    return raw.map((server) => {
-      const scopes = attentionScopes.filter((scope) => scope.serverId === server.id)
-      const unread = scopes.some((scope) => scope.ordinaryUnread)
-      const mentions = scopes.reduce((total, scope) => total + (scope.attentionCount ?? 0), 0)
-      return unread === server.unread && mentions === server.mentions ? server : { ...server, unread, mentions }
-    })
-  }, [attentionScopes, dbRail?.servers, serverAccess])
+    return raw
+  }, [dbRail?.servers, serverAccess])
   void structuralGeneration
   const state = registry?.runtime.ws.get()
   return {
@@ -288,40 +235,21 @@ const serverQueryFn = (
   queryClient: QueryClient,
   serverId: string,
   signal?: AbortSignal,
-) => async (): Promise<ServerDetail> => {
+) => async (): Promise<ServerDirectorySnapshot> => {
   const token = captureCommunityLiveSnapshotToken(queryClient)
   const options = communityRequestOptions(queryClient, token, signal)
   const fetchResource = <T,>(path: string) => apiFetch<T>(path, options)
   const [server, categoryData, channelData] = await Promise.all([
     resolveServerIdentity(queryClient, serverId, signal),
-    fetchResource<{ categories: Array<Omit<Category, "channels"> & { serverId?: string }> }>(`/api/community/servers/${serverId}/categories`),
+    fetchResource<{ categories: CommunityCategoryResource[] }>(`/api/community/servers/${serverId}/categories`),
     fetchResource<{ channels: RawChannel[] }>(`/api/community/servers/${serverId}/channels`),
   ])
   if (!server) throw new Error("server not found")
-  const channels = channelData.channels.map((channel) => ({
-    ...channel,
-    active: false,
-    // Visible unread state is projected exclusively from account attention.
-    unread: false,
-  }))
-  const categories: Category[] = categoryData.categories.map((category) => ({
-    ...category,
-    channels: channels.filter((channel) => channel.categoryId === category.id),
-  }))
-  const uncategorized = channels.filter((channel) => !channel.categoryId)
-  if (uncategorized.length > 0) {
-    categories.push({ id: UNCATEGORIZED_CATEGORY_ID, name: "", private: 0, channels: uncategorized })
-  }
-  return {
-    id: server.id,
-    name: server.name,
-    discriminator: server.discriminator ?? "",
-    description: server.description ?? "",
-    icon: server.icon ?? null,
-    official: server.official === true,
-    ownerId: server.ownerId ?? "",
-    categories,
-  }
+  return ServerDirectorySnapshotSchema.parse({
+    server,
+    categories: categoryData.categories.map(category => CommunityCategoryResourceSchema.parse(category)),
+    channels: channelData.channels.map(row => CommunityChannelResourceSchema.parse(row)),
+  })
 }
 
 function serverDetailReadSuperseded(queryClient: QueryClient, serverId: string, token: CommunityLiveSnapshotToken, signal?: AbortSignal) {
@@ -329,9 +257,10 @@ function serverDetailReadSuperseded(queryClient: QueryClient, serverId: string, 
   if (!registry || registry !== token.registry) return false
   const state = registry.runtime.ws.get()
   const lifecycle = registry.runtime.lifecycle.get()
+  const channelScopesChanged = [...state.channelAccessScopes].some(([id, scope]) => scope.generation !== (token.channelScopes.get(id)?.generation ?? 0))
   return !signal?.aborted && lifecycle.active && lifecycle.generation === token.ownerGeneration
     && state.profileViewerId === token.viewerId && state.profileAccountEpoch === token.accountEpoch
-    && state.accessEpoch !== token.accessEpoch && !state.revokedServerIds.has(serverId)
+    && (state.accessEpoch !== token.accessEpoch || channelScopesChanged) && !state.revokedServerIds.has(serverId)
 }
 
 class SupersededServerDetailRead extends DOMException {
@@ -346,9 +275,6 @@ export const serverProjectedQueryFn = (
   signal?: AbortSignal,
 ) => async () => {
   const structuralToken = captureCommunityLiveSnapshotToken(queryClient)
-  const projection = getActiveAccountUnreadProjection(queryClient)
-  const family = `server-detail:${serverId}` as const
-  const token = projection.beginSnapshot(family, "channels")
   try {
     return await withConversationReadDeadline(signal, async (readSignal) => {
       await structuralToken.registry?.ready
@@ -361,26 +287,15 @@ export const serverProjectedQueryFn = (
       assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, readSignal)
       const data = await serverQueryFn(queryClient, serverId, readSignal)()
       assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, readSignal)
-      const confirmedAccessScopes: AccountUnreadScope[] = [
-        { kind: "server", serverId },
-        ...data.categories.flatMap((category) => category.channels.map((channel) => ({
-          kind: "channel" as const,
-          channelId: channel.id,
-        }))),
-      ]
-      projection.absorbSnapshot(
-        token,
-        [],
-        { confirmedAccessScopes },
-      )
       publishCommunityLiveSnapshot(queryClient, {
         snapshot: { kind: "server-detail", data },
         proof: { kind: "structural", token: structuralToken, signal: readSignal },
       })
-      return data.id
+      const window = getServerDirectoryWindow(structuralToken.registry, serverId)
+      if (!window) throw new Error("Directory resource closure mismatch")
+      return window
     })
   } catch (error) {
-    projection.cancelSnapshot(token)
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
       evictServerChannelScopes(queryClient, serverId)
     }
@@ -398,8 +313,7 @@ export const serverProjectedQueryFn = (
  */
 export function useServer(
   serverId: string | null,
-): UseQueryResult<string> & { server: ServerDetail | null } {
-  const attentionScopes = useAttentionScopes()
+): UseQueryResult<ServerDirectoryWindow> & { server: ServerDetail | null } {
   const dbServer = useServerTreeProjection(serverId)
   const queryClient = useQueryClient()
   const enabled = !!serverId
@@ -426,33 +340,11 @@ export function useServer(
       void restart({ cancelRefetch: false })
     }
   }, [query.error, queryClient, serverId, restart])
-  const projectedServer = useMemo(() => {
-    const source = dbServer
-    if (!source || !serverId) return null
-    let changed = false
-    const categories = source.categories.map((category) => {
-      let categoryChanged = false
-      const channels = category.channels.map((channel) => {
-        const unread = attentionScopes.some((scope) => (
-          scope.serverId === serverId
-          && (scope.channelId === channel.id || scope.parentChannelId === channel.id)
-          && scope.ordinaryUnread
-        ))
-        if (unread === channel.unread) return channel
-        categoryChanged = true
-        return { ...channel, unread }
-      })
-      if (!categoryChanged) return category
-      changed = true
-      return { ...category, channels }
-    })
-    return changed ? { ...source, categories } : source
-  }, [attentionScopes, dbServer, serverId])
   return {
     ...query,
     server: query.error instanceof ApiError
       && (query.error.status === 403 || query.error.status === 404)
       ? null
-      : projectedServer,
+      : dbServer ?? null,
   }
 }

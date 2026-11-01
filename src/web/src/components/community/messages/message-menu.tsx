@@ -31,7 +31,6 @@ export function messageMenuItems(handlers: {
   marked?: boolean
   onCreateThread?: () => void
   onCopy?: () => void
-  onEdit?: () => void
   onShare?: () => void
 }): Item[] {
   const items: Item[] = []

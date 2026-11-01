@@ -1,8 +1,9 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { flattenError } from "zod"
 import { NextResponse, type NextRequest } from "next/server"
 import { queries, withD1Retry, CommunityAgentAckRequestSchema, type CommunityCliAckResponse } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
+import { communityActorPolicy, requireBot } from "@/lib/middleware/community-actor"
 import { resolveTargetForMember } from "@/lib/community/resolve-ref"
 import { isDmTarget } from "@/lib/community/message-handler"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
@@ -40,7 +41,7 @@ import { requireChannelMember, requireDMAccess } from "@/lib/community/permissio
  * daemon must not treat the whole call as failed). Only a genuine D1 exception
  * escaping `withD1Retry` propagates as a 500 so the daemon retries the batch.
  */
-export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
+export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const gate = requireBot(ctx.actor)
   if (!gate.ok) return gate.response
   const { userId: botUserId } = gate.bot

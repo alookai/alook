@@ -50,11 +50,11 @@ export async function readCommunityMachines(db: Database, userId: string) {
       })
       return { ...machine, quota }
     })
-    return { machines: withQuota, machineCapacity }
+    return { machines: withQuota, machineCapacity, complete: true as const }
 }
 
 export async function readCommunityMachineList(db: Database, userId: string) {
-  return { machines: await queries.communityMachine.listMachinesForUser(db, userId) }
+  return { machines: await queries.communityMachine.listMachinesForUser(db, userId), complete: true as const }
 }
 
 export async function readCommunityMachineObservations(db: Database, userId: string) {

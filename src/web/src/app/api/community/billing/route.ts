@@ -1,10 +1,11 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { BillingSummarySchema, queries } from "@alook/shared"
-import { withOptionalAuth } from "@/lib/middleware/auth"
+import { optionalAuthPolicy } from "@/lib/middleware/auth"
 import { getPrimaryDb } from "@/lib/db"
 import { billingClient, billingFailure, billingResponse } from "@/lib/billing/client"
 import { getBillingSummary } from "@/lib/billing/service"
 
-export const GET = withOptionalAuth(async (req, ctx) => {
+export const GET = withAuth(optionalAuthPolicy, async (req, ctx) => {
   if (req.headers.has("Authorization") || !ctx.userId || ctx.user?.isBot) return billingResponse({ error: "UNAUTHORIZED" }, 401)
   try {
     const db = getPrimaryDb(ctx.env.DB)

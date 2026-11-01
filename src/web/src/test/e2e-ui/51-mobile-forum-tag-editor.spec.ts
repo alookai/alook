@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse, currentCommunityFixtureError } from "./_fixtures/business-contract"
 import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
@@ -72,6 +73,32 @@ async function gateNextForumFeedResponse(page: Page, caseResources: CaseResource
     await routeRequest.fulfill({ response }).catch(() => undefined)
     finished()
   }, { times: 1 })
+  return { release, captured, delivered }
+}
+
+async function gateInitialForumTags(page: Page, forumId: string, caseResources: CaseResources) {
+  let release!: () => void
+  let sawResponse!: () => void
+  let finished!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const captured = new Promise<void>((resolve) => { sawResponse = resolve })
+  const delivered = new Promise<void>((resolve) => { finished = resolve })
+  caseResources.own(release, async (captured) => { captured() })
+  caseResources.own(sawResponse, async (captured) => { captured() })
+  caseResources.own(finished, async (captured) => { captured() })
+  await page.route(`**/api/community/channels/${forumId}/messages/tags`, async (routeRequest) => {
+    const response = await routeRequest.fetch()
+    const body = await response.json() as { tags: string[] }
+    if (body.tags.length > 0) {
+      await routeRequest.fulfill({ response })
+      return
+    }
+    expect(body).toEqual({ tags: [] })
+    sawResponse()
+    await gate
+    await routeRequest.fulfill({ response }).catch(() => undefined)
+    finished()
+  })
   return { release, captured, delivered }
 }
 
@@ -242,7 +269,7 @@ test.describe("forum tag editor", () => {
     await expect(card).toHaveCount(0)
   })
 
-  test("converges Archive and Unarchive across two tabs", async ({ caseActors }) => {
+  test("converges Archive and Unarchive across two tabs", async ({ caseActors, caseResources }) => {
     const actors = await caseActors(["alice"])
     const { asUser } = actors
     const { seedForum } = await prepareCase1(actors)
@@ -250,10 +277,12 @@ test.describe("forum tag editor", () => {
     const { route, forumId, threadId } = await seedForum("Archive cross tab")
     const tabA = await asUser("alice")
     const tabB = await asUser("alice")
+    const staleTags = await gateInitialForumTags(tabB.page, forumId, caseResources)
     await Promise.all([
       gotoAfterUserWsAuth(tabA.page, route),
       gotoAfterUserWsAuth(tabB.page, route),
     ])
+    await staleTags.captured
     const cardA = tabA.page.getByTestId(tid.forumThreadCard(threadId))
     const cardB = tabB.page.getByTestId(tid.forumThreadCard(threadId))
     await expect(cardA).toBeVisible()
@@ -267,6 +296,8 @@ test.describe("forum tag editor", () => {
     await tabA.page.getByTestId(tid.forumThreadArchiveBtn(threadId)).click()
     expect((await archived).status()).toBe(200)
     await expect(cardB).toHaveCount(0)
+    staleTags.release()
+    await staleTags.delivered
 
     await expect(tabA.page.getByTestId(tid.forumTagChip("archived"))).toBeVisible()
     await expect(tabB.page.getByTestId(tid.forumTagChip("archived"))).toBeVisible()
@@ -286,8 +317,8 @@ test.describe("forum tag editor", () => {
     expect(await unarchivedResponse.json()).toEqual({ tags: [] })
     await expect.poll(async () => {
       const [tags, feed] = await Promise.all([
-        tabA.page.request.get(`/api/community/channels/${forumId}/messages/tags`),
-        tabA.page.request.get(`/api/community/channels/${forumId}/threads`),
+        confirmCommunityFixtureApiResponse(tabA.page.request.get(`/api/community/channels/${forumId}/messages/tags`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS })),
+        confirmCommunityFixtureApiResponse(tabA.page.request.get(`/api/community/channels/${forumId}/threads`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS })),
       ])
       expect(tags.status()).toBe(200)
       expect(feed.status()).toBe(200)
@@ -386,11 +417,7 @@ test.describe("forum tag editor", () => {
         rejectNext = false
         sawFailureRequest()
         await failureGate
-        await routeRequest.fulfill({
-          status: 500,
-          contentType: "application/json",
-          body: JSON.stringify({ error: "archive retry" }),
-        })
+        await routeRequest.fulfill(currentCommunityFixtureError("archive retry", 500))
         return
       }
       await routeRequest.continue()
@@ -512,11 +539,7 @@ test.describe("forum tag editor", () => {
     await page.route("**/api/community/messages/*/tags", async (routeRequest) => {
       if (rejectNext) {
         rejectNext = false
-        await routeRequest.fulfill({
-          status: 500,
-          contentType: "application/json",
-          body: JSON.stringify({ error: "retry" }),
-        })
+        await routeRequest.fulfill(currentCommunityFixtureError("retry", 500))
         return
       }
       await routeRequest.continue()

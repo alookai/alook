@@ -810,6 +810,52 @@ describe("message send — idempotent retry (mutation-idempotency ②)", () => {
   });
 });
 
+describe("message send PII receipt", () => {
+  const args = ["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"];
+  const message = { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "filtered" }, time: "" };
+  const pii = { triggeredFilters: [{ id: "builtin.secrets", name: "Keys" }] };
+
+  it.each([false, true])("preserves local hit metadata in final success output, including deduped=%s", async deduped => {
+    setApiForTesting(stubApi({ send: async () => ({ state: "sent", message, deduped, pii }) }));
+    await mainWithStdin(args);
+    expect(parseEnvelope(cap.lines()).success).toMatchObject({ sent: "/s#0042/general#8", pii });
+  });
+
+  it("does not add PII information for no hit", async () => {
+    setApiForTesting(stubApi({ send: async () => ({ state: "sent", message }) }));
+    await mainWithStdin(args);
+    expect(parseEnvelope(cap.lines()).success).not.toHaveProperty("pii");
+  });
+
+  it("preserves hit information if local reminder arming fails after a committed send", async () => {
+    mockArmMessageReminder.mockRejectedValueOnce(new Error("local failure"));
+    setApiForTesting(stubApi({ send: async () => ({ state: "sent", message, pii }) }));
+    await mainWithStdin(args);
+    expect(parseEnvelope(cap.lines()).success).toMatchObject({ sent: "/s#0042/general#8", pii, reminder: { armed: false } });
+  });
+
+  it.each(["#invalid", "#0", "#9007199254740992"])("preserves the committed hit receipt when canonical seq %s cannot arm a reminder", async seq => {
+    const send = vi.fn(async () => ({ state: "sent" as const, message: { ...message, seq }, pii }));
+    setApiForTesting(stubApi({ send }));
+    await mainWithStdin(args);
+    expect(parseEnvelope(cap.lines())).toEqual({ success: {
+      sent: `/s#0042/general${seq}`, pii,
+      reminder: { armed: false, reason: "server returned an invalid canonical message seq" },
+    } });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(mockArmMessageReminder).not.toHaveBeenCalled();
+  });
+
+  it("does not turn a blocked send into success or expose PII metadata", async () => {
+    setApiForTesting(stubApi({ send: async () => ({ state: "blocked", reason: "unaligned", unreadCount: 1, latestSeq: 9 }) }));
+    await mainWithStdin(args);
+    const result = parseEnvelope(cap.lines());
+    expect(result).not.toHaveProperty("success");
+    expect(result).not.toHaveProperty("pii");
+    expect(result.error).toContain("channel not aligned");
+  });
+});
+
 describe("message send --force", () => {
   const args = ["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"];
   it.each([false, true])("forwards only an explicit force flag (%s)", async (force) => {

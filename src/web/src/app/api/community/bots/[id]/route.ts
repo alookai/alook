@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
@@ -19,7 +20,7 @@ import {
   requiresExplicitModel,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
 import {
   pushBotEventToMachine,
@@ -32,7 +33,7 @@ import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-c
 
 const log = createLogger({ service: "community-bot-update" })
 
-export const PATCH = withAuth(async (req: NextRequest, ctx) => {
+export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const id = ctx.params?.id as string
   const [body, err] = await parseBody(req, CommunityBotPatchRequestSchema)
   if (err) return err
@@ -286,7 +287,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   })
 })
 
-export const DELETE = withAuth(async (_req, ctx) => {
+export const DELETE = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const id = ctx.params?.id as string
   const db = getDb(ctx.env.DB)
 
@@ -334,7 +335,6 @@ export const DELETE = withAuth(async (_req, ctx) => {
       userId: id,
     })
   }
-
 
   if (before.machineId) {
     await pushBotEventToMachine(ctx.env, before.machineId, {

@@ -1,13 +1,14 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextResponse } from "next/server"
 import { queries } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
-import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
+import { communityActorPolicy, rejectBot } from "@/lib/middleware/community-actor"
 import { writeError } from "@/lib/middleware/helpers"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
 const headers = { "Cache-Control": "private, no-store" }
 
-export const GET = withCommunityActor(async (_req, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (_req, ctx) => {
   const rejected = rejectBot(ctx.actor)
   if (rejected) {
     rejected.headers.set("Cache-Control", headers["Cache-Control"])

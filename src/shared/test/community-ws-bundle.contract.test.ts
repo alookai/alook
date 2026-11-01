@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import {
+  BUSINESS_SCHEMA_VERSION,
+  projectCommunityEventForContract,
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
   COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
   communityBrowserEventBatchType,
@@ -22,7 +24,7 @@ import {
   type CommunityBotAuditEvent,
   type CommunityWsEvent,
 } from "../src"
-import { communityWsEventFixtures, communityResourceMessageFixture, communityResourceChannelFixture } from "./community-ws-events.fixtures"
+import { communityWsEventFixtures, communityResourceMessageFixture } from "./community-ws-events.fixtures"
 
 function maximizeAuditPadding(): CommunityBotAuditEvent {
   let low = 0
@@ -47,58 +49,35 @@ function maximizeAuditPadding(): CommunityBotAuditEvent {
 }
 
 describe("community WS batch transport contract", () => {
-  it("derives all three wire names from one family and the supported contract", () => {
-    expect(communityBrowserEventBatchType(1)).toBe("community:events.batch")
-    expect(communityBrowserEventBatchType()).toBe("community:events.batch.v2")
-    expect(communityBrowserEventBatchType(2)).toBe("community:events.batch.v2")
-    expect(() => communityBrowserEventBatchType(0)).toThrow("unsupported community event contract")
-    expect(communityBrowserEventBatchType(3)).toBe("community:events.batch.v3")
-    expect(() => communityBrowserEventBatchType(4)).toThrow("unsupported community event contract")
+  it("derives one current wire name and rejects old or invalid contracts", () => {
+    expect(communityBrowserEventBatchType()).toBe(`community:events.batch.v${BUSINESS_SCHEMA_VERSION}`)
+    expect(communityBrowserEventBatchType(BUSINESS_SCHEMA_VERSION)).toBe(`community:events.batch.v${BUSINESS_SCHEMA_VERSION}`)
+    for (const contract of [0, 1, 2, 3, BUSINESS_SCHEMA_VERSION - 1]) expect(() => communityBrowserEventBatchType(contract)).toThrow("unsupported community event contract")
   })
-  it("keeps the source digest while projecting one strict format per connection", async () => {
+  it("uses identical source and wire digests with no old membership projection", async () => {
     const change = { type: WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE, channelId: "thread", serverId: "server", userId: "joined", relation: "notify", present: true } as const
     const prepared = await prepareCommunityDeliveryEvents([change])
     if (!prepared.ok) throw new Error("invalid fixture")
     const operationId = await deriveCommunityDeliveryOperationId("joined-message")
-    for (const contract of [1, 2] as const) {
-      await expect(encodeCommunityBrowserEventBatchForContract({ operationId, prepared: { ...prepared.prepared, digest: "0".repeat(64) }, contract }))
-        .resolves.toMatchObject({ ok: false, reason: "digest-mismatch" })
-    }
-    const old = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: 1 })
-    const current = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: 2 })
-    if (!old.ok || !current.ok) throw new Error("invalid projection")
-    expect(old.body).toBe("{\"type\":\"community:events.batch\",\"operationId\":\"message:qbWQs0jZgHxxQP2XnrG_JaBwIEH7tss-wN83NwGGFco\",\"operationDigest\":\"02f419257acb00e467b673a0d10295eacaa0176c6f6700926ced78aabd78f053\",\"events\":[{\"type\":\"community:channel.member_add\",\"serverId\":\"server\",\"channelId\":\"thread\",\"userId\":\"joined\"}]}")
-    expect(old.byteLength).toBe(296)
-    expect(current.body).toBe("{\"type\":\"community:events.batch.v2\",\"operationId\":\"message:qbWQs0jZgHxxQP2XnrG_JaBwIEH7tss-wN83NwGGFco\",\"operationDigest\":\"256d83c615e1feac6685548ba38cfa9296913b0e0b64fd11ec8d4331711390b6\",\"wireDigest\":\"256d83c615e1feac6685548ba38cfa9296913b0e0b64fd11ec8d4331711390b6\",\"events\":[{\"type\":\"community:channel.membership.change\",\"channelId\":\"thread\",\"serverId\":\"server\",\"userId\":\"joined\",\"relation\":\"notify\",\"present\":true}]}")
-    expect(current.byteLength).toBe(421)
-    expect(admitCommunityBrowserEventBatch(old.batch)).not.toBeInstanceOf(Promise)
-    expect(admitCommunityBrowserEventBatch(old.batch)).toMatchObject({ ok: true })
-    expect(admitCommunityBrowserEventBatch(current.batch)).toBeInstanceOf(Promise)
-    expect(old.batch.type).toBe(COMMUNITY_BROWSER_EVENT_BATCH_TYPE)
-    expect(Object.keys(old.batch)).toHaveLength(4)
-    expect(old.batch.events).toEqual([{ type: WS_EVENTS.CHANNEL_MEMBER_ADD, serverId: "server", channelId: "thread", userId: "joined" }])
-    expect(old.batch.operationDigest).not.toBe(prepared.prepared.digest)
-    expect(current.batch).toMatchObject({ type: communityBrowserEventBatchType(), operationDigest: prepared.prepared.digest, wireDigest: prepared.prepared.digest })
-    expect(await admitCommunityBrowserEventBatch(JSON.parse(current.body))).toMatchObject({ ok: true })
-    expect(decodeCommunityBrowserEventBatch({ ...old.batch, wireDigest: current.batch.wireDigest }).ok).toBe(false)
-    const tampered = JSON.parse(current.body)
-    tampered.events[0].present = false
-    expect(await admitCommunityBrowserEventBatch(tampered)).toMatchObject({ ok: false })
-    const invalid = JSON.parse(current.body)
-    invalid.events[0].extra = true
-    expect(await admitCommunityBrowserEventBatch(invalid)).toMatchObject({ ok: false })
+    await expect(encodeCommunityBrowserEventBatchForContract({ operationId, prepared: { ...prepared.prepared, digest: "0".repeat(64) }, contract: BUSINESS_SCHEMA_VERSION })).resolves.toMatchObject({ ok: false, reason: "digest-mismatch" })
+    const current = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: BUSINESS_SCHEMA_VERSION })
+    if (!current.ok) throw new Error("invalid current fixture")
+    expect(current.batch.events).toEqual([{ ...change, schemaVersion: BUSINESS_SCHEMA_VERSION }])
+    expect(current.batch).toMatchObject({ operationDigest: prepared.prepared.digest, wireDigest: prepared.prepared.digest })
+    expect(await admitCommunityBrowserEventBatch(JSON.parse(current.body))).toMatchObject({ ok: true, events: [change] })
+    for (const contract of [1, 2, 3]) await expect(encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract })).resolves.toMatchObject({ ok: false, reason: "invalid-contract" })
+    for (const fields of [{ operationDigest: "0".repeat(64) }, { wireDigest: "0".repeat(64) }, { events: [{ ...change, present: false, schemaVersion: BUSINESS_SCHEMA_VERSION }] }]) expect(await admitCommunityBrowserEventBatch({ ...current.batch, ...fields })).toMatchObject({ ok: false })
+    expect(await admitCommunityBrowserEventBatch({ ...current.batch, events: [{ ...current.batch.events[0], extra: true }] })).toMatchObject({ ok: false })
   })
-  it.each([false, true])("keeps owned Block=%s in the current wire and emits the original peer shape for legacy", async (blockedByViewer) => {
+  it.each([false, true])("retains current owned Block=%s without projecting old peer shapes", async blockedByViewer => {
     const event = { type: WS_EVENTS.FRIEND_BLOCK, userId: "peer", blockedByViewer } as const
     const prepared = await prepareCommunityDeliveryEvents([event])
     if (!prepared.ok) throw new Error("invalid block fixture")
     const operationId = await deriveCommunityDeliveryOperationId("blocked-peer")
-    const old = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: 1 })
-    const current = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: 2 })
-    if (!old.ok || !current.ok) throw new Error("invalid block projection")
-    expect(old.batch.events).toEqual([{ type: WS_EVENTS.FRIEND_BLOCK, userId: "peer" }])
-    expect(current.batch.events).toEqual([event])
-    expect(await admitCommunityBrowserEventBatch(current.batch)).toMatchObject({ ok: true })
+    const current = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: BUSINESS_SCHEMA_VERSION })
+    if (!current.ok) throw new Error("invalid current fixture")
+    expect(current.batch.events).toEqual([{ ...event, schemaVersion: BUSINESS_SCHEMA_VERSION }])
+    expect(await admitCommunityBrowserEventBatch(current.batch)).toMatchObject({ ok: true, events: [event] })
   })
 
   const children: CommunityWsEvent[] = [
@@ -145,7 +124,7 @@ describe("community WS batch transport contract", () => {
     expect(isCommunityDeliveryDigest("a".repeat(63))).toBe(false)
   })
 
-  it("round-trips one strict outer frame without entering the 48-event union", async () => {
+  it("round-trips one strict outer frame without entering the 46-event union", async () => {
     const operationId = await deriveCommunityDeliveryOperationId("message-1")
     const prepared = await prepareCommunityDeliveryEvents(children)
     expect(prepared.ok).toBe(true)
@@ -158,12 +137,13 @@ describe("community WS batch transport contract", () => {
     expect(encoded.ok).toBe(true)
     if (!encoded.ok) return
     expect(encoded.batch).toEqual(JSON.parse(encoded.body))
-    expect(encoded.batch.type).toBe(COMMUNITY_BROWSER_EVENT_BATCH_TYPE)
+    expect(encoded.batch.type).toBe(communityBrowserEventBatchType())
     expect(Object.keys(encoded.batch).sort()).toEqual([
       "events",
       "operationDigest",
       "operationId",
       "type",
+      "wireDigest",
     ])
     expect(encoded.batch.events.map((event) => event.type)).toEqual(children.map((event) => event.type))
     expect(decodeCommunityBrowserEventBatch(encoded.batch, encoded.byteLength)).toEqual({
@@ -173,7 +153,7 @@ describe("community WS batch transport contract", () => {
     })
     expect(isCommunityBrowserEventBatchCandidate(encoded.batch)).toBe(true)
     expect(Object.values(WS_EVENTS)).not.toContain(COMMUNITY_BROWSER_EVENT_BATCH_TYPE)
-    expect(Object.values(WS_EVENTS)).toHaveLength(48)
+    expect(Object.values(WS_EVENTS)).toHaveLength(46)
   })
 
   it("rejects invalid count, child, operation metadata, digest mismatch, and strict outer keys", async () => {
@@ -298,68 +278,33 @@ describe("community WS batch transport contract", () => {
 })
 
 
-describe("explicit v3 delivery codec", () => {
-  it.each([1, 2] as const)("projects empty attachments and full channel/identity facts to contract %s", async (contract) => {
-    const events = [
-      { ...communityResourceMessageFixture, message: { ...communityResourceMessageFixture.message, attachments: [] } },
-      { type: WS_EVENTS.CHANNEL_CREATE, serverId: "server-1", channel: { ...communityResourceChannelFixture, name: null } },
-      { type: "community:channel.child_create", parentChannelId: "channel-1", parentMessageId: "message-1", channel: {
-        ...communityResourceChannelFixture, id: "thread-1", type: "thread", name: null, creatorId: null,
-        parentChannelId: "channel-1", parentMessageId: "message-1",
-      } },
-      { type: WS_EVENTS.IDENTITY_UPDATE, userId: "user-1", avatar: null, avatarVersion: 1 },
-    ]
-    const prepared = await prepareCommunityDeliveryEvents(events, 3)
-    if (!prepared.ok) throw new Error("invalid resource fixtures")
-    const encoded = await encodeCommunityBrowserEventBatchForContract({
-      operationId: await deriveCommunityDeliveryOperationId("legacy-resource-projection"), prepared: prepared.prepared, contract,
-    })
-    if (!encoded.ok) throw new Error("invalid legacy projection")
-    const wire = JSON.parse(encoded.body)
-    expect(wire.type).toBe(communityBrowserEventBatchType(contract))
-    expect(wire.events[0].message).not.toHaveProperty("attachments")
-    expect(wire.events[0].message).not.toHaveProperty("channelId")
-    expect(wire.events[1]).toEqual({ type: WS_EVENTS.CHANNEL_CREATE, serverId: "server-1", channel: {
-      id: "channel-1", name: "", type: "text", categoryId: null, topic: "Keep this topic", position: 4, createdAt: communityResourceChannelFixture.createdAt,
-    } })
-    expect(wire.events[2]).toEqual({ type: "community:channel.child_create", parentChannelId: "channel-1", parentMessageId: "message-1",
-      channel: { id: "thread-1", name: "", type: "thread", createdAt: communityResourceChannelFixture.createdAt } })
-    expect(wire.events[3]).toEqual({ ...events[3], avatar: "" })
-    expect(await admitCommunityBrowserEventBatch(wire)).toMatchObject({ ok: true, events: wire.events })
-  })
-  it("captures original source bytes before digest and projects strict 1/2/3 frames", async () => {
-    const prepared = await prepareCommunityDeliveryEvents([communityResourceMessageFixture], 3)
-    if (!prepared.ok) throw new Error("invalid v3 fixture")
-    expect(prepared.prepared.contract).toBe(3)
-    expect(JSON.parse(prepared.prepared.bodies[0]!)).toEqual(communityResourceMessageFixture)
+describe("current full-resource delivery codec", () => {
+  it("captures current child bytes and rejects every obsolete projection", async () => {
+    const prepared = await prepareCommunityDeliveryEvents([communityResourceMessageFixture])
+    if (!prepared.ok) throw new Error("invalid current fixture")
+    expect(prepared.prepared.contract).toBe(BUSINESS_SCHEMA_VERSION)
+    expect(JSON.parse(prepared.prepared.bodies[0]!)).toEqual({ ...communityResourceMessageFixture, schemaVersion: BUSINESS_SCHEMA_VERSION })
     const operationId = await deriveCommunityDeliveryOperationId("full-resource")
-    for (const contract of [1, 2, 3] as const) {
-      const encoded = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract })
-      if (!encoded.ok) throw new Error(`invalid v${contract} projection`)
-      expect(encoded.byteLength).toBe(utf8ByteLength(encoded.body))
-      expect(await admitCommunityBrowserEventBatch(JSON.parse(encoded.body))).toMatchObject({ ok: true })
-      if (contract === 3) {
-        expect(encoded.batch.events).toEqual([communityResourceMessageFixture])
-        expect(encoded.batch.operationDigest).toBe(prepared.prepared.digest)
-      } else {
-        const event = encoded.batch.events[0]
-        if (event.type !== WS_EVENTS.MESSAGE_CREATE) throw new Error("invalid projection")
-        expect(event.message).not.toHaveProperty("channelId")
-        expect(event.message.attachments?.map((row) => "filename" in row ? row.filename : "invalid")).toEqual(["unknown.bin", "photo.png"])
-        expect(JSON.parse(encoded.body).events[0].message).not.toHaveProperty("authorAvatar")
-      }
+    for (const contract of [1, 2, 3]) {
+      await expect(prepareCommunityDeliveryEvents([communityResourceMessageFixture], contract)).resolves.toMatchObject({ ok: false })
+      await expect(encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract })).resolves.toMatchObject({ ok: false, reason: "invalid-contract" })
+      expect(encodePreparedCommunityBrowserEventBatch({ operationId, operationDigest: prepared.prepared.digest, prepared: prepared.prepared, contract })).toMatchObject({ ok: false, reason: "invalid-contract" })
     }
-    await expect(prepareCommunityDeliveryEvents([communityResourceMessageFixture])).resolves.toMatchObject({ ok: false })
-    const old = await prepareCommunityDeliveryEvents([communityWsEventFixtures["community:message.create"]])
-    if (!old.ok) throw new Error("invalid old fixture")
-    expect(await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: old.prepared, contract: 3 })).toMatchObject({ ok: false })
-    expect(await encodePreparedCommunityBrowserEventBatch({ operationId, operationDigest: prepared.prepared.digest, prepared: prepared.prepared, contract: 3 })).toMatchObject({ ok: false, reason: "invalid-contract" })
-    const encoded = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: 3 })
-    if (!encoded.ok) throw new Error("invalid full frame")
+    const encoded = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: BUSINESS_SCHEMA_VERSION })
+    if (!encoded.ok) throw new Error("invalid current frame")
+    expect(encoded.byteLength).toBe(utf8ByteLength(encoded.body))
+    expect(await admitCommunityBrowserEventBatch(JSON.parse(encoded.body))).toMatchObject({ ok: true, events: [communityResourceMessageFixture] })
     const tampered = JSON.parse(encoded.body)
     tampered.events[0].message.attachments.reverse()
     expect(await admitCommunityBrowserEventBatch(tampered)).toMatchObject({ ok: false })
-    tampered.type = "community:events.batch.v4"
-    expect(await admitCommunityBrowserEventBatch(tampered)).toMatchObject({ ok: false })
+    for (const type of ["community:events.batch", "community:events.batch.v2", "community:events.batch.v3"]) expect(await admitCommunityBrowserEventBatch({ ...encoded.batch, type })).toMatchObject({ ok: false })
   })
+})
+
+it("projects only a validated current event with matching source and recipient contracts", () => {
+  const event = communityWsEventFixtures["community:message.create"]
+  expect(projectCommunityEventForContract(event, BUSINESS_SCHEMA_VERSION)).toEqual(event)
+  expect(projectCommunityEventForContract(event, BUSINESS_SCHEMA_VERSION - 1)).toBeNull()
+  expect(projectCommunityEventForContract(event, BUSINESS_SCHEMA_VERSION, BUSINESS_SCHEMA_VERSION - 1)).toBeNull()
+  expect(projectCommunityEventForContract({ ...event, message: { ...event.message, avatarVersion: 4 } } as never, BUSINESS_SCHEMA_VERSION)).toBeNull()
 })

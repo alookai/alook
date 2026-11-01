@@ -21,6 +21,7 @@ vi.mock("@/components/community/onboarding-tiles/agent-help-gallery", () => ({
   AgentHelpGallery: host("help"),
 }))
 vi.mock("@/components/community/billing/billing-sheet", () => ({ BillingSheet: host("billing") }))
+vi.mock("./bot-memberships-sheet", () => ({ BotMembershipsSheet: host("memberships") }))
 vi.mock("./bot-activity-modal", () => ({ BotActivityModal: host("activity") }))
 vi.mock("./bug-report-dialog", () => ({ BugReportDialog: host("bug") }))
 vi.mock("./create-bot-sheet", () => ({ CreateBotSheet: host("create") }))
@@ -112,18 +113,19 @@ describe("renderBotListOverlaySlots", () => {
       "create",
       "help",
       "edit",
+      "memberships",
       "activity",
       "bug",
       "deleteDialog",
       "resetDialog",
       "resetMachineDialog",
     ])
-    for (const slot of Object.values(slots)) {
+    for (const slot of Object.values(slots).filter((slot) => slot !== null)) {
       expect(React.isValidElement(slot)).toBe(true)
       expect(Array.isArray(slot)).toBe(false)
       if (React.isValidElement(slot)) expect(slot.type).not.toBe(React.Fragment)
     }
-    expect(Object.values(slots).slice(0, 6).map((slot) =>
+    expect(Object.values(slots).filter((slot) => slot !== null).slice(0, 6).map((slot) =>
       (slot!.type as React.ComponentType).displayName)).toEqual([
       "Host(billing)",
       "Host(create)",
@@ -256,7 +258,7 @@ describe("renderBotListOverlaySlots", () => {
     expect(renders[1]!.container.querySelector("alert-description")?.textContent)
       .toBe("Its running process will stop and it'll start a fresh session that picks up unfinished work from its notes.")
     expect(renders[1]!.container.querySelector("alert-title")?.textContent)
-      .toBe("Reset this bot's session?")
+      .toBe("Restart this bot?")
     expect(renders[2]!.container.querySelector("alert-description")?.textContent)
       .toBe("Every agent on this machine will start a fresh session. Any that aren't currently running will be woken too.")
   })
@@ -268,7 +270,7 @@ describe("renderBotListOverlaySlots", () => {
     const second = render(withMachine.resetMachineDialog)
     const title = (renderer: typeof first) =>
       renderer.container.querySelector("alert-title")?.textContent
-    expect(title(first)).toBe("Reset all agents on this machine?")
-    expect(title(second)).toBe("Reset all agents on My Mac?")
+    expect(title(first)).toBe("Restart all agents on this machine?")
+    expect(title(second)).toBe("Restart all agents on My Mac?")
   })
 })

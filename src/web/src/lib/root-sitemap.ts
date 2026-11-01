@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import type { BlogDiscoveryManifestV1 } from "@/lib/blog-discovery-manifest";
+import { stepGuides } from "./step-guides";
 import { TEMPLATES } from "@/lib/templates";
 
 const SITE_URL = "https://alook.ai";
@@ -36,6 +37,8 @@ export function buildRootSitemap(manifest: BlogDiscoveryManifestV1 | null): Meta
 			}]
 			: []),
 		...(manifest ? [{ url: `${SITE_URL}/guides`, changeFrequency: "weekly" as const, priority: 0.6 }] : []),
+		...(manifest ? [{ url: `${SITE_URL}/tutorials`, changeFrequency: "weekly" as const, priority: 0.6 }] : []),
+		...(manifest ? stepGuides.map((guide) => ({ url: `${SITE_URL}/tutorials/${guide.slug}`, changeFrequency: "monthly" as const, priority: 0.6 })) : []),
 		...blogEntries,
 		{ url: `${SITE_URL}/contact`, changeFrequency: "monthly", priority: 0.5 },
 		{ url: `${SITE_URL}/privacy`, changeFrequency: "yearly", priority: 0.3 },

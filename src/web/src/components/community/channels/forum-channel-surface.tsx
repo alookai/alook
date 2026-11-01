@@ -16,6 +16,7 @@ import type { NewForumThread } from "@/components/community/messages/create-foru
 import type { ComposerProps } from "@/components/community/messages/composer"
 import { ForumSurface } from "@/components/community/channels/forum-surface"
 import type { Member } from "@/lib/community/models/people"
+import type { MessageHeaderTitleState } from "./message-header"
 import {
   useCreateForumThread,
   useDeleteForumThread,
@@ -26,6 +27,7 @@ export function ForumChannelSurface({
   serverId,
   channelId,
   channelName,
+  channelTitleState = "ready",
   viewer,
   viewerRole,
   onNavigateParent,
@@ -44,6 +46,7 @@ export function ForumChannelSurface({
   serverId: string
   channelId: string
   channelName: string
+  channelTitleState?: MessageHeaderTitleState
   viewer: { id: string }
   viewerRole: Role | undefined
   onNavigateParent?: () => void
@@ -105,6 +108,7 @@ export function ForumChannelSurface({
       header={(
         <ChannelHeader
           channel={channelName}
+          titleState={channelTitleState}
           kind="forum"
           rightPanel={rightPanel}
           onToggle={togglePanel}
@@ -125,7 +129,7 @@ export function ForumChannelSurface({
             mentionCandidates={composerMentionCandidates}
             onOpenPost={onOpenPost}
             onCreatePost={createForumThread}
-            canEditPostTags={(post) => canManage || post.authorId === viewer.id}
+            canEditPostTags={(post) => post.authorId === viewer.id ? true : viewerRole === undefined ? undefined : canManage}
             savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.threadId ?? null : null}
             onEditPostTags={async (post, tags) => {
               const assertActive = source.capture()
@@ -142,7 +146,7 @@ export function ForumChannelSurface({
                 { onError: (error) => toastApiError(error, "Failed to update tags", assertActive) },
               )
             }}
-            canDeletePost={(post) => canManage || post.authorId === viewer.id}
+            canDeletePost={(post) => post.authorId === viewer.id ? true : viewerRole === undefined ? undefined : canManage}
             deletingPost={deleteForumThreadMut.isPending ? deleteForumThreadMut.variables?.threadId ?? null : null}
             onDeletePost={(post) => {
               const assertActive = source.capture()

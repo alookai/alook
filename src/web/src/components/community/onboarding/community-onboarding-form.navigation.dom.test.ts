@@ -52,13 +52,19 @@ vi.mock("./initialize-community-onboarding", () => ({
   initializeCommunityOnboarding: (...args: unknown[]) => mocks.initialize(...args),
 }))
 vi.mock("./onboarding-machine-dialog", () => ({
-  OnboardingMachineDialog: ({ onChooseAnotherHarness, onConnected }: {
+  OnboardingMachineDialog: ({ onChooseAnotherHarness, onConnected, onExit }: {
+    onExit?: () => void
     onChooseAnotherHarness: () => void
     onConnected: (id: string) => void
   }) => createElement("div", {}, createElement("button", {
     "data-testid": "recover-harness",
     onClick: onChooseAnotherHarness,
-  }), createElement("button", { onClick: () => onConnected("machine-1") }, "Machine connected")),
+  }), createElement("button", { onClick: () => onConnected("machine-1") }, "Machine connected"), createElement("button", { onClick: onExit }, "Exit manual")),
+}))
+vi.mock("./onboarding-agent-dialog", () => ({
+  OnboardingAgentDialog: ({ onExit }: { onExit: () => void }) => createElement("div", {},
+    createElement("p", {}, "Agent Setup"),
+    createElement("button", { onClick: onExit }, "Exit agent")),
 }))
 vi.mock("./onboarding-select-dialog", () => ({
   OnboardingSelectDialog: ({ value, onValueChange, onSubmit }: {
@@ -111,6 +117,34 @@ describe("CommunityOnboardingForm room navigation", () => {
         { key: "doer", id: "bot-2", name: "June" },
       ],
     })
+  })
+
+  it("defaults to Agent Setup and supports Manual and exit without creating a team", async () => {
+    mocks.state = { status: "active", stage: "harness" }
+    render(createElement(CommunityOnboardingForm))
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }))
+    expect(screen.getByText("Agent Setup")).toBeInTheDocument()
+    expect(mocks.initialize).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "Manual" }))
+    expect(screen.getByRole("button", { name: "Machine connected" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Exit manual" }))
+    expect(owner.runtime.ui.get().onboardingState).toBeNull()
+    expect(mocks.initialize).not.toHaveBeenCalled()
+  })
+
+  it.each(["machine", "model", "identity"])("keeps outer mode controls available from manual %s", (stage) => {
+    mocks.state = { status: "active", stage, harness: "opencode", setupMode: "manual", machineId: "machine-1" }
+    render(createElement(CommunityOnboardingForm))
+    const agent = screen.getByTestId("onboarding-mode-agent")
+    expect(agent).toBeEnabled()
+    fireEvent.click(agent)
+    expect(screen.getByText("Agent Setup")).toBeInTheDocument()
+    expect(screen.getByTestId("onboarding-mode-agent")).toBe(agent)
+    fireEvent.click(screen.getByTestId("onboarding-mode-manual"))
+    expect(screen.getByRole("button", { name: "Machine connected" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Exit setup" }))
+    expect(owner.runtime.ui.get().onboardingState).toBeNull()
+    expect(mocks.initialize).not.toHaveBeenCalled()
   })
 
   it("completes only after the shell commits the public-channel pathname", async () => {

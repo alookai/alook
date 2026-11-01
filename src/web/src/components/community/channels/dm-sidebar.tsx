@@ -3,7 +3,7 @@
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { dmHref } from "@/lib/community/community-route"
 import { memo } from "react"
-import { Users, Ban, Monitor, Bot } from "lucide-react"
+import { Users, Ban, Monitor, Bot, Shield } from "lucide-react"
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -13,8 +13,8 @@ import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { compactRequestCount } from "@/lib/community/friend-requests"
 
 export const DmSidebar = memo(function DmSidebar({
-  dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots,
-  friendsActive, machinesActive, botsActive,
+  dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots, onShowPrivacy,
+  friendsActive, machinesActive, botsActive, privacyActive,
   friendRequestCount = 0,
   loadError,
 }: {
@@ -27,72 +27,91 @@ export const DmSidebar = memo(function DmSidebar({
   onShowFriends: () => void
   onShowMachines?: () => void
   onShowBots?: () => void
+  onShowPrivacy?: () => void
   friendsActive?: boolean
   friendRequestCount?: number
   machinesActive?: boolean
   botsActive?: boolean
+  privacyActive?: boolean
 }) {
-  const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive)
+  const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive && !privacyActive)
   const requestCount = compactRequestCount(friendRequestCount)
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div data-slot="dm-sidebar-shortcuts" className="shrink-0 px-2 pt-4">
-        <CommunityNavigationLink
-          aria-label={requestCount ? `Friends, ${friendRequestCount} new requests` : "Friends"}
-          href="/c/me/friends"
-          prefetchMode="visible"
-          active={isFriendsActive}
-          onActivate={onShowFriends}
-          className={[
-            "mb-1 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-            isFriendsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-          ].join(" ")}
-        >
-          <Users className="size-5 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">Friends</span>
-          {requestCount && (
-            <span
-              data-testid={tid.friendsShortcutBadge}
-              className="ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground"
+        <div className="flex flex-col gap-1">
+          <CommunityNavigationLink
+            aria-label={requestCount ? `Friends, ${friendRequestCount} new requests` : "Friends"}
+            href="/c/me/friends"
+            prefetchMode="visible"
+            active={isFriendsActive}
+            onActivate={onShowFriends}
+            className={[
+              "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              isFriendsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+            ].join(" ")}
+          >
+            <Users className="size-5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Friends</span>
+            {requestCount && (
+              <span
+                data-testid={tid.friendsShortcutBadge}
+                className="ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground"
+              >
+                {requestCount}
+              </span>
+            )}
+          </CommunityNavigationLink>
+          {onShowMachines && (
+            <CommunityNavigationLink
+              data-testid={tid.machineGuideIntroSource}
+              href="/c/me/machines"
+              prefetchMode="visible"
+              active={machinesActive}
+              onActivate={onShowMachines}
+              className={[
+                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                machinesActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+              ].join(" ")}
             >
-              {requestCount}
-            </span>
+              <Monitor className="size-5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Machines</span>
+            </CommunityNavigationLink>
           )}
-        </CommunityNavigationLink>
-        {onShowMachines && (
-          <CommunityNavigationLink
-            data-testid={tid.machineGuideIntroSource}
-            href="/c/me/machines"
-            prefetchMode="visible"
-            active={machinesActive}
-            onActivate={onShowMachines}
-            className={[
-              "mb-1 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-              machinesActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-            ].join(" ")}
-          >
-            <Monitor className="size-5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">Machines</span>
-          </CommunityNavigationLink>
-        )}
-        {onShowBots && (
-          <CommunityNavigationLink
-            href="/c/me/bots"
-            prefetchMode="visible"
-            active={botsActive}
-            onActivate={onShowBots}
-            className={[
-              "mb-2 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-              botsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-            ].join(" ")}
-          >
-            <Bot className="size-5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">My Bots</span>
-          </CommunityNavigationLink>
-        )}
+          {onShowBots && (
+            <CommunityNavigationLink
+              href="/c/me/bots"
+              prefetchMode="visible"
+              active={botsActive}
+              onActivate={onShowBots}
+              className={[
+                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                botsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+              ].join(" ")}
+            >
+              <Bot className="size-5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">My Bots</span>
+            </CommunityNavigationLink>
+          )}
+          {onShowPrivacy && (
+            <CommunityNavigationLink
+              href="/c/me/privacy"
+              prefetchMode="visible"
+              active={privacyActive}
+              onActivate={onShowPrivacy}
+              className={[
+                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                privacyActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+              ].join(" ")}
+            >
+              <Shield className="size-5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Privacy</span>
+            </CommunityNavigationLink>
+          )}
+        </div>
         <div className="my-2 h-px bg-border" />
       </div>
-      <div data-slot="dm-sidebar-list" className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 pb-4">
+      <div data-slot="dm-sidebar-list" className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar px-2 pb-4">
         <div className="mb-2 truncate px-2 text-xs font-semibold text-muted-foreground">
           Direct Messages
         </div>
@@ -147,9 +166,12 @@ export function DmSidebarSkeleton() {
       className="flex min-h-0 min-w-0 flex-1 flex-col"
     >
       <div className="shrink-0 px-2 pt-4">
-        <Skeleton className="mb-1 h-9 w-full rounded-md" />
-        <Skeleton className="mb-1 h-9 w-full rounded-md" />
-        <Skeleton className="mb-2 h-9 w-full rounded-md" />
+        <div className="flex flex-col gap-1">
+          <Skeleton className="h-9 w-full rounded-md" />
+          <Skeleton className="h-9 w-full rounded-md" />
+          <Skeleton className="h-9 w-full rounded-md" />
+          <Skeleton className="h-9 w-full rounded-md" />
+        </div>
         <div className="my-2 h-px bg-border" />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 pb-4">

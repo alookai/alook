@@ -68,7 +68,7 @@ export default {
    * `alook-queue-worker` — Cloudflare Queue consumer for `alook-queue`
    * (minimal-wake-queue-unread-notice plan §3). Owns a `DB` binding to the
    * same `alook-app` database `src/web` writes to: for every minimal
-   * accepted legacy or v1 `bot-wake` queue item, `dispatchOneUnreadWake`
+   * accepted v1 `bot-wake` queue item, `dispatchOneUnreadWake`
    * re-reads CURRENT D1 state and only then forwards a freshly built
    * `agent:wake` `HostCommand`. This is what keeps a stale queue item from
    * waking an old machine, an already-caught-up bot, or a bot that lost
@@ -108,8 +108,7 @@ export default {
    * so `src/web`'s
    * `queue-transport.ts` calls this route (via the `QUEUE_WORKER` service
    * binding, `NODE_ENV === "development"` only) instead of
-   * `TASK_QUEUE.sendBatch(...)`. Body is a JSON array of accepted legacy or
-   * v1 queue tasks. Runs the same handler as `queue()`, including current-D1
+   * `TASK_QUEUE.sendBatch(...)`. Body is a JSON array of current v1 queue tasks. Runs the same handler as `queue()`, including current-D1
    * revalidation and, for bot wakes, the real forward to `alook-ws-do`.
    * There is no durable queue behind this dev path:
    * candidates get bounded in-process retries and exhausted stable keys are

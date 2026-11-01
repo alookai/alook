@@ -1,6 +1,6 @@
 "use client"
 
-import { isTauri, type CommunityFunnelAnalyticsEvent } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION, isTauri, type CommunityFunnelAnalyticsEvent } from "@alook/shared"
 import { readAnalyticsConsent } from "@/lib/analytics-consent"
 import { captureProductAnalytics } from "@/lib/product-analytics"
 import type { CommunityRuntime } from "@/stores/community/runtime"
@@ -70,10 +70,11 @@ function publishCommunityFunnelEvent(event: CommunityFunnelAnalyticsEvent) {
 async function drainOnce() {
   const response = await fetch("/api/community/analytics/funnel-events", {
     method: "POST",
+    headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
     cache: "no-store",
     credentials: "same-origin",
   })
-  if (!response.ok) return
+  if (!response.ok || response.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION)) return
   const payload: unknown = await response.json()
   for (const event of decodeCommunityFunnelEvents(payload)) {
     publishCommunityFunnelEvent(event)
@@ -136,12 +137,13 @@ export function drainInvitedHumanJoined(lifecycle: Lifecycle): Promise<void> {
       assertCurrent()
       const response = await fetch("/api/community/analytics/funnel-events?event=invited_human_joined", {
         method: "POST",
+    headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
         cache: "no-store",
         credentials: "same-origin",
         signal: controller.signal,
       })
       assertCurrent()
-      if (!response.ok) return
+      if (!response.ok || response.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION)) return
       const payload: unknown = await response.json()
       assertCurrent()
       for (const event of decodeCommunityFunnelEvents(payload)) {

@@ -1,8 +1,9 @@
+import { forumSidebarEnvelopeFixture, channelResourceFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
 import { canonicalRegistry, capturedOnMessage, capturedQueryClient, cleanupCommunityWsHarness, getCommunityApiFetchMock, hasCanonicalChannelNotify,
   mountCanonicalHook, mountHook, resetCommunityWsHarness, seedCanonicalForumSidebar } from "./test-harness"
 import { act } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { deriveCommunityDeliveryOperationId, encodeCommunityBrowserEventBatchForContract, prepareCommunityDeliveryEvents, type CommunityWsEvent } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, communityBrowserEventBatchType, deriveCommunityDeliveryOperationId, encodeCommunityBrowserEventBatchForContract, prepareCommunityDeliveryEvents, type CommunityWsEvent } from "@alook/shared"
 import { captureCommunityLiveSnapshotToken, getCanonicalCommunityChannels, getCanonicalCommunityMessages, publishCommunityChannelMetadata } from "@/lib/community-db/sync"
 import { useForumSidebarThreads, type SidebarThreadEnvelope } from "../use-forum-sidebar-threads"
 import { communityKeys } from "@/lib/query-keys"
@@ -11,19 +12,15 @@ beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 const serverId = "live-server"
 function envelope(ids: string[]): SidebarThreadEnvelope {
-  const now = new Date().toISOString()
-  return { serverNow: now, channels: ids.map(id => ({ id, name: id, serverId, type: "thread", creatorId: "u_me", archived: false,
-    parentChannelId: "forum_1", parentMessageId: `opener-${id}`, lastMessageAt: now, activityAt: now,
-    expiresAt: new Date(Date.parse(now) + 72 * 60 * 60 * 1000).toISOString(), unread: false })),
-    included: { parentMessages: ids.map(id => ({ id: `opener-${id}`, channelId: "forum_1", type: "chat", content: `Title ${id}`, seq: 1 })) } }
+  return forumSidebarEnvelopeFixture(serverId, ids, "u_me")
 }
 
 async function frame(events: CommunityWsEvent[], id: string) {
   const prepared = await prepareCommunityDeliveryEvents(events)
   if (!prepared.ok) throw new Error("invalid live window fixture")
-  const encoded = await encodeCommunityBrowserEventBatchForContract({ operationId: await deriveCommunityDeliveryOperationId(id), prepared: prepared.prepared, contract: 2 })
+  const encoded = await encodeCommunityBrowserEventBatchForContract({ operationId: await deriveCommunityDeliveryOperationId(id), prepared: prepared.prepared, contract: BUSINESS_SCHEMA_VERSION })
   if (!encoded.ok) throw new Error("invalid live window wire")
-  expect(encoded.batch.type).toBe("community:events.batch.v2")
+  expect(encoded.batch.type).toBe(communityBrowserEventBatchType())
   return encoded.batch
 }
 
@@ -50,16 +47,16 @@ describe("live forum window participation convergence", () => {
     const sidebar = await mountCanonicalHook(() => useForumSidebarThreads(serverId, null))
     await expect.poll(() => sidebar.result.current.error?.message ?? sidebar.result.current.sidebar.status).toBe("ready")
     expect(reads).toBe(1)
-    act(() => { publishCommunityChannelMetadata(capturedQueryClient, { metadata: {
+    act(() => { publishCommunityChannelMetadata(capturedQueryClient, { metadata: channelResourceFixture({
       id: "post_live", serverId, name: "New live post", type: "thread", parentChannelId: "forum_1", parentMessageId: "opener-post_live",
       creatorId: "u_me", archived: false, lastMessageAt: new Date().toISOString(),
-    }, proof: { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined } }) })
+    }), proof: { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined } }) })
     expect(hasCanonicalChannelNotify("post_live", "u_me")).toBe(false)
     const now = new Date().toISOString()
-    const message: CommunityWsEvent = { type: "community:message.create", serverId, channelId: "post_live", parentChannelId: "forum_1",
-      message: { id: "live-reply", type: "chat", authorId: "u_me", authorName: "Me", authorAvatarVersion: 0, content: "First reply", seq: 1, createdAt: now } }
+    const message: CommunityWsEvent = { profiles: [{ id: "u_me", name: "Me", discriminator: "0042", avatar: null, avatarVersion: 0 }], type: "community:message.create", serverId, channelId: "post_live", parentChannelId: "forum_1",
+      message: messageResourceFixture({ id: "live-reply", channelId: "post_live", type: "chat", authorId: "u_me", authorName: "Me", authorAvatarVersion: 0, content: "First reply", seq: 1, createdAt: now }) }
     const create: CommunityWsEvent = { type: "community:channel.child_create", parentChannelId: "forum_1", parentMessageId: "opener-post_live",
-      channel: { id: "post_live", name: "New live post", type: "thread", creatorId: "u_me", createdAt: now } }
+      channel: channelResourceFixture({ id: "post_live", serverId, parentChannelId: "forum_1", parentMessageId: "opener-post_live", name: "New live post", type: "thread", creatorId: "u_me", createdAt: now }) }
     const activity: CommunityWsEvent = { type: "community:channel.child_update", parentChannelId: "forum_1", channelId: "post_live", changes: { lastMessageAt: now, messageCount: 1 } }
     const membership: CommunityWsEvent = { type: "community:channel.membership.change", relation: "notify", present: true,
       serverId, channelId: "post_live", userId: "u_me" }

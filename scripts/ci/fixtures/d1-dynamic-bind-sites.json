@@ -174,18 +174,6 @@
     "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:30"
   },
   {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:31"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:32"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:33"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:34"
-  },
-  {
     "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:4"
   },
   {
@@ -208,6 +196,27 @@
   },
   {
     "key": "src/shared/src/db/queries/agent.ts:getExistingHandles:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/automation.ts:createAccessCode:values:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/automation.ts:createAccessCode:values:2"
+  },
+  {
+    "key": "src/shared/src/db/queries/automation.ts:friendScope:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/automation.ts:friendScope:inArray:2"
+  },
+  {
+    "key": "src/shared/src/db/queries/automation.ts:getAccessCode:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/automation.ts:updateAccessCode:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/automation.ts:updateAccessCode:values:1"
   },
   {
     "key": "src/shared/src/db/queries/community/agent-inbox.ts:getInboxSnapshotForAgent:inArray:1"
@@ -321,10 +330,16 @@
     "key": "src/shared/src/db/queries/community/channel.ts:getServerRootChannelsByIds:inArray:1"
   },
   {
+    "key": "src/shared/src/db/queries/community/channel.ts:listChannelMembershipsForUserInChannels:inArray:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/channel.ts:listChildChannelsByParentMessageIds:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/channel.ts:listReadableChannelsForUser:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/channel.ts:listReadableMessageChannelsForUser:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/channel.ts:listServerChannelDirectoryForAdmin:inArray:1"
@@ -520,6 +535,9 @@
   },
   {
     "key": "src/shared/src/db/queries/community/thread.ts:removeParticipantFromChildChannels:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/user-profile.ts:getProfilesByUserIds:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/conversation.ts:getConversationsByIds:inArray:1"

@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -93,7 +94,7 @@ function botReq(target: string | null, headers: Record<string, string> = {}): Ne
   const q = target !== null ? `?target=${encodeURIComponent(target)}` : ""
   return new NextRequest(`http://localhost/api/community/channels/resolve/attachments${q}`, {
     method: "POST",
-    headers,
+    headers: { ...(new Headers(headers).has("Authorization") ? {} : { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }), ...headers },
   })
 }
 const botCtx = { params: { id: "resolve" } } as any
@@ -304,7 +305,7 @@ describe("POST /api/community/channels/[id]/attachments — human arm (re-homes 
       },
     })
 
-    const req = new NextRequest("http://localhost/api/community/channels/c1/attachments", { method: "POST" })
+    const req = new NextRequest("http://localhost/api/community/channels/c1/attachments", { method: "POST", headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
     const res = await POST(req, { params: { id: "c1" } } as any)
     expect(res).toBe(helperResponse)
     expect(mockRunAttachmentUpload).toHaveBeenCalledOnce()

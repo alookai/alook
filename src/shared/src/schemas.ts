@@ -180,21 +180,6 @@ export const PollResponseSchema = z.object({
 export type PollResponse = z.infer<typeof PollResponseSchema>;
 
 // ---------------------------------------------------------------------------
-// Daemon push messages (server -> daemon WebSocket)
-// ---------------------------------------------------------------------------
-
-export const DaemonPushMessageSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("daemon.tasks"), tasks: z.array(TaskApiSchema) }),
-  z.object({ type: z.literal("daemon.file_requests"), workspaceId: z.string(), requests: z.array(FileRequestItemSchema) }),
-  z.object({ type: z.literal("daemon.meetings"), meetings: z.array(PollMeetingItemSchema) }),
-  z.object({ type: z.literal("daemon.evict"), workspaceId: z.string() }),
-  z.object({ type: z.literal("daemon.update"), version: z.string() }),
-  z.object({ type: z.literal("daemon.rescan") }),
-  z.object({ type: z.literal("daemon.kill"), workspaceId: z.string(), agentId: z.string().min(1), taskId: z.string(), targetTaskId: z.string() }),
-]);
-export type DaemonPushMessageType = z.infer<typeof DaemonPushMessageSchema>;
-
-// ---------------------------------------------------------------------------
 // Register response
 // ---------------------------------------------------------------------------
 
@@ -560,15 +545,6 @@ export const CreateMessageRequestSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export type CreateMessageRequest = z.infer<typeof CreateMessageRequestSchema>;
-
-// Agent-authored DM: the agent's own `role:"assistant"` reply, posted via the
-// machine-token daemon route (`alook sync send-dm`). Unlike CreateMessageRequest
-// (a user send) this does NOT enqueue a task — it only delivers the message.
-export const AgentDmRequestSchema = z.object({
-  content: z.string().min(1, "content is required"),
-  task_id: z.string().min(1).optional(),
-});
-export type AgentDmRequest = z.infer<typeof AgentDmRequestSchema>;
 
 // ---------------------------------------------------------------------------
 // Email request schemas

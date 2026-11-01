@@ -238,12 +238,12 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
               <span
                 data-testid={tid.userBarRunningBotsGlow}
                 aria-hidden
-                className="user-bar-running-bots-glow pointer-events-none absolute -inset-1 rounded-full opacity-40 blur-[5px] [background:conic-gradient(from_30deg,var(--link),var(--running-bots-primary),var(--link))]"
+                className="user-bar-running-bots-glow pointer-events-none absolute -inset-1 rounded-full opacity-40 blur-[5px] [background:conic-gradient(from_30deg,var(--running-bots-accent),var(--running-bots-primary),var(--running-bots-accent))]"
               />
               <span
                 data-testid={tid.userBarRunningBotsRing}
                 aria-hidden
-                className="pointer-events-none absolute -inset-px rounded-full [background:conic-gradient(from_30deg,var(--link),var(--running-bots-primary),var(--link))]"
+                className="pointer-events-none absolute -inset-px rounded-full [background:conic-gradient(from_30deg,var(--running-bots-accent),var(--running-bots-primary),var(--running-bots-accent))]"
               />
             </>
           )}

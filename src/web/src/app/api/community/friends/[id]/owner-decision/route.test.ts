@@ -21,10 +21,10 @@ vi.mock("@/lib/broadcast", () => ({
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: {}, userId: "owner_bob", email: "b@t.com", user: { isBot: false }, params })
-  }),
+  humanAuthPolicy: { resolve: async (req: any) => {
+
+    return ({ context: { env: {}, userId: "owner_bob", email: "b@t.com", user: { isBot: false } } })
+  } },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

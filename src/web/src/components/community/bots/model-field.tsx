@@ -21,6 +21,7 @@ import {
   SelectSeparator,
 } from "@/components/ui/select"
 import { BotSelectMenuContent, BotSelectMenuItem } from "./bot-select-menu"
+import { cn } from "@/lib/utils"
 import { runtimeLabel } from "@/lib/community/runtime-label"
 
 /**
@@ -39,12 +40,14 @@ export function ModelField({
   disabled,
   error,
   discovery,
+  menu,
 }: {
   runtime: Pick<CommunityMachineRuntime, "id" | "reasoning"> | null
   value: string | null
   onChange: (v: string | null) => void
   disabled?: boolean
   error?: string
+  menu?: { open: boolean; container: HTMLElement | null }
   discovery?: {
     isPending: boolean
     error: string | null
@@ -107,6 +110,8 @@ export function ModelField({
     <div className="flex flex-col gap-2">
       <Label className="text-xs text-muted-foreground">{required ? "Model (required)" : "Model"}</Label>
       <Select
+        open={menu ? menu.open && Boolean(menu.container) : undefined}
+        modal={menu ? false : undefined}
         items={items}
         value={required && selectValue === MODEL_SELECT_DEFAULT ? null : selectValue}
         onValueChange={(next: string | null, details) => {
@@ -141,8 +146,10 @@ export function ModelField({
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <BotSelectMenuContent
+          portalContainer={menu?.container}
+          finalFocus={menu ? false : undefined}
           alignItemWithTrigger={false}
-          className="flex flex-col overflow-y-hidden *:[[role=listbox]]:flex *:[[role=listbox]]:min-h-0 *:[[role=listbox]]:flex-col"
+          className={cn("flex flex-col overflow-y-hidden *:[[role=listbox]]:flex *:[[role=listbox]]:min-h-0 *:[[role=listbox]]:flex-col", menu && "max-h-none")}
         >
           {discovery?.isPending && (
             <p role="status" className="flex shrink-0 items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
@@ -169,7 +176,7 @@ export function ModelField({
               <div data-testid="bot-model-fixed-controls" className="shrink-0 bg-popover">
                 <div className="p-1.5">
                   <Input
-                    autoFocus
+                    autoFocus={!menu}
                     data-testid="bot-model-filter-input"
                     value={filterQuery}
                     placeholder="Filter models…"

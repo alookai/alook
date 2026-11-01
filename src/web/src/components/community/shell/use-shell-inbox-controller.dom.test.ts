@@ -1,3 +1,4 @@
+import { attentionSnapshotScenarioFixture } from "@/test/community-resource-fixtures"
 import "fake-indexeddb/auto"
 import { createElement } from "react"
 import { type QueryClient, useQueryClient, useIsRestoring } from "@tanstack/react-query"
@@ -5,7 +6,7 @@ import { act, waitFor, renderHook, render as rtlRender } from "@/test/react-dom-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryProvider } from "@/app/c/QueryProvider"
 import { communityKeys } from "@/lib/query-keys"
-import { getCanonicalCommunityChannels, retireCommunityChannelReading } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishAccountAttentionSnapshot, getCanonicalCommunityChannels, retireCommunityChannelReading } from "@/lib/community-db/sync"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { channelMetadataOptions, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
@@ -380,8 +381,15 @@ describe("useShellInboxController", () => {
   })
 
 
-  it("upserts a DM after projection/cancel and starts the common entry at push", async () => {
+  it("uses the complete Attention DM resource and starts the common entry at push", async () => {
     const hook = await renderController()
+    order.length = 0
+    await act(async () => { publishAccountAttentionSnapshot(hook.queryClient, {
+      snapshot: attentionSnapshotScenarioFixture({ scopes: [], items: [], limit: 50, truncated: false, included: { servers: [], channels: [], messages: [],
+        dms: [{ id: "dm1", userId: "u2", name: "Peer", discriminator: "2222", avatar: "P", avatarVersion: 0, lastMessageAt: unreadDm.lastMessageAt, lastUnreadSeq: 1 }],
+        profiles: [{ userId: "u2", name: "Peer", discriminator: "2222", avatar: "P", avatarVersion: 0 }] } }),
+      proof: { token: captureCommunityLiveSnapshotToken(hook.queryClient) },
+    }) })
     order.length = 0
     await act(async () => hook.current.popoverProps.onOpenDm?.(unreadDm))
     expect(order).toEqual([

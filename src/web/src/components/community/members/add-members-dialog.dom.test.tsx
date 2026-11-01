@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, CommunityMembersReadSchema } from "@alook/shared"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen, waitFor, within } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
@@ -55,6 +56,11 @@ async function fixture() {
   const roster = new Map<string, Set<string>>([
     ["thread", new Set(["viewer"])], ["other", new Set(["viewer"])],
   ])
+  const memberRead = (channelId: string, relation: "access" | "notify", rows: ChannelMember[]) => CommunityMembersReadSchema.parse({
+    contractVersion: BUSINESS_SCHEMA_VERSION, channelId, relation,
+    members: rows.map(row => ({ channelId, userId: row.userId, relation, source: relation === "notify" ? row.userId === "viewer" ? "spoke" : "added" : row.source, isCreator: row.isCreator, role: row.role, memberId: row.id })),
+    profiles: rows.map(row => ({ id: row.userId, name: row.name, discriminator: row.discriminator, avatar: null, avatarVersion: row.avatarVersion, statusEmoji: row.statusEmoji, statusText: row.statusText })),
+  })
   const requests: Array<{ channelId: string; userId: string; signal: AbortSignal }> = []
   let nextGate = deferred()
   mocks.apiFetch.mockImplementation((url: string, options?: RequestInit) => {
@@ -62,7 +68,7 @@ async function fixture() {
       return Promise.resolve({ members: parentMembers, hasMore: false, limit: 50, total: 3 })
     }
     if (url === "/api/community/channels/parent/members?relation=access") {
-      return Promise.resolve({ members: parentMembers })
+      return Promise.resolve(memberRead("parent", "access", parentMembers))
     }
     const match = /^\/api\/community\/channels\/(thread|other)\/(members|participants)(?:\?relation=(?:access|notify))?$/.exec(url)
     if (!match) throw new Error(`Unexpected request: ${url}`)
@@ -76,9 +82,7 @@ async function fixture() {
         return { success: true }
       })
     }
-    return Promise.resolve({ members: parentMembers
-      .filter((member) => roster.get(channelId)!.has(member.userId))
-      .map((member) => ({ ...member, source: member.userId === "viewer" ? "spoke" : "added" })) })
+    return Promise.resolve(memberRead(channelId, "notify", parentMembers.filter(member => roster.get(channelId)!.has(member.userId))))
   })
   const element = (channelId = "thread") => <CommunityTestProvider client={owner.client} registry={owner.registry}>
     <Harness key={channelId} channelId={channelId} />

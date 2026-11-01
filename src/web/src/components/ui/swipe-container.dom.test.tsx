@@ -198,6 +198,62 @@ describe("shared Drawer interaction", () => {
     } finally { restore(); root.remove() }
   })
 
+  it("limits navigation-row admission to the owning page and preserves outer control ownership", () => {
+    const root = document.createElement("div"), row = document.createElement("div"), target = document.createElement("span")
+    row.setAttribute("role", "button")
+    row.appendChild(target); root.appendChild(row); document.body.appendChild(root)
+    const start = { target, root, x: 40, y: 100, enabled: true, pointerType: "touch", kind: "page" as const }
+    const outer = document.createElement("button")
+    try {
+      expect(canStartSwipe(start)).toBe(false)
+      row.setAttribute("data-page-swipe-navigation-row", "")
+      expect(canStartSwipe(start)).toBe(true)
+      expect(canStartSwipe({ ...start, kind: "overlay" })).toBe(false)
+      expect(canStartSwipe({ ...start, root: document.createElement("div") })).toBe(false)
+      document.body.appendChild(outer); outer.appendChild(root)
+      expect(canStartSwipe(start)).toBe(false)
+    } finally { root.remove(); outer.remove() }
+  })
+
+  it.each([
+    '<button><span>Action</span></button>', '<a href="/post"><span>Link</span></a>',
+    '<input aria-label="Edit">', '<div contenteditable="true"><span>Edit</span></div>',
+    '<div draggable="true"><span>Drag</span></div>', '<div data-swipe-ignore><span>Own gesture</span></div>',
+  ])("keeps nested owners inside an opted-in navigation row (%s)", html => {
+    const root = document.createElement("div"), row = document.createElement("div")
+    row.setAttribute("role", "link"); row.setAttribute("data-page-swipe-navigation-row", "")
+    row.innerHTML = html; root.appendChild(row); document.body.appendChild(root)
+    const target = row.querySelector("span") ?? row.firstElementChild!
+    try {
+      expect(canStartSwipe({ target, root, x: 40, y: 100, enabled: true, pointerType: "touch", kind: "page" })).toBe(false)
+    } finally { root.remove() }
+  })
+
+  it("does not use navigation semantics to bypass explicit or horizontal axis owners", () => {
+    const root = document.createElement("div"), row = document.createElement("div"), target = document.createElement("span")
+    row.setAttribute("role", "button"); row.setAttribute("data-page-swipe-navigation-row", "")
+    row.appendChild(target); root.appendChild(row); document.body.appendChild(root)
+    const restore = mockElementGeometry(row, { clientWidth: 100, scrollWidth: 300 })
+    const start = { target, root, x: 40, y: 100, enabled: true, pointerType: "touch", kind: "page" as const }
+    try {
+      row.setAttribute("data-swipe-ignore", "")
+      expect(canStartSwipe(start)).toBe(false)
+      row.removeAttribute("data-swipe-ignore")
+      for (const axis of ["", "x", "y"]) {
+        row.setAttribute("data-base-ui-swipe-ignore", axis)
+        expect(canStartSwipe(start)).toBe(false)
+      }
+      row.removeAttribute("data-base-ui-swipe-ignore")
+      row.style.overflowX = "auto"
+      expect(canStartSwipe(start)).toBe(false)
+      row.style.overflowX = "visible"
+      row.style.overflowY = "auto"
+      expect(canStartSwipe(start)).toBe(true)
+      expect(canStartSwipe({ ...start, x: 120 })).toBe(false)
+      expect(canStartSwipe({ ...start, touches: 2 })).toBe(false)
+    } finally { restore(); root.remove() }
+  })
+
   it("does not fabricate native measurements when the Android bridge is unavailable or invalid", () => {
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Android WebView")
     const root = document.createElement("div"), target = document.createElement("span")

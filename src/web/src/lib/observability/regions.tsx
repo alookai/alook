@@ -2,7 +2,7 @@
 
 import { createContext, useContext, type ReactNode, Suspense, useEffect, useEffectEvent, useRef, useSyncExternalStore } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
-import { commitNavigation, committedNavigationPathname, currentRoute, navigationForHref, finishAction, actionAttributes, startRegionObservation, finishRegionObservation, type Action, type PageOperation } from "./context"
+import { commitNavigation, committedNavigationPathname, currentRoute, navigationForHref, finishAction, actionAttributes, startRegionObservation, updateRegionObservation, finishRegionObservation, type Action, type PageOperation } from "./context"
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration, subscribeObservation, observationSnapshot } from "./telemetry"
 import type { Attributes } from "./schema"
 
@@ -17,7 +17,7 @@ export type ResourceObservation = { snapshot_source?: "rsc" | "network" | "resto
 export function useObservedRegion(region: Attributes["region"], ready: boolean, count?: number, evidence?: ResourceObservation) {
   const visible = useContext(visibility)
   const captureEvidence = useEffectEvent(() => evidence)
-  const snapshotSource = evidence?.snapshot_source, targetCoverage = evidence?.target_coverage
+  const snapshotSource = evidence?.snapshot_source, targetCoverage = evidence?.target_coverage, waitReason = evidence?.wait_reason
   useSyncExternalStore(subscribeObservation, observationSnapshot, () => 0)
   const href = typeof window === "undefined" ? "/" : window.location.pathname + window.location.search
   const pathname = committedNavigationPathname(), route = currentRoute(), navigation = navigationForHref(href), generation = telemetryGeneration(), eligible = isTelemetryEligible()
@@ -32,6 +32,11 @@ export function useObservedRegion(region: Attributes["region"], ready: boolean, 
       }
     }
   }, [visible, eligible, generation, navigation, region])
+  useEffect(() => {
+    const current = waiting.current
+    if (!visible || !eligible || !current || current.action !== navigation || current.region !== region || generation !== telemetryGeneration()) return
+    updateRegionObservation(current.span, { snapshot_source: snapshotSource, target_coverage: targetCoverage, wait_reason: ready ? "none" : waitReason })
+  }, [visible, eligible, generation, navigation, region, snapshotSource, targetCoverage, waitReason, ready])
   useEffect(() => {
     if (!ready || !visible || !eligible || generation !== telemetryGeneration() || href !== window.location.pathname + window.location.search) return
     if (pathname !== undefined && pathname !== window.location.pathname) return

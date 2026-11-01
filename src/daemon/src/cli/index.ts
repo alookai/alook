@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { registerPlatformCommands } from "./platform.js";
+import { registerUseCommands } from "./use.js";
 /**
  * `alook` — the agent-facing CLI.
  *
@@ -16,6 +17,7 @@ import { registerPlatformCommands } from "./platform.js";
  * the sole result channel.
  */
 import { Command, CommanderError } from "commander";
+import { registerPiiCommands } from "./pii.js";
 import { realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
@@ -390,10 +392,11 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
   // SUCCESS — the message is in the channel; surface its canonical ref exactly
   // like a fresh send, never as an error.
   const sent = `${res.message.channel}${res.message.seq}`;
+  const pii = res.pii?.triggeredFilters.length ? { pii: res.pii } : {};
   const seqText = res.message.seq.replace(/^#/, "");
   const sentSeq = Number(seqText);
   if (!/^\d+$/.test(seqText) || !Number.isSafeInteger(sentSeq) || sentSeq < 1) {
-    return { sent, reminder: { armed: false, reason: "server returned an invalid canonical message seq" } };
+    return { sent, ...pii, reminder: { armed: false, reason: "server returned an invalid canonical message seq" } };
   }
   try {
     const reminder = await armMessageReminderFromEnv({
@@ -401,11 +404,11 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
       sentSeq,
       remindAfterMs,
     });
-    return { sent, reminder };
+    return { sent, ...pii, reminder };
   } catch {
     // The send is already committed. Never turn a local arming problem into a
     // command error that invites the agent to re-run and duplicate the send.
-    return { sent, reminder: { armed: false, reason: "local reminder request failed" } };
+    return { sent, ...pii, reminder: { armed: false, reason: "local reminder request failed" } };
   }
 }
 
@@ -812,7 +815,9 @@ function buildProgram(stdin: CliInputStream): Command {
     .option("--agent <id>", "agent identity (or ALOOK_AGENT_ID env)");
 
   registerPlatformCommands(program, getApi, printEnvelope);
+  registerUseCommands(program, printEnvelope);
 
+  registerPiiCommands(program, printEnvelope);
   const message = program.command("message").description("message operations").exitOverride();
   message.configureOutput({ writeOut: () => {}, writeErr: () => {} });
 

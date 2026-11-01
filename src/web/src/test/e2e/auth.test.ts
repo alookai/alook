@@ -1,3 +1,4 @@
+import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
 import { afterAll, describe, expect, it } from "vitest"
 import { randomUUID } from "crypto"
 import { signUp, signIn, sessionRequest, sqlRun } from "@alook/test-utils"
@@ -29,7 +30,7 @@ describe("auth", () => {
   })
 
   it("GET /api/community/users/me/profile without auth returns 401", async () => {
-    const res = await fetch(`${APP_URL}/api/community/users/me/profile`)
+    const res = await fetch(`${APP_URL}/api/community/users/me/profile`, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_CONTRACT_VERSION) } })
     expect(res.status).toBe(401)
   })
 

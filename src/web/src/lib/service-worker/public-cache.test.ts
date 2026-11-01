@@ -68,7 +68,7 @@ describe("public service worker cache boundary", () => {
     ["/landing/people/priya.webp", "image/webp"],
     ["/landing/people/sam.webp", "image/webp"],
     ["/fonts/jgs5/jgs5.ttf", "font/ttf"],
-    ["/social/readme-card-58c75311e5ba.png", "image/png"],
+    ["/social/readme-card-7470c72ef1c3.png", "image/png"],
     ["/manifest.json", "application/manifest+json"],
     ["/manifest.json", "application/json"],
     ["/favicon.ico", "image/x-icon"],

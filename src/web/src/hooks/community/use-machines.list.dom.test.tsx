@@ -1,3 +1,4 @@
+import { machineResourceFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
@@ -22,7 +23,7 @@ describe("machine list primary readiness", () => {
   it("keeps a complete machine update instead of replacing it with an automatic old list read", async () => {
     const { client } = await createCommunityQueryOwner()
     const original = { id: "m1", hostname: "host", displayName: "Host", platform: "darwin", arch: "arm64", osRelease: "24", daemonVersion: "0.1.7", lastSeenAt: null, status: "online" as const, availableRuntimes: [], createdAt: "created", updatedAt: "updated" }
-    load.mockImplementation((url: string) => Promise.resolve(url.endsWith("view=list") ? { machines: [original] } : { quotas: [] }))
+    load.mockImplementation((url: string) => Promise.resolve(url.endsWith("view=list") ? { machines: [original], complete: true } : { quotas: [] }))
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client }, children)
     const hook = renderHook(() => useMachines(), { wrapper })
     await waitFor(() => expect(hook.result.current.machines[0]?.daemonVersion).toBe("0.1.7"))
@@ -36,16 +37,16 @@ describe("machine list primary readiness", () => {
   it.each([false, true])("keeps restored capacity unknown until the live list arrives (empty=%s)", async (empty) => {
     const { client } = await createCommunityQueryOwner()
     const primary = deferred<MachinesResponse>()
-    const machine = { id: "m1", hostname: "host" }
+    const machine = machineResourceFixture()
     const machineCapacity = { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 1, onlineCount: 1 }
-    client.setQueryData(communityKeys.machines(), { machines: empty ? [] : [machine], observed: false, source: "restored_idb" })
+    client.setQueryData(communityKeys.machines(), { machines: empty ? [] : [machine], complete: true, observed: false, source: "restored_idb" })
     load.mockImplementation((url: string) => url.endsWith("view=list") ? primary.promise : Promise.resolve({ quotas: [], machineCapacity }))
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client }, children)
     const hook = renderHook(() => useMachines(), { wrapper })
     await waitFor(() => expect(client.getQueryData([...communityKeys.machines(), "observations"])).toMatchObject({ machineCapacity }))
     expect(hook.result.current.isLoading).toBe(false)
     expect(hook.result.current.data?.machineCapacity).toBeUndefined()
-    await act(async () => primary.resolve({ machines: [{ ...machine, status: "online" }] } as MachinesResponse))
+    await act(async () => primary.resolve({ machines: [{ ...machine, status: "online" }], complete: true }))
     await waitFor(() => expect(hook.result.current.data?.machineCapacity).toMatchObject({ onlineCount: 1, ownedCount: 1 }))
     hook.unmount()
   })
@@ -53,7 +54,7 @@ describe("machine list primary readiness", () => {
   it("renders the actual list while optional observations wait or fail, and never recreates a removed machine", async () => {
     const { client } = await createCommunityQueryOwner()
     const optional = deferred<{ quotas: Array<{ machineId: string; quota: [] }> }>()
-    load.mockImplementation((url: string) => url.endsWith("view=list") ? Promise.resolve({ machines: [{ id: "m1", hostname: "host", status: "online" }] }) : optional.promise)
+    load.mockImplementation((url: string) => url.endsWith("view=list") ? Promise.resolve({ machines: [machineResourceFixture()], complete: true }) : optional.promise)
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client }, children)
     const hook = renderHook(() => useMachines(), { wrapper })
     await waitFor(() => expect(hook.result.current.machines.map(row => row.id)).toEqual(["m1"]))
@@ -61,7 +62,7 @@ describe("machine list primary readiness", () => {
     expect(hook.result.current.data?.machineCapacity).toBeUndefined()
     expect(hook.result.current.capacityPending).toBe(true)
     expect(client.getQueryData(communityKeys.machines())).not.toHaveProperty("quotas")
-    await act(async () => { await publishMachines(client, captureMachinesPublication(client), current => ({ ...current, machines: [] })) })
+    await act(async () => { await publishMachines(client, captureMachinesPublication(client), current => current ? ({ ...current, machines: [] }) : undefined) })
     await act(async () => optional.resolve({ quotas: [{ machineId: "m1", quota: [] }] }))
     await waitFor(() => expect(hook.result.current.machines).toEqual([]))
     expect(client.getQueryData(communityKeys.machines())).toMatchObject({ machines: [] })
@@ -70,7 +71,7 @@ describe("machine list primary readiness", () => {
 
   it("retains a confirmed empty list when only quota fails", async () => {
     const { client } = await createCommunityQueryOwner()
-    load.mockImplementation((url: string) => url.endsWith("view=list") ? Promise.resolve({ machines: [] }) : Promise.reject(new Error("quota unavailable")))
+    load.mockImplementation((url: string) => url.endsWith("view=list") ? Promise.resolve({ machines: [], complete: true }) : Promise.reject(new Error("quota unavailable")))
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client }, children)
     const hook = renderHook(() => useMachines(), { wrapper })
     await waitFor(() => expect(hook.result.current.isSuccess).toBe(true))
@@ -82,7 +83,7 @@ describe("machine list primary readiness", () => {
   it("merges observed quota only into its matching live row and preserves unmatched rows", async () => {
     const { client } = await createCommunityQueryOwner()
     const primary = deferred<MachinesResponse>()
-    const first = { id: "m1", hostname: "one", displayName: "One", platform: "darwin", arch: "arm64", osRelease: "24", daemonVersion: "0.1.53", status: "online" as const, createdAt: "created", updatedAt: "updated" }
+    const first = { lastSeenAt: null, availableRuntimes: [], id: "m1", hostname: "one", displayName: "One", platform: "darwin", arch: "arm64", osRelease: "24", daemonVersion: "0.1.53", status: "online" as const, createdAt: "created", updatedAt: "updated" }
     const second = { ...first, id: "m2", hostname: "two", status: "offline" as const }
     const quota: [] = []
     load.mockImplementation((url: string) => url.endsWith("view=list") ? primary.promise
@@ -92,7 +93,7 @@ describe("machine list primary readiness", () => {
     await waitFor(() => expect(client.getQueryData([...communityKeys.machines(), "observations"])).toMatchObject({ quotas: [{ machineId: "m1", quota }, { machineId: "removed", quota: [] }] }))
     expect(hook.result.current.machines).toEqual([])
     expect(hook.result.current.isPending).toBe(true)
-    await act(async () => primary.resolve({ machines: [first, second] }))
+    await act(async () => primary.resolve({ machines: [first, second], complete: true }))
     await waitFor(() => expect(hook.result.current.machines[0]).toHaveProperty("quota", quota))
     expect(hook.result.current.machines.map(row => row.id)).toEqual(["m1", "m2"])
     expect(hook.result.current.machines[1]).toEqual(second)

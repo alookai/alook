@@ -27,18 +27,22 @@ function manualClock() {
 }
 
 describe("DaemonSelfSleepScheduler", () => {
-  it("sleeps once after the exact default idle window", () => {
-    const { clock, timers } = manualClock();
+  it("sleeps once after exactly seven idle days", () => {
+    vi.useFakeTimers();
     const onSleep = vi.fn();
-    const scheduler = new DaemonSelfSleepScheduler({ clock, onSleep });
-
-    scheduler.start();
-
-    expect(timers).toHaveLength(1);
-    expect(timers[0]?.delayMs).toBe(DAEMON_SELF_SLEEP_TIMEOUT_MS);
-    timers[0]?.callback();
-    timers[0]?.callback();
-    expect(onSleep).toHaveBeenCalledOnce();
+    const scheduler = new DaemonSelfSleepScheduler({ onSleep });
+    try {
+      scheduler.start();
+      vi.advanceTimersByTime(7 * 24 * 60 * 60 * 1_000 - 1);
+      expect(onSleep).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(onSleep).toHaveBeenCalledOnce();
+      vi.advanceTimersByTime(7 * 24 * 60 * 60 * 1_000);
+      expect(onSleep).toHaveBeenCalledOnce();
+    } finally {
+      scheduler.stop();
+      vi.useRealTimers();
+    }
   });
 
   it("starts correctly after activity observations during initialization", () => {

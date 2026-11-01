@@ -1,4 +1,4 @@
-import { DEV_WEB_URL } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, DEV_WEB_URL } from "@alook/shared"
 import { fetchWithRetry } from "./fetch"
 
 const APP_URL = process.env.APP_URL ?? DEV_WEB_URL
@@ -40,13 +40,10 @@ export async function sessionRequest(
   cookie: string,
   opts: RequestInit = {},
 ): Promise<Response> {
-  return fetchWithRetry(`${APP_URL}${path}`, {
-    ...opts,
-    headers: {
-      ...(opts.headers ?? {}),
-      Cookie: cookie,
-    },
-  })
+  const headers = new Headers(opts.headers)
+  headers.set("Cookie", cookie)
+  if (path.startsWith("/api/community/") && !headers.has(COMMUNITY_CONTRACT_HEADER)) headers.set(COMMUNITY_CONTRACT_HEADER, String(COMMUNITY_CONTRACT_VERSION))
+  return fetchWithRetry(`${APP_URL}${path}`, { ...opts, headers })
 }
 
 export async function tokenRequest(

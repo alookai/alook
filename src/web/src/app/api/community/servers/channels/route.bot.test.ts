@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -46,7 +47,7 @@ import { GET } from "./route"
 function req(headers: Record<string, string> = {}): NextRequest {
   return new NextRequest("http://localhost/api/community/servers/channels", {
     method: "GET",
-    headers: { ...headers },
+    headers: { ...(new Headers(headers).has("Authorization") ? {} : { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }), ...headers },
   })
 }
 
@@ -79,7 +80,7 @@ describe("GET /api/community/servers/channels — bot arm (folds listChannels al
     )
     const res = await GET(req({ Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({
+    expect(await res.json()).toMatchObject({
       groups: [
         {
           category: null,
@@ -94,11 +95,18 @@ describe("GET /api/community/servers/channels — bot arm (folds listChannels al
     expect(mockListUserServers).toHaveBeenCalledTimes(1)
   })
 
+  it("includes server metadata even with no visible channels and blocks owner exit", async () => {
+    mockListUserServers.mockResolvedValue([{ id: "srv_1", name: "studio", discriminator: "0042", role: "owner", icon: null }])
+    mockListChannelsForMember.mockResolvedValue([])
+    const res = await GET(req({ Authorization: "Bearer crk_abc" }))
+    expect(await res.json()).toEqual({ groups: [], servers: [{ id: "srv_1", name: "studio", handle: "studio#0042", icon: null, canLeave: false }] })
+  })
+
   it("bot in zero servers → { groups: [] }", async () => {
     mockListUserServers.mockResolvedValue([])
     const res = await GET(req({ Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ groups: [] })
+    expect(await res.json()).toEqual({ groups: [], servers: [] })
     expect(mockListChannelsForMember).not.toHaveBeenCalled()
   })
 })

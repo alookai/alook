@@ -23,7 +23,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "./onboarding-surface"
 import {
   Field,
   FieldContent,
@@ -159,7 +159,6 @@ export function OnboardingSelectDialog({
       <DialogContent
         data-testid={testId}
         showCloseButton={dismissible}
-        overlayClassName="bg-black/20 supports-backdrop-filter:backdrop-blur-sm"
         className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 thin-scrollbar sm:max-w-xl"
         initialFocus={false}
         aria-busy={busy}
@@ -167,7 +166,7 @@ export function OnboardingSelectDialog({
         <form onSubmit={handleSubmit}>
           <DialogHeader className="gap-4 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 sm:pb-6">
             {step ? (
-              <div className="flex gap-1.5" aria-label={`Step ${step.current} of ${step.total}`}>
+              <div className="flex gap-1.5 pr-8" aria-label={`Step ${step.current} of ${step.total}`}>
                 {Array.from({ length: step.total }, (_, index) => (
                   <span
                     key={index}

@@ -9,7 +9,6 @@ import {
   emails,
   issueComment,
   machine,
-  machineToken,
   meetingSession,
   member,
   session,
@@ -126,8 +125,6 @@ export type AccountDeletionSnapshot = {
   }>
   ownedWorkspaceIds: string[]
   ownedAgentIds: string[]
-  legacyDaemons: Array<{ workspaceId: string; daemonId: string }>
-  machineTokens: string[]
   machineDoNames: string[]
   botBindings: Array<{ botId: string; machineId: string }>
   ownedServers: Array<{ id: string; icon: string | null; memberIds: string[] }>
@@ -224,8 +221,6 @@ export async function getAccountDeletionSnapshot(
     providers,
     ownedWorkspaceRows,
     ownedAgentRows,
-    legacyDaemons,
-    machineTokens,
     machineCredentials,
     botBindings,
     serverRows,
@@ -254,18 +249,6 @@ export async function getAccountDeletionSnapshot(
     }).from(account).where(inArray(account.userId, identitiesQuery)),
     ownedWorkspaceIdsQuery,
     ownedAgentRowsQuery,
-    db.select({ workspaceId: machine.workspaceId, daemonId: machine.daemonId })
-      .from(machine)
-      .where(or(
-        inArray(machine.workspaceId, ownedWorkspaceIdsQuery),
-        inArray(machine.ownerId, identitiesQuery),
-      )),
-    db.select({ token: machineToken.token })
-      .from(machineToken)
-      .where(or(
-        inArray(machineToken.userId, identitiesQuery),
-        inArray(machineToken.workspaceId, ownedWorkspaceIdsQuery),
-      )),
     db.select({ doName: communityMachineCredential.doName })
       .from(communityMachineCredential)
       .where(inArray(communityMachineCredential.userId, identitiesQuery)),
@@ -353,8 +336,6 @@ export async function getAccountDeletionSnapshot(
     providers,
     ownedWorkspaceIds: ownedWorkspaceRows.map((row) => row.id),
     ownedAgentIds: ownedAgentRows.map((row) => row.id),
-    legacyDaemons,
-    machineTokens: unique(machineTokens.map((row) => row.token)),
     machineDoNames: unique(machineCredentials.map((row) => row.doName)),
     botBindings,
     ownedServers: serverRows.map((row) => ({

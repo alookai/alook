@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server";
 import {
   DiagnosticReportCreateRequestSchema,
@@ -9,7 +10,7 @@ import {
   projectOwnerDiagnosticReport,
   type OwnerDiagnosticReportSource,
 } from "@/lib/community/diagnostic-report";
-import { withAuth } from "@/lib/middleware/auth";
+import { humanAuthPolicy } from "@/lib/middleware/auth";
 import { parseBody, writeError, writeJSON } from "@/lib/middleware/helpers";
 
 function reportEnvelope(
@@ -24,7 +25,7 @@ function reportEnvelope(
   }, status);
 }
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const [body, bodyError] = await parseBody(req, DiagnosticReportCreateRequestSchema);
   if (bodyError) return bodyError;
   const agentId = ctx.params?.id as string;

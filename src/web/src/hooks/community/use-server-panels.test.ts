@@ -1,3 +1,4 @@
+import { invitesReadFixture } from "@/test/community-resource-fixtures"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
@@ -13,8 +14,7 @@ beforeEach(() => {
 
 describe("useInvites / invitesQueryFn", () => {
   it("materialises raw invite rows into InviteRow shape", async () => {
-    apiFetchMock.mockResolvedValueOnce({
-      invites: [
+    apiFetchMock.mockResolvedValueOnce(invitesReadFixture("srv_1", [
         {
           id: "inv_1",
           token: "abcd",
@@ -23,10 +23,8 @@ describe("useInvites / invitesQueryFn", () => {
           expiresAt: null,
           createdAt: "2026-07-03T00:00:00.000Z",
           creatorId: "u_alice",
-          creatorName: "Alice",
         },
-      ],
-    })
+      ], [{ id: "u_alice", name: "Alice", discriminator: "0042", avatar: null, avatarVersion: 0 }]))
     const { invitesQueryFn } = await import("./use-server-panels")
     const { client: qc, registry } = await createCommunityQueryOwner()
     const data = await qc.query({ queryKey: communityKeys.invites("srv_1"), queryFn: invitesQueryFn("srv_1") })
@@ -42,7 +40,7 @@ describe("useInvites / invitesQueryFn", () => {
   })
 
   it("populates queryClient at communityKeys.invites(serverId)", async () => {
-    apiFetchMock.mockResolvedValueOnce({ invites: [] })
+    apiFetchMock.mockResolvedValueOnce(invitesReadFixture("srv_1"))
     const { invitesQueryFn } = await import("./use-server-panels")
     const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.invites("srv_1")

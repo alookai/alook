@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { flattenError } from "zod"
 import { NextResponse, type NextRequest } from "next/server"
 import { nanoid } from "nanoid"
@@ -9,7 +10,7 @@ import {
   CommunityAgentNapRequestSchema,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
+import { communityActorPolicy, requireBot } from "@/lib/middleware/community-actor"
 import { pushAgentNapToMachine } from "@/lib/community/bot-push"
 
 /**
@@ -38,7 +39,7 @@ import { pushAgentNapToMachine } from "@/lib/community/bot-push"
  * deleting it on the daemon being confirmed on this new target.
  *
  */
-export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
+export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const gate = requireBot(ctx.actor)
   if (!gate.ok) return gate.response
   const { userId: botUserId, machineId } = gate.bot
@@ -86,8 +87,6 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
       { status: 409 },
     )
   }
-
-
 
   return NextResponse.json({ napped: true })
 })

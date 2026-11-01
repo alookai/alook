@@ -1,4 +1,28 @@
-import { parseNameAndTag, parseRef } from "@alook/shared"
+import { DM_SERVER, formatRef, parseNameAndTag, parseRef } from "@alook/shared"
+
+export type ChannelRefTarget = {
+  server: { id: string; name: string }
+  channel: { id: string; name: string; parentChannelId: string | null }
+}
+
+export function parseChannelRefDestination(ref: string) {
+  try {
+    const parsed = parseRef(ref)
+    const handle = parseNameAndTag(parsed.server)
+    if (parsed.server === DM_SERVER || !handle) return null
+    const server = `${asciiNoCase(handle.name)}#${handle.discriminator}`
+    return {
+      ref: formatRef({ ...parsed, server, seq: undefined }),
+      server,
+      serverName: handle.name,
+      channel: parsed.channel,
+      threadRootSeq: parsed.threadRootSeq,
+      messageSeq: parsed.seq,
+    }
+  } catch {
+    return null
+  }
+}
 
 /**
  * Client-side "directory" of every channel-ref-resolvable server + channel —

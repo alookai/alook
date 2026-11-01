@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { expectInertBackground } from "./_fixtures/inert-background"
 import type { Locator, Page, Response } from "@playwright/test"
 import { AccountAttentionSnapshotSchema } from "@alook/shared"
@@ -216,7 +217,7 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
     fullPage: true,
   })
 
-  const seed = await page.request.get("/api/community/servers")
+  const seed = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/servers", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(seed.status()).toBe(200)
   const body = await seed.json() as { servers: Array<{ id: string; unread: boolean }> }
   expect(body.servers.find((server) => server.id === backgroundServer)?.unread).toBe(true)
@@ -249,7 +250,7 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
     }
   })
   const expectPrimaryCount = async (stage: string, count: number) => {
-    const response = await page.request.get("/api/community/users/me/attention")
+    const response = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/users/me/attention", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(response.status()).toBe(200)
     const raw: unknown = await response.json()
     expect(raw).not.toHaveProperty("stale", true)

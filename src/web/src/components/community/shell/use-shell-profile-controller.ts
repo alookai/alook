@@ -1,4 +1,6 @@
 "use client"
+
+import { CommunityUserSearchReadSchema, type CommunityUserSearchRead } from "@alook/shared"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { useCommunityRuntime } from "@/stores/community/runtime"
@@ -17,7 +19,6 @@ import { communityKeys } from "@/lib/query-keys"
 import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use-user-profile"
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { avatarInitial } from "@/lib/community/avatar"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type {
@@ -128,12 +129,10 @@ export function useShellProfileController({
     enabled: !!lookupHandle,
     retry: false,
     queryFn: async ({ signal, client }) => {
-      const data = await apiFetchProfiles<{
-        users: Array<{ id: string; name: string; discriminator: string; image: string | null; avatarVersion: number }>
-      }>(`/api/community/users/search?q=${encodeURIComponent(lookupHandle)}`, (response) => response.users.map((user) => ({
+      const data = await apiFetchProfiles<CommunityUserSearchRead>(`/api/community/users/search?q=${encodeURIComponent(lookupHandle)}`, (response) => CommunityUserSearchReadSchema.parse(response).users.map((user) => ({
         id: user.id,
         identityAbout: { name: user.name, discriminator: user.discriminator },
-        avatar: { avatar: user.image ?? avatarInitial(user.name), avatarVersion: user.avatarVersion },
+        avatar: { avatar: user.image, avatarVersion: user.avatarVersion },
       })), { signal }, getCommunityDbRegistry(client))
       return data.users.map((user) => user.id)
     },

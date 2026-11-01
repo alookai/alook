@@ -1,10 +1,11 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { BillingSummarySchema } from "@alook/shared"
-import { withCookieHumanAuth } from "@/lib/middleware/auth"
+import { cookieHumanAuthPolicy } from "@/lib/middleware/auth"
 import { getPrimaryDb } from "@/lib/db"
 import { billingClient, billingFailure, billingResponse } from "@/lib/billing/client"
 import { cancelScheduledChange } from "@/lib/billing/service"
 
-export const POST = withCookieHumanAuth(async (req, ctx) => {
+export const POST = withAuth(cookieHumanAuthPolicy, async (req, ctx) => {
   const text = await req.text()
   if (text.trim()) {
     try {

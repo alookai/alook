@@ -47,7 +47,7 @@ export function traceResponse(response: Response, request: Request, span?: Nativ
   if (response.status === 101 || response.status === 0) return response
   const upstream = responseTraceContext(request.headers.get("traceparent"))
   const server = nativeContext(span)
-  const sampling: Sampling = typeof span?.isTraced === "boolean" ? span.isTraced ? "selected" : "not_selected" : "unavailable"
+  const sampling: Sampling = "unavailable"
   const headers = new Headers(response.headers)
   const existing = metrics(headers.get("server-timing") ?? "").filter(metric => !owned.has(metric.split(";", 1)[0]?.trim() ?? ""))
   if (upstream) existing.push('alook_upstream;desc="' + upstream.traceId + "-" + upstream.spanId + '"')

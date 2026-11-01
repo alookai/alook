@@ -104,26 +104,18 @@ describe("human account read-state writer contract", () => {
     ])
   })
 
-  it("keeps the account unread ledger synchronous and I/O-free", () => {
-    const projection = source(
-      "src/web/src/hooks/community/account-unread-projection.ts",
-    )
-    expect(projection).not.toMatch(/\b(?:apiFetch|fetch|setTimeout|setInterval)\s*\(/)
-    expect(projection).not.toMatch(
-      /queryClient\.(?:setQueryData|invalidateQueries|fetchQuery|query|fetchInfiniteQuery|infiniteQuery|refetchQueries|cancelQueries)\s*\(/,
-    )
-  })
-
-  it("keeps optimistic unread clearing owned by the visible-row observer", () => {
+  it("keeps read and reservation projections in the existing native owners", () => {
     const webSourceRoot = resolve(repositoryRoot, "src/web/src")
     const owners = walkTypeScript(webSourceRoot)
       .filter((path) => !path.includes("/test/") && !path.endsWith(".test.ts"))
-      .filter((path) => /\.recordOptimisticRead\s*\(/.test(readFileSync(path, "utf8")))
+      .filter((path) => /\bclearAttentionScopeOptimistically\s*\(/.test(readFileSync(path, "utf8")))
       .map((path) => relative(repositoryRoot, path).replaceAll("\\", "/"))
       .sort()
 
     expect(owners).toEqual([
-      "src/web/src/hooks/community/use-read-observer.ts",
+      "src/web/src/hooks/community/inbox-read-reservation.ts",
+      "src/web/src/hooks/community/read-coordinator.ts",
+      "src/web/src/lib/community-db/sync.ts",
     ])
   })
 
@@ -150,8 +142,11 @@ describe("human account read-state writer contract", () => {
 
   it("makes every production message door state the author kind explicitly", () => {
     const route = source("src/web/src/app/api/community/channels/[id]/messages/route.ts")
-    expect(route.match(/authorKind: "human"/g)).toHaveLength(2)
-    expect(route.match(/authorKind: "bot"/g)).toHaveLength(2)
+    expect(route).toContain("return handleBotSend(db, ctx.actor.userId, ctx.env, raw)")
+    expect(route).toContain("return handleHumanSend(db, ctx.actor.userId, ctx.env, { id: pathId }, raw,")
+    const sender = source("src/web/src/lib/community/message-send.server.ts")
+    expect(sender.match(/authorKind: "human"/g)).toHaveLength(2)
+    expect(sender.match(/authorKind: "bot"/g)).toHaveLength(2)
 
     const friendship = source("src/shared/src/db/queries/community/friendship.ts")
     expect(friendship.match(/authorKind: "bot"/g)).toHaveLength(2)

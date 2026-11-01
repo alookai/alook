@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -57,14 +58,14 @@ import { isUniqueConstraintError } from "@alook/shared"
 // Bot-path coverage for the UNIFIED join route (folded from /agent/joinServer,
 // plan §9 phase 4/5). The token is a ROUTE PARAM now (`[token]`), not a body
 // field — the invite body carried it on the old flat /agent route; here it
-// rides `ctx.params.token`. A `crk_` bearer drives withCommunityActor's bot
+// rides `ctx.params.token`. A `crk_` bearer drives communityActorPolicy's bot
 // path (same resolveBotActor query mocks as before). The human path is covered
 // by the sibling route.test.ts.
 const TOKEN = "tok_abc"
 function req(token: string, headers: Record<string, string> = {}): NextRequest {
   return new NextRequest(`http://localhost/api/community/invites/${token}/join`, {
     method: "POST",
-    headers: { "content-type": "application/json", ...headers },
+    headers: { "content-type": "application/json", ...(new Headers(headers).has("Authorization") ? {} : { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }), ...headers },
   })
 }
 const params = (token: string) => ({ params: Promise.resolve({ token }) })

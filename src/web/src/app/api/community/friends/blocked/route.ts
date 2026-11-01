@@ -1,9 +1,9 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
+import { readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, readOrStale } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, CommunityBlockedFriendsReadSchema, type CommunityBlockedFriendsRead, queries, readOrStale } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
-import { avatarInitial } from "@/lib/community/avatar"
-import { canonicalUserImage } from "@/lib/community/storage"
+import { communityActorPolicy, rejectBot } from "@/lib/middleware/community-actor"
 
 /**
  * GET /api/community/friends/blocked — the blocked bucket (route/disc trunk,
@@ -16,24 +16,21 @@ import { canonicalUserImage } from "@/lib/community/storage"
  * `listFriends` verb never exposed blocked to bots; this keeps that invariant
  * while giving human a clean per-bucket read.
  */
-export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
-  const denied = rejectBot(ctx.actor)
-  if (denied) return denied
+export const GET = withAuth({
+  ...communityActorPolicy(),
+  authorize: (_req, ctx) => rejectBot(ctx.actor),
+}, async (_req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
-  type BlockedRow = Awaited<ReturnType<typeof queries.communityFriendship.listBlocked>>[number]
-  const { value, stale } = await readOrStale<{ rows: BlockedRow[] }>(
-    async () => ({ rows: await queries.communityFriendship.listBlocked(db, ctx.actor.userId) }),
-    { rows: [] },
+  const { value } = await readOrStale<CommunityBlockedFriendsRead>(
+    async () => {
+      const rows = await queries.communityFriendship.listBlocked(db, ctx.actor.userId)
+      const blocked = rows.map(row => ({ id: row.id, userId: row.blockedUserId }))
+      const resources = await readCommunityResourceBundle(db, ctx.actor.userId, { channelIds: [], profileIds: blocked.map(row => row.userId) })
+      return CommunityBlockedFriendsReadSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, blocked, resources })
+    },
+    CommunityBlockedFriendsReadSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, blocked: [], stale: true }),
     { route: "community/friends/blocked" },
   )
-  const blocked = value.rows.map((b) => ({
-    id: b.id,
-    userId: b.blockedUserId,
-    name: b.blockedName,
-    avatar: canonicalUserImage(b.blockedUserId, b.blockedImage, b.blockedAvatarVersion)
-      ?? avatarInitial(b.blockedName),
-    avatarVersion: b.blockedAvatarVersion,
-  }))
-  return NextResponse.json(stale ? { blocked, stale: true } : { blocked })
+  return NextResponse.json(value)
 })

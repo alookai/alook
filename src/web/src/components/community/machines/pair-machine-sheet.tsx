@@ -23,9 +23,7 @@ import { MachinePairMessageDiagram } from "./machine-pair-message-diagram"
 // client-only effect — safe to touch `location` in the local branch.
 export function buildPairCommand(machineKey: string, machineId?: string): string {
   const isLocal = isLocalServiceEnvironment()
-  const bin = isLocal
-    ? "pnpm daemon"
-    : "npx --yes @alook/daemon@latest daemon"
+  const bin = "npx --yes @alook/daemon@latest daemon"
   const action = machineId
     ? `reconnect --id ${machineId} --machine-key ${machineKey}`
     : `start --machine-key ${machineKey}`

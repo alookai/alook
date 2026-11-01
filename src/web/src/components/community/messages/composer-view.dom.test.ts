@@ -2,7 +2,7 @@ import { createElement, type ReactNode } from "react"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
 
 const mocks = vi.hoisted(() => ({
   mentionProps: vi.fn(),
@@ -85,6 +85,72 @@ function baseProps(
 }
 
 describe("ComposerView", () => {
+  it.each([false, true])("keeps the composer free of native keyboard controls and reservations (forum=%s)", async (isForumThreadBody) => {
+    const descriptor = Object.getOwnPropertyDescriptor(window, "webkit")
+    const tauriDescriptor = Object.getOwnPropertyDescriptor(window, "__TAURI__")
+    Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    let bottomInset = 0
+    const postMessage = vi.fn(async () => ({ bottomInset, viewportWidth: window.innerWidth }))
+    Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { alookKeyboard: { postMessage } } } })
+    try {
+      const props = baseProps({
+        isForumThreadBody,
+        showSend: true, sendDisabled: false, onCancelReply: vi.fn(), replyingTo: { authorName: "Alice", text: "Original reply" },
+        pendingFiles: [{ file: new File(["image"], "draft.png", { type: "image/png" }), thumbnailUrl: null, thumbnailBlob: null }],
+        editorContent: createElement("div", { contentEditable: true, suppressContentEditableWarning: true }, "Unsent draft"),
+      })
+      const view = render(createElement(ComposerView, props))
+      const input = view.getByTestId(tid.composerInput)
+      const editor = input.firstElementChild
+      const send = view.getByTestId(tid.composerSend)
+      const originalClass = input.className
+      for (const inset of [300, 0, 320]) {
+        bottomInset = inset
+        await act(async () => window.dispatchEvent(new Event("alook:keyboard-change")))
+        expect(view.queryByRole("button", { name: "Hide keyboard" })).toBeNull()
+        expect(input.className).toBe(originalClass)
+      }
+      expect(postMessage).not.toHaveBeenCalled()
+      expect(props.onSend).not.toHaveBeenCalled()
+      expect(props.onCancelReply).not.toHaveBeenCalled()
+      expect(props.removePendingFile).not.toHaveBeenCalled()
+      expect(view.getByTestId(tid.composerInput)).toBe(input)
+      expect(input.firstElementChild).toBe(editor)
+      expect(input.textContent).toBe("Unsent draft")
+      expect(view.getByText("draft.png")).toBeVisible()
+      expect(view.getByTestId(tid.composerSend)).toBe(send)
+      fireEvent.click(send)
+      expect(props.onSend).toHaveBeenCalledOnce()
+    } finally {
+      if (descriptor) Object.defineProperty(window, "webkit", descriptor)
+      else Reflect.deleteProperty(window, "webkit")
+      if (tauriDescriptor) Object.defineProperty(window, "__TAURI__", tauriDescriptor)
+      else Reflect.deleteProperty(window, "__TAURI__")
+    }
+  })
+  it("replaces only editor content for a preview and restores the native editor by default", () => {
+    const onSend = vi.fn()
+    const props = baseProps({ showSend: true, sendDisabled: false, onSend })
+    const view = render(createElement(ComposerView, props))
+    expect(view.container.querySelector("[data-editor-content]")).not.toBeNull()
+    const input = view.getByTestId(tid.composerInput)
+    const send = view.getByTestId(tid.composerSend)
+    view.rerender(createElement(ComposerView, {
+      ...props,
+      editorContent: createElement("p", { "data-preview-draft": "" }, "@Milo Review this plan"),
+    }))
+    expect(view.container.querySelector("[data-editor-content]")).toBeNull()
+    expect(view.getByTestId(tid.composerInput)).toBe(input)
+    expect(input.textContent).toBe("@Milo Review this plan")
+    expect(view.getByTestId(tid.composerSend)).toBe(send)
+    expect(view.getByTestId(tid.composerAttach)).not.toBeNull()
+    fireEvent.click(send)
+    expect(onSend).toHaveBeenCalledOnce()
+    view.rerender(createElement(ComposerView, props))
+    expect(view.container.querySelector("[data-preview-draft]")).toBeNull()
+    expect(input.querySelector("[data-editor-content]")).not.toBeNull()
+  })
+
   it.each([
     { name: "native iPhone", native: true, ua: "iPhone", compact: true },
     { name: "native Android", native: true, ua: "Android", compact: true },

@@ -1,10 +1,12 @@
 {
   "name": "@alook/shared",
-  "version": "0.1.59",
+  "version": "0.1.62",
+  "type": "module",
   "private": true,
   "exports": {
     ".": "./src/index.ts",
     "./crypto": "./src/utils/crypto.ts",
+    "./business-schema-version": "./src/business-schema-version.ts",
     "./browser": "./src/browser/index.ts",
     "./community-cli-contract": "./src/community-cli-contract.ts",
     "./constants/community": "./src/constants/community.ts",
@@ -25,7 +27,7 @@
     "zod": "^4.6"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261015.1",
+    "@cloudflare/workers-types": "^5.20261023.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.9.4",
     "better-sqlite3": "^12.11.1",

@@ -14,6 +14,7 @@
         "visible": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
+        "disableInputAccessoryView": true,
         "trafficLightPosition": {
           "x": 16,
           "y": 21

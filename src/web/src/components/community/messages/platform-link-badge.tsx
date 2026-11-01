@@ -1,6 +1,6 @@
 import type { ComponentPropsWithoutRef } from "react"
 import Image from "next/image"
-import { Link2, MonitorDot } from "lucide-react"
+import { Link2, Mail, MonitorDot } from "lucide-react"
 import {
   SiAnthropic,
   SiArxiv,
@@ -62,7 +62,7 @@ const ICONS = {
   wikipedia: SiWikipedia,
   zhihu: SiZhihu,
   xiaohongshu: SiXiaohongshu,
-} satisfies Record<Exclude<PlatformLinkKind, "alook" | "local" | "openai">, typeof SiGithub>
+} satisfies Record<Exclude<PlatformLinkKind, "alook" | "local" | "email" | "openai">, typeof SiGithub>
 
 type PlatformLinkBadgeProps = ComponentPropsWithoutRef<"a"> & {
   node?: unknown
@@ -105,6 +105,10 @@ export function PlatformLinkBadge({
           aria-hidden="true"
         />
       )
+    }
+
+    if (platform.kind === "email") {
+      return <Mail className="platform-link-badge-icon" aria-hidden="true" />
     }
 
     if (platform.kind === "local") {

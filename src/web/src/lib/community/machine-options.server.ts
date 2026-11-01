@@ -6,10 +6,17 @@ export async function readPlatformMachines(db: Database, ownerId: string, reques
   return { machines: machines.map((machine) => ({ id: machine.id, name: machine.displayName, status: machine.status, daemonVersion: machine.daemonVersion })), requesterMachineId }
 }
 
-export function projectModelOptions(machineId: string, runtime: Pick<CommunityMachineRuntime, "id" | "reasoning">, model?: string | null) {
+export function projectMachineBackends(runtimes: CommunityMachineRuntime[], options: { includeCatalogMetadata?: boolean } = {}) {
+  return runtimes.map((runtime) => ({
+    id: runtime.id, version: runtime.version, health: runtime.status, modelRequired: requiresExplicitModel(runtime.id),
+    ...(options.includeCatalogMetadata === false ? {} : { catalogState: runtime.reasoning ? "reported" : "not_reported", catalogOrigin: runtime.reasoning?.catalogOrigin ?? "unknown" }),
+  }))
+}
+
+export function projectModelOptions(machineId: string, runtime: Pick<CommunityMachineRuntime, "id" | "reasoning">, model?: string | null, options: { includeCatalogMetadata?: boolean } = {}) {
   const catalog: RuntimeReasoningCatalog | undefined = runtime.reasoning
   const base = { machineId, backendId: runtime.id, source: "stored_report", readAt: new Date().toISOString(), observedAt: null,
-    catalogOrigin: catalog?.catalogOrigin ?? "unknown", catalogState: catalog ? "reported" : "not_reported", modelRequired: requiresExplicitModel(runtime.id) }
+    ...(options.includeCatalogMetadata === false ? {} : { catalogOrigin: catalog?.catalogOrigin ?? "unknown", catalogState: catalog ? "reported" : "not_reported" }), modelRequired: requiresExplicitModel(runtime.id) }
   const present = (entry: NonNullable<RuntimeReasoningCatalog["models"]>[number]) => ({ id: entry.id, ...(entry.displayName ? { displayName: entry.displayName } : {}), reasoningEfforts: entry.supportedReasoningEfforts, defaultReasoningEffort: entry.defaultReasoningEffort ?? null })
   if (model != null) {
     const entry = catalog?.models.find((entry) => entry.id === model)

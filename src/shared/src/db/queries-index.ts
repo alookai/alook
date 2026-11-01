@@ -1,4 +1,5 @@
 import * as nativeOauthQueries from "./queries/native-oauth";
+export * as automation from "./queries/automation";
 
 export * as user from "./queries/user";
 export * as member from "./queries/member";
@@ -8,7 +9,6 @@ export * as conversation from "./queries/conversation";
 export * as message from "./queries/message";
 export * as task from "./queries/task";
 export * as machine from "./queries/machine";
-export * as machineToken from "./queries/machine-token";
 export * as whitelist from "./queries/whitelist";
 export * as email from "./queries/email";
 export * as session from "./queries/session";

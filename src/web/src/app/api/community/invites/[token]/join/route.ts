@@ -1,15 +1,16 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, ROLES, WS_EVENTS, isUniqueConstraintError } from "@alook/shared"
 import type { CommunityMemberJoin } from "@alook/shared"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { fanOutToServerMembers, broadcastToUserSafe } from "@/lib/community/fanout"
 import { canonicalUserImage } from "@/lib/community/storage"
 
 /**
  * POST /api/community/invites/[token]/join — the unified join route (plan §4
- * FOLD, §9 phase 4). Serves both a human (session/al_) and a bot (crk_) via
- * `withCommunityActor`; the old /agent/joinServer folds in here (batch1
+ * FOLD, §9 phase 4). Serves both a human (session) and a bot (crk_) via
+ * `communityActorPolicy`; the old /agent/joinServer folds in here (batch1
  * cab6c3e7 did the same fold). Two things branch on `actor.kind`:
  *   1. owner-gate — a bot may only consume an invite created by ITS OWN owner
  *      (checked BEFORE useInvite, so a foreign/dead-creator invite is never
@@ -22,7 +23,7 @@ import { canonicalUserImage } from "@/lib/community/storage"
  * ({id,name}). `invite.createdBy === null` (creator account gone) is the
  * generic "invalid/expired" case, distinct from an owner mismatch.
  */
-export const POST = withCommunityActor(async (_req, ctx) => {
+export const POST = withAuth(communityActorPolicy(), async (_req, ctx) => {
   const token = ctx.params?.token
   if (!token) return writeError("invite token is required", 400)
 
@@ -62,20 +63,19 @@ export const POST = withCommunityActor(async (_req, ctx) => {
     return writeError("Invalid or expired invite", 400)
   }
 
-
   const memberEvent: CommunityMemberJoin = {
     type: WS_EVENTS.MEMBER_JOIN,
     serverId: result.invite.serverId,
     member: {
       id: result.member.id,
       userId: result.member.userId,
-      name: result.member.userName ?? "",
-      discriminator: result.member.discriminator ?? undefined,
+      name: result.member.userName,
+      discriminator: result.member.discriminator,
       avatar: canonicalUserImage(
         result.member.userId,
         result.member.userImage,
         result.member.userAvatarVersion,
-      ) ?? undefined,
+      ),
       avatarVersion: result.member.userAvatarVersion,
       role: result.member.role ?? ROLES.MEMBER,
       joinedAt: result.member.joinedAt,

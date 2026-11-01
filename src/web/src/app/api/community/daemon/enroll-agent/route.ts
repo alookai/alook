@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { flattenError } from "zod"
 import { NextResponse } from "next/server"
 import {
@@ -7,7 +8,7 @@ import {
   withD1Retry,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
+import { machineAuthPolicy } from "@/lib/middleware/community-daemon-auth"
 
 /**
  * POST /api/community/daemon/enroll-agent
@@ -19,7 +20,7 @@ import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
  * directly — they only reach canonical `/api/community/*` REST doors through
  * that proxy.
  */
-export const POST = withCommunityDaemonAuth(async (req, ctx) => {
+export const POST = withAuth(machineAuthPolicy, async (req, ctx) => {
   let raw: unknown
   try {
     raw = await req.json()

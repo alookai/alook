@@ -8,10 +8,11 @@ import {
   MessagesSquare, UserPlus, SmilePlus, Reply,
   MoreHorizontal, X, Share, Check,
 } from "lucide-react"
-import { ContextMenu, ContextMenuTrigger, ContextMenuContent } from "@/components/ui/context-menu"
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, isSecondaryContextPointer } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
+import { selectHtmlPreviews } from "@/lib/community/html-preview-markdown"
 import { MessageAuthorLine } from "./message-author-line"
 import {
   copyMessageExternalLink,
@@ -105,14 +106,19 @@ export function shouldSuppressTouchMenuOpen({
 }
 
 type RowSelection = Pick<Selection, "isCollapsed" | "anchorNode" | "focusNode">
+  & Partial<Pick<Selection, "rangeCount" | "getRangeAt">>
 
 export function selectionBelongsToRow(
   selection: RowSelection | null,
   row: Pick<HTMLElement, "contains">,
 ): boolean {
   if (!selection || selection.isCollapsed) return false
-  return (!!selection.anchorNode && row.contains(selection.anchorNode))
-    || (!!selection.focusNode && row.contains(selection.focusNode))
+  if ((!!selection.anchorNode && row.contains(selection.anchorNode))
+    || (!!selection.focusNode && row.contains(selection.focusNode))) return true
+  for (let index = 0; index < (selection.rangeCount ?? 0); index += 1) {
+    if (selection.getRangeAt?.(index).intersectsNode(row as Node)) return true
+  }
+  return false
 }
 
 export function createMessageMenuPointAnchor(clientX: number, clientY: number) {
@@ -171,7 +177,7 @@ export function messageLinkClickUsesMenu({
 
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
-  onToggleReaction, onReact, onReply, onMentionAuthor, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss,
+  onToggleReaction, onReact, onReply, onMentionAuthor, onPin, onMark, onCreateThread, onCopy, onRetry, onDismiss,
   onPreviewImage, onPreviewAttachment, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
   viewerUserId, hoverCapable = true,
@@ -192,8 +198,7 @@ function MessageImpl({
   // below), so a channel never pre-loads mark state for every row.
   onMark?: () => void
   onCreateThread?: () => void
-  onCopy?: () => void
-  onEdit?: () => void
+  onCopy?: (selectedText?: string) => void
   onRetry?: () => void
   onDismiss?: () => void
   onPreviewImage?: (image: ImagePreview) => void
@@ -234,12 +239,15 @@ function MessageImpl({
     ? (replyAuthorProfile?.name ?? "Deleted user")
     : (m.replyTo?.authorName ?? "Deleted user")
   const visibleContent = m.content ?? ""
+  const htmlPreviews = selectHtmlPreviews(m.approval || m.botCreation ? "" : visibleContent, m.attachments)
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const pageSwipe = usePageSwipeStart()
   const [toolbarOpen, setToolbarOpen] = useAtom(useCreateAtom(false))
   // Right-click context-menu open state — tracked so the Mark/Unmark label's
   // lazy read fires for the context menu too, not just the ⋯ dropdown.
   const [contextOpen, setContextOpen] = useAtom(useCreateAtom(false))
+  const contextRowRef = useRef<HTMLDivElement | null>(null)
+  const [contextSelectedText, setContextSelectedText] = useAtom(useCreateAtom<string | null>(null))
   // Touch devices use a normal tap-triggered dropdown. Long-press is left to
   // the browser so message text keeps native selection/copy behavior.
   const [touchMenuOpen, setTouchMenuOpen] = useAtom(useCreateAtom(false))
@@ -291,7 +299,7 @@ function MessageImpl({
     onReply, onPin, pinned,
     onMark, marked: markedData?.marked ?? false,
     onCreateThread: m.thread ? undefined : onCreateThread,
-    onCopy, onEdit,
+    onCopy: onCopy ? () => onCopy() : undefined,
     // Share: enter multi-select (main list) if wired, else direct single-share
     // (context-sheet). Undefined only when the surface wired NEITHER.
     onShare: canShare ? (onEnterSelect ?? onShareSingle) : undefined,
@@ -311,6 +319,8 @@ function MessageImpl({
   const desktopMenuInputActive = menuInputModality === "desktop"
   const touchFallbackActive = menuInputModality === "touch"
     || (!desktopMenuInputActive && touchInputCapable)
+  const touchMenuActive = touchFallbackActive || touchMenuOpen
+  const contextMenuEnabled = activated && !selectMode && !touchMenuActive
   // A hybrid device can alternate between mouse and touch. Switching the menu
   // shell after a mouse gesture must not remove the row's touch swipe handler.
   const swipePointerEnabled = interactive && touchInputCapable && !selectMode && !m.botCreation
@@ -396,6 +406,9 @@ function MessageImpl({
     <div
       data-base-ui-swipe-ignore={pageSwipe.page ? "y" : ""}
       data-page-swipe-reply-row=""
+      ref={contextRowRef}
+      tabIndex={interactive && contextMenuEnabled ? -1 : undefined}
+      data-message-context-menu={interactive && contextMenuEnabled ? "true" : undefined}
       className={[
         "group relative -mx-2 -my-1 flex gap-2 rounded px-2 py-1 transition-colors",
         swipeReplyEnabled ? "z-10 touch-pan-y bg-background" : "",
@@ -410,6 +423,10 @@ function MessageImpl({
       onPointerDownCapture={interactive && !selectMode
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+            if (isSecondaryContextPointer(event.nativeEvent)
+              && selectionBelongsToRow(window.getSelection?.() ?? null, event.currentTarget)) {
+              event.preventDefault()
+            }
             keyboardLinkActivationRef.current = false
             const target = messageExternalLinkTargetFromEventTarget(event.target)
             const pointerType = messageLinkPointerType(event.nativeEvent)
@@ -605,13 +622,17 @@ function MessageImpl({
       onContextMenuCapture={interactive
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+            const selection = window.getSelection?.() ?? null
+            setContextSelectedText(selectionBelongsToRow(selection, event.currentTarget)
+              ? selection?.toString() || null
+              : null)
             setLinkTarget(messageExternalLinkTargetFromEventTarget(event.target))
           }
         : undefined}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-2">
       {interactive && activated && !selectMode && (
-        <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "-top-1" : "-top-2"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
+        <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "top-0 -translate-y-full" : "-top-2"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
           {m.seq != null && m.seq > 0 && (
             <span className="mr-0.5 select-none font-mono text-xs text-muted-foreground" aria-label={`Message ${m.seq}`}>
               <span className="opacity-60">#</span>{m.seq}
@@ -722,6 +743,7 @@ function MessageImpl({
               <MessageBody
                 key={m.id}
                 text={visibleContent}
+                attachments={m.attachments}
                 onOpenProfile={onOpenProfile}
                 perspective={
                   viewerUserId
@@ -735,6 +757,7 @@ function MessageImpl({
           {m.attachments && m.attachments.length > 0 && (
             <div className="flex flex-col gap-2">
               {m.attachments.map((a, i) => {
+                if (a.id && htmlPreviews.has(a.id)) return null
                 if (a.kind === "image") {
                   const frameStyle = attachmentImageFrameStyle(a.width, a.height)
                   return (
@@ -922,8 +945,6 @@ function MessageImpl({
 
   if (!interactive) return row
 
-  const touchMenuActive = touchFallbackActive || touchMenuOpen
-  const contextMenuEnabled = activated && !selectMode && !touchMenuActive
   return (
     <DropdownMenu
       open={touchMenuOpen && !selectMode}
@@ -949,7 +970,9 @@ function MessageImpl({
           open={contextOpen && contextMenuEnabled}
           onOpenChange={(open) => {
             setContextOpen(open && contextMenuEnabled)
-            if (!open) setLinkTarget(null)
+            if (!open) {
+              setLinkTarget(null)
+            }
           }}
         >
           <ContextMenuTrigger
@@ -958,8 +981,18 @@ function MessageImpl({
             render={row}
           />
           {activated && !touchMenuActive && (
-            <ContextMenuContent className="w-48">
-              <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
+            <ContextMenuContent className="w-48" finalFocus={contextSelectedText ? (closeType) => {
+              // Keep this policy through the exit animation. The next context
+              // gesture replaces the selection snapshot, including with null.
+              // Editor focus would collapse the selected message text.
+              if (closeType === "keyboard") contextRowRef.current?.focus({ preventScroll: true })
+              return false
+            } : undefined}>
+              <MessageContextItems
+                {...menuHandlers}
+                {...linkMenuHandlers}
+                onCopy={onCopy ? () => onCopy(contextSelectedText ?? undefined) : undefined}
+              />
             </ContextMenuContent>
           )}
         </ContextMenu>
@@ -1045,7 +1078,6 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.onMark === next.onMark &&
     prev.onCreateThread === next.onCreateThread &&
     prev.onCopy === next.onCopy &&
-    prev.onEdit === next.onEdit &&
     prev.onRetry === next.onRetry &&
     prev.onDismiss === next.onDismiss &&
     prev.onPreviewImage === next.onPreviewImage &&

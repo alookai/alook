@@ -1,3 +1,4 @@
+import { channelResourceFixture, messageResourceFixture, fullResourceBundleFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
 import { useLayoutEffect } from "react"
 import "fake-indexeddb/auto"
 import React from "react"
@@ -26,8 +27,12 @@ async function seed(qc: QueryClient) {
   const registry = getCommunityDbRegistry(qc)!
   await act(async () => { await registry.ready; await registry.preload() })
   act(() => {
-    projectCommunityWsEventToDb(qc, { type: "community:channel.create", serverId: "server", channel: { id: "forum", name: "Forum", type: "forum", categoryId: null, position: 0, createdAt: new Date().toISOString() } })
-    publishCommunityForumSidebar(qc, { serverId: "server", channels: [{ id: "child", name: "Original", parentChannelId: "forum", parentMessageId: "opener", activityAt: new Date().toISOString(), unread: false, type: "thread", serverId: "server", archived: false }], openers: [{ id: "opener", channelId: "forum", seq: 1, type: "chat", content: "Original opener" }], proof: { token: captureCommunityLiveSnapshotToken(qc), signal: undefined } })
+    projectCommunityWsEventToDb(qc, { type: "community:channel.create", serverId: "server", channel: { ...channelResourceFixture({ id: "forum", name: "Forum", type: "forum", serverId: "server" }), type: "forum" } })
+    const parent = channelResourceFixture({ id: "forum", type: "forum", serverId: "server" })
+    const child = channelResourceFixture({ id: "child", type: "thread", name: "Original", serverId: "server", parentChannelId: "forum", parentMessageId: "opener" })
+    const opener = messageResourceFixture({ id: "opener", channelId: "forum", content: "Original opener" })
+    publishCommunityForumSidebar(qc, { serverId: "server", resources: fullResourceBundleFixture(registry.accountId!, [serverResourceFixture({ id: "server" })], [parent, child], [opener]),
+      channels: [{ ...child, activityAt: new Date().toISOString(), unread: false, participating: true }], openers: [opener], proof: { token: captureCommunityLiveSnapshotToken(qc), signal: undefined } })
     const runtime = getCommunityRuntime(qc); runtime.ui.actions.setCurrentServerId("server"); runtime.ui.actions.setCurrentChannelId("child"); runtime.ui.actions.registerUiHandlers({ replacePath: navigate })
   })
   await waitFor(() => expect(screen.getByTestId("child").textContent).toBe("Original"))
@@ -56,7 +61,7 @@ async function mount() {
 const args = { serverId: "server", forumChannelId: "forum", threadId: "child", openerMessageId: "opener" }
 function command() { return remove.mutateAsync(args).catch((error) => error) }
 async function pending() { await waitFor(() => expect(api.mock.calls.some(([, options]) => options.method === "DELETE")).toBe(true)) }
-function wsDelete(qc: QueryClient) { const runtime = getCommunityRuntime(qc); dispatchCommunityWsEvent({ type: "community:channel.delete", serverId: "server", channelId: "child", parentChannelId: "forum", parentMessageId: "opener" }, { deliveryMode: "single", queryClient: qc, communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: sdk.id }, matchesFocus: () => false, scheduleInboxInvalidate: vi.fn() }) }
+function wsDelete(qc: QueryClient) { const runtime = getCommunityRuntime(qc); dispatchCommunityWsEvent({ type: "community:channel.delete", serverId: "server", channelId: "child", parentChannelId: "forum", parentMessageId: "opener" }, { deliveryMode: "single", queryClient: qc, communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: sdk.id }, matchesFocus: () => false }) }
 beforeEach(async () => { await clearAllPersistedCaches(); api.mockReset(); sdk.id = "A"; navigate.mockClear(); client = undefined as unknown as QueryClient })
 describe("actual native forum post-unit deletion", () => {
   it("hides both canonical identities optimistically and restores them on ordinary failure", async () => {

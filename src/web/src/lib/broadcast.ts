@@ -1,5 +1,6 @@
+import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import type { WsMessage, DaemonPushMessage } from "@alook/shared"
+import type { WsMessage } from "@alook/shared"
 import {
   COMMUNITY_BULK_BODY_MAX_BYTES,
   COMMUNITY_CONTRACT_HEADER,
@@ -11,21 +12,16 @@ import {
   type CommunityContract,
 } from "@alook/shared"
 import { fetchViaBindingOrDevFallback } from "./dev-binding-fetch"
-import { communityProducerContract, projectCommunityProducerEvent } from "./community/producer-contract"
+import { communityProducerContract } from "./community/producer-contract"
 
 const log = createLogger({ service: "broadcast" })
 const bulkBroadcastMaxUserIds = 1000
 const bulkBroadcastMaxActive = 3
 
 function encodeCommunityProducerEvent(message: unknown) {
-  const { env } = getCloudflareContext()
-  const contract = communityProducerContract(env as Env)
-  const encoded = encodeCommunityBrowserEvent(message, contract === 3 ? 3 : 2)
-  if (!encoded.ok) return encoded
-  const wire = encoded.event.type === "community:channel.membership.change"
-    ? encodeCommunityBrowserEvent(projectCommunityProducerEvent(encoded.event, env as Env, contract === 3 ? 3 : 2), contract)
-    : encoded
-  return wire.ok ? { ...wire, contract } : wire
+  const contract = communityProducerContract()
+  const encoded = encodeCommunityBrowserEvent(message, contract)
+  return encoded.ok ? { ...encoded, contract } : encoded
 }
 
 /**
@@ -65,7 +61,7 @@ async function doSend(
   const { env } = getCloudflareContext()
   const res = await wsDoFetch(env as Env, url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...(opts.contract === 3 ? { [COMMUNITY_CONTRACT_HEADER]: "3" } : {}) },
+    headers: { "Content-Type": "application/json", ...(opts.contract === COMMUNITY_RESOURCE_CONTRACT_VERSION ? { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) } : {}) },
     body,
   }, opts)
   if (!res.ok) {
@@ -152,7 +148,7 @@ async function runBroadcastToUsers(
   }
   const encoded = community ? encodeCommunityProducerEvent(message) : null
   if (encoded && !encoded.ok) throw new Error(`invalid community event: ${encoded.reason}`)
-  const wireMessage = encoded?.event ?? message
+  const wireMessage = encoded?.envelope ?? message
   const chunks: string[][] = []
 
   for (let start = 0; start < targetUserIds.length; start += bulkBroadcastMaxUserIds) {
@@ -277,22 +273,4 @@ export function broadcastToUsers(
     ctx.waitUntil(work.catch(() => {}))
   } catch {}
   return work
-}
-
-
-export function broadcastToDaemon(daemonId: string, message: DaemonPushMessage): Promise<{ sent: number }> {
-  const promise = doSend(
-    `/broadcast/daemon/${daemonId}`,
-    JSON.stringify(message),
-    { label: daemonId, type: message.type },
-  )
-  try {
-    // CF worker may terminate before the fetch completes if the response is sent early;
-    // waitUntil keeps the isolate alive until the broadcast resolves.
-    const { ctx } = getCloudflareContext()
-    ctx.waitUntil(promise.catch(() => { }))
-  } catch {
-    // Not in CF context — promise runs on its own
-  }
-  return promise
 }

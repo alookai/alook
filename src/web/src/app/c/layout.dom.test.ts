@@ -8,10 +8,12 @@ const mocks = vi.hoisted(() => ({
     isPending: true, error: null as null | Error, refetch: vi.fn(async () => {}) },
   signOut: vi.fn(async () => ({ error: null })), mounted: vi.fn(), unmounted: vi.fn(),
   retireAttempt: vi.fn(), clearAttempts: vi.fn(),
+  prepareCache: vi.fn(async () => {}),
 }))
 vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname, useSearchParams: () => new URLSearchParams(mocks.search), useRouter: () => mocks.router, notFound: () => { throw new Error("not-found") } }))
 vi.mock("@/lib/auth-client", () => ({ useSession: () => mocks.session, authClient: { signOut: mocks.signOut } }))
 vi.mock("@/lib/community/last-community-route", () => ({ retireCommunityColdEntryAttempt: mocks.retireAttempt, clearCommunityColdEntryAttempts: mocks.clearAttempts }))
+vi.mock("@/lib/query-persister", () => ({ preparePersistedCache: mocks.prepareCache }))
 vi.mock("./community-shell", () => ({ CommunityShell: ({ currentUser, children }: { currentUser: { id: string }; children: ReactNode }) => {
   useEffect(() => { mocks.mounted(currentUser.id); return () => mocks.unmounted(currentUser.id) }, [currentUser.id])
   return createElement("main", { "data-testid": "private-shell", "data-account": currentUser.id }, children)
@@ -34,6 +36,31 @@ beforeEach(() => {
 const tree = () => createElement(CommunityLayoutClient)
 
 describe("client account startup", () => {
+  it("prepares local storage during pending auth without revealing or delaying the private account", async () => {
+    let prepared!: () => void
+    mocks.prepareCache.mockImplementationOnce(() => new Promise<void>(resolve => { prepared = resolve }))
+    mocks.session.data = { user: user("unconfirmed") }
+    const view = render(tree())
+    expect(mocks.prepareCache).toHaveBeenCalledOnce()
+    expect(mocks.mounted).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("private-shell")).not.toBeInTheDocument()
+    mocks.session.data = { user: user("confirmed") }; mocks.session.isPending = false
+    view.rerender(tree())
+    expect(screen.getByTestId("private-shell")).toHaveAttribute("data-account", "confirmed")
+    await act(async () => { prepared() })
+    expect(mocks.mounted).toHaveBeenCalledExactlyOnceWith("confirmed")
+  })
+  it("keeps preparation failure separate from the original session and Retry owner", async () => {
+    mocks.prepareCache.mockRejectedValueOnce(new Error("IDB open failed"))
+    const view = render(tree())
+    await act(async () => {})
+    expect(screen.queryByTestId("private-shell")).not.toBeInTheDocument()
+    expect(mocks.router.replace).not.toHaveBeenCalled()
+    expect(mocks.session.refetch).not.toHaveBeenCalled()
+    mocks.session.data = { user: user("confirmed") }; mocks.session.isPending = false
+    view.rerender(tree())
+    expect(screen.getByTestId("private-shell")).toHaveAttribute("data-account", "confirmed")
+  })
   it("renders a neutral frame before authentication and mounts an account without a profile prerequisite", () => {
     const view = render(tree())
     expect(screen.getByTestId("pending")).toHaveAttribute("data-pathname", "/c/me/machines")

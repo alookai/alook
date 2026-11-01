@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import {
+  BUSINESS_SCHEMA_VERSION,
+  communityBrowserEventBatchType,
+  encodeCommunityBrowserEvent,
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
   admitCommunityBrowserEventBatch,
   decodeCommunityBrowserEvent,
   decodeCommunityBrowserEventBatch,
   deriveCommunityDeliveryOperationId,
-  encodeCommunityBrowserEventBatch,
   encodeCommunityBrowserEventBatchForContract,
   prepareCommunityDeliveryEvents,
   type CommunityWsEvent,
@@ -80,11 +82,11 @@ class MockWebSocket {
     MockWebSocket.instances.push(this)
   }
   send(data: string) { this.sent.push(data) }
-  close() {
+  close(code = 1000, reason = "local detail") {
     if (this.readyState === MockWebSocket.CLOSING || this.readyState === MockWebSocket.CLOSED) return
     this.closed = true
     this.readyState = MockWebSocket.CLOSED
-    this.onclose?.({ code: 1000, reason: "local detail", wasClean: true })
+    this.onclose?.({ code, reason, wasClean: true })
   }
 
   // Helpers for tests
@@ -314,29 +316,29 @@ describe("useUserWs", () => {
   it("keeps bootstrap port discovery and authenticates a current SDK reconnect without another HTTP request", async () => {
     mockSdkSession.set(sdkSession())
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ userId: "user-1", token: "bootstrap-token", wsPort: 9123 }) })
-    await mountHook(vi.fn(), { viewerUserId: "user-1", communityContract: 2, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1", communityContract: BUSINESS_SCHEMA_VERSION })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok", communityContract: 2 })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(mockFetch).toHaveBeenCalledOnce()
-    expect(first.sent).toEqual([JSON.stringify({ type: "auth", token: "bootstrap-token", communityContract: 2 })])
+    expect(first.sent).toEqual([JSON.stringify({ type: "auth", token: "bootstrap-token", communityContract: BUSINESS_SCHEMA_VERSION })])
     latestHookResult!.reconnectNow()
     await flushPromises()
     const replacement = MockWebSocket.instances[1]!
     expect(replacement.url).toBe("ws://localhost:9123/api/ws/user?userId=user-1")
     replacement.simulateOpen()
-    expect(replacement.sent).toEqual([JSON.stringify({ type: "auth", token: "current-sdk-token", communityContract: 2 })])
-    replacement.simulateMessage({ type: "auth.ok", communityContract: 2 })
+    expect(replacement.sent).toEqual([JSON.stringify({ type: "auth", token: "current-sdk-token", communityContract: BUSINESS_SCHEMA_VERSION })])
+    replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(mockFetch).toHaveBeenCalledOnce()
   })
 
   it.each(["pending", "error", "missing", "missing-session", "empty-id", "session-owner", "expired", "invalid-expiry"])("falls back without admitting %s SDK credentials", async (state) => {
     mockSdkSession.set(sdkSession())
     setupTokenFetch()
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const value = sdkSession()
     if (state === "pending") value.isPending = true
     if (state === "error") value.error = new Error("session unavailable")
@@ -360,7 +362,7 @@ describe("useUserWs", () => {
     mockSdkSession.set(sdkSession())
     const response = deferred<Response>()
     mockFetch.mockReturnValue(response.promise)
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     const signal = mockFetch.mock.calls[0]![1].signal as AbortSignal
     mockSdkSession.set(sdkSession("user-2", "sdk-session-2", "other-sdk-token"))
     expect(signal.aborted).toBe(true)
@@ -376,7 +378,7 @@ describe("useUserWs", () => {
   it("rejects a foreign HTTP identity before socket construction", async () => {
     mockSdkSession.set(sdkSession())
     mockFetch.mockResolvedValue(Response.json({ userId: "user-2", token: "foreign-fixture-token" }))
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     await vi.advanceTimersByTimeAsync(60_000)
     expect(MockWebSocket.instances).toEqual([])
     expect(mockFetch).toHaveBeenCalledOnce()
@@ -386,7 +388,7 @@ describe("useUserWs", () => {
   it.each([401, 403])("stops an HTTP%s credential sequence and refetches the native SDK at most once", async (status) => {
     mockSdkSession.set(sdkSession())
     mockFetch.mockResolvedValue({ ok: false, status })
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     mockDocument.dispatch("resume")
     mockWindow.dispatch("focus")
     await vi.advanceTimersByTimeAsync(60_000)
@@ -402,10 +404,10 @@ describe("useUserWs", () => {
   it("makes one authoritative fallback for a rejected SDK session and stops a fresh rejection until explicit Retry", async () => {
     mockSdkSession.set(sdkSession())
     setupTokenFetch()
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     latestHookResult!.reconnectNow()
     await flushPromises()
     const sdk = MockWebSocket.instances[1]!
@@ -431,7 +433,7 @@ describe("useUserWs", () => {
     mockSdkSession.set(sdkSession())
     mockSdkSession.refetch.mockRejectedValueOnce(new Error("fixture SDK refetch exception"))
     mockFetch.mockResolvedValue({ ok: false, status: 401 })
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     mockDocument.dispatch("resume")
     mockWindow.dispatch("focus")
     await vi.advanceTimersByTimeAsync(60_000)
@@ -443,10 +445,10 @@ describe("useUserWs", () => {
   it("does not repeat an authoritative read after a transient fallback failure", async () => {
     mockSdkSession.set(sdkSession())
     setupTokenFetch()
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     latestHookResult!.reconnectNow()
     await flushPromises()
     mockFetch.mockRejectedValueOnce(new Error("fixture transport unavailable"))
@@ -460,10 +462,10 @@ describe("useUserWs", () => {
   it.each(["Unsupported community contract", "Invalid JSON", "Not authenticated"])("keeps protocol policy close %s out of credential refresh", async (reason) => {
     mockSdkSession.set(sdkSession())
     setupTokenFetch()
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     latestHookResult!.reconnectNow()
     await flushPromises()
     const sdk = MockWebSocket.instances[1]!
@@ -478,10 +480,10 @@ describe("useUserWs", () => {
   it("does not refresh credentials after a server contract frame even with an Unauthorized close", async () => {
     mockSdkSession.set(sdkSession())
     setupTokenFetch()
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     latestHookResult!.reconnectNow()
     await flushPromises()
     const sdk = MockWebSocket.instances[1]!
@@ -500,7 +502,7 @@ describe("useUserWs", () => {
     await mountHook(callback)
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: undefined })
     ws.simulateMessage({ type: "community:events.batch.v2", events: [] })
     await flushPromises()
     expect(callback).not.toHaveBeenCalled()
@@ -521,77 +523,49 @@ describe("useUserWs", () => {
     userId: "user-1",
   } as const
 
-  async function legacyBatch(events: CommunityWsEvent[]) {
+  async function currentBatch(events: CommunityWsEvent[]) {
     const prepared = await prepareCommunityDeliveryEvents(events)
-    if (!prepared.ok) throw new Error("invalid regression events")
-    const encoded = await encodeCommunityBrowserEventBatch({
-      operationId: await deriveCommunityDeliveryOperationId("protocol-regression"),
-      operationDigest: prepared.prepared.digest,
-      events,
-    })
-    if (!encoded.ok) throw new Error("invalid regression batch")
-    expect(decodeCommunityBrowserEventBatch(encoded.batch).ok).toBe(true)
+    if (!prepared.ok) throw new Error("Invalid current fixture events")
+    const encoded = await encodeCommunityBrowserEventBatchForContract({ operationId: await deriveCommunityDeliveryOperationId("current-protocol-regression"),
+      prepared: prepared.prepared, contract: BUSINESS_SCHEMA_VERSION })
+    if (!encoded.ok) throw new Error("Invalid current fixture batch")
+    expect((await admitCommunityBrowserEventBatch(encoded.batch)).ok).toBe(true)
     return encoded.batch
   }
 
-  it.each([undefined, 1] as const)("rejects a new membership single without V2 confirmation (%s)", async (contract) => {
+  it.each([undefined, 1, 2, 3, 6, BUSINESS_SCHEMA_VERSION + 1])("retires missing or unsupported business confirmation %s before application admission", async contract => {
     setupTokenFetch()
-    const callback = vi.fn()
-    await mountHook(callback)
+    const callback = vi.fn(), authenticated = vi.fn()
+    await mountHook(callback, { onAuthenticated: authenticated })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", ...(contract === undefined ? {} : { communityContract: contract }) })
-    expect(decodeCommunityBrowserEvent(explicitMembership).ok).toBe(true)
-    ws.simulateMessage(explicitMembership)
+    ws.simulateMessage({ ...explicitMembership, schemaVersion: BUSINESS_SCHEMA_VERSION })
+    ws.simulateMessage(await currentBatch([explicitMembership]))
     await flushPromises()
+    expect(ws.closed).toBe(true)
+    expect(authenticated).not.toHaveBeenCalled()
     expect(callback).not.toHaveBeenCalled()
-    ws.simulateMessage(legacyMembership)
-    expect(callback).toHaveBeenCalledExactlyOnceWith(legacyMembership, undefined, 1)
   })
 
-  it.each([undefined, 1] as const)("rejects an entire legacy batch containing a new membership child without V2 confirmation (%s)", async (contract) => {
-    const incompatibleBatch = await legacyBatch([legacyMembership, explicitMembership])
-    const compatibleBatch = await legacyBatch([legacyMembership])
-    setupTokenFetch()
-    const callback = vi.fn()
-    await mountHook(callback)
-    const ws = MockWebSocket.instances[0]!
-    ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok", ...(contract === undefined ? {} : { communityContract: contract }) })
-    ws.simulateMessage(incompatibleBatch)
-    await flushPromises()
-    expect(callback).not.toHaveBeenCalled()
-    ws.simulateMessage(compatibleBatch)
-    expect(callback).toHaveBeenCalledExactlyOnceWith(compatibleBatch, undefined, 1)
-  })
-
-  it("admits new representations and older producer frames after V2 confirmation", async () => {
-    const oldBatch = await legacyBatch([legacyMembership])
-    const prepared = await prepareCommunityDeliveryEvents([explicitMembership])
-    if (!prepared.ok) throw new Error("invalid regression events")
-    const newBatch = await encodeCommunityBrowserEventBatchForContract({
-      operationId: await deriveCommunityDeliveryOperationId("protocol-regression-v2"),
-      prepared: prepared.prepared,
-      contract: 2,
-    })
-    if (!newBatch.ok) throw new Error("invalid regression batch")
-    expect(decodeCommunityBrowserEventBatch(newBatch.batch).ok).toBe(true)
+  it("admits only the current encoded membership single and batch after current confirmation", async () => {
+    const single = encodeCommunityBrowserEvent(explicitMembership)
+    if (!single.ok) throw new Error("Invalid current membership fixture")
+    const batch = await currentBatch([explicitMembership])
+    expect(decodeCommunityBrowserEvent(legacyMembership).ok).toBe(false)
     setupTokenFetch()
     const received: WsMessage[] = []
-    await mountHook((message) => { received.push(message) })
+    await mountHook(message => { received.push(message) })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok", communityContract: 2 })
-    ws.simulateMessage(explicitMembership)
-    ws.simulateMessage(legacyMembership)
-    ws.simulateMessage(oldBatch)
-    ws.simulateMessage(newBatch.batch)
-    await flushPromises()
-    expect(received).toEqual([explicitMembership, legacyMembership, oldBatch, newBatch.batch])
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
+    ws.simulateMessage(single.envelope)
+    ws.simulateMessage(batch)
+    await vi.waitFor(() => expect(received).toEqual([single.envelope, batch]))
   })
 
   const resourceMessage = {
-    type: "community:message.create", channelId: "channel-1", serverId: "server-1",
+    type: "community:message.create", profiles: [{ id: "user-1", name: "User", discriminator: "0042", avatar: null, avatarVersion: 4 }], channelId: "channel-1", serverId: "server-1",
     message: {
       id: "resource-message", channelId: "channel-1", seq: 1, type: "chat", authorId: "user-1", authorName: "User", authorAvatarVersion: 4,
       createdAt: "2026-10-11T00:00:00Z", content: "actual body", replyToId: null, clientNonce: null,
@@ -600,114 +574,98 @@ describe("useUserWs", () => {
     },
   } as const
 
-  async function resourceBatch() {
-    const prepared = await prepareCommunityDeliveryEvents([resourceMessage], 3)
-    if (!prepared.ok) throw new Error("invalid resource regression event")
-    const encoded = await encodeCommunityBrowserEventBatchForContract({
-      operationId: await deriveCommunityDeliveryOperationId("protocol-regression-v3"),
-      prepared: prepared.prepared, contract: 3,
-    })
-    if (!encoded.ok) throw new Error("invalid resource regression batch")
-    expect((await admitCommunityBrowserEventBatch(encoded.batch)).ok).toBe(true)
-    return encoded.batch
-  }
+  async function resourceBatch() { return currentBatch([resourceMessage]) }
 
   async function mountResourceConnection() {
     setupTokenFetch()
     const received: CommunityWsEvent[] = []
     const callback = vi.fn(async (message: WsMessage, assertCurrent?: () => void, contract?: CommunityContract) => {
-      expect(contract).toBe(3)
-      if (message.type === "community:events.batch.v3") {
+      expect(contract).toBe(BUSINESS_SCHEMA_VERSION)
+      if (message.type === communityBrowserEventBatchType()) {
         const admitted = await admitCommunityBrowserEventBatch(message)
-        if (!admitted.ok) throw new Error("invalid resource batch")
+        if (!admitted.ok) throw new Error("Invalid current resource batch")
         assertCurrent?.()
-        received.push(...admitted.batch.events)
+        for (const child of admitted.batch.events) {
+          const decoded = decodeCommunityBrowserEvent(child)
+          if (!decoded.ok) throw new Error("Invalid admitted current child")
+          received.push(decoded.event)
+        }
       } else {
-        const decoded = decodeCommunityBrowserEvent(message, 3)
-        if (!decoded.ok) throw new Error("invalid resource event")
+        const decoded = decodeCommunityBrowserEvent(message)
+        if (!decoded.ok) return
         assertCurrent?.()
         received.push(decoded.event)
       }
     })
     const onAuthenticated = vi.fn()
-    await mountHook(callback, { communityContract: 3, requestDaemonStatusOnAuth: false, onAuthenticated })
+    await mountHook(callback, { communityContract: BUSINESS_SCHEMA_VERSION, onAuthenticated })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    expect(JSON.parse(ws.sent[0]!)).toEqual({ type: "auth", token: "tok-123", communityContract: 3 })
+    expect(JSON.parse(ws.sent[0]!)).toEqual({ type: "auth", token: "tok-123", communityContract: BUSINESS_SCHEMA_VERSION })
     return { ws, callback, received, onAuthenticated }
   }
 
-  it("requests and positively confirms explicit v3 before real resource admission", async () => {
+  it("requires current confirmation before actual current resource single and batch admission", async () => {
     const batch = await resourceBatch()
+    const single = encodeCommunityBrowserEvent(resourceMessage)
+    if (!single.ok) throw new Error("Invalid current resource fixture")
     const { ws, callback, received, onAuthenticated } = await mountResourceConnection()
     ws.simulateMessage(batch)
     await flushPromises()
     expect(callback).not.toHaveBeenCalled()
-    ws.simulateMessage({ type: "auth.ok", communityContract: 3 })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onAuthenticated).toHaveBeenCalledOnce()
-    ws.simulateMessage(resourceMessage)
+    ws.simulateMessage(single.envelope)
     ws.simulateMessage(batch)
     await vi.waitFor(() => expect(received).toEqual([resourceMessage, resourceMessage]))
-    expect(callback).toHaveBeenLastCalledWith(batch, expect.any(Function), 3)
+    expect(callback).toHaveBeenLastCalledWith(batch, expect.any(Function), BUSINESS_SCHEMA_VERSION)
     expect(ws.closed).toBe(false)
   })
 
-  it.each([undefined, 1, 2, 4] as const)("rejects mismatched or unknown explicit v3 confirmation %s", async confirmed => {
-    const { ws, callback, received, onAuthenticated } = await mountResourceConnection()
-    ws.simulateMessage({ type: "auth.ok", ...(confirmed === undefined ? {} : { communityContract: confirmed }) })
-    expect(ws.closed).toBe(true)
-    expect(onAuthenticated).not.toHaveBeenCalled()
-    ws.simulateMessage(resourceMessage)
+  it.each([1, 2, 3, 6])("retires an obsolete version %s batch on a current connection", async contract => {
+    const { ws, callback } = await mountResourceConnection()
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
+    const batch = await resourceBatch()
+    ws.simulateMessage({ ...batch, type: `community:events.batch.v${contract}`, schemaVersion: contract })
     await flushPromises()
     expect(callback).not.toHaveBeenCalled()
-    expect(received).toEqual([])
+    expect(ws.closed).toBe(true)
   })
 
-  it("rejects v2 representations on explicit v3 while retaining valid resource delivery", async () => {
-    const prepared = await prepareCommunityDeliveryEvents([legacyMembership], 2)
-    if (!prepared.ok) throw new Error("invalid legacy regression event")
-    const oldBatch = await encodeCommunityBrowserEventBatchForContract({
-      operationId: await deriveCommunityDeliveryOperationId("protocol-v2-on-v3"), prepared: prepared.prepared, contract: 2,
-    })
-    if (!oldBatch.ok) throw new Error("invalid legacy regression batch")
-    const batch = await resourceBatch()
-    const { ws, callback, received } = await mountResourceConnection()
-    ws.simulateMessage({ type: "auth.ok", communityContract: 3 })
-    ws.simulateMessage(oldBatch.batch)
-    await flushPromises()
-    expect(callback).not.toHaveBeenCalled()
-    const { channelId: _channel, attachments: _attachments, replyToId: _reply, clientNonce: _nonce, ...legacyMessage } = resourceMessage.message
-    const oldSingle = { ...resourceMessage, message: legacyMessage }
-    expect(decodeCommunityBrowserEvent(oldSingle, 2).ok).toBe(true)
-    expect(decodeCommunityBrowserEvent(oldSingle, 3).ok).toBe(false)
-    ws.simulateMessage(oldSingle)
+  it("rejects a weak current resource in the actual decoder and retains current resource delivery", async () => {
+    const { ws, received } = await mountResourceConnection()
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
+    const { channelId: _channel, attachments: _attachments, replyToId: _reply, clientNonce: _nonce, ...weakMessage } = resourceMessage.message
+    const weak = { ...resourceMessage, message: weakMessage, schemaVersion: BUSINESS_SCHEMA_VERSION }
+    expect(decodeCommunityBrowserEvent(weak).ok).toBe(false)
+    ws.simulateMessage(weak)
     await flushPromises()
     expect(received).toEqual([])
-    ws.simulateMessage(batch)
+    ws.simulateMessage(await resourceBatch())
     await vi.waitFor(() => expect(received).toEqual([resourceMessage]))
     expect(ws.closed).toBe(false)
   })
 
-  it("preserves frame order behind asynchronous v2 admission", async () => {
+  it("preserves frame order behind asynchronous current admission", async () => {
     setupTokenFetch()
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
     const received: string[] = []
     await mountHook(async (message, assertCurrent) => {
-      if (message.type === "community:events.batch.v2") await gate
+      if (message.type === communityBrowserEventBatchType()) await gate
       assertCurrent?.()
       received.push(message.type)
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok", communityContract: 2 })
-    ws.simulateMessage({ type: "community:events.batch.v2", events: [] })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
+    ws.simulateMessage(await resourceBatch())
     ws.simulateMessage({ type: "runtime.status", status: "online" })
     await flushPromises()
     expect(received).toEqual([])
     release()
     await flushPromises()
-    await vi.waitFor(() => expect(received).toEqual(["community:events.batch.v2", "runtime.status"]))
+    await vi.waitFor(() => expect(received).toEqual([communityBrowserEventBatchType(), "runtime.status"]))
   })
 
   it("retires an in-flight admission and queued frames with their original socket", async () => {
@@ -722,8 +680,8 @@ describe("useUserWs", () => {
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok", communityContract: 2 })
-    ws.simulateMessage({ type: "community:events.batch.v2", events: [] })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
+    ws.simulateMessage(await resourceBatch())
     ws.simulateMessage({ type: "runtime.status", status: "online" })
     await flushPromises()
     mockNavigator.onLine = false
@@ -765,38 +723,18 @@ describe("useUserWs", () => {
     expect(firstConnect).toBe(secondConnect)
   })
 
-  it.each<[string, UseUserWsOptions | undefined]>([
-    ["the option is omitted", undefined],
-    ["the option is explicitly true", { requestDaemonStatusOnAuth: true }],
-  ])("auth.ok sends the complete daemon-status frame when %s", async (_label, options) => {
+  it("auth.ok sends no legacy daemon-status request", async () => {
     setupTokenFetch()
 
     const onMsg = vi.fn()
-    await mountHook(onMsg, options)
+    await mountHook(onMsg)
 
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     expect(ws.sent).toEqual([
-      JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }),
-      JSON.stringify({ type: "check_daemon_status" }),
-    ])
-    expect(onMsg).not.toHaveBeenCalled()
-  })
-
-  it("auth.ok suppresses daemon status and remains consumed when the option is false", async () => {
-    setupTokenFetch()
-
-    const onMsg = vi.fn()
-    await mountHook(onMsg, { requestDaemonStatusOnAuth: false })
-
-    const ws = MockWebSocket.instances[0]
-    ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
-
-    expect(ws.sent).toEqual([
-      JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }),
+      JSON.stringify({ type: "auth", token: "tok-123", communityContract: BUSINESS_SCHEMA_VERSION }),
     ])
     expect(onMsg).not.toHaveBeenCalled()
   })
@@ -807,7 +745,7 @@ describe("useUserWs", () => {
       json: () => Promise.resolve({ userId: "user-1", token: "tok-123", wsPort: 3000 }),
     } as Response)
 
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
 
     expect(MockWebSocket.instances[0]?.url).toBe("ws://localhost:3000/api/ws/user?userId=user-1")
   })
@@ -817,7 +755,7 @@ describe("useUserWs", () => {
 
     const onMessage = vi.fn()
     const onAuthenticated = vi.fn()
-    await mountHook(onMessage, { onAuthenticated, requestDaemonStatusOnAuth: false })
+    await mountHook(onMessage, { onAuthenticated })
 
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
@@ -826,7 +764,7 @@ describe("useUserWs", () => {
     expect(onAuthenticated).not.toHaveBeenCalled()
     expect(onMessage).not.toHaveBeenCalled()
 
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onAuthenticated).toHaveBeenCalledTimes(1)
   })
 
@@ -834,40 +772,14 @@ describe("useUserWs", () => {
     setupTokenFetch()
 
     const onAuthenticated = vi.fn()
-    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onAuthenticated })
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
     effectCleanup?.()
 
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     expect(onAuthenticated).not.toHaveBeenCalled()
-  })
-
-  it("uses the latest option on the original socket without changing connect identity", async () => {
-    setupTokenFetch()
-
-    const onMsg = vi.fn()
-    const mod = await mountHook(onMsg, { requestDaemonStatusOnAuth: false })
-    const ws = MockWebSocket.instances[0]
-    ws.simulateOpen()
-    const firstConnect = callbackMemo.get("cb-1")?.fn
-
-    refCounter = 0
-    callbackCounter = 0
-    effectCounter = 0
-    mod.useUserWs(onMsg, { requestDaemonStatusOnAuth: true })
-    const secondConnect = callbackMemo.get("cb-1")?.fn
-
-    expect(secondConnect).toBe(firstConnect)
-    expect(MockWebSocket.instances).toEqual([ws])
-
-    ws.simulateMessage({ type: "auth.ok" })
-    expect(ws.sent).toEqual([
-      JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }),
-      JSON.stringify({ type: "check_daemon_status" }),
-    ])
-    expect(onMsg).not.toHaveBeenCalled()
   })
 
   it("effect cleanup nullifies wsRef.current and calls .close() — subsequent onclose skips reconnect", async () => {
@@ -903,11 +815,11 @@ describe("useUserWs", () => {
 
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     // Deliver a message — should go to cb1
     ws.simulateMessage({ type: "test", data: "hello" })
-    expect(cb1).toHaveBeenCalledWith({ type: "test", data: "hello" }, undefined, 1)
+    expect(cb1).toHaveBeenCalledWith({ type: "test", data: "hello" }, undefined, BUSINESS_SCHEMA_VERSION)
 
     // Now simulate a re-render with a new callback by updating the ref directly
     // In real React, the hook body runs `onMessageRef.current = onMessage` on each render
@@ -918,7 +830,7 @@ describe("useUserWs", () => {
     if (onMessageRef) onMessageRef.current = cb2
 
     ws.simulateMessage({ type: "test", data: "world" })
-    expect(cb2).toHaveBeenCalledWith({ type: "test", data: "world" }, undefined, 1)
+    expect(cb2).toHaveBeenCalledWith({ type: "test", data: "world" }, undefined, BUSINESS_SCHEMA_VERSION)
     expect(cb1).toHaveBeenCalledTimes(1) // cb1 not called again
   })
 
@@ -950,13 +862,12 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
 
     expect(onConnectionStateChange).toHaveBeenLastCalledWith("reconnecting")
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onConnectionStateChange).toHaveBeenLastCalledWith("authenticated")
 
     mockDocument.visibilityState = "hidden"
@@ -969,22 +880,21 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     first.simulateClose()
 
     setupTokenFetch()
     await vi.advanceTimersByTimeAsync(2_000)
     const replacement = MockWebSocket.instances.at(-1)!
     replacement.simulateOpen()
-    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     onConnectionStateChange.mockClear()
 
     first.simulateClose()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     expect(onConnectionStateChange).not.toHaveBeenCalled()
   })
@@ -996,7 +906,6 @@ describe("useUserWs", () => {
 
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
     expect(mockFetch).not.toHaveBeenCalled()
@@ -1019,7 +928,6 @@ describe("useUserWs", () => {
 
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     mockNavigator.onLine = false
     mockWindow.dispatch("offline")
@@ -1036,7 +944,6 @@ describe("useUserWs", () => {
 
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
 
     expect(onConnectionStateChange).toHaveBeenLastCalledWith("reconnecting")
@@ -1049,11 +956,10 @@ describe("useUserWs", () => {
     const onAuthenticated = vi.fn()
     await mountHook(vi.fn(), {
       onAuthenticated,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onAuthenticated).toHaveBeenCalledOnce()
 
     latestHookResult!.reconnectNow()
@@ -1062,11 +968,11 @@ describe("useUserWs", () => {
     expect(first.closed).toBe(true)
     expect(MockWebSocket.instances).toHaveLength(2)
     const replacement = MockWebSocket.instances[1]!
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onAuthenticated).toHaveBeenCalledOnce()
 
     replacement.simulateOpen()
-    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onAuthenticated).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(5_000)
     expect(MockWebSocket.instances).toHaveLength(2)
@@ -1075,10 +981,10 @@ describe("useUserWs", () => {
   it("manual Retry replaces a connecting online recovery and fences its late authentication", async () => {
     setupTokenFetch()
     const onAuthenticated = vi.fn()
-    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onAuthenticated })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     mockNavigator.onLine = false
     mockWindow.dispatch("offline")
@@ -1096,10 +1002,10 @@ describe("useUserWs", () => {
     expect(MockWebSocket.instances).toHaveLength(3)
     const manual = MockWebSocket.instances[2]!
     automatic.simulateOpen()
-    automatic.simulateMessage({ type: "auth.ok" })
+    automatic.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onAuthenticated).toHaveBeenCalledOnce()
     manual.simulateOpen()
-    manual.simulateMessage({ type: "auth.ok" })
+    manual.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onAuthenticated).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(5_000)
     expect(mockFetch).toHaveBeenCalledTimes(3)
@@ -1109,10 +1015,10 @@ describe("useUserWs", () => {
 
   it("reports local retirement and remote close exactly once per socket", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     latestHookResult!.reconnectNow()
     await flushPromises()
@@ -1124,7 +1030,7 @@ describe("useUserWs", () => {
 
     const replacement = MockWebSocket.instances[1]!
     replacement.simulateOpen()
-    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     replacement.simulateClose(1006, "private remote detail", false)
     replacement.simulateClose(1006, "duplicate private detail", false)
 
@@ -1141,10 +1047,10 @@ describe("useUserWs", () => {
     [4321, "other"],
   ] as const)("normalizes remote close code %i to %s", async (code, reasonBucket) => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     ws.simulateClose(code, "private raw reason", false)
 
@@ -1171,7 +1077,7 @@ describe("useUserWs", () => {
       .mockReturnValueOnce(firstTokenResponse.promise)
       .mockReturnValueOnce(secondTokenResponse.promise)
 
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     latestHookResult!.reconnectNow()
     expect(mockFetch).toHaveBeenCalledTimes(2)
 
@@ -1193,7 +1099,7 @@ describe("useUserWs", () => {
 
   it("manual reconnect clears a scheduled automatic retry before opening one replacement", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateClose()
@@ -1211,11 +1117,10 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const fetchCount = mockFetch.mock.calls.length
 
     mockDocument.visibilityState = "hidden"
@@ -1253,7 +1158,7 @@ describe("useUserWs", () => {
 
   it("classifies HTTP auth failures without recording token or close reason content", async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 403 })
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
 
     expect(mockTrackCommunityWsAuthFailure).toHaveBeenCalledWith({
       failureClass: "credentials",
@@ -1296,10 +1201,10 @@ describe("useUserWs", () => {
 
   it("rechecks offline state before foreground validation after telemetry", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     mockTrackCommunityWsLifecycleRecovery.mockImplementationOnce(() => {
       mockNavigator.onLine = false
       mockWindow.dispatch("offline")
@@ -1319,7 +1224,6 @@ describe("useUserWs", () => {
 
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
 
     expect(onConnectionStateChange).toHaveBeenCalledWith("reconnecting")
@@ -1333,7 +1237,7 @@ describe("useUserWs", () => {
       ok: true,
       json: () => body.promise,
     } as Response)
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     expect(mockFetch).toHaveBeenCalledOnce()
 
     mockNavigator.onLine = false
@@ -1345,7 +1249,7 @@ describe("useUserWs", () => {
 
   it("does not run a scheduled retry if navigator becomes offline before it fires", async () => {
     mockFetch.mockRejectedValueOnce(new Error("network unavailable"))
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
 
     mockNavigator.onLine = false
@@ -1368,7 +1272,7 @@ describe("useUserWs", () => {
     vi.stubGlobal("WebSocket", ThrowingWebSocket)
     setupTokenFetch()
 
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
 
     expect(mockTrackCommunityWsLifecycleStage).toHaveBeenCalledWith(expect.objectContaining({
       stage: "open",
@@ -1379,7 +1283,7 @@ describe("useUserWs", () => {
 
   it("closes without authenticating if navigator becomes offline before open", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
 
     mockNavigator.onLine = false
@@ -1394,7 +1298,7 @@ describe("useUserWs", () => {
 
   it("reports an auth transport failure when the auth frame send throws", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.send = vi.fn(() => { throw new Error("auth send failed") })
 
@@ -1413,28 +1317,6 @@ describe("useUserWs", () => {
     }))
   })
 
-  it("retires and retries when the post-auth status frame send throws", async () => {
-    setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: true })
-    const ws = MockWebSocket.instances[0]!
-    const send = ws.send.bind(ws)
-    ws.send = vi.fn((data: string) => {
-      if (data === JSON.stringify({ type: "check_daemon_status" })) {
-        throw new Error("status send failed")
-      }
-      send(data)
-    })
-    ws.simulateOpen()
-
-    ws.simulateMessage({ type: "auth.ok" })
-
-    expect(ws.closed).toBe(true)
-    expect(mockTrackCommunityWsLifecycleClose).toHaveBeenCalledWith(expect.objectContaining({
-      initiator: "local-retire",
-    }))
-    expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
-  })
-
   it("uses offline as a hard gate for pending tokens, retries, and manual recovery", async () => {
     const firstTokenResponse = deferred<Response>()
     mockFetch
@@ -1444,7 +1326,7 @@ describe("useUserWs", () => {
         json: () => Promise.resolve({ userId: "online-user", token: "online-token" }),
       })
 
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const firstSignal = (mockFetch.mock.calls[0]?.[1] as RequestInit).signal
 
     mockNavigator.onLine = false
@@ -1477,10 +1359,10 @@ describe("useUserWs", () => {
 
   it("keeps an authenticated socket silent offline and validates it once online", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const fetchCount = mockFetch.mock.calls.length
 
     mockNavigator.onLine = false
@@ -1511,10 +1393,10 @@ describe("useUserWs", () => {
     setupTokenFetch()
     const onMessage = vi.fn()
     const onReconnect = vi.fn()
-    await mountHook(onMessage, { onReconnect, requestDaemonStatusOnAuth: false })
+    await mountHook(onMessage, { onReconnect })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     vi.setSystemTime(new Date("2026-09-12T00:00:00.000Z"))
     mockNavigator.onLine = false
@@ -1543,10 +1425,10 @@ describe("useUserWs", () => {
   it("defers offline gap reconciliation to replacement auth after validation failure", async () => {
     setupTokenFetch()
     const onReconnect = vi.fn()
-    const mod = await mountHook(vi.fn(), { onReconnect, requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn(), { onReconnect })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     vi.setSystemTime(new Date("2026-09-12T00:00:00.000Z"))
     mockNavigator.onLine = false
@@ -1566,8 +1448,8 @@ describe("useUserWs", () => {
     const replacement = MockWebSocket.instances.at(-1)!
     expect(replacement).not.toBe(first)
     replacement.simulateOpen()
-    replacement.simulateMessage({ type: "auth.ok" })
-    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
+    replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     expect(onReconnect).toHaveBeenCalledOnce()
     expect(onReconnect).toHaveBeenCalledWith({
@@ -1580,11 +1462,10 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const authenticatedTimerCount = vi.getTimerCount()
     const sentCount = ws.sent.length
 
@@ -1608,11 +1489,10 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const fetchCount = mockFetch.mock.calls.length
 
     mockNavigator.onLine = false
@@ -1630,14 +1510,14 @@ describe("useUserWs", () => {
   it("retires an open pre-auth socket offline and ignores every late frame", async () => {
     setupTokenFetch()
     const onAuthenticated = vi.fn()
-    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onAuthenticated })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }))
+    expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123", communityContract: BUSINESS_SCHEMA_VERSION }))
 
     mockNavigator.onLine = false
     mockWindow.dispatch("offline")
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     first.simulateMessage({ type: "task.updated", taskId: "stale" })
     await vi.advanceTimersByTimeAsync(60_000)
 
@@ -1655,7 +1535,7 @@ describe("useUserWs", () => {
 
   it("cancels a scheduled retry offline and starts one replacement online", async () => {
     mockFetch.mockRejectedValueOnce(new Error("network unavailable"))
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
 
     mockNavigator.onLine = false
@@ -1677,10 +1557,10 @@ describe("useUserWs", () => {
 
   it("suppresses reconnect while hidden and reconnects immediately when visible", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     mockDocument.visibilityState = "hidden"
     mockDocument.dispatch("visibilitychange")
@@ -1702,7 +1582,6 @@ describe("useUserWs", () => {
     const interval = vi.spyOn(globalThis, "setInterval")
     try {
       await mountHook(vi.fn(), {
-        requestDaemonStatusOnAuth: false,
         onAuthenticated: () => {
           mockDocument.visibilityState = "hidden"
           mockDocument.dispatch("visibilitychange")
@@ -1711,7 +1590,7 @@ describe("useUserWs", () => {
       const ws = MockWebSocket.instances[0]!
       ws.simulateOpen()
       interval.mockClear()
-      ws.simulateMessage({ type: "auth.ok" })
+      ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
       expect(interval.mock.calls.filter(([, delay]) => delay === 25_000 || delay === 5_000)).toHaveLength(0)
       await vi.advanceTimersByTimeAsync(60_000)
       expect(ws.sent).not.toContain("ping")
@@ -1733,11 +1612,10 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     await vi.advanceTimersByTimeAsync(25_000)
     expect(ws.sent.filter(frame => frame === "ping")).toHaveLength(1)
 
@@ -1763,10 +1641,10 @@ describe("useUserWs", () => {
 
   it("does not recover for initial pageshow or element focus", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const fetchCount = mockFetch.mock.calls.length
 
     dispatchPageShow(false)
@@ -1781,10 +1659,10 @@ describe("useUserWs", () => {
 
   it("validates once for page-level focus and coalesces the foreground event storm", async () => {
     setupTokenFetch()
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const fetchCount = mockFetch.mock.calls.length
 
     dispatchWindowFocus()
@@ -1812,7 +1690,7 @@ describe("useUserWs", () => {
 
   it("replaces expired CONNECTING and CLOSING sockets with bounded ready-state telemetry", async () => {
     setupTokenFetch()
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const connecting = MockWebSocket.instances[0]!
 
     vi.setSystemTime(Date.now() + mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS + 1)
@@ -1845,10 +1723,10 @@ describe("useUserWs", () => {
 
   it("preserves a remote initiator when recovery races a remote closing handshake", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     ws.readyState = MockWebSocket.CLOSING
     dispatchWindowFocus()
@@ -1871,10 +1749,10 @@ describe("useUserWs", () => {
 
   it("clears a pending reconnect when the page becomes hidden", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     ws.simulateClose()
 
     mockDocument.visibilityState = "hidden"
@@ -1888,10 +1766,10 @@ describe("useUserWs", () => {
 
   it("clears a pending reconnect before an immediate foreground replacement", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     first.simulateClose()
 
     dispatchWindowFocus()
@@ -1911,11 +1789,10 @@ describe("useUserWs", () => {
     const mod = await mountHook(vi.fn(), {
       onDisconnect,
       onReconnect,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     mockDocument.visibilityState = "hidden"
     mockDocument.dispatch("visibilitychange")
@@ -1966,7 +1843,7 @@ describe("useUserWs", () => {
     expect(mockFetch).toHaveBeenCalledTimes(replacementFetchCount)
     expect(MockWebSocket.instances).toEqual([first, replacement])
     expect(replacement.closed).toBe(false)
-    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onReconnect).toHaveBeenCalledOnce()
   })
 
@@ -1977,11 +1854,10 @@ describe("useUserWs", () => {
     const mod = await mountHook(vi.fn(), {
       onDisconnect,
       onReconnect,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     dispatchWindowFocus()
     const [{ nonce }] = connectionPings(first)
@@ -2001,11 +1877,11 @@ describe("useUserWs", () => {
 
     const replacement = MockWebSocket.instances[1]!
     replacement.simulateOpen()
-    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onReconnect).toHaveBeenCalledOnce()
 
     first.simulateMessage({ type: "connection.pong", nonce })
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     first.simulateClose()
     expect(onDisconnect).toHaveBeenCalledOnce()
     expect(MockWebSocket.instances).toHaveLength(2)
@@ -2014,10 +1890,10 @@ describe("useUserWs", () => {
   it("uses a wall-clock gap as a local visible sentinel without ordinary polling", async () => {
     setupTokenFetch()
     const intervalSpy = vi.spyOn(globalThis, "setInterval")
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const fetchCount = mockFetch.mock.calls.length
 
     await vi.advanceTimersByTimeAsync(mod.WS_FOREGROUND_SENTINEL_INTERVAL_MS)
@@ -2044,10 +1920,10 @@ describe("useUserWs", () => {
   it("keeps sentinel work local while hidden and clears it on cleanup", async () => {
     setupTokenFetch()
     const intervalSpy = vi.spyOn(globalThis, "setInterval")
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     mockDocument.visibilityState = "hidden"
     mockDocument.dispatch("visibilitychange")
@@ -2080,7 +1956,6 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
 
@@ -2107,17 +1982,16 @@ describe("useUserWs", () => {
     const onAuthenticated = vi.fn()
     await mountHook(vi.fn(), {
       onAuthenticated,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }))
+    expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123", communityContract: BUSINESS_SCHEMA_VERSION }))
 
     mockDocument.visibilityState = "hidden"
     mockDocument.dispatch("visibilitychange")
     expect(first.closed).toBe(true)
 
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onAuthenticated).not.toHaveBeenCalled()
 
     mockDocument.visibilityState = "visible"
@@ -2131,7 +2005,7 @@ describe("useUserWs", () => {
 
   it("keeps an OPEN pre-auth event storm inside the original auth deadline", async () => {
     setupTokenFetch()
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     const fetchCount = mockFetch.mock.calls.length
@@ -2162,11 +2036,10 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     const mod = await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const fetchCount = mockFetch.mock.calls.length
     onConnectionStateChange.mockClear()
 
@@ -2196,10 +2069,10 @@ describe("useUserWs", () => {
     const dataWork = new Promise<void>((resolve) => { finish = resolve })
     const onForeground = vi.fn(() => dataWork)
     const onReconnect = vi.fn()
-    await mountHook(vi.fn(), { onForeground, onReconnect, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onForeground, onReconnect })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     dispatchHiddenToVisible()
     expect(onForeground).toHaveBeenCalledOnce()
@@ -2224,7 +2097,7 @@ describe("useUserWs", () => {
     const token = deferred<Response>()
     mockFetch.mockReturnValueOnce(token.promise)
     const onForeground = vi.fn()
-    await mountHook(vi.fn(), { onForeground, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onForeground })
     dispatchWindowFocus()
     expect(onForeground).not.toHaveBeenCalled()
     mockDocument.dispatch("resume")
@@ -2250,10 +2123,10 @@ describe("useUserWs", () => {
     setupTokenFetch()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const onForeground = vi.fn(() => { throw new Error("data unavailable") })
-    await mountHook(vi.fn(), { onForeground, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onForeground })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     mockDocument.visibilityState = "hidden"
     mockDocument.dispatch("visibilitychange")
     dispatchWindowFocus()
@@ -2273,10 +2146,10 @@ describe("useUserWs", () => {
 
   it("coalesces an offline-online signal pair while foreground validation is pending", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     dispatchHiddenToVisible()
     expect(connectionPings(ws)).toHaveLength(1)
@@ -2290,10 +2163,10 @@ describe("useUserWs", () => {
 
   it("keeps a cleared foreground validation timer inert", async () => {
     setupTokenFetch()
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const timerSpy = vi.spyOn(globalThis, "setTimeout")
 
     dispatchHiddenToVisible()
@@ -2320,11 +2193,10 @@ describe("useUserWs", () => {
     })
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     dispatchHiddenToVisible()
     const [{ nonce }] = connectionPings(ws)
@@ -2343,7 +2215,6 @@ describe("useUserWs", () => {
     const onDisconnect = vi.fn()
     await mountHook(vi.fn(), {
       onDisconnect,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     const send = ws.send.bind(ws)
@@ -2352,7 +2223,7 @@ describe("useUserWs", () => {
       send(data)
     })
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     dispatchHiddenToVisible()
     await vi.advanceTimersByTimeAsync(1_000)
@@ -2371,11 +2242,10 @@ describe("useUserWs", () => {
     const mod = await mountHook(vi.fn(), {
       onConnectionStateChange,
       onDisconnect,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     onConnectionStateChange.mockClear()
 
     dispatchHiddenToVisible()
@@ -2403,7 +2273,7 @@ describe("useUserWs", () => {
       .toHaveLength(1)
 
     first.simulateMessage({ type: "connection.pong", nonce })
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onDisconnect).toHaveBeenCalledTimes(1)
     expect(MockWebSocket.instances).toHaveLength(2)
   })
@@ -2413,11 +2283,10 @@ describe("useUserWs", () => {
     const onDisconnect = vi.fn()
     const mod = await mountHook(vi.fn(), {
       onDisconnect,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     dispatchHiddenToVisible()
     const firstNonce = connectionPings(ws).at(-1)!.nonce
@@ -2445,10 +2314,10 @@ describe("useUserWs", () => {
 
   it("coalesces visible, pageshow, and online while one replacement token request is pending", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     mockDocument.visibilityState = "hidden"
     mockDocument.dispatch("visibilitychange")
@@ -2472,10 +2341,10 @@ describe("useUserWs", () => {
 
   it("lets an exact response queued first at the deadline win without a reconnect", async () => {
     setupTokenFetch()
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     dispatchHiddenToVisible()
     const [{ nonce }] = connectionPings(ws)
 
@@ -2493,11 +2362,10 @@ describe("useUserWs", () => {
     const onDisconnect = vi.fn()
     const mod = await mountHook(vi.fn(), {
       onDisconnect,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     dispatchHiddenToVisible()
     const [{ nonce }] = connectionPings(ws)
 
@@ -2522,11 +2390,10 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     const mod = await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     dispatchWindowFocus()
     expect(connectionPings(ws)).toHaveLength(1)
 
@@ -2552,11 +2419,10 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     onConnectionStateChange.mockClear()
     dispatchHiddenToVisible()
 
@@ -2583,7 +2449,7 @@ describe("useUserWs", () => {
   it("uses full jitter, preserves the failure window across manual retries, and resets on auth.ok", async () => {
     const random = vi.spyOn(Math, "random").mockReturnValue(0.5)
     mockFetch.mockRejectedValue(new Error("network error"))
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
 
     expect(mockTrackCommunityWsAuthFailure).toHaveBeenCalledWith({
       failureClass: "network",
@@ -2607,7 +2473,7 @@ describe("useUserWs", () => {
     await flushPromises()
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     ws.simulateClose()
 
     expect(mockTrackCommunityWsRetryScheduled).toHaveBeenLastCalledWith({
@@ -2654,8 +2520,8 @@ describe("useUserWs", () => {
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
 
-    send({ type: "check_daemon_status" })
-    expect(ws.sent).toContain(JSON.stringify({ type: "check_daemon_status" }))
+    send({ type: "connection.ping", nonce: "manual-ping" })
+    expect(ws.sent).toContain(JSON.stringify({ type: "connection.ping", nonce: "manual-ping" }))
   })
 
   it("send() is a no-op when WS is not connected", async () => {
@@ -2774,22 +2640,22 @@ describe("useUserWs", () => {
   it("drops application frames until auth.ok commits the connection generation", async () => {
     setupTokenFetch()
     const onMessage = vi.fn()
-    await mountHook(onMessage, { requestDaemonStatusOnAuth: false })
+    await mountHook(onMessage)
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
 
     ws.simulateMessage({ type: "task.updated", taskId: "before" })
     expect(onMessage).not.toHaveBeenCalled()
 
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     ws.simulateMessage({ type: "task.updated", taskId: "after" })
-    expect(onMessage).toHaveBeenCalledWith({ type: "task.updated", taskId: "after" }, undefined, 1)
+    expect(onMessage).toHaveBeenCalledWith({ type: "task.updated", taskId: "after" }, undefined, BUSINESS_SCHEMA_VERSION)
   })
 
   it("does not report an access disconnect for a socket that never authenticated", async () => {
     setupTokenFetch()
     const onDisconnect = vi.fn()
-    await mountHook(vi.fn(), { onDisconnect, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onDisconnect })
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
 
@@ -2801,7 +2667,7 @@ describe("useUserWs", () => {
   it("does not classify a replacement for an unauthenticated failed generation as reconnect", async () => {
     setupTokenFetch()
     const onReconnect = vi.fn()
-    await mountHook(vi.fn(), { onReconnect, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onReconnect })
     const first = MockWebSocket.instances[0]
     first.simulateOpen()
     first.simulateClose()
@@ -2809,7 +2675,7 @@ describe("useUserWs", () => {
     await vi.advanceTimersByTimeAsync(2_000)
     const replacement = MockWebSocket.instances.at(-1)!
     replacement.simulateOpen()
-    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     expect(onReconnect).not.toHaveBeenCalled()
   })
@@ -2818,7 +2684,7 @@ describe("useUserWs", () => {
     setupTokenFetch()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const onMessage = vi.fn()
-    await mountHook(onMessage, { requestDaemonStatusOnAuth: false })
+    await mountHook(onMessage)
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
 
@@ -2831,17 +2697,17 @@ describe("useUserWs", () => {
     expect(JSON.stringify(warn.mock.calls)).not.toContain("sentinel-token")
     expect(JSON.stringify(warn.mock.calls)).not.toContain("private")
 
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const valid = { type: "email.received", agentId: "agent-1" }
     ws.simulateMessage(valid)
-    expect(onMessage).toHaveBeenCalledWith(valid, undefined, 1)
+    expect(onMessage).toHaveBeenCalledWith(valid, undefined, BUSINESS_SCHEMA_VERSION)
   })
 
   it("consumes the raw pong liveness response without reporting a dropped frame", async () => {
     setupTokenFetch()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const onMessage = vi.fn()
-    await mountHook(onMessage, { requestDaemonStatusOnAuth: false })
+    await mountHook(onMessage)
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
     warn.mockClear()
@@ -2855,10 +2721,10 @@ describe("useUserWs", () => {
   it("refreshes the liveness deadline when a raw pong arrives", async () => {
     setupTokenFetch()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     warn.mockClear()
 
     await vi.advanceTimersByTimeAsync(29_000)
@@ -2875,12 +2741,12 @@ describe("useUserWs", () => {
   it("consumes duplicate auth.ok frames once per generation", async () => {
     setupTokenFetch()
     const onAuthenticated = vi.fn()
-    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onAuthenticated })
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
 
-    ws.simulateMessage({ type: "auth.ok" })
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     expect(onAuthenticated).toHaveBeenCalledTimes(1)
   })
@@ -2888,10 +2754,10 @@ describe("useUserWs", () => {
   it("fires reconnect only after replacement authentication and passes gap duration", async () => {
     setupTokenFetch()
     const onReconnect = vi.fn()
-    await mountHook(vi.fn(), { onReconnect, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onReconnect })
     const first = MockWebSocket.instances[0]
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onReconnect).not.toHaveBeenCalled()
 
     vi.setSystemTime(new Date("2026-08-11T08:00:00.000Z"))
@@ -2902,12 +2768,12 @@ describe("useUserWs", () => {
     replacement.simulateOpen()
     expect(onReconnect).not.toHaveBeenCalled()
 
-    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(onReconnect).toHaveBeenCalledTimes(1)
     expect(onReconnect).toHaveBeenCalledWith({ reconnectDurationMs: 2_000 })
   })
 
-  it("commits auth before callbacks and preserves authenticated → reconnect → status order", async () => {
+  it("commits auth before callbacks and preserves authenticated → reconnect order", async () => {
     setupTokenFetch()
     const trace: string[] = []
     const onMessage = vi.fn(() => trace.push("message"))
@@ -2916,7 +2782,7 @@ describe("useUserWs", () => {
     await mountHook(onMessage, { onAuthenticated, onReconnect })
     const first = MockWebSocket.instances[0]
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     trace.length = 0
     first.simulateClose()
     setupTokenFetch()
@@ -2928,10 +2794,10 @@ describe("useUserWs", () => {
       if (data === JSON.stringify({ type: "check_daemon_status" })) trace.push("status")
     }
     replacement.simulateOpen()
-    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     replacement.simulateMessage({ type: "task.updated", taskId: "after-auth" })
 
-    expect(trace).toEqual(["authenticated", "reconnect", "status", "message"])
+    expect(trace).toEqual(["authenticated", "reconnect", "message"])
   })
 
   it("does not send or start heartbeat after onAuthenticated synchronously reconnects", async () => {
@@ -2942,10 +2808,10 @@ describe("useUserWs", () => {
       reconnectDuringCallback = false
       latestHookResult!.reconnectNow()
     })
-    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: true })
+    await mountHook(vi.fn(), { onAuthenticated })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     await flushPromises()
 
     expect(first.closed).toBe(true)
@@ -2958,16 +2824,16 @@ describe("useUserWs", () => {
   it("does not continue an old auth.ok after onReconnect synchronously replaces it", async () => {
     setupTokenFetch()
     const onReconnect = vi.fn(() => latestHookResult!.reconnectNow())
-    await mountHook(vi.fn(), { onReconnect, requestDaemonStatusOnAuth: true })
+    await mountHook(vi.fn(), { onReconnect })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    first.simulateMessage({ type: "auth.ok" })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     first.simulateClose()
     await vi.advanceTimersByTimeAsync(2_000)
 
     const replacement = MockWebSocket.instances.at(-1)!
     replacement.simulateOpen()
-    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     await flushPromises()
 
     expect(replacement.closed).toBe(true)
@@ -2985,20 +2851,19 @@ describe("useUserWs", () => {
       onAuthenticated,
       onDisconnect,
       onReconnect,
-      requestDaemonStatusOnAuth: true,
     })
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
 
-    expect(() => ws.simulateMessage({ type: "auth.ok" })).not.toThrow()
-    expect(ws.sent).toContain(JSON.stringify({ type: "check_daemon_status" }))
+    expect(() => ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })).not.toThrow()
+    expect(ws.sent).not.toContain(JSON.stringify({ type: "check_daemon_status" }))
     expect(() => ws.simulateClose()).not.toThrow()
     setupTokenFetch()
     await vi.advanceTimersByTimeAsync(2_000)
     const replacement = MockWebSocket.instances.at(-1)!
     replacement.simulateOpen()
-    expect(() => replacement.simulateMessage({ type: "auth.ok" })).not.toThrow()
-    expect(replacement.sent).toContain(JSON.stringify({ type: "check_daemon_status" }))
+    expect(() => replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })).not.toThrow()
+    expect(replacement.sent).not.toContain(JSON.stringify({ type: "check_daemon_status" }))
     await flushPromises()
     expect(warn.mock.calls.flat()).not.toContain("secret sync error")
     expect(warn.mock.calls.flat()).not.toContain("secret async error")
@@ -3008,10 +2873,10 @@ describe("useUserWs", () => {
   it("caps community frames without imposing the cap on generic frames", async () => {
     setupTokenFetch()
     const onMessage = vi.fn()
-    await mountHook(onMessage, { requestDaemonStatusOnAuth: false })
+    await mountHook(onMessage)
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     const oversizedCommunity = JSON.stringify({
       type: "community:message.create",
@@ -3020,23 +2885,23 @@ describe("useUserWs", () => {
     ws.simulateRawMessage(oversizedCommunity)
     expect(onMessage).not.toHaveBeenCalled()
 
-    const legalLargeBatch = {
-      type: "community:events.batch",
-      payload: "x".repeat(70_000),
-    }
+    const legalLargeBatch = await currentBatch([0, 1].map(index => ({ ...resourceMessage,
+      message: { ...resourceMessage.message, id: `large-${index}`, content: "x".repeat(40_000) } })))
+    expect(new TextEncoder().encode(JSON.stringify(legalLargeBatch)).byteLength).toBeGreaterThan(65_536)
     ws.simulateMessage(legalLargeBatch)
-    expect(onMessage).toHaveBeenCalledWith(legalLargeBatch, undefined, 1)
+    await vi.waitFor(() => expect(onMessage).toHaveBeenCalledWith(legalLargeBatch, expect.any(Function), BUSINESS_SCHEMA_VERSION))
 
     onMessage.mockClear()
     ws.simulateRawMessage(JSON.stringify({
-      type: "community:events.batch",
+      type: communityBrowserEventBatchType(), schemaVersion: BUSINESS_SCHEMA_VERSION,
       payload: "x".repeat(COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES),
     }))
+    await flushPromises()
     expect(onMessage).not.toHaveBeenCalled()
 
     const generic = { type: "task.updated", payload: "x".repeat(65_536) }
     ws.simulateMessage(generic)
-    expect(onMessage).toHaveBeenCalledWith(generic, undefined, 1)
+    expect(onMessage).toHaveBeenCalledWith(generic, undefined, BUSINESS_SCHEMA_VERSION)
   })
   it.each(["token", "authentication", "heartbeat"] as const)("keeps one retry deadline when a timed-out %s attempt later fails", async (kind) => {
     const random = vi.spyOn(Math, "random").mockReturnValue(0.75)
@@ -3044,12 +2909,12 @@ describe("useUserWs", () => {
       const tokenResponse = deferred<never>()
       if (kind === "token") mockFetch.mockReturnValueOnce(tokenResponse.promise)
       else setupTokenFetch()
-      const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+      const mod = await mountHook(vi.fn())
       const old = MockWebSocket.instances[0]
       if (old) {
         old.close = vi.fn(() => { old.readyState = MockWebSocket.CLOSING })
         old.simulateOpen()
-        if (kind === "heartbeat") old.simulateMessage({ type: "auth.ok" })
+        if (kind === "heartbeat") old.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
       }
       const count = MockWebSocket.instances.length
       await vi.advanceTimersByTimeAsync(kind === "heartbeat" ? 35_000 : mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS)
@@ -3058,7 +2923,7 @@ describe("useUserWs", () => {
       else {
         old!.simulateClose()
         old!.simulateError()
-        old!.simulateMessage({ type: "auth.ok" })
+        old!.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
       }
       await flushPromises()
       expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
@@ -3076,11 +2941,11 @@ describe("useUserWs", () => {
   it.each(["authentication", "heartbeat"] as const)("retires %s timeout without waiting for close and ignores every stale callback", async (kind) => {
     setupTokenFetch()
     const onDisconnect = vi.fn(), onReconnect = vi.fn(), onMessage = vi.fn(), onConnectionStateChange = vi.fn()
-    const mod = await mountHook(onMessage, { onDisconnect, onReconnect, onConnectionStateChange, requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(onMessage, { onDisconnect, onReconnect, onConnectionStateChange })
     const old = MockWebSocket.instances[0]!
     old.close = vi.fn(() => { old.readyState = MockWebSocket.CLOSING })
     old.simulateOpen()
-    if (kind === "heartbeat") old.simulateMessage({ type: "auth.ok" })
+    if (kind === "heartbeat") old.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const deadline = kind === "authentication" ? mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS : 35_000
     await vi.advanceTimersByTimeAsync(deadline - 1)
     expect(old.close).not.toHaveBeenCalled()
@@ -3092,9 +2957,9 @@ describe("useUserWs", () => {
     expect(MockWebSocket.instances).toHaveLength(2)
     const replacement = MockWebSocket.instances[1]!
     replacement.simulateOpen()
-    replacement.simulateMessage({ type: "auth.ok" })
+    replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     old.simulateOpen()
-    old.simulateMessage({ type: "auth.ok" })
+    old.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     old.simulateMessage({ type: "task.updated" })
     old.simulateClose()
     old.simulateError()
@@ -3114,10 +2979,10 @@ describe("useUserWs", () => {
     }) } } })
     setupTokenFetch()
     const onForeground = vi.fn(), onConnectionStateChange = vi.fn()
-    await mountHook(vi.fn(), { onForeground, onConnectionStateChange, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onForeground, onConnectionStateChange })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const sent = ws.sent.length
     listeners.get("tauri://suspended")!()
     dispatchWindowFocus()
@@ -3154,10 +3019,10 @@ describe("useUserWs", () => {
     }) } } })
     setupTokenFetch()
     const onForeground = vi.fn(), onConnectionStateChange = vi.fn()
-    await mountHook(vi.fn(), { onForeground, onConnectionStateChange, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onForeground, onConnectionStateChange })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     callbacks.get("tauri://suspended")!()
     resumed.reject(new Error("permission denied"))
     await flushPromises()

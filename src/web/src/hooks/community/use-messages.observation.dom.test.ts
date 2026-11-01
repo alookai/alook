@@ -2,7 +2,7 @@ import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures
 import { createElement, type PropsWithChildren } from "react"
 import { ROOT_CONTEXT, SpanKind, context, trace } from "@opentelemetry/api"
 import { InMemorySpanExporter, SimpleSpanProcessor, WebTracerProvider } from "@opentelemetry/sdk-trace-web"
-import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { afterEach, expect, it, vi } from "vitest"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
@@ -41,8 +41,8 @@ it.each(["channel", "dm"] as const)("keeps real %s API events and native spans o
     span.end()
     const entry = conversationEntryFromChannel({ id: "channel-a", serverId: kind === "channel" ? "server-a" : null, type: kind === "channel" ? "text" : "dm", name: null, archived: false, createdAt: "2026-10-01T00:00:00Z" })
     return Response.json(new URL(url, "https://example.test").searchParams.has("entry") ? entry : {
-      contractVersion: COMMUNITY_CONTRACT_VERSION, channelId: entry.channelId, messages: entry.messages, page: entry.page, surfaceReceipt: entry.surfaceReceipt,
-    }, { headers: { [COMMUNITY_CONTRACT_HEADER]: new URL(url, "https://example.test").searchParams.has("entry") ? "3" : String(COMMUNITY_CONTRACT_VERSION) } })
+      contractVersion: BUSINESS_SCHEMA_VERSION, channelId: entry.channelId, profiles: entry.profiles, messages: entry.messages, page: entry.page, surfaceReceipt: entry.surfaceReceipt,
+    }, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
 
   }))
   const href = kind === "channel" ? "/c/channels/server-a/channel-a" : "/c/me/channel-a"

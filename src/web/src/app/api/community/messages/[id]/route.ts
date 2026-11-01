@@ -1,13 +1,13 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
-import { canManageServer, queries, MAX_MESSAGE_CONTENT_LENGTH, WS_EVENTS } from "@alook/shared"
+import { canManageServer, queries, WS_EVENTS } from "@alook/shared"
 import {
   requireChannelMember,
   requireDMAccess,
-  requireDMCommunicationAccess,
   requireMessageSurfaceAccess,
   requireServerMember,
 } from "@/lib/community/permissions"
@@ -15,12 +15,11 @@ import { resolveTargetForMember } from "@/lib/community/resolve-ref"
 import { isDmTarget } from "@/lib/community/message-handler"
 import {
   broadcastToUserSafe,
-  fanOutToChannel,
   fanOutToServerMembers,
 } from "@/lib/community/fanout"
-import { readCommunityMessageResource } from "@/lib/community/message-payload"
+import { readCommunityMessageResource, readCommunityMessageProfiles } from "@/lib/community/message-payload"
 import { scheduleForumPostMediaCleanup } from "@/lib/community/forum-post-media-cleanup"
-import { CommunityMessageReadSchema, requestedCommunityContract, type CommunityContract } from "@alook/shared"
+import { CommunityMessageReadSchema, COMMUNITY_RESOURCE_CONTRACT_VERSION, type CommunityContract } from "@alook/shared"
 import { writeCommunityContractJSON } from "@/lib/community/read-contract"
 
 // A bot addresses by ref-in-query (`?ref=` + `?seq=`, the folded `resolve`
@@ -33,7 +32,7 @@ const REF_PLACEHOLDER_ID = "resolve"
  * GET /api/community/messages/[id] — single fully-hydrated message.
  *
  * Dual-actor hydrate door (route/disc trunk — folds the `resolve` bot verb).
- * withCommunityActor serves human (session, id-in-path) + bot (crk_, ref+seq).
+ * communityActorPolicy serves human (session, id-in-path) + bot (crk_, ref+seq).
  * The response FORM forks by the credential actor (Aigneis ②, never a field):
  *   - human/web → `mapMessageForApi` (attachments + reactions + reply preview),
  *     the thread-opener block shape. Addressing: messageId in the path.
@@ -52,76 +51,13 @@ const REF_PLACEHOLDER_ID = "resolve"
  * Both arms hydrate the SAME row (attachments + reply scoped to the message's
  * own surface); only the projection differs.
  */
-export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   if (ctx.actor.kind === "bot") {
     return handleBotResolve(db, ctx.actor.userId, req)
   }
-  return handleHumanGet(db, ctx.actor.userId, ctx.params?.id, requestedCommunityContract(req.headers) ?? 1)
-})
-
-/** PATCH /api/community/messages/[id] — edit only the caller's own text.
- * Admin status never grants edit-as-author; attachments are intentionally not
- * part of this contract. */
-export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
-  if (ctx.actor.kind !== "human") return writeError("human session required", 401)
-  const messageId = ctx.params?.id
-  if (!messageId || messageId === REF_PLACEHOLDER_ID) return writeError("missing message id", 400)
-
-  let raw: unknown
-  try {
-    raw = await req.json()
-  } catch {
-    return writeError("invalid request body", 400)
-  }
-  const content = raw && typeof raw === "object" ? (raw as { content?: unknown }).content : undefined
-  if (typeof content !== "string" || content.trim().length === 0) {
-    return writeError("content is required", 400)
-  }
-  if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
-    return writeError(`content must be ≤ ${MAX_MESSAGE_CONTENT_LENGTH} characters`, 400)
-  }
-
-  // Editing is a communication write. Authorize and mutate in a primary
-  // session so a recent unfriend/block cannot be missed by replica lag.
-  const db = getPrimaryDb(ctx.env.DB)
-  const message = await queries.communityMessage.getMessage(db, messageId)
-  if (!message) return writeError("message not found", 404)
-
-  const channel = await queries.communityChannel.getChannel(db, message.channelId)
-  const channelType = channel?.type ?? null
-  const access = channelType === "dm"
-    ? await requireDMCommunicationAccess(db, message.channelId, ctx.actor.userId)
-    : await requireChannelMember(db, message.channelId, ctx.actor.userId)
-  if (!access.ok) return writeError(access.error, access.status)
-  if (message.authorId !== ctx.actor.userId) return writeError("only the message author may edit it", 403)
-
-  const updated = await queries.communityMessage.updateOwnMessageContent(db, {
-    messageId,
-    authorId: ctx.actor.userId,
-    content,
-  })
-  if (!updated) return writeError("message not found", 404)
-  // Forum openers live in the PARENT forum channel; the child post points back
-  // to them via parentMessageId. Resolve through the same indexed relation as
-  // the tags route instead of inspecting the parent row's own parentMessageId.
-  const openerThread = channelType === "forum"
-    ? await queries.communityChannel.getThreadChannelByParentMessage(db, message.channelId, messageId)
-    : null
-  const isForumOpener = openerThread?.type === "thread"
-  await fanOutToChannel(message.channelId, {
-    type: WS_EVENTS.MESSAGE_EDITED,
-    channelId: isForumOpener ? openerThread.id : message.channelId,
-    messageId,
-    content,
-    ...(isForumOpener
-      ? { parentChannelId: message.channelId, serverId: openerThread.serverId }
-      : channelType !== "dm" && channel?.serverId
-        ? { serverId: channel.serverId }
-        : {}),
-  })
-  return writeJSON({ message: updated })
+  return handleHumanGet(db, ctx.actor.userId, ctx.params?.id, COMMUNITY_RESOURCE_CONTRACT_VERSION)
 })
 
 /**
@@ -133,7 +69,7 @@ export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
  * text-channel thread openers deliberately remain unsupported in this first
  * version.
  */
-export const DELETE = withCommunityActor(async (_req: NextRequest, ctx) => {
+export const DELETE = withAuth(communityActorPolicy(), async (_req: NextRequest, ctx) => {
   if (ctx.actor.kind !== "human") return writeError("human session required", 401)
   const openerId = ctx.params?.id
   if (!openerId || openerId === REF_PLACEHOLDER_ID) return writeError("missing message id", 400)
@@ -244,9 +180,9 @@ async function handleHumanGet(
     if (!auth.ok) return writeError(auth.error, auth.status)
   }
 
-  const payload = await readCommunityMessageResource(db, userId, message, contract === 3 ? 3 : 1)
-  if (contract === 3) return writeCommunityContractJSON(CommunityMessageReadSchema.parse({ contractVersion: 3, channelId: message.channelId, message: payload }), 3)
-  return writeJSON({ ...payload, channelId: message.channelId })
+  const payload = await readCommunityMessageResource(db, userId, message, contract)
+  const profiles = await readCommunityMessageProfiles(db, [payload])
+  return writeCommunityContractJSON(CommunityMessageReadSchema.parse({ contractVersion: contract, channelId: message.channelId, message: payload, profiles }), contract)
 }
 
 /**

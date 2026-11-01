@@ -8,6 +8,11 @@ export function invalidateChannelRefDirectory(
     queryKey: communityKeys.channelRefDirectory(),
     exact: true,
   })
+  invalidateChannelRefTargets(projection)
+}
+
+export function invalidateChannelRefTargets(projection: CommunityWsProjectionTransaction) {
+  projection.fence("channel-ref-targets", { queryKey: communityKeys.channelRefTargets() })
 }
 
 export function invalidateServerDetail(
@@ -35,19 +40,6 @@ export function invalidateChannelMembers(
 ) {
   projection.invalidate("channel-members", {
     queryKey: communityKeys.channelMembers(channelId),
-  })
-}
-
-export function invalidateChannelRoster(
-  projection: CommunityWsProjectionTransaction,
-  channelId: string,
-) {
-  invalidateChannelMembers(projection, channelId)
-  projection.invalidate("channel-addable-members", {
-    queryKey: communityKeys.channelAddableMembers(channelId),
-  })
-  projection.invalidate("thread-participants", {
-    queryKey: communityKeys.threadParticipants(channelId),
   })
 }
 
@@ -87,13 +79,7 @@ export function invalidateFriends(
 export function invalidateInbox(
   projection: CommunityWsProjectionTransaction,
 ) {
-  projection.invalidate("inbox", { queryKey: communityKeys.inbox() })
-}
-
-export function invalidateDms(
-  projection: CommunityWsProjectionTransaction,
-) {
-  projection.invalidate("dms", { queryKey: communityKeys.dms() })
+  projection.invalidate("attention", { queryKey: communityKeys.accountAttention(), exact: true })
 }
 
 export function invalidatePresence(

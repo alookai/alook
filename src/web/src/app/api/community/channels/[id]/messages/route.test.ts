@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, queries } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -88,6 +89,7 @@ vi.mock("@alook/shared", async () => {
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
         resolveChannelByNameForMember: (...a: unknown[]) => mockResolveChannelByNameForMember(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
+        listChildChannelsByParentMessageIds: (...a: unknown[]) => mockListChildChannels(...a),
         isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
         createChannel: (...a: unknown[]) => mockCreateChannel(...a),
@@ -132,7 +134,9 @@ vi.mock("@alook/shared", async () => {
       communityReaction: {
         listReactionsByMessageIds: (...a: unknown[]) => mockListReactionsByMessageIds(...a),
       },
+      communityUserProfile: { getResourceProfiles: vi.fn(async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: id === "peer" ? "Peer" : "Author", discriminator: "0042", avatar: null, avatarVersion: id === "peer" ? 5 : 0 }))), getProfilesByUserIds: vi.fn(async () => []) },
       user: {
+        getUsersByIds: vi.fn(async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: "Author", discriminator: "0042", image: null, avatarVersion: 0 }))),
         getUserPublic: (...a: unknown[]) => mockGetUserPublic(...a),
         getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
         getUserByNameAndDiscriminator: (...a: unknown[]) => mockGetUserByNameAndDiscriminator(...a),
@@ -189,26 +193,26 @@ vi.mock("@/lib/broadcast", () => ({
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
-  }),
+  humanAuthPolicy: { resolve: async (req: any) => {
+
+    return ({ context: { env: { DB: {} }, userId: "u1", email: "u@t.com" } })
+  } },
 }))
 
-// POST is now the dual-actor door (withCommunityActor). These POST tests
+// POST is now the dual-actor door (communityActorPolicy). These POST tests
 // exercise the HUMAN arm — mock the wrapper to yield a human actor + the real
 // channelId from the path. The bot arm is covered in the send-fold tests.
 vi.mock("@/lib/middleware/community-actor", () => ({
   // Credential-based actor dispatch (mirrors the real wrapper): a crk_ bearer →
   // bot actor, else → human. Lets the bot-read arm be exercised via header.
-  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
+  communityActorPolicy: () => ({ resolve: async (req: any) => {
+
     const authz = req?.headers?.get?.("Authorization") ?? ""
     const actor = authz.startsWith("Bearer crk_")
       ? { kind: "bot", userId: "bot_1", ownerUserId: "owner_1", machineId: "m_1" }
       : { kind: "human", userId: "u1", email: "u@t.com" }
-    return handler(req, { env: { DB: {} }, actor, params })
-  }),
+    return ({ context: { env: { DB: {} }, actor } })
+  } }),
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {
@@ -227,7 +231,7 @@ function postReq(body: unknown) {
   return new NextRequest("http://localhost/api/community/channels/c1/messages", {
     method: "POST",
     body: JSON.stringify(body),
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-alook-community-contract": String(BUSINESS_SCHEMA_VERSION) },
   })
 }
 
@@ -240,7 +244,7 @@ function botPostReq(body: unknown) {
 }
 
 function getReq() {
-  return new NextRequest("http://localhost/api/community/channels/c1/messages", { method: "GET" })
+  return new NextRequest("http://localhost/api/community/channels/c1/messages", { method: "GET", headers: { "x-alook-community-contract": String(BUSINESS_SCHEMA_VERSION) } })
 }
 
 const ctx = { params: { id: "c1" } } as any
@@ -253,7 +257,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     // The door's single mask (requireMessageSurfaceAccess) probes getChannel
     // first to dispatch by surface; default = the same text channel.
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
-    mockCreateMessage.mockResolvedValue({ id: "m1" })
+    mockCreateMessage.mockImplementation(async (_db: unknown, data: { clientNonce?: string }) => ({ id: "m1", clientNonce: data.clientNonce ?? null }))
     // Human author by default.
     mockGetUserInternal.mockResolvedValue({ isBot: false, deletedAt: null })
     mockGetMessage.mockResolvedValue({
@@ -262,6 +266,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
       authorId: "u1",
       authorName: "Alice",
       authorImage: null,
+      authorAvatarVersion: 0,
       authorEmail: "u1@t.com",
       content: "hello",
       type: "default",
@@ -295,19 +300,19 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetDMBetween.mockResolvedValue(null)
   })
 
-  it.each([false, true])("confirms a full v3 human message with replay=%s", async (replay) => {
+  it.each([false, true])("confirms a full v3 human message from a nonce-free read-back with replay=%s", async (replay) => {
     const row = { id: "m1", channelId: "c1", seq: 12, authorId: "u1", authorName: "Alice", authorImage: null, authorAvatarVersion: 0,
-      content: "hello", type: "default", mentionType: null, replyToId: null, clientNonce: "v3-nonce", embeds: null, createdAt: "now" }
+      content: "hello", type: "default", mentionType: null, replyToId: null, embeds: null, createdAt: "now" }
     mockGetMessage.mockResolvedValue(row)
     mockGetMessageByAuthorAndNonce.mockResolvedValue(replay ? row : null)
     const request = postReq({ content: "hello", nonce: "v3-nonce" })
-    request.headers.set("x-alook-community-contract", "3")
+    request.headers.set("x-alook-community-contract", String(BUSINESS_SCHEMA_VERSION))
     request.headers.set("cookie", "_ga=GA1.1.123.456")
     const response = await POST(request, ctx)
     expect(response.status).toBe(replay ? 200 : 201)
-    expect(response.headers.get("x-alook-community-contract")).toBe("3")
+    expect(response.headers.get("x-alook-community-contract")).toBe(String(BUSINESS_SCHEMA_VERSION))
     expect(response.cookies.get("alook_ga_session")).toBeUndefined()
-    expect(await response.json()).toEqual({ contractVersion: 3, channelId: "c1", deduped: replay, message: {
+    expect(await response.json()).toEqual({ profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }], contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", deduped: replay, message: {
       id: "m1", channelId: "c1", seq: 12, authorId: "u1", authorName: "Alice", authorAvatar: null, authorAvatarVersion: 0,
       content: "hello", type: "chat", mentionType: null, replyToId: null, clientNonce: "v3-nonce", createdAt: "now", attachments: [],
     } })
@@ -415,6 +420,24 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
   })
 
+  it.each([false, true])("resolves a bot reply only within the selected channel (found=%s)", async (found) => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockGetMessageByChannelAndSeq.mockResolvedValueOnce(found ? { id: "reply_1" } : null)
+    if (found) mockGetMessageInScope.mockResolvedValueOnce({ id: "reply_1", authorId: "u2", content: "original" })
+    const response = await POST(botPostReq({ channel: "/demo#0042/general", content: { text: "reply" }, replyToSeq: 7 }), ctx)
+    expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith({}, { channelId: "c1" }, 7)
+    if (found) {
+      expect(response.status).toBe(200)
+      expect((await response.json()).state).toBe("sent")
+      expect(mockCreateMessage.mock.calls[0][1].replyToId).toBe("reply_1")
+    } else {
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual({ error: "reply target #7 not found in /demo#0042/general" })
+      expect(mockCreateMessage).not.toHaveBeenCalled()
+    }
+  })
+
   it("preserves the alignment CAS when a message arrives during JEV evaluation", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])
@@ -426,6 +449,17 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
   })
 
+  it.each([undefined, "", "resolve"])("rejects a human send without a real path ID (%s), even with a body ref", async (id) => {
+    const params: Record<string, string> = id === undefined ? {} : { id }
+    const response = await POST(postReq({ content: "hello", channel: "/demo#0042/general" }), { params })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "missing channel id" })
+    expect(mockCheckMessageRateLimit).not.toHaveBeenCalled()
+    expect(mockGetChannel).not.toHaveBeenCalled()
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+    expect(mockHasDeliverableUnreadForAgentScope).not.toHaveBeenCalled()
+  })
+
   it("starts the write path on a first-primary D1 session", async () => {
     const res = await POST(postReq({ content: "hello" }), ctx)
 
@@ -435,7 +469,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockDuplicateCheck).not.toHaveBeenCalled()
   })
 
-  it.each([1, 3])("accepts a forum opener with contract %s without server analytics cookies", async (contract) => {
+  it.each([BUSINESS_SCHEMA_VERSION])("accepts a forum opener with current contract %s without server analytics cookies", async (contract) => {
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
     const request = postReq({ content: "a post's opener message" })
@@ -444,10 +478,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(res.status).toBe(201)
     expect(mockCreateMessage).toHaveBeenCalled()
     expect(res.cookies.get("alook_ga_session")).toBeUndefined()
-    expect(res.headers.get("x-alook-community-contract")).toBe(contract === 3 ? "3" : null)
+    expect(res.headers.get("x-alook-community-contract")).toBe(String(BUSINESS_SCHEMA_VERSION))
     const confirmation = await res.json()
-    expect(confirmation).toMatchObject({ message: { id: "m1" }, threadId: "thread_1", ...(contract === 3 ? { contractVersion: 3, channelId: "c1", deduped: false } : {}) })
-    if (contract === 1) expect(confirmation).not.toHaveProperty("deduped")
+    expect(confirmation).toMatchObject({ message: { id: "m1" }, threadId: "thread_1", contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", deduped: false })
   })
 
   it("a DM id via the door routes to the DM arm — the block gate runs (blocked peer → 403, not a silent channel-route bypass)", async () => {
@@ -501,7 +534,6 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetMessage.mockResolvedValue({
       id: "m1",
       seq: 12,
-      clientNonce: "n1",
       authorId: "u1",
       authorName: "Alice",
       authorImage: null,
@@ -518,7 +550,8 @@ describe("POST /api/community/channels/[id]/messages", () => {
     const body = await res.json() as { message: { id: string; seq: number; clientNonce?: string }; deduped?: boolean }
 
     expect(res.status).toBe(201)
-    expect(body).toEqual({
+    expect(body).toEqual({ profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }],
+      contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", deduped: false,
       message: expect.objectContaining({ id: "m1", seq: 12, clientNonce: "n1" }),
     })
   })
@@ -570,16 +603,19 @@ describe("POST /api/community/channels/[id]/messages", () => {
     const body = await res.json() as { message: { id: string; seq: number; clientNonce?: string }; deduped: boolean }
 
     expect(res.status).toBe(200)
-    expect(body).toEqual({
+    expect(body).toEqual({ profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }],
+      contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1",
       message: expect.objectContaining({ id: "m-existing", seq: 8, clientNonce: "n1" }),
       deduped: true,
     })
     expect(mockCreateMessage).not.toHaveBeenCalled()
   })
 
-  it("returns the full raw message row for human POST convergence", async () => {
+  it("returns the full current message resource for human POST convergence", async () => {
     const row = {
       id: "m_full",
+      clientNonce: "client-1",
+      authorAvatarVersion: 0,
       authorId: "u1",
       authorName: "Canonical Author",
       authorImage: "https://avatar.test/u1.png",
@@ -598,9 +634,17 @@ describe("POST /api/community/channels/[id]/messages", () => {
     const response = await POST(postReq({ content: "canonical content", nonce: "client-1" }), ctx)
 
     expect(response.status).toBe(201)
-    expect(response.headers.get("x-alook-community-contract")).toBeNull()
+    expect(response.headers.get("x-alook-community-contract")).toBe(String(BUSINESS_SCHEMA_VERSION))
     expect(response.cookies.get("alook_ga_session")).toBeUndefined()
-    expect(await response.json()).toEqual({ message: row })
+    expect(await response.json()).toEqual({ profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }],
+      contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", deduped: false,
+      message: {
+        id: "m_full", channelId: "c1", seq: 42, clientNonce: "client-1",
+        authorId: "u1", authorName: "Canonical Author", authorAvatar: "https://avatar.test/u1.png", authorAvatarVersion: 0,
+        content: "canonical content", type: "chat", mentionType: null, replyToId: null,
+        attachments: [], embeds: [{ title: "Canonical embed" }], createdAt: "2026-08-07T10:00:00.000Z",
+      },
+    })
   })
 
   it("rejects content longer than MAX_MESSAGE_CONTENT_LENGTH with 400", async () => {
@@ -662,6 +706,8 @@ describe("POST /api/community/channels/[id]/messages", () => {
     ])
     mockGetMessage.mockResolvedValue({
       id: "m1",
+      seq: 12,
+      authorAvatarVersion: 0,
       authorId: "u1",
       authorName: "Alice",
       authorImage: null,
@@ -1071,16 +1117,16 @@ describe("GET /api/community/channels/[id]/messages", () => {
     //   m-d → replies to r-in-scope again → resolves.
     //   m-e → no reply.
     mockListMessages.mockResolvedValue([
-      { id: "m-a", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "hey", type: "default", mentionType: null, replyToId: "r-in-scope", channelId: "c1", embeds: null, createdAt: "t1" },
-      { id: "m-b", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "leak?", type: "default", mentionType: null, replyToId: "r-out-of-scope", channelId: "c1", embeds: null, createdAt: "t2" },
-      { id: "m-c", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "gone", type: "default", mentionType: null, replyToId: "r-missing", channelId: "c1", embeds: null, createdAt: "t3" },
-      { id: "m-d", authorId: "u2", authorName: "B", authorEmail: "b@t.com", authorImage: null, content: "again", type: "default", mentionType: null, replyToId: "r-in-scope", channelId: "c1", embeds: null, createdAt: "t4" },
-      { id: "m-e", authorId: "u2", authorName: "B", authorEmail: "b@t.com", authorImage: null, content: "no reply", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "t5" },
+      { id: "m-a", seq: 1, authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, authorAvatarVersion: 0, content: "hey", type: "default", mentionType: null, replyToId: "r-in-scope", channelId: "c1", embeds: null, createdAt: "t1" },
+      { id: "m-b", seq: 2, authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, authorAvatarVersion: 0, content: "leak?", type: "default", mentionType: null, replyToId: "r-out-of-scope", channelId: "c1", embeds: null, createdAt: "t2" },
+      { id: "m-c", seq: 3, authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, authorAvatarVersion: 0, content: "gone", type: "default", mentionType: null, replyToId: "r-missing", channelId: "c1", embeds: null, createdAt: "t3" },
+      { id: "m-d", seq: 4, authorId: "u2", authorName: "B", authorEmail: "b@t.com", authorImage: null, authorAvatarVersion: 0, content: "again", type: "default", mentionType: null, replyToId: "r-in-scope", channelId: "c1", embeds: null, createdAt: "t4" },
+      { id: "m-e", seq: 5, authorId: "u2", authorName: "B", authorEmail: "b@t.com", authorImage: null, authorAvatarVersion: 0, content: "no reply", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "t5" },
     ])
     // The (mocked) scoped query only ever returns in-scope rows — "r-out-of-scope"
     // and "r-missing" are absent, simulating the real WHERE-clause scoping.
     mockGetMessagesByIdsInScope.mockResolvedValue([
-      { id: "r-in-scope", authorName: "Zed", content: "original", channelId: "c1", dmConversationId: null },
+      { id: "r-in-scope", authorId: "zed", authorName: "Zed", content: "original", channelId: "c1", dmConversationId: null },
     ])
 
     const res = await GET(getReq(), ctx)
@@ -1088,10 +1134,10 @@ describe("GET /api/community/channels/[id]/messages", () => {
     const body = await res.json() as { messages: Array<{ id: string; replyTo?: { id: string; authorName: string; text: string; deleted?: boolean } }> }
     const byId = new Map(body.messages.map((m) => [m.id, m]))
 
-    expect(byId.get("m-a")?.replyTo).toEqual({ id: "r-in-scope", authorName: "Zed", text: "original" })
+    expect(byId.get("m-a")?.replyTo).toEqual({ id: "r-in-scope", authorId: "zed", authorName: "Zed", text: "original" })
     expect(byId.get("m-b")?.replyTo).toEqual({ id: "r-out-of-scope", authorName: "Deleted user", text: "", deleted: true })
     expect(byId.get("m-c")?.replyTo).toEqual({ id: "r-missing", authorName: "Deleted user", text: "", deleted: true })
-    expect(byId.get("m-d")?.replyTo).toEqual({ id: "r-in-scope", authorName: "Zed", text: "original" })
+    expect(byId.get("m-d")?.replyTo).toEqual({ id: "r-in-scope", authorId: "zed", authorName: "Zed", text: "original" })
     expect(byId.get("m-e")?.replyTo).toBeUndefined()
 
     expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(1)
@@ -1103,16 +1149,16 @@ describe("GET /api/community/channels/[id]/messages", () => {
   it("retries BUSY reply enrichment and preserves the paginated response", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0)
     mockListMessages.mockResolvedValue([
-      { id: "m1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "reply", type: "default", mentionType: null, replyToId: "r1", channelId: "c1", embeds: null, createdAt: "t1" },
+      { id: "m1", seq: 1, authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, authorAvatarVersion: 0, content: "reply", type: "default", mentionType: null, replyToId: "r1", channelId: "c1", embeds: null, createdAt: "t1" },
     ])
     mockGetMessagesByIdsInScope
       .mockRejectedValueOnce(new Error("D1_ERROR: database is locked"))
-      .mockResolvedValueOnce([{ id: "r1", authorName: "B", content: "root", channelId: "c1", dmConversationId: null }])
+      .mockResolvedValueOnce([{ id: "r1", authorId: "reply-author", authorName: "B", content: "root", channelId: "c1", dmConversationId: null }])
     const res = await GET(getReq(), ctx)
     const body = await res.json()
     expect(body.messages).toHaveLength(1)
-    expect(body.messages[0].replyTo).toEqual({ id: "r1", authorName: "B", text: "root" })
-    expect(body.hasMore).toBe(false)
+    expect(body.messages[0].replyTo).toEqual({ id: "r1", authorId: "reply-author", authorName: "B", text: "root" })
+    expect(body.page.hasMoreOlder).toBe(false)
     expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(2)
     expect(mockListMessages).toHaveBeenCalledTimes(1)
   })
@@ -1120,7 +1166,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
   it("rethrows a non-BUSY reply-enrichment failure without retrying", async () => {
     const error = new Error("bad projection")
     mockListMessages.mockResolvedValue([
-      { id: "m1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "reply", type: "default", mentionType: null, replyToId: "r1", channelId: "c1", embeds: null, createdAt: "t1" },
+      { id: "m1", seq: 1, authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, authorAvatarVersion: 0, content: "reply", type: "default", mentionType: null, replyToId: "r1", channelId: "c1", embeds: null, createdAt: "t1" },
     ])
     mockGetMessagesByIdsInScope.mockRejectedValueOnce(error)
     await expect(GET(getReq(), ctx)).rejects.toBe(error)
@@ -1134,6 +1180,8 @@ describe("GET /api/community/channels/[id]/messages", () => {
     mockListMessages.mockResolvedValue([
       {
         id: "m-1",
+        seq: 1,
+        authorAvatarVersion: 0,
         authorId: "u1",
         authorName: "Alice",
         authorEmail: "alice@example.com",
@@ -1150,12 +1198,13 @@ describe("GET /api/community/channels/[id]/messages", () => {
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
     const body = (await res.json()) as {
-      messages: Array<{ authorName: string; authorAvatar: string }>
+      messages: Array<{ authorName: string; authorAvatar: string | null; authorEmail?: string }>
     }
     expect(body.messages[0]?.authorName).toBe("Alice")
     expect(body.messages[0]?.authorName).not.toBe("Deleted user")
     expect(body.messages[0]?.authorName).not.toContain("@")
-    expect(body.messages[0]?.authorAvatar).toBe("A")
+    expect(body.messages[0]?.authorAvatar).toBeNull()
+    expect(body.messages[0]).not.toHaveProperty("authorEmail")
   })
 
   it("runs attachment, reaction, reply-target, child-channel, and latest-seq fetches in parallel", async () => {
@@ -1163,7 +1212,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
     // concurrently (Promise.all), not sequentially. We prove concurrency by
     // observing the in-flight count of the mocked queries.
     mockListMessages.mockResolvedValue([
-      { id: "m-1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "hi", type: "default", mentionType: null, replyToId: "r-1", channelId: "c1", embeds: null, createdAt: "t1" },
+      { id: "m-1", seq: 1, authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, authorAvatarVersion: 0, content: "hi", type: "default", mentionType: null, replyToId: "r-1", channelId: "c1", embeds: null, createdAt: "t1" },
     ])
 
     let inFlight = 0
@@ -1189,7 +1238,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
     expect(mockListByMessageIds).toHaveBeenCalledTimes(1)
     expect(mockListReactionsByMessageIds).toHaveBeenCalledTimes(1)
     expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(1)
-    expect(mockListChildChannels).toHaveBeenCalledTimes(1)
+    expect(mockListChildChannels).toHaveBeenCalledExactlyOnceWith(expect.anything(), "c1", ["m-1"], null)
     expect(mockGetLatestMessageSeq).toHaveBeenCalledTimes(1)
   })
 
@@ -1199,8 +1248,8 @@ describe("GET /api/community/channels/[id]/messages", () => {
     // a parsed array render as-is (no double-parse, no re-stringify).
     const parsed = [{ url: "https://x/y", title: "hi" }]
     mockListMessages.mockResolvedValue([
-      { id: "m-1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "with embed", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: parsed, createdAt: "t1" },
-      { id: "m-2", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "no embed", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: undefined, createdAt: "t2" },
+      { id: "m-1", seq: 1, authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, authorAvatarVersion: 0, content: "with embed", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: parsed, createdAt: "t1" },
+      { id: "m-2", seq: 2, authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, authorAvatarVersion: 0, content: "no embed", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: undefined, createdAt: "t2" },
     ])
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
@@ -1210,21 +1259,19 @@ describe("GET /api/community/channels/[id]/messages", () => {
     expect(byId.get("m-2")?.embeds).toBeUndefined()
   })
 
-  it("always includes latestSeq in the legacy-mode envelope", async () => {
-    // The client (A2) reads latestSeq unconditionally — it must be present in
-    // every mode's envelope, including the legacy path.
+  it("always includes latestSeq in the current page envelope", async () => {
     mockListMessages.mockResolvedValue([])
     mockGetLatestMessageSeq.mockResolvedValue(17)
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
-    const body = await res.json() as { latestSeq: number }
-    expect(body.latestSeq).toBe(17)
+    const body = await res.json() as { page: { latestSeq: number } }
+    expect(body.page.latestSeq).toBe(17)
     expect(mockGetLatestMessageSeq).toHaveBeenCalledWith(expect.anything(), { channelId: "c1" })
   })
 
   it("passes a normalized tag into the channel-scoped message query before pagination", async () => {
     mockListMessages.mockResolvedValue([])
-    const req = new NextRequest("http://localhost/api/community/channels/c1/messages?tag=%20Bug%20&cursor=2026-01-01T00%3A00%3A00.000Z%7Cm1", { method: "GET" })
+    const req = new NextRequest("http://localhost/api/community/channels/c1/messages?tag=%20Bug%20&cursor=2026-01-01T00%3A00%3A00.000Z%7Cm1", { method: "GET", headers: { "x-alook-community-contract": String(BUSINESS_SCHEMA_VERSION) } })
     const res = await GET(req, ctx)
     expect(res.status).toBe(200)
     expect(mockListMessages).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
@@ -1235,7 +1282,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
   })
 
   it.each(["", "   "])("rejects an explicitly empty tag %j instead of widening to all messages", async (tag) => {
-    const req = new NextRequest(`http://localhost/api/community/channels/c1/messages?tag=${encodeURIComponent(tag)}`, { method: "GET" })
+    const req = new NextRequest(`http://localhost/api/community/channels/c1/messages?tag=${encodeURIComponent(tag)}`, { method: "GET", headers: { "x-alook-community-contract": String(BUSINESS_SCHEMA_VERSION) } })
     const res = await GET(req, ctx)
     expect(res.status).toBe(400)
     expect(mockListMessages).not.toHaveBeenCalled()
@@ -1243,7 +1290,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
 
   it("rejects a tag longer than the public message-tag limit", async () => {
     const tag = "x".repeat(MAX_FORUM_TAG_LENGTH + 1)
-    const req = new NextRequest(`http://localhost/api/community/channels/c1/messages?tag=${tag}`, { method: "GET" })
+    const req = new NextRequest(`http://localhost/api/community/channels/c1/messages?tag=${tag}`, { method: "GET", headers: { "x-alook-community-contract": String(BUSINESS_SCHEMA_VERSION) } })
     const res = await GET(req, ctx)
     expect(res.status).toBe(400)
     expect(mockListMessages).not.toHaveBeenCalled()
@@ -1257,11 +1304,11 @@ describe("GET /api/community/channels/[id]/messages", () => {
       })
       mockListMessagesAround.mockResolvedValue({
         older: [
-          { id: "m_o1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "o1", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:02.000Z" },
+          { id: "m_o1", seq: 2, authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, authorAvatarVersion: 0, content: "o1", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:02.000Z" },
         ],
         newer: [
-          { id: "m_anchor", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "anchor", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:03.000Z" },
-          { id: "m_n1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "n1", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:04.000Z" },
+          { id: "m_anchor", seq: 3, authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, authorAvatarVersion: 0, content: "anchor", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:03.000Z" },
+          { id: "m_n1", seq: 4, authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, authorAvatarVersion: 0, content: "n1", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:04.000Z" },
         ],
         hasMoreOlder: true,
         hasMoreNewer: false,
@@ -1269,25 +1316,27 @@ describe("GET /api/community/channels/[id]/messages", () => {
       mockGetLatestMessageSeq.mockResolvedValue(9)
 
       const url = "http://localhost/api/community/channels/c1/messages?anchor=m_anchor"
-      const req = new NextRequest(url, { method: "GET" })
+      const req = new NextRequest(url, { method: "GET", headers: { "x-alook-community-contract": String(BUSINESS_SCHEMA_VERSION) } })
       const res = await GET(req, ctx)
       expect(res.status).toBe(200)
       const body = (await res.json()) as {
         messages: Array<{ id: string }>
-        hasMoreOlder: boolean
-        hasMoreNewer: boolean
-        olderCursor?: string
-        newerCursor?: string
-        latestSeq: number
+        page: {
+          hasMoreOlder: boolean
+          hasMoreNewer: boolean
+          olderCursor: string | null
+          newerCursor: string | null
+          latestSeq: number
+        }
       }
       // Order is chronological ASC: older-reversed then newer.
       expect(body.messages.map((m) => m.id)).toEqual(["m_o1", "m_anchor", "m_n1"])
-      expect(body.hasMoreOlder).toBe(true)
-      expect(body.hasMoreNewer).toBe(false)
+      expect(body.page.hasMoreOlder).toBe(true)
+      expect(body.page.hasMoreNewer).toBe(false)
       // olderCursor points at the oldest returned row; newerCursor only when hasMoreNewer.
-      expect(body.olderCursor).toBe(`2026-06-30T00:00:02.000Z|m_o1`)
-      expect(body.newerCursor).toBeUndefined()
-      expect(body.latestSeq).toBe(9)
+      expect(body.page.olderCursor).toBe(`2026-06-30T00:00:02.000Z|m_o1`)
+      expect(body.page.newerCursor).toBeNull()
+      expect(body.page.latestSeq).toBe(9)
       // Scope-first resolve: anchor lookup passes the channel scope.
       expect(mockGetMessageInScope).toHaveBeenCalledWith(expect.anything(), "m_anchor", { channelId: "c1" })
     })
@@ -1296,6 +1345,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
       mockGetMessageInScope.mockResolvedValue(null)
       const req = new NextRequest("http://localhost/api/community/channels/c1/messages?anchor=m_missing", {
         method: "GET",
+        headers: { "x-alook-community-contract": String(BUSINESS_SCHEMA_VERSION) },
       })
       const res = await GET(req, ctx)
       expect(res.status).toBe(404)
@@ -1305,7 +1355,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
     it("applies tag to the same channel-scoped anchor window", async () => {
       mockGetMessageInScope.mockResolvedValue({ id: "m_anchor", createdAt: "2026-06-30T00:00:03.000Z" })
       mockListMessagesAround.mockResolvedValue({ older: [], newer: [], hasMoreOlder: false, hasMoreNewer: false })
-      const req = new NextRequest("http://localhost/api/community/channels/c1/messages?anchor=m_anchor&tag=%20Bug%20", { method: "GET" })
+      const req = new NextRequest("http://localhost/api/community/channels/c1/messages?anchor=m_anchor&tag=%20Bug%20", { method: "GET", headers: { "x-alook-community-contract": String(BUSINESS_SCHEMA_VERSION) } })
       const res = await GET(req, ctx)
       expect(res.status).toBe(200)
       expect(mockListMessagesAround).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
@@ -1319,32 +1369,34 @@ describe("GET /api/community/channels/[id]/messages", () => {
   describe("?since mode", () => {
     it("returns rows strictly newer than the cursor with hasMoreNewer + newerCursor + latestSeq", async () => {
       mockListMessagesSince.mockResolvedValue([
-        { id: "m_1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "1", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:01.000Z" },
-        { id: "m_2", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "2", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:02.000Z" },
+        { id: "m_1", seq: 1, authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, authorAvatarVersion: 0, content: "1", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:01.000Z" },
+        { id: "m_2", seq: 2, authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, authorAvatarVersion: 0, content: "2", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:02.000Z" },
       ])
       mockGetLatestMessageSeq.mockResolvedValue(2)
 
       const req = new NextRequest(
         "http://localhost/api/community/channels/c1/messages?since=2026-06-30T00:00:00.000Z%7Cm_0",
-        { method: "GET" },
+        { method: "GET", headers: { "x-alook-community-contract": String(BUSINESS_SCHEMA_VERSION) } },
       )
       const res = await GET(req, ctx)
       expect(res.status).toBe(200)
       const body = (await res.json()) as {
         messages: Array<{ id: string }>
-        hasMoreNewer: boolean
-        newerCursor?: string
-        hasMoreOlder: boolean
-        olderCursor?: string
-        latestSeq: number
+        page: {
+          hasMoreNewer: boolean
+          newerCursor: string | null
+          hasMoreOlder: boolean
+          olderCursor: string | null
+          latestSeq: number
+        }
       }
       expect(body.messages.map((m) => m.id)).toEqual(["m_1", "m_2"])
-      expect(body.hasMoreNewer).toBe(false)
-      expect(body.latestSeq).toBe(2)
+      expect(body.page.hasMoreNewer).toBe(false)
+      expect(body.page.latestSeq).toBe(2)
       // A since delta must carry an older-side signal so it can be paged back
       // through if it lands as the sole/oldest cache page (the DM-history bug).
-      expect(body.hasMoreOlder).toBe(true)
-      expect(body.olderCursor).toBe("2026-06-30T00:00:01.000Z|m_1")
+      expect(body.page.hasMoreOlder).toBe(true)
+      expect(body.page.olderCursor).toBe("2026-06-30T00:00:01.000Z|m_1")
       // Anchor-mode paths must not fire.
       expect(mockGetMessageInScope).not.toHaveBeenCalled()
       expect(mockListMessagesAround).not.toHaveBeenCalled()
@@ -1354,7 +1406,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
       mockListMessagesSince.mockResolvedValue([])
       const req = new NextRequest(
         "http://localhost/api/community/channels/c1/messages?since=2026-06-30T00:00:00.000Z%7Cm_0&tag=%20Bug%20",
-        { method: "GET" },
+        { method: "GET", headers: { "x-alook-community-contract": String(BUSINESS_SCHEMA_VERSION) } },
       )
       const res = await GET(req, ctx)
       expect(res.status).toBe(200)
@@ -1461,7 +1513,7 @@ describe("GET explicit conversation entry", () => {
     createdAt: "2026-10-15T00:00:05.000Z",
   }
   const pointer = { lastReadMessageId: "read", lastReadAt: message.createdAt, lastReadSeq: 5 }
-  const request = (search = "entry=1", contract = "3", bot = false) => new NextRequest(`http://localhost/api/community/channels/c1/messages?${search}`, {
+  const request = (search = "entry=1", contract = String(BUSINESS_SCHEMA_VERSION), bot = false) => new NextRequest(`http://localhost/api/community/channels/c1/messages?${search}`, {
     headers: { "x-alook-community-contract": contract, ...(bot ? { Authorization: "Bearer crk_entry_fixture" } : {}) },
   })
 
@@ -1525,9 +1577,9 @@ describe("GET explicit conversation entry", () => {
   it("returns qualified identity, pointer and confirmed empty first window through the existing door", async () => {
     const response = await GET(request(), ctx)
     expect(response.status).toBe(200)
-    expect(response.headers.get("x-alook-community-contract")).toBe("3")
+    expect(response.headers.get("x-alook-community-contract")).toBe(String(BUSINESS_SCHEMA_VERSION))
     expect(await response.json()).toMatchObject({
-      contractVersion: 3, readStateRevision: 0, viewerId: "u1", channelId: "c1", channel: { id: "c1", type: "text", archived: false },
+      contractVersion: BUSINESS_SCHEMA_VERSION, readStateRevision: 0, viewerId: "u1", channelId: "c1", channel: { id: "c1", type: "text", archived: false },
       access: { channelId: "c1", canRead: true, canSend: true, canCreateDiscussion: true },
       readState: { channelId: "c1", lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 },
       selection: { reason: "tail", anchorMessageId: null }, messages: [],
@@ -1602,8 +1654,8 @@ describe("GET explicit conversation entry", () => {
   })
 
   it.each([
-    ["entry=0", "3", false], ["entry=1", "2", false], ["entry=1", "3", true],
-    ["entry=1&window=before&cursor=2026-10-15T00%3A00%3A00.000Z%7Cm1", "3", false],
+    ["entry=0", String(BUSINESS_SCHEMA_VERSION), false], ["entry=1", "2", false], ["entry=1", String(BUSINESS_SCHEMA_VERSION), true],
+    ["entry=1&window=before&cursor=2026-10-15T00%3A00%3A00.000Z%7Cm1", String(BUSINESS_SCHEMA_VERSION), false],
   ])("rejects an unsupported entry before reading a pointer or messages: %s/%s/%s", async (search, contract, bot) => {
     const response = await GET(request(String(search), String(contract), Boolean(bot)), ctx)
     expect(response.status).toBe(400)
@@ -1621,7 +1673,7 @@ describe("GET explicit conversation entry", () => {
     const body = await response.json()
     expect(body).toMatchObject({ channel: { type: "dm", serverId: null }, access: { canRead: true, canSend: false, canCreateDiscussion: false }, peer: { id: "peer", name: "Peer", avatarVersion: 5 } })
     expect(body.peer).not.toHaveProperty("email")
-    expect(mockGetUserPublic).toHaveBeenCalledWith(expect.anything(), "peer")
+    expect(queries.communityUserProfile.getResourceProfiles).toHaveBeenCalledWith(expect.anything(), ["peer"])
     expect(mockAreFriends).toHaveBeenCalledWith(expect.anything(), "u1", "peer")
     expect(mockGetChannelForMember).not.toHaveBeenCalled()
     expect(mockCreateOrGetDM).not.toHaveBeenCalled()

@@ -8,3 +8,9 @@ export const ConversationPresentationContext = createContext<boolean | null>(nul
 export function useConversationActivity() {
   return useContext(ConversationActivityContext)
 }
+
+export function useConversationPresentation() {
+  const presented = useContext(ConversationPresentationContext)
+  const active = useConversationActivity()
+  return presented ?? active
+}

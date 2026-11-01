@@ -6,10 +6,11 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { toast } from "sonner"
 import { useBreakpoint } from "@/hooks/use-mobile"
-import { DmHeader } from "@/components/community/channels/dm-header"
+import { DmHeader, DmHeaderSkeleton } from "@/components/community/channels/dm-header"
 import { DmLoadingFrame } from "@/components/community/channels/dm-loading-frame"
 import { DmRouteErrorFrame } from "@/components/community/channels/dm-route-error-frame"
 import { Avatar } from "@/components/community/avatar"
+import { Skeleton } from "@/components/ui/skeleton"
 import { MessageList } from "@/components/community/messages/message-list"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/messages/composer"
@@ -31,6 +32,7 @@ import { useDms } from "@/hooks/community/use-dms"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useDmMessages } from "@/hooks/community/use-messages"
 import { resolveMessageReadProjection } from "@/lib/community/message-read-projection"
+import { useMessageUnreadCount } from "@/hooks/community/use-message-unread-count"
 import { useDmWatermark } from "@/hooks/community/use-dm-watermark"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
 import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
@@ -57,6 +59,7 @@ import { useSetChannelNotif } from "@/hooks/community/mutations"
 import { toastApiError } from "@/lib/api/client"
 import {
   useCanonicalProfilesByUserId,
+  useCanonicalCommunityProfile, useChannelRosterRows,
 } from "@/lib/community-db/projections"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 import { commitCommunityChannelRoute } from "@/lib/community/last-community-route"
@@ -87,15 +90,30 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
   const currentUser = useCurrentUser()
   const metadata = useChannelMetadata(null, dmId)
   const uiHandlers = useUiHandlers()
-  const notifications = useNotificationSettings()
+  const notifications = useNotificationSettings(false)
   const setNotification = useSetChannelNotif()
 
-  const dmsQuery = useDms()
+  const dmsQuery = useDms(false, true)
   const dms = dmsQuery.dms
   const dmsLoading = dmsQuery.isLoading
-  const { friends: rawFriends, blocked } = useFriends()
-  const dm = useMemo(() => dms.find((candidate) => candidate.id === dmId) ?? null, [dms, dmId])
-  const dmBlocked = !!dm && blocked.some((b) => (b.userId ?? b.id) === dm.userId)
+  const { friends: rawFriends, blocked } = useFriends({ enabled: false })
+  const access = useChannelRosterRows(dmId, "access")
+  const peers = [...new Set(access.filter(row => row.userId !== currentUser.id).map(row => row.userId))]
+  const directoryDm = dms.find(candidate => candidate.id === dmId)
+  const peerId = peers.length === 1 ? peers[0] : peers.length === 0 ? directoryDm?.userId ?? null : null
+  const peerProfile = useCanonicalCommunityProfile(peerId)
+  const dm = useMemo(() => {
+    if (!peerId) return null
+    const known = dms.find(candidate => candidate.id === dmId && candidate.userId === peerId)
+    if (known) return known
+    const profile = readCommunityProfile(peerProfile ? { ...peerProfile, name: peerProfile.name ?? "Direct message" } : { id: peerId, name: "Direct message" }, peerId)
+    return { ...profile, id: dmId, userId: peerId, status: profile.presence, preview: "" }
+  }, [dms, dmId, peerId, peerProfile])
+  const displayName = dm?.name ?? "Direct message"
+  const titleState = directoryDm?.userId === peerId || peerProfile?.name != null ? "ready"
+    : dmsQuery.isError || dmsQuery.isSuccess ? "unavailable" : "pending"
+  const dmBlocked = !!peerId && blocked.some((b) => (b.userId ?? b.id) === peerId)
+  const readDenied = metadata.denied || metadata.denialCode === "blocked"
   const historyAllowed = !dmBlocked && metadata.canRead
   const profilesByUserId = useCanonicalProfilesByUserId()
   // Enrich with presence — the Composer @-picker uses `f.status` to render
@@ -141,12 +159,13 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     refetch: refetchMessages,
     navigationBlocked,
     anchorReconciled,
-    readSnapshot, readSnapshotFetching, initialPositionKnown,
-    initialLoadError, retryInitialLoad, retryingInitialLoad, observation, positionEntry, positionDataState, messageWindow,
+    readSnapshot, readSnapshotFetching, initialDisplayReady, preserveInitialPresentation, onUserTakeover,
+    initialLoadError, targetLoadError, retryInitialLoad, retryingInitialLoad, observation, positionEntry, positionScope, positionDataState, targetPositionDataState, messageWindow,
   } = useDmMessages(dmId, {
     enabled: !dmBlocked && !metadata.revoked && !metadata.denied,
     viewerUserId: currentUser.id,
   })
+  const sendAllowed = historyAllowed && !!peerId && !navigationBlocked
   const messages = useMemo(() => historyAllowed ? fetchedMessages : [], [fetchedMessages, historyAllowed])
 
 
@@ -202,7 +221,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
   // comment for the Playwright-verified repro of the mount-vs-Fix-3 race
   // this closes: two independently-evaluated expressions reading the same
   // inputs aren't guaranteed to agree on every commit).
-  const { newDividerBefore, anchorFound } = useMemo(() => {
+  const { newDividerBefore } = useMemo(() => {
     if (!readSnapshot) return { newDividerBefore: undefined, anchorFound: false }
     return resolveMessageReadProjection({
       messages,
@@ -211,10 +230,6 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
       anchorReconciled,
     })
   }, [anchorReconciled, messages, readSnapshot, currentUser.id])
-
-  // Gates `<MessageList>`'s mount-time scroll action until the anchor is
-  // actually present in the loaded `messages`.
-  const anchorInCache = anchorFound
 
   // Scroll root of the message list — needed so `useDmWatermark`'s
   // IntersectionObserver measures against the correct viewport rather
@@ -239,16 +254,10 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     catchUp: () => refetchMessages(),
   })
 
-  // `↓ N` unread count. Same math as channel: server truth is
-  // `latestSeq - viewerLastReadSeq`. Clamp to 0 in case the read pointer
-  // overshoots (e.g. a race between the read-state snapshot and a fresh
-  // `latestSeq` fetch).
-  const unreadCount = useMemo(() => {
-    const seenSeq = readSnapshot?.lastReadSeq ?? 0
-    const diff = latestSeq - seenSeq
-    return diff > 0 ? diff : 0
-  }, [latestSeq, readSnapshot])
-
+  const unreadCount = useMessageUnreadCount({ channelId: dmId, viewerUserId: currentUser.id, messages,
+    entryReadSeq: readSnapshot?.lastReadSeq, latestSeq, historyStartKnown,
+    hasMoreNewer: hasMoreNewerMessages, ready: historyAllowed && !!readSnapshot && !readSnapshotFetching && !messagesPending && !messagesError,
+  })
 
   const typingUsers = useTypingUsersForScope(`dm:${dmId}`)
   const typingNames = useTypingNamesForScope(`dm:${dmId}`)
@@ -330,14 +339,15 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
         })
       }
     },
-    onCopy: (id: string) => {
+    onCopy: (id: string, selectedText?: string) => {
       const m = messages.find((x) => x.id === id)
-      const content = m ? (m.content ?? "") : ""
+      const content = m ? (selectedText ?? m.content ?? "") : ""
       if (content) { navigator.clipboard?.writeText(content); toast("Copied to clipboard") }
     },
     // A DM is a channel (type='dm'), so its id IS the mark route's channelId.
     onMark: (id: string) => toggleMark(dmId, id),
     onRetry: (id: string) => {
+      if (!sendAllowed) return
       const m = messages.find((x) => x.id === id)
       if (!m?.clientNonce) return
       const assertActive = sendView.capture()
@@ -360,11 +370,12 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     onPreviewAttachment: (attachment: FileAttachment) => {
       uiHandlers.previewAttachment?.(attachment)
     },
-  }), [toggleReaction, dmId, currentUser.id, addReaction, messages, setReplyTo, toggleMark, retryDmMessage, sendView, advanceOnboardingAfterSend, communityRuntime.messageStream.actions, uiHandlers])
+  }), [toggleReaction, dmId, currentUser.id, addReaction, messages, setReplyTo, toggleMark, retryDmMessage, sendView, advanceOnboardingAfterSend, communityRuntime.messageStream.actions, uiHandlers, sendAllowed])
 
   // DM endpoint ignores mentionType. Replies are supported — the backend
   // persists replyToId for DMs too.
   const acceptDmSend = (markdown: string, attachments?: SendAttachment[]): boolean => {
+    if (!sendAllowed) return false
     const assertActive = sendView.capture()
     const receipt = acceptDmMessage({
       assertActive,
@@ -390,18 +401,14 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     return true
   }
 
-  const handleTyping = () => { communityWsSendTyping(communityRuntime, { channelId: dmId }) }
+  const handleTyping = () => { if (sendAllowed) communityWsSendTyping(communityRuntime, { channelId: dmId }) }
 
-  // The DM row owns header/composer identity. Until it is known, keep the
-  // complete DM frame pending; once known, read-state and message fetching
-  // are allowed to affect only MessageList below.
   const loadingOwnership = resolveDmLoadingOwnership({
     hasDm: !!dm,
     dmsLoading,
     messagesLoading,
   })
-  const routeReady = historyAllowed && !navigationBlocked && !loadingOwnership.fullFramePending
-    && !loadingOwnership.missingPeer && !!dm
+  const routeReady = historyAllowed && !navigationBlocked
   useEffect(() => {
     if (!routeCommitted || !routeReady) return
     commitCommunityChannelRoute(currentUser.id, null, dmId)
@@ -415,38 +422,44 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     return <DmLoadingFrame reserveBackSlot />
   }
 
-  if (loadingOwnership.fullFramePending) {
-    return <DmLoadingFrame reserveBackSlot />
-  }
+  if (!readDenied) {
+    if (!historyAllowed && loadingOwnership.fullFramePending) {
+      return <DmLoadingFrame reserveBackSlot />
+    }
 
-  if (loadingOwnership.missingPeer || !dm) {
-    return <DmRouteErrorFrame onRetry={() => { void dmsQuery.refetch({ cancelRefetch: false }) }}
-      retrying={dmsQuery.isFetching} reserveBackSlot />
+    if (!historyAllowed && (loadingOwnership.missingPeer || !dm)) {
+      return <DmRouteErrorFrame onRetry={() => { void dmsQuery.refetch({ cancelRefetch: false }) }}
+        retrying={dmsQuery.isFetching} reserveBackSlot />
+    }
   }
 
   return (
     <>
-      <DmHeader
+      {dm ? <DmHeader
         dm={dm}
+        titleState={titleState}
         onBack={goBack}
+        onRetryIdentity={!peerProfile?.name ? () => { void dmsQuery.refetch({ cancelRefetch: false }) } : undefined}
+        retryingIdentity={dmsQuery.isFetching}
         notifLevel={(notifications.channel[dmId] ?? notifLevelDisplay("all")) as NotifLevel}
         onSetNotifLevel={(level) => setNotification.mutate({ channelId: dmId, level }, {
           onError: (error) => toastApiError(error, "Failed to update notification level"),
         })}
-      />
+      /> : <DmHeaderSkeleton titleState={titleState === "unavailable" ? "unavailable" : "pending"} onBack={goBack} onRetryIdentity={() => { void dmsQuery.refetch({ cancelRefetch: false }) }} retryingIdentity={dmsQuery.isFetching} />}
       <main
         data-slot="community-conversation-surface"
         data-channel-id={dmId}
         className="flex min-h-0 flex-1 flex-col"
       >
         <ConversationFooterSlotProvider>
-          {dmBlocked ? null : metadata.denied ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : metadata.status === "retryable-error" ? <ConversationResolutionErrorFrame as="div" onRetry={metadata.retry} retrying={metadata.retrying} /> : !historyAllowed && initialLoadError ? <ConversationResolutionErrorFrame as="div" onRetry={retryInitialLoad} retrying={retryingInitialLoad} /> : <MessageList
+          {dmBlocked ? null : readDenied ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : metadata.status === "retryable-error" ? <ConversationResolutionErrorFrame as="div" onRetry={metadata.retry} retrying={metadata.retrying} /> : !historyAllowed && initialLoadError ? <ConversationResolutionErrorFrame as="div" onRetry={retryInitialLoad} retrying={retryingInitialLoad} /> : <MessageList
             key={dmId}
             variant="dm"
-            channel={dm.name}
+            channel={displayName}
             messages={messages}
             loading={!historyAllowed || loadingOwnership.messageBodyLoading}
             initialLoadError={initialLoadError}
+            targetLoadError={targetLoadError}
             observation={observation}
             retryingInitialLoad={retryingInitialLoad || messagesFetching}
             onRetryInitialLoad={retryInitialLoad}
@@ -457,7 +470,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             onReply={dmBlocked ? undefined : messageActions.onReply}
             onCopy={messageActions.onCopy}
             onMark={dmBlocked ? undefined : messageActions.onMark}
-            onRetry={dmBlocked ? undefined : messageActions.onRetry}
+            onRetry={sendAllowed ? messageActions.onRetry : undefined}
             onDismiss={dmBlocked ? undefined : messageActions.onDismiss}
             onPreviewImage={messageActions.onPreviewImage}
             onPreviewAttachment={messageActions.onPreviewAttachment}
@@ -465,15 +478,16 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             resolveUserName={resolveUserName}
             onScrollRoot={setScrollRootEl}
             viewerUserId={currentUser.id}
-            // Delay initial scroll until the read-state snapshot resolves AND
-            // the anchor it names is actually present in `messages` — see
-            // `anchorInCache`'s doc comment above.
-            initialScrollReady={!readSnapshotFetching && (anchorInCache || initialPositionKnown)}
+            initialScrollReady={initialDisplayReady}
+            preserveInitialPresentation={preserveInitialPresentation}
+            onUserTakeover={onUserTakeover}
             hasMore={hasMoreMessages}
             historyStartKnown={historyStartKnown}
             initialPositionMessageId={initialPositionMessageId}
             positionEntry={positionEntry}
+            positionScope={positionScope}
             positionDataState={positionDataState}
+            targetPositionDataState={targetPositionDataState}
             messageWindow={messageWindow}
             active={routeCommitted}
             positioningActive
@@ -490,16 +504,20 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             unreadCount={unreadCount}
             typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
             hero={
-              <>
+              dm ? <>
                 <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} seed={dm.userId} size={64} /></div>
                 <h2 className="text-2xl font-semibold leading-tight">{dm.name}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">This is the beginning of your direct message history with <span className="font-medium text-foreground">{dm.name}</span>.</p>
+              </> : <>
+                <Skeleton className="mb-3 size-16 rounded-full" />
+                <Skeleton className="h-8 w-48 rounded" />
+                <Skeleton className="mt-1 h-5 w-72 max-w-full rounded" />
               </>
             }
           />}
           <ConversationFooterShell
             data-onboarding-target="dm-composer"
-            data-onboarding-name={dm.name}
+            data-onboarding-name={displayName}
           >
             {dmBlocked ? (
               <div
@@ -508,10 +526,10 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
               >
                 You have blocked this user. Unblock to send messages.
               </div>
-            ) : metadata.denied ? null : !historyAllowed ? <ComposerSkeleton /> : (
+            ) : readDenied ? null : !sendAllowed ? <ComposerSkeleton /> : (
               <Composer
                 sendContract="accepted"
-                channel={dm.name}
+                channel={displayName}
                 channelType={metadata.data?.type}
                 context="dm"
                 // DM context short-circuits `rankMentionItems` to `[]` — no popup,

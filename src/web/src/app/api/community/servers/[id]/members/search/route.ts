@@ -1,7 +1,8 @@
-import { withAuth } from "@/lib/middleware/auth"
+import { withAuth } from "@/lib/middleware/auth-policy"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, MAX_MEMBERS_PAGE_SIZE } from "@alook/shared"
+import { parseCommunityServerMembersRead, queries, MAX_MEMBERS_PAGE_SIZE } from "@alook/shared"
 import { requireServerMember } from "@/lib/community/permissions"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { mapMemberForApi } from "@/lib/community/member-payload"
@@ -10,7 +11,7 @@ import {
   parseMemberSearchCursor,
 } from "@/lib/community/member-search-cursor"
 
-export const GET = withAuth(async (req, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (req, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 
@@ -49,5 +50,5 @@ export const GET = withAuth(async (req, ctx) => {
       })
     : undefined
 
-  return writeJSON({ members, limit, hasMore: page.hasMore, cursor: nextCursor })
+  return writeJSON(parseCommunityServerMembersRead({ viewerId: ctx.userId, serverId, members, limit, hasMore: page.hasMore, cursor: nextCursor }, serverId, ctx.userId, true))
 })

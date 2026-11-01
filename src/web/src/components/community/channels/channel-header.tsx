@@ -3,7 +3,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef, type ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
+import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal, RotateCcw } from "lucide-react"
 import { NOTIF_LEVELS, USE_SERVER_DEFAULT, type NotifLevel } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -18,9 +18,8 @@ import { previewSlug } from "@/lib/community/slug-preview"
 import { ServerIcon } from "@/components/community/server-icon"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { EntityKind } from "@/lib/community/models/navigation"
-import { CreateDialogShell } from "../settings/create-dialog-shell"
 import { tid } from "@/lib/community/testids"
-import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
+import { MessageHeader, MessageHeaderMobileBack, MessageHeaderTitlePlaceholder, type MessageHeaderTitleState } from "./message-header"
 import { ThreadPanelActionsFrame } from "./thread-panel-actions"
 
 const CHANNEL_OVERFLOW_GAP_CLASS_NAME = "ml-0.5"
@@ -54,7 +53,7 @@ export function ChannelHeaderSkeleton({
       identity={(
         <>
           <Skeleton data-channel-header-icon className={`size-6 rounded-md ${kind === "thread" ? compactActions ? "ml-1" : "" : "sm:ml-1"}`} />
-          <Skeleton className="h-4 w-32 rounded" />
+          <MessageHeaderTitlePlaceholder state="pending" />
         </>
       )}
       actions={(
@@ -89,16 +88,18 @@ export type ChannelNotifLevel = typeof USE_SERVER_DEFAULT | NotifLevel
 export function ChannelHeader({
   channel, rightPanel, onToggle, notifLevel, onSetNotifLevel,
   kind = "text", server, mobileBack, mobileBackDisplay = "viewport", onBack, tools,
-  onRename, titleRename, endActions, compactActions,
+  onRename, endActions, compactActions, titleState = "ready", onRetryTitle, retryingTitle,
 }: {
   channel: string
+  titleState?: MessageHeaderTitleState
+  onRetryTitle?: () => void
+  retryingTitle?: boolean
   kind?: EntityKind
   rightPanel: RightPanel
   onToggle: (k: Exclude<RightPanel, null>) => void
   notifLevel?: ChannelNotifLevel
   onSetNotifLevel?: (l: ChannelNotifLevel) => void
   onRename?: (name: string) => void | Promise<void>
-  titleRename?: boolean
   server?: { id: string; name: string; icon: string | null }
   mobileBack?: () => void
   mobileBackDisplay?: "viewport" | "always"
@@ -133,13 +134,17 @@ export function ChannelHeader({
       <div data-channel-header-icon className={`grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground ${mobileBack ? (mobileBackDisplay === "viewport" ? "sm:ml-1" : "") : server ? "" : "ml-1"}`}>
         <EntityIcon kind={kind} className="size-4" />
       </div>
-      <span className="min-w-0 truncate text-base font-semibold" title={channel}>{channel}</span>
-      {onRename && (
+      {titleState === "ready" ? <span className="min-w-0 truncate text-base font-semibold" title={channel}>{channel}</span>
+        : <MessageHeaderTitlePlaceholder state={titleState} />}
+      {titleState === "unavailable" && onRetryTitle && <Button variant="ghost" size="icon-sm"
+        className="size-11 sm:size-7" aria-label="Retry title" disabled={retryingTitle} onClick={onRetryTitle}>
+        <RotateCcw className="size-4" />
+      </Button>}
+      {onRename && titleState === "ready" && (
         <span data-channel-header-full className="contents">
           <HeaderRename
             label={channel}
             onRename={onRename}
-            titleMode={titleRename}
             className={mobileBack ? "hidden sm:inline-flex" : undefined}
           />
         </span>
@@ -279,10 +284,9 @@ function ChannelNotifDropdown({ level, onSetLevel }: {
   )
 }
 
-function HeaderRename({ label, onRename, titleMode = false, className = "" }: {
+function HeaderRename({ label, onRename, className = "" }: {
   label: string
   onRename: (name: string) => void | Promise<void>
-  titleMode?: boolean
   className?: string
 }) {
   const [open, setOpen] = useAtom(useCreateAtom(false))
@@ -296,7 +300,7 @@ function HeaderRename({ label, onRename, titleMode = false, className = "" }: {
     if (!open) setDraft(label)
   }, [label, open, setDraft])
   const draftPreview = previewSlug(draft)
-  const validDraft = titleMode ? Boolean(draft.trim()) : Boolean(draftPreview.slug)
+  const validDraft = Boolean(draftPreview.slug)
   const save = async () => {
     if (savingRef.current) return
     const trimmed = draft.trim()
@@ -319,35 +323,10 @@ function HeaderRename({ label, onRename, titleMode = false, className = "" }: {
   }
   return (
     <>
-      <Button variant="ghost" size="icon-sm" onClick={() => { setDraft(label); setOpen(true) }} className={`text-muted-foreground hover:text-foreground ${className}`} aria-label={titleMode ? "Edit post title" : "Rename"}>
+      <Button variant="ghost" size="icon-sm" onClick={() => { setDraft(label); setOpen(true) }} className={`text-muted-foreground hover:text-foreground ${className}`} aria-label="Rename">
         <Pencil className="size-3.5" />
       </Button>
       {open && (
-        titleMode ? (
-          <CreateDialogShell
-            onClose={() => setOpen(false)}
-            title="Edit post title"
-            footer={(
-              <>
-                <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
-                <Button size="sm" onClick={() => void save()} disabled={!validDraft || saving}>Save</Button>
-              </>
-            )}
-          >
-            <div className="px-5 pb-5 pt-2">
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(event) => onEnterSubmit(save)(event)}
-                placeholder="Post title"
-                aria-label="Post title"
-                disabled={saving}
-                className="w-full border-0 bg-transparent p-0 text-[30px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 focus-visible:ring-0"
-                autoFocus
-              />
-            </div>
-          </CreateDialogShell>
-        ) : (
         <Dialog open onOpenChange={(o) => { if (!o) setOpen(false) }}>
           <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
             <DialogHeader className="border-b border-border px-4 py-4">
@@ -374,7 +353,6 @@ function HeaderRename({ label, onRename, titleMode = false, className = "" }: {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-        )
       )}
     </>
   )

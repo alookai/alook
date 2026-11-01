@@ -28,17 +28,13 @@ vi.mock("@alook/shared", async () => {
 
 let isAuthed = true
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => async (req: any, ctx?: any) => {
+  humanAuthPolicy: { resolve: async (req: any) => {
     if (!isAuthed) {
       const { NextResponse } = require("next/server")
       return NextResponse.json({ error: "unauthorized" }, { status: 401 })
     }
-    return handler(req, {
-      env: { DB: {} },
-      userId: "owner_1",
-      params: await ctx?.params,
-    })
-  },
+    return ({ context: { env: { DB: {} }, userId: "owner_1" } })
+  } },
 }))
 vi.mock("@/lib/middleware/helpers", () => {
   const { NextResponse } = require("next/server")

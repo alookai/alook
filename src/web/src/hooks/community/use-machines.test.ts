@@ -33,7 +33,7 @@ const machineFixture: CommunityMachineSummary = {
 
 describe("useMachines / machinesQueryFn", () => {
   it("returns the machines envelope from GET /api/community/machines", async () => {
-    apiFetchMock.mockResolvedValueOnce({ machines: [machineFixture] })
+    apiFetchMock.mockResolvedValueOnce({ machines: [machineFixture], complete: true })
     const { machinesQueryFn } = await import("./use-machines")
     const { client: qc } = await createCommunityQueryOwner()
     const data = await qc.query({ queryKey: communityKeys.machines(), queryFn: machinesQueryFn })
@@ -42,12 +42,12 @@ describe("useMachines / machinesQueryFn", () => {
   })
 
   it("populates queryClient at communityKeys.machines()", async () => {
-    apiFetchMock.mockResolvedValueOnce({ machines: [machineFixture] })
+    apiFetchMock.mockResolvedValueOnce({ machines: [machineFixture], complete: true })
     const { machinesQueryFn } = await import("./use-machines")
     const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.machines()
     await qc.query({ queryKey: key, queryFn: machinesQueryFn })
-    expect(qc.getQueryData(key)).toEqual({ machines: [machineFixture], source: "network" })
+    expect(qc.getQueryData(key)).toEqual({ machines: [machineFixture], complete: true, observed: true, source: "network" })
     // Prefix invalidation from communityKeys.all cascades to this key.
     await qc.invalidateQueries({ queryKey: communityKeys.all })
     const state = qc.getQueryState(key)

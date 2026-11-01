@@ -2,22 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { RuntimeModelDiscoveryResult } from "@alook/shared"
+import { RuntimeModelDiscoveryResultSchema } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { isAbortError } from "@/lib/errors"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { handleRuntimeModels, type RuntimeModelsState } from "./community-ws/presence-machine-events"
 import { useCommunityMutationOrigin } from "./community-origin"
 
-export type RuntimeModelsState = { requestId: string } & (
-  | { status: "pending" | "cancelled" }
-  | RuntimeModelDiscoveryResult
-)
+export type { RuntimeModelsState } from "./community-ws/presence-machine-events"
 
 export function useRuntimeModels(machineId: string, runtimeId: string) {
   const queryClient = useQueryClient()
   const origin = useCommunityMutationOrigin()
   const ownedRequest = useRef<string | null>(null)
-  const connectionStatus = useCommunityWsStore((state) => state.connectionStatus)
   const queryKey = useMemo(() => communityKeys.runtimeModels(machineId, runtimeId), [machineId, runtimeId])
   const { data } = useQuery<RuntimeModelsState>({ queryKey, queryFn: skipToken, gcTime: 60_000 })
 
@@ -37,35 +33,28 @@ export function useRuntimeModels(machineId: string, runtimeId: string) {
     ownedRequest.current = null
   }, [queryClient, queryKey])
 
-  function discover() {
+  function discover(refresh = false) {
     if (queryClient.getQueryData<RuntimeModelsState>(queryKey)?.status === "pending") return
     const requestId = crypto.randomUUID()
     ownedRequest.current = requestId
-    queryClient.setQueryData<RuntimeModelsState>(queryKey, { requestId, status: "pending" })
-    if (connectionStatus !== "connected") {
-      finishError(requestId, "Reconnect to load models.")
-      return
-    }
+    queryClient.setQueryData<RuntimeModelsState>(queryKey, { requestId, status: "pending", transport: "http" })
     const { token } = origin.begin()
-    void origin.request(token, `/api/community/machines/${encodeURIComponent(machineId)}/discover-models`, {
-      method: "POST", body: JSON.stringify({ requestId, runtimeId }),
+    void origin.request<{ requestId: string; machineId: string; backendId: string; source: string; observedAt: string; result: unknown }>(token, `/api/community/machines/${encodeURIComponent(machineId)}/discover-models?wait=1`, {
+      method: "POST", body: JSON.stringify({ requestId, runtimeId, ...(refresh ? { refresh: true } : {}) }), signal: AbortSignal.timeout(55_000),
+    }).then(async (response) => {
+      origin.assert(token)
+      const result = RuntimeModelDiscoveryResultSchema.safeParse(response.result)
+      if (response.requestId !== requestId || response.machineId !== machineId || response.backendId !== runtimeId || !result.success
+        || !["cached_report", "fresh_discovery"].includes(response.source) || !Number.isFinite(Date.parse(response.observedAt))) throw new Error("Could not load models.")
+      await handleRuntimeModels({ type: "community:runtime.models", requestId, machineId, runtimeId, result: result.data }, { queryClient }, "http")
     }).catch((error: unknown) => {
       if (isAbortError(error)) return
-      const message = error instanceof Error ? error.message : "Could not load models."
+      const message = typeof error === "object" && error !== null && "name" in error && error.name === "TimeoutError" ? "Model discovery timed out. Retry to load models."
+        : error instanceof Error ? error.message : "Could not load models."
       finishError(requestId, message === "UPGRADE_REQUIRED" ? "Update this machine’s daemon to load models."
         : message === "MACHINE_OFFLINE" ? "This machine is offline." : message)
     })
   }
-
-  useEffect(() => {
-    if (data?.status !== "pending") return
-    if (connectionStatus !== "connected") {
-      finishError(data.requestId, "Connection lost. Retry to load models.")
-      return
-    }
-    const timer = setTimeout(() => finishError(data.requestId, "Model discovery timed out. Retry to load models."), 45_000)
-    return () => clearTimeout(timer)
-  }, [data?.requestId, data?.status, connectionStatus, finishError])
 
   useEffect(() => cancel, [cancel])
 
@@ -73,6 +62,6 @@ export function useRuntimeModels(machineId: string, runtimeId: string) {
     isPending: data?.status === "pending",
     error: data?.status === "error" ? data.message : null,
     onOpenChange: (open: boolean) => open ? discover() : cancel(),
-    retry: discover,
+    retry: () => discover(true),
   }
 }

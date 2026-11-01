@@ -36,7 +36,7 @@ it("uses native mutation pending/terminal events once and binds each original re
     expect(commandObservation(input.original)?.action?.name).toBe(name)
     await waiting
   } })
-  const a = build("message.edit").execute(one), b = build("message.pin").execute(two)
+  const a = build("message.mark").execute(one), b = build("message.pin").execute(two)
   await Promise.resolve()
   expect(events.filter(event => event.name === "action.start")).toHaveLength(2)
   resolve(); await Promise.all([a, b])

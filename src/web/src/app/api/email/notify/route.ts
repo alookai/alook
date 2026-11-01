@@ -5,7 +5,6 @@ import { withEnv } from "@/lib/middleware/env"
 import { writeJSON, parseBody } from "@/lib/middleware/helpers"
 import { broadcastToUser } from "@/lib/broadcast"
 import { invalidate, cacheKeys } from "@/lib/cache"
-import { dispatchEmailToAgent } from "@/lib/services/email-dispatch"
 
 export const POST = withEnv(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -15,7 +14,7 @@ export const POST = withEnv(async (req: NextRequest, ctx) => {
 
   const agent = await queries.agent.getAgent(db, body.agentId, body.workspaceId)
 
-  const email = await queries.email.createEmail(db, {
+  await queries.email.createEmail(db, {
     agentId: body.agentId,
     workspaceId: body.workspaceId,
     fromEmail: body.from,
@@ -46,19 +45,6 @@ export const POST = withEnv(async (req: NextRequest, ctx) => {
     })
   }
 
-  let conversationId: string | null = null;
-
-  if (body.isWhitelisted && agent && agent.runtimeId && agent.ownerId) {
-    const result = await dispatchEmailToAgent(db, email, agent, {
-      isInternal: body.isInternal,
-      senderConversationId: body.senderConversationId,
-      senderAgentId: body.senderAgentId,
-      traceId: body.traceId,
-      sourceTaskId: body.sourceTaskId,
-    })
-    conversationId = result.conversationId
-  }
-
   const dateStr = new Date().toISOString().slice(0, 10);
   await Promise.all([
     invalidate(cacheKeys.overviewEmailStats(body.workspaceId)),
@@ -69,5 +55,5 @@ export const POST = withEnv(async (req: NextRequest, ctx) => {
     broadcastToUser(agent.ownerId, { type: "email.received", agentId: body.agentId }).catch(() => {})
   }
 
-  return writeJSON({ ok: true, ...(conversationId ? { conversationId } : {}) })
+  return writeJSON({ ok: true })
 });

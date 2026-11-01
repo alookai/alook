@@ -1,34 +1,33 @@
+import { channelResourceFixture } from "@/test/community-resource-fixtures"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
-import { COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 
 const mocks = vi.hoisted(() => ({ db: {}, access: vi.fn(), channel: vi.fn(), friends: vi.fn(), resolve: vi.fn(), participants: vi.fn(), users: vi.fn(), members: vi.fn(),
   children: vi.fn(), threads: vi.fn(), openers: vi.fn(), first: vi.fn(), tags: vi.fn(), threadParticipants: vi.fn(), attachments: vi.fn(), reactions: vi.fn(), replies: vi.fn() }))
 vi.mock("@/lib/db", () => ({ getDb: () => mocks.db, getPrimaryDb: () => mocks.db }))
 vi.mock("@/lib/community/permissions", () => ({ requireMessageSurfaceAccess: mocks.access, requireChannelAccess: mocks.access }))
 vi.mock("@/lib/community/message-door", () => ({ resolveMessageTarget: mocks.resolve }))
-vi.mock("@/lib/middleware/auth", () => ({ withAuth: (handler: (request: NextRequest, context: unknown) => Promise<Response>) =>
-  async (request: NextRequest, context: { params?: Promise<Record<string, string>> }) => handler(request, { params: await context.params, env: { DB: mocks.db }, userId: "viewer" }) }))
-vi.mock("@/lib/middleware/community-actor", () => ({ withCommunityActor: (handler: (request: NextRequest, context: unknown) => Promise<Response>) =>
-  async (request: NextRequest, context: { params?: Promise<Record<string, string>> }) => handler(request, { params: await context.params, env: { DB: mocks.db },
-    actor: request.headers.has("Authorization") ? { kind: "bot", userId: "bot" } : { kind: "human", userId: "viewer" } }) }))
+vi.mock("@/lib/middleware/auth", () => ({ humanAuthPolicy: { resolve: async (request: NextRequest) => ({ context: { env: { DB: mocks.db }, userId: "viewer" } }) } }))
+vi.mock("@/lib/middleware/community-actor", () => ({ communityActorPolicy: () => ({ resolve: async (request: NextRequest) => ({ context: { env: { DB: mocks.db }, actor: request.headers.has("Authorization") ? { kind: "bot", userId: "bot" } : { kind: "human", userId: "viewer" } } }) }) }))
 vi.mock("@alook/shared", async (original) => ({ ...await original<typeof import("@alook/shared")>(), queries: {
   communityChannel: { getChannelForMember: mocks.channel, listChildChannels: mocks.children }, communityFriendship: { areFriends: mocks.friends },
   communityThread: { listThreadParticipants: mocks.participants, listForumThreadsByCreatedAt: mocks.threads, listParticipantsForChannels: mocks.threadParticipants },
   communityMessage: { getMessagesByIdsInScope: mocks.openers, getFirstMessageResourcesByChannelIds: mocks.first, getMessagesByIdsInChannels: mocks.replies },
   communityMessageTag: { listTagsForMessages: mocks.tags }, communityAttachment: { listByMessageIds: mocks.attachments }, communityReaction: { listReactionsByMessageIds: mocks.reactions },
+  communityUserProfile: { getResourceProfiles: async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: "Viewer", discriminator: "0042", avatar: null, avatarVersion: 0 })) },
   user: { getUsersByIds: mocks.users }, communityMember: { getMembersByUserIds: mocks.members },
 } }))
 import { GET as metadata } from "@/app/api/community/channels/[id]/route"
 import { GET as roster } from "@/app/api/community/channels/[id]/members/route"
 import { GET as threadList } from "@/app/api/community/channels/[id]/threads/route"
 
-const parent = { id: "forum", type: "forum", serverId: "server", name: "Forum", archived: 0, createdAt: "2026-10-07T12:00:00Z" }
+const parent = { ...channelResourceFixture({ id: "forum", type: "forum", serverId: "server", name: "Forum", createdAt: "2026-10-07T12:00:00Z" }), archived: 0 }
 const child = { ...parent, id: "thread", type: "thread", parentChannelId: "forum", parentMessageId: "opener", creatorId: "viewer" }
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) })
-const req = (path: string, bot = false) => new NextRequest(`https://alook.test/api/community/channels/${path}`, { headers: { [COMMUNITY_CONTRACT_HEADER]: "2", ...(bot ? { Authorization: "Bearer crk_unit_fixture" } : {}) } })
+const req = (path: string, bot = false) => new NextRequest(`https://alook.test/api/community/channels/${path}`, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION), ...(bot ? { Authorization: "Bearer crk_unit_fixture" } : {}) } })
 const row = (id: string, channelId: string) => ({ id, channelId, seq: 1, authorId: "viewer", authorName: "Viewer", authorImage: null, authorAvatarVersion: 0, content: id,
-  type: "default", mentionType: null, replyToId: null, embeds: [], clientNonce: null, createdAt: "2026-10-07T12:00:00Z" })
+  type: "chat", mentionType: null, replyToId: null, embeds: [], clientNonce: null, createdAt: "2026-10-07T12:00:00Z" })
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -44,7 +43,7 @@ describe("negotiated complete read route boundaries", () => {
     mocks.channel.mockResolvedValue({ ...parent, id: "dm", type: "dm", serverId: null, name: null })
     mocks.friends.mockResolvedValue(friends)
     const response = await metadata(req("dm"), ctx("dm"))
-    expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe("2")
+    expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
     expect(await response.json()).toMatchObject({ channelId: "dm", channel: { id: "dm", type: "dm" }, access: { channelId: "dm", canRead: true, canSend: friends, canCreateDiscussion: false } })
     expect(mocks.channel).toHaveBeenCalledWith(mocks.db, "dm", "viewer")
     expect(mocks.friends).toHaveBeenCalledWith(mocks.db, "viewer", "peer")
@@ -60,9 +59,9 @@ describe("negotiated complete read route boundaries", () => {
   it.each([false, true])("resolves a current human/bot roster through the complete reader: bot=%s", async (bot) => {
     mocks.access.mockResolvedValue({ ok: true, value: { surface: "channel", channel: child } })
     mocks.participants.mockResolvedValue([{ userId: "viewer", source: "spoke" }])
-    mocks.users.mockResolvedValue([{ id: "viewer", name: "Viewer", image: null, avatarVersion: 0 }])
+    mocks.users.mockResolvedValue([{ id: "viewer", name: "Viewer", discriminator: "0042", image: null, avatarVersion: 0 }])
     const response = await roster(req(`thread/members?relation=notify${bot ? "&ref=%2Fserver%2Fthread" : ""}`, bot), ctx("thread"))
-    expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe("2")
+    expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
     expect(await response.json()).toMatchObject({ channelId: "thread", relation: "notify", members: [{ userId: "viewer", source: "spoke" }] })
     expect(mocks.resolve).toHaveBeenCalledWith(mocks.db, bot ? "bot" : "viewer", bot ? { ref: "/server/thread" } : { id: "thread" }, bot ? "bot" : "human")
   })
@@ -78,7 +77,7 @@ describe("negotiated complete read route boundaries", () => {
     mocks.access.mockResolvedValue({ ok: true, value: { surface: "dm", dm: { otherUserId: "peer" } } })
     mocks.channel.mockResolvedValue({ ...parent, id: "dm", type: "dm", serverId: null, name: null })
     const response = await threadList(req("dm/threads"), ctx("dm"))
-    expect(await response.json()).toMatchObject({ contractVersion: 2, channelId: "dm", threads: [], included: { messages: [] } })
+    expect(await response.json()).toMatchObject({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "dm", threads: [], included: { messages: [] } })
     expect(mocks.children).not.toHaveBeenCalled()
   })
 
@@ -97,7 +96,7 @@ describe("negotiated complete read route boundaries", () => {
     mocks.tags.mockResolvedValue([{ messageId: "opener", tag: "bug" }])
     mocks.threadParticipants.mockResolvedValue([{ channelId: "thread", userId: "viewer", userName: "Viewer", discriminator: "123456", userImage: null, userAvatarVersion: 0, participantCount: 1 }])
     const response = await threadList(req("forum/threads?order=createdAt&include=parentMessage,firstMessage,tags,participants&limit=1"), ctx("forum"))
-    expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe("2")
+    expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
     const body = await response.json()
     expect(body).toMatchObject({ channelId: "forum", threads: [{ id: "thread" }], included: { messages: [{ id: "opener", channelId: "forum", seq: 1 }, { id: "first", channelId: "thread", seq: 1 }],
       profiles: [{ id: "viewer", discriminator: "123456" }], members: [{ userId: "viewer", relation: "notify" }], tags: [{ messageId: "opener", tag: "bug" }] }, page: { hasMore: true, nextCursor: expect.any(String) } })

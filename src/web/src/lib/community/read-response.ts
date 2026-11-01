@@ -1,7 +1,6 @@
 import {
-  COMMUNITY_CONTRACT_HEADER, communityReadSchemas, communityMessagePreviewFromLegacy,
+  COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION, communityReadSchemas,
   CommunityMessagePostedSchema, CommunityMessageReadSchema, CommunityConversationEntryReadSchema,
-  type CommunityContract,
 } from "@alook/shared"
 
 export function communityReadTarget(path: string, method = "GET") {
@@ -22,32 +21,12 @@ export function communityReadTarget(path: string, method = "GET") {
   return { channelId: decodeURIComponent(matched[1]), resource: resource === "messages" && new URL(path, "https://alook.invalid").searchParams.has("entry") ? "entry" : resource }
 }
 
-export function decodeCommunityReadResponse(path: string, method: string | undefined, response: Response, value: unknown, requestedContract: CommunityContract = 2): unknown {
+export function decodeCommunityReadResponse(path: string, method: string | undefined, response: Response, value: unknown, requestedContract: number = BUSINESS_SCHEMA_VERSION): unknown {
   const target = communityReadTarget(path, method)
   if (!target) return value
-  if (target.resource === "entry" && (requestedContract !== 3 || new URL(path, "https://alook.invalid").searchParams.get("entry") !== "1")) throw new Error("Community entry protocol confirmation mismatch")
+  if (target.resource === "entry" && new URL(path, "https://alook.invalid").searchParams.get("entry") !== "1") throw new Error("Community entry protocol confirmation mismatch")
   const bodyVersion = typeof value === "object" && value !== null && "contractVersion" in value ? value.contractVersion : undefined
-  const headerVersion = response.headers.get(COMMUNITY_CONTRACT_HEADER)
-  if (headerVersion === null && bodyVersion === undefined) {
-    if (requestedContract === 3) throw new Error("Community read protocol confirmation mismatch")
-    if (target.resource === "messages") {
-      const legacy = value as { messages?: unknown[] }
-      if (!Array.isArray(legacy.messages)) throw new Error("Community message resource missing")
-      return { ...legacy, messages: legacy.messages.map((message) => {
-        return { ...communityMessagePreviewFromLegacy(message, target.channelId), resourceComplete: false }
-      }) }
-    }
-    if (target.resource === "message") {
-      if (typeof value !== "object" || value === null || !("channelId" in value) || typeof value.channelId !== "string") throw new Error("Community message scope missing")
-      return { ...communityMessagePreviewFromLegacy(value, value.channelId), resourceComplete: false }
-    }
-    if (target.resource === "metadata" && typeof value === "object" && value !== null) {
-      const { readContractVersion: _version, accessDecision: _access, ...legacy } = value as Record<string, unknown>
-      return legacy
-    }
-    return value
-  }
-  if ((requestedContract !== 2 && requestedContract !== 3) || headerVersion !== String(requestedContract) || bodyVersion !== requestedContract) throw new Error("Community read protocol confirmation mismatch")
+  if (requestedContract !== BUSINESS_SCHEMA_VERSION || response.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION) || bodyVersion !== BUSINESS_SCHEMA_VERSION) throw new Error("Community read protocol confirmation mismatch")
   const schemas = communityReadSchemas(requestedContract)
   const assertScope = (channelId: string) => {
     if (channelId !== target.channelId) throw new Error("Community read resource scope mismatch")
@@ -55,32 +34,28 @@ export function decodeCommunityReadResponse(path: string, method: string | undef
   if (target.resource === "entry") {
     const data = CommunityConversationEntryReadSchema.parse(value)
     assertScope(data.channelId)
-    return { ...data, messages: data.messages.map((message) => ({ ...message, resourceComplete: true })) }
+    return { ...data, messages: data.messages }
   }
   if (target.resource === "message") {
-    if (requestedContract !== 3) throw new Error("Community message protocol confirmation mismatch")
     const data = CommunityMessageReadSchema.parse(value)
     if (data.channelId !== data.message.channelId || data.message.id !== target.messageId) throw new Error("Community message resource scope mismatch")
-    return { ...data.message, resourceComplete: true }
+    return data
   }
   if (target.resource === "metadata") {
     const data = schemas.channel.parse(value)
     assertScope(data.channelId); assertScope(data.channel.id); assertScope(data.access.channelId)
-    return { ...data.channel, resourceComplete: true, accessDecision: data.access }
+    return { ...data.channel, accessDecision: data.access }
   }
   if (target.resource === "posted") {
-    if (requestedContract !== 3) throw new Error("Community posted protocol confirmation mismatch")
     const data = CommunityMessagePostedSchema.parse(value)
     assertScope(data.channelId); assertScope(data.message.channelId)
-    return { message: { ...data.message, resourceComplete: true }, deduped: data.deduped, ...(data.threadId ? { threadId: data.threadId } : {}) }
+    return { profiles: data.profiles, message: data.message, deduped: data.deduped, ...(data.threadId ? { threadId: data.threadId } : {}) }
   }
   if (target.resource === "messages") {
     const data = schemas.messages.parse(value)
     assertScope(data.channelId); assertScope(data.surfaceReceipt.channelId)
     for (const message of data.messages) assertScope(message.channelId)
-    return { messages: data.messages.map((message) => requestedContract === 3
-      ? { ...message, resourceComplete: true }
-      : { ...communityMessagePreviewFromLegacy(message, target.channelId), resourceComplete: false }),
+    return { profiles: data.profiles, messages: data.messages,
       olderCursor: data.page.olderCursor ?? undefined, newerCursor: data.page.newerCursor ?? undefined,
       hasMoreOlder: data.page.hasMoreOlder, hasMoreNewer: data.page.hasMoreNewer, latestSeq: data.page.latestSeq,
       surfaceReceipt: data.surfaceReceipt }

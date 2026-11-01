@@ -149,7 +149,7 @@ describe("ForumView post card header", () => {
     expect(html).toContain(`title="${name}"`)
     expect(html).toContain(`<span class="opacity-60">#</span>9007199254740991`)
     expect(html).toContain(name)
-    expect(html).toContain("-webkit-line-clamp:2")
+    expect(html).toContain("-webkit-line-clamp:1")
   })
 
   it("uses a flat hairline row instead of the old bordered card", () => {
@@ -297,8 +297,11 @@ describe("ForumView responsive post actions", () => {
     expect(archiveButton).toContain('aria-pressed="false"')
     expect(archiveButton).toContain("disabled:opacity-50")
     expect(deleteButton).toContain("disabled:opacity-50")
-    expect(html).toContain("min-h-8 pr-28")
-    expect(html).toContain("w-full min-w-0 max-w-full text-[15px] font-semibold leading-tight")
+    expect(html).toContain("grid-cols-[minmax(0,1fr)_auto]")
+    expect(html).not.toContain("row-span-2")
+    expect(html).toContain("col-span-full row-start-2")
+    expect(html).not.toContain("min-h-8")
+    expect(html).toContain("w-full min-w-0 max-w-full self-center text-[15px] font-semibold leading-tight")
     expect(html).toContain(tid.forumThreadTitle("p1"))
     expect(html).toContain(tid.forumThreadTitleText("p1"))
     expect(html).toContain(tid.forumThreadSeq("p1"))
@@ -330,7 +333,8 @@ describe("ForumView responsive post actions", () => {
     expect(html).not.toContain(tid.forumThreadArchiveBtn("p1"))
     expect(html).not.toContain(tid.forumThreadDeleteBtn("p1"))
     expect(html).not.toContain("min-h-8")
-    expect(html).toContain("pr-0")
+    expect(html).toContain("grid-cols-1")
+    expect(html).not.toContain("grid-cols-[minmax(0,1fr)_auto]")
   })
 
   it("does not expose the archive action when the user may only delete", () => {
@@ -339,7 +343,8 @@ describe("ForumView responsive post actions", () => {
     expect(html).not.toContain(tid.forumThreadTagBtn("p1"))
     expect(html).not.toContain(tid.forumThreadArchiveBtn("p1"))
     expect(html).toContain(tid.forumThreadDeleteBtn("p1"))
-    expect(html).toContain("min-h-8 pr-12")
+    expect(html).toContain("grid-cols-[minmax(0,1fr)_auto]")
+    expect(html).not.toContain("min-h-8")
   })
 })
 

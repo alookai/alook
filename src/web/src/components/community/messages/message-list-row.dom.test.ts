@@ -46,7 +46,6 @@ const callbacks = {
   onMark: vi.fn(),
   onCreateThread: vi.fn(),
   onCopy: vi.fn(),
-  onEdit: vi.fn(),
   onRetry: vi.fn(),
   onDismiss: vi.fn(),
   onPreviewImage: vi.fn(),
@@ -111,7 +110,7 @@ describe("renderMessageListRow", () => {
     expect(mockedMessageRow).toHaveBeenCalledOnce()
   })
 
-  it("projects every row identity/action prop and gates edit to the viewer", () => {
+  it("projects every supported row identity and action prop", () => {
     const message = {
       id: "m1",
       type: "chat" as const,
@@ -145,7 +144,6 @@ describe("renderMessageListRow", () => {
       onMarkId: callbacks.onMark,
       onCreateThreadId: callbacks.onCreateThread,
       onCopyId: callbacks.onCopy,
-      onEditId: callbacks.onEdit,
       onRetryId: callbacks.onRetry,
       onDismissId: callbacks.onDismiss,
       onJumpToId: controller.jumpTo,
@@ -164,7 +162,6 @@ describe("renderMessageListRow", () => {
       controller,
       0,
     ))
-    expect(mockedMessageRow.mock.calls.at(-1)?.[0].onEditId).toBeUndefined()
     expect(mockedMessageRow.mock.calls.at(-1)?.[0].onImageLoad).toBeUndefined()
   })
 

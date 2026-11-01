@@ -1,4 +1,5 @@
 "use client"
+import { requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
 import { currentPageObservation, startPageOperation, finishPageOperation, pageOperationAttributes, runPageOperation, type PageOperation } from "@/lib/observability/context"
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
 import { useEffect, useRef, useCallback } from "react"
@@ -171,7 +172,6 @@ export type UseUserWsOptions = {
   onAuthenticated?: () => void | Promise<void>
   onForeground?: () => void | Promise<void>
   onConnectionStateChange?: (phase: UserWsConnectionPhase) => void | Promise<void>
-  requestDaemonStatusOnAuth?: boolean
 }
 
 function runLifecycleCallback(
@@ -228,7 +228,6 @@ export function useUserWs(
   const onForegroundRef = useRef(options?.onForeground)
   const onConnectionStateChangeRef = useRef(options?.onConnectionStateChange)
   const lastConnectionPhaseRef = useRef<UserWsConnectionPhase | null>(null)
-  const requestDaemonStatusOnAuthRef = useRef(options?.requestDaemonStatusOnAuth ?? true)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingTokenRef = useRef<PendingTokenAttempt | null>(null)
   const tokenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -280,10 +279,6 @@ export function useUserWs(
     options?.onConnectionStateChange,
     options?.onDisconnect,
   ])
-
-  useEffect(() => {
-    requestDaemonStatusOnAuthRef.current = options?.requestDaemonStatusOnAuth ?? true
-  }, [options?.requestDaemonStatusOnAuth])
 
   const observedSockets = useRef(new WeakMap<WebSocket, { generation: number; start: number; operation?: PageOperation }>())
   const connectRef = useRef<(() => Promise<void>) | null>(null)
@@ -711,7 +706,7 @@ export function useUserWs(
       trackCommunityWsAuthFailure({ failureClass })
     }
 
-    let communityContract: CommunityContract = 1
+    let communityContract: CommunityContract = COMMUNITY_CONTRACT_VERSION
     const requestedCommunityContract = requestedCommunityContractRef.current
     let communityAdmission = Promise.resolve()
     let pendingAdmissions = 0
@@ -783,7 +778,7 @@ export function useUserWs(
         return
       }
       const msg = parsed as Record<string, unknown>
-      if (msg.type === "auth.error") protocolRejected = true
+      if (msg.type === "auth.error") { protocolRejected = true; requestBusinessSchemaUpdate(Number(msg.communityContract)); ws.close(1008, "Community contract mismatch"); return }
       if (typeof msg.type !== "string" || msg.type.length === 0) {
         reportDroppedFrame("missing-type", msg)
         return
@@ -821,10 +816,10 @@ export function useUserWs(
           reportDroppedFrame("duplicate-auth-ok", msg)
           return
         }
-        const confirmed = msg.communityContract ?? 1
-        if ((confirmed !== 1 && confirmed !== 2 && confirmed !== 3)
-          || (confirmed !== requestedCommunityContract && !(confirmed === 1 && requestedCommunityContract === 2))) {
+        const confirmed = msg.communityContract
+        if (confirmed !== COMMUNITY_CONTRACT_VERSION || confirmed !== requestedCommunityContract) {
           protocolRejected = true
+          requestBusinessSchemaUpdate(Number(confirmed))
           reportDroppedFrame("invalid-payload", msg)
           ws.close(1008, "Community contract confirmation mismatch")
           return
@@ -853,17 +848,6 @@ export function useUserWs(
         }
         reconnectDelay.current = WS_RECONNECT_INIT
         reconnectAttemptRef.current = 0
-        if (requestDaemonStatusOnAuthRef.current) {
-          try {
-            ws.send(JSON.stringify({ type: "check_daemon_status" }))
-          } catch {
-            retireSocket(true, "local-retire")
-            if (generation === connectionGenerationRef.current) {
-              scheduleReconnect(generation)
-            }
-            return
-          }
-        }
         if (!ownsAuthenticatedConnection(ws, generation) || isOffline()) return
         startHeartbeat(ws, generation)
         return
@@ -883,12 +867,12 @@ export function useUserWs(
           return
         }
       }
-      if ((isCommunityBatch && msg.type !== communityBrowserEventBatchType(communityContract)
-        && !(communityContract === 2 && msg.type === communityBrowserEventBatchType(1)))
-        || (communityContract === 1 && (msg.type === "community:channel.membership.change"
-          || (isCommunityBatch && Array.isArray(msg.events) && msg.events.some((event: unknown) =>
-            isCommunityEventCandidate(event) && event.type === "community:channel.membership.change"))))) {
+      if ((isCommunityBatch && msg.type !== communityBrowserEventBatchType(communityContract))
+        || (isCommunityEventCandidate(msg) && !isCommunityBatch && msg.schemaVersion !== communityContract)) {
+        protocolRejected = true
+        requestBusinessSchemaUpdate()
         reportDroppedFrame("invalid-payload", msg)
+        ws.close(1008, "Community contract mismatch")
         return
       }
 
@@ -896,7 +880,7 @@ export function useUserWs(
       const assertAdmissionCurrent = () => {
         if (!ownsAuthenticatedConnection(ws, generation) || isOffline() || callback !== onMessageRef.current) throw new DOMException("Retired WebSocket admission", "AbortError")
       }
-      if ((isCommunityBatch && msg.type !== communityBrowserEventBatchType(1)) || pendingAdmissions > 0) {
+      if (isCommunityBatch || pendingAdmissions > 0) {
         if (pendingAdmissions >= 32) { ws.close(1011, "Community admission overloaded"); return }
         pendingAdmissions++
         communityAdmission = communityAdmission.then(async () => {
@@ -962,6 +946,7 @@ export function useUserWs(
         isBackground() || frozenRef.current ? "suspended" : "reconnecting",
       )
       if (generation !== connectionGenerationRef.current) return
+      if (protocolRejected) { credentialRetryRef.current.stopped = true; return }
       if (failedValidation && !isBackground() && !isOffline() && !frozenRef.current) {
         void connectRef.current?.()
       } else {
@@ -1276,7 +1261,7 @@ export function useUserWs(
   const send = useCallback((msg: object) => {
     const ws = wsRef.current
     if (!isOffline() && isCurrentWsAccount(viewerUserId) && ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(msg))
+      ws.send(JSON.stringify(isCommunityEventCandidate(msg) ? { ...msg, schemaVersion: COMMUNITY_CONTRACT_VERSION } : msg))
     }
   }, [isOffline, viewerUserId])
 

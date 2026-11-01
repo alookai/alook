@@ -6,6 +6,7 @@ import { ChannelHeader } from "./channel-header"
 import { CommunityPanel } from "../shell/community-panel"
 import { ForumChannelSurface } from "./forum-channel-surface"
 import { ForumSurface } from "./forum-surface"
+import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 
 const mocks = vi.hoisted(() => ({
   createForumThread: vi.fn(),
@@ -163,6 +164,32 @@ describe("ForumChannelSurface ownership", () => {
     expect(renderer!.container.querySelector('[data-manage-dialog="true"]')).toBeInTheDocument()
   })
 
+  it("keeps other-post permission pending until the qualified viewer role resolves", () => {
+    const node = (viewerRole: "admin" | "member" | undefined) => React.createElement(
+      ForumChannelSurface, surfaceProps({ viewerRole }),
+    )
+    const view = render(node(undefined))
+    const pending = mockedForumSurface.mock.calls.at(-1)![0]
+    const ownPost = { id: "own", authorId: "viewer_1", openerMessageId: "own-opener", tags: [] } as Parameters<NonNullable<typeof pending.canEditPostTags>>[0]
+    const otherPost = { ...ownPost, id: "other", authorId: "other_1" }
+    expect(pending.canEditPostTags?.(ownPost)).toBe(true)
+    expect(pending.canDeletePost?.(ownPost)).toBe(true)
+    expect(pending.canEditPostTags?.(otherPost)).toBeUndefined()
+    expect(pending.canDeletePost?.(otherPost)).toBeUndefined()
+    view.rerender(node("member"))
+    const denied = mockedForumSurface.mock.calls.at(-1)![0]
+    expect(denied.canEditPostTags?.(otherPost)).toBe(false)
+    expect(denied.canDeletePost?.(otherPost)).toBe(false)
+    view.rerender(node("admin"))
+    const allowed = mockedForumSurface.mock.calls.at(-1)![0]
+    expect(allowed.canEditPostTags?.(otherPost)).toBe(true)
+    expect(allowed.canDeletePost?.(otherPost)).toBe(true)
+    view.rerender(node(undefined))
+    const retired = mockedForumSurface.mock.calls.at(-1)![0]
+    expect(retired.canEditPostTags?.(otherPost)).toBeUndefined()
+    expect(retired.canDeletePost?.(otherPost)).toBeUndefined()
+  })
+
   it("allows server managers to edit and delete other authors' posts", () => {
     act(() => {
       render(React.createElement(ForumChannelSurface, surfaceProps({ viewerRole: "admin" })))
@@ -171,6 +198,40 @@ describe("ForumChannelSurface ownership", () => {
     const otherPost = { id: "post_2", authorId: "other_1", openerMessageId: "opener_2" } as Parameters<NonNullable<typeof forumProps.canEditPostTags>>[0]
     expect(forumProps.canEditPostTags?.(otherPost)).toBe(true)
     expect(forumProps.canDeletePost?.(otherPost)).toBe(true)
+  })
+
+  it("keeps manager action slots during inactivity while retiring writes and following a real demotion", async () => {
+    mocks.updatePostTags.mockImplementation(async ({ assertActive }) => { assertActive(); return { tags: [] } })
+    mocks.deleteForumThread.mockImplementation(({ assertActive }) => { assertActive() })
+    const node = (active: boolean, viewerRole: "admin" | "member") => React.createElement(
+      ConversationActivityContext, { value: active },
+      React.createElement(ForumChannelSurface, surfaceProps({ viewerRole })),
+    )
+    const view = render(node(true, "admin"))
+    const activeProps = mockedForumSurface.mock.calls.at(-1)![0]
+    const post = { id: "other-post", authorId: "other", openerMessageId: "opener", tags: [] } as Parameters<NonNullable<typeof activeProps.canEditPostTags>>[0]
+    view.rerender(node(false, "admin"))
+    const inactiveProps = mockedForumSurface.mock.calls.at(-1)![0]
+    expect(inactiveProps.canEditPostTags?.(post)).toBe(true)
+    expect(inactiveProps.canDeletePost?.(post)).toBe(true)
+    await expect(inactiveProps.onEditPostTags?.(post, [])).rejects.toMatchObject({ name: "AbortError" })
+    expect(() => inactiveProps.onDeletePost?.(post)).toThrow("Retired community view")
+    await expect(activeProps.onEditPostTags?.(post, [])).rejects.toMatchObject({ name: "AbortError" })
+    expect(() => activeProps.onDeletePost?.(post)).toThrow("Retired community view")
+    view.rerender(node(true, "admin"))
+    const resumedProps = mockedForumSurface.mock.calls.at(-1)![0]
+    expect(resumedProps.canEditPostTags?.(post)).toBe(true)
+    await resumedProps.onEditPostTags?.(post, [])
+    expect(() => resumedProps.onDeletePost?.(post)).not.toThrow()
+    view.rerender(node(true, "member"))
+    const demotedProps = mockedForumSurface.mock.calls.at(-1)![0]
+    expect(demotedProps.canEditPostTags?.(post)).toBe(false)
+    expect(demotedProps.canDeletePost?.(post)).toBe(false)
+    const ownPost = { ...post, authorId: "viewer_1" }
+    expect(demotedProps.canEditPostTags?.(ownPost)).toBe(true)
+    expect(demotedProps.canDeletePost?.(ownPost)).toBe(true)
+    mocks.updatePostTags.mockReset()
+    mocks.deleteForumThread.mockReset()
   })
 
   it("returns a rejected tag mutation to the editor so its draft stays retryable", async () => {

@@ -1,8 +1,10 @@
+import { messageSeedFixture, serverRailResponseFixture } from "@/test/community-resource-fixtures"
+import { profileResourceFixture, channelResourceFixture, messageResourceFixture, serverDirectoryFixture, forumSidebarEnvelopeFixture } from "@/test/community-resource-fixtures"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createElement, type ReactNode } from "react"
 import { act, renderHook, type RenderHookResult } from "@/test/react-dom-harness"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
-import type { CommunityMessageCreate } from "@alook/shared"
+import { CommunityChannelResourceSchema, type CommunityMessageCreate } from "@alook/shared"
 import { vi } from "vitest"
 import type { UseUserWsOptions, UserWsConnectionPhase } from "@/lib/use-user-ws"
 import {
@@ -29,7 +31,7 @@ const communityApiFetch = vi.hoisted(() => vi.fn(async (...args: unknown[]) => {
   if (url === "/api/community/users/me/read-state") {
     return { revision: 0, readStates: [] }
   }
-  if (url === "/api/community/users/me/attention") return { scopes: [], items: [], limit: 50, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }
+  if (url === "/api/community/users/me/attention") return { resources: { viewerId: (args[1] as { authenticationAccount?: string } | undefined)?.authenticationAccount ?? "u_me", servers: [], serverMemberships: [], channels: [], memberships: [], profiles: [], messages: [] }, scopes: [], items: [], limit: 50, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }
   throw new Error(`unexpected API fetch: ${url}`)
 }))
 
@@ -119,7 +121,7 @@ function resetHarnessState() {
     if (url === "/api/community/users/me/read-state") {
       return { revision: 0, readStates: [] }
     }
-    if (url === "/api/community/users/me/attention") return { scopes: [], items: [], limit: 50, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }
+    if (url === "/api/community/users/me/attention") return { resources: { viewerId: (args[1] as { authenticationAccount?: string } | undefined)?.authenticationAccount ?? "u_me", servers: [], serverMemberships: [], channels: [], memberships: [], profiles: [], messages: [] }, scopes: [], items: [], limit: 50, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }
     throw new Error(`unexpected API fetch: ${url}`)
   })
 }
@@ -217,7 +219,7 @@ export function unmountHook() {
 
 export function seedCanonicalMessages(channelId: string, messages: MessageInput[]) {
   if (!canonicalRegistry) throw new Error("Community test owner missing")
-  act(() => ingestMessages(canonicalRegistry!, channelId, messages.map((message) => ({ type: "chat", content: "", seq: 1, ...message }))))
+  act(() => ingestMessages(canonicalRegistry!, channelId, messageSeedFixture(channelId, messages)))
 }
 
 export function seedCanonicalStream(scope: MessageScope, event: MessageOverlayEvent) {
@@ -229,11 +231,11 @@ export function canonicalMessage(id: string) {
   return messageProjectionHook?.result.current?.get(id)
 }
 
-export function seedCanonicalServer(server: Partial<Parameters<typeof ingestServerDetail>[1]> & { id: string }) {
+export function seedCanonicalServer(scenario: Parameters<typeof serverDirectoryFixture>[0]) {
   if (!canonicalRegistry) throw new Error("Community test owner missing")
-  const detail = { name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "u_me", categories: [], ...server }
+  const detail = serverDirectoryFixture(scenario)
   act(() => {
-    ingestServers(canonicalRegistry!, { servers: [{ id: detail.id, name: detail.name, initial: detail.name[0]!, active: false, unread: false, mentions: 0, ownerId: detail.ownerId }] })
+    ingestServers(canonicalRegistry!, serverRailResponseFixture({ servers: [{ ...detail.server, initial: detail.server.name[0]!, active: false, unread: false, mentions: 0, role: "owner", memberId: `member-${detail.server.id}` }] }, canonicalRegistry!.accountId))
     ingestServerDetail(canonicalRegistry!, detail)
   })
 }
@@ -242,8 +244,9 @@ export function messageCreate(channelId: string, msgId = "m_1"): CommunityMessag
   return {
     type: "community:message.create",
     channelId,
+    profiles: [profileResourceFixture({ id: "u_author", name: "author" })],
     message: {
-      id: msgId,
+      ...messageResourceFixture({ id: msgId, channelId }),
       type: "chat",
       authorId: "u_author",
       authorName: "author",
@@ -291,101 +294,29 @@ export function forumSidebarFixture(ids = ["post_1"]) {
 }
 
 export function seedCanonicalForumSidebar(serverId: string, ids = ["post_1"]) {
-  act(() => {
-    if (!canonicalRegistry) throw new Error("canonical test registry is not active")
-    ingestServers(canonicalRegistry, { servers: [{
-      id: serverId,
-      name: "Server",
-      initial: "S",
-      active: false,
-      unread: false,
-      mentions: 0,
-      ownerId: "viewer",
-    }] })
-    ingestServerDetail(canonicalRegistry, {
-      id: serverId,
-      name: "Server",
-      discriminator: "0001",
-      description: "",
-      icon: null,
-      ownerId: "viewer",
-      categories: [{
-        id: `${serverId}-forums`,
-        name: "Forums",
-        channels: [{
-          id: "forum_1",
-          name: "Forum",
-          active: false,
-          unread: false,
-          type: "forum",
-        }],
-      }],
-    })
-    publishCommunityForumSidebar(capturedQueryClient, {
-      serverId,
-      channels: forumSidebarFixture(ids).channels.map((channel) => ({
-        ...channel,
-        serverId,
-        type: "thread",
-        creatorId: "viewer",
-        archived: false,
-        lastMessageAt: channel.activityAt,
-      })),
-      openers: forumSidebarFixture(ids).included.parentMessages.map((message) => ({
-        ...message,
-        channelId: "forum_1",
-        type: "chat" as const,
-      })),
-      proof: {
-        token: captureCommunityLiveSnapshotToken(capturedQueryClient),
-        signal: undefined,
-      },
-    })
-  })
+  if (!canonicalRegistry) throw new Error("Community test owner missing")
+  const envelope = forumSidebarEnvelopeFixture(serverId, ids, canonicalRegistry.accountId!)
+  seedCanonicalServer({ ...envelope.resources.servers[0], channels: [envelope.resources.channels[0]] })
+  act(() => publishCommunityForumSidebar(capturedQueryClient, {
+    serverId, resources: envelope.resources,
+    channels: envelope.resources.channels.filter(channel => channel.type === "thread").map(channel => ({ ...channel, activityAt: envelope.serverNow, unread: false, participating: true })),
+    openers: envelope.resources.messages,
+    proof: { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined },
+  }))
 }
 
 export function canonicalForumSidebar(serverId: string) {
   return getForumSidebarBase(capturedQueryClient, serverId)
 }
 
-export function seedCanonicalThread(
-  serverId: string,
-  parentId: string,
-  parentType: "text" | "forum",
-  childId: string,
-) {
-  act(() => {
-    if (!canonicalRegistry) throw new Error("canonical test registry is not active")
-    ingestServers(canonicalRegistry, { servers: [{
-      id: serverId, name: "Server", initial: "S", active: false, unread: false,
-      mentions: 0, ownerId: "u_me",
-    }] })
-    ingestServerDetail(canonicalRegistry, {
-      id: serverId, name: "Server", discriminator: "0001", description: "",
-      icon: null, ownerId: "u_me", categories: [{
-        id: `${serverId}-category`, name: "Category", channels: [{
-          id: parentId, name: "Parent", active: false, unread: false, type: parentType,
-        }],
-      }],
-    })
-    publishCommunityChannelMetadata(capturedQueryClient, {
-      metadata: {
-        id: childId,
-        serverId,
-        name: "Child",
-        type: "thread",
-        parentChannelId: parentId,
-        parentMessageId: `${childId}-opener`,
-        creatorId: "u_me",
-        archived: false,
-        lastMessageAt: "2026-08-01T00:00:00.000Z",
-      },
-      proof: {
-        token: captureCommunityLiveSnapshotToken(capturedQueryClient),
-        signal: undefined,
-      },
-    })
-  })
+export function seedCanonicalThread(serverId: string, parentId: string, parentType: "text" | "forum", childId: string) {
+  if (!canonicalRegistry) throw new Error("Community test owner missing")
+  seedCanonicalServer({ id: serverId, ownerId: "u_me", categories: [{ id: `${serverId}-category`, name: "Category", channels: [{ id: parentId, name: "Parent", type: parentType }] }] })
+  act(() => publishCommunityChannelMetadata(capturedQueryClient, {
+    metadata: channelResourceFixture({ id: childId, serverId, name: "Child", type: "thread", parentChannelId: parentId,
+      parentMessageId: `${childId}-opener`, creatorId: "u_me", lastMessageAt: "2026-08-01T00:00:00.000Z" }),
+    proof: { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined },
+  }))
 }
 
 export function hasCanonicalChannel(channelId: string) {
@@ -409,7 +340,7 @@ export function seedCanonicalFocusedChannel(metadata: { name: string; parentChan
     const channelId = state.currentChannelId ?? state.subscription.channelId
     if (!channelId) throw new Error("Focused test channel missing")
     publishCommunityChannelMetadata(capturedQueryClient, {
-      metadata: { creatorId: null, archived: false, lastMessageAt: null, parentMessageId: null, parentChannelId: null, ...canonicalRegistry.collections.channels.get(channelId), id: channelId, serverId: canonicalRegistry.collections.channels.get(channelId)?.serverId ?? state.currentServerId ?? "s1", type: metadata.parentChannelId ? "thread" : "text", ...metadata },
+      metadata: channelResourceFixture({ ...Object.fromEntries(Object.entries(canonicalRegistry.collections.channels.get(channelId) ?? {}).filter(([key]) => key in CommunityChannelResourceSchema.shape)), id: channelId, serverId: canonicalRegistry.collections.channels.get(channelId)?.serverId ?? state.currentServerId ?? "s1", type: metadata.parentChannelId ? "thread" : "text", ...metadata }),
       proof: { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined },
     })
   })

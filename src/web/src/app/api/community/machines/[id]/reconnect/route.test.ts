@@ -20,13 +20,7 @@ vi.mock("@alook/shared", async () => {
 }})
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => async (req: any, ctx?: any) =>
-    handler(req, {
-      env: { DB: {} },
-      userId: "u_1",
-      email: "u@example.com",
-      params: ctx?.params,
-    }),
+  humanAuthPolicy: { resolve: async (req: any) => ({ context: { env: { DB: {} }, userId: "u_1", email: "u@example.com" } }) },
 }))
 
 vi.mock("@/lib/middleware/helpers", async () => {

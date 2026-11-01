@@ -25,6 +25,9 @@ export const communityKeys = {
   servers: () => [...communityKeys.all, "servers"] as const,
   channelRefDirectory: () =>
     [...communityKeys.servers(), "channel-ref-directory"] as const,
+  channelRefTargets: () => [...communityKeys.servers(), "channel-ref-target"] as const,
+  channelRefTarget: (ref: string, qualification: { accountEpoch: number; accessEpoch: number; lifetime: number; scopes: readonly (readonly [string, number, boolean])[] }) =>
+    [...communityKeys.channelRefTargets(), ref, qualification] as const,
   server: (serverId: string) =>
     [...communityKeys.servers(), serverId] as const,
   forumSidebarThreads: (serverId: string) =>
@@ -144,6 +147,7 @@ export const communityKeys = {
 
   // ── Bots ────────────────────────────────────────────────────────────────
   bots: () => [...communityKeys.all, "bots"] as const,
+  botPii: (machineId: string, botId: string) => [...communityKeys.all, "pii", machineId, botId] as const,
   billing: () => [...communityKeys.all, "billing"] as const,
   bugReport: (reportId: string) =>
     [...communityKeys.all, "bug-report", reportId] as const,
@@ -157,6 +161,7 @@ export const communityKeys = {
   // ── Notification settings ───────────────────────────────────────────────
   notificationSettings: () =>
     [...communityKeys.all, "notification-settings"] as const,
+  botMemberships: (botId: string) => [...communityKeys.all, "bot", botId, "memberships"] as const,
   botNotificationSetting: (botId: string, scope: "server" | "channel", scopeId: string) =>
     [...communityKeys.all, "bot", botId, "notification-settings", scope, scopeId] as const,
 
@@ -167,6 +172,7 @@ export const communityKeys = {
 
 const reservedServerIdSegments = new Set<string>([
   communityKeys.channelRefDirectory()[2],
+  communityKeys.channelRefTargets()[2],
   "__none__",
   "__pending__",
 ])
