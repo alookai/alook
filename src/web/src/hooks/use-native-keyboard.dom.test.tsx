@@ -127,6 +127,24 @@ it("converts native overlap points to the current CSS width and resamples on res
   }
 })
 
+it("projects a native reply with the latest CSS width after a retained layout rerenders", async () => {
+  const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth")
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 382 })
+  const post = vi.fn(async () => snapshot(244, 867))
+  install(post)
+  const view = renderHook(useNativeKeyboard)
+  try {
+    await waitFor(() => expect(view.result.current.bottomInset).toBeCloseTo(244 * 382 / 867, 6))
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 867 })
+    view.rerender()
+    expect(view.result.current.bottomInset).toBe(244)
+    expect(post).toHaveBeenCalledTimes(1)
+  } finally {
+    view.unmount()
+    if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth)
+  }
+})
+
 it.each([true, false, { bottomInset: -10, viewportWidth: 390 }, { bottomInset: 100, viewportWidth: 0 },
   { bottomInset: Number.NaN, viewportWidth: 390 }, { bottomInset: 100, viewportWidth: Number.POSITIVE_INFINITY }])(
   "does not use malformed or retired-format native geometry: %j", async (value) => {

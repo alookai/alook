@@ -19,6 +19,37 @@ afterEach(() => {
 })
 
 describe("ConversationFooterShell", () => {
+  it("keeps one retained footer and draft while native keyboard geometry changes from cover to expanded", async () => {
+    const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth")
+    Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 382 })
+    let native = { bottomInset: 285, viewportWidth: 382 }
+    Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: {
+      alookKeyboard: { postMessage: async () => native },
+    } } })
+    const view = render(<ConversationFooterShell data-testid="fold-footer" style={{ marginBottom: 6 }}>
+      <input aria-label="Fold draft" defaultValue="Keep this unsent" />
+    </ConversationFooterShell>)
+    try {
+      const footer = view.getByTestId("fold-footer")
+      const draft = view.getByRole("textbox", { name: "Fold draft" })
+      await waitFor(() => expect(footer).toHaveStyle({ marginBottom: "285px" }))
+      native = { bottomInset: 244, viewportWidth: 867 }
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 867 })
+      act(() => window.dispatchEvent(new Event("resize")))
+      await waitFor(() => expect(footer).toHaveStyle({ marginBottom: "244px" }))
+      expect(view.getByTestId("fold-footer")).toBe(footer)
+      expect(view.getByRole("textbox", { name: "Fold draft" })).toBe(draft)
+      expect(draft).toHaveValue("Keep this unsent")
+      native = { bottomInset: 0, viewportWidth: 867 }
+      act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
+      await waitFor(() => expect(footer).toHaveStyle({ marginBottom: "6px" }))
+    } finally {
+      view.unmount()
+      if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth)
+    }
+  })
+
   it("reserves native occlusion only in the conversation footer and restores the existing style and draft", async () => {
     Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
     let bottomInset = 0

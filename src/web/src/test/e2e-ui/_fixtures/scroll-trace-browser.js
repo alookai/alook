@@ -279,14 +279,16 @@
     let measurementRevision = 0
     let writerRevision = 0
     let currentMark = "start"
+    let reactionTarget = null
+    let dispatchSequence = 0
     let resolveFinished
     const finished = new Promise((resolve) => { resolveFinished = resolve })
     const addListener = (target, name, handler, optionsValue) => {
       target.addEventListener(name, handler, optionsValue)
       listeners.push(() => target.removeEventListener(name, handler, optionsValue))
     }
-    const recordExternal = (type, detail = null) => boundedPush(externalEvents, {
-      timestamp: round(performance.now()),
+    const recordExternal = (type, detail = null, timestamp = performance.now()) => boundedPush(externalEvents, {
+      timestamp: round(timestamp),
       type,
       detail,
     }, maxEvents)
@@ -324,6 +326,48 @@
       const patch = patchMethod(scroller, name, recordWriter)
       capabilities[name] = patch.capability
       restorers.push(patch.restore)
+    }
+    if (options.scenario === "measured-reactions-backward-growth") {
+      const target = EventTarget.prototype
+      const descriptor = Object.getOwnPropertyDescriptor(target, "dispatchEvent")
+      const supported = !!descriptor?.configurable && typeof descriptor.value === "function"
+      capabilities.wsDispatch = { supported, descriptor: descriptorShape(descriptor) }
+      if (supported) {
+        const matchingReactionCount = (receiver, event) => {
+          try {
+            if (!reactionTarget || !(receiver instanceof WebSocket) || event?.type !== "message"
+              || typeof event.data !== "string" || new URL(receiver.url).pathname !== "/api/ws/user") return 0
+            const value = JSON.parse(event.data)
+            const events = typeof value?.type === "string" && value.type.startsWith("community:events.batch") && Array.isArray(value.events)
+              ? value.events : [value]
+            return events.filter(event => event?.type === "community:reaction.add"
+              && event.messageId === reactionTarget.messageId).length
+          } catch {
+            return 0
+          }
+        }
+        Object.defineProperty(target, "dispatchEvent", {
+          ...descriptor,
+          value: function (...args) {
+            if (!reactionTarget) return Reflect.apply(descriptor.value, this, args)
+            const enteredAt = performance.now()
+            const reactionCount = matchingReactionCount(this, args[0])
+            if (!reactionCount) return Reflect.apply(descriptor.value, this, args)
+            const detail = { sequence: ++dispatchSequence, ...reactionTarget, reactionCount }
+            recordExternal("ws-dispatch-enter", detail, enteredAt)
+            let outcome = "threw"
+            try {
+              const result = Reflect.apply(descriptor.value, this, args)
+              outcome = "returned"
+              return result
+            } finally {
+              const returnedAt = performance.now()
+              recordExternal("ws-dispatch-return", { ...detail, outcome }, returnedAt)
+            }
+          },
+        })
+        restorers.push(() => Object.defineProperty(target, "dispatchEvent", descriptor))
+      }
     }
     const content = scroller.querySelector("[data-message-list-content]")
     const composer = document.querySelector('[data-testid="community-composer-shell"]')
@@ -468,6 +512,10 @@
 
     const mark = (name, detail = {}) => {
       currentMark = name
+      if (/^stimulus:reactions-\d+$/.test(name)) {
+        reactionTarget = typeof detail.detail?.messageId === "string" && detail.detail.messageId.length > 0
+          ? { stimulus: name, messageId: detail.detail.messageId } : null
+      }
       const value = {
         timestamp: round(performance.now()),
         frame,
