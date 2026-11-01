@@ -19,6 +19,35 @@ function failedInitialReader(onInitialPositionSettled?: () => void) {
 }
 
 describe("locked native adapter and existing message scroll owner", () => {
+  it.each([0, 0.5, 1, 2])("does not follow a tail resize after upward takeover at %spx from the end", distance => {
+    const h = mount()
+    h.move(h.root.scrollHeight - h.root.clientHeight - distance)
+    const native = scrollFixture.latest.virtualizer
+    fireEvent.wheel(h.root, { deltaY: -20 })
+    expect(native.options.followOnAppend).toBe(false)
+    const before = h.root.scrollTop
+    expect(h.root.scrollHeight - h.root.clientHeight - before).toBeCloseTo(distance, 1)
+    scrollFixture.bodyHeights.set("m13", 200)
+    resize(0)
+    expect(h.root.scrollTop).toBeCloseTo(before, 1)
+  })
+
+  it("restores native tail eligibility before a peer append in the same React commit", () => {
+    const h = mount()
+    const native = scrollFixture.latest.virtualizer
+    fireEvent.wheel(h.root, { deltaY: -20 })
+    expect(native.options.scrollEndThreshold).toBe(-1)
+    const end = vi.spyOn(native, "scrollToEnd")
+    act(() => {
+      fireEvent.wheel(h.root, { deltaY: 20 })
+      h.stage({ items: [...h.input.items, message("received-with-resume")] })
+    })
+    resize()
+    expect(end).toHaveBeenCalledOnce()
+    expect(native.options.scrollEndThreshold).toBe(1)
+    expect(h.root.scrollTop).toBe(h.root.scrollHeight - h.root.clientHeight)
+  })
+
   it("hands a pending native tail command to real upward intent before exact one-pixel positioning", () => {
     const h = mount()
     const native = scrollFixture.latest.virtualizer
@@ -843,7 +872,6 @@ describe("locked native adapter and existing message scroll owner", () => {
     h.update({ items: [...older, ...h.input.items], isFetchingOlder: false })
     expect(bodyTop(h.root, input === "wheel" ? "m3" : "m8")).toBe(before)
     expect(index).not.toHaveBeenCalled()
-    expect(scrollFixture.latest.virtualizer.shouldAdjustScrollPositionOnItemSizeChange).toBeUndefined()
   })
   it("returns to native measurement policy when the header-fold restore settles", () => {
     const h = mount()
@@ -868,12 +896,10 @@ describe("locked native adapter and existing message scroll owner", () => {
     const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
     h.stage({ items: [...older, ...h.input.items], isFetchingOlder: false })
     resize(1)
-    expect(scrollFixture.latest.virtualizer.shouldAdjustScrollPositionOnItemSizeChange).toBeTypeOf("function")
     expect(scrollFixture.latest.paginationRequestPending).toBe(true)
     scrollFixture.height -= 40
     resize()
     expect(bodyTop(h.root, "m0")).toBe(restoredTop)
-    expect(scrollFixture.latest.virtualizer.shouldAdjustScrollPositionOnItemSizeChange).toBeUndefined()
     expect(scrollFixture.latest.paginationRequestPending).toBe(false)
     const readingTop = bodyTop(h.root, "older-29")
     scrollFixture.bodyHeights.set("older-29", 108)
@@ -906,7 +932,6 @@ describe("locked native adapter and existing message scroll owner", () => {
     resize(2)
     h.stage({ items: h.input.items.filter(item => item.m.id !== "m0") })
     resize(0)
-    expect(scrollFixture.latest.virtualizer.shouldAdjustScrollPositionOnItemSizeChange).toBeUndefined()
     runFrames()
     const readingTop = bodyTop(h.root, "older-29")
     const nextTop = bodyTop(h.root, "m1")

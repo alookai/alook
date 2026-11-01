@@ -49,6 +49,75 @@ function messageOffset(root: HTMLElement, id: string) {
 }
 
 describe("MessageList continuous input through an accepted page", () => {
+  it.each(["response-first", "rows-first"])("captures a first body reached after early prefetch (%s)", async order => {
+    let messages = Array.from({ length: 50 }, (_, index) => message(index + 40))
+    const before = {}, received = {}
+    let complete!: (result: MessageRequestResult) => void
+    const completed = new Promise<MessageRequestResult>(resolve => { complete = resolve })
+    const older = vi.fn(() => ({ accepted: true as const, completed }))
+    const view = (window = before, fetching = false) => React.createElement(MessageList, {
+      channel: "general", messages, messageWindow: window, initialScrollReady: true,
+      initialPositionMessageId: "m65", positionDataState: "ready", hasMore: true,
+      hasMoreNewer: true, isFetchingOlder: fetching, onLoadOlder: older, onOpenThread: vi.fn(),
+    })
+    const renderer = render(view())
+    resize()
+    const root = renderer.getByTestId(tid.messageScroller)
+    fireEvent.wheel(root, { deltaY: -20 })
+    act(() => root.scrollTo({ top: root.clientHeight }))
+    resize(0)
+    runFrames(1)
+    expect(older).toHaveBeenCalledOnce()
+    const native = anchorState.current!.virtualizer
+    const trace: Array<Record<string, unknown>> = []
+    const record = (phase: string) => trace.push({ phase, top: root.scrollTop, height: root.scrollHeight, total: native.getTotalSize(),
+      nativeOffset: native.scrollOffset, body: messageOffset(root, "m40"), pending: anchorState.current!.paginationRequestPending,
+      row: native.getVirtualItems().find(row => row.key === "msg:id:m40"), writes: [...anchorState.nativeWrites] })
+    onTestFinished(() => {
+      if (process.env.ALOOK_SCROLL_TRACE === "1") process.stdout.write(`MESSAGE_LATE_FIRST_BODY_TRACE ${JSON.stringify({ order, trace })}\n`)
+    })
+    expect(native.getVirtualItemForOffset(root.scrollTop)?.key).not.toBe("msg:id:m40")
+    renderer.rerender(view(before, true))
+    const first = native.getVirtualItems().find(row => row.key === "msg:id:m40")!
+    expect(first).toBeDefined()
+    fireEvent.wheel(root, { deltaY: -20 })
+    act(() => root.scrollTo({ top: first.start + 20 }))
+    resize(0)
+    runFrames(1)
+    expect(native.getVirtualItemForOffset(root.scrollTop)?.key).toBe("msg:id:m40")
+    const bodyInset = () => {
+      const body = root.querySelector<HTMLElement>('[data-msg-id="m40"]')!
+      return body.getBoundingClientRect().top - body.closest("[data-index]")!.getBoundingClientRect().top
+    }
+    const top = messageOffset(root, "m40")!
+    record("first-body-before-publication")
+    const inset = bodyInset()
+    expect(inset).toBeGreaterThan(0)
+    const publish = () => { messages = [...Array.from({ length: 39 }, (_, index) => message(index + 1)), ...messages] }
+    if (order === "rows-first") {
+      publish()
+      renderer.rerender(view(before, true))
+      resize(0)
+      expect.soft(messageOffset(root, "m40")).toBeCloseTo(top, 0)
+      runFrames(1)
+      record("rows-before-receipt")
+      expect.soft(messageOffset(root, "m40")).toBeCloseTo(top, 0)
+      expect(anchorState.current!.paginationRequestPending).toBe(true)
+    }
+    await act(async () => { complete({ status: "success", window: received }) })
+    if (order === "response-first") publish()
+    renderer.rerender(view(received))
+    resize(0)
+    record("response-measured")
+    expect.soft(messageOffset(root, "m40")).toBeCloseTo(top, 0)
+    runFrames()
+    record("response-frames")
+    expect(bodyInset()).toBe(inset / 2)
+    expect(messageOffset(root, "m40")).toBeCloseTo(top, 0)
+    expect(anchorState.current!.paginationRequestPending).toBe(false)
+    expect(older).toHaveBeenCalledOnce()
+  })
+
   it.each([
     ["older", "response-first", "edge"], ["older", "rows-first", "edge"],
     ["newer", "response-first", "edge"], ["newer", "rows-first", "edge"],
@@ -106,6 +175,15 @@ describe("MessageList continuous input through an accepted page", () => {
     expect(load).toHaveBeenCalledOnce()
     record("accepted-page")
     renderer.rerender(view(before, true))
+    if (direction === "newer" && position === "edge") {
+      const measuredEnd = root.scrollHeight - root.clientHeight
+      fireEvent.wheel(root, { deltaY: measuredEnd - root.scrollTop })
+      act(() => root.scrollTo({ top: measuredEnd }))
+      resize(0)
+      runFrames(1)
+      record("measured-edge-precondition")
+      expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBeLessThanOrEqual(1)
+    }
     for (let step = 1; step <= 3; step++) {
       const delta = (direction === "older" ? -1 : 1) * (position === "edge" ? 30 : -120)
       const previous = root.scrollTop

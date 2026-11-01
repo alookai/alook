@@ -1,7 +1,7 @@
 import { createElement } from "react"
 import { describe, expect, it, vi } from "vitest"
 import type { VirtualItem } from "@tanstack/react-virtual"
-import { render } from "@/test/react-dom-harness"
+import { fireEvent, render } from "@/test/react-dom-harness"
 import { useVirtualCursorPagination } from "./use-virtual-cursor-pagination"
 
 type Props = Parameters<typeof useVirtualCursorPagination>[0]
@@ -25,6 +25,81 @@ describe.each(["start", "end"] as const)("native virtual cursor pagination (%s)"
       rerender: (next: Partial<Props> = {}) => view.rerender(createElement(Harness, { ...base, ...next })) }
   }
   const boundary = edge === "start" ? [0, 1] : [8, 9]
+
+  function viewportFixture(distance: number, indices = [4, 5], overrides: Partial<Props> = {}, contentHeight = 5000) {
+    const root = document.createElement("div")
+    Object.defineProperties(root, {
+      clientHeight: { value: 500, configurable: true },
+      scrollHeight: { value: contentHeight, configurable: true },
+    })
+    const move = (next: number) => { root.scrollTop = edge === "start" ? next : contentHeight - 500 - next; fireEvent.scroll(root) }
+    move(distance)
+    const f = fixture({ preloadWithinViewport: true, virtualizer: { getVirtualItems: () => range(...indices), scrollElement: root }, ...overrides })
+    return { ...f, root, move }
+  }
+
+  it("preloads one viewport away while the virtual range stays inside one tall row", () => {
+    const f = viewportFixture(501)
+    expect(f.onLoad).not.toHaveBeenCalled()
+    f.move(500)
+    expect(f.onLoad).toHaveBeenCalledOnce()
+    f.move(499)
+    expect(f.onLoad).toHaveBeenCalledOnce()
+    expect(f.onBeforeLoad.mock.invocationCallOrder[0]).toBeLessThan(f.onLoad.mock.invocationCallOrder[0])
+  })
+
+  it("does not use a distant overscan boundary as the pixel preload threshold", () => {
+    const f = viewportFixture(2000, boundary)
+    expect(f.onLoad).not.toHaveBeenCalled()
+    f.move(500)
+    expect(f.onLoad).toHaveBeenCalledOnce()
+  })
+
+  it("deduplicates a pending window while the visible boundary keys change", () => {
+    const indices = [4, 5]
+    const f = viewportFixture(400, indices, { requestKey: {} })
+    expect(f.onLoad).toHaveBeenCalledOnce()
+    indices.splice(0, 2, 2, 3)
+    f.move(300)
+    indices.splice(0, 2, 0, 1)
+    f.move(200)
+    expect(f.onLoad).toHaveBeenCalledOnce()
+    expect(f.onBeforeLoad).toHaveBeenCalledOnce()
+    f.rerender({ requestKey: {} })
+    expect(f.onLoad).toHaveBeenCalledTimes(2)
+  })
+
+  it("uses physical start distance when one tall virtual row occupies both edges", () => {
+    const f = viewportFixture(400, [0], { count: 1, hasMoreAtStart: true })
+    expect(f.onLoad).toHaveBeenCalledOnce()
+    if (edge === "end") expect(f.root.scrollTop).toBeGreaterThan(f.root.clientHeight)
+  })
+
+  it("keeps eligibility, fetch and error gates on pixel scroll events and removes the listener", () => {
+    const f = viewportFixture(400, [4, 5], { enabled: false })
+    f.move(300)
+    f.rerender({ enabled: true, isFetching: true })
+    f.move(200)
+    f.rerender({ enabled: true, isFetching: false, isError: true })
+    f.move(100)
+    expect(f.onLoad).not.toHaveBeenCalled()
+    f.rerender({ enabled: true, isFetching: false, isError: false })
+    expect(f.onLoad).toHaveBeenCalledOnce()
+    f.view.unmount()
+    f.move(2000)
+    f.move(0)
+    expect(f.onLoad).toHaveBeenCalledOnce()
+  })
+
+  it("prioritizes the older side of a short pixel preload window", () => {
+    const f = viewportFixture(100, [4, 5], { hasMoreAtStart: true }, 700)
+    f.move(100)
+    expect(f.onLoad).toHaveBeenCalledTimes(edge === "start" ? 1 : 0)
+    if (edge === "end") {
+      f.rerender({ hasMoreAtStart: false })
+      expect(f.onLoad).toHaveBeenCalledOnce()
+    }
+  })
 
   it("loads when the native range reaches the boundary, with anchor capture first", () => {
     const f = fixture()
