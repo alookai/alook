@@ -26,6 +26,29 @@ static UIView *gAlookStartupOverlay = nil;
 static BOOL gAlookStartupCompleted = NO;
 static BOOL gAlookStartupFailed = NO;
 
+static NSString *const kAlookConsumedSafeAreaScript =
+    @"for (const edge of ['top', 'right', 'bottom', 'left']) {"
+     "document.documentElement.style.setProperty('--app-safe-area-' + edge, '0px');"
+     "}";
+
+static CGRect alookNativeContentFrame(CGRect bounds, UIEdgeInsets systemInsets, BOOL isTauriRoot) {
+    CGFloat top = isTauriRoot ? MAX(systemInsets.top, 10.0) : systemInsets.top;
+    CGFloat bottom = isTauriRoot ? 20.0 : systemInsets.bottom;
+    CGFloat width = bounds.size.width - systemInsets.left - systemInsets.right;
+    CGFloat height = bounds.size.height - top - bottom;
+    return CGRectMake(systemInsets.left, top,
+        isTauriRoot ? MAX(0.0, width) : width,
+        isTauriRoot ? MAX(0.0, height) : height);
+}
+
+static CGFloat alookKeyboardBottomInset(CGRect bounds, CGRect keyboardFrame,
+                                      CGRect keyboardGuideFrame, CGRect safeAreaFrame) {
+    if (CGRectGetMinY(keyboardGuideFrame) >= CGRectGetMaxY(safeAreaFrame)) return 0;
+    return CGRectIntersectsRect(bounds, keyboardFrame)
+        ? MIN(bounds.size.height, MAX(0, CGRectGetMaxY(bounds) - CGRectGetMinY(keyboardFrame)))
+        : 0;
+}
+
 static BOOL alookIsTauriRootController(UIViewController *viewController) {
     Class taoViewController = NSClassFromString(@"TaoUIViewController");
     return taoViewController != Nil && [viewController isKindOfClass:taoViewController];
@@ -148,9 +171,8 @@ static NSDictionary *alookMeasureKeyboardSnapshot(UIViewController *controller, 
     UIView *host = controller.view;
     CGRect keyboardFrame = [webView convertRect:host.keyboardLayoutGuide.layoutFrame fromView:host];
     CGRect bounds = webView.bounds;
-    CGFloat bottomInset = CGRectIntersectsRect(bounds, keyboardFrame)
-        ? MIN(bounds.size.height, MAX(0, CGRectGetMaxY(bounds) - CGRectGetMinY(keyboardFrame)))
-        : 0;
+    CGFloat bottomInset = alookKeyboardBottomInset(bounds, keyboardFrame,
+        host.keyboardLayoutGuide.layoutFrame, host.safeAreaLayoutGuide.layoutFrame);
     return @{
         @"bottomInset": @(bottomInset),
         @"viewportWidth": @(bounds.size.width)
@@ -509,18 +531,19 @@ static NSString *const kThemeObserverScript =
     for (UIView *subview in self.view.subviews) {
         if ([subview isKindOfClass:[WKWebView class]]) {
             CGRect bounds = self.view.bounds;
-            CGRect contentFrame = CGRectMake(
-                insets.left,
-                insets.top,
-                bounds.size.width - insets.left - insets.right,
-                bounds.size.height - insets.top - insets.bottom
-            );
+            CGRect contentFrame = alookNativeContentFrame(bounds, insets, isTauriRoot);
 
             WKWebView *webView = (WKWebView *)subview;
             if (isTauriRoot) {
                 alookInstallCommunityRootScrollLock(self.view, webView);
                 NSNumber *previousTop = objc_getAssociatedObject(webView, kAlookSafeAreaTopKey);
                 if (previousTop == nil) {
+                    WKUserScript *safeAreaScript = [[WKUserScript alloc]
+                        initWithSource:kAlookConsumedSafeAreaScript
+                        injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                        forMainFrameOnly:YES];
+                    [webView.configuration.userContentController addUserScript:safeAreaScript];
+                    [webView evaluateJavaScript:kAlookConsumedSafeAreaScript completionHandler:nil];
                     AlookSafeAreaHandler *handler = [[AlookSafeAreaHandler alloc] init];
                     handler.viewController = self;
                     [webView.configuration.userContentController

@@ -23,9 +23,9 @@ function install(postMessage: (command: "snapshot") => Promise<unknown>) {
 it("keeps ordinary Web and Android without a native keyboard capability unchanged", () => {
   Reflect.deleteProperty(window, "webkit")
   const view = renderHook(useNativeKeyboard)
-  expect(view.result.current.bottomInset).toBe(0)
+  expect(view.result.current).toBeNull()
   act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
-  expect(view.result.current.bottomInset).toBe(0)
+  expect(view.result.current).toBeNull()
 })
 
 it("does not enable native layout in a browser with a WebKit-shaped object", async () => {
@@ -34,7 +34,7 @@ it("does not enable native layout in a browser with a WebKit-shaped object", asy
   Reflect.deleteProperty(window, "__TAURI__")
   const view = renderHook(useNativeKeyboard)
   await act(async () => {})
-  expect(view.result.current.bottomInset).toBe(0)
+  expect(view.result.current).toBeNull()
   expect(post).not.toHaveBeenCalled()
 })
 
@@ -43,13 +43,13 @@ it("updates overlap for closed and reopened keyboard snapshots", async () => {
   const post = vi.fn(async () => snapshot(bottomInset))
   install(post)
   const view = renderHook(useNativeKeyboard)
-  await waitFor(() => expect(view.result.current.bottomInset).toBe(300))
+  await waitFor(() => expect(view.result.current).toEqual(snapshot(300)))
   bottomInset = 0
   act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
-  await waitFor(() => expect(view.result.current.bottomInset).toBe(0))
+  await waitFor(() => expect(view.result.current).toEqual(snapshot()))
   bottomInset = 320
   act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
-  await waitFor(() => expect(view.result.current.bottomInset).toBe(320))
+  await waitFor(() => expect(view.result.current).toEqual(snapshot(320)))
   expect(post).toHaveBeenLastCalledWith("snapshot")
   expect(post).toHaveBeenCalledTimes(3)
 })
@@ -62,7 +62,7 @@ it("does not let an older native snapshot revive a later closed state", async ()
   const view = renderHook(useNativeKeyboard)
   act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
   await act(async () => release(snapshot(300)))
-  expect(view.result.current.bottomInset).toBe(0)
+  expect(view.result.current).toEqual(snapshot())
   expect(post).toHaveBeenCalledTimes(2)
 })
 
@@ -78,14 +78,14 @@ it("retires pending snapshots and callbacks when a component leaves", async () =
   await act(async () => release(snapshot(300)))
   expect(oldPost).toHaveBeenCalledTimes(1)
   expect(nextPost).toHaveBeenCalledExactlyOnceWith("snapshot")
-  expect(next.result.current.bottomInset).toBe(0)
+  expect(next.result.current).toEqual(snapshot())
 })
 
 it("retires on pagehide and resumes only the preserved document on BFCache return", async () => {
   const post = vi.fn(async () => snapshot(300))
   install(post)
   const view = renderHook(useNativeKeyboard)
-  await waitFor(() => expect(view.result.current.bottomInset).toBe(300))
+  await waitFor(() => expect(view.result.current).toEqual(snapshot(300)))
   act(() => window.dispatchEvent(new PageTransitionEvent("pagehide")))
   const calls = post.mock.calls.length
   act(() => {
@@ -93,9 +93,9 @@ it("retires on pagehide and resumes only the preserved document on BFCache retur
     window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false }))
   })
   expect(post).toHaveBeenCalledTimes(calls)
-  expect(view.result.current.bottomInset).toBe(0)
+  expect(view.result.current).toBeNull()
   act(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })))
-  await waitFor(() => expect(view.result.current.bottomInset).toBe(300))
+  await waitFor(() => expect(view.result.current).toEqual(snapshot(300)))
 })
 
 it("keeps failed capability reads closed and accepts a later native state change", async () => {
@@ -103,24 +103,42 @@ it("keeps failed capability reads closed and accepts a later native state change
   install(post)
   const view = renderHook(useNativeKeyboard)
   await act(async () => {})
-  expect(view.result.current.bottomInset).toBe(0)
+  expect(view.result.current).toBeNull()
   act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
-  await waitFor(() => expect(view.result.current.bottomInset).toBe(300))
+  await waitFor(() => expect(view.result.current).toEqual(snapshot(300)))
 })
 
 
-it("converts native overlap points to the current CSS width and resamples on resize", async () => {
+it("keeps native geometry intact and resamples on the existing resize event", async () => {
   const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth")
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 900 })
   const post = vi.fn(async () => snapshot(150, 450))
   install(post)
   const view = renderHook(useNativeKeyboard)
   try {
-    await waitFor(() => expect(view.result.current.bottomInset).toBe(300))
+    await waitFor(() => expect(view.result.current).toEqual(snapshot(150, 450)))
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 450 })
     act(() => window.dispatchEvent(new Event("resize")))
-    await waitFor(() => expect(view.result.current.bottomInset).toBe(150))
+    await waitFor(() => expect(view.result.current).toEqual(snapshot(150, 450)))
     expect(post).toHaveBeenCalledTimes(2)
+  } finally {
+    view.unmount()
+    if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth)
+  }
+})
+
+it("keeps native geometry independent of CSS width without a manual rerender", async () => {
+  const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth")
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 382 })
+  const post = vi.fn(async () => snapshot(244, 867))
+  install(post)
+  const view = renderHook(useNativeKeyboard)
+  try {
+    await waitFor(() => expect(view.result.current).toEqual(snapshot(244, 867)))
+    const native = view.result.current
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 867 })
+    expect(view.result.current).toBe(native)
+    expect(post).toHaveBeenCalledTimes(1)
   } finally {
     view.unmount()
     if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth)
@@ -133,6 +151,6 @@ it.each([true, false, { bottomInset: -10, viewportWidth: 390 }, { bottomInset: 1
     install(async () => value)
     const view = renderHook(useNativeKeyboard)
     await act(async () => {})
-    expect(view.result.current.bottomInset).toBe(0)
+    expect(view.result.current).toBeNull()
   },
 )

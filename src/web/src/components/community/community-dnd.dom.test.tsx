@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react"
-import { DndProvider } from "react-dnd"
+import { StrictMode, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { DndProvider, useDrag, useDragDropManager } from "react-dnd"
+import { MultiBackend } from "dnd-multi-backend"
 import { TestBackend, type TestBackendImpl } from "react-dnd-test-backend"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { describe, expect, it, vi } from "vitest"
@@ -82,6 +83,40 @@ function ActualSidebarFixture({ onReorder }: { onReorder: (ids: string[]) => voi
 }
 
 describe("React DnD community scopes", () => {
+  it("keeps sibling provider managers live through StrictMode replay and a provider rerender", () => {
+    const managers = new Map<string, ReturnType<typeof useDragDropManager>>()
+    function Source({ label }: { label: string }) {
+      const manager = useDragDropManager()
+      useLayoutEffect(() => { managers.set(label, manager) }, [label, manager])
+      const [, drag] = useDrag(() => ({ type: "community/provider-lifecycle", item: { label } }), [label])
+      return <div ref={node => { drag(node) }}>{label}</div>
+    }
+    function Scope({ id }: { id: string }) {
+      const [revision, setRevision] = useState(0)
+      return <>
+        <button type="button" onClick={() => setRevision(value => value + 1)}>update {id}</button>
+        <CommunityDndProvider><Source label={`${id}:${revision}`} /></CommunityDndProvider>
+      </>
+    }
+    const view = render(<StrictMode><Scope id="rail" /><Scope id="sidebar" /></StrictMode>)
+    const manager = managers.get("rail:0")
+    expect(manager).toBeDefined()
+    expect(managers.get("sidebar:0")).toBe(manager)
+    fireEvent.click(view.getByRole("button", { name: "update rail" }))
+    expect(view.getByText("rail:1")).toBeInTheDocument()
+    expect(view.getByText("sidebar:0")).toBeInTheDocument()
+    expect(managers.get("rail:1")).toBe(manager)
+    view.unmount()
+    const isolated = render(<DndProvider backend={MultiBackend} options={communityDndOptions} context={{}}>
+      <Source label="isolated" />
+    </DndProvider>)
+    expect(managers.get("isolated")).not.toBe(manager)
+    isolated.unmount()
+    const reopened = render(<CommunityDndProvider><Source label="reopened" /></CommunityDndProvider>)
+    expect(managers.get("reopened")).toBe(manager)
+    reopened.unmount()
+  })
+
   it("renders a same-kind drag preview only in its owning scope", () => {
     const ui = setup(<><div data-scope="first"><TreeFixture onDrop={vi.fn()} /></div><div data-scope="second"><TreeFixture onDrop={vi.fn()} /></div></>)
     const source = ui.container.querySelector<HTMLElement>('[data-scope="second"] [data-testid="text"]')!

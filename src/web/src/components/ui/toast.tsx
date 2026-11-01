@@ -36,7 +36,7 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
       aria-label="Notifications"
       data-slot="message-notification-viewport"
       className={cn(
-        "pointer-events-none fixed inset-x-4 top-[calc(env(safe-area-inset-top)+1rem)] z-100 mx-auto w-auto max-w-lg outline-none sm:w-full",
+        "pointer-events-none fixed inset-x-4 top-[calc(var(--app-safe-area-top)+1rem)] z-100 mx-auto w-auto max-w-lg outline-none sm:w-full",
         className,
       )}
       {...props}

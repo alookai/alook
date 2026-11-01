@@ -119,7 +119,8 @@ describe("native shell theme color contract", () => {
     const handler = iosRuntime.split("@implementation AlookKeyboardHandler")[1]?.split("@end")[0] ?? ""
     const publish = iosRuntime.split("static void alookPublishKeyboardSnapshots(")[1]?.split("\n}\n")[0] ?? ""
     expect(measure).toContain("convertRect:host.keyboardLayoutGuide.layoutFrame fromView:host")
-    expect(measure).toContain("CGRectIntersectsRect(bounds, keyboardFrame)")
+    expect(measure).toContain("alookKeyboardBottomInset(bounds, keyboardFrame,")
+    expect(measure).toContain("host.keyboardLayoutGuide.layoutFrame, host.safeAreaLayoutGuide.layoutFrame")
     expect(measure).toContain("@\"bottomInset\"")
     expect(measure).toContain("@\"viewportWidth\"")
     expect(observer).toContain("[super layoutSubviews]")
@@ -179,7 +180,7 @@ describe("native shell theme color contract", () => {
     )
     expect(iosRuntime).toContain("objc_setAssociatedObject(")
     expect(iosRuntime).toContain("objc_getAssociatedObject(")
-    expect(iosRuntime).toContain("bounds.size.height - insets.top - insets.bottom")
+    expect(iosRuntime).toContain("alookNativeContentFrame(bounds, insets, isTauriRoot)")
     expect(iosRuntime).not.toContain("prefersHomeIndicatorAutoHidden")
   })
 

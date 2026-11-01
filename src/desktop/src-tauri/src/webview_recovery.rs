@@ -955,7 +955,7 @@ fn recovery_html() -> &'static str {
     :root{color-scheme:light dark;--background:oklch(1 0 0);--foreground:oklch(0.18 0.03 230);--muted-foreground:oklch(0.44 0.03 230);--ring:oklch(0.55 0.03 230);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--background);color:var(--foreground)}
     *{box-sizing:border-box}
     body{min-height:100vh;margin:0;background:var(--background)}
-    main{width:100%;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:max(24px,env(safe-area-inset-top)) max(24px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left));text-align:center;cursor:pointer;outline:none;-webkit-user-select:none;user-select:none}
+    main{width:100%;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:max(24px,var(--app-safe-area-top,env(safe-area-inset-top))) max(24px,var(--app-safe-area-right,env(safe-area-inset-right))) max(24px,var(--app-safe-area-bottom,env(safe-area-inset-bottom))) max(24px,var(--app-safe-area-left,env(safe-area-inset-left)));text-align:center;cursor:pointer;outline:none;-webkit-user-select:none;user-select:none}
     main:focus-visible svg{outline:3px solid var(--ring);outline-offset:4px;border-radius:50%}
     svg{width:48px;height:48px;color:var(--foreground)}
     p{margin:0;color:var(--muted-foreground);font-size:16px;line-height:1.55}

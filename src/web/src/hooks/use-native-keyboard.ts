@@ -16,8 +16,8 @@ function keyboardBridge() {
   return (window as KeyboardWindow).webkit?.messageHandlers?.alookKeyboard
 }
 
-export function useNativeKeyboard() {
-  const [bottomInset, setBottomInset] = useState(0)
+export function useNativeKeyboard(): KeyboardSnapshot | null {
+  const [snapshot, setSnapshot] = useState<KeyboardSnapshot | null>(null)
   useEffect(() => {
     const bridge = keyboardBridge()
     if (!bridge) return
@@ -31,13 +31,13 @@ export function useNativeKeyboard() {
         if (owner.active && request === revision) {
           const valid = next && Number.isFinite(next.bottomInset) && next.bottomInset >= 0
             && Number.isFinite(next.viewportWidth) && next.viewportWidth > 0
-          setBottomInset(valid ? next.bottomInset * window.innerWidth / next.viewportWidth : 0)
+          setSnapshot(valid ? { bottomInset: next.bottomInset, viewportWidth: next.viewportWidth } : null)
         }
       } catch {
-        if (owner.active && request === revision) setBottomInset(0)
+        if (owner.active && request === revision) setSnapshot(null)
       }
     }
-    const hide = () => { owner.active = false; revision++; setBottomInset(0) }
+    const hide = () => { owner.active = false; revision++; setSnapshot(null) }
     const show = (event: PageTransitionEvent) => {
       if (!event.persisted) return
       owner.active = true
@@ -57,5 +57,5 @@ export function useNativeKeyboard() {
       window.removeEventListener("pageshow", show)
     }
   }, [])
-  return { bottomInset }
+  return snapshot
 }

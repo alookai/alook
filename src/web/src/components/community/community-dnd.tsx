@@ -22,7 +22,7 @@ export const communityDndOptions = {
 export function CommunityDndProvider({ children }: { children: ReactNode }) {
   const { dragDropManager } = useContext(DndContext)
   if (dragDropManager) return children
-  return <DndProvider backend={MultiBackend} options={communityDndOptions}>{children}</DndProvider>
+  return <DndProvider backend={MultiBackend} options={communityDndOptions} context={typeof window === "undefined" ? undefined : window}>{children}</DndProvider>
 }
 
 export function useDndCancellation(onCancel: () => void) {
