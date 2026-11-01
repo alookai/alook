@@ -34,6 +34,9 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
     velX: 0,
     velY: 0,
   })
+  const targetRef = useRef({ tiltRx: REST_RX, tiltRy: REST_RY, tiltTx: 0, tiltTy: 0 })
+  const lastFrameRef = useRef<number | null>(null)
+  const resetSensorBaselineRef = useRef<(() => void) | null>(null)
   const rafRef = useRef<number | null>(null)
   const dragPointerRef = useRef<number | null>(null)
 
@@ -51,29 +54,40 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
     el.style.setProperty("--tw-ty", `${ty.toFixed(2)}px`)
   }, [])
 
-  const stepSpring = useCallback(function tick() {
+  const stepSpring = useCallback(function tick(timestamp: number) {
     const p = poseRef.current
-    p.velX = (p.velX - p.shakeX * 0.22) * 0.82
-    p.velY = (p.velY - p.shakeY * 0.22) * 0.82
-    p.shakeX += p.velX
-    p.shakeY += p.velY
-    commitPose()
-    if (
-      Math.abs(p.shakeX) > 0.08
-      || Math.abs(p.shakeY) > 0.08
-      || Math.abs(p.velX) > 0.08
-      || Math.abs(p.velY) > 0.08
-    ) {
-      rafRef.current = window.requestAnimationFrame(tick)
-    } else {
+    const target = targetRef.current
+    const elapsed = lastFrameRef.current === null ? 1000 / 60 : clamp(timestamp - lastFrameRef.current, 0, 32)
+    lastFrameRef.current = timestamp
+    const blend = 1 - Math.exp(-elapsed / 100)
+    const frame = elapsed / (1000 / 60)
+    let moving = false
+    for (const key of ["tiltRx", "tiltRy", "tiltTx", "tiltTy"] as const) {
+      p[key] += (target[key] - p[key]) * blend
+      if (Math.abs(target[key] - p[key]) < 0.01) p[key] = target[key]
+      else moving = true
+    }
+    p.velX = (p.velX - p.shakeX * 0.22 * frame) * Math.pow(0.82, frame)
+    p.velY = (p.velY - p.shakeY * 0.22 * frame) * Math.pow(0.82, frame)
+    p.shakeX += p.velX * frame
+    p.shakeY += p.velY * frame
+    if (Math.max(Math.abs(p.shakeX), Math.abs(p.shakeY), Math.abs(p.velX), Math.abs(p.velY)) < 0.08) {
       p.shakeX = 0
       p.shakeY = 0
       p.velX = 0
       p.velY = 0
+    } else moving = true
+    commitPose()
+    if (moving) rafRef.current = window.requestAnimationFrame(tick)
+    else {
       rafRef.current = null
-      commitPose()
+      lastFrameRef.current = null
     }
   }, [commitPose])
+
+  const schedulePose = useCallback(() => {
+    if (rafRef.current === null) rafRef.current = window.requestAnimationFrame(stepSpring)
+  }, [stepSpring])
 
   const attachSensors = useCallback(() => {
     if (!sensorsActiveRef.current || sensorsAttachedRef.current || typeof window === "undefined") return
@@ -84,6 +98,17 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
     let baselineGamma: number | null = null
     let prevRawX: number | null = null
     let prevRawY: number | null = null
+    let acceptedBeta: number | null = null
+    let acceptedGamma: number | null = null
+    let lastImpulse = -Infinity
+    resetSensorBaselineRef.current = () => {
+      baselineBeta = null
+      baselineGamma = null
+      acceptedBeta = null
+      acceptedGamma = null
+      prevRawX = null
+      prevRawY = null
+    }
 
     const onOrientation = (event: DeviceOrientationEvent) => {
       if (typeof event.beta !== "number" || typeof event.gamma !== "number") return
@@ -93,16 +118,22 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
         baselineBeta = event.beta
         baselineGamma = event.gamma
       }
+      if (acceptedBeta !== null && acceptedGamma !== null
+        && Math.abs(event.beta - acceptedBeta) < 0.5
+        && Math.abs(event.gamma - acceptedGamma) < 0.5) return
+      acceptedBeta = event.beta
+      acceptedGamma = event.gamma
       const dGamma = clamp(event.gamma - baselineGamma, -30, 30)
       const dBeta = clamp(event.beta - baselineBeta, -25, 25)
-      poseRef.current.tiltRy = REST_RY + (dGamma / 30) * 16
-      poseRef.current.tiltRx = REST_RX - (dBeta / 25) * 12
-      poseRef.current.tiltTx = (dGamma / 30) * 16
-      poseRef.current.tiltTy = (dBeta / 25) * 11
-      commitPose()
+      targetRef.current.tiltRy = REST_RY + (dGamma / 30) * 16
+      targetRef.current.tiltRx = REST_RX - (dBeta / 25) * 12
+      targetRef.current.tiltTx = (dGamma / 30) * 16
+      targetRef.current.tiltTy = (dBeta / 25) * 11
+      schedulePose()
     }
 
     const onMotion = (event: DeviceMotionEvent) => {
+      if (dragPointerRef.current !== null) return
       const linear = event.acceleration
       const gravity = event.accelerationIncludingGravity
       let dx = 0
@@ -123,12 +154,13 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
         prevRawX = gravity.x
         prevRawY = gravity.y
       }
-      if (Math.hypot(dx, dy) < 1.8) return
-      poseRef.current.velX = clamp(poseRef.current.velX + dx * 0.9, -15, 15)
-      poseRef.current.velY = clamp(poseRef.current.velY + dy * 0.7, -11, 11)
-      if (rafRef.current === null) {
-        rafRef.current = window.requestAnimationFrame(stepSpring)
-      }
+      if (!Number.isFinite(dx) || !Number.isFinite(dy) || Math.hypot(dx, dy) < 1.8) return
+      const now = performance.now()
+      if (now - lastImpulse < 160) return
+      lastImpulse = now
+      poseRef.current.velX = clamp(poseRef.current.velX + dx * 0.25, -4, 4)
+      poseRef.current.velY = clamp(poseRef.current.velY + dy * 0.2, -3, 3)
+      schedulePose()
     }
 
     window.addEventListener("deviceorientation", onOrientation)
@@ -137,8 +169,9 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
       window.removeEventListener("deviceorientation", onOrientation)
       window.removeEventListener("devicemotion", onMotion)
       sensorsAttachedRef.current = false
+      resetSensorBaselineRef.current = null
     }
-  }, [commitPose, stepSpring])
+  }, [schedulePose])
 
   useEffect(() => {
     if (!isMobile || collapsed) {
@@ -155,6 +188,8 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
         window.cancelAnimationFrame(rafRef.current)
         rafRef.current = null
       }
+      lastFrameRef.current = null
+      dragPointerRef.current = null
     }
   }, [attachSensors, collapsed, isMobile])
 
@@ -207,20 +242,24 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
 
   const updateTouchTilt = (clientX: number, clientY: number) => {
     const el = stageRef.current
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return
     if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
     const rect = el.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0) return
     const nx = clamp((clientX - (rect.left + rect.width / 2)) / (rect.width / 2), -1, 1)
     const ny = clamp((clientY - (rect.top + rect.height / 2)) / (rect.height / 2), -1, 1)
-    poseRef.current.tiltRy = REST_RY + nx * 16
-    poseRef.current.tiltRx = REST_RX - ny * 12
-    poseRef.current.tiltTx = nx * 14
-    poseRef.current.tiltTy = ny * 10
-    commitPose()
+    targetRef.current.tiltRy = REST_RY + nx * 16
+    targetRef.current.tiltRx = REST_RX - ny * 12
+    targetRef.current.tiltTx = nx * 14
+    targetRef.current.tiltTy = ny * 10
+    schedulePose()
   }
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (dragPointerRef.current !== null || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
     dragPointerRef.current = event.pointerId
+    poseRef.current.velX = 0
+    poseRef.current.velY = 0
     event.currentTarget.setPointerCapture?.(event.pointerId)
     updateTouchTilt(event.clientX, event.clientY)
   }
@@ -233,15 +272,16 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
   const handlePointerEnd = (event: PointerEvent<HTMLDivElement>) => {
     if (dragPointerRef.current !== event.pointerId) return
     dragPointerRef.current = null
+    resetSensorBaselineRef.current?.()
     if (event.type === "pointerup") unlockSensorsOnGesture()
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
-    poseRef.current.tiltRy = REST_RY
-    poseRef.current.tiltRx = REST_RX
-    poseRef.current.tiltTx = 0
-    poseRef.current.tiltTy = 0
-    commitPose()
+    targetRef.current.tiltRy = REST_RY
+    targetRef.current.tiltRx = REST_RX
+    targetRef.current.tiltTx = 0
+    targetRef.current.tiltTy = 0
+    schedulePose()
   }
 
   return (
@@ -254,6 +294,7 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerEnd}
       onPointerCancel={handlePointerEnd}
+      onLostPointerCapture={handlePointerEnd}
       className={cn(
         styles.stage,
         "relative flex w-full touch-none items-center justify-center transition-opacity duration-200 select-none sm:hidden",
