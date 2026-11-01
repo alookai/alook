@@ -10,8 +10,8 @@ type PermissionCapableEvent = {
   requestPermission?: () => Promise<"granted" | "denied" | "default">
 }
 
-const REST_RX = 11
-const REST_RY = -19
+const REST_RX = 10
+const REST_RY = -20
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
