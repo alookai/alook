@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, registerCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
-import { captureCommunityLiveSnapshotToken, publishAccountAttentionSnapshot, publishCommunityLiveSnapshot, projectCommunityWsEventToDb, publishCommunityChannelDirectory } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishAccountAttentionSnapshot, publishCommunityLiveSnapshot, projectCommunityWsEventToDb, publishCommunityChannelDirectory, retireCommunityChannelReading } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import { ApiError } from "@/lib/errors"
 import { forumConversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
@@ -205,6 +205,34 @@ describe("useServers / serversQueryFn", () => {
 })
 
 describe("useServer / projected canonical detail", () => {
+  it.each(["denial", "membership"] as const)("restarts a directory read superseded by channel %s without losing the server", async change => {
+    seedList()
+    let release!: () => void
+    const response = new Promise<void>(resolve => { release = resolve })
+    let initial = true
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (initial) await response
+      return url.endsWith("/channels")
+        ? { channels: [channelResourceFixture({ id: "all", name: "all", serverId: identity.id, categoryId: "cat_1" })] }
+        : detailApi(url)
+    })
+    const view = renderHook(() => useServer(identity.id), { wrapper: Owner })
+    await waitFor(() => expect(apiFetchMock.mock.calls.filter(([url]) => String(url).endsWith("/channels"))).toHaveLength(1))
+    const accessEpoch = registry.runtime.ws.get().accessEpoch
+    await act(async () => {
+      if (change === "denial") retireCommunityChannelReading(registry, "room", { reason: "read-denied", serverId: identity.id, denialCode: "not_allowed" })
+      else registry.runtime.ws.actions.beginChannelMembershipChange(identity.id, "room")
+      initial = false
+      release()
+    })
+    expect(registry.runtime.ws.get().accessEpoch).toBe(accessEpoch)
+    await waitFor(() => expect({ error: view.result.current.error?.message ?? null, channels: view.result.current.server?.categories[0]?.channels.map(channel => channel.id) }).toEqual({ error: null, channels: ["all"] }))
+    expect(view.result.current.isError).toBe(false)
+    expect(registry.collections.channels.has("room")).toBe(false)
+    expect(registry.runtime.ws.actions.isChannelAccessRevoked("room", identity.id)).toBe(change === "denial")
+    expect(apiFetchMock.mock.calls.filter(([url]) => String(url).endsWith("/channels"))).toHaveLength(2)
+  })
+
   it.each(["account", "owner"])("rechecks %s ownership after structural retirement rejects and before the hook restarts", async retirement => {
     seedList()
     let release!: () => void
