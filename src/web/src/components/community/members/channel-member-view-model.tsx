@@ -223,7 +223,7 @@ export function useChannelMemberViewModel({
         avatarVersion: profile.avatarVersion,
         sub: member.sub,
         role: "member",
-        status: member.userId === currentUser.id ? "online" : profile.presence,
+        status: profile.presence,
         statusEmoji: profile.statusEmoji,
         statusText: profile.statusText,
         isCreator: member.isCreator,
@@ -243,7 +243,6 @@ export function useChannelMemberViewModel({
   }, [
     channelMembersHook.members,
     currentChannelPrivate,
-    currentUser.id,
     isNotifyUnit,
     memberQuery,
     members,

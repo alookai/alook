@@ -102,7 +102,7 @@ export const communityWsRegistry = {
   "community:unread.bump": { handler: handleUnreadBump, reconnectPolicies: ["inbox-dms", "all-cached-servers"] },
   "community:read_state.advanced": { handler: handleReadStateAdvanced, reconnectPolicies: ["cached-read-state", "inbox-dms", "all-cached-servers"] },
   "community:inbox.changed": { handler: handleInboxChanged, reconnectPolicies: ["cached-read-state", "inbox-dms", "all-cached-servers"] },
-  "community:presence.update": { handler: handlePresenceUpdate, reconnectPolicies: ["presence-overlay", "all-cached-servers"] },
+  "community:presence.update": { handler: handlePresenceUpdate, reconnectPolicies: ["friends", "all-cached-servers"] },
   "community:status.update": { handler: (event) => handleStatusUpdate(event), reconnectPolicies: ["status-overlay"] },
   "community:identity.update": { handler: handleIdentityUpdate, reconnectPolicies: ["identity-surfaces"] },
   "community:profile.update": { handler: handleProfileUpdate, reconnectPolicies: ["identity-surfaces"] },

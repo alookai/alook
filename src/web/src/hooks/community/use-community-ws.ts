@@ -59,8 +59,6 @@ export type {
  * is driven by the reconciliation table in `the community reconciliation table`.
  *
  * State this hook owns *outside* the query cache:
- * - `useCommunityWsStore.presenceByUserId` — transient presence only; durable
- *   profile facts live in TanStack DB.
  * - `useCommunityWsStore.seenMessageIds` — dedup for `message.create`.
  * - `useCommunityStore.typingByScope` + `typingTimers` — typing indicator,
  *   keyed by conversation scope with per-(scope, user) auto-expire timers.
@@ -181,10 +179,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     activeViewRef.current = viewToken
     return () => { if (activeViewRef.current === viewToken) activeViewRef.current = null }
   }, [viewerUserId, viewToken])
-  useEffect(() => {
-    if (!viewerUserId) return
-    runtime.ws.actions.setPresence(viewerUserId, "online")
-  }, [runtime.ws.actions, viewerUserId])
 
   const handleMessage = useCallback(
     async (msg: { type: string;[key: string]: unknown }, assertAdmissionCurrent?: () => void, contract: CommunityContract = COMMUNITY_CONTRACT_VERSION) => {

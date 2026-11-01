@@ -1,5 +1,5 @@
 "use client"
-import { CommunityInvitesReadSchema } from "@alook/shared"
+import { CommunityInvitesReadSchema, CommunityPresenceReadSchema, type CommunityPresenceRead } from "@alook/shared"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import type { QueryFunctionContext } from "@tanstack/react-query"
 
@@ -88,15 +88,15 @@ export function useInvites(
  * cached at `communityKeys.presence(serverId)`. WS `presence.update` events
  * live-patch the global profile map; this initial load seeds the same map.
  */
-export type PresenceResponse = { online: string[]; truncated?: boolean; limit?: number }
+export type PresenceResponse = CommunityPresenceRead
 
 export const presenceQueryFn = (serverId: string) => (context: QueryFunctionContext) =>
   loadAndSeedProfiles(
-    (origin) => apiFetch<PresenceResponse & { stale?: boolean }>(
+    (origin) => apiFetch<unknown>(
       `/api/community/servers/${serverId}/presence`,
       origin,
-    ).then(throwIfStale),
-    (data) => data.online.map((id) => ({ id, presence: "online" })),
+    ).then(data => throwIfStale(CommunityPresenceReadSchema.parse(data))),
+    data => [...data.online.map(id => ({ id, presence: "online" as const })), ...data.offline.map(id => ({ id, presence: "offline" as const }))],
     getCommunityDbRegistry(context.client),
     context.signal,
   )
@@ -113,12 +113,6 @@ export function usePresence(
       : (() => Promise.reject(new Error("disabled"))),
     enabled,
     placeholderData: keepPreviousData,
-    // WS `presence.update` live-patches the online set, so a remount never
-    // needs to re-seed — this fetch is a once-per-server seed. staleTime:
-    // Infinity stops the per-switch refetch. refetchOnReconnect is the
-    // required backstop: the WS reconnect handler does NOT re-seed presence,
-    // so events missed during a socket gap would otherwise leave the roster
-    // permanently stale.
     staleTime: Infinity,
     refetchOnReconnect: true,
   })

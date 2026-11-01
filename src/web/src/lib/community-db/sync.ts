@@ -32,6 +32,7 @@ type CommunityProfileSeedSnapshot,
 communityUserProfilePatch,
 messageProfilePatches,
 writeCommunityProfilePatches,
+isCommunityProfileRetired,
 } from "@/lib/community/profile-seed"
 import type { CommunityProfilePatch } from "@/lib/community/models/people"
 import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
@@ -400,6 +401,7 @@ export async function restoreCommunityCollections(registry: CommunityDbRegistry,
   }
   const eligible = (name: CollectionName, row: object) => {
     const fields = row as Record<string, unknown>
+    if (name === "profiles" && typeof fields.id === "string" && isCommunityProfileRetired(registry, fields.id)) return false
     const friendUserId = name === "friendships" ? fields.userId
       : name === "attentionItems" && fields.kind === "friend_request" ? fields.actorUserId : undefined
     if (typeof friendUserId === "string"
@@ -441,6 +443,10 @@ export async function restoreCommunityCollections(registry: CommunityDbRegistry,
         ))
         if (merged) next.set(id, merged)
       }
+    }
+    if (name === "profiles") {
+      const presence = registry.runtime.ws.get().presenceByUserId
+      for (const [id, row] of next) if (presence.has(id)) next.set(id, schema.parse({ ...row, presence: presence.get(id) }))
     }
     completions.push(writeCommunityCollectionRows(registry, name, [...next.values()], getKey, { updatedAt: state && state.dataUpdatedAt > 0 ? state.dataUpdatedAt : restored.updatedAt }))
   }

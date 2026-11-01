@@ -179,7 +179,12 @@ jobs:
           assert info["CFBundleIdentifier"] == "ai.alook.ios"
           assert info["WKAppBoundDomains"] == ["localhost", "alook.ai"]
           assert info["UISupportedInterfaceOrientations"] == ["UIInterfaceOrientationPortrait"]
-          assert info["UISupportedInterfaceOrientations~ipad"] == ["UIInterfaceOrientationPortrait"]
+          assert info["UISupportedInterfaceOrientations~ipad"] == [
+              "UIInterfaceOrientationPortrait",
+              "UIInterfaceOrientationPortraitUpsideDown",
+              "UIInterfaceOrientationLandscapeLeft",
+              "UIInterfaceOrientationLandscapeRight",
+          ]
           assert info.get("UIRequiresFullScreen") is True
           assert info.get("UIRequiresFullScreen~iphone") is False
           assert info["CFBundleURLTypes"] == [

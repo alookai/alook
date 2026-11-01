@@ -261,7 +261,7 @@ describe("useFriendsPresence / friendsPresenceQueryFn", () => {
   it("fetches the friends-scoped presence endpoint", async () => {
     apiFetchMock.mockImplementationOnce(async (url: string) => {
       expect(url).toBe("/api/community/friends/presence")
-      return { online: ["u1", "u2"] }
+      return { online: ["u1", "u2"], offline: [], truncated: false, limit: 1000 }
     })
 
     const { friendsPresenceQueryFn } = await import("./use-friends")
@@ -272,19 +272,19 @@ describe("useFriendsPresence / friendsPresenceQueryFn", () => {
   })
 
   it("populates queryClient at communityKeys.friendsPresence(), nested under friends()", async () => {
-    apiFetchMock.mockResolvedValueOnce({ online: ["u1"] })
+    apiFetchMock.mockResolvedValueOnce({ online: ["u1"], offline: [], truncated: false, limit: 1000 })
     const { friendsPresenceQueryFn } = await import("./use-friends")
     const { client: queryClient } = await createCommunityQueryOwner()
     const key = communityKeys.friendsPresence()
     expect(key.slice(0, communityKeys.friends().length)).toEqual(communityKeys.friends())
     await queryClient.query({ queryKey: key, queryFn: friendsPresenceQueryFn })
-    expect(queryClient.getQueryData(key)).toEqual({ online: ["u1"] })
+    expect(queryClient.getQueryData(key)).toEqual({ online: ["u1"], offline: [], truncated: false, limit: 1000 })
     await queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
     expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true)
   })
 
   it("can defer the friends presence fetch until its surface opens", async () => {
-    apiFetchMock.mockResolvedValue({ online: ["u1"] })
+    apiFetchMock.mockResolvedValue({ online: ["u1"], offline: [], truncated: false, limit: 1000 })
     const { useFriendsPresence } = await import("./use-friends")
     const { client: queryClient } = await createCommunityQueryOwner()
     const rendered = renderHook(
@@ -302,7 +302,7 @@ describe("useFriendsPresence / friendsPresenceQueryFn", () => {
   })
 
   it("fetches by default when no enabled override is provided", async () => {
-    apiFetchMock.mockResolvedValue({ online: ["u1"] })
+    apiFetchMock.mockResolvedValue({ online: ["u1"], offline: [], truncated: false, limit: 1000 })
     const { useFriendsPresence } = await import("./use-friends")
     const { client: queryClient } = await createCommunityQueryOwner()
     renderHook(() => useFriendsPresence(), { wrapper: wrapperFor(queryClient) })

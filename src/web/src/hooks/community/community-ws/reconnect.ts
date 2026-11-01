@@ -22,7 +22,6 @@ import {
 } from "@/lib/analytics"
 
 const RESET_POLICIES = new Set<CommunityWsReconcilePolicy>([
-  "presence-overlay",
   "status-overlay",
   "ephemeral-typing",
 ])
@@ -249,14 +248,6 @@ function policyExecutors(
     },
     "friends": async () => {
       await queryClient.invalidateQueries({ queryKey: communityKeys.friends(), refetchType: "active" })
-    },
-    "presence-overlay": async () => {
-      const presence = getCommunityRuntime(queryClient).ws.get()
-      for (const [userId, status] of presence.presenceByUserId) {
-        if (userId !== viewerUserId && status === "online") {
-          getCommunityRuntime(queryClient).ws.actions.setPresence(userId, "offline")
-        }
-      }
     },
     "status-overlay": async () => undefined,
     "identity-surfaces": async () => {

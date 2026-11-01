@@ -64,7 +64,7 @@ describe("ws-do router", () => {
       const res = await handler.fetch(req, env as any)
 
       expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ online: [] })
+      expect(await res.json()).toEqual({ online: [], offline: [] })
       expect(doMock.idFromName).not.toHaveBeenCalled()
       expect(doMock.get).not.toHaveBeenCalled()
       expect(doMock.stubFetch).not.toHaveBeenCalled()
@@ -114,7 +114,7 @@ describe("ws-do router", () => {
     })
 
     it("returns empty online list when all ids are offline", async () => {
-      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ online: false }), { status: 200 }))
+      doMock.stubFetch.mockImplementation(async () => Response.json({ online: false }))
 
       const req = new Request("http://localhost/presence/users", {
         method: "POST",
@@ -124,11 +124,11 @@ describe("ws-do router", () => {
 
       const res = await handler.fetch(req, env as any)
       expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ online: [] })
+      expect(await res.json()).toEqual({ online: [], offline: ["a", "b", "c"] })
     })
 
     it("passes ?userId=<id> on every /check-user-online request — the target DO can't recover its own name from ctx (Fix 3)", async () => {
-      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ online: true }), { status: 200 }))
+      doMock.stubFetch.mockImplementation(async () => Response.json({ online: true }))
 
       const req = new Request("http://localhost/presence/users", {
         method: "POST",
@@ -219,7 +219,7 @@ describe("ws-do router", () => {
         }), env as any)
 
         expect(res.status).toBe(200)
-        await expect(res.json()).resolves.toEqual({ online: [] })
+        await expect(res.json()).resolves.toEqual({ online: [], offline: ids })
         expect(maximum).toBe(Math.min(targetCount, 40))
         if (targetCount > 40) expect(startedAfterCompleted[40]).toBe(40)
         if (targetCount > 80) expect(startedAfterCompleted[80]).toBe(80)
@@ -268,7 +268,7 @@ describe("ws-do router", () => {
       const res = await responsePromise
 
       expect(res.status).toBe(200)
-      await expect(res.json()).resolves.toEqual({ online: ["u1", "u3"] })
+      await expect(res.json()).resolves.toEqual({ online: ["u1", "u3"], offline: ["u2"] })
     })
 
     it("classifies partial failures and continues evaluating every target", async () => {
@@ -300,7 +300,7 @@ describe("ws-do router", () => {
       }), env as any)
 
       expect(res.status).toBe(200)
-      await expect(res.json()).resolves.toEqual({ online: ["online-1", "online-2"] })
+      await expect(res.json()).resolves.toEqual({ online: ["online-1", "online-2"], offline: ["offline"] })
       expect(doMock.stubFetch).toHaveBeenCalledTimes(ids.length)
       expect(loggerMocks.warn.mock.calls.map(([, fields]) => (
         fields as { failureKind?: string }

@@ -122,7 +122,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(capturedQueryClient.getQueryState(communityKeys.bots())?.isInvalidated).toBe(true)
   })
 
-  it("keeps the authenticated viewer online while resetting stale peer presence", async () => {
+  it("keeps the authenticated viewer and peer values while reconnect refreshes", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const profiles = getCapturedRuntime().ws.get()
@@ -136,7 +136,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(getCapturedRuntime().ws.get().presenceByUserId.get("self"))
       .toBe("online")
     expect(getCapturedRuntime().ws.get().presenceByUserId.get("peer"))
-      .toBe("offline")
+      .toBe("online")
   })
 
   it("reports identity reconciliation failure when an active identity invalidation rejects", async () => {
@@ -570,8 +570,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 900)
 
     expect(summary).toMatchObject({
-      policyCount: 16,
-      successCount: 15,
+      policyCount: 15,
+      successCount: 14,
       failureCount: 1,
       reconnectDurationMs: 900,
     })
@@ -623,16 +623,16 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
   it("isolates a policy rejection and reports only the stable policy key", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    const originalSetPresence = getCapturedRuntime().ws.actions.setPresence
-    originalSetPresence("peer", "online")
-    vi.spyOn(getCapturedRuntime().ws.actions, "setPresence").mockImplementation(() => { throw new Error("private sync detail") })
-
+    const originalInvalidate = capturedQueryClient.invalidateQueries.bind(capturedQueryClient)
+    const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries").mockImplementation((filters, options) =>
+      JSON.stringify(filters.queryKey) === JSON.stringify(communityKeys.friends())
+        ? Promise.reject(new Error("private sync detail")) : originalInvalidate(filters, options))
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 10)
-    vi.spyOn(getCapturedRuntime().ws.actions, "setPresence").mockImplementation(originalSetPresence)
+    invalidate.mockRestore()
 
-    expect(summary).toMatchObject({ policyCount: 16, successCount: 15, failureCount: 1 })
+    expect(summary).toMatchObject({ policyCount: 15, successCount: 14, failureCount: 1 })
     expect(telemetry.failure).toHaveBeenCalledWith({
-      policy: "presence-overlay",
+      policy: "friends",
       reason: "async-rejection",
     })
     expect(JSON.stringify(telemetry.failure.mock.calls)).not.toContain("private sync detail")
@@ -651,7 +651,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(keys).not.toContain(JSON.stringify(communityKeys.dms()))
     expect(keys).toContain(JSON.stringify(communityKeys.friends()))
     expect(keys).toContain(JSON.stringify(communityKeys.servers()))
-    expect(summary).toMatchObject({ policyCount: 15, successCount: 15, failureCount: 0 })
+    expect(summary).toMatchObject({ policyCount: 14, successCount: 14, failureCount: 0 })
   })
 
   it("actively refetches cached Friends and canonical attention after a socket gap", async () => {
@@ -696,32 +696,19 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     }
   })
 
-  it("resets the presence overlay before authoritative invalidation starts", async () => {
+  it("preserves presence through authoritative invalidation and refreshes the friends snapshot", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const store = getCapturedRuntime().ws.get()
     getCapturedRuntime().ws.actions.setPresence("peer", "online")
-    const originalSetPresence = getCapturedRuntime().ws.actions.setPresence
-    const order: string[] = []
-    vi.spyOn(getCapturedRuntime().ws.actions, "setPresence").mockImplementation((userId, presence) => {
-        if (userId === "peer" && presence === "offline") order.push("presence-reset")
-        originalSetPresence(userId, presence)
-      })
-    const originalInvalidate = capturedQueryClient.invalidateQueries.bind(capturedQueryClient)
-    vi.spyOn(capturedQueryClient, "invalidateQueries").mockImplementation((filters, options) => {
-      const key = JSON.stringify(filters.queryKey)
-      if (
-        key === JSON.stringify(communityKeys.friends())
-        || key === JSON.stringify(communityKeys.servers())
-      ) order.push("authoritative-invalidate")
-      return originalInvalidate(filters, options)
-    })
-
+    const writes = vi.spyOn(getCapturedRuntime().ws.actions, "setPresence")
+    const invalidates = vi.spyOn(capturedQueryClient, "invalidateQueries")
     await reconcileCommunityWsReconnect(capturedQueryClient)
-    vi.spyOn(getCapturedRuntime().ws.actions, "setPresence").mockImplementation(originalSetPresence)
-
-    expect(order[0]).toBe("presence-reset")
-    expect(order.indexOf("authoritative-invalidate")).toBeGreaterThan(0)
+    expect(writes).not.toHaveBeenCalled()
+    expect(getCapturedRuntime().ws.get().presenceByUserId.get("peer")).toBe("online")
+    expect(invalidates).toHaveBeenCalledWith({ queryKey: communityKeys.friends(), refetchType: "active" })
+    writes.mockRestore()
+    invalidates.mockRestore()
   })
 
   it("waits for focused route reconciliation before starting background domains", async () => {

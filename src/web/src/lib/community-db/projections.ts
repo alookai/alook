@@ -296,7 +296,7 @@ export function useDmProjection() {
           ...readCommunityProfile(profile, profile.id),
           id: channel.id,
           userId: profile.id,
-          status: "offline",
+          status: readCommunityProfile(profile, profile.id).presence,
           preview: channel.preview ?? "",
           ...(channel.lastMessageAt ? { activityAt: channel.lastMessageAt } : {}),
           unread: scope?.ordinaryUnread ?? false,

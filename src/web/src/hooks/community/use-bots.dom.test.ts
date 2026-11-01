@@ -8,6 +8,7 @@ import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/co
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 
 function QueryClientProvider({ client, children }: { client: QueryClient; children: React.ReactNode }) {
   const registry = React.useMemo(() => createCommunityDbRegistry(client, "viewer"), [client])
@@ -76,6 +77,26 @@ describe("invalidateBotSurfaces", () => {
 })
 
 describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
+  it.each([true, false])("retires cached bot user facts only after a successful delete (%s)", async success => {
+    const { client, registry, runtime } = await createCommunityQueryOwner()
+    writeCommunityProfilePatches([{ id: "delete-bot", identityAbout: { name: "Cached bot", discriminator: "0042", kind: "bot" }, avatar: { avatar: null, avatarVersion: 0 } }], registry)
+    runtime.ws.actions.setPresence("delete-bot", "online")
+    if (success) apiFetchMock.mockResolvedValueOnce(undefined)
+    else apiFetchMock.mockRejectedValueOnce(new Error("delete failed"))
+    const { useDeleteBot } = await import("./use-bots")
+    let mutation!: ReturnType<typeof useDeleteBot>
+    function Probe() { const value = useDeleteBot(); useLayoutEffect(() => { mutation = value }); return null }
+    const renderer = render(React.createElement(QueryClientProvider, { client }, React.createElement(Probe)))
+    await act(async () => {
+      const result = await mutation.mutateAsync("delete-bot").then(() => true, () => false)
+      expect(result).toBe(success)
+    })
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/bots/delete-bot", expect.objectContaining({ method: "DELETE" }))
+    expect(registry.collections.profiles.has("delete-bot")).toBe(!success)
+    expect(runtime.ws.get().presenceByUserId.has("delete-bot")).toBe(!success)
+    renderer.unmount()
+  })
+
   it("useBots fetches through the profile-seeding query function", async () => {
     apiFetchMock.mockResolvedValue({
       plan: { id: "free", displayName: "Free" },
