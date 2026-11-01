@@ -111,7 +111,9 @@ Two stages, not three. The split lives at **`640px`** — Tailwind's default `sm
 | Stage | Range | Layout shape |
 | --- | --- | --- |
 | **Mobile** | `< 640px` | Single column with pathname-owned list/detail routing. Back button in detail headers. Popovers may promote to sheets when they'd overflow. |
-| **Desktop** | `≥ 640px` | Multi-column shells — server rail + channel/DM sidebar + main (in community), or app sidebar + workspace (elsewhere). Hover surfaces reveal actions. No back button in headers. |
+| **Desktop** | `≥ 640px` | Multi-column shells — server rail + channel/DM sidebar + main (in community), or app sidebar + workspace (elsewhere). No back button in headers. |
+
+Forum post actions use the client platform independently of these layout checkpoints. Mobile native and mobile Web, including tablet browsers, keep actions visible at every width. Desktop native and desktop Web reveal actions on row hover, row focus or while the corresponding popup is open, including in narrow windows. Unknown/initial hydration keeps actions visible. Actions retain their 32px buttons and layout space; permissions determine which buttons and columns exist. This is the Forum-specific exception to the general touch-target sizing rule below. The first title row is at least 32px even without actions, and grows with content; summaries start below it. Forum lists use horizontal 0 / vertical 8px padding, rows use 16px, and preview margins plus metadata/tag gaps use 8px. Preserve the narrow tag row's 28px author-name alignment and the existing footer order. Selected ordinary filter chips use an inset ring without enlarging the horizontal rail.
 
 For Community server routes, the URL owns selection and the checkpoint owns composition:
 

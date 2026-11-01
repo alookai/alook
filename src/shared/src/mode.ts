@@ -45,6 +45,20 @@ export function isMobile(): boolean {
   return /(android|iphone|ipad|ipod)/i.test(ua);
 }
 
+export function getClientPlatform(): "mobile" | "desktop" | "unknown" {
+  if (!hasWindow() || typeof window === "undefined" || typeof navigator === "undefined") return "unknown";
+  const ua = navigator.userAgent ?? "";
+  const platform = navigator.userAgentData?.platform ?? navigator.platform ?? "";
+  const identity = `${ua} ${platform}`;
+  if (/(android|iphone|ipad|ipod)/i.test(identity)
+    || navigator.userAgentData?.mobile === true
+    || (/(macintosh|macintel)/i.test(identity) && navigator.maxTouchPoints > 1)) {
+    return "mobile";
+  }
+  if (/(macintosh|macintel|windows|win32|win64|linux|cros|chrome os)/i.test(identity)) return "desktop";
+  return "unknown";
+}
+
 export async function tauriInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
     throw new Error("tauriInvoke called outside of Tauri context");
