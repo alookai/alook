@@ -1,4 +1,5 @@
 "use client"
+import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 
@@ -44,7 +45,7 @@ function useNotificationCommand(kind: "server" | "channel") {
           ...(level === null ? {} : { body: JSON.stringify({ level }) }),
         })
         assert()
-        publishCommunityNotificationSetting(client, target, level, { token, signal })
+        await completeCommunityPublication(client, () => publishCommunityNotificationSetting(client, target, level, { token, signal }))
       }
       const transaction = registry.dbClient.createTransaction({ autoCommit: false, mutationFn: persist })
       transaction.mutate(() => {

@@ -1,4 +1,5 @@
 "use client"
+import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import { useQueryClient } from "@tanstack/react-query"
 import { BotCreationPayloadSchema, type BotCreationPayload } from "@alook/shared"
@@ -28,7 +29,7 @@ export function useBotCreationDecision() {
       const botCreation = BotCreationPayloadSchema.parse(data.botCreation)
       if (botCreation.requestId !== requestId) throw new Error("The request changed. Reload this conversation before trying again.")
       origin.assert(original)
-      publishCommunityMessageFields(client, messageId, { botCreation }, { token: original })
+      await completeCommunityPublication(client, () => publishCommunityMessageFields(client, messageId, { botCreation }, { token: original }))
       return { botCreation }
     },
     onSuccess: ({ botCreation }, { resources }) => {

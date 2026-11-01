@@ -384,7 +384,7 @@ describe("useShellInboxController", () => {
   it("uses the complete Attention DM resource and starts the common entry at push", async () => {
     const hook = await renderController()
     order.length = 0
-    await act(async () => { publishAccountAttentionSnapshot(hook.queryClient, {
+    await act(async () => { await publishAccountAttentionSnapshot(hook.queryClient, {
       snapshot: attentionSnapshotScenarioFixture({ scopes: [], items: [], limit: 50, truncated: false, included: { servers: [], channels: [], messages: [],
         dms: [{ id: "dm1", userId: "u2", name: "Peer", discriminator: "2222", avatar: "P", avatarVersion: 0, lastMessageAt: unreadDm.lastMessageAt, lastUnreadSeq: 1 }],
         profiles: [{ userId: "u2", name: "Peer", discriminator: "2222", avatar: "P", avatarVersion: 0 }] } }),

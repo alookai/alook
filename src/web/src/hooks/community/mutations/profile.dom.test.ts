@@ -126,7 +126,7 @@ it("publishes only the confirmed command fields and keeps newer unrelated profil
   let operation!: Promise<unknown>
   act(() => { operation = hook.result.current.mutateAsync({ name: "Confirmed" }) })
   await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
-  act(() => writeCommunityProfilePatches([{ id: "viewer", avatar: { avatar: "newer-avatar", avatarVersion: 6 }, status: { statusEmoji: "🌿", statusText: "Newer status" } }], owner.registry, { event: true }))
+  await act(() => writeCommunityProfilePatches([{ id: "viewer", avatar: { avatar: "newer-avatar", avatarVersion: 6 }, status: { statusEmoji: "🌿", statusText: "Newer status" } }], owner.registry, { event: true }))
   await act(async () => { release({ ...initial, name: "Confirmed", aboutMe: "Unrequested response about", bannerColor: "#abcdef" }); await operation })
   expect(owner.registry.collections.profiles.get("viewer")).toMatchObject({ ...initial, name: "Confirmed", avatar: "newer-avatar", avatarVersion: 6, statusEmoji: "🌿", statusText: "Newer status" })
   expect(apiFetchMock).toHaveBeenCalledOnce()

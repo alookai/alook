@@ -86,7 +86,7 @@ export const channelMessagesQueryFn =
       role: pageParam.mode === "older" || pageParam.mode === "newer" ? "pagination" : "window", windowMode: pageParam.mode,
     } }, publicationToken)
     {
-      const result = publishCommunityMessages(originalClient, {
+      const result = await publishCommunityMessages(originalClient, {
         channelId,
         messages: page.messages,
         profiles: page.profiles,

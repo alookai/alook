@@ -1,4 +1,5 @@
 "use client"
+import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import { communityCommandInput, useCommunityCommandMutation, type CommunityCommandArgs } from "../use-community-command-mutation"
 import { useCallback } from "react"
@@ -116,7 +117,7 @@ export function useLeaveServer() {
         try {
           await apiFetch(`/api/community/servers/${args.serverId}/leave`, { method: "POST", ...communityRequestOptions(queryClient, token, undefined, () => origin.assert(token)) })
           origin.assert(token)
-          publishCommunityServerMembershipRemoval(queryClient, args.serverId, { token, signal: undefined })
+          await completeCommunityPublication(queryClient, () => publishCommunityServerMembershipRemoval(queryClient, args.serverId, { token, signal: undefined }))
         } catch (error) { origin.assert(token); throw error }
       } })
       transaction.mutate(() => mutateViewerMembership(registry, args.serverId))
@@ -154,7 +155,7 @@ export function useDeleteServer(callbacks: DeleteServerCallbacks) {
         try {
           await apiFetch(`/api/community/servers/${args.serverId}`, { method: "DELETE", ...communityRequestOptions(queryClient, token, undefined, () => origin.assert(token)) })
           origin.assert(token)
-          publishCommunityServerMembershipRemoval(queryClient, args.serverId, { token, signal: undefined })
+          await completeCommunityPublication(queryClient, () => publishCommunityServerMembershipRemoval(queryClient, args.serverId, { token, signal: undefined }))
         } catch (error) { origin.assert(token); throw error }
       } })
       transaction.mutate(() => mutateViewerMembership(registry, args.serverId))
@@ -206,7 +207,7 @@ export function useUpdateServer() {
             ...communityRequestOptions(queryClient, token, undefined, () => origin.assert(original)),
           })
           origin.assert(original)
-          publishCommunityServerFields(queryClient, args.serverId, { name: result.name, description: result.description }, { token, signal: undefined })
+          await completeCommunityPublication(queryClient, () => publishCommunityServerFields(queryClient, args.serverId, { name: result.name, description: result.description }, { token, signal: undefined }))
         } catch (error) { origin.assert(original); throw error }
       }
       if (!registry!.collections.servers.has(args.serverId)) return persist()
@@ -246,7 +247,7 @@ export function useUploadServerIcon() {
           ...communityRequestOptions(queryClient, token, undefined, () => origin.assert(token)),
         })
         origin.assert(token)
-        publishCommunityServerFields(queryClient, serverId, { icon: result.url }, { token, signal: undefined })
+        await completeCommunityPublication(queryClient, () => publishCommunityServerFields(queryClient, serverId, { icon: result.url }, { token, signal: undefined }))
         return result
       } catch (error) { origin.assert(token); throw error }
     },

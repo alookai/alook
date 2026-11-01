@@ -1,6 +1,6 @@
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { COMMUNITY_CONVERSATION_ANCHOR_MISSING, communityChannelResourceFromStorage, CommunityConversationEntryReadSchema, CommunityThreadsReadSchema, CommunityMessageResourceSchema, queries, withD1Retry, type CommunityConversationEntryRead, type Database } from "@alook/shared"
-import { readCommunityResourceProfiles } from "./resource-profiles.server"
+import { createCommunityResourceProfileReader, type CommunityResourceProfileReader } from "./resource-profiles.server"
 import { readCommunityMessageWindow } from "./message-window.server"
 import { communityMessagesReadFromPage } from "./read-contract"
 import type { DoorTarget } from "./message-door"
@@ -26,17 +26,18 @@ export async function readCommunityConversationEntry(db: Database, input: Conver
   const channelId = target.target.channelId
   if (channel.id !== channelId) throw new Error("Conversation entry target mismatch")
   if (channel.archived) return { ok: false, status: 403, error: "channel is archived" }
+  const readProfiles = createCommunityResourceProfileReader(db)
   const [read, canSend, peer, opener, parent] = await Promise.all([
-    readEntryWindow(db, input),
+    readEntryWindow(db, input, readProfiles),
     target.access.surface === "dm"
       ? queries.communityFriendship.areFriends(db, viewerId, target.access.dm.otherUserId)
       : Promise.resolve(true),
-    target.access.surface === "dm" ? readPeer(db, target.access.dm.otherUserId) : Promise.resolve(null),
+    target.access.surface === "dm" ? readPeer(db, target.access.dm.otherUserId, readProfiles) : Promise.resolve(null),
     channel.parentChannelId && channel.parentMessageId ? readOpener(db, viewerId, channel.parentChannelId, channel.parentMessageId) : Promise.resolve(undefined),
     channel.parentChannelId ? readParent(db, viewerId, channel.parentChannelId) : Promise.resolve(undefined),
   ])
   if (!read.ok) return read
-  const openerProfiles = opener ? await readCommunityMessageProfiles(db, [opener]) : []
+  const openerProfiles = opener ? await readCommunityMessageProfiles(db, [opener], readProfiles) : []
   const profiles = [...new Map([...read.page.profiles, ...openerProfiles].map(profile => [profile.id, profile])).values()]
   return { ok: true, entry: CommunityConversationEntryReadSchema.parse({
     ...communityMessagesReadFromPage(channelId, read.page), profiles, viewerId, channel, peer,
@@ -49,7 +50,7 @@ export async function readCommunityConversationEntry(db: Database, input: Conver
   }) }
 }
 
-async function readEntryWindow(db: Database, { viewerId, target, window, preferTail, tag }: ConversationEntryInput) {
+async function readEntryWindow(db: Database, { viewerId, target, window, preferTail, tag }: ConversationEntryInput, readProfiles: CommunityResourceProfileReader) {
   const channelId = target.target.channelId
   const { readState: row, revision } = await withD1Retry(() => queries.communityReadState.getChannelReadStateSnapshot(db, { userId: viewerId, channelId }), {
     route: "community/messages:entry-read-state",
@@ -70,20 +71,20 @@ async function readEntryWindow(db: Database, { viewerId, target, window, preferT
     reason: window.anchorId ? "explicit_anchor" : anchorId ? "read_pointer" : "tail", anchorMessageId: anchorId ?? null,
   }
   let result = await readCommunityMessageWindow(db, {
-    viewerId, target, window: { ...window, anchorId }, contract: COMMUNITY_RESOURCE_CONTRACT_VERSION, tag,
+    viewerId, target, window: { ...window, anchorId }, contract: COMMUNITY_RESOURCE_CONTRACT_VERSION, tag, readProfiles,
   })
   if (!result.ok && !window.anchorId && anchorId) {
     selection = { reason: "read_pointer_missing", anchorMessageId: null }
     result = await readCommunityMessageWindow(db, {
-      viewerId, target, window: { ...window, anchorId: undefined }, contract: COMMUNITY_RESOURCE_CONTRACT_VERSION, tag,
+      viewerId, target, window: { ...window, anchorId: undefined }, contract: COMMUNITY_RESOURCE_CONTRACT_VERSION, tag, readProfiles,
     })
   }
   if (!result.ok) return { ...result, ...(window.anchorId ? { details: [COMMUNITY_CONVERSATION_ANCHOR_MISSING] } : {}) }
   return { ok: true as const, page: result.page, readState, revision, selection }
 }
 
-async function readPeer(db: Database, peerId: string) {
-  const [peer] = await withD1Retry(() => readCommunityResourceProfiles(db, [peerId]), { route: "community/messages:entry-peer" })
+async function readPeer(db: Database, peerId: string, readProfiles: CommunityResourceProfileReader) {
+  const [peer] = await withD1Retry(() => readProfiles([peerId]), { route: "community/messages:entry-peer" })
   if (!peer) throw new Error("Conversation peer resource missing")
   return peer
 }

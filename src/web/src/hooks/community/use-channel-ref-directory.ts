@@ -48,7 +48,7 @@ export function useChannelRefDirectory(enabled = true): {
     signal.addEventListener("abort", release, { once: true })
     const token = captureCommunityLiveSnapshotToken(queryClient)
     const { directory, resources } = await channelRefDirectoryQueryFn(communityRequestOptions(queryClient, token, signal))
-    publishCommunityChannelDirectory(queryClient, {
+    await publishCommunityChannelDirectory(queryClient, {
       directory, resources,
       proof: { token, signal },
     })

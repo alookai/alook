@@ -122,7 +122,7 @@ describe("useCommunityWs — message.create", () => {
 
   it("patches a loaded forum-sidebar child activity without a refetch", async () => {
     await mountHook()
-    seedCanonicalForumSidebar("srv_1")
+    await seedCanonicalForumSidebar("srv_1")
     const key = communityKeys.forumSidebarThreads("srv_1")
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event = {
@@ -161,7 +161,7 @@ describe("useCommunityWs — message.create", () => {
 
   it("warms an unknown forum child owner from live message evidence", async () => {
     await mountHook()
-    seedCanonicalForumSidebar("srv_1")
+    await seedCanonicalForumSidebar("srv_1")
     expect(hasCanonicalChannel("post_live")).toBe(false)
     getCommunityApiFetchMock().mockImplementation(async (url: string) => {
       if (url === "/api/community/channels/post_live/messages?entry=1") {
@@ -220,7 +220,7 @@ describe("useCommunityWs — message.create", () => {
         getCapturedRuntime().ui.actions.subscribe({ channelId: "post_retained" })
       }
       await mountHook()
-      seedCanonicalForumSidebar("srv_1", ["post_retained"])
+      await seedCanonicalForumSidebar("srv_1", ["post_retained"])
       const key = communityKeys.forumSidebarThreads("srv_1")
 
       capturedOnMessage!(currentCommunityEventFixture({
@@ -397,7 +397,7 @@ describe("useCommunityWs — message.create", () => {
     const { useCommunityStore } = await import("@/stores/community")
     const store = getCapturedRuntime().ui.get()
     getCapturedRuntime().ui.actions.setCurrentChannelId("ch_1")
-    seedCanonicalFocusedChannel({ name: "thread", parentChannelId: "parent_1" })
+    await seedCanonicalFocusedChannel({ name: "thread", parentChannelId: "parent_1" })
     getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_1" })
     resetHookMemoization()
     await mountHook()
@@ -430,7 +430,7 @@ describe("useCommunityWs — message.create", () => {
     const { useCommunityStore } = await import("@/stores/community")
     const store = getCapturedRuntime().ui.get()
     getCapturedRuntime().ui.actions.setCurrentChannelId("ch_1")
-    seedCanonicalFocusedChannel({ name: "thread", parentChannelId: "parent_1" })
+    await seedCanonicalFocusedChannel({ name: "thread", parentChannelId: "parent_1" })
     getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_1" })
     resetHookMemoization()
     await mountHook()

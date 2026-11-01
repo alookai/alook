@@ -56,7 +56,7 @@ export const threadsQueryFn = (channelId: string, queryClient: QueryClient) => a
   await Promise.all([registry!.collections.channels.preload(), registry!.collections.messages.preload(), registry!.collections.channelMemberships.preload()])
   assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
   const data = await loadThreadResources(queryClient, channelId, { token, signal })
-  publishCommunityForumFeed(queryClient, channelId, data, { token, signal })
+  await publishCommunityForumFeed(queryClient, channelId, data, { token, signal })
   return { threads: data.threads.map((thread) => ({ id: thread.id, ...(thread.parentMessageId ? { openerMessageId: thread.parentMessageId } : {}) })), parentType: data.channel.type, serverId: data.channel.serverId ?? "", parentChannelId: channelId }
 }
 
@@ -116,7 +116,7 @@ export const pinsQueryFn = (channelId: string, queryClient: QueryClient) =>
       `/api/community/channels/${channelId}/pins`,
       signal ? { signal } : undefined, publicationToken,
     )
-    publishCommunityResourceBundle(queryClient, data.resources, { token: publicationToken, signal }, data.pins.map(row => ({ id: row.id, channelId })))
+    await publishCommunityResourceBundle(queryClient, data.resources, { token: publicationToken, signal }, data.pins.map(row => ({ id: row.id, channelId })))
     return { pins: data.pins.map((message) => ({ id: message.id })) }
   }
 

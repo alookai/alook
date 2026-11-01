@@ -283,7 +283,7 @@ describe("actual canonical server and tree command owner", () => {
     let result!: Promise<unknown>; act(() => { result = remove.mutateAsync({ serverId: "s1" }).catch((error) => error) })
     await waitFor(() => expect(api.mock.calls.some(([, o]) => o.method === "DELETE")).toBe(true))
     const runtime = getCommunityRuntime(original)
-    act(() => dispatchCommunityWsEvent({ type: "community:server.delete", serverId: "s1" }, { queryClient: original, deliveryMode: "single", communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: "A" }, matchesFocus: () => false }))
+    await act(() => dispatchCommunityWsEvent({ type: "community:server.delete", serverId: "s1" }, { queryClient: original, deliveryMode: "single", communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: "A" }, matchesFocus: () => false }))
     expect(getCommunityDbRegistry(original)!.collections.channels.has("c1")).toBe(true)
     expect(screen.getByTestId("server-detail").textContent).toBe("original|before")
     await act(async () => { resolve(undefined); expect(await result).toBeUndefined() })
@@ -388,7 +388,7 @@ describe("actual canonical server and tree command owner", () => {
     await waitFor(() => expect(screen.getByTestId("server-detail").textContent).toBe("original|before"))
     const current = client, runtime = getCommunityRuntime(current)
     if (delivery === "ws") {
-      act(() => dispatchCommunityWsEvent({ type: "community:server.delete", serverId: "s1" }, { queryClient: current, deliveryMode: "single", communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: "B" }, matchesFocus: () => false }))
+      await act(() => dispatchCommunityWsEvent({ type: "community:server.delete", serverId: "s1" }, { queryClient: current, deliveryMode: "single", communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: "B" }, matchesFocus: () => false }))
     } else {
       const previous = api.getMockImplementation()!
       api.mockImplementation((path: string, options: unknown) => path === "/api/community/servers" ? Promise.resolve({ servers: [] }) : previous(path, options))

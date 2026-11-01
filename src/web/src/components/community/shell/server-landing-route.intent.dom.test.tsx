@@ -36,7 +36,7 @@ async function setup(method: "push" | "pushImmediate", { cold = false, empty = f
   await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(client) })
   const channels = empty ? [] : [{ id: "channel", name: "Channel", active: false, unread: false, muted: false, type: "text" as const }]
   if (!cold) {
-    publishCommunityLiveSnapshot(client, {
+    await publishCommunityLiveSnapshot(client, {
       snapshot: { kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: [{ id: "category", name: "", private: false, channels }] }) },
       proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined },
     })
@@ -109,8 +109,8 @@ it.each([{ empty: true }, { mobile: true }])("retains the root when the real lan
 it("finishes the current root after an older server deletion retires its in-flight detail proof", async () => {
   const { view, calls, release, client, registry } = await setup("push", { cold: true })
   const token = createOwnerServerDeleteRouteToken(client)
-  act(() => {
-    publishCommunityLiveSnapshot(client, {
+  await act(async () => {
+    await publishCommunityLiveSnapshot(client, {
       snapshot: { kind: "server-detail", data: serverDirectoryFixture({ id: "deleted", name: "Deleted", discriminator: "0002", description: "", icon: null, ownerId: "viewer", categories: [{ id: "old-category", name: "", private: false, channels: [{ id: "old-channel", name: "Old", active: false, unread: false }] }] }) },
       proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined },
     })

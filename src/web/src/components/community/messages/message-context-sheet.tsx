@@ -125,7 +125,7 @@ export function messageContextQueryFn(
       { signal, assertActive: assert }, publicationToken,
     )
     const messages = (page.messages ?? []).slice().sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
-    publishCommunityEmbeddedMessages(queryClient, {
+    await publishCommunityEmbeddedMessages(queryClient, {
       entries: messages.map((message) => ({ channelId, message })),
       profiles: page.profiles,
       proof: { token: publicationToken, signal },

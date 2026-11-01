@@ -85,7 +85,7 @@ it("rejects a pre-confirmation attention count and retries with the same origina
     await act(async () => { await capturedOnMessage!(currentCommunityEventFixture(unreadBump("c1", "u_me"))) })
     expect(requests).toBe(1)
     await act(async () => {
-      publishCommunityConversationReadState(capturedQueryClient, { channelId: "c1", lastReadMessageId: "m2", lastReadAt: at, lastReadSeq: 2 }, 2, { token: captureCommunityLiveSnapshotToken(capturedQueryClient) }, "advance")
+      await publishCommunityConversationReadState(capturedQueryClient, { channelId: "c1", lastReadMessageId: "m2", lastReadAt: at, lastReadSeq: 2 }, 2, { token: captureCommunityLiveSnapshotToken(capturedQueryClient) }, "advance")
       old.resolve(attention(4, "dm"))
       await vi.advanceTimersByTimeAsync(0)
     })

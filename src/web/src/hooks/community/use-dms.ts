@@ -65,7 +65,7 @@ export const dmsProjectedQueryFn = (
   try {
     const data = await loadDms(context, publicationToken)
     assertCommunityLiveSnapshotTokenCurrent(queryClient, publicationToken, context.signal)
-    publishCommunityLiveSnapshot(queryClient, {
+    await publishCommunityLiveSnapshot(queryClient, {
       snapshot: { kind: "dms", data },
       proof: { kind: "structural", token: publicationToken, signal: context.signal },
     })

@@ -32,7 +32,7 @@ describe("live forum window participation convergence", () => {
     { signal: "batch", participates: true, retires: true },
   ])("confirms $signal participation through the same window resource (eligible=$participates, retired=$retires)", async ({ signal, participates, retires }) => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalForumSidebar(serverId)
+    await seedCanonicalForumSidebar(serverId)
     const api = getCommunityApiFetchMock()
     const original = api.getMockImplementation()!
     let reads = 0
@@ -47,7 +47,7 @@ describe("live forum window participation convergence", () => {
     const sidebar = await mountCanonicalHook(() => useForumSidebarThreads(serverId, null))
     await expect.poll(() => sidebar.result.current.error?.message ?? sidebar.result.current.sidebar.status).toBe("ready")
     expect(reads).toBe(1)
-    act(() => { publishCommunityChannelMetadata(capturedQueryClient, { metadata: channelResourceFixture({
+    await act(async () => { await publishCommunityChannelMetadata(capturedQueryClient, { metadata: channelResourceFixture({
       id: "post_live", serverId, name: "New live post", type: "thread", parentChannelId: "forum_1", parentMessageId: "opener-post_live",
       creatorId: "u_me", archived: false, lastMessageAt: new Date().toISOString(),
     }), proof: { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined } }) })
@@ -69,7 +69,7 @@ describe("live forum window participation convergence", () => {
     expect(hasCanonicalChannelNotify("post_live", "u_me")).toBe(signal === "membership")
     if (signal !== "membership") expect(sidebar.result.current.threads.some(row => row.id === "post_live")).toBe(false)
     const previousWindow = capturedQueryClient.getQueryData(communityKeys.forumSidebarThreads(serverId))
-    if (retires) act(() => { canonicalRegistry!.runtime.lifecycle.setState(state => ({ active: false, generation: state.generation + 1 })) })
+    if (retires) await act(() => { canonicalRegistry!.runtime.lifecycle.setState(state => ({ active: false, generation: state.generation + 1 })) })
     await act(async () => { release(envelope(participates ? ["post_1", "post_live"] : ["post_1"])) })
     if (retires) {
       await expect.poll(() => capturedQueryClient.getQueryState(communityKeys.forumSidebarThreads(serverId))?.fetchStatus).toBe("idle")

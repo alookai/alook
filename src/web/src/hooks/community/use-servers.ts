@@ -109,7 +109,7 @@ export const serversProjectedQueryFn = (
     assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, context?.signal)
     const data = await serversQueryFn(context)
     assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, context?.signal)
-    publishCommunityLiveSnapshot(queryClient, {
+    await publishCommunityLiveSnapshot(queryClient, {
       snapshot: { kind: "servers", data },
       proof: { kind: "structural", token: structuralToken, signal: context?.signal },
     })
@@ -287,7 +287,7 @@ export const serverProjectedQueryFn = (
       assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, readSignal)
       const data = await serverQueryFn(queryClient, serverId, readSignal)()
       assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, readSignal)
-      publishCommunityLiveSnapshot(queryClient, {
+      await publishCommunityLiveSnapshot(queryClient, {
         snapshot: { kind: "server-detail", data },
         proof: { kind: "structural", token: structuralToken, signal: readSignal },
       })

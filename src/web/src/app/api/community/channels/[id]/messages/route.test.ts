@@ -151,6 +151,7 @@ vi.mock("@alook/shared", async () => {
       communityFriendship: {
         isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
         areFriends: (...a: unknown[]) => mockAreFriends(...a),
+        hydrateApprovalsForDmMessages: vi.fn(async () => new Map()),
       },
       // Bot read arm (GET dual-actor): seq-window + agent-message projection.
       communityAgentInbox: {
@@ -1677,6 +1678,33 @@ describe("GET explicit conversation entry", () => {
     expect(mockAreFriends).toHaveBeenCalledWith(expect.anything(), "u1", "peer")
     expect(mockGetChannelForMember).not.toHaveBeenCalled()
     expect(mockCreateOrGetDM).not.toHaveBeenCalled()
+  })
+
+  it("reuses each full profile across the DM peer and first page", async () => {
+    mockGetChannel.mockResolvedValue({ ...channel, type: "dm", serverId: null, name: null })
+    mockGetDM.mockResolvedValue({ id: "c1", lastMessageAt: null, createdAt: channel.createdAt })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "peer" })
+    mockListMessages.mockResolvedValue([{ ...message, authorId: "peer", authorName: "Peer", authorAvatarVersion: 5 }])
+    mockGetLatestMessageSeq.mockResolvedValue(5)
+    const response = await GET(request(), ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ peer: { id: "peer" }, messages: [{ authorId: "peer" }], profiles: [{ id: "peer" }] })
+    const requested = vi.mocked(queries.communityUserProfile.getResourceProfiles).mock.calls.flatMap(([, ids]) => ids)
+    expect(requested.filter(id => id === "peer")).toHaveLength(1)
+  })
+
+  it("reuses each full profile across the thread page and authorized opener", async () => {
+    const child = { ...channel, type: "thread", parentChannelId: "parent", parentMessageId: "opener" }
+    mockGetChannel.mockResolvedValue(child)
+    mockGetChannelForMember.mockImplementation((_db, id) => Promise.resolve(id === "parent" ? { ...channel, id: "parent" } : child))
+    mockGetMessagesByIdsInScope.mockResolvedValue([{ ...message, id: "opener", channelId: "parent" }])
+    mockListMessages.mockResolvedValue([message])
+    mockGetLatestMessageSeq.mockResolvedValue(5)
+    const response = await GET(request(), ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ opener: { id: "opener", authorId: "u1" }, messages: [{ authorId: "u1" }], profiles: [{ id: "u1" }] })
+    const requested = vi.mocked(queries.communityUserProfile.getResourceProfiles).mock.calls.flatMap(([, ids]) => ids)
+    expect(requested.filter(id => id === "u1")).toHaveLength(1)
   })
 
   it("does not read a pointer or history after the common gate denies access", async () => {

@@ -69,7 +69,7 @@ export const messageQueryFn = (
   const message = read.message
   const publishChannelId = message.channelId ?? channelId
   if (publishChannelId) {
-    publishCommunityMessages(queryClient, {
+    await publishCommunityMessages(queryClient, {
       channelId: publishChannelId,
       messages: [message],
       profiles: read.profiles,
@@ -119,7 +119,7 @@ export async function prefetchCommunityLatestMessage(queryClient: QueryClient, c
         `/api/community/channels/${channelId}/messages?limit=1`,
         { signal: readSignal, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) } }, token,
       )
-      publishCommunityMessages(queryClient, { channelId, messages: page.messages, profiles: page.profiles, proof: { token, signal: readSignal } })
+      await publishCommunityMessages(queryClient, { channelId, messages: page.messages, profiles: page.profiles, proof: { token, signal: readSignal } })
       return page.messages[0]?.id ?? null
     }),
     select: undefined,

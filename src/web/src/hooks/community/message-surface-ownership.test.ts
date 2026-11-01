@@ -121,11 +121,11 @@ describe("embedded message surface ownership", () => {
     })
 
     expect(getCanonicalCommunityMessages(queryClient)).toEqual([])
-    publishCommunityCreatedChannel(queryClient, channelResourceFixture({
+    await publishCommunityCreatedChannel(queryClient, channelResourceFixture({
       id: "post-1", serverId: "s1", parentChannelId: "c1", parentMessageId: "m1", name: "transport", type: "thread", position: 0,
       archived: false, creatorId: "author", messageCount: 1, createdAt: transport.createdAt,
     }), { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined })
-    publishCommunityEmbeddedMessages(queryClient, {
+    await publishCommunityEmbeddedMessages(queryClient, {
       entries: [{ channelId: "c1", message: transport }],
       profiles: messageProfilesFixture([transport]),
       proof: {

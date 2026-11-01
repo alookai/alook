@@ -38,7 +38,7 @@ function accountReadStateOptions(queryClient: QueryClient, requestedRevision = -
       const snapshot = await apiFetch<AccountReadStateSnapshot>("/api/community/users/me/read-state", communityRequestOptions(queryClient, requestToken, signal))
       assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
       if (!original || queryClient.getQueryCache().get(original.queryHash) !== original) throw new DOMException("Read-state query retired", "AbortError")
-      const publication = publishCommunityLiveSnapshot(queryClient, {
+      const publication = await publishCommunityLiveSnapshot(queryClient, {
         snapshot: { kind: "read-state", data: snapshot },
         proof: { kind: "read-state", token: requestToken, signal, requestGeneration: 0, currentRequestGeneration: 0, targetRevision: Math.max(minimumRevision, targetRevision(queryClient)) },
       })

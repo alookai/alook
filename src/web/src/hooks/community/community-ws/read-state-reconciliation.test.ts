@@ -107,7 +107,7 @@ describe("native account read-state reconciliation", () => {
   })
 
   it("preserves a newer confirmed ACK floor across an older full snapshot", async () => {
-    publishCommunityConversationReadState(owner.client, row(7), 7, { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined })
+    await publishCommunityConversationReadState(owner.client, row(7), 7, { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined })
     apiFetch.mockResolvedValue(snapshot(6))
     await reconcileAccountReadState(owner.client, { reconcileAttention: false })
     expect(currentConversationReadState(owner.client, "c1")).toMatchObject(row(7))

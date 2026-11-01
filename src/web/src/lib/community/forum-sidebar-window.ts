@@ -1,7 +1,7 @@
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { readServerDirectoryWindow, type ServerDirectoryWindow } from "./server-directory-window"
 import { z } from "zod"
-import { projectForumSidebar, supportsSidebarThreads } from "./forum-sidebar"
+import { projectForumSidebar, supportsSidebarThreads, type ForumSidebarThread } from "./forum-sidebar"
 import type { CommunityCollectionRows } from "@/lib/community-db/schema"
 
 const referenceSchema = z.object({ id: z.string().min(1), parentChannelId: z.string().min(1), parentMessageId: z.string().min(1) })
@@ -39,7 +39,7 @@ export function readForumSidebarWindowResult(data: unknown) {
 }
 
 export function forumSidebarWindowComplete(
-  window: ForumSidebarWindow, rows: ForumSidebarWindowRows, accountId: string | null, serverId: string, retainId?: string | null, serverNowMs = Date.now(),
+  window: ForumSidebarWindow, rows: ForumSidebarWindowRows, accountId: string | null, serverId: string, retainId?: string | null, serverNowMs = Date.now(), visibleThreads?: readonly ForumSidebarThread[],
 ) {
   const directory = readServerDirectoryWindow(rows.directory)
   if (window.accountId !== accountId || window.serverId !== serverId
@@ -48,7 +48,7 @@ export function forumSidebarWindowComplete(
   const parents = rows.channels.filter(row => row.serverId === serverId && supportsSidebarThreads(row.type))
   if (window.parents.some(id => !directory.channelIds.includes(id) || !parents.some(row => row.id === id))
     || parents.some(row => !window.parents.includes(row.id))) return false
-  const visible = projectForumSidebar(rows.channels, rows.channelMemberships, rows.messages, accountId, serverId,
+  const visible = visibleThreads ?? projectForumSidebar(rows.channels, rows.channelMemberships, rows.messages, accountId, serverId,
     retainId ?? (window.retained?.disposition === "eligible" ? window.retained.id : null), serverNowMs).threads
   const references = [...window.base, ...(window.retained?.disposition === "eligible" ? [window.retained.reference] : []), ...visible]
   if (!references.every(reference => rows.channels.some(row => row.id === reference.id && row.serverId === serverId

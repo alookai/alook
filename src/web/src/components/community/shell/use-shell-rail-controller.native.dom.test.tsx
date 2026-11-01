@@ -92,7 +92,7 @@ afterEach(() => { railStyles.remove(); api.mockReset(); vi.unstubAllGlobals() })
 describe("actual native Rail controller continuation", () => {
   it("current create continues icon upload and navigation through the original account", async () => {
     const { resolve } = await mount()
-    let result!: Promise<unknown>; act(() => { result = controller.railProps.onCreateServer("New", new File(["x"], "icon.png")) })
+    let result!: Promise<unknown>; await act(() => { result = controller.railProps.onCreateServer("New", new File(["x"], "icon.png")) })
     await waitFor(() => expect(api.mock.calls.some(([, options]) => options.method === "POST")).toBe(true))
     await act(async () => { resolve({ server: { id: "created" } }); await result })
     await waitFor(() => expect(api.mock.calls.some(([path]) => path === "/api/community/servers/created/icon")).toBe(true))
@@ -101,9 +101,9 @@ describe("actual native Rail controller continuation", () => {
   })
   it.each(["success", "failure"] as const)("old UI create %s settles only its account operation without upload, toast or navigation", async (outcome) => {
     const { view, resolve, reject, original } = await mount()
-    let result!: Promise<unknown>; act(() => { result = controller.railProps.onCreateServer("New", new File(["x"], "icon.png")) })
+    let result!: Promise<unknown>; await act(() => { result = controller.railProps.onCreateServer("New", new File(["x"], "icon.png")) })
     await waitFor(() => expect(api.mock.calls.some(([, options]) => options.method === "POST")).toBe(true))
-    act(() => view.rerender(<Root visible={false} />))
+    await act(() => view.rerender(<Root visible={false} />))
     expect(getCommunityDbRegistry(original)!.runtime.lifecycle.get().active).toBe(true)
     await act(async () => { if (outcome === "success") resolve({ server: { id: "created" } }); else reject(new Error("denied")); await result })
     expect(api.mock.calls.some(([path]) => path.endsWith("/icon"))).toBe(false)
@@ -112,9 +112,9 @@ describe("actual native Rail controller continuation", () => {
   it.each(["new-pending", "scope-return"] as const)("retires late create UI on %s while keeping its original account operation", async (change) => {
     const { view, resolve, original } = await mount()
     let result!: Promise<unknown>
-    act(() => { result = controller.railProps.onCreateServer("New", new File(["x"], "icon.png")) })
+    await act(() => { result = controller.railProps.onCreateServer("New", new File(["x"], "icon.png")) })
     await waitFor(() => expect(api.mock.calls.some(([, options]) => options.method === "POST")).toBe(true))
-    if (change === "new-pending") act(() => navigation.push("/c/channels/s2"))
+    if (change === "new-pending") await act(() => navigation.push("/c/channels/s2"))
     else {
       route.pathname = "/c/me/friends"; route.revision = 1
       view.rerender(<Root />)
@@ -132,7 +132,7 @@ describe("actual native Rail controller continuation", () => {
   it("rechecks the original rail intent after a failure is queued for deferred display", async () => {
     const { reject } = await mount()
     let result!: Promise<unknown>
-    act(() => { result = controller.railProps.onCreateServer("New") })
+    await act(() => { result = controller.railProps.onCreateServer("New") })
     await waitFor(() => expect(api.mock.calls.some(([, options]) => options.method === "POST")).toBe(true))
     ui.queuedError.mockImplementation(() => navigation.push("/c/channels/s2"))
     await act(async () => { reject(new Error("late failure")); await result })
@@ -142,7 +142,7 @@ describe("actual native Rail controller continuation", () => {
   })
   it("confirmed leave still navigates the original published route after native scope eviction clears its UI pointer", async () => {
     const { resolve } = await mount()
-    act(() => controller.railProps.onLeaveServer!("s1"))
+    await act(() => controller.railProps.onLeaveServer!("s1"))
     await waitFor(() => expect(api.mock.calls.some(([path]) => path.endsWith("/leave"))).toBe(true))
     await act(async () => resolve(undefined))
     await waitFor(() => expect(ui.replace).toHaveBeenCalledWith("/c/me"))
@@ -150,8 +150,8 @@ describe("actual native Rail controller continuation", () => {
   it("leaves into canonical folder order while server/folder refresh stays held", async () => {
     const { resolve, original } = await mount(false, true)
     const registry = getCommunityDbRegistry(original)!
-    act(() => {
-      publishCommunityLiveSnapshot(original, {
+    await act(async () => {
+      await publishCommunityLiveSnapshot(original, {
         snapshot: { kind: "folders", data: {
           folders: [{ id: "f", name: "Group", servers: [{ id: "s3", name: "Three", initial: "T" }, { id: "s2", name: "Two", initial: "T" }] }],
           topOrder: [{ kind: "folder", id: "f" }, { kind: "server", id: "s1" }],
@@ -160,7 +160,7 @@ describe("actual native Rail controller continuation", () => {
       })
     })
     await waitFor(() => expect(controller.railProps.servers.map((server) => server.id)).toEqual(["s3", "s2", "s1"]))
-    act(() => controller.railProps.onLeaveServer!("s1"))
+    await act(() => controller.railProps.onLeaveServer!("s1"))
     await waitFor(() => expect(api.mock.calls.some(([path]) => path.endsWith("/leave"))).toBe(true))
     await act(async () => resolve(undefined))
     await waitFor(() => expect(ui.replace).toHaveBeenCalledWith("/c/channels/s3"))
@@ -169,9 +169,9 @@ describe("actual native Rail controller continuation", () => {
   })
   it("confirmed leave does not redirect a newer navigation intent", async () => {
     const { view, resolve } = await mount()
-    act(() => controller.railProps.onLeaveServer!("s1"))
+    await act(() => controller.railProps.onLeaveServer!("s1"))
     await waitFor(() => expect(api.mock.calls.some(([path]) => path.endsWith("/leave"))).toBe(true))
-    act(() => { navigation.push("/c/channels/s2"); view.rerender(<Root />) })
+    await act(() => { navigation.push("/c/channels/s2"); view.rerender(<Root />) })
     await act(async () => resolve(undefined))
     await waitFor(() => expect(api.mock.calls.some(([path]) => path.endsWith("/leave"))).toBe(true))
     expect(ui.toast).not.toHaveBeenCalled()
@@ -181,9 +181,9 @@ describe("actual native Rail controller continuation", () => {
 
   it.each(["/c/channels/s2", "/c/me/friends"])("mounted old sidebar preserves newer %s while the real leave retires its account scope", async (target) => {
     const { resolve, original } = await mount(true)
-    act(() => controller.railProps.onLeaveServer!("s1"))
+    await act(() => controller.railProps.onLeaveServer!("s1"))
     await waitFor(() => expect(api.mock.calls.some(([path]) => path.endsWith("/leave"))).toBe(true))
-    act(() => navigation.push(target))
+    await act(() => navigation.push(target))
     await act(async () => resolve(undefined))
     const registry = getCommunityDbRegistry(original)!
     await waitFor(() => expect(registry.runtime.ws.get().revokedServerIds.has("s1")).toBe(true))
@@ -215,16 +215,16 @@ describe("actual native Rail controller continuation", () => {
 
   it("mounted old sidebar preserves an unresolved newer intent and ejects if it is canceled", async () => {
     const { resolve } = await mount(true)
-    act(() => controller.railProps.onLeaveServer!("s1"))
+    await act(() => controller.railProps.onLeaveServer!("s1"))
     await waitFor(() => expect(api.mock.calls.some(([path]) => path.endsWith("/leave"))).toBe(true))
     let finish!: (href: string) => void, operation!: Promise<boolean>
-    act(() => { operation = navigation.resolveAndPush(() => new Promise<string>((done) => { finish = done })) })
+    await act(() => { operation = navigation.resolveAndPush(() => new Promise<string>((done) => { finish = done })) })
     await act(async () => resolve(undefined))
     await waitFor(() => expect(getCommunityRuntime(client).ws.get().revokedServerIds.has("s1")).toBe(true))
     expect(navigation.navigationPending).toBe(true)
     expect(navigation.pendingHref).toBeNull()
     expect(ui.replace).not.toHaveBeenCalled()
-    act(() => navigation.cancelPendingNavigation())
+    await act(() => navigation.cancelPendingNavigation())
     await waitFor(() => expect(ui.replace).toHaveBeenCalledWith("/c/channels/s2"))
     await act(async () => { finish("/c/me/friends"); await operation })
     expect(ui.push).not.toHaveBeenCalledWith("/c/me/friends")
@@ -232,9 +232,9 @@ describe("actual native Rail controller continuation", () => {
 
   it.each([false, true])("mounted sidebar still ejects the revoked current scope with same-server pending=%s", async (sameServerPending) => {
     const { resolve } = await mount(true)
-    act(() => controller.railProps.onLeaveServer!("s1"))
+    await act(() => controller.railProps.onLeaveServer!("s1"))
     await waitFor(() => expect(api.mock.calls.some(([path]) => path.endsWith("/leave"))).toBe(true))
-    if (sameServerPending) act(() => navigation.push("/c/channels/s1/channel-2"))
+    if (sameServerPending) await act(() => navigation.push("/c/channels/s1/channel-2"))
     await act(async () => resolve(undefined))
     await waitFor(() => expect(ui.replace).toHaveBeenCalledWith("/c/channels/s2"))
     expect(navigation.pendingHref).not.toBe("/c/channels/s1/channel-2")
@@ -242,19 +242,19 @@ describe("actual native Rail controller continuation", () => {
 
   it("new destination sidebar ejects when its own server access is revoked", async () => {
     const { view, resolve } = await mount(true)
-    act(() => controller.railProps.onLeaveServer!("s1"))
+    await act(() => controller.railProps.onLeaveServer!("s1"))
     await waitFor(() => expect(api.mock.calls.some(([path]) => path.endsWith("/leave"))).toBe(true))
-    act(() => navigation.push("/c/channels/s2"))
+    await act(() => navigation.push("/c/channels/s2"))
     await act(async () => resolve(undefined))
     await waitFor(() => expect(getCommunityRuntime(client).ws.get().revokedServerIds.has("s1")).toBe(true))
     expect(ui.replace).not.toHaveBeenCalled()
-    act(() => {
+    await act(() => {
       route.pathname = "/c/channels/s2"; route.revision = 1
       window.history.replaceState(null, "", route.pathname)
       view.rerender(<Root sidebar />)
     })
     await waitFor(() => expect(navigation.navigationPending).toBe(false))
-    act(() => { evictServerChannelScopes(client, "s2") })
+    await act(() => { evictServerChannelScopes(client, "s2") })
     await waitFor(() => expect(ui.replace).toHaveBeenCalledWith("/c/me"))
     expect(getCommunityRuntime(client).ws.get().revokedServerIds.has("s2")).toBe(true)
   })

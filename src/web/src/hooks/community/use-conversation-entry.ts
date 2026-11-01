@@ -1,14 +1,14 @@
 "use client"
 
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState } from "react"
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
-import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query"
+import { hashKey, useIsRestoring, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useConversationActivity, useConversationPresentation } from "@/contexts/community/conversation-activity"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { channelHref, normalizeCommunityHref } from "@/lib/community/community-route"
-import { communityMessageProfileIds, CommunityMessageResourceSchema, CommunityResourceProfileSchema, type CommunityReadStateResource } from "@alook/shared"
+import { communityMessageProfileIds, type CommunityReadStateResource } from "@alook/shared"
 import { useCanonicalMessagesById, useCanonicalProfilesProjection, useChannelReadStateProjection, useChannelRosterRows, useRouteChannelProjection } from "@/lib/community-db/projections"
-import { getCanonicalCommunityMessageResources } from "@/lib/community-db/sync"
+import { canonicalMessageResource } from "@/lib/community-db/resources"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { isChannelMetadataTokenCurrent } from "@/lib/community/conversation-qualification"
@@ -28,6 +28,7 @@ type EntryWindow = NonNullable<ReturnType<typeof findConversationEntryWindow>>
 
 export function useConversationResource(target: ConversationEntryTarget | null, intent?: { href: string; resume?: boolean } | null, useLocalPosition = false, consumer: "metadata" | "messages" | "forum" = "metadata", networkEnabled = true) {
   const client = useQueryClient()
+  const restoring = useIsRestoring()
   const active = useConversationActivity()
   const presented = useConversationPresentation()
   const runtime = useCommunityRuntime()
@@ -75,6 +76,14 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
   }, [client, baseInput, cachedSelection, intent, useLocalPosition, enabled, anchorMessageId, channelId, tag, preferTail])
   const input = landing.input
   const options = useMemo(() => conversationEntryOptions(client, landing.requestInput), [client, landing])
+  const entryHash = hashKey(options.queryKey)
+  const restoreSubscriptionEnabled = restoring && target !== null
+  const subscribeRestoredEntry = useCallback((notify: () => void) => restoreSubscriptionEnabled
+    ? client.getQueryCache().subscribe(event => { if (event.query.queryHash === entryHash) notify() }) : () => undefined,
+  [client, entryHash, restoreSubscriptionEnabled])
+  const readRestoredEntry = useCallback(() => restoreSubscriptionEnabled ? client.getQueryData<ConversationEntryResource>(options.queryKey) : undefined,
+    [client, options.queryKey, restoreSubscriptionEnabled])
+  const restoredEntry = useSyncExternalStore(subscribeRestoredEntry, readRestoredEntry, readRestoredEntry)
   const parentId = canonical?.parentChannelId ?? undefined
   const [verification, setVerification] = useState(() => ({ runtime, channelId, serverId,
     needed: !serverRevoked && runtime.ws.actions.isChannelAccessRevoked(channelId, serverId, parentId), generation }))
@@ -90,6 +99,7 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
   const fallback = useQuery({ ...fallbackOptions, enabled: presented && enabled && anchorMissing && !revoked, subscribed: !!target && anchorMissing,
     refetchOnReconnect: false, refetchOnWindowFocus: false })
   const resource = query.data && isChannelMetadataTokenCurrent(query.data.proof) ? query.data
+    : restoredEntry && isChannelMetadataTokenCurrent(restoredEntry.proof) ? restoredEntry
     : fallback.data && isChannelMetadataTokenCurrent(fallback.data.proof) ? fallback.data
       : cachedResource && isChannelMetadataTokenCurrent(cachedResource.proof) ? cachedResource : undefined
   const readableScope = useMemo(() => scope ?? resource, [scope, resource])
@@ -122,9 +132,11 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
     return value.pages.flatMap(page => page.messages.map(message => message.id))
   })
   const forumMessageIds: string[] = []
+  const forumProfileIds: string[] = []
   const forum = client.getQueryData<{ pages: import("./forum-feed-window").ForumFeedPage[] }>(communityKeys.forumFeed(channelId, tag))
   if (Array.isArray(forum?.pages)) for (const page of forum.pages) if (Array.isArray(page?.threads)) for (const thread of page.threads) {
     if (!thread || typeof thread.id !== "string") continue
+    if (Array.isArray(thread.participantIds)) forumProfileIds.push(...thread.participantIds.filter(id => typeof id === "string"))
     if (typeof thread.openerMessageId === "string") forumMessageIds.push(thread.openerMessageId)
     const child = getCommunityDbRegistry(client)?.collections.channels.get(thread.id)
     if (child?.firstMessageId) forumMessageIds.push(child.firstMessageId)
@@ -132,20 +144,17 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
   retainedIds.push(...forumMessageIds)
   const retainedMessages = useCanonicalMessagesById([...new Set(retainedIds)])
   const retainedResources = [...(retainedMessages?.keys() ?? [])].flatMap(id => {
-    const parsed = CommunityMessageResourceSchema.strip().safeParse(getCommunityDbRegistry(client)?.collections.messages.get(id))
-    return parsed.success ? [parsed.data] : []
+    const registry = getCommunityDbRegistry(client)
+    const parsed = registry && canonicalMessageResource(registry, registry.collections.messages.get(id))
+    return parsed ? [parsed] : []
   })
-  const retainedProfileIds = communityMessageProfileIds(retainedResources)
+  const retainedProfileIds = [...new Set([...communityMessageProfileIds(retainedResources), ...forumProfileIds])]
   const retainedProfiles = useCanonicalProfilesProjection(retainedProfileIds)
   const availableWindow = readableScope ? findConversationDisplayWindow(client, baseInput, readableScope) : undefined
-  const availableMessageIds = availableWindow && messageWindowIdentity(availableWindow.key)
-    ? client.getQueryData<MessageWindowData>(availableWindow.key)!.pages.flatMap(page => page.messages.map(message => message.id))
-    : forumMessageIds
-  const availableGraph = availableWindow ? getCanonicalCommunityMessageResources(client,
-    availableMessageIds.map(id => getCommunityDbRegistry(client)?.collections.messages.get(id))) : undefined
+  const availableGraph = availableWindow?.resources
   const requiredProfileIds = availableGraph?.profiles.map(profile => profile.id) ?? retainedProfileIds
   const profilesReady = requiredProfileIds.length === 0 || retainedProfiles.isReady && !retainedProfiles.isError
-    && requiredProfileIds.every(id => CommunityResourceProfileSchema.strip().safeParse(retainedProfiles.resourceProfiles.get(id)).success)
+    && requiredProfileIds.every(id => retainedProfiles.resourceProfiles.has(id))
   const cachedWindow = profilesReady ? availableWindow : undefined
   const dependencyWindowKey = availableWindow?.key ?? resource?.windowKey
   const dependencyWindow = dependencyWindowKey && messageWindowIdentity(dependencyWindowKey)

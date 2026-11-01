@@ -82,9 +82,9 @@ function attentionData(ids: readonly string[]) {
     included: { servers: [], channels: [], dms: [], messages: [], profiles: inboxRows.filter((row) => ids.includes(row.id)).map((row) => ({ userId: row.userId, name: row.name, discriminator: "0001", avatar: row.avatar, avatarVersion: row.avatarVersion ?? 0 })) },
   }
 }
-function publishRows(client: QueryClient, ids: readonly string[], token = captureCommunityLiveSnapshotToken(client)) {
-  publishCommunityFriendships(client, pendingRows.filter((row) => ids.includes(row.id)).map((row) => ({ id: row.id, userId: row.userId, kind: row.kind })), { token })
-  publishAccountAttentionSnapshot(client, { snapshot: attentionData(ids), proof: { token } })
+async function publishRows(client: QueryClient, ids: readonly string[], token = captureCommunityLiveSnapshotToken(client)) {
+  await publishCommunityFriendships(client, pendingRows.filter((row) => ids.includes(row.id)).map((row) => ({ id: row.id, userId: row.userId, kind: row.kind })), { token })
+  await publishAccountAttentionSnapshot(client, { snapshot: attentionData(ids), proof: { token } })
 }
 function handleFriendEvent(event: Parameters<typeof handleFriendEventLeaf>[0], context: SocialEventContext) {
   projectCommunityWsEventToDb(context.queryClient, event)
@@ -237,7 +237,7 @@ async function createClient(ids: readonly string[] = ["a", "b"]) {
   const registry = createCommunityDbRegistry(client, "viewer")
   registerCommunityDbRegistry(registry)
   await registry.preload()
-  publishRows(client, ids)
+  await publishRows(client, ids)
   client.setQueryData(communityKeys.friends(), { ids })
   client.setQueryData(communityKeys.accountAttention(), { loaded: true })
   return client
@@ -288,7 +288,7 @@ describe("friend-request action authority RED", () => {
     const client = await createClient(["a"])
     const { controls, rendered } = mount(client)
     let request!: Promise<void>
-    act(() => { request = controls.current!.act("inbox", "a") })
+    await act(() => { request = controls.current!.act("inbox", "a") })
     await act(async () => { await Promise.all([fetchFriends(client), fetchAttention(client)]) })
     await act(async () => {
       gate.reject(new Error("ambiguous failure"))
@@ -389,7 +389,7 @@ describe("friend-request action authority RED", () => {
     await act(async () => { await controls.current!.act("inbox", "a") })
     paints.length = 0
 
-    act(() => {
+    await act(() => {
       runCommunityWsProjectionTransaction(client, (projection) => {
         handleFriendEvent(
           { type: "community:friend.remove", friendshipId: "a" },
@@ -444,7 +444,7 @@ describe("friend-request action authority RED", () => {
       invalidate: vi.fn(),
       fence: vi.fn(),
     } satisfies CommunityWsProjectionTransaction
-    act(() => {
+    await act(async () => {
       handleFriendEvent(
         { type: "community:friend.block", userId: "ua" },
         {
@@ -456,7 +456,7 @@ describe("friend-request action authority RED", () => {
 
         } satisfies SocialEventContext,
       )
-      publishRows(client, ["a"], beforeBlock)
+      await publishRows(client, ["a"], beforeBlock)
     })
 
     await act(async () => {
@@ -491,7 +491,7 @@ describe("friend-request action authority RED", () => {
     expect(rendered.queryByTestId("friends-row-a")).toBeNull()
 
     await act(async () => {
-      publishRows(client, ["a"])
+      await publishRows(client, ["a"])
     })
     await waitFor(() => {
       expect(rendered.getByTestId("inbox-row-a")).toBeInTheDocument()
@@ -543,7 +543,7 @@ describe("friend-request shared owner RED", () => {
       const client = await createClient()
       const { controls, rendered } = mount(client)
       let request!: Promise<void>
-      act(() => { request = controls.current!.act(origin, "a") })
+      await act(() => { request = controls.current!.act(origin, "a") })
       try {
         await waitFor(() => {
           expect(rendered.getByTestId("inbox-row-a")).toHaveAttribute("data-status", "pending")
@@ -574,13 +574,13 @@ describe("friend-request shared owner RED", () => {
     const { controls, rendered } = mount(client)
     await act(async () => { await controls.current!.act("inbox", "a") })
     await waitFor(() => expect(rendered.getByTestId("inbox-row-a")).toHaveAttribute("data-status", "error"))
-    act(() => {
+    await act(() => {
       client.removeQueries({ queryKey: communityKeys.friends(), exact: true })
       client.removeQueries({ queryKey: communityKeys.accountAttention(), exact: true })
     })
 
     let retry!: Promise<void>
-    act(() => { retry = controls.current!.retry("inbox", "a") })
+    await act(() => { retry = controls.current!.retry("inbox", "a") })
     try {
       await waitFor(() => {
         expect(rendered.getByTestId("inbox-row-a")).toHaveAttribute("data-status", "pending")
@@ -609,7 +609,7 @@ describe("friend-request shared owner RED", () => {
     const { controls } = mount(client)
     let inboxRequest!: Promise<void>
     let friendsRequest!: Promise<void>
-    act(() => {
+    await act(() => {
       inboxRequest = controls.current!.act("inbox", "a")
       friendsRequest = controls.current!.act("friends", "a")
     })
@@ -640,7 +640,7 @@ describe("friend-request shared owner RED", () => {
     await waitFor(() => expect(rendered.getByTestId("inbox-row-a")).toHaveAttribute("data-status", "error"))
     let first!: Promise<void>
     let second!: Promise<void>
-    act(() => {
+    await act(() => {
       first = controls.current!.retry("inbox", "a")
       second = controls.current!.retry("inbox", "a")
     })
@@ -674,7 +674,7 @@ describe("friend-request shared owner RED", () => {
       const { controls, rendered } = mount(client)
       let actionA!: Promise<void>
       let actionB!: Promise<void>
-      act(() => {
+      await act(() => {
         actionA = controls.current!.act("inbox", "a")
         actionB = controls.current!.act("inbox", "b")
       })

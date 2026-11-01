@@ -1,4 +1,5 @@
 "use client"
+import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import type { Action } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
@@ -249,7 +250,7 @@ export function useShellInboxController({
       },
       () => {
         const summary = dmSummaryFromInbox(dm)
-        publishCommunityDmSummary(queryClient, summary)
+        void Promise.resolve(completeCommunityPublication(queryClient, () => publishCommunityDmSummary(queryClient, summary))).catch(() => undefined)
       },
     )
   }, [pushProjected, queryClient])

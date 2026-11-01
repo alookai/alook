@@ -54,7 +54,7 @@ export function useServerRailCommit() {
           for (const command of commands) if (command.kind === "create-folder" && !response.createdFolderIds[command.clientId]) throw new Error("Missing confirmed folder identity")
           const confirmed = projectServerRailCommit(snapshot, { commands }, (id) => response!.createdFolderIds[id]!)
           if (!confirmed.ok) throw new Error(confirmed.error)
-          publishCommunityServerRailCommit(queryClient, confirmed.value, { token, signal: undefined })
+          await publishCommunityServerRailCommit(queryClient, confirmed.value, { token, signal: undefined })
         } catch (error) { origin.assert(original); throw error }
       } })
       transaction.mutate(() => mutateCommunityServerRail(registry!, optimistic.value))

@@ -31,8 +31,8 @@ it("uses the canonical target sidebar before commit, retaining its node while de
   const { client, registry } = await createCommunityQueryOwner()
   const server = { id: "target", name: "Target server", discriminator: "0001", description: "", icon: null, ownerId: "viewer" }
   const proof = { kind: "structural" as const, token: captureCommunityLiveSnapshotToken(client), signal: undefined }
-  publishCommunityLiveSnapshot(client, { snapshot: { kind: "servers", data: serverRailResponseFixture({ servers: [{ ...server, initial: "T", active: false, unread: false, mentions: 0, isOwner: true, role: "owner", memberId: "membership" }] }, "viewer") }, proof })
-  publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: [{ id: "category", name: "Main", private: false, channels: [{ id: "channel", name: "Target channel", active: false, unread: false, muted: false, type: "text" }] }] }) }, proof })
+  await publishCommunityLiveSnapshot(client, { snapshot: { kind: "servers", data: serverRailResponseFixture({ servers: [{ ...server, initial: "T", active: false, unread: false, mentions: 0, isOwner: true, role: "owner", memberId: "membership" }] }, "viewer") }, proof })
+  await publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: [{ id: "category", name: "Main", private: false, channels: [{ id: "channel", name: "Target channel", active: false, unread: false, muted: false, type: "text" }] }] }) }, proof })
   client.setQueryData(communityKeys.servers(), [server.id])
   const sourceToken = createOwnerServerDeleteRouteToken(client)
   const targetToken = createOwnerServerDeleteRouteToken(client)
@@ -67,7 +67,7 @@ it("uses the canonical target sidebar before commit, retaining its node while de
 it.each(["primary", "forum"])("ends a failed cold %s read with retry", async kind => {
   const { client, registry } = await createCommunityQueryOwner()
   const server = { id: "target", name: "Target server", discriminator: "0001", description: "", icon: null, ownerId: "viewer" }
-  publishCommunityLiveSnapshot(client, {
+  await publishCommunityLiveSnapshot(client, {
     snapshot: { kind: "servers", data: serverRailResponseFixture({ servers: [{ ...server, initial: "T", active: false, unread: false, mentions: 0 }] }, "viewer") },
     proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined },
   })
@@ -137,7 +137,7 @@ it.each([
     await waitFor(() => expect(mocks.props).toHaveBeenLastCalledWith(expect.objectContaining({ onOpenSettings: expect.any(Function) })))
     expect(view.queryByText("Server settings")).toBeNull()
   }
-  act(() => { publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: [] }) }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } }) })
+  await act(async () => { await publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: [] }) }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } }) })
   view.rerender(node())
   await waitFor(() => expect(mocks.props).toHaveBeenLastCalledWith(expect.objectContaining({ serverName: "Target server", primaryReady: true })))
   if (order === "detail-first") {

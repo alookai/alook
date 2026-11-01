@@ -27,7 +27,7 @@ afterEach(cleanupCommunityWsHarness)
 describe("useCommunityWs — typing follows membership", () => {
   it.each(["text", "forum"] as const)("clears a departed %s child participant and timer, denies a repeated start, and permits rejoin", async (parentType) => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("s1", "parent", parentType, "child")
+    await seedCanonicalThread("s1", "parent", parentType, "child")
     act(() => { setCanonicalCommunityChannelMember(capturedQueryClient, "parent", "u_me", "access", true) })
     getCapturedRuntime().ui.actions.subscribe({ channelId: "child" })
     await mountHook({ viewerUserId: "u_me" })
@@ -65,7 +65,7 @@ describe("useCommunityWs — typing follows membership", () => {
 
   it.each(["text", "forum"] as const)("removes access to a %s parent from the typer and its known child without changing another scope", async (parentType) => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("s1", "parent", parentType, "child")
+    await seedCanonicalThread("s1", "parent", parentType, "child")
     act(() => { setCanonicalCommunityChannelMember(capturedQueryClient, "parent", "u_me", "access", true) })
     getCapturedRuntime().ui.actions.subscribe({ channelId: "child" })
     await mountHook({ viewerUserId: "u_me" })

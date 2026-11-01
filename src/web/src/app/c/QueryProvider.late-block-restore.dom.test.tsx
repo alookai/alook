@@ -60,7 +60,8 @@ it.each([null, false, true].flatMap(blockMode => (["accepted", "incoming"] as co
     expect(restoring).toBe(true)
     await act(async () => { await seedConversationEntry(registry!.queryClient, fresh) })
     expect(ids).toContain("m2")
-    if (blocked) act(() => dispatchCommunityWsEvents([{ type: "community:friend.block", userId: "peer", ...(blockMode ? { blockedByViewer: true } : {}) }], {
+    expect(restoring).toBe(true)
+    if (blocked) await act(() => dispatchCommunityWsEvents([{ type: "community:friend.block", userId: "peer", ...(blockMode ? { blockedByViewer: true } : {}) }], {
       deliveryMode: "batch", contract: BUSINESS_SCHEMA_VERSION, queryClient: registry!.queryClient, communityStore: registry!.runtime.ui, wsStore: registry!.runtime.ws,
       sub: { dmConversationId: "c1" }, viewerUserIdRef: { current: "viewer" }, matchesFocus: event => event.channelId === "c1",
     }))

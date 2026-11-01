@@ -418,10 +418,10 @@ class ReadCoordinator {
       return { committed: false, reconciled: false }
     }
     if (!this.attemptActive(key, attemptEpoch, identityEpoch)) return { committed: false, reconciled: false }
-    if (target.intent.seq === response.targetSeq && target.messageCreatedAt) publishCommunityConversationReadState(this.queryClient, {
+    if (target.intent.seq === response.targetSeq && target.messageCreatedAt) await publishCommunityConversationReadState(this.queryClient, {
       channelId: target.intent.channelId,
       lastReadMessageId: target.intent.messageId,
-      lastReadAt: target.messageCreatedAt,
+      lastReadAt: target.messageCreatedAt!,
       lastReadSeq: response.targetSeq,
     }, response.revision, { token: target.proof, signal: target.request.signal ?? undefined }, "advance")
     await settleInboxReadReservationGeneration(this.queryClient, target.generation, true, target.intent.channelId)

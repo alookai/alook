@@ -1200,7 +1200,7 @@ describe("read coordinator", () => {
     releaseReadSurface(lease)
     await vi.advanceTimersByTimeAsync(1)
     expect(db.collections.readStates.get("channel-1")?.lastReadSeq).toBe(committed ? 4 : undefined)
-    expect(publishAccountAttentionSnapshot(queryClient, { snapshot: snapshot(4), proof: { token, signal: undefined } })).toBe("published")
+    expect(await publishAccountAttentionSnapshot(queryClient, { snapshot: snapshot(4), proof: { token, signal: undefined } })).toBe("published")
     if (committed) {
       expect(db.collections.attentionScopes.get("channel-1")).toBeUndefined()
       expect(db.collections.attentionItems.get("reply:message-4")).toBeUndefined()

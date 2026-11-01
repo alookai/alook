@@ -80,7 +80,7 @@ export async function initializeCommunityOnboarding({
   services: {
     request: <T>(path: string, options?: ApiRequestOptions) => Promise<T>
     readChannels: (serverId: string) => Promise<ChannelRow[]>
-    publishBot: (bot: OnboardingBotCreateResponse["bot"], requested: { name: string; image: string }) => void
+    publishBot: (bot: OnboardingBotCreateResponse["bot"], requested: { name: string; image: string }) => void | Promise<void>
     resolveBot: (id: string) => { name: string; discriminator?: string } | undefined
     assert: () => void
   }
@@ -114,7 +114,7 @@ export async function initializeCommunityOnboarding({
     })
     services.assert()
     if (!created.bot.id) throw new Error("Setup progress could not be restored")
-    services.publishBot(created.bot, { name, image })
+    await services.publishBot(created.bot, { name, image })
     const bot: OnboardingInitializedBot = {
       key: template.key,
       id: created.bot.id,

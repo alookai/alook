@@ -32,7 +32,7 @@ describe("empty thread full identity across current child-create ordering", () =
     entry.parent = parent.channel
     entry.opener = parent.messages[0]
     entry.profiles = parent.profiles
-    if (timing !== "pending-absent") publishCommunityCreatedChannel(owner.client, { ...entry.channel, name: "Created thread", creatorId: "viewer", messageCount: 0 }, { token: captureCommunityLiveSnapshotToken(owner.client, "t1") })
+    if (timing !== "pending-absent") await publishCommunityCreatedChannel(owner.client, { ...entry.channel, name: "Created thread", creatorId: "viewer", messageCount: 0 }, { token: captureCommunityLiveSnapshotToken(owner.client, "t1") })
     const event = () => projectCommunityWsEventToDb(owner.client, { type: "community:channel.child_create", parentChannelId: "c1", parentMessageId: "m1", channel: timing === "full-pending" ? { ...entry.channel, name: "Event thread", topic: "Event topic", messageCount: 7 } : { ...entry.channel, name: "Event thread", creatorId: "viewer" } } as CommunityWsEvent, BUSINESS_SCHEMA_VERSION)
     if (timing === "before") event()
     const pending = deferred<typeof entry>()
@@ -79,7 +79,7 @@ describe("empty thread full identity across current child-create ordering", () =
     entry.parent = parent.channel
     entry.opener = parent.messages[0]
     entry.profiles = parent.profiles
-    if (known) publishCommunityCreatedChannel(owner.client, { ...entry.channel, name: "Created thread", creatorId: "existing-creator", messageCount: 0 }, { token: captureCommunityLiveSnapshotToken(owner.client, "t1") })
+    if (known) await publishCommunityCreatedChannel(owner.client, { ...entry.channel, name: "Created thread", creatorId: "existing-creator", messageCount: 0 }, { token: captureCommunityLiveSnapshotToken(owner.client, "t1") })
     const pending = deferred<typeof entry>()
     load.mockReturnValue(pending.promise)
     const wrapper = ({ children }: React.PropsWithChildren) => <QueryClientProvider client={owner.client}><CommunityDbProvider registry={owner.registry}>{children}</CommunityDbProvider></QueryClientProvider>

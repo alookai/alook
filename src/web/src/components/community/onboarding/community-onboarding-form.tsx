@@ -75,9 +75,9 @@ function CommunityOnboardingSteps() {
         services: {
           assert,
           request: (path, options) => origin.request(token, path, { ...options, signal: assert.signal, assertActive: assert }),
-          publishBot: (bot, requested) => {
+          publishBot: async (bot, requested) => {
             assert()
-            writeCommunityProfilePatches([{
+            await writeCommunityProfilePatches([{
               id: bot.id,
               identityAbout: { name: bot.name ?? requested.name, discriminator: bot.discriminator, kind: "bot" },
               avatar: { avatar: bot.image ?? requested.image, avatarVersion: bot.avatarVersion },

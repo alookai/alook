@@ -44,7 +44,7 @@ import {
 } from "./invalidation-projections"
 
 export function handleChildChannelCreate(event: CommunityChildChannelCreate, { queryClient, projection }: StructureTreeEventContext) {
-  invalidateChannelRefTargets(projection)
+  invalidateChannelRefTargets(projection, { channelId: event.channel.id })
   const parent = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && supportsSidebarThreads(row.type))
   if (parent?.serverId) invalidateForumSidebar(projection, parent.serverId)
   projection.fence("threads", { queryKey: communityKeys.threads(event.parentChannelId) })
@@ -57,7 +57,7 @@ export function handleChildChannelUpdate(
 ) {
   invalidateThreads(projection, event.parentChannelId)
   const changes = event.changes
-  if (changes.name !== undefined || changes.archived !== undefined || changes.tags !== undefined) invalidateChannelRefTargets(projection)
+  if (changes.name !== undefined || changes.archived !== undefined || changes.tags !== undefined) invalidateChannelRefTargets(projection, { channelId: event.channelId })
   if (changes.tags !== undefined) {
     projection.fence("threads", {
       queryKey: communityKeys.threads(event.parentChannelId),
@@ -122,7 +122,7 @@ export function handleServerUpdate(
   event: CommunityServerUpdate,
   { projection }: StructureTreeEventContext,
 ) {
-  invalidateChannelRefDirectory(projection)
+  invalidateChannelRefDirectory(projection, { serverId: event.serverId })
 
 }
 
@@ -131,7 +131,7 @@ export function handleServerDelete(
   { queryClient, projection }: StructureTreeEventContext,
 ) {
   evictServerChannelScopes(queryClient, event.serverId)
-  invalidateChannelRefDirectory(projection)
+  invalidateChannelRefDirectory(projection, { serverId: event.serverId })
   // Refresh the rail LIST only (drop the deleted server). `exact`
   // so this doesn't cascade-refetch every other server's nested
   // detail subtree.
@@ -148,7 +148,7 @@ export function handleChannelEvent(
   event: ChannelEvent,
   { queryClient, projection }: StructureTreeEventContext,
 ) {
-  invalidateChannelRefDirectory(projection)
+  invalidateChannelRefDirectory(projection, { serverId: event.serverId, channelId: event.type === "community:channel.create" ? event.channel.id : "channelId" in event ? event.channelId : undefined })
   // #3: on channel.delete, evict every channel-scoped cache before
   // invalidating the server. Without this the messages/pins/threads/
   // child-thread caches for the dead channel linger forever — a
@@ -197,7 +197,7 @@ export function handleCategoryEvent(
   event: CategoryEvent,
   { projection }: StructureTreeEventContext,
 ) {
-  invalidateChannelRefDirectory(projection)
+  invalidateChannelRefDirectory(projection, { serverId: event.serverId })
   invalidateServerDetail(projection, event.serverId)
 }
 
