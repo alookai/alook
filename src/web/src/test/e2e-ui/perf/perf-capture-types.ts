@@ -5,6 +5,8 @@
 
 export type CacheState = "cold" | "memory-warm" | "disk-warm"
 export type SwitchKind = "server" | "channel"
+export type PerfTarget = { serverId: string; channelId?: string; messageScrollerId: string }
+export type PerfStableTarget = { contentStableTs: number; contentChannelId: string; contentKind: "messages" | "empty" }
 
 /** One `/api/community/*` request, from the in-page resource observer. */
 export interface CapturedResource {
@@ -42,10 +44,13 @@ export interface CapturedSwitch {
   clickTs: number
   /** performance.now() when the first skeleton for the target appeared. */
   skeletonTs: number | null
-  /** performance.now() when the first message row painted. */
+  /** performance.now() when qualified target messages or a loaded empty state became visible. */
   paintedTs: number | null
-  /** performance.now() of the last ResizeObserver settle on the list. */
+  /** performance.now() when qualified target content satisfies the geometry stability condition. */
   contentStableTs: number | null
+  contentChannelId?: string | null
+  contentKind?: "messages" | "empty" | null
+  resizes?: number[]
   resources: CapturedResource[]
   commits: CapturedCommit[]
   /** fiber-unmount events during the switch, by component name. */
@@ -79,9 +84,11 @@ declare global {
     __PERF_RESOURCES__?: Array<{ name: string; startTime: number; responseEnd: number }>
     __PERF_SHIFTS__?: Array<{ ts: number; value: number; hadRecentInput: boolean }>
     __PERF_RESIZES__?: number[]
+    __PERF_RESOURCE_OBSERVER__?: PerformanceObserver
+    __PERF_LAYOUT_OBSERVER__?: PerformanceObserver
     __PERF_RESIZE_OBSERVER__?: ResizeObserver
-    __PERF_ATTACH_RESIZE__?: () => boolean
-    __PERF_WAIT_FOR_STABLE_RESIZE__?: () => Promise<void>
+    __PERF_ATTACH_RESIZE__?: (target: PerfTarget) => boolean
+    __PERF_WAIT_FOR_STABLE_RESIZE__?: (target: PerfTarget) => Promise<PerfStableTarget>
     __PERF_SKELETON_TS__?: number | null
     __PERF_PAINTED_TS__?: number | null
     __PERF_WARM_RELOAD__?: { customBootstrapSeen: boolean; skeletonSeen: boolean }

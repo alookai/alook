@@ -43,6 +43,8 @@ import type {
   CapturedWarmReload,
   CapturedSwitch,
   SwitchKind,
+  PerfTarget,
+  PerfStableTarget,
 } from "./perf-capture-types"
 
 const BASE_URL = process.env.ALOOK_SERVER_URL || "http://localhost:3000"
@@ -81,11 +83,53 @@ async function authenticateAs(context: BrowserContext, email: string): Promise<v
   }
 }
 
+function samplePerfTarget(target: PerfTarget) {
+  const path = location.pathname.split("/")
+  if (path.length !== 5 || path[1] !== "c" || path[2] !== "channels" || decodeURIComponent(path[3]) !== target.serverId) return false
+  const channelId = decodeURIComponent(path[4])
+  if (!channelId || target.channelId !== undefined && channelId !== target.channelId) return false
+  const visible = (element: HTMLElement) => {
+    const style = getComputedStyle(element)
+    return !element.closest('[hidden], [inert], [aria-hidden="true"]') && element.getClientRects().length > 0 && style.display !== "none" && style.visibility !== "hidden"
+  }
+  const surfaces = [...document.querySelectorAll<HTMLElement>('[data-slot="community-conversation-surface"]')]
+    .filter(surface => surface.dataset.channelId === channelId && visible(surface))
+  if (surfaces.length !== 1) return false
+  const surface = surfaces[0]
+  const root = surface.querySelector<HTMLElement>(`[data-testid="${target.messageScrollerId}"]`)
+  if (!root || !visible(root)) return false
+  const skeleton = root.querySelector('[data-slot="skeleton"]')
+  if (skeleton && window.__PERF_SKELETON_TS__ == null) window.__PERF_SKELETON_TS__ = performance.now()
+  const content = root.querySelector<HTMLElement>("[data-message-list-content]")
+  if (!content || !visible(content) || skeleton || surface.getAttribute("aria-busy") === "true" || root.getAttribute("aria-busy") === "true") return false
+  const bounds = root.getBoundingClientRect()
+  const rows = [...content.querySelectorAll<HTMLElement>("[data-msg-id]")]
+  const inViewport = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect(), style = getComputedStyle(element)
+    return element.getClientRects().length > 0 && style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0
+      && rect.bottom > bounds.top && rect.top < bounds.bottom && rect.right > bounds.left && rect.left < bounds.right
+  }
+  const painted = rows.some(row => visible(row) && inViewport(row))
+  const emptyTail = content.querySelector<HTMLElement>("[data-message-empty-tail]")
+  const empty = rows.length === 0 && content.dataset.initialPositionPhase === "revealed" && !content.querySelector('[role="alert"]')
+    && emptyTail !== null && inViewport(emptyTail)
+  if (!painted && !empty) return false
+  if (window.__PERF_PAINTED_TS__ == null) window.__PERF_PAINTED_TS__ = performance.now()
+  return { root, content, channelId, contentKind: painted ? "messages" as const : "empty" as const }
+}
+
 // In-page instrumentation installed before each measured switch. Reads the
 // react-scan ring buffer + performance marks + resource timings + a
 // ResizeObserver on the message scroll container, all on the browser clock.
 const INPAGE_SETUP = `
 (() => {
+  const readTarget = (${samplePerfTarget.toString()});
+  window.__PERF_RESOURCE_OBSERVER__?.disconnect();
+  window.__PERF_LAYOUT_OBSERVER__?.disconnect();
+  window.__PERF_RESIZE_OBSERVER__?.disconnect();
+  let observedRoot = null;
+  let observedContent = null;
+  let resizeStart = 0;
   window.__PERF_RESOURCES__ = [];
   window.__PERF_SHIFTS__ = [];
   window.__PERF_RESIZES__ = [];
@@ -97,6 +141,7 @@ const INPAGE_SETUP = `
     }
   });
   ro.observe({ type: 'resource', buffered: true });
+  window.__PERF_RESOURCE_OBSERVER__ = ro;
   const lo = new PerformanceObserver((list) => {
     for (const e of list.getEntries()) {
       // KEEP hadRecentInput entries — the click-triggered reflow is exactly what
@@ -105,44 +150,59 @@ const INPAGE_SETUP = `
     }
   });
   try { lo.observe({ type: 'layout-shift', buffered: true }); } catch (_) {}
+  window.__PERF_LAYOUT_OBSERVER__ = lo;
   // Attach a ResizeObserver to the message scroll container. The container is
   // persistent, but on a cold switch it may be re-created (React swaps the
   // subtree), so a once-only global guard would leave the observer watching a
   // detached node and never fire again — hence NO cross-switch guard here, and
   // we disconnect the prior observer before re-observing the current root.
-  window.__PERF_ATTACH_RESIZE__ = () => {
-    const root = document.querySelector('[data-testid="${tid.messageScroller}"]');
-    if (!root) return false;
+  window.__PERF_ATTACH_RESIZE__ = (target) => {
+    const sample = readTarget(target);
+    if (!sample) return false;
     if (window.__PERF_RESIZE_OBSERVER__) window.__PERF_RESIZE_OBSERVER__.disconnect();
+    observedRoot = sample.root;
+    observedContent = sample.content;
+    resizeStart = window.__PERF_RESIZES__.length;
     const rz = new ResizeObserver(() => { window.__PERF_RESIZES__.push(performance.now()); });
-    rz.observe(root);
-    if (root.firstElementChild) rz.observe(root.firstElementChild);
+    rz.observe(observedRoot);
+    rz.observe(observedContent);
     window.__PERF_RESIZE_OBSERVER__ = rz;
     return true;
   };
-  window.__PERF_WAIT_FOR_STABLE_RESIZE__ = () => new Promise((resolve, reject) => {
+  window.__PERF_WAIT_FOR_STABLE_RESIZE__ = (target) => new Promise((resolve, reject) => {
+    let previousRoot = null;
+    let previousContent = null;
     let previous = '';
     let unchangedFrames = 0;
     let observedFrames = 0;
     const sample = () => {
       observedFrames += 1;
-      const root = document.querySelector('[data-testid="${tid.messageScroller}"]');
-      const content = root?.firstElementChild;
-      if (!root || !content) {
+      const targetSample = readTarget(target);
+      if (!targetSample) {
+        previous = '';
+        unchangedFrames = 0;
         if (observedFrames >= 120) {
-          reject(new Error('target message scroller did not mount'));
+          reject(new Error('target message content did not become visible'));
           return;
         }
         requestAnimationFrame(sample);
         return;
       }
+      const { root, content, channelId, contentKind } = targetSample;
+      if (observedRoot !== root || observedContent !== content) window.__PERF_ATTACH_RESIZE__(target);
+      if (previousRoot !== root || previousContent !== content) {
+        previous = '';
+        unchangedFrames = 0;
+      }
+      previousRoot = root;
+      previousContent = content;
       const rootRect = root.getBoundingClientRect();
       const contentRect = content.getBoundingClientRect();
       const current = [rootRect.width, rootRect.height, contentRect.width, contentRect.height, root.scrollHeight].join(':');
       unchangedFrames = current === previous ? unchangedFrames + 1 : 0;
       previous = current;
-      if (window.__PERF_RESIZES__.length > 0 && unchangedFrames >= 1) {
-        resolve();
+      if (window.__PERF_RESIZES__.length > resizeStart && unchangedFrames >= 1) {
+        resolve({ contentStableTs: performance.now(), contentChannelId: channelId, contentKind });
         return;
       }
       if (observedFrames >= 120) {
@@ -161,6 +221,9 @@ interface DrainedSwitch {
   skeletonTs: number | null
   paintedTs: number | null
   contentStableTs: number | null
+  contentChannelId: string | null
+  contentKind: "messages" | "empty" | null
+  resizes: number[]
   resources: CapturedSwitch["resources"]
   commits: CapturedSwitch["commits"]
   unmounts: string[]
@@ -168,9 +231,9 @@ interface DrainedSwitch {
   degraded: boolean
 }
 
-async function drainSwitch(page: Page, sinceTs: number, markName: string): Promise<DrainedSwitch> {
+async function drainSwitch(page: Page, sinceTs: number, markName: string, stable: PerfStableTarget | null): Promise<DrainedSwitch> {
   return page.evaluate(
-    ({ sinceTs, markName }) => {
+    ({ sinceTs, markName, stable }) => {
       const marks = performance.getEntriesByName(markName, "mark")
       const clickTs = marks.length ? marks[marks.length - 1].startTime : sinceTs
 
@@ -214,13 +277,16 @@ async function drainSwitch(page: Page, sinceTs: number, markName: string): Promi
       const resources = (window.__PERF_RESOURCES__ || []).filter((r) => r.startTime >= clickTs)
       const layoutShifts = (window.__PERF_SHIFTS__ || []).filter((s) => s.ts >= clickTs)
       const resizes = (window.__PERF_RESIZES__ || []).filter((t) => t >= clickTs)
-      const contentStableTs = resizes.length ? resizes[resizes.length - 1] : null
+      const contentStableTs = stable?.contentStableTs ?? null
 
       return {
         clickTs,
         skeletonTs: window.__PERF_SKELETON_TS__ ?? null,
         paintedTs: window.__PERF_PAINTED_TS__ ?? null,
         contentStableTs,
+        contentChannelId: stable?.contentChannelId ?? null,
+        contentKind: stable?.contentKind ?? null,
+        resizes,
         resources,
         commits,
         unmounts,
@@ -228,7 +294,7 @@ async function drainSwitch(page: Page, sinceTs: number, markName: string): Promi
         degraded: window.__ALOOK_PERF_DEGRADED__ === true,
       }
     },
-    { sinceTs, markName },
+    { sinceTs, markName, stable },
   )
 }
 
@@ -255,7 +321,7 @@ test("community switch perceived-latency capture", async ({ browser }) => {
   )
   // Prove the react-scan hook registered early enough: commit events must
   // actually arrive (not merely that hooks are "available").
-  await page.waitForFunction(() => Array.isArray(window.__ALOOK_PERF__) && window.__ALOOK_PERF__.length > 0, {
+  await page.waitForFunction(() => Array.isArray(window.__ALOOK_PERF__) && window.__ALOOK_PERF__.length > 0, undefined, {
     timeout: 20_000,
   })
   const degraded = await page.evaluate(() => window.__ALOOK_PERF_DEGRADED__ === true)
@@ -267,7 +333,7 @@ test("community switch perceived-latency capture", async ({ browser }) => {
   if (page.url() !== firstLeaf) {
     await page.goto(firstLeaf, { waitUntil: "commit" })
   }
-  await page.waitForSelector("[data-msg-id]", { timeout: 20_000 }).catch(() => {})
+  await page.waitForSelector("[data-msg-id]", { timeout: 20_000 })
 
   const captured: CapturedSwitch[] = []
   const warmReloadCapture: { current?: CapturedWarmReload } = {}
@@ -279,61 +345,36 @@ test("community switch perceived-latency capture", async ({ browser }) => {
     cacheState: CacheState,
     navigate: () => Promise<void>,
   ): Promise<void> {
+    const target: PerfTarget = { serverId: kind === "server" ? targetId : targetServer.id,
+      ...(kind === "channel" ? { channelId: targetId } : {}), messageScrollerId: tid.messageScroller }
     await page.evaluate(INPAGE_SETUP)
-    await page.evaluate(() => {
+    await page.evaluate(target => {
       window.__PERF_SKELETON_TS__ = null
       window.__PERF_PAINTED_TS__ = null
-      window.__PERF_ATTACH_RESIZE__?.()
-    })
+      if (!window.__PERF_ATTACH_RESIZE__) throw new Error("Missing perf resize collector")
+      window.__PERF_ATTACH_RESIZE__(target)
+    }, target)
     const markName = `alook:switch:${kind}:${targetId}`
     const t0 = await page.evaluate(() => performance.now())
-
-    await navigate()
-
-    // Record skeleton + painted anchors as they appear. Both are captured in
-    // ONE polling loop so whichever DOM state shows first stamps its own
-    // timestamp: the message-list loading state renders `[data-slot=skeleton]`
-    // in the scroll container, then swaps to `[data-msg-id]` rows once loaded.
-    // A memory/disk-warm switch can paint rows with no skeleton frame at all,
-    // so skeleton stays null there (correctly — there was no loading spell).
-    await page
-      .waitForFunction(
-        () => {
-          // Scope the skeleton probe to the message scroll container — a bare
-          // `[data-slot=skeleton]` also matches sidebar/member-list skeletons
-          // elsewhere on the page (and leftovers from the prior switch), which
-          // stamped a bogus 16ms skeleton on memory-warm switches that have no
-          // loading spell at all.
-          if (
-            window.__PERF_SKELETON_TS__ == null &&
-            document.querySelector(`[data-testid="${tid.messageScroller}"] [data-slot='skeleton']`)
-          ) {
-            window.__PERF_SKELETON_TS__ = performance.now()
-          }
-          const painted = document.querySelector("[data-msg-id]")
-          if (painted && window.__PERF_PAINTED_TS__ == null) {
-            window.__PERF_PAINTED_TS__ = performance.now()
-          }
-          return window.__PERF_PAINTED_TS__ != null
-        },
-        { timeout: 25_000 },
-      )
-      .catch(() => {})
-
-    // Re-attach the ResizeObserver to the CURRENT scroll container. Attaching
-    // once before navigate() misses cold switches where React re-creates the
-    // container after the click, leaving the pre-switch observer on a detached
-    // node — the bug that left contentStableTs perpetually null.
-    await page.evaluate(() => window.__PERF_ATTACH_RESIZE__?.())
-
-    await page.evaluate(() => window.__PERF_WAIT_FOR_STABLE_RESIZE__?.())
-
-    const drained = await drainSwitch(page, t0, markName)
-    captured.push({ kind, targetId, cacheState, ...drained })
-    // Write incrementally so a timed-out / interrupted run still yields a
-    // usable capture the report generator can consume (dev-build latency can
-    // blow any single wall-clock budget — see the harness header).
-    flushCapture()
+    const capture = async (stable: PerfStableTarget | null) => {
+      const drained = await drainSwitch(page, t0, markName, stable)
+      captured.push({ kind, targetId, cacheState, ...drained })
+      flushCapture()
+    }
+    let stable: PerfStableTarget
+    try {
+      await navigate()
+      const painted = await page.waitForFunction(samplePerfTarget, target, { timeout: 25_000 })
+      await painted.dispose()
+      stable = await page.evaluate(async target => {
+        if (!window.__PERF_ATTACH_RESIZE__ || !window.__PERF_WAIT_FOR_STABLE_RESIZE__) throw new Error("Missing perf stability sampler")
+        if (!window.__PERF_ATTACH_RESIZE__(target)) throw new Error("Target content disappeared before stability sampling")
+        return window.__PERF_WAIT_FOR_STABLE_RESIZE__(target)
+      }, target)
+    } catch (error) {
+      try { await capture(null) } finally { throw error }
+    }
+    await capture(stable)
   }
 
   function flushCapture(): void {
@@ -409,7 +450,7 @@ test("community switch perceived-latency capture", async ({ browser }) => {
     inspect()
   })
   await page.reload({ waitUntil: "commit" })
-  await page.waitForSelector("[data-msg-id]", { timeout: 20_000 }).catch(() => {})
+  await page.waitForSelector("[data-msg-id]", { timeout: 20_000 })
   warmReloadCapture.current = await page.evaluate(() => {
     const latestMark = (name: string) => {
       const marks = performance.getEntriesByName(name, "mark")

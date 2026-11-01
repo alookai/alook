@@ -187,3 +187,42 @@ describe("clearPerfArtifacts", () => {
     rmSync(dir, { recursive: true, force: true })
   })
 })
+
+
+describe("analyzeSwitch target-anchor validity", () => {
+  it("rejects a resize-only record with no qualified target paint", () => {
+    const result = analyzeSwitch(baseSwitch({ paintedTs: null, contentStableTs: 1026 }))
+    expect(result.perceivedMs).toBeNull()
+    expect(result.verdict).toMatch(/incomplete capture/)
+  })
+  it.each([
+    { paintedTs: 999, contentStableTs: 1600 },
+    { paintedTs: 1500, contentStableTs: 1499 },
+    { paintedTs: Number.NaN, contentStableTs: 1600 },
+  ])("rejects invalid target anchor order %j", anchors => {
+    expect(analyzeSwitch(baseSwitch(anchors)).perceivedMs).toBeNull()
+  })
+  it("keeps raw resources while bounding network attribution at target stability", () => {
+    const resources = [
+      { name: "http://x/api/community/channels/c/messages", startTime: 1010, responseEnd: 1020 },
+      { name: "http://x/api/community/background", startTime: 1590, responseEnd: 2300 },
+    ]
+    const original = structuredClone(resources)
+    const result = analyzeSwitch(baseSwitch({ resources }))
+    expect(result.perceivedMs).toBe(600)
+    expect(result.networkMs).toBe(20)
+    expect(result.networkSpanMs).toBe(1290)
+    expect(result.verdict).toMatch(/outside measured request intervals/)
+    expect(resources).toEqual(original)
+  })
+})
+
+it("labels a server empty-channel result separately from populated message content", () => {
+  const empty = baseSwitch({ kind: "server", targetId: "server", contentChannelId: "all", contentKind: "empty" })
+  expect(analyzeSwitch(empty)).toMatchObject({ contentChannelId: "all", contentKind: "empty" })
+  const report = renderReport({ owner: { email: "perf-seed@alook.test", userId: "u1" }, createdAt: "2026-11-02", switches: [empty] })
+  expect(report).toContain("empty channel (0 messages)")
+  expect(report).toContain("not a populated-message sample")
+  expect(report).toContain("`all`")
+  expect(analyzeSwitch(baseSwitch({ contentKind: "messages", contentChannelId: "chan-1" }))).toMatchObject({ contentKind: "messages", contentChannelId: "chan-1" })
+})
