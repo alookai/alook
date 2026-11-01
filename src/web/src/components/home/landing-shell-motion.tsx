@@ -653,6 +653,7 @@ export function LandingShellMotion({
   machineIntroDescription,
   overviewDetails = false,
   beat: controlledBeat,
+  compact = false,
   children,
   dms,
   activeDm,
@@ -663,6 +664,7 @@ export function LandingShellMotion({
   machineIntroDescription?: string
   overviewDetails?: boolean
   beat?: number
+  compact?: boolean
   children?: ReactNode
   dms?: DM[]
   activeDm?: string
@@ -731,6 +733,20 @@ export function LandingShellMotion({
   const camera = galleryCameraTransform(
     snapshot.camera,
     cameraReady ? cursor : null,
+  )
+
+  if (compact) return (
+    <div ref={playbackRef} className={styles.root}>
+      <div ref={stageRef} className={styles.compactStage} data-layout="compact" data-testid="landing-motion-stage" data-scene={scene} data-beat={snapshot.beat} aria-hidden>
+        <CommunityPreviewProfileOwner profiles={LANDING_PREVIEW_PROFILES}>
+          <QueryClientProvider client={queryClient}>
+            <CommunityDbProvider registry={registry}>
+              <PrototypeSceneContent scene={scene} snapshot={visualSnapshot} machineIntroDescription={machineIntroDescription} overviewDetails={overviewDetails} compact />
+            </CommunityDbProvider>
+          </QueryClientProvider>
+        </CommunityPreviewProfileOwner>
+      </div>
+    </div>
   )
 
   return (
@@ -943,21 +959,7 @@ function PrototypeShell({
               key={`content-${scene}-${room ?? "default"}`}
               className={`flex min-w-0 flex-1 flex-col bg-background ${styles.sceneEnter}`}
             >
-              {children ?? <>
-              {scene === "server" && (
-                <ServerScene snapshot={snapshot} showTypingPill={overviewDetails} />
-              )}
-              {scene === "machine" && (
-                <MachineScene
-                  snapshot={snapshot}
-                  introDescription={machineIntroDescription}
-                />
-              )}
-              {scene === "provider" && <ProviderScene snapshot={snapshot} />}
-              {scene === "spaces" && <SpacesScene snapshot={snapshot} />}
-              {scene === "identity" && <IdentityScene snapshot={snapshot} />}
-              {scene === "continuity" && <ContinuityScene snapshot={snapshot} />}
-              </>}
+              {children ?? <PrototypeSceneContent scene={scene} snapshot={snapshot} machineIntroDescription={machineIntroDescription} overviewDetails={overviewDetails} />}
             </div>
           </div>
         </AppSurface>
@@ -967,6 +969,21 @@ function PrototypeShell({
       </div>
     </Shell>
   )
+}
+
+function PrototypeSceneContent({ scene, snapshot, machineIntroDescription, overviewDetails, compact = false }: {
+  scene: LandingScene
+  snapshot: SceneSnapshot
+  machineIntroDescription?: string
+  overviewDetails: boolean
+  compact?: boolean
+}) {
+  if (scene === "server") return <ServerScene snapshot={snapshot} showTypingPill={overviewDetails} />
+  if (scene === "machine") return <MachineScene snapshot={snapshot} introDescription={machineIntroDescription} compact={compact} />
+  if (scene === "provider") return <ProviderScene snapshot={snapshot} />
+  if (scene === "spaces") return <SpacesScene snapshot={snapshot} />
+  if (scene === "identity") return <IdentityScene snapshot={snapshot} />
+  return <ContinuityScene snapshot={snapshot} />
 }
 
 export function landingChannelTreeScopeKey({
@@ -1554,9 +1571,11 @@ export function PrototypeComposer({
 function MachineScene({
   snapshot,
   introDescription,
+  compact = false,
 }: {
   snapshot: SceneSnapshot
   introDescription?: string
+  compact?: boolean
 }) {
   const online = snapshot.machineState === "online" || snapshot.machineState === "bot-born"
   const pairOpen = snapshot.pairSheet !== "closed"
@@ -1569,7 +1588,7 @@ function MachineScene({
           data-visible={!online}
           className={`${styles.stateLayer} flex min-w-0 flex-col`}
         >
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
+          <div className={`flex flex-1 flex-col items-center justify-center gap-4 text-center ${compact ? "p-4" : "p-12"}`}>
             <div className="w-full max-w-70 overflow-hidden rounded-xl">
               <div className="aspect-200/130 w-full">
                 <ConnectTile idPrefix="landing-motion-connect" />
@@ -1603,9 +1622,9 @@ function MachineScene({
 
         <div
           data-visible={online}
-          className={`${styles.stateLayer} flex min-w-0 flex-col gap-6 overflow-hidden p-6`}
+          className={`${styles.stateLayer} flex min-w-0 flex-col gap-6 overflow-hidden ${compact ? "p-4" : "p-6"}`}
         >
-          <header className="flex items-center justify-between">
+          <header className={`flex ${compact ? "flex-col items-start gap-4" : "items-center justify-between"}`}>
             <div>
               <div className="font-heading text-xl font-medium leading-[1.15] tracking-[-0.015em] text-foreground">
                 Machines
