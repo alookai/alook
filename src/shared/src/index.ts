@@ -838,6 +838,7 @@ export * from "./pii-contract";
 export * from "./business-schema-version";
 export * from "./task-payload-cache";
 export * from "./community-cache";
+export * from "./community-presence";
 
 export * from "./community-forum-sidebar";
 

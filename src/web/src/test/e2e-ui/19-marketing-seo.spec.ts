@@ -359,7 +359,13 @@ test("landing gallery mobile playback keeps full-size readable messages", async 
   await motion.scrollIntoViewIfNeeded()
   await expect.poll(async () => Number(await motion.getAttribute("data-beat"))).toBeGreaterThanOrEqual(3)
   const paragraph = stage.locator('div[data-visible="true"] p:visible').first()
-  const geometry = await paragraph.evaluate(element => {
+  const geometry = await paragraph.evaluate(async element => {
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    const animations: Animation[] = []
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      animations.push(...parent.getAnimations())
+    }
+    await Promise.all(animations.map(animation => animation.finished.catch(() => undefined)))
     let scale = 1
     for (let parent = element.parentElement; parent; parent = parent.parentElement) {
       const transform = getComputedStyle(parent).transform

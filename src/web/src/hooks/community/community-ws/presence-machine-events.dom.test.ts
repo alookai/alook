@@ -1,4 +1,6 @@
-import { currentCommunityEventFixture, dmListRowFixture } from "@/test/community-resource-fixtures"
+import { currentCommunityEventFixture, dmListRowFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { communityUserProfilePatch, writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { act } from "react"
 import { getCapturedRuntime } from "./test-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -20,14 +22,17 @@ import {
   cleanupCommunityWsHarness,
   mountHook,
   resetCommunityWsHarness,
+  capturedUseUserWsOptions,
 } from "./test-harness"
 
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
 describe("useCommunityWs — presence", () => {
-  it("presence.update writes only to the transient presence map", async () => {
+  it("presence.update persists the known user fact without rewriting transport snapshots", async () => {
     await mountHook()
+    const registry = getCommunityDbRegistry(capturedQueryClient)!
+    writeCommunityProfilePatches([communityUserProfilePatch("u_pres", profileResourceFixture({ id: "u_pres" }))], registry)
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     capturedQueryClient.setQueryData(communityKeys.friendsPresence(), {
       online: ["friend_existing"],
@@ -40,6 +45,7 @@ describe("useCommunityWs — presence", () => {
     capturedOnMessage!(currentCommunityEventFixture(event))
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(getCapturedRuntime().ws.get().presenceByUserId.get("u_pres")).toBe("online")
+    expect(registry.collections.profiles.get("u_pres")?.presence).toBe("online")
     expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toEqual({
       online: ["friend_existing"],
     })
@@ -47,6 +53,17 @@ describe("useCommunityWs — presence", () => {
     capturedOnMessage!(currentCommunityEventFixture(event))
     expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toBe(patchedSnapshot)
     expect(spy).not.toHaveBeenCalled()
+  })
+
+  it("keeps the cached viewer value until WebSocket authentication confirms online", async () => {
+    const registry = getCommunityDbRegistry(capturedQueryClient)!
+    writeCommunityProfilePatches([communityUserProfilePatch("u_me", profileResourceFixture({ id: "u_me" }))], registry)
+    getCapturedRuntime().ws.actions.setPresence("u_me", "offline")
+    await mountHook({ viewerUserId: "u_me" })
+    expect(registry.collections.profiles.get("u_me")?.presence).toBe("offline")
+    expect(capturedUseUserWsOptions?.onAuthenticated).toEqual(expect.any(Function))
+    await act(async () => { await capturedUseUserWsOptions!.onAuthenticated!() })
+    expect(registry.collections.profiles.get("u_me")?.presence).toBe("online")
   })
 
   it("applies an exact offline delta without mutating presence query snapshots", async () => {

@@ -5,7 +5,9 @@ import { parseCommunityUserCardRead, type CommunityUserCardRead } from "@alook/s
 import { apiFetch } from "@/lib/api/client"
 import type { QueryFunctionContext } from "@tanstack/react-query"
 
-import { loadAndSeedProfiles } from "@/lib/community/profile-seed"
+import { loadAndSeedProfiles, retireCommunityProfile } from "@/lib/community/profile-seed"
+import { ApiError } from "@/lib/errors"
+import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 
 /**
  * Fetches a public user profile card (avatar, name, aboutMe, mutual-server
@@ -19,7 +21,10 @@ export type UserProfile = CommunityUserCardRead
 
 export const userProfileQueryFn = (userId: string) => async (context: QueryFunctionContext) => {
   const registry = getCommunityDbRegistry(context.client)
-  const profile = await loadAndSeedProfiles(
+  const token = captureCommunityLiveSnapshotToken(context.client)
+  const presence = registry?.runtime.ws.actions.beginPresenceSnapshot()
+  try {
+    const profile = await loadAndSeedProfiles(
     async origin => parseCommunityUserCardRead(await apiFetch<unknown>(`/api/community/users/${userId}/profile`, { ...origin, signal: context.signal }), userId, registry!.accountId!),
     (profile) => [{
       id: profile.id,
@@ -44,9 +49,16 @@ export const userProfileQueryFn = (userId: string) => async (context: QueryFunct
         ownerHandle: profile.kind === "bot" ? profile.ownerProfile.handle : null,
         ownedByViewer: profile.kind === "bot" && profile.ownedByViewer,
       },
-    }], registry, context.signal,
+    }], registry, context.signal, token,
   )
-  return { id: profile.id }
+    return { id: profile.id }
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404 && registry && presence) {
+      assertCommunityLiveSnapshotTokenCurrent(context.client, token, context.signal)
+      if ((registry.runtime.ws.get().presenceRevisionsByUserId.get(userId) ?? 0) <= presence.revision) retireCommunityProfile(userId, registry, token.profileSnapshot)
+    }
+    throw error
+  }
 }
 
 // How long a fetched profile card is considered fresh before a re-click

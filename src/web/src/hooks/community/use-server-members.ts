@@ -420,7 +420,7 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
       const row = byUser.get(identity.userId)
       if (!row || row.memberId !== identity.id) return []
       const profile = readCommunityProfile(profiles.get(identity.userId), identity.userId)
-      return [{ id: identity.id, userId: identity.userId, name: row.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: row.role as CommunityRole, status: row.viewer ? "online" as const : profile.presence, sub: "", statusEmoji: profile.statusEmoji, statusText: profile.statusText }]
+      return [{ id: identity.id, userId: identity.userId, name: row.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: row.role as CommunityRole, status: profile.presence, sub: "", statusEmoji: profile.statusEmoji, statusText: profile.statusText }]
     })
   }, [identities, membershipProjection.data, profiles])
   const active = searching ? search : infinite

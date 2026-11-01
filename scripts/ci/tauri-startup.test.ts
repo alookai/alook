@@ -22,7 +22,12 @@ function verifyIosArtifact(overrides: Record<string, unknown> = {}) {
     UIRequiresFullScreen: true,
     "UIRequiresFullScreen~iphone": false,
     UISupportedInterfaceOrientations: ["UIInterfaceOrientationPortrait"],
-    "UISupportedInterfaceOrientations~ipad": ["UIInterfaceOrientationPortrait"],
+    "UISupportedInterfaceOrientations~ipad": [
+      "UIInterfaceOrientationPortrait",
+      "UIInterfaceOrientationPortraitUpsideDown",
+      "UIInterfaceOrientationLandscapeLeft",
+      "UIInterfaceOrientationLandscapeRight",
+    ],
     CFBundleURLTypes: [{ CFBundleURLName: "ai.alook", CFBundleURLSchemes: ["ai.alook"] }],
   }
   for (const [key, value] of Object.entries(overrides)) {
@@ -98,16 +103,50 @@ describe("Tauri startup release separation", () => {
     }
   })
 
-  it("accepts the final IPA metadata with portrait-only phone and tablet declarations and Boolean full-screen requirement", () => {
+  it("accepts the final IPA metadata with a portrait-only phone, rotating iPad and Boolean full-screen requirements", () => {
     const result = verifyIosArtifact()
     expect(result.error).toBeUndefined()
     expect(result.status, result.stderr).toBe(0)
   })
 
-  const invalidOrientations: [string, string, string[] | undefined][] = [
-    ["phone landscape", "UISupportedInterfaceOrientations", ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationLandscapeLeft"]],
-    ["tablet landscape", "UISupportedInterfaceOrientations~ipad", ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationLandscapeRight"]],
-    ["tablet upside-down", "UISupportedInterfaceOrientations~ipad", ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown"]],
+  it("accepts the XcodeGen orientation declarations with the final IPA validator", () => {
+    const spec = read("gen/apple/project.yml")
+    const declarations: Record<string, string[]> = {}
+    for (const key of ["UISupportedInterfaceOrientations", "UISupportedInterfaceOrientations~ipad"]) {
+      const property = spec.match(new RegExp(`^        ${key}:\\n((?:          - [^\\n]+\\n)+)`, "m"))
+      expect(property, key).not.toBeNull()
+      declarations[key] = [...property![1].matchAll(/- (\S+)/g)].map(match => match[1])
+    }
+    const result = verifyIosArtifact(declarations)
+    expect(result.error).toBeUndefined()
+    expect(result.status, result.stderr).toBe(0)
+  })
+
+  const invalidOrientations: [string, string, unknown][] = [
+    ["phone landscape left", "UISupportedInterfaceOrientations", ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationLandscapeLeft"]],
+    ["phone landscape right", "UISupportedInterfaceOrientations", ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationLandscapeRight"]],
+    ["phone upside-down", "UISupportedInterfaceOrientations", ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown"]],
+    ["phone without portrait", "UISupportedInterfaceOrientations", ["UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"]],
+    ["portrait-only tablet", "UISupportedInterfaceOrientations~ipad", ["UIInterfaceOrientationPortrait"]],
+    ...[
+      "UIInterfaceOrientationPortrait",
+      "UIInterfaceOrientationPortraitUpsideDown",
+      "UIInterfaceOrientationLandscapeLeft",
+      "UIInterfaceOrientationLandscapeRight",
+    ].map((missing): [string, string, unknown] => [
+      `tablet without ${missing}`,
+      "UISupportedInterfaceOrientations~ipad",
+      [
+        "UIInterfaceOrientationPortrait",
+        "UIInterfaceOrientationPortraitUpsideDown",
+        "UIInterfaceOrientationLandscapeLeft",
+        "UIInterfaceOrientationLandscapeRight",
+      ].filter(orientation => orientation !== missing),
+    ]),
+    ["phone string", "UISupportedInterfaceOrientations", "UIInterfaceOrientationPortrait"],
+    ["tablet string", "UISupportedInterfaceOrientations~ipad", "UIInterfaceOrientationPortrait"],
+    ["empty phone", "UISupportedInterfaceOrientations", []],
+    ["empty tablet", "UISupportedInterfaceOrientations~ipad", []],
     ["missing phone", "UISupportedInterfaceOrientations", undefined],
     ["missing tablet", "UISupportedInterfaceOrientations~ipad", undefined],
   ]
