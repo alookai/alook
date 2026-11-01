@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "../src/mode";
+import { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, getClientPlatform, tauriInvoke } from "../src/mode";
 
 describe("resolveMode", () => {
   it("production: no signals", () => {
@@ -176,6 +176,52 @@ describe("isMobile", () => {
   it("returns false in Tauri with desktop user agent", () => {
     (globalThis as Record<string, unknown>).window = { __TAURI__: {} };
     (globalThis as Record<string, unknown>).navigator = { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64)" };
+    expect(isMobile()).toBe(false);
+  });
+});
+
+describe("getClientPlatform", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const clients: [string, Record<string, unknown>, string][] = [
+    ["iPhone", { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 26_5 like Mac OS X)" }, "mobile"],
+    ["iPad", { userAgent: "Mozilla/5.0 (iPad; CPU OS 26_5 like Mac OS X)" }, "mobile"],
+    ["Android phone", { userAgent: "Mozilla/5.0 (Linux; Android 16; Pixel) Mobile" }, "mobile"],
+    ["Android tablet", { userAgent: "Mozilla/5.0 (Linux; Android 16; Tablet)" }, "mobile"],
+    ["desktop-style iPad", { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/605.1.15", platform: "MacIntel", maxTouchPoints: 5 }, "mobile"],
+    ["mobile client hint", { userAgent: "Reduced UA", userAgentData: { mobile: true } }, "mobile"],
+    ["Android desktop-style hint", { userAgent: "Mozilla/5.0 (X11; Linux x86_64)", userAgentData: { mobile: false, platform: "Android" } }, "mobile"],
+    ["Mac", { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X)", platform: "MacIntel", maxTouchPoints: 0 }, "desktop"],
+    ["Windows touch laptop", { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", platform: "Win32", maxTouchPoints: 10 }, "desktop"],
+    ["Linux", { userAgent: "Mozilla/5.0 (X11; Linux x86_64)" }, "desktop"],
+    ["ChromeOS", { userAgent: "Mozilla/5.0 (X11; CrOS x86_64)" }, "desktop"],
+    ["unknown touch client", { userAgent: "Unknown", maxTouchPoints: 5 }, "unknown"],
+    ["missing identity", {}, "unknown"],
+  ];
+
+  it.each(clients)("classifies %s independently of native wrapper and viewport width", (_name, navigatorSignals, expected) => {
+    vi.stubGlobal("navigator", navigatorSignals);
+    for (const native of [false, true]) {
+      for (const width of [390, 1200]) {
+        vi.stubGlobal("window", { innerWidth: width, ...(native ? { __TAURI__: {} } : {}) });
+        expect(getClientPlatform()).toBe(expected);
+      }
+    }
+  });
+
+  it("returns unknown without a browser window or navigator", () => {
+    vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 (Windows NT 10.0)" });
+    vi.stubGlobal("window", undefined);
+    expect(getClientPlatform()).toBe("unknown");
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("navigator", undefined);
+    expect(getClientPlatform()).toBe("unknown");
+  });
+
+  it("does not change the native-only mobile helper's meaning", () => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS)" });
+    expect(getClientPlatform()).toBe("mobile");
     expect(isMobile()).toBe(false);
   });
 });

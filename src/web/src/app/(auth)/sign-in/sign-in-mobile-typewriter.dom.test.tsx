@@ -25,21 +25,25 @@ function mockMatchMedia({ mobile, reducedMotion = false }: { mobile: boolean; re
 describe("SignInMobileTypewriter", () => {
   let rafQueue: FrameRequestCallback[] = []
 
-  function flushNextFrame(ts = 16) {
+  let frameTime = 0
+
+  function flushNextFrame() {
+    frameTime += 1000 / 60
     const next = rafQueue.shift()
-    next?.(ts)
+    next?.(frameTime)
   }
 
   function drainFrames() {
     let guard = 0
     while (rafQueue.length > 0 && guard < 120) {
-      flushNextFrame(16 * (guard + 1))
+      flushNextFrame()
       guard += 1
     }
   }
 
   beforeEach(() => {
     rafQueue = []
+    frameTime = 0
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
       rafQueue.push(cb)
       return rafQueue.length
@@ -85,6 +89,7 @@ describe("SignInMobileTypewriter", () => {
       window.dispatchEvent(tilted)
     })
 
+    act(() => { drainFrames() })
     expect(Number.parseFloat(stage.style.getPropertyValue("--tw-ry"))).toBeGreaterThan(-19)
     expect(Number.parseFloat(stage.style.getPropertyValue("--tw-rx"))).toBeLessThan(11)
 
@@ -103,6 +108,105 @@ describe("SignInMobileTypewriter", () => {
       drainFrames()
     })
     expect(Number.parseFloat(stage.style.getPropertyValue("--tw-tx"))).toBeCloseTo(beforeTx, 1)
+  })
+
+  function orientation(beta: number, gamma: number) {
+    const event = new Event("deviceorientation")
+    Object.defineProperties(event, { beta: { value: beta }, gamma: { value: gamma } })
+    window.dispatchEvent(event)
+  }
+
+  function motion(x: number, y: number) {
+    const event = new Event("devicemotion")
+    Object.defineProperty(event, "acceleration", { value: { x, y, z: 0 } })
+    window.dispatchEvent(event)
+  }
+
+  function mobileStage() {
+    mockMatchMedia({ mobile: true })
+    const view = render(createElement(SignInMobileTypewriter, { collapsed: false }))
+    const stage = screen.getByTestId("sign-in-mobile-typewriter")
+    vi.spyOn(stage, "getBoundingClientRect").mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 390, bottom: 240,
+      width: 390, height: 240, toJSON: () => ({}),
+    })
+    return { stage, view }
+  }
+
+  it("coalesces sensor events into one frame and converges without snapping or overshoot", () => {
+    const { stage } = mobileStage()
+    act(() => {
+      orientation(40, 0)
+      for (let i = 1; i <= 30; i += 1) orientation(40, i)
+    })
+    expect(rafQueue).toHaveLength(1)
+    expect(stage.style.getPropertyValue("--tw-ry")).toBe("")
+    act(() => { flushNextFrame() })
+    const first = Number.parseFloat(stage.style.getPropertyValue("--tw-ry"))
+    expect(first).toBeGreaterThan(-20)
+    expect(first).toBeLessThan(-17)
+    act(() => { drainFrames() })
+    expect(Number.parseFloat(stage.style.getPropertyValue("--tw-ry"))).toBe(-4)
+    expect(rafQueue).toHaveLength(0)
+  })
+
+  it("ignores small sensor noise and rejects invalid values", () => {
+    const { stage } = mobileStage()
+    act(() => { orientation(40, 0); drainFrames() })
+    const pose = stage.style.cssText
+    act(() => {
+      for (let i = 0; i < 30; i += 1) orientation(40 + (i % 2 ? 0.4 : -0.4), i % 2 ? 0.4 : -0.4)
+      orientation(Number.NaN, 10)
+      motion(Number.POSITIVE_INFINITY, 8)
+    })
+    expect(rafQueue).toHaveLength(0)
+    expect(stage.style.cssText).toBe(pose)
+  })
+
+  it("gives drag exclusive input and smoothly recalibrates orientation on release", () => {
+    const { stage } = mobileStage()
+    act(() => {
+      orientation(40, 0)
+      fireEvent.pointerDown(stage, { pointerId: 1, clientX: 320, clientY: 60 })
+      drainFrames()
+    })
+    const held = stage.style.cssText
+    act(() => {
+      for (let i = 0; i < 20; i += 1) {
+        orientation(65, -20)
+        motion(i % 2 ? 8 : -8, 5)
+      }
+      drainFrames()
+    })
+    expect(stage.style.cssText).toBe(held)
+    act(() => {
+      fireEvent.pointerUp(stage, { pointerId: 1 })
+      orientation(65, -20)
+    })
+    expect(stage.style.cssText).toBe(held)
+    act(() => { drainFrames() })
+    expect(Number.parseFloat(stage.style.getPropertyValue("--tw-ry"))).toBe(-20)
+    expect(Number.parseFloat(stage.style.getPropertyValue("--tw-rx"))).toBe(10)
+    act(() => { orientation(65, -20) })
+    expect(rafQueue).toHaveLength(0)
+  })
+
+  it("does not animate reduced motion and cancels a pending frame on unmount", () => {
+    mockMatchMedia({ mobile: true, reducedMotion: true })
+    const reduced = render(createElement(SignInMobileTypewriter, { collapsed: false }))
+    const stage = screen.getByTestId("sign-in-mobile-typewriter")
+    act(() => {
+      orientation(40, 0)
+      motion(8, 5)
+      fireEvent.pointerDown(stage, { pointerId: 1, clientX: 320, clientY: 60 })
+    })
+    expect(rafQueue).toHaveLength(0)
+    reduced.unmount()
+    const { view } = mobileStage()
+    act(() => { orientation(40, 0); orientation(55, 15) })
+    expect(rafQueue).toHaveLength(1)
+    view.unmount()
+    expect(cancelAnimationFrame).toHaveBeenCalled()
   })
 
   it("defers iOS sensor permission until releasing the typewriter stage and falls back to touch drag when denied", async () => {
@@ -132,6 +236,7 @@ describe("SignInMobileTypewriter", () => {
       await Promise.resolve()
     })
     expect(requestPermission).not.toHaveBeenCalled()
+    act(() => { drainFrames() })
     expect(Number.parseFloat(stage.style.getPropertyValue("--tw-ry"))).toBeGreaterThan(-19)
 
     await act(async () => {
@@ -140,6 +245,7 @@ describe("SignInMobileTypewriter", () => {
       await Promise.resolve()
     })
     expect(requestPermission).toHaveBeenCalledOnce()
+    act(() => { drainFrames() })
     expect(Number.parseFloat(stage.style.getPropertyValue("--tw-ry"))).toBeLessThan(-19)
     await act(async () => {
       fireEvent.pointerUp(stage, { pointerId: 2 })

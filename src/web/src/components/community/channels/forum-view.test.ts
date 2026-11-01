@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest"
+import { beforeEach, describe, it, expect, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
@@ -13,6 +13,16 @@ import { tid } from "@/lib/community/testids"
 import type { ForumThread } from "@/lib/community/models/message"
 
 const profileState = vi.hoisted(() => ({ map: new Map<string, Record<string, unknown>>() }))
+const platformState = vi.hoisted(() => ({ hydrated: false, platform: "unknown" as "unknown" | "desktop" | "mobile" }))
+vi.mock("@/hooks/use-hydrated-client", () => ({ useHydratedClient: () => platformState.hydrated }))
+vi.mock("@alook/shared", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@alook/shared")>(),
+  getClientPlatform: () => platformState.platform,
+}))
+beforeEach(() => {
+  platformState.hydrated = false
+  platformState.platform = "unknown"
+})
 vi.mock("@/lib/community-db/projections", () => ({
   useCanonicalProfilesByUserId: () => profileState.map,
 }))
@@ -271,8 +281,10 @@ describe("ForumView post delete button", () => {
   })
 })
 
-describe("ForumView responsive post actions", () => {
-  it("orders tag, archive, and delete actions with responsive geometry", () => {
+describe("ForumView platform post actions", () => {
+  it("orders tag, archive, and delete actions with desktop group reveal and stable geometry", () => {
+    platformState.hydrated = true
+    platformState.platform = "desktop"
     const html = renderWithActions(makePost({ parentSeq: 3 }))
     const tagIndex = html.indexOf(tid.forumThreadTagBtn("p1"))
     const archiveIndex = html.indexOf(tid.forumThreadArchiveBtn("p1"))
@@ -285,14 +297,11 @@ describe("ForumView responsive post actions", () => {
     expect(archiveIndex).toBeLessThan(deleteIndex)
     for (const button of [tagButton, archiveButton, deleteButton]) {
       expect(button).toContain("size-8")
-      expect(button).toContain("opacity-100")
       expect(button).not.toContain("sm:size-")
-      expect(button).toContain("sm:opacity-0")
-      expect(button).toContain("sm:group-focus-within/card:opacity-100")
+      expect(button).not.toContain("sm:opacity-0")
       expect(button).not.toContain("transition-opacity")
-      expect(button).toContain("sm:group-hover/card:opacity-100")
     }
-    expect(tagButton).toContain("sm:data-popup-open:opacity-100")
+    expect(html).toContain("opacity-0 group-focus-within/card:opacity-100 group-hover/card:opacity-100 has-data-popup-open:opacity-100")
     expect(archiveButton).toContain('aria-label="Archive post"')
     expect(archiveButton).toContain('aria-pressed="false"')
     expect(archiveButton).toContain("disabled:opacity-50")
@@ -300,7 +309,7 @@ describe("ForumView responsive post actions", () => {
     expect(html).toContain("grid-cols-[minmax(0,1fr)_auto]")
     expect(html).not.toContain("row-span-2")
     expect(html).toContain("col-span-full row-start-2")
-    expect(html).not.toContain("min-h-8")
+    expect(html).toContain("grid-rows-[minmax(2rem,max-content)_auto]")
     expect(html).toContain("w-full min-w-0 max-w-full self-center text-[15px] font-semibold leading-tight")
     expect(html).toContain(tid.forumThreadTitle("p1"))
     expect(html).toContain(tid.forumThreadTitleText("p1"))
@@ -326,13 +335,13 @@ describe("ForumView responsive post actions", () => {
       .toEqual(["bug", "design"])
   })
 
-  it("does not render actions or reserve mobile header space without permission", () => {
+  it("does not render actions or reserve an empty action column without permission", () => {
     const html = renderWithActions(makePost(), { canEdit: false, canDelete: false })
 
     expect(html).not.toContain(tid.forumThreadTagBtn("p1"))
     expect(html).not.toContain(tid.forumThreadArchiveBtn("p1"))
     expect(html).not.toContain(tid.forumThreadDeleteBtn("p1"))
-    expect(html).not.toContain("min-h-8")
+    expect(html).toContain("grid-rows-[minmax(2rem,max-content)_auto]")
     expect(html).toContain("grid-cols-1")
     expect(html).not.toContain("grid-cols-[minmax(0,1fr)_auto]")
   })
@@ -344,7 +353,32 @@ describe("ForumView responsive post actions", () => {
     expect(html).not.toContain(tid.forumThreadArchiveBtn("p1"))
     expect(html).toContain(tid.forumThreadDeleteBtn("p1"))
     expect(html).toContain("grid-cols-[minmax(0,1fr)_auto]")
-    expect(html).not.toContain("min-h-8")
+    expect(html).toContain("grid-rows-[minmax(2rem,max-content)_auto]")
+  })
+
+  it.each([
+    [false, "desktop"],
+    [true, "unknown"],
+    [true, "mobile"],
+  ] as const)("keeps actions visible for hydration=%s platform=%s", (hydrated, platform) => {
+    platformState.hydrated = hydrated
+    platformState.platform = platform
+    const html = renderWithActions(makePost())
+    expect(html).toContain(tid.forumThreadTagBtn("p1"))
+    expect(html).not.toContain("group-hover/card:opacity-100")
+    expect(html).not.toContain("opacity-0")
+  })
+
+  it.each([
+    [false, false, 0],
+    [false, true, 1],
+    [true, false, 2],
+    [true, true, 3],
+  ] as const)("keeps the first title track at least 32px for edit=%s delete=%s (%s actions)", (canEdit, canDelete, count) => {
+    const html = renderWithActions(makePost(), { canEdit, canDelete })
+    expect(html).toContain("grid-rows-[minmax(2rem,max-content)_auto]")
+    expect(html.match(/aria-label="(?:Edit tags|Archive post|Delete post)"/g) ?? []).toHaveLength(count)
+    expect(html).toContain(count ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1")
   })
 })
 
@@ -395,7 +429,7 @@ describe("ForumView filter bar / composer swap", () => {
     expect(html).not.toContain(tid.forumTagFadeLeft)
     expect(html).not.toContain(tid.forumTagFadeRight)
     expect(listMarkup).toContain("px-0")
-    expect(listMarkup).toContain("sm:px-4")
+    expect(listMarkup).not.toContain("sm:px-4")
   })
 
   it("keeps the tag rail scrollable without a cross-browser scrollbar gutter", () => {
@@ -450,7 +484,20 @@ describe("ForumView filter bar / composer swap", () => {
     expect(html).not.toContain("sm:overflow-x-visible")
     expect(html.match(/rounded-lg/g)).toHaveLength(4)
     expect(html).toContain("pointer-events-none")
-    expect(html).toContain("px-0 py-2 sm:px-4")
+    expect(html).toContain("px-0 py-2")
+    expect(html).not.toContain("sm:px-4")
+    expect(html.match(/min-h-8/g)).toHaveLength(3)
+  })
+
+  it("keeps the selected filter ring inside the chip without changing All", () => {
+    const html = renderWithAvailableTags([makePost()], ["bug"], "bug")
+    const chip = html.match(new RegExp(`<button[^>]*data-testid="${tid.forumTagChip("bug")}"[^>]*>`))?.[0]
+    expect(chip).toContain("ring-1 ring-inset ring-current/20")
+    expect(chip).not.toContain("h-")
+    const all = renderWithAvailableTags([makePost()], ["bug"])
+      .match(new RegExp(`<button[^>]*data-testid="${tid.forumTagAll}"[^>]*>`))?.[0]
+    expect(all).toContain("bg-accent text-foreground")
+    expect(all).not.toContain("ring-inset")
   })
 })
 
