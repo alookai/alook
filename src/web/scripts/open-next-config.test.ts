@@ -8,10 +8,11 @@ function resolveOverride(value: unknown): unknown {
 }
 
 describe("Web OpenNext configuration", () => {
-  it("uses the existing R2 cache and Durable Object revalidation queue", () => {
-    expect(resolveOverride(config.default.override?.incrementalCache)).toBe(r2IncrementalCache)
+  it("wraps the existing R2 store in regional caching and retains the Durable Object queue", () => {
+    const cache = resolveOverride(config.default.override?.incrementalCache)
+    expect(cache).toMatchObject({ store: r2IncrementalCache, opts: { mode: "long-lived" } })
     expect(resolveOverride(config.default.override?.queue)).toBe(doQueue)
-    expect(resolveOverride(config.middleware?.override?.incrementalCache)).toBe(r2IncrementalCache)
+    expect(resolveOverride(config.middleware?.override?.incrementalCache)).toBe(cache)
     expect(resolveOverride(config.middleware?.override?.queue)).toBe(doQueue)
   })
 
