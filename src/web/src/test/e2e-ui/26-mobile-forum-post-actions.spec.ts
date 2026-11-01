@@ -1,5 +1,6 @@
 import { communityFixtureFetch } from "./_fixtures/business-contract"
 import type { Locator, Page, TestInfo } from "@playwright/test"
+import { devices } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 
@@ -34,7 +35,7 @@ async function prepareCase(actors: CaseActors) {
   return { seedTags }
 }
 
-const MOBILE_WIDTHS = [320, 390] as const
+const NARROW_WIDTHS = [320, 390] as const
 const FILTER_RAIL_WIDTHS = [320, 390, 1280] as const
 const ACTION_WIDTHS = [639, 640, 641, 1280] as const
 const TAGS = ["alpha-long-tag", "beta-long-tag", "gamma", "delta", "epsilon"]
@@ -191,7 +192,7 @@ function observeClientWrites(page: Page) {
   return state
 }
 
-async function expectMobileGeometry(
+async function expectNarrowGeometry(
   page: Page,
   card: Locator,
   postId: string,
@@ -199,12 +200,14 @@ async function expectMobileGeometry(
   expectedTitle: string,
   titleState: "single" | "truncated",
   role: "author" | "manager",
-  width: (typeof MOBILE_WIDTHS)[number],
+  width: (typeof NARROW_WIDTHS)[number],
   twoLinePreview = false,
 ): Promise<void> {
   await page.setViewportSize({ width, height: 844 })
   const tagButton = page.getByTestId(tid.forumThreadTagBtn(postId))
   const deleteButton = page.getByTestId(tid.forumThreadDeleteBtn(postId))
+  await card.hover()
+  await expect(tagButton.locator("..")).toHaveCSS("opacity", "1")
   await expect(tagButton).toHaveCSS("opacity", "1")
   await expect(deleteButton).toHaveCSS("opacity", "1")
 
@@ -238,7 +241,8 @@ async function expectMobileGeometry(
   }
   expect(Math.abs(cardRect!.left - listRect!.left), `${role}/${postId}@${width}: edge-to-edge left`).toBeLessThanOrEqual(0.5)
   expect(Math.abs(cardRect!.right - listRect!.right), `${role}/${postId}@${width}: edge-to-edge right`).toBeLessThanOrEqual(0.5)
-  expect(titleRect!.left - cardRect!.left, `${role}/${postId}@${width}: internal title inset`).toBeGreaterThanOrEqual(16)
+  expect(Math.abs(titleRect!.left - cardRect!.left - 16), `${role}/${postId}@${width}: internal title inset`).toBeLessThanOrEqual(0.5)
+  expect(Math.abs(cardRect!.right - deleteRect!.right - 16), `${role}/${postId}@${width}: internal action inset`).toBeLessThanOrEqual(0.5)
   const titleMetrics = await titleText.evaluate((element) => {
     const range = document.createRange()
     range.selectNodeContents(element)
@@ -572,7 +576,7 @@ test("forum post actions stay discoverable on mobile without changing permission
   const route = `/c/channels/${serverId}/${forumId}`
   const compactRoute = `/c/channels/${serverId}/${compactForumId}`
 
-  const author = await asUser("bob")
+  const author = await asUser("bob", { ...devices["iPhone 13"] })
   await author.page.setViewportSize({ width: 1280, height: 900 })
   await gotoAfterUserWsAuth(author.page, route)
   const authorCard = author.page.getByTestId(tid.forumThreadCard(primaryPostId))
@@ -585,9 +589,9 @@ test("forum post actions stay discoverable on mobile without changing permission
   for (const width of FILTER_RAIL_WIDTHS) {
     newPostGeometry.set(width, await expectFilterRail(author.page, width, testInfo))
   }
-  for (const width of MOBILE_WIDTHS) {
+  for (const width of NARROW_WIDTHS) {
     for (const post of postCases) {
-      await expectMobileGeometry(
+      await expectNarrowGeometry(
         author.page,
         author.page.getByTestId(tid.forumThreadCard(post.id)),
         post.id,
@@ -603,6 +607,22 @@ test("forum post actions stay discoverable on mobile without changing permission
       body: await author.page.screenshot(),
       contentType: "image/png",
     })
+  }
+  const authorTagButton = author.page.getByTestId(tid.forumThreadTagBtn(primaryPostId))
+  const authorActions = authorTagButton.locator("..")
+  for (const width of ACTION_WIDTHS) {
+    await author.page.setViewportSize({ width, height: 900 })
+    await authorCard.scrollIntoViewIfNeeded()
+    await author.page.mouse.move(0, 0)
+    await authorTagButton.evaluate(button => button.blur())
+    await expect(authorActions, `mobile browser actions stay visible@${width}`).toHaveCSS("opacity", "1")
+    for (const button of [authorTagButton, author.page.getByTestId(tid.forumThreadArchiveBtn(primaryPostId)), author.page.getByTestId(tid.forumThreadDeleteBtn(primaryPostId))]) {
+      await expect(button).toBeEnabled()
+      await expect(button).toHaveCSS("opacity", "1")
+      const bounds = await rect(button)
+      expect(bounds?.width, `mobile browser action width@${width}`).toBe(32)
+      expect(bounds?.height, `mobile browser action height@${width}`).toBe(32)
+    }
   }
   authorWrites.active = false
   for (const width of FILTER_RAIL_WIDTHS) {
@@ -627,15 +647,15 @@ test("forum post actions stay discoverable on mobile without changing permission
   expect(authorWrites.http).toEqual([])
   expect(authorWrites.ws).toEqual([])
 
-  const manager = await asUser("alice")
+  const manager = await asUser("alice", { ...devices["Desktop Chrome"] })
   const managerWrites = observeClientWrites(manager.page)
   await gotoAfterUserWsAuth(manager.page, route)
   const managerCard = manager.page.getByTestId(tid.forumThreadCard(primaryPostId))
   await expect(managerCard).toBeVisible({ timeout: 20_000 })
   managerWrites.active = true
-  for (const width of MOBILE_WIDTHS) {
+  for (const width of NARROW_WIDTHS) {
     for (const post of postCases) {
-      await expectMobileGeometry(
+      await expectNarrowGeometry(
         manager.page,
         manager.page.getByTestId(tid.forumThreadCard(post.id)),
         post.id,
@@ -653,18 +673,20 @@ test("forum post actions stay discoverable on mobile without changing permission
     })
   }
   await manager.page.setViewportSize({ width: 1280, height: 900 })
-  const [desktopListRect, desktopCardRect] = await Promise.all([
+  const [desktopListRect, desktopCardRect, desktopTitleRect] = await Promise.all([
     rect(manager.page.getByTestId(tid.forumPostList)),
     rect(managerCard),
+    rect(manager.page.getByTestId(tid.forumThreadTitle(primaryPostId))),
   ])
-  expect(desktopCardRect!.left - desktopListRect!.left).toBeGreaterThanOrEqual(15)
-  expect(desktopListRect!.right - desktopCardRect!.right).toBeGreaterThanOrEqual(15)
+  expect(Math.abs(desktopCardRect!.left - desktopListRect!.left), "desktop edge-to-edge left").toBeLessThanOrEqual(0.5)
+  expect(Math.abs(desktopListRect!.right - desktopCardRect!.right), "desktop edge-to-edge right").toBeLessThanOrEqual(0.5)
+  expect(Math.abs(desktopTitleRect!.left - desktopCardRect!.left - 16), "desktop internal title inset").toBeLessThanOrEqual(0.5)
   await manager.page.mouse.move(0, 0)
   const managerTagButton = manager.page.getByTestId(tid.forumThreadTagBtn(primaryPostId))
   const managerDeleteButton = manager.page.getByTestId(tid.forumThreadDeleteBtn(primaryPostId))
   const managerArchiveButton = manager.page.getByTestId(tid.forumThreadArchiveBtn(primaryPostId))
-  await expect(managerTagButton).toHaveCSS("opacity", "0")
-  await expect(managerDeleteButton).toHaveCSS("opacity", "0")
+  const managerActions = managerTagButton.locator("..")
+  await expect(managerActions).toHaveCSS("opacity", "0")
   for (const button of [managerTagButton, managerDeleteButton]) {
     const buttonRect = await rect(button)
     expect(buttonRect?.width).toBe(32)
@@ -675,10 +697,12 @@ test("forum post actions stay discoverable on mobile without changing permission
     await managerTagButton.evaluate((button) => button.blur())
     await manager.page.mouse.move(0, 0)
     await managerCard.scrollIntoViewIfNeeded()
+    await expect(managerActions, `desktop browser actions hidden at rest@${width}`).toHaveCSS("opacity", "0")
     const titleRect = await rect(manager.page.getByTestId(tid.forumThreadTitle(primaryPostId)))
     expect(titleRect, `title geometry@${width}`).not.toBeNull()
     for (const button of [managerTagButton, managerArchiveButton, managerDeleteButton]) {
-      await expect(button).toHaveCSS("opacity", width < 640 ? "1" : "0")
+      await expect(button).toBeEnabled()
+      await expect(button).toHaveCSS("opacity", "1")
       const buttonRect = await rect(button)
       expect(buttonRect?.width, `action width@${width}`).toBe(32)
       expect(buttonRect?.height, `action height@${width}`).toBe(32)
@@ -686,13 +710,15 @@ test("forum post actions stay discoverable on mobile without changing permission
         `title/action vertical centers@${width}`).toBeLessThanOrEqual(0.5)
     }
     const baseline = await postActionGeometry(managerCard, primaryPostId)
+    const actionsRect = await rect(managerActions)
+    expect(Math.abs(baseline.card.right - actionsRect!.right - 16), `desktop internal action inset@${width}`).toBeLessThanOrEqual(0.5)
     await managerCard.hover()
-    await expect(managerTagButton).toHaveCSS("opacity", "1")
+    await expect(managerActions).toHaveCSS("opacity", "1")
     const hover = await postActionGeometry(managerCard, primaryPostId)
     expect(hover, `hover geometry@${width}`).toEqual(baseline)
     await manager.page.mouse.move(0, 0)
     await managerTagButton.focus()
-    await expect(managerTagButton).toHaveCSS("opacity", "1")
+    await expect(managerActions).toHaveCSS("opacity", "1")
     const focus = await postActionGeometry(managerCard, primaryPostId)
     expect(focus, `focus geometry@${width}`).toEqual(baseline)
     await testInfo.attach(`manager-actions-${width}.json`, {
@@ -702,16 +728,19 @@ test("forum post actions stay discoverable on mobile without changing permission
   }
   await managerTagButton.evaluate((button) => button.blur())
   await managerCard.hover()
-  await expect(managerTagButton).toHaveCSS("opacity", "1")
+  await expect(managerActions).toHaveCSS("opacity", "1")
   await expect(managerDeleteButton).toHaveCSS("opacity", "1")
   await manager.page.mouse.move(0, 0)
   await managerTagButton.focus()
-  await expect(managerTagButton).toHaveCSS("opacity", "1")
+  await expect(managerActions).toHaveCSS("opacity", "1")
   await managerTagButton.click()
   const managerTagDialog = manager.page.getByTestId(tid.forumTagDialog)
   await expect(managerTagDialog).toBeVisible()
   await manager.page.mouse.move(0, 0)
-  await expect(managerTagButton).toHaveCSS("opacity", "1")
+  const selectedPopupTag = managerTagDialog.getByTestId(tid.forumTagDialogChip(TAGS[0]))
+  await selectedPopupTag.focus()
+  await expect(selectedPopupTag).toBeFocused()
+  await expect(managerActions).toHaveCSS("opacity", "1")
   await expect(managerTagDialog).toHaveCSS("opacity", "1")
   await testInfo.attach("manager-desktop-popup.png", {
     body: await manager.page.screenshot(),
@@ -720,7 +749,54 @@ test("forum post actions stay discoverable on mobile without changing permission
   await manager.page.keyboard.press("Escape")
   await expect(managerTagDialog).toHaveCount(0)
   await managerDeleteButton.focus()
-  await expect(managerDeleteButton).toHaveCSS("opacity", "1")
+  await expect(managerActions).toHaveCSS("opacity", "1")
+  await managerDeleteButton.click()
+  const deleteDialog = manager.page.getByRole("dialog", { name: "Delete post?" })
+  await expect(deleteDialog).toBeVisible()
+  await deleteDialog.getByRole("button", { name: "Cancel" }).focus()
+  await manager.page.mouse.move(0, 0)
+  await expect(managerActions).toHaveCSS("opacity", "1")
+  await expect(deleteDialog.locator('[data-slot="dialog-description"]')).toHaveText(
+    `This permanently deletes “${primaryTitle}” and all of its replies. This can't be undone.`,
+  )
+  const deleteGeometry = await deleteDialog.evaluate(dialog => {
+    const bounds = (element: Element) => {
+      const box = element.getBoundingClientRect()
+      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom }
+    }
+    const description = dialog.querySelector<HTMLElement>('[data-slot="dialog-description"]')
+    if (!description) throw new Error("The full delete description is required")
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      popup: bounds(dialog),
+      description: { clientWidth: description.clientWidth, scrollWidth: description.scrollWidth },
+      buttons: Array.from(dialog.querySelectorAll("button")).map(button => {
+        const box = bounds(button)
+        const target = document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2)
+        return { name: button.textContent?.trim(), bounds: box, centerHit: target?.closest("button") === button }
+      }),
+    }
+  })
+  await testInfo.attach("manager-delete-dialog.json", {
+    body: JSON.stringify(deleteGeometry),
+    contentType: "application/json",
+  })
+  expect(deleteGeometry.popup.left).toBeGreaterThanOrEqual(-0.5)
+  expect(deleteGeometry.popup.top).toBeGreaterThanOrEqual(-0.5)
+  expect(deleteGeometry.popup.right).toBeLessThanOrEqual(deleteGeometry.viewport.width + 0.5)
+  expect(deleteGeometry.popup.bottom).toBeLessThanOrEqual(deleteGeometry.viewport.height + 0.5)
+  expect(deleteGeometry.description.scrollWidth).toBeLessThanOrEqual(deleteGeometry.description.clientWidth + 1)
+  expect(deleteGeometry.buttons.map(button => button.name)).toEqual(["Cancel", "Delete post"])
+  for (const button of deleteGeometry.buttons) {
+    expect(button.bounds.left, `${button.name}: inside popup left`).toBeGreaterThanOrEqual(deleteGeometry.popup.left - 0.5)
+    expect(button.bounds.right, `${button.name}: inside popup right`).toBeLessThanOrEqual(deleteGeometry.popup.right + 0.5)
+    expect(button.bounds.top, `${button.name}: inside popup top`).toBeGreaterThanOrEqual(deleteGeometry.popup.top - 0.5)
+    expect(button.bounds.bottom, `${button.name}: inside popup bottom`).toBeLessThanOrEqual(deleteGeometry.popup.bottom + 0.5)
+    expect(button.centerHit, `${button.name}: pointer center hit`).toBe(true)
+  }
+  await deleteDialog.getByRole("button", { name: "Cancel" }).click()
+  await expect(deleteDialog).toHaveCount(0)
+  await expect(managerActions).toHaveCSS("opacity", "1")
   managerWrites.active = false
   expect(managerWrites.http).toEqual([])
   expect(managerWrites.ws).toEqual([])
@@ -736,11 +812,13 @@ test("forum post actions stay discoverable on mobile without changing permission
   await expect(unauthorizedCard).toBeVisible({ timeout: 20_000 })
   for (const post of postCases) {
     await expect(unauthorized.page.getByTestId(tid.forumThreadTagBtn(post.id))).toHaveCount(0)
+    await expect(unauthorized.page.getByTestId(tid.forumThreadArchiveBtn(post.id))).toHaveCount(0)
     await expect(unauthorized.page.getByTestId(tid.forumThreadDeleteBtn(post.id))).toHaveCount(0)
   }
   await unauthorized.page.setViewportSize({ width: 320, height: 844 })
   for (const post of postCases) {
     await expect(unauthorized.page.getByTestId(tid.forumThreadTagBtn(post.id))).toHaveCount(0)
+    await expect(unauthorized.page.getByTestId(tid.forumThreadArchiveBtn(post.id))).toHaveCount(0)
     await expect(unauthorized.page.getByTestId(tid.forumThreadDeleteBtn(post.id))).toHaveCount(0)
   }
   await testInfo.attach("unauthorized-320.png", {

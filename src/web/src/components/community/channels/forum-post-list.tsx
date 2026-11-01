@@ -16,6 +16,7 @@ import { VirtualRows } from "../messages/virtual-cursor-list"
 import { useInitialPositionTransition } from "../messages/initial-position-transition"
 
 const OVERSCAN = 5
+export const FORUM_LIST_SPACING_CLASS = "px-0 py-2"
 const forumRangeExtractor = (range: Range) => defaultRangeExtractor({ ...range, overscan: range.overscan + range.endIndex - range.startIndex + 1 })
 type Props = {
   posts: ForumThread[]
@@ -39,7 +40,7 @@ export function ForumPostList(props: Props) {
 function ForumPostListEntry(props: Props) {
   const [admitted, setAdmitted] = useState(false)
   if (!props.loading && !admitted || props.posts.length > 0 && !admitted) setAdmitted(true)
-  if (!admitted && props.loading && !props.posts.length) return <div data-testid={tid.forumPostList} aria-label="Loading forum" aria-busy="true" data-community-conversation-subtype="forum" className="flex-1 overflow-y-auto thin-scrollbar px-0 py-2 sm:px-4">{props.loadingContent}</div>
+  if (!admitted && props.loading && !props.posts.length) return <div data-testid={tid.forumPostList} aria-label="Loading forum" aria-busy="true" data-community-conversation-subtype="forum" className={`flex-1 overflow-y-auto thin-scrollbar ${FORUM_LIST_SPACING_CLASS}`}>{props.loadingContent}</div>
   return <ForumPostListOwner {...props} />
 }
 
@@ -118,7 +119,7 @@ function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore,
   return <div className="relative flex min-h-0 flex-1 flex-col">
     <div ref={bindScrollRoot} role="main" data-testid={tid.forumPostList} data-community-conversation-subtype="forum"
       aria-busy={presentation.showSkeleton || undefined} aria-label={presentation.showSkeleton ? "Loading forum" : undefined}
-      className="flex-1 overflow-y-auto thin-scrollbar [overflow-anchor:none] px-0 py-2 sm:px-4">
+      className={`flex-1 overflow-y-auto thin-scrollbar [overflow-anchor:none] ${FORUM_LIST_SPACING_CLASS}`}>
     {!posts.length && loading ? <div data-message-list-content aria-hidden="true" inert data-read-position-ready="false" />
       : !posts.length ? <div data-message-list-content aria-hidden="false" data-read-position-ready="true"><EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." /></div>
       : <VirtualRows directDomUpdatesMode="position" items={posts} virtualizer={virtualizer} renderItem={renderPost}
@@ -126,6 +127,6 @@ function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore,
           "data-read-position-ready": positionReady ? "true" : "false" }} />}
     </div>
     {presentation.showSkeleton && <div data-forum-positioning-skeleton aria-hidden="true"
-      className="pointer-events-none absolute inset-0 overflow-hidden bg-background px-0 py-2 sm:px-4">{loadingContent}</div>}
+      className={`pointer-events-none absolute inset-0 overflow-hidden bg-background ${FORUM_LIST_SPACING_CLASS}`}>{loadingContent}</div>}
   </div>
 }

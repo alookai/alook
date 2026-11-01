@@ -19,8 +19,9 @@ import type { ForumThread } from "@/lib/community/models/message"
 import type { Member } from "@/lib/community/models/people"
 import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
 import { cn } from "@/lib/utils"
-import { FORUM_ARCHIVE_TAG } from "@alook/shared"
-import { ForumPostList } from "./forum-post-list"
+import { FORUM_ARCHIVE_TAG, getClientPlatform } from "@alook/shared"
+import { FORUM_LIST_SPACING_CLASS, ForumPostList } from "./forum-post-list"
+import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
@@ -32,7 +33,8 @@ import {
 
 const MAX_AVATARS = 5
 const MAX_VISIBLE_TAGS = 2
-const POST_ACTION_CLASS = "grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground opacity-100 sm:opacity-0 sm:group-focus-within/card:opacity-100 sm:group-hover/card:opacity-100 sm:data-popup-open:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
+const POST_ACTION_CLASS = "grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+const POST_ROW_CLASS = "border-b border-border/50 px-4 py-4"
 
 export function shouldActivateForumRow(event: {
   key: string
@@ -52,7 +54,7 @@ function ForumTagSummary({ tags }: { tags: string[] }) {
 
   return (
     <div
-      className="flex min-w-0 items-center gap-1.5 max-sm:order-last max-sm:basis-full max-sm:pl-7"
+      className="flex min-w-0 items-center gap-2 max-sm:order-last max-sm:basis-full max-sm:pl-7"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
     >
@@ -74,7 +76,7 @@ function ForumTagSummary({ tags }: { tags: string[] }) {
           <PopoverContent
             side="top"
             align="start"
-            className="flex w-52 flex-wrap gap-1.5 p-2"
+            className="flex w-52 flex-wrap gap-2 p-2"
             onClick={(event) => event.stopPropagation()}
           >
             {ordinaryTags.map((tag) => (
@@ -166,6 +168,11 @@ export function ForumView({
   deletingPost?: string | null
   onScrollRoot?: (node: HTMLDivElement | null) => void
 }) {
+  const desktopActions = useHydratedClient() && getClientPlatform() === "desktop"
+  const postActionsClassName = cn(
+    "col-start-2 row-start-1 z-10 flex self-center items-center gap-1",
+    desktopActions && "opacity-0 group-focus-within/card:opacity-100 group-hover/card:opacity-100 has-data-popup-open:opacity-100",
+  )
   const profilesByUserId = useCanonicalProfilesByUserId()
   const [composing, setComposing] = useAtom(useCreateAtom(false))
   const [deletingForId, setDeletingForId] = useAtom(useCreateAtom<string | null>(null))
@@ -260,7 +267,7 @@ export function ForumView({
                       className={cn(
                         "shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 transition-opacity",
                         tagColorClassName,
-                        tag === t ? "opacity-100 ring-1 ring-current/20" : "opacity-70 hover:opacity-100",
+                        tag === t ? "opacity-100 ring-1 ring-inset ring-current/20" : "opacity-70 hover:opacity-100",
                       )}
                       data-testid={tid.forumTagChip(t)}
                       onClick={() => onTagChange(t)}
@@ -319,15 +326,16 @@ export function ForumView({
                     onOpenPost(p.id)
                   }}
                   className={cn(
-                    "group/card relative cursor-pointer rounded border-b border-border/50 px-4.5 py-3.5 text-left transition-colors hover:bg-accent/45",
+                    "group/card relative cursor-pointer rounded text-left transition-colors hover:bg-accent/45",
+                    POST_ROW_CLASS,
                     index === posts.length - 1 && "border-b-0",
                   )}
                 >
-                  <div className={cn("grid grid-rows-[max-content_auto] gap-x-2", actionCount > 0 ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1")}>
+                  <div className={cn("grid grid-rows-[minmax(2rem,max-content)_auto] gap-x-2", actionCount > 0 ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1")}>
                     <ForumPostTitle name={p.name} postId={p.id} seq={p.parentSeq} />
                     {(canEdit || canDelete) && (
                       <div
-                        className="col-start-2 row-start-1 z-10 flex self-center items-center gap-1"
+                        className={cn(postActionsClassName, deletingForId === p.id && "opacity-100")}
                         onClick={(event) => event.stopPropagation()}
                         onKeyDown={(event) => event.stopPropagation()}
                       >
@@ -386,9 +394,9 @@ export function ForumView({
                       </div>
                     )}
 
-                    <p data-slot="community-forum-post-preview" className="col-span-full row-start-2 mb-2.25 mt-0.75 line-clamp-2 text-[13.5px] text-muted-foreground">{p.preview}</p>
+                    <p data-slot="community-forum-post-preview" className="col-span-full row-start-2 my-2 line-clamp-2 text-[13.5px] text-muted-foreground">{p.preview}</p>
                   </div>
-                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <Avatar label={author.avatar} seed={p.authorId} size={20} />
                     <span className="shrink-0 font-medium text-foreground" suppressHydrationWarning>{author.name}</span>
                     <span className="shrink-0" aria-hidden>·</span>
@@ -443,10 +451,10 @@ function ForumPostSkeleton({ postId, last = false }: { postId?: string; last?: b
       data-testid={postId === undefined ? undefined : tid.forumThreadCard(postId)}
       aria-busy="true"
       aria-label="Loading post"
-      className={cn("flex flex-col border-b border-border/50 px-4.5 py-3.5", last && "border-b-0")}
+      className={cn("flex flex-col", POST_ROW_CLASS, last && "border-b-0")}
     >
-      <Skeleton className="h-4 w-2/3 rounded" />
-      <div className="mb-2.25 mt-1.25 space-y-1.5">
+      <div className="flex min-h-8 items-center"><Skeleton className="h-4 w-2/3 rounded" /></div>
+      <div className="my-2 space-y-2">
         <Skeleton className="h-3 w-full rounded" />
         <Skeleton className="h-3 w-4/5 rounded" />
       </div>
@@ -493,7 +501,7 @@ export function ForumViewSkeleton() {
           <Skeleton className="h-8 w-25 rounded-md" />
         </div>
       </div>
-      <main className="flex-1 overflow-y-auto thin-scrollbar px-0 py-2 sm:px-4">
+      <main className={`flex-1 overflow-y-auto thin-scrollbar ${FORUM_LIST_SPACING_CLASS}`}>
         <ForumListSkeleton />
       </main>
     </>

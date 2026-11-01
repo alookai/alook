@@ -822,7 +822,7 @@ export { extractMentionedUserIds, MENTION_TYPES, isMentionType, MENTION_IDENTIFI
 export type { MentionCandidate, MentionType } from "./utils/community-mentions";
 export { parseReleaseVersion, releaseVersionGte, semverGte } from "./semver";
 export type { ReleaseVersion } from "./semver";
-export { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "./mode";
+export { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, getClientPlatform, tauriInvoke } from "./mode";
 export type { AlookMode, ModeSignals, BaseUrlSignals } from "./mode";
 export { COMMUNITY_BOT_ACTOR_HEADER, COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, COMMUNITY_RESOURCE_CONTRACT_VERSION, requestedCommunityContract, requestsCommunityContract, type CommunityContract } from "./community-contract";
 export * from "./community-resources";
