@@ -1,5 +1,7 @@
 "use client"
 
+import { DocumentNavigationLink } from "./document-navigation-link"
+
 import Image from "next/image"
 import { useCallback, useState } from "react"
 import { LANDING_HUMAN_AVATARS } from "./landing-human-avatars"
@@ -96,7 +98,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
                 )}
               </span>
             ))}
-            <a
+            <DocumentNavigationLink
               href={isLoggedIn ? "/c/me" : "/sign-in"}
               className={styles.closingAction}
               data-testid="landing-closing-open"
@@ -104,7 +106,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
             >
               {isLoggedIn ? LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta}{" "}
               <span aria-hidden>↗</span>
-            </a>
+            </DocumentNavigationLink>
           </div>
         </div>
       </section>

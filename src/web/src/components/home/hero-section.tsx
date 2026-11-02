@@ -1,5 +1,7 @@
 "use client";
 
+import { DocumentNavigationLink } from "./document-navigation-link"
+
 import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
 /* eslint-disable @next/next/no-html-link-for-pages -- Product entrances require a new document to unload public tracking. */
 
@@ -253,7 +255,7 @@ export function HeroSection({
               {primaryCtaLabel ?? "OPEN APP"}
             </a>
           ) : (
-            <a
+            <DocumentNavigationLink
               href="/sign-in"
               onClick={() => trackLandingCtaClicked({ cta_name: "get_started" })}
               className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${ctaSizingClassName}`}
@@ -270,7 +272,7 @@ export function HeroSection({
                 <line x1="15" y1="12" x2="3" y2="12" />
               </svg>
               {primaryCtaLabel ?? "GET STARTED"}
-            </a>
+            </DocumentNavigationLink>
           )}
           {secondaryCta !== null && (
             secondaryCta?.kind === "github" ? (

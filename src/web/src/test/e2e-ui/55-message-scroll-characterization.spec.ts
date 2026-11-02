@@ -580,6 +580,8 @@ test.describe("message scroll characterization", () => {
     const batches = [["👍", "❤️", "😂", "🎉", "👀"], ["🚀", "✅", "🔥", "💯", "🤔"]]
     await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
     const scroller = page.getByTestId(tid.messageScroller)
+    await expect(scroller.locator('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
+    await waitForCommittedGeometry(scroller)
     await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event("scroll")) })
     await expect(page.getByTestId(tid.message(messageId))).toHaveCount(1)
     await scroller.evaluate((element, id) => {

@@ -1,0 +1,37 @@
+.link {
+  position: relative;
+}
+
+.content {
+  display: contents;
+}
+
+.link[aria-busy="true"] {
+  cursor: progress;
+}
+
+.pending {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  letter-spacing: normal;
+  white-space: nowrap;
+}
+
+.spinner {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+}

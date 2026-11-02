@@ -74,6 +74,7 @@ export type OnboardingSelectDialogProps = {
   }
   customValue?: string
   onCustomValueChange?: (value: string) => void
+  advanceOnSelect?: boolean
   submitLabel: string
   loadingLabel?: string
   onSubmit: (value: string) => void
@@ -109,6 +110,7 @@ export function OnboardingSelectDialog({
   customValue = "",
   onCustomValueChange,
   submitLabel,
+  advanceOnSelect = false,
   loadingLabel = "Saving…",
   onSubmit,
   secondaryLabel,
@@ -132,12 +134,14 @@ export function OnboardingSelectDialog({
   const invalid = status === "error"
 
   const handleValueChange = (nextValue: string) => {
+    if (locked) return
     const nextState = selectOnboardingOption(
       { value, customValue },
       nextValue,
       customOption?.value,
     )
     onValueChange(nextState.value)
+    if (advanceOnSelect && nextState.value && nextState.value !== customOption?.value) onSubmit(nextState.value)
     if (nextState.customValue !== customValue) {
       onCustomValueChange?.(nextState.customValue)
     }
@@ -322,7 +326,7 @@ export function OnboardingSelectDialog({
             ) : null}
           </div>
 
-          <DialogFooter className="m-0 rounded-none border-0 bg-transparent px-4 py-4 sm:px-6">
+          {!advanceOnSelect && <DialogFooter className="m-0 rounded-none border-0 bg-transparent px-4 py-4 sm:px-6">
             {secondaryLabel && onSecondaryAction ? (
               <Button
                 type="button"
@@ -346,7 +350,7 @@ export function OnboardingSelectDialog({
               ) : null}
               {status === "loading" ? loadingLabel : submitLabel}
             </Button>
-          </DialogFooter>
+          </DialogFooter>}
         </form>
       </DialogContent>
     </Dialog>
