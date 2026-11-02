@@ -51,7 +51,7 @@ describe("retired CLI connection", () => {
     const response = await fetch(`${appUrl}/onboard.md`)
     expect(response.status).toBe(200)
     const guide = await response.text()
-    expect(guide).toContain("[agent.md](./agent.md)")
+    expect(guide).toContain("[agent.md](https://alook.ai/agent.md)")
     expect(guide).toContain("use server --members")
     expect(guide).not.toContain("/api/auth/device")
   })

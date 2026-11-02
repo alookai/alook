@@ -1,5 +1,7 @@
 "use client";
 
+import { DocumentNavigationLink } from "./document-navigation-link"
+
 import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
 /* eslint-disable @next/next/no-html-link-for-pages -- Product entrances require a new document to unload public tracking. */
 
@@ -198,7 +200,7 @@ export function MarketingNav({
               </svg>
             </a>
           ) : (
-            <a
+            <DocumentNavigationLink
               href="/sign-in"
               onClick={() => trackLandingCtaClicked({ cta_name: "public_nav_get_started" })}
               className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
@@ -209,7 +211,7 @@ export function MarketingNav({
               }}
             >
               {ctaLabel ?? "Get Started"}
-            </a>
+            </DocumentNavigationLink>
           )}
         </div>
       </div>

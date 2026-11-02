@@ -62,20 +62,22 @@ vi.mock("./onboarding-machine-dialog", () => ({
   }), createElement("button", { onClick: () => onConnected("machine-1") }, "Machine connected"), createElement("button", { onClick: onExit }, "Exit manual")),
 }))
 vi.mock("./onboarding-agent-dialog", () => ({
-  OnboardingAgentDialog: ({ onExit }: { onExit: () => void }) => createElement("div", {},
+  OnboardingAgentDialog: ({ onExit, onChooseAgent }: { onExit: () => void; onChooseAgent: () => void }) => createElement("div", {},
     createElement("p", {}, "Agent Setup"),
+    createElement("button", { onClick: onChooseAgent }, "Choose another agent"),
     createElement("button", { onClick: onExit }, "Exit agent")),
 }))
 vi.mock("./onboarding-select-dialog", () => ({
-  OnboardingSelectDialog: ({ value, onValueChange, onSubmit }: {
+  OnboardingSelectDialog: ({ value, onValueChange, onSubmit, advanceOnSelect }: {
+    advanceOnSelect?: boolean
     value: string
     onValueChange: (value: string) => void
     onSubmit: (value: string) => void
   }) => createElement("div", {}, createElement("button", {
     "data-testid": "select-harness",
     "data-value": value,
-    onClick: () => onValueChange("codex"),
-  }), createElement("button", { onClick: () => onSubmit("developer") }, "Finish setup")),
+    onClick: () => { onValueChange("codex"); if (advanceOnSelect) onSubmit("codex") },
+  }), advanceOnSelect ? null : createElement("button", { onClick: () => onSubmit("developer") }, "Finish setup")),
 }))
 vi.mock("@/hooks/community/use-machines", () => ({ useMachines: () => ({ machines: [] }) }))
 vi.mock("../bots/model-field", () => ({ ModelField: ({ value, onChange }: { value: string | null; onChange: (value: string | null) => void }) => createElement("input", { "aria-label": "Model", value: value ?? "", onChange: (event: React.ChangeEvent<HTMLInputElement>) => onChange(event.target.value || null) }) }))
@@ -119,16 +121,46 @@ describe("CommunityOnboardingForm room navigation", () => {
     })
   })
 
+  it.each(["harness", "machine"])("ignores outside clicks and Escape during %s until Exit setup is clicked", async (stage) => {
+    mocks.state = { status: "active", stage, ...(stage === "machine" ? { harness: "codex", setupMode: "manual" } : {}) }
+    render(createElement(CommunityOnboardingForm))
+    const surface = screen.getByTestId("onboarding-surface")
+    await act(async () => {})
+    fireEvent.mouseDown(document.body)
+    fireEvent.mouseUp(document.body)
+    fireEvent.click(document.body)
+    expect(owner.runtime.ui.get().onboardingState).toMatchObject({ status: "active", stage })
+    expect(surface).toBeInTheDocument()
+    fireEvent.keyDown(surface, { key: "Escape", code: "Escape" })
+    expect(owner.runtime.ui.get().onboardingState).toMatchObject({ status: "active", stage })
+    expect(surface).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Exit setup" }))
+    expect(owner.runtime.ui.get().onboardingState).toBeNull()
+    expect(mocks.initialize).not.toHaveBeenCalled()
+  })
+
   it("defaults to Agent Setup and supports Manual and exit without creating a team", async () => {
     mocks.state = { status: "active", stage: "harness" }
     render(createElement(CommunityOnboardingForm))
-    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }))
+    expect(screen.getByText("Pick your local agent")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("select-harness"))
     expect(screen.getByText("Agent Setup")).toBeInTheDocument()
     expect(mocks.initialize).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Manual" }))
     expect(screen.getByRole("button", { name: "Machine connected" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Exit manual" }))
     expect(owner.runtime.ui.get().onboardingState).toBeNull()
+    expect(mocks.initialize).not.toHaveBeenCalled()
+  })
+
+  it("allows the same agent to be selected again after returning", () => {
+    mocks.state = { status: "active", stage: "harness" }
+    render(createElement(CommunityOnboardingForm))
+    fireEvent.click(screen.getByTestId("select-harness"))
+    fireEvent.click(screen.getByRole("button", { name: "Choose another agent" }))
+    expect(screen.getByTestId("select-harness")).toHaveAttribute("data-value", "")
+    fireEvent.click(screen.getByTestId("select-harness"))
+    expect(screen.getByText("Agent Setup")).toBeInTheDocument()
     expect(mocks.initialize).not.toHaveBeenCalled()
   })
 
@@ -185,7 +217,7 @@ describe("CommunityOnboardingForm room navigation", () => {
     const rendered = render(createElement(CommunityOnboardingForm))
 
     fireEvent.click(screen.getByTestId("select-harness"))
-    expect(screen.getByTestId("select-harness")).toHaveAttribute("data-value", "codex")
+    expect(screen.getByText("Agent Setup")).toBeInTheDocument()
 
     mocks.state = { status: "active", stage: "machine", harness: "codex" }
     await act(async () => { owner.runtime.ui.setState((state) => ({ ...state, onboardingState: mocks.state as CommunityOnboardingState })) })
