@@ -165,6 +165,7 @@ function CommunityOnboardingSteps() {
         options={[...ONBOARDING_HARNESSES]}
         value={harness}
         onValueChange={setHarness}
+        advanceOnSelect
         submitLabel="Continue"
         onSubmit={(value) => {
           advanceCommunityOnboarding(communityRuntime, "harness", "machine", { harness: value, setupMode: "agent" })
@@ -180,7 +181,7 @@ function CommunityOnboardingSteps() {
       harness={state.harness ?? ""}
       harnessLabel={harnessLabel(state.harness)}
       onConnected={() => finishCommunityOnboardingAgentSetup(communityRuntime)}
-      onChooseAgent={() => recoverCommunityOnboardingHarness(communityRuntime)}
+      onChooseAgent={() => { setHarness(""); recoverCommunityOnboardingHarness(communityRuntime) }}
       onExit={() => skipCommunityOnboarding(communityRuntime)}
     />
   }
@@ -286,7 +287,7 @@ export function CommunityOnboardingForm() {
   const selected = Boolean(state.harness)
   const mode = state.setupMode === "agent" ? "agent" : "manual"
   const switching = selected && ["machine", "model", "identity"].includes(state.stage)
-  return <SetupDialog.Root open onOpenChange={(open) => { if (!open) skipCommunityOnboarding(runtime) }}>
+  return <SetupDialog.Root open onOpenChange={(_open, details) => details.cancel()}>
     <SetupDialog.Portal>
     <SetupDialog.Backdrop className={`fixed inset-0 z-50 ${appBackdropClassName}`}><AppEdgeFade /></SetupDialog.Backdrop>
     <SetupDialog.Popup aria-label="Set up Alook" data-testid="onboarding-surface" className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col gap-1 text-foreground outline-none">
@@ -297,7 +298,7 @@ export function CommunityOnboardingForm() {
             key={value} type="button" data-testid={`onboarding-mode-${value}`} aria-pressed={mode === value}
             disabled={!switching} onClick={() => { if (mode !== value) switchCommunityOnboardingSetup(runtime, value) }}
             className={`inline-flex min-h-11 items-center bg-transparent px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed ${mode === value ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-          ><span className={`border-b-2 pb-1 ${mode === value ? "border-foreground" : "border-transparent"}`}>{value === "agent" ? "Agent" : "Manual"}</span></button>) : <span className="text-sm text-muted-foreground">Set up Alook</span>}
+          ><span className={`border-b-2 pb-1 ${mode === value ? "border-foreground" : "border-transparent"}`}>{value === "agent" ? "Agent" : "Manual"}</span></button>) : <span className="text-sm text-muted-foreground">Pick your local agent</span>}
         </nav>
         <Button type="button" variant="ghost" size="icon" aria-label="Exit setup" title="Exit setup" className="size-11 text-foreground" onClick={() => skipCommunityOnboarding(runtime)}><X aria-hidden className="size-4" /></Button>
       </header>

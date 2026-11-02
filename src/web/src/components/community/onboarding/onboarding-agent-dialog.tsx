@@ -20,7 +20,9 @@ type Setup = { signal?: AbortSignal; pair?: Pair; code?: AutomationAccessCodeCre
 function buildOnboardingAgentPrompt(input: { baseUrl: string; harness: string; command?: string; machineId?: string; secret: string }) {
   return [
     `Follow ${input.baseUrl}/onboard.md to set up my Alook team.`,
-    `Selected agent: ${input.harness}`,
+    `Setup assistant: ${input.harness}`,
+    "Before creating bots, ask me which available agent backend I want for each bot. Bots can use different backends from the setup assistant.",
+    "After confirming all expected bots have joined the server, send the first task to its public all channel. Wait for at least one bot to reply there before reporting setup complete. Confirm I am satisfied before expiring the access code.",
     input.command ? `Daemon connection command: ${input.command}` : `Connected machine ID: ${input.machineId}`,
     `Onboard access code (valid for one hour): ${input.secret}`,
   ].join("\n")

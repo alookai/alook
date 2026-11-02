@@ -18,9 +18,10 @@ test("first-signup mobile starts onboarding once and retains it on desktop", asy
 
   const onboarding = page.getByTestId(tid.onboardingHarnessDialog)
   await expect(onboarding).toBeVisible()
+  await expect(page.getByText("Pick your local agent", { exact: true })).toBeVisible()
+  await expect(onboarding.getByRole("button", { name: "Continue", exact: true })).toHaveCount(0)
   await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
   await page.getByTestId(tid.onboardingHarnessOption("grok")).click()
-  await onboarding.getByRole("button", { name: "Continue", exact: true }).click()
   await expect(page.getByTestId(tid.onboardingAgentDialog)).toBeVisible()
 
   await page.setViewportSize({ width: 1280, height: 800 })
@@ -41,6 +42,8 @@ test("first-signup desktop opens onboarding before the empty Machines guide", as
 
   const onboarding = page.getByTestId(tid.onboardingHarnessDialog)
   await expect(onboarding).toBeVisible()
+  await expect(page.getByText("Pick your local agent", { exact: true })).toBeVisible()
+  await expect(onboarding.getByRole("button", { name: "Continue", exact: true })).toHaveCount(0)
   await expect(
     onboarding.getByRole("heading", { name: "Which harness do you already use?" }),
   ).toBeVisible()
@@ -52,7 +55,6 @@ test("first-signup desktop opens onboarding before the empty Machines guide", as
   await expect(grok).toContainText("Grok Build")
   await expect(grok.locator('[data-provider-logo="grok"]')).toBeVisible()
   await grok.click()
-  await onboarding.getByRole("button", { name: "Continue", exact: true }).click()
 
   const agentStep = page.getByTestId(tid.onboardingAgentDialog)
   await expect(agentStep).toBeVisible()
