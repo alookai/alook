@@ -84,11 +84,10 @@ describe("landing community preview rendering", () => {
     ["machine", "Machines"],
     ["identity", "Maya"],
     ["continuity", "Saturday at six works"],
-  ] as const)("renders readable compact %s content without the desktop camera", (scene, content) => {
-    const markup = renderToStaticMarkup(createElement(LandingShellMotion, { scene, compact: true, beat: SCENE_MAX_BEAT[scene] }))
+  ] as const)("renders the complete %s scene with its original camera", (scene, content) => {
+    const markup = renderToStaticMarkup(createElement(LandingShellMotion, { scene, beat: SCENE_MAX_BEAT[scene] }))
     expect(markup).toContain(content)
-    expect(markup).toContain('class="compactStage"')
-    expect(markup).not.toContain("data-camera-scale")
+    expect(markup).toContain("data-camera-scale")
     expect(markup).not.toContain("Unknown")
   })
 

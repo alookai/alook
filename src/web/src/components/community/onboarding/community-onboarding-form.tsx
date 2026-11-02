@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
 import { Dialog as SetupDialog } from "@base-ui/react/dialog"
 import { AppEdgeFade, appBackdropClassName } from "@/components/ui/app-edge-fade"
+import { StepSlide } from "@/components/ui/step-slide"
 import { OnboardingSurface } from "./onboarding-surface"
 import { OnboardingAgentDialog } from "./onboarding-agent-dialog"
 import { OnboardingMachineDialog } from "./onboarding-machine-dialog"
@@ -303,7 +304,9 @@ export function CommunityOnboardingForm() {
         <Button type="button" variant="ghost" size="icon" aria-label="Exit setup" title="Exit setup" className="size-11 text-foreground" onClick={() => skipCommunityOnboarding(runtime)}><X aria-hidden className="size-4" /></Button>
       </header>
       <div className="min-h-0 overflow-y-auto thin-scrollbar rounded-xl bg-popover text-popover-foreground shadow-(--e2)">
-        <CommunityOnboardingSteps />
+        <StepSlide testId="onboarding-step-transition" step={`${state.stage}-${mode}`} order={["harness", "machine", "model", "identity", "initializing", "bot"].indexOf(state.stage) * 2 + (mode === "manual" ? 1 : 0)}>
+          <CommunityOnboardingSteps />
+        </StepSlide>
       </div>
     </OnboardingSurface>
     </SetupDialog.Popup>

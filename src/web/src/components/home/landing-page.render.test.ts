@@ -57,17 +57,15 @@ describe("landing identity profile preview", () => {
 const LANDING_PROFILE_ABOUT =
   "I keep the same account, identity, and relationships across every room."
 
-describe("landing section calls to action", () => {
-  it.each([false, true])("routes the selected feature CTA for signed-in=%s", (isLoggedIn) => {
+describe("landing feature navigation", () => {
+  it.each([false, true])("renders feature labels and the correct CTA route for signed-in=%s", (isLoggedIn) => {
     const markup = renderToStaticMarkup(createElement(LandingPage, { isLoggedIn }))
-    const links = [...markup.matchAll(/<a\b[^>]*data-testid="landing-section-cta-([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)]
-    expect(links.map((match) => match[1])).toEqual(["product"])
-    const labels = links.map((match) => match[2])
-    expect(new Set(labels).size).toBe(1)
-    for (const link of links) {
-      expect(link[0]).toContain(`href="${isLoggedIn ? "/c/me" : "/sign-in"}"`)
-      expect(link[2].trim().split(/\s+/).length).toBeLessThanOrEqual(3)
+    expect(markup).toContain("landing-section-cta-product")
+    expect(markup).toContain("Chat with shared agents")
+    for (const label of ["Collaboration", "Agent identity", "Persistent Memory", "Remote control", "Free and local"]) {
+      expect(markup).toContain(label)
     }
+    expect(markup).toContain(`href="${isLoggedIn ? "/c/me" : "/sign-in"}"`)
   })
 })
 

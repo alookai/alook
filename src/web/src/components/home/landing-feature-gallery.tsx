@@ -1,22 +1,24 @@
 "use client"
 
+import { StepSlide } from "@/components/ui/step-slide"
+import { DocumentNavigationLink } from "./document-navigation-link"
+
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode, type KeyboardEvent } from "react"
-import { Pause, Play } from "lucide-react"
+import { trackLandingCtaClicked } from "@/lib/analytics"
+import pageStyles from "./landing-page.module.css"
 import { tid } from "@/lib/community/testids"
 import { MediaFallback } from "./deferred-landing-media"
-import { trackLandingCtaClicked } from "@/lib/analytics"
 import { sceneDurationMs, type LandingScene } from "./landing-shell-motion-timeline"
 import styles from "./landing-feature-gallery.module.css"
 import mediaStyles from "./deferred-landing-media.module.css"
-import pageStyles from "./landing-page.module.css"
 
 const FeatureScene = lazy(() => import("./landing-feature-scene"))
 const features: { id: string; tab: string; title: string; description: string; cta: string; scene: LandingScene }[] = [
-  { id: "product", tab: "Collaborate", title: "Let teammates talk to your agent.", description: "Ask for a preview, request changes, and review results in one conversation.", cta: "Share your agent", scene: "server" },
-  { id: "identity", tab: "Your agent", title: "A companion of your own.", description: "Your agent belongs to you. Bring them along to any room or team you join.", cta: "Invite your agent", scene: "identity" },
-  { id: "continuity", tab: "Keep context", title: "Pick up where you left off.", description: "Your agent uses earlier conversations and saved notes to bring back an update.", cta: "Start a task", scene: "continuity" },
-  { id: "reach", tab: "On your phone", title: "Check in from your phone.", description: "Read updates and give the next instruction. Keep your agent’s computer online.", cta: "Work anywhere", scene: "server" },
-  { id: "ownership", tab: "Your setup", title: "Keep your existing setup.", description: "Connect the agent you already use, running on your computer with your projects and tools.", cta: "Connect your agent", scene: "machine" },
+  { id: "product", description: "Bring an agent into a group chat so friends and teammates can work with it together.", title: "Chat with shared agents", cta: "Share your agent", tab: "Collaboration", scene: "server" },
+  { id: "ownership", description: "Keep the agent tools you already use, running on your own computer.", title: "Run agents on your computer", cta: "Connect your agent", tab: "Free and local", scene: "machine" },
+  { id: "reach", description: "Send a task from your phone and check the result while your agent works on your computer.", title: "Control your agent from your phone", cta: "Work anywhere", tab: "Remote control", scene: "server" },
+  { id: "identity", description: "Give your agent one profile across rooms, so everyone knows who they’re talking to.", title: "One agent, every room", cta: "Invite your agent", tab: "Agent identity", scene: "identity" },
+  { id: "continuity", description: "Return to a task after a break. Your agent can find earlier messages and pick up where you left off.", title: "Continue earlier conversations", cta: "Start a task", tab: "Persistent Memory", scene: "continuity" },
 ]
 
 export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
@@ -30,8 +32,41 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
   const [documentVisible, setDocumentVisible] = useState(true)
   const [mediaReady, setMediaReady] = useState(false)
   const section = useRef<HTMLDivElement>(null)
+  const tabList = useRef<HTMLDivElement>(null)
+  const [edges, setEdges] = useState({ left: false, right: false })
+  const drag = useRef<{ x: number; scroll: number; moved: boolean } | null>(null)
   const tabs = useRef<(HTMLButtonElement | null)[]>([])
   const current = features[selected]
+
+  useEffect(() => {
+    const tab = tabs.current[selected]
+    const list = tab?.parentElement
+    if (!tab || !list) return
+    const item = tab.getBoundingClientRect()
+    const row = list.getBoundingClientRect()
+    if (item.left < row.left + 24) list.scrollLeft += item.left - row.left - 24
+    else if (item.right > row.right - 24) list.scrollLeft += item.right - row.right + 24
+  }, [selected])
+
+  useEffect(() => {
+    const list = tabList.current
+    if (!list) return
+    const sync = () => setEdges({ left: list.scrollLeft > 1, right: list.scrollLeft + list.clientWidth < list.scrollWidth - 1 })
+    sync()
+    list.addEventListener("scroll", sync, { passive: true })
+    const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY) || list.scrollWidth <= list.clientWidth) return
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? list.clientWidth : 1)
+      const next = Math.max(0, Math.min(list.scrollWidth - list.clientWidth, list.scrollLeft + delta))
+      if (next === list.scrollLeft) return
+      event.preventDefault()
+      list.scrollLeft = next
+    }
+    list.addEventListener("wheel", wheel, { passive: false })
+    const observer = new ResizeObserver(sync)
+    observer.observe(list)
+    return () => { list.removeEventListener("scroll", sync); list.removeEventListener("wheel", wheel); observer.disconnect() }
+  }, [])
 
   useEffect(() => {
     const element = section.current
@@ -89,30 +124,47 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false) }}>
     <div className={styles.container} data-testid={tid.landingMainContainer}>
-      <div className={styles.controls}>
-        <div className={styles.tabs} role="tablist" aria-label="Features">
+      <div className={styles.controls} data-left={edges.left} data-right={edges.right}>
+        <div ref={tabList} className={`${styles.tabs} thin-scrollbar`} role="tablist" aria-label="Features"
+          data-overflow={edges.left || edges.right}
+          onPointerDown={event => {
+            if (event.pointerType !== "mouse" || event.button !== 0 || event.currentTarget.scrollWidth <= event.currentTarget.clientWidth) { drag.current = null; return }
+            drag.current = { x: event.clientX, scroll: event.currentTarget.scrollLeft, moved: false }
+          }}
+          onPointerMove={event => {
+            const start = drag.current
+            if (event.pointerType !== "mouse" || !start || !event.buttons) return
+            const distance = event.clientX - start.x
+            if (!start.moved && Math.abs(distance) < 6) return
+            start.moved = true
+            event.currentTarget.setPointerCapture(event.pointerId)
+            event.currentTarget.scrollLeft = start.scroll - distance
+          }}
+          onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
+          onPointerCancel={() => { drag.current = null }}
+          onClickCapture={event => { if (event.detail > 0 && drag.current?.moved) { event.preventDefault(); event.stopPropagation(); drag.current = null } }}>
           {features.map((feature, index) => <button key={feature.id} ref={element => { tabs.current[index] = element }}
             id={`feature-tab-${feature.id}`} type="button" role="tab" aria-selected={selected === index}
             aria-controls="feature-panel" tabIndex={selected === index ? 0 : -1}
             onClick={() => select(index)} onKeyDown={event => navigate(event, index)}>{feature.tab}</button>)}
         </div>
-        {!reduced && <button type="button" className={styles.rotation} aria-label={paused ? "Resume feature rotation" : "Pause feature rotation"}
-          onClick={() => setPaused(value => !value)}>{paused ? <Play size={18} /> : <Pause size={18} />}</button>}
       </div>
-      <div id="feature-panel" role="tabpanel" aria-labelledby={`feature-tab-${current.id}`} className={`${styles.panel} ${current.id === "identity" ? styles.identity : ""}`}>
+      <StepSlide testId="landing-feature-transition" step={current.id} order={selected} className={styles.slide}>
+      <div id="feature-panel" role="tabpanel" aria-labelledby={`feature-tab-${current.id}`} className={styles.panel}>
         <div className={styles.copy}>
           <h2>{current.title}</h2>
           <p>{current.description}</p>
-          <a href={isLoggedIn ? "/c/me" : "/sign-in"} className={pageStyles.sectionCta}
+          <DocumentNavigationLink href={isLoggedIn ? "/c/me" : "/sign-in"} className={`${pageStyles.sectionCta} ${styles.cta}`}
             data-testid={`landing-section-cta-${current.id}`}
-            onClick={() => trackLandingCtaClicked({ cta_name: `${current.id}_${isLoggedIn ? "open_app" : "get_started"}` })}>{current.cta}</a>
+            onClick={() => trackLandingCtaClicked({ cta_name: `${current.id}_${isLoggedIn ? "open_app" : "get_started"}` })}>{current.cta}</DocumentNavigationLink>
         </div>
         <div ref={section} className={styles.stage}>
           {loadedFeature === current.id ? <MediaFallback key={current.id} fallback={<FeaturePoster scene={current.scene} />}><Suspense fallback={<FeaturePoster scene={current.scene} />}>
-            <SceneReady key={current.id} onReady={setMediaReady}><FeatureScene feature={current.id} container={section.current} /></SceneReady>
+            <SceneReady key={current.id} onReady={setMediaReady}><FeatureScene feature={current.id} /></SceneReady>
           </Suspense></MediaFallback> : <FeaturePoster scene={current.scene} />}
         </div>
       </div>
+      </StepSlide>
     </div>
   </section>
 }

@@ -161,7 +161,7 @@ test("desktop landing keeps the embedded phone Back control on true mobile geome
   await page.emulateMedia({ reducedMotion: "reduce" })
   await page.goto("/")
 
-  await page.getByRole("tab", { name: "On your phone" }).click()
+  await page.getByRole("tab", { name: "Remote control" }).click()
   await page.getByRole("tabpanel").locator(":scope > div").last().scrollIntoViewIfNeeded()
   await page.locator('[data-slot="phone-mockup-card"]').scrollIntoViewIfNeeded()
   const stage = page.getByTestId(tid.landingMobileMotionStage)
@@ -201,7 +201,7 @@ test("desktop landing keeps the embedded phone Back control on true mobile geome
 for (const width of [1440, 390]) {
   test(`contact preserves its layout after client navigation at ${width}px`, async ({ page, context, baseURL }, testInfo) => {
     await context.addCookies([{ name: "alook_analytics_consent", value: "v1.denied", url: baseURL! }])
-    await page.setViewportSize({ width, height: 900 })
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
     await page.emulateMedia({ reducedMotion: "reduce" })
     await page.goto("/contact")
     await page.evaluate(() => document.fonts.ready)
@@ -318,6 +318,7 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
     await tabs.first().scrollIntoViewIfNeeded()
     await expect(tabs).toHaveCount(5)
     for (const tab of await tabs.all()) {
+      await tabs.first().evaluate(element => element.parentElement!.scrollIntoView({ block: "center" }))
       await tab.click()
       await expect(tab).toHaveAttribute("aria-selected", "true")
       await expect(page.getByRole("tabpanel")).toHaveCount(1)
@@ -328,32 +329,36 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
       const stage = page.getByRole("tabpanel").locator(":scope > div").last()
       await stage.scrollIntoViewIfNeeded()
-      await expect(stage.locator(":scope > figure, :scope > div[aria-label], :scope > div:has([role=img])").first()).toBeVisible()
-      if (width <= 639) {
-        const media = stage.locator(":scope > figure, :scope > div[aria-label], :scope > div:has([role=img])").first()
-        const mediaBounds = await media.boundingBox()
-        const ctaBounds = await page.getByRole("tabpanel").getByRole("link").boundingBox()
-        expect(mediaBounds!.y - ctaBounds!.y - ctaBounds!.height, JSON.stringify({ width, tab: await tab.textContent() })).toBeLessThanOrEqual(140)
+      await expect(stage.locator(":scope > figure, :scope > div[aria-label], :scope > div:has([role=img]), :scope > div[data-testid='landing-identity-proof']").first()).toBeVisible()
+      const motion = stage.getByTestId(tid.landingMotionStage).first()
+      if (await tab.textContent() === "Agent identity") {
+        await expect(stage.getByTestId(tid.landingIdentityCardTilt)).toBeVisible()
+        await expect(motion).toHaveCount(0)
+      } else {
+        await expect(motion.locator("[data-camera-scale]")).toHaveCount(1)
+        await expect(motion).not.toHaveAttribute("data-layout", "compact")
       }
-      if (width <= 1024) {
-        await expect(stage.getByTestId(tid.landingMotionStage)).toHaveAttribute("data-layout", "compact")
-        if (await stage.getByTestId(tid.landingIdentityCardTilt).count()) {
-          await expect(stage.getByTestId(tid.landingIdentityCardTilt)).toHaveCSS("transform", "none")
-        }
-        const paragraphs = stage.locator('div[data-visible="true"] p:visible')
-        if (await paragraphs.count()) {
-          const text = await paragraphs.last().evaluate((element, motionStageId) => {
-            const box = element.getBoundingClientRect()
-            const frame = element.closest(`div[data-testid="${motionStageId}"]`)!.getBoundingClientRect()
-            return { size: parseFloat(getComputedStyle(element).fontSize), left: box.left - frame.left, right: box.right - frame.right, bottom: box.bottom - frame.bottom, overflow: element.scrollWidth - element.clientWidth }
-          }, tid.landingMotionStage)
-          expect(text.size).toBeGreaterThanOrEqual(14)
-          expect(text.left).toBeGreaterThanOrEqual(0)
-          expect(text.right).toBeLessThanOrEqual(1)
-          expect(text.overflow).toBeLessThanOrEqual(1)
-          expect(text.bottom).toBeLessThanOrEqual(1)
+      if (await tab.textContent() === "Remote control") {
+        const screenRatio = await motion.evaluate(element => {
+          const canvas = element.firstElementChild!
+          return canvas.getBoundingClientRect().width / element.getBoundingClientRect().width
+        })
+        expect(screenRatio).toBeCloseTo(1, 2)
+        const phone = stage.getByTestId(tid.landingMobileMotionStage)
+        const phoneRatio = await phone.evaluate(element => element.firstElementChild!.getBoundingClientRect().width / element.getBoundingClientRect().width)
+        expect(phoneRatio).toBeCloseTo(1, 2)
+      }
+      if (width === 390) {
+        await page.locator("#product").evaluate(element => element.scrollIntoView({ block: "start" }))
+        for (const element of [page.getByRole("tablist", { name: "Features" }), page.getByRole("tabpanel").getByRole("heading"), page.locator('[data-testid^="landing-section-cta-"]'), stage]) {
+          const rect = await element.boundingBox()
+          expect(rect!.y).toBeGreaterThanOrEqual(0)
+          expect(rect!.y + rect!.height).toBeLessThanOrEqual(844)
         }
       }
+      const tabTops = await tabs.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top))
+      expect(Math.max(...tabTops) - Math.min(...tabTops)).toBeLessThanOrEqual(1)
+      await expect(page.getByRole("button", { name: /feature rotation/ })).toHaveCount(0)
       const geometry = await stage.evaluate(element => {
         const box = element.getBoundingClientRect()
         return { top: box.top + window.scrollY, height: box.height, children: [...element.children].map(child => {
@@ -370,7 +375,7 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
 })
 
 
-test("landing gallery mobile playback keeps full-size readable messages", async ({ page }) => {
+test("landing gallery mobile playback scales the complete original scene", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await page.goto("/", { waitUntil: "networkidle" })
@@ -379,23 +384,74 @@ test("landing gallery mobile playback keeps full-size readable messages", async 
   const motion = stage.getByTestId(tid.landingMotionStage)
   await motion.scrollIntoViewIfNeeded()
   await expect.poll(async () => Number(await motion.getAttribute("data-beat"))).toBeGreaterThanOrEqual(3)
-  const paragraph = stage.locator('div[data-visible="true"] p:visible').first()
-  const geometry = await paragraph.evaluate(async element => {
-    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-    const animations: Animation[] = []
-    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-      animations.push(...parent.getAnimations())
-    }
-    await Promise.all(animations.map(animation => animation.finished.catch(() => undefined)))
-    let scale = 1
-    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-      const transform = getComputedStyle(parent).transform
-      if (transform !== "none") scale *= new DOMMatrix(transform).a
-    }
-    return { scale, size: parseFloat(getComputedStyle(element).fontSize), overflow: element.scrollWidth - element.clientWidth }
+  const geometry = await motion.evaluate(element => {
+    const canvas = element.firstElementChild!
+    const transform = new DOMMatrix(getComputedStyle(canvas).transform)
+    return { width: element.getBoundingClientRect().width, canvasWidth: canvas.clientWidth, scaleX: transform.a, scaleY: transform.d }
   })
-  expect(geometry.scale).toBeGreaterThanOrEqual(0.99)
-  expect(geometry.scale).toBeLessThanOrEqual(1.01)
-  expect(geometry.size).toBeGreaterThanOrEqual(14)
-  expect(geometry.overflow).toBeLessThanOrEqual(1)
+  expect(geometry.canvasWidth).toBe(1120)
+  expect(geometry.scaleX).toBeCloseTo(geometry.width / 1120, 3)
+  expect(geometry.scaleY).toBeCloseTo(geometry.scaleX, 3)
+  await expect(motion.locator("[data-camera-scale]")).toHaveCount(1)
+  await expect.poll(async () => Number(await motion.getAttribute("data-beat"))).toBeGreaterThanOrEqual(6)
+})
+
+
+test("landing gallery reveals offscreen tabs with mouse drag and wheel", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await page.goto("/")
+  const tabs = page.getByRole("tablist", { name: "Features" })
+  await tabs.scrollIntoViewIfNeeded()
+  const box = (await tabs.boundingBox())!
+  await page.mouse.move(box.x + box.width - 20, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + 20, box.y + box.height / 2, { steps: 10 })
+  await page.mouse.up()
+  expect(await tabs.evaluate(element => element.scrollLeft)).toBeGreaterThan(100)
+  await expect(tabs.getByRole("tab", { selected: true })).toHaveText("Collaboration")
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.wheel(0, 800)
+  await expect.poll(() => tabs.evaluate(element => element.scrollLeft + element.clientWidth >= element.scrollWidth - 1)).toBe(true)
+  await tabs.getByRole("tab", { name: "Persistent Memory", exact: true }).click()
+  await expect(tabs.getByRole("tab", { selected: true })).toHaveText("Persistent Memory")
+  await page.mouse.wheel(0, -800)
+  await expect.poll(() => tabs.evaluate(element => element.scrollLeft)).toBe(0)
+  await tabs.getByRole("tab", { name: "Collaboration", exact: true }).click()
+  await expect(tabs.getByRole("tab", { selected: true })).toHaveText("Collaboration")
+})
+
+
+test("landing gallery slides between features and settles the latest selection", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.emulateMedia({ reducedMotion: "no-preference" })
+  await page.goto("/")
+  const tabs = page.getByRole("tablist", { name: "Features" })
+  await tabs.scrollIntoViewIfNeeded()
+  const slide = page.getByTestId("landing-feature-transition")
+  await slide.evaluate(element => {
+    const animate = Element.prototype.animate
+    Element.prototype.animate = function (...args: Parameters<Element["animate"]>) {
+      const animation = animate.apply(this, args)
+      if (this === element.firstElementChild) {
+        const transform = (animation.effect as KeyframeEffect)?.getKeyframes()[0]?.transform
+        if (transform) element.setAttribute("data-observed-transform", String(transform))
+      }
+      return animation
+    }
+  })
+  await tabs.getByRole("tab", { name: "Remote control", exact: true }).click()
+  const forward = await slide.getAttribute("data-observed-transform")
+  expect(forward).toBe("translateX(100%)")
+  await expect(slide).not.toHaveAttribute("data-transitioning", "true")
+  await tabs.getByRole("tab", { name: "Collaboration", exact: true }).click()
+  const backward = await slide.getAttribute("data-observed-transform")
+  expect(backward).toBe("translateX(-100%)")
+  await tabs.getByRole("tab", { name: "Agent identity", exact: true }).click()
+  await tabs.getByRole("tab", { name: "Persistent Memory", exact: true }).click()
+  await expect(slide).not.toHaveAttribute("data-transitioning", "true")
+  await expect(page.getByRole("tabpanel")).toHaveCount(1)
+  await expect(tabs.getByRole("tab", { selected: true })).toHaveText("Persistent Memory")
+  expect(await slide.evaluate(element => ({ count: element.children.length, inert: (element.firstElementChild as HTMLElement).inert }))).toEqual({ count: 1, inert: false })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
 })

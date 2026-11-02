@@ -1,7 +1,7 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useEffect } from "react"
+import { useEffect, type CSSProperties } from "react"
 import {
   DeferredMobileChatMotion as LandingMobileChatMotion,
   DeferredShellMotion as LandingShellMotion,
@@ -36,12 +36,23 @@ function useReducedMotion() {
 export function LandingReachMotion() {
   const maxBeat = SCENE_MAX_BEAT.server
   const reducedMotion = useReducedMotion()
+  const [scale, setScale] = useAtom(useCreateAtom(1))
   const [beat, setBeat] = useAtom(useCreateAtom(0))
   const {
     targetRef: playbackRef,
     isPlaying,
     shouldReset,
   } = useLandingMotionPlayback<HTMLDivElement>()
+
+  useEffect(() => {
+    const stage = playbackRef.current
+    if (!stage) return
+    const sync = () => setScale(stage.getBoundingClientRect().width / 1120)
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(stage)
+    return () => observer.disconnect()
+  }, [playbackRef, setScale])
 
   useEffect(() => {
     setBeat(reducedMotion ? maxBeat : 0)
@@ -68,6 +79,7 @@ export function LandingReachMotion() {
       data-beat={beat}
       aria-label="The same Alook room updating on desktop and mobile"
     >
+      <div className={styles.canvas} style={{ "--reach-scale": scale } as CSSProperties}>
       <div
         className={styles.desktopShell}
         data-slot="laptop-mockup-card"
@@ -105,6 +117,7 @@ export function LandingReachMotion() {
             <span className={styles.phoneHomeIndicator} aria-hidden="true" />
           </div>
         </div>
+      </div>
       </div>
     </div>
   )

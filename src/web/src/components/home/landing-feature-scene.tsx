@@ -1,6 +1,6 @@
 "use client"
 
-import { lazy, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { lazy, useRef, type PointerEvent as ReactPointerEvent } from "react"
 import { ProviderLogo } from "@/components/provider-logo"
 import { LandingReachMotion } from "./landing-reach-motion"
 const LandingShellMotion = lazy(() => import("./landing-shell-motion").then(module => ({ default: module.LandingShellMotion })))
@@ -9,7 +9,7 @@ import { LANDING_GALLERY, LANDING_MACHINE_INTRO, LANDING_PROVIDERS } from "./lan
 import styles from "./landing-page.module.css"
 import galleryStyles from "./landing-feature-gallery.module.css"
 
-function ProductScene({ scene, compact }: { scene: (typeof LANDING_GALLERY)[number]["scene"]; compact?: boolean }) {
+function ProductScene({ scene }: { scene: (typeof LANDING_GALLERY)[number]["scene"] }) {
   const story = LANDING_GALLERY.find((item) => item.scene === scene)
 
   if (!story) return null
@@ -19,7 +19,6 @@ function ProductScene({ scene, compact }: { scene: (typeof LANDING_GALLERY)[numb
       <div className={styles.galleryFrame} role="img" aria-label={story.label}>
         <LandingShellMotion
           scene={story.scene}
-          compact={compact}
           machineIntroDescription={LANDING_MACHINE_INTRO}
         />
       </div>
@@ -27,11 +26,11 @@ function ProductScene({ scene, compact }: { scene: (typeof LANDING_GALLERY)[numb
   )
 }
 
-function ContinuityTimeline({ compact }: { compact: boolean }) {
+function ContinuityTimeline() {
   return (
     <div className={styles.timelineBoard} data-testid="landing-identity-timeline">
       <div className={styles.galleryFrame} role="img" aria-label="Alli follows one request through a DM, Studio, and Home">
-        <LandingShellMotion scene="continuity" compact={compact} />
+        <LandingShellMotion scene="continuity" />
       </div>
     </div>
   )
@@ -98,7 +97,6 @@ function InteractiveIdentityProfileCard() {
       onPointerCancel={resetTilt}
       data-testid="landing-identity-card-tilt"
     >
-      <span className={styles.identityProfileCardSensor} aria-hidden="true" />
       <div className={styles.identityProfileCardSurface}>
         <ProfileCard />
       </div>
@@ -106,81 +104,10 @@ function InteractiveIdentityProfileCard() {
   )
 }
 
-function IdentityProof({ compact }: { compact: boolean }) {
-  const layoutRef = useRef<HTMLDivElement>(null)
-  const cardSlotRef = useRef<HTMLDivElement>(null)
-  const sceneSlotRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const layout = layoutRef.current
-    const cardSlot = cardSlotRef.current
-    const sceneSlot = sceneSlotRef.current
-    const card = cardSlot?.querySelector<HTMLElement>("[data-testid='landing-identity-card-tilt']")
-
-    if (!layout || !cardSlot || !sceneSlot || !card) return
-
-    let frame = 0
-
-    const fitCard = () => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        const cardSlotBounds = cardSlot.getBoundingClientRect()
-        const sceneBounds = sceneSlot.getBoundingClientRect()
-        const sideBySide =
-          sceneBounds.left > cardSlotBounds.left &&
-          Math.abs(sceneBounds.top - cardSlotBounds.top) < 2
-        const scale = sideBySide && !compact
-          ? Math.min(1.08, Math.max(0.5, sceneBounds.height / card.offsetHeight))
-          : 1
-
-        layout.style.setProperty("--identity-card-fit-scale", scale.toFixed(4))
-      })
-    }
-
-    const observer = new ResizeObserver(fitCard)
-    observer.observe(layout)
-    observer.observe(card)
-    observer.observe(sceneSlot)
-    fitCard()
-
-    return () => {
-      cancelAnimationFrame(frame)
-      observer.disconnect()
-    }
-  }, [compact])
-
-  return (
-    <div ref={layoutRef} className={`${styles.identityMediaLayout} ${galleryStyles.identityMedia} ${compact ? galleryStyles.compactIdentity : ""}`} data-testid="landing-identity-proof">
-      <div ref={cardSlotRef} className={styles.identityCardSlot}>
-        <InteractiveIdentityProfileCard />
-      </div>
-      <div ref={sceneSlotRef} className={styles.identitySceneSlot}>
-        <div
-          className={styles.galleryFrame}
-          role="img"
-          aria-label="Maya keeps one identity across Studio, Home, and Game Night"
-          data-testid="landing-identity-motion"
-        >
-          <LandingShellMotion scene="identity" compact={compact} />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export default function LandingFeatureScene({ feature, container }: { feature: string; container: HTMLDivElement | null }) {
-  const [compact, setCompact] = useState(false)
-  useEffect(() => {
-    if (!container) return
-    const sync = () => setCompact(container.getBoundingClientRect().width < (feature === "identity" ? 1040 : 700))
-    sync()
-    const observer = new ResizeObserver(sync)
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [container, feature])
-  if (feature === "identity") return <IdentityProof compact={compact} />
-  if (feature === "continuity") return <ContinuityTimeline compact={compact} />
-  if (feature === "reach") return compact ? <ProductScene scene="server" compact /> : <LandingReachMotion />
-  if (feature === "ownership") return <><ProductScene scene="machine" compact={compact} /><RuntimeBadges /></>
-  return <ProductScene scene="server" compact={compact} />
+export default function LandingFeatureScene({ feature }: { feature: string }) {
+  if (feature === "identity") return <div className={galleryStyles.identityMedia} data-testid="landing-identity-proof"><InteractiveIdentityProfileCard /></div>
+  if (feature === "continuity") return <ContinuityTimeline />
+  if (feature === "reach") return <LandingReachMotion />
+  if (feature === "ownership") return <><ProductScene scene="machine" /><RuntimeBadges /></>
+  return <ProductScene scene="server" />
 }
