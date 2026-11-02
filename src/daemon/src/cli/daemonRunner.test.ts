@@ -3,6 +3,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { gunzipSync } from "node:zlib";
+import { createServer } from "node:http";
+import type { Socket } from "node:net";
+import { WebSocketServer } from "ws";
+import { WsControlChannel, type WebSocketFactory } from "../server/wsControlChannel";
 import type { PreparedDaemon } from "./daemonRunner";
 import {
   createDaemonProcessLogger,
@@ -128,6 +132,74 @@ describe("daemon runner logger", () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-runner-"));
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("retries a stalled real upgrade and resyncs without restarting the runner", async () => {
+    resetDiagnosticHarness();
+    const listenersBefore = processListenerSnapshot();
+    const initError = new Error("capture production transport");
+    runnerDaemonHarness.create.mockRejectedValueOnce(initError);
+    let channel: WsControlChannel | undefined;
+    const server = createServer();
+    const sockets = new Set<Socket>();
+    const wss = new WebSocketServer({ noServer: true });
+    let upgrades = 0;
+    let firstUpgrade!: () => void;
+    const stalled = new Promise<void>((resolve) => { firstUpgrade = resolve; });
+    const frames: Array<Record<string, unknown>> = [];
+    server.on("connection", (socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+    });
+    server.on("upgrade", (request, socket, head) => {
+      upgrades++;
+      if (upgrades === 1) {
+        firstUpgrade();
+        return;
+      }
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        ws.on("message", (data) => frames.push(JSON.parse(String(data))));
+        ws.send(JSON.stringify({ type: "machine:heartbeat", nonce: "recovered" }));
+      });
+    });
+    try {
+      await expect(runPreparedDaemon(preparedDaemon(dir), {
+        foreground: false,
+        releaseOwnership: vi.fn(),
+      })).rejects.toBe(initError);
+      const options = runnerDaemonHarness.create.mock.calls[0]![0] as {
+        webSocketFactory: WebSocketFactory;
+      };
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const port = (server.address() as { port: number }).port;
+      channel = new WsControlChannel({
+        url: `ws://127.0.0.1:${port}`,
+        webSocketFactory: options.webSocketFactory,
+        reconnect: { baseMs: 10, maxMs: 10 },
+      });
+      channel.onResync(() => ({
+        ready: { runtimeReport: [], runningAgents: ["live-agent"] },
+        sessions: [{ agentId: "live-agent", sessionId: "session-kept", launchId: "launch-kept" }],
+      }));
+      channel.connect();
+      await stalled;
+      await vi.waitFor(() => {
+        expect(channel!.status).toBe("open");
+        expect(frames).toEqual(expect.arrayContaining([
+          expect.objectContaining({ type: "ready", runningAgents: ["live-agent"] }),
+          expect.objectContaining({ type: "agent_session", sessionId: "session-kept" }),
+          { type: "machine_heartbeat_ack", nonce: "recovered" },
+        ]));
+      }, { timeout: 35_000, interval: 100 });
+      expect(upgrades).toBe(2);
+    } finally {
+      channel?.close();
+      for (const ws of wss.clients) ws.terminate();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      removeNewProcessListeners(listenersBefore);
+    }
+  }, 40_000);
 
   it("writes one structured JSON record per physical line with secure modes", () => {
     const { logger, logPath } = createDaemonProcessLogger(dir, false);
