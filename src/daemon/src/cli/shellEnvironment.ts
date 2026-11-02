@@ -47,11 +47,11 @@ export function parseShellEnvironment(stdout: Buffer, platform: NodeJS.Platform)
   return result;
 }
 
-export async function readShellEnvironment(options: { env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; timeoutMs?: number } = {}): Promise<NodeJS.ProcessEnv> {
+export async function readShellEnvironment(options: { env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; timeoutMs?: number; spawnProcess?: typeof spawn } = {}): Promise<NodeJS.ProcessEnv> {
   const platform = options.platform ?? process.platform;
   const command = shellEnvironmentCommand(options.env ?? process.env, platform);
   return await new Promise((resolve, reject) => {
-    const child = spawn(command.file, command.args, { env: command.env, detached: platform !== "win32", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
+    const child = (options.spawnProcess ?? spawn)(command.file, command.args, { env: command.env, detached: platform !== "win32", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
     const chunks: Buffer[] = [];
     let bytes = 0;
     let failed = false;

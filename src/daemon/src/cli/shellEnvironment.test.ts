@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 import { parseShellEnvironment, readShellEnvironment, shellEnvironmentCommand } from "./shellEnvironment";
 
 const directories: string[] = [];
@@ -61,4 +62,21 @@ describe("fresh local shell environment", () => {
     expect(fresh.PATH).toBe("C:\\Windows");
     expect(fresh.TOKEN).toBe("line1\nline2");
   });
+
+  it.runIf(process.platform === "win32")("captures real PowerShell profile Unicode through UTF-8 and removes old exports", async () => {
+    const dir = fixture();
+    const profile = join(dir, "profile.ps1");
+    writeFileSync(profile, "\ufeff$env:ALOOK_REFRESH_UNICODE='你好\nline=$literal'\n$env:Path=Join-Path $env:SystemRoot 'System32'\nWrite-Output 'profile startup banner'\n");
+    const quotedProfile = "'" + profile.replaceAll("'", "''") + "'";
+    const quotedMissing = "'" + join(dir, "missing.ps1").replaceAll("'", "''") + "'";
+    const spawnProcess = ((file, args, options) => {
+      const configured = [...args];
+      configured[configured.length - 1] = "$PROFILE=[pscustomobject]@{AllUsersAllHosts=" + quotedMissing + ";AllUsersCurrentHost=" + quotedMissing + ";CurrentUserAllHosts=" + quotedProfile + ";CurrentUserCurrentHost=" + quotedMissing + "}; " + configured.at(-1);
+      return spawn(file, configured, options);
+    }) as typeof spawn;
+    const fresh = await readShellEnvironment({ env: { ...process.env, ALOOK_REFRESH_OLD_FIXTURE: "old" }, spawnProcess, timeoutMs: 10000 });
+    expect(fresh.ALOOK_REFRESH_UNICODE).toBe("你好\nline=$literal");
+    expect(fresh.ALOOK_REFRESH_OLD_FIXTURE).toBeUndefined();
+    expect(fresh.USERNAME).toBe(process.env.USERNAME);
+  }, 15000);
 });
