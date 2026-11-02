@@ -1,4 +1,5 @@
 import { createElement } from "react"
+import { renderToString } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen, setupUser } from "@/test/react-dom-harness"
 import type { LoginMethod } from "@/lib/last-login-method"
@@ -98,6 +99,25 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     })) as never
+  })
+
+  it("enables the same email entry only after hydration and handles its first enabled click", async () => {
+    const element = createElement(SignInPageClient, { isProd: true, appleEnabled: true })
+    const container = document.createElement("div")
+    container.innerHTML = renderToString(element)
+    document.body.appendChild(container)
+    const entry = Array.from(container.querySelectorAll("button")).find(button => button.textContent === "Continue with email")!
+    expect(entry).toBeDisabled()
+    const user = setupUser()
+    await user.click(entry)
+    expect(container.querySelector('input[type="email"]')).toBeNull()
+
+    render(element, { container, hydrate: true })
+    expect(screen.getByRole("button", { name: "Continue with email", exact: true })).toBe(entry)
+    expect(entry).toBeEnabled()
+    await user.click(entry)
+    expect(screen.getByRole("textbox", { name: "Email" })).toBeVisible()
+    expect(mocks.send).not.toHaveBeenCalled()
   })
 
   it("shows only method buttons before opening a separate email screen", async () => {
