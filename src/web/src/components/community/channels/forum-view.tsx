@@ -20,7 +20,7 @@ import type { Member } from "@/lib/community/models/people"
 import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
 import { cn } from "@/lib/utils"
 import { FORUM_ARCHIVE_TAG, getClientPlatform } from "@alook/shared"
-import { FORUM_LIST_SPACING_CLASS, ForumPostList } from "./forum-post-list"
+import { FORUM_LIST_SPACING_CLASS, ForumPostList, ForumPostListItem } from "./forum-post-list"
 import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
@@ -34,7 +34,7 @@ import {
 const MAX_AVATARS = 5
 const MAX_VISIBLE_TAGS = 2
 const POST_ACTION_CLASS = "grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-const POST_ROW_CLASS = "border-b border-border/50 px-4 py-4"
+const POST_ROW_CLASS = "px-4 py-0"
 
 export function shouldActivateForumRow(event: {
   key: string
@@ -295,10 +295,10 @@ export function ForumView({
         posts={posts} loading={loading} observation={observation} positionScope={positionScope}
         hasMore={hasMore} loadingMore={loadingMore} isFetching={isFetching} isError={isError}
         onLoadMore={onLoadMore} onScrollRoot={onScrollRoot} loadingContent={<ForumListSkeleton />}
-        renderPost={(p, index) => {
+        renderPost={(p) => {
               const canEdit = onEditPostTags && canEditPostTags ? canEditPostTags(p) : false
               const canDelete = onDeletePost && canDeletePost ? canDeletePost(p) : false
-              if (canEdit === undefined || canDelete === undefined) return <ForumPostSkeleton key={p.id} postId={p.id} last={index === posts.length - 1} />
+              if (canEdit === undefined || canDelete === undefined) return <ForumPostSkeleton key={p.id} postId={p.id} />
               const archived = p.tags.includes(FORUM_ARCHIVE_TAG)
               const hasOrdinaryTags = p.tags.some((postTag) => postTag !== FORUM_ARCHIVE_TAG)
               const savingTags = savingTagsFor === p.id
@@ -328,7 +328,6 @@ export function ForumView({
                   className={cn(
                     "group/card relative cursor-pointer rounded text-left transition-colors hover:bg-accent/45",
                     POST_ROW_CLASS,
-                    index === posts.length - 1 && "border-b-0",
                   )}
                 >
                   <div className={cn("grid grid-rows-[minmax(2rem,max-content)_auto] gap-x-2", actionCount > 0 ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1")}>
@@ -394,7 +393,7 @@ export function ForumView({
                       </div>
                     )}
 
-                    <p data-slot="community-forum-post-preview" className="col-span-full row-start-2 my-2 line-clamp-2 text-[13.5px] text-muted-foreground">{p.preview}</p>
+                    <p data-slot="community-forum-post-preview" className="col-span-full row-start-2 mb-2 line-clamp-2 text-[13.5px] text-muted-foreground">{p.preview}</p>
                   </div>
                   <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <Avatar label={author.avatar} seed={p.authorId} size={20} />
@@ -444,17 +443,17 @@ export function ForumView({
 
 // Loading placeholder for the forum post list. It mirrors the flat rows so the
 // page does not flash back to the old card treatment while data is loading.
-function ForumPostSkeleton({ postId, last = false }: { postId?: string; last?: boolean }) {
+function ForumPostSkeleton({ postId }: { postId?: string }) {
   return (
     <div
       data-slot="community-forum-post-skeleton"
       data-testid={postId === undefined ? undefined : tid.forumThreadCard(postId)}
       aria-busy="true"
       aria-label="Loading post"
-      className={cn("flex flex-col", POST_ROW_CLASS, last && "border-b-0")}
+      className={cn("flex flex-col", POST_ROW_CLASS)}
     >
       <div className="flex min-h-8 items-center"><Skeleton className="h-4 w-2/3 rounded" /></div>
-      <div className="my-2 space-y-2">
+      <div className="mb-2 space-y-2">
         <Skeleton className="h-3 w-full rounded" />
         <Skeleton className="h-3 w-4/5 rounded" />
       </div>
@@ -470,7 +469,7 @@ function ForumPostSkeleton({ postId, last = false }: { postId?: string; last?: b
 function ForumListSkeleton() {
   return (
     <div className="flex flex-col">
-      {Array.from({ length: 3 }).map((_, i) => <ForumPostSkeleton key={i} last={i === 2} />)}
+      {Array.from({ length: 3 }).map((_, i) => <ForumPostListItem key={i} first={i === 0}><ForumPostSkeleton /></ForumPostListItem>)}
     </div>
   )
 }

@@ -70,6 +70,7 @@ async function rect(locator: Locator): Promise<Rect | null> {
 }
 
 async function postActionGeometry(card: Locator, postId: string) {
+  await expectForumPostSpacing(card, postId)
   return card.evaluate((element, titleId) => {
     const readRect = (target: Element | null) => {
       if (!target) throw new Error("Missing Forum geometry target")
@@ -85,6 +86,68 @@ async function postActionGeometry(card: Locator, postId: string) {
       virtualHeight: readRect(row?.parentElement ?? null).height,
     }
   }, tid.forumThreadTitle(postId))
+}
+
+async function expectForumPostSpacing(card: Locator, postId: string) {
+  await expect(card).toHaveCSS("padding-top", "0px")
+  await expect(card).toHaveCSS("padding-bottom", "0px")
+  const geometry = await card.evaluate((element, ids) => {
+    const item = element.closest('[data-slot="community-forum-list-item"]')!
+    const virtual = item.closest<HTMLElement>("[data-index]")!
+    const index = Number(virtual.dataset.index)
+    const separator = item.querySelector(':scope > [data-slot="separator"]')
+    const preview = element.querySelector('[data-slot="community-forum-post-preview"]')!
+    const title = element.querySelector(`[data-testid="${ids.title}"]`)!
+    const metadata = element.lastElementChild!
+    const previous = virtual.parentElement?.querySelector(`[data-index="${index - 1}"] [data-page-swipe-navigation-row]`)
+    const box = element.getBoundingClientRect()
+    const line = separator?.getBoundingClientRect()
+    const style = getComputedStyle(element)
+    const listStyle = getComputedStyle(element.closest(`[data-testid="${ids.list}"]`)!)
+    const lineStyle = separator && getComputedStyle(separator)
+    return {
+      index,
+      listPadding: [listStyle.paddingTop, listStyle.paddingRight, listStyle.paddingBottom, listStyle.paddingLeft],
+      postPadding: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft],
+      postBorder: style.borderBottomWidth,
+      titleHeight: title.getBoundingClientRect().height,
+      titleToPreview: preview.getBoundingClientRect().top - title.getBoundingClientRect().bottom,
+      previewToMetadata: metadata.getBoundingClientRect().top - preview.getBoundingClientRect().bottom,
+      itemHeight: item.getBoundingClientRect().height,
+      virtualHeight: virtual.getBoundingClientRect().height,
+      endsWithPost: item.lastElementChild === element,
+      separator: line && lineStyle ? {
+        height: line.height, leftDifference: line.left - box.left, rightDifference: line.right - box.right,
+        marginTop: Number.parseFloat(lineStyle.marginTop), marginBottom: Number.parseFloat(lineStyle.marginBottom),
+        afterGap: box.top - line.bottom,
+        previousGap: previous ? line.top - previous.getBoundingClientRect().bottom : null,
+        sameColorToken: separator!.classList.contains("bg-border/50"),
+        outsidePost: !element.contains(separator),
+      } : null,
+    }
+  }, { title: tid.forumThreadTitle(postId), list: tid.forumPostList })
+  expect(geometry.listPadding).toEqual(["0px", "0px", "0px", "0px"])
+  expect(geometry.postPadding).toEqual(["0px", "16px", "0px", "16px"])
+  expect(geometry.postBorder).toBe("0px")
+  expect(geometry.titleHeight).toBeGreaterThanOrEqual(32)
+  expect(geometry.titleToPreview).toBeCloseTo(0, 1)
+  expect(geometry.previewToMetadata).toBeCloseTo(8, 1)
+  expect(geometry.virtualHeight).toBeCloseTo(geometry.itemHeight, 1)
+  expect(geometry.endsWithPost).toBe(true)
+  if (geometry.index === 0) expect(geometry.separator).toBeNull()
+  else {
+    expect(geometry.separator).not.toBeNull()
+    const line = geometry.separator!
+    expect(line.height).toBe(1)
+    expect(line.leftDifference).toBeCloseTo(0, 1)
+    expect(line.rightDifference).toBeCloseTo(0, 1)
+    expect(line.marginTop).toBeCloseTo(6.6, 1)
+    expect(line.marginBottom).toBe(0)
+    expect(line.afterGap).toBeCloseTo(0, 1)
+    if (line.previousGap !== null) expect(line.previousGap).toBeCloseTo(6.6, 1)
+    expect(line.sameColorToken).toBe(true)
+    expect(line.outsidePost).toBe(true)
+  }
 }
 
 async function expectNewPostGeometry(
@@ -307,6 +370,7 @@ async function expectNarrowGeometry(
     scroll: document.documentElement.scrollWidth,
   }))
   expect(documentWidth.scroll, `${role}@${width}: horizontal overflow`).toBe(documentWidth.client)
+  await expectForumPostSpacing(card, postId)
 }
 
 async function expectFilterRail(

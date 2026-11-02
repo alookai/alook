@@ -12,11 +12,12 @@ import { visibleVirtualItems } from "@/lib/observability/virtual-window"
 import type { ForumThread } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import { EmptyState } from "../empty-state"
+import { Separator } from "@/components/ui/separator"
 import { VirtualRows } from "../messages/virtual-cursor-list"
 import { useInitialPositionTransition } from "../messages/initial-position-transition"
 
 const OVERSCAN = 5
-export const FORUM_LIST_SPACING_CLASS = "px-0 py-2"
+export const FORUM_LIST_SPACING_CLASS = "p-0"
 const forumRangeExtractor = (range: Range) => defaultRangeExtractor({ ...range, overscan: range.overscan + range.endIndex - range.startIndex + 1 })
 type Props = {
   posts: ForumThread[]
@@ -31,6 +32,13 @@ type Props = {
   onScrollRoot?: (node: HTMLDivElement | null) => void
   loadingContent: ReactNode
   renderPost: (post: ForumThread, index: number) => ReactNode
+}
+
+export function ForumPostListItem({ first, children }: { first: boolean; children: ReactNode }) {
+  return <div data-slot="community-forum-list-item" className="flow-root">
+    {!first && <Separator aria-hidden="true" className="mt-[6.6px] mb-0 bg-border/50" />}
+    {children}
+  </div>
 }
 
 export function ForumPostList(props: Props) {
@@ -87,10 +95,12 @@ function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 128,
     measureElement: (element, entry, instance) => {
-      const size = measureElement(element, entry, instance)
-      if (size > 0) return size
       const index = instance.indexFromElement(element)
       const cached = instance.itemSizeCache.get(instance.options.getItemKey(index))
+      const size = instance.options.useCachedMeasurements || (!entry && cached !== undefined)
+        ? measureElement(element, entry, instance)
+        : entry?.borderBoxSize?.[0]?.blockSize ?? element.getBoundingClientRect().height
+      if (size > 0) return size
       return cached && cached > 0 ? cached : instance.options.estimateSize(index)
     },
     getItemKey,
@@ -122,7 +132,8 @@ function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore,
       className={`flex-1 overflow-y-auto thin-scrollbar [overflow-anchor:none] ${FORUM_LIST_SPACING_CLASS}`}>
     {!posts.length && loading ? <div data-message-list-content aria-hidden="true" inert data-read-position-ready="false" />
       : !posts.length ? <div data-message-list-content aria-hidden="false" data-read-position-ready="true"><EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." /></div>
-      : <VirtualRows directDomUpdatesMode="position" items={posts} virtualizer={virtualizer} renderItem={renderPost}
+      : <VirtualRows directDomUpdatesMode="position" items={posts} virtualizer={virtualizer}
+        renderItem={(post, index) => <ForumPostListItem first={index === 0}>{renderPost(post, index)}</ForumPostListItem>}
         containerAttributes={{ "data-message-list-content": "", "aria-hidden": !presentation.contentVisible, inert: !presentation.contentInteractive,
           "data-read-position-ready": positionReady ? "true" : "false" }} />}
     </div>

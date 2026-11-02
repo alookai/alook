@@ -93,6 +93,11 @@ it("reveals each card only after its own action decisions settle", () => {
     },
   })
   const view = render(node())
+  const list = view.getByTestId(tid.forumPostList)
+  const items = Array.from(list.querySelectorAll('[data-slot="community-forum-list-item"]'))
+  expect(items.map(item => item.querySelectorAll('[data-slot="separator"]').length)).toEqual([0, 1, 1])
+  for (const separator of list.querySelectorAll('[data-slot="separator"]')) fireEvent.click(separator)
+  expect(open).not.toHaveBeenCalled()
   const readyPeer = view.getByTestId(tid.forumThreadCard(cards[0].id))
   for (const post of cards.slice(1)) {
     const pending = view.getByTestId(tid.forumThreadCard(post.id))
@@ -268,7 +273,7 @@ it("keeps a new Forum instance at the start through hidden mounting and positive
       Object.defineProperties(node, {
         clientWidth: { configurable: true, get: () => visible ? 390 : 0 },
         clientHeight: { configurable: true, get: () => visible ? 751 : 0 },
-        scrollHeight: { configurable: true, get: () => visible ? Math.max(node.clientHeight, (Number.parseFloat((node.firstElementChild as HTMLElement)?.style.height ?? "0") || 0) + 16) : 0 },
+        scrollHeight: { configurable: true, get: () => visible ? Math.max(node.clientHeight, Number.parseFloat((node.firstElementChild as HTMLElement)?.style.height ?? "0") || 0) : 0 },
         scrollTo: { configurable: true, value: ({ top = 0 }: ScrollToOptions) => {
           node.scrollTop = Math.max(0, Math.min(top, node.scrollHeight - node.clientHeight))
           writes.push(node.scrollTop)
@@ -318,4 +323,46 @@ it("keeps a new Forum instance at the start through hidden mounting and positive
   const returned = enter()
   expect(returned.root).not.toBe(first.root)
   returned.view.unmount()
+})
+
+it("retains fractional measured items across append and temporarily unmeasurable rows", () => {
+  rowHeight = index => index === 0 ? 92 : 99.6
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    return new DOMRect(0, Number.parseFloat(this.style.top) || 0, 390,
+      this.hasAttribute("data-index") ? rowHeight(Number(this.dataset.index)) : this.clientHeight)
+  })
+  const props = {
+    forumChannelId: "forum-fractional", members: [], posts: posts.slice(0, 20), tag: "All",
+    onTagChange: () => {}, onOpenPost: () => {},
+    onScrollRoot: (node: HTMLDivElement | null) => {
+      if (node) mockElementGeometry(node, { clientHeight: 500, clientWidth: 390, scrollHeight: 2100 })
+    },
+  }
+  const view = render(createElement(ForumView, props))
+  const root = view.getByTestId(tid.forumPostList)
+  const deliver = () => act(() => {
+    for (const [callback, nodes] of observers) {
+      const entries = [...nodes].filter(node => node.hasAttribute("data-index")).map<ResizeObserverEntry>(node => {
+        const size = rowHeight(Number((node as HTMLElement).dataset.index))
+        return { target: node, borderBoxSize: [{ blockSize: size, inlineSize: 390 }],
+          contentBoxSize: [{ blockSize: size, inlineSize: 390 }], devicePixelContentBoxSize: [],
+          contentRect: new DOMRect(0, 0, 390, size) }
+      })
+      if (entries.length) callback(entries, {} as ResizeObserver)
+    }
+  })
+  deliver()
+  const rows = Array.from(root.querySelectorAll<HTMLElement>("[data-index]"))
+  expect(rows.length).toBeGreaterThan(8)
+  for (const row of rows) {
+    const index = Number(row.dataset.index)
+    expect(Number.parseFloat(row.style.top)).toBeCloseTo(index === 0 ? 0 : 92 + (index - 1) * 99.6, 6)
+  }
+  const positions = rows.map(row => row.style.top)
+  view.rerender(createElement(ForumView, { ...props, posts: posts.slice(0, 21) }))
+  deliver()
+  expect(rows.map(row => row.style.top)).toEqual(positions)
+  rowHeight = () => 0
+  deliver()
+  expect(rows.map(row => row.style.top)).toEqual(positions)
 })

@@ -162,13 +162,26 @@ describe("ForumView post card header", () => {
     expect(html).toContain("-webkit-line-clamp:1")
   })
 
-  it("uses a flat hairline row instead of the old bordered card", () => {
+  it("keeps post padding separate from the independent divider", () => {
     const html = render([makePost()])
     const testIdIndex = html.indexOf(tid.forumThreadCard("p1"))
     const rowMarkup = html.slice(Math.max(0, testIdIndex - 250), testIdIndex + 350)
-    expect(rowMarkup).toContain("border-border/50")
+    expect(rowMarkup).toContain("px-4 py-0")
+    expect(rowMarkup).not.toContain("border-b")
     expect(rowMarkup).not.toContain("bg-card")
     expect(rowMarkup).not.toContain("rounded-lg border")
+  })
+
+  it.each([0, 1, 3])("renders only between-post separators for %i posts", count => {
+    const html = render(Array.from({ length: count }, (_, index) => makePost({ id: `p${index}` })))
+    const [actual, positioning] = html.split("data-forum-positioning-skeleton")
+    expect(actual.match(/data-slot="separator"/g) ?? []).toHaveLength(Math.max(0, count - 1))
+    expect(actual.match(/data-slot="community-forum-list-item"/g) ?? []).toHaveLength(count)
+    if (positioning) {
+      expect(positioning.match(/data-slot="separator"/g)).toHaveLength(2)
+      expect(positioning.match(/data-slot="community-forum-list-item"/g)).toHaveLength(3)
+    }
+    if (count > 1) expect(html).toContain("mt-[6.6px] mb-0 bg-border/50")
   })
 
   it("solo post renders the creator name and no participant AvatarGroup", () => {
@@ -428,7 +441,7 @@ describe("ForumView filter bar / composer swap", () => {
     expect(railMarkup).toContain('tabindex="0"')
     expect(html).not.toContain(tid.forumTagFadeLeft)
     expect(html).not.toContain(tid.forumTagFadeRight)
-    expect(listMarkup).toContain("px-0")
+    expect(listMarkup).toContain("p-0")
     expect(listMarkup).not.toContain("sm:px-4")
   })
 
@@ -484,7 +497,8 @@ describe("ForumView filter bar / composer swap", () => {
     expect(html).not.toContain("sm:overflow-x-visible")
     expect(html.match(/rounded-lg/g)).toHaveLength(4)
     expect(html).toContain("pointer-events-none")
-    expect(html).toContain("px-0 py-2")
+    expect(html).toContain("p-0")
+    expect(html.match(/data-slot="separator"/g)).toHaveLength(2)
     expect(html).not.toContain("sm:px-4")
     expect(html.match(/min-h-8/g)).toHaveLength(3)
   })
