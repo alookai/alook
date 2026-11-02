@@ -1,4 +1,4 @@
-import { MachineRefreshCommandSchema, type MachineRefreshResult } from "./machine-refresh-contract";
+import { MachineRefreshCommandSchema } from "./machine-refresh-contract";
 import { PiiCommandSchema, type PiiCommand, type PiiResultFrame } from "./pii-contract";
 import type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
 /**
@@ -912,8 +912,6 @@ export interface HostReadyRuntime {
 
 /** What the host reports to the server on connect (the registration handshake). */
 export interface HostReady {
-  refreshRequestId?: string;
-  refreshResult?: MachineRefreshResult;
   /**
    * Runtime descriptors. Legacy `runtimes: string[]` has been dropped from
    * the wire — `MIN_CLI_VERSION` gates old daemons off. The daemon MUST ship

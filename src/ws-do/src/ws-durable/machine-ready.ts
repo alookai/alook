@@ -89,11 +89,6 @@ export async function handleReadyFrame(
       : []
   const controlHeartbeat = ready.capabilities.includes(CONTROL_HEARTBEAT_CAPABILITY)
   const state = ws.deserializeAttachment() as import("./internal").ConnectionState
-  const startupRequestId = state?.type === "community-machine"
-    ? state.controlHeartbeat === undefined ? ready.refreshRequestId : state.refreshStartupRequestId
-    : undefined
-  const refreshResult = ready.refreshResult?.status === "complete"
-    && startupRequestId !== ready.refreshResult.requestId ? undefined : ready.refreshResult
   if (
     state?.type === "community-machine" &&
     state.authenticated &&
@@ -107,7 +102,6 @@ export async function handleReadyFrame(
       modelDiscovery: ready.capabilities.includes(RUNTIME_MODEL_DISCOVERY_CAPABILITY),
       machineStop: ready.capabilities.includes(MACHINE_STOP_CAPABILITY),
       machineRefresh: ready.capabilities.includes(MACHINE_REFRESH_CAPABILITY),
-      ...(startupRequestId ? { refreshStartupRequestId: startupRequestId } : {}),
       ...(controlHeartbeat ? { lastHeartbeatAckAt: Date.now() } : {}),
       pendingHeartbeatNonce: undefined,
     })
@@ -206,11 +200,10 @@ export async function handleReadyFrame(
     const nextCanonical = canonicalRuntimes(availableRuntimes)
     // Runtime status/lastError drift is machine metadata drift and must reach
     // open clients even when the runtime set and versions are unchanged.
-    if (refreshResult || priorStatus !== "online" || priorCanonical !== nextCanonical || priorDaemonVersion !== daemonVersion) {
+    if (priorStatus !== "online" || priorCanonical !== nextCanonical || priorDaemonVersion !== daemonVersion) {
       await notifyUserDO(context, identity.userId, {
         type: WS_EVENTS.MACHINE_UPDATED,
         machine: summary,
-        ...(refreshResult ? { refreshResult } : {}),
       }, { machineOnlineTransition: priorStatus !== "online" })
     }
 

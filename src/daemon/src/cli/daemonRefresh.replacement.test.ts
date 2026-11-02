@@ -53,11 +53,11 @@ describe("Refresh replacement authority", () => {
     await replaceDaemonForRefresh(input());
     expect(boundary.stopExactDaemonPid).toHaveBeenCalledExactlyOnceWith(context.pid);
     expect(boundary.daemonResume).toHaveBeenCalledExactlyOnceWith({ id: context.machineId,
-      baseDir: context.baseDir, requestId, refreshResult: { requestId, status: "complete" } });
+      baseDir: context.baseDir, requestId });
     expect(boundary.removeReplacementLockIfMatches).toHaveBeenCalledExactlyOnceWith("fixture.lock", { requestId });
   });
 
-  it("rolls back once with the previous environment and never reports completion after startup failure", async () => {
+  it("rolls back once with the previous environment after startup failure", async () => {
     const environments: Array<NodeJS.ProcessEnv> = [];
     process.env.ALOOK_REFRESH_FIXTURE = "fresh";
     process.env.ALOOK_REFRESH_FRESH_ONLY = "fresh-only";
@@ -70,7 +70,6 @@ describe("Refresh replacement authority", () => {
     expect(environments[1].ALOOK_REFRESH_FIXTURE).toBe("prior");
     expect(environments[1].ALOOK_REFRESH_FRESH_ONLY).toBeUndefined();
     expect(boundary.daemonResume).toHaveBeenCalledTimes(2);
-    expect(boundary.daemonResume.mock.calls[1][0].refreshResult).toEqual({ requestId, status: "error", code: "restart_failed" });
     expect(boundary.removeReplacementLockIfMatches).toHaveBeenCalledOnce();
   });
 });
@@ -109,15 +108,15 @@ describe("Refresh helper IPC", () => {
     expect(boundary.stopExactDaemonPid).not.toHaveBeenCalled();
   });
 
-  it.each(["success", "ownership_changed", "restart_failed"])("disconnects after %s and reports only fixed failure metadata", async (outcome) => {
+  it.each(["success", "ownership_changed", "restart_failed"])("disconnects after %s and preserves failure status", async (outcome) => {
     const ipc = parentIpc();
     if (outcome === "ownership_changed") boundary.readPidFile.mockReturnValue(undefined);
     if (outcome === "restart_failed") boundary.daemonResume.mockRejectedValue(new Error("PRIVATE_STARTUP_DETAIL"));
-    const pending = daemonRefreshFromIpc();
+    const operation = daemonRefreshFromIpc();
+    const pending = outcome === "success" ? operation : expect(operation).rejects.toThrow();
     deliver(input());
     await pending;
     expect(ipc.disconnect).toHaveBeenCalledOnce();
-    if (outcome === "success") expect(ipc.send).not.toHaveBeenCalled();
-    else expect(ipc.send).toHaveBeenCalledExactlyOnceWith({ requestId, status: "error", code: outcome }, expect.any(Function));
+    expect(ipc.send).not.toHaveBeenCalled();
   });
 });

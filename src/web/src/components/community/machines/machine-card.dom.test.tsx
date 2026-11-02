@@ -17,10 +17,10 @@ describe("restored machine observations", () => {
     expect(onStop).not.toHaveBeenCalled()
   })
 
-  it.each(["online", "offline"] as const)("keeps refresh progress visible and blocks competing commands while %s", async status => {
+  it.each(["online", "offline"] as const)("blocks competing commands during refresh delivery while %s", async status => {
     const action = vi.fn()
-    const view = render(<MachineCard machine={{ ...stable, status }} onDelete={action} onReconnect={action} onRefresh={action} onUpdate={action} onStop={action} refreshFeedback={{ status: "pending", message: "Refresh requested. Waiting for the new daemon to connect…" }} />)
-    expect(view.getByRole("status")).toHaveTextContent("Waiting for the new daemon")
+    const view = render(<MachineCard machine={{ ...stable, status }} onDelete={action} onReconnect={action} onRefresh={action} onUpdate={action} onStop={action} refreshing />)
+    expect(view.queryByRole("status")).toBeNull()
     expect(view.queryByRole("button", { name: "Reconnect" })).toBeNull()
     fireEvent.click(view.getByRole("button", { name: "Machine actions" }))
     const items = await view.findAllByRole("menuitem")
@@ -29,13 +29,6 @@ describe("restored machine observations", () => {
       fireEvent.click(item)
     }
     expect(action).not.toHaveBeenCalled()
-  })
-
-  it("keeps a failed refresh distinct from presence and offers reconnection when offline", () => {
-    const view = render(<MachineCard machine={{ ...stable, status: "offline" }} onDelete={() => {}} onReconnect={() => {}} onRefresh={() => {}} refreshFeedback={{ status: "error", message: "Refresh could not be confirmed. Check this machine and reconnect if needed." }} />)
-    expect(view.getByRole("alert")).toHaveTextContent("could not be confirmed")
-    expect(view.getByText("Offline")).toBeInTheDocument()
-    expect(view.getByRole("button", { name: "Reconnect" })).toBeEnabled()
   })
 
   it("shows Stop only online and disables it during dispatch", async () => {
@@ -55,6 +48,7 @@ describe("restored machine observations", () => {
     fireEvent.click(view.getByRole("button", { name: "Machine actions" }))
     await view.findByRole("menuitem", { name: "Reconnect…" })
     expect(view.queryByRole("menuitem", { name: "Stop" })).toBeNull()
+    expect(view.queryByRole("menuitem", { name: "Refresh…" })).toBeNull()
   })
 
   it("shows the stable card and unknown observations until live data arrives", () => {

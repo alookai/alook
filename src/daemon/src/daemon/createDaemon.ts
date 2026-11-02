@@ -1,4 +1,3 @@
-import type { MachineRefreshResult } from "@alook/shared";
 /**
  * createDaemon — the real daemon, end-to-end.
  *
@@ -329,8 +328,7 @@ export interface CreateDaemonOptions {
   /** B2b interception seam; B2c supplies the local collector/uploader. */
   handleDiagnosticCommand?: (command: DiagnosticCollectCommand) => void | Promise<void>;
   /** Machine-level lifecycle command; consumed before bot observers/router. */
-  refreshRequestId?: string;
-  handleRefresh?: (requestId: string) => Promise<MachineRefreshResult | undefined>;
+  handleRefresh?: () => Promise<void>;
   handleSelfUpdate?: () => void | Promise<void>;
   onStopRequested?: () => void;
   /** Fixed-code failure callback used when diagnostics is not available. */
@@ -350,7 +348,6 @@ export interface CreateDaemonOptions {
 }
 
 export interface RunningDaemon {
-  reportRefreshResult(result: MachineRefreshResult): void;
   /** True once the control plane is open (machine key accepted). */
   isOpen(): boolean;
   /**
@@ -1127,7 +1124,6 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     runtimeReport: opts.runtimeReport,
     supportsMachineStop: typeof opts.onStopRequested === "function",
     supportsMachineRefresh: typeof opts.handleRefresh === "function",
-    refreshRequestId: opts.refreshRequestId,
     hostname: opts.hostname,
     platform: opts.platform,
     arch: opts.arch,
@@ -1198,13 +1194,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   });
   channel.onCommand((command) => {
     if (command.type !== "machine:refresh") return;
-    void opts.handleRefresh?.(command.requestId).then((result) => {
-      if (result && router) channel.sendReady({ ...router.buildReady(), refreshResult: result });
-    }).catch(() => {
-      if (router) channel.sendReady({ ...router.buildReady(), refreshResult: {
-        requestId: command.requestId, status: "error", code: "restart_failed",
-      } });
-    });
+    void opts.handleRefresh?.().catch(() => { log.warn("machine refresh failed"); });
     return WS_CONTROL_COMMAND_CONSUMED;
   });
   channel.onCommand(createSelfUpdateCommandListener(opts.handleSelfUpdate));
@@ -1255,7 +1245,6 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   selfSleepScheduler?.start();
 
   return {
-    reportRefreshResult: (result) => router?.reportRefreshResult(result),
     isOpen: () => !stopping && channel.status === "open",
     // `channel.connect()` already ran above, so a caller registering here is
     // racing the first open: if the socket won that race the hook would never

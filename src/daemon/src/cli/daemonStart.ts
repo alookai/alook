@@ -17,7 +17,6 @@ import { withoutNpmExecPackage } from "../npmEnvironment.js";
 import { runPreparedDaemon, type DaemonReadyReceipt, type PreparedDaemon } from "./daemonRunner.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
-  type MachineRefreshResult,
   CommunityDaemonActivateErrorResponseSchema,
   CommunityDaemonActivateResponseSchema,
   parseReleaseVersion,
@@ -786,7 +785,6 @@ export interface DaemonStartOpts {
   foreground?: boolean;
   /** Internal-only replacement lock bypass. Never exposed on normal start. */
   resumeRequestId?: string;
-  refreshResult?: MachineRefreshResult;
   /** Internal reconnect guard sent to /activate before any credential rotate. */
   expectedMachineId?: string;
   /** Internal reconnect state hook; never logs or exposes the pairing token. */
@@ -1079,7 +1077,6 @@ async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart>
       launchLockPath,
       prepared: {
         machineId,
-        refreshResult: opts.refreshResult,
         machineKey,
         serverUrl,
         wsUrl,
@@ -1106,7 +1103,6 @@ async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart>
 }
 
 export async function daemonResume(opts: {
-  refreshResult?: MachineRefreshResult;
   id: string;
   baseDir?: string;
   requestId: string;
@@ -1126,7 +1122,6 @@ export async function daemonResume(opts: {
     wsUrl: record.wsUrl,
     baseDir,
     resumeRequestId: opts.requestId,
-    refreshResult: opts.refreshResult,
   });
 }
 
@@ -1368,9 +1363,6 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     const receiptPromise = waitForReceipt(child, prepared);
     await sendPrepared(child, prepared);
     const receipt = await receiptPromise;
-    if (prepared.refreshResult) await new Promise<void>((resolve, reject) => {
-      child.send!({ type: "daemon:committed", requestId: prepared.refreshResult!.requestId }, (error) => error ? reject(error) : resolve());
-    });
     removeOwnedFile(launchLockPath, process.pid, prepared.ownerToken);
     child.unref();
     log.info(`daemon started in background (pid ${receipt.pid}); log ${receipt.logPath}`);
@@ -1410,7 +1402,7 @@ export async function daemonRunFromIpc(ipc: typeof process = process): Promise<n
         foreground: false,
         onReady: (receipt) => {
           if (process.env.NODE_ENV === "test" && process.env.ALOOK_DAEMON_TEST_SKIP_READY === "1") return;
-          sendIpcBestEffort(ipc, receipt, !prepared.refreshResult);
+          sendIpcBestEffort(ipc, receipt, true);
         },
         releaseOwnership: () => {
           const marker = process.env.ALOOK_DAEMON_TEST_RELEASE_MARKER;

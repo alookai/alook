@@ -47,11 +47,11 @@ export async function pushMachineStop(env: Env, machineId: string): Promise<Mach
   }
 }
 
-export async function pushMachineRefresh(env: Env, machineId: string, requestId: string): Promise<MachineLifecyclePushResult> {
+export async function pushMachineRefresh(env: Env, machineId: string): Promise<MachineLifecyclePushResult> {
   try {
     const response = await wsDoFetch(env,
       `/community-machine/by-id/${encodeURIComponent(machineId)}/forward-refresh`,
-      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "machine:refresh", requestId }) },
+      { method: "POST" },
       { label: machineId, type: "machine:refresh" })
     return await readMachineLifecycleDelivery(response)
   } catch {

@@ -91,9 +91,16 @@ vi.mock("./guide-me-avatar-motion", () => ({
   },
 }))
 vi.mock("./machine-card", () => ({
-  MachineCard: ({ machine, onStop, stopping }: { machine: { id: string; status: string }; onStop?: () => void; stopping?: boolean }) => React.createElement("div", { "data-testid": `machine-row-${machine.id}`, "data-status": machine.status }, onStop ? React.createElement("button", { onClick: onStop, disabled: stopping }, "Stop") : null),
+  MachineCard: ({ machine, onStop, stopping, onRefresh, refreshing }: { machine: { id: string; status: string }; onStop?: () => void; stopping?: boolean; onRefresh?: () => void; refreshing?: boolean }) => React.createElement("div", { "data-testid": `machine-row-${machine.id}`, "data-status": machine.status },
+    onStop ? React.createElement("button", { onClick: onStop, disabled: stopping || refreshing }, "Stop") : null,
+    onRefresh ? React.createElement("button", { onClick: onRefresh, disabled: stopping || refreshing }, "Refresh") : null),
   MachineCardFrame: ({ children }: React.PropsWithChildren) =>
     React.createElement("machine-card-frame", {}, children),
+}))
+vi.mock("./machine-refresh-dialog", () => ({
+  MachineRefreshDialog: ({ machine, onOpenChange, onConfirm }: { machine: unknown; onOpenChange: (open: boolean) => void; onConfirm: (machine: unknown) => void }) => machine ? React.createElement("div", {},
+    React.createElement("button", { onClick: () => onOpenChange(false) }, "Cancel refresh"),
+    React.createElement("button", { onClick: () => onConfirm(machine) }, "Confirm refresh")) : null,
 }))
 vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: ({ open, onLimitReached }: { open: boolean; onLimitReached: () => void }) => open ? React.createElement("button", { "data-testid": "test-pair-sheet", onClick: onLimitReached }, "Simulate server limit") : null }))
 vi.mock("@/components/community/onboarding-tiles/connect-tile", () => ({ ConnectTile: () => null }))
@@ -263,6 +270,63 @@ describe("machine daemon update UI", () => {
     fireEvent.click(view.getByRole("button", { name: "Stop" }))
     await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith("Stop requested"))
     expect(mocks.apiFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it("cancels Refresh without sending a command", () => {
+    mocks.machines.current = [machine()]
+    const view = render(React.createElement(MachineList))
+    fireEvent.click(view.getByRole("button", { name: "Refresh", exact: true }))
+    fireEvent.click(view.getByRole("button", { name: "Cancel refresh" }))
+    expect(view.queryByRole("button", { name: "Confirm refresh" })).toBeNull()
+    expect(mocks.apiFetch).not.toHaveBeenCalled()
+  })
+
+  it("dispatches Refresh once without a body and releases pending on delivery alone", async () => {
+    mocks.machines.current = [machine()]
+    let finish!: (value: unknown) => void
+    mocks.apiFetch.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const view = render(React.createElement(MachineList))
+    fireEvent.click(view.getByRole("button", { name: "Refresh", exact: true }))
+    fireEvent.click(view.getByRole("button", { name: "Confirm refresh" }))
+    fireEvent.click(view.getByRole("button", { name: "Refresh", exact: true }))
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledOnce())
+    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/community/machines/machine-1/refresh", expect.objectContaining({ method: "POST" }))
+    expect(mocks.apiFetch.mock.calls[0][1].body).toBeUndefined()
+    expect(view.getByRole("button", { name: "Refresh", exact: true })).toBeDisabled()
+    expect(view.getByRole("button", { name: "Stop" })).toBeDisabled()
+    expect(mocks.toastSuccess).not.toHaveBeenCalled()
+    await act(async () => { finish({ dispatched: true }) })
+    await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledExactlyOnceWith("Refresh requested"))
+    expect(view.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled()
+    expect(view.getByTestId("machine-row-machine-1")).toHaveAttribute("data-status", "online")
+  })
+
+  it("allows Refresh retry after delivery failure without claiming a restart", async () => {
+    mocks.machines.current = [machine()]
+    mocks.apiFetch.mockRejectedValueOnce(new Error("could not deliver the daemon refresh command")).mockResolvedValueOnce({ dispatched: true })
+    const view = render(React.createElement(MachineList))
+    fireEvent.click(view.getByRole("button", { name: "Refresh", exact: true }))
+    fireEvent.click(view.getByRole("button", { name: "Confirm refresh" }))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("could not deliver the daemon refresh command"))
+    expect(mocks.toastSuccess).not.toHaveBeenCalled()
+    fireEvent.click(view.getByRole("button", { name: "Refresh", exact: true }))
+    fireEvent.click(view.getByRole("button", { name: "Confirm refresh" }))
+    await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith("Refresh requested"))
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not show a Refresh receipt after leaving the view", async () => {
+    mocks.machines.current = [machine()]
+    let finish!: (value: unknown) => void
+    mocks.apiFetch.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const view = render(React.createElement(MachineList))
+    fireEvent.click(view.getByRole("button", { name: "Refresh", exact: true }))
+    fireEvent.click(view.getByRole("button", { name: "Confirm refresh" }))
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledOnce())
+    view.unmount()
+    await act(async () => { finish({ dispatched: true }) })
+    expect(mocks.toastSuccess).not.toHaveBeenCalled()
+    expect(mocks.toastError).not.toHaveBeenCalled()
   })
 
   it("shows Retry when the list is unknown rather than claiming no machines exist", () => {

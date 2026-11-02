@@ -44,25 +44,16 @@ describe("ws-do router", () => {
   })
 
   describe("Refresh dispatch", () => {
-    const requestId = "26aac14d-dfd6-4e96-821c-ebf538316f79"
-    const refreshRequest = (body: unknown) => new Request("http://localhost/community-machine/by-id/machine-1/forward-refresh", {
-      method: "POST", body: JSON.stringify(body),
-    })
-    it("sends the exact correlated command through the capability-gated route", async () => {
+    it("constructs the fixed capability-gated command without forwarding client input", async () => {
       mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a"])
       doMock.stubFetch.mockResolvedValue(Response.json({ sent: 1, unsupported: 0 }))
-      const command = { type: "machine:refresh", requestId }
-      expect(await (await handler.fetch(refreshRequest(command), env as any)).json()).toEqual({ sent: 1, unsupported: 0 })
-      const request = doMock.stubFetch.mock.calls[0]![0] as Request
-      expect(request.url).toBe("http://internal/refresh")
-      expect(await request.json()).toEqual(command)
-    })
-    it("rejects executable, environment and invalid-ID inputs before machine resolution", async () => {
-      for (const body of [{ type: "machine:refresh", requestId, env: { SECRET: "private" } }, { type: "machine:refresh", requestId: "bad" }]) {
-        expect((await handler.fetch(refreshRequest(body), env as any)).status).toBe(400)
-      }
-      expect(mockGetActiveDoNamesForMachine).not.toHaveBeenCalled()
-      expect(doMock.stubFetch).not.toHaveBeenCalled()
+      const request = new Request("http://localhost/community-machine/by-id/machine-1/forward-refresh", {
+        method: "POST", body: JSON.stringify({ env: { SECRET: "private" }, command: "shell" }),
+      })
+      expect(await (await handler.fetch(request, env as any)).json()).toEqual({ sent: 1, unsupported: 0 })
+      const forwarded = doMock.stubFetch.mock.calls[0]![0] as Request
+      expect(forwarded.url).toBe("http://internal/refresh")
+      expect(await forwarded.json()).toEqual({ type: "machine:refresh" })
     })
   })
 

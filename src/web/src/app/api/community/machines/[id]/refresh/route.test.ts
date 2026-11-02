@@ -11,8 +11,7 @@ vi.mock("@/lib/middleware/auth", () => ({
 }))
 
 import { POST } from "./route"
-const requestId = "26aac14d-dfd6-4e96-821c-ebf538316f79"
-const request = (body: unknown = { requestId }) => new NextRequest("http://localhost/api/community/machines/m/refresh", { method: "POST", body: JSON.stringify(body) })
+const request = () => new NextRequest("http://localhost/api/community/machines/m/refresh", { method: "POST" })
 const context = { params: Promise.resolve({ id: "m" }) }
 
 describe("POST /api/community/machines/[id]/refresh", () => {
@@ -57,18 +56,16 @@ describe("POST /api/community/machines/[id]/refresh", () => {
     getMachine.mockResolvedValue(machine)
     const response = await POST(request(), context)
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ dispatched: true, requestId })
+    expect(await response.json()).toEqual({ dispatched: true })
     expect(machine).toEqual({ id: "m", userId: "owner", status: "online" })
-    expect(pushRefresh).toHaveBeenCalledWith({ DB: {} }, "m", requestId)
+    expect(pushRefresh).toHaveBeenCalledWith({ DB: {} }, "m")
   })
-  it("rejects extra environment, shell and credential fields before any machine lookup", async () => {
-    for (const body of [{ requestId, env: { KEY: "private" } }, { requestId, command: "shell" }, { requestId: "invalid" }]) {
-      const response = await POST(request(body), context)
-      expect(response.status).toBe(400)
-      expect(await response.text()).not.toContain("private")
-    }
-    expect(getMachine).not.toHaveBeenCalled()
-    expect(pushRefresh).not.toHaveBeenCalled()
-  })
-
-})
+  it("ignores supplied input and dispatches only the owner-scoped machine action", async () => {
+    const input = new NextRequest("http://localhost/api/community/machines/m/refresh", {
+      method: "POST", body: JSON.stringify({ env: { KEY: "private" }, command: "shell" }),
+    });
+    const response = await POST(input, context);
+    expect(await response.json()).toEqual({ dispatched: true });
+    expect(pushRefresh).toHaveBeenCalledExactlyOnceWith({ DB: {} }, "m");
+  });
+});

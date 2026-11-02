@@ -1,4 +1,4 @@
-import { MachineRefreshCommandSchema, readBoundedJsonRequest, queries } from "@alook/shared"
+import { queries } from "@alook/shared"
 import type { RouterContext } from "../router-context"
 
 export async function handleMachineLifecycleCommand({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
@@ -9,14 +9,6 @@ export async function handleMachineLifecycleCommand({ request, env, url, traceId
   const stopping = route[2] === "stop"
   const refreshing = route[2] === "refresh"
   const gated = stopping || refreshing
-  let refreshCommand: unknown
-  if (refreshing) {
-    try {
-      const input = await readBoundedJsonRequest(request, 1024)
-      refreshCommand = MachineRefreshCommandSchema.parse(input.ok ? input.value : null)
-    }
-    catch { return Response.json({ error: "invalid refresh request" }, { status: 400 }) }
-  }
   const command = refreshing ? "machine:refresh" : stopping ? "machine:stop" : "machine:update"
   const reqLog = log.child({ traceId, machineId })
   reqLog.debug("forwarding machine lifecycle command", { command })
@@ -32,7 +24,7 @@ export async function handleMachineLifecycleCommand({ request, env, url, traceId
   }
   if (doNames.length === 0) return Response.json(gated ? { sent: 0, unsupported: 0 } : { sent: 0 })
 
-  const frame = JSON.stringify(refreshing ? refreshCommand : { type: command })
+  const frame = JSON.stringify({ type: command })
   let delivered = 0
   let unsupported = 0
   let transientFailure = false

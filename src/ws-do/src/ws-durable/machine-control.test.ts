@@ -68,14 +68,14 @@ describe("WebSocketDurableObject", () => {
     expect(JSON.stringify([...store])).not.toContain(command.operation.text)
   })
 
-  it("forwards a Refresh UUID only to authenticated Refresh-capable daemon sockets", async () => {
+  it("forwards the fixed Refresh command only to authenticated Refresh-capable daemon sockets", async () => {
     const { durable, getWebSockets } = createDO()
     const supported = createMockWebSocket(), legacy = createMockWebSocket(), unauthed = createMockWebSocket()
     supported.serializeAttachment({ type: "community-machine", authenticated: true, machineId: "machine", userId: "owner", machineRefresh: true })
     legacy.serializeAttachment({ type: "community-machine", authenticated: true, machineId: "machine", userId: "owner" })
     unauthed.serializeAttachment({ type: "community-machine", authenticated: false, machineId: "machine", userId: "owner", machineRefresh: true })
     getWebSockets.mockReturnValue([supported, legacy, unauthed])
-    const command = { type: "machine:refresh", requestId: "26aac14d-dfd6-4e96-821c-ebf538316f79" }
+    const command = { type: "machine:refresh" }
     const response = await durable.fetch(new Request("http://internal/refresh", { method: "POST", body: JSON.stringify(command) }))
     expect(await response.json()).toEqual({ sent: 1, unsupported: 1 })
     expect(supported.send).toHaveBeenCalledWith(JSON.stringify(command))

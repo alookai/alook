@@ -34,8 +34,8 @@ import { apiFetch, getErrorMessage } from "@/lib/api/client"
 import { fetchLatestDaemonVersion } from "@/lib/api/config"
 import { getAppMode } from "@/lib/utils"
 import { machineName } from "@/lib/community/machine-name"
-import { MachineCardFrame } from "./machine-card"
-import { RefreshableMachineCard } from "./refreshable-machine-card"
+import { MachineCard, MachineCardFrame } from "./machine-card"
+import { MachineRefreshDialog } from "./machine-refresh-dialog"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
 import { ConnectTile } from "@/components/community/onboarding-tiles/connect-tile"
 import { useObservedRegion } from "@/lib/observability/regions"
@@ -233,8 +233,10 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const [connectedHostname, setConnectedHostname] = useAtom(useCreateAtom<string | null>(null))
   const [deleteMachineId, setDeleteMachineId] = useAtom(useCreateAtom<string | null>(null))
   const [updateMachineId, setUpdateMachineId] = useAtom(useCreateAtom<string | null>(null))
-  const pendingStopsAtom = useCreateAtom(new Set<string>())
-  const [pendingStops, setPendingStops] = useAtom(pendingStopsAtom)
+  const [refreshMachineId, setRefreshMachineId] = useAtom(useCreateAtom<string | null>(null))
+  const pendingCommandsAtom = useCreateAtom(new Map<string, "stop" | "refresh">())
+  const [pendingCommands, setPendingCommands] = useAtom(pendingCommandsAtom)
+  const confirmRefresh = machines.find((machine) => machine.id === refreshMachineId) ?? null
   const confirmDelete = machines.find((machine) => machine.id === deleteMachineId) ?? null
   const confirmUpdate = machines.find((machine) => machine.id === updateMachineId) ?? null
   const setConfirmDelete = (machine: MachineSummary | null) => setDeleteMachineId(machine?.id ?? null)
@@ -249,7 +251,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   })
   const latestVersion = versionQuery.data?.version ?? null
   const machineCommand = useMutation({ meta: { observabilityAction: "machine.command" }, mutationKey: ["community", "machine-command"], scope: { id: "community-machine-command" },
-    mutationFn: async ({ kind, id, token, assert }: { kind: "delete" | "update" | "stop"; id: string; token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
+    mutationFn: async ({ kind, id, token, assert }: { kind: "delete" | "update" | "stop" | "refresh"; id: string; token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
       origin.assert(token)
       const key = communityKeys.machines()
       const original = captureMachinesPublication(queryClient)
@@ -369,20 +371,20 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     }
   }
 
-  const stopMachine = async (machine: MachineSummary) => {
-    if (!isPresenceOnline(machine.status) || pendingStopsAtom.get().has(machine.id)) return
+  const dispatchMachineCommand = async (machine: MachineSummary, kind: "stop" | "refresh") => {
+    if (!isPresenceOnline(machine.status) || pendingCommandsAtom.get().has(machine.id)) return
     const assert = source.capture(), token = origin.begin().token
     assert()
-    setPendingStops((current) => new Set(current).add(machine.id))
+    setPendingCommands((current) => new Map(current).set(machine.id, kind))
     try {
-      await machineCommand.mutateAsync({ kind: "stop", id: machine.id, token, assert })
+      await machineCommand.mutateAsync({ kind, id: machine.id, token, assert })
       assert()
-      toast.success("Stop requested")
+      toast.success(kind === "stop" ? "Stop requested" : "Refresh requested")
     } catch (error) {
       try { assert() } catch { return }
-      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(getErrorMessage(error, "Couldn't request the daemon stop"))
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(getErrorMessage(error, `Couldn't request the daemon ${kind}`))
     } finally {
-      setPendingStops((current) => { const next = new Set(current); next.delete(machine.id); return next })
+      setPendingCommands((current) => { const next = new Map(current); next.delete(machine.id); return next })
     }
   }
 
@@ -504,13 +506,15 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
           </header>
         )}
         cards={machines.map((m) => (
-          <RefreshableMachineCard
+          <MachineCard
             key={m.id}
             machine={m}
             onDelete={() => setConfirmDelete(m)}
             onReconnect={() => openReconnect(m)}
-            onStop={isPresenceOnline(m.status) ? () => void stopMachine(m) : undefined}
-            stopping={pendingStops.has(m.id)}
+            onStop={isPresenceOnline(m.status) ? () => void dispatchMachineCommand(m, "stop") : undefined}
+            stopping={pendingCommands.get(m.id) === "stop"}
+            onRefresh={isPresenceOnline(m.status) ? () => setRefreshMachineId(m.id) : undefined}
+            refreshing={pendingCommands.get(m.id) === "refresh"}
             onUpdate={
               canUpdateMachine(m, latestVersion, controllerMode)
                 ? () => setConfirmUpdate(m)
@@ -528,6 +532,14 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
         setPendingTokenId={handleSetPendingTokenId}
         connectedHostname={connectedHostname}
         mode={pairMode}
+      />
+      <MachineRefreshDialog
+        machine={confirmRefresh}
+        onOpenChange={(open) => !open && setRefreshMachineId(null)}
+        onConfirm={(machine) => {
+          setRefreshMachineId(null)
+          void dispatchMachineCommand(machine, "refresh")
+        }}
       />
       <MachineUpdateDialog
         machine={confirmUpdate}

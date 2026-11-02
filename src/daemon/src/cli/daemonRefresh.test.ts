@@ -6,8 +6,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDaemonRefreshHandler } from "./daemonRefresh";
 
-const requestId = "26aac14d-dfd6-4e96-821c-ebf538316f79";
-const otherId = "0325c31a-c586-42c9-9f3f-a1ffce80b7ac";
 const directories: string[] = [];
 afterEach(() => { vi.unstubAllEnvs(); for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 function context() {
@@ -18,94 +16,74 @@ function context() {
   writeFileSync(join(baseDir, "daemons", value.machineId, "daemon.pid"), JSON.stringify(value));
   return value;
 }
+function helper() {
+  return Object.assign(new EventEmitter(), { send: vi.fn(), unref: vi.fn(), channel: { unref: vi.fn() } }) as unknown as ChildProcess;
+}
 
 describe("Refresh preparation", () => {
-  it("keeps the old daemon on environment failure and exposes only a fixed error", async () => {
+  it("keeps the old daemon on environment failure and permits a later retry", async () => {
     const spawnProcess = vi.fn();
-    const handler = createDaemonRefreshHandler(context(), { spawnProcess,
-      readEnvironment: async () => { throw new Error("PRIVATE_PROVIDER_VALUE"); } });
-    expect(await handler(requestId)).toEqual({ requestId, status: "error", code: "environment_unavailable" });
+    const readEnvironment = vi.fn(async () => { throw new Error("environment failed"); });
+    const handler = createDaemonRefreshHandler(context(), { spawnProcess, readEnvironment });
+    for (let attempt = 0; attempt < 2; attempt++) await expect(handler()).rejects.toThrow("environment failed");
+    expect(readEnvironment).toHaveBeenCalledTimes(2);
     expect(spawnProcess).not.toHaveBeenCalled();
   });
 
-  it("coalesces repeated requests during preparation and rejects competing requests", async () => {
+  it("coalesces commands while environment preparation is active", async () => {
     let fail!: (error: Error) => void;
     const readEnvironment = vi.fn(() => new Promise<NodeJS.ProcessEnv>((_resolve, reject) => { fail = reject; }));
     const handler = createDaemonRefreshHandler(context(), { readEnvironment });
-    const pending = handler(requestId);
-    expect(await handler(requestId)).toBeUndefined();
-    expect(await handler(otherId)).toEqual({ requestId: otherId, status: "error", code: "refresh_in_progress" });
+    const pending = expect(handler()).rejects.toThrow("failed");
+    await handler();
     expect(readEnvironment).toHaveBeenCalledOnce();
     fail(new Error("failed"));
     await pending;
   });
 
-  it("checks ownership again after asynchronous environment capture", async () => {
+  it.each(["before", "after"])("checks ownership %s environment capture", async (stage) => {
     const owner = context();
+    const replaceOwner = () => writeFileSync(join(owner.baseDir, "daemons", owner.machineId, "daemon.pid"), JSON.stringify({ ...owner, pid: 454545 }));
+    if (stage === "before") replaceOwner();
     const spawnProcess = vi.fn();
-    const handler = createDaemonRefreshHandler(owner, { spawnProcess, readEnvironment: async () => {
-      writeFileSync(join(owner.baseDir, "daemons", owner.machineId, "daemon.pid"), JSON.stringify({ ...owner, pid: 454545 }));
-      return { HOME: "/tmp", PATH: "/bin" };
-    } });
-    expect(await handler(requestId)).toEqual({ requestId, status: "error", code: "ownership_changed" });
+    const readEnvironment = vi.fn(async () => { replaceOwner(); return { PATH: "/bin" }; });
+    await expect(createDaemonRefreshHandler(owner, { spawnProcess, readEnvironment })()).rejects.toThrow("ownership_changed");
+    expect(readEnvironment).toHaveBeenCalledTimes(stage === "before" ? 0 : 1);
     expect(spawnProcess).not.toHaveBeenCalled();
   });
 
-  it("launches the current executable and sends the prior environment only over local IPC", async () => {
-    const child = new EventEmitter() as ChildProcess;
-    Object.assign(child, { send: vi.fn(), unref: vi.fn(), channel: { unref: vi.fn() } });
+  it("launches the current executable and sends correlation and prior environment only over local IPC", async () => {
+    const child = helper();
     const spawnProcess = vi.fn(() => child);
+    vi.stubEnv("ALOOK_DAEMON_PACKAGE_WRAPPER", "1");
     const handler = createDaemonRefreshHandler(context(), { spawnProcess: spawnProcess as never,
       readEnvironment: async () => ({ HOME: "/tmp", PATH: "/bin", ALOOK_SENTINEL: "new-value" }) });
-    const pending = handler(requestId);
+    const pending = handler();
     await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledOnce());
     const [file, args, options] = spawnProcess.mock.calls[0] as unknown as [string, string[], { env: NodeJS.ProcessEnv }];
     expect(file).toBe(process.execPath);
     expect(args).toContain("refresh-run");
     expect(args.some((arg) => /^(?:npm|npx|--package=|cmk_)|@latest/.test(arg))).toBe(false);
-    expect(options.env.ALOOK_SENTINEL).toBe("new-value");
-    expect(child.send).toHaveBeenCalledWith(expect.objectContaining({ requestId, priorEnvironment: expect.any(Object) }), expect.any(Function));
-    child.emit("message", { requestId, status: "error", code: "ownership_changed" });
-    expect(await pending).toEqual({ requestId, status: "error", code: "ownership_changed" });
+    expect(options.env).toMatchObject({ ALOOK_SENTINEL: "new-value", ALOOK_DAEMON_PACKAGE_WRAPPER: "1", NODE_ENV: "test" });
+    expect(child.send).toHaveBeenCalledWith(expect.objectContaining({ requestId: expect.stringMatching(/^[\da-f-]{36}$/), priorEnvironment: expect.any(Object) }), expect.any(Function));
+    await handler();
+    expect(spawnProcess).toHaveBeenCalledOnce();
+    child.emit("exit", 0);
+    await pending;
   });
 
-  it("replays the completed startup result instead of restarting a second time", async () => {
-    const readEnvironment = vi.fn();
-    const handler = createDaemonRefreshHandler(context(), { completedRequestId: () => requestId, readEnvironment });
-    expect(await handler(requestId)).toEqual({ requestId, status: "complete" });
-    expect(readEnvironment).not.toHaveBeenCalled();
-  });
-
-  it.each(["spawn", "send"])("returns a fixed failure after %s failure and releases the active request", async (stage) => {
-    const child = new EventEmitter() as ChildProcess;
-    Object.assign(child, { send: vi.fn((_message, callback) => callback(new Error("PRIVATE_IPC_DETAIL"))),
-      unref: vi.fn(), channel: { unref: vi.fn() } });
-    const spawnProcess = vi.fn(() => { if (stage === "spawn") throw new Error("PRIVATE_SPAWN_DETAIL"); return child; });
+  it.each(["spawn", "send", "error", "exit"])("releases preparation after helper %s failure", async (stage) => {
+    const child = helper();
+    child.send = vi.fn((_message, callback) => { if (stage === "send") callback(new Error("send failed")); }) as never;
+    const spawnProcess = vi.fn(() => { if (stage === "spawn") throw new Error("spawn failed"); return child; });
     const handler = createDaemonRefreshHandler(context(), { spawnProcess: spawnProcess as never,
       readEnvironment: async () => ({ HOME: "/tmp", PATH: "/bin" }) });
-    for (const id of [requestId, otherId]) expect(await handler(id)).toEqual({ requestId: id, status: "error", code: "restart_failed" });
-    expect(spawnProcess).toHaveBeenCalledTimes(2);
-  });
-
-  it("rejects a stale default handler before environment discovery", async () => {
-    const owner = context();
-    writeFileSync(join(owner.baseDir, "daemons", owner.machineId, "daemon.pid"), JSON.stringify({ ...owner, ownerToken: "successor" }));
-    expect(await createDaemonRefreshHandler(owner)(requestId)).toEqual({ requestId, status: "error", code: "ownership_changed" });
-  });
-
-  it.each(["error", "exit"])("bounds helper %s and ignores late unrelated receipts", async (event) => {
-    const child = new EventEmitter() as ChildProcess;
-    Object.assign(child, { send: vi.fn((_message, callback) => callback()), unref: vi.fn(), channel: { unref: vi.fn() } });
-    vi.stubEnv("ALOOK_DAEMON_PACKAGE_WRAPPER", "1");
-    vi.stubEnv("NODE_ENV", "production");
-    const handler = createDaemonRefreshHandler(context(), { spawnProcess: vi.fn(() => child) as never,
-      readEnvironment: async () => ({ HOME: "/tmp", PATH: "/bin" }) });
-    const pending = handler(requestId);
-    await vi.waitFor(() => expect(child.send).toHaveBeenCalledOnce());
-    child.emit("message", { requestId: otherId, status: "complete" });
-    child.emit("message", { invalid: true });
-    child.emit(event, new Error("PRIVATE_HELPER_DETAIL"));
-    expect(await pending).toEqual({ requestId, status: "error", code: "restart_failed" });
-    child.emit("message", { requestId, status: "complete" });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const pending = expect(handler()).rejects.toThrow();
+      await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(attempt + 1));
+      if (stage === "error") child.emit("error", new Error("helper failed"));
+      if (stage === "exit") child.emit("exit", 1);
+      await pending;
+    }
   });
 });

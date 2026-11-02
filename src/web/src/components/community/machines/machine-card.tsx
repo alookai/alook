@@ -22,11 +22,6 @@ export function MachineCardFrame({ children }: { children: ReactNode }) {
   return <Card className="flex flex-col gap-3 p-4">{children}</Card>
 }
 
-export type MachineRefreshFeedback = {
-  status: "pending" | "success" | "error"
-  message: string
-}
-
 export function MachineCard({
   machine,
   onDelete,
@@ -35,7 +30,7 @@ export function MachineCard({
   onStop,
   stopping = false,
   onRefresh,
-  refreshFeedback,
+  refreshing = false,
 }: {
   machine: MachineSummary
   onDelete: () => void
@@ -44,10 +39,9 @@ export function MachineCard({
   onStop?: () => void
   stopping?: boolean
   onRefresh?: () => void
-  refreshFeedback?: MachineRefreshFeedback
+  refreshing?: boolean
 }) {
   const isOnline = isPresenceOnline(machine.status)
-  const refreshing = refreshFeedback?.status === "pending"
   const lastSeenLabel = useMemo(
     () => machine.lastSeenAt === undefined ? "Last seen unknown" : machine.lastSeenAt ? `Last seen · ${timeAgo(machine.lastSeenAt)}` : "Never seen",
     [machine.lastSeenAt]
@@ -98,15 +92,6 @@ export function MachineCard({
                 {machine.lastSeenAt ?? "—"}
               </TooltipContent>
             </Tooltip>
-            {refreshFeedback && (
-              <p
-                data-testid={tid.machineRefreshStatus(machine.id)}
-                role={refreshFeedback.status === "error" ? "alert" : "status"}
-                className={`text-sm ${refreshFeedback.status === "error" ? "text-destructive" : "text-muted-foreground"}`}
-              >
-                {refreshFeedback.message}
-              </p>
-            )}
             {machine.lastRuntimeError && (
               <div className="mt-2 rounded-md border border-destructive/20 bg-destructive/5 p-2 text-xs text-destructive">
                 <span className="font-medium">Runtime not available</span>
@@ -139,7 +124,7 @@ export function MachineCard({
                 onClick={onRefresh}
                 disabled={refreshing || stopping}
               >
-                {refreshing ? "Refreshing…" : "Refresh…"}
+                {refreshing ? "Sending refresh…" : "Refresh…"}
               </DropdownMenuItem>
             )}
             {onUpdate && (
