@@ -8,6 +8,7 @@ import {
   isCommunityEventCandidate,
   visibilityIsDmParticipant,
   type Database,
+  type CommunityMachineUpdated,
 } from "@alook/shared"
 import type { UserConnectionState, WsDurableContext } from "./internal"
 import { createInternalBrowserBroadcastRequest } from "../internal-user-broadcast"
@@ -144,6 +145,7 @@ export async function notifyUserDO(
   context: WsDurableContext,
   userId: string,
   payload: unknown,
+  options?: { machineOnlineTransition: boolean },
 ): Promise<void> {
   const normalized = normalizeBrowserPayload(context, payload)
   if (!normalized.ok) return
@@ -160,7 +162,7 @@ export async function notifyUserDO(
     }
 
     try {
-      const status = machineStatusPayload(outboundPayload)
+      const status = machineStatusPayload(outboundPayload, options?.machineOnlineTransition ?? false)
       if (!status) return
       const db = createDb(context.env.DB)
       const bots = await queries.communityBot.listBotsForMachine(db, status.machineId)
@@ -176,9 +178,13 @@ export async function notifyUserDO(
   }
 }
 
-function machineStatusPayload(payload: unknown): { machineId: string; online: boolean } | null {
+function machineStatusPayload(payload: unknown, machineOnlineTransition: boolean): { machineId: string; online: boolean } | null {
   if (typeof payload !== "object" || payload === null) return null
-  const p = payload as { type?: unknown; machineId?: unknown; status?: unknown }
+  const p = payload as { type?: unknown; machineId?: unknown; status?: unknown; machine?: unknown }
+  if (p.type === WS_EVENTS.MACHINE_UPDATED && machineOnlineTransition) {
+    const { machine } = payload as CommunityMachineUpdated
+    return { machineId: machine.id, online: machine.status === "online" }
+  }
   if (p.type !== WS_EVENTS.MACHINE_STATUS) return null
   if (typeof p.machineId !== "string") return null
   if (p.status !== "online" && p.status !== "offline") return null

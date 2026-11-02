@@ -850,6 +850,61 @@ describe("WebSocketDurableObject", () => {
         )
       })
 
+      it.each([
+        ["0.1.62", "0.1.63", false],
+        ["0.1.63", "0.1.63", false],
+        ["0.1.62", "0.1.63", true],
+        ["0.1.63", "0.1.63", true],
+      ] as const)("publishes one full online machine on ready %s to %s, owner failure=%s", async (priorDaemonVersion, daemonVersion, ownerFailure) => {
+        const { durable, store, storage } = createDO()
+        seedIdentity(store)
+        const machine = { id: "cm_1", hostname: "host", daemonVersion, availableRuntimes: [], status: "online", lastSeenAt: "2026-11-02T00:00:00.000Z" }
+        mockUpsertMachineByMachineId.mockResolvedValue({ machine, priorAvailableRuntimes: [], priorDaemonVersion, priorStatus: "offline" })
+        mockListBotsForMachine.mockResolvedValue([{ id: "bot-1", name: "Bot", discriminator: "0001", description: "" }])
+        mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+        if (ownerFailure) mockStubFetch.mockRejectedValueOnce(new Error("owner unavailable"))
+
+        const frame = JSON.stringify({ type: "ready", runtimeReport: [], capabilities: ["control-heartbeat-v1"], runningAgents: [], daemonVersion })
+        const ws = machineWs()
+        await durable.webSocketMessage(ws as WebSocket, frame)
+        const bodies = await Promise.all(mockStubFetch.mock.calls.map(async ([request]) => await (request as Request).clone().json() as { type: string; machine?: { id: string; status: string; daemonVersion: string }; userId?: string; online?: boolean }))
+        const machineEvents = bodies.filter(body => body.type.startsWith("community:machine."))
+        expect(machineEvents).toEqual([expect.objectContaining({ type: "community:machine.updated", machine: expect.objectContaining({ id: "cm_1", status: "online", daemonVersion }) })])
+        expect(bodies.filter(body => body.type === "community:presence.update")).toEqual([expect.objectContaining({ userId: "bot-1", online: true })])
+        expect(mockListBotsForMachine).toHaveBeenCalledExactlyOnceWith({}, "cm_1")
+        expect(storage.setAlarm).toHaveBeenCalledTimes(1)
+        expect(ws.close).not.toHaveBeenCalled()
+        expect(mockLogWarn).not.toHaveBeenCalledWith("ws_frame_dropped", expect.anything())
+
+        mockStubFetch.mockClear()
+        mockListBotsForMachine.mockClear()
+        mockUpsertMachineByMachineId.mockResolvedValue({ machine, priorAvailableRuntimes: [], priorDaemonVersion: daemonVersion, priorStatus: "online" })
+        await durable.webSocketMessage(machineWs() as WebSocket, frame)
+        expect(mockStubFetch).not.toHaveBeenCalled()
+        expect(mockListBotsForMachine).not.toHaveBeenCalled()
+      })
+
+      it("keeps the complete owner publication and heartbeat when bound-bot lookup fails", async () => {
+        const { durable, store, storage } = createDO()
+        seedIdentity(store)
+        const machine = { id: "cm_1", hostname: "host", daemonVersion: "0.1.63", availableRuntimes: [], status: "online", lastSeenAt: "2026-11-02T00:00:00.000Z" }
+        mockUpsertMachineByMachineId.mockResolvedValue({ machine, priorAvailableRuntimes: [], priorDaemonVersion: "0.1.62", priorStatus: "offline" })
+        mockListBotsForMachine.mockRejectedValueOnce(new Error("D1 unavailable"))
+        const ws = machineWs()
+
+        await durable.webSocketMessage(ws as WebSocket, JSON.stringify({
+          type: "ready", runtimeReport: [], capabilities: ["control-heartbeat-v1"], runningAgents: [], daemonVersion: "0.1.63",
+        }))
+
+        expect(mockStubFetch).toHaveBeenCalledTimes(1)
+        const body = await (mockStubFetch.mock.calls[0]![0] as Request).clone().json()
+        expect(body).toMatchObject({ type: "community:machine.updated", machine: { id: "cm_1", status: "online", daemonVersion: "0.1.63" } })
+        expect(mockListBotsForMachine).toHaveBeenCalledExactlyOnceWith({}, "cm_1")
+        expect(storage.setAlarm).toHaveBeenCalledTimes(1)
+        expect(ws.close).not.toHaveBeenCalled()
+        expect(mockLogWarn).not.toHaveBeenCalledWith("ws_frame_dropped", expect.anything())
+      })
+
       it("emits machine.updated for status or lastError drift and emits nothing for steady metadata", async () => {
         const { durable, store } = createDO()
         seedIdentity(store)
@@ -881,6 +936,7 @@ describe("WebSocketDurableObject", () => {
         )
         expect(driftBodies.filter((body) => body.type === "community:machine.updated")).toHaveLength(1)
         expect(driftBodies.filter((body) => body.type === "community:machine.status")).toHaveLength(0)
+        expect(mockListBotsForMachine).not.toHaveBeenCalled()
 
         mockStubFetch.mockClear()
         mockUpsertMachineByMachineId.mockResolvedValue({

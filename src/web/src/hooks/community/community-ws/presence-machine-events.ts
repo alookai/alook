@@ -88,11 +88,13 @@ export async function handleMachineStatus(
 
 export async function handleMachineUpdated(
   event: CommunityMachineUpdated,
-  { queryClient }: PresenceMachineEventContext,
+  { queryClient, onMachineOnline }: PresenceMachineEventContext,
 ) {
   const original = captureMachinesPublication(queryClient)
+  let becameOnline = false
   const published = await publishMachines(queryClient, original,
     (prev) => {
+      becameOnline = event.machine.status === "online" && prev?.machines.find(machine => machine.id === event.machine.id)?.status !== "online"
       if (!prev) return { machines: [event.machine], complete: false }
       const idx = prev.machines.findIndex((m) => m.id === event.machine.id)
       if (idx === -1) return replaceMachines(prev, [event.machine, ...prev.machines])
@@ -104,6 +106,7 @@ export async function handleMachineUpdated(
   if (!published) return
   assertCommunityLiveSnapshotTokenCurrent(queryClient, original.token, undefined)
   if (queryClient.getQueryCache().get(original.query.queryHash) !== original.query) return
+  if (becameOnline) onMachineOnline?.()
   const current = queryClient.getQueryData<MachinesResponse>(original.query.queryKey)
   if (current?.complete === false || current?.observed === false) void queryClient.invalidateQueries({ queryKey: communityKeys.machines(), exact: true })
 }

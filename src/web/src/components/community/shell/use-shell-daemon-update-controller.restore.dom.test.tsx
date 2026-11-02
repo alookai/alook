@@ -8,11 +8,13 @@ import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { communityKeys } from "@/lib/query-keys"
 import { createIdbPersister, PERSIST_BUSTER } from "@/lib/query-persister"
 import type { MachinesResponse, MachineSummary } from "@/hooks/community/use-machines"
+import type { CommunityMachineSummary } from "@alook/shared"
 import { initialUserBarExtensionState, userBarExtensionReducer, type UserBarExtensionState } from "@/components/community/shell/user-bar-extension-state"
 import { daemonUpdateCollapseStorageKey, useShellDaemonUpdateController } from "./use-shell-daemon-update-controller"
+import { handleMachineUpdated } from "@/hooks/community/community-ws/presence-machine-events"
 const transport = vi.hoisted(() => ({ load: vi.fn() }))
 vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => transport.load(...args) }))
-const machine: MachineSummary = { id: "machine-1", hostname: "fixture", displayName: "Fixture", platform: "darwin", arch: "arm64", osRelease: "26.0", daemonVersion: "0.1.34", status: "online", lastSeenAt: null, availableRuntimes: [], createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }
+const machine: CommunityMachineSummary = { id: "machine-1", hostname: "fixture", displayName: "Fixture", platform: "darwin", arch: "arm64", osRelease: "26.0", daemonVersion: "0.1.34", status: "online", lastSeenAt: null, availableRuntimes: [], createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }
 it.each([false, true])("preserves collapsed preference through native restored list; empty=%s", async empty => {
   const owner = await createCommunityQueryOwner("user-1")
   const disk = createIdbPersister("user-1")
@@ -125,6 +127,46 @@ it("syncs the same eligible machine identity only when its partial list becomes 
   } finally {
     view.unmount(); owner.client.clear()
     await act(async () => { release({ machines: rows, complete: true }) })
+    window.localStorage.removeItem(key)
+  }
+})
+
+it.each([
+  ["0.1.35", false], ["0.1.34", false], ["0.1.35", true], ["0.1.34", true],
+] as const)("uses the whole online version publication; next=%s, another old machine=%s", async (daemonVersion, anotherOldMachine) => {
+  const owner = await createCommunityQueryOwner("user-1")
+  const offline = { ...machine, status: "offline" as const }
+  const other = { ...machine, id: "machine-2" }
+  owner.client.setQueryData<MachinesResponse>(communityKeys.machines(), { machines: [offline, ...(anotherOldMachine ? [other] : [])], complete: true, observed: true })
+  transport.load.mockReset()
+  transport.load.mockResolvedValue({ quotas: [] })
+  const key = daemonUpdateCollapseStorageKey("user-1", "0.1.35")
+  window.localStorage.removeItem(key)
+  let state!: UserBarExtensionState
+  const renderedTargets: string[][] = []
+  function Probe() {
+    const [current, dispatch] = useReducer(userBarExtensionReducer, initialUserBarExtensionState)
+    useShellDaemonUpdateController({ userId: "user-1", extensionState: current, dispatch, latestDaemonVersion: "0.1.35" })
+    state = current
+    renderedTargets.push([...(current.update?.targetMachineIds ?? [])])
+    return null
+  }
+  const view = render(createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "user-1", retainOwner: true }, createElement(Probe)))
+  try {
+    await waitFor(() => expect((state.update?.targetMachineIds ?? []).slice().sort()).toEqual(anotherOldMachine ? [other.id] : []))
+    await act(async () => { await handleMachineUpdated({ type: "community:machine.updated", machine: { ...offline, status: "online", daemonVersion } }, { queryClient: owner.client }) })
+    const expected = [...(daemonVersion === "0.1.34" ? [machine.id] : []), ...(anotherOldMachine ? [other.id] : [])]
+    await waitFor(() => expect((state.update?.targetMachineIds ?? []).slice().sort()).toEqual(expected))
+    if (daemonVersion === "0.1.35") {
+      expect(renderedTargets.every(ids => !ids.includes(machine.id))).toBe(true)
+      await act(async () => { await handleMachineUpdated({ type: "community:machine.updated", machine: { ...machine, daemonVersion: "0.1.34" } }, { queryClient: owner.client }) })
+      await waitFor(() => expect(state.update?.targetMachineIds).toContain(machine.id))
+    }
+    if (anotherOldMachine) expect(owner.client.getQueryData<MachinesResponse>(communityKeys.machines())?.machines.find(row => row.id === other.id)).toEqual(other)
+    expect(transport.load.mock.calls.some(([url]) => String(url).includes("view=list"))).toBe(false)
+  } finally {
+    view.unmount()
+    owner.client.clear()
     window.localStorage.removeItem(key)
   }
 })

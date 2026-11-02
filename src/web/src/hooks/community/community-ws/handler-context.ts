@@ -33,6 +33,7 @@ export type CommunityWsDispatchContext = {
   sub: Subscription
   viewerUserIdRef: { current: string | null }
   matchesFocus: (event: { channelId?: string }) => boolean
+  onMachineOnline?: () => void
 }
 
 export type CommunityWsHandlerContext = CommunityWsDispatchContext & {
@@ -69,5 +70,5 @@ export type SocialEventContext = Pick<
 >
 export type PresenceMachineEventContext = Pick<
   CommunityWsHandlerContext,
-  "queryClient"
+  "queryClient" | "onMachineOnline"
 >
