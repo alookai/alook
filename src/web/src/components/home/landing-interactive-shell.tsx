@@ -165,7 +165,7 @@ function InteractiveShell() {
   return <CommunityShellLayout breakpoint={breakpoint} surface={surface} testId="landing-interactive-shell" label="Alook workspace"
     rail={<ServerRail servers={DEMO_SERVERS.map((item) => ({ ...item, active: !homePage && item.id === serverId, unread: unreadServers.some((room) => room.serverId === item.id) }))} folders={[]} view={homePage ? "dm" : "server"} activeServerId={homePage ? "" : serverId} onHome={() => { showHome("friends"); setSurface("list") }} onServerNavigate={pickServer} />}
     sidebar={sidebar} main={<div className="flex min-h-0 flex-1 flex-col bg-background">{homePage && homePage !== "dm" ? <WorkspaceHome page={homePage} onBack={() => setSurface("list")} onDm={messagePerson} onOpenProfile={openProfile} onMachines={() => showHome("machines")} /> : conversationView}</div>}
-    userBar={<UserBar breakpoint={breakpoint} user={{ id: "demo-gus", name: "Gus", avatar: DEMO_PROFILES.get("demo-gus")!.avatar! }} inbox={inbox} hasUnread={totalUnread > 0} unreadCount={totalUnread}
+    userBar={<UserBar breakpoint={breakpoint} user={{ id: "demo-gus", name: "Gus", avatar: DEMO_PROFILES.get("demo-gus")!.avatar!, runningBotCount: 1 }} inbox={inbox} hasUnread={totalUnread > 0} unreadCount={totalUnread}
       inboxOpen={extension === "inbox"} onInboxOpenChange={(open) => setExtension(open ? "inbox" : "none")} onOpenProfile={() => setExtension((current) => current === "profile" ? "none" : "profile")} onEditProfile={() => setExtension("profile")}
       extension={{ active: extension, inbox, profile: selfProfile, profileCompanion, update: null, updateBadgePhase: null, eligibleMachines: [], onOpenUpdate: () => {}, onRequestUpdate: () => {}, onDismiss: () => setExtension("none") }} />}
     overlays={<>

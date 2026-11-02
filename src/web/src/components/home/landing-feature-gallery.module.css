@@ -26,7 +26,7 @@
   position: absolute;
   z-index: 1;
   top: 0;
-  bottom: 2px;
+  bottom: 6px;
   width: 24px;
   pointer-events: none;
   opacity: 0;
@@ -49,9 +49,16 @@
   overflow-x: auto;
   min-width: 0;
   gap: 32px;
-  scrollbar-width: none;
+  scrollbar-width: auto;
+  scrollbar-color: auto;
   overscroll-behavior-x: contain;
   touch-action: pan-x pan-y;
+}
+.tabs::-webkit-scrollbar {
+  height: 4px;
+}
+.tabs::-webkit-scrollbar-thumb {
+  background: var(--gallery-muted);
 }
 .tabs[data-overflow="true"] {
   cursor: grab;
@@ -61,6 +68,7 @@
   cursor: grabbing;
 }
 .tabs button {
+  position: relative;
   scroll-margin-top: 80px;
   flex: 0 0 auto;
   white-space: nowrap;
@@ -72,14 +80,19 @@
   font-size: 15px;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 150ms ease-out, color 150ms ease-out;
+  transition: color 150ms ease-out;
 }
 .tabs button:hover,
 .tabs button[aria-selected="true"] {
   color: var(--gallery-ink);
 }
-.tabs button[aria-selected="true"] {
-  border-bottom-color: var(--gallery-ink);
+.tabs button[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 8px;
+  height: 2px;
+  background: var(--gallery-ink);
 }
 .tabs button:focus-visible {
   outline: 2px solid var(--gallery-ink);
@@ -167,6 +180,7 @@
     gap: 24px;
   }
   .tabs button {
+  position: relative;
     font-size: 14px;
   }
   .slide {
@@ -194,6 +208,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .tabs button {
+  position: relative;
     transition: none;
   }
 }

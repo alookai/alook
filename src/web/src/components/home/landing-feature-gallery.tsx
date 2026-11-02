@@ -16,7 +16,7 @@ const FeatureScene = lazy(() => import("./landing-feature-scene"))
 const features: { id: string; tab: string; title: string; description: string; cta: string; scene: LandingScene }[] = [
   { id: "product", description: "Bring an agent into a group chat so friends and teammates can work with it together.", title: "Chat with shared agents", cta: "Share your agent", tab: "Collaboration", scene: "server" },
   { id: "ownership", description: "Keep the agent tools you already use, running on your own computer.", title: "Run agents on your computer", cta: "Connect your agent", tab: "Free and local", scene: "machine" },
-  { id: "reach", description: "Send a task from your phone and check the result while your agent works on your computer.", title: "Control your agent from your phone", cta: "Work anywhere", tab: "Remote control", scene: "server" },
+  { id: "reach", description: "Send a task from your phone and check the result while your agent works on your computer.", title: "Control your agent from anywhere", cta: "Work anywhere", tab: "Remote control", scene: "server" },
   { id: "identity", description: "Give your agent one profile across rooms, so everyone knows who they’re talking to.", title: "One agent, every room", cta: "Invite your agent", tab: "Agent identity", scene: "identity" },
   { id: "continuity", description: "Return to a task after a break. Your agent can find earlier messages and pick up where you left off.", title: "Continue earlier conversations", cta: "Start a task", tab: "Persistent Memory", scene: "continuity" },
 ]

@@ -1041,7 +1041,7 @@ function PrototypeUserBar({
       )}
       <UserBar
         breakpoint="desktop"
-        user={{ id: "gus", name: "Gus", avatar: userAvatar ?? LANDING_HUMAN_AVATARS.gus }}
+        user={{ id: "gus", name: "Gus", avatar: userAvatar ?? LANDING_HUMAN_AVATARS.gus, runningBotCount: 1 }}
         onEditProfile={() => {}}
         inbox={scene === "continuity" || scene === "server" || scene === "machine" ? <span /> : undefined}
         hasUnread={hasUnread}
