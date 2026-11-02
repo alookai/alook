@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { readDaemonVersion } from "../version";
 
-it.runIf(process.platform !== "win32")("refreshes a real CLI runner at the same version and identity, keeps it on prepare failure", async () => {
+it.runIf(process.platform !== "win32").each([100, 1000])("refreshes a real CLI runner and rolls back after a %dms startup receipt failure", async (receiptTimeoutMs) => {
   const root = mkdtempSync(join(tmpdir(), "alook-refresh-real-"));
   const machineId = "cm_refresh_real_1234";
   const machineKey = "cmk_SYNTHETIC_REFRESH_TEST_ONLY";
@@ -105,10 +105,15 @@ it.runIf(process.platform !== "win32")("refreshes a real CLI runner at the same 
     expect(readFileSync(join(baseDir, "daemons", machineId, "daemon.log"), "utf8")).not.toContain("PRIVATE_ENVIRONMENT_VALUE");
     writeFileSync(shell, `#!/bin/sh\n. '${exportsFile}'\nprintf '__ALOOK_ENV_V1__\\000'\nexec /usr/bin/env -0\n`, { mode: 0o700 });
     exportValue("v3");
-    writeFileSync(exportsFile, readFileSync(exportsFile, "utf8") + "export ALOOK_DAEMON_TEST_SKIP_READY=1\nexport ALOOK_DAEMON_TEST_RECEIPT_TIMEOUT_MS=1000\n");
+    writeFileSync(exportsFile, readFileSync(exportsFile, "utf8") + `export ALOOK_DAEMON_TEST_SKIP_READY=1\nexport ALOOK_DAEMON_TEST_RECEIPT_TIMEOUT_MS=${receiptTimeoutMs}\n`);
+    const probeOffset = readFileSync(observationFile, "utf8").trim().split("\n").length;
     sockets[1].send(command);
-    await waitFor(() => sockets.length >= 4 && ready.some((entry) => entry.socket === sockets[3]));
-    expect(sockets).toHaveLength(4);
+    await waitFor(() => {
+      if (existsSync(join(baseDir, "daemons", machineId, "daemon.replace.lock")) || !existsSync(pidfile)) return false;
+      const probes = readFileSync(observationFile, "utf8").trim().split("\n").slice(probeOffset);
+      return owner().pid !== second.pid && probes.includes("v3|") && probes.at(-1) === "v2|"
+        && ready.some((entry) => entry.socket !== sockets[1] && entry.socket.readyState === WebSocket.OPEN);
+    });
     expect(owner().pid).not.toBe(second.pid);
     expect(owner().machineId).toBe(machineId);
     expect(readFileSync(recordPath, "utf8")).toBe(originalRecord);
