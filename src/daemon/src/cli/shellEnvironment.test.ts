@@ -89,12 +89,14 @@ describe("fresh local shell environment", () => {
     writeFileSync(profile, "\ufeff$env:ALOOK_REFRESH_UNICODE='你好\nline=$literal'\n$env:Path=(Join-Path $env:SystemRoot 'System32')+';'\nWrite-Output 'profile startup banner'\n");
     const quotedProfile = "'" + profile.replaceAll("'", "''") + "'";
     const quotedMissing = "'" + join(dir, "missing.ps1").replaceAll("'", "''") + "'";
+    let diagnose = false;
     let failure = "unavailable";
     let termination = "not closed";
     const started = Date.now();
     const spawnProcess = ((file, args, options) => {
       const configured = [...args];
-      configured[configured.length - 1] = "try { $PROFILE=[pscustomobject]@{AllUsersAllHosts=" + quotedMissing + ";AllUsersCurrentHost=" + quotedMissing + ";CurrentUserAllHosts=" + quotedProfile + ";CurrentUserCurrentHost=" + quotedMissing + "}; " + configured.at(-1) + " } catch { [Console]::Error.Write('ALOOK_QA_FAILURE='+$_.Exception.GetType().Name+':'+$_.CategoryInfo.Category+':'+$_.InvocationInfo.OffsetInLine); exit 1 }";
+      configured[configured.length - 1] = "$PROFILE=[pscustomobject]@{AllUsersAllHosts=" + quotedMissing + ";AllUsersCurrentHost=" + quotedMissing + ";CurrentUserAllHosts=" + quotedProfile + ";CurrentUserCurrentHost=" + quotedMissing + "}; " + configured.at(-1);
+      if (diagnose) configured[configured.length - 1] = "try { " + configured.at(-1) + " } catch { [Console]::Error.Write('ALOOK_QA_FAILURE='+$_.Exception.GetType().Name+':'+$_.CategoryInfo.Category+':'+$_.InvocationInfo.OffsetInLine); exit 1 }";
       const child = spawn(file, configured, { ...options, stdio: ["ignore", "pipe", "pipe"] });
       child.once("close", (code, signal) => { termination = `exit=${code}, signal=${signal}, elapsedMs=${Date.now() - started}`; });
       child.stderr.on("data", (chunk: Buffer) => {
@@ -103,12 +105,17 @@ describe("fresh local shell environment", () => {
       });
       return child;
     }) as typeof spawn;
-    const fresh = await readShellEnvironment({ env: { ...process.env, ALOOK_REFRESH_OLD_FIXTURE: "old" }, spawnProcess, timeoutMs: 10000 })
-      .catch(() => { throw new Error(`PowerShell fixture failed (${failure}; ${termination})`); });
+    const capture = () => readShellEnvironment({ env: { ...process.env, ALOOK_REFRESH_OLD_FIXTURE: "old" }, spawnProcess, timeoutMs: 10000 });
+    const fresh = await capture().catch(async () => {
+      const primaryTermination = termination;
+      diagnose = true;
+      await capture().catch(() => undefined);
+      throw new Error(`PowerShell fixture failed (${primaryTermination}; diagnostic=${failure}; ${termination})`);
+    });
     expect(fresh.ALOOK_REFRESH_UNICODE).toBe("你好\nline=$literal");
     expect(fresh.ALOOK_REFRESH_OLD_FIXTURE).toBeUndefined();
     expect(fresh.USERNAME).toBe(process.env.USERNAME);
     expect(fresh.USERPROFILE).toBe(process.env.USERPROFILE);
     expect(fresh.PATH).not.toMatch(/;$/);
-  }, 15000);
+  }, 25000);
 });
