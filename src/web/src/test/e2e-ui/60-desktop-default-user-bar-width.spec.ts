@@ -1187,8 +1187,11 @@ test.describe("desktop default User Bar width", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page).toHaveURL(/\/c\/me\/friends$/)
     const detailPath = new URL(page.url()).pathname
-    await page.locator('[data-mobile-page-active="true"]').getByRole("banner")
-      .getByRole("button", { name: "Back", exact: true }).click()
+    const back = page.locator('[data-mobile-page-active="true"]')
+      .getByRole("button", { name: "Back", exact: true })
+    await expect(back).toHaveCount(1)
+    await expect(back).toBeVisible()
+    await back.click()
     await expect(page).toHaveURL(/\/c\/me$/)
     await expect(page.locator('[data-community-mobile-surface="list"]')).toBeVisible()
     await attachJson(testInfo, "user-bar-mobile-list-return", { from: detailPath, to: new URL(page.url()).pathname })
