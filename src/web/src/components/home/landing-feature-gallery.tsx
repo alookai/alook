@@ -1,11 +1,12 @@
 "use client"
 
+import { buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import { StepSlide } from "@/components/ui/step-slide"
 import { DocumentNavigationLink } from "./document-navigation-link"
 
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode, type KeyboardEvent } from "react"
 import { trackLandingCtaClicked } from "@/lib/analytics"
-import pageStyles from "./landing-page.module.css"
 import { tid } from "@/lib/community/testids"
 import { MediaFallback } from "./deferred-landing-media"
 import { sceneDurationMs, type LandingScene } from "./landing-shell-motion-timeline"
@@ -154,7 +155,7 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className={styles.copy}>
           <h2>{current.title}</h2>
           <p>{current.description}</p>
-          <DocumentNavigationLink href={isLoggedIn ? "/c/me" : "/sign-in"} className={`${pageStyles.sectionCta} ${styles.cta}`}
+          <DocumentNavigationLink href={isLoggedIn ? "/c/me" : "/sign-in"} data-variant="default" className={cn(buttonVariants({ size: "lg" }), "mt-6")}
             data-testid={`landing-section-cta-${current.id}`}
             onClick={() => trackLandingCtaClicked({ cta_name: `${current.id}_${isLoggedIn ? "open_app" : "get_started"}` })}>{current.cta}</DocumentNavigationLink>
         </div>

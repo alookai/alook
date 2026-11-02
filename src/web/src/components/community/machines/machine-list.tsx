@@ -423,7 +423,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {backBar}
-        <div ref={emptyStageRef} className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
+        <div ref={emptyStageRef} data-slot="empty-state" className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
           <div className="w-full max-w-70 overflow-hidden rounded-xl">
             <div className="aspect-200/130 w-full">
               <ConnectTile />

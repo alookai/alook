@@ -133,12 +133,13 @@ body.driver-active .community-ws-reconnect-overlay * {
   isolation: isolate;
 }
 
+/* The avatar travels the button's own outline (a pill just outside it), so it
+ * circles the label instead of crossing it. */
 .community-guide-me-orbit {
   position: absolute;
-  inset: -17px -22px;
+  inset: -6px;
   z-index: 1;
   pointer-events: none;
-  animation: community-guide-me-orbit 4.8s linear infinite;
 }
 
 .community-guide-me-orbit-holder {
@@ -162,11 +163,14 @@ body.driver-active .community-ws-reconnect-overlay * {
 
 .community-guide-me-avatar {
   position: absolute;
-  top: -3px;
-  left: 50%;
+  top: 0;
+  left: 0;
   display: inline-flex;
-  transform: translateX(-50%);
-  animation: community-guide-me-counter-orbit 4.8s linear infinite;
+  offset-path: inset(0 round 999px);
+  offset-anchor: center;
+  offset-rotate: 0deg;
+  offset-distance: 12%;
+  animation: community-guide-me-trace 6s linear infinite;
 }
 
 .community-guide-me > button {
@@ -174,15 +178,12 @@ body.driver-active .community-ws-reconnect-overlay * {
   z-index: 0;
 }
 
-@keyframes community-guide-me-orbit {
-  to {
-    transform: rotate(360deg);
+@keyframes community-guide-me-trace {
+  from {
+    offset-distance: 12%;
   }
-}
-
-@keyframes community-guide-me-counter-orbit {
   to {
-    transform: translateX(-50%) rotate(-360deg);
+    offset-distance: 112%;
   }
 }
 

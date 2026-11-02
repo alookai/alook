@@ -1,4 +1,5 @@
 import { Network, Activity, ChevronDown, Monitor, MoreVertical, RotateCcw } from "lucide-react"
+import { PresenceStatus } from "../presence-status"
 import { formatModelLabel, isPresenceOnline } from "@alook/shared"
 import { AgentAvatar } from "@/components/avatar"
 import { ProviderLogo } from "@/components/provider-logo"
@@ -86,7 +87,7 @@ export function renderBotMachineGroup(
           const activePending = controller.pendingActiveBotIds.has(bot.id)
           const statusKnown = bot.isActive === false || bot.isActive !== undefined && controller.profilesByUserId.get(bot.id)?.presence !== undefined
           return (
-            <Card key={bot.id} className="flex flex-col gap-3 p-4">
+            <Card key={bot.id} data-shell="cassette" className="flex flex-col gap-3 p-4">
               <div className="flex items-start justify-between gap-3">
                 <AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={40} />
                 <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5">
@@ -95,22 +96,7 @@ export function renderBotMachineGroup(
                       <span title={bot.name} className="min-w-0 max-w-full truncate text-[15px] font-medium text-foreground">
                         {bot.name}
                       </span>
-                      <span
-                        className={[
-                          "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium",
-                          online
-                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                            : "bg-muted text-muted-foreground",
-                        ].join(" ")}
-                      >
-                        <span
-                          className={[
-                            "inline-block size-1.5 rounded-full",
-                            online ? "bg-status-online" : "bg-muted-foreground",
-                          ].join(" ")}
-                        />
-                        {!statusKnown ? "Status unknown" : online ? "Online" : "Offline"}
-                      </span>
+                      <PresenceStatus online={online === true} label={!statusKnown ? "Status unknown" : online ? "Online" : "Offline"} />
                       {statusKnown && (!bot.isActive || (!online && machine?.status !== undefined)) && (
                         <Button
                           size="sm"

@@ -1,5 +1,6 @@
 "use client"
 
+import { PresenceStatus } from "../presence-status"
 import { useMemo, type ReactNode } from "react"
 import { Monitor, MoreVertical } from "lucide-react"
 import type { MachineSummary } from "@/hooks/community/use-machines"
@@ -19,7 +20,7 @@ import { tid } from "@/lib/community/testids"
 import { MachineRuntimes } from "./machine-runtimes"
 
 export function MachineCardFrame({ children }: { children: ReactNode }) {
-  return <Card className="flex flex-col gap-3 p-4">{children}</Card>
+  return <Card data-shell="jewel-case" className="flex flex-col gap-3 p-4">{children}</Card>
 }
 
 export function MachineCard({
@@ -58,22 +59,7 @@ export function MachineCard({
               <span className="truncate text-[15px] font-medium text-foreground">
                 {machineName(machine)}
               </span>
-              <span
-                className={[
-                  "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium",
-                  isOnline
-                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                    : "bg-muted text-muted-foreground",
-                ].join(" ")}
-              >
-                <span
-                  className={[
-                    "inline-block size-1.5 rounded-full",
-                    isOnline ? "bg-status-online" : "bg-muted-foreground",
-                  ].join(" ")}
-                />
-                {machine.status === undefined ? "Status unknown" : isOnline ? "Online" : "Offline"}
-              </span>
+              <PresenceStatus online={isOnline} label={machine.status === undefined ? "Status unknown" : isOnline ? "Online" : "Offline"} />
             </div>
             <span className="truncate text-xs text-muted-foreground">
               {[machine.platform, machine.arch].filter(Boolean).join(" · ")}

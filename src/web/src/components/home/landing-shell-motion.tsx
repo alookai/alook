@@ -1,5 +1,6 @@
 "use client"
 
+import { PresenceStatus } from "@/components/community/presence-status"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import {
   useEffect,
@@ -1812,10 +1813,7 @@ export function BotCard({
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="flex items-center gap-2">
               <span className="text-[15px] font-medium text-foreground">{name}</span>
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                <span className="size-1.5 rounded-full bg-status-online" />
-                {status}
-              </span>
+              <PresenceStatus online label={status} />
             </div>
             <span className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5">

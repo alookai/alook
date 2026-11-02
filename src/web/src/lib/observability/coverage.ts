@@ -2,6 +2,7 @@ export const pageRoutes = [
   "/",
   "/blog",
   "/blog/[slug]",
+  "/brand-visual",
   "/c",
   "/c/channels/[serverId]",
   "/c/channels/[serverId]/[channelId]",

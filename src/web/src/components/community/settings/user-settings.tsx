@@ -31,6 +31,7 @@ import { BillingContent } from "../billing/billing-sheet"
 import { useBilling, type BillingReturn } from "@/hooks/community/use-billing"
 import { AutomationSettings } from "./automation-settings"
 import { AccountDeletionFlow } from "./account-deletion-flow"
+import { Input } from "@/components/ui/input"
 
 const THEME_OPTIONS = [
   { value: "light", label: "Light", icon: Sun },
@@ -286,7 +287,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
               </div>
               {/* Display name — inline title input, borderless (name-as-heading,
                   like the agent name on the bot page). */}
-              <input
+              <Input variant="frameless"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Your name"

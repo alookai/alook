@@ -15,7 +15,7 @@ import { ChannelSidebarTreeOwner } from "@/components/community/channels/channel
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
 import { ChannelHeader } from "@/components/community/channels/channel-header"
 import { DmHeader } from "@/components/community/channels/dm-header"
-import { Avatar } from "@/components/community/avatar"
+import { DmHero } from "@/components/community/channels/dm-hero"
 import { MessageList } from "@/components/community/messages/message-list"
 import { Composer } from "@/components/community/messages/composer"
 import { ConversationFooterShell, ConversationFooterSlotProvider } from "@/components/community/messages/conversation-footer-shell"
@@ -150,7 +150,7 @@ function InteractiveShell() {
     <main data-slot="community-conversation-surface" className={`${styles.messageSurface} flex min-h-0 flex-1 flex-col`}>
       <ConversationFooterSlotProvider>
         <MessageList key={conversation} channel={direct ? dm.name : channel?.name ?? "general"} variant={direct ? "dm" : "channel"} messages={rows} typingUsers={conversation === "demo-general" ? ["Alli"] : []}
-          hero={direct ? <><div className="relative mb-3 w-fit"><Avatar label={dm.avatar} seed={dm.userId} size={64} /></div><h2 className="text-2xl font-semibold leading-tight">{dm.name}</h2><p className="mt-1 text-sm text-muted-foreground">This is the beginning of your direct message history with <span className="font-medium text-foreground">{dm.name}</span>.</p></> : undefined}
+          hero={direct ? <DmHero dm={dm} onOpenProfile={openProfile} /> : undefined}
           newDividerBefore={DEMO_UNREADS[conversation] ? DEMO_MESSAGES[conversation].at(-DEMO_UNREADS[conversation])?.id : undefined} initialPositionMessageId={pending ? rows[0]?.id : undefined} historyStartKnown
           onScrollRoot={setScrollRoot} unreadCount={pending} onJumpToPresent={catchUp} presentVersion={presentVersion} localSubmitVersion={submitVersion} viewerUserId="demo-gus"
           onOpenProfile={openProfile} onOpenThread={(id) => setThread(allRows.find((row) => row.id === id) ?? null)} onCreateThread={(id) => setThread(allRows.find((row) => row.id === id) ?? null)}

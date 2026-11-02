@@ -1,5 +1,6 @@
 "use client"
 
+import { PresenceStatus } from "../presence-status"
 import { useCreateAtom } from "@tanstack/react-store";
 import { useQuery, useMutation } from "@tanstack/react-query"
 import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
@@ -413,18 +414,21 @@ function Step1({
               )}
             </div>
           )}
-          <div className="flex items-start gap-2 rounded-lg border bg-muted/30 p-3 font-mono text-xs">
-            <code data-testid={tid.machinePairCommand} className="flex-1 break-all">
+          <div data-slot="command-block" className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3 font-mono text-xs">
+            <code data-testid={tid.machinePairCommand} title={command} className="min-w-0 flex-1 truncate whitespace-nowrap">
               {command}
             </code>
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
               data-testid={tid.machinePairCopy}
               onClick={onCopy}
-              className="grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
               aria-label="Copy command"
             >
               <Copy className="size-3.5" />
-            </button>
+            </Button>
           </div>
         </>
       )}
@@ -453,9 +457,7 @@ function Step2({
         <div className="flex flex-col gap-1 text-sm">
           <span className="flex items-center gap-2">
             <span className="text-[15px] font-medium text-foreground">{connectedHostname}</span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-              <span className="inline-block size-1.5 rounded-full bg-status-online" />Online
-            </span>
+            <PresenceStatus online label="Online" />
           </span>
           <span className="text-muted-foreground">is ready for your bot friends.</span>
         </div>
@@ -492,6 +494,8 @@ function Marker({
 }) {
   return (
     <span
+      data-slot="step-number"
+      data-state={done ? "done" : muted ? "pending" : "active"}
       className={[
         "relative grid size-6 place-items-center rounded-full text-xs font-medium",
         done

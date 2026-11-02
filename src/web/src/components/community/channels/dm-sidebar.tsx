@@ -36,10 +36,21 @@ export const DmSidebar = memo(function DmSidebar({
 }) {
   const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive && !privacyActive)
   const requestCount = compactRequestCount(friendRequestCount)
+  // One selection that travels between shortcuts (Stageshow: the selection
+  // moves, it does not jump). Rows are h-9 with gap-1, so the offset is
+  // index × 2.5rem (h-9 + gap-1). Hidden while a DM is open.
+  const shortcutActive = [isFriendsActive, ...(onShowMachines ? [!!machinesActive] : []), ...(onShowBots ? [!!botsActive] : []), ...(onShowPrivacy ? [!!privacyActive] : [])]
+  const activeShortcut = shortcutActive.indexOf(true)
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div data-slot="dm-sidebar-shortcuts" className="shrink-0 px-2 pt-4">
-        <div className="flex flex-col gap-1">
+        <div className="relative isolate flex flex-col gap-1">
+          <span
+            aria-hidden
+            data-slot="dm-sidebar-shortcut-indicator"
+            className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-9 rounded-md bg-sidebar-accent transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.25,0.8,0.25,1)] motion-reduce:transition-none"
+            style={{ transform: `translateY(${Math.max(activeShortcut, 0) * 2.5}rem)`, opacity: activeShortcut < 0 ? 0 : 1 }}
+          />
           <CommunityNavigationLink
             aria-label={requestCount ? `Friends, ${friendRequestCount} new requests` : "Friends"}
             href="/c/me/friends"
@@ -47,8 +58,8 @@ export const DmSidebar = memo(function DmSidebar({
             active={isFriendsActive}
             onActivate={onShowFriends}
             className={[
-              "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-              isFriendsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+              "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium transition-[color,background-color,transform] duration-150 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
+              isFriendsActive ? "text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
             ].join(" ")}
           >
             <Users className="size-5 shrink-0" />
@@ -70,8 +81,8 @@ export const DmSidebar = memo(function DmSidebar({
               active={machinesActive}
               onActivate={onShowMachines}
               className={[
-                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                machinesActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium transition-[color,background-color,transform] duration-150 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
+                machinesActive ? "text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
               ].join(" ")}
             >
               <Monitor className="size-5 shrink-0" />
@@ -85,8 +96,8 @@ export const DmSidebar = memo(function DmSidebar({
               active={botsActive}
               onActivate={onShowBots}
               className={[
-                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                botsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium transition-[color,background-color,transform] duration-150 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
+                botsActive ? "text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
               ].join(" ")}
             >
               <Bot className="size-5 shrink-0" />
@@ -100,8 +111,8 @@ export const DmSidebar = memo(function DmSidebar({
               active={privacyActive}
               onActivate={onShowPrivacy}
               className={[
-                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                privacyActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium transition-[color,background-color,transform] duration-150 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
+                privacyActive ? "text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
               ].join(" ")}
             >
               <Shield className="size-5 shrink-0" />

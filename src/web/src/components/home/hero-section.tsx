@@ -7,6 +7,8 @@ import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { TypewriterVisual } from "@/components/typewriter-visual";
 import { trackLandingCtaClicked } from "@/lib/analytics";
 import { GithubOutboundLink } from "@/components/github-outbound-link";
@@ -82,8 +84,8 @@ export function HeroSection({
     };
   }, [onReady, paperSettled]);
   const ctaSizingClassName = largeCtas
-    ? "px-3 py-3 text-[clamp(0.6875rem,3vw,1rem)] whitespace-nowrap sm:px-8"
-    : "px-6 py-2 text-sm";
+    ? "h-11 whitespace-nowrap px-4 text-[clamp(0.875rem,3vw,1rem)] sm:px-7"
+    : "px-5";
 
   return (
     <section
@@ -239,39 +241,29 @@ export function HeroSection({
             <a
               href="/c/me"
               onClick={() => trackLandingCtaClicked({ cta_name: "open_app" })}
-              className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${ctaSizingClassName}`}
-              style={{
-                fontFamily: "var(--font-mono)",
-                color: "var(--landing-bg)",
-                backgroundColor: highlightPrimaryCta ? "var(--landing-accent)" : "var(--landing-text)",
-                letterSpacing: "0.12em",
-              }}
+              data-variant={highlightPrimaryCta ? "default" : "secondary"}
+              className={cn(buttonVariants({ variant: highlightPrimaryCta ? "default" : "secondary", size: "lg" }), ctaSizingClassName)}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
                 <polyline points="10 17 15 12 10 7" />
                 <line x1="15" y1="12" x2="3" y2="12" />
               </svg>
-              {primaryCtaLabel ?? "OPEN APP"}
+              {primaryCtaLabel ?? "Open app"}
             </a>
           ) : (
             <DocumentNavigationLink
               href="/sign-in"
               onClick={() => trackLandingCtaClicked({ cta_name: "get_started" })}
-              className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${ctaSizingClassName}`}
-              style={{
-                fontFamily: "var(--font-mono)",
-                color: "var(--landing-bg)",
-                backgroundColor: highlightPrimaryCta ? "var(--landing-accent)" : "var(--landing-text)",
-                letterSpacing: "0.12em",
-              }}
+              data-variant={highlightPrimaryCta ? "default" : "secondary"}
+              className={cn(buttonVariants({ variant: highlightPrimaryCta ? "default" : "secondary", size: "lg" }), ctaSizingClassName)}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
                 <polyline points="10 17 15 12 10 7" />
                 <line x1="15" y1="12" x2="3" y2="12" />
               </svg>
-              {primaryCtaLabel ?? "GET STARTED"}
+              {primaryCtaLabel ?? "Get started"}
             </DocumentNavigationLink>
           )}
           {secondaryCta !== null && (
@@ -280,13 +272,8 @@ export function HeroSection({
                 surface="landing"
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${ctaSizingClassName}`}
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  color: "var(--landing-text)",
-                  border: "1px solid var(--landing-text)",
-                  letterSpacing: "0.12em",
-                }}
+                data-variant="outline"
+                className={cn(buttonVariants({ variant: "outline", size: "lg" }), ctaSizingClassName)}
               >
                 <svg className="size-5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                   <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
@@ -297,13 +284,8 @@ export function HeroSection({
               <Link
                 href={secondaryCta?.href ?? "/templates"}
                 onClick={secondaryCta === undefined ? () => trackLandingCtaClicked({ cta_name: "templates" }) : undefined}
-                className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${ctaSizingClassName}`}
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  color: "var(--landing-text)",
-                  border: "1px solid var(--landing-text)",
-                  letterSpacing: "0.12em",
-                }}
+                data-variant="outline"
+                className={cn(buttonVariants({ variant: "outline", size: "lg" }), ctaSizingClassName)}
               >
                 {secondaryCta === undefined && (
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -313,7 +295,7 @@ export function HeroSection({
                     <rect x="14" y="14" width="7" height="7" />
                   </svg>
                 )}
-                {secondaryCta?.label ?? "TEMPLATES"}
+                {secondaryCta?.label ?? "Templates"}
               </Link>
             )
           )}

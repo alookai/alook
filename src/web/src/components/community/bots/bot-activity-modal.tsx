@@ -1,5 +1,8 @@
 "use client"
 
+import { EmptyState } from "../empty-state"
+import { Activity } from "lucide-react"
+
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useVirtualizer } from "@tanstack/react-virtual"
@@ -173,7 +176,7 @@ export function BotActivityModal({
       {isLoading && chronological.length === 0 ? (
         <SkeletonRows />
       ) : chronological.length === 0 ? (
-        <EmptyState />
+        <EmptyState icon={Activity} label="No activity yet" description="This bot hasn&apos;t run since audit logging was enabled. New runs will stream in here as they happen." />
       ) : (
         <VirtualRows
           items={chronological}
@@ -222,20 +225,6 @@ function SkeletonRows() {
           <div className="h-3 flex-1 animate-pulse rounded bg-muted/40" />
         </div>
       ))}
-    </div>
-  )
-}
-
-function EmptyState() {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-      <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/60">
-        No activity yet
-      </div>
-      <p className="max-w-xs text-xs text-muted-foreground">
-        This bot hasn&apos;t run since audit logging was enabled. New runs
-        will stream in here as they happen.
-      </p>
     </div>
   )
 }

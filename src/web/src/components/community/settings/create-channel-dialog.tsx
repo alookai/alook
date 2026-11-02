@@ -11,6 +11,7 @@ import { onEnterSubmit } from "@/lib/ime"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import type { ChannelType } from "@alook/shared"
+import { Input } from "@/components/ui/input"
 
 // Create / edit Channel dialog. v0.1 supports Text + Forum only. No private toggle.
 // Submits { name, type }.
@@ -54,7 +55,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
           <div>
             <div className="flex items-center gap-2">
               <EntityIcon kind={type} className="size-6 shrink-0 text-muted-foreground" />
-              <input
+              <Input variant="frameless"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={onEnterSubmit(submit)}

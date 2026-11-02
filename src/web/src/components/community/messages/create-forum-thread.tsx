@@ -1,5 +1,6 @@
 "use client"
 
+import { Input } from "@/components/ui/input"
 import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
 import { useCallback, useRef, useMemo, useEffect } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
@@ -129,7 +130,7 @@ export function CreateForumThread({
       className="flex w-full min-w-0 shrink-0 flex-col border-b border-border px-4 py-3"
     >
       <div className="flex items-center gap-2 px-2">
-        <input
+        <Input variant="frameless"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(event) => onEnterSubmit(focusBody, { onEscape: onCancelGuarded })(event)}

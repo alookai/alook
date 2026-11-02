@@ -7,6 +7,7 @@ import { BOT_ACTIVITY_PRESETS } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { Avatar } from "../avatar"
 import { SeededBackdrop } from "@/components/avatar"
 import { resolveAvatar } from "@/lib/avatar/resolve"
@@ -322,20 +323,20 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
             </div>
           )}
           {canSendMessage && (
-            <div className="mt-4 flex h-9 items-center gap-2 rounded-md bg-secondary px-2">
-              <input
+            <div className="relative mt-4">
+              <Input
                 value={msg}
                 onChange={(e) => setMsg(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key !== "Enter" || e.nativeEvent.isComposing) return
                   send()
                 }}
-                className="flex-1 bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
+                className="h-9 pr-10 text-[15px]"
                 placeholder={`Message @${name}`}
               />
               <button
                 onClick={send}
-                className="grid size-7 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                className="absolute top-1/2 right-1 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 aria-label="Send message"
               >
                 <MessagesSquare className="size-4" />

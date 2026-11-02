@@ -42,6 +42,7 @@ const tabsListVariants = cva(
 function TabsList({
   className,
   variant = "default",
+  children,
   ...props
 }: TabsPrimitive.List.Props & VariantProps<typeof tabsListVariants>) {
   return (
@@ -50,7 +51,12 @@ function TabsList({
       data-variant={variant}
       className={cn(tabsListVariants({ variant }), className)}
       {...props}
-    />
+    >
+      {children}
+      {/* Sliding selection. Hidden by default; a theme can show it so the
+          selection travels between tabs instead of jumping. */}
+      <TabsPrimitive.Indicator data-slot="tabs-indicator" className="pointer-events-none hidden" />
+    </TabsPrimitive.List>
   )
 }
 

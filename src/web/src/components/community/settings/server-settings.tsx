@@ -170,7 +170,7 @@ function SettingsOverview({ serverId, serverName, serverDescription, serverIcon,
         </div>
         {/* Server name — borderless inline title. */}
         <div>
-          <input
+          <Input variant="frameless"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Server name"

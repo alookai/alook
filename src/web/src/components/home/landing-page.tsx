@@ -1,5 +1,7 @@
 "use client"
 
+import { buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import { DocumentNavigationLink } from "./document-navigation-link"
 
 import Image from "next/image"
@@ -64,7 +66,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         largeCtas
         showCommunityLinks={false}
         showMobileDesktopHint={false}
-        primaryCtaLabel={(isLoggedIn ? LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta).toUpperCase()}
+        primaryCtaLabel={isLoggedIn ? LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta}
         secondaryCta={{ kind: "github", label: LANDING_HERO.secondaryCta }}
         testId="landing-hero"
         highlightPrimaryCta
@@ -100,7 +102,8 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
             ))}
             <DocumentNavigationLink
               href={isLoggedIn ? "/c/me" : "/sign-in"}
-              className={styles.closingAction}
+              data-variant="default"
+              className={cn(buttonVariants({ size: "lg" }), "relative z-2 h-12 min-w-56 px-8 text-base")}
               data-testid="landing-closing-open"
               onClick={() => trackLandingCtaClicked({ cta_name: isLoggedIn ? "closing_open_app" : "closing_get_started" })}
             >

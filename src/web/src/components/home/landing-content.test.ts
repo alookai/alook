@@ -64,7 +64,8 @@ describe("landing content contract", () => {
     expect(heroSource).toMatch(
       /<GithubOutboundLink[\s\S]*?surface="landing"[\s\S]*?target="_blank"[\s\S]*?rel="noopener noreferrer"[\s\S]*?<svg[^>]*aria-hidden="true"[\s\S]*?\{secondaryCta\.label\}[\s\S]*?<\/GithubOutboundLink>/,
     )
-    expect(heroSource).toContain('"px-3 py-3 text-[clamp(0.6875rem,3vw,1rem)] whitespace-nowrap sm:px-8"')
+    expect(heroSource).toContain('"h-11 whitespace-nowrap px-4 text-[clamp(0.875rem,3vw,1rem)] sm:px-7"')
+    expect(heroSource).toContain('buttonVariants({ variant: "outline", size: "lg" })')
     expect(heroSource).toContain('<svg className="size-5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">')
   })
 
@@ -386,7 +387,7 @@ describe("landing content contract", () => {
     expect(landingPageSource).toContain("subline={LANDING_HERO.subline}")
     expect(landingPageSource).toContain("largeCtas")
     expect(landingPageSource).toContain("highlightPrimaryCta")
-    expect(heroSource).toContain('highlightPrimaryCta ? "var(--landing-accent)" : "var(--landing-text)"')
+    expect(heroSource).toContain('buttonVariants({ variant: highlightPrimaryCta ? "default" : "secondary", size: "lg" })')
     expect(landingPageSource).toContain("LandingReachMotion")
     expect(landingPageSource).not.toContain("MOBILE WEB PLACEHOLDER")
     expect(landingPageSource).not.toContain("DemoTerminal")

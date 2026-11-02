@@ -655,6 +655,7 @@ export default function SignInPageClient({
 
   return (
     <div
+      data-slot="auth-page"
       className="relative flex min-h-svh flex-col p-0 sm:items-center sm:justify-center sm:p-8"
     >
       <GradientBackground />

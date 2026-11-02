@@ -1,5 +1,6 @@
 "use client"
 
+import { Input } from "@/components/ui/input"
 import { Dices } from "lucide-react"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { type AvatarDraft, BotAvatarPickerDialog } from "@/components/avatar"
@@ -47,7 +48,7 @@ export function BotFormFields({
       {/* Name — large frameless input, matching #agent-name */}
       <div>
         <div className="relative">
-          <input
+          <Input variant="frameless"
             id="bot-name"
             value={name}
             maxLength={COMMUNITY_BOT_NAME_MAX}
