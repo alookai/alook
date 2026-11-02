@@ -60,6 +60,34 @@ describe("UserBar native mobile spacing", () => {
 })
 
 describe("UserBar Inbox switching", () => {
+  it.each([
+    ["collapsedBadge", "Open machine update"],
+    ["updating", "Machine update in progress"],
+    ["retry", "Retry machine update"],
+  ] as const)("opens the %s badge once without dispatching an update", async (phase, label) => {
+    const open = vi.fn()
+    const request = vi.fn()
+    const user = setupUser()
+    render(createElement(UserBar, {
+      breakpoint: "mobile",
+      user: { id: "u1", name: "User", avatar: "U", runningBotCount: 2 },
+      hasUnread: true,
+      unreadCount: 3,
+      extension: {
+        active: "none", inbox: null, profile: null, update: null,
+        updateBadgePhase: phase, eligibleMachines: [],
+        onOpenUpdate: open, onRequestUpdate: request, onDismiss: vi.fn(),
+      },
+    }))
+    const badge = screen.getByRole("button", { name: label })
+    badge.focus()
+    await user.keyboard("{Enter}")
+    expect(open).toHaveBeenCalledOnce()
+    expect(request).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "Open profile. 2 running bots." })).toBeInTheDocument()
+    expect(screen.getByTestId(tid.userBarRunningBotsRing)).toBeInTheDocument()
+  })
+
   it("dismisses the real mobile extension once through native Back", async () => {
     const dismissed = vi.fn()
     function Harness() {

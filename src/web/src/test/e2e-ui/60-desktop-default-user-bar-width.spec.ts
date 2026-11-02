@@ -1,6 +1,6 @@
 import { CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import { expectInertBackground } from "./_fixtures/inert-background"
-import type { Page, Request, Route, TestInfo } from "@playwright/test"
+import type { Locator, Page, Request, Route, TestInfo } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
 import { COMMUNITY_LAYOUT_STORAGE_KEY } from "@/components/community/shell/shell-frame-geometry"
@@ -390,6 +390,56 @@ async function attachJson(testInfo: TestInfo, name: string, value: unknown) {
     body: Buffer.from(`${JSON.stringify(value, null, 2)}\n`),
     contentType: "application/json",
   })
+}
+
+async function expectUserBarTargets(page: Page, size: 28 | 44) {
+  const bar = page.getByTestId(tid.userBar)
+  const profile = bar.getByRole("button", { name: /^Open profile/ })
+  const targets = [profile, page.getByTestId(tid.inboxTrigger), page.getByTestId(tid.userSettingsOpen)]
+  const update = page.getByTestId(tid.daemonUpdateBadge)
+  if (await update.count()) targets.push(update)
+  for (const target of targets) {
+    await expect(target).toHaveCSS("width", `${size}px`)
+    await expect(target).toHaveCSS("height", `${size}px`)
+    if (target === profile) {
+      const avatar = await target.locator(":scope > span").boundingBox()
+      expect(avatar?.width).toBe(28)
+      expect(avatar?.height).toBe(28)
+    } else {
+      expect(await target.evaluate((element) => {
+        const visual = getComputedStyle(element, "::before")
+        return {
+          width: visual.width, height: visual.height,
+          pointerEvents: visual.pointerEvents,
+          targetBackground: getComputedStyle(element).backgroundColor,
+        }
+      })).toEqual({ width: "28px", height: "28px", pointerEvents: "none", targetBackground: "rgba(0, 0, 0, 0)" })
+    }
+  }
+  await expect(page.getByTestId(tid.userBarName).locator("..")).toHaveCSS("height", `${size}px`)
+  const layout = await bar.evaluate((element) => {
+    const base = element.querySelector<HTMLElement>('[data-slot="community-user-bar-base"]')!.getBoundingClientRect()
+    const buttons = Array.from(element.querySelectorAll<HTMLButtonElement>('[data-slot="community-user-bar-base"] button'))
+      .map(button => button.getBoundingClientRect()).filter(box => box.width > 0 && box.height > 0)
+    return { height: base.height, inside: buttons.every(box => box.top >= base.top && box.bottom <= base.bottom && box.left >= base.left && box.right <= base.right), overlap: buttons.some((box, index) => index > 0 && buttons[index - 1].right > box.left) }
+  })
+  expect(layout).toEqual({ height: 48, inside: true, overlap: false })
+}
+
+async function clickTargetEdge(page: Page, target: Locator, edge: "top" | "right" | "bottom" | "left") {
+  const box = await target.boundingBox()
+  expect(box).not.toBeNull()
+  expect(box!.width).toBe(44)
+  expect(box!.height).toBe(44)
+  const point = {
+    x: box!.x + (edge === "left" ? 2 : edge === "right" ? 42 : 22),
+    y: box!.y + (edge === "top" ? 2 : edge === "bottom" ? 42 : 22),
+  }
+  expect(await target.evaluate((element, position) => (
+    document.elementFromPoint(position.x, position.y)?.closest("button") === element
+  ), point)).toBe(true)
+  await page.mouse.click(point.x, point.y)
+  return point
 }
 
 test.describe("desktop default User Bar width", () => {
@@ -1115,5 +1165,69 @@ test.describe("desktop default User Bar width", () => {
       }
     }
     await attachJson(testInfo, "user-bar-focus-records", focusRecords)
+  })
+
+  test("activates only the intended UserBar action outside each narrow visual surface", async ({ caseActors }, testInfo) => {
+    test.setTimeout(180_000)
+    const { asUser } = await caseActors(["alice"])
+    const { page } = await asUser("alice")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await serveOutdatedMachine(page)
+    await gotoAfterUserWsAuth(page, "/c/me")
+    const extension = page.getByTestId(tid.userBarExtension)
+    await expect(extension).toHaveAttribute("data-extension", "update")
+    await page.keyboard.press("Escape")
+    await expect(extension).toHaveCount(0)
+    const writes = captureWrites(page)
+    for (const width of [320, 390, 639, 640, 1280]) {
+      await page.setViewportSize({ width, height: 844 })
+      await expectUserBarTargets(page, width < 640 ? 44 : 28)
+    }
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page).toHaveURL(/\/c\/me\/friends$/)
+    const detailPath = new URL(page.url()).pathname
+    const back = page.locator('[data-mobile-page-active="true"]')
+      .getByRole("button", { name: "Back", exact: true })
+    await expect(back).toHaveCount(1)
+    await expect(back).toBeVisible()
+    await back.click()
+    await expect(page).toHaveURL(/\/c\/me$/)
+    await expect(page.locator('[data-community-mobile-surface="list"]')).toBeVisible()
+    await attachJson(testInfo, "user-bar-mobile-list-return", { from: detailPath, to: new URL(page.url()).pathname })
+    await expectUserBarTargets(page, 44)
+    const bar = page.getByTestId(tid.userBar)
+    const profile = bar.getByRole("button", { name: /^Open profile/ })
+    const inbox = page.getByTestId(tid.inboxTrigger)
+    const update = page.getByTestId(tid.daemonUpdateBadge)
+    const settings = page.getByTestId(tid.userSettingsOpen)
+    const records: Array<{ action: string; edge: string; point: { x: number; y: number } }> = []
+    for (const edge of ["top", "right", "bottom", "left"] as const) {
+      for (const [action, trigger] of [["profile", profile], ["inbox", inbox], ["update", update]] as const) {
+        const point = await clickTargetEdge(page, trigger, edge)
+        await expect(extension).toHaveAttribute("data-extension", action)
+        if (action === "profile") await expect(page.getByTestId(tid.profileCard)).toBeVisible()
+        await page.keyboard.press("Escape")
+        await expect(extension).toHaveCount(0)
+        await expect(trigger).toBeFocused()
+        records.push({ action, edge, point })
+      }
+      const point = await clickTargetEdge(page, settings, edge)
+      await expect(page.getByTestId(tid.settingsShell)).toBeVisible()
+      await expect(extension).toHaveCount(0)
+      await page.getByTestId(tid.settingsClose).click()
+      await expect(page.getByTestId(tid.settingsShell)).toHaveCount(0)
+      records.push({ action: "settings", edge, point })
+    }
+    const name = page.getByTestId(tid.userBarName).locator("..")
+    await name.click({ position: { x: 2, y: 2 } })
+    await expect(extension).toHaveAttribute("data-extension", "profile")
+    await page.keyboard.press("Escape")
+    await expect(extension).toHaveCount(0)
+    await expect(name).toBeFocused()
+    expect(writes.writes).toEqual([])
+    writes.stop()
+    await attachJson(testInfo, "user-bar-narrow-edge-clicks", records)
+    await attachScreenshot(page, testInfo, "user-bar-390-targets-closed")
   })
 })

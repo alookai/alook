@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { UserBar, UserBarSkeleton } from "./user-bar"
 import { tid } from "@/lib/community/testids"
+import styles from "./user-bar.module.css"
 
 describe("UserBar", () => {
   it("adds a geometry-neutral running-bot ring and accessible count only while bots are live", () => {
@@ -19,9 +20,10 @@ describe("UserBar", () => {
     expect(running).toContain(`data-testid="${tid.userBarRunningBotsRing}"`)
     expect(running).toContain(`data-testid="${tid.userBarRunningBotsGlow}"`)
     expect(running).toContain('aria-label="Open profile. 2 running bots."')
-    expect(running).toContain("relative grid size-7 place-items-center rounded-full")
+    expect(running).toContain(`${styles.visual} relative grid place-items-center rounded-full`)
     expect(running).toContain("pointer-events-none absolute -inset-px")
-    expect(running).toContain("focus-visible:ring-offset-4")
+    expect(running).toContain("focus-visible:ring-offset-0")
+    expect(running).toContain("sm:focus-visible:ring-offset-4")
     expect(running).toContain("focus-visible:ring-offset-muted")
     expect(running).toContain("var(--running-bots-primary)")
     expect(readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8"))
@@ -60,7 +62,7 @@ describe("UserBar", () => {
     expect(html).toContain("pr-[max(0.75rem,var(--app-safe-area-right))]")
     expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
     expect(html).toContain("sm:px-2 sm:pb-3")
-    expect(html).toContain("flex h-12 items-center gap-3 border border-border/40 bg-muted px-2")
+    expect(html).toContain(`${styles.base} flex items-center gap-3 border border-border/40 bg-muted px-2`)
     expect(html).not.toContain("ring-1 ring-border/40")
     expect(html).toContain('class="flex min-w-0 flex-1 items-center justify-between gap-2 sm:@max-[224px]/user-bar:gap-1"')
     expect(html).toContain('data-testid="community-user-bar-name"')
@@ -69,7 +71,8 @@ describe("UserBar", () => {
     const desktopSettingsClass = html.match(
       /class="([^"]*)" aria-label="User settings"/,
     )?.[1]?.split(" ")
-    expect(desktopSettingsClass).toContain("hover:bg-accent")
+    expect(desktopSettingsClass).toContain(styles.hoverBackground)
+    expect(desktopSettingsClass).not.toContain("hover:bg-accent")
   })
 
   it("keeps the mobile Settings action as a color-only icon button", () => {
@@ -83,6 +86,7 @@ describe("UserBar", () => {
     expect(settingsClass).toContain("hover:text-foreground")
     expect(settingsClass).toContain("active:text-foreground")
     expect(settingsClass).not.toContain("hover:bg-accent")
+    expect(settingsClass).not.toContain(styles.hoverBackground)
     expect(settingsClass).not.toContain("border")
     expect(settingsClass).not.toContain("shadow")
     expect(settingsClass).toContain("focus-visible:ring-2")
@@ -97,7 +101,7 @@ describe("UserBar", () => {
     expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
     expect(html).toContain("sm:px-2 sm:pb-3")
     expect(html).toContain(
-      "flex h-12 items-center gap-3 rounded-xl border border-border/40 bg-muted px-2",
+      `${styles.base} flex items-center gap-3 rounded-xl border border-border/40 bg-muted px-2`,
     )
     expect(html).not.toContain("ring-1 ring-border/40")
     expect(html).not.toContain("<button")
@@ -111,7 +115,7 @@ describe("UserBar", () => {
       inboxOpen: true,
     }))
     expect(openHtml).toContain(
-      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-2 rounded-b-xl"',
+      `class="${styles.base} flex items-center gap-3 border border-border/40 bg-muted px-2 rounded-b-xl"`,
     )
 
     const closedHtml = renderToStaticMarkup(createElement(UserBar, {
@@ -120,7 +124,7 @@ describe("UserBar", () => {
       inboxOpen: false,
     }))
     expect(closedHtml).toContain(
-      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-2 rounded-xl"',
+      `class="${styles.base} flex items-center gap-3 border border-border/40 bg-muted px-2 rounded-xl"`,
     )
 
     const profileHtml = renderToStaticMarkup(createElement(UserBar, {
@@ -139,7 +143,7 @@ describe("UserBar", () => {
       },
     }))
     expect(profileHtml).toContain(
-      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-2 rounded-b-xl"',
+      `class="${styles.base} flex items-center gap-3 border border-border/40 bg-muted px-2 rounded-b-xl"`,
     )
   })
 
@@ -234,9 +238,9 @@ describe("UserBar", () => {
 
     expect(closed).toContain('aria-expanded="false"')
     expect(open).toContain('aria-expanded="true"')
-    expect(closed).toContain("aria-expanded:bg-accent")
+    expect(closed).toContain(styles.inbox)
     expect(closed).toContain("aria-expanded:text-foreground")
-    expect(open).toContain("aria-expanded:bg-accent")
+    expect(open).toContain(styles.inbox)
     expect(open).toContain("aria-expanded:text-foreground")
     expect(closed).not.toContain("fill-current")
     expect(open).not.toContain("fill-current")
