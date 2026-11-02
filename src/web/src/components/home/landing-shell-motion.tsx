@@ -1577,7 +1577,7 @@ function MachineScene({
   introDescription?: string
   compact?: boolean
 }) {
-  const online = snapshot.machineState === "online" || snapshot.machineState === "bot-born"
+  const online = snapshot.machineState === "online"
   const pairOpen = snapshot.pairSheet !== "closed"
   const pairConnected = snapshot.pairSheet === "connected"
   const step2Target = pairConnected ? "pair-connected" : "pair-step-2"
@@ -1641,18 +1641,6 @@ function MachineScene({
             className={targetClass(snapshot, "machine")}
           >
             <MachineCard machine={ONLINE_MACHINE} onDelete={() => {}} onReconnect={() => {}} />
-          </div>
-
-          <div
-            data-visible={snapshot.machineState === "bot-born"}
-            className={styles.resultReveal}
-          >
-            <div
-              data-motion-target="born-bot"
-              className={targetClass(snapshot, "born-bot")}
-            >
-              <BotCard runtime="claude" model={null} status="Born on Gus’s MacBook Pro" />
-            </div>
           </div>
         </div>
       </div>
