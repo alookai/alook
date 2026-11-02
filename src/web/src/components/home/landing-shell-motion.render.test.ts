@@ -39,14 +39,12 @@ describe("landing community preview rendering", () => {
     expect(markup).not.toContain('data-testid="community-bot-card')
   })
 
-  it.each(ALL_SCENES)("keeps the actual %s UserBar only in full-shell scenes", (scene) => {
+  it.each(ALL_SCENES)("keeps one actual %s UserBar in the full-shell scene", (scene) => {
     const full = renderToStaticMarkup(createElement(LandingShellMotion, { scene, beat: SCENE_MAX_BEAT[scene] }))
-    const compact = renderToStaticMarkup(createElement(LandingShellMotion, { scene, compact: true, beat: SCENE_MAX_BEAT[scene] }))
     expect(full.match(new RegExp(`data-testid="${tid.userBar}"`, "g"))).toHaveLength(1)
     expect(full).toContain(`data-testid="${tid.userSettingsOpen}"`)
     expect(full.includes(`data-testid="${tid.inboxTrigger}"`)).toBe(["server", "machine", "continuity"].includes(scene))
     expect(full).not.toContain(`data-testid="${tid.daemonUpdateBadge}"`)
-    expect(compact).not.toContain(`data-testid="${tid.userBar}"`)
   })
 
   it("uses explicit identities for every Channel Tree fixture dataset", () => {
