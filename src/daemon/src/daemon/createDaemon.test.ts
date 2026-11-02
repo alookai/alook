@@ -1517,6 +1517,25 @@ for await (const line of createInterface({ input: process.stdin })) {
     await daemon.stop();
   });
 
+  it.each(["success", "failure"] as const)("consumes machine:refresh before bot routing on %s", async (outcome) => {
+    const sockets: FakeSocket[] = [];
+    const routerEntry = spyOnRouterCommandEntry();
+    const handleRefresh = vi.fn(async () => { if (outcome === "failure") throw new Error("PRIVATE_REFRESH_DETAIL"); });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ bots: [] })));
+    const daemon = await createDaemon({ machineKey: "cmk_refresh_fixture", serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x", webSocketFactory: factory(sockets), runtimeReport: [],
+      driverFor: () => fakeDriver, capabilities: [], handleRefresh,
+    } as Parameters<typeof createDaemon>[0]);
+    try {
+      sockets[0].emit("open");
+      sockets[0].emit("message", JSON.stringify({ type: "machine:refresh" }));
+      await vi.waitFor(() => expect(handleRefresh).toHaveBeenCalledExactlyOnceWith());
+      expect(routerEntry).not.toHaveBeenCalledWith(expect.objectContaining({ type: "machine:refresh" }));
+      expect(fakeDriver.start).not.toHaveBeenCalled();
+      expect(sockets[0].sent.join("")).not.toContain("PRIVATE_REFRESH_DETAIL");
+    } finally { await daemon.stop(); }
+  });
+
   it("consumes machine:update before bot observers and AgentRouter", async () => {
     const sockets: FakeSocket[] = [];
     const routerEntry = spyOnRouterCommandEntry();

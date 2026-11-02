@@ -118,10 +118,10 @@ struct DaemonOutput {
 }
 
 #[cfg(desktop)]
-fn read_process_pipe<R: Read + Send + 'static>(mut pipe: R) -> std::thread::JoinHandle<Vec<u8>> {
+fn read_process_pipe<R: Read + Send + 'static>(pipe: R) -> std::thread::JoinHandle<Vec<u8>> {
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
-        let _ = pipe.read_to_end(&mut bytes);
+        let _ = pipe.take(1024 * 1024 + 1).read_to_end(&mut bytes);
         bytes
     })
 }
@@ -202,21 +202,225 @@ fn parse_shell_path(stdout: &str) -> Option<String> {
 }
 
 #[cfg(desktop)]
-async fn resolve_path() -> String {
-    let fallback = std::env::var("PATH").unwrap_or_default();
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-    let mut command = Command::new(shell);
-    command.args(["-ilc", "printf '%s\\n' \"$PATH\""]);
-    match run_process(
-        command,
+const ENV_MARKER: &str = "__ALOOK_ENV_V1__";
+
+#[cfg(desktop)]
+fn parse_shell_environment(
+    stdout: &str,
+    is_windows: bool,
+) -> Result<Vec<(String, String)>, String> {
+    let invalid =
+        || "Could not read the shell environment. The daemon was not changed.".to_string();
+    if stdout.len() > 1024 * 1024 {
+        return Err(invalid());
+    }
+    let marker = if is_windows {
+        ENV_MARKER.to_string()
+    } else {
+        format!("{ENV_MARKER}\0")
+    };
+    let (_, data) = stdout.rsplit_once(&marker).ok_or_else(invalid)?;
+    let entries: Vec<(String, String)> = if is_windows {
+        let values: std::collections::BTreeMap<String, String> =
+            serde_json::from_str(data).map_err(|_| invalid())?;
+        values
+            .into_iter()
+            .map(|(key, value)| (key.to_uppercase(), value))
+            .collect()
+    } else {
+        data.split('\0')
+            .filter(|item| !item.is_empty())
+            .map(|item| {
+                item.split_once('=')
+                    .map(|(key, value)| (key.to_string(), value.to_string()))
+                    .ok_or_else(invalid)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    if entries
+        .iter()
+        .any(|(key, value)| key.is_empty() || key.contains(['=', '\0']) || value.contains('\0'))
+    {
+        return Err(invalid());
+    }
+    let path = entries
+        .iter()
+        .find(|(key, _)| key == "PATH")
+        .map(|(_, value)| value.as_str());
+    let home_key = if is_windows { "USERPROFILE" } else { "HOME" };
+    if !entries
+        .iter()
+        .any(|(key, value)| key == home_key && !value.is_empty())
+        || path.and_then(parse_shell_path).is_none()
+    {
+        return Err(invalid());
+    }
+    Ok(entries)
+}
+
+#[cfg(desktop)]
+fn shell_environment_command_for(environment: Vec<(String, String)>, is_windows: bool) -> Command {
+    let allowed = [
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TZ",
+        "TERM",
+        "ZDOTDIR",
+        "XDG_CONFIG_HOME",
+        "XDG_RUNTIME_DIR",
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "XAUTHORITY",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "SSH_AUTH_SOCK",
+        "SYSTEMROOT",
+        "WINDIR",
+        "COMSPEC",
+        "USERPROFILE",
+        "USERNAME",
+        "USERDOMAIN",
+        "ALLUSERSPROFILE",
+        "PUBLIC",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMFILES",
+        "PROGRAMFILES(X86)",
+        "PROGRAMDATA",
+    ];
+    let baseline: Vec<_> = environment
+        .iter()
+        .cloned()
+        .filter(|(key, _)| allowed.contains(&key.to_uppercase().as_str()))
+        .collect();
+    let mut command;
+    if is_windows {
+        let root = environment
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("SystemRoot"))
+            .map(|(_, value)| value.clone())
+            .unwrap_or_else(|| r"C:\Windows".to_string());
+        command = Command::new(
+            PathBuf::from(&root).join("System32/WindowsPowerShell/v1.0/powershell.exe"),
+        );
+        command
+            .env_clear()
+            .envs(baseline)
+            .env("Path", PathBuf::from(root).join("System32"));
+        let lines: Vec<String> = serde_json::from_str(include_str!(
+            "../../../daemon/src/cli/windows-shell-environment.json"
+        ))
+        .expect("invalid bundled Windows shell script");
+        let script = lines.join("; ");
+        command.args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script.as_str(),
+        ]);
+    } else {
+        let shell = environment
+            .iter()
+            .find(|(key, _)| key == "SHELL")
+            .map(|(_, value)| value.clone())
+            .unwrap_or_else(|| "/bin/sh".to_string());
+        command = Command::new(shell);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            let name = PathBuf::from(command.get_program())
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            command.arg0(format!("-{name}"));
+        }
+        command
+            .env_clear()
+            .envs(baseline)
+            .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+        command.args([
+            "-ic",
+            "printf '__ALOOK_ENV_V1__\\000'; exec /usr/bin/env -0",
+        ]);
+    }
+    command
+}
+
+#[cfg(desktop)]
+fn parse_configured_shell(stdout: &str, is_macos: bool) -> Option<String> {
+    let output = stdout.trim();
+    let shell = if is_macos {
+        output.strip_prefix("UserShell:")?.trim()
+    } else {
+        output.split(':').nth(6)?.trim()
+    };
+    (shell.lines().count() == 1 && PathBuf::from(shell).is_absolute()).then(|| shell.to_string())
+}
+
+#[cfg(desktop)]
+async fn configured_login_shell(environment: &[(String, String)]) -> Result<String, String> {
+    let failure = "Could not find this account's login shell.".to_string();
+    let user = environment
+        .iter()
+        .find(|(key, _)| key == "USER" || key == "LOGNAME")
+        .map(|(_, value)| value)
+        .ok_or_else(|| failure.clone())?;
+    let mut command = if cfg!(target_os = "macos") {
+        let mut command = Command::new("/usr/bin/dscl");
+        command.args([".", "-read", &format!("/Users/{user}"), "UserShell"]);
+        command
+    } else {
+        let mut command = Command::new("/usr/bin/getent");
+        command.args(["passwd", user]);
+        command
+    };
+    command.env_clear().envs(environment.iter().cloned());
+    let output = run_process(command, PATH_DISCOVERY_TIMEOUT, failure.clone())
+        .await
+        .map_err(|_| failure.clone())?;
+    if !output.success {
+        return Err(failure);
+    }
+    parse_configured_shell(&output.stdout, cfg!(target_os = "macos")).ok_or(failure)
+}
+
+#[cfg(desktop)]
+async fn resolve_environment() -> Result<Vec<(String, String)>, String> {
+    let failure = "Could not read the shell environment. The daemon was not changed.".to_string();
+    let mut environment: Vec<_> = std::env::vars().collect();
+    if !cfg!(windows)
+        && !environment
+            .iter()
+            .any(|(key, value)| key == "SHELL" && !value.is_empty())
+    {
+        let shell = configured_login_shell(&environment)
+            .await
+            .map_err(|_| failure.clone())?;
+        environment.retain(|(key, _)| key != "SHELL");
+        environment.push(("SHELL".to_string(), shell));
+    }
+    let output = run_process(
+        shell_environment_command_for(environment, cfg!(windows)),
         PATH_DISCOVERY_TIMEOUT,
-        "login shell PATH lookup timed out".to_string(),
+        failure.clone(),
     )
     .await
-    {
-        Ok(output) if output.success => parse_shell_path(&output.stdout).unwrap_or(fallback),
-        _ => fallback,
+    .map_err(|_| failure.clone())?;
+    if !output.success {
+        return Err(failure);
     }
+    parse_shell_environment(&output.stdout, cfg!(windows))
 }
 
 #[cfg(desktop)]
@@ -225,7 +429,7 @@ async fn run_daemon(extra_args: &[String]) -> Result<DaemonOutput, String> {
     let args = daemon_argv(&cfg, extra_args);
 
     let mut command = Command::new(executable(cfg.command));
-    command.env("PATH", resolve_path().await);
+    command.env_clear().envs(resolve_environment().await?);
     if let Some(cwd) = &cfg.cwd {
         command.current_dir(cwd);
     }
@@ -353,9 +557,12 @@ fn daemon_failure_message(stdout: &str, stderr: &str) -> String {
 }
 
 #[cfg(desktop)]
-async fn probe_runtime_command(command: &'static str, path: String) -> Result<String, String> {
+async fn probe_runtime_command(
+    command: &'static str,
+    environment: Vec<(String, String)>,
+) -> Result<String, String> {
     let mut process = Command::new(executable(command));
-    process.env("PATH", path).arg("--version");
+    process.env_clear().envs(environment).arg("--version");
     let output = run_process(
         process,
         RUNTIME_PROBE_TIMEOUT,
@@ -745,10 +952,19 @@ pub fn close_splashscreen(app: AppHandle) {
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn daemon_runtime_capability() -> DaemonRuntimeCapability {
-    let path = resolve_path().await;
+    let environment = match resolve_environment().await {
+        Ok(environment) => environment,
+        Err(reason) => {
+            return DaemonRuntimeCapability {
+                available: false,
+                reason: Some(reason),
+                node_version: None,
+            }
+        }
+    };
     let (node, npm) = tokio::join!(
-        probe_runtime_command("node", path.clone()),
-        probe_runtime_command("npm", path),
+        probe_runtime_command("node", environment.clone()),
+        probe_runtime_command("npm", environment),
     );
     evaluate_runtime_capability(node, npm)
 }
@@ -1356,6 +1572,148 @@ mod tests {
         assert!(parse_shell_path("").is_none());
         assert!(parse_shell_path("banner\n/usr/bin").is_none());
         assert!(parse_shell_path("relative/bin").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shell_environment_retains_non_path_multiline_exports_without_inherited_noise() {
+        let parsed = parse_shell_environment("banner\n__ALOOK_ENV_V1__\0PATH=/usr/bin:/bin\0HOME=/tmp/test\0SYNTHETIC=line1\n你好=$literal\0", false).unwrap();
+        assert!(parsed.contains(&("SYNTHETIC".to_string(), "line1\n你好=$literal".to_string())));
+        assert!(parse_shell_environment("PATH=/usr/bin", false).is_err());
+        assert!(parse_shell_environment("__ALOOK_ENV_V1__\0PATH=/bin\0BAD\0", false).is_err());
+    }
+
+    #[test]
+    fn configured_login_shell_uses_directory_service_or_passwd_output() {
+        assert_eq!(
+            parse_configured_shell("UserShell: /bin/zsh\n", true).as_deref(),
+            Some("/bin/zsh")
+        );
+        assert_eq!(
+            parse_configured_shell("test:x:1000:1000:Test:/home/test:/bin/bash\n", false)
+                .as_deref(),
+            Some("/bin/bash")
+        );
+        assert!(parse_configured_shell("UserShell: relative", true).is_none());
+        assert!(parse_configured_shell("unexpected", false).is_none());
+    }
+
+    #[test]
+    fn windows_environment_capture_uses_utf8_after_loading_profiles() {
+        let command = shell_environment_command_for(
+            vec![
+                ("SystemRoot".into(), r"C:\Windows".into()),
+                ("PRIVATE_OLD".into(), "stale".into()),
+            ],
+            true,
+        );
+        let script = command.get_args().last().unwrap().to_str().unwrap();
+        assert!(
+            script.find("Test-Path -LiteralPath").unwrap()
+                < script
+                    .find("[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)")
+                    .unwrap()
+        );
+        assert!(script.find("$machine.Keys").unwrap() < script.find("$login.Keys").unwrap());
+        assert!(
+            script.find("$login.Keys").unwrap() < script.find("Test-Path -LiteralPath").unwrap()
+        );
+        assert!(!command.get_envs().any(|(key, _)| key == "PRIVATE_OLD"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_login_shells_load_their_own_startup_configuration() {
+        for name in ["bash", "zsh", "csh", "tcsh"] {
+            let shell = PathBuf::from(format!("/bin/{name}"));
+            if !shell.exists() {
+                continue;
+            }
+            let root =
+                std::env::temp_dir().join(format!("alook-login-env-{}-{name}", std::process::id()));
+            std::fs::create_dir_all(&root).unwrap();
+            let files: Vec<(&str, &str)> = match name {
+                "bash" => vec![
+                    (
+                        ".bash_profile",
+                        "export ALOOK_LOGIN_PROFILE=loaded\n. \"$HOME/.bashrc\"\n",
+                    ),
+                    (".bashrc", "export ALOOK_INTERACTIVE_RC=loaded\n"),
+                ],
+                "zsh" => vec![
+                    (".zprofile", "export ALOOK_LOGIN_PROFILE=loaded\n"),
+                    (".zshrc", "export ALOOK_INTERACTIVE_RC=loaded\n"),
+                ],
+                _ => vec![
+                    (".login", "setenv ALOOK_LOGIN_PROFILE loaded\n"),
+                    (".cshrc", "setenv ALOOK_INTERACTIVE_RC loaded\n"),
+                    (".tcshrc", "setenv ALOOK_INTERACTIVE_RC loaded\n"),
+                ],
+            };
+            for (file, text) in files {
+                std::fs::write(root.join(file), text).unwrap();
+            }
+            let command = shell_environment_command_for(
+                vec![
+                    ("SHELL".into(), shell.to_string_lossy().into_owned()),
+                    ("HOME".into(), root.to_string_lossy().into_owned()),
+                    ("ZDOTDIR".into(), root.to_string_lossy().into_owned()),
+                    ("STALE_ONLY".into(), "old".into()),
+                ],
+                false,
+            );
+            let output =
+                run_process_with_timeout(command, Duration::from_secs(2), "timeout".into())
+                    .unwrap();
+            assert!(output.success, "{name}");
+            let environment = parse_shell_environment(&output.stdout, false).unwrap();
+            assert!(
+                environment.contains(&("ALOOK_LOGIN_PROFILE".into(), "loaded".into())),
+                "{name}"
+            );
+            assert!(
+                environment.contains(&("ALOOK_INTERACTIVE_RC".into(), "loaded".into())),
+                "{name}"
+            );
+            assert!(!environment.iter().any(|(key, _)| key == "STALE_ONLY"));
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_environment_capture_reaches_a_child_and_removes_stale_exports() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("alook-native-env-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let shell = root.join("shell");
+        std::fs::write(&shell, "#!/bin/sh\nexport SYNTHETIC_FRESH='new value'\nprintf '__ALOOK_ENV_V1__\\000'\nexec /usr/bin/env -0\n").unwrap();
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let command = shell_environment_command_for(
+            vec![
+                ("SHELL".to_string(), shell.to_string_lossy().to_string()),
+                ("HOME".to_string(), root.to_string_lossy().to_string()),
+                ("STALE_ONLY".to_string(), "old value".to_string()),
+            ],
+            false,
+        );
+        let output =
+            run_process_with_timeout(command, Duration::from_secs(2), "timeout".to_string())
+                .unwrap();
+        assert!(output.success);
+        let environment = parse_shell_environment(&output.stdout, false).unwrap();
+        assert!(!environment.iter().any(|(key, _)| key == "STALE_ONLY"));
+        let mut child = Command::new("/bin/sh");
+        child.env_clear().envs(environment).args([
+            "-c",
+            "test \"$SYNTHETIC_FRESH\" = 'new value' && test -z \"$STALE_ONLY\"",
+        ]);
+        assert!(
+            run_process_with_timeout(child, Duration::from_secs(2), "timeout".to_string())
+                .unwrap()
+                .success
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(unix)]

@@ -1,3 +1,4 @@
+import { MachineRefreshCommandSchema } from "./machine-refresh-contract";
 import { PiiCommandSchema, type PiiCommand, type PiiResultFrame } from "./pii-contract";
 import type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
 /**
@@ -857,6 +858,7 @@ export type HostCommand =
    * `agentRouter`.
    */
   | { type: "machine:reset_all"; resets: Array<{ agentId: AgentId; config: RuntimeConfig; launchId: string }> }
+  | z.infer<typeof MachineRefreshCommandSchema>
   | { type: "machine:update" }
   | { type: "machine:stop" }
   // ─── Bot lifecycle events (server → daemon) ────────────────────────────
@@ -1557,6 +1559,7 @@ export const HostCommandSchema = z.discriminatedUnion("type", [
       }),
     ),
   }),
+  MachineRefreshCommandSchema,
   z.strictObject({
     type: z.literal("machine:update"),
   }),

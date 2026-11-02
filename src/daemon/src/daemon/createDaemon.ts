@@ -328,6 +328,7 @@ export interface CreateDaemonOptions {
   /** B2b interception seam; B2c supplies the local collector/uploader. */
   handleDiagnosticCommand?: (command: DiagnosticCollectCommand) => void | Promise<void>;
   /** Machine-level lifecycle command; consumed before bot observers/router. */
+  handleRefresh?: () => Promise<void>;
   handleSelfUpdate?: () => void | Promise<void>;
   onStopRequested?: () => void;
   /** Fixed-code failure callback used when diagnostics is not available. */
@@ -1122,6 +1123,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     channel,
     runtimeReport: opts.runtimeReport,
     supportsMachineStop: typeof opts.onStopRequested === "function",
+    supportsMachineRefresh: typeof opts.handleRefresh === "function",
     hostname: opts.hostname,
     platform: opts.platform,
     arch: opts.arch,
@@ -1188,6 +1190,11 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         channel.reportPiiResult({ type: "pii_result", botId: command.botId, requestId: command.requestId, result: { status: "error", code: "PII_UNAVAILABLE" } });
       }
     })();
+    return WS_CONTROL_COMMAND_CONSUMED;
+  });
+  channel.onCommand((command) => {
+    if (command.type !== "machine:refresh") return;
+    void opts.handleRefresh?.().catch(() => { log.warn("machine refresh failed"); });
     return WS_CONTROL_COMMAND_CONSUMED;
   });
   channel.onCommand(createSelfUpdateCommandListener(opts.handleSelfUpdate));

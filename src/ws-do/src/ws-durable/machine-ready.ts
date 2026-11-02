@@ -2,6 +2,7 @@ import { PII_CAPABILITY } from "@alook/shared"
 import {
   CONTROL_HEARTBEAT_CAPABILITY,
   MACHINE_STOP_CAPABILITY,
+  MACHINE_REFRESH_CAPABILITY,
   RUNTIME_MODEL_DISCOVERY_CAPABILITY,
   createDb,
   HostReadyMessageSchema,
@@ -100,6 +101,7 @@ export async function handleReadyFrame(
       pii: ready.capabilities.includes(PII_CAPABILITY),
       modelDiscovery: ready.capabilities.includes(RUNTIME_MODEL_DISCOVERY_CAPABILITY),
       machineStop: ready.capabilities.includes(MACHINE_STOP_CAPABILITY),
+      machineRefresh: ready.capabilities.includes(MACHINE_REFRESH_CAPABILITY),
       ...(controlHeartbeat ? { lastHeartbeatAckAt: Date.now() } : {}),
       pendingHeartbeatNonce: undefined,
     })

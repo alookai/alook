@@ -1,0 +1,18 @@
+[
+  "$ErrorActionPreference='Stop'",
+  "$login=@{}",
+  "foreach($k in @('USERNAME','USERDOMAIN','USERPROFILE','HOMEDRIVE','HOMEPATH','APPDATA','LOCALAPPDATA')){$v=[Environment]::GetEnvironmentVariable($k,'Process')",
+  "if($null -ne $v){$login[$k]=$v}}",
+  "$machine=[Environment]::GetEnvironmentVariables('Machine')",
+  "$user=[Environment]::GetEnvironmentVariables('User')",
+  "foreach($k in $machine.Keys){[Environment]::SetEnvironmentVariable($k,[string]$machine[$k],'Process')}",
+  "foreach($k in $user.Keys){if($k -ne 'Path'){[Environment]::SetEnvironmentVariable($k,[string]$user[$k],'Process')}}",
+  "foreach($k in $login.Keys){[Environment]::SetEnvironmentVariable($k,[string]$login[$k],'Process')}",
+  "$env:Path=[Environment]::ExpandEnvironmentVariables(([string]$machine['Path'])+';'+([string]$user['Path']))",
+  "foreach($p in @($PROFILE.AllUsersAllHosts,$PROFILE.AllUsersCurrentHost,$PROFILE.CurrentUserAllHosts,$PROFILE.CurrentUserCurrentHost)){if(Test-Path -LiteralPath $p){. $p}}",
+  "$env:Path=(($env:Path -split ';') | Where-Object {$_ -ne ''}) -join ';'",
+  "$e=@{}",
+  "Get-ChildItem Env: | ForEach-Object {$e[$_.Name]=$_.Value}",
+  "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)",
+  "[Console]::Out.Write('__ALOOK_ENV_V1__'+($e | ConvertTo-Json -Compress))"
+]
