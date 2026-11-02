@@ -1,292 +1,105 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { describe, expect, it, vi } from "vitest"
+import { join, resolve } from "node:path"
+import { afterAll, describe, expect, it, vi } from "vitest"
 import {
+  collectPlaywrightCases,
   createE2eMatrix,
-  DEFAULT_SPEC_SECONDS,
   discoverE2eSpecs,
-  E2E_FIXED_SETUP_SECONDS,
-  E2E_SAFETY_MARGIN_SECONDS,
-  E2E_SHARD_BUDGET_SECONDS,
-  E2E_SPEC_BUDGET_SECONDS,
-  planE2eShards,
+  queryNativeUiFacts,
   resolvePlaywrightImage,
   resolvePlaywrightVersion,
   runCli,
-  SPEC_SECONDS,
+  validateNativeUiFacts,
 } from "./e2e-shards.mjs"
 
-describe("resolvePlaywrightVersion", () => {
-  const lockfile = `
-importers:
+const root = mkdtempSync(join(tmpdir(), "alook-native-playwright-"))
+const web = join(root, "src/web")
+const specRoot = join(web, "src/test/e2e-ui")
+mkdirSync(specRoot, { recursive: true })
+writeFileSync(join(web, "package.json"), '{"type":"module"}')
+symlinkSync(resolve("src/web/node_modules"), join(web, "node_modules"), process.platform === "win32" ? "junction" : "dir")
+const config = 'export default { testDir: "./src/test/e2e-ui", fullyParallel: false, workers: 1, retries: 0, projects: [{ name: "chromium" }] }'
+writeFileSync(join(web, "playwright.config.ts"), config)
+writeFileSync(join(specRoot, "a.spec.ts"), 'import { test } from "@playwright/test"; test.describe("owned", () => { for (let i = 0; i < 8; i++) test("case " + i, () => {}) })')
+writeFileSync(join(specRoot, "b.spec.ts"), 'import "./imported.journey"')
+writeFileSync(join(specRoot, "imported.journey.ts"), 'import { test } from "@playwright/test"; test("imported registration", () => {})')
+writeFileSync(join(specRoot, "c.spec.ts"), 'import { test } from "@playwright/test"; test("last", () => {})')
+afterAll(() => rmSync(root, { recursive: true, force: true }))
 
-  src/web:
-    devDependencies:
-      '@playwright/test':
-        specifier: ^1.62.1
-        version: 1.62.1
+const facts = () => queryNativeUiFacts(["all"], { root, shardCount: 3 })
 
-  src/ws-do:
-    dependencies: {}
-`
-
-  it("resolves the exact web importer version and official image", () => {
-    expect(resolvePlaywrightVersion(lockfile)).toBe("1.62.1")
+describe("locked Playwright image", () => {
+  const lockfile = "\n  src/web:\n    devDependencies:\n      '@playwright/test':\n        specifier: ^1.62.1\n        version: 1.62.1\n\n  src/ws-do:\n    dependencies: {}\n"
+  it("uses the exact importer, including CRLF", () => {
     expect(resolvePlaywrightVersion(lockfile.replaceAll("\n", "\r\n"))).toBe("1.62.1")
-    expect(resolvePlaywrightImage(lockfile)).toBe(
-      "mcr.microsoft.com/playwright:v1.62.1-noble",
-    )
+    expect(resolvePlaywrightImage(lockfile)).toBe("mcr.microsoft.com/playwright:v1.62.1-noble")
   })
-
-  it("rejects missing importers, missing dependencies, and malformed versions", () => {
-    expect(() => resolvePlaywrightVersion("importers:\n")).toThrow("src/web importer")
-    expect(() => resolvePlaywrightVersion(lockfile.replace("'@playwright/test'", "vitest")))
-      .toThrow("exact @playwright/test version")
-    expect(() => resolvePlaywrightVersion(lockfile.replace("version: 1.62.1", "version: latest")))
-      .toThrow("invalid @playwright/test version")
+  it.each(["importers:\n", lockfile.replace("'@playwright/test'", "vitest"), lockfile.replace("version: 1.62.1", "version: latest")])("rejects an unresolved version", source => {
+    expect(() => resolvePlaywrightVersion(source)).toThrow()
   })
 })
 
-describe("discoverE2eSpecs", () => {
-  it("discovers nested specs in deterministic order", () => {
-    const root = mkdtempSync(join(tmpdir(), "alook-e2e-specs-"))
+describe("native discovery and partition closure", () => {
+  it("discovers actual registrations, including an imported journey owned by its spec", () => {
+    expect(discoverE2eSpecs(root)).toEqual(["a.spec.ts", "b.spec.ts", "c.spec.ts"])
+    const value = facts()
+    expect(value.cases).toHaveLength(10)
+    expect(value.cases).toContainEqual({ file: "b.spec.ts", key: '["b.spec.ts","chromium","imported registration"]' })
+    expect(value.cases.filter(test => test.file === "a.spec.ts")).toHaveLength(8)
+    const matrix = createE2eMatrix(value)
+    expect(matrix.include.flatMap(part => part.case_keys).sort()).toEqual(value.cases.map(test => test.key).sort())
+    expect(matrix.include.flatMap(part => part.specs).sort()).toEqual(["a.spec.ts", "b.spec.ts", "c.spec.ts"].map(file => "src/test/e2e-ui/" + file))
+    expect(matrix.include.map(part => part.shard)).toEqual(matrix.include.map((_, index) => index + 1))
+    for (const part of matrix.include) {
+      expect(part.native_total).toBe(3)
+      expect(part.case_keys).toEqual(value.shards[part.native_shard - 1]!.cases)
+    }
+    expect(matrix.include.length).toBeLessThan(3)
+  })
+
+  it("selects one real file and rejects unknown, duplicate or mixed-sentinel selections", () => {
+    const value = queryNativeUiFacts(["b.spec.ts"], { root })
+    expect(value.files).toEqual(["b.spec.ts"])
+    expect(value.cases).toHaveLength(1)
+    for (const specs of [["missing.spec.ts"], ["b.spec.ts", "b.spec.ts"], ["all", "b.spec.ts"], []]) {
+      expect(() => queryNativeUiFacts(specs, { root })).toThrow()
+    }
+  })
+
+  it("rejects native errors and incomplete or duplicate partitions", () => {
+    expect(() => collectPlaywrightCases({ suites: [], errors: [{}] })).toThrow("discovery failed")
+    const value = facts()
+    const duplicate = structuredClone(value)
+    duplicate.shards[0]!.cases.push(duplicate.shards[0]!.cases[0]!)
+    expect(() => validateNativeUiFacts(duplicate, ["all"])).toThrow()
+    const missing = structuredClone(value)
+    missing.shards[0]!.cases.pop()
+    expect(() => validateNativeUiFacts(missing, ["all"])).toThrow()
+    expect(() => validateNativeUiFacts(value, ["b.spec.ts"])).toThrow("selection mismatch")
+    expect(() => validateNativeUiFacts({ ...value, playwright_version: "0.0.0" }, ["all"])).toThrow("version mismatch")
+  })
+
+  it("fails discovery when native execution constraints change", () => {
     try {
-      mkdirSync(join(root, "nested"))
-      writeFileSync(join(root, "z.spec.ts"), "")
-      writeFileSync(join(root, "nested", "a.spec.ts"), "")
-      writeFileSync(join(root, "ignored.ts"), "")
-
-      expect(discoverE2eSpecs(root)).toEqual(["nested/a.spec.ts", "z.spec.ts"])
+      writeFileSync(join(web, "playwright.config.ts"), config.replace("fullyParallel: false", "fullyParallel: true"))
+      expect(() => queryNativeUiFacts(["all"], { root })).toThrow("constraints changed")
     } finally {
-      rmSync(root, { recursive: true, force: true })
+      writeFileSync(join(web, "playwright.config.ts"), config)
     }
   })
 })
 
-describe("planE2eShards", () => {
-  it("assigns every spec exactly once with deterministic duration balance", () => {
-    const specs = discoverE2eSpecs()
-    const first = planE2eShards(specs)
-    const second = planE2eShards([...specs].reverse())
-    const assigned = first.flatMap((shard) => shard.files)
-    const specSeconds = first.map((shard) => shard.spec_seconds)
-    const predictedSeconds = first.map((shard) => shard.predicted_seconds)
-
-    expect(first).toEqual(second)
-    expect(Object.keys(SPEC_SECONDS).sort()).toEqual(specs)
-    expect([...assigned].sort()).toEqual(specs)
-    expect(new Set(assigned).size).toBe(specs.length)
-    expect(SPEC_SECONDS["18-new-divider-scroll.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
-    expect(SPEC_SECONDS["55-message-scroll-characterization.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
-    expect(SPEC_SECONDS["66-public-static-resource-cache.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
-    expect(SPEC_SECONDS["66-grouped-message-toolbar.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
-    expect(SPEC_SECONDS["67-text-sidebar-threads.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
-    expect(SPEC_SECONDS["68-bot-memberships.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
-    expect(SPEC_SECONDS["70-renderer-action-themes.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
-    expect(SPEC_SECONDS["native-keyboard-viewport-projection.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
-    expect(first.find((shard) => shard.files.includes("native-keyboard-viewport-projection.spec.ts"))?.files)
-      .toEqual(["native-keyboard-viewport-projection.spec.ts"])
-    expect(first.find((shard) => shard.files.includes("70-renderer-action-themes.spec.ts"))?.files)
-      .toEqual(["70-renderer-action-themes.spec.ts"])
-    expect(SPEC_SECONDS["69-table-fullscreen-scroll.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
-    expect(first.find((shard) => shard.files.includes("69-table-fullscreen-scroll.spec.ts"))?.files)
-      .toEqual(["69-table-fullscreen-scroll.spec.ts"])
-    expect(SPEC_SECONDS["64-mobile-parent-return.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
-    expect(first.find((shard) => shard.files.includes("64-mobile-parent-return.spec.ts"))?.files)
-      .toEqual(["64-mobile-parent-return.spec.ts"])
-    expect(first.find((shard) => shard.files.includes("66-public-static-resource-cache.spec.ts"))?.files)
-      .toEqual(["66-public-static-resource-cache.spec.ts"])
-    expect(first.find((shard) => shard.files.includes("66-grouped-message-toolbar.spec.ts"))?.files)
-      .toEqual(["66-grouped-message-toolbar.spec.ts"])
-    expect(first.find((shard) => shard.files.includes("67-text-sidebar-threads.spec.ts"))?.files)
-      .toEqual(["67-text-sidebar-threads.spec.ts"])
-    expect(specSeconds.reduce((total, seconds) => total + seconds, 0)).toBeCloseTo(
-      Object.values(SPEC_SECONDS).reduce((total, seconds) => total + seconds, 0), 3,
-    )
-    expect(first.every((shard) => (
-      shard.fixed_setup_seconds === E2E_FIXED_SETUP_SECONDS
-      && shard.safety_margin_seconds === E2E_SAFETY_MARGIN_SECONDS
-      && shard.predicted_seconds
-        === shard.spec_seconds + E2E_FIXED_SETUP_SECONDS + E2E_SAFETY_MARGIN_SECONDS
-    ))).toBe(true)
-    expect(Math.max(...predictedSeconds)).toBeLessThanOrEqual(E2E_SHARD_BUDGET_SECONDS)
-    expect(first).toHaveLength(
-      Math.ceil(specSeconds.reduce((total, seconds) => total + seconds, 0)
-        / E2E_SPEC_BUDGET_SECONDS),
-    )
-  })
-
-  it("includes an unknown spec with a conservative default weight", () => {
-    const shards = planE2eShards(["known.spec.ts", "new.spec.ts"], {
-      weights: { "known.spec.ts": 5 },
-    })
-
-    expect(shards.flatMap((shard) => shard.files).sort()).toEqual([
-      "known.spec.ts",
-      "new.spec.ts",
-    ])
-    expect(DEFAULT_SPEC_SECONDS).toBe(E2E_SPEC_BUDGET_SECONDS)
-    expect(shards.find((shard) => shard.files.includes("new.spec.ts"))?.files)
-      .toEqual(["new.spec.ts"])
-    expect(shards.map((shard) => shard.spec_seconds).sort((a, b) => a - b))
-      .toEqual([5, E2E_SPEC_BUDGET_SECONDS])
-    expect(shards.map((shard) => shard.predicted_seconds).sort((a, b) => a - b))
-      .toEqual([80, E2E_SHARD_BUDGET_SECONDS])
-  })
-
-  it("increments the total-time lower bound when LPT does not fit", () => {
-    const weights = {
-      "a.spec.ts": 3,
-      "b.spec.ts": 3,
-      "c.spec.ts": 2,
-      "d.spec.ts": 2,
-      "e.spec.ts": 2,
-    }
-    const shards = planE2eShards(Object.keys(weights), {
-      weights,
-      budgetSeconds: 6,
-      fixedSetupSeconds: 0,
-      safetyMarginSeconds: 0,
-    })
-
-    expect(Math.ceil(12 / 6)).toBe(2)
-    expect(shards).toHaveLength(3)
-    expect(shards.every((shard) => shard.spec_seconds <= 6)).toBe(true)
-  })
-
-  it("rejects duplicate or empty paths and invalid planning values", () => {
-    expect(() => planE2eShards(["a.spec.ts", "a.spec.ts"])).toThrow("unique")
-    expect(() => planE2eShards([])).toThrow("at least one")
-    expect(() => planE2eShards([""])).toThrow("non-empty strings")
-    expect(() => planE2eShards(["a.spec.ts"], { budgetSeconds: 0 }))
-      .toThrow("positive spec budget")
-    expect(() => planE2eShards(["a.spec.ts"], {
-      budgetSeconds: 1.5,
-      fixedSetupSeconds: 0,
-      safetyMarginSeconds: 0,
-    })).toThrow("budgetSeconds must be a positive integer")
-    expect(() => planE2eShards(["a.spec.ts"], { defaultSeconds: Number.NaN }))
-      .toThrow("positive finite")
-    expect(() => planE2eShards(["a.spec.ts"], { weights: { "a.spec.ts": 0 } }))
-      .toThrow("positive finite")
-    expect(() => planE2eShards(["a.spec.ts"], { fixedSetupSeconds: Number.NaN }))
-      .toThrow("non-negative finite")
-    expect(() => planE2eShards(["a.spec.ts"], { safetyMarginSeconds: -1 }))
-      .toThrow("non-negative finite")
-  })
-
-  it("requires an oversized spec to be split or given a stable case manifest", () => {
-    expect(() => planE2eShards(["slow.spec.ts"], {
-      weights: { "slow.spec.ts": E2E_SPEC_BUDGET_SECONDS + 0.001 },
-    })).toThrow("split the spec or add a stable case manifest")
-  })
-})
-
-describe("createE2eMatrix", () => {
-  it("emits shell-safe repo-local spec arguments", () => {
-    const matrix = createE2eMatrix([
-      "01-auth.spec.ts",
-      "02-server-channel-message.spec.ts",
-      "03-realtime-multiuser.spec.ts",
-      "04-dm.spec.ts",
-      "06-channel-member-admin.spec.ts",
-    ])
-    const argumentsList = matrix.include.flatMap((entry) => entry.specs)
-
-    expect(argumentsList.sort()).toEqual([
-      "src/test/e2e-ui/01-auth.spec.ts",
-      "src/test/e2e-ui/02-server-channel-message.spec.ts",
-      "src/test/e2e-ui/03-realtime-multiuser.spec.ts",
-      "src/test/e2e-ui/04-dm.spec.ts",
-      "src/test/e2e-ui/06-channel-member-admin.spec.ts",
-    ])
-    expect(matrix.include).toHaveLength(1)
-    expect(matrix.include.every((entry) => entry.total === 1)).toBe(true)
-    expect(matrix.include[0]).toMatchObject({
-      spec_seconds: 46.085,
-      fixed_setup_seconds: 60,
-      safety_margin_seconds: 15,
-      predicted_seconds: 121.085,
-    })
-    expect(matrix.include.every(
-      (entry) => entry.image === resolvePlaywrightImage(),
-    )).toBe(true)
-  })
-
-  it("creates one shard for the Blog contract and rejects specs outside inventory", () => {
-    const matrix = createE2eMatrix(["54-blog-multizone.spec.ts"])
-
-    expect(matrix.include).toHaveLength(1)
-    expect(matrix.include[0]).toMatchObject({
-      shard: 1,
-      total: 1,
-      spec_seconds: 5.485,
-      fixed_setup_seconds: 60,
-      safety_margin_seconds: 15,
-      predicted_seconds: 80.485,
-      specs: ["src/test/e2e-ui/54-blog-multizone.spec.ts"],
-    })
-    expect(() => createE2eMatrix(["future.spec.ts"])).toThrow("inventory")
-  })
-
-  it("expands the all sentinel to the exact live inventory", () => {
-    const matrix = createE2eMatrix(["all"])
-    const assigned = matrix.include.flatMap((entry) => entry.specs)
-
-    expect(assigned).toHaveLength(discoverE2eSpecs().length)
-    expect(new Set(assigned).size).toBe(assigned.length)
-  })
-
-  it("rejects the all sentinel when combined with explicit specs", () => {
-    expect(() => createE2eMatrix(["all", "54-blog-multizone.spec.ts"]))
-      .toThrow("all sentinel")
-  })
-})
-
-describe("E2E shard CLI", () => {
-  it("writes an explicit matrix and human-readable summary", () => {
-    const directory = mkdtempSync(join(tmpdir(), "alook-e2e-cli-"))
-    const output = join(directory, "output")
-    const summary = join(directory, "summary.md")
-    try {
-      runCli([
-        "--specs-json", JSON.stringify(["54-blog-multizone.spec.ts"]),
-        "--output", output,
-        "--summary", summary,
-      ])
-
-      expect(readFileSync(output, "utf8")).toContain(
-        "src/test/e2e-ui/54-blog-multizone.spec.ts",
-      )
-      expect(readFileSync(summary, "utf8")).toContain(
-        "| 1/1 | 5.485s | 60s | 15s | 80.485s |",
-      )
-      expect(readFileSync(summary, "utf8")).toContain(
-        "Predicted Playwright command step; 240s budget per shard",
-      )
-    } finally {
-      rmSync(directory, { recursive: true, force: true })
-    }
-  })
-
-  it("prints the default live inventory without an output file", () => {
+describe("native shard CLI", () => {
+  it("writes native matrix and a target without prediction claims", () => {
+    const output = join(root, "output"), summary = join(root, "summary.md")
+    runCli(["--specs-json", '["b.spec.ts"]', "--output", output, "--summary", summary], { root })
+    expect(JSON.parse(readFileSync(output, "utf8").trim().slice("e2e_matrix=".length)).include[0]).toMatchObject({ native_shard: 1, native_total: 1, specs: ["src/test/e2e-ui/b.spec.ts"] })
+    expect(readFileSync(summary, "utf8")).toContain("not a predicted cutoff")
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
     try {
-      runCli([])
-
-      const matrix = JSON.parse(stdout.mock.calls.map(([value]) => String(value)).join(""))
-      expect(matrix.include.flatMap((entry: { specs: string[] }) => entry.specs))
-        .toHaveLength(discoverE2eSpecs().length)
-    } finally {
-      stdout.mockRestore()
-    }
-  })
-
-  it("rejects malformed specs JSON values", () => {
-    expect(() => runCli(["--specs-json", JSON.stringify({ spec: "54-blog-multizone.spec.ts" })]))
-      .toThrow("JSON array")
-    expect(() => runCli(["--specs-json", JSON.stringify([42])]))
-      .toThrow("JSON array")
+      runCli(["--shards", "1"], { root })
+      expect(JSON.parse(String(stdout.mock.calls[0]![0])).facts.cases).toHaveLength(10)
+    } finally { stdout.mockRestore() }
   })
 })

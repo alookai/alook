@@ -1,11 +1,22 @@
-import { readFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import source0 from "./bot-list-card.dom.test.ts?raw"
+import source1 from "./bot-list-controller.ts?raw"
+import source2 from "./bot-list-types.ts?raw"
+import source3 from "./me-bots-route.tsx?raw"
+import source4 from "../shell/community-module-route.tsx?raw"
 import { describe, expect, it } from "vitest"
 import * as facade from "./bot-list"
 
-const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
-const source = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
+const sources: Record<string, string> = {
+  "src/components/community/bots/bot-list-card.dom.test.ts": source0,
+  "src/components/community/bots/bot-list-controller.ts": source1,
+  "src/components/community/bots/bot-list-types.ts": source2,
+  "src/components/community/bots/me-bots-route.tsx": source3,
+  "src/components/community/shell/community-module-route.tsx": source4,
+}
+const source = (path: string) => {
+  if (!(path in sources)) throw new Error("unregistered contract source: " + path)
+  return sources[path]
+}
 
 describe("BotList facade contract", () => {
   it("exposes the public component without internal runtime exports", () => {

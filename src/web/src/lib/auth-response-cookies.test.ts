@@ -1,5 +1,6 @@
+import rawContractInput0 from "../../migrations/0001_schema.sql?raw"
+import rawContractInput1 from "../../migrations/0035_device_code_table.sql?raw"
 import { DatabaseSync } from "node:sqlite"
-import { readFileSync } from "node:fs"
 import { createHmac } from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
@@ -88,8 +89,8 @@ describe("same-request signed session refresh", () => {
     try {
       sqlite.exec(`CREATE TABLE user (id TEXT PRIMARY KEY, name TEXT, email TEXT, emailVerified INTEGER, image TEXT, createdAt INTEGER, updatedAt INTEGER, discriminator TEXT, isBot INTEGER, deletedAt TEXT);
         CREATE TABLE session (id TEXT PRIMARY KEY, token TEXT, userId TEXT, expiresAt INTEGER, createdAt INTEGER, updatedAt INTEGER, ipAddress TEXT, userAgent TEXT);`)
-      sqlite.exec(readFileSync(new URL("../../migrations/0001_schema.sql", import.meta.url), "utf8"))
-      sqlite.exec(readFileSync(new URL("../../migrations/0035_device_code_table.sql", import.meta.url), "utf8"))
+      sqlite.exec(rawContractInput0)
+      sqlite.exec(rawContractInput1)
       const now = Date.now()
       sqlite.prepare("INSERT INTO user VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run("viewer-a", "Viewer", "fixture@example.test", 1, null, new Date(now).toISOString(), new Date(now).toISOString(), "0001", 0, null)
       sqlite.prepare("INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run("session-a", "fixture-token", "viewer-a", new Date(now + 30 * 86400000).toISOString(), new Date(now).toISOString(), new Date(now).toISOString(), null, null)

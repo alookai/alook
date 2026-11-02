@@ -261,7 +261,7 @@ describe("E2E UI workflow", () => {
     expect(workflow).toContain("actions: read")
     expect(workflow).not.toMatch(/^  pull_request_target:/m)
     expect(workflow).not.toContain("e2e-timing-history")
-    for (const job of ["ui-e2e-build", "e2e-ui", "merge-reports"]) {
+    for (const job of ["e2e-ui", "merge-reports"]) {
       expect(ciJob(job)).toContain("run_ui_e2e == 'true'")
       expect(ciJob(job)).not.toContain("github.event_name != 'push'")
     }
@@ -315,13 +315,14 @@ describe("E2E UI workflow", () => {
     const gate = ciJob("ui-e2e-gate")
     const devVars = "printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\\nBETTER_AUTH_URL=http://localhost:3000\\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\\nDEV_WS_DO_URL=http://localhost:3000\\nNODE_ENV=development\\n' > src/web/.dev.vars"
 
-    expect(producer).toContain("image: ${{ fromJSON(needs.scope.outputs.e2e_matrix).include[0].image }}")
+    expect(producer).toContain("image: ${{ needs.scope.outputs.worker_build_image }}")
     expect(producer).toContain("options: --init --ipc=host --user 1001")
     expect(producer).toContain("NEXT_PUBLIC_WS_DO_PORT: \"3000\"")
     expect(producer).toContain(devVars)
     expect(shard).toContain(devVars)
-    expect(producer.match(/opennextjs-cloudflare build/g)).toHaveLength(1)
-    expect(producer.match(/pnpm --filter @alook\/web build:blog/g)).toHaveLength(1)
+    expect(producer).toContain("run_worker_build == 'true'")
+    expect(producer).toContain('node scripts/ci/run-turbo.mjs run "${tasks[@]}" --concurrency=1')
+    expect(producer).toContain('"@alook/web#build:blog"')
     expect(producer).toContain("e2e-build-artifact.mjs create")
     expect(producer).toContain("name: ${{ steps.artifact_identity.outputs.artifact_name }}")
     expect(producer).toContain("ui-e2e-build-manifest.json")
@@ -417,12 +418,10 @@ describe("Local package test isolation", () => {
     }
 
     const rootTest = rootPackageJson.scripts.test
-    const driverBuild = rootTest.indexOf("pnpm --filter @alook/agent-driver build")
-    const workspaceTests = rootTest.indexOf("turbo run test --filter=!@alook/agent-driver")
-    const driverTests = rootTest.indexOf("pnpm --filter @alook/agent-driver test")
+    const workspaceTests = rootTest.indexOf("scripts/ci/run-turbo.mjs run test")
+    const driverTests = rootTest.indexOf("@alook/agent-driver#test")
     const scriptTests = rootTest.indexOf("vitest run --project ci-scripts")
-    expect(driverBuild).toBeGreaterThanOrEqual(0)
-    expect(workspaceTests).toBeGreaterThan(driverBuild)
+    expect(workspaceTests).toBeGreaterThanOrEqual(0)
     expect(driverTests).toBeGreaterThan(workspaceTests)
     expect(scriptTests).toBeGreaterThan(driverTests)
   })
@@ -476,15 +475,17 @@ describe("CI workflow graph", () => {
       "ci-gate", "ui-e2e-gate",
     ]) {
       const definition = ciJob(job)
-      expect(definition, job).toContain("CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}")
+      expect(definition, job).toContain("CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json")
       expect(definition, job).toContain("CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}")
       expect(definition, job).toContain("node scripts/ci/validate-execution-plan.mjs")
+      expect(definition, job).toContain("name: ${{ needs.scope.outputs.plan_artifact_name }}")
+      expect(definition.indexOf("- name: Download execution plan")).toBeLessThan(definition.indexOf("- name: Validate execution plan"))
     }
   })
 
   it("reports project and patch percentages while preserving coverage integrity and upload errors", () => {
     const linux = ciJob("test-linux")
-    expect(linux).toContain("coverage_include_roots")
+    expect(linux).toContain("CI_EXECUTION_PLAN")
     expect(linux).toContain("verify-coverage-plan.mjs")
     expect(linux).toContain("coverage-target-manifest.json")
     expect(linux).toContain("coverage/coverage-final.json")
@@ -542,10 +543,10 @@ describe("CI workflow graph", () => {
     expect(ciWorkflow).not.toMatch(/^  build:/m)
     expect(staticChecks.match(/pnpm install --frozen-lockfile/g)).toHaveLength(1)
     expect(staticChecks.match(/continue-on-error: true/g)).toHaveLength(1)
-    expect(staticChecks).toContain("pnpm turbo run typecheck")
-    expect(staticChecks).toContain("pnpm turbo run lint")
-    expect(staticChecks).toContain("pnpm turbo run build")
-    expect(staticChecks).toContain("pnpm turbo run knip")
+    expect(staticChecks).toContain("--plan-group static_tasks")
+    expect(staticChecks).toContain("--plan-group static_tasks")
+    expect(staticChecks).toContain("--plan-group build_tasks")
+    expect(staticChecks).toContain("--plan-group knip_tasks")
   })
 
   it("gates the consolidated jobs under the stable CI Gate", () => {
@@ -624,11 +625,11 @@ describe("Private agent driver package", () => {
     expect(existsSync(resolve(workflowRoot, "publish-agent-driver.yml"))).toBe(false)
   })
 
-  it("builds the workspace driver before a clean daemon publish build", () => {
-    const driverBuild = publishDaemonWorkflow.indexOf("pnpm -C src/daemon/agent-driver run build")
-    const daemonBuild = publishDaemonWorkflow.indexOf("pnpm -C src/daemon run build")
-    expect(driverBuild).toBeGreaterThan(0)
-    expect(daemonBuild).toBeGreaterThan(driverBuild)
+  it("builds the daemon publish input through the native prerequisite graph", () => {
+    expect(publishDaemonWorkflow).toContain("node scripts/ci/run-turbo.mjs run @alook/daemon#build")
+    const config = JSON.parse(readFileSync(resolve(repositoryRoot, "turbo.json"), "utf8"))
+    expect(config.tasks["@alook/daemon#build"].dependsOn).toContain("@alook/agent-driver#build")
+    expect(daemonPackage.scripts.prepack).toContain("@alook/daemon#build")
   })
 
   it("keeps runtime and artifact contracts without the removed API report mechanism", () => {
@@ -689,7 +690,7 @@ describe("CI test budgets", () => {
     const windows = ciJob("test-windows")
     expect(windows).toContain("for suite in app shared")
     expect(windows).toContain('filters+=("--filter=@alook/$suite")')
-    expect(windows).toContain('pnpm turbo run test "${filters[@]}"')
+    expect(windows).toContain('node scripts/ci/run-turbo.mjs run test "${filters[@]}"')
     expect(windows).not.toContain("--affected")
     for (const packageName of ["web", "email-worker", "ws-do", "queue-worker"]) {
       expect(windows).not.toContain(`--filter=@alook/${packageName}`)
@@ -860,29 +861,23 @@ describe("Turbo CI execution", () => {
     expect(scope).toContain("full: ${{ steps.scope.outputs.full }}")
     expect(scope).toContain("base_sha: ${{ steps.scope.outputs.base_sha }}")
     expect(scope).toContain("head_sha: ${{ steps.scope.outputs.head_sha }}")
-    expect(scope).toContain("execution_plan: ${{ steps.scope.outputs.execution_plan }}")
+    expect(scope).toContain("plan_artifact_name: execution-plan-${{ github.run_id }}-${{ github.run_attempt }}")
     expect(scope).toContain("plan_hash: ${{ steps.scope.outputs.plan_hash }}")
     expect(ciWorkflow).not.toContain("--affected")
-    expect(ciJob("static-checks")).toContain("CI_PROJECTION_NAME: static_packages")
+    expect(ciJob("static-checks")).toContain("CI_PROJECTION_NAME: static_tasks")
     expect(ciJob("test-windows")).toContain("CI_PROJECTION_NAME: windows_suites")
   })
 
-  it("retains full commands when scope classification fails closed", () => {
+  it("runs validated native task groups and the canonical unit entry", () => {
     const staticChecks = ciJob("static-checks")
-    expect(staticChecks).toContain("pnpm turbo run typecheck")
-    expect(staticChecks).toContain("pnpm turbo run lint")
-    expect(staticChecks).toContain("pnpm turbo run knip")
-    expect(staticChecks).toContain("SELECTED_PACKAGES: ${{ needs.scope.outputs.build_packages }}")
+    for (const group of ["static_tasks", "build_tasks", "knip_tasks"]) expect(staticChecks).toContain("--plan-group " + group)
     expect(staticChecks.match(/pnpm install --frozen-lockfile/g)).toHaveLength(1)
     const linux = ciJob("test-linux")
-    expect(linux).toContain("--project=daemon-node src/daemon")
+    expect(linux).toContain("node scripts/ci/run-unit-tests.mjs")
+    expect(linux).toContain("--ci --receipt .ci/unit-execution.json")
     const windows = ciJob("test-windows")
     expect(windows).toContain("run: pnpm --filter @alook/daemon test")
-    expect(linux).toContain('vitest_args=("${project_args[@]}")')
-    expect(linux).toContain('if (( ${#root_coverage[@]} )); then vitest_args+=("${root_coverage[@]}"); fi')
-    expect(linux).toContain('pnpm vitest run "${vitest_args[@]}"')
-    expect(windows).toContain("pnpm turbo run test \"${filters[@]}\"")
-    expect(linux.match(/VITEST_MAX_WORKERS=1/g)).toHaveLength(1)
+    expect(windows).toContain('node scripts/ci/run-turbo.mjs run test "${filters[@]}"')
     expect(windows.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(1)
   })
 
@@ -892,27 +887,14 @@ describe("Turbo CI execution", () => {
     expect(daemonVitestConfig).toContain("sequence: { groupOrder: 2 }")
   })
 
-  it("builds agent-driver before every selected Linux consumer of its dist exports", () => {
+  it("builds native unit prerequisites before serial process and packed phases", () => {
     const linux = ciJob("test-linux")
-    const buildStart = linux.indexOf("- name: Build selected agent-driver fixture")
-    const unitStart = linux.indexOf("- name: Run selected unit tests")
-    const realStart = linux.indexOf("- name: Run selected daemon real-process tests")
-    const packedStart = linux.indexOf("- name: Run selected package artifact tests")
-    const buildStep = linux.slice(buildStart, unitStart)
-
+    const buildStart = linux.indexOf("- name: Build native unit prerequisites")
     expect(buildStart).toBeGreaterThan(-1)
-    expect(buildStep).toContain("run: pnpm --filter @alook/agent-driver build")
-    for (const selector of [
-      "contains(fromJSON(needs.scope.outputs.unit_test_roots), 'src/daemon/agent-driver')",
-      "contains(fromJSON(needs.scope.outputs.unit_test_roots), 'src/daemon')",
-      "contains(fromJSON(needs.scope.outputs.linux_suites), 'agent-driver-packed')",
-      "contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-packed')",
-      "contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-real')",
-    ]) expect(buildStep).toContain(selector)
-    expect(buildStep).not.toContain("src/web")
-    expect(unitStart).toBeGreaterThan(buildStart)
-    expect(realStart).toBeGreaterThan(buildStart)
-    expect(packedStart).toBeGreaterThan(buildStart)
+    expect(linux).toContain("run: node scripts/ci/run-turbo.mjs --plan-group unit_build_tasks")
+    for (const phase of ["Run selected unit files", "Run selected daemon real-process tests", "Run selected package artifact tests"]) {
+      expect(linux.indexOf("- name: " + phase)).toBeGreaterThan(buildStart)
+    }
   })
 
   it("runs each direct Worker Node and runtime project once through its standard test task", () => {
@@ -922,13 +904,17 @@ describe("Turbo CI execution", () => {
 
     const projectNames: string[] = []
     for (const module of directWorkerModules) {
-      expect(module.packageJson.scripts.test).toBe("vitest run --config vitest.workspace.config.ts")
+      expect(module.packageJson.scripts.test).toBe("vitest run --config " + (module.name === "web" ? "vitest.workspace.config.ts" : "vitest.config.ts"))
+      expect(module.packageJson.scripts["test:runtime"]).toContain("vitest.runtime.config.mts")
       expect(module.packageJson.scripts).not.toHaveProperty("test:workers")
       expect(module.packageJson.devDependencies["@cloudflare/vitest-plugin"])
         .toBe(vitestPluginVersion)
-      const expectedProjects = module.name === "web" ? 2 : 1
+      const expectedProjects = 1
       expect(module.workspaceConfig.match(/vitest\.config\.ts/g)).toHaveLength(expectedProjects)
-      expect(module.workspaceConfig.match(/vitest\.runtime\.config\.mts/g)).toHaveLength(expectedProjects)
+      if (module.name === "web") {
+        expect(module.workspaceConfig).not.toContain("vitest.runtime.config.mts")
+        expect(module.packageJson.scripts["test:runtime"]).toContain("vitest.runtime.config.mts")
+      } else expect(module.workspaceConfig.match(/vitest\.runtime\.config\.mts/g)).toHaveLength(expectedProjects)
       if (module.name === "web") expect(module.workspaceConfig).toContain("./vitest.dom.config.ts")
       else expect(module.workspaceConfig).not.toContain("vitest.dom.config.ts")
 
@@ -942,15 +928,17 @@ describe("Turbo CI execution", () => {
       projectNames.push(nodeProject, runtimeProject)
     }
     expect(new Set(projectNames).size).toBe(projectNames.length)
-    expect(ciJob("test-linux")).toContain("projects=(web-node web-dom web-runtime auth-node auth-runtime)")
+    expect(ciJob("test-linux")).toContain("node scripts/ci/run-unit-tests.mjs")
   })
 
 
-  it("keeps Blog builds without repeating the selected static and unit jobs", () => {
+  it("verifies the Blog artifact from the same producer before dry-run", () => {
     const blog = ciJob("blog-build")
-    expect(blog).toContain("build:blog")
+    expect(blog).toContain("needs: [scope, ui-e2e-build]")
+    expect(blog).toContain("e2e-build-artifact.mjs verify")
     expect(blog).toContain("verify:blog-dry-run")
-    expect(blog).not.toMatch(/exec (?:tsc|eslint|vitest)\b/)
+    expect(blog.indexOf("e2e-build-artifact.mjs verify")).toBeLessThan(blog.indexOf("verify:blog-dry-run"))
+    expect(blog).not.toMatch(/exec (?:tsc|eslint|vitest)\b|run build:blog|opennextjs-cloudflare build/)
   })
 
   it("collects Node and workerd projects in one Istanbul report", () => {
@@ -995,91 +983,32 @@ describe("Turbo CI execution", () => {
     )
   })
 
-  it("runs selected non-daemon roots in isolated reports with exact coverage includes", () => {
+  it("keeps a unit execution receipt and rejects invalid coverage before upload", () => {
     const linux = ciJob("test-linux")
-    expect(linux).toContain('for root in "${non_daemon[@]}"; do')
-    expect(linux).toContain('if [[ "$include" == "$root/"* ]]; then')
-    expect(linux).toContain('root_coverage+=("--coverage.include=$include")')
-    expect(linux).toContain("--coverage.reporter=json")
-    expect(linux).toContain(
-      '"--coverage.reportsDirectory=$coverage_dir/root-${root_index}-${report_stem}"',
-    )
-    for (const projects of [
-      "projects=(ci-scripts)",
-      "projects=(email-worker-node email-worker-runtime)",
-      "projects=(queue-worker-node queue-worker-runtime)",
-      "projects=(web-node web-dom web-runtime auth-node auth-runtime)",
-      "projects=(ws-do-node ws-do-runtime)",
-    ]) expect(linux).toContain(projects)
-    expect(linux).toContain('project_args+=("--project=$project")')
-    expect(linux).toContain('pnpm vitest run "${vitest_args[@]}"')
-    expect(linux).toContain(
-      '--outputFile.blob="$report_dir/root-${root_index}-${report_stem}.blob"',
-    )
-    expect(linux).not.toContain("--project='!daemon-node'")
-    expect(linux).not.toContain('"${non_daemon[@]}" "${coverage[@]}"')
-    expect(linux).not.toContain(".vitest-reports/non-daemon.blob")
+    expect(linux).toContain("--ci --receipt .ci/unit-execution.json")
+    expect(linux).toContain('args+=(--coverage)')
+    expect(linux).toContain("if: always() && env.RUN_COVERAGE == 'true'")
+    expect(linux).toContain("verify-coverage-plan.mjs")
+    expect(linux).toContain("coverage/coverage-final.json")
+    expect(linux).toContain(".vitest-reports/*.blob")
+    expect(linux).toContain("if-no-files-found: error")
   })
 
-  it("keeps package builds away from dist consumers and uploads one merged Istanbul report", () => {
+  it("keeps real-process and packed tests serial after the unit report", () => {
     const linux = ciJob("test-linux")
     expect(linux).toContain("timeout-minutes: 45")
-    expect(linux).toContain(
-      "RUN_COVERAGE: ${{ needs.scope.outputs.execution_mode != 'main-smoke' }}",
-    )
-    expect(linux).toContain('pnpm vitest run "${vitest_args[@]}"')
-    expect(linux).toContain("pnpm vitest run --project=daemon-node src/daemon")
-    expect(linux).toContain(
-      '"--coverage.reportsDirectory=$coverage_dir/root-${root_index}-${report_stem}"',
-    )
-    expect(linux).toContain('coverage=(--coverage)')
-    expect(linux).toContain('--reporter=default --reporter=blob')
-    expect(linux).toContain('--outputFile.blob="$report_dir/root-${root_index}-${report_stem}.blob"')
-    expect(linux).toContain('--outputFile.blob="$report_dir/daemon.blob"')
-    expect(linux).toContain("--merge-reports=.vitest-reports")
+    expect(linux).toContain("RUN_COVERAGE: ${{ needs.scope.outputs.execution_mode != 'main-smoke' }}")
     expect(linux.match(/codecov\/codecov-action/g)).toHaveLength(1)
-    expect(linux).toContain("if: env.RUN_COVERAGE == 'true'")
     expect(linux).toContain("files: ./coverage/coverage-final.json")
-    expect(linux).toContain("verify-coverage-plan.mjs")
-    for (const testPath of [
-      "src/pack.test.ts",
-      "src/cli/daemonLifecycle.real.test.ts",
-      "src/cli/diagnosticsLifecycle.real.test.ts",
-      "src/cli/daemonStop.test.ts",
-      "src/version.packed.test.ts",
-      "src/agent-driver-bundle.packed.test.ts",
-      "src/cli/daemonSelfUpdate.real.test.ts",
-    ]) {
-      expect(linux).toContain(`--exclude ${testPath}`)
-    }
-    expect(linux).not.toContain("--exclude src/daemon/")
+    expect(linux).toContain("fail_ci_if_error: true")
     expect(linux).toContain("pnpm --filter @alook/daemon exec vitest run --no-file-parallelism")
-    for (const testPath of [
-      "src/cli/daemonLifecycle.real.test.ts",
-      "src/cli/diagnosticsLifecycle.real.test.ts",
-      "src/cli/daemonStop.test.ts",
-    ]) {
-      expect(linux.slice(linux.indexOf("- name: Run selected daemon real-process tests")))
-        .toContain(testPath)
+    for (const path of ["src/cli/daemonLifecycle.real.test.ts", "src/cli/diagnosticsLifecycle.real.test.ts", "src/cli/daemonStop.test.ts"]) {
+      expect(linux.slice(linux.indexOf("- name: Run selected daemon real-process tests"))).toContain(path)
     }
-    expect(linux).toContain(
-      "pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism src/pack.test.ts",
-    )
-    expect(linux).toContain(
-      "pnpm --filter @alook/daemon exec vitest run --no-file-parallelism src/version.packed.test.ts src/agent-driver-bundle.packed.test.ts src/cli/daemonSelfUpdate.real.test.ts",
-    )
-    const selectedUnitRun = linux.indexOf("- name: Run selected unit tests")
-    const coverageMerge = linux.indexOf("- name: Merge and verify selected coverage")
-    const realProcessRuns = linux.indexOf("- name: Run selected daemon real-process tests")
-    const packageRuns = linux.indexOf("- name: Run selected package artifact tests")
-    const coverageUpload = linux.indexOf("- name: Upload coverage")
-    expect(selectedUnitRun).toBeGreaterThan(-1)
-    expect(coverageMerge).toBeGreaterThan(selectedUnitRun)
-    expect(realProcessRuns).toBeGreaterThan(coverageMerge)
-    expect(packageRuns).toBeGreaterThan(realProcessRuns)
-    expect(coverageUpload).toBeGreaterThan(packageRuns)
-    expect(linux).not.toContain("coverage:workers")
-    expect(linux).not.toContain("workers-runtime")
+    expect(linux).toContain("pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism src/pack.test.ts")
+    expect(linux).toContain("pnpm --filter @alook/daemon exec vitest run --no-file-parallelism src/version.packed.test.ts src/agent-driver-bundle.packed.test.ts src/cli/daemonSelfUpdate.real.test.ts")
+    const phases = ["Run selected unit files", "Verify selected coverage", "Run selected daemon real-process tests", "Run selected package artifact tests", "Upload coverage"].map(phase => linux.indexOf("- name: " + phase))
+    expect(phases.every((position, index) => position >= 0 && (!index || position > phases[index - 1]!))).toBe(true)
     expect(ciWorkflow).not.toMatch(/^  coverage:/m)
     expect(rootPackageJson.scripts).not.toHaveProperty("coverage:workers")
   })
@@ -1505,7 +1434,7 @@ describe("Native OAuth association contract", () => {
       .toContain("--outdir dist")
     expect(directWorkerModules[3].packageJson.scripts["build:auth"])
       .not.toContain("--outdir auth/dist")
-    expect(directWorkerModules[3].workspaceConfig).toContain("./auth/vitest.config.ts")
-    expect(directWorkerModules[3].workspaceConfig).toContain("./auth/vitest.runtime.config.mts")
+    expect(directWorkerModules[3].packageJson.scripts["test:auth"]).toContain("auth/vitest.config.ts")
+    expect(directWorkerModules[3].packageJson.scripts["test:auth:runtime"]).toContain("auth/vitest.runtime.config.mts")
   })
 })

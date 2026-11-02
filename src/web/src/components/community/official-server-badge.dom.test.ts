@@ -1,3 +1,4 @@
+import badgeAsset from "../../../public/official-server-badge-flat.svg?raw"
 import { resolve } from "node:path"
 import { readFileSync } from "node:fs"
 import { createElement } from "react"
@@ -10,11 +11,7 @@ describe("official server badge asset", () => {
     render(createElement(OfficialServerBadge, { official: true }))
     const badge = screen.getByRole("img", { name: "Official server" })
     expect(badge).toHaveAttribute("src", "/official-server-badge-flat.svg")
-    const asset = readFileSync(resolve(
-      import.meta.dirname,
-      "../../../public",
-      badge.getAttribute("src")!.slice(1),
-    ), "utf8")
+    const asset = badgeAsset
     const document = new DOMParser().parseFromString(asset, "image/svg+xml")
     expect(document.querySelector("parsererror")).toBeNull()
     expect(document.documentElement.localName).toBe("svg")

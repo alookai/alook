@@ -1,3 +1,4 @@
+import rawContractInput0 from "../public/alook.svg?raw"
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
@@ -15,10 +16,7 @@ import handler, {
 
 const ATTEMPT = "attempt_1234567890123456";
 const CODE = "c".repeat(32);
-const CANONICAL_LOGO = readFileSync(
-  new URL("../public/alook.svg", import.meta.url),
-  "utf8",
-).trim();
+const CANONICAL_LOGO = rawContractInput0.trim();
 const DM_SANS_WOFF2 = readFileSync(
   new URL("../src/app/fonts/dm-sans-latin.woff2", import.meta.url),
 ).toString("base64");

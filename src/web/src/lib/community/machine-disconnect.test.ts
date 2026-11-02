@@ -1,3 +1,4 @@
+import resolvedRawInput0 from "./machine-disconnect.ts?raw"
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
@@ -87,10 +88,7 @@ describe("forceCloseCommunityMachineByDoName", () => {
 
   // Guard: the module must delegate to the shared `wsDoFetch` helper.
   it("goes through the new helper (single wsDoFetch import, no ad-hoc fallback)", () => {
-    const src = fs.readFileSync(
-      path.resolve(__dirname, "machine-disconnect.ts"),
-      "utf8",
-    )
+    const src = resolvedRawInput0
     expect(src).toMatch(/wsDoFetch/)
     expect(src).not.toMatch(/WS_DO_WORKER/)
     expect(src).not.toMatch(/DEV_WS_DO_URL/)

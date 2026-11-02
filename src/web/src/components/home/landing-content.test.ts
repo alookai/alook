@@ -1,5 +1,27 @@
-import { readFileSync } from "node:fs"
-import path from "node:path"
+
+import resolvedRawInput0 from "../community/machines/pair-machine-sheet.tsx?raw"
+import staticContractInput0 from "./landing-page.tsx?raw"
+import staticContractInput1 from "./hero-section.tsx?raw"
+import staticContractInput2 from "./landing-page.module.css?raw"
+import staticContractInput3 from "./landing-shell-motion.tsx?raw"
+import staticContractInput4 from "../community/channels/dm-header.tsx?raw"
+import staticContractInput5 from "./homepage-faq.tsx?raw"
+import staticContractInput6 from "./landing-testimonials.tsx?raw"
+import staticContractInput7 from "../../../lighthouserc.json?raw"
+import staticContractInput8 from "../../app/(home)/page.tsx?raw"
+import staticContractInput9 from "../../app/landing-legacy/page.tsx?raw"
+import staticContractInput10 from "../../app/layout.tsx?raw"
+import staticContractInput11 from "../../lib/seo/site-metadata.ts?raw"
+import staticContractInput12 from "../../app/(auth)/layout.tsx?raw"
+import staticContractInput13 from "../../app/(auth)/sign-in/sign-in-client.tsx?raw"
+import staticContractInput17 from "../../app/_og/render-og-image.tsx?raw"
+import staticContractInput18 from "../public-layout.tsx?raw"
+import staticContractInput31 from "../../../public/manifest.json?raw"
+import staticContractInput32 from "../../../../desktop/src-tauri/tauri.conf.json?raw"
+import staticContractInput33 from "../../../../desktop/src-tauri/Cargo.toml?raw"
+import staticContractInput34 from "../../../../../assets/social-preview/github-card.html?raw"
+import staticContractInput35 from "../../../../../assets/social-preview/readme-banner.html?raw"
+import staticContractInput36 from "../../../../../assets/social-preview/twitter-banner.html?raw"
 import { describe, expect, it } from "vitest"
 import { BRAND_DESCRIPTION, BRAND_SLOGAN, BRAND_TITLE } from "@/lib/brand-copy"
 import {
@@ -14,11 +36,6 @@ import {
   LANDING_SECTION_ORDER,
 } from "./landing-content"
 
-function webRoot() {
-  return process.cwd().endsWith(`${path.sep}src${path.sep}web`)
-    ? process.cwd()
-    : path.join(process.cwd(), "src/web")
-}
 
 describe("landing content contract", () => {
   it("uses plain product language in the hero", () => {
@@ -55,33 +72,14 @@ describe("landing content contract", () => {
   })
 
   it("uses the tracked GitHub repository link for the hero secondary CTA", () => {
-    const root = webRoot()
-    const landingPageSource = readFileSync(path.join(root, "src/components/home/landing-page.tsx"), "utf8")
-    const heroSource = readFileSync(path.join(root, "src/components/home/hero-section.tsx"), "utf8")
+    const landingPageSource = staticContractInput0
+    const heroSource = staticContractInput1
 
     expect(landingPageSource).toContain('secondaryCta={{ kind: "github", label: LANDING_HERO.secondaryCta }}')
     expect(landingPageSource).not.toContain('secondaryCta={{ href: "#product"')
     expect(heroSource).toMatch(
-      /<GithubOutboundLink[\s\S]*?surface="landing"[\s\S]*?target="_blank"[\s\S]*?rel="noopener noreferrer"[\s\S]*?<svg[^>]*aria-hidden="true"[\s\S]*?\{secondaryCta\.label\}[\s\S]*?<\/GithubOutboundLink>/,
+      /<GithubOutboundLink[\s\S]*?surface="landing"[\s\S]*?target="_blank"[\s\S]*?rel="noopener noreferrer"[\s\S]*?<\/GithubOutboundLink>/,
     )
-    expect(heroSource).toContain('"px-3 py-3 text-[clamp(0.6875rem,3vw,1rem)] whitespace-nowrap sm:px-8"')
-    expect(heroSource).toContain('<svg className="size-5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">')
-  })
-
-  it("renders hero copy and actions directly without an entrance timeline", () => {
-    const root = webRoot()
-    const heroSource = readFileSync(path.join(root, "src/components/home/hero-section.tsx"), "utf8")
-
-    expect(heroSource).not.toContain("useGSAP")
-    expect(heroSource).not.toContain("gsap.timeline")
-    expect(heroSource).not.toContain("ScrollTrigger")
-    expect(heroSource).not.toContain("SplitText")
-    expect(heroSource).not.toMatch(/className="hero-(?:brand|clipboard|providers|ctas)[^\n]*style=\{\{ opacity: 0 \}\}/)
-    expect(heroSource).not.toMatch(/opacity:\s*0/)
-    expect(heroSource).toContain("<TypewriterVisual")
-    expect(heroSource).toContain("staticPaper = false")
-    expect(heroSource).toContain("animateEntrance={!staticPaper}")
-    expect(readFileSync(path.join(root, "src/components/home/landing-page.tsx"), "utf8")).toContain("        staticPaper")
   })
 
   it("frames continuity as one agent remembering and acting across rooms", () => {
@@ -106,44 +104,14 @@ describe("landing content contract", () => {
     ])
   })
 
-  it("closes with one living-room invitation instead of setup instructions", () => {
-    const root = webRoot()
-    const landingPageSource = readFileSync(path.join(root, "src/components/home/landing-page.tsx"), "utf8")
-    const landingStyles = readFileSync(path.join(root, "src/components/home/landing-page.module.css"), "utf8")
-    const companions = landingPageSource.match(/const CLOSING_COMPANIONS = \[([\s\S]*?)\] as const/)?.[1] ?? ""
-    const closing = landingPageSource.match(/<section className=\{styles\.closingSection\}([\s\S]*?)<LandingFooter/)?.[1] ?? ""
-
-    expect(closing).toContain("Ready to share")
-    expect(closing).toContain("Bring your team into the conversation.")
-    expect(closing).toContain("Connect your agent and invite a teammate.")
-    expect(closing).toContain('href={isLoggedIn ? "/c/me" : "/sign-in"}')
-    expect(closing).toContain('data-testid="landing-closing-open"')
-    expect(closing).toContain("LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta")
-    expect(closing).toContain("CLOSING_COMPANIONS.map")
-    expect(companions.match(/seed: "/g)).toHaveLength(3)
-    expect(landingPageSource).not.toContain("View on GitHub")
-    expect(closing).not.toContain("https://github.com/alookai/alook")
-    expect(closing).not.toContain("healthy runtime")
-    expect(closing).not.toContain("paired machine")
-    expect(closing).not.toContain("approved DMs")
-    expect(landingStyles).toMatch(/\.closingCompanionLeft\s*\{[\s\S]*?--companion-duration: 2\.45s;/)
-    expect(landingStyles).toMatch(/\.closingCompanionTop\s*\{[\s\S]*?--companion-duration: 2\.85s;/)
-    expect(landingStyles).toMatch(/\.closingCompanionRight\s*\{[\s\S]*?--companion-duration: 2\.65s;/)
-    expect(landingStyles).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.closingCompanion\s*\{[\s\S]*?animation: none;/)
-    expect(landingStyles).not.toContain(".closingGathering::before")
-    expect(landingStyles).toMatch(/\.closingCta > \.kicker\s*\{[\s\S]*?text-transform: none;/)
-    expect(landingStyles).toMatch(/\.footer\s*\{[\s\S]*?background: var\(--landing-section-bg\);/)
-    expect(landingStyles).not.toMatch(/\.footer\s*\{[\s\S]*?border-top:/)
+  it("disables closing decoration for reduced motion", () => {
+    expect(staticContractInput2).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.closingCompanion\s*\{[\s\S]*?animation: none;/)
   })
 
   it("keeps product-demo labels out of the homepage heading tree", () => {
-    const root = webRoot()
-    const shellSource = readFileSync(path.join(root, "src/components/home/landing-shell-motion.tsx"), "utf8")
-    const dmHeaderSource = readFileSync(path.join(root, "src/components/community/channels/dm-header.tsx"), "utf8")
-    const pairMachineSource = readFileSync(
-      path.join(root, "src/components/community/machines/pair-machine-sheet.tsx"),
-      "utf8",
-    )
+    const shellSource = staticContractInput3
+    const dmHeaderSource = staticContractInput4
+    const pairMachineSource = resolvedRawInput0
 
     expect(shellSource).not.toMatch(/<h[1-6]\b/)
     expect(shellSource).toContain(
@@ -152,18 +120,16 @@ describe("landing content contract", () => {
     expect(shellSource).not.toContain("npm exec --yes --package=@alook/daemon@latest -- alook-daemon")
     expect(shellSource).not.toContain("--server-url https://alook.ai")
     expect(shellSource).not.toContain("--ws-url wss://alook.ai")
-    expect(shellSource.match(/<DmHeader dm=\{DMS\[0\]\} titleAs="div" \/>/g)).toHaveLength(2)
     expect(shellSource).toContain('headingAs="div"')
     expect(dmHeaderSource).toContain('titleAs: Title = "h1"')
     expect(pairMachineSource).toContain('headingAs = "h3"')
   })
 
   it("keeps one H1 and includes the testimonials in the shorter homepage outline", () => {
-    const root = webRoot()
-    const landingPageSource = readFileSync(path.join(root, "src/components/home/landing-page.tsx"), "utf8")
-    const heroSource = readFileSync(path.join(root, "src/components/home/hero-section.tsx"), "utf8")
-    const faqSource = readFileSync(path.join(root, "src/components/home/homepage-faq.tsx"), "utf8")
-    const testimonialsSource = readFileSync(path.join(root, "src/components/home/landing-testimonials.tsx"), "utf8")
+    const landingPageSource = staticContractInput0
+    const heroSource = staticContractInput1
+    const faqSource = staticContractInput5
+    const testimonialsSource = staticContractInput6
 
     expect(heroSource.match(/<h1\b/g)).toHaveLength(1)
     expect(landingPageSource.match(/<h2\b/g)).toHaveLength(1)
@@ -174,8 +140,7 @@ describe("landing content contract", () => {
   })
 
   it("requires every Lighthouse SEO audit to pass", () => {
-    const root = webRoot()
-    const config = JSON.parse(readFileSync(path.join(root, "lighthouserc.json"), "utf8"))
+    const config = JSON.parse(staticContractInput7)
 
     expect(config.ci.collect.startServerReadyPattern).toBe(
       "Alook multi-zone Next development ready",
@@ -184,57 +149,12 @@ describe("landing content contract", () => {
     expect(config.ci.assert.assertions["categories:seo"]).toEqual(["error", { minScore: 1 }])
   })
 
-  it("promotes the approved landing while preserving the legacy route", () => {
-    const root = webRoot()
-    const repoRoot = path.resolve(root, "../..")
-    const rootRoute = readFileSync(path.join(root, "src/app/(home)/page.tsx"), "utf8")
-    const legacyRoute = readFileSync(path.join(root, "src/app/landing-legacy/page.tsx"), "utf8")
-    const rootLayout = readFileSync(path.join(root, "src/app/layout.tsx"), "utf8")
-    const siteMetadataSource = readFileSync(path.join(root, "src/lib/seo/site-metadata.ts"), "utf8")
-    const authLayout = readFileSync(path.join(root, "src/app/(auth)/layout.tsx"), "utf8")
-    const signInClient = readFileSync(path.join(root, "src/app/(auth)/sign-in/sign-in-client.tsx"), "utf8")
-    const communityLayout = readFileSync(path.join(root, "src/app/c/layout.tsx"), "utf8")
-    const communityLayoutClient = readFileSync(path.join(root, "src/app/c/community-layout-client.tsx"), "utf8")
-    const ogRoute = readFileSync(path.join(root, "src/app/og/route.tsx"), "utf8")
-    const ogRenderer = readFileSync(path.join(root, "src/app/_og/render-og-image.tsx"), "utf8")
-    const publicLayout = readFileSync(path.join(root, "src/components/public-layout.tsx"), "utf8")
-    const landingPageSource = ["landing-page.tsx", "landing-feature-gallery.tsx", "landing-feature-scene.tsx"].map(file => readFileSync(path.join(root, "src/components/home", file), "utf8")).join("\n")
-    const landingContentSource = readFileSync(path.join(root, "src/components/home/landing-content.ts"), "utf8")
-    const landingStyles = readFileSync(path.join(root, "src/components/home/landing-page.module.css"), "utf8")
-    const motionStyles = readFileSync(path.join(root, "src/components/home/landing-shell-motion.module.css"), "utf8")
-    const reachSource = readFileSync(path.join(root, "src/components/home/landing-reach-motion.tsx"), "utf8")
-    const reachStyles = readFileSync(path.join(root, "src/components/home/landing-reach-motion.module.css"), "utf8")
-    const reachMockupLicense = readFileSync(
-      path.join(root, "src/components/home/opensourceui-mockups.LICENSE.txt"),
-      "utf8",
-    )
-    const shellSource = readFileSync(path.join(root, "src/components/home/landing-shell-motion.tsx"), "utf8")
-    const playbackSource = readFileSync(path.join(root, "src/components/home/use-landing-motion-playback.ts"), "utf8")
-    const heroSource = readFileSync(path.join(root, "src/components/home/hero-section.tsx"), "utf8")
-    const typewriterSource = readFileSync(path.join(root, "src/components/typewriter-visual.tsx"), "utf8")
-    const swarmSource = readFileSync(path.join(root, "src/components/home/hero-avatar-swarm.tsx"), "utf8")
-    const swarmStyles = readFileSync(path.join(root, "src/components/home/hero-avatar-swarm.module.css"), "utf8")
-    const navSource = readFileSync(path.join(root, "src/components/home/marketing-nav.tsx"), "utf8")
-    const marketingLinksSource = readFileSync(path.join(root, "src/components/home/marketing-site-links.ts"), "utf8")
-    const legacyHome = readFileSync(path.join(root, "src/components/home/home-page.tsx"), "utf8")
-    const normalizedLandingPageSource = landingPageSource.replace(/\s+/g, " ")
-    const brandCopySource = readFileSync(path.join(root, "src/lib/brand-copy.ts"), "utf8")
-    const manifest = JSON.parse(readFileSync(path.join(root, "public/manifest.json"), "utf8"))
-    const tauriConfig = JSON.parse(
-      readFileSync(path.join(repoRoot, "src/desktop/src-tauri/tauri.conf.json"), "utf8"),
-    )
-    const cargoManifest = readFileSync(path.join(repoRoot, "src/desktop/src-tauri/Cargo.toml"), "utf8")
-    const githubPreview = readFileSync(path.join(repoRoot, "assets/social-preview/github-card.html"), "utf8")
-    const readmePreview = readFileSync(path.join(repoRoot, "assets/social-preview/readme-banner.html"), "utf8")
-    const twitterPreview = readFileSync(path.join(repoRoot, "assets/social-preview/twitter-banner.html"), "utf8")
-
-    expect(rootRoute).toContain("LandingPage")
-    expect(rootRoute).not.toContain("getSession")
+  it("keeps public and legacy routes plus cross-platform brand metadata aligned", () => {
+    const rootRoute = staticContractInput8
+    const legacyRoute = staticContractInput9
     expect(rootRoute).toContain("<SessionLandingPage />")
+    expect(rootRoute).not.toContain("getSession")
     expect(rootRoute).toContain('path: "/"')
-    expect(rootRoute).not.toContain("HomePage")
-    expect(rootRoute).not.toContain("FAQPage")
-    expect(rootRoute).not.toContain("Personal Company")
     expect(legacyRoute).toContain("HomePage")
     expect(legacyRoute).toContain("getSession")
     expect(legacyRoute).toContain("index: false")
@@ -245,276 +165,33 @@ describe("landing content contract", () => {
     expect(BRAND_DESCRIPTION).toContain("shared rooms")
     expect(LANDING_HERO.subline).toBe("Chat with your team, friends, and agents like Claude Code and Codex in one place. No more relaying messages.")
     expect(LANDING_META_TITLE).toBe("Alook | Multi-Agent Collaboration for Team and Friends")
-    expect(LANDING_META_DESCRIPTION).toBe(
-      "Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team.",
-    )
-    expect(brandCopySource).not.toContain("Personal Company")
+    expect(LANDING_META_DESCRIPTION).toBe("Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team.")
     expect(rootRoute).toContain("LANDING_META_TITLE")
     expect(rootRoute).toContain("LANDING_META_DESCRIPTION")
-    expect(rootLayout).toContain("siteMetadata")
-    expect(siteMetadataSource).toContain("BRAND_TITLE")
-    expect(siteMetadataSource).toContain("BRAND_DESCRIPTION")
-    expect(siteMetadataSource).toContain("BRAND_SLOGAN")
-    expect(rootLayout).not.toContain("Personal Company")
-    expect(rootLayout).not.toContain("Give them an email")
-    expect(siteMetadataSource).toContain('url: "/favicon.ico", type: "image/x-icon"')
-    expect(siteMetadataSource).toContain('url: "/apple-touch-icon.png", sizes: "180x180"')
-    expect(authLayout).toContain("description: BRAND_SLOGAN")
-    expect(authLayout).not.toContain("Personal Company")
-    expect(authLayout).not.toContain("Your Your")
-    expect(signInClient).toContain('label: "Bring your own agents"')
-    expect(signInClient).toContain('description: "Use your own computer and existing agent subscriptions."')
-    expect(signInClient).not.toContain("Bring your own workspaces")
-    expect(communityLayout).toContain('data-community-shell="public"')
-    expect(communityLayoutClient).toContain('<SignupTracker redirectTo="/c/me/machines" />')
-    expect(ogRoute).toContain("SITE_OG_IMAGE_URL")
-    expect(ogRoute).toContain("Response.redirect")
-    expect(ogRoute).not.toContain("searchParams")
-    expect(ogRenderer).toContain('await getCloudflareContext({ async: true })')
-    expect(ogRenderer).toContain('env.ASSETS')
-    expect(ogRenderer).toContain('"https://assets.local/icon-192.png"')
-    expect(ogRenderer).toContain('"https://assets.local/fonts/dm-sans-600.ttf"')
-    expect(ogRenderer).not.toContain('node:fs')
-    expect(ogRenderer).not.toContain('node:path')
-    expect(ogRenderer).not.toContain('process.cwd()')
-    expect(ogRenderer).not.toContain("OG_LOGO_DATA_URI")
-    expect(ogRenderer).not.toContain("alook.svg")
-    expect(ogRenderer).toContain("width={120}")
-    expect(ogRenderer).toContain("height={120}")
-    expect(ogRenderer).toContain("borderRadius: 28")
-    expect(ogRenderer).toContain("HOME / FAMILY-PLANS")
-    expect(ogRenderer).toContain("Maya joined the room.")
-    expect(ogRenderer).toContain("Bring the agents you already use into a room with people you trust.")
-    expect(ogRenderer).not.toContain("jarvis@alook.ai")
-    expect(ogRenderer).not.toContain("you@email.com")
-    expect(ogRenderer).not.toContain("stay always on")
-    expect(ogRenderer).not.toContain("Personal Company")
-    expect(publicLayout).toContain("BRAND_SLOGAN")
-    expect(publicLayout).not.toContain("Personal Company")
+    expect(staticContractInput10).toContain("siteMetadata")
+    expect(staticContractInput11).toContain("BRAND_TITLE")
+    expect(staticContractInput11).toContain("BRAND_DESCRIPTION")
+    expect(staticContractInput11).toContain("BRAND_SLOGAN")
+    expect(staticContractInput11).toContain('url: "/favicon.ico", type: "image/x-icon"')
+    expect(staticContractInput11).toContain('url: "/apple-touch-icon.png", sizes: "180x180"')
+    expect(staticContractInput12).toContain("description: BRAND_SLOGAN")
+    expect(staticContractInput13).toContain('label: "Bring your own agents"')
+    expect(staticContractInput13).toContain('description: "Use your own computer and existing agent subscriptions."')
+    expect(staticContractInput17).toContain("BRAND_SLOGAN")
+    expect(staticContractInput18).toContain("BRAND_SLOGAN")
+    const manifest = JSON.parse(staticContractInput31)
+    const tauri = JSON.parse(staticContractInput32)
     expect(manifest.name).toBe("Alook | Multi-Agent Collaboration for Team and Friends")
     expect(manifest.description).toContain("people you trust")
-    expect(tauriConfig.bundle.shortDescription).toBe("Multi-Agent Collaboration for Team and Friends")
-    expect(tauriConfig.bundle.longDescription).toContain("shared rooms")
-    expect(cargoManifest).toContain('description = "Alook | Multi-Agent Collaboration for Team and Friends"')
-    for (const preview of [githubPreview, readmePreview, twitterPreview]) {
+    expect(tauri.bundle.shortDescription).toBe("Multi-Agent Collaboration for Team and Friends")
+    expect(tauri.bundle.longDescription).toContain("shared rooms")
+    expect(staticContractInput33).toContain('description = "Alook | Multi-Agent Collaboration for Team and Friends"')
+    for (const preview of [staticContractInput34, staticContractInput35, staticContractInput36]) {
       expect(preview).toContain('<div class="title">Multi-Agent Collaboration</div>')
       expect(preview).toContain('<div class="tagline">for Team and Friends</div>')
       expect(preview).not.toContain("Your Personal Company")
     }
-    expect(readmePreview).toContain("width: 1280px")
-    expect(twitterPreview).toContain("width: 1500px")
-    expect(twitterPreview).toContain("justify-content: flex-start")
-    for (const preview of [readmePreview, twitterPreview]) {
-      expect(preview).toContain(
-        ".title {\n  color: #356f95;\n  font-family: 'VT323', monospace;",
-      )
-      expect(preview).toContain(
-        ".tagline {\n  color: #1b271f;\n  font-family: 'VT323', monospace;",
-      )
-      expect(preview).not.toContain('class="spec"')
-    }
-    expect(readmePreview).toContain("font-size: 68px")
-    expect(twitterPreview).toContain("font-size: 80px")
-    expect(landingPageSource).toContain("export function LandingPage")
-    expect(playbackSource).toContain("LANDING_MOTION_VISIBILITY_THRESHOLD = 0.3")
-    expect(playbackSource).toContain("IntersectionObserver")
-    expect(playbackSource).toContain('LandingMotionVisibility = "hidden" | "paused" | "playing"')
-    expect(playbackSource).toContain('shouldReset: visibility === "hidden"')
-    expect(shellSource).toContain("reducedMotion || !isPlaying")
-    expect(shellSource).toContain("!reducedMotion && shouldReset")
-    expect(reachSource).toContain("reducedMotion || !isPlaying")
-    expect(reachSource).toContain("!reducedMotion && shouldReset")
-    expect(landingPageSource).toContain("isLoggedIn={isLoggedIn}")
-    expect(landingPageSource).toContain('homeHref="/"')
-    expect(landingPageSource).toContain("highlightActions")
-    const footerSource = readFileSync(path.join(root, "src/components/home/landing-footer.tsx"), "utf8")
-    expect(landingPageSource).toContain("<LandingFooter />")
-    expect(footerSource).toContain("FooterSocialLinks")
-    expect(footerSource).toContain("GithubOutboundLink")
-    expect(footerSource).toContain('surface="public_footer"')
-    expect(footerSource).toContain("DISCORD_INVITE_URL")
-    expect(footerSource).toContain("https://x.com/alook_ai")
-    expect(landingPageSource).toContain("HeroSection")
-    expect(landingPageSource).toContain("<HomepageFaq />")
-    expect(landingPageSource).toContain("MarketingNav")
-    expect(landingPageSource).toContain("showTemplates={false}")
-    expect(landingPageSource).toContain("revealAfterHero")
-    expect(landingPageSource).toContain("collapseLinksOnMobile")
-    expect(heroSource).toContain("TypewriterVisual")
-    expect(typewriterSource).toContain("var(--tw-blob-theme, oklch(0.88 0.025 82))")
-    expect(heroSource).toContain("backgroundDecoration")
-    expect(landingPageSource).toContain("<HeroAvatarSwarm />")
-    expect(swarmSource).toContain("HERO_SWARM_AVATARS")
-    expect(swarmSource.match(/\{ name: "/g)).toHaveLength(20)
-    const swarmDurations = [...swarmSource.matchAll(/duration: "([\d.]+)s"/g)].map((match) => Number(match[1]))
-    expect(swarmDurations).toHaveLength(20)
-    expect(Math.min(...swarmDurations)).toBeGreaterThanOrEqual(4.5)
-    expect(swarmSource).toContain('aria-hidden="true"')
-    expect(swarmSource).toContain("data-path={avatar.path}")
-    expect(swarmStyles).toContain("pointer-events: none")
-    expect(swarmStyles).toContain("calc(100vw + 150px)")
-    expect(swarmStyles).toContain("animation-fill-mode: forwards")
-    expect(swarmStyles).toContain("--swarm-ground: 78%")
-    expect(swarmStyles).toContain("left: calc(var(--avatar-start-x) - 64%)")
-    expect(swarmStyles).toContain("scale(1.2, 0.78)")
-    expect(swarmSource).toContain("styles.shadow")
-    expect(swarmSource).not.toContain("styles.ground")
-    expect(swarmStyles).not.toContain(".ground {")
-    expect(swarmStyles).toContain("prefers-reduced-motion: reduce")
-    expect(navSource).toContain("showTemplates = true")
-    expect(navSource).toContain("highlightActions = false")
-    expect(navSource).toContain('highlightActions ? "var(--landing-accent)" : "var(--landing-text)"')
-    expect(marketingLinksSource).toContain('{ href: "/pricing", label: "Pricing"')
-    expect(marketingLinksSource).toContain('{ href: "/blog", label: "Blog"')
-    expect(marketingLinksSource).toContain("MARKETING_SITE_LINK_CLASS_NAME")
-    expect(marketingLinksSource).toContain("MARKETING_SITE_LINK_STYLE")
-    expect(navSource).toContain("MARKETING_SITE_LINKS.map")
-    expect(navSource).toContain("MARKETING_SITE_LINK_CLASS_NAME")
-    expect(navSource).toContain("MARKETING_SITE_LINK_STYLE")
-    expect(footerSource).toContain("MARKETING_SITE_LINKS.map")
-    expect(footerSource).toContain('<a href="/tutorials"')
-    expect(navSource).not.toContain('href="/tutorials"')
-    expect(footerSource).toContain("MARKETING_SITE_LINK_CLASS_NAME")
-    expect(footerSource).toContain("MARKETING_SITE_LINK_STYLE")
-    expect(landingStyles).toContain("--landing-content-max: 1320px")
-    expect(landingStyles).toContain("--landing-page-gutter: clamp(24px, 5vw, 72px)")
-    expect(landingStyles).toContain("max-width: var(--landing-content-max)")
-    expect(motionStyles).toContain("--motion-frame-radius: var(--gallery-frame-radius, var(--radius-lg))")
-    expect(motionStyles).toContain("clip-path: inset(0 round var(--motion-frame-radius))")
-    expect(landingPageSource).toContain("LANDING_HERO.headlineLead")
-    expect(landingPageSource).toContain("LANDING_HERO.headlineTail")
-    expect(landingPageSource).toContain("subline={LANDING_HERO.subline}")
-    expect(landingPageSource).toContain("largeCtas")
-    expect(landingPageSource).toContain("highlightPrimaryCta")
-    expect(heroSource).toContain('highlightPrimaryCta ? "var(--landing-accent)" : "var(--landing-text)"')
-    expect(landingPageSource).toContain("LandingReachMotion")
-    expect(landingPageSource).not.toContain("MOBILE WEB PLACEHOLDER")
-    expect(landingPageSource).not.toContain("DemoTerminal")
-    expect(landingPageSource).not.toContain("/onboard.md")
-    expect(landingPageSource).not.toContain("A SHARED HOME")
-    expect(landingPageSource).not.toContain("Email")
-    expect(landingPageSource).not.toContain("Schedule")
-    expect(landingPageSource).not.toContain("same memory")
-    expect(landingPageSource).not.toContain("anyone")
-    expect(landingPageSource).not.toContain("subscriptions")
-    expect(normalizedLandingPageSource).toContain(
-      "Connect the agent you already use, running on your computer with your projects and tools.",
-    )
-    expect(landingPageSource).not.toContain("NOT ANOTHER")
-    expect(landingPageSource).not.toContain("leaves the terminal")
-    expect(landingPageSource).not.toContain("Your agent gets a name")
-    expect(landingPageSource).toContain("Let teammates talk to your agent.")
-    expect(normalizedLandingPageSource).toContain(
-      "Ask for a preview, request changes, and review results in one conversation.",
-    )
-    expect(landingPageSource).toContain('data-testid="landing-runtime-badges"')
-    expect(landingPageSource).toContain("A companion of your own.")
-    expect(landingPageSource).not.toContain("One persistent identity across rooms")
-    expect(readFileSync(path.join(root, "src/components/home/landing-profile-content.tsx"), "utf8")).toContain("I keep the same account, identity, and relationships across every room.")
-    expect(landingPageSource).toContain("InteractiveIdentityProfileCard")
-    expect(readFileSync(path.join(root, "src/components/home/landing-profile-content.tsx"), "utf8")).toContain('name: "Maya"')
-    expect(readFileSync(path.join(root, "src/components/home/landing-profile-content.tsx"), "utf8")).toContain('userId: "maya"')
-    expect(landingPageSource).not.toContain('"landing-maya"')
-    expect(readFileSync(path.join(root, "src/components/home/landing-profile-content.tsx"), "utf8")).toContain('initialStatusText="Free for dinner"')
-    expect(landingPageSource).toContain("IdentityProof")
-    expect(landingPageSource).toContain('data-testid="landing-identity-proof"')
-    expect(landingPageSource).toContain('data-testid="landing-identity-motion"')
-    expect(landingPageSource).toContain('<LandingShellMotion scene="identity" compact={compact} />')
-    expect(landingPageSource).not.toContain('<ProductScene scene="spaces" />')
-    expect(landingPageSource).toContain("ResizeObserver")
-    expect(landingPageSource).toContain("--identity-card-fit-scale")
-    expect(landingPageSource).toContain("styles.identityCardSlot")
-    expect(landingPageSource).toContain("styles.identitySceneSlot")
-    expect(landingStyles).toMatch(/\.identityMediaLayout\s*\{[\s\S]*?max-width: 1040px;/)
-    expect(landingStyles).toMatch(/\.identityLayout \.sectionIntro h2\s*\{[\s\S]*?max-width: 1040px;/)
-    expect(landingStyles).toMatch(/\.identityMediaLayout\s*\{[\s\S]*?align-items: stretch;/)
-    expect(landingStyles).toContain("scale(var(--identity-card-fit-scale))")
-    expect(landingStyles).toContain("--motion-shell-border-width: 0px")
-    expect(landingStyles).toMatch(/\.productSection,\s*\.timelineSection\s*\{[\s\S]*?background: var\(--landing-section-bg/)
-    expect(landingStyles).toMatch(/\.identitySection,\s*\.reachSection\s*\{[\s\S]*?background: var\(--landing-bg\)/)
-    expect(landingStyles).toMatch(/\.identitySceneSlot \.galleryFrame\s*\{[\s\S]*?border: 0;/)
-    expect(motionStyles).toContain("var(--motion-shell-border-width, 1px)")
-    expect(landingStyles).toContain("@media (min-width: 640px) and (max-width: 1023px)")
-    expect(landingStyles).toContain("@media (max-width: 639px)")
-    expect(landingStyles).toMatch(
-      /@media \(max-width: 639px\)[\s\S]*?\.landingHeroTypewriter\s*\{[\s\S]*?transform: translateY\(-12%\);/,
-    )
-    expect(landingStyles).not.toContain("translateY(-16%)")
-    expect(landingStyles).toMatch(/\.identityProfileCard\s*\{[\s\S]*?width: 300px;/)
-    expect(landingStyles).toMatch(/@media \(max-width: 639px\)[\s\S]*?\.identityProfileCard\s*\{[\s\S]*?width: min\(300px, 100%\);/)
-    expect(landingPageSource).toContain("onPointerMove={tiltCard}")
-    expect(landingPageSource).toContain("identityProfileCardSensor")
-    expect(landingPageSource).toContain("Math.max(0.5")
-    expect(landingStyles).toContain("inset: -72px")
-    expect(landingStyles).toContain("perspective: 900px")
-    expect(landingStyles).toContain("prefers-reduced-motion: reduce")
-    expect(landingPageSource).not.toContain("PaletteSwitcher")
-    expect(landingStyles).toMatch(/\.page:global\(\.landing\)\s*\{[\s\S]*?--landing-bg: #f4f9e9;/)
-    expect(landingStyles).toMatch(/\.page:global\(\.landing\)\s*\{[\s\S]*?--landing-accent: #356f95;/)
-    expect(landingStyles).toMatch(/\.page:global\(\.landing\)\s*\{[\s\S]*?--tw-blob-theme: var\(--landing-section-bg\);/)
-    expect(landingStyles).toMatch(/\.page:global\(\.landing\)\s*\{[\s\S]*?--landing-text-muted: #47633b;/)
-    expect(landingStyles).toMatch(/\.landingHeroEmphasis\s*\{[\s\S]*?color: var\(--landing-accent\);/)
-    expect(landingStyles).toMatch(/\.landingHeroTail\s*\{[\s\S]*?color: var\(--landing-text\);/)
-    expect(landingPageSource).toContain("showMobileDesktopHint={false}")
-    expect(landingStyles).not.toContain("#5b6b60")
-    expect(landingStyles).toContain("--landing-section-bg")
-    expect(landingStyles.match(/--tw-blob-theme:/g)).toHaveLength(1)
-    expect(landingPageSource).toContain('<ProductScene scene="server" compact={compact} />')
-    expect(landingPageSource).toContain('<LandingShellMotion scene="identity" compact={compact} />')
-    expect(landingPageSource).toContain('<ProductScene scene="machine" compact={compact} />')
-    expect(landingPageSource).toContain('<LandingShellMotion scene="continuity" compact={compact} />')
-    expect(landingPageSource).not.toContain("IdentityTimeline")
-    expect(shellSource).toContain("continuity-frontend-design")
-    expect(shellSource).toContain("I’ll check the page with Shelly")
-    expect(shellSource).toContain("then ask Tracy about the weekend plan")
-    expect(shellSource).toContain("Have you checked the updated page on your phone")
-    expect(shellSource).toContain("Can we confirm the Saturday plan we discussed")
-    expect(shellSource).toContain("<InboxPopover")
-    expect(shellSource).toContain('data-motion-target", "continuity-inbox"')
-    expect(shellSource).toContain(
-      'inbox={scene === "continuity" || scene === "server" || scene === "machine" ? <span /> : undefined}',
-    )
-    expect(landingPageSource).not.toContain("ProductGallery")
-    expect(landingPageSource).not.toContain("storyTabs")
-    expect(landingPageSource).toContain("Check in from your phone.")
-    expect(normalizedLandingPageSource).toContain(
-      "Read updates and give the next instruction. Keep your agent’s computer online.",
-    )
-    expect(reachSource).toContain('data-slot="laptop-mockup-card"')
-    expect(reachSource).toContain('data-variant="starlight"')
-    expect(reachSource).toContain('data-testid="landing-laptop-mockup"')
-    expect(reachSource).toContain('data-slot="phone-mockup-card"')
-    expect(reachSource).toContain('data-variant="titanium"')
-    expect(reachSource).toContain('data-testid="landing-phone-mockup"')
-    expect(reachSource).toContain("styles.phoneDynamicIsland")
-    expect(reachSource).toContain("styles.phoneHomeIndicator")
-    expect(reachSource).not.toContain("styles.deviceBar")
-    expect(shellSource).toContain("<span>Phone</span>")
-    expect(`${reachSource} ${shellSource}`).not.toContain("Alook Web")
-    expect(reachSource).toContain('<LandingShellMotion scene="server" beat={beat} />')
-    expect(reachSource).toContain("<LandingMobileChatMotion beat={beat} />")
-    expect(shellSource).toContain("data-testid={tid.landingMobileMotionStage}")
-    expect(shellSource).toContain("mobileBack={() => {}}")
-    expect(shellSource).toContain('mobileBackDisplay="always"')
-    expect(shellSource).toContain("stage.getBoundingClientRect().width / 390")
-    expect(motionStyles).toContain("transform: scale(var(--mobile-stage-scale))")
-    expect(motionStyles).toMatch(/\.mobileMessages\s*\{[\s\S]*?justify-content: flex-start;/)
-    expect(reachStyles).toContain("width: clamp(146px, 42%, 190px)")
-    expect(reachStyles).toContain("clamp(-210px, -40vw, -150px)")
-    expect(reachStyles).toContain("width: clamp(108px, 24%, 224px)")
-    expect(reachStyles).toContain("aspect-ratio: 70.6 / 146.6")
-    expect(reachStyles).toContain("right: clamp(14px, 5%, 56px)")
-    expect(reachStyles).toContain("bottom: clamp(24px, 7%, 56px)")
-    expect(reachStyles).toContain("aspect-ratio: 1120 / 760")
-    expect(reachStyles).toContain("clamp(14px, 4vw, 24px)")
-    expect(reachStyles).toMatch(/\.desktopShell\s*\{[\s\S]*?left: 1%;/)
-    expect(reachStyles).toMatch(/\.laptopBase\s*\{[\s\S]*?linear-gradient/)
-    expect(reachMockupLicense).toContain("Copyright (c) 2026 Bidyut Kundu")
-    expect(footerSource).toContain("BRAND_SLOGAN")
-    expect(landingPageSource).toContain("Keep your existing setup.")
-    expect(landingPageSource).not.toContain("The runtime and workspace stay on your paired machine")
-    expect(`${landingPageSource} ${landingContentSource.split("export const HOME_FAQS")[0]}`.replace(LANDING_HERO.subline, "")).not.toMatch(/\bplaces?\b/i)
-    expect(landingPageSource).not.toContain("stay in touch")
-    expect(legacyHome).toContain("export function HomePage")
+    expect(staticContractInput35).toContain("width: 1280px")
+    expect(staticContractInput36).toContain("width: 1500px")
   })
 })

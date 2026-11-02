@@ -4,7 +4,7 @@ import { createHash } from "node:crypto"
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "fs"
 import { dirname, resolve } from "path"
 import { assertPublicStaticWriteSeparation, canonicalPhasePath, readPhaseFile, readPublicStaticManifest } from "../../../../scripts/dev-zone-processes.mjs"
-import { AUTH_DIR, QUEUE_URL, REPO_ROOT, resolveWsUrl, SERVICE_LOG_DIR, SERVICE_STATE_PATH, SINGLE_RUNTIME, WEB_URL } from "./paths"
+import { AUTH_DIR, QUEUE_URL, REPO_ROOT, requiredE2EZones, resolveWsUrl, SERVICE_LOG_DIR, SERVICE_STATE_PATH, SINGLE_RUNTIME, WEB_URL } from "./paths"
 import {
   addServiceProcess,
   applyHealthProbe,
@@ -334,10 +334,11 @@ export function serviceBuildCommands(
   singleRuntime = SINGLE_RUNTIME,
   prebuilt = process.env.ALOOK_E2E_PREBUILT === "1",
   root = REPO_ROOT,
-): Array<{ name: string; args: string[] }> {
+  zones = requiredE2EZones(),
+): Array<{ name: string; command: string; args: string[] }> {
   if (!singleRuntime) return []
   if (prebuilt) {
-    for (const entrypoint of E2E_PREBUILT_ENTRYPOINTS) {
+    for (const entrypoint of E2E_PREBUILT_ENTRYPOINTS.filter(path => !path.includes("/blog/") || zones.includes("blog"))) {
       const path = resolve(root, entrypoint)
       if (!existsSync(path) || !statSync(path).isFile()) {
         throw new Error(`prebuilt OpenNext worker entrypoint is missing: ${path}`)
@@ -345,16 +346,11 @@ export function serviceBuildCommands(
     }
     return []
   }
-  return [
-    {
-      name: "web worker",
-      args: ["--filter", "@alook/web", "exec", "opennextjs-cloudflare", "build"],
-    },
-    {
-      name: "Blog worker",
-      args: ["--filter", "@alook/web", "build:blog"],
-    },
-  ]
+  return zones.map(zone => ({
+    name: zone === "web" ? "web worker" : "Blog worker",
+    command: "node",
+    args: ["scripts/ci/run-turbo.mjs", "run", zone === "web" ? "@alook/web#build" : "@alook/web#build:blog"],
+  }))
 }
 
 export function prepareServices(): void {
@@ -362,7 +358,7 @@ export function prepareServices(): void {
   const builds = phaseManifest ? [] : serviceBuildCommands()
   backupState()
   for (const build of builds) {
-    const res = spawnSync("pnpm", build.args, {
+    const res = spawnSync(build.command, build.args, {
       cwd: REPO_ROOT,
       stdio: "inherit",
       env: {
@@ -434,7 +430,7 @@ function killPortOrphans(ports: number[]): void {
   }
 }
 
-export function serviceDefinitions(singleRuntime = SINGLE_RUNTIME): ServiceDefinition[] {
+export function serviceDefinitions(singleRuntime = SINGLE_RUNTIME, zones = requiredE2EZones()): ServiceDefinition[] {
   const webHealth = `${WEB_URL}/api/health`
   if (!singleRuntime) {
     const wsHealth = `${resolveWsUrl({
@@ -472,6 +468,7 @@ export function serviceDefinitions(singleRuntime = SINGLE_RUNTIME): ServiceDefin
 
   const runtime = resolveE2EWranglerRuntime()
   const phaseManifest = publicStaticQaManifest(false)
+  if (phaseManifest && !zones.includes("blog")) throw new Error("Public static release phases require both zones")
   return [{
     name: "web-zones",
     command: "pnpm",
@@ -482,6 +479,7 @@ export function serviceDefinitions(singleRuntime = SINGLE_RUNTIME): ServiceDefin
       "--with-ws-do",
       "--wrangler-entry",
       runtime.entry,
+      ...(!zones.includes("blog") ? ["--web-only"] : []),
       ...(phaseManifest ? ["--public-static-manifest", resolve(process.env.ALOOK_E2E_RELEASE_MANIFEST!), "--public-static-owner-root", AUTH_DIR] : []),
     ],
     healthUrl: webHealth,

@@ -6,6 +6,7 @@ import {
   buildExecutionPlan,
   loadScopeManifest,
   parseNameStatus,
+  queryNativeTasks,
   validateExecutionPlan,
 } from "./changed-scopes.mjs"
 
@@ -160,6 +161,7 @@ export function runCli(argv, runtime = {}) {
     baseSha: args.candidateSha,
     headSha: args.fixtureSha,
     diagnosticOnly: true,
+    nativeTasks: (runtime.queryNativeTasks || queryNativeTasks)({ root: runtime.root || ROOT, baseSha: args.candidateSha, headSha: args.fixtureSha, manifest }),
   })
   const integrityBlobs = Object.fromEntries(manifest.integrity_paths.map((path) => [path, {
     candidate: blobAt(args.candidateSha, path, runtime),

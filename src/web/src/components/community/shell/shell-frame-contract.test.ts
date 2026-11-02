@@ -1,11 +1,22 @@
-import { existsSync, readFileSync } from "node:fs"
+import contractText0 from "../../../app/c/community-layout-client.tsx?raw"
+import contractText1 from "./community-route-frame.tsx?raw"
+import contractText2 from "./shell-frame-view.tsx?raw"
+import { existsSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 const shellDirectory = dirname(fileURLToPath(import.meta.url))
 const webRoot = resolve(shellDirectory, "../../../..")
-const readWeb = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
+const contractSources: Record<string, string> = {
+  "src/app/c/community-layout-client.tsx": contractText0,
+  "src/components/community/shell/community-route-frame.tsx": contractText1,
+  "src/components/community/shell/shell-frame-view.tsx": contractText2,
+}
+const readWeb = (path: string) => {
+  if (!(path in contractSources)) throw new Error("unregistered contract source: " + path)
+  return contractSources[path]
+}
 
 describe("ShellFrame public contract", () => {
   it("keeps the one frame above both native slots and content layouts", () => {

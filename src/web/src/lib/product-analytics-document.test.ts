@@ -1,11 +1,11 @@
-import { readFileSync } from "node:fs"
+import rawContractInput0 from "../../public/analytics-events.html?raw"
 import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
 import { ONBOARDING_ANALYTICS_STAGES, PRODUCT_ANALYTICS_EVENTS } from "./product-analytics-contract"
 import { authFailureParams } from "./auth-failure"
 
 function documentSender(origin = "https://alook.ai") {
-  const html = readFileSync(new URL("../../public/analytics-events.html", import.meta.url), "utf8")
+  const html = rawContractInput0
   const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1]
   if (!script) throw new Error("missing event document script")
   const window = { gtag: undefined as ((...args: unknown[]) => void) | undefined, dataLayer: [] as ArrayLike<unknown>[], sendProductEvent: (_input: { event: string; params: Record<string, string> }) => {} }

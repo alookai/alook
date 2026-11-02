@@ -4,11 +4,25 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
-import { buildExecutionPlan, stablePlanJson } from "./changed-scopes.mjs"
+import { buildExecutionPlan as createExecutionPlan, queryNativeTasks, stablePlanJson } from "./changed-scopes.mjs"
 import { runCli, verifyCoveragePlan } from "./verify-coverage-plan.mjs"
 
 const baseSha = "a".repeat(40)
 const headSha = "b".repeat(40)
+
+let nativeInventory: ReturnType<typeof queryNativeTasks>["inventory"]
+function buildExecutionPlan(changes, options) {
+  if (!nativeInventory) {
+    const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim()
+    nativeInventory = queryNativeTasks({ baseSha: head, headSha: head }).inventory
+  }
+  const selected = changes.every(change => change.path.startsWith("src/web/")) ? ["@alook/web"]
+    : changes.every(change => change.path.startsWith("src/email-worker/")) ? ["@alook/email-worker"] : null
+  return createExecutionPlan(changes, {
+    ...options,
+    nativeTasks: { inventory: nativeInventory, affected: nativeInventory.filter(task => !selected || selected.includes(task.package.name)) },
+  })
+}
 
 function coveredFile(path: string, covered = true) {
   return {
@@ -201,7 +215,7 @@ describe("verifyCoveragePlan", () => {
 
     expect(() => verifyCoveragePlan(resignPlan(invalid), {
       [resolve(changed)]: coveredFile(resolve(changed)),
-    })).toThrow("unknown Codecov project target")
+    })).toThrow("execution plan projections do not match native tasks and event policy")
   })
 
   it("writes a zero-coverage report through the real CLI without a percentage failure", () => {

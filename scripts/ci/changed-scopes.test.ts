@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
-import { describe, expect, it, vi } from "vitest"
+import { dirname, join, resolve } from "node:path"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import {
-  buildExecutionPlan,
-  classifyPaths,
+  buildExecutionPlan as createExecutionPlan,
+  queryNativeTasks,
   loadScopeManifest,
   packageDependencyVersionChanged,
   parseNameStatus,
@@ -16,6 +16,100 @@ import {
   validateExecutionPlan,
   validateScopeManifest,
 } from "./changed-scopes.mjs"
+import { queryNativeUiFacts } from "./e2e-shards.mjs"
+
+let nativeFixture: { root: string; base: string } | undefined
+let nativeInventory: ReturnType<typeof queryNativeTasks>["inventory"]
+
+function nativeRepository() {
+  if (nativeFixture) return nativeFixture
+  const source = resolve(import.meta.dirname, "../..")
+  const { root } = workspaceFixture()
+  const paths = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], { cwd: source, encoding: "utf8", env: cleanGitEnvironment() }).split("\0").filter(Boolean)
+  for (const file of paths) {
+    if (!existsSync(join(source, file))) continue
+    const target = join(root, file)
+    mkdirSync(dirname(target), { recursive: true })
+    const metadata = /(?:^|\/)package\.json$/.test(file) || /\.json$/.test(file)
+      || ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "turbo.json", ".gitignore", "codecov.yml"].includes(file)
+      || /^scripts\/ci\/.*\.mjs$/.test(file)
+    writeFileSync(target, metadata ? readFileSync(join(source, file)) : "")
+  }
+  symlinkSync(join(source, "node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir")
+  symlinkSync(join(source, "src/web/node_modules"), join(root, "src/web/node_modules"), process.platform === "win32" ? "junction" : "dir")
+  writeFileSync(join(root, "src/web/playwright.config.ts"), 'export default { testDir: "./src/test/e2e-ui", fullyParallel: false, workers: 1, retries: 0, projects: [{ name: "chromium" }] }')
+  for (const file of paths.filter(path => /^src\/web\/src\/test\/e2e-ui\/.+\.spec\.ts$/.test(path))) {
+    if (existsSync(join(source, file))) writeFileSync(join(root, file), 'import { test } from "@playwright/test"; test(' + JSON.stringify(file) + ', () => {})')
+  }
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8", env: cleanGitEnvironment() })
+  git("init", "--quiet")
+  writeFileSync(join(root, ".git/info/exclude"), "/node_modules\n/src/web/node_modules\n")
+  git("config", "user.name", "Native task fixture")
+  git("config", "user.email", "native-tasks@example.test")
+  git("config", "commit.gpgsign", "false")
+  mkdirSync(join(root, "fixture-hooks"))
+  git("config", "core.hooksPath", join(root, "fixture-hooks"))
+  git("add", ".")
+  git("commit", "--quiet", "-m", "native task input baseline")
+  const base = git("rev-parse", "HEAD").trim()
+  nativeFixture = { root, base }
+  nativeInventory = queryNativeTasks({ root, baseSha: base, headSha: base }).inventory
+  return nativeFixture
+}
+
+const nativeObservations = new Map<string, ReturnType<typeof queryNativeTasks>>()
+function nativeFacts(changes) {
+  const observationKey = JSON.stringify(changes)
+  if (nativeObservations.has(observationKey)) return structuredClone(nativeObservations.get(observationKey))
+  const { root, base } = nativeRepository()
+  const saved = new Map<string, Buffer | null>()
+  try {
+    for (const change of changes) {
+      for (const original of [change.old_path, change.path].filter(Boolean)) {
+        const file = resolve(root, String(original).replaceAll("\\", "/"))
+        if (!file.startsWith(root + "/")
+          || ["turbo.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"].some(name => file === join(root, name))) continue
+        if (!saved.has(file)) saved.set(file, existsSync(file) ? readFileSync(file) : null)
+        if (original === change.old_path || change.status?.startsWith("D")) {
+          if (existsSync(file)) unlinkSync(file)
+        } else {
+          mkdirSync(dirname(file), { recursive: true })
+          writeFileSync(file, file.endsWith("/package.json") ? JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), nativeFixtureChange: true }) : "native task fixture changed bytes\n")
+        }
+      }
+    }
+    const facts = queryNativeTasks({ root, baseSha: base, headSha: base, execute: (command, args, options) => {
+      if (String(args.at(-1)).startsWith("query { packages")) {
+        return JSON.stringify({ data: { packages: { items: [{ tasks: { items: nativeInventory } }] } } })
+      }
+      return execFileSync(command, args, options)
+    } })
+    nativeObservations.set(observationKey, structuredClone(facts))
+    return facts
+  } finally {
+    for (const [file, bytes] of saved) {
+      if (bytes) writeFileSync(file, bytes)
+      else if (existsSync(file)) unlinkSync(file)
+    }
+  }
+}
+
+const browserFacts = new Map<string, ReturnType<typeof queryNativeUiFacts>>()
+function buildExecutionPlan(changes, options = {}) {
+  const settings = { nativeTasks: nativeFacts(changes), ...options }
+  const draft = createExecutionPlan(changes, settings)
+  if (!draft.jobs.ui_e2e) return draft
+  const key = JSON.stringify(draft.ui.specs)
+  if (!browserFacts.has(key)) browserFacts.set(key, queryNativeUiFacts(draft.ui.specs, { root: nativeRepository().root, shardCount: 1 }))
+  return createExecutionPlan(changes, { ...settings, nativeUi: browserFacts.get(key) })
+}
+
+function classifyPaths(paths, options = {}) {
+  return buildExecutionPlan(paths.map(path => ({ status: "M", path })), options)
+}
+
+beforeAll(() => { nativeRepository() })
+afterAll(() => { if (nativeFixture) rmSync(nativeFixture.root, { recursive: true, force: true }) })
 
 const sha = (character: string) => character.repeat(40)
 const modified = (...paths: string[]) => paths.map((path) => ({ status: "M", path }))
@@ -77,41 +171,31 @@ function cleanGitEnvironment() {
 }
 
 function gitDiffFixture(changedPath = "src/app/src/commands/inbox.ts") {
+  const baseline = nativeRepository()
   const root = mkdtempSync(join(tmpdir(), "alook-ci-git-"))
-  const runGit = (...args: string[]) => execFileSync("git", args, {
-    cwd: root,
-    env: cleanGitEnvironment(),
-    stdio: "ignore",
-  })
-  const commit = (message: string) => runGit(
-    "-c", "user.name=Alook CI",
-    "-c", "user.email=ci@alook.local",
-    "-c", "commit.gpgsign=false",
-    "commit", "--quiet", "-m", message,
-  )
-
-  runGit("init", "--quiet")
-  writeFileSync(join(root, "README.md"), "baseline\n")
-  mkdirSync(join(root, "src/web"), { recursive: true })
-  writeFileSync(
-    join(root, "src/web/package.json"),
-    JSON.stringify({ dependencies: { "react-resizable-panels": "4.12.3" } }),
-  )
-  runGit("add", "README.md", "src/web/package.json")
-  commit("baseline")
-
+  execFileSync("git", ["clone", "--quiet", "--no-hardlinks", baseline.root, root], { env: cleanGitEnvironment(), stdio: "ignore" })
+  if (!existsSync(join(root, "node_modules"))) symlinkSync(resolve(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir")
+  symlinkSync(resolve(import.meta.dirname, "../../src/web/node_modules"), join(root, "src/web/node_modules"), process.platform === "win32" ? "junction" : "dir")
+  mkdirSync(join(root, "fixture-hooks"))
+  const runGit = (...args: string[]) => execFileSync("git", args, { cwd: root, env: cleanGitEnvironment(), stdio: "ignore" })
+  runGit("config", "core.hooksPath", join(root, "fixture-hooks"))
+  const commit = (message: string) => runGit("-c", "user.name=Alook CI", "-c", "user.email=ci@alook.local",
+    "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", message)
+  const packagePath = join(root, "src/web/package.json")
+  const pkg = JSON.parse(readFileSync(packagePath, "utf8"))
+  pkg.dependencies["react-resizable-panels"] = "4.12.3"
+  writeFileSync(packagePath, JSON.stringify(pkg))
+  runGit("add", "src/web/package.json")
+  commit("baseline compatibility version")
   if (changedPath === "src/web/package.json") {
-    writeFileSync(
-      join(root, changedPath),
-      JSON.stringify({ dependencies: { "react-resizable-panels": "4.12.4" } }),
-    )
+    pkg.dependencies["react-resizable-panels"] = "4.12.4"
+    writeFileSync(packagePath, JSON.stringify(pkg))
   } else {
-    mkdirSync(join(root, changedPath.split("/").slice(0, -1).join("/")), { recursive: true })
-    writeFileSync(join(root, changedPath), "export const fixture = true\n")
+    mkdirSync(dirname(join(root, changedPath)), { recursive: true })
+    writeFileSync(join(root, changedPath), "export const fixture = true\\n")
   }
   runGit("add", changedPath)
-  commit("change app")
-
+  commit("changed input")
   return { changedPath, root }
 }
 
@@ -127,7 +211,7 @@ describe("canonical execution plan", () => {
       path: "src/web/src/hooks/community/community-ws/presence-machine-events.ts",
       owner: "@alook/web",
       unitRoot: "src/web",
-      consumers: ["07-invite.spec.ts", "30-bot-profile-audit-preview.spec.ts"],
+      consumers: ["07-invite.spec.ts", "30-bot-profile-bounds.spec.ts"],
     },
     {
       path: "src/ws-do/src/ws-durable/presence-typing.ts",
@@ -152,6 +236,25 @@ describe("canonical execution plan", () => {
     expect(main.ui.specs).toEqual([...loadScopeManifest().ui.contracts.smoke].sort())
   })
 
+  it.each([
+    ["src/web/src/components/authenticated-context-menu-boundary.tsx", "54-authenticated-context-menu-policy.spec.ts"],
+    ["src/web/src/app/(auth)/sign-in/sign-in-client.tsx", "10-eject-nav-auth.spec.ts"],
+    ["src/web/src/components/download/download-current-platform.tsx", "19-marketing-seo.spec.ts"],
+    ["src/web/src/app/(home)/page.tsx", "19-marketing-seo.spec.ts"],
+    ["src/web/src/app/og/route.tsx", "51-share-image-assets.spec.ts"],
+    ["src/web/src/app/_og/render-og-image.tsx", "51-share-image-assets.spec.ts"],
+    ["src/web/src/app/api/community/billing/route.ts", "64-billing-contact.spec.ts"],
+    ["src/web/src/hooks/community/use-billing.ts", "64-billing-contact.spec.ts"],
+    ["src/web/src/app/contact/page.tsx", "64-billing-contact.spec.ts"],
+  ])("maps real feature path %s to its existing HTTP/browser journey", (path, consumer) => {
+    const result = plan([path])
+    expect(result.full).toBe(false)
+    expect(result.ui.specs).not.toContain("all")
+    expect(result.ui.specs).toContain(consumer)
+    expect(JSON.parse(projectPlan(result).e2e_matrix).include.flatMap(entry => entry.specs)).toContain("src/test/e2e-ui/" + consumer)
+    expect(plan([path, "src/web/src/lib/billing/service.ts"]).ui.specs).toEqual(["all"])
+  })
+
   it("selects the real invite journey for the localized invitation dialog", () => {
     const result = plan(["src/web/src/components/community/social/invite-dialog.tsx"])
     expect(result.full).toBe(false)
@@ -170,7 +273,7 @@ describe("canonical execution plan", () => {
       "50-daemon-update-notice.spec.ts", "53-mobile-inbox-surface.spec.ts", "60-desktop-default-user-bar-width.spec.ts",
     ]))
     expect(result.ui.specs).not.toContain("all")
-    expect(result.ui.specs).not.toContain("55-message-scroll-characterization.spec.ts")
+    expect(result.ui.specs.some(spec => spec.startsWith("55-"))).toBe(false)
     const mixed = plan([source, "src/web/src/components/home/landing-workspace-skeleton.tsx"])
     expect(mixed.ui.specs).toEqual(expect.arrayContaining([
       ...result.ui.specs, "19-marketing-seo.spec.ts", "51-share-image-assets.spec.ts",
@@ -266,17 +369,22 @@ describe("canonical execution plan", () => {
     expect(validateExecutionPlan(result)).toEqual(result)
   })
 
-  it("preserves existing product contracts when benchmark changes are mixed in", () => {
-    for (const product of ["src/app/src/commands/inbox.ts", "src/daemon/src/index.ts", "src/web/src/app/page.tsx", "src/web/auth/index.ts", "src/web/blog/src/app/page.tsx", "src/web/blog/src/content/example.mdx", "src/shared/src/schema.ts"]) {
-      const expected = plan([product])
-      const mixed = plan([product, "src/benchmark/src/runner.mjs"])
-      for (const field of ["change_class", "full", "packages", "suites", "jobs", "coverage", "ui", "auth_only", "blog_only"]) expect(mixed[field]).toEqual(expected[field])
-    }
-    for (const [old_path, path] of [["src/web/auth/index.ts", "src/benchmark/index.ts"], ["src/benchmark/index.ts", "src/web/auth/index.ts"]]) {
-      const result = buildExecutionPlan([{ status: "R100", old_path, path }])
-      expect(result.jobs).toEqual(plan(["src/web/auth/index.ts"]).jobs)
-      expect(result.paths).toEqual(["src/benchmark/index.ts", "src/web/auth/index.ts"])
-    }
+  it.each([
+    "src/app/src/commands/inbox.ts", "src/daemon/src/index.ts", "src/web/src/app/page.tsx",
+    "src/web/auth/index.ts", "src/web/blog/src/app/page.tsx", "src/web/blog/src/content/example.mdx", "src/shared/src/schema.ts",
+  ])("preserves the product contract for %s when benchmark changes are mixed in", (product) => {
+    const expected = plan([product])
+    const mixed = plan([product, "src/benchmark/src/runner.mjs"])
+    for (const field of ["change_class", "full", "packages", "suites", "jobs", "coverage", "ui", "auth_only", "blog_only"]) expect(mixed[field]).toEqual(expected[field])
+  })
+
+  it.each([
+    ["src/web/auth/index.ts", "src/benchmark/index.ts"],
+    ["src/benchmark/index.ts", "src/web/auth/index.ts"],
+  ])("preserves both sides of a product/benchmark rename from %s to %s", (old_path, path) => {
+    const result = buildExecutionPlan([{ status: "R100", old_path, path }])
+    expect(result.jobs).toEqual(plan(["src/web/auth/index.ts"]).jobs)
+    expect(result.paths).toEqual(["src/benchmark/index.ts", "src/web/auth/index.ts"])
   })
 
   it("keeps unknown, policy, empty and explicit full changes fail-closed", () => {
@@ -288,7 +396,7 @@ describe("canonical execution plan", () => {
     expect(plan(["README.md"], { mainSmoke: true }).suites.smoke).toEqual([])
   })
 
-  it("routes Blog runtime through the complete Web contract and only UI spec 54", () => {
+  it("routes Blog runtime through its independent tasks and cross-zone UI spec 54", () => {
     const result = plan(["src/web/blog/src/app/page.tsx"])
 
     expect(result.change_class).toBe("blog")
@@ -305,7 +413,7 @@ describe("canonical execution plan", () => {
     expect(result.jobs.app_packed_artifact).toBe(false)
   })
 
-  it("keeps Blog content on build and its cross-worker contract without package coverage", () => {
+  it("selects Blog unit tasks and its cross-worker contract for content", () => {
     const result = plan([
       "src/web/blog/src/content/example.mdx",
       "src/web/blog/public/blog/example/hero.webp",
@@ -314,9 +422,11 @@ describe("canonical execution plan", () => {
     expect(result.change_class).toBe("blog")
     expect(result.blog_only).toBe(true)
     expect(result.packages.direct).toEqual(["@alook/web"])
-    expect(result.packages.affected).toEqual([])
-    expect(result.suites.unit).toEqual([])
-    expect(result.coverage.include_roots).toEqual([])
+    expect(result.packages.affected).toEqual(["@alook/web"])
+    expect(result.suites.unit).toEqual(["src/web"])
+    expect(result.suites.unit_tasks).toContain("@alook/web#test:blog")
+    expect(result.suites.unit_tasks).not.toContain("@alook/web#test")
+    expect(result.coverage.include_roots).toEqual(["src/web/**/*.{ts,tsx,js,jsx}"])
     expect(result.ui.specs).toEqual(["54-blog-multizone.spec.ts"])
     expect(result.jobs.blog_build).toBe(true)
   })
@@ -341,7 +451,7 @@ describe("canonical execution plan", () => {
   it("selects the active app package without retired CLI suites", () => {
     const result = plan(["src/app/src/commands/inbox.ts"])
     expect(result.change_class).toBe("package")
-    expect(result.packages.affected).toEqual(["@alook/app"])
+    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/app", "@alook/daemon"])
     expect(result.suites.static).toEqual(["@alook/app"])
     expect(result.suites.unit).toEqual(["src/app"])
     expect(result.suites.integration).toEqual([])
@@ -380,11 +490,12 @@ describe("canonical execution plan", () => {
     expect(canonicalized.suites.integration).toEqual(["daemon"])
   })
 
-  it("expands shared changes through the complete workspace dependent closure", () => {
+  it("uses native shared task owners and their declared build prerequisites", () => {
     const result = plan(["src/shared/src/schema.ts"])
 
     expect(result.change_class).toBe("shared")
     expect(result.packages.affected).toEqual([
+      "@alook/agent-driver",
       "@alook/app",
       "@alook/daemon",
       "@alook/email-worker",
@@ -457,7 +568,6 @@ describe("canonical execution plan", () => {
     expect(stablePlanJson(first)).toBe(stablePlanJson(second))
     expect(validateExecutionPlan(first)).toEqual(first)
     const projection = projectPlan(first)
-    expect(JSON.parse(projection.execution_plan)).toEqual(first)
     expect(projection.plan_hash).toBe(first.plan_hash)
     expect(JSON.parse(projection.static_packages)).toEqual(first.suites.static)
     expect(JSON.parse(projection.integration_suites)).toEqual(first.suites.integration)
@@ -493,7 +603,7 @@ describe("canonical execution plan", () => {
 
   it("rejects every stale identifier in an otherwise authentic signed plan", () => {
     const current = plan(["src/shared/src/schema.ts"])
-    expect(() => validateExecutionPlan({ ...current, schema_version: 2 }))
+    expect(() => validateExecutionPlan({ ...current, schema_version: current.schema_version + 1 }))
       .toThrow("schema/policy")
 
     for (const [section, key, expected] of [
@@ -574,7 +684,7 @@ describe("coverage name-status contract", () => {
       "src/web/src/lib/runtime-lookalike.config.ts",
     ])
 
-    expect(result.packages.affected).toEqual(["@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/app", "@alook/web"])
     expect(result.coverage.targets).toEqual(["web"])
     expect(result.coverage.required_changed_files).toEqual([
       "src/web/src/lib/runtime-lookalike.config.ts",
@@ -641,14 +751,14 @@ describe("scope manifest", () => {
   it("matches workspace package manifests and the complete UI inventory", () => {
     const manifest = loadScopeManifest()
     expect(() => validateScopeManifest(manifest)).not.toThrow()
-    expect(manifest.schema_version).toBe(1)
+    expect(manifest.schema_version).toBe(2)
     expect(manifest.ui.contracts.blog).toEqual(["54-blog-multizone.spec.ts"])
   })
 
   it("rejects invalid versions, registries, packages, paths, targets, and specs", () => {
     const manifest = loadScopeManifest()
 
-    expect(() => validateScopeManifest({ ...manifest, schema_version: 2 }))
+    expect(() => validateScopeManifest({ ...manifest, schema_version: manifest.schema_version + 1 }))
       .toThrow("schema/policy")
     expect(() => validateScopeManifest({ ...manifest, packages: [] }))
       .toThrow("packages are required")
@@ -753,6 +863,90 @@ describe("scope manifest", () => {
 
 describe("compatibility and CLI fail-closed behavior", () => {
   it.each([
+    "src/web/src/lib/worker-runtime.ts",
+    "src/web/src/lib/observability/trace-response.ts",
+    "src/web/package.json",
+  ])("selects and invalidates the App filesystem contract for %s", path => {
+    const fixture = gitDiffFixture()
+    const dry = () => JSON.parse(execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/run-turbo.mjs")), "run", "@alook/app#test", "--dry=json"], { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" })).tasks.find(task => task.taskId === "@alook/app#test")
+    try {
+      const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" }).trim()
+      const before = dry()
+      const file = join(fixture.root, path)
+      const bytes = readFileSync(file, "utf8")
+      writeFileSync(file, path.endsWith("package.json") ? JSON.stringify({ ...JSON.parse(bytes), nativeAppContractFixture: true }) : bytes + "\n// changed borrowed runtime source\n")
+      const facts = queryNativeTasks({ root: fixture.root, baseSha: head, headSha: head })
+      expect(facts.reason).toBeNull()
+      expect(facts.affected.map(task => task.fullName)).toContain("@alook/app#test")
+      expect(dry().hash).not.toBe(before.hash)
+      expect(createExecutionPlan([{ status: "M", path }], { nativeTasks: facts }).suites.unit_tasks).toContain("@alook/app#test")
+    } finally { rmSync(fixture.root, { recursive: true, force: true }) }
+  })
+
+  it("keeps an unrelated Web component outside the App filesystem task and cache", () => {
+    const fixture = gitDiffFixture()
+    const dry = () => JSON.parse(execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/run-turbo.mjs")), "run", "@alook/app#test", "--dry=json"], { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" })).tasks.find(task => task.taskId === "@alook/app#test")
+    try {
+      const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" }).trim()
+      const before = dry()
+      writeFileSync(join(fixture.root, "src/web/src/components/home/landing-content.ts"), "export const unrelated = true\n")
+      const facts = queryNativeTasks({ root: fixture.root, baseSha: head, headSha: head })
+      expect(facts.reason).toBeNull()
+      expect(facts.affected.map(task => task.fullName)).not.toContain("@alook/app#test")
+      expect(dry().hash).toBe(before.hash)
+    } finally { rmSync(fixture.root, { recursive: true, force: true }) }
+  })
+
+  it("hashes the real Worker-CI telemetry release input in both builds", () => {
+    const fixture = gitDiffFixture("src/web/src/lib/worker-source-input-fixture.ts")
+    const previous = process.env.WORKERS_CI_COMMIT_SHA
+    const dry = () => JSON.parse(execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/run-turbo.mjs")), "run", "@alook/web#build", "@alook/web#build:blog", "--dry=json"], { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" })).tasks
+    try {
+      process.env.WORKERS_CI_COMMIT_SHA = "a".repeat(40)
+      const before = dry()
+      process.env.WORKERS_CI_COMMIT_SHA = "b".repeat(40)
+      const after = dry()
+      for (const id of ["@alook/web#build", "@alook/web#build:blog"]) {
+        expect(after.find(task => task.taskId === id).hash).not.toBe(before.find(task => task.taskId === id).hash)
+      }
+    } finally {
+      if (previous === undefined) delete process.env.WORKERS_CI_COMMIT_SHA
+      else process.env.WORKERS_CI_COMMIT_SHA = previous
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it("invalidates the driver build for root LICENSE and declares its ignored license output", () => {
+    const fixture = gitDiffFixture("src/daemon/agent-driver/src/license-input-fixture.ts")
+    const dry = () => JSON.parse(execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/run-turbo.mjs")), "run", "@alook/agent-driver#build", "--dry=json"], { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" })).tasks.find(task => task.taskId === "@alook/agent-driver#build")
+    try {
+      const before = dry()
+      writeFileSync(join(fixture.root, "LICENSE"), "changed root license input")
+      const after = dry()
+      expect(after.hash).not.toBe(before.hash)
+      expect(after.outputs).toEqual(expect.arrayContaining(["dist/**", "LICENSE"]))
+    } finally { rmSync(fixture.root, { recursive: true, force: true }) }
+  })
+
+  it("reports native conservative fallback as full instead of a successful localized query", () => {
+    const fixture = gitDiffFixture("src/web/src/lib/native-fallback-fixture.ts")
+    try {
+      const file = join(fixture.root, "turbo.json")
+      const config = JSON.parse(readFileSync(file, "utf8"))
+      config.tasks["@alook/web#test"].inputs.push("!public/{sw.js,sw.js.map,community-shell/**}")
+      writeFileSync(file, JSON.stringify(config))
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" })
+      git("add", "turbo.json")
+      git("-c", "user.name=Native fallback fixture", "-c", "user.email=native@example.test", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "native invalid glob input")
+      const head = git("rev-parse", "HEAD").trim()
+      const nativeTasks = queryNativeTasks({ root: fixture.root, baseSha: head, headSha: head })
+      expect(nativeTasks.reason).toBe("native_affected_fallback")
+      const result = createExecutionPlan([{ status: "M", path: "src/web/src/lib/native-fallback-fixture.ts" }], { baseSha: head, headSha: head, nativeTasks })
+      expect(result).toMatchObject({ full: true, full_reason: "native_affected_fallback" })
+    } finally { rmSync(fixture.root, { recursive: true, force: true }) }
+  })
+
+  it.each([
     ["pull_request", "change", "affected"],
     ["merge_group", "change", "affected"],
     ["push", "fix: localized user bar", "main-smoke"],
@@ -763,17 +957,17 @@ describe("compatibility and CLI fail-closed behavior", () => {
     try {
       const workflow = readFileSync(join(import.meta.dirname, "../../.github/workflows/ci.yml"), "utf8").replaceAll("\r\n", "\n")
       const scope = workflow.slice(workflow.indexOf("\n  scope:\n"), workflow.indexOf("\n  auth-build:\n"))
-      const body = scope.match(/        run: \|\n([\s\S]*?)(?=^      - uses:)/m)?.[1]
+      const body = scope.slice(scope.indexOf("      - id: scope\n")).match(/        run: \|\n([\s\S]*?)(?=^      - uses:)/m)?.[1]
       expect(body).toBeTruthy()
       const script = body!.replace(/^ {10}/gm, "").replaceAll(
-        "node scripts/ci/changed-scopes.mjs", '"$CLASSIFIER_NODE" "$CLASSIFIER_SCRIPT"',
+        "node scripts/ci/changed-scopes.mjs", '"$CLASSIFIER_NODE" "$CLASSIFIER_SCRIPT" --ui-shards 1',
       ).replaceAll(".ci/execution-plan.json", '"$SCOPE_PLAN_FILE"').replace("mkdir -p .ci", 'mkdir -p "$SCOPE_DIR"')
-      execFileSync("bash", ["-c", script], {
-        cwd: process.cwd(),
+      const workflowOutput = execFileSync("bash", ["-c", script], {
+        cwd: fixture.root,
         env: {
           ...cleanGitEnvironment(),
           GIT_DIR: join(fixture.root, ".git"), GIT_WORK_TREE: fixture.root,
-          CLASSIFIER_NODE: process.execPath, CLASSIFIER_SCRIPT: join(import.meta.dirname, "changed-scopes.mjs"),
+          CLASSIFIER_NODE: process.execPath, CLASSIFIER_SCRIPT: realpathSync(join(fixture.root, "scripts/ci/changed-scopes.mjs")),
           SCOPE_DIR: join(fixture.root, ".ci"), SCOPE_PLAN_FILE: join(fixture.root, ".ci/execution-plan.json"),
           EVENT_NAME: event, EVENT_SHA: "HEAD", PR_BASE_SHA: "HEAD^", PR_HEAD_SHA: "HEAD",
           MERGE_BASE_SHA: "HEAD^", PUSH_BASE_SHA: "HEAD^", HEAD_COMMIT_MESSAGE: message,
@@ -781,6 +975,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
           GITHUB_STEP_SUMMARY: join(fixture.root, "summary"),
         },
       })
+      expect(existsSync(join(fixture.root, ".ci/execution-plan.json")), workflowOutput.toString()).toBe(true)
       const result = JSON.parse(readFileSync(join(fixture.root, ".ci/execution-plan.json"), "utf8"))
       expect(result.execution_mode).toBe(mode)
       expect(validateExecutionPlan(result)).toEqual(result)
@@ -835,7 +1030,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
     const planFile = join(directory, "plan.json")
     const summary = join(directory, "summary.md")
     try {
-      runCli([
+      runCli(["--ui-shards", "1",
         "--base", "missing-base",
         "--head", "missing-head",
         "--output", output,
@@ -849,6 +1044,8 @@ describe("compatibility and CLI fail-closed behavior", () => {
       expect(values).toContain("run_resizable_panels_compat=true")
       expect(writtenPlan.full).toBe(true)
       expect(writtenPlan.full_reason).toBe("classifier_error")
+      expect(writtenPlan.suites.static_tasks.length).toBeGreaterThan(0)
+      expect(writtenPlan.suites.unit_build_tasks).toContain("@alook/agent-driver#build")
       expect(writtenPlan.compatibility.resizable_panels).toBe(true)
       expect(readFileSync(summary, "utf8")).toContain("Fail-closed reason:")
     } finally {
@@ -862,7 +1059,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
     const planFile = join(directory, "plan.json")
     const summary = join(directory, "summary.md")
     try {
-      runCli([
+      runCli(["--ui-shards", "1",
         "--force-full",
         "--diagnostic-only",
         "--output", output,
@@ -897,7 +1094,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
       for (const name of localEnvironment) delete process.env[name]
       process.env.GIT_DIR = join(fixture.root, ".git")
       process.env.GIT_WORK_TREE = fixture.root
-      runCli(["--base", "HEAD^", "--head", "HEAD", "--main-smoke", "--summary", summary])
+      runCli(["--ui-shards", "1", "--base", "HEAD^", "--head", "HEAD", "--main-smoke", "--summary", summary])
 
       const written = stdout.mock.calls.map(([value]) => String(value)).join("")
       const writtenPlan = JSON.parse(written)
@@ -925,12 +1122,13 @@ describe("compatibility and CLI fail-closed behavior", () => {
     const output = join(fixture.root, "projection")
     const planFile = join(fixture.root, "plan.json")
     try {
-      execFileSync(process.execPath, ["scripts/ci/changed-scopes.mjs", "--base", "HEAD^", "--head", "HEAD", "--main-smoke", "--output", output, "--plan-file", planFile], {
-        env: { ...cleanGitEnvironment(), GIT_DIR: join(fixture.root, ".git"), GIT_WORK_TREE: fixture.root },
+      execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/changed-scopes.mjs")), "--ui-shards", "1", "--base", "HEAD^", "--head", "HEAD", "--main-smoke", "--output", output, "--plan-file", planFile], {
+        cwd: fixture.root,
+        env: cleanGitEnvironment(),
       })
       const result = JSON.parse(readFileSync(planFile, "utf8"))
       expect(result.full).toBe(full)
-      expect(result.changes).toEqual([{ status: "A", path }])
+      expect(result.changes).toEqual([{ status: "M", path }])
     } finally {
       rmSync(fixture.root, { recursive: true, force: true })
     }
@@ -941,8 +1139,9 @@ describe("compatibility and CLI fail-closed behavior", () => {
     const output = join(fixture.root, "projection")
     const planFile = join(fixture.root, "plan.json")
     try {
-      execFileSync(process.execPath, ["scripts/ci/changed-scopes.mjs", "--base", "HEAD^", "--head", "HEAD", "--output", output, "--plan-file", planFile], {
-        env: { ...cleanGitEnvironment(), GIT_DIR: join(fixture.root, ".git"), GIT_WORK_TREE: fixture.root },
+      execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/changed-scopes.mjs")), "--ui-shards", "1", "--base", "HEAD^", "--head", "HEAD", "--output", output, "--plan-file", planFile], {
+        cwd: fixture.root,
+        env: cleanGitEnvironment(),
       })
       const result = JSON.parse(readFileSync(planFile, "utf8"))
       expect(result.compatibility.resizable_panels).toBe(true)
@@ -958,7 +1157,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
     const output = join(directory, "output")
     const planFile = join(directory, "plan.json")
     try {
-      runCli(["--output", output, "--plan-file", planFile])
+      runCli(["--ui-shards", "1", "--output", output, "--plan-file", planFile])
       expect(JSON.parse(readFileSync(planFile, "utf8"))).toMatchObject({
         full: true,
         full_reason: "classifier_error",

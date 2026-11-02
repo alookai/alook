@@ -1,6 +1,6 @@
+import rawContractInput0 from "./test-fixtures/query-persister-07fa.ts.txt?raw"
 import "fake-indexeddb/auto"
 import { createHash } from "node:crypto"
-import { readFileSync } from "node:fs"
 import * as ts from "typescript"
 import * as idb from "idb-keyval"
 import * as nativeStore from "@tanstack/store"
@@ -19,7 +19,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { createIdbPersister, PERSIST_BUSTER, PERSIST_CACHE_PREFIX, PERSIST_VERSION, type QualifiedPersister } from "./query-persister"
 
 function oldDocument() {
-  const source = readFileSync(new URL("./test-fixtures/query-persister-07fa.ts.txt", import.meta.url), "utf8")
+  const source = rawContractInput0
   expect(createHash("sha256").update(source).digest("hex")).toBe("d1e237f2265acd04afa98d58f28b118930b76bfd7056382de40a8e4afe4672e6")
   const modules: Record<string, unknown> = {
     "idb-keyval": idb, "@tanstack/store": nativeStore,

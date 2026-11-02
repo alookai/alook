@@ -1,7 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
+import { mkdirSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
-import { buildExecutionPlan, loadScopeManifest, parseNameStatus } from "./changed-scopes.mjs"
+import { buildExecutionPlan, parseNameStatus, queryNativeTasks, stablePlanJson } from "./changed-scopes.mjs"
 import { isolatedRepositoryGitEnvironment } from "./report-changed-patch-coverage.mjs"
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
@@ -31,33 +32,33 @@ export function collectLocalChanges({ root = ROOT, base } = {}) {
   }
 }
 
-export function localCheckCommands(plan, manifest = loadScopeManifest()) {
+export function localCheckCommands(plan) {
   if (plan.full) return ["typecheck", "lint", "test", "typegrep:ws", "typegrep:agent-driver", "knip"]
     .map((script) => ["pnpm", script])
   const commands = []
-  const turbo = (task, packages) => {
-    if (packages.length > 0) commands.push(["pnpm", "turbo", "run", task, ...packages.map((name) => `--filter=${name}`)])
+  const turbo = (tasks) => {
+    if (tasks.length) commands.push(["node", "scripts/ci/run-turbo.mjs", "run", ...tasks])
   }
-  turbo("typecheck", plan.suites.static)
-  turbo("lint", plan.suites.static)
-  const unitPackages = manifest.packages.filter((entry) => plan.suites.unit.includes(entry.unit_root)).map((entry) => entry.name)
-  const driver = "@alook/agent-driver"
-  if (unitPackages.some((name) => [driver, "@alook/daemon"].includes(name))) {
-    commands.push(["pnpm", "--filter", driver, "build"])
-  }
-  turbo("test", unitPackages.filter((name) => name !== driver))
-  if (unitPackages.includes(driver)) commands.push(["pnpm", "--filter", driver, "test"])
+  turbo(plan.suites.static_tasks.filter((task) => task.split("#")[1].startsWith("typecheck")))
+  turbo(plan.suites.static_tasks.filter((task) => task.split("#")[1].startsWith("lint")))
+  turbo(plan.suites.unit_build_tasks)
+  if (plan.suites.unit_tasks.length) commands.push(["node", "scripts/ci/run-unit-tests.mjs", "--plan", ".ci/local-execution-plan.json"])
   if (plan.suites.static.some((name) => ["@alook/web", "@alook/shared", "@alook/ws-do"].includes(name))) {
     commands.push(["pnpm", "typegrep:ws"])
   }
-  if (plan.suites.static.some((name) => [driver, "@alook/daemon"].includes(name))) {
+  if (plan.suites.static.some((name) => ["@alook/agent-driver", "@alook/daemon"].includes(name))) {
     commands.push(["pnpm", "typegrep:agent-driver"])
   }
-  turbo("knip", plan.suites.knip)
+  turbo(plan.suites.knip_tasks)
   return commands
 }
 
 export function runLocalChecks(plan, { root = ROOT, execute = spawnSync } = {}) {
+  if (!plan.full && plan.suites.unit_tasks.length) {
+    const file = resolve(root, ".ci/local-execution-plan.json")
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, stablePlanJson(plan) + "\n")
+  }
   for (const [command, ...args] of localCheckCommands(plan)) {
     const result = execute(command, args, { cwd: root, stdio: "inherit", shell: process.platform === "win32" })
     if (result.error) throw result.error
@@ -78,7 +79,7 @@ export function runCli(argv = process.argv.slice(2)) {
   let plan
   try {
     const input = collectLocalChanges({ base })
-    plan = buildExecutionPlan(input.changes, { ...input, forceFull })
+    plan = buildExecutionPlan(input.changes, { ...input, forceFull, nativeTasks: queryNativeTasks(input) })
   } catch (error) {
     plan = buildExecutionPlan([], { forceFull: true, fallbackReason: String(error) })
   }

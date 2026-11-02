@@ -1,5 +1,5 @@
+import contractText0 from "./message-list-controller.ts?raw"
 import React from "react"
-import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { act, render as rtlRender } from "@/test/react-dom-harness"
@@ -9,7 +9,13 @@ import type { ResolvedMessageListProps } from "./message-list-types"
 import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
-const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
+const contractSources: Record<string, string> = {
+  "src/components/community/messages/message-list-controller.ts": contractText0,
+}
+const readWebSource = (path: string) => {
+  if (!(path in contractSources)) throw new Error("unregistered contract source: " + path)
+  return contractSources[path]
+}
 
 const mocks = vi.hoisted(() => ({
   readPositionReady: false,

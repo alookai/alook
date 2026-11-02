@@ -1,11 +1,24 @@
-import { readFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import source0 from "../../../app/c/layout.tsx?raw"
+import source1 from "../../../app/c/page.tsx?raw"
+import source2 from "../channels/channel-loading-frame.tsx?raw"
+import source3 from "../channels/dm-view.tsx?raw"
+import source4 from "../channels/text-channel-surface.tsx?raw"
+import source5 from "../channels/thread-channel-surface.tsx?raw"
 import { describe, expect, it } from "vitest"
 import * as facade from "./message-list"
 
-const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
-const source = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
+const sources: Record<string, string> = {
+  "src/app/c/layout.tsx": source0,
+  "src/app/c/page.tsx": source1,
+  "src/components/community/channels/channel-loading-frame.tsx": source2,
+  "src/components/community/channels/dm-view.tsx": source3,
+  "src/components/community/channels/text-channel-surface.tsx": source4,
+  "src/components/community/channels/thread-channel-surface.tsx": source5,
+}
+const source = (path: string) => {
+  if (!(path in sources)) throw new Error("unregistered contract source: " + path)
+  return sources[path]
+}
 
 describe("MessageList facade boundaries", () => {
   it("exposes the public component without internal runtime exports", () => {

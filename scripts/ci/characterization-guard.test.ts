@@ -2,13 +2,22 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { buildExecutionPlan, loadScopeManifest } from "./changed-scopes.mjs"
+import { buildExecutionPlan as createExecutionPlan, loadScopeManifest, queryNativeTasks } from "./changed-scopes.mjs"
 import {
   blobAt,
   runCli,
   runIfMain,
   validateCharacterization,
 } from "./characterization-guard.mjs"
+
+let nativeTasks: ReturnType<typeof queryNativeTasks>
+function fullNativeFacts() {
+  if (!nativeTasks) { const value = queryNativeTasks(); nativeTasks = { inventory: value.inventory, affected: value.inventory } }
+  return nativeTasks
+}
+function buildExecutionPlan(changes, options) {
+  return createExecutionPlan(changes, { ...options, nativeTasks: fullNativeFacts() })
+}
 
 const candidateSha = "a".repeat(40)
 const fixtureSha = "b".repeat(40)
@@ -49,6 +58,7 @@ function cliRuntime(sourcePath: string | null) {
   const manifest = loadScopeManifest()
   return {
     manifest,
+    queryNativeTasks: fullNativeFacts,
     execFileSync: vi.fn((_file: string, args: string[], options: unknown) => {
       if (args[0] === "ls-remote") return `${fixtureSha}\trefs/heads/test\n`
       if (args[0] === "show") return `${candidateSha}\n`

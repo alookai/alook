@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs"
+import rawContractInput0 from "./popover.tsx?raw"
 import { describe, expect, it } from "vitest"
 
 describe("Popover primitive surface", () => {
-  const source = readFileSync(new URL("./popover.tsx", import.meta.url), "utf8")
+  const source = rawContractInput0
 
   it("exposes Base UI's real nonmodal composition parts", () => {
     for (const part of [

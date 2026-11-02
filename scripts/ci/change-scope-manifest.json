@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "policy_version": 2,
+  "schema_version": 2,
+  "policy_version": 3,
   "packages": [
     {
       "name": "@alook/agent-driver",
@@ -244,8 +244,8 @@
       {
         "name": "auth",
         "prefixes": [
-          "src/web/src/app/sign-in/",
-          "src/web/src/components/auth/",
+          "src/web/src/app/(auth)/",
+          "src/web/src/components/authenticated-context-menu-boundary",
           "src/web/src/lib/native-oauth"
         ],
         "specs": [
@@ -258,9 +258,13 @@
         "name": "marketing",
         "prefixes": [
           "src/web/src/components/home/",
-          "src/web/src/app/page.tsx",
-          "src/web/src/app/opengraph-image",
-          "src/web/src/lib/marketing"
+          "src/web/src/components/download/",
+          "src/web/src/app/(home)/",
+          "src/web/src/app/landing-legacy/",
+          "src/web/src/app/download/",
+          "src/web/src/app/og/",
+          "src/web/src/app/_og/",
+          "src/web/src/lib/seo/"
         ],
         "specs": [
           "19-marketing-seo.spec.ts",
@@ -295,7 +299,12 @@
           "11-profile-ui-stability.spec.ts",
           "12-friends.spec.ts",
           "29-community-bot-avatar-cleanup.spec.ts",
-          "30-bot-profile-audit-preview.spec.ts",
+          "30-activity-older-pages.spec.ts",
+          "30-activity-recovery.spec.ts",
+          "30-audit-hover-touch.spec.ts",
+          "30-bot-lifecycle-audit-modal.spec.ts",
+          "30-bot-profile-bounds.spec.ts",
+          "30-sheet-footer-geometry.spec.ts",
           "35-bot-token-usage-quota.spec.ts",
           "42-versioned-avatar-identity.spec.ts",
           "56-inbox-friend-requests.spec.ts",
@@ -350,7 +359,15 @@
           "44-mobile-reaction-details.spec.ts",
           "45-desktop-thread-split-view.spec.ts",
           "52-chat-composer-ordered-list.spec.ts",
-          "55-message-scroll-characterization.spec.ts",
+          "55-composer-resize-anchors.spec.ts",
+          "55-dm-composer-viewport.spec.ts",
+          "55-draft-optimistic-viewport.spec.ts",
+          "55-history-local-remote-owners.spec.ts",
+          "55-jump-peer-tail-follow.spec.ts",
+          "55-peer-bottom-clamp-follow.spec.ts",
+          "55-reaction-backward-reading.spec.ts",
+          "55-scroll-loading-prepend-jump.spec.ts",
+          "55-upward-release-resize.spec.ts",
           "59-message-pagination-anchor.spec.ts",
           "66-grouped-message-toolbar.spec.ts",
           "69-table-fullscreen-scroll.spec.ts",
@@ -361,8 +378,10 @@
       {
         "name": "billing",
         "prefixes": [
-          "src/web/src/components/billing/",
-          "src/web/src/app/api/billing/"
+          "src/web/src/components/community/billing/",
+          "src/web/src/hooks/community/use-billing",
+          "src/web/src/app/api/community/billing/",
+          "src/web/src/app/contact/"
         ],
         "specs": [
           "35-bot-token-usage-quota.spec.ts",
@@ -425,5 +444,107 @@
     "src/web/src/lib/session.test.ts",
     "src/web/src/test/e2e-service-lifecycle.test.ts",
     "src/web/src/test/e2e-fixture-isolation.test.ts"
-  ]
+  ],
+  "unit_tasks": {
+    "@alook/shared#test": {
+      "projects": [
+        "@alook/shared"
+      ]
+    },
+    "@alook/app#test": {
+      "projects": [
+        "@alook/app"
+      ],
+      "selection": "project"
+    },
+    "@alook/agent-driver#test": {
+      "projects": [
+        "@alook/agent-driver"
+      ]
+    },
+    "@alook/daemon#test": {
+      "projects": [
+        "daemon-node"
+      ]
+    },
+    "@alook/test-utils#test": {
+      "projects": [
+        "@alook/test-utils"
+      ]
+    },
+    "@alook/web#test": {
+      "projects": [
+        "web-node",
+        "web-dom"
+      ]
+    },
+    "@alook/web#test:contracts": {
+      "projects": [
+        "web-contracts"
+      ],
+      "selection": "project"
+    },
+    "@alook/web#test:tooling": {
+      "projects": [
+        "web-tooling"
+      ],
+      "selection": "project"
+    },
+    "@alook/web#test:blog": {
+      "projects": [
+        "blog-node",
+        "blog-dom"
+      ]
+    },
+    "@alook/web#test:auth": {
+      "projects": [
+        "auth-node"
+      ]
+    },
+    "@alook/web#test:runtime": {
+      "projects": [
+        "web-runtime"
+      ],
+      "selection": "project"
+    },
+    "@alook/web#test:auth:runtime": {
+      "projects": [
+        "auth-runtime"
+      ],
+      "selection": "project"
+    },
+    "@alook/ws-do#test": {
+      "projects": [
+        "ws-do-node"
+      ]
+    },
+    "@alook/ws-do#test:runtime": {
+      "projects": [
+        "ws-do-runtime"
+      ],
+      "selection": "project"
+    },
+    "@alook/email-worker#test": {
+      "projects": [
+        "email-worker-node"
+      ]
+    },
+    "@alook/email-worker#test:runtime": {
+      "projects": [
+        "email-worker-runtime"
+      ],
+      "selection": "project"
+    },
+    "@alook/queue-worker#test": {
+      "projects": [
+        "queue-worker-node"
+      ]
+    },
+    "@alook/queue-worker#test:runtime": {
+      "projects": [
+        "queue-worker-runtime"
+      ],
+      "selection": "project"
+    }
+  }
 }

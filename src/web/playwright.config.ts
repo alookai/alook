@@ -7,8 +7,6 @@ export default defineConfig({
   testMatch: "**/*.spec.ts",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  // The suite shares and mutates three seeded user accounts, so every run is
-  // single-worker and zero-retry; parallelism or retries would reuse state.
   retries: 0,
   workers: 1,
   reporter: process.env.CI ? [["blob"], ["github"], ["list"]] : "list",

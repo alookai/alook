@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import staticContractInput0 from "./thread-split-view.module.css?raw"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createElement, createRef } from "react"
@@ -115,7 +115,7 @@ describe("ThreadSplitView actual native persistence", () => {
     } finally { vi.stubGlobal("window", browser) }
     const ssr = document.createElement("div")
     ssr.innerHTML = html
-    const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "thread-split-view.module.css"), "utf8")
+    const css = staticContractInput0
     const selectors = [...css.matchAll(/(\.layout\[data-layout-pending\][^{}]+)\{/g)]
       .map(match => match[1].trim().replace(/\.([\w-]+)/g, (_, name: string) => `.${styles[name]}`))
     expect(selectors.length).toBeGreaterThan(0)

@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { buildExecutionPlan } from "./changed-scopes.mjs"
+import { buildExecutionPlan, loadScopeManifest, queryNativeTasks } from "./changed-scopes.mjs"
 import { collectLocalChanges, localCheckCommands, runLocalChecks } from "./check-local.mjs"
 import { isolatedRepositoryGitEnvironment } from "./report-changed-patch-coverage.mjs"
 
@@ -12,11 +12,19 @@ function repository(files: Record<string, string> = { "base.ts": "export const b
   const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: isolatedRepositoryGitEnvironment(), encoding: "utf8" })
   try {
     git("init", "--quiet")
+    writeFileSync(join(root, ".git/info/exclude"), "/node_modules\n")
     git("config", "user.name", "Local Check")
     git("config", "user.email", "local@example.test")
     git("config", "commit.gpgsign", "false")
     mkdirSync(join(root, "fixture-hooks"))
     git("config", "core.hooksPath", join(root, "fixture-hooks"))
+    const source = resolve(import.meta.dirname, "../..")
+    for (const path of ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "turbo.json", ".gitignore",
+      ...loadScopeManifest().packages.map(entry => entry.root + "/package.json")]) {
+      mkdirSync(dirname(join(root, path)), { recursive: true })
+      writeFileSync(join(root, path), readFileSync(join(source, path)))
+    }
+    symlinkSync(join(source, "node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir")
     for (const [path, content] of Object.entries(files)) {
       mkdirSync(dirname(join(root, path)), { recursive: true })
       writeFileSync(join(root, path), content)
@@ -57,10 +65,10 @@ describe("local canonical checks", () => {
         expect(input.changes.some((change) => change.path === runtime || change.old_path === runtime)).toBe(true)
         if (kind === "staged rename") expect(input.changes).toContainEqual({ status: "R100", old_path: runtime, path: "moved-runtime.md" })
         if (kind === "staged deletion") expect(input.changes).toContainEqual({ status: "D", path: runtime })
-        const plan = buildExecutionPlan(input.changes)
+        const plan = buildExecutionPlan(input.changes, { nativeTasks: queryNativeTasks({ root, ...input }) })
         expect(plan.docs_only).toBe(false)
         expect(plan.suites.static).toContain("@alook/web")
-        expect(localCheckCommands(plan).some((command) => command.includes("--filter=@alook/web"))).toBe(true)
+        expect(localCheckCommands(plan).some((command) => command.includes("@alook/web#typecheck"))).toBe(true)
         expect(readFileSync(join(root, ".git/index"))).toEqual(index)
       } finally {
         rmSync(root, { recursive: true, force: true })
@@ -94,22 +102,27 @@ describe("local canonical checks", () => {
     }
   })
 
-  it("keeps full checks available and affected driver tests after their build and other package tests", () => {
+  it("keeps full checks and native unit build prerequisites before affected execution", () => {
     const full = buildExecutionPlan([], { forceFull: true })
     expect(localCheckCommands(full)).toEqual([
       ["pnpm", "typecheck"], ["pnpm", "lint"], ["pnpm", "test"],
       ["pnpm", "typegrep:ws"], ["pnpm", "typegrep:agent-driver"], ["pnpm", "knip"],
     ])
-    const plan = buildExecutionPlan([{ status: "M", path: "src/daemon/agent-driver/src/index.ts" }])
-    const commands = localCheckCommands(plan)
-    const build = commands.findIndex((command) => command.join(" ") === "pnpm --filter @alook/agent-driver build")
-    const tests = commands.findIndex((command) => command.slice(0, 4).join(" ") === "pnpm turbo run test")
-    const isolated = commands.findIndex((command) => command.join(" ") === "pnpm --filter @alook/agent-driver test")
-    expect(build).toBeGreaterThanOrEqual(0)
-    expect(tests).toBeGreaterThan(build)
-    expect(isolated).toBeGreaterThan(tests)
-    expect(commands[tests]).not.toContain("--filter=@alook/agent-driver")
-    expect(localCheckCommands(buildExecutionPlan([{ status: "M", path: "README.md" }]))).toEqual([])
+    const path = "src/daemon/agent-driver/src/index.ts"
+    const fixture = repository({ [path]: "export const original = true\n" })
+    try {
+      writeFileSync(join(fixture.root, path), "export const changed = true\n")
+      const input = collectLocalChanges({ root: fixture.root })
+      const nativeTasks = queryNativeTasks({ root: fixture.root, ...input })
+      const plan = buildExecutionPlan(input.changes, { nativeTasks })
+      const commands = localCheckCommands(plan)
+      const build = commands.findIndex(command => command.includes("@alook/agent-driver#build"))
+      const tests = commands.findIndex(command => command.includes("scripts/ci/run-unit-tests.mjs"))
+      expect(build).toBeGreaterThanOrEqual(0)
+      expect(tests).toBeGreaterThan(build)
+      expect(commands[tests]).toEqual(["node", "scripts/ci/run-unit-tests.mjs", "--plan", ".ci/local-execution-plan.json"])
+      expect(localCheckCommands(buildExecutionPlan([{ status: "M", path: "README.md" }]))).toEqual([])
+    } finally { rmSync(fixture.root, { recursive: true, force: true }) }
   })
 
   it("stops later checks at the first child failure or launch error", () => {

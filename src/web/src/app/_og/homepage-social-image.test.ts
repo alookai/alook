@@ -1,3 +1,4 @@
+import rawContractInput0 from "../../../../../README.md?raw"
 import { existsSync, readFileSync } from "node:fs"
 import { createHash } from "node:crypto"
 import sharp from "sharp"
@@ -24,7 +25,7 @@ describe("homepage social images", () => {
   })
 
   it("retains the complete current README banner, including its text and paper", async () => {
-    const readme = readFileSync(new URL("../../../../../README.md", import.meta.url), "utf8")
+    const readme = rawContractInput0
     expect(readme.match(/<img\s+src="([^"]+)"/)?.[1]).toBe("./assets/readme/banner.png")
     const expected = await sharp(readFileSync(banner))
       .resize({ width: 1200 })

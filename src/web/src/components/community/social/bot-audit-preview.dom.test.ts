@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import staticContractInput0 from "../../../app/globals.css?raw"
 import { resolve } from "node:path"
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -28,11 +28,7 @@ import {
   isBotActivityRunning,
 } from "@/lib/community/bot-activity-status"
 
-const globalCss = readFileSync(resolve(
-  process.cwd(),
-  process.cwd().endsWith("/src/web") ? "" : "src/web",
-  "src/app/globals.css",
-), "utf8")
+const globalCss = staticContractInput0
 
 const event = (id: string, kind: "tool_call" | "cli_invocation" = "tool_call") => ({
   id,

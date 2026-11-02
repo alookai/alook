@@ -1,11 +1,24 @@
-import { readFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import source0 from "../channels/text-channel-surface.dom.test.ts?raw"
+import source1 from "../channels/text-channel-surface.tsx?raw"
+import source2 from "../channels/thread-channel-surface.dom.test.ts?raw"
+import source3 from "../channels/thread-channel-surface.tsx?raw"
+import source4 from "./message-channel-controller-actions.ts?raw"
+import source5 from "./message-channel-controller-send.ts?raw"
 import { describe, expect, it } from "vitest"
 import * as facade from "./message-channel-controller"
 
-const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
-const source = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
+const sources: Record<string, string> = {
+  "src/components/community/channels/text-channel-surface.dom.test.ts": source0,
+  "src/components/community/channels/text-channel-surface.tsx": source1,
+  "src/components/community/channels/thread-channel-surface.dom.test.ts": source2,
+  "src/components/community/channels/thread-channel-surface.tsx": source3,
+  "src/components/community/messages/message-channel-controller-actions.ts": source4,
+  "src/components/community/messages/message-channel-controller-send.ts": source5,
+}
+const source = (path: string) => {
+  if (!(path in sources)) throw new Error("unregistered contract source: " + path)
+  return sources[path]
+}
 
 describe("MessageChannelController facade boundaries", () => {
   it("exposes the public component without internal runtime exports", () => {

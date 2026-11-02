@@ -8,7 +8,8 @@ import {
 } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { createE2eMatrix, discoverE2eSpecs } from "./e2e-shards.mjs"
+import { createE2eMatrix, queryNativeUiFacts, resolvePlaywrightImage, validateNativeUiFacts } from "./e2e-shards.mjs"
+import { isolatedRepositoryGitEnvironment } from "./report-changed-patch-coverage.mjs"
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 const MANIFEST_URL = new URL("./change-scope-manifest.json", import.meta.url)
@@ -34,6 +35,7 @@ const COVERAGE_EXCLUDES = [
   // excluded by Vitest itself; their behavior is enforced by contract tests.
   /(?:^|\/)vitest(?:\.[^/]+)?\.config\.[cm]?[jt]sx?$/,
   /^src\/web\/open-next\.config\.ts$/,
+  /^src\/web\/public\/(?:sw\.js(?:\.map)?$|community-shell\/)/,
   /(?:^|\/)node_modules\//,
   /(?:^|\/)(?:\.next|\.open-next|\.wrangler|dist|bundled|__mocks__)\//,
   /(?:^|\/)test-runtime\//,
@@ -136,24 +138,49 @@ function packageManifest(scopePackage, root = ROOT) {
   return JSON.parse(readFileSync(resolve(root, scopePackage.root, "package.json"), "utf8"))
 }
 
-function workspaceGraph(manifest, root = ROOT) {
-  const names = new Set(manifest.packages.map((entry) => entry.name))
-  const dependents = new Map(manifest.packages.map((entry) => [entry.name, new Set()]))
-  for (const entry of manifest.packages) {
-    const workspacePackage = packageManifest(entry, root)
-    const dependencies = {
-      ...workspacePackage.dependencies,
-      ...workspacePackage.devDependencies,
-      ...workspacePackage.optionalDependencies,
-      ...workspacePackage.peerDependencies,
-    }
-    for (const [dependency, version] of Object.entries(dependencies)) {
-      if (names.has(dependency) && String(version).startsWith("workspace:")) {
-        dependents.get(dependency).add(entry.name)
-      }
-    }
+const CHECK_TASKS = [
+  "typecheck", "typecheck:blog", "typecheck:auth",
+  "lint", "lint:blog", "lint:auth", "knip",
+  "test", "test:contracts", "test:tooling", "test:blog", "test:auth", "test:runtime", "test:auth:runtime",
+  "build", "build:blog", "build:auth",
+]
+
+function checkTasks(items, manifest) {
+  const packages = new Map(manifest.packages.map((entry) => [entry.name, entry]))
+  return items.filter((task) => {
+    const owner = packages.get(task.package.name)
+    if (!owner || !task.command || !CHECK_TASKS.includes(task.name)) return false
+    if (task.name === "build") return owner.build || owner.app_artifact
+    if (task.name.startsWith("typecheck") || task.name.startsWith("lint")) return owner.static
+    if (task.name === "knip") return owner.knip
+    return true
+  }).sort((left, right) => left.fullName.localeCompare(right.fullName))
+}
+
+export function queryNativeTasks({ root = ROOT, baseSha, headSha, manifest = loadScopeManifest(), execute = execFileSync } = {}) {
+  const fields = "fullName name command package { name path } allDependencies { items { fullName } }"
+  const query = (source) => {
+    const result = JSON.parse(execute(process.platform === "win32" ? "pnpm.cmd" : "pnpm",
+      ["exec", "turbo", "query", source], {
+        cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024,
+        env: { ...isolatedRepositoryGitEnvironment(), GIT_OPTIONAL_LOCKS: "0" },
+        stdio: ["ignore", "pipe", "pipe"],
+      }))
+    if (result.errors?.length || !result.data) throw new Error("native Turbo task query failed")
+    return result.data
   }
-  return dependents
+  const inventory = checkTasks(query("query { packages { items { tasks { items { " + fields + " } } } } }")
+    .packages.items.flatMap((entry) => entry.tasks.items), manifest)
+  if (!inventory.length) throw new Error("native Turbo task inventory is empty")
+  if (!baseSha || !headSha) return { inventory, affected: inventory, reason: "unresolved_native_base" }
+  const selection = query("query { affectedTasks(base: " + JSON.stringify(baseSha)
+    + ", head: " + JSON.stringify(headSha) + ", tasks: " + JSON.stringify(CHECK_TASKS)
+    + ") { items { " + fields + " reason { __typename ... on TaskAllChanged { description } } } } }")
+  const fallback = selection.affectedTasks.items.find(task => task.reason?.__typename === "TaskAllChanged" && task.reason.description === "conservative affectedness fallback")
+  return { inventory, affected: checkTasks(selection.affectedTasks.items, manifest),
+    reason: fallback ? "native_affected_fallback" : null,
+    ...(fallback ? { detail: fallback.reason.description } : {}),
+  }
 }
 
 function validateCodecovTargets(manifest, root) {
@@ -182,7 +209,7 @@ function validateCodecovTargets(manifest, root) {
 
 export function validateScopeManifest(manifest, options = {}) {
   const root = options.root || ROOT
-  if (manifest.schema_version !== 1 || manifest.policy_version !== 2) {
+  if (manifest.schema_version !== 2 || manifest.policy_version !== 3) {
     throw new Error("scope manifest schema/policy version must be 1/2")
   }
   if (!Array.isArray(manifest.packages) || manifest.packages.length === 0) {
@@ -240,10 +267,13 @@ export function validateScopeManifest(manifest, options = {}) {
     }
   }
 
-  const specs = options.specs || discoverE2eSpecs(resolve(root, manifest.ui.root))
+  const knownSpec = (spec) => typeof spec === "string" && !spec.includes("..") && !spec.includes("\\")
+    && spec.endsWith(".spec.ts") && (options.specs
+      ? options.specs.includes(spec)
+      : statSync(resolve(root, manifest.ui.root, spec), { throwIfNoEntry: false })?.isFile())
   for (const contractSpecs of Object.values(manifest.ui.contracts)) {
     for (const spec of contractSpecs) {
-      if (!specs.includes(spec)) throw new Error(`unknown UI spec: ${spec}`)
+      if (!knownSpec(spec)) throw new Error(`unknown UI spec: ${spec}`)
     }
   }
   const groups = manifest.ui.groups
@@ -267,7 +297,7 @@ export function validateScopeManifest(manifest, options = {}) {
       }
     }
     for (const spec of group.specs) {
-      if (!specs.includes(spec)) throw new Error(`unknown UI spec: ${spec}`)
+      if (!knownSpec(spec)) throw new Error(`unknown UI spec: ${spec}`)
     }
   }
   if (!Array.isArray(manifest.smoke_tests) || manifest.smoke_tests.length === 0
@@ -283,7 +313,6 @@ export function validateScopeManifest(manifest, options = {}) {
   }
   validateCodecovTargets(manifest, root)
   sorted(manifest.integrity_paths)
-  workspaceGraph(manifest, root)
   return manifest
 }
 
@@ -291,34 +320,6 @@ function findPackage(path, manifest) {
   return [...manifest.packages]
     .sort((left, right) => right.root.length - left.root.length)
     .find((entry) => pathWithin(path, entry.root))
-}
-
-function affectedClosure(directNames, manifest) {
-  const graph = workspaceGraph(manifest)
-  const affected = new Set(directNames)
-  const queue = [...directNames]
-  while (queue.length > 0) {
-    const current = queue.shift()
-    for (const dependent of graph.get(current) || []) {
-      if (affected.has(dependent)) continue
-      affected.add(dependent)
-      queue.push(dependent)
-    }
-  }
-  return sorted([...affected])
-}
-
-function loadBlogSharedInputs() {
-  const sourcePaths = JSON.parse(
-    readFileSync(resolve(ROOT, "src/web/blog/shared-build-inputs.json"), "utf8"),
-  ).sourcePaths
-  return sourcePaths.map((path) => `src/web/${path}`)
-}
-
-function isBlogBuildInput(path, sharedInputs) {
-  return BLOG_ROOT.test(path) || sharedInputs.some((input) => (
-    input.endsWith("/") ? path.startsWith(input) : path === input
-  ))
 }
 
 function isKnownPath(path, manifest) {
@@ -351,6 +352,7 @@ function emptyJobs() {
   return {
     app_packed_artifact: false,
     auth_build: false,
+    worker_build: false,
     blog_build: false,
     e2e: false,
     lighthouse: false,
@@ -400,11 +402,10 @@ function affectedUiSpecs(paths, manifest) {
       && (!/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path) || pathWithin(path, manifest.ui.root))
   })
   if (relevant.length === 0) return []
-  const inventory = discoverE2eSpecs(resolve(ROOT, manifest.ui.root))
   for (const path of relevant) {
     if (pathWithin(path, manifest.ui.root)) {
       const spec = path.slice(manifest.ui.root.length + 1)
-      if (!inventory.includes(spec)) return [manifest.ui.all]
+      if (!spec.endsWith(".spec.ts") || !statSync(resolve(ROOT, path), { throwIfNoEntry: false })?.isFile()) return [manifest.ui.all]
       selected.add(spec)
       continue
     }
@@ -427,6 +428,11 @@ function planClass({ full, benchmarkOnly, docsOnly, blogPathsOnly, authPathsOnly
   return "mixed"
 }
 
+function browserZonesForSpecs(specs, manifest) {
+  const names = specs.map(spec => spec.replace(/^src\/test\/e2e-ui\//, ""))
+  return names.length ? ["web", ...(names.includes(manifest.ui.all) || names.some(spec => manifest.ui.contracts.blog.includes(spec)) ? ["blog"] : [])] : []
+}
+
 export function buildExecutionPlan(inputChanges, options = {}) {
   const manifest = validateScopeManifest(options.manifest || loadScopeManifest())
   const changes = normalizedChanges(inputChanges)
@@ -438,7 +444,10 @@ export function buildExecutionPlan(inputChanges, options = {}) {
   const blogPathsOnly = paths.length > 0 && paths.every((path) => BLOG_ROOT.test(path))
   const authPathsOnly = paths.length > 0 && paths.every((path) => AUTH_ROOT.test(path))
   const unknown = paths.some((path) => !isKnownPath(path, manifest))
+  const nativeTasks = options.nativeTasks
+  const nativeUnavailable = !nativeTasks && !docsOnly && !benchmarkOnly
   const reason = fullReason(paths, { ...options, benchmarkOnly }) || (unknown ? "unknown_path" : null)
+    || (nativeUnavailable ? "native_tasks_unavailable" : nativeTasks?.reason || null)
   const full = reason !== null
   const executionMode = full ? "full" : options.mainSmoke === true ? "main-smoke" : "affected"
   const mainSmoke = executionMode === "main-smoke" && !docsOnly && !benchmarkOnly
@@ -446,14 +455,35 @@ export function buildExecutionPlan(inputChanges, options = {}) {
 
   let affectedNames
   if (full) affectedNames = sorted(manifest.packages.map((entry) => entry.name))
-  else if (docsOnly || blogContentOnly) affectedNames = []
-  else affectedNames = affectedClosure(direct, manifest)
+  else if (docsOnly || benchmarkOnly) affectedNames = []
+  else affectedNames = sorted(nativeTasks.affected.map((task) => task.package.name))
 
   const byName = new Map(manifest.packages.map((entry) => [entry.name, entry]))
   const affectedPackages = affectedNames.map((name) => byName.get(name))
+  const selectedTasks = full ? nativeTasks?.inventory || [] : docsOnly || benchmarkOnly ? [] : nativeTasks.affected
   const suites = packageSets(affectedPackages)
+  const tasks = (prefix) => selectedTasks.filter((task) => task.name === prefix || task.name.startsWith(prefix + ":"))
+  suites.static_tasks = tasks("typecheck").concat(tasks("lint")).map((task) => task.fullName)
+  suites.build_tasks = tasks("build").map((task) => task.fullName)
+  suites.knip_tasks = tasks("knip").map((task) => task.fullName)
+  suites.unit_tasks = tasks("test").map((task) => task.fullName)
+  const unitDependencies = new Set(tasks("test").flatMap((task) => task.allDependencies?.items.map((dependency) => dependency.fullName) || []))
+  suites.unit_build_tasks = (nativeTasks?.inventory || []).filter((task) => unitDependencies.has(task.fullName)
+    && (task.name === "build" || task.name.startsWith("build:"))).map((task) => task.fullName)
+  if (nativeTasks) {
+    suites.static = sorted(tasks("typecheck").concat(tasks("lint")).map((task) => task.package.name))
+    suites.build = sorted(tasks("build").map((task) => task.package.name))
+    suites.knip = sorted(tasks("knip").map((task) => task.package.name))
+    suites.unit = sorted(tasks("test").map((task) => task.package.path))
+  }
   suites.smoke = []
-  const coverage = coverageSets(affectedPackages)
+  const testOwners = nativeTasks
+    ? new Set(tasks("test").map((task) => task.package.name))
+    : new Set(affectedNames)
+  const testedPackages = affectedPackages.filter((entry) => testOwners.has(entry.name))
+  const testSuites = packageSets(testedPackages)
+  for (const kind of ["windows", "integration", "linux"]) suites[kind] = testSuites[kind]
+  const coverage = coverageSets(testedPackages)
   suites.integration = sorted([
     ...suites.integration,
     ...manifest.path_suites
@@ -465,7 +495,6 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     coverage.include_roots = sorted([...coverage.include_roots, "scripts/ci/**/*.mjs"])
   }
   const jobs = emptyJobs()
-  const sharedInputs = loadBlogSharedInputs()
   let uiSpecs = []
 
   if (full) {
@@ -475,7 +504,7 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     suites.integration = blogPathsOnly && !blogContentOnly ? [] : suites.integration
   } else if (authPathsOnly) {
     suites.integration = []
-  } else if (affectedPackages.some((entry) => entry.ui)) {
+  } else if ([...affectedPackages, ...direct.map((name) => byName.get(name))].some((entry) => entry.ui)) {
     uiSpecs = affectedUiSpecs(paths, manifest)
   }
 
@@ -485,13 +514,17 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     suites.linux = []
   }
 
-  const authBuild = full || paths.some((path) => AUTH_ROOT.test(path))
-  const blogBuild = full || paths.some((path) => isBlogBuildInput(path, sharedInputs))
+  const authBuild = full || suites.build_tasks.includes("@alook/web#build:auth")
+  const blogBuild = full || suites.build_tasks.includes("@alook/web#build:blog")
+  if (!full && blogBuild && uiSpecs.length > 0 && !uiSpecs.includes(manifest.ui.all)
+    && paths.some((path) => !/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path))) {
+    uiSpecs = sorted([...uiSpecs, ...manifest.ui.contracts.blog])
+  }
   const directWebRuntime = paths.some((path) => (
     pathWithin(path, "src/web") && !BLOG_ROOT.test(path) && !AUTH_ROOT.test(path)
   ))
   const lighthouse = full || (blogPathsOnly && !blogContentOnly) || directWebRuntime
-  const rust = full || affectedPackages.some((entry) => entry.rust)
+  const rust = full || [...affectedPackages, ...direct.map((name) => byName.get(name))].some((entry) => entry.rust)
   const directPackages = direct.map((name) => byName.get(name))
   const appArtifact = full || (!blogPathsOnly && !authPathsOnly && [...affectedPackages, ...directPackages]
     .some((entry) => entry.app_artifact))
@@ -505,6 +538,7 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     suites.windows = []
     suites.integration = []
     suites.linux = []
+    for (const key of ["static_tasks", "build_tasks", "knip_tasks", "unit_tasks", "unit_build_tasks"]) suites[key] = []
     suites.smoke = [...manifest.smoke_tests]
     coverage.targets = []
     coverage.include_roots = []
@@ -525,6 +559,10 @@ export function buildExecutionPlan(inputChanges, options = {}) {
   jobs.lighthouse = lighthouse && !mainSmoke
   jobs.ui_e2e = uiSpecs.length > 0
   jobs.merge_reports = jobs.ui_e2e
+  const browserZones = browserZonesForSpecs(uiSpecs, manifest)
+  const workerZones = ["web", "blog"].filter(zone => browserZones.includes(zone)
+    || (zone === "web" ? suites.build_tasks.includes("@alook/web#build") : blogBuild))
+  jobs.worker_build = workerZones.length > 0
   jobs.resizable_panels_compat = options.resizablePanelsChanged === true && !mainSmoke
 
   const basePlan = {
@@ -539,6 +577,7 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     change_class: planClass({ full, benchmarkOnly, docsOnly, blogPathsOnly, authPathsOnly, direct }),
     full,
     full_reason: reason,
+    fallback_detail: options.fallbackReason || nativeTasks?.detail || nativeTasks?.reason || "",
     docs_only: docsOnly && !full,
     auth_only: authPathsOnly && !full,
     blog_only: blogContentOnly && !full,
@@ -546,12 +585,14 @@ export function buildExecutionPlan(inputChanges, options = {}) {
       resizable_panels: options.resizablePanelsChanged === true && !mainSmoke,
     },
     workflow_changed: paths.some((path) => WORKFLOW.test(path)),
+    native_tasks: nativeTasks || null,
     packages: {
       direct,
       affected: affectedNames,
     },
     suites,
-    ui: { specs: sorted(uiSpecs) },
+    ui: { specs: sorted(uiSpecs), zones: browserZones, native: options.nativeUi || null },
+    artifacts: { worker_zones: workerZones },
     coverage: {
       ...coverage,
       required_changed_files: requiredChangedFiles,
@@ -589,7 +630,7 @@ export function validateExecutionPlan(plan, options = {}) {
       || plan.coverage.targets.length > 0 || plan.coverage.include_roots.length > 0) {
       throw new Error("main smoke plan must keep the complete smoke set without full package suites")
     }
-    const sourcePlan = buildExecutionPlan(plan.changes)
+    const sourcePlan = buildExecutionPlan(plan.changes, { nativeTasks: plan.native_tasks })
     const expectedUi = sourcePlan.ui.specs.length > 0
       ? sorted(sourcePlan.change_class === "blog" ? manifest.ui.contracts.blog : manifest.ui.contracts.smoke) : []
     if (JSON.stringify(plan.ui.specs) !== JSON.stringify(expectedUi)
@@ -620,19 +661,34 @@ export function validateExecutionPlan(plan, options = {}) {
   for (const suite of plan.suites.linux) {
     if (!manifest.suites.linux.includes(suite)) throw new Error(`unknown execution-plan linux suite: ${suite}`)
   }
-  const inventory = discoverE2eSpecs(resolve(ROOT, manifest.ui.root))
   for (const spec of plan.ui.specs) {
-    if (spec !== manifest.ui.all && !inventory.includes(spec)) throw new Error(`unknown execution-plan UI spec: ${spec}`)
+    if (spec !== manifest.ui.all && (!spec.endsWith(".spec.ts") || spec.includes("..") || !statSync(resolve(ROOT, manifest.ui.root, spec), { throwIfNoEntry: false })?.isFile())) throw new Error(`unknown execution-plan UI spec: ${spec}`)
   }
+  if (plan.ui.native) validateNativeUiFacts(plan.ui.native, plan.ui.specs)
+  if (!plan.jobs.ui_e2e && plan.ui.native) throw new Error("inactive UI plan contains native partitions")
+  const expected = buildExecutionPlan(plan.changes, {
+    manifest,
+    nativeTasks: plan.native_tasks,
+    nativeUi: plan.ui.native,
+    baseSha: plan.base_sha,
+    headSha: plan.head_sha,
+    forceFull: plan.full_reason === "forced",
+    fallbackReason: plan.full_reason === "classifier_error" ? plan.fallback_detail || "classifier failure" : "",
+    mainSmoke: plan.execution_mode === "main-smoke",
+    diagnosticOnly: plan.diagnostic_only,
+    resizablePanelsChanged: plan.compatibility.resizable_panels,
+  })
+  if (stablePlanJson(expected) !== stablePlanJson(plan)) throw new Error("execution plan projections do not match native tasks and event policy")
   return plan
 }
 
 export function projectPlan(plan) {
   validateExecutionPlan(plan)
-  const uiSpecs = plan.ui.specs.includes("all") ? discoverE2eSpecs() : plan.ui.specs
-  const e2eMatrix = uiSpecs.length > 0 ? createE2eMatrix(uiSpecs) : { include: [] }
+  if (plan.jobs.ui_e2e && !plan.ui.native) throw new Error("UI execution requires native partitions")
+  const e2eMatrix = plan.ui.native ? createE2eMatrix(plan.ui.native) : { include: [] }
+  const manifest = loadScopeManifest()
+  e2eMatrix.include = e2eMatrix.include.map(entry => ({ ...entry, zones: browserZonesForSpecs(entry.specs, manifest) }))
   return {
-    execution_plan: stablePlanJson(plan),
     plan_hash: plan.plan_hash,
     plan_schema_version: String(plan.schema_version),
     full: String(plan.full),
@@ -643,6 +699,10 @@ export function projectPlan(plan) {
     blog_only: String(plan.blog_only),
     run_auth_build: String(plan.jobs.auth_build),
     run_blog_build: String(plan.jobs.blog_build),
+    run_worker_build: String(plan.jobs.worker_build),
+    worker_zones: JSON.stringify(plan.artifacts.worker_zones),
+    browser_zones: JSON.stringify(plan.ui.zones),
+    worker_build_image: resolvePlaywrightImage(),
     run_code_checks: String(plan.jobs.static_checks || plan.jobs.test_linux),
     run_static_checks: String(plan.jobs.static_checks),
     run_linux: String(plan.jobs.test_linux),
@@ -654,6 +714,11 @@ export function projectPlan(plan) {
     run_lighthouse: String(plan.jobs.lighthouse),
     run_knip: String(plan.suites.knip.length > 0),
     run_app_packed_artifact: String(plan.jobs.app_packed_artifact),
+    static_tasks: JSON.stringify(plan.suites.static_tasks),
+    build_tasks: JSON.stringify(plan.suites.build_tasks),
+    knip_tasks: JSON.stringify(plan.suites.knip_tasks),
+    unit_tasks: JSON.stringify(plan.suites.unit_tasks),
+    unit_build_tasks: JSON.stringify(plan.suites.unit_build_tasks),
     static_packages: JSON.stringify(plan.suites.static),
     build_packages: JSON.stringify(plan.suites.build),
     knip_packages: JSON.stringify(plan.suites.knip),
@@ -783,6 +848,7 @@ export function runCli(argv) {
       mainSmoke: args.mainSmoke,
       diagnosticOnly: args.diagnosticOnly,
       resizablePanelsChanged: resizablePanelsVersionChanged(args),
+      nativeTasks: queryNativeTasks({ baseSha: args.base, headSha: args.head }),
     })
   } catch (error) {
     fallbackReason = error instanceof Error ? error.message : String(error)
@@ -791,9 +857,16 @@ export function runCli(argv) {
       headSha: args.head || "",
       forceFull: true,
       fallbackReason,
+      nativeTasks: queryNativeTasks(),
       diagnosticOnly: args.diagnosticOnly,
       resizablePanelsChanged: true,
     })
+  }
+  if (plan.jobs.ui_e2e) {
+    const nativeUi = queryNativeUiFacts(plan.ui.specs, { shardCount: args.uiShards })
+    const { plan_hash: _ignored, ...unsigned } = plan
+    unsigned.ui = { ...plan.ui, native: nativeUi }
+    plan = { ...unsigned, plan_hash: hashPlan(unsigned) }
   }
   validateExecutionPlan(plan)
   const projection = projectPlan(plan)

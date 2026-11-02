@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs"
+import rawContractInput0 from "./homepage-faq.tsx?raw"
+import rawContractInput1 from "./landing-page.module.css?raw"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { JSDOM } from "jsdom"
@@ -7,11 +8,11 @@ import { HomepageFaq } from "./homepage-faq"
 import { FAQ_PAGE_SCHEMA, HOME_FAQS } from "./landing-content"
 
 function componentSource() {
-  return readFileSync(new URL("./homepage-faq.tsx", import.meta.url), "utf8")
+  return rawContractInput0
 }
 
 function stylesSource() {
-  return readFileSync(new URL("./landing-page.module.css", import.meta.url), "utf8")
+  return rawContractInput1
 }
 
 describe("HomepageFaq", () => {

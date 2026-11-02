@@ -16,7 +16,7 @@ import {
   waitForServicesReady,
   wranglerLogEnvironment,
 } from "./e2e-ui/_setup/services"
-import { MACHINE_WS_URL, resolveMachineWsUrl, resolveWsUrl, WEB_URL, WS_URL } from "./e2e-ui/_setup/paths"
+import { MACHINE_WS_URL, requiredE2EZones, resolveMachineWsUrl, resolveWsUrl, WEB_URL, WS_URL } from "./e2e-ui/_setup/paths"
 
 const temporaryRoots: string[] = []
 
@@ -76,6 +76,20 @@ describe("UI E2E service definitions", () => {
     })
     expect(serviceDefinitions(false).find(({ name }) => name === "ws-do")?.healthUrl)
       .toBe("http://localhost:8789/health")
+  })
+
+  it("starts and verifies only Web for a Web-only journey", () => {
+    const root = mkdtempSync(resolve(tmpdir(), "alook-web-only-services-"))
+    temporaryRoots.push(root)
+    const web = resolve(root, E2E_PREBUILT_ENTRYPOINTS[0])
+    mkdirSync(dirname(web), { recursive: true })
+    writeFileSync(web, "export default {}\n")
+    expect(requiredE2EZones('["web"]')).toEqual(["web"])
+    expect(() => requiredE2EZones('["blog"]')).toThrow("Invalid E2E service zones")
+    expect(serviceBuildCommands(true, true, root, ["web"])).toEqual([])
+    expect(serviceBuildCommands(true, false, root, ["web"]).map(build => build.name)).toEqual(["web worker"])
+    expect(serviceDefinitions(true, ["web"])[0].args).toContain("--web-only")
+    expect(serviceDefinitions(true, ["web", "blog"])[0].args).not.toContain("--web-only")
   })
 
   it("skips both builds only when both prebuilt worker entrypoints exist", () => {

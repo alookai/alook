@@ -1,11 +1,881 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
-    "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] },
-    "test": { "dependsOn": ["^build"] },
-    "typecheck": { "dependsOn": ["^build"] },
-    "lint": {},
-    "knip": {},
-    "dev": { "cache": false, "persistent": true }
-  }
+    "source": {
+      "dependsOn": [
+        "^source"
+      ]
+    },
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**"
+      ],
+      "env": [
+        "ALOOK_TASK_BUN"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs"
+      ]
+    },
+    "test": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts"
+      ],
+      "outputs": []
+    },
+    "test:runtime": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "typecheck": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$"
+      ]
+    },
+    "lint": {
+      "dependsOn": [
+        "^source"
+      ]
+    },
+    "knip": {
+      "dependsOn": [
+        "^source"
+      ]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "@alook/web#typecheck": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "src/**",
+        "scripts/**",
+        "public/**",
+        "test-runtime/**",
+        "migrations/**",
+        "custom-worker.ts",
+        "next.config.ts",
+        "open-next.config.ts",
+        "postcss.config.mjs",
+        "wrangler*.toml",
+        "readme-capture/**",
+        "app-store-capture/**",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "cloudflare-env.d.ts",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ]
+    },
+    "@alook/web#lint": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "src/**",
+        "scripts/**",
+        "public/**",
+        "test-runtime/**",
+        "migrations/**",
+        "custom-worker.ts",
+        "next.config.ts",
+        "open-next.config.ts",
+        "postcss.config.mjs",
+        "wrangler*.toml",
+        "readme-capture/**",
+        "app-store-capture/**",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "cloudflare-env.d.ts",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ]
+    },
+    "@alook/web#test": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "src/**",
+        "scripts/**",
+        "public/**",
+        "test-runtime/**",
+        "migrations/**",
+        "custom-worker.ts",
+        "next.config.ts",
+        "open-next.config.ts",
+        "postcss.config.mjs",
+        "wrangler*.toml",
+        "readme-capture/**",
+        "app-store-capture/**",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "$TURBO_ROOT$/assets/**",
+        "$TURBO_ROOT$/README.md",
+        "$TURBO_ROOT$/src/desktop/src-tauri/{tauri.conf.json,Cargo.toml}",
+        "cloudflare-env.d.ts",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ],
+      "outputs": []
+    },
+    "@alook/web#typecheck:blog": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "blog/**",
+        "public/alook.svg",
+        "public/apple-touch-icon.png",
+        "public/icon-192.png",
+        "public/fonts/**",
+        "src/app/_og/**",
+        "src/app/fonts.ts",
+        "src/app/globals.css",
+        "src/hooks/**",
+        "src/stores/**",
+        "src/lib/**",
+        "src/test/{react-dom*,test-harness*,testids*}",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "cloudflare-env.d.ts",
+        "src/components/**",
+        "!src/components/auth/**",
+        "!src/components/download/**",
+        "src/contexts/**",
+        "src/*.d.ts",
+        "src/app/favicon.ico",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ]
+    },
+    "@alook/web#lint:blog": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "blog/**",
+        "public/alook.svg",
+        "public/apple-touch-icon.png",
+        "public/icon-192.png",
+        "public/fonts/**",
+        "src/app/_og/**",
+        "src/app/fonts.ts",
+        "src/app/globals.css",
+        "src/hooks/**",
+        "src/stores/**",
+        "src/lib/**",
+        "src/test/{react-dom*,test-harness*,testids*}",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "cloudflare-env.d.ts",
+        "src/components/**",
+        "!src/components/auth/**",
+        "!src/components/download/**",
+        "src/contexts/**",
+        "src/*.d.ts",
+        "src/app/favicon.ico",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ]
+    },
+    "@alook/web#test:blog": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "blog/**",
+        "public/alook.svg",
+        "public/apple-touch-icon.png",
+        "public/icon-192.png",
+        "public/fonts/**",
+        "src/app/_og/**",
+        "src/app/fonts.ts",
+        "src/app/globals.css",
+        "src/hooks/**",
+        "src/stores/**",
+        "src/lib/**",
+        "src/test/{react-dom*,test-harness*,testids*}",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "cloudflare-env.d.ts",
+        "src/components/**",
+        "!src/components/auth/**",
+        "!src/components/download/**",
+        "src/contexts/**",
+        "src/*.d.ts",
+        "src/app/favicon.ico",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ],
+      "outputs": []
+    },
+    "@alook/web#typecheck:auth": {
+      "dependsOn": [],
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "auth/**",
+        "src/lib/avatar/**",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "cloudflare-env.d.ts",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ]
+    },
+    "@alook/web#lint:auth": {
+      "dependsOn": [],
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "auth/**",
+        "src/lib/avatar/**",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "cloudflare-env.d.ts",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ]
+    },
+    "@alook/web#test:auth": {
+      "dependsOn": [],
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "auth/**",
+        "src/lib/avatar/**",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "public/alook.svg",
+        "cloudflare-env.d.ts",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ],
+      "outputs": []
+    },
+    "@alook/web#test:runtime": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "src/**",
+        "scripts/**",
+        "public/**",
+        "test-runtime/**",
+        "migrations/**",
+        "custom-worker.ts",
+        "next.config.ts",
+        "open-next.config.ts",
+        "postcss.config.mjs",
+        "wrangler*.toml",
+        "readme-capture/**",
+        "app-store-capture/**",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "cloudflare-env.d.ts",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "@alook/web#test:auth:runtime": {
+      "dependsOn": [],
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "auth/**",
+        "src/lib/avatar/**",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "cloudflare-env.d.ts",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "@alook/web#build": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "src/**",
+        "scripts/**",
+        "public/**",
+        "test-runtime/**",
+        "migrations/**",
+        "custom-worker.ts",
+        "next.config.ts",
+        "open-next.config.ts",
+        "postcss.config.mjs",
+        "wrangler*.toml",
+        "readme-capture/**",
+        "app-store-capture/**",
+        "$TURBO_ROOT$/src/daemon/package.json",
+        "cloudflare-env.d.ts",
+        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs",
+        ".dev.vars*",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "!next-env.d.ts",
+        "open-next-handler.d.ts"
+      ],
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        "public/sw.js",
+        "public/community-shell/**",
+        ".open-next/**",
+        "next-env.d.ts"
+      ],
+      "env": [
+        "ALOOK_*",
+        "ALOOK_TASK_BUN",
+        "AUTH_*",
+        "BLOG_*",
+        "CF_PAGES_COMMIT_SHA",
+        "FARO_*",
+        "GITHUB_SHA",
+        "NEXT_PUBLIC_*",
+        "SOURCE_DATE_EPOCH",
+        "VERCEL_GIT_COMMIT_SHA",
+        "WEB_*",
+        "WS_*",
+        "WORKERS_CI_COMMIT_SHA"
+      ]
+    },
+    "@alook/web#build:blog": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "blog/**",
+        "public/alook.svg",
+        "public/apple-touch-icon.png",
+        "public/icon-192.png",
+        "public/fonts/**",
+        "src/app/_og/**",
+        "src/app/fonts.ts",
+        "src/app/globals.css",
+        "src/hooks/**",
+        "src/stores/**",
+        "src/lib/**",
+        "src/test/{react-dom*,test-harness*,testids*}",
+        "cloudflare-env.d.ts",
+        "src/components/**",
+        "!src/components/auth/**",
+        "!src/components/download/**",
+        "src/contexts/**",
+        "src/*.d.ts",
+        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs",
+        ".dev.vars*",
+        "blog/.dev.vars*",
+        "src/app/favicon.ico",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "!blog/next-env.d.ts",
+        "open-next-handler.d.ts"
+      ],
+      "outputs": [
+        "blog/.next/**",
+        "!blog/.next/cache/**",
+        "blog/.open-next/**",
+        "blog/public/alook.svg",
+        "blog/public/apple-touch-icon.png",
+        "blog/public/favicon.ico",
+        "blog/public/icon-192.png",
+        "blog/public/fonts/dm-sans-600.ttf",
+        "blog/next-env.d.ts"
+      ],
+      "env": [
+        "ALOOK_*",
+        "ALOOK_TASK_BUN",
+        "AUTH_*",
+        "BLOG_*",
+        "CF_PAGES_COMMIT_SHA",
+        "FARO_*",
+        "GITHUB_SHA",
+        "NEXT_PUBLIC_*",
+        "SOURCE_DATE_EPOCH",
+        "VERCEL_GIT_COMMIT_SHA",
+        "WEB_*",
+        "WS_*",
+        "WORKERS_CI_COMMIT_SHA"
+      ]
+    },
+    "@alook/web#build:auth": {
+      "inputs": [
+        "package.json",
+        "tsconfig*.json",
+        "eslint.config.mjs",
+        "vitest*.{ts,mts}",
+        "auth/**",
+        "src/lib/avatar/**",
+        "cloudflare-env.d.ts",
+        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs",
+        "auth/.dev.vars*",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ],
+      "outputs": [
+        "auth/dist/**"
+      ],
+      "env": [
+        "ALOOK_*",
+        "ALOOK_TASK_BUN",
+        "AUTH_*",
+        "BLOG_*",
+        "CF_PAGES_COMMIT_SHA",
+        "FARO_*",
+        "GITHUB_SHA",
+        "NEXT_PUBLIC_*",
+        "SOURCE_DATE_EPOCH",
+        "VERCEL_GIT_COMMIT_SHA",
+        "WEB_*",
+        "WS_*"
+      ]
+    },
+    "@alook/agent-driver#lint": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/src/daemon/eslint.config.ts"
+      ]
+    },
+    "@alook/agent-driver#test": {
+      "dependsOn": [
+        "build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts"
+      ],
+      "outputs": []
+    },
+    "@alook/daemon#test": {
+      "dependsOn": [
+        "^source",
+        "@alook/agent-driver#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts"
+      ],
+      "outputs": []
+    },
+    "@alook/app#build": {
+      "dependsOn": [
+        "@alook/daemon#build"
+      ],
+      "outputs": [
+        "dist/**"
+      ],
+      "env": [
+        "ALOOK_TASK_BUN"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs"
+      ]
+    },
+    "@alook/ws-do#test:runtime": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "$TURBO_ROOT$/src/web/migrations/**"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "@alook/email-worker#test:runtime": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "$TURBO_ROOT$/src/web/migrations/**"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "@alook/queue-worker#test:runtime": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "$TURBO_ROOT$/src/web/migrations/**"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "@alook/web#test:contracts": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "$TURBO_ROOT$/scripts/**",
+        "$TURBO_ROOT$/.github/workflows/**",
+        "cloudflare-env.d.ts",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ],
+      "outputs": []
+    },
+    "@alook/web#test:tooling": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "$TURBO_ROOT$/scripts/**",
+        "$TURBO_ROOT$/.github/workflows/**",
+        "$TURBO_ROOT$/assets/**",
+        "$TURBO_ROOT$/README.md",
+        "$TURBO_ROOT$/src/desktop/src-tauri/{tauri.conf.json,Cargo.toml}",
+        "cloudflare-env.d.ts",
+        "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
+        "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
+        "!public/sw.js",
+        "!public/sw.js.map",
+        "!public/community-shell/**",
+        "!**/*.tsbuildinfo",
+        "!blog/package.json",
+        "!blog/public/alook.svg",
+        "!blog/public/apple-touch-icon.png",
+        "!blog/public/favicon.ico",
+        "!blog/public/icon-192.png",
+        "!blog/public/fonts/dm-sans-600.ttf",
+        "open-next-worker.d.ts",
+        "open-next-handler.d.ts"
+      ],
+      "outputs": []
+    },
+    "@alook/daemon#typecheck": {
+      "dependsOn": [
+        "^source",
+        "@alook/agent-driver#build"
+      ]
+    },
+    "@alook/daemon#lint": {
+      "dependsOn": [
+        "^source",
+        "@alook/agent-driver#build"
+      ]
+    },
+    "@alook/daemon#build": {
+      "dependsOn": [
+        "^source",
+        "@alook/agent-driver#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/LICENSE",
+        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs"
+      ],
+      "outputs": [
+        "dist/**",
+        "LICENSE"
+      ],
+      "env": [
+        "ALOOK_TASK_BUN"
+      ]
+    },
+    "@alook/agent-driver#build": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/LICENSE",
+        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs"
+      ],
+      "outputs": [
+        "dist/**",
+        "LICENSE"
+      ]
+    },
+    "@alook/app#test": {
+      "dependsOn": [
+        "^source"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "$TURBO_ROOT$/src/web/package.json",
+        "$TURBO_ROOT$/src/web/src/lib/**"
+      ],
+      "outputs": []
+    }
+  },
+  "futureFlags": {
+    "affectedUsingTaskInputs": true
+  },
+  "globalEnv": [
+    "ALOOK_TASK_NODE",
+    "ALOOK_TASK_PLATFORM",
+    "ALOOK_TASK_WORKSPACE",
+    "CI",
+    "NODE_ENV",
+    "NODE_OPTIONS"
+  ]
 }

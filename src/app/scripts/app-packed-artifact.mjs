@@ -33,7 +33,7 @@ export function runAppPackedArtifact(options) {
   mkdirSync(outputDir, { recursive: true });
   if (!options.skipBuild) {
     run("pnpm", ["run", "bundle"], appRoot);
-    run("pnpm", ["run", "build"], appRoot);
+    run("node", ["../../scripts/ci/run-turbo.mjs", "run", "@alook/app#build"], appRoot);
   }
   const packed = JSON.parse(execFileSync("npm", [
     "pack",

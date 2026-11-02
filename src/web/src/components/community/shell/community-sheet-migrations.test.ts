@@ -1,3 +1,22 @@
+import migratedSource0 from "../bots/bot-activity-modal.tsx?raw"
+import migratedSource1 from "../bots/create-bot-sheet.tsx?raw"
+import migratedSource2 from "../bots/edit-bot-sheet.tsx?raw"
+import migratedSource3 from "../machines/pair-machine-sheet.tsx?raw"
+import migratedSource4 from "../messages/attachment-preview-sheet.tsx?raw"
+import migratedSource5 from "../messages/message-context-sheet.tsx?raw"
+import migratedSource6 from "./community-panel.tsx?raw"
+const migratedSources: Record<string, string> = {
+  "../bots/bot-activity-modal.tsx": migratedSource0,
+  "../bots/create-bot-sheet.tsx": migratedSource1,
+  "../bots/edit-bot-sheet.tsx": migratedSource2,
+  "../machines/pair-machine-sheet.tsx": migratedSource3,
+  "../messages/attachment-preview-sheet.tsx": migratedSource4,
+  "../messages/message-context-sheet.tsx": migratedSource5,
+  "./community-panel.tsx": migratedSource6,
+}
+import rawContractInput0 from "./community-panel.tsx?raw"
+import rawContractInput1 from "../messages/attachment-preview-sheet.tsx?raw"
+import rawContractInput2 from "../machines/pair-machine-sheet.tsx?raw"
 import { existsSync, readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
@@ -13,7 +32,7 @@ const migrations = [
 
 describe("CommunitySheet migrations", () => {
   it.each(migrations)("routes %s through the one structured modal shell", (path) => {
-    const source = readFileSync(new URL(path, import.meta.url), "utf8")
+    const source = migratedSources[path]
 
     expect(source).toContain("@/components/community/shell/community-sheet")
     expect(source).toContain("<CommunitySheet")
@@ -28,7 +47,7 @@ describe("CommunitySheet migrations", () => {
 
   it("allows only Attachment Preview and Activity Log to opt into resize", () => {
     for (const path of migrations) {
-      const source = readFileSync(new URL(path, import.meta.url), "utf8")
+      const source = migratedSources[path]
       if (path.includes("attachment-preview") || path.includes("bot-activity")) {
         expect(source).toContain("resizable")
       }
@@ -38,7 +57,7 @@ describe("CommunitySheet migrations", () => {
 
   it("reserves explicit desktop widths for Members and Activity Log", () => {
     for (const path of migrations) {
-      const source = readFileSync(new URL(path, import.meta.url), "utf8")
+      const source = migratedSources[path]
       if (path === "./community-panel.tsx") {
         expect(source).toContain('desktopWidth={kind === "members" ? 380 : undefined}')
       } else if (path.includes("bot-activity")) {
@@ -50,7 +69,7 @@ describe("CommunitySheet migrations", () => {
   })
 
   it("collapses the community panel to one business layer", () => {
-    const panel = readFileSync(new URL("./community-panel.tsx", import.meta.url), "utf8")
+    const panel = rawContractInput0
     expect(panel).toContain("export function CommunityPanel")
     expect(panel).not.toContain("RightPanelContent")
     expect(existsSync(new URL("./community-panel-sheet.tsx", import.meta.url))).toBe(false)
@@ -59,10 +78,7 @@ describe("CommunitySheet migrations", () => {
   })
 
   it("leaves Attachment Preview with one wrapper-owned close entry", () => {
-    const source = readFileSync(
-      new URL("../messages/attachment-preview-sheet.tsx", import.meta.url),
-      "utf8",
-    )
+    const source = rawContractInput1
 
     expect(source).toContain('closeLabel="Close attachment preview"')
     expect(source).not.toContain("ArrowLeft")
@@ -70,10 +86,7 @@ describe("CommunitySheet migrations", () => {
   })
 
   it("routes PairMachine footer close through the shell request", () => {
-    const source = readFileSync(
-      new URL("../machines/pair-machine-sheet.tsx", import.meta.url),
-      "utf8",
-    )
+    const source = rawContractInput2
     expect(source).toContain("footer={(requestClose)")
     expect(source).toContain("onClick={requestClose}")
     expect(source).toContain('className="min-h-11!"')

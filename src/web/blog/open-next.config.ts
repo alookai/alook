@@ -15,8 +15,8 @@ export default {
 	...cloudflare,
 	appPath: "blog",
 	buildOutputPath: "blog",
-	packageJsonPath: "blog",
-	buildCommand: "pnpm --dir .. build:blog:next",
+	packageJsonPath: ".",
+	buildCommand: "pnpm build:blog:next",
 	dangerous: {
 		...cloudflare.dangerous,
 		disableTagCache: true,
