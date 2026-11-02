@@ -331,7 +331,6 @@
           "02-server-channel-message.spec.ts",
           "03-realtime-multiuser.spec.ts",
           "04-dm.spec.ts",
-          "05-mention-bot.spec.ts",
           "08-mobile.spec.ts",
           "13-mentions.spec.ts",
           "15-mention-scope.spec.ts",

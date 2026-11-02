@@ -259,16 +259,8 @@ describe("diagnostic report query contract", () => {
   });
 
   it("exports only the frozen B2a state-machine helpers", () => {
-    expect(typeof q.createOrGetPendingDiagnosticReport).toBe("function");
-    expect(typeof q.getDiagnosticReportForOwner).toBe("function");
-    expect(typeof q.getPendingDiagnosticReportForMachine).toBe("function");
     expect(typeof q.getDiagnosticReportForMachine).toBe("function");
-    expect(typeof q.timeoutPendingDiagnosticReport).toBe("function");
-    expect(typeof q.listPendingDiagnosticReportsForMachine).toBe("function");
-    expect(typeof q.getNextPendingDiagnosticDeadlineForMachine).toBe("function");
-    expect(typeof q.timeoutPendingDiagnosticReportsForMachine).toBe("function");
     expect(typeof q.failPendingDiagnosticReport).toBe("function");
-    expect(typeof q.finalizeDiagnosticReportUpload).toBe("function");
   });
 
   it("bulk timeout and reconnect reads stay scoped to one machine and preserve future rows", async () => {

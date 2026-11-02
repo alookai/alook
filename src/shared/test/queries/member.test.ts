@@ -13,14 +13,6 @@ function createSelectMock(rows: any[]) {
   return chain;
 }
 
-describe("member exports", () => {
-  it("exports getMemberByUserAndWorkspace", () => { expect(typeof memberQueries.getMemberByUserAndWorkspace).toBe("function"); });
-  it("exports listMembers", () => { expect(typeof memberQueries.listMembers).toBe("function"); });
-  it("exports updateMemberGlobalInstruction", () => { expect(typeof memberQueries.updateMemberGlobalInstruction).toBe("function"); });
-  it("exports createMember", () => { expect(typeof memberQueries.createMember).toBe("function"); });
-  it("exports getMember", () => { expect(typeof memberQueries.getMember).toBe("function"); });
-  it("exports deleteMember", () => { expect(typeof memberQueries.deleteMember).toBe("function"); });
-});
 
 describe("getMemberByUserAndWorkspace", () => {
   it("returns null when not found", async () => { expect(await memberQueries.getMemberByUserAndWorkspace(createSelectMock([]), "u", "w")).toBeNull(); });

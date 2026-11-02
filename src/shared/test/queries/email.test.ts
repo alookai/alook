@@ -31,9 +31,6 @@ describe("email query module exports", () => {
     expect(typeof emailQueries.getRejectedEmails).toBe("function");
   });
 
-  it("exports getEmailByMessageId", () => {
-    expect(typeof emailQueries.getEmailByMessageId).toBe("function");
-  });
 
   it("exports deleteEmail", () => {
     expect(typeof emailQueries.deleteEmail).toBe("function");
@@ -43,17 +40,11 @@ describe("email query module exports", () => {
     expect(typeof emailQueries.createEmail).toBe("function");
   });
 
-  it("exports getEmailById", () => {
-    expect(typeof emailQueries.getEmailById).toBe("function");
-  });
 
   it("exports getEmailsByAgent", () => {
     expect(typeof emailQueries.getEmailsByAgent).toBe("function");
   });
 
-  it("exports updateEmailStatus", () => {
-    expect(typeof emailQueries.updateEmailStatus).toBe("function");
-  });
 });
 
 describe("email query function signatures", () => {

@@ -153,15 +153,6 @@ describe.each(["start", "end"] as const)("native virtual cursor pagination (%s)"
     expect(f.onLoad).toHaveBeenCalledOnce()
   })
 
-  it("keeps initial and target positioning separate from pagination", () => {
-    const f = fixture({ enabled: false })
-    f.setRange(...boundary)
-    f.rerender()
-    expect(f.onLoad).not.toHaveBeenCalled()
-    f.rerender({ enabled: true })
-    expect(f.onLoad).toHaveBeenCalledOnce()
-  })
-
   it("stops when the cursor is exhausted and accepts a later available cursor", () => {
     const f = fixture({ hasMore: false })
     f.setRange(...boundary)

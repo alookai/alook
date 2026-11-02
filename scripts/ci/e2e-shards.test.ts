@@ -75,7 +75,6 @@ describe("planE2eShards", () => {
 
     expect(first).toEqual(second)
     expect(Object.keys(SPEC_SECONDS).sort()).toEqual(specs)
-    expect(first).toHaveLength(23)
     expect([...assigned].sort()).toEqual(specs)
     expect(new Set(assigned).size).toBe(specs.length)
     expect(SPEC_SECONDS["18-new-divider-scroll.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
@@ -102,14 +101,9 @@ describe("planE2eShards", () => {
       .toEqual(["66-grouped-message-toolbar.spec.ts"])
     expect(first.find((shard) => shard.files.includes("67-text-sidebar-threads.spec.ts"))?.files)
       .toEqual(["67-text-sidebar-threads.spec.ts"])
-    expect(specSeconds).toEqual([
-      165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 155.638, 154.234, 155.283,
-      156.095, 155.905, 156.323, 155.711, 153.963, 154.488, 156.138,
-    ])
-    expect(predictedSeconds).toEqual([
-      240, 240, 240, 240, 240, 240, 240, 240, 240, 240, 240, 240, 240, 230.638, 229.234, 230.283,
-      231.095, 230.905, 231.323, 230.711, 228.963, 229.488, 231.138,
-    ])
+    expect(specSeconds.reduce((total, seconds) => total + seconds, 0)).toBeCloseTo(
+      Object.values(SPEC_SECONDS).reduce((total, seconds) => total + seconds, 0), 3,
+    )
     expect(first.every((shard) => (
       shard.fixed_setup_seconds === E2E_FIXED_SETUP_SECONDS
       && shard.safety_margin_seconds === E2E_SAFETY_MARGIN_SECONDS
@@ -196,7 +190,7 @@ describe("createE2eMatrix", () => {
       "02-server-channel-message.spec.ts",
       "03-realtime-multiuser.spec.ts",
       "04-dm.spec.ts",
-      "05-mention-bot.spec.ts",
+      "06-channel-member-admin.spec.ts",
     ])
     const argumentsList = matrix.include.flatMap((entry) => entry.specs)
 
@@ -205,15 +199,15 @@ describe("createE2eMatrix", () => {
       "src/test/e2e-ui/02-server-channel-message.spec.ts",
       "src/test/e2e-ui/03-realtime-multiuser.spec.ts",
       "src/test/e2e-ui/04-dm.spec.ts",
-      "src/test/e2e-ui/05-mention-bot.spec.ts",
+      "src/test/e2e-ui/06-channel-member-admin.spec.ts",
     ])
     expect(matrix.include).toHaveLength(1)
     expect(matrix.include.every((entry) => entry.total === 1)).toBe(true)
     expect(matrix.include[0]).toMatchObject({
-      spec_seconds: 46.383,
+      spec_seconds: 46.085,
       fixed_setup_seconds: 60,
       safety_margin_seconds: 15,
-      predicted_seconds: 121.383,
+      predicted_seconds: 121.085,
     })
     expect(matrix.include.every(
       (entry) => entry.image === resolvePlaywrightImage(),

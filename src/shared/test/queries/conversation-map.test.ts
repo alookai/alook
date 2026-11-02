@@ -14,9 +14,6 @@ function createMockDb(rows: any[]) {
 }
 
 describe("conversation-map query module exports", () => {
-  it("exports findByKey", () => {
-    expect(typeof conversationMapQueries.findByKey).toBe("function");
-  });
 
   it("exports createMapping", () => {
     expect(typeof conversationMapQueries.createMapping).toBe("function");

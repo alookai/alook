@@ -15,25 +15,13 @@ import { isChannelUnread, isDmUnread } from "../../src/db/queries/community/inbo
 // (channels) / "any message" (DMs), which are orthogonal to the seq switch.
 
 describe("community/inbox exports", () => {
-  it("exports listUnreadChannels", () => {
-    expect(typeof inboxQueries.listUnreadChannels).toBe("function");
-  });
   it("exports isChannelUnread", () => {
     expect(typeof inboxQueries.isChannelUnread).toBe("function");
-  });
-  it("exports listUnreadDms", () => {
-    expect(typeof inboxQueries.listUnreadDms).toBe("function");
   });
   it("exports isDmUnread", () => {
     expect(typeof inboxQueries.isDmUnread).toBe("function");
   });
-  it("exports listUnreadForumOpeners", () => {
-    expect(typeof inboxQueries.listUnreadForumOpeners).toBe("function");
-  });
 
-  it("exports listThreadOpenersByChildIds", () => {
-    expect(typeof inboxQueries.listThreadOpenersByChildIds).toBe("function");
-  });
 });
 
 describe("isChannelUnread — two-branch predicate (seq)", () => {

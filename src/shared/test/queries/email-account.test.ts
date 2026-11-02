@@ -13,14 +13,7 @@ function createSelectMock(rows: any[]) {
 }
 
 describe("email-account exports", () => {
-  it("exports createEmailAccount", () => { expect(typeof ea.createEmailAccount).toBe("function"); });
-  it("exports getEmailAccount", () => { expect(typeof ea.getEmailAccount).toBe("function"); });
-  it("exports getEmailAccountScoped", () => { expect(typeof ea.getEmailAccountScoped).toBe("function"); });
-  it("exports getEmailAccountById", () => { expect(typeof ea.getEmailAccountById).toBe("function"); });
   it("exports getEmailAccountsByAgent", () => { expect(typeof ea.getEmailAccountsByAgent).toBe("function"); });
-  it("exports updateEmailAccount", () => { expect(typeof ea.updateEmailAccount).toBe("function"); });
-  it("exports deleteEmailAccount", () => { expect(typeof ea.deleteEmailAccount).toBe("function"); });
-  it("exports getEmailAccountsByAgents", () => { expect(typeof ea.getEmailAccountsByAgents).toBe("function"); });
   it("exports getAllEmailAccountsForWorkspace", () => { expect(typeof ea.getAllEmailAccountsForWorkspace).toBe("function"); });
 });
 

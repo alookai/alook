@@ -17,7 +17,6 @@ export const SPEC_SECONDS = {
   "02-server-channel-message.spec.ts": 9.687,
   "03-realtime-multiuser.spec.ts": 13.037,
   "04-dm.spec.ts": 15.545,
-  "05-mention-bot.spec.ts": 4.117,
   "06-channel-member-admin.spec.ts": 3.819,
   "07-invite.spec.ts": 9.843,
   "08-mobile.spec.ts": 37.929,

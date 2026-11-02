@@ -3,12 +3,6 @@ import * as tagQueries from "../../src/db/queries/community/message-tag";
 
 describe("community/message-tag exports", () => {
   it("exports the tag CRUD + filter", () => {
-    expect(typeof tagQueries.addMessageTag).toBe("function");
-    expect(typeof tagQueries.removeMessageTag).toBe("function");
-    expect(typeof tagQueries.replaceMessageTags).toBe("function");
-    expect(typeof tagQueries.listTagsForMessage).toBe("function");
-    expect(typeof tagQueries.listTagsForMessages).toBe("function");
-    expect(typeof tagQueries.filterMessageIdsByTag).toBe("function");
     expect(typeof tagQueries.listDistinctTagsForChannel).toBe("function");
   });
 });

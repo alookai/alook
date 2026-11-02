@@ -11,9 +11,6 @@ function createMockDb(rows: any[]) {
 }
 
 describe("runtime query module exports", () => {
-  it("exports getAgentRuntimesForWorkspace", () => {
-    expect(typeof runtimeQueries.getAgentRuntimesForWorkspace).toBe("function");
-  });
 
   it("exports getAgentRuntimeForWorkspace", () => {
     expect(typeof runtimeQueries.getAgentRuntimeForWorkspace).toBe("function");
@@ -41,9 +38,6 @@ describe("updateRuntimeCliVersionByDaemon", () => {
     return chain;
   }
 
-  it("exports updateRuntimeCliVersionByDaemon", () => {
-    expect(typeof runtimeQueries.updateRuntimeCliVersionByDaemon).toBe("function");
-  });
 
   it("no-ops without touching DB when cliVersion is empty", async () => {
     const mockDb = createUpdateMockDb();

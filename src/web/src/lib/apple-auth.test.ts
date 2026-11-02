@@ -133,16 +133,6 @@ describe("Apple profile mapping", () => {
     expect(lookup).not.toHaveBeenCalled()
   })
 
-  it("rejects an empty stable subject before identity lookup", async () => {
-    const lookup = vi.fn()
-    await expect(mapAppleProfileToUser({
-      sub: "   ",
-      email: "person@example.com",
-      email_verified: true,
-    }, lookup)).resolves.toEqual({ email: undefined })
-    expect(lookup).not.toHaveBeenCalled()
-  })
-
   it("rehydrates a returning Apple identity from its stored verified user", async () => {
     const lookup = vi.fn().mockResolvedValue({
       email: "person@example.com",

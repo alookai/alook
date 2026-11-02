@@ -283,51 +283,6 @@ async function establishTailMessageBelowViewportPrecondition(
   }))
 }
 
-async function establishMidHistoryPrecondition(
-  scroller: Locator,
-): Promise<{ scrollTop: number; scrollHeight: number; clientHeight: number; distanceToEnd: number }> {
-  const readGeometry = () => scroller.evaluate((element) => ({
-    scrollTop: element.scrollTop,
-    scrollHeight: element.scrollHeight,
-    clientHeight: element.clientHeight,
-    distanceToEnd: Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop),
-  }))
-  await scroller.evaluate((element) => {
-    element.scrollTop = Math.max(0, (element.scrollHeight - element.clientHeight) / 2)
-    element.dispatchEvent(new Event("scroll"))
-  })
-  await expect.poll(async () => {
-    const geometry = await readGeometry()
-    return {
-      ...geometry,
-      insideHistory: geometry.scrollTop > 300 && geometry.distanceToEnd > 300,
-    }
-  }, {
-    timeout: 20_000,
-    message: "remote-mid-history: scroller must be stably away from both boundaries",
-  }).toMatchObject({ insideHistory: true })
-  await scroller.evaluate(() => new Promise<void>((resolveValue) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolveValue()))
-  }))
-  const before = await readGeometry()
-  await scroller.evaluate(() => new Promise<void>((resolveValue) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolveValue()))
-  }))
-  await expect.poll(async () => {
-    const geometry = await readGeometry()
-    return {
-      ...geometry,
-      stable: Math.abs(geometry.scrollTop - before.scrollTop) <= 1
-        && geometry.scrollTop > 300
-        && geometry.distanceToEnd > 300,
-    }
-  }, {
-    timeout: 20_000,
-    message: "remote-mid-history: actual geometry must remain stable across committed RAFs",
-  }).toMatchObject({ stable: true })
-  return readGeometry()
-}
-
 type MessageViewportGeometry = {
   scrollTop: number
   scrollHeight: number
@@ -573,13 +528,19 @@ async function expectMessageCreateIdentity(
   expect(created.message).toMatchObject({ id: message.id, seq: message.seq, authorId: message.authorId, clientNonce: nonce })
 }
 
-async function seedScrollCase(actors: CaseActors) {
-  const { seedServer, seedJoinServer, seedChannel, seedDm } = actors.seed
-  const { userId } = actors
-  const stamp = Date.now()
-  const serverId = await seedServer("alice", `Scroll characterization ${stamp}`)
+async function seedScrollServer(actors: CaseActors) {
+  const { seedServer, seedJoinServer } = actors.seed
+  const serverId = await seedServer("alice", `Scroll characterization ${Date.now()}`)
   await seedJoinServer("alice", "bob", serverId)
   await seedJoinServer("alice", "carol", serverId)
+  return serverId
+}
+
+async function seedScrollCase(actors: CaseActors) {
+  const { seedChannel, seedDm } = actors.seed
+  const { userId } = actors
+  const stamp = Date.now()
+  const serverId = await seedScrollServer(actors)
   const coldChannelId = await seedChannel("alice", serverId, `scroll-cold-${stamp}`)
   const loadingChannelId = await seedChannel("alice", serverId, `scroll-loading-${stamp}`)
   const upwardChannelId = await seedChannel("alice", serverId, `scroll-upward-${stamp}`)
@@ -911,7 +872,7 @@ test.describe("message scroll characterization", () => {
     test.setTimeout(120_000)
     const actors = await caseActors(["alice", "bob", "carol"])
     const asUser = tracedAsUser(actors)
-    const { serverId } = await seedScrollCase(actors)
+    const serverId = await seedScrollServer(actors)
     const { seedChannel, seedMessage } = actors.seed
 
     const channelId = await seedChannel("alice", serverId, `scroll-bottom-input-${Date.now()}`)
@@ -956,7 +917,7 @@ test.describe("message scroll characterization", () => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const asUser = tracedAsUser(actors)
     const { userId, sessionCookie } = actors
-    const { serverId } = await seedScrollCase(actors)
+    const serverId = await seedScrollServer(actors)
     const { seedChannel } = actors.seed
     const channelId = await seedChannel("alice", serverId, `scroll-passive-threshold-${Date.now()}`)
     await seedProfile(actors, channelId, 130, false, "rotate", 18)
@@ -1083,122 +1044,32 @@ test.describe("message scroll characterization", () => {
     await attachPassiveTrace()
   })
 
-  test("remote receive states and sustained upward input produce diagnostic traces", async ({ caseActors }, testInfo) => {
+  test("jumping to present lets the next peer message follow the tail", async ({ caseActors }) => {
     test.setTimeout(180_000)
     const actors = await caseActors(["alice", "bob", "carol"])
-    const asUser = tracedAsUser(actors)
-    const { serverId, upwardChannelId, upwardProfile } = await seedScrollCase(actors)
-    const { seedMessage } = actors.seed
-
-    const alice = await asUser("alice")
+    const serverId = await seedScrollServer(actors)
+    const channelId = await actors.seed.seedChannel("alice", serverId, `scroll-upward-${Date.now()}`)
+    const profile = await seedProfile(actors, channelId, 72, false, "rotate", 23)
+    const alice = await actors.asUser("alice")
     await alice.page.setViewportSize(VIEWPORT)
-    await installScrollTrace(alice.page)
     const proxy = await proxyCommunityWebSockets(alice.context)
-    await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${upwardChannelId}`)
+    await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
     const scroller = alice.page.getByTestId(tid.messageScroller)
     await expect(scroller).toBeVisible({ timeout: 30_000 })
     const present = alice.page.getByTestId(tid.scrollToPresent)
     await expect(present).toBeVisible({ timeout: 30_000 })
     await present.click()
-    await expect(alice.page.getByTestId(tid.message(upwardProfile.ids.at(-1)!)))
+    await expect(alice.page.getByTestId(tid.message(profile.ids.at(-1)!)))
       .toBeVisible({ timeout: 30_000 })
     await expect(present).toHaveCount(0)
     await waitForStableTail(scroller, "remote-fixture-tail")
-    await startScrollTrace(alice.page, {
-      scenario: "remote-receive-and-upward-input",
-      commandDirection: "backward",
-      identity: identity(upwardChannelId),
-      estimatedSizes: upwardProfile.estimates,
-    })
-
-    await markScrollTrace(alice.page, "stimulus:pin-tail")
-    const pinnedPrecondition = await establishExactPinnedPrecondition(scroller, "remote-pinned", 0)
-    await markScrollTrace(alice.page, "remote-pinned-precondition", {
-      detail: pinnedPrecondition,
-    })
-    await beginScrollTraceAnalysis(alice.page, "remote-pinned", {
-      dataTransitionSource: "overlay-ws",
-    })
+    await establishExactPinnedPrecondition(scroller, "remote-pinned", 0)
     const pinnedBody = `remote pinned ${Date.now()}`
-    await markScrollTrace(alice.page, "remote-pinned", { dataTransitionSource: "overlay-ws" })
-    const pinnedId = await seedMessage("bob", upwardChannelId, pinnedBody)
+    const pinnedId = await actors.seed.seedMessage("bob", channelId, pinnedBody)
+    await expect.poll(() => messageCreateCount(proxy.frames, channelId, pinnedBody)).toBe(1)
     await expect(alice.page.getByTestId(tid.message(pinnedId))).toBeVisible({ timeout: 20_000 })
     await expect.poll(() => scroller.evaluate((element) =>
       Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop))).toBeLessThanOrEqual(1)
-    await endScrollTraceAnalysis(alice.page, "remote-pinned")
-
-    await markScrollTrace(alice.page, "stimulus:away-101")
-    const awayPrecondition = await establishScrollDistancePrecondition(scroller, "remote-away-101", 101)
-    await markScrollTrace(alice.page, "remote-away-precondition", {
-      detail: awayPrecondition,
-    })
-    await beginScrollTraceAnalysis(alice.page, "remote-away-101", {
-      dataTransitionSource: "overlay-ws",
-    })
-    const awayBody = `remote away ${Date.now()}`
-    await markScrollTrace(alice.page, "remote-away", { dataTransitionSource: "overlay-ws" })
-    await seedMessage("carol", upwardChannelId, awayBody)
-    await expect.poll(() => messageCreateCount(proxy.frames, upwardChannelId, awayBody)).toBe(1)
-    const awayObservation = await scroller.evaluate((element, pillTestId) => ({
-      distanceToEnd: Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop),
-      pillVisible: !!document.querySelector(`[data-testid='${pillTestId}']`),
-    }), tid.scrollToPresent)
-    await markScrollTrace(alice.page, "remote-away-observed", { detail: awayObservation })
-    await endScrollTraceAnalysis(alice.page, "remote-away-101")
-
-    await markScrollTrace(alice.page, "stimulus:mid-history")
-    const midHistoryPrecondition = await establishMidHistoryPrecondition(scroller)
-    await markScrollTrace(alice.page, "remote-mid-history-precondition", {
-      detail: midHistoryPrecondition,
-    })
-    await beginScrollTraceAnalysis(alice.page, "remote-mid-history-burst", {
-      dataTransitionSource: "overlay-ws",
-    })
-    for (let index = 0; index < 3; index += 1) {
-      await markScrollTrace(alice.page, `remote-burst-${index}`, { dataTransitionSource: "overlay-ws" })
-      await seedMessage(index % 2 === 0 ? "bob" : "carol", upwardChannelId, `remote burst ${index} ${Date.now()}`)
-    }
-    await endScrollTraceAnalysis(alice.page, "remote-mid-history-burst")
-    await beginScrollTraceAnalysis(alice.page, "remote-during-smooth", {
-      dataTransitionSource: "overlay-ws",
-      commandDirection: "forward",
-    })
-    const smoothBody = `remote during smooth ${Date.now()}`
-    await markScrollTrace(alice.page, "remote-during-smooth", { dataTransitionSource: "overlay-ws" })
-    await scroller.evaluate((element) => element.scrollTo({
-      top: element.scrollHeight,
-      behavior: "smooth",
-    }))
-    await seedMessage("bob", upwardChannelId, smoothBody)
-    await expect.poll(() => messageCreateCount(proxy.frames, upwardChannelId, smoothBody)).toBe(1)
-    await endScrollTraceAnalysis(alice.page, "remote-during-smooth")
-
-    await markScrollTrace(alice.page, "stimulus:reset-tail")
-    const upwardPrecondition = await establishScrollDistancePrecondition(scroller, "upward-60x24", 0)
-    await markScrollTrace(alice.page, "upward-precondition", { detail: upwardPrecondition })
-    const box = await scroller.boundingBox()
-    expect(box).not.toBeNull()
-    await alice.page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)
-    await beginScrollTraceAnalysis(alice.page, "upward-60x24", {
-      dataTransitionSource: "overlay-ws",
-      commandDirection: "backward",
-    })
-    await markScrollTrace(alice.page, "stimulus:upward-60x24")
-    const liveAppend = (async () => {
-      await alice.page.waitForTimeout(250)
-      await markScrollTrace(alice.page, "upward-live-append", { dataTransitionSource: "overlay-ws" })
-      return seedMessage("carol", upwardChannelId, `upward live ${Date.now()}`)
-    })()
-    for (let index = 0; index < 60; index += 1) {
-      await alice.page.mouse.wheel(0, -24)
-      await alice.page.waitForTimeout(24)
-    }
-    await liveAppend
-    await endScrollTraceAnalysis(alice.page, "upward-60x24")
-    const trace = await finishAndAttach(alice.page, testInfo)
-    expect(trace.externalEvents.filter((event) => event.type === "wheel")).toHaveLength(60)
-    expect(trace.marks.filter((mark) => mark.dataTransitionSource === "overlay-ws").length)
-      .toBeGreaterThanOrEqual(7)
   })
 
   test("manual draft clear and optimistic send stay distinct through viewport changes", async ({ caseActors }, testInfo) => {

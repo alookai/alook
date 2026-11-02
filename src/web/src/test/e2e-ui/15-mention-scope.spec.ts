@@ -84,7 +84,7 @@ test.describe("mentions — candidate scope", () => {
 
   test("public top-level channel → whole server roster (bob AND carol), backed by servers/:id/members", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
-    const { asUser } = actors
+    const { asUser, userName } = actors
     const { serverId, publicChannelId, alice, openMentionPopup } = await prepareCase1(actors)
 
     const { page } = await asUser("alice")
@@ -102,7 +102,8 @@ test.describe("mentions — candidate scope", () => {
     const opt = await openMentionPopup(page)
     // Assert a KNOWN-PRESENT row first (roster arrived), THEN the wider claim —
     // so a slow roster load can't false-pass an absence check.
-    await expect(opt.bob).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole("option").filter({ hasText: userName("bob") }).and(opt.bob))
+      .toBeVisible({ timeout: 15_000 })
     await expect(opt.carol).toBeVisible({ timeout: 15_000 })
     await expect(opt.everyone).toBeVisible()
     // @here was removed, so its popup row must not appear.
