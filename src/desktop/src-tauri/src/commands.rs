@@ -327,6 +327,10 @@ fn shell_environment_command_for(environment: Vec<(String, String)>, is_windows:
         "WINDIR",
         "COMSPEC",
         "USERPROFILE",
+        "USERNAME",
+        "USERDOMAIN",
+        "ALLUSERSPROFILE",
+        "PUBLIC",
         "HOMEDRIVE",
         "HOMEPATH",
         "APPDATA",
@@ -354,7 +358,7 @@ fn shell_environment_command_for(environment: Vec<(String, String)>, is_windows:
             .env_clear()
             .envs(baseline)
             .env("Path", PathBuf::from(root).join("System32"));
-        command.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $machine=[Environment]::GetEnvironmentVariables('Machine'); $user=[Environment]::GetEnvironmentVariables('User'); foreach($k in $machine.Keys){[Environment]::SetEnvironmentVariable($k,[string]$machine[$k],'Process')}; foreach($k in $user.Keys){if($k -ne 'Path'){[Environment]::SetEnvironmentVariable($k,[string]$user[$k],'Process')}}; $env:Path=[Environment]::ExpandEnvironmentVariables(([string]$machine['Path'])+';'+([string]$user['Path'])); foreach($p in @($PROFILE.AllUsersAllHosts,$PROFILE.AllUsersCurrentHost,$PROFILE.CurrentUserAllHosts,$PROFILE.CurrentUserCurrentHost)){if(Test-Path -LiteralPath $p){. $p}}; $e=@{}; Get-ChildItem Env: | ForEach-Object {$e[$_.Name]=$_.Value}; [Console]::Out.Write('__ALOOK_ENV_V1__'+($e | ConvertTo-Json -Compress))"]);
+        command.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $machine=[Environment]::GetEnvironmentVariables('Machine'); $user=[Environment]::GetEnvironmentVariables('User'); foreach($k in $machine.Keys){[Environment]::SetEnvironmentVariable($k,[string]$machine[$k],'Process')}; foreach($k in $user.Keys){if($k -ne 'Path'){[Environment]::SetEnvironmentVariable($k,[string]$user[$k],'Process')}}; $env:Path=[Environment]::ExpandEnvironmentVariables(([string]$machine['Path'])+';'+([string]$user['Path'])); foreach($p in @($PROFILE.AllUsersAllHosts,$PROFILE.AllUsersCurrentHost,$PROFILE.CurrentUserAllHosts,$PROFILE.CurrentUserCurrentHost)){if(Test-Path -LiteralPath $p){. $p}}; $e=@{}; Get-ChildItem Env: | ForEach-Object {$e[$_.Name]=$_.Value}; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::Out.Write('__ALOOK_ENV_V1__'+($e | ConvertTo-Json -Compress))"]);
     } else {
         let shell = environment
             .iter()
@@ -1645,6 +1649,25 @@ mod tests {
         );
         assert!(parse_configured_shell("UserShell: relative", true).is_none());
         assert!(parse_configured_shell("unexpected", false).is_none());
+    }
+
+    #[test]
+    fn windows_environment_capture_uses_utf8_after_loading_profiles() {
+        let command = shell_environment_command_for(
+            vec![
+                ("SystemRoot".into(), r"C:\Windows".into()),
+                ("PRIVATE_OLD".into(), "stale".into()),
+            ],
+            true,
+        );
+        let script = command.get_args().last().unwrap().to_str().unwrap();
+        assert!(
+            script.find("Test-Path -LiteralPath").unwrap()
+                < script
+                    .find("[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)")
+                    .unwrap()
+        );
+        assert!(!command.get_envs().any(|(key, _)| key == "PRIVATE_OLD"));
     }
 
     #[cfg(unix)]

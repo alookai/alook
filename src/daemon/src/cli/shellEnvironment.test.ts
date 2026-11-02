@@ -51,10 +51,12 @@ describe("fresh local shell environment", () => {
   });
 
   it("normalizes Windows names and rebuilds registry environment before loading profiles", () => {
-    const command = shellEnvironmentCommand({ SystemRoot: "C:\\Windows", USERPROFILE: "C:\\Users\\test", SECRET_OLD: "private" }, "win32");
+    const command = shellEnvironmentCommand({ SystemRoot: "C:\\Windows", USERPROFILE: "C:\\Users\\test", USERNAME: "test", USERDOMAIN: "local", SECRET_OLD: "private" }, "win32");
     expect(command.file).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
     expect(command.env).not.toHaveProperty("SECRET_OLD");
+    expect(command.env).toMatchObject({ USERNAME: "test", USERDOMAIN: "local" });
     expect(command.args.join(" ")).toContain("GetEnvironmentVariables('User')");
+    expect(command.args.join(" ")).toContain("[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)");
     const fresh = parseShellEnvironment(Buffer.from('__ALOOK_ENV_V1__{"Path":"C:\\\\Windows","UserProfile":"C:\\\\Users\\\\test","Token":"line1\\nline2"}'), "win32");
     expect(fresh.PATH).toBe("C:\\Windows");
     expect(fresh.TOKEN).toBe("line1\nline2");
