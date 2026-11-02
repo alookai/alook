@@ -10,6 +10,8 @@ import { trackLandingCtaClicked } from "@/lib/analytics"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import Image from "next/image";
 import Link from "next/link";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { useEffect } from "react";
 import { GithubOutboundLink } from "@/components/github-outbound-link";
 import {
@@ -96,7 +98,7 @@ export function MarketingNav({
             <Link
               prefetch={prefetch}
               href="/templates"
-              className="hidden sm:block px-3 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
+              className="hidden sm:block px-3 py-2 text-sm transition-opacity duration-150 hover:opacity-70"
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--landing-text)",
@@ -141,11 +143,8 @@ export function MarketingNav({
           {collapseLinksOnMobile && (
             <details className="group relative sm:hidden">
               <summary
-                className="flex size-9 cursor-pointer list-none items-center justify-center border transition-opacity duration-150 hover:opacity-70 [&::-webkit-details-marker]:hidden"
-                style={{
-                  color: highlightActions ? "var(--landing-accent)" : "var(--landing-text)",
-                  borderColor: highlightActions ? "var(--landing-accent)" : "var(--landing-border)",
-                }}
+                data-variant="outline"
+                className={cn(buttonVariants({ variant: "outline", size: "icon" }), "cursor-pointer list-none [&::-webkit-details-marker]:hidden")}
                 aria-label="Open navigation menu"
               >
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -155,7 +154,7 @@ export function MarketingNav({
                 </svg>
               </summary>
               <div
-                className="absolute right-0 top-full mt-2 min-w-40 border p-2 shadow-lg"
+                className="absolute right-0 top-full mt-2 min-w-40 rounded-xl border p-2 shadow-lg"
                 style={{
                   backgroundColor: "var(--landing-bg)",
                   borderColor: "var(--landing-border)",
@@ -166,10 +165,10 @@ export function MarketingNav({
                 ) : (
                   <Link prefetch={prefetch} key={link.href} href={link.href} className={`marketing-mobile-site-link block ${MARKETING_SITE_LINK_CLASS_NAME}`} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
                 ))}
-                {showTemplates && <Link prefetch={prefetch} href="/templates" className="block px-3 py-2 text-xs uppercase tracking-widest">Templates</Link>}
-                <GithubOutboundLink surface="public_nav" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">GitHub</GithubOutboundLink>
-                <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">Discord</a>
-                <a href="https://x.com/alook_ai" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">X</a>
+                {showTemplates && <Link prefetch={prefetch} href="/templates" className="block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-accent active:translate-y-px">Templates</Link>}
+                <GithubOutboundLink surface="public_nav" target="_blank" rel="noopener noreferrer" className="block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-accent active:translate-y-px">GitHub</GithubOutboundLink>
+                <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer" className="block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-accent active:translate-y-px">Discord</a>
+                <a href="https://x.com/alook_ai" target="_blank" rel="noopener noreferrer" className="block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-accent active:translate-y-px">X</a>
               </div>
             </details>
           )}
@@ -177,13 +176,8 @@ export function MarketingNav({
             <a
               href="/c/me"
               onClick={() => trackLandingCtaClicked({ cta_name: "public_nav_open_app" })}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
-              style={{
-                fontFamily: "var(--font-mono)",
-                color: highlightActions ? "var(--landing-bg)" : "var(--landing-text)",
-                backgroundColor: highlightActions ? "var(--landing-accent)" : "transparent",
-                border: `1px solid ${highlightActions ? "var(--landing-accent)" : "var(--landing-text)"}`,
-              }}
+              data-variant={highlightActions ? "default" : "outline"}
+              className={cn(buttonVariants({ variant: highlightActions ? "default" : "outline", size: "sm" }), "gap-2")}
             >
               {ctaLabel ?? "App"}
               <svg
@@ -203,14 +197,10 @@ export function MarketingNav({
             <DocumentNavigationLink
               href="/sign-in"
               onClick={() => trackLandingCtaClicked({ cta_name: "public_nav_get_started" })}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
-              style={{
-                fontFamily: "var(--font-mono)",
-                color: "var(--landing-bg)",
-                backgroundColor: highlightActions ? "var(--landing-accent)" : "var(--landing-text)",
-              }}
+              data-variant={highlightActions ? "default" : "secondary"}
+              className={cn(buttonVariants({ variant: highlightActions ? "default" : "secondary", size: "sm" }), "gap-2")}
             >
-              {ctaLabel ?? "Get Started"}
+              {ctaLabel ?? "Get started"}
             </DocumentNavigationLink>
           )}
         </div>

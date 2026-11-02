@@ -176,7 +176,9 @@ export function BotActivityModal({
       {isLoading && chronological.length === 0 ? (
         <SkeletonRows />
       ) : chronological.length === 0 ? (
-        <EmptyState icon={Activity} label="No activity yet" description="This bot hasn&apos;t run since audit logging was enabled. New runs will stream in here as they happen." />
+        <div className="flex h-full flex-col">
+          <EmptyState icon={Activity} label="No activity yet" description="This bot hasn&apos;t run since audit logging was enabled. New runs will stream in here as they happen." />
+        </div>
       ) : (
         <VirtualRows
           items={chronological}

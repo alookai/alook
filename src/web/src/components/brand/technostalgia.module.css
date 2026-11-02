@@ -2275,3 +2275,45 @@
 [data-tn-mode="dark"] .theme [data-testid="community-profile-running-bots-card"] {
   background-image: none !important;
 }
+
+/* Independent QA batch 2 (#2320) */
+/* Typing pill: keep the key look but never take pointer hits from the message under it */
+.theme [data-testid="community-typing-indicator"] {
+  pointer-events: none !important;
+}
+/* Landing section and closing titles on phones: the bold sans is wider than the
+ * pixel face the clamp was tuned for */
+@media (max-width: 639px) {
+  .theme :global(.landing) :is([class*="sectionIntro"], [class*="closingCta"]) h2 {
+    font-size: clamp(2rem, 10.5vw, 3rem) !important;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* #2321: horizontal line tabs never get wider than the container gave them, and
+ * stay scrollable (mobile settings). Only the inbox keeps its inset tray. */
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] {
+  margin-inline: 0 !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  scrollbar-width: none;
+}
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"]::-webkit-scrollbar { display: none; }
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] [data-slot="tabs-trigger"] {
+  padding-inline: 8px !important;
+}
+.theme :is([data-testid^="community-inbox"], [data-slot="community-inbox"]) [data-slot="tabs-list"][data-variant="line"] {
+  margin-inline: 12px !important;
+  max-width: calc(100% - 24px) !important;
+}
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] { padding: 2px !important; gap: 0 !important; }
+/* typing pill feedback comes from data flags (pointer stays pass-through) */
+.theme [data-testid="community-typing-indicator"][data-hover] { transform: translateY(-1px); }
+.theme [data-testid="community-typing-indicator"][data-pressed] {
+  transform: translateY(1.5px);
+  box-shadow: inset 0 1px 2px rgb(60 45 20 / 16%), 0 0.5px 0 #d8ccb4 !important;
+}
+.theme[data-tn-mode="dark"] [data-testid="community-typing-indicator"][data-pressed],
+[data-tn-mode="dark"] .theme [data-testid="community-typing-indicator"][data-pressed] {
+  box-shadow: inset 0 1px 4px rgb(0 0 0 / 70%), 0 0.5px 0 rgb(140 160 200 / 36%) !important;
+}
