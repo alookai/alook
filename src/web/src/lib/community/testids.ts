@@ -150,6 +150,8 @@ export const tid = {
   machineActions: (id: string) => `machine-actions-${id}`,
   machineUpdate: (id: string) => `machine-update-${id}`,
   machineStop: (id: string) => `machine-stop-${id}`,
+  machineRefresh: (id: string) => `machine-refresh-${id}`,
+  machineRefreshConfirm: "machine-refresh-confirm",
   machineUpdateConfirm: "machine-update-confirm",
   daemonUpdateNotice: "daemon-update-notice",
   daemonUpdateAction: "daemon-update-action",

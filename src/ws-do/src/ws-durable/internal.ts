@@ -30,6 +30,7 @@ export type ConnectionState =
     authenticated: boolean
     pii?: boolean
     modelDiscovery?: boolean
+    machineRefresh?: boolean
     machineStop?: boolean
     controlHeartbeat?: boolean
     lastHeartbeatAckAt?: number

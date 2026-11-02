@@ -29,6 +29,8 @@ export function MachineCard({
   onUpdate,
   onStop,
   stopping = false,
+  onRefresh,
+  refreshing = false,
 }: {
   machine: MachineSummary
   onDelete: () => void
@@ -36,6 +38,8 @@ export function MachineCard({
   onUpdate?: () => void
   onStop?: () => void
   stopping?: boolean
+  onRefresh?: () => void
+  refreshing?: boolean
 }) {
   const isOnline = isPresenceOnline(machine.status)
   const lastSeenLabel = useMemo(
@@ -107,36 +111,46 @@ export function MachineCard({
               <button
                 aria-label="Machine actions"
                 data-testid={tid.machineActions(machine.id)}
-                className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground sm:size-8"
               >
                 <MoreVertical className="size-4" />
               </button>
             }
           />
           <DropdownMenuContent align="end">
+            {onRefresh && (isOnline || refreshing) && (
+              <DropdownMenuItem
+                data-testid={tid.machineRefresh(machine.id)}
+                onClick={onRefresh}
+                disabled={refreshing || stopping}
+              >
+                {refreshing ? "Sending refresh…" : "Refresh…"}
+              </DropdownMenuItem>
+            )}
             {onUpdate && (
               <DropdownMenuItem
                 data-testid={tid.machineUpdate(machine.id)}
                 onClick={onUpdate}
+                disabled={refreshing}
               >
                 Update daemon…
               </DropdownMenuItem>
             )}
             {isOnline && onStop && (
-              <DropdownMenuItem data-testid={tid.machineStop(machine.id)} onClick={onStop} disabled={stopping}>
+              <DropdownMenuItem data-testid={tid.machineStop(machine.id)} onClick={onStop} disabled={stopping || refreshing}>
                 {stopping ? "Sending stop…" : "Stop"}
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem onClick={onReconnect}>
+            <DropdownMenuItem onClick={onReconnect} disabled={refreshing}>
               Reconnect…
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={onDelete} className="text-destructive">
+            <DropdownMenuItem onClick={onDelete} disabled={refreshing} className="text-destructive">
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {!isOnline && (
+      {!isOnline && !refreshing && (
         <div className="flex justify-end">
           <Button
             variant="outline"

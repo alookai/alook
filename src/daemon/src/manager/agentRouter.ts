@@ -19,7 +19,7 @@
  * server recovers this host's state after a dropped control connection.
  */
 import type { HostCommand, HostControlChannel, HostReady, HostReadyRuntime, UnreadNotice, AgentSessionReport, SessionErrorFrame, AgentId, HostAgentActivity } from "../server/contract.js";
-import { PII_CAPABILITY, type ProviderQuotaSnapshot } from "@alook/shared";
+import { MACHINE_REFRESH_CAPABILITY, PII_CAPABILITY, type ProviderQuotaSnapshot } from "@alook/shared";
 import { CONTROL_HEARTBEAT_CAPABILITY, MACHINE_STOP_CAPABILITY, RUNTIME_MODEL_DISCOVERY_CAPABILITY } from "../server/contract.js";
 import { getDriver, type AgentBackend } from "../drivers/index.js";
 import type { AgentProcessManager } from "./managerRuntime.js";
@@ -84,6 +84,7 @@ export interface AgentRouterOpts {
   runtimeReport: HostReadyRuntime[];
   discoverModels?: (runtimeId: string) => ReturnType<AgentBackend["discoverModels"]>;
   supportsMachineStop?: boolean;
+  supportsMachineRefresh?: boolean;
   hostname?: string;
   platform?: string;
   arch?: string;
@@ -252,7 +253,7 @@ export class AgentRouter {
       : this.opts.timeZone;
     return {
       runtimeReport: [...this.runtimes.values()],
-      capabilities: [...(this.opts.channel.reportPiiResult ? [PII_CAPABILITY] : []), CONTROL_HEARTBEAT_CAPABILITY, ...(this.opts.supportsMachineStop ? [MACHINE_STOP_CAPABILITY] : []), ...(this.opts.channel.reportRuntimeModels ? [RUNTIME_MODEL_DISCOVERY_CAPABILITY] : [])],
+      capabilities: [...(this.opts.supportsMachineRefresh ? [MACHINE_REFRESH_CAPABILITY] : []), ...(this.opts.channel.reportPiiResult ? [PII_CAPABILITY] : []), CONTROL_HEARTBEAT_CAPABILITY, ...(this.opts.supportsMachineStop ? [MACHINE_STOP_CAPABILITY] : []), ...(this.opts.channel.reportRuntimeModels ? [RUNTIME_MODEL_DISCOVERY_CAPABILITY] : [])],
       runningAgents: [...this.running],
       hostname: this.opts.hostname,
       platform: this.opts.platform,

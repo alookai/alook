@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { daemonRefreshFromIpc } from "./daemonRefresh.js";
 import { registerPlatformCommands } from "./platform.js";
 import { registerUseCommands } from "./use.js";
 /**
@@ -1200,6 +1201,12 @@ function buildProgram(stdin: CliInputStream): Command {
     });
 
   daemon
+    .command("refresh-run", { hidden: true })
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async () => { await daemonRefreshFromIpc(); });
+
+  daemon
     .command("replace", { hidden: true })
     .requiredOption("--id <machineId>")
     .requiredOption("--base-dir <path>")
@@ -1317,7 +1324,7 @@ export async function main(argv = process.argv.slice(2), io: CliIo = {}): Promis
     // Public agent-facing commands keep their JSON-only result contract. The
     // two hidden replacement primitives additionally need a process status so
     // the parent helper can distinguish ready from bounded rollback failure.
-    if (argv[0] === "daemon" && (argv[1] === "resume" || argv[1] === "replace")) {
+    if (argv[0] === "daemon" && (argv[1] === "resume" || argv[1] === "replace" || argv[1] === "refresh-run")) {
       internalExitCode = 1;
     }
   }

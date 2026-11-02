@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createDaemonRefreshHandler } from "./daemonRefresh.js";
 import { WebSocket } from "ws";
 import type { DiagnosticCollectCommand, DiagnosticReportFailureCode } from "@alook/shared";
 import { createDaemon } from "../daemon/createDaemon.js";
@@ -361,6 +362,11 @@ export async function runPreparedDaemon(
       daemonVersion: prepared.daemonVersion,
       logger: log,
       handleSelfUpdate,
+
+      handleRefresh: createDaemonRefreshHandler({
+        machineId: prepared.machineId, baseDir: prepared.baseDir, pid: process.pid,
+        startedAt: prepared.startedAt, ownerToken: prepared.ownerToken,
+      }),
       onStopRequested: () => { void shutdown(0); },
       handleDiagnosticCommand,
       reportDiagnosticFailure,

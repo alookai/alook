@@ -43,6 +43,20 @@ describe("ws-do router", () => {
     handler = undefined as unknown as RouterHandler
   })
 
+  describe("Refresh dispatch", () => {
+    it("constructs the fixed capability-gated command without forwarding client input", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a"])
+      doMock.stubFetch.mockResolvedValue(Response.json({ sent: 1, unsupported: 0 }))
+      const request = new Request("http://localhost/community-machine/by-id/machine-1/forward-refresh", {
+        method: "POST", body: JSON.stringify({ env: { SECRET: "private" }, command: "shell" }),
+      })
+      expect(await (await handler.fetch(request, env as any)).json()).toEqual({ sent: 1, unsupported: 0 })
+      const forwarded = doMock.stubFetch.mock.calls[0]![0] as Request
+      expect(forwarded.url).toBe("http://internal/refresh")
+      expect(await forwarded.json()).toEqual({ type: "machine:refresh" })
+    })
+  })
+
   describe("POST /community-machine/by-id/:machineId/forward-stop", () => {
     beforeEach(() => mockGetActiveDoNamesForMachine.mockReset().mockResolvedValue([]))
     const stopRequest = () => new Request("http://localhost/community-machine/by-id/machine-1/forward-stop", {

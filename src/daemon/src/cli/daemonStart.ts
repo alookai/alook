@@ -1235,13 +1235,13 @@ export async function daemonReconnect(
   }
 }
 
-function runnerArguments(): string[] {
-  const command = process.env.ALOOK_DAEMON_PACKAGE_WRAPPER === "1" ? ["run"] : ["daemon", "run"];
+export function daemonProcessArguments(action: "run" | "refresh-run"): string[] {
+  const command = process.env.ALOOK_DAEMON_PACKAGE_WRAPPER === "1" ? [action] : ["daemon", action];
   return [...process.execArgv, process.argv[1]!, ...command];
 }
 
 function spawnBlockedRunner(): ChildProcess {
-  return spawn(process.execPath, runnerArguments(), {
+  return spawn(process.execPath, daemonProcessArguments("run"), {
     env: withoutNpmExecPackage(process.env),
     detached: true,
     stdio: ["ignore", "ignore", "ignore", "ipc"],

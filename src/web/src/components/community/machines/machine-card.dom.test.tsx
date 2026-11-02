@@ -5,6 +5,32 @@ import type { MachineSummary } from "@/hooks/community/use-machines"
 
 const stable: MachineSummary = { id: "machine", hostname: "host", displayName: "Computer", platform: "darwin", arch: "arm64", osRelease: "24", daemonVersion: "1", createdAt: "created", updatedAt: "updated" }
 describe("restored machine observations", () => {
+  it("offers Refresh separately from Update and Stop", async () => {
+    const onRefresh = vi.fn()
+    const onUpdate = vi.fn()
+    const onStop = vi.fn()
+    const view = render(<MachineCard machine={{ ...stable, status: "online" }} onDelete={() => {}} onReconnect={() => {}} onRefresh={onRefresh} onUpdate={onUpdate} onStop={onStop} />)
+    fireEvent.click(view.getByRole("button", { name: "Machine actions" }))
+    fireEvent.click(await view.findByRole("menuitem", { name: "Refresh…" }))
+    expect(onRefresh).toHaveBeenCalledOnce()
+    expect(onUpdate).not.toHaveBeenCalled()
+    expect(onStop).not.toHaveBeenCalled()
+  })
+
+  it.each(["online", "offline"] as const)("blocks competing commands during refresh delivery while %s", async status => {
+    const action = vi.fn()
+    const view = render(<MachineCard machine={{ ...stable, status }} onDelete={action} onReconnect={action} onRefresh={action} onUpdate={action} onStop={action} refreshing />)
+    expect(view.queryByRole("status")).toBeNull()
+    expect(view.queryByRole("button", { name: "Reconnect" })).toBeNull()
+    fireEvent.click(view.getByRole("button", { name: "Machine actions" }))
+    const items = await view.findAllByRole("menuitem")
+    for (const item of items) {
+      expect(item).toHaveAttribute("aria-disabled", "true")
+      fireEvent.click(item)
+    }
+    expect(action).not.toHaveBeenCalled()
+  })
+
   it("shows Stop only online and disables it during dispatch", async () => {
     const onStop = vi.fn()
     const view = render(<MachineCard machine={{ ...stable, status: "online" }} onDelete={() => {}} onReconnect={() => {}} onStop={onStop} />)
@@ -22,6 +48,7 @@ describe("restored machine observations", () => {
     fireEvent.click(view.getByRole("button", { name: "Machine actions" }))
     await view.findByRole("menuitem", { name: "Reconnect…" })
     expect(view.queryByRole("menuitem", { name: "Stop" })).toBeNull()
+    expect(view.queryByRole("menuitem", { name: "Refresh…" })).toBeNull()
   })
 
   it("shows the stable card and unknown observations until live data arrives", () => {
