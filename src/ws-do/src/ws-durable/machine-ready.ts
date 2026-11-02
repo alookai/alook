@@ -202,7 +202,7 @@ export async function handleReadyFrame(
       await notifyUserDO(context, identity.userId, {
         type: WS_EVENTS.MACHINE_UPDATED,
         machine: summary,
-      }, { machineOnlineTransition: priorStatus !== "online" }).catch(() => { })
+      }, { machineOnlineTransition: priorStatus !== "online" })
     }
 
     await scheduleHeartbeatAlarm(context)
