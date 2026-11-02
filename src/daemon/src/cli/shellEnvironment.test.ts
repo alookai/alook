@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -14,6 +14,26 @@ function fixture() {
 afterEach(() => { for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 describe("fresh local shell environment", () => {
+  for (const name of ["bash", "zsh", "csh", "tcsh"]) {
+    const shell = "/bin/" + name;
+    it.runIf(process.platform === "darwin" && existsSync(shell))(`loads native ${name} login and interactive startup configuration`, async () => {
+      const dir = fixture();
+      if (name === "bash") {
+        writeFileSync(join(dir, ".bash_profile"), "export ALOOK_LOGIN_PROFILE=loaded\n. \"$HOME/.bashrc\"\n");
+        writeFileSync(join(dir, ".bashrc"), "export ALOOK_INTERACTIVE_RC=loaded\n");
+      } else if (name === "zsh") {
+        writeFileSync(join(dir, ".zprofile"), "export ALOOK_LOGIN_PROFILE=loaded\n");
+        writeFileSync(join(dir, ".zshrc"), "export ALOOK_INTERACTIVE_RC=loaded\n");
+      } else {
+        writeFileSync(join(dir, ".login"), "setenv ALOOK_LOGIN_PROFILE loaded\n");
+        for (const rc of [".cshrc", ".tcshrc"]) writeFileSync(join(dir, rc), "setenv ALOOK_INTERACTIVE_RC loaded\n");
+      }
+      const fresh = await readShellEnvironment({ env: { ...process.env, HOME: dir, ZDOTDIR: dir, SHELL: shell, ALOOK_REMOVED_EXPORT: "stale" } });
+      expect(fresh.ALOOK_LOGIN_PROFILE).toBe("loaded");
+      expect(fresh.ALOOK_INTERACTIVE_RC).toBe("loaded");
+      expect(fresh.ALOOK_REMOVED_EXPORT).toBeUndefined();
+    });
+  }
   it.runIf(process.platform !== "win32")("reads changed exports and literal multiline values while dropping deleted inherited exports", async () => {
     const dir = fixture();
     const shell = join(dir, "shell");
@@ -66,7 +86,7 @@ describe("fresh local shell environment", () => {
   it.runIf(process.platform === "win32")("captures real PowerShell profile Unicode through UTF-8 and removes old exports", async () => {
     const dir = fixture();
     const profile = join(dir, "profile.ps1");
-    writeFileSync(profile, "\ufeff$env:ALOOK_REFRESH_UNICODE='你好\nline=$literal'\n$env:Path=Join-Path $env:SystemRoot 'System32'\nWrite-Output 'profile startup banner'\n");
+    writeFileSync(profile, "\ufeff$env:ALOOK_REFRESH_UNICODE='你好\nline=$literal'\n$env:Path=(Join-Path $env:SystemRoot 'System32')+';'\nWrite-Output 'profile startup banner'\n");
     const quotedProfile = "'" + profile.replaceAll("'", "''") + "'";
     const quotedMissing = "'" + join(dir, "missing.ps1").replaceAll("'", "''") + "'";
     const spawnProcess = ((file, args, options) => {
@@ -78,5 +98,7 @@ describe("fresh local shell environment", () => {
     expect(fresh.ALOOK_REFRESH_UNICODE).toBe("你好\nline=$literal");
     expect(fresh.ALOOK_REFRESH_OLD_FIXTURE).toBeUndefined();
     expect(fresh.USERNAME).toBe(process.env.USERNAME);
+    expect(fresh.USERPROFILE).toBe(process.env.USERPROFILE);
+    expect(fresh.PATH).not.toMatch(/;$/);
   }, 15000);
 });

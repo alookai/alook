@@ -14,14 +14,14 @@ export function shellEnvironmentCommand(env: NodeJS.ProcessEnv, platform: NodeJS
   if (platform === "win32") {
     const root = env.SystemRoot ?? env.SYSTEMROOT ?? "C:\\Windows";
     baseline.Path = path.win32.join(root, "System32");
-    const script = "$ErrorActionPreference='Stop'; $machine=[Environment]::GetEnvironmentVariables('Machine'); $user=[Environment]::GetEnvironmentVariables('User'); foreach($k in $machine.Keys){[Environment]::SetEnvironmentVariable($k,[string]$machine[$k],'Process')}; foreach($k in $user.Keys){if($k -ne 'Path'){[Environment]::SetEnvironmentVariable($k,[string]$user[$k],'Process')}}; $env:Path=[Environment]::ExpandEnvironmentVariables(([string]$machine['Path'])+';'+([string]$user['Path'])); foreach($p in @($PROFILE.AllUsersAllHosts,$PROFILE.AllUsersCurrentHost,$PROFILE.CurrentUserAllHosts,$PROFILE.CurrentUserCurrentHost)){if(Test-Path -LiteralPath $p){. $p}}; $e=@{}; Get-ChildItem Env: | ForEach-Object {$e[$_.Name]=$_.Value}; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::Out.Write('" + MARKER + "'+($e | ConvertTo-Json -Compress))";
+    const script = "$ErrorActionPreference='Stop'; $login=@{}; foreach($k in @('USERNAME','USERDOMAIN','USERPROFILE','HOMEDRIVE','HOMEPATH','APPDATA','LOCALAPPDATA')){$v=[Environment]::GetEnvironmentVariable($k,'Process'); if($null -ne $v){$login[$k]=$v}}; $machine=[Environment]::GetEnvironmentVariables('Machine'); $user=[Environment]::GetEnvironmentVariables('User'); foreach($k in $machine.Keys){[Environment]::SetEnvironmentVariable($k,[string]$machine[$k],'Process')}; foreach($k in $user.Keys){if($k -ne 'Path'){[Environment]::SetEnvironmentVariable($k,[string]$user[$k],'Process')}}; foreach($k in $login.Keys){[Environment]::SetEnvironmentVariable($k,[string]$login[$k],'Process')}; $env:Path=[Environment]::ExpandEnvironmentVariables(([string]$machine['Path'])+';'+([string]$user['Path'])); foreach($p in @($PROFILE.AllUsersAllHosts,$PROFILE.AllUsersCurrentHost,$PROFILE.CurrentUserAllHosts,$PROFILE.CurrentUserCurrentHost)){if(Test-Path -LiteralPath $p){. $p}}; $env:Path=(($env:Path -split ';') | Where-Object {$_ -ne ''}) -join ';'; $e=@{}; Get-ChildItem Env: | ForEach-Object {$e[$_.Name]=$_.Value}; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::Out.Write('" + MARKER + "'+($e | ConvertTo-Json -Compress))";
     return { file: path.win32.join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], env: baseline };
   }
   baseline.PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
   const shell = env.SHELL || userInfo().shell || "/bin/sh";
   if (!path.isAbsolute(shell)) throw new Error("environment_unavailable");
   baseline.SHELL = shell;
-  return { file: shell, args: ["-ilc", `printf '${MARKER}\\000'; exec /usr/bin/env -0`], env: baseline };
+  return { file: shell, args: ["-ic", `printf '${MARKER}\\000'; exec /usr/bin/env -0`], argv0: "-" + path.basename(shell), env: baseline };
 }
 
 export function parseShellEnvironment(stdout: Buffer, platform: NodeJS.Platform): NodeJS.ProcessEnv {
@@ -51,7 +51,7 @@ export async function readShellEnvironment(options: { env?: NodeJS.ProcessEnv; p
   const platform = options.platform ?? process.platform;
   const command = shellEnvironmentCommand(options.env ?? process.env, platform);
   return await new Promise((resolve, reject) => {
-    const child = (options.spawnProcess ?? spawn)(command.file, command.args, { env: command.env, detached: platform !== "win32", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
+    const child = (options.spawnProcess ?? spawn)(command.file, command.args, { env: command.env, argv0: command.argv0, detached: platform !== "win32", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
     const chunks: Buffer[] = [];
     let bytes = 0;
     let failed = false;

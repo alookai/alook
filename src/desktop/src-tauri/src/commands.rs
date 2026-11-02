@@ -358,7 +358,7 @@ fn shell_environment_command_for(environment: Vec<(String, String)>, is_windows:
             .env_clear()
             .envs(baseline)
             .env("Path", PathBuf::from(root).join("System32"));
-        command.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $machine=[Environment]::GetEnvironmentVariables('Machine'); $user=[Environment]::GetEnvironmentVariables('User'); foreach($k in $machine.Keys){[Environment]::SetEnvironmentVariable($k,[string]$machine[$k],'Process')}; foreach($k in $user.Keys){if($k -ne 'Path'){[Environment]::SetEnvironmentVariable($k,[string]$user[$k],'Process')}}; $env:Path=[Environment]::ExpandEnvironmentVariables(([string]$machine['Path'])+';'+([string]$user['Path'])); foreach($p in @($PROFILE.AllUsersAllHosts,$PROFILE.AllUsersCurrentHost,$PROFILE.CurrentUserAllHosts,$PROFILE.CurrentUserCurrentHost)){if(Test-Path -LiteralPath $p){. $p}}; $e=@{}; Get-ChildItem Env: | ForEach-Object {$e[$_.Name]=$_.Value}; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::Out.Write('__ALOOK_ENV_V1__'+($e | ConvertTo-Json -Compress))"]);
+        command.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $login=@{}; foreach($k in @('USERNAME','USERDOMAIN','USERPROFILE','HOMEDRIVE','HOMEPATH','APPDATA','LOCALAPPDATA')){$v=[Environment]::GetEnvironmentVariable($k,'Process'); if($null -ne $v){$login[$k]=$v}}; $machine=[Environment]::GetEnvironmentVariables('Machine'); $user=[Environment]::GetEnvironmentVariables('User'); foreach($k in $machine.Keys){[Environment]::SetEnvironmentVariable($k,[string]$machine[$k],'Process')}; foreach($k in $user.Keys){if($k -ne 'Path'){[Environment]::SetEnvironmentVariable($k,[string]$user[$k],'Process')}}; foreach($k in $login.Keys){[Environment]::SetEnvironmentVariable($k,[string]$login[$k],'Process')}; $env:Path=[Environment]::ExpandEnvironmentVariables(([string]$machine['Path'])+';'+([string]$user['Path'])); foreach($p in @($PROFILE.AllUsersAllHosts,$PROFILE.AllUsersCurrentHost,$PROFILE.CurrentUserAllHosts,$PROFILE.CurrentUserCurrentHost)){if(Test-Path -LiteralPath $p){. $p}}; $env:Path=(($env:Path -split ';') | Where-Object {$_ -ne ''}) -join ';'; $e=@{}; Get-ChildItem Env: | ForEach-Object {$e[$_.Name]=$_.Value}; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::Out.Write('__ALOOK_ENV_V1__'+($e | ConvertTo-Json -Compress))"]);
     } else {
         let shell = environment
             .iter()
@@ -366,12 +366,22 @@ fn shell_environment_command_for(environment: Vec<(String, String)>, is_windows:
             .map(|(_, value)| value.clone())
             .unwrap_or_else(|| "/bin/sh".to_string());
         command = Command::new(shell);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            let name = PathBuf::from(command.get_program())
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            command.arg0(format!("-{name}"));
+        }
         command
             .env_clear()
             .envs(baseline)
             .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
         command.args([
-            "-ilc",
+            "-ic",
             "printf '__ALOOK_ENV_V1__\\000'; exec /usr/bin/env -0",
         ]);
     }
@@ -1667,7 +1677,70 @@ mod tests {
                     .find("[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)")
                     .unwrap()
         );
+        assert!(script.find("$machine.Keys").unwrap() < script.find("$login.Keys").unwrap());
+        assert!(
+            script.find("$login.Keys").unwrap() < script.find("Test-Path -LiteralPath").unwrap()
+        );
         assert!(!command.get_envs().any(|(key, _)| key == "PRIVATE_OLD"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_login_shells_load_their_own_startup_configuration() {
+        for name in ["bash", "zsh", "csh", "tcsh"] {
+            let shell = PathBuf::from(format!("/bin/{name}"));
+            if !shell.exists() {
+                continue;
+            }
+            let root =
+                std::env::temp_dir().join(format!("alook-login-env-{}-{name}", std::process::id()));
+            std::fs::create_dir_all(&root).unwrap();
+            let files: Vec<(&str, &str)> = match name {
+                "bash" => vec![
+                    (
+                        ".bash_profile",
+                        "export ALOOK_LOGIN_PROFILE=loaded\n. \"$HOME/.bashrc\"\n",
+                    ),
+                    (".bashrc", "export ALOOK_INTERACTIVE_RC=loaded\n"),
+                ],
+                "zsh" => vec![
+                    (".zprofile", "export ALOOK_LOGIN_PROFILE=loaded\n"),
+                    (".zshrc", "export ALOOK_INTERACTIVE_RC=loaded\n"),
+                ],
+                _ => vec![
+                    (".login", "setenv ALOOK_LOGIN_PROFILE loaded\n"),
+                    (".cshrc", "setenv ALOOK_INTERACTIVE_RC loaded\n"),
+                    (".tcshrc", "setenv ALOOK_INTERACTIVE_RC loaded\n"),
+                ],
+            };
+            for (file, text) in files {
+                std::fs::write(root.join(file), text).unwrap();
+            }
+            let command = shell_environment_command_for(
+                vec![
+                    ("SHELL".into(), shell.to_string_lossy().into_owned()),
+                    ("HOME".into(), root.to_string_lossy().into_owned()),
+                    ("ZDOTDIR".into(), root.to_string_lossy().into_owned()),
+                    ("STALE_ONLY".into(), "old".into()),
+                ],
+                false,
+            );
+            let output =
+                run_process_with_timeout(command, Duration::from_secs(2), "timeout".into())
+                    .unwrap();
+            assert!(output.success, "{name}");
+            let environment = parse_shell_environment(&output.stdout, false).unwrap();
+            assert!(
+                environment.contains(&("ALOOK_LOGIN_PROFILE".into(), "loaded".into())),
+                "{name}"
+            );
+            assert!(
+                environment.contains(&("ALOOK_INTERACTIVE_RC".into(), "loaded".into())),
+                "{name}"
+            );
+            assert!(!environment.iter().any(|(key, _)| key == "STALE_ONLY"));
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[cfg(unix)]
