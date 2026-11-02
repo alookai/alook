@@ -1220,3 +1220,7 @@
       "rail tree" "convo convo" "user user" "members members" "toast toast" "forum forum" "states states" "form form" "machines machines" "bots bots";
   }
 }
+
+/* 320px: the board's single column must not grow to its widest child */
+.wrap { grid-template-columns: minmax(0, 1fr); }
+.section, .intro { min-width: 0; }

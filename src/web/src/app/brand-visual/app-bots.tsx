@@ -175,7 +175,7 @@ function seedBoardCache(client: QueryClient) {
 
 /* ---------- layout ---------- */
 
-const grid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16, alignItems: "start" }
+const grid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 1fr))", gap: 16, alignItems: "start" }
 const stack: CSSProperties = { display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }
 const row: CSSProperties = { display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }
 const panel: CSSProperties = { width: "100%", maxWidth: 360, minWidth: 0 }

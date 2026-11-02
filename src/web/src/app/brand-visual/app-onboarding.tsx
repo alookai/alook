@@ -106,7 +106,7 @@ function boardBilling(data: BillingSummary): BillingController {
 
 /* ---------- layout ---------- */
 
-const grid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16, alignItems: "start" }
+const grid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 1fr))", gap: 16, alignItems: "start" }
 const row: CSSProperties = { display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }
 const stack: CSSProperties = { display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }
 /** Fixed children (overlays, toasts) stay inside: translateZ makes this box their containing block. */

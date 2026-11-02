@@ -247,8 +247,12 @@ export function BrandVisual() {
   const [agent, setAgent] = useState("claude")
   const [otp, setOtp] = useState("481")
   // The board's switch is the app's own theme switch (the theme is global now).
+  // Server render has no theme; render light until mounted so hydration matches,
+  // then follow the resolved app theme.
   const { resolvedTheme, setTheme } = useTheme()
-  const mode: "light" | "dark" = resolvedTheme === "dark" ? "dark" : "light"
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  const mode: "light" | "dark" = mounted && resolvedTheme === "dark" ? "dark" : "light"
   const setMode = (next: "light" | "dark") => setTheme(next)
 
   return (
