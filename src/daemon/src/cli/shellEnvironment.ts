@@ -1,3 +1,4 @@
+import windowsShellEnvironment from "./windows-shell-environment.json";
 import { spawn } from "node:child_process";
 import * as path from "node:path";
 import { userInfo } from "node:os";
@@ -14,7 +15,7 @@ export function shellEnvironmentCommand(env: NodeJS.ProcessEnv, platform: NodeJS
   if (platform === "win32") {
     const root = env.SystemRoot ?? env.SYSTEMROOT ?? "C:\\Windows";
     baseline.Path = path.win32.join(root, "System32");
-    const script = "$ErrorActionPreference='Stop'; $login=@{}; foreach($k in @('USERNAME','USERDOMAIN','USERPROFILE','HOMEDRIVE','HOMEPATH','APPDATA','LOCALAPPDATA')){$v=[Environment]::GetEnvironmentVariable($k,'Process'); if($null -ne $v){$login[$k]=$v}}; $machine=[Environment]::GetEnvironmentVariables('Machine'); $user=[Environment]::GetEnvironmentVariables('User'); foreach($k in $machine.Keys){[Environment]::SetEnvironmentVariable($k,[string]$machine[$k],'Process')}; foreach($k in $user.Keys){if($k -ne 'Path'){[Environment]::SetEnvironmentVariable($k,[string]$user[$k],'Process')}}; foreach($k in $login.Keys){[Environment]::SetEnvironmentVariable($k,[string]$login[$k],'Process')}; $env:Path=[Environment]::ExpandEnvironmentVariables(([string]$machine['Path'])+';'+([string]$user['Path'])); foreach($p in @($PROFILE.AllUsersAllHosts,$PROFILE.AllUsersCurrentHost,$PROFILE.CurrentUserAllHosts,$PROFILE.CurrentUserCurrentHost)){if(Test-Path -LiteralPath $p){. $p}}; $env:Path=(($env:Path -split ';') | Where-Object {$_ -ne ''}) -join ';'; $e=@{}; Get-ChildItem Env: | ForEach-Object {$e[$_.Name]=$_.Value}; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::Out.Write('" + MARKER + "'+($e | ConvertTo-Json -Compress))";
+    const script = windowsShellEnvironment.join("; ");
     return { file: path.win32.join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], env: baseline };
   }
   baseline.PATH = "/usr/bin:/bin:/usr/sbin:/sbin";

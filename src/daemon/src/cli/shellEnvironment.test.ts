@@ -89,12 +89,22 @@ describe("fresh local shell environment", () => {
     writeFileSync(profile, "\ufeff$env:ALOOK_REFRESH_UNICODE='你好\nline=$literal'\n$env:Path=(Join-Path $env:SystemRoot 'System32')+';'\nWrite-Output 'profile startup banner'\n");
     const quotedProfile = "'" + profile.replaceAll("'", "''") + "'";
     const quotedMissing = "'" + join(dir, "missing.ps1").replaceAll("'", "''") + "'";
+    let failure = "unavailable";
+    let termination = "not closed";
+    const started = Date.now();
     const spawnProcess = ((file, args, options) => {
       const configured = [...args];
-      configured[configured.length - 1] = "$PROFILE=[pscustomobject]@{AllUsersAllHosts=" + quotedMissing + ";AllUsersCurrentHost=" + quotedMissing + ";CurrentUserAllHosts=" + quotedProfile + ";CurrentUserCurrentHost=" + quotedMissing + "}; " + configured.at(-1);
-      return spawn(file, configured, options);
+      configured[configured.length - 1] = "try { $PROFILE=[pscustomobject]@{AllUsersAllHosts=" + quotedMissing + ";AllUsersCurrentHost=" + quotedMissing + ";CurrentUserAllHosts=" + quotedProfile + ";CurrentUserCurrentHost=" + quotedMissing + "}; " + configured.at(-1) + " } catch { [Console]::Error.Write('ALOOK_QA_FAILURE='+$_.Exception.GetType().Name+':'+$_.CategoryInfo.Category+':'+$_.InvocationInfo.OffsetInLine); exit 1 }";
+      const child = spawn(file, configured, { ...options, stdio: ["ignore", "pipe", "pipe"] });
+      child.once("close", (code, signal) => { termination = `exit=${code}, signal=${signal}, elapsedMs=${Date.now() - started}`; });
+      child.stderr.on("data", (chunk: Buffer) => {
+        const match = chunk.toString("utf8").match(/ALOOK_QA_FAILURE=([A-Za-z]+:[A-Za-z]+:\d+)/);
+        if (match) failure = match[1];
+      });
+      return child;
     }) as typeof spawn;
-    const fresh = await readShellEnvironment({ env: { ...process.env, ALOOK_REFRESH_OLD_FIXTURE: "old" }, spawnProcess, timeoutMs: 10000 });
+    const fresh = await readShellEnvironment({ env: { ...process.env, ALOOK_REFRESH_OLD_FIXTURE: "old" }, spawnProcess, timeoutMs: 10000 })
+      .catch(() => { throw new Error(`PowerShell fixture failed (${failure}; ${termination})`); });
     expect(fresh.ALOOK_REFRESH_UNICODE).toBe("你好\nline=$literal");
     expect(fresh.ALOOK_REFRESH_OLD_FIXTURE).toBeUndefined();
     expect(fresh.USERNAME).toBe(process.env.USERNAME);

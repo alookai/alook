@@ -103,52 +103,10 @@ fn executable(command: &str) -> String {
 #[cfg(desktop)]
 fn daemon_endpoints_for(is_debug: bool) -> (&'static str, &'static str) {
     if is_debug {
-        (
-            development_daemon_endpoint(
-                option_env!("ALOOK_DESKTOP_DEV_SERVER_URL"),
-                "http://localhost:3000",
-                "http",
-            ),
-            development_daemon_endpoint(
-                option_env!("ALOOK_DESKTOP_DEV_WS_URL"),
-                "ws://localhost:8789",
-                "ws",
-            ),
-        )
+        ("http://localhost:3000", "ws://localhost:8789")
     } else {
         ("https://alook.ai", "wss://alook.ai/api/ws/community-daemon")
     }
-}
-
-#[cfg(desktop)]
-fn development_daemon_endpoint(
-    value: Option<&'static str>,
-    fallback: &'static str,
-    scheme: &str,
-) -> &'static str {
-    let Some(value) = value else {
-        return fallback;
-    };
-    let valid = url::Url::parse(value).ok().is_some_and(|url| {
-        let loopback = match url.host() {
-            Some(url::Host::Domain(host)) => host == "localhost",
-            Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
-            Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
-            None => false,
-        };
-        loopback
-            && url.scheme() == scheme
-            && url.username().is_empty()
-            && url.password().is_none()
-            && matches!(url.path(), "" | "/")
-            && url.query().is_none()
-            && url.fragment().is_none()
-    });
-    assert!(
-        valid,
-        "Desktop development daemon endpoint must be a loopback origin"
-    );
-    value
 }
 
 #[cfg(desktop)]
@@ -358,7 +316,18 @@ fn shell_environment_command_for(environment: Vec<(String, String)>, is_windows:
             .env_clear()
             .envs(baseline)
             .env("Path", PathBuf::from(root).join("System32"));
-        command.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $login=@{}; foreach($k in @('USERNAME','USERDOMAIN','USERPROFILE','HOMEDRIVE','HOMEPATH','APPDATA','LOCALAPPDATA')){$v=[Environment]::GetEnvironmentVariable($k,'Process'); if($null -ne $v){$login[$k]=$v}}; $machine=[Environment]::GetEnvironmentVariables('Machine'); $user=[Environment]::GetEnvironmentVariables('User'); foreach($k in $machine.Keys){[Environment]::SetEnvironmentVariable($k,[string]$machine[$k],'Process')}; foreach($k in $user.Keys){if($k -ne 'Path'){[Environment]::SetEnvironmentVariable($k,[string]$user[$k],'Process')}}; foreach($k in $login.Keys){[Environment]::SetEnvironmentVariable($k,[string]$login[$k],'Process')}; $env:Path=[Environment]::ExpandEnvironmentVariables(([string]$machine['Path'])+';'+([string]$user['Path'])); foreach($p in @($PROFILE.AllUsersAllHosts,$PROFILE.AllUsersCurrentHost,$PROFILE.CurrentUserAllHosts,$PROFILE.CurrentUserCurrentHost)){if(Test-Path -LiteralPath $p){. $p}}; $env:Path=(($env:Path -split ';') | Where-Object {$_ -ne ''}) -join ';'; $e=@{}; Get-ChildItem Env: | ForEach-Object {$e[$_.Name]=$_.Value}; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::Out.Write('__ALOOK_ENV_V1__'+($e | ConvertTo-Json -Compress))"]);
+        let lines: Vec<String> = serde_json::from_str(include_str!(
+            "../../../daemon/src/cli/windows-shell-environment.json"
+        ))
+        .expect("invalid bundled Windows shell script");
+        let script = lines.join("; ");
+        command.args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script.as_str(),
+        ]);
     } else {
         let shell = environment
             .iter()
@@ -1337,38 +1306,6 @@ mod tests {
             daemon_endpoints_for(false),
             ("https://alook.ai", "wss://alook.ai/api/ws/community-daemon")
         );
-    }
-
-    #[test]
-    fn development_daemon_endpoints_accept_only_loopback_origins() {
-        assert_eq!(
-            development_daemon_endpoint(None, "http://localhost:3000", "http"),
-            "http://localhost:3000"
-        );
-        for endpoint in [
-            "http://localhost:4340",
-            "http://127.0.0.1:4340",
-            "http://[::1]:4340",
-        ] {
-            assert_eq!(
-                development_daemon_endpoint(Some(endpoint), "unused", "http"),
-                endpoint
-            );
-        }
-        for endpoint in [
-            "https://example.com",
-            "http://localhost/path",
-            "http://user:pass@localhost",
-            "http://localhost?query=1",
-            "ws://localhost:4340",
-        ] {
-            assert!(std::panic::catch_unwind(|| development_daemon_endpoint(
-                Some(endpoint),
-                "unused",
-                "http"
-            ))
-            .is_err());
-        }
     }
 
     #[test]

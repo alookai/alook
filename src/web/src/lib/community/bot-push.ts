@@ -20,43 +20,40 @@ export type MachineUpdatePushResult =
   | { sent: number; deliveryError: false }
   | { sent: 0; deliveryError: true }
 
-export type MachineStopPushResult =
+export type MachineLifecyclePushResult =
   | { sent: number; unsupported: number; deliveryError: false }
   | { sent: 0; unsupported: 0; deliveryError: true }
 
-export async function pushMachineStop(env: Env, machineId: string): Promise<MachineStopPushResult> {
+async function readMachineLifecycleDelivery(response: Response): Promise<MachineLifecyclePushResult> {
+  if (!response.ok) return { sent: 0, unsupported: 0, deliveryError: true }
+  const data: unknown = await response.json()
+  if (
+    typeof data !== "object" || data === null || !("sent" in data) || !("unsupported" in data)
+    || typeof data.sent !== "number" || !Number.isSafeInteger(data.sent) || data.sent < 0
+    || typeof data.unsupported !== "number" || !Number.isSafeInteger(data.unsupported) || data.unsupported < 0
+  ) return { sent: 0, unsupported: 0, deliveryError: true }
+  return { sent: data.sent, unsupported: data.unsupported, deliveryError: false }
+}
+
+export async function pushMachineStop(env: Env, machineId: string): Promise<MachineLifecyclePushResult> {
   try {
     const response = await wsDoFetch(env,
       `/community-machine/by-id/${encodeURIComponent(machineId)}/forward-stop`,
       { method: "POST" }, { label: machineId, type: "machine:stop" })
-    if (!response.ok) return { sent: 0, unsupported: 0, deliveryError: true }
-    const data: unknown = await response.json()
-    if (
-      typeof data !== "object" || data === null || !("sent" in data) || !("unsupported" in data)
-      || typeof data.sent !== "number" || !Number.isSafeInteger(data.sent) || data.sent < 0
-      || typeof data.unsupported !== "number" || !Number.isSafeInteger(data.unsupported) || data.unsupported < 0
-    ) return { sent: 0, unsupported: 0, deliveryError: true }
-    return { sent: data.sent, unsupported: data.unsupported, deliveryError: false }
+    return await readMachineLifecycleDelivery(response)
   } catch (err) {
     log.warn("machine:stop push failed", { machineId, err: String(err) })
     return { sent: 0, unsupported: 0, deliveryError: true }
   }
 }
 
-export async function pushMachineRefresh(env: Env, machineId: string, requestId: string): Promise<MachineStopPushResult> {
+export async function pushMachineRefresh(env: Env, machineId: string, requestId: string): Promise<MachineLifecyclePushResult> {
   try {
     const response = await wsDoFetch(env,
       `/community-machine/by-id/${encodeURIComponent(machineId)}/forward-refresh`,
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "machine:refresh", requestId }) },
       { label: machineId, type: "machine:refresh" })
-    if (!response.ok) return { sent: 0, unsupported: 0, deliveryError: true }
-    const data: unknown = await response.json()
-    if (
-      typeof data !== "object" || data === null || !("sent" in data) || !("unsupported" in data)
-      || typeof data.sent !== "number" || !Number.isSafeInteger(data.sent) || data.sent < 0
-      || typeof data.unsupported !== "number" || !Number.isSafeInteger(data.unsupported) || data.unsupported < 0
-    ) return { sent: 0, unsupported: 0, deliveryError: true }
-    return { sent: data.sent, unsupported: data.unsupported, deliveryError: false }
+    return await readMachineLifecycleDelivery(response)
   } catch {
     log.warn("machine:refresh push failed", { machineId })
     return { sent: 0, unsupported: 0, deliveryError: true }

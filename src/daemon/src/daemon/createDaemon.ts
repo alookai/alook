@@ -330,7 +330,6 @@ export interface CreateDaemonOptions {
   handleDiagnosticCommand?: (command: DiagnosticCollectCommand) => void | Promise<void>;
   /** Machine-level lifecycle command; consumed before bot observers/router. */
   refreshRequestId?: string;
-  refreshResult?: MachineRefreshResult;
   handleRefresh?: (requestId: string) => Promise<MachineRefreshResult | undefined>;
   handleSelfUpdate?: () => void | Promise<void>;
   onStopRequested?: () => void;
@@ -1128,7 +1127,6 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     runtimeReport: opts.runtimeReport,
     supportsMachineStop: typeof opts.onStopRequested === "function",
     supportsMachineRefresh: typeof opts.handleRefresh === "function",
-    refreshResult: opts.refreshResult,
     refreshRequestId: opts.refreshRequestId,
     hostname: opts.hostname,
     platform: opts.platform,

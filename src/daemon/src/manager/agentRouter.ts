@@ -86,7 +86,6 @@ export interface AgentRouterOpts {
   supportsMachineStop?: boolean;
   supportsMachineRefresh?: boolean;
   refreshRequestId?: string;
-  refreshResult?: MachineRefreshResult;
   hostname?: string;
   platform?: string;
   arch?: string;
@@ -190,6 +189,7 @@ function buildNapRewakePrompt(handoff: string): string {
 }
 
 export class AgentRouter {
+  private refreshResult?: MachineRefreshResult;
   private readonly running = new Set<string>();
   private readonly pendingAgentEvents = new Map<string, Promise<void>>();
   // WakeCoordinator may deliberately re-admit the same semantic watermark
@@ -256,7 +256,7 @@ export class AgentRouter {
     return {
       runtimeReport: [...this.runtimes.values()],
       ...(this.opts.refreshRequestId ? { refreshRequestId: this.opts.refreshRequestId } : {}),
-      ...(this.opts.refreshResult ? { refreshResult: this.opts.refreshResult } : {}),
+      ...(this.refreshResult ? { refreshResult: this.refreshResult } : {}),
       capabilities: [...(this.opts.supportsMachineRefresh ? [MACHINE_REFRESH_CAPABILITY] : []), ...(this.opts.channel.reportPiiResult ? [PII_CAPABILITY] : []), CONTROL_HEARTBEAT_CAPABILITY, ...(this.opts.supportsMachineStop ? [MACHINE_STOP_CAPABILITY] : []), ...(this.opts.channel.reportRuntimeModels ? [RUNTIME_MODEL_DISCOVERY_CAPABILITY] : [])],
       runningAgents: [...this.running],
       hostname: this.opts.hostname,
@@ -270,7 +270,7 @@ export class AgentRouter {
   }
 
   reportRefreshResult(result: MachineRefreshResult): void {
-    this.opts.refreshResult = result;
+    this.refreshResult = result;
     this.opts.channel.sendReady?.(this.buildReady());
   }
 
