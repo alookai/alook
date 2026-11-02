@@ -22,6 +22,7 @@ import { UserBarExtensionDrawer } from "./user-bar-extension-drawer"
 import { UserBarExtensionSlot } from "./user-bar-extension-slot"
 import { UserBarPopover } from "./user-bar-popover"
 import { useHydratedClient } from "./use-hydrated-client"
+import styles from "./user-bar.module.css"
 import type {
   UserBarExtensionKind,
   UserBarUpdatePhase,
@@ -130,7 +131,8 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
         ref={baseRef}
         data-slot="community-user-bar-base"
         className={cn(
-          "flex h-12 items-center gap-3 border border-border/40 bg-muted px-2",
+          styles.base,
+          "flex items-center gap-3 border border-border/40 bg-muted px-2",
           joinedMobileExtension
             ? "rounded-b-xl"
             : "rounded-xl",
@@ -171,13 +173,15 @@ export function UserBarSkeleton() {
       aria-hidden
       className="@container/user-bar w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-2 sm:pb-3"
     >
-      <div className="flex h-12 items-center gap-3 rounded-xl border border-border/40 bg-muted px-2">
+      <div className={cn(styles.base, "flex items-center gap-3 rounded-xl border border-border/40 bg-muted px-2")}>
         <div className="flex min-w-0 flex-1 items-center justify-between gap-2 sm:@max-[224px]/user-bar:gap-1">
-          <Skeleton className="size-7 shrink-0 rounded-full" />
-          <Skeleton className="h-3.5 min-w-0 flex-1 rounded sm:@max-[224px]/user-bar:hidden" />
+          <div className={styles.target}><Skeleton className={cn(styles.visual, "rounded-full")} /></div>
+          <div className={cn(styles.name, "flex min-w-0 flex-1 items-center sm:@max-[224px]/user-bar:hidden")}>
+            <Skeleton className="h-3.5 w-full rounded" />
+          </div>
           <div className="flex shrink-0 items-center gap-1">
-            <Skeleton className="size-11 shrink-0 rounded-lg sm:size-7" />
-            <Skeleton className="size-11 shrink-0 rounded-lg sm:size-7" />
+            <div className={styles.target}><Skeleton className={cn(styles.visual, "rounded-lg")} /></div>
+            <div className={styles.target}><Skeleton className={cn(styles.visual, "rounded-lg")} /></div>
           </div>
         </div>
       </div>
@@ -229,10 +233,10 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
         }
         if (!extension) closeInboxForAction()
         onOpenProfile?.(user.name, e, undefined, user.id)
-      }} className="shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-muted focus-visible:outline-none" aria-label={hasRunningBots
+      }} className={cn(styles.target, "rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 focus-visible:ring-offset-muted focus-visible:outline-none sm:focus-visible:ring-offset-4")} aria-label={hasRunningBots
         ? `Open profile. ${runningBotCount} running ${runningBotCount === 1 ? "bot" : "bots"}.`
         : "Open profile"} aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? "community-user-bar-extension" : undefined}>
-        <span className="relative grid size-7 place-items-center rounded-full">
+        <span className={cn(styles.visual, "relative grid place-items-center rounded-full")}>
           {hasRunningBots && (
             <>
               <span
@@ -259,7 +263,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
         }
         if (!extension) closeInboxForAction()
         onOpenProfile?.(user.name, e, undefined, user.id)
-      }} className="min-w-0 flex-1 text-left rounded sm:@max-[224px]/user-bar:hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? "community-user-bar-extension" : undefined}>
+      }} className={cn(styles.name, "min-w-0 flex-1 text-left rounded sm:@max-[224px]/user-bar:hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")} aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? "community-user-bar-extension" : undefined}>
         <div data-testid={tid.userBarName} className="truncate text-sm font-medium leading-tight">{user.name}</div>
       </button>
       <div className="flex shrink-0 items-center gap-1">
@@ -268,7 +272,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             ref={updateBadgeRef}
             type="button"
             data-testid={tid.daemonUpdateBadge}
-            className="grid size-11 place-items-center rounded-lg bg-secondary text-secondary-foreground hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7"
+            className={cn(styles.target, styles.squareButton, styles.update, "rounded-lg text-secondary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
             aria-label={updateBadgeLabel}
             onClick={() => {
               onRequestExtensionFocus("update")
@@ -287,10 +291,13 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             type="button"
             data-testid={tid.inboxTrigger}
             className={cn(
-              "relative grid size-11 place-items-center rounded-lg text-muted-foreground aria-expanded:bg-accent aria-expanded:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7",
+              styles.target,
+              styles.squareButton,
+              styles.inbox,
+              "rounded-lg text-muted-foreground aria-expanded:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
               mobile
                 ? "hover:text-foreground active:text-foreground"
-                : "hover:bg-accent hover:text-foreground",
+                : cn(styles.hoverBackground, "hover:text-foreground"),
             )}
             aria-label={mobile ? (inboxOpen || inboxOpening ? "Close Inbox" : "Open Inbox") : "Inbox"}
             aria-busy={inboxOpening || undefined}
@@ -319,10 +326,12 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             onEditProfile?.()
           }}
           className={cn(
-            "grid size-11 place-items-center rounded-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7",
+            styles.target,
+            styles.squareButton,
+            "rounded-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
             breakpoint === "mobile"
               ? "hover:text-foreground active:text-foreground"
-              : "hover:bg-accent hover:text-foreground",
+              : cn(styles.hoverBackground, "hover:text-foreground"),
           )}
           aria-label="User settings"
           data-testid={tid.userSettingsOpen}

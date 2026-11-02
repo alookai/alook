@@ -404,7 +404,7 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     const readTriggerSurfaceStyle = () => inboxTrigger.evaluate((element) => {
       const style = getComputedStyle(element)
       return {
-        backgroundColor: style.backgroundColor,
+        backgroundColor: getComputedStyle(element, "::before").backgroundColor,
         color: style.color,
         borderWidth: style.borderWidth,
       }

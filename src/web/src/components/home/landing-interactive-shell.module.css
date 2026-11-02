@@ -40,7 +40,9 @@
 .skeletonChannel { display: flex; align-items: center; gap: 8px; height: 36px; }
 .skeletonUser { position: absolute; bottom: 0; left: 0; width: 296px; padding: 0 8px 12px; }
 .skeletonUserInner { display: flex; align-items: center; gap: 8px; height: 48px; padding-inline: 8px; border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--muted); }
-.skeletonUserAction { width: 28px; height: 28px; flex-shrink: 0; background: color-mix(in oklch, var(--background) 60%, transparent); }
+.skeletonUserActions { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
+.skeletonUserTarget { display: grid; flex-shrink: 0; place-items: center; width: 28px; height: 28px; }
+.skeletonUserVisual { width: 28px; height: 28px; }
 .skeletonChat { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .skeletonMessages { display: flex; flex: 1; flex-direction: column; gap: 32px; overflow: hidden; padding: 32px 24px; }
 .skeletonMessage { display: flex; gap: 16px; }
@@ -50,7 +52,7 @@
   .skeletonSidebar { flex: 1; border-right: 0; }
   .skeletonChat { display: none; }
   .skeletonUser { width: 100%; padding-inline: 12px; }
-  .skeletonUserAction { width: 44px; height: 44px; }
+  .skeletonUserTarget { width: 44px; height: 44px; }
 }
 
 :global(html):has(.previewRoot) :global(.chat-input-line-height),

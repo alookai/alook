@@ -175,7 +175,7 @@ test("Update, Inbox, and viewer Profile share one desktop User Bar pop-up", asyn
   const readInboxTriggerStyle = () => inboxTrigger.evaluate((element) => {
     const style = getComputedStyle(element)
     return {
-      backgroundColor: style.backgroundColor,
+      backgroundColor: getComputedStyle(element, "::before").backgroundColor,
       color: style.color,
     }
   })

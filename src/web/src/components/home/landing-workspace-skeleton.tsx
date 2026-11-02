@@ -15,9 +15,12 @@ export function LandingWorkspaceSkeleton() {
         </div>
       </div>
       <div className={styles.skeletonUser}><div className={styles.skeletonUserInner}>
-        <Skeleton className="size-7 shrink-0 rounded-full bg-background/60" />
+        <div className={styles.skeletonUserTarget}><Skeleton className={`${styles.skeletonUserVisual} rounded-full bg-background/60`} /></div>
         <Skeleton className="h-3 min-w-0 flex-1 bg-background/60" />
-        <Skeleton className={styles.skeletonUserAction} /><Skeleton className={styles.skeletonUserAction} />
+        <div className={styles.skeletonUserActions}>
+          <div className={styles.skeletonUserTarget}><Skeleton className={`${styles.skeletonUserVisual} rounded-lg bg-background/60`} /></div>
+          <div className={styles.skeletonUserTarget}><Skeleton className={`${styles.skeletonUserVisual} rounded-lg bg-background/60`} /></div>
+        </div>
       </div></div>
       <div className={styles.skeletonChat}>
         <div className={styles.skeletonHeader}><Skeleton className="size-5" /><Skeleton className="h-4 w-24" /></div>
