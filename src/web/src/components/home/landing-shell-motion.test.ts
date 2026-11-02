@@ -41,13 +41,13 @@ describe("landing shell motion timeline", () => {
     ])
   })
 
-  it("shows the real pair-sheet steps before the machine and born bot", () => {
+  it("shows the real pair-sheet steps before the connected machine", () => {
     expect(sceneSnapshot("machine", 1)).toMatchObject({ machineState: "empty", pairSheet: "closed", focus: "connect" })
     expect(sceneSnapshot("machine", 2)).toMatchObject({ machineState: "connecting", pairSheet: "command", focus: "pair-step-1" })
     expect(sceneSnapshot("machine", 3)).toMatchObject({ machineState: "connecting", pairSheet: "waiting", focus: "pair-step-2" })
     expect(sceneSnapshot("machine", 4)).toMatchObject({ machineState: "online", pairSheet: "connected", focus: "pair-connected" })
     expect(sceneSnapshot("machine", 5)).toMatchObject({ machineState: "online", pairSheet: "closed", focus: "machine" })
-    expect(sceneSnapshot("machine", 6)).toMatchObject({ machineState: "bot-born", pairSheet: "closed", focus: "born-bot" })
+    expect(sceneSnapshot("machine", 6)).toMatchObject({ machineState: "online", pairSheet: "closed", focus: null })
   })
 
   it("uses the five providers reported by the landing machine fixture", () => {
@@ -137,7 +137,7 @@ describe("landing shell motion timeline", () => {
     expect(sceneSnapshot("server", 1).camera.scale).toBe(1.22)
     expect(sceneSnapshot("server", 6).camera.scale).toBe(1)
     expect(sceneSnapshot("machine", 2).camera.scale).toBe(1.22)
-    expect(sceneSnapshot("machine", 7).camera.scale).toBe(1)
+    expect(sceneSnapshot("machine", 6).camera.scale).toBe(1)
     expect(sceneSnapshot("provider", 3).camera.scale).toBe(1.22)
     expect(sceneSnapshot("provider", 5).camera.scale).toBe(1)
     expect(sceneSnapshot("provider", 6).camera.scale).toBe(1.18)
@@ -153,7 +153,7 @@ describe("landing shell motion timeline", () => {
   it("clamps out-of-range beats to a valid deterministic snapshot", () => {
     expect(sceneSnapshot("server", -1).beat).toBe(0)
     expect(sceneSnapshot("server", 99).beat).toBe(SCENE_MAX_BEAT.server)
-    expect(sceneSnapshot("machine", 99).machineState).toBe("bot-born")
+    expect(sceneSnapshot("machine", 99).machineState).toBe("online")
     expect(sceneSnapshot("spaces", 99)).toMatchObject({ room: "play", inviteSent: true })
     expect(sceneSnapshot("identity", 99)).toMatchObject({ room: "play", inviteOpen: false })
   })
@@ -162,7 +162,7 @@ describe("landing shell motion timeline", () => {
     expect(sceneDurationMs("server")).toBe(
       SCENE_MAX_BEAT.server * SCENE_BEAT_DURATION_MS + SCENE_FINAL_HOLD_MS,
     )
-    expect(sceneDurationMs("machine")).toBe(12_900)
+    expect(sceneDurationMs("machine")).toBe(11_400)
     expect(sceneDurationMs("provider")).toBe(15_900)
     expect(sceneDurationMs("spaces")).toBe(20_400)
     expect(sceneDurationMs("identity")).toBe(20_400)

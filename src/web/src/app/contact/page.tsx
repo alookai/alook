@@ -1,9 +1,9 @@
 import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata"
 import Image from "next/image"
-import Link from "next/link"
 import { ArrowUpRight, CalendarDays, Mail } from "lucide-react"
 import { SiDiscord, SiX } from "@icons-pack/react-simple-icons"
+import { PublicSiteHeader } from "@/components/home/public-site-header"
 import { LandingFooter } from "@/components/home/landing-footer"
 import landing from "@/components/home/landing-page.module.css"
 import styles from "./contact.module.css"
@@ -23,13 +23,7 @@ const contacts = [
 export default function ContactPage() {
   return (
     <div className={`landing ${landing.page} ${styles.page}`}>
-      <header className={styles.header}>
-        <Link href="/" className={landing.brand} aria-label="Alook home">
-          <Image src="/alook.svg" alt="" width={28} height={28} />
-          <span>Alook</span>
-        </Link>
-        <Link href="/" className={styles.back}>Back to home</Link>
-      </header>
+      <PublicSiteHeader currentPath="/contact" />
       <main className={styles.main}>
         <section className={`${landing.closingCta} ${styles.sheet}`} aria-labelledby="contact-heading">
           <h1 id="contact-heading">Let’s talk.</h1>

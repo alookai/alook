@@ -81,7 +81,7 @@ describe("analytics consent browser contract", () => {
     expect(Reflect.get(browser, "ga-disable-G-STBCL8F4ZY")).toBe(true)
   })
 
-  it.each(["/", "/pricing", "/contact", "/privacy", "/templates", "/templates/public", "/blog", "/blog/public/child"])("retains public path %s", path => {
+  it.each(["/", "/download", "/pricing", "/contact", "/privacy", "/templates", "/templates/public", "/blog", "/blog/public/child"])("retains public path %s", path => {
     expect(isPublicAnalyticsPath(path)).toBe(true)
   })
 

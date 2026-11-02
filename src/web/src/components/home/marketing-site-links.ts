@@ -1,4 +1,5 @@
 export const MARKETING_SITE_LINKS = [
+  { href: "/download", label: "Download", usesDocumentNavigation: false },
   { href: "/pricing", label: "Pricing", usesDocumentNavigation: false },
   { href: "/blog", label: "Blog", usesDocumentNavigation: true },
   { href: "/contact", label: "Contact", usesDocumentNavigation: false },

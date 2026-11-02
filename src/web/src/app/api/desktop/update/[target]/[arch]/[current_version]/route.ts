@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
+import { compareVersions, fetchGitHubReleases, parseStableSemver, RELEASE_CACHE_SECONDS, type GitHubAsset, type GitHubRelease } from "@/lib/github-releases";
 
-const GITHUB_REPO = "alookai/alook";
 const TAG_PREFIX = "v";
-const CACHE_TTL = 300;
+const CACHE_TTL = RELEASE_CACHE_SECONDS;
 
 interface PlatformSpec {
   suffix: string;
@@ -40,11 +40,6 @@ const PLATFORM_MAP: Record<string, PlatformSpec> = {
   },
 };
 
-interface GitHubAsset {
-  name: string;
-  browser_download_url: string;
-}
-
 function findPlatformBinary(assets: GitHubAsset[], spec: PlatformSpec) {
   return assets.find(
     (asset) =>
@@ -62,22 +57,6 @@ function findPlatformAssets(assets: GitHubAsset[], spec: PlatformSpec) {
   return binary && signature ? { binary, signature } : null;
 }
 
-function parseStableSemver(version: string): [number, number, number] | null {
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
-    version,
-  );
-  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
-}
-
-function compareVersions(a: [number, number, number], b: [number, number, number]): number {
-  for (let i = 0; i < 3; i++) {
-    const na = a[i];
-    const nb = b[i];
-    if (na !== nb) return na - nb;
-  }
-  return 0;
-}
-
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ target: string; arch: string; current_version: string }> },
@@ -91,28 +70,10 @@ export async function GET(
     return new NextResponse(null, { status: 204 });
   }
 
-  const res = await fetch(
-    `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=100`,
-    {
-      headers: {
-        Accept: "application/vnd.github.v3+json",
-        "User-Agent": "alook-updater",
-      },
-      next: { revalidate: CACHE_TTL },
-    },
-  );
+  const res = await fetchGitHubReleases();
 
   if (!res.ok) {
     return NextResponse.json({ error: "Failed to fetch releases" }, { status: 502 });
-  }
-
-  interface GitHubRelease {
-    tag_name: string;
-    draft: boolean;
-    prerelease: boolean;
-    assets: GitHubAsset[];
-    body: string | null;
-    published_at: string | null;
   }
 
   const releases = (await res.json()) as GitHubRelease[];
