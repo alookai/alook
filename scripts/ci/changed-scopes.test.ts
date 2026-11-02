@@ -116,6 +116,51 @@ function gitDiffFixture(changedPath = "src/app/src/commands/inbox.ts") {
 }
 
 describe("canonical execution plan", () => {
+  it.each([
+    {
+      path: "src/web/src/hooks/community/use-friends.ts",
+      owner: "@alook/web",
+      unitRoot: "src/web",
+      consumers: ["04-dm.spec.ts", "07-invite.spec.ts"],
+    },
+    {
+      path: "src/web/src/hooks/community/community-ws/presence-machine-events.ts",
+      owner: "@alook/web",
+      unitRoot: "src/web",
+      consumers: ["07-invite.spec.ts", "30-bot-profile-audit-preview.spec.ts"],
+    },
+    {
+      path: "src/ws-do/src/ws-durable/presence-typing.ts",
+      owner: "@alook/ws-do",
+      unitRoot: "src/ws-do",
+      consumers: ["07-invite.spec.ts"],
+    },
+  ])("keeps cross-feature browser consumers for $path through the existing full UI fallback", ({ path, owner, unitRoot, consumers }) => {
+    const result = plan([path])
+    expect(result.full).toBe(false)
+    expect(result.execution_mode).toBe("affected")
+    expect(result.packages.direct).toEqual([owner])
+    expect(result.suites.unit).toContain(unitRoot)
+    expect(result.ui.specs).toEqual(["all"])
+    const matrix = JSON.parse(projectPlan(result).e2e_matrix)
+    expect(matrix.include.flatMap((entry) => entry.specs)).toEqual(expect.arrayContaining(
+      consumers.map((spec) => `src/test/e2e-ui/${spec}`),
+    ))
+    expect(plan(["src/web/src/components/community/shell/user-bar.tsx", path]).ui.specs).toEqual(["all"])
+    const main = plan([path], { mainSmoke: true })
+    expect(main.execution_mode).toBe("main-smoke")
+    expect(main.ui.specs).toEqual([...loadScopeManifest().ui.contracts.smoke].sort())
+  })
+
+  it("selects the real invite journey for the localized invitation dialog", () => {
+    const result = plan(["src/web/src/components/community/social/invite-dialog.tsx"])
+    expect(result.full).toBe(false)
+    expect(result.ui.specs).not.toContain("all")
+    expect(result.ui.specs).toContain("07-invite.spec.ts")
+    expect(JSON.parse(projectPlan(result).e2e_matrix).include.flatMap((entry) => entry.specs))
+      .toContain("src/test/e2e-ui/07-invite.spec.ts")
+  })
+
   it("unions localized UI features with key journeys without selecting unrelated browser groups", () => {
     const source = "src/web/src/components/community/shell/user-bar.tsx"
     const result = plan([source])

@@ -288,10 +288,10 @@
         "name": "social",
         "prefixes": [
           "src/web/src/components/community/social/",
-          "src/web/src/hooks/community/use-friends",
           "src/web/src/hooks/community/use-profile"
         ],
         "specs": [
+          "07-invite.spec.ts",
           "11-profile-ui-stability.spec.ts",
           "12-friends.spec.ts",
           "29-community-bot-avatar-cleanup.spec.ts",
@@ -356,25 +356,6 @@
           "69-table-fullscreen-scroll.spec.ts",
           "70-renderer-action-themes.spec.ts",
           "native-keyboard-viewport-projection.spec.ts"
-        ]
-      },
-      {
-        "name": "realtime",
-        "prefixes": [
-          "src/ws-do/src/ws-durable/presence-typing",
-          "src/web/src/hooks/community/community-ws/presence-"
-        ],
-        "specs": [
-          "03-realtime-multiuser.spec.ts",
-          "14-forum-post-tags-presence.spec.ts",
-          "25-community-ws-reconnect-overlay.spec.ts",
-          "28-thread-realtime-audiences.spec.ts",
-          "29-multi-device-read-state.spec.ts",
-          "32-mobile-ws-foreground-validation.spec.ts",
-          "40-server-rail-unread.spec.ts",
-          "41-account-unread-projection.spec.ts",
-          "42-versioned-avatar-identity.spec.ts",
-          "50-daemon-update-notice.spec.ts"
         ]
       },
       {
