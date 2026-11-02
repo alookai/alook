@@ -189,6 +189,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       const communityStore = runtime.ui
       const sub = communityStore.get().subscription
       const wsStore = runtime.ws
+      let machineBecameOnline = false
       // A DM is a channel now — every message/typing/reaction event carries a
       // single `channelId`. The subscription still tracks two slots so the
       // handler can route a DM channel's events into the `dmMessages` cache vs
@@ -212,6 +213,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         sub,
         viewerUserIdRef,
         matchesFocus,
+        onMachineOnline: () => { machineBecameOnline = true },
       })
       const reconcileAfterBatchFailure = (
         reason: "digest-conflict" | "projection-failed",
@@ -296,7 +298,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
           decoded.batch.operationId,
           decoded.batch.operationDigest,
         )
-        if (hasCommunityFunnelTrigger(decoded.events)) {
+        if (machineBecameOnline || hasCommunityFunnelTrigger(decoded.events)) {
           void drainCommunityFunnelEvents()
           void drainInvitedHumanJoined(runtime.lifecycle)
         }
@@ -318,7 +320,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         return
       }
       await dispatchCommunityWsEvent(decoded.event, context("single"))
-      if (hasCommunityFunnelTrigger([decoded.event])) {
+      if (machineBecameOnline || hasCommunityFunnelTrigger([decoded.event])) {
         void drainCommunityFunnelEvents()
         void drainInvitedHumanJoined(runtime.lifecycle)
       }
