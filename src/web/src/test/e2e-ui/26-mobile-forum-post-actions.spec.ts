@@ -70,8 +70,8 @@ async function rect(locator: Locator): Promise<Rect | null> {
 }
 
 async function postActionGeometry(card: Locator, postId: string) {
-  await expectForumPostSpacing(card, postId)
-  return card.evaluate((element, titleId) => {
+  const spacing = await expectForumPostSpacing(card, postId)
+  const geometry = await card.evaluate((element, titleId) => {
     const readRect = (target: Element | null) => {
       if (!target) throw new Error("Missing Forum geometry target")
       const box = target.getBoundingClientRect()
@@ -86,6 +86,41 @@ async function postActionGeometry(card: Locator, postId: string) {
       virtualHeight: readRect(row?.parentElement ?? null).height,
     }
   }, tid.forumThreadTitle(postId))
+  return { ...geometry, spacing }
+}
+
+async function expectContinuousForumHover(page: Page, card: Locator, actions: Locator, testInfo: TestInfo, width: number) {
+  const item = card.locator("..")
+  await expect(item).toHaveAttribute("data-slot", "community-forum-list-item")
+  const settle = () => item.evaluate(async element => {
+    await Promise.all(element.getAnimations().map(animation => animation.finished))
+  })
+  await settle()
+  const background = await item.evaluate(element => getComputedStyle(element).backgroundColor)
+  expect(background).not.toBe("rgba(0, 0, 0, 0)")
+  const points = await item.evaluate(element => {
+    const bounds = element.getBoundingClientRect()
+    const post = element.querySelector('[data-page-swipe-navigation-row]')!.getBoundingClientRect()
+    const line = element.querySelector(':scope > [data-slot="separator"]')?.getBoundingClientRect()
+    const x = bounds.left + bounds.width / 2
+    return line ? [
+      { label: "above-separator", x, y: (bounds.top + line.top) / 2 },
+      { label: "separator", x, y: (line.top + line.bottom) / 2 },
+      { label: "below-separator", x, y: (line.bottom + post.top) / 2 },
+    ] : [{ label: "first-prefix", x, y: (bounds.top + post.top) / 2 }]
+  })
+  const samples: Array<{ label: string; x: number; y: number; background: string }> = []
+  for (const point of points) {
+    await page.mouse.move(point.x, point.y)
+    await settle()
+    await expect(actions).toHaveCSS("opacity", "1")
+    await expect(item).toHaveCSS("background-color", background)
+    samples.push({ ...point, background: await item.evaluate(element => getComputedStyle(element).backgroundColor) })
+  }
+  await testInfo.attach(`continuous-forum-hover-${width}.json`, {
+    body: JSON.stringify({ width, background, samples }), contentType: "application/json",
+  })
+  await card.hover()
 }
 
 async function expectForumPostSpacing(card: Locator, postId: string) {
@@ -98,7 +133,18 @@ async function expectForumPostSpacing(card: Locator, postId: string) {
     const separator = item.querySelector(':scope > [data-slot="separator"]')
     const preview = element.querySelector('[data-slot="community-forum-post-preview"]')!
     const title = element.querySelector(`[data-testid="${ids.title}"]`)!
+    const titleGrid = title.parentElement!
+    const titleGridStyle = getComputedStyle(titleGrid)
+    const firstRowHeight = Number.parseFloat(titleGridStyle.gridTemplateRows)
+    const firstRowTop = titleGrid.getBoundingClientRect().top
+      + Number.parseFloat(titleGridStyle.borderTopWidth) + Number.parseFloat(titleGridStyle.paddingTop)
+    const firstRowBottom = firstRowTop + firstRowHeight
     const metadata = element.lastElementChild!
+    const author = metadata.querySelector('[data-slot="community-forum-post-author"]')!
+    const authorStyle = getComputedStyle(author)
+    const authorBox = author.getBoundingClientRect()
+    const titleBox = title.getBoundingClientRect()
+    const previewBox = preview.getBoundingClientRect()
     const previous = virtual.parentElement?.querySelector(`[data-index="${index - 1}"] [data-page-swipe-navigation-row]`)
     const box = element.getBoundingClientRect()
     const line = separator?.getBoundingClientRect()
@@ -110,9 +156,21 @@ async function expectForumPostSpacing(card: Locator, postId: string) {
       listPadding: [listStyle.paddingTop, listStyle.paddingRight, listStyle.paddingBottom, listStyle.paddingLeft],
       postPadding: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft],
       postBorder: style.borderBottomWidth,
-      titleHeight: title.getBoundingClientRect().height,
-      titleToPreview: preview.getBoundingClientRect().top - title.getBoundingClientRect().bottom,
-      previewToMetadata: metadata.getBoundingClientRect().top - preview.getBoundingClientRect().bottom,
+      firstRowHeight,
+      firstItemTopGap: box.top - item.getBoundingClientRect().top,
+      firstRowToPreview: previewBox.top - firstRowBottom,
+      previewToMetadata: metadata.getBoundingClientRect().top - previewBox.bottom,
+      layout: {
+        firstRow: { top: firstRowTop, bottom: firstRowBottom, height: firstRowHeight },
+        title: { top: titleBox.top, bottom: titleBox.bottom, height: titleBox.height, lineHeight: getComputedStyle(title).lineHeight },
+        preview: { top: previewBox.top, bottom: previewBox.bottom, height: previewBox.height, lineHeight: getComputedStyle(preview).lineHeight },
+      },
+      author: {
+        width: authorBox.width, height: authorBox.height,
+        cap: Math.min(Number.parseFloat(getComputedStyle(document.documentElement).fontSize) * 12, metadata.getBoundingClientRect().width * 0.4),
+        whiteSpace: authorStyle.whiteSpace, overflow: authorStyle.overflow, textOverflow: authorStyle.textOverflow,
+        lineHeight: Number.parseFloat(authorStyle.lineHeight), text: author.textContent, title: author.getAttribute("title"),
+      },
       itemHeight: item.getBoundingClientRect().height,
       virtualHeight: virtual.getBoundingClientRect().height,
       endsWithPost: item.lastElementChild === element,
@@ -129,25 +187,34 @@ async function expectForumPostSpacing(card: Locator, postId: string) {
   expect(geometry.listPadding).toEqual(["0px", "0px", "0px", "0px"])
   expect(geometry.postPadding).toEqual(["0px", "16px", "0px", "16px"])
   expect(geometry.postBorder).toBe("0px")
-  expect(geometry.titleHeight).toBeGreaterThanOrEqual(32)
-  expect(geometry.titleToPreview).toBeCloseTo(0, 1)
+  expect(geometry.firstRowHeight).toBeGreaterThanOrEqual(32)
+  expect(geometry.firstRowToPreview).toBeCloseTo(0, 1)
   expect(geometry.previewToMetadata).toBeCloseTo(8, 1)
   expect(geometry.virtualHeight).toBeCloseTo(geometry.itemHeight, 1)
   expect(geometry.endsWithPost).toBe(true)
-  if (geometry.index === 0) expect(geometry.separator).toBeNull()
-  else {
+  expect(geometry.author.width).toBeLessThanOrEqual(geometry.author.cap + 0.05)
+  expect(geometry.author.whiteSpace).toBe("nowrap")
+  expect(geometry.author.overflow).toBe("hidden")
+  expect(geometry.author.textOverflow).toBe("ellipsis")
+  expect(geometry.author.height).toBeLessThanOrEqual(geometry.author.lineHeight + 0.05)
+  expect(geometry.author.title).toBe(geometry.author.text)
+  if (geometry.index === 0) {
+    expect(geometry.separator).toBeNull()
+    expect(geometry.firstItemTopGap).toBeCloseTo(6.6, 1)
+  } else {
     expect(geometry.separator).not.toBeNull()
     const line = geometry.separator!
     expect(line.height).toBe(1)
     expect(line.leftDifference).toBeCloseTo(0, 1)
     expect(line.rightDifference).toBeCloseTo(0, 1)
     expect(line.marginTop).toBeCloseTo(6.6, 1)
-    expect(line.marginBottom).toBe(0)
-    expect(line.afterGap).toBeCloseTo(0, 1)
+    expect(line.marginBottom).toBeCloseTo(6.6, 1)
+    expect(line.afterGap).toBeCloseTo(6.6, 1)
     if (line.previousGap !== null) expect(line.previousGap).toBeCloseTo(6.6, 1)
     expect(line.sameColorToken).toBe(true)
     expect(line.outsidePost).toBe(true)
   }
+  return geometry
 }
 
 async function expectNewPostGeometry(
@@ -370,7 +437,10 @@ async function expectNarrowGeometry(
     scroll: document.documentElement.scrollWidth,
   }))
   expect(documentWidth.scroll, `${role}@${width}: horizontal overflow`).toBe(documentWidth.client)
-  await expectForumPostSpacing(card, postId)
+  const spacing = await expectForumPostSpacing(card, postId)
+  await test.info().attach(`forum-spacing-${role}-${postId}-${width}.json`, {
+    body: JSON.stringify({ role, width, spacing }), contentType: "application/json",
+  })
 }
 
 async function expectFilterRail(
@@ -778,6 +848,7 @@ test("forum post actions stay discoverable on mobile without changing permission
     expect(Math.abs(baseline.card.right - actionsRect!.right - 16), `desktop internal action inset@${width}`).toBeLessThanOrEqual(0.5)
     await managerCard.hover()
     await expect(managerActions).toHaveCSS("opacity", "1")
+    await expectContinuousForumHover(manager.page, managerCard, managerActions, testInfo, width)
     const hover = await postActionGeometry(managerCard, primaryPostId)
     expect(hover, `hover geometry@${width}`).toEqual(baseline)
     await manager.page.mouse.move(0, 0)
@@ -889,6 +960,14 @@ test("forum post actions stay discoverable on mobile without changing permission
     body: await unauthorized.page.screenshot(),
     contentType: "image/png",
   })
+
+  const unauthorizedSeparator = unauthorizedCard.locator("..").locator(':scope > [data-slot="separator"]')
+  await expect(unauthorizedSeparator).toHaveCount(1)
+  await unauthorizedSeparator.click()
+  await expect(unauthorized.page).toHaveURL(new RegExp(`/channels/${serverId}/${primaryPostId}$`))
+  await unauthorized.page.goBack()
+  await expect(unauthorized.page).toHaveURL(new RegExp(`${route}$`))
+  await expect(unauthorizedCard).toBeVisible()
 
   await authorCard.click()
   await expect(author.page).toHaveURL(new RegExp(`/channels/${serverId}/${primaryPostId}$`))

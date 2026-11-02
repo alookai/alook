@@ -78,6 +78,23 @@ it.each([{ kind: "short", name: "Short title" }, { kind: "long", name: "Long tit
   expect(remove).not.toHaveBeenCalled()
 })
 
+it("activates the highlighted item from prefix or separator and opens content only once", () => {
+  const open = vi.fn()
+  const cards = posts.slice(0, 3)
+  const view = render(createElement(ForumView, {
+    forumChannelId: "forum-item-activation", members: [], posts: cards, tag: "All",
+    onTagChange: () => {}, onOpenPost: open,
+    onScrollRoot: (root: HTMLDivElement | null) => {
+      if (root) mockElementGeometry(root, { clientHeight: 751, clientWidth: 390 })
+    },
+  }))
+  const items = view.getByTestId(tid.forumPostList).querySelectorAll('[data-slot="community-forum-list-item"]')
+  fireEvent.click(items[0])
+  fireEvent.click(items[1].querySelector('[data-slot="separator"]')!)
+  fireEvent.click(view.getByTestId(tid.forumThreadCard(cards[1].id)))
+  expect(open.mock.calls).toEqual([[cards[0].id], [cards[1].id], [cards[1].id]])
+})
+
 it("reveals each card only after its own action decisions settle", () => {
   const cards = posts.slice(0, 3)
   const decisions = new Map<string, boolean | undefined>([[cards[0].id, true], [cards[1].id, undefined], [cards[2].id, undefined]])
@@ -326,7 +343,7 @@ it("keeps a new Forum instance at the start through hidden mounting and positive
 })
 
 it("retains fractional measured items across append and temporarily unmeasurable rows", () => {
-  rowHeight = index => index === 0 ? 92 : 99.6
+  rowHeight = index => index === 0 ? 98.6 : 106.2
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     return new DOMRect(0, Number.parseFloat(this.style.top) || 0, 390,
       this.hasAttribute("data-index") ? rowHeight(Number(this.dataset.index)) : this.clientHeight)
@@ -356,7 +373,7 @@ it("retains fractional measured items across append and temporarily unmeasurable
   expect(rows.length).toBeGreaterThan(8)
   for (const row of rows) {
     const index = Number(row.dataset.index)
-    expect(Number.parseFloat(row.style.top)).toBeCloseTo(index === 0 ? 0 : 92 + (index - 1) * 99.6, 6)
+    expect(Number.parseFloat(row.style.top)).toBeCloseTo(index === 0 ? 0 : 98.6 + (index - 1) * 106.2, 6)
   }
   const positions = rows.map(row => row.style.top)
   view.rerender(createElement(ForumView, { ...props, posts: posts.slice(0, 21) }))

@@ -181,7 +181,17 @@ describe("ForumView post card header", () => {
       expect(positioning.match(/data-slot="separator"/g)).toHaveLength(2)
       expect(positioning.match(/data-slot="community-forum-list-item"/g)).toHaveLength(3)
     }
-    if (count > 1) expect(html).toContain("mt-[6.6px] mb-0 bg-border/50")
+    if (count > 0) expect(actual.match(/data-slot="community-forum-list-item" class="[^"]*pt-\[6\.6px\]/g)).toHaveLength(1)
+    if (count > 1) expect(html).toContain("my-[6.6px] bg-border/50")
+  })
+
+  it.each(["Alice", "VeryLongAuthorName".repeat(8), "很长的作者名称".repeat(12)])("preserves the full author name behind its single-line width limit: %s", authorName => {
+    const html = render([makePost({ parent: { authorName, text: "root" }, participants: [{ id: "usr_alice", name: authorName, avatar: "A" }] })])
+    const label = html.match(/<span data-slot="community-forum-post-author"[^>]*>([^<]*)<\/span>/)
+    expect(label?.[1]).toBe(authorName)
+    expect(label?.[0]).toContain('title="' + authorName + '"')
+    expect(label?.[0]).toContain("max-w-[min(12rem,40%)]")
+    expect(label?.[0]).toContain("truncate")
   })
 
   it("solo post renders the creator name and no participant AvatarGroup", () => {

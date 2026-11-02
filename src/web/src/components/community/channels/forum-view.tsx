@@ -294,7 +294,7 @@ export function ForumView({
         key={JSON.stringify([forumChannelId, tag])}
         posts={posts} loading={loading} observation={observation} positionScope={positionScope}
         hasMore={hasMore} loadingMore={loadingMore} isFetching={isFetching} isError={isError}
-        onLoadMore={onLoadMore} onScrollRoot={onScrollRoot} loadingContent={<ForumListSkeleton />}
+        onLoadMore={onLoadMore} onScrollRoot={onScrollRoot} onOpenPost={onOpenPost} loadingContent={<ForumListSkeleton />}
         renderPost={(p) => {
               const canEdit = onEditPostTags && canEditPostTags ? canEditPostTags(p) : false
               const canDelete = onDeletePost && canDeletePost ? canDeletePost(p) : false
@@ -326,7 +326,7 @@ export function ForumView({
                     onOpenPost(p.id)
                   }}
                   className={cn(
-                    "group/card relative cursor-pointer rounded text-left transition-colors hover:bg-accent/45",
+                    "relative cursor-pointer rounded text-left",
                     POST_ROW_CLASS,
                   )}
                 >
@@ -397,7 +397,7 @@ export function ForumView({
                   </div>
                   <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <Avatar label={author.avatar} seed={p.authorId} size={20} />
-                    <span className="shrink-0 font-medium text-foreground" suppressHydrationWarning>{author.name}</span>
+                    <span data-slot="community-forum-post-author" title={author.name} className="min-w-0 max-w-[min(12rem,40%)] shrink-0 truncate font-medium text-foreground" suppressHydrationWarning>{author.name}</span>
                     <span className="shrink-0" aria-hidden>·</span>
                     <span className="shrink-0" suppressHydrationWarning>Active {formatRelativeTime(p.lastMessageAt)}</span>
                     {hasOrdinaryTags && <span className="shrink-0 max-sm:hidden" aria-hidden>·</span>}
