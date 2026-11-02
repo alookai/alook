@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import {
   appendFileSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from "node:fs"
 import { resolve } from "node:path"
@@ -181,8 +182,8 @@ function validateCodecovTargets(manifest, root) {
 
 export function validateScopeManifest(manifest, options = {}) {
   const root = options.root || ROOT
-  if (manifest.schema_version !== 1 || manifest.policy_version !== 1) {
-    throw new Error("scope manifest schema/policy version must be 1")
+  if (manifest.schema_version !== 1 || manifest.policy_version !== 2) {
+    throw new Error("scope manifest schema/policy version must be 1/2")
   }
   if (!Array.isArray(manifest.packages) || manifest.packages.length === 0) {
     throw new Error("scope manifest packages are required")
@@ -245,6 +246,41 @@ export function validateScopeManifest(manifest, options = {}) {
       if (!specs.includes(spec)) throw new Error(`unknown UI spec: ${spec}`)
     }
   }
+  const groups = manifest.ui.groups
+  if (!Array.isArray(manifest.ui.full_prefixes) || manifest.ui.full_prefixes.length === 0
+    || manifest.ui.full_prefixes.some((prefix) => typeof prefix !== "string"
+      || !prefix.startsWith("src/") || prefix.includes("..") || prefix.includes("\\"))) {
+    throw new Error("UI full-scope prefixes must be repository source paths")
+  }
+  if (!Array.isArray(groups) || new Set(groups.map((group) => group.name)).size !== groups.length) {
+    throw new Error("UI feature group names must be unique")
+  }
+  for (const group of groups) {
+    if (!group.name || !Array.isArray(group.prefixes) || group.prefixes.length === 0
+      || !Array.isArray(group.specs) || group.specs.length === 0) {
+      throw new Error("UI feature groups require a name, prefixes and specs")
+    }
+    for (const prefix of group.prefixes) {
+      if (typeof prefix !== "string" || !/^src\/(?:web|ws-do)\//.test(prefix)
+        || prefix.includes("..") || prefix.includes("\\")) {
+        throw new Error(`invalid UI feature prefix: ${prefix}`)
+      }
+    }
+    for (const spec of group.specs) {
+      if (!specs.includes(spec)) throw new Error(`unknown UI spec: ${spec}`)
+    }
+  }
+  if (!Array.isArray(manifest.smoke_tests) || manifest.smoke_tests.length === 0
+    || new Set(manifest.smoke_tests).size !== manifest.smoke_tests.length
+    || manifest.smoke_tests.some((path) => typeof path !== "string" || path.includes("..")
+      || !/^(?:scripts\/ci|src\/(?:shared|web))\/.+\.test\.[cm]?[jt]sx?$/.test(path))) {
+    throw new Error("main smoke tests must be unique repository test paths")
+  }
+  for (const path of manifest.smoke_tests) {
+    if (!statSync(resolve(root, path), { throwIfNoEntry: false })?.isFile()) {
+      throw new Error(`missing main smoke test: ${path}`)
+    }
+  }
   validateCodecovTargets(manifest, root)
   sorted(manifest.integrity_paths)
   workspaceGraph(manifest, root)
@@ -293,9 +329,9 @@ function isKnownPath(path, manifest) {
     || KNOWN_PREFIXES.some((prefix) => path.startsWith(prefix))
 }
 
-function fullReason(paths, { forceFull, fullUnlessBenchmarkOnly, benchmarkOnly, fallbackReason }) {
+function fullReason(paths, { forceFull, benchmarkOnly, fallbackReason }) {
   if (fallbackReason) return "classifier_error"
-  if (forceFull || (fullUnlessBenchmarkOnly && !benchmarkOnly)) return "forced"
+  if (forceFull) return "forced"
   if (benchmarkOnly) return null
   if (paths.length === 0) return "empty_diff"
   const docsOnly = paths.every(isMarkdown)
@@ -355,6 +391,31 @@ function requiredCoverageFiles(changes, coverageRoots) {
   }))
 }
 
+function affectedUiSpecs(paths, manifest) {
+  const selected = new Set(manifest.ui.contracts.smoke)
+  const relevant = paths.filter((path) => {
+    const owner = findPackage(path, manifest)?.name
+    return ["@alook/web", "@alook/ws-do", "@alook/shared", "@alook/test-utils"].includes(owner)
+      && !isMarkdown(path)
+      && (!/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path) || pathWithin(path, manifest.ui.root))
+  })
+  if (relevant.length === 0) return []
+  const inventory = discoverE2eSpecs(resolve(ROOT, manifest.ui.root))
+  for (const path of relevant) {
+    if (pathWithin(path, manifest.ui.root)) {
+      const spec = path.slice(manifest.ui.root.length + 1)
+      if (!inventory.includes(spec)) return [manifest.ui.all]
+      selected.add(spec)
+      continue
+    }
+    if (manifest.ui.full_prefixes.some((prefix) => path.startsWith(prefix))) return [manifest.ui.all]
+    const groups = manifest.ui.groups.filter((group) => group.prefixes.some((prefix) => path.startsWith(prefix)))
+    if (groups.length === 0) return [manifest.ui.all]
+    for (const group of groups) for (const spec of group.specs) selected.add(spec)
+  }
+  return sorted([...selected])
+}
+
 function planClass({ full, benchmarkOnly, docsOnly, blogPathsOnly, authPathsOnly, direct }) {
   if (full) return "full"
   if (benchmarkOnly) return "benchmark"
@@ -379,6 +440,8 @@ export function buildExecutionPlan(inputChanges, options = {}) {
   const unknown = paths.some((path) => !isKnownPath(path, manifest))
   const reason = fullReason(paths, { ...options, benchmarkOnly }) || (unknown ? "unknown_path" : null)
   const full = reason !== null
+  const executionMode = full ? "full" : options.mainSmoke === true ? "main-smoke" : "affected"
+  const mainSmoke = executionMode === "main-smoke" && !docsOnly && !benchmarkOnly
   const direct = sorted(paths.map((path) => findPackage(path, manifest)?.name).filter(Boolean))
 
   let affectedNames
@@ -389,6 +452,7 @@ export function buildExecutionPlan(inputChanges, options = {}) {
   const byName = new Map(manifest.packages.map((entry) => [entry.name, entry]))
   const affectedPackages = affectedNames.map((name) => byName.get(name))
   const suites = packageSets(affectedPackages)
+  suites.smoke = []
   const coverage = coverageSets(affectedPackages)
   suites.integration = sorted([
     ...suites.integration,
@@ -412,7 +476,7 @@ export function buildExecutionPlan(inputChanges, options = {}) {
   } else if (authPathsOnly) {
     suites.integration = []
   } else if (affectedPackages.some((entry) => entry.ui)) {
-    uiSpecs = [manifest.ui.all]
+    uiSpecs = affectedUiSpecs(paths, manifest)
   }
 
   if (blogPathsOnly && !blogContentOnly) {
@@ -433,18 +497,35 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     .some((entry) => entry.app_artifact))
   const requiredChangedFiles = requiredCoverageFiles(changes, coverage.include_roots)
 
+  if (mainSmoke) {
+    suites.static = []
+    suites.build = []
+    suites.knip = []
+    suites.unit = []
+    suites.windows = []
+    suites.integration = []
+    suites.linux = []
+    suites.smoke = [...manifest.smoke_tests]
+    coverage.targets = []
+    coverage.include_roots = []
+    requiredChangedFiles.length = 0
+    uiSpecs = uiSpecs.length > 0
+      ? blogPathsOnly ? [...manifest.ui.contracts.blog] : [...manifest.ui.contracts.smoke]
+      : []
+  }
+
   jobs.auth_build = authBuild
   jobs.blog_build = blogBuild
   jobs.static_checks = suites.static.length > 0
-  jobs.test_linux = suites.unit.length > 0 || suites.linux.length > 0
+  jobs.test_linux = suites.unit.length > 0 || suites.linux.length > 0 || suites.smoke.length > 0
   jobs.test_windows = suites.windows.length > 0
   jobs.app_packed_artifact = appArtifact
   jobs.e2e = suites.integration.length > 0
   jobs.rust = rust
-  jobs.lighthouse = lighthouse
+  jobs.lighthouse = lighthouse && !mainSmoke
   jobs.ui_e2e = uiSpecs.length > 0
   jobs.merge_reports = jobs.ui_e2e
-  jobs.resizable_panels_compat = options.resizablePanelsChanged === true
+  jobs.resizable_panels_compat = options.resizablePanelsChanged === true && !mainSmoke
 
   const basePlan = {
     schema_version: manifest.schema_version,
@@ -452,6 +533,7 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     base_sha: options.baseSha || "",
     head_sha: options.headSha || "",
     diagnostic_only: options.diagnosticOnly === true,
+    execution_mode: executionMode,
     changes,
     paths: allPaths,
     change_class: planClass({ full, benchmarkOnly, docsOnly, blogPathsOnly, authPathsOnly, direct }),
@@ -461,7 +543,7 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     auth_only: authPathsOnly && !full,
     blog_only: blogContentOnly && !full,
     compatibility: {
-      resizable_panels: options.resizablePanelsChanged === true,
+      resizable_panels: options.resizablePanelsChanged === true && !mainSmoke,
     },
     workflow_changed: paths.some((path) => WORKFLOW.test(path)),
     packages: {
@@ -492,6 +574,32 @@ export function validateExecutionPlan(plan, options = {}) {
     throw new Error("execution plan schema/policy version mismatch")
   }
   if (hashPlan(plan) !== plan.plan_hash) throw new Error("execution plan hash mismatch")
+  if (!["affected", "main-smoke", "full"].includes(plan.execution_mode)
+    || (plan.execution_mode === "full") !== plan.full) {
+    throw new Error("execution plan mode does not match its full-scope decision")
+  }
+  if (!Array.isArray(plan.suites.smoke)
+    || plan.suites.smoke.some((path) => !manifest.smoke_tests.includes(path))
+    || (plan.execution_mode !== "main-smoke" && plan.suites.smoke.length > 0)) {
+    throw new Error("execution plan smoke tests do not match its mode")
+  }
+  if (plan.execution_mode === "main-smoke" && !plan.docs_only && plan.change_class !== "benchmark") {
+    if (JSON.stringify(plan.suites.smoke) !== JSON.stringify(manifest.smoke_tests)
+      || ["static", "build", "knip", "unit", "windows", "integration", "linux"].some((kind) => plan.suites[kind].length > 0)
+      || plan.coverage.targets.length > 0 || plan.coverage.include_roots.length > 0) {
+      throw new Error("main smoke plan must keep the complete smoke set without full package suites")
+    }
+    const sourcePlan = buildExecutionPlan(plan.changes)
+    const expectedUi = sourcePlan.ui.specs.length > 0
+      ? sorted(sourcePlan.change_class === "blog" ? manifest.ui.contracts.blog : manifest.ui.contracts.smoke) : []
+    if (JSON.stringify(plan.ui.specs) !== JSON.stringify(expectedUi)
+      || sourcePlan.full || stablePlanJson(plan.packages) !== stablePlanJson(sourcePlan.packages)
+      || !plan.jobs.test_linux || plan.jobs.static_checks || plan.jobs.test_windows
+      || plan.jobs.e2e || plan.jobs.lighthouse || plan.jobs.resizable_panels_compat
+      || plan.jobs.ui_e2e !== (expectedUi.length > 0) || plan.jobs.merge_reports !== (expectedUi.length > 0)) {
+      throw new Error("main smoke jobs must execute the complete selected behavior checks")
+    }
+  }
   if (typeof plan.compatibility?.resizable_panels !== "boolean") {
     throw new Error("execution plan resizable-panels compatibility flag is required")
   }
@@ -528,6 +636,7 @@ export function projectPlan(plan) {
     plan_hash: plan.plan_hash,
     plan_schema_version: String(plan.schema_version),
     full: String(plan.full),
+    execution_mode: plan.execution_mode,
     base_sha: plan.base_sha,
     head_sha: plan.head_sha,
     auth_only: String(plan.auth_only),
@@ -549,6 +658,7 @@ export function projectPlan(plan) {
     build_packages: JSON.stringify(plan.suites.build),
     knip_packages: JSON.stringify(plan.suites.knip),
     unit_test_roots: JSON.stringify(plan.suites.unit),
+    smoke_test_files: JSON.stringify(plan.suites.smoke),
     windows_suites: JSON.stringify(plan.suites.windows),
     integration_suites: JSON.stringify(plan.suites.integration),
     linux_suites: JSON.stringify(plan.suites.linux),
@@ -627,8 +737,8 @@ function parseArgs(argv) {
       args.forceFull = true
       continue
     }
-    if (arg === "--full-unless-benchmark-only") {
-      args.fullUnlessBenchmarkOnly = true
+    if (arg === "--main-smoke") {
+      args.mainSmoke = true
       continue
     }
     if (arg === "--diagnostic-only") {
@@ -670,7 +780,7 @@ export function runCli(argv) {
       baseSha: args.base || "",
       headSha: args.head || "",
       forceFull: args.forceFull,
-      fullUnlessBenchmarkOnly: args.fullUnlessBenchmarkOnly,
+      mainSmoke: args.mainSmoke,
       diagnosticOnly: args.diagnosticOnly,
       resizablePanelsChanged: resizablePanelsVersionChanged(args),
     })

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": 1,
+  "policy_version": 2,
   "packages": [
     {
       "name": "@alook/agent-driver",
@@ -9,10 +9,16 @@
       "build": false,
       "knip": true,
       "unit_root": "src/daemon/agent-driver",
-      "coverage_roots": ["src/daemon/agent-driver/**/*.{ts,tsx,js,jsx}"],
-      "windows_suites": ["agent-driver"],
+      "coverage_roots": [
+        "src/daemon/agent-driver/**/*.{ts,tsx,js,jsx}"
+      ],
+      "windows_suites": [
+        "agent-driver"
+      ],
       "integration_suites": [],
-      "linux_suites": ["agent-driver-packed"],
+      "linux_suites": [
+        "agent-driver-packed"
+      ],
       "ui": false,
       "lighthouse": false,
       "app_artifact": true
@@ -24,8 +30,12 @@
       "build": false,
       "knip": true,
       "unit_root": "src/app",
-      "coverage_roots": ["src/app/**/*.{ts,tsx,js,jsx}"],
-      "windows_suites": ["app"],
+      "coverage_roots": [
+        "src/app/**/*.{ts,tsx,js,jsx}"
+      ],
+      "windows_suites": [
+        "app"
+      ],
       "integration_suites": [],
       "linux_suites": [],
       "ui": false,
@@ -43,9 +53,16 @@
         "src/daemon/scripts/**/*.{ts,tsx,js,jsx}",
         "src/daemon/src/**/*.{ts,tsx,js,jsx}"
       ],
-      "windows_suites": ["daemon"],
-      "integration_suites": ["daemon"],
-      "linux_suites": ["daemon-packed", "daemon-real"],
+      "windows_suites": [
+        "daemon"
+      ],
+      "integration_suites": [
+        "daemon"
+      ],
+      "linux_suites": [
+        "daemon-packed",
+        "daemon-real"
+      ],
       "ui": false,
       "lighthouse": false,
       "app_artifact": true
@@ -73,10 +90,14 @@
       "build": true,
       "knip": true,
       "unit_root": "src/email-worker",
-      "coverage_roots": ["src/email-worker/**/*.{ts,tsx,js,jsx}"],
+      "coverage_roots": [
+        "src/email-worker/**/*.{ts,tsx,js,jsx}"
+      ],
       "codecov_target": "email-worker",
       "windows_suites": [],
-      "integration_suites": ["web"],
+      "integration_suites": [
+        "web"
+      ],
       "linux_suites": [],
       "ui": false,
       "lighthouse": false,
@@ -89,9 +110,13 @@
       "build": true,
       "knip": true,
       "unit_root": "src/shared",
-      "coverage_roots": ["src/shared/**/*.{ts,tsx,js,jsx}"],
+      "coverage_roots": [
+        "src/shared/**/*.{ts,tsx,js,jsx}"
+      ],
       "codecov_target": "shared",
-      "windows_suites": ["shared"],
+      "windows_suites": [
+        "shared"
+      ],
       "integration_suites": [],
       "linux_suites": [],
       "ui": false,
@@ -120,9 +145,13 @@
       "build": true,
       "knip": true,
       "unit_root": "src/queue-worker",
-      "coverage_roots": ["src/queue-worker/**/*.{ts,tsx,js,jsx}"],
+      "coverage_roots": [
+        "src/queue-worker/**/*.{ts,tsx,js,jsx}"
+      ],
       "windows_suites": [],
-      "integration_suites": ["web"],
+      "integration_suites": [
+        "web"
+      ],
       "linux_suites": [],
       "ui": false,
       "lighthouse": false,
@@ -135,10 +164,14 @@
       "build": true,
       "knip": true,
       "unit_root": "src/web",
-      "coverage_roots": ["src/web/**/*.{ts,tsx,js,jsx}"],
+      "coverage_roots": [
+        "src/web/**/*.{ts,tsx,js,jsx}"
+      ],
       "codecov_target": "web",
       "windows_suites": [],
-      "integration_suites": ["web"],
+      "integration_suites": [
+        "web"
+      ],
       "linux_suites": [],
       "ui": true,
       "lighthouse": true,
@@ -151,10 +184,14 @@
       "build": true,
       "knip": true,
       "unit_root": "src/ws-do",
-      "coverage_roots": ["src/ws-do/**/*.{ts,tsx,js,jsx}"],
+      "coverage_roots": [
+        "src/ws-do/**/*.{ts,tsx,js,jsx}"
+      ],
       "codecov_target": "ws-do",
       "windows_suites": [],
-      "integration_suites": ["web"],
+      "integration_suites": [
+        "web"
+      ],
       "linux_suites": [],
       "ui": true,
       "lighthouse": false,
@@ -162,29 +199,221 @@
     }
   ],
   "suites": {
-    "windows": ["agent-driver", "app", "daemon", "shared"],
-    "integration": ["daemon", "web"],
-    "linux": ["agent-driver-packed", "daemon-packed", "daemon-real"]
+    "windows": [
+      "agent-driver",
+      "app",
+      "daemon",
+      "shared"
+    ],
+    "integration": [
+      "daemon",
+      "web"
+    ],
+    "linux": [
+      "agent-driver-packed",
+      "daemon-packed",
+      "daemon-real"
+    ]
   },
   "path_suites": [
-    { "root": "tests/integration/daemon", "integration_suites": ["daemon"] }
+    {
+      "root": "tests/integration/daemon",
+      "integration_suites": [
+        "daemon"
+      ]
+    }
   ],
   "ui": {
     "root": "src/web/src/test/e2e-ui",
     "all": "all",
     "contracts": {
-      "blog": ["54-blog-multizone.spec.ts"],
+      "blog": [
+        "54-blog-multizone.spec.ts"
+      ],
       "resizable_panels": [
         "53-mobile-inbox-surface.spec.ts",
         "60-desktop-default-user-bar-width.spec.ts"
+      ],
+      "smoke": [
+        "01-auth.spec.ts",
+        "03-realtime-multiuser.spec.ts",
+        "06-channel-member-admin.spec.ts"
       ]
-    }
+    },
+    "groups": [
+      {
+        "name": "auth",
+        "prefixes": [
+          "src/web/src/app/sign-in/",
+          "src/web/src/components/auth/",
+          "src/web/src/lib/native-oauth"
+        ],
+        "specs": [
+          "01-auth.spec.ts",
+          "10-eject-nav-auth.spec.ts",
+          "54-authenticated-context-menu-policy.spec.ts"
+        ]
+      },
+      {
+        "name": "marketing",
+        "prefixes": [
+          "src/web/src/components/home/",
+          "src/web/src/app/page.tsx",
+          "src/web/src/app/opengraph-image",
+          "src/web/src/lib/marketing"
+        ],
+        "specs": [
+          "19-marketing-seo.spec.ts",
+          "31-machine-guide-motion.spec.ts",
+          "51-share-image-assets.spec.ts"
+        ]
+      },
+      {
+        "name": "user-bar",
+        "prefixes": [
+          "src/web/src/components/community/shell/user-bar",
+          "src/web/src/components/community/shell/use-user-bar"
+        ],
+        "specs": [
+          "11-profile-ui-stability.spec.ts",
+          "34-inbox-read-race.spec.ts",
+          "41-community-initial-load-module-skeletons.spec.ts",
+          "50-daemon-update-notice.spec.ts",
+          "53-mobile-inbox-surface.spec.ts",
+          "56-inbox-friend-requests.spec.ts",
+          "60-desktop-default-user-bar-width.spec.ts"
+        ]
+      },
+      {
+        "name": "social",
+        "prefixes": [
+          "src/web/src/components/community/social/",
+          "src/web/src/hooks/community/use-friends",
+          "src/web/src/hooks/community/use-profile"
+        ],
+        "specs": [
+          "11-profile-ui-stability.spec.ts",
+          "12-friends.spec.ts",
+          "29-community-bot-avatar-cleanup.spec.ts",
+          "30-bot-profile-audit-preview.spec.ts",
+          "35-bot-token-usage-quota.spec.ts",
+          "42-versioned-avatar-identity.spec.ts",
+          "56-inbox-friend-requests.spec.ts",
+          "68-bot-memberships.spec.ts"
+        ]
+      },
+      {
+        "name": "forum",
+        "prefixes": [
+          "src/web/src/components/community/channels/forum-",
+          "src/web/src/hooks/community/use-forum-",
+          "src/web/src/lib/community/forum-"
+        ],
+        "specs": [
+          "09-forum-thread.spec.ts",
+          "14-forum-post-tags-presence.spec.ts",
+          "17-forum-sidebar-stage-b.spec.ts",
+          "26-mobile-forum-post-actions.spec.ts",
+          "27-canonical-forum-post-delete.spec.ts",
+          "28-thread-realtime-audiences.spec.ts",
+          "51-mobile-forum-tag-editor.spec.ts",
+          "67-text-sidebar-threads.spec.ts"
+        ]
+      },
+      {
+        "name": "messages",
+        "prefixes": [
+          "src/web/src/components/community/messages/",
+          "src/web/src/app/api/community/channels/[id]/messages/",
+          "src/web/src/app/api/community/messages/"
+        ],
+        "specs": [
+          "02-server-channel-message.spec.ts",
+          "03-realtime-multiuser.spec.ts",
+          "04-dm.spec.ts",
+          "05-mention-bot.spec.ts",
+          "08-mobile.spec.ts",
+          "13-mentions.spec.ts",
+          "15-mention-scope.spec.ts",
+          "16-jump-to-present.spec.ts",
+          "18-new-divider-scroll.spec.ts",
+          "20-community-attachment-thumbnails.spec.ts",
+          "21-mobile-message-layout.spec.ts",
+          "22-committed-message-delivery.spec.ts",
+          "23-message-selection-context-menu.spec.ts",
+          "24-composer-overflow.spec.ts",
+          "25-composer-accessory-rail-occupancy.spec.ts",
+          "31-mention-candidate-pagination.spec.ts",
+          "33-picker-async-layout.spec.ts",
+          "39-mobile-composer-send.spec.ts",
+          "39-mobile-message-interactions.spec.ts",
+          "43-composer-attachment-drafts.spec.ts",
+          "44-mobile-reaction-details.spec.ts",
+          "45-desktop-thread-split-view.spec.ts",
+          "52-chat-composer-ordered-list.spec.ts",
+          "55-message-scroll-characterization.spec.ts",
+          "59-message-pagination-anchor.spec.ts",
+          "66-grouped-message-toolbar.spec.ts",
+          "69-table-fullscreen-scroll.spec.ts",
+          "70-renderer-action-themes.spec.ts",
+          "native-keyboard-viewport-projection.spec.ts"
+        ]
+      },
+      {
+        "name": "realtime",
+        "prefixes": [
+          "src/ws-do/src/ws-durable/presence-typing",
+          "src/web/src/hooks/community/community-ws/presence-"
+        ],
+        "specs": [
+          "03-realtime-multiuser.spec.ts",
+          "14-forum-post-tags-presence.spec.ts",
+          "25-community-ws-reconnect-overlay.spec.ts",
+          "28-thread-realtime-audiences.spec.ts",
+          "29-multi-device-read-state.spec.ts",
+          "32-mobile-ws-foreground-validation.spec.ts",
+          "40-server-rail-unread.spec.ts",
+          "41-account-unread-projection.spec.ts",
+          "42-versioned-avatar-identity.spec.ts",
+          "50-daemon-update-notice.spec.ts"
+        ]
+      },
+      {
+        "name": "billing",
+        "prefixes": [
+          "src/web/src/components/billing/",
+          "src/web/src/app/api/billing/"
+        ],
+        "specs": [
+          "35-bot-token-usage-quota.spec.ts",
+          "64-billing-contact.spec.ts"
+        ]
+      }
+    ],
+    "full_prefixes": [
+      "src/web/src/components/community/messages/message-list",
+      "src/web/src/components/community/messages/message-channel-controller",
+      "src/web/src/app/api/community/channels/[id]/messages/",
+      "src/web/src/app/api/community/messages/"
+    ]
   },
   "codecov_targets": {
-    "shared": { "path": "src/shared", "target": 50 },
-    "email-worker": { "path": "src/email-worker", "target": 70 },
-    "ws-do": { "path": "src/ws-do", "target": 70 },
-    "web": { "path": "src/web", "target": 30 }
+    "shared": {
+      "path": "src/shared",
+      "target": 50
+    },
+    "email-worker": {
+      "path": "src/email-worker",
+      "target": 70
+    },
+    "ws-do": {
+      "path": "src/ws-do",
+      "target": 70
+    },
+    "web": {
+      "path": "src/web",
+      "target": 30
+    }
   },
   "integrity_paths": [
     ".github/workflows/ci.yml",
@@ -212,5 +441,13 @@
     "src/web/package.json",
     "src/ws-do/package.json",
     "tests/utils/package.json"
+  ],
+  "smoke_tests": [
+    "scripts/ci/assert-gate.test.ts",
+    "src/shared/test/queries/session-identity.test.ts",
+    "src/web/src/app/api/community/channels/[id]/messages/route.atomic-replay.test.ts",
+    "src/web/src/lib/session.test.ts",
+    "src/web/src/test/e2e-service-lifecycle.test.ts",
+    "src/web/src/test/e2e-fixture-isolation.test.ts"
   ]
 }

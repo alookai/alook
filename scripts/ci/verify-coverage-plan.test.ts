@@ -30,6 +30,14 @@ function resignPlan(value) {
 }
 
 describe("verifyCoveragePlan", () => {
+  it("rejects corrupt counters independently of the informational patch policy", () => {
+    const changed = "src/email-worker/src/index.ts"
+    const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
+    const corrupt = coveredFile(changed)
+    corrupt.s["0"] = Number.NaN
+    expect(() => verifyCoveragePlan(plan, { [changed]: corrupt })).toThrow("invalid Istanbul s counter")
+    expect(() => verifyCoveragePlan(plan, { [changed]: { path: changed } })).toThrow("invalid Istanbul s map")
+  })
   it("audits the type-only navigation model without waiving the project denominator", () => {
     const changed = "src/web/src/lib/community/models/navigation.ts"
     const runtime = "src/web/src/lib/config.ts"

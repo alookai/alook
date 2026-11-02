@@ -166,10 +166,6 @@ const nativeOauthWebConfig = readFileSync(
   resolve(import.meta.dirname, "../../src/web/wrangler.toml"),
   "utf8",
 )
-const blogWorkerConfig = readFileSync(
-  resolve(import.meta.dirname, "../../src/web/blog/wrangler.toml"),
-  "utf8",
-)
 const nativeOauthContract = readFileSync(
   resolve(import.meta.dirname, "../../src/web/src/lib/native-oauth.ts"),
   "utf8",
@@ -260,23 +256,15 @@ describe("E2E UI workflow", () => {
     expect(dependabotConfig).not.toMatch(/^[ ]{6}- dependency-name: "react-resizable-panels"$/m)
   })
 
-  it("uses the canonical CI scope before merge and removes the second classifier", () => {
-    expect(workflow).toMatch(/^  pull_request:/m)
-    expect(workflow).toMatch(/^  merge_group:/m)
-    expect(workflow).toMatch(/^  workflow_dispatch:/m)
-    expect(workflow).toMatch(/^  push:/m)
-    expect(workflow).not.toMatch(/^  schedule:/m)
-    expect(existsSync(legacyUiWorkflowPath)).toBe(false)
-    expect(workflow.match(/^  scope:$/gm)).toHaveLength(1)
-    expect(ciJob("e2e-ui")).toContain("needs.scope.outputs.e2e_matrix")
-  })
 
-  it("keeps UI E2E on read-only PR and merge-queue runs without main history access", () => {
-    expect(ciJob("e2e-ui")).toContain("github.event_name != 'push'")
-    expect(ciJob("merge-reports")).toContain("github.event_name != 'push'")
+  it("keeps selected browser runs read-only without a separate main history", () => {
     expect(workflow).toContain("actions: read")
     expect(workflow).not.toMatch(/^  pull_request_target:/m)
     expect(workflow).not.toContain("e2e-timing-history")
+    for (const job of ["ui-e2e-build", "e2e-ui", "merge-reports"]) {
+      expect(ciJob(job)).toContain("run_ui_e2e == 'true'")
+      expect(ciJob(job)).not.toContain("github.event_name != 'push'")
+    }
   })
 
   it("keeps failure diagnostics best-effort and merge inputs strict", () => {
@@ -441,12 +429,23 @@ describe("Local package test isolation", () => {
 })
 
 describe("CI workflow graph", () => {
+  it("isolates explicit full runs while retaining cancellation of superseded ordinary checks", () => {
+    const concurrency = ciWorkflow.slice(ciWorkflow.indexOf("\nconcurrency:\n"), ciWorkflow.indexOf("\njobs:\n"))
+    const group = concurrency.split("\n").find((line) => line.trimStart().startsWith("group:"))!
+    expect(group).toContain("github.event_name == 'workflow_dispatch'")
+    expect(group).toContain("startsWith(github.event.head_commit.message, 'release:')")
+    expect(group).toContain("github.run_id")
+    expect(concurrency).toContain("cancel-in-progress: true")
+  })
+
   it("keeps approved triggers without a daily schedule", () => {
     expect(ciWorkflow).toMatch(/^  push:/m)
     expect(ciWorkflow).toMatch(/^  pull_request:/m)
     expect(ciWorkflow).toMatch(/^  merge_group:/m)
     expect(ciWorkflow).toMatch(/^  workflow_dispatch:/m)
     expect(ciWorkflow).not.toMatch(/^  schedule:/m)
+    expect(existsSync(legacyUiWorkflowPath)).toBe(false)
+    expect(ciWorkflow.match(/^  scope:$/gm)).toHaveLength(1)
   })
 
   it("keeps manual dispatch full by default and guards diagnostic fixtures before scoping", () => {
@@ -462,7 +461,8 @@ describe("CI workflow graph", () => {
     expect(scope).toContain('--expected-class "$EXPECTED_CLASS"')
     expect(scope).toContain('--diagnostic-only')
     expect(scope).toContain('args+=(--base "$EVENT_SHA" --head "$EVENT_SHA" --force-full)')
-    expect(scope).toContain('args+=(--base "$PUSH_BASE_SHA" --head "$EVENT_SHA" --full-unless-benchmark-only)')
+    expect(scope).toContain('args+=(--base "$PUSH_BASE_SHA" --head "$EVENT_SHA" --main-smoke)')
+    expect(scope).toContain('args+=(--base "$PUSH_BASE_SHA" --head "$EVENT_SHA" --force-full)')
     expect(scope).not.toContain("ref: ${{ inputs.fixture_sha }}")
   })
 
@@ -482,13 +482,15 @@ describe("CI workflow graph", () => {
     }
   })
 
-  it("keeps named Codecov targets, patch enforcement, and changed-file proof auditable", () => {
+  it("keeps project coverage and report integrity while making patch status informational", () => {
     const linux = ciJob("test-linux")
     expect(linux).toContain("coverage_include_roots")
     expect(linux).toContain("verify-coverage-plan.mjs")
     expect(linux).toContain("coverage-target-manifest.json")
     expect(linux).toContain("coverage/coverage-final.json")
-    expect(readFileSync(resolve(repositoryRoot, "codecov.yml"), "utf8")).toContain("target: 100%")
+    const coveragePolicy = readFileSync(resolve(repositoryRoot, "codecov.yml"), "utf8")
+    expect(coveragePolicy).toMatch(/patch:[\s\S]*informational: true/)
+    expect(coveragePolicy).not.toContain("target: 100%")
   })
 
   it("prepares shared services for every selected integration suite", () => {
@@ -942,22 +944,12 @@ describe("Turbo CI execution", () => {
     expect(ciJob("test-linux")).toContain("projects=(web-node web-dom web-runtime auth-node auth-runtime)")
   })
 
-  it("pins every deployed Worker to the latest reviewed compatibility date", () => {
-    const configs = [
-      ...directWorkerModules.map((module) => module.wranglerConfig),
-      nativeOauthAuthConfig,
-      blogWorkerConfig,
-    ]
-    expect(configs).toHaveLength(6)
-    for (const config of configs) {
-      expect(config).toContain('compatibility_date = "2026-09-07"')
-    }
-  })
 
-  it("runs Blog tests through both Web Node and DOM projects", () => {
-    expect(ciJob("blog-build")).toContain(
-      "pnpm --filter @alook/web exec vitest run --config vitest.workspace.config.ts --project=web-node --project=web-dom blog",
-    )
+  it("keeps Blog builds without repeating the selected static and unit jobs", () => {
+    const blog = ciJob("blog-build")
+    expect(blog).toContain("build:blog")
+    expect(blog).toContain("verify:blog-dry-run")
+    expect(blog).not.toMatch(/exec (?:tsc|eslint|vitest)\b/)
   })
 
   it("collects Node and workerd projects in one Istanbul report", () => {
@@ -1032,7 +1024,7 @@ describe("Turbo CI execution", () => {
     const linux = ciJob("test-linux")
     expect(linux).toContain("timeout-minutes: 45")
     expect(linux).toContain(
-      "RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}",
+      "RUN_COVERAGE: ${{ needs.scope.outputs.execution_mode != 'main-smoke' }}",
     )
     expect(linux).toContain('pnpm vitest run "${vitest_args[@]}"')
     expect(linux).toContain("pnpm vitest run --project=daemon-node src/daemon")

@@ -41,7 +41,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}-${{ (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'release:')) && github.run_id || 'latest' }}
   cancel-in-progress: true
 
 jobs:
@@ -54,6 +54,7 @@ jobs:
       plan_hash: ${{ steps.scope.outputs.plan_hash }}
       plan_schema_version: ${{ steps.scope.outputs.plan_schema_version }}
       full: ${{ steps.scope.outputs.full }}
+      execution_mode: ${{ steps.scope.outputs.execution_mode }}
       base_sha: ${{ steps.scope.outputs.base_sha }}
       head_sha: ${{ steps.scope.outputs.head_sha }}
       auth_only: ${{ steps.scope.outputs.auth_only }}
@@ -75,6 +76,7 @@ jobs:
       build_packages: ${{ steps.scope.outputs.build_packages }}
       knip_packages: ${{ steps.scope.outputs.knip_packages }}
       unit_test_roots: ${{ steps.scope.outputs.unit_test_roots }}
+      smoke_test_files: ${{ steps.scope.outputs.smoke_test_files }}
       windows_suites: ${{ steps.scope.outputs.windows_suites }}
       integration_suites: ${{ steps.scope.outputs.integration_suites }}
       linux_suites: ${{ steps.scope.outputs.linux_suites }}
@@ -95,6 +97,7 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MERGE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           PUSH_BASE_SHA: ${{ github.event.before }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
           DISPATCH_MODE: ${{ inputs.mode }}
           CANDIDATE_PR: ${{ inputs.candidate_pr }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
@@ -122,8 +125,10 @@ jobs:
             args+=(--base "$PR_BASE_SHA" --head "$PR_HEAD_SHA")
           elif [[ "$EVENT_NAME" == "merge_group" ]]; then
             args+=(--base "$MERGE_BASE_SHA" --head "$EVENT_SHA")
+          elif [[ "$EVENT_NAME" == "push" && "$HEAD_COMMIT_MESSAGE" == release:* ]]; then
+            args+=(--base "$PUSH_BASE_SHA" --head "$EVENT_SHA" --force-full)
           elif [[ "$EVENT_NAME" == "push" ]]; then
-            args+=(--base "$PUSH_BASE_SHA" --head "$EVENT_SHA" --full-unless-benchmark-only)
+            args+=(--base "$PUSH_BASE_SHA" --head "$EVENT_SHA" --main-smoke)
           else
             args+=(--base "$EVENT_SHA" --head "$EVENT_SHA" --force-full)
           fi
@@ -192,9 +197,6 @@ jobs:
             turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @alook/web validate:blog
-      - run: pnpm --filter @alook/web exec tsc --noEmit -p blog/tsconfig.json
-      - run: pnpm --filter @alook/web exec eslint blog/
-      - run: pnpm --filter @alook/web exec vitest run --config vitest.workspace.config.ts --project=web-node --project=web-dom blog
       - run: pnpm --filter @alook/web build:blog
       - run: pnpm --filter @alook/web verify:blog-dry-run
 
@@ -269,7 +271,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}
+      RUN_COVERAGE: ${{ needs.scope.outputs.execution_mode != 'main-smoke' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -305,9 +307,20 @@ jobs:
       - name: Run selected unit tests
         env:
           UNIT_ROOTS: ${{ needs.scope.outputs.unit_test_roots }}
+          SMOKE_TEST_FILES: ${{ needs.scope.outputs.smoke_test_files }}
+          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: smoke_test_files
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.smoke_test_files }}
           COVERAGE_ROOTS: ${{ needs.scope.outputs.coverage_include_roots }}
         run: |
           set -euo pipefail
+          node scripts/ci/validate-execution-plan.mjs
+          if [[ "$SMOKE_TEST_FILES" != "[]" ]]; then
+            mapfile -t smoke < <(node -e 'for (const value of JSON.parse(process.env.SMOKE_TEST_FILES)) console.log(value)')
+            pnpm vitest run "${smoke[@]}"
+            exit 0
+          fi
           mapfile -t roots < <(node -e 'for (const value of JSON.parse(process.env.UNIT_ROOTS)) console.log(value)')
           mapfile -t coverage_roots < <(node -e 'for (const value of JSON.parse(process.env.COVERAGE_ROOTS)) console.log(value)')
           daemon=false; non_daemon=(); daemon_coverage=()
@@ -540,7 +553,7 @@ jobs:
   e2e:
     name: E2E Tests
     needs: scope
-    if: needs.scope.outputs.run_e2e == 'true' && github.event_name != 'push'
+    if: needs.scope.outputs.run_e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -645,7 +658,7 @@ jobs:
   lighthouse:
     name: Lighthouse SEO
     needs: scope
-    if: needs.scope.outputs.run_lighthouse == 'true' && github.event_name != 'push'
+    if: needs.scope.outputs.run_lighthouse == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -677,7 +690,7 @@ jobs:
     outputs:
       artifact_name: ${{ steps.artifact_identity.outputs.artifact_name }}
       artifact_attempt: ${{ steps.artifact_identity.outputs.artifact_attempt }}
-    if: needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push'
+    if: needs.scope.outputs.run_ui_e2e == 'true'
     runs-on: ubuntu-latest
     container:
       image: ${{ fromJSON(needs.scope.outputs.e2e_matrix).include[0].image }}
@@ -733,7 +746,7 @@ jobs:
   e2e-ui:
     name: UI Playwright E2E (${{ matrix.shard }}/${{ matrix.total }})
     needs: [scope, ui-e2e-build]
-    if: needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push'
+    if: needs.scope.outputs.run_ui_e2e == 'true'
     runs-on: ubuntu-latest
     container:
       image: ${{ matrix.image }}
@@ -815,7 +828,7 @@ jobs:
   resizable-panels-compat:
     name: Resizable panels compatibility
     needs: [scope, ui-e2e-build]
-    if: needs.scope.outputs.run_resizable_panels_compat == 'true' && github.event_name != 'push'
+    if: needs.scope.outputs.run_resizable_panels_compat == 'true'
     runs-on: ubuntu-latest
     container:
       image: ${{ fromJSON(needs.scope.outputs.e2e_matrix).include[0].image }}
@@ -876,7 +889,7 @@ jobs:
   merge-reports:
     name: Merge Playwright Reports
     needs: [scope, e2e-ui]
-    if: ${{ !cancelled() && needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }}
+    if: ${{ !cancelled() && needs.scope.outputs.run_ui_e2e == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -955,9 +968,9 @@ jobs:
           {"name":"test-linux","expected":${{ needs.scope.outputs.run_linux == 'true' }},"result":"${{ needs.test-linux.result }}"},
           {"name":"test-windows","expected":${{ needs.scope.outputs.run_windows == 'true' }},"result":"${{ needs.test-windows.result }}"},
           {"name":"app-packed-artifact","expected":${{ needs.scope.outputs.run_app_packed_artifact == 'true' }},"result":"${{ needs.app-packed-artifact.result }}"},
-          {"name":"e2e","expected":${{ needs.scope.outputs.run_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.e2e.result }}"},
+          {"name":"e2e","expected":${{ needs.scope.outputs.run_e2e == 'true' }},"result":"${{ needs.e2e.result }}"},
           {"name":"desktop-rust","expected":${{ needs.scope.outputs.run_rust == 'true' }},"result":"${{ needs.desktop-rust.result }}"},
-          {"name":"lighthouse","expected":${{ needs.scope.outputs.run_lighthouse == 'true' && github.event_name != 'push' }},"result":"${{ needs.lighthouse.result }}"}
+          {"name":"lighthouse","expected":${{ needs.scope.outputs.run_lighthouse == 'true' }},"result":"${{ needs.lighthouse.result }}"}
         ]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -978,10 +991,10 @@ jobs:
       CI_GATE_RESULTS: >-
         [
           {"name":"scope","expected":true,"result":"${{ needs.scope.result }}"},
-          {"name":"ui-e2e-build","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.ui-e2e-build.result }}"},
-          {"name":"e2e-ui","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.e2e-ui.result }}"},
-          {"name":"resizable-panels-compat","expected":${{ needs.scope.outputs.run_resizable_panels_compat == 'true' && github.event_name != 'push' }},"result":"${{ needs.resizable-panels-compat.result }}"},
-          {"name":"merge-reports","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.merge-reports.result }}"}
+          {"name":"ui-e2e-build","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' }},"result":"${{ needs.ui-e2e-build.result }}"},
+          {"name":"e2e-ui","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' }},"result":"${{ needs.e2e-ui.result }}"},
+          {"name":"resizable-panels-compat","expected":${{ needs.scope.outputs.run_resizable_panels_compat == 'true' }},"result":"${{ needs.resizable-panels-compat.result }}"},
+          {"name":"merge-reports","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' }},"result":"${{ needs.merge-reports.result }}"}
         ]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

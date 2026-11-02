@@ -46,10 +46,12 @@
     "readme:capture": "node src/web/readme-capture/capture.mjs",
     "app-store:capture": "node src/web/app-store-capture/capture.mjs",
     "app-store:creative": "node src/web/app-store-capture/creative/capture.mjs",
-    "prepare": "simple-git-hooks"
+    "prepare": "simple-git-hooks",
+    "check": "node scripts/ci/check-local.mjs",
+    "check:full": "node scripts/ci/check-local.mjs --full"
   },
   "simple-git-hooks": {
-    "pre-commit": "pnpm typecheck && pnpm lint && pnpm test && pnpm typegrep:ws && pnpm typegrep:agent-driver && pnpm knip"
+    "pre-commit": "pnpm check"
   },
   "devDependencies": {
     "@vitest/coverage-istanbul": "4.1.12",

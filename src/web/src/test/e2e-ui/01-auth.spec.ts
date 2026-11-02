@@ -103,6 +103,7 @@ test.describe("auth & first screen", () => {
     // Not bounced to sign-in.
     await expect(page).not.toHaveURL(/\/sign-in/)
     await page.waitForURL(/\/c/, { timeout: 20_000 , waitUntil: "commit" })
+    await expect(page.getByTestId(tid.userBar)).toBeVisible()
   })
 })
 

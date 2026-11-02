@@ -11,12 +11,14 @@ import { useObservedRegion, type ResourceObservation } from "@/lib/observability
 import { visibleVirtualItems } from "@/lib/observability/virtual-window"
 import type { ForumThread } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
+import { cn } from "@/lib/utils"
 import { EmptyState } from "../empty-state"
+import { Separator } from "@/components/ui/separator"
 import { VirtualRows } from "../messages/virtual-cursor-list"
 import { useInitialPositionTransition } from "../messages/initial-position-transition"
 
 const OVERSCAN = 5
-export const FORUM_LIST_SPACING_CLASS = "px-0 py-2"
+export const FORUM_LIST_SPACING_CLASS = "p-0"
 const forumRangeExtractor = (range: Range) => defaultRangeExtractor({ ...range, overscan: range.overscan + range.endIndex - range.startIndex + 1 })
 type Props = {
   posts: ForumThread[]
@@ -30,7 +32,21 @@ type Props = {
   onLoadMore?: () => void
   onScrollRoot?: (node: HTMLDivElement | null) => void
   loadingContent: ReactNode
+  onOpenPost?: (postId: string) => void
   renderPost: (post: ForumThread, index: number) => ReactNode
+}
+
+export function ForumPostListItem({ first, children, onActivate }: { first: boolean; children: ReactNode; onActivate?: () => void }) {
+  return <div data-slot="community-forum-list-item" className={cn("group/card flow-root rounded transition-colors has-data-page-swipe-navigation-row:cursor-pointer has-data-page-swipe-navigation-row:hover:bg-accent/45", first && "pt-[6.6px]")}
+    role={onActivate ? "presentation" : undefined}
+    onClick={onActivate ? event => {
+      const post = event.currentTarget.querySelector(":scope > [data-page-swipe-navigation-row]")
+      if (!post || (event.target instanceof Node && post.contains(event.target))) return
+      onActivate()
+    } : undefined}>
+    {!first && <Separator aria-hidden="true" className="my-[6.6px] bg-border/50" />}
+    {children}
+  </div>
 }
 
 export function ForumPostList(props: Props) {
@@ -44,7 +60,7 @@ function ForumPostListEntry(props: Props) {
   return <ForumPostListOwner {...props} />
 }
 
-function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore, isFetching, isError, onLoadMore, onScrollRoot, renderPost, loadingContent }: Props) {
+function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore, isFetching, isError, onLoadMore, onScrollRoot, onOpenPost, renderPost, loadingContent }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const initialized = useRef(false)
   const [positionReady, setPositionReady] = useState(false)
@@ -87,10 +103,12 @@ function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 128,
     measureElement: (element, entry, instance) => {
-      const size = measureElement(element, entry, instance)
-      if (size > 0) return size
       const index = instance.indexFromElement(element)
       const cached = instance.itemSizeCache.get(instance.options.getItemKey(index))
+      const size = instance.options.useCachedMeasurements || (!entry && cached !== undefined)
+        ? measureElement(element, entry, instance)
+        : entry?.borderBoxSize?.[0]?.blockSize ?? element.getBoundingClientRect().height
+      if (size > 0) return size
       return cached && cached > 0 ? cached : instance.options.estimateSize(index)
     },
     getItemKey,
@@ -122,7 +140,8 @@ function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore,
       className={`flex-1 overflow-y-auto thin-scrollbar [overflow-anchor:none] ${FORUM_LIST_SPACING_CLASS}`}>
     {!posts.length && loading ? <div data-message-list-content aria-hidden="true" inert data-read-position-ready="false" />
       : !posts.length ? <div data-message-list-content aria-hidden="false" data-read-position-ready="true"><EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." /></div>
-      : <VirtualRows directDomUpdatesMode="position" items={posts} virtualizer={virtualizer} renderItem={renderPost}
+      : <VirtualRows directDomUpdatesMode="position" items={posts} virtualizer={virtualizer}
+        renderItem={(post, index) => <ForumPostListItem first={index === 0} onActivate={onOpenPost ? () => onOpenPost(post.id) : undefined}>{renderPost(post, index)}</ForumPostListItem>}
         containerAttributes={{ "data-message-list-content": "", "aria-hidden": !presentation.contentVisible, inert: !presentation.contentInteractive,
           "data-read-position-ready": positionReady ? "true" : "false" }} />}
     </div>

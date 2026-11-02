@@ -339,7 +339,7 @@ export async function runPreparedDaemon(
       machineKey: prepared.machineKey,
       serverUrl: prepared.serverUrl,
       serverWsUrl: prepared.wsUrl,
-      webSocketFactory: (url, headers) => new WebSocket(url, { headers }),
+      webSocketFactory: (url, headers) => new WebSocket(url, { headers, handshakeTimeout: 30_000 }),
       runtimeReport: prepared.runtimeReport,
       driverFor: (_agentId, runtimeConfig) => {
         const requested = runtimeConfig?.runtime;

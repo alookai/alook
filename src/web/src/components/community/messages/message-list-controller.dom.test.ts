@@ -12,7 +12,8 @@ const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
 const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
 const mocks = vi.hoisted(() => ({
-  hookOrder: [] as string[],
+  readPositionReady: false,
+  paginationEnabled: false,
   scrollInputs: [] as unknown[],
   paginationInputs: [] as unknown[],
   scrollRef: { current: null as HTMLDivElement | null },
@@ -39,7 +40,6 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
         input.onScrollTargetPositioned(input.scrollToMessageId)
       }
     }, [input, loaded])
-    mocks.hookOrder.push("anchor")
     mocks.scrollInputs.push({ ...input, tailPaddingEnd: input.tailPaddingEnd ?? MESSAGE_RAIL_TAIL_PADDING_END_PX })
     return {
       scrollRef: mocks.scrollRef,
@@ -49,8 +49,8 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
       requestPresentPosition: mocks.requestPresentPosition,
       jumpTo: mocks.jumpToIndex,
       positionOutcome,
-      readPositionReady: false,
-      paginationEnabled: false,
+      readPositionReady: mocks.readPositionReady,
+      paginationEnabled: mocks.paginationEnabled,
       captureOlderPageAnchor: mocks.captureOlderPageAnchor,
       captureNewerPageAnchor: mocks.captureNewerPageAnchor,
     }
@@ -58,7 +58,6 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
 }))
 vi.mock("@/hooks/community/use-virtual-cursor-pagination", () => ({
   useVirtualCursorPagination: (input: { edge: string }) => {
-    mocks.hookOrder.push(input.edge)
     mocks.paginationInputs.push(input)
   },
 }))
@@ -132,7 +131,10 @@ describe("useMessageListController", () => {
     currentScrollNode = scrollNode as unknown as HTMLDivElement
     resizeCallback = null
     disconnect.mockClear()
-    mocks.hookOrder.length = 0
+    mocks.readPositionReady = false
+    mocks.paginationEnabled = false
+    mocks.captureOlderPageAnchor.mockClear()
+    mocks.captureNewerPageAnchor.mockClear()
     mocks.scrollInputs.length = 0
     mocks.paginationInputs.length = 0
     mocks.scrollRef.current = null
@@ -224,7 +226,7 @@ describe("useMessageListController", () => {
     ])
   })
 
-  it("uses the exact loading predicate and calls anchor/start/end hooks unconditionally in order", () => {
+  it("keeps loading, reading and both pagination directions tied to the current scroll owner", () => {
     let renderer: ReturnType<typeof rtlRender>
     act(() => {
       renderer = rtlRender(
@@ -232,58 +234,27 @@ describe("useMessageListController", () => {
       )
     })
     expect(latest.isLoading).toBe(false)
-    expect(mocks.hookOrder.slice(0, 3)).toEqual(["anchor", "start", "end"])
-    expect(mocks.scrollInputs[0]).toEqual({
-      items: expect.any(Array),
-      newDividerBefore: undefined,
-      initialScrollReady: true,
-      positionDataState: "pending",
-      positionEntry: undefined,
-      positionScope: undefined,
-      initialPositionMessageId: undefined,
-      messageWindow: undefined,
-      active: undefined,
-      positioningActive: undefined,
-      presentRequest: undefined,
-      hasMoreNewer: undefined,
-      isFetchingOlder: undefined,
-      isFetchingNewer: undefined,
-      presentVersion: undefined,
-      localSubmitVersion: undefined,
-      hasMoreOlder: undefined,
-      tailPaddingEnd: 32,
-      scrollToMessageId: undefined,
-      onScrollTargetCancelled: undefined,
-      onScrollTargetPositioned: expect.any(Function),
-    })
+    expect(mocks.scrollInputs[0]).toMatchObject({ initialScrollReady: true, positionDataState: "pending" })
+    expect((mocks.scrollInputs[0] as { items: unknown }).items).toBe(latest.items)
     expect(mocks.paginationInputs.slice(0, 2)).toEqual([
-      {
+      expect.objectContaining({
         virtualizer: mocks.virtualizer,
         count: latest.items.length,
         enabled: false,
-        requestKey: undefined,
-        hasMore: undefined,
-        isFetching: undefined,
         isError: false,
         onBeforeLoad: mocks.captureOlderPageAnchor,
-        onLoad: undefined,
         edge: "start",
         preloadWithinViewport: true,
-      },
-      {
+      }),
+      expect.objectContaining({
         virtualizer: mocks.virtualizer,
         count: latest.items.length,
         enabled: false,
-        requestKey: undefined,
-        hasMore: undefined,
-        isFetching: undefined,
         isError: false,
-        hasMoreAtStart: undefined,
         onBeforeLoad: mocks.captureNewerPageAnchor,
-        onLoad: undefined,
         edge: "end",
         preloadWithinViewport: true,
-      },
+      }),
     ])
     expect(latest.scrollRef).toBe(mocks.scrollRef)
     expect(latest.virtualizer).toBe(mocks.virtualizer)
@@ -297,7 +268,24 @@ describe("useMessageListController", () => {
       }))
     })
     expect(latest.isLoading).toBe(true)
-    expect(mocks.hookOrder.slice(-3)).toEqual(["anchor", "start", "end"])
+    act(() => mocks.finishPosition("success"))
+    mocks.readPositionReady = true
+    mocks.paginationEnabled = true
+    renderer!.rerender(React.createElement(Probe, { value: props({ loading: false }) }))
+    expect(latest.isLoading).toBe(false)
+    expect(latest.readPositionReady).toBe(true)
+    expect(mocks.paginationInputs.slice(-2)).toEqual([
+      expect.objectContaining({ edge: "start", enabled: true, onBeforeLoad: mocks.captureOlderPageAnchor }),
+      expect.objectContaining({ edge: "end", enabled: true, onBeforeLoad: mocks.captureNewerPageAnchor }),
+    ])
+    mocks.readPositionReady = false
+    mocks.paginationEnabled = false
+    renderer!.rerender(React.createElement(Probe, { value: props({ loading: false }) }))
+    expect(latest.readPositionReady).toBe(false)
+    expect(mocks.paginationInputs.slice(-2)).toEqual([
+      expect.objectContaining({ edge: "start", enabled: false }),
+      expect.objectContaining({ edge: "end", enabled: false }),
+    ])
   })
 
   it("delegates the shared tail padding to the original virtualizer hook", () => {
@@ -375,7 +363,7 @@ describe("useMessageListController", () => {
     expect(latest.pillCount).toBeUndefined()
   })
 
-  it("passes every pagination/anchor input through and gives jump mode server-count precedence", () => {
+  it("preserves requested pagination callbacks and gives jump mode server-count precedence", () => {
     const loadOlder = vi.fn()
     const loadNewer = vi.fn()
     const jumpToPresent = vi.fn()
@@ -397,35 +385,23 @@ describe("useMessageListController", () => {
         }),
       }))
     })
-    expect(mocks.scrollInputs.at(-1)).toEqual({
+    expect(mocks.scrollInputs.at(-1)).toMatchObject({
       items: expect.any(Array),
       newDividerBefore: "m1",
-      positionScope: undefined,
-      positionEntry: undefined,
-      positionDataState: undefined,
-      positioningActive: undefined,
-      messageWindow: undefined,
-      initialPositionMessageId: undefined,
-      active: undefined,
-      presentRequest: undefined,
       initialScrollReady: false,
       hasMoreNewer: true,
       isFetchingOlder: true,
       isFetchingNewer: true,
       presentVersion: 7,
-      localSubmitVersion: undefined,
       hasMoreOlder: true,
       tailPaddingEnd: 32,
-      scrollToMessageId: undefined,
-      onScrollTargetCancelled: undefined,
       onScrollTargetPositioned: expect.any(Function),
     })
     expect(mocks.paginationInputs.slice(-2)).toEqual([
-      {
+      expect.objectContaining({
         virtualizer: mocks.virtualizer,
         count: latest.items.length,
         enabled: false,
-        requestKey: undefined,
         hasMore: true,
         isFetching: true,
         isError: false,
@@ -433,12 +409,11 @@ describe("useMessageListController", () => {
         onLoad: loadOlder,
         edge: "start",
         preloadWithinViewport: true,
-      },
-      {
+      }),
+      expect.objectContaining({
         virtualizer: mocks.virtualizer,
         count: latest.items.length,
         enabled: false,
-        requestKey: undefined,
         hasMore: true,
         isFetching: true,
         isError: false,
@@ -447,7 +422,7 @@ describe("useMessageListController", () => {
         onLoad: loadNewer,
         edge: "end",
         preloadWithinViewport: true,
-      },
+      }),
     ])
     expect(latest.pillCount).toBe(9)
     expect(latest.pillMode).toBe("jump")

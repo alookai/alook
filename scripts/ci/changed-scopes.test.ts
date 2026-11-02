@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import {
   buildExecutionPlan,
@@ -56,6 +56,10 @@ function workspaceFixture({
       join(packageRoot, "package.json"),
       readFileSync(join(scopePackage.root, "package.json"), "utf8"),
     )
+  }
+  for (const path of manifest.smoke_tests) {
+    mkdirSync(dirname(join(root, path)), { recursive: true })
+    writeFileSync(join(root, path), "")
   }
   return { manifest, root }
 }
@@ -112,6 +116,92 @@ function gitDiffFixture(changedPath = "src/app/src/commands/inbox.ts") {
 }
 
 describe("canonical execution plan", () => {
+  it("unions localized UI features with key journeys without selecting unrelated browser groups", () => {
+    const source = "src/web/src/components/community/shell/user-bar.tsx"
+    const result = plan([source])
+    expect(result.full).toBe(false)
+    expect(result.ui.specs).toEqual(expect.arrayContaining([
+      "01-auth.spec.ts", "03-realtime-multiuser.spec.ts", "06-channel-member-admin.spec.ts",
+      "50-daemon-update-notice.spec.ts", "53-mobile-inbox-surface.spec.ts", "60-desktop-default-user-bar-width.spec.ts",
+    ]))
+    expect(result.ui.specs).not.toContain("all")
+    expect(result.ui.specs).not.toContain("55-message-scroll-characterization.spec.ts")
+    const mixed = plan([source, "src/web/src/components/home/landing-workspace-skeleton.tsx"])
+    expect(mixed.ui.specs).toEqual(expect.arrayContaining([
+      ...result.ui.specs, "19-marketing-seo.spec.ts", "51-share-image-assets.spec.ts",
+    ]))
+    expect(new Set(mixed.ui.specs).size).toBe(mixed.ui.specs.length)
+    expect(projectPlan(mixed).e2e_matrix).not.toContain('"all"')
+  })
+
+  it("keeps direct browser edits and expands removed specs, shared helpers and unclassified runtime inputs", () => {
+    const spec = "src/web/src/test/e2e-ui/64-billing-contact.spec.ts"
+    expect(plan([spec]).ui.specs).toContain("64-billing-contact.spec.ts")
+    expect(plan(["src/web/src/components/community/shell/user-bar.test.ts"]).ui.specs).toEqual([])
+    for (const path of [
+      "src/web/src/test/e2e-ui/_fixtures/actions.ts",
+      "src/web/src/test/e2e-ui/community-cache-first-warm-reload.journey.ts",
+      "src/web/src/lib/community/community-db/sync.ts",
+      "src/web/src/components/community/messages/message-list.tsx",
+      "src/web/src/app/api/community/channels/[id]/messages/route.ts",
+      "src/web/src/app/globals.css",
+      "src/shared/src/schema.ts",
+    ]) expect(plan([path]).ui.specs, path).toEqual(["all"])
+    const removed = buildExecutionPlan([{ status: "D", path: "src/web/src/test/e2e-ui/retired.spec.ts" }])
+    expect(removed.ui.specs).toEqual(["all"])
+    const renamed = buildExecutionPlan([{ status: "R100", old_path: spec, path: "src/web/src/lib/moved-runtime.ts" }])
+    expect(renamed.ui.specs).toEqual(["all"])
+  })
+
+  it("runs the complete small main smoke set without repeating full package or platform suites", () => {
+    const result = plan(["src/web/src/components/community/shell/user-bar.tsx"], { mainSmoke: true })
+    const manifest = loadScopeManifest()
+    expect(result.execution_mode).toBe("main-smoke")
+    expect(result.suites.smoke).toEqual(manifest.smoke_tests)
+    for (const kind of ["static", "build", "knip", "unit", "windows", "integration", "linux"]) {
+      expect(result.suites[kind], kind).toEqual([])
+    }
+    expect(result.ui.specs).toEqual([...manifest.ui.contracts.smoke].sort())
+    expect(result.jobs.test_linux).toBe(true)
+    expect(result.jobs.ui_e2e).toBe(true)
+    expect(result.jobs.e2e).toBe(false)
+    expect(result.jobs.lighthouse).toBe(false)
+    expect(result.coverage.targets).toEqual([])
+    expect(result.coverage.required_changed_files).toEqual([])
+    expect(validateExecutionPlan(result)).toEqual(result)
+    expect(projectPlan(result).smoke_test_files).toBe(JSON.stringify(manifest.smoke_tests))
+    expect(plan(["src/web/src/components/community/shell/user-bar.test.ts"], { mainSmoke: true }).ui.specs).toEqual([])
+    expect(plan(["src/web/blog/src/content/example.mdx"], { mainSmoke: true }).ui.specs).toEqual(manifest.ui.contracts.blog)
+  })
+
+  it("preserves full fallback and explicit release/manual regression instead of labelling it smoke", () => {
+    for (const options of [{ forceFull: true }, { mainSmoke: true, fallbackReason: "diff failed" }]) {
+      const result = plan(["src/web/src/components/home/hero.tsx"], options)
+      expect(result.execution_mode).toBe("full")
+      expect(result.ui.specs).toEqual(["all"])
+      expect(result.suites.integration).toContain("web")
+      expect(result.suites.smoke).toEqual([])
+    }
+    for (const path of ["unknown/runtime.ts", "scripts/ci/changed-scopes.mjs", "pnpm-lock.yaml"]) {
+      expect(plan([path], { mainSmoke: true }).execution_mode).toBe("full")
+    }
+  })
+
+  it("rejects a correctly rehashed plan that drops smoke or claims an inconsistent execution mode", () => {
+    const original = plan(["src/web/src/components/home/hero.tsx"], { mainSmoke: true })
+    const dropped = structuredClone(original)
+    dropped.suites.smoke.pop()
+    expect(() => validateExecutionPlan(resignPlan(dropped))).toThrow("complete smoke set")
+    const wrongMode = { ...original, execution_mode: "full" }
+    expect(() => validateExecutionPlan(resignPlan(wrongMode))).toThrow("mode")
+    const unknown = structuredClone(original)
+    unknown.suites.smoke.push("unknown.test.ts")
+    expect(() => validateExecutionPlan(resignPlan(unknown))).toThrow("smoke tests")
+    const skipped = structuredClone(original)
+    skipped.jobs.test_linux = false
+    expect(() => validateExecutionPlan(resignPlan(skipped))).toThrow("complete selected behavior")
+  })
+
   it("keeps benchmark-only changes out of product jobs while retaining diff evidence", () => {
     const changes = [
       { status: "A", path: "src/benchmark/package.json" },
@@ -149,8 +239,8 @@ describe("canonical execution plan", () => {
     expect(plan([]).full).toBe(true)
     expect(plan(["src/benchmark/src/runner.mjs"], { forceFull: true }).full).toBe(true)
     expect(plan(["src/benchmark/src/runner.mjs"], { fallbackReason: "diff failed" }).full).toBe(true)
-    expect(plan(["src/benchmark/src/runner.mjs"], { fullUnlessBenchmarkOnly: true }).full).toBe(false)
-    for (const paths of [[], ["README.md"], ["src/web/auth/index.ts", "src/benchmark/src/runner.mjs"]]) expect(plan(paths, { fullUnlessBenchmarkOnly: true }).full).toBe(true)
+    expect(plan(["src/benchmark/src/runner.mjs"], { mainSmoke: true }).full).toBe(false)
+    expect(plan(["README.md"], { mainSmoke: true }).suites.smoke).toEqual([])
   })
 
   it("routes Blog runtime through the complete Web contract and only UI spec 54", () => {
@@ -485,6 +575,24 @@ describe("coverage name-status contract", () => {
 })
 
 describe("scope manifest", () => {
+  it("rejects broken smoke and feature definitions before selecting jobs", () => {
+    const original = loadScopeManifest()
+    const noFallback = structuredClone(original)
+    noFallback.ui.full_prefixes = []
+    expect(() => validateScopeManifest(noFallback)).toThrow("full-scope prefixes")
+    const missingSpec = structuredClone(original)
+    missingSpec.ui.groups[0].specs.push("missing.spec.ts")
+    expect(() => validateScopeManifest(missingSpec)).toThrow("unknown UI spec")
+    const duplicatedGroup = structuredClone(original)
+    duplicatedGroup.ui.groups.push(structuredClone(duplicatedGroup.ui.groups[0]))
+    expect(() => validateScopeManifest(duplicatedGroup)).toThrow("group names")
+    const outside = structuredClone(original)
+    outside.smoke_tests.push("../outside.test.ts")
+    expect(() => validateScopeManifest(outside)).toThrow("main smoke tests")
+    const missingSmoke = structuredClone(original)
+    missingSmoke.smoke_tests.push("src/web/src/missing-main-smoke.test.ts")
+    expect(() => validateScopeManifest(missingSmoke)).toThrow("missing main smoke test")
+  })
   it("matches workspace package manifests and the complete UI inventory", () => {
     const manifest = loadScopeManifest()
     expect(() => validateScopeManifest(manifest)).not.toThrow()
@@ -556,7 +664,7 @@ describe("scope manifest", () => {
     try {
       expect(() => validateScopeManifest(manifest, {
         root,
-        specs: Object.values(manifest.ui.contracts).flat(),
+        specs: [...Object.values(manifest.ui.contracts).flat(), ...manifest.ui.groups.flatMap((group) => group.specs)],
       })).not.toThrow()
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -572,7 +680,7 @@ describe("scope manifest", () => {
       try {
         expect(() => validateScopeManifest(manifest, {
           root,
-          specs: Object.values(manifest.ui.contracts).flat(),
+          specs: [...Object.values(manifest.ui.contracts).flat(), ...manifest.ui.groups.flatMap((group) => group.specs)],
         })).toThrow("codecov.yml")
       } finally {
         rmSync(root, { recursive: true, force: true })
@@ -589,7 +697,7 @@ describe("scope manifest", () => {
       writeFileSync(packagePath, JSON.stringify(packageManifest))
       expect(() => validateScopeManifest(manifest, {
         root,
-        specs: Object.values(manifest.ui.contracts).flat(),
+        specs: [...Object.values(manifest.ui.contracts).flat(), ...manifest.ui.groups.flatMap((group) => group.specs)],
       })).toThrow("declares test scope")
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -598,6 +706,55 @@ describe("scope manifest", () => {
 })
 
 describe("compatibility and CLI fail-closed behavior", () => {
+  it.each([
+    ["pull_request", "change", "affected"],
+    ["merge_group", "change", "affected"],
+    ["push", "fix: localized user bar", "main-smoke"],
+    ["push", "release: v0.1.64", "full"],
+    ["workflow_dispatch", "change", "full"],
+  ])("runs the actual workflow scope entry for %s / %s", (event, message, mode) => {
+    const fixture = gitDiffFixture("src/web/src/components/community/shell/user-bar.tsx")
+    try {
+      const workflow = readFileSync(join(import.meta.dirname, "../../.github/workflows/ci.yml"), "utf8").replaceAll("\r\n", "\n")
+      const scope = workflow.slice(workflow.indexOf("\n  scope:\n"), workflow.indexOf("\n  auth-build:\n"))
+      const body = scope.match(/        run: \|\n([\s\S]*?)(?=^      - uses:)/m)?.[1]
+      expect(body).toBeTruthy()
+      const script = body!.replace(/^ {10}/gm, "").replaceAll(
+        "node scripts/ci/changed-scopes.mjs", '"$CLASSIFIER_NODE" "$CLASSIFIER_SCRIPT"',
+      ).replaceAll(".ci/execution-plan.json", '"$SCOPE_PLAN_FILE"').replace("mkdir -p .ci", 'mkdir -p "$SCOPE_DIR"')
+      execFileSync("bash", ["-c", script], {
+        cwd: process.cwd(),
+        env: {
+          ...cleanGitEnvironment(),
+          GIT_DIR: join(fixture.root, ".git"), GIT_WORK_TREE: fixture.root,
+          CLASSIFIER_NODE: process.execPath, CLASSIFIER_SCRIPT: join(import.meta.dirname, "changed-scopes.mjs"),
+          SCOPE_DIR: join(fixture.root, ".ci"), SCOPE_PLAN_FILE: join(fixture.root, ".ci/execution-plan.json"),
+          EVENT_NAME: event, EVENT_SHA: "HEAD", PR_BASE_SHA: "HEAD^", PR_HEAD_SHA: "HEAD",
+          MERGE_BASE_SHA: "HEAD^", PUSH_BASE_SHA: "HEAD^", HEAD_COMMIT_MESSAGE: message,
+          DISPATCH_MODE: "full", GITHUB_OUTPUT: join(fixture.root, "outputs"),
+          GITHUB_STEP_SUMMARY: join(fixture.root, "summary"),
+        },
+      })
+      const result = JSON.parse(readFileSync(join(fixture.root, ".ci/execution-plan.json"), "utf8"))
+      expect(result.execution_mode).toBe(mode)
+      expect(validateExecutionPlan(result)).toEqual(result)
+      if (mode === "full") {
+        expect(result.ui.specs).toEqual(["all"])
+        expect(result.suites.integration).toContain("web")
+      } else if (mode === "main-smoke") {
+        expect(result.suites.unit).toEqual([])
+        expect(result.suites.smoke).toEqual(loadScopeManifest().smoke_tests)
+        expect(result.ui.specs).toEqual([...loadScopeManifest().ui.contracts.smoke].sort())
+      } else {
+        expect(result.ui.specs).toContain("60-desktop-default-user-bar-width.spec.ts")
+        expect(result.ui.specs).not.toContain("all")
+      }
+      expect(readFileSync(join(fixture.root, "outputs"), "utf8")).toContain(`execution_mode=${mode}\n`)
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
   it("detects dependency changes from package manifests instead of branch names", () => {
     const manifest = (version?: string) => JSON.stringify({
       dependencies: version ? { "react-resizable-panels": version } : {},
@@ -694,12 +851,12 @@ describe("compatibility and CLI fail-closed behavior", () => {
       for (const name of localEnvironment) delete process.env[name]
       process.env.GIT_DIR = join(fixture.root, ".git")
       process.env.GIT_WORK_TREE = fixture.root
-      runCli(["--base", "HEAD^", "--head", "HEAD", "--full-unless-benchmark-only", "--summary", summary])
+      runCli(["--base", "HEAD^", "--head", "HEAD", "--main-smoke", "--summary", summary])
 
       const written = stdout.mock.calls.map(([value]) => String(value)).join("")
       const writtenPlan = JSON.parse(written)
-      expect(writtenPlan.full).toBe(true)
-      expect(writtenPlan.full_reason).toBe("forced")
+      expect(writtenPlan.full).toBe(false)
+      expect(writtenPlan.execution_mode).toBe("main-smoke")
       expect(writtenPlan.base_sha).toBe("HEAD^")
       expect(writtenPlan.head_sha).toBe("HEAD")
       expect(writtenPlan.changes).toEqual([{ status: "A", path: fixture.changedPath }])
@@ -716,13 +873,13 @@ describe("compatibility and CLI fail-closed behavior", () => {
 
   it.each([
     ["src/benchmark/src/runner.mjs", false],
-    ["src/web/auth/index.ts", true],
+    ["src/web/auth/index.ts", false],
   ])("applies main-push policy through the actual CLI diff for %s", (path, full) => {
     const fixture = gitDiffFixture(String(path))
     const output = join(fixture.root, "projection")
     const planFile = join(fixture.root, "plan.json")
     try {
-      execFileSync(process.execPath, ["scripts/ci/changed-scopes.mjs", "--base", "HEAD^", "--head", "HEAD", "--full-unless-benchmark-only", "--output", output, "--plan-file", planFile], {
+      execFileSync(process.execPath, ["scripts/ci/changed-scopes.mjs", "--base", "HEAD^", "--head", "HEAD", "--main-smoke", "--output", output, "--plan-file", planFile], {
         env: { ...cleanGitEnvironment(), GIT_DIR: join(fixture.root, ".git"), GIT_WORK_TREE: fixture.root },
       })
       const result = JSON.parse(readFileSync(planFile, "utf8"))

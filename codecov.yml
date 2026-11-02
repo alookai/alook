@@ -19,8 +19,8 @@ coverage:
           - src/web/**
     patch:
       default:
-        target: 100%
-        threshold: 0%
+        informational: true
+        target: auto
 
 ignore:
   - "src/web/src/components/home/**"

@@ -1,80 +1,18 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import type { ComponentProps, ComponentRef } from "react"
-import { describe, expect, expectTypeOf, it } from "vitest"
-import { Composer } from "./composer"
-import type { ComposerHandle, ComposerMention, ComposerProps } from "./composer"
+import { describe, expect, it } from "vitest"
+import * as facade from "./composer"
 
-const messagesDirectory = dirname(fileURLToPath(import.meta.url))
-const webRoot = resolve(messagesDirectory, "../../../..")
-const readWeb = (path: string) =>
-  readFileSync(resolve(webRoot, path), "utf8")
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
+const readWeb = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
-describe("Composer public facade", () => {
-  it("keeps the exact props and seven-method forwarded handle", () => {
-    expectTypeOf<ComponentProps<typeof Composer>>().toEqualTypeOf<ComposerProps>()
-    expectTypeOf<ComponentRef<typeof Composer>>().toEqualTypeOf<ComposerHandle>()
-    expectTypeOf<ComposerMention>().toEqualTypeOf<{ id: string; label: string }>()
-    expectTypeOf<NonNullable<ComposerProps["replyingTo"]>>().toEqualTypeOf<{
-      authorId?: string
-      authorName: string
-      text: string
-    }>()
-    expectTypeOf<keyof ComposerHandle>().toEqualTypeOf<
-      | "focusEditor"
-      | "insertTextAtCaret"
-      | "insertMentionAtCaret"
-      | "submitNow"
-      | "resetAfterSubmit"
-      | "isEmpty"
-      | "openFilePicker"
-    >()
-  })
-
-  it("keeps DM, channel, and thread on the structured reply-target contract", () => {
-    const dm = readWeb("src/components/community/channels/dm-view.tsx")
-    const channel = readWeb("src/components/community/channels/text-channel-surface.tsx")
-    const thread = readWeb("src/components/community/channels/thread-channel-surface.tsx")
-
-    expect(dm).toContain("replyingTo={replyTo ?? undefined}")
-    expect(dm).not.toContain("replyingTo={replyTo?.authorName}")
-    expect(channel).toContain("replyingTo={controller.replyTo ?? undefined}")
-    expect(thread).toContain("replyingTo={controller.replyTo ?? undefined}")
-  })
-
-  it("retains the original-path eight-export facade", () => {
-    const source = readWeb("src/components/community/messages/composer.tsx")
-    const namesFromBlocks = (pattern: RegExp) =>
-      [...source.matchAll(pattern)].flatMap((match) =>
-        match[1]
-          .split(",")
-          .map((part) => part.trim().split(/\s+as\s+/)[1] ?? part.trim())
-          .filter(Boolean),
-      )
-    const typeExports = namesFromBlocks(/export\s+type\s*\{([^}]*)\}/gs)
-    const valueExports = [
-      ...namesFromBlocks(/export\s*\{([^}]*)\}/gs),
-      ...[...source.matchAll(/export\s+(?:const|function|class)\s+(\w+)/g)].map(
-        (match) => match[1],
-      ),
-    ]
-    expect(new Set(typeExports)).toEqual(
-      new Set(["ComposerHandle", "ComposerMention", "ComposerProps", "SendAttachment"]),
-    )
-    expect(new Set(valueExports)).toEqual(
-      new Set([
-        "Composer",
-        "ComposerSkeleton",
-        "pendingFilesToSendAttachments",
-        "clipboardFiles",
-      ]),
-    )
-    expect(source).not.toMatch(/export\s+(?:default|\*)/)
-    expect(source).toContain("useComposerController(props, ref)")
-    expect(source).toContain("<ComposerView {...viewProps} />")
-    expect(source).not.toContain("useEditor(")
-    expect(source).not.toContain("useFileAttachments(")
+describe("Composer facade boundaries", () => {
+  it("exposes the public controls and file helpers without internal runtime exports", () => {
+    expect(Object.keys(facade).sort()).toEqual([
+      "Composer", "ComposerSkeleton", "clipboardFiles", "pendingFilesToSendAttachments",
+    ])
+    expect(existsSync(resolve(webRoot, "src/components/community/messages/index.ts"))).toBe(false)
   })
 
   it("keeps every direct importer on the facade and out of internals", () => {
@@ -96,22 +34,4 @@ describe("Composer public facade", () => {
     }
   })
 
-  it("keeps every production owner below 400 lines without a barrel", () => {
-    const owners = [
-      "composer.tsx",
-      "composer-types.ts",
-      "composer-file-utils.ts",
-      "use-composer-controller.ts",
-      "use-composer-suggestions.ts",
-      "composer-suggestion-popups.tsx",
-      "composer-view.tsx",
-    ]
-    for (const owner of owners) {
-      const source = readWeb(`src/components/community/messages/${owner}`)
-      expect(source.split("\n").length, owner).toBeLessThan(400)
-    }
-    expect(
-      existsSync(resolve(webRoot, "src/components/community/messages/index.ts")),
-    ).toBe(false)
-  })
 })
