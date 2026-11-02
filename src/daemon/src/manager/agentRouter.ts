@@ -19,7 +19,7 @@
  * server recovers this host's state after a dropped control connection.
  */
 import type { HostCommand, HostControlChannel, HostReady, HostReadyRuntime, UnreadNotice, AgentSessionReport, SessionErrorFrame, AgentId, HostAgentActivity } from "../server/contract.js";
-import { PII_CAPABILITY, type ProviderQuotaSnapshot } from "@alook/shared";
+import { MACHINE_REFRESH_CAPABILITY, type MachineRefreshResult, PII_CAPABILITY, type ProviderQuotaSnapshot } from "@alook/shared";
 import { CONTROL_HEARTBEAT_CAPABILITY, MACHINE_STOP_CAPABILITY, RUNTIME_MODEL_DISCOVERY_CAPABILITY } from "../server/contract.js";
 import { getDriver, type AgentBackend } from "../drivers/index.js";
 import type { AgentProcessManager } from "./managerRuntime.js";
@@ -84,6 +84,9 @@ export interface AgentRouterOpts {
   runtimeReport: HostReadyRuntime[];
   discoverModels?: (runtimeId: string) => ReturnType<AgentBackend["discoverModels"]>;
   supportsMachineStop?: boolean;
+  supportsMachineRefresh?: boolean;
+  refreshRequestId?: string;
+  refreshResult?: MachineRefreshResult;
   hostname?: string;
   platform?: string;
   arch?: string;
@@ -252,7 +255,9 @@ export class AgentRouter {
       : this.opts.timeZone;
     return {
       runtimeReport: [...this.runtimes.values()],
-      capabilities: [...(this.opts.channel.reportPiiResult ? [PII_CAPABILITY] : []), CONTROL_HEARTBEAT_CAPABILITY, ...(this.opts.supportsMachineStop ? [MACHINE_STOP_CAPABILITY] : []), ...(this.opts.channel.reportRuntimeModels ? [RUNTIME_MODEL_DISCOVERY_CAPABILITY] : [])],
+      ...(this.opts.refreshRequestId ? { refreshRequestId: this.opts.refreshRequestId } : {}),
+      ...(this.opts.refreshResult ? { refreshResult: this.opts.refreshResult } : {}),
+      capabilities: [...(this.opts.supportsMachineRefresh ? [MACHINE_REFRESH_CAPABILITY] : []), ...(this.opts.channel.reportPiiResult ? [PII_CAPABILITY] : []), CONTROL_HEARTBEAT_CAPABILITY, ...(this.opts.supportsMachineStop ? [MACHINE_STOP_CAPABILITY] : []), ...(this.opts.channel.reportRuntimeModels ? [RUNTIME_MODEL_DISCOVERY_CAPABILITY] : [])],
       runningAgents: [...this.running],
       hostname: this.opts.hostname,
       platform: this.opts.platform,
@@ -262,6 +267,11 @@ export class AgentRouter {
       timeZone,
       ...(this.opts.providerQuotas ? { providerQuotas: this.opts.providerQuotas() } : {}),
     };
+  }
+
+  reportRefreshResult(result: MachineRefreshResult): void {
+    this.opts.refreshResult = result;
+    this.opts.channel.sendReady?.(this.buildReady());
   }
 
   /** Runtime ids currently reported healthy. Insertion-ordered. */

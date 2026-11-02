@@ -1,6 +1,6 @@
 import { waitForModelDiscovery } from "./model-discovery-wait"
 import { readBoundedJsonRequest } from "../community-browser-event-ingress"
-import { createDb, PII_REQUEST_MAX_BYTES, PiiCommandSchema, DiagnosticCollectCommandSchema, RuntimeModelDiscoveryCommandSchema, RUNTIME_MODEL_CATALOG_FINGERPRINT_HEADER, queries } from "@alook/shared"
+import { MachineRefreshCommandSchema, createDb, PII_REQUEST_MAX_BYTES, PiiCommandSchema, DiagnosticCollectCommandSchema, RuntimeModelDiscoveryCommandSchema, RUNTIME_MODEL_CATALOG_FINGERPRINT_HEADER, queries } from "@alook/shared"
 import {
   HANDLE_KEY,
   IDENTITY_KEY,
@@ -52,6 +52,13 @@ export async function handleMachineControlFetch(
     const command = PiiCommandSchema.safeParse(input.ok ? input.value : null)
     if (!command.success) return new Response(JSON.stringify({ error: "invalid request" }), { status: 400, headers: { "Content-Type": "application/json" } })
     return new Response(JSON.stringify(forwardToCommunityMachine(context, JSON.stringify(command.data), "pii")), { headers: { "Content-Type": "application/json" } })
+  }
+
+  if (url.pathname === "/refresh" && request.method === "POST") {
+    const input = await readBoundedJsonRequest(request, 1024)
+    const command = MachineRefreshCommandSchema.safeParse(input.ok ? input.value : null)
+    if (!command.success) return Response.json({ error: "invalid refresh request" }, { status: 400 })
+    return Response.json(forwardToCommunityMachine(context, JSON.stringify(command.data), "machineRefresh"))
   }
 
   if (url.pathname === "/stop" && request.method === "POST") {
@@ -289,7 +296,7 @@ function rejectCommunityMachine(ws: WebSocket, reason: string): void {
   try { ws.close(1008, "Unauthorized") } catch { /* ok */ }
 }
 
-function forwardToCommunityMachine(context: WsDurableContext, message: string, capability?: "modelDiscovery" | "machineStop" | "pii"): { sent: number; unsupported: number } {
+function forwardToCommunityMachine(context: WsDurableContext, message: string, capability?: "modelDiscovery" | "machineStop" | "machineRefresh" | "pii"): { sent: number; unsupported: number } {
   let sent = 0
   let unsupported = 0
   for (const ws of context.ctx.getWebSockets()) {

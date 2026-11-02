@@ -1,3 +1,4 @@
+import { MachineRefreshRequestIdSchema, MachineRefreshResultSchema } from "./machine-refresh-contract";
 import { RuntimeModelDiscoveryRequestSchema, RuntimeModelDiscoveryErrorSchema } from "./runtime-models-contract";
 import { z } from "zod";
 import { IssueStatus, TASK_TYPES } from "./constants";
@@ -969,6 +970,8 @@ export type CommunityMachineSummary = z.infer<typeof CommunityMachineSummarySche
  * `MIN_CLI_VERSION` gate on the next reconnect.
  */
 export const HostReadyMessageSchema = z.object({
+  refreshRequestId: MachineRefreshRequestIdSchema.optional(),
+  refreshResult: MachineRefreshResultSchema.optional(),
   type: z.literal("ready"),
   runtimeReport: CommunityMachineRuntimeListSchema,
   capabilities: z.array(z.string().min(1).max(64)).max(16).optional().default([]),

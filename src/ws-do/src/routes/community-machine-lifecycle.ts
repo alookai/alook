@@ -1,13 +1,23 @@
-import { queries } from "@alook/shared"
+import { MachineRefreshCommandSchema, readBoundedJsonRequest, queries } from "@alook/shared"
 import type { RouterContext } from "../router-context"
 
 export async function handleMachineLifecycleCommand({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
-  const route = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-(update|stop)$/)
+  const route = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-(update|stop|refresh)$/)
   if (!route || request.method !== "POST") return null
 
   const machineId = decodeURIComponent(route[1])
   const stopping = route[2] === "stop"
-  const command = stopping ? "machine:stop" : "machine:update"
+  const refreshing = route[2] === "refresh"
+  const gated = stopping || refreshing
+  let refreshCommand: unknown
+  if (refreshing) {
+    try {
+      const input = await readBoundedJsonRequest(request, 1024)
+      refreshCommand = MachineRefreshCommandSchema.parse(input.ok ? input.value : null)
+    }
+    catch { return Response.json({ error: "invalid refresh request" }, { status: 400 }) }
+  }
+  const command = refreshing ? "machine:refresh" : stopping ? "machine:stop" : "machine:update"
   const reqLog = log.child({ traceId, machineId })
   reqLog.debug("forwarding machine lifecycle command", { command })
 
@@ -20,9 +30,9 @@ export async function handleMachineLifecycleCommand({ request, env, url, traceId
     reqLog.error("failed to resolve machine doNames", { command, err })
     return Response.json({ error: "failed to resolve machine" }, { status: 503 })
   }
-  if (doNames.length === 0) return Response.json(stopping ? { sent: 0, unsupported: 0 } : { sent: 0 })
+  if (doNames.length === 0) return Response.json(gated ? { sent: 0, unsupported: 0 } : { sent: 0 })
 
-  const frame = JSON.stringify({ type: command })
+  const frame = JSON.stringify(refreshing ? refreshCommand : { type: command })
   let delivered = 0
   let unsupported = 0
   let transientFailure = false
@@ -30,7 +40,7 @@ export async function handleMachineLifecycleCommand({ request, env, url, traceId
     const doId = env.WS_DO.idFromName("community-machine:" + doName)
     const stub = env.WS_DO.get(doId)
     try {
-      const response = await stub.fetch(new Request(stopping ? "http://internal/stop" : "http://internal/push", {
+      const response = await stub.fetch(new Request(refreshing ? "http://internal/refresh" : stopping ? "http://internal/stop" : "http://internal/push", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: frame,
@@ -47,7 +57,7 @@ export async function handleMachineLifecycleCommand({ request, env, url, traceId
         transientFailure = true
         continue
       }
-      if (stopping) {
+      if (gated) {
         if (!("unsupported" in data) || typeof data.unsupported !== "number" || !Number.isSafeInteger(data.unsupported) || data.unsupported < 0) {
           transientFailure = true
           continue
@@ -60,9 +70,9 @@ export async function handleMachineLifecycleCommand({ request, env, url, traceId
     }
   }
   if (delivered === 0 && transientFailure) {
-    return Response.json({ error: `failed to forward machine ${stopping ? "stop" : "update"}` }, { status: 503 })
+    return Response.json({ error: `failed to forward machine ${route[2]}` }, { status: 503 })
   }
-  return Response.json(stopping ? { sent: delivered, unsupported } : { sent: delivered })
+  return Response.json(gated ? { sent: delivered, unsupported } : { sent: delivered })
 }
 
 export async function handleMachineReset({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {

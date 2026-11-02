@@ -850,6 +850,26 @@ describe("WebSocketDurableObject", () => {
         )
       })
 
+      it("publishes completion only for a request bound on the new connection's first ready", async () => {
+        const { durable, store } = createDO()
+        seedIdentity(store)
+        const machine = { id: "cm_1", hostname: "host", daemonVersion: "0.1.63", availableRuntimes: [], status: "online" }
+        mockUpsertMachineByMachineId.mockResolvedValue({ machine, priorAvailableRuntimes: [], priorDaemonVersion: "0.1.63", priorStatus: "online" })
+        const requestId = "26aac14d-dfd6-4e96-821c-ebf538316f79"
+        const base = { type: "ready", runtimeReport: [], capabilities: ["control-heartbeat-v1", "machineRefresh"], runningAgents: [], daemonVersion: "0.1.63" }
+        const oldSocket = machineWs()
+        await durable.webSocketMessage(oldSocket as WebSocket, JSON.stringify(base))
+        mockStubFetch.mockClear()
+        await durable.webSocketMessage(oldSocket as WebSocket, JSON.stringify({ ...base, refreshRequestId: requestId, refreshResult: { requestId, status: "complete" } }))
+        expect(mockStubFetch).not.toHaveBeenCalled()
+        const newSocket = machineWs()
+        await durable.webSocketMessage(newSocket as WebSocket, JSON.stringify({ ...base, refreshRequestId: requestId }))
+        expect(mockStubFetch).not.toHaveBeenCalled()
+        await durable.webSocketMessage(newSocket as WebSocket, JSON.stringify({ ...base, refreshRequestId: requestId, refreshResult: { requestId, status: "complete" } }))
+        const bodies = await Promise.all(mockStubFetch.mock.calls.map(async ([request]) => await (request as Request).clone().json()))
+        expect(bodies).toContainEqual(expect.objectContaining({ type: "community:machine.updated", refreshResult: { requestId, status: "complete" } }))
+      })
+
       it.each([
         ["0.1.62", "0.1.63", false],
         ["0.1.63", "0.1.63", false],

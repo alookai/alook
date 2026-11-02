@@ -103,10 +103,52 @@ fn executable(command: &str) -> String {
 #[cfg(desktop)]
 fn daemon_endpoints_for(is_debug: bool) -> (&'static str, &'static str) {
     if is_debug {
-        ("http://localhost:3000", "ws://localhost:8789")
+        (
+            development_daemon_endpoint(
+                option_env!("ALOOK_DESKTOP_DEV_SERVER_URL"),
+                "http://localhost:3000",
+                "http",
+            ),
+            development_daemon_endpoint(
+                option_env!("ALOOK_DESKTOP_DEV_WS_URL"),
+                "ws://localhost:8789",
+                "ws",
+            ),
+        )
     } else {
         ("https://alook.ai", "wss://alook.ai/api/ws/community-daemon")
     }
+}
+
+#[cfg(desktop)]
+fn development_daemon_endpoint(
+    value: Option<&'static str>,
+    fallback: &'static str,
+    scheme: &str,
+) -> &'static str {
+    let Some(value) = value else {
+        return fallback;
+    };
+    let valid = url::Url::parse(value).ok().is_some_and(|url| {
+        let loopback = match url.host() {
+            Some(url::Host::Domain(host)) => host == "localhost",
+            Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+            Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+            None => false,
+        };
+        loopback
+            && url.scheme() == scheme
+            && url.username().is_empty()
+            && url.password().is_none()
+            && matches!(url.path(), "" | "/")
+            && url.query().is_none()
+            && url.fragment().is_none()
+    });
+    assert!(
+        valid,
+        "Desktop development daemon endpoint must be a loopback origin"
+    );
+    value
 }
 
 #[cfg(desktop)]
@@ -118,10 +160,10 @@ struct DaemonOutput {
 }
 
 #[cfg(desktop)]
-fn read_process_pipe<R: Read + Send + 'static>(mut pipe: R) -> std::thread::JoinHandle<Vec<u8>> {
+fn read_process_pipe<R: Read + Send + 'static>(pipe: R) -> std::thread::JoinHandle<Vec<u8>> {
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
-        let _ = pipe.read_to_end(&mut bytes);
+        let _ = pipe.take(1024 * 1024 + 1).read_to_end(&mut bytes);
         bytes
     })
 }
@@ -202,21 +244,200 @@ fn parse_shell_path(stdout: &str) -> Option<String> {
 }
 
 #[cfg(desktop)]
-async fn resolve_path() -> String {
-    let fallback = std::env::var("PATH").unwrap_or_default();
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-    let mut command = Command::new(shell);
-    command.args(["-ilc", "printf '%s\\n' \"$PATH\""]);
-    match run_process(
-        command,
+const ENV_MARKER: &str = "__ALOOK_ENV_V1__";
+
+#[cfg(desktop)]
+fn parse_shell_environment(
+    stdout: &str,
+    is_windows: bool,
+) -> Result<Vec<(String, String)>, String> {
+    let invalid =
+        || "Could not read the shell environment. The daemon was not changed.".to_string();
+    if stdout.len() > 1024 * 1024 {
+        return Err(invalid());
+    }
+    let marker = if is_windows {
+        ENV_MARKER.to_string()
+    } else {
+        format!("{ENV_MARKER}\0")
+    };
+    let (_, data) = stdout.rsplit_once(&marker).ok_or_else(invalid)?;
+    let entries: Vec<(String, String)> = if is_windows {
+        let values: std::collections::BTreeMap<String, String> =
+            serde_json::from_str(data).map_err(|_| invalid())?;
+        values
+            .into_iter()
+            .map(|(key, value)| (key.to_uppercase(), value))
+            .collect()
+    } else {
+        data.split('\0')
+            .filter(|item| !item.is_empty())
+            .map(|item| {
+                item.split_once('=')
+                    .map(|(key, value)| (key.to_string(), value.to_string()))
+                    .ok_or_else(invalid)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    if entries
+        .iter()
+        .any(|(key, value)| key.is_empty() || key.contains(['=', '\0']) || value.contains('\0'))
+    {
+        return Err(invalid());
+    }
+    let path = entries
+        .iter()
+        .find(|(key, _)| key == "PATH")
+        .map(|(_, value)| value.as_str());
+    let home_key = if is_windows { "USERPROFILE" } else { "HOME" };
+    if !entries
+        .iter()
+        .any(|(key, value)| key == home_key && !value.is_empty())
+        || path.and_then(parse_shell_path).is_none()
+    {
+        return Err(invalid());
+    }
+    Ok(entries)
+}
+
+#[cfg(desktop)]
+fn shell_environment_command_for(environment: Vec<(String, String)>, is_windows: bool) -> Command {
+    let allowed = [
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TZ",
+        "TERM",
+        "ZDOTDIR",
+        "XDG_CONFIG_HOME",
+        "XDG_RUNTIME_DIR",
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "XAUTHORITY",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "SSH_AUTH_SOCK",
+        "SYSTEMROOT",
+        "WINDIR",
+        "COMSPEC",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMFILES",
+        "PROGRAMFILES(X86)",
+        "PROGRAMDATA",
+    ];
+    let baseline: Vec<_> = environment
+        .iter()
+        .cloned()
+        .filter(|(key, _)| allowed.contains(&key.to_uppercase().as_str()))
+        .collect();
+    let mut command;
+    if is_windows {
+        let root = environment
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("SystemRoot"))
+            .map(|(_, value)| value.clone())
+            .unwrap_or_else(|| r"C:\Windows".to_string());
+        command = Command::new(
+            PathBuf::from(&root).join("System32/WindowsPowerShell/v1.0/powershell.exe"),
+        );
+        command
+            .env_clear()
+            .envs(baseline)
+            .env("Path", PathBuf::from(root).join("System32"));
+        command.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $machine=[Environment]::GetEnvironmentVariables('Machine'); $user=[Environment]::GetEnvironmentVariables('User'); foreach($k in $machine.Keys){[Environment]::SetEnvironmentVariable($k,[string]$machine[$k],'Process')}; foreach($k in $user.Keys){if($k -ne 'Path'){[Environment]::SetEnvironmentVariable($k,[string]$user[$k],'Process')}}; $env:Path=[Environment]::ExpandEnvironmentVariables(([string]$machine['Path'])+';'+([string]$user['Path'])); foreach($p in @($PROFILE.AllUsersAllHosts,$PROFILE.AllUsersCurrentHost,$PROFILE.CurrentUserAllHosts,$PROFILE.CurrentUserCurrentHost)){if(Test-Path -LiteralPath $p){. $p}}; $e=@{}; Get-ChildItem Env: | ForEach-Object {$e[$_.Name]=$_.Value}; [Console]::Out.Write('__ALOOK_ENV_V1__'+($e | ConvertTo-Json -Compress))"]);
+    } else {
+        let shell = environment
+            .iter()
+            .find(|(key, _)| key == "SHELL")
+            .map(|(_, value)| value.clone())
+            .unwrap_or_else(|| "/bin/sh".to_string());
+        command = Command::new(shell);
+        command
+            .env_clear()
+            .envs(baseline)
+            .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+        command.args([
+            "-ilc",
+            "printf '__ALOOK_ENV_V1__\\000'; exec /usr/bin/env -0",
+        ]);
+    }
+    command
+}
+
+#[cfg(desktop)]
+fn parse_configured_shell(stdout: &str, is_macos: bool) -> Option<String> {
+    let output = stdout.trim();
+    let shell = if is_macos {
+        output.strip_prefix("UserShell:")?.trim()
+    } else {
+        output.split(':').nth(6)?.trim()
+    };
+    (shell.lines().count() == 1 && PathBuf::from(shell).is_absolute()).then(|| shell.to_string())
+}
+
+#[cfg(desktop)]
+async fn configured_login_shell(environment: &[(String, String)]) -> Result<String, String> {
+    let failure = "Could not find this account's login shell.".to_string();
+    let user = environment
+        .iter()
+        .find(|(key, _)| key == "USER" || key == "LOGNAME")
+        .map(|(_, value)| value)
+        .ok_or_else(|| failure.clone())?;
+    let mut command = if cfg!(target_os = "macos") {
+        let mut command = Command::new("/usr/bin/dscl");
+        command.args([".", "-read", &format!("/Users/{user}"), "UserShell"]);
+        command
+    } else {
+        let mut command = Command::new("/usr/bin/getent");
+        command.args(["passwd", user]);
+        command
+    };
+    command.env_clear().envs(environment.iter().cloned());
+    let output = run_process(command, PATH_DISCOVERY_TIMEOUT, failure.clone())
+        .await
+        .map_err(|_| failure.clone())?;
+    if !output.success {
+        return Err(failure);
+    }
+    parse_configured_shell(&output.stdout, cfg!(target_os = "macos")).ok_or(failure)
+}
+
+#[cfg(desktop)]
+async fn resolve_environment() -> Result<Vec<(String, String)>, String> {
+    let failure = "Could not read the shell environment. The daemon was not changed.".to_string();
+    let mut environment: Vec<_> = std::env::vars().collect();
+    if !cfg!(windows)
+        && !environment
+            .iter()
+            .any(|(key, value)| key == "SHELL" && !value.is_empty())
+    {
+        let shell = configured_login_shell(&environment)
+            .await
+            .map_err(|_| failure.clone())?;
+        environment.retain(|(key, _)| key != "SHELL");
+        environment.push(("SHELL".to_string(), shell));
+    }
+    let output = run_process(
+        shell_environment_command_for(environment, cfg!(windows)),
         PATH_DISCOVERY_TIMEOUT,
-        "login shell PATH lookup timed out".to_string(),
+        failure.clone(),
     )
     .await
-    {
-        Ok(output) if output.success => parse_shell_path(&output.stdout).unwrap_or(fallback),
-        _ => fallback,
+    .map_err(|_| failure.clone())?;
+    if !output.success {
+        return Err(failure);
     }
+    parse_shell_environment(&output.stdout, cfg!(windows))
 }
 
 #[cfg(desktop)]
@@ -225,7 +446,7 @@ async fn run_daemon(extra_args: &[String]) -> Result<DaemonOutput, String> {
     let args = daemon_argv(&cfg, extra_args);
 
     let mut command = Command::new(executable(cfg.command));
-    command.env("PATH", resolve_path().await);
+    command.env_clear().envs(resolve_environment().await?);
     if let Some(cwd) = &cfg.cwd {
         command.current_dir(cwd);
     }
@@ -353,9 +574,12 @@ fn daemon_failure_message(stdout: &str, stderr: &str) -> String {
 }
 
 #[cfg(desktop)]
-async fn probe_runtime_command(command: &'static str, path: String) -> Result<String, String> {
+async fn probe_runtime_command(
+    command: &'static str,
+    environment: Vec<(String, String)>,
+) -> Result<String, String> {
     let mut process = Command::new(executable(command));
-    process.env("PATH", path).arg("--version");
+    process.env_clear().envs(environment).arg("--version");
     let output = run_process(
         process,
         RUNTIME_PROBE_TIMEOUT,
@@ -745,10 +969,19 @@ pub fn close_splashscreen(app: AppHandle) {
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn daemon_runtime_capability() -> DaemonRuntimeCapability {
-    let path = resolve_path().await;
+    let environment = match resolve_environment().await {
+        Ok(environment) => environment,
+        Err(reason) => {
+            return DaemonRuntimeCapability {
+                available: false,
+                reason: Some(reason),
+                node_version: None,
+            }
+        }
+    };
     let (node, npm) = tokio::join!(
-        probe_runtime_command("node", path.clone()),
-        probe_runtime_command("npm", path),
+        probe_runtime_command("node", environment.clone()),
+        probe_runtime_command("npm", environment),
     );
     evaluate_runtime_capability(node, npm)
 }
@@ -1093,6 +1326,38 @@ mod tests {
     }
 
     #[test]
+    fn development_daemon_endpoints_accept_only_loopback_origins() {
+        assert_eq!(
+            development_daemon_endpoint(None, "http://localhost:3000", "http"),
+            "http://localhost:3000"
+        );
+        for endpoint in [
+            "http://localhost:4340",
+            "http://127.0.0.1:4340",
+            "http://[::1]:4340",
+        ] {
+            assert_eq!(
+                development_daemon_endpoint(Some(endpoint), "unused", "http"),
+                endpoint
+            );
+        }
+        for endpoint in [
+            "https://example.com",
+            "http://localhost/path",
+            "http://user:pass@localhost",
+            "http://localhost?query=1",
+            "ws://localhost:4340",
+        ] {
+            assert!(std::panic::catch_unwind(|| development_daemon_endpoint(
+                Some(endpoint),
+                "unused",
+                "http"
+            ))
+            .is_err());
+        }
+    }
+
+    #[test]
     fn pairing_accepts_only_machine_keys_and_builds_fixed_arguments() {
         for key in [
             "cmt_abcdefghijklmnopqrstuvwxyz012345",
@@ -1356,6 +1621,66 @@ mod tests {
         assert!(parse_shell_path("").is_none());
         assert!(parse_shell_path("banner\n/usr/bin").is_none());
         assert!(parse_shell_path("relative/bin").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shell_environment_retains_non_path_multiline_exports_without_inherited_noise() {
+        let parsed = parse_shell_environment("banner\n__ALOOK_ENV_V1__\0PATH=/usr/bin:/bin\0HOME=/tmp/test\0SYNTHETIC=line1\n你好=$literal\0", false).unwrap();
+        assert!(parsed.contains(&("SYNTHETIC".to_string(), "line1\n你好=$literal".to_string())));
+        assert!(parse_shell_environment("PATH=/usr/bin", false).is_err());
+        assert!(parse_shell_environment("__ALOOK_ENV_V1__\0PATH=/bin\0BAD\0", false).is_err());
+    }
+
+    #[test]
+    fn configured_login_shell_uses_directory_service_or_passwd_output() {
+        assert_eq!(
+            parse_configured_shell("UserShell: /bin/zsh\n", true).as_deref(),
+            Some("/bin/zsh")
+        );
+        assert_eq!(
+            parse_configured_shell("test:x:1000:1000:Test:/home/test:/bin/bash\n", false)
+                .as_deref(),
+            Some("/bin/bash")
+        );
+        assert!(parse_configured_shell("UserShell: relative", true).is_none());
+        assert!(parse_configured_shell("unexpected", false).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_environment_capture_reaches_a_child_and_removes_stale_exports() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("alook-native-env-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let shell = root.join("shell");
+        std::fs::write(&shell, "#!/bin/sh\nexport SYNTHETIC_FRESH='new value'\nprintf '__ALOOK_ENV_V1__\\000'\nexec /usr/bin/env -0\n").unwrap();
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let command = shell_environment_command_for(
+            vec![
+                ("SHELL".to_string(), shell.to_string_lossy().to_string()),
+                ("HOME".to_string(), root.to_string_lossy().to_string()),
+                ("STALE_ONLY".to_string(), "old value".to_string()),
+            ],
+            false,
+        );
+        let output =
+            run_process_with_timeout(command, Duration::from_secs(2), "timeout".to_string())
+                .unwrap();
+        assert!(output.success);
+        let environment = parse_shell_environment(&output.stdout, false).unwrap();
+        assert!(!environment.iter().any(|(key, _)| key == "STALE_ONLY"));
+        let mut child = Command::new("/bin/sh");
+        child.env_clear().envs(environment).args([
+            "-c",
+            "test \"$SYNTHETIC_FRESH\" = 'new value' && test -z \"$STALE_ONLY\"",
+        ]);
+        assert!(
+            run_process_with_timeout(child, Duration::from_secs(2), "timeout".to_string())
+                .unwrap()
+                .success
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(unix)]

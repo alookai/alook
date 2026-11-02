@@ -22,6 +22,11 @@ export function MachineCardFrame({ children }: { children: ReactNode }) {
   return <Card className="flex flex-col gap-3 p-4">{children}</Card>
 }
 
+export type MachineRefreshFeedback = {
+  status: "pending" | "success" | "error"
+  message: string
+}
+
 export function MachineCard({
   machine,
   onDelete,
@@ -29,6 +34,8 @@ export function MachineCard({
   onUpdate,
   onStop,
   stopping = false,
+  onRefresh,
+  refreshFeedback,
 }: {
   machine: MachineSummary
   onDelete: () => void
@@ -36,8 +43,11 @@ export function MachineCard({
   onUpdate?: () => void
   onStop?: () => void
   stopping?: boolean
+  onRefresh?: () => void
+  refreshFeedback?: MachineRefreshFeedback
 }) {
   const isOnline = isPresenceOnline(machine.status)
+  const refreshing = refreshFeedback?.status === "pending"
   const lastSeenLabel = useMemo(
     () => machine.lastSeenAt === undefined ? "Last seen unknown" : machine.lastSeenAt ? `Last seen · ${timeAgo(machine.lastSeenAt)}` : "Never seen",
     [machine.lastSeenAt]
@@ -88,6 +98,15 @@ export function MachineCard({
                 {machine.lastSeenAt ?? "—"}
               </TooltipContent>
             </Tooltip>
+            {refreshFeedback && (
+              <p
+                data-testid={tid.machineRefreshStatus(machine.id)}
+                role={refreshFeedback.status === "error" ? "alert" : "status"}
+                className={`text-sm ${refreshFeedback.status === "error" ? "text-destructive" : "text-muted-foreground"}`}
+              >
+                {refreshFeedback.message}
+              </p>
+            )}
             {machine.lastRuntimeError && (
               <div className="mt-2 rounded-md border border-destructive/20 bg-destructive/5 p-2 text-xs text-destructive">
                 <span className="font-medium">Runtime not available</span>
@@ -107,36 +126,46 @@ export function MachineCard({
               <button
                 aria-label="Machine actions"
                 data-testid={tid.machineActions(machine.id)}
-                className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground sm:size-8"
               >
                 <MoreVertical className="size-4" />
               </button>
             }
           />
           <DropdownMenuContent align="end">
+            {onRefresh && (isOnline || refreshing) && (
+              <DropdownMenuItem
+                data-testid={tid.machineRefresh(machine.id)}
+                onClick={onRefresh}
+                disabled={refreshing || stopping}
+              >
+                {refreshing ? "Refreshing…" : "Refresh…"}
+              </DropdownMenuItem>
+            )}
             {onUpdate && (
               <DropdownMenuItem
                 data-testid={tid.machineUpdate(machine.id)}
                 onClick={onUpdate}
+                disabled={refreshing}
               >
                 Update daemon…
               </DropdownMenuItem>
             )}
             {isOnline && onStop && (
-              <DropdownMenuItem data-testid={tid.machineStop(machine.id)} onClick={onStop} disabled={stopping}>
+              <DropdownMenuItem data-testid={tid.machineStop(machine.id)} onClick={onStop} disabled={stopping || refreshing}>
                 {stopping ? "Sending stop…" : "Stop"}
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem onClick={onReconnect}>
+            <DropdownMenuItem onClick={onReconnect} disabled={refreshing}>
               Reconnect…
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={onDelete} className="text-destructive">
+            <DropdownMenuItem onClick={onDelete} disabled={refreshing} className="text-destructive">
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {!isOnline && (
+      {!isOnline && !refreshing && (
         <div className="flex justify-end">
           <Button
             variant="outline"

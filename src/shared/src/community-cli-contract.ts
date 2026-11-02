@@ -1,3 +1,4 @@
+import { MachineRefreshCommandSchema, type MachineRefreshResult } from "./machine-refresh-contract";
 import { PiiCommandSchema, type PiiCommand, type PiiResultFrame } from "./pii-contract";
 import type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
 /**
@@ -857,6 +858,7 @@ export type HostCommand =
    * `agentRouter`.
    */
   | { type: "machine:reset_all"; resets: Array<{ agentId: AgentId; config: RuntimeConfig; launchId: string }> }
+  | z.infer<typeof MachineRefreshCommandSchema>
   | { type: "machine:update" }
   | { type: "machine:stop" }
   // ─── Bot lifecycle events (server → daemon) ────────────────────────────
@@ -910,6 +912,8 @@ export interface HostReadyRuntime {
 
 /** What the host reports to the server on connect (the registration handshake). */
 export interface HostReady {
+  refreshRequestId?: string;
+  refreshResult?: MachineRefreshResult;
   /**
    * Runtime descriptors. Legacy `runtimes: string[]` has been dropped from
    * the wire — `MIN_CLI_VERSION` gates old daemons off. The daemon MUST ship
@@ -1557,6 +1561,7 @@ export const HostCommandSchema = z.discriminatedUnion("type", [
       }),
     ),
   }),
+  MachineRefreshCommandSchema,
   z.strictObject({
     type: z.literal("machine:update"),
   }),

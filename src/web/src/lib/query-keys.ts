@@ -142,6 +142,7 @@ export const communityKeys = {
 
   // ── Machines / daemons ──────────────────────────────────────────────────
   machines: () => [...communityKeys.all, "machines"] as const,
+  machineRefresh: (machineId: string) => [...communityKeys.machines(), machineId, "refresh"] as const,
   runtimeModels: (machineId: string, runtimeId: string) =>
     [...communityKeys.machines(), machineId, "runtime-models", runtimeId] as const,
 

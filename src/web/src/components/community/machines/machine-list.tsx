@@ -34,7 +34,8 @@ import { apiFetch, getErrorMessage } from "@/lib/api/client"
 import { fetchLatestDaemonVersion } from "@/lib/api/config"
 import { getAppMode } from "@/lib/utils"
 import { machineName } from "@/lib/community/machine-name"
-import { MachineCard, MachineCardFrame } from "./machine-card"
+import { MachineCardFrame } from "./machine-card"
+import { RefreshableMachineCard } from "./refreshable-machine-card"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
 import { ConnectTile } from "@/components/community/onboarding-tiles/connect-tile"
 import { useObservedRegion } from "@/lib/observability/regions"
@@ -503,7 +504,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
           </header>
         )}
         cards={machines.map((m) => (
-          <MachineCard
+          <RefreshableMachineCard
             key={m.id}
             machine={m}
             onDelete={() => setConfirmDelete(m)}

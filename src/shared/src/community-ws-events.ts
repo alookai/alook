@@ -1,3 +1,4 @@
+import { MachineRefreshResultSchema } from "./machine-refresh-contract"
 import { PiiResultSchema } from "./pii-contract"
 import { z } from "zod"
 import { COMMUNITY_CONTRACT_VERSION } from "./community-contract"
@@ -323,6 +324,7 @@ const communityMachineStatusSchema = z.strictObject({
 
 const communityMachineUpdatedSchema = z.strictObject({
   type: z.literal("community:machine.updated"),
+  refreshResult: MachineRefreshResultSchema.optional(),
   machine: CommunityMachineSummarySchema,
 })
 

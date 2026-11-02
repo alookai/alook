@@ -15,6 +15,7 @@ import type {
   CommunityStatusUpdate,
 } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
+import { receiveMachineRefreshResult } from "@/lib/community/machine-refresh"
 
 
 import type { PresenceMachineEventContext } from "@/hooks/community/community-ws/handler-context"
@@ -107,6 +108,7 @@ export async function handleMachineUpdated(
   assertCommunityLiveSnapshotTokenCurrent(queryClient, original.token, undefined)
   if (queryClient.getQueryCache().get(original.query.queryHash) !== original.query) return
   if (becameOnline) onMachineOnline?.()
+  if (event.refreshResult) receiveMachineRefreshResult(queryClient, event.machine.id, event.refreshResult)
   const current = queryClient.getQueryData<MachinesResponse>(original.query.queryKey)
   if (current?.complete === false || current?.observed === false) void queryClient.invalidateQueries({ queryKey: communityKeys.machines(), exact: true })
 }

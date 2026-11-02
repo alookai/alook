@@ -43,6 +43,26 @@ export async function pushMachineStop(env: Env, machineId: string): Promise<Mach
   }
 }
 
+export async function pushMachineRefresh(env: Env, machineId: string, requestId: string): Promise<MachineStopPushResult> {
+  try {
+    const response = await wsDoFetch(env,
+      `/community-machine/by-id/${encodeURIComponent(machineId)}/forward-refresh`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "machine:refresh", requestId }) },
+      { label: machineId, type: "machine:refresh" })
+    if (!response.ok) return { sent: 0, unsupported: 0, deliveryError: true }
+    const data: unknown = await response.json()
+    if (
+      typeof data !== "object" || data === null || !("sent" in data) || !("unsupported" in data)
+      || typeof data.sent !== "number" || !Number.isSafeInteger(data.sent) || data.sent < 0
+      || typeof data.unsupported !== "number" || !Number.isSafeInteger(data.unsupported) || data.unsupported < 0
+    ) return { sent: 0, unsupported: 0, deliveryError: true }
+    return { sent: data.sent, unsupported: data.unsupported, deliveryError: false }
+  } catch {
+    log.warn("machine:refresh push failed", { machineId })
+    return { sent: 0, unsupported: 0, deliveryError: true }
+  }
+}
+
 export async function pushMachineUpdate(
   env: Env,
   machineId: string,

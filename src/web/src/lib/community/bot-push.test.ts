@@ -13,9 +13,36 @@ import {
   pushAgentRuntimeConfigUpdateToMachine,
   pushMachineUpdate,
   pushMachineStop,
+  pushMachineRefresh,
 } from "./bot-push"
 
 const FAKE_ENV = { WS_DO_WORKER: {}, DEV_WS_DO_URL: undefined } as unknown as Env
+
+describe("pushMachineRefresh", () => {
+  beforeEach(() => wsDoFetch.mockReset())
+  const requestId = "26aac14d-dfd6-4e96-821c-ebf538316f79"
+
+  it("preserves the dispatch receipt and sends only the correlated command", async () => {
+    wsDoFetch.mockResolvedValue(Response.json({ sent: 1, unsupported: 0 }))
+    await expect(pushMachineRefresh(FAKE_ENV, "machine/1", requestId)).resolves.toEqual({ sent: 1, unsupported: 0, deliveryError: false })
+    const [, path, init] = wsDoFetch.mock.calls[0]!
+    expect(path).toBe("/community-machine/by-id/machine%2F1/forward-refresh")
+    expect(JSON.parse(init.body)).toEqual({ type: "machine:refresh", requestId })
+  })
+
+  it("keeps offline and unsupported distinct from a failed delivery", async () => {
+    for (const receipt of [{ sent: 0, unsupported: 0 }, { sent: 0, unsupported: 1 }]) {
+      wsDoFetch.mockResolvedValueOnce(Response.json(receipt))
+      await expect(pushMachineRefresh(FAKE_ENV, "m", requestId)).resolves.toEqual({ ...receipt, deliveryError: false })
+    }
+    for (const receipt of [{ sent: 1 }, { sent: -1, unsupported: 0 }, { sent: 1, unsupported: "unknown" }]) {
+      wsDoFetch.mockResolvedValueOnce(Response.json(receipt))
+      await expect(pushMachineRefresh(FAKE_ENV, "m", requestId)).resolves.toEqual({ sent: 0, unsupported: 0, deliveryError: true })
+    }
+    wsDoFetch.mockRejectedValueOnce(new Error("PRIVATE_TRANSPORT_DETAILS"))
+    await expect(pushMachineRefresh(FAKE_ENV, "m", requestId)).resolves.toEqual({ sent: 0, unsupported: 0, deliveryError: true })
+  })
+})
 
 describe("pushBotEventToMachine agent:event", () => {
   beforeEach(() => {

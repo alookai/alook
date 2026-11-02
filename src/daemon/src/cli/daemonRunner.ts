@@ -1,5 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createDaemonRefreshHandler } from "./daemonRefresh.js";
+import type { MachineRefreshResult } from "@alook/shared";
 import { WebSocket } from "ws";
 import type { DiagnosticCollectCommand, DiagnosticReportFailureCode } from "@alook/shared";
 import { createDaemon } from "../daemon/createDaemon.js";
@@ -31,6 +33,7 @@ const DIAGNOSTIC_MAX_LINE_BYTES = 128 * 1024;
 const DIAGNOSTIC_MAX_STATUS_BYTES = 1024 * 1024;
 
 export interface PreparedDaemon {
+  refreshResult?: MachineRefreshResult;
   machineId: string;
   machineKey: string;
   serverUrl: string;
@@ -326,6 +329,7 @@ export async function runPreparedDaemon(
   process.once("SIGINT", () => { void shutdown(0); });
   process.once("SIGTERM", () => { void shutdown(0); });
 
+  let startupRefreshPending = !!prepared.refreshResult;
   try {
     logDaemonStartup(log, prepared);
     const handleSelfUpdate = createDaemonSelfUpdateHandler({
@@ -361,6 +365,15 @@ export async function runPreparedDaemon(
       daemonVersion: prepared.daemonVersion,
       logger: log,
       handleSelfUpdate,
+
+      refreshRequestId: prepared.refreshResult?.requestId,
+      handleRefresh: createDaemonRefreshHandler({
+        machineId: prepared.machineId, baseDir: prepared.baseDir, pid: process.pid,
+        startedAt: prepared.startedAt, ownerToken: prepared.ownerToken,
+      }, {
+        startupRequestId: prepared.refreshResult?.requestId, startupPending: () => startupRefreshPending,
+        completedRequestId: () => !startupRefreshPending && prepared.refreshResult?.status === "complete" ? prepared.refreshResult.requestId : undefined,
+      }),
       onStopRequested: () => { void shutdown(0); },
       handleDiagnosticCommand,
       reportDiagnosticFailure,
@@ -420,6 +433,22 @@ export async function runPreparedDaemon(
 
   logDaemonUp(log, daemon.proxyUrl, prepared.wsUrl);
   daemon.onOpen(() => log.info("control plane OPEN"));
+  if (prepared.refreshResult) {
+    const result = prepared.refreshResult;
+    const committed = (message: unknown): void => {
+      const receipt = message as { type?: string; requestId?: string };
+      if (receipt?.type !== "daemon:committed" || receipt.requestId !== result.requestId) return;
+      process.removeListener("message", committed);
+      startupRefreshPending = false;
+      daemon?.reportRefreshResult(result);
+      if (process.connected) process.disconnect();
+    };
+    process.on("message", committed);
+    process.once("disconnect", () => {
+      process.removeListener("message", committed);
+      if (startupRefreshPending) void shutdown(1);
+    });
+  }
   opts.onReady?.({
     pid: process.pid,
     machineId: prepared.machineId,

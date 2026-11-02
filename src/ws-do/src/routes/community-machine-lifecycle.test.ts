@@ -43,6 +43,29 @@ describe("ws-do router", () => {
     handler = undefined as unknown as RouterHandler
   })
 
+  describe("Refresh dispatch", () => {
+    const requestId = "26aac14d-dfd6-4e96-821c-ebf538316f79"
+    const refreshRequest = (body: unknown) => new Request("http://localhost/community-machine/by-id/machine-1/forward-refresh", {
+      method: "POST", body: JSON.stringify(body),
+    })
+    it("sends the exact correlated command through the capability-gated route", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a"])
+      doMock.stubFetch.mockResolvedValue(Response.json({ sent: 1, unsupported: 0 }))
+      const command = { type: "machine:refresh", requestId }
+      expect(await (await handler.fetch(refreshRequest(command), env as any)).json()).toEqual({ sent: 1, unsupported: 0 })
+      const request = doMock.stubFetch.mock.calls[0]![0] as Request
+      expect(request.url).toBe("http://internal/refresh")
+      expect(await request.json()).toEqual(command)
+    })
+    it("rejects executable, environment and invalid-ID inputs before machine resolution", async () => {
+      for (const body of [{ type: "machine:refresh", requestId, env: { SECRET: "private" } }, { type: "machine:refresh", requestId: "bad" }]) {
+        expect((await handler.fetch(refreshRequest(body), env as any)).status).toBe(400)
+      }
+      expect(mockGetActiveDoNamesForMachine).not.toHaveBeenCalled()
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+  })
+
   describe("POST /community-machine/by-id/:machineId/forward-stop", () => {
     beforeEach(() => mockGetActiveDoNamesForMachine.mockReset().mockResolvedValue([]))
     const stopRequest = () => new Request("http://localhost/community-machine/by-id/machine-1/forward-stop", {
