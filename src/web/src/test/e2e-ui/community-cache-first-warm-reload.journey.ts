@@ -1016,11 +1016,15 @@ test("real machine status, removal and creation retire an older list response", 
     await expect.poll(() => proxy.connectionFrames.some(frame => frame.type === "auth.ok")).toBe(true)
     const connection = connectRealMachine(first.credential, caseResources)
     await connection.opened
-    connection.socket.send(JSON.stringify(HostReadyMessageSchema.parse({ type: "ready", runtimeReport: [{ id: "pi", status: "healthy" }], capabilities: [CONTROL_HEARTBEAT_CAPABILITY], runningAgents: [], hostname: first.hostname, platform: "linux", arch: "x64", daemonVersion: (JSON.parse(readFileSync(resolve(REPO_ROOT, "src/daemon/package.json"), "utf8")) as { version: string }).version })))
-    await expect.poll(() => proxy.frames.some(frame => frame.type === "community:machine.status" && frame.machineId === first.machineId && frame.status === "online")).toBe(true)
+    const daemonVersion = (JSON.parse(readFileSync(resolve(REPO_ROOT, "src/daemon/package.json"), "utf8")) as { version: string }).version
+    connection.socket.send(JSON.stringify(HostReadyMessageSchema.parse({ type: "ready", runtimeReport: [{ id: "pi", status: "healthy" }], capabilities: [CONTROL_HEARTBEAT_CAPABILITY], runningAgents: [], hostname: first.hostname, platform: "linux", arch: "x64", daemonVersion })))
+    await expect.poll(() => proxy.frames.some(frame => {
+      const machine = frame.machine as { id?: string; status?: string; daemonVersion?: string } | undefined
+      return frame.type === "community:machine.updated" && machine?.id === first.machineId && machine.status === "online" && machine.daemonVersion === daemonVersion
+    })).toBe(true)
     const online = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/machines?view=list", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(online.status()).toBe(200)
-    expect((await online.json()).machines).toEqual(expect.arrayContaining([expect.objectContaining({ id: first.machineId, status: "online" })]))
+    expect((await online.json()).machines).toEqual(expect.arrayContaining([expect.objectContaining({ id: first.machineId, status: "online", daemonVersion })]))
     await connection.close()
     await expect.poll(() => proxy.frames.some(frame => frame.type === "community:machine.status" && frame.machineId === first.machineId && frame.status === "offline")).toBe(true)
     const removed = await confirmCommunityFixtureApiResponse(page.request.delete(`/api/community/machines/${first.machineId}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
@@ -1038,7 +1042,7 @@ test("real machine status, removal and creation retire an older list response", 
     await expect(page.getByText(second.hostname, { exact: true })).toHaveCount(1)
     await expect(page.getByText(first.hostname, { exact: true })).toHaveCount(0)
     await expect(page.getByRole("heading", { name: "No machines yet", exact: true })).toHaveCount(0)
-    await testInfo.attach("real-machine-ws-before-old-list", { body: JSON.stringify({ originalIds: original.machines.map(machine => machine.id), currentIds: [second.machineId], originalRequestAborted: held.aborted(), heartbeatAcks: connection.heartbeatAcks(), events: proxy.frames.filter(frame => frame.type.startsWith("community:machine.")).map(frame => ({ type: frame.type, machineId: frame.machineId ?? (frame.machine as { id?: string } | undefined)?.id, status: frame.status })) }), contentType: "application/json" })
+    await testInfo.attach("real-machine-ws-before-old-list", { body: JSON.stringify({ originalIds: original.machines.map(machine => machine.id), currentIds: [second.machineId], originalRequestAborted: held.aborted(), heartbeatAcks: connection.heartbeatAcks(), events: proxy.frames.filter(frame => frame.type.startsWith("community:machine.")).map(frame => ({ type: frame.type, machineId: frame.machineId ?? (frame.machine as { id?: string } | undefined)?.id, status: frame.status ?? (frame.machine as { status?: string } | undefined)?.status, daemonVersion: (frame.machine as { daemonVersion?: string } | undefined)?.daemonVersion })) }), contentType: "application/json" })
   } finally { await held.close() }
 })
 

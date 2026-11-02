@@ -31,6 +31,8 @@ import {
 } from "./community-ws/connection-status"
 import { communityBrowserEventBatchType, deriveCommunityDeliveryOperationId, encodeCommunityBrowserEventBatch, prepareCommunityDeliveryEvents } from "@alook/shared"
 import * as analytics from "@/lib/analytics"
+import { currentCommunityEventFixture, machineResourceFixture } from "@/test/community-resource-fixtures"
+import type { CommunityMachineUpdated } from "@alook/shared"
 
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
@@ -323,4 +325,70 @@ it("requests inviter joins on current-account authentication and consent changes
   fireEvent(window, new Event(ANALYTICS_CONSENT_CHANGE_EVENT))
   expect(joined).toHaveBeenCalledTimes(before + 1)
   expect(joined).toHaveBeenLastCalledWith(getCapturedRuntime().lifecycle)
+})
+
+it.each([false, true])("drains the full machine transition without draining steady metadata; batch=%s", async batch => {
+  await mountHook({ viewerUserId: "u_me" })
+  const connected = vi.spyOn(funnel, "drainCommunityFunnelEvents").mockResolvedValue(undefined)
+  const joined = vi.spyOn(funnel, "drainInvitedHumanJoined").mockResolvedValue(undefined)
+  const machine = machineResourceFixture({ id: "machine-transition", status: "offline", daemonVersion: "0.1.62" })
+  capturedQueryClient.setQueryData(communityKeys.machines(), { machines: [machine], complete: true, observed: true })
+  let sequence = 0
+  const deliver = async (event: CommunityMachineUpdated) => {
+    if (!batch) return await capturedOnMessage!(currentCommunityEventFixture(event))
+    const prepared = await prepareCommunityDeliveryEvents([event])
+    if (!prepared.ok) throw new Error("invalid machine fixture")
+    const encoded = await encodeCommunityBrowserEventBatch({ operationDigest: prepared.prepared.digest, operationId: await deriveCommunityDeliveryOperationId(`machine-transition-${++sequence}`), events: [event] })
+    if (!encoded.ok) throw new Error("invalid machine batch")
+    await capturedOnMessage!(encoded.batch)
+  }
+  try {
+    const online = { ...machine, status: "online" as const, daemonVersion: "0.1.63" }
+    await act(async () => { await deliver({ type: "community:machine.updated", machine: online }) })
+    expect(connected).toHaveBeenCalledOnce()
+    expect(joined).toHaveBeenCalledExactlyOnceWith(getCapturedRuntime().lifecycle)
+    await act(async () => { await deliver({ type: "community:machine.updated", machine: { ...online, hostname: "renamed" } }) })
+    expect(connected).toHaveBeenCalledOnce()
+    expect(joined).toHaveBeenCalledOnce()
+    await act(async () => { await capturedOnMessage!(currentCommunityEventFixture({ type: "community:machine.status", machineId: machine.id, status: "offline", lastSeenAt: "2026-11-02T00:00:00.000Z" })) })
+    expect(connected).toHaveBeenCalledTimes(2)
+    expect(joined).toHaveBeenCalledTimes(2)
+  } finally {
+    connected.mockRestore()
+    joined.mockRestore()
+  }
+})
+
+it("qualifies overlapping full machine updates at their serialized accepted row", async () => {
+  await mountHook({ viewerUserId: "u_me" })
+  const machine = machineResourceFixture({ id: "overlap-machine", status: "offline", daemonVersion: "0.1.62" })
+  capturedQueryClient.setQueryData(communityKeys.machines(), { machines: [machine], complete: true, observed: true })
+  const query = capturedQueryClient.getQueryCache().find({ queryKey: communityKeys.machines(), exact: true })!
+  expect(query).toBeDefined()
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const cancel = vi.spyOn(query, "cancel").mockReturnValue(held)
+  const connected = vi.spyOn(funnel, "drainCommunityFunnelEvents").mockResolvedValue(undefined)
+  const joined = vi.spyOn(funnel, "drainInvitedHumanJoined").mockResolvedValue(undefined)
+  const pending: Promise<unknown>[] = []
+  try {
+    const online = { ...machine, status: "online" as const, daemonVersion: "0.1.63" }
+    await act(async () => {
+      pending.push(Promise.resolve(capturedOnMessage!(currentCommunityEventFixture({ type: "community:machine.updated", machine: online }))))
+      pending.push(Promise.resolve(capturedOnMessage!(currentCommunityEventFixture({ type: "community:machine.updated", machine: { ...online, hostname: "second metadata" } }))))
+      await Promise.resolve()
+      expect(capturedQueryClient.getQueryData(communityKeys.machines())).toMatchObject({ machines: [{ status: "offline", daemonVersion: "0.1.62" }] })
+      release()
+      await Promise.all(pending)
+    })
+    expect(connected).toHaveBeenCalledOnce()
+    expect(joined).toHaveBeenCalledOnce()
+    expect(capturedQueryClient.getQueryData(communityKeys.machines())).toMatchObject({ machines: [{ hostname: "second metadata", status: "online", daemonVersion: "0.1.63" }] })
+  } finally {
+    release()
+    await Promise.allSettled(pending)
+    cancel.mockRestore()
+    connected.mockRestore()
+    joined.mockRestore()
+  }
 })

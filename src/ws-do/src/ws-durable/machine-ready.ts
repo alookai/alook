@@ -194,26 +194,15 @@ export async function handleReadyFrame(
       machineId: machine.id,
     })
 
-    // Activation owns machine.created. Ready emits status only for an actual
-    // offline → online transition, using the pre-upsert status returned by D1.
-    if (priorStatus !== "online") {
-      await notifyUserDO(context, identity.userId, {
-        type: WS_EVENTS.MACHINE_STATUS,
-        machineId: machine.id,
-        status: "online",
-        lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
-      }).catch(() => { })
-    }
-
     const priorCanonical = canonicalRuntimes(priorAvailableRuntimes ?? [])
     const nextCanonical = canonicalRuntimes(availableRuntimes)
     // Runtime status/lastError drift is machine metadata drift and must reach
     // open clients even when the runtime set and versions are unchanged.
-    if (priorCanonical !== nextCanonical || priorDaemonVersion !== daemonVersion) {
+    if (priorStatus !== "online" || priorCanonical !== nextCanonical || priorDaemonVersion !== daemonVersion) {
       await notifyUserDO(context, identity.userId, {
         type: WS_EVENTS.MACHINE_UPDATED,
         machine: summary,
-      }).catch(() => { })
+      }, { machineOnlineTransition: priorStatus !== "online" }).catch(() => { })
     }
 
     await scheduleHeartbeatAlarm(context)
