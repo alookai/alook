@@ -6,6 +6,7 @@ import { ObservedStaticContent } from "@/lib/observability/regions"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useCallback, useEffect, useRef } from "react"
 import { useSearchParams } from "next/navigation"
+import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import { signIn, signUp, authClient } from "@/lib/auth-client"
 import {
   normalizeLoginMethod,
@@ -83,6 +84,8 @@ function SignInForm({
   appleEnabled: boolean
   initialLastUsedMethod?: LoginMethod | null
 }) {
+  const hydrated = useHydratedClient()
+
   useEffect(() => {
     void captureProductAnalytics({ event: "login_page_view" })
   }, [])
@@ -429,7 +432,7 @@ function SignInForm({
                   </FieldSeparator>
 
                 <div className="relative">
-                  <Button variant="outline" size="lg" type="button" aria-describedby={isEmailLastUsed ? "last-used-email-badge" : undefined} className="h-11 w-full justify-start px-4 text-sm font-medium" onClick={() => switchMethodsStep("email")}>
+                  <Button variant="outline" size="lg" type="button" aria-describedby={isEmailLastUsed ? "last-used-email-badge" : undefined} className="h-11 w-full justify-start px-4 text-sm font-medium" disabled={!hydrated} onClick={() => switchMethodsStep("email")}>
                     <span className="flex items-center gap-2"><span className="grid h-9 w-6 place-items-center"><Mail className="size-4" aria-hidden /></span>Continue with email</span>
                   </Button>
                   {isEmailLastUsed ? <span id="last-used-email-badge" data-testid="last-used-email" className="pointer-events-none absolute -top-2 right-3 rounded-md border border-border bg-background px-1.5 text-[10px] leading-4 font-medium text-muted-foreground">Last used</span> : null}
