@@ -52,6 +52,10 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
   }
 
   const { page, context } = await asUser("alice")
+  const liveBody = `live during upward scroll ${Date.now()}`
+  const liveFrame = (frame: Parameters<typeof communityFrameEvents>[0]) => communityFrameEvents(frame).some(event =>
+    event.type === "community:message.create" && event.channelId === channelId && event.message?.content === liveBody)
+  const proxy = await proxyCommunityWebSockets(context, { decide: frame => liveFrame(frame) ? "hold" : "forward" })
   await page.addInitScript(() => {
     const frames: Array<{ type: string }> = []
     Object.defineProperty(window, "__e2eScrollReceivedFrames", { value: frames })
@@ -72,10 +76,6 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
       }
     }
   })
-  const liveBody = `live during upward scroll ${Date.now()}`
-  const liveFrame = (frame: Parameters<typeof communityFrameEvents>[0]) => communityFrameEvents(frame).some(event =>
-    event.type === "community:message.create" && event.channelId === channelId && event.message?.content === liveBody)
-  const proxy = await proxyCommunityWebSockets(context, { decide: frame => liveFrame(frame) ? "hold" : "forward" })
   await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
   await page.waitForURL(new RegExp(channelId), { timeout: 20_000, waitUntil: "commit" })
   const divider = page.getByTestId(tid.newDivider)
