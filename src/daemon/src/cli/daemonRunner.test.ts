@@ -546,6 +546,10 @@ describe("daemon runner logger", () => {
       const before = listenersBefore.get("disconnect")!;
       for (const listener of process.listeners("disconnect")) if (!before.has(listener as never)) listener.call(process);
     };
+    const deliverMessage = (message: unknown) => {
+      const before = listenersBefore.get("message")!;
+      for (const listener of process.listeners("message")) if (!before.has(listener as never)) listener.call(process, message);
+    };
     const connected = Object.getOwnPropertyDescriptor(process, "connected");
     const disconnect = Object.getOwnPropertyDescriptor(process, "disconnect");
     Object.defineProperties(process, { connected: { value: true, configurable: true },
@@ -563,10 +567,10 @@ describe("daemon runner logger", () => {
       const refresh = harness.state.options!.handleRefresh as (id: string) => Promise<unknown>;
       expect(await refresh(requestId)).toBeUndefined();
       expect(await refresh("0325c31a-c586-42c9-9f3f-a1ffce80b7ac")).toMatchObject({ status: "error", code: "refresh_in_progress" });
-      process.emit("message", { type: "daemon:committed", requestId: "stale" });
+      deliverMessage({ type: "daemon:committed", requestId: "stale" });
       expect(harness.reportRefreshResult).not.toHaveBeenCalled();
       if (outcome === "committed") {
-        process.emit("message", { type: "daemon:committed", requestId });
+        deliverMessage({ type: "daemon:committed", requestId });
         expect(harness.reportRefreshResult).toHaveBeenCalledExactlyOnceWith(result);
         expect(await refresh(requestId)).toEqual(result);
         expect(harness.stop).not.toHaveBeenCalled();
