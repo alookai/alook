@@ -482,7 +482,7 @@ describe("CI workflow graph", () => {
     }
   })
 
-  it("keeps project coverage and report integrity while making patch status informational", () => {
+  it("reports project and patch percentages while preserving coverage integrity and upload errors", () => {
     const linux = ciJob("test-linux")
     expect(linux).toContain("coverage_include_roots")
     expect(linux).toContain("verify-coverage-plan.mjs")
@@ -490,7 +490,8 @@ describe("CI workflow graph", () => {
     expect(linux).toContain("coverage/coverage-final.json")
     const coveragePolicy = readFileSync(resolve(repositoryRoot, "codecov.yml"), "utf8")
     expect(coveragePolicy).toMatch(/patch:[\s\S]*informational: true/)
-    expect(coveragePolicy).not.toContain("target: 100%")
+    expect(coveragePolicy).not.toMatch(/target: \d/)
+    expect(linux).toContain("fail_ci_if_error: true")
   })
 
   it("prepares shared services for every selected integration suite", () => {

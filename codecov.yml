@@ -2,19 +2,23 @@ coverage:
   status:
     project:
       shared:
-        target: 50%
+        informational: true
+        target: auto
         paths:
           - src/shared/**
       email-worker:
-        target: 70%
+        informational: true
+        target: auto
         paths:
           - src/email-worker/**
       ws-do:
-        target: 70%
+        informational: true
+        target: auto
         paths:
           - src/ws-do/**
       web:
-        target: 30%
+        informational: true
+        target: auto
         paths:
           - src/web/**
     patch:

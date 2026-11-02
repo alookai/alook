@@ -30,6 +30,15 @@ function channelHeader(markup: string) {
 }
 
 describe("landing community preview rendering", () => {
+  it.each([false, true])("keeps the connected Machines list free of an invented bot row (compact %s)", compact => {
+    const markup = renderToStaticMarkup(createElement(LandingShellMotion, { scene: "machine", compact, beat: SCENE_MAX_BEAT.machine }))
+    expect(markup).toContain("Gus’s MacBook Pro")
+    expect(markup).toContain('data-motion-target="machine"')
+    expect(markup).not.toContain("Born on")
+    expect(markup).not.toContain('data-motion-target="born-bot"')
+    expect(markup).not.toContain('data-testid="community-bot-card')
+  })
+
   it.each(ALL_SCENES)("keeps the actual %s UserBar only in full-shell scenes", (scene) => {
     const full = renderToStaticMarkup(createElement(LandingShellMotion, { scene, beat: SCENE_MAX_BEAT[scene] }))
     const compact = renderToStaticMarkup(createElement(LandingShellMotion, { scene, compact: true, beat: SCENE_MAX_BEAT[scene] }))

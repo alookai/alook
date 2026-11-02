@@ -1,0 +1,162 @@
+export const metadata = {
+  slug: "cursor-vs-claude-code",
+  title: "Cursor vs Claude Code (2026): Strengths, Limits, and Using Both",
+  date: "2026-11-02",
+  author: "Alook Team",
+  excerpt: "Cursor vs Claude Code: compare coding strengths, models, prices, and usage limits in 2026, then see how to use both with shared project rules.",
+  readingTime: "10 min read",
+  image: "/blog/cursor-vs-claude-code/hero.png"
+};
+
+![Cursor and Claude Code logos on a diagonal green background, with 2026 and Strengths, Limits, Using Both.](/blog/cursor-vs-claude-code/hero.png)
+
+**If you write code, we recommend Cursor.** We like being able to type a change, take a Tab suggestion, and ask Agent to handle the related files without leaving the editor. [See how we work with both tools](#how-do-we-edit-and-review-changes).
+
+**If you don't write code, try changing one thing on a page in Cursor first.** Open the preview, point to the part you want changed, and give Agent a short instruction. Choose Claude Code's desktop app if you want to build through a conversation without a code editor. [Compare the setup and checking steps](#if-you-dont-write-code).
+
+## Cursor vs Claude Code: Key Differences and Strengths
+
+In Cursor, we keep the files and changed lines in view while we talk to Agent. Claude Code works in a terminal, a desktop app, or a [supported editor, including Cursor](https://code.claude.com/docs/en/vs-code).
+
+<div className="overflow-x-auto thin-scrollbar [&_table]:min-w-[640px] [&_th]:min-w-24 [&_td]:min-w-24" role="region" aria-label="Cursor and Claude Code differences" tabIndex={0}>
+
+| What matters | Cursor | Claude Code |
+|---|---|---|
+| How you work | Tab, manual edits, and Agent in one editor; a separate CLI is also available. | An agent in your existing editor, terminal, or Claude desktop app. |
+| Models you can choose | Multiple providers, including Grok 4.7, Composer 2.5, Claude Opus 5.5, GPT-5.6, and Gemini 4 Argon. | Claude models only, including Opus 5.5, Sonnet 5.5, Haiku 5.5, and Fable 5.1. |
+| How you pay for Claude | Plus can't use Claude. Premium and higher plans charge separately for Claude at API prices. | Pro, Max, and Ultra include Claude Code within the plan's usage limits. |
+
+</div>
+
+![Cursor and Claude Code compared by access, coding help, and models. Both offer CLI and cloud workflows, edit files, and run commands.](/blog/cursor-vs-claude-code/comparison.png)
+
+The model and mode matter too. In the October test below, Cursor with Sonnet 5.5 passed every check; Composer 2.5 and Auto mode each missed five of 186 checks. Composer, for example, rejected the valid amount `1234,5` and mishandled CSV line breaks. We'd check the model and settings before blaming the tool.[^1] [See the tasks and results](#which-one-writes-better-code).
+
+### Why use Claude Code if Cursor has Claude?
+
+The same Claude model runs through different tools in Cursor and Claude Code. A Claude Code session has its own conversation, tools, and permissions, even when we open it inside Cursor. We pass along the relevant files and progress when we move work between them. Billing differs too: new Cursor plans charge separately for Claude usage, while Claude Pro, Max, and Ultra include Claude Code within the plan's usage limits.
+
+## If You Don't Write Code
+
+### What should your first project be?
+
+If you already have a page or project, change one small thing you can check. If you're starting from nothing, we'd make a personal page with one working button.
+
+### How do you get started?
+
+For your first page in Cursor:
+
+1. Install Cursor and sign in. On your computer, create an empty folder called `my-first-page`, then [open that folder in Cursor](https://cursor.com/docs/get-started/quickstart). You don't need an existing repository.
+2. Open Agent with `Cmd+I` on Mac or `Ctrl+I` on Windows. Ask: “Create a personal page in index.html, with the CSS and JavaScript in that file. Add an About button that shows a short bio when clicked. Keep it local, with no login, database, or external services.”
+3. When Agent finishes, find `index.html` in that folder and open it in your web browser. You should see the page. If it doesn't open, tell Agent what happened and ask for the exact next step.
+4. Click About: the bio should appear. Reload the page and try again. Then ask Agent to change the button's text, refresh the browser, and check that the new label appears and the button still works.
+
+Once that works, you can use [Design Mode](https://cursor.com/docs/agent/design-mode) in Cursor's built-in browser to point at an element you want changed. If you'd rather build through a conversation without a code editor, use the Claude desktop app's [Code tab](https://code.claude.com/docs/en/desktop-quickstart) and select the same empty folder.
+
+We'd get that preview working before trying to publish. The agent may still need you to create a hosting account, connect a service, or add an API key. Ask it to explain each step before you approve it.
+
+### Who checks the work?
+
+Most people on one marketing team weren't technical. They [used Cursor's cloud agents in the web app](https://news.ycombinator.com/item?id=48028151) to change the website, blog, and landing pages. The agents opened GitHub pull requests, and engineers checked them before merging.
+
+If you're working without an engineer, try every action in your first project before publishing. In April 2025, [a builder using Cursor](https://thomasbrouwer.substack.com/p/building-with-ai-2-trash-tv-aggregator-e55) found that a cookie banner appeared on the page but its Decline action hadn't been implemented. Click the buttons and check what happens before calling the feature done.
+
+## How Do We Edit and Review Changes?
+
+### While editing the code
+
+With Claude Code's extension, you can point to a file and inspect its changes beside the code. Try the extension before switching editors just to get an agent.
+
+**For UI tweaks and wording changes, we keep the file open and fix the details ourselves.** For a larger change across files, we let Cursor Agent take the first pass, then read the diff.
+
+### Before the agent changes your files
+
+On an unfamiliar project, check what the agent can change without asking. Cursor [asks before running terminal commands](https://cursor.com/docs/agent/security), but changes project files without a separate approval by default. Claude Code's [Manual mode](https://code.claude.com/docs/en/permissions) asks before file edits and commands that need permission.
+
+## Which One Writes Better Code?
+
+The two comparisons we found don't give us a quality reason to switch tools. In one small test with the same Claude model, both tools passed all 186 checks. In a separate bug-fix benchmark, both passed 20 of 27 tasks with the same model and effort setting.[^1][^2]
+
+![October 2026 task results: money parser 84/84, bill splitting 51/51, and CSV parsing 51/51 for both Sonnet 5.5 setups, across three runs per task.](/blog/cursor-vs-claude-code/october-results.webp)
+
+*Three tasks, three tries per setup. Chart: Not an AI App, October 2026.*
+
+The May benchmark's equal totals hide different misses. On a username fix for Memos, a notes app, Claude Code passed while Cursor failed the check that numeric-only usernames should stay invalid. On a hot-reload task in Vite, a build tool, the result went the other way.[^2]
+
+We choose by the editing workflow and cost, then check the code on the project itself. For the money parser in the first test, we'd try different amount formats and check the exact cents. A passing score elsewhere doesn't do that job for us.
+
+## Cursor vs Claude Code Pricing and Usage Limits
+
+The [Cursor](https://cursor.com/docs/models-and-pricing) and [Claude](https://claude.com/pricing) prices below are in US dollars per month, before tax. They are for individual web subscriptions.
+
+<div className="overflow-x-auto thin-scrollbar [&_table]:min-w-[640px] [&_th]:min-w-24 [&_td]:min-w-24" role="region" aria-label="Cursor and Claude monthly plans" tabIndex={0}>
+
+| Tool | Plans | Main billing difference |
+|---|---|---|
+| Cursor | Free $0, Plus $8, Premium $30, Super $100, Ultra $200 | Plus offers Grok and Composer models. Premium and above offer third-party models at extra cost. Included usage resets weekly. |
+| Claude | Pro $20, Max $100, Ultra $200 | Includes Claude Code within usage limits. The free Claude plan does not include Claude Code. |
+
+</div>
+
+### What are you paying for?
+
+**If Claude is what you're paying for, start with Claude Pro: Cursor charges extra for it.**
+
+- Claude chat and Claude Code share your plan's usage limits. A busy day in chat can leave less for coding.
+- Cursor's included usage pool is shared with the Grok apps. Requests in Grok chat draw from that same pool, leaving less for Cursor.
+- [Legacy Cursor Pro](https://cursor.com/docs/account/pricing/legacy-cursor-plans) ($20/month) includes a monthly third-party model pool. Check your plan before using someone else's bill to estimate yours.
+
+### What happens when you hit a limit?
+
+When Claude Code stops for a limit, check `/usage` for the reset time first. Pro and Max have five-hour and weekly limits. [Verified Ultra accounts](https://support.claude.com/en/articles/17728952-what-is-the-ultra-plan) have no five-hour limit, but weekly limits still apply.
+
+If the reset's only a few hours off, we just wait. On a Claude subscription, an open interactive session can [wait out a reset and resume](https://code.claude.com/docs/en/interactive-mode#wait-for-a-usage-limit-to-reset). Sometimes it will ask you to confirm before carrying on. If the deadline can't wait, compare an upgrade with paid usage credit.
+
+Cursor resets its included usage pool each week. Once you've used it up, you can wait for the reset or pay from [prepaid credit](https://cursor.com/docs/models-and-pricing). Auto Top-up stays within the monthly spending cap. Estimate how much work is left before you raise that cap.
+
+## Using Claude Code and Cursor Together
+
+*If you don't write code, [jump to our recommendation](#our-recommendation-cursor-claude-code-or-both).*
+
+### How we split the work
+
+- We keep Cursor for edits we expect to revise by hand several times.
+- We hand Claude Code a bug to investigate or a separate change to implement.
+
+Review or commit the current edits before a handoff, so you can trace which tool changed what.
+
+![Suggested workflow: use Cursor for hands-on editing or Claude Code for a defined task, then review the diff and tests yourself. Share rules and include a progress note at the handoff.](/blog/cursor-vs-claude-code/workflow.png)
+
+Both tools offer [cloud agents](https://cursor.com/docs/cloud-agent) for work that needs to continue after you close your laptop. In Cursor's new plans, cloud agents start at Premium. With Claude, [cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web) are available on Pro, Max, and Ultra.
+
+### Use Claude Code in Cursor
+
+1. Open your project in Cursor. On the Claude Code extension page, choose ["Install for Cursor"](https://code.claude.com/docs/en/vs-code#install-the-extension), then sign in to Claude. You'll need Pro, Max, or Ultra, or a Console account with separate billing.
+2. If you prefer the CLI, [install it](https://code.claude.com/docs/en/overview) and run `claude` from your project folder in Cursor's terminal.
+3. For shared instructions, use [`AGENTS.md`](https://code.claude.com/docs/en/memory#agentsmd). Claude Code v2.1.277 or later can read it directly when there is no `CLAUDE.md` or `CLAUDE.local.md` in the project folder or above it. If it does not load, add `@AGENTS.md` to a `CLAUDE.md` beside it. Use `/context` to check which instructions loaded.
+
+Claude Code's `/init` reads old Cursor rule files and adds the relevant instructions to its generated `CLAUDE.md`. If you change the Cursor rules later, you'll need to copy them over again. For a handoff, a short status note and the relevant [session record](/blog/share-claude-code-session) give the next tool a starting point.
+
+### When we want Claude Code and Cursor in one conversation
+
+Copying instructions from one tool to the other gets old fast. We built Alook to put the agents in one conversation. In this [multi-agent collaboration](https://alook.ai) workspace, Claude Code and Cursor connect as bot accounts that can reply to you and each other. The bots run on your computer, which needs to stay online.
+
+During one blog review, a Cursor bot shared our research summary and a Claude Code bot checked the draft. The Claude Code bot flagged a line that said Cursor's included usage pool was shared with Grok but never explained what that meant. We added that Grok app requests draw from that pool too. The feedback and the fix stayed in one conversation.
+
+![Alook Machines page showing an online computer and badges for Claude, Codex, Cursor, OpenCode, and Pi.](/blog/cursor-vs-claude-code/machines.png)
+
+*Connect your existing tools to Alook from your own computer.*
+
+## Our Recommendation: Cursor, Claude Code, or Both
+
+**For a first AI coding tool, our pick is Cursor.** The editor gives us room to adjust a change ourselves before asking for more. If you don't write code, a small page change gives you something visible to judge.
+
+Try Claude Code first if you want to keep an editor you already know, or build through its desktop app without learning a code editor. For frequent Claude use, we'd start with Claude Pro and check its limits before upgrading.
+
+We keep Cursor open for edits we want to revise by hand. Claude Code takes a separate task, and we review or commit before the handoff.
+
+Try one small project before paying for both. Add the second tool when it solves a problem you can name.
+
+[^1]: [Not an AI App: October 2026 comparison](https://notanaiapp.com/news/cursor-vs-claude-code-test)
+
+[^2]: [HarnessBench: May 2026 results](https://nyosegawa.com/harness-bench/)

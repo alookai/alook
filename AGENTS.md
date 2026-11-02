@@ -47,7 +47,7 @@ This triggers:
 
 `.github/workflows/ci.yml` owns one canonical impact plan. PR and merge-queue checks run affected package checks plus key browser paths and matched feature groups. Core, policy, unknown and unresolved inputs retain full fallback. Ordinary main pushes run the small behavior smoke set and relevant artifacts; release commits and manual full dispatch run the full regression. See [CONTRIBUTING.md](CONTRIBUTING.md#ci-trigger-and-test-responsibilities) for the matrix and explicit commands.
 
-Browser specs remain in `src/web/src/test/e2e-ui/`. Reuse the existing build-once artifact, shard runner and exact report verification. Keep stable `CI Gate` and `UI E2E Gate` checks; skipped out-of-scope jobs are expected, so do not require individual shards. No daily schedule is implied. Browser tests do not contribute to Vitest coverage. Codecov patch results are informational; existing project minimums and report integrity still apply.
+Browser specs remain in `src/web/src/test/e2e-ui/`. Reuse the existing build-once artifact, shard runner and exact report verification. Keep stable `CI Gate` and `UI E2E Gate` checks; skipped out-of-scope jobs are expected, so do not require individual shards. No daily schedule is implied. Browser tests do not contribute to Vitest coverage. Codecov project and patch percentages are informational; neither hosted status nor the repository verifier enforces a percentage minimum. Failed tests, missing required instrumentation, malformed reports and upload errors still fail.
 
 ## Plan-driven Development
 - You must make a markdown plan at `plans/` before you implement any my request, otherwise I will reject your implementation.

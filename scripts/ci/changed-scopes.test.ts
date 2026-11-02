@@ -651,7 +651,7 @@ describe("scope manifest", () => {
     expect(() => validateScopeManifest(unknownCodecov)).toThrow("unknown Codecov target")
 
     const codecovDrift = structuredClone(manifest)
-    codecovDrift.codecov_targets.shared.target = 51
+    codecovDrift.codecov_targets.shared.path = "src/other-shared"
     expect(() => validateScopeManifest(codecovDrift)).toThrow("Codecov target")
 
     expect(() => validateScopeManifest(manifest, { specs: [] })).toThrow("unknown UI spec")
@@ -675,6 +675,7 @@ describe("scope manifest", () => {
     for (const codecov of [
       (source: string) => source.replace("    project:", "    projects:"),
       (source: string) => source.replace(/^      ([^:\n]+):$/m, "      future:"),
+      (source: string) => source.replace("informational: true", "informational: false"),
     ]) {
       const { manifest, root } = workspaceFixture({ codecov })
       try {

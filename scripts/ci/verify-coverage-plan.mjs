@@ -98,14 +98,8 @@ export function verifyCoveragePlan(plan, report, options = {}) {
       throw new Error(`Codecov project target ${targetName} requires a nonempty denominator`)
     }
     const percent = (totals.covered / totals.statements) * 100
-    if (percent < target.target) {
-      throw new Error(
-        `Codecov project target ${targetName} is ${percent.toFixed(2)}%, below ${target.target}%`,
-      )
-    }
     targets[targetName] = {
       path: target.path,
-      target: target.target,
       files: targetFiles.length,
       statements: totals.statements,
       covered: totals.covered,

@@ -109,14 +109,15 @@ test("homepage keeps Tutorials in the footer and collapses mobile header links",
   await expect.poll(() => header.evaluate((element) => getComputedStyle(element).visibility)).toBe("visible")
 
   const inlineLinks = header.locator(".marketing-site-link")
-  await expect(inlineLinks).toHaveCount(3)
+  await expect(inlineLinks).toHaveCount(4)
   for (const link of await inlineLinks.all()) await expect(link).toBeHidden()
 
   const mobileMenu = header.locator("details")
   await mobileMenu.locator("summary").click()
   const mobileLinks = mobileMenu.locator(".marketing-mobile-site-link")
-  await expect(mobileLinks).toHaveCount(3)
+  await expect(mobileLinks).toHaveCount(4)
   const expectedLinks = [
+    { href: "/download", label: "Download" },
     { href: "/pricing", label: "Pricing" },
     { href: "/blog", label: "Blog" },
     { href: "/contact", label: "Contact" },
@@ -280,6 +281,26 @@ for (const width of [1440, 390]) {
     await page.keyboard.press("Enter")
     await expect(page).toHaveURL(/\/contact$/)
     await expect(page.getByRole("heading", { name: "Let’s talk." })).toBeVisible()
+    await expect.poll(contactLayout).toEqual(direct)
+
+    await page.getByRole("navigation", { name: "Site navigation" }).getByRole("link", { name: "Download", exact: true }).click()
+    await expect(page).toHaveURL(/\/download$/)
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Good company.")
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", "https://alook.ai/download")
+    await expect(page.getByLabel("Store availability").getByText("Coming soon", { exact: true })).toHaveCount(2)
+    const beta = page.locator("#mobile").getByRole("link", { name: "iPhone & iPad Public beta", exact: true })
+    await expect(beta).toHaveAttribute("href", "https://testflight.apple.com/join/4fHgVBVF")
+    const betaBox = await beta.boundingBox()
+    const apkBox = await page.getByRole("heading", { name: "Android APK", exact: true }).boundingBox()
+    expect(betaBox!.y + betaBox!.height).toBeLessThanOrEqual(apkBox!.y)
+
+    await expect(page.getByRole("link", { name: "App Store", exact: true })).toHaveCount(0)
+    await expect(page.getByRole("link", { name: "Google Play", exact: true })).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await page.screenshot({ path: testInfo.outputPath("download-shared-header.png"), fullPage: true })
+    await page.getByRole("navigation", { name: "Site navigation" }).getByRole("link", { name: "Contact", exact: true }).focus()
+    await page.keyboard.press("Enter")
+    await expect(page).toHaveURL(/\/contact$/)
     await expect.poll(contactLayout).toEqual(direct)
   })
 }

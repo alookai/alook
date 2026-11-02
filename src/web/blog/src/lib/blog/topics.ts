@@ -41,6 +41,7 @@ export const blogTopics = [
       "Coordinate coding agents across tools and repositories without duplicated work, lost decisions, or merge conflicts.",
     pillarSlug: "claude-code-and-codex-same-team",
     entries: [
+      { slug: "cursor-vs-claude-code", userJob: "Choose Cursor or Claude Code by editing workflow, models, pricing and first-project needs" },
       { slug: "claude-code-codex-cursor-grok-which-to-choose", userJob: "Choose a coding or personal-agent harness for a concrete task using reported strengths and weaknesses" },
       { slug: "ai-team-vs-ai-tools", userJob: "Stop being the copy-paste layer between coding agents" },
       {
@@ -122,6 +123,7 @@ export const blogTopics = [
         slug: "ai-agent-identity",
         userJob: "Evaluate whether an agent stays addressable across rooms and servers",
       },
+      { slug: "how-to-build-liquid-software", userJob: "Turn user feedback into code changes by putting my coding agent in my user community" },
     ],
   },
   {

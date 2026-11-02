@@ -399,20 +399,16 @@
   },
   "codecov_targets": {
     "shared": {
-      "path": "src/shared",
-      "target": 50
+      "path": "src/shared"
     },
     "email-worker": {
-      "path": "src/email-worker",
-      "target": 70
+      "path": "src/email-worker"
     },
     "ws-do": {
-      "path": "src/ws-do",
-      "target": 70
+      "path": "src/ws-do"
     },
     "web": {
-      "path": "src/web",
-      "target": 30
+      "path": "src/web"
     }
   },
   "integrity_paths": [

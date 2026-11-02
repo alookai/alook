@@ -47,14 +47,14 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 37 published slugs exactly once", () => {
+  it("covers all 39 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(37);
-    expect(new Set(slugs).size).toBe(37);
+    expect(slugs).toHaveLength(39);
+    expect(new Set(slugs).size).toBe(39);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -69,6 +69,7 @@ describe("blogTopics", () => {
         "run-ai-agent-team-that-stays-on-track",
       ],
       [
+        "cursor-vs-claude-code",
         "claude-code-codex-cursor-grok-which-to-choose",
         "ai-team-vs-ai-tools",
         "claude-code-subagents-vs-independent-agents",
@@ -95,6 +96,7 @@ describe("blogTopics", () => {
         "ask-coworker-codex-claude-code",
         "why-we-built-alook",
         "ai-agent-identity",
+        "how-to-build-liquid-software",
       ],
       [
         "personal-ai-company",
@@ -120,6 +122,7 @@ describe("blogTopics", () => {
         )
       )
     ).toEqual({
+      "cursor-vs-claude-code": "Choose Cursor or Claude Code by editing workflow, models, pricing and first-project needs",
       "codex-memory": "Recover a Codex task after compaction and distinguish task context, project rules and local Memories",
       "claude-code-codex-cursor-grok-which-to-choose": "Choose a coding or personal-agent harness for a concrete task using reported strengths and weaknesses",
       "ask-coworker-codex-claude-code": "Let coworkers talk to the coding agents that did the work",
@@ -177,6 +180,8 @@ describe("blogTopics", () => {
       "why-we-built-alook": "Understand why Alook exists (founder narrative)",
       "ai-agent-identity":
         "Evaluate whether an agent stays addressable across rooms and servers",
+      "how-to-build-liquid-software":
+        "Turn user feedback into code changes by putting my coding agent in my user community",
       "personal-ai-company": "Run a one-person company with AI agents",
       "multi-agent-collaboration-without-code":
         "Coordinate multiple agents without writing orchestration code",

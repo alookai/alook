@@ -5,23 +5,6 @@
   background: var(--landing-section-bg);
 }
 
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 24px var(--landing-page-gutter);
-}
-
-.back {
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
-  color: var(--landing-text-muted);
-  font-size: 14px;
-  text-underline-offset: 5px;
-}
-
 .main {
   display: grid;
   flex: 1;

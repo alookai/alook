@@ -21,7 +21,7 @@ export const LANDING_IDENTITY_MAYA = {
 
 export const SCENE_MAX_BEAT: Record<LandingScene, number> = {
   server: 6,
-  machine: 7,
+  machine: 6,
   provider: 9,
   spaces: 12,
   identity: 12,
@@ -60,7 +60,7 @@ export type SceneSnapshot = {
   beat: number
   visibleMessages: number
   composerText: string
-  machineState: "empty" | "connecting" | "online" | "bot-born"
+  machineState: "empty" | "connecting" | "online"
   pairSheet: "closed" | "command" | "waiting" | "connected"
   runtime: "claude" | "codex"
   model: string | null
@@ -88,7 +88,6 @@ const MACHINE_CAMERAS = [
   { scale: 1.22, x: 900, y: 360 },
   { scale: 1.22, x: 900, y: 510 },
   { scale: 1.18, x: 620, y: 160 },
-  { scale: 1.18, x: 620, y: 360 },
   WIDE_CAMERA,
 ]
 const PROVIDER_CAMERAS = [
@@ -179,9 +178,7 @@ export function sceneSnapshot(scene: LandingScene, requestedBeat: number): Scene
           ? "empty"
           : beat < 4
             ? "connecting"
-            : beat < 6
-              ? "online"
-              : "bot-born",
+            : "online",
       pairSheet:
         beat === 2
           ? "command"
@@ -202,7 +199,6 @@ export function sceneSnapshot(scene: LandingScene, requestedBeat: number): Scene
         "pair-step-2",
         "pair-connected",
         "machine",
-        "born-bot",
       ][beat] ?? null,
       camera: MACHINE_CAMERAS[beat] ?? WIDE_CAMERA,
     }

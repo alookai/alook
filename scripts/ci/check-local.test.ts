@@ -124,7 +124,7 @@ describe("local canonical checks", () => {
   })
 
   it("uses the real CLI in plan-only mode without starting package checks", () => {
-    const output = execFileSync(process.execPath, ["scripts/ci/check-local.mjs", "--base", "HEAD", "--plan"], { encoding: "utf8" })
+    const output = execFileSync(process.execPath, ["scripts/ci/check-local.mjs", "--base", "HEAD", "--full", "--plan"], { encoding: "utf8" })
     const result = JSON.parse(output)
     expect(result.plan.base_sha).toMatch(/^[0-9a-f]{40}$/)
     expect(result.plan.head_sha).toBe(result.plan.base_sha)

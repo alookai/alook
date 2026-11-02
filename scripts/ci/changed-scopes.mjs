@@ -171,7 +171,7 @@ function validateCodecovTargets(manifest, root) {
     const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     const escapedPath = target.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     const contract = new RegExp(
-      `^[ ]{6}${escapedName}:\\n[ ]{8}target: ${target.target}%\\n[ ]{8}paths:\\n[ ]{10}- ${escapedPath}/\\*\\*$`,
+      `^[ ]{6}${escapedName}:\\n[ ]{8}informational: true\\n[ ]{8}target: auto\\n[ ]{8}paths:\\n[ ]{10}- ${escapedPath}/\\*\\*$`,
       "m",
     )
     if (!contract.test(projectSection)) {
