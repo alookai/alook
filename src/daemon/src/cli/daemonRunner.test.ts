@@ -58,7 +58,7 @@ vi.mock("../diagnostics/index.js", async (importOriginal) => {
   };
 });
 
-const RUNNER_PROCESS_EVENTS = ["uncaughtException", "unhandledRejection", "SIGINT", "SIGTERM"] as const;
+const RUNNER_PROCESS_EVENTS = ["uncaughtException", "unhandledRejection", "SIGINT", "SIGTERM", "message", "disconnect"] as const;
 
 function preparedDaemon(dir: string): PreparedDaemon {
   return {
@@ -112,6 +112,7 @@ function removeNewProcessListeners(before: Map<string, Set<(...args: never[]) =>
 function installDaemonHarness(dir: string, events: string[] = []) {
   const state: { options?: Record<string, unknown> } = {};
   const stop = vi.fn(async () => { events.push("daemon-stop"); });
+  const reportRefreshResult = vi.fn();
   const fsmTraceSource = { openSnapshot: vi.fn() };
   runnerDaemonHarness.create.mockImplementation(async (options: Record<string, unknown>) => {
     state.options = options;
@@ -121,9 +122,10 @@ function installDaemonHarness(dir: string, events: string[] = []) {
       proxyUrl: "http://127.0.0.1:1234",
       onOpen: vi.fn(),
       stop,
+      reportRefreshResult,
     };
   });
-  return { state, stop, fsmTraceSource };
+  return { state, stop, fsmTraceSource, reportRefreshResult };
 }
 
 describe("daemon runner logger", () => {
@@ -530,6 +532,54 @@ describe("daemon runner logger", () => {
       expect(JSON.stringify(records)).not.toContain("cmk_PRIVATE_RECOVERY_KEY");
     } finally {
       removeNewProcessListeners(listenersBefore);
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["committed", "disconnected"])("keeps Refresh completion behind the %s startup boundary", async (outcome) => {
+    resetDiagnosticHarness();
+    vi.useFakeTimers();
+    const listenersBefore = processListenerSnapshot();
+    const harness = installDaemonHarness(dir);
+    const deliverDisconnect = () => {
+      const before = listenersBefore.get("disconnect")!;
+      for (const listener of process.listeners("disconnect")) if (!before.has(listener as never)) listener.call(process);
+    };
+    const connected = Object.getOwnPropertyDescriptor(process, "connected");
+    const disconnect = Object.getOwnPropertyDescriptor(process, "disconnect");
+    Object.defineProperties(process, { connected: { value: true, configurable: true },
+      disconnect: { value: vi.fn(deliverDisconnect), configurable: true } });
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const requestId = "26aac14d-dfd6-4e96-821c-ebf538316f79";
+    const result = { requestId, status: "complete" as const };
+    let ready!: () => void;
+    const readyPromise = new Promise<void>((resolve) => { ready = resolve; });
+    try {
+      void runPreparedDaemon({ ...preparedDaemon(dir), refreshResult: result }, {
+        foreground: false, releaseOwnership: vi.fn(), onReady: ready,
+      });
+      await readyPromise;
+      const refresh = harness.state.options!.handleRefresh as (id: string) => Promise<unknown>;
+      expect(await refresh(requestId)).toBeUndefined();
+      expect(await refresh("0325c31a-c586-42c9-9f3f-a1ffce80b7ac")).toMatchObject({ status: "error", code: "refresh_in_progress" });
+      process.emit("message", { type: "daemon:committed", requestId: "stale" });
+      expect(harness.reportRefreshResult).not.toHaveBeenCalled();
+      if (outcome === "committed") {
+        process.emit("message", { type: "daemon:committed", requestId });
+        expect(harness.reportRefreshResult).toHaveBeenCalledExactlyOnceWith(result);
+        expect(await refresh(requestId)).toEqual(result);
+        expect(harness.stop).not.toHaveBeenCalled();
+        (harness.state.options!.onStopRequested as () => void)();
+      } else deliverDisconnect();
+      await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(outcome === "committed" ? 0 : 1));
+      if (outcome === "disconnected") expect(harness.reportRefreshResult).not.toHaveBeenCalled();
+      expect(harness.stop).toHaveBeenCalledOnce();
+    } finally {
+      removeNewProcessListeners(listenersBefore);
+      if (connected) Object.defineProperty(process, "connected", connected); else Reflect.deleteProperty(process, "connected");
+      if (disconnect) Object.defineProperty(process, "disconnect", disconnect); else Reflect.deleteProperty(process, "disconnect");
+      exit.mockRestore();
       vi.clearAllTimers();
       vi.useRealTimers();
     }

@@ -1,6 +1,7 @@
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createMockWebSocket } from "../__mocks__/cf"
+import type { WsDurableContext } from "./internal"
 import {
   CFResponse,
   cleanupHarness,
@@ -868,6 +869,22 @@ describe("WebSocketDurableObject", () => {
         await durable.webSocketMessage(newSocket as WebSocket, JSON.stringify({ ...base, refreshRequestId: requestId, refreshResult: { requestId, status: "complete" } }))
         const bodies = await Promise.all(mockStubFetch.mock.calls.map(async ([request]) => await (request as Request).clone().json()))
         expect(bodies).toContainEqual(expect.objectContaining({ type: "community:machine.updated", refreshResult: { requestId, status: "complete" } }))
+      })
+
+      it("does not bind Refresh completion when a ready socket has no machine attachment", async () => {
+        const { handleReadyFrame } = await import("./machine-ready")
+        const { ctx, env } = createDO()
+        const ws = createMockWebSocket()
+        const machine = { id: "cm_1", hostname: "host", daemonVersion: "0.1.63", availableRuntimes: [], status: "online" }
+        mockUpsertMachineByMachineId.mockResolvedValue({ machine, priorAvailableRuntimes: [], priorDaemonVersion: "0.1.63", priorStatus: "online" })
+        const requestId = "26aac14d-dfd6-4e96-821c-ebf538316f79"
+        const context = { ctx, env, log: { warn: mockLogWarn }, typingDedup: new Map(), typingFanoutChains: new Map(),
+          typingDedupMs: 1000, subrequestBatchSize: 40 } as unknown as WsDurableContext
+        await handleReadyFrame(context, { type: "ready", runtimeReport: [], capabilities: ["control-heartbeat-v1", "machineRefresh"],
+          runningAgents: [], daemonVersion: "0.1.63", refreshRequestId: requestId, refreshResult: { requestId, status: "complete" } },
+        { userId: "u_1", machineId: "cm_1", credentialHash: "0".repeat(64) }, ws as WebSocket)
+        expect(ws.serializeAttachment).not.toHaveBeenCalled()
+        expect(mockStubFetch).not.toHaveBeenCalled()
       })
 
       it.each([

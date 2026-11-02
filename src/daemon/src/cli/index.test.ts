@@ -6,6 +6,7 @@ const mockDaemonStartById = vi.hoisted(() => vi.fn(async () => {}));
 const mockDaemonReconnect = vi.hoisted(() => vi.fn(async () => {}));
 const mockDaemonList = vi.hoisted(() => vi.fn(() => [{ id: "cm_saved_machine", pid: 42, alive: true, agents: 1, running: 0, lastActiveMs: 1 }]));
 const mockDaemonRunFromIpc = vi.hoisted(() => vi.fn(async () => new Promise<never>(() => {})));
+const mockDaemonRefreshFromIpc = vi.hoisted(() => vi.fn(async () => {}));
 const mockArmMessageReminder = vi.hoisted(() => vi.fn(async () => ({ armed: true as const, dueAt: 123456 })));
 vi.mock("./daemonStart", async (importOriginal) => ({
   ...await importOriginal<typeof import("./daemonStart")>(),
@@ -18,6 +19,10 @@ vi.mock("./daemonStart", async (importOriginal) => ({
 vi.mock("./messageReminderClient", async (importOriginal) => ({
   ...await importOriginal<typeof import("./messageReminderClient")>(),
   armMessageReminderFromEnv: mockArmMessageReminder,
+}));
+vi.mock("./daemonRefresh.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./daemonRefresh.js")>(),
+  daemonRefreshFromIpc: mockDaemonRefreshFromIpc,
 }));
 import { main, setApiForTesting, decodeTextEscapes, type CliInputStream } from "./index";
 import type { ServerApi } from "../server/contract";
@@ -83,6 +88,16 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
 }
 
 let cap: ReturnType<typeof captureStdout>;
+
+it("routes the hidden refresh helper command to its local IPC entry without an API call", async () => {
+  mockDaemonRefreshFromIpc.mockClear();
+  expect(await main(["daemon", "refresh-run"])).toBe(0);
+  expect(mockDaemonRefreshFromIpc).toHaveBeenCalledOnce();
+  expect(await main(["daemon", "refresh-run", "--help"])).toBe(1);
+  expect(await main(["daemon", "refresh-run", "--unexpected"])).toBe(1);
+  mockDaemonRefreshFromIpc.mockRejectedValueOnce(new Error("local helper failed"));
+  expect(await main(["daemon", "refresh-run"])).toBe(1);
+});
 
 // Env `getApi`/`proxyServerApiFromEnv` reads to build a proxy-routed ServerApi
 // when no API is injected. The daemon INJECTS these into every agent's process

@@ -1517,6 +1517,31 @@ for await (const line of createInterface({ input: process.stdin })) {
     await daemon.stop();
   });
 
+  it.each(["complete", "failure"] as const)("consumes machine:refresh and emits only correlated %s receipts", async (outcome) => {
+    const sockets: FakeSocket[] = [];
+    const routerEntry = spyOnRouterCommandEntry();
+    const requestId = "26aac14d-dfd6-4e96-821c-ebf538316f79";
+    const result = { requestId, status: "complete" as const };
+    const handleRefresh = vi.fn(async () => { if (outcome === "failure") throw new Error("PRIVATE_REFRESH_DETAIL"); return result; });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ bots: [] })));
+    const daemon = await createDaemon({ machineKey: "cmk_refresh_fixture", serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x", webSocketFactory: factory(sockets), runtimeReport: [],
+      driverFor: () => fakeDriver, capabilities: [], handleRefresh,
+    } as Parameters<typeof createDaemon>[0]);
+    try {
+      sockets[0].emit("open");
+      sockets[0].emit("message", JSON.stringify({ type: "machine:refresh", requestId }));
+      await vi.waitFor(() => expect(sockets[0].sent.map((frame) => JSON.parse(frame))).toContainEqual(expect.objectContaining({
+        type: "ready", refreshResult: outcome === "complete" ? result : { requestId, status: "error", code: "restart_failed" },
+      })));
+      expect(routerEntry).not.toHaveBeenCalledWith(expect.objectContaining({ type: "machine:refresh" }));
+      expect(fakeDriver.start).not.toHaveBeenCalled();
+      expect(sockets[0].sent.join("")).not.toContain("PRIVATE_REFRESH_DETAIL");
+      daemon.reportRefreshResult(result);
+      expect(JSON.parse(sockets[0].sent.at(-1)!)).toMatchObject({ type: "ready", refreshResult: result });
+    } finally { await daemon.stop(); }
+  });
+
   it("consumes machine:update before bot observers and AgentRouter", async () => {
     const sockets: FakeSocket[] = [];
     const routerEntry = spyOnRouterCommandEntry();

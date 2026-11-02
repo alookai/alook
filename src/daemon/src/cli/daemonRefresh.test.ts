@@ -9,7 +9,7 @@ import { createDaemonRefreshHandler } from "./daemonRefresh";
 const requestId = "26aac14d-dfd6-4e96-821c-ebf538316f79";
 const otherId = "0325c31a-c586-42c9-9f3f-a1ffce80b7ac";
 const directories: string[] = [];
-afterEach(() => { for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => { vi.unstubAllEnvs(); for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 function context() {
   const baseDir = mkdtempSync(join(tmpdir(), "alook-refresh-unit-"));
   directories.push(baseDir);
@@ -74,5 +74,38 @@ describe("Refresh preparation", () => {
     const handler = createDaemonRefreshHandler(context(), { completedRequestId: () => requestId, readEnvironment });
     expect(await handler(requestId)).toEqual({ requestId, status: "complete" });
     expect(readEnvironment).not.toHaveBeenCalled();
+  });
+
+  it.each(["spawn", "send"])("returns a fixed failure after %s failure and releases the active request", async (stage) => {
+    const child = new EventEmitter() as ChildProcess;
+    Object.assign(child, { send: vi.fn((_message, callback) => callback(new Error("PRIVATE_IPC_DETAIL"))),
+      unref: vi.fn(), channel: { unref: vi.fn() } });
+    const spawnProcess = vi.fn(() => { if (stage === "spawn") throw new Error("PRIVATE_SPAWN_DETAIL"); return child; });
+    const handler = createDaemonRefreshHandler(context(), { spawnProcess: spawnProcess as never,
+      readEnvironment: async () => ({ HOME: "/tmp", PATH: "/bin" }) });
+    for (const id of [requestId, otherId]) expect(await handler(id)).toEqual({ requestId: id, status: "error", code: "restart_failed" });
+    expect(spawnProcess).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a stale default handler before environment discovery", async () => {
+    const owner = context();
+    writeFileSync(join(owner.baseDir, "daemons", owner.machineId, "daemon.pid"), JSON.stringify({ ...owner, ownerToken: "successor" }));
+    expect(await createDaemonRefreshHandler(owner)(requestId)).toEqual({ requestId, status: "error", code: "ownership_changed" });
+  });
+
+  it.each(["error", "exit"])("bounds helper %s and ignores late unrelated receipts", async (event) => {
+    const child = new EventEmitter() as ChildProcess;
+    Object.assign(child, { send: vi.fn((_message, callback) => callback()), unref: vi.fn(), channel: { unref: vi.fn() } });
+    vi.stubEnv("ALOOK_DAEMON_PACKAGE_WRAPPER", "1");
+    vi.stubEnv("NODE_ENV", "production");
+    const handler = createDaemonRefreshHandler(context(), { spawnProcess: vi.fn(() => child) as never,
+      readEnvironment: async () => ({ HOME: "/tmp", PATH: "/bin" }) });
+    const pending = handler(requestId);
+    await vi.waitFor(() => expect(child.send).toHaveBeenCalledOnce());
+    child.emit("message", { requestId: otherId, status: "complete" });
+    child.emit("message", { invalid: true });
+    child.emit(event, new Error("PRIVATE_HELPER_DETAIL"));
+    expect(await pending).toEqual({ requestId, status: "error", code: "restart_failed" });
+    child.emit("message", { requestId, status: "complete" });
   });
 });

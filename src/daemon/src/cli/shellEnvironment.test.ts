@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { EventEmitter } from "node:events";
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,6 +64,53 @@ describe("fresh local shell environment", () => {
     for (const value of ["HOME=/tmp\0PATH=/bin\0", "__ALOOK_ENV_V1__\0bad\0", "__ALOOK_ENV_V1__\0HOME=/tmp\0"]) {
       expect(() => parseShellEnvironment(Buffer.from(value), "darwin")).toThrow();
     }
+  });
+
+  it("rejects malformed child output without exposing its contents", async () => {
+    const spawnProcess = (() => spawn(process.execPath, ["-e", "process.stdout.write('PRIVATE_BAD_FRAME')"],
+      { stdio: ["ignore", "pipe", "ignore"] })) as typeof spawn;
+    await expect(readShellEnvironment({ spawnProcess })).rejects.toThrow(/^environment_unavailable$/);
+  });
+
+  it("rejects a missing shell executable without exposing local paths", async () => {
+    const dir = fixture();
+    await expect(readShellEnvironment({ env: { SystemRoot: dir, USERPROFILE: dir, HOME: dir, SHELL: join(dir, "missing-shell") } }))
+      .rejects.toThrow(/^environment_unavailable$/);
+  });
+
+  it("rejects oversized output even when additional buffered chunks arrive after failure", async () => {
+    const child = new EventEmitter() as ReturnType<typeof spawn>;
+    Object.assign(child, { stdout: new EventEmitter() });
+    const pending = expect(readShellEnvironment({ spawnProcess: (() => child) as typeof spawn })).rejects.toThrow(/^environment_unavailable$/);
+    child.stdout!.emit("data", Buffer.alloc(1024 * 1024 + 1));
+    child.stdout!.emit("data", Buffer.from("buffered-after-failure"));
+    child.emit("close", null);
+    await pending;
+  });
+
+  it.runIf(process.platform !== "win32")("falls back to terminating only its owned child when group termination fails", async () => {
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => { throw new Error("fixture group unavailable"); });
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      const spawnProcess = (() => { child = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"],
+        { stdio: ["ignore", "pipe", "ignore"] }); return child; }) as typeof spawn;
+      await expect(readShellEnvironment({ spawnProcess, timeoutMs: 100 })).rejects.toThrow(/^environment_unavailable$/);
+      expect(kill).toHaveBeenCalledWith(-child!.pid!, "SIGKILL");
+      expect(child!.signalCode).toBe("SIGKILL");
+    } finally { kill.mockRestore(); child?.kill("SIGKILL"); }
+  });
+
+  it("bounds the Windows process-tree cleanup path against its own child", async () => {
+    let ownedChild: ReturnType<typeof spawn> | undefined;
+    const spawnProcess = (() => {
+      ownedChild = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], { stdio: ["ignore", "pipe", "ignore"] });
+      return ownedChild;
+    }) as typeof spawn;
+    try {
+      await expect(readShellEnvironment({ platform: "win32", spawnProcess, timeoutMs: 100 })).rejects.toThrow(/^environment_unavailable$/);
+      expect(ownedChild).toBeDefined();
+      expect(ownedChild!.exitCode !== null || ownedChild!.signalCode !== null).toBe(true);
+    } finally { ownedChild?.kill("SIGKILL"); }
   });
 
   it.runIf(process.platform !== "win32")("fills a missing GUI shell from the local account", () => {
