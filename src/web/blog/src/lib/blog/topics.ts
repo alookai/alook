@@ -122,6 +122,7 @@ export const blogTopics = [
         slug: "ai-agent-identity",
         userJob: "Evaluate whether an agent stays addressable across rooms and servers",
       },
+      { slug: "how-to-build-liquid-software", userJob: "Turn user feedback into code changes by putting my coding agent in my user community" },
     ],
   },
   {
