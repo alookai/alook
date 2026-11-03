@@ -23,6 +23,11 @@ const handle=async f=>{
  } else if(f.method==='models.list')reply(f,{models:[{id:'native-fixture',name:'Native Fixture',supportedReasoningEfforts:['high']}]});
  else if(f.method==='session.send'){
   const messageId='input-'+(++seq);appendFileSync(join(process.cwd(),'copilot-inputs'),JSON.stringify({text:p.prompt,mode:p.mode})+'\n');
+  if(p.prompt==='blocked extra'||p.prompt==='error extra'){
+   if(p.prompt==='blocked extra')event('session.warning',{warningType:'policy_blocked',originatingMessageId:messageId,message:'Fixture extra refused'});
+   else event('session.error',{originatingMessageId:messageId,message:'Fixture input failed'});
+   reply(f,{messageId});return;
+  }
   if(p.prompt==='policy blocked'){
    event('session.warning',{warningType:'policy_blocked',originatingMessageId:messageId,message:'Fixture policy denied input'});
    reply(f,{messageId});event('session.idle');return;

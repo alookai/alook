@@ -472,7 +472,7 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   });
 
   const busy = await session.send({ id: "busy", kind: "user", text: "busy" });
-  expect(busy.status).toBe(backend === "pi" || backend === "opencode" || backend === "cursor" ? "accepted" : "queued");
+  expect(busy.status).toBe(backend === "pi" || backend === "opencode" || backend === "cursor" || backend === "claude" || backend === "codex" ? "accepted" : "queued");
   const interrupted = await session.interrupt({ requestId: "interrupt-1", reason: "conformance" });
   expect(interrupted.status).toBe("accepted");
   if (backend === "claude") {
@@ -582,6 +582,21 @@ function emitStaleTerminal(backend: BuiltinBackendId, harness: VendorHarness): v
 }
 
 describe("native primitive regressions through registered public sessions", () => {
+  describe.each(["cursor", "grok", "antigravity"] as const)("%s native stop reasons", (backend) => {
+    it.each(["end_turn", "refusal", "max_tokens", "max_turn_requests", "cancelled"] as const)("preserves %s through the public session and remains reusable", async (stopReason) => {
+      const fixture = await openRegisteredHarness(backend, "native-stop-reason");
+      try {
+        await settlePromptAdmission(backend, fixture.harness, 1, fixture.session.start({ id: "first", kind: "user", text: "first" }));
+        fixture.harness.duplicateTurn(1, { stopReason });
+        const outcome = stopReason === "end_turn" ? "success" : stopReason === "cancelled" ? "interrupted" : "failed";
+        await vi.waitFor(() => expect(fixture.events.filter(event => event.type === "turn_completed")).toMatchObject([{ result: { outcome, stopReason } }]));
+        await settlePromptAdmission(backend, fixture.harness, 2, fixture.session.send({ id: "next", kind: "user", text: "next" }));
+        fixture.harness.completeTurn(2);
+        await vi.waitFor(() => expect(fixture.events.filter(event => event.type === "turn_completed")).toMatchObject([{ result: { outcome } }, { result: { outcome: "success", stopReason: "end_turn" } }]));
+      } finally { await stopRegisteredHarness(backend, fixture); }
+    });
+  });
+
   it.each(["codex", "cursor", "grok", "antigravity"] as const)("preserves provider-originated %s cancellation and permits the next turn", async (backend) => {
     const fixture = await openRegisteredHarness(backend, "native-cancel");
     try {
@@ -1337,9 +1352,9 @@ describe("claude persistent transport ownership", () => {
     }));
     for (const message of steering) {
       expect(await opened.session.send({ id: message.id, kind: "user", text: message.text }))
-        .toEqual({ status: "queued", reason: "unsafe_boundary", commandId: message.id });
+        .toMatchObject({ status: "accepted", delivery: "steer", commandId: message.id });
     }
-    expect(harness.stdinMessages).toHaveLength(0);
+    expect(harness.stdinMessages).toHaveLength(9);
 
     harness.emitProvider({
       type: "user",
@@ -1381,6 +1396,7 @@ describe("claude persistent transport ownership", () => {
     expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(0);
     harness.resultForClaudeInput(steering.length);
     await settle();
+    await vi.waitFor(() => expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1));
     const completions = events.filter((event) => event.type === "turn_completed");
     expect(completions).toHaveLength(1);
     expect(completions[0]).toMatchObject({
@@ -1450,7 +1466,7 @@ it("Pi real adapter public chain owns identical turns by prompt invocation and i
   } as never));
   const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
     id: "pi",
-    contractVersion: 1,
+    contractVersion: 2,
     capabilities: capabilitiesFor("pi"),
     createAdapter: () => adapter,
   }] as never);

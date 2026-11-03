@@ -202,9 +202,8 @@ export function createPiSessionDependencies(
       if (requestedSessionId) {
         const sessionDir = resolvePiSessionDir(sdk, cwd);
         const existingFile = findPiSessionFile(sessionDir, requestedSessionId);
-        sessionManager = existingFile
-          ? sdk.SessionManager.open(existingFile, sessionDir, cwd)
-          : sdk.SessionManager.create(cwd, sessionDir, { id: requestedSessionId });
+        if (!existingFile) throw Object.assign(new Error("Pi session history is missing"), { code: "reset_required" });
+        sessionManager = sdk.SessionManager.open(existingFile, sessionDir, cwd);
       } else {
         sessionManager = sdk.SessionManager.create(cwd);
       }

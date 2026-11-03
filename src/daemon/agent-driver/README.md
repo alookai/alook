@@ -106,8 +106,8 @@ There is no per-turn built-in fallback.
 
 | Backend | Physical lifetime | Transport | Busy delivery | Terminal owner |
 |---|---|---|---|---|
-| Claude | session | `stdio_stream` / `claude.stream-json.v1` | `safe_boundary_queue` | `vendor_message` |
-| Codex | session | `stdio_rpc` / `codex.app-server.v1` | `safe_boundary_queue` | `transport_request` |
+| Claude | session | `stdio_stream` / `claude.stream-json.v1` | `steer` | `vendor_message` |
+| Codex | session | `stdio_rpc` / `codex.app-server.v1` | `steer` | `transport_request` |
 | Cursor | session | `stdio_rpc` / `cursor.acp.v1` | `steer` | `transport_request` |
 | OpenCode | session | `http_sse` / `opencode.v2.service` | `steer` | `transport_request` |
 | Pi | session | `in_process_sdk` / `pi_sdk` | `steer` | `prompt_invocation` |
@@ -183,13 +183,12 @@ mapping and packaged worker; real Cursor account inference and Windows runtime
 verification remain separate checks. Native SDK fixtures do not establish
 external service behavior or account entitlement.
 
-For Claude and Codex, `safe_boundary_queue` waits for at most the next valid
-tool-output event. A tool start closes the boundary for messages that arrive
-after it; the next matching tool output reopens the boundary and flushes queued
-messages even if other concurrent tools remain active. A later tool start
-closes the boundary again. Compaction and review remain closed until their
-matching finished events. Cursor, OpenCode, and Pi steer immediately and do not
-participate in this boundary latch.
+Claude and Codex submit busy inputs immediately through their native persistent
+protocols. Submission is not proof that the model has read the input: Claude may
+echo it after an active tool returns; Codex reports the correlated `turn/steer`
+RPC result. Grok retains `safe_boundary_queue`: a valid tool result opens its
+boundary, while tool starts, compaction and review can close it. A native busy
+refusal retains input responsibility in the existing next-turn queue.
 
 OpenCode selects a private compatibility lane from the actual CLI version.
 CLI v1 retains its `--pure` launch and durable event admission frontier; CLI v2
@@ -199,20 +198,19 @@ public contract. Recent-project discovery stays global: v1 uses session list,
 while v2 queries its native session API without a project filter. Unknown CLI
 majors and missing required capabilities fail explicitly.
 
-Pi's runtime behavior did not change in this migration. It already kept one
-SDK session and used prompt/steer/abort/dispose on that session; contract v1
-formalizes that existing persistent behavior as an `in_process_sdk`
-`RuntimeLane`.
+Pi retains one `in_process_sdk` session and uses its native
+prompt/steer/abort/dispose methods. Missing saved history now fails with
+`reset_required`; it cannot create an empty context with the requested ID.
 
-## Repository adapter contract v1 migration
+## Repository adapter contract v2 migration
 
 Repository adapters must import `ADAPTER_AUTHOR_CONTRACT_VERSION` from
 `@alook/agent-driver/adapter-author` and set every
 `AgentBackendRegistration.contractVersion` to that value (currently the numeric
-literal `1`). Missing, older, and unknown newer versions fail closed before host
+literal `2`). Missing, older, and unknown newer versions fail closed before host
 preparation or adapter open.
 
-For contract v1:
+For contract v2:
 
 - declare `BackendAdapter.execution` with `lifetime`, an opaque
   `transport.kind`/`transport.protocol`, `wakeStart`, and `terminalOwnership`;
@@ -230,7 +228,50 @@ For contract v1:
 - optionally implement `discoverRecentContext()` for bounded, global,
   read-only history discovery. All built-in adapters implement it; extension
   adapters that omit it receive `recent_context_discovery_unsupported` from the
-  SDK without changing adapter-author contract version 1.
+  SDK. This method remains optional.
+
+- pass every merged `{ commandId, attemptId }` member into the lane; correlate
+  native responses by native IDs, never text or timing;
+- preserve `success | failed | interrupted | unknown` terminal outcomes. An
+  absent outcome becomes `unknown`, and a tool result never inherits root success.
+  ACP normal completion, refusal, execution limits and cancellation remain distinct;
+  `AgentTurnResult.stopReason` preserves their native cause;
+- separate input/control errors from root failures and preserve off-root
+  attribution. Child/unknown events become public `activity` and cannot mutate
+  root text, tools, recovery or terminal ownership;
+- report acquisition using native API/protocol guarantees. A matching session ID
+  alone is `unverified`; missing history requires explicit reset;
+- return `acknowledged` for a settings ACK without value evidence. `applied`
+  requires `observed`; initial configuration without readback is `unverified`.
+
+### Input responsibility and evidence
+
+`AgentMessage.id` remains the logical identity; optional `attemptId` defaults to
+that ID. Repeating the same pair reuses its admission receipt. Only an input whose
+responsibility was returned can use a fresh attempt, with unchanged original
+text, kind and sequence. Optional `delivery: "next_turn"` uses the existing queue.
+
+A `queued` receipt retains provisional responsibility. `command_accepted` means
+the driver owns delivery, not that the native runtime or model consumed it.
+`input_observed` records a correlated native ACK, user echo or conversation fact;
+it does not establish Alook's separate model-seen watermark.
+
+`command_returned` includes the original input, attempt, ordinal, evidence and
+retry eligibility. Daemon retries only proven unsent/rejected eligible inputs,
+with the same command ID and a fresh attempt, ahead of still-unsent work. Already
+admitted later inputs cannot be reordered. Unknown delivery and permanent refusal
+are audited without blind replay; durable unread coverage remains wake-owned.
+Immediate input refusal cannot stop an existing healthy root.
+
+`session_acquired` and `configuration_observed` retain their latest evidence in
+the snapshot. Configuration ACKs settle the daemon's existing revision without
+restarting or repeating it; requested values do not become observed values.
+
+Native correlation is currently available for Claude UUID echoes, Codex RPC IDs,
+Qoder input lifecycle IDs and Copilot message IDs. Other lanes retain exact host
+input references but do not invent native observations. Protocols that expose no
+separate child stream cannot supply child details. Native tool output/outcomes
+are retained when supplied; absent tool outcome is explicitly `unknown`.
 
 Package semver and the numeric adapter-author contract version are independent.
 Only an incompatible `/adapter-author` change increments the latter.

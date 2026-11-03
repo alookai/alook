@@ -1,5 +1,22 @@
 # Release notes
 
+## Shared input and execution evidence (adapter-author v2)
+
+- Preserve logical command IDs and per-attempt identity through merged input,
+  native observations and returned responsibility. Reuse daemon queues/revisions;
+  retry only proven-unsent eligible inputs, without failing a healthy root.
+- Publish root/child/unknown attribution, native tool results, explicit execution
+  outcomes, session acquisition and configuration evidence. No result defaults to
+  success; a matching restored ID or an empty settings ACK is not verification.
+- Refuse missing Codex/Pi history without creating a replacement context.
+- Submit Claude/Codex busy input through native steering immediately. Preserve
+  root/attempt fences for late, duplicate, refused and off-root events.
+- Migrate all twelve backend registrations and both OpenCode protocol lanes.
+  Adapter registrations now require numeric contract version 2; settings `applied`
+  requires observed values. Native ACK-only setters return `acknowledged`.
+- Preserve persistent sessions, package boundaries and existing process authority.
+  No new runtime dependencies or additional agent transports.
+
 ## Additional native agent entries
 
 - Add persistent Qoder, Copilot, Cursor SDK and Pi Durable entries using optional

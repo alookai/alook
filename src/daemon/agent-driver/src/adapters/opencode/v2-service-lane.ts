@@ -118,7 +118,7 @@ export class OpenCodeV2ServiceLane extends OpenCodeServiceLane {
         break;
       case "session.tool.success":
       case "session.tool.failed": {
-        this.finishTool(this.toolKey(data.assistantMessageID, data.id));
+        this.finishTool(this.toolKey(data.assistantMessageID, data.id), event.type === "session.tool.failed" ? "failed" : "success", data.output);
         break;
       }
       case "session.compaction.started":
@@ -298,7 +298,7 @@ export class OpenCodeV2ServiceLane extends OpenCodeServiceLane {
       }
       this.events.emit("runtime_event", {
         kind: "turn_end", sessionId: this.sessionId!, turnOwner: root.receipt,
-        ...(idle.outcome === "interrupted" ? { outcome: "interrupted" as const } : {}),
+        outcome: idle.outcome === "interrupted" ? "interrupted" : idle.outcome === "succeeded" ? "success" : "failed",
       } satisfies AdapterEvent);
     } catch (error) {
       if (!current() || this.stopping) return;
@@ -322,13 +322,13 @@ export class OpenCodeV2ServiceLane extends OpenCodeServiceLane {
     this.events.emit("runtime_event", { kind: "tool_call", callId: key, name: tool.name, input: data.input } satisfies AdapterEvent);
   }
 
-  private finishTool(key: string | undefined): void {
+  private finishTool(key: string | undefined, outcome: "success" | "failed", output?: unknown): void {
     if (!key || this.settledTools.has(key)) return;
     const tool = this.liveTools.get(key);
     if (!tool?.called) return;
     this.liveTools.delete(key);
     this.settledTools.add(key);
-    this.events.emit("runtime_event", { kind: "tool_output", callId: key, name: tool.name } satisfies AdapterEvent);
+    this.events.emit("runtime_event", { kind: "tool_output", callId: key, name: tool.name, outcome, output } satisfies AdapterEvent);
   }
 
   private projectTools(message: JsonRecord): void {
@@ -338,7 +338,7 @@ export class OpenCodeV2ServiceLane extends OpenCodeServiceLane {
       const state = record(tool?.state);
       if (tool?.type !== "tool" || !["running", "completed", "error"].includes(String(state?.status))) continue;
       this.projectTool({ assistantMessageID: message.id, id: tool.id, name: tool.name, input: state?.input });
-      if (state?.status !== "running") this.finishTool(this.toolKey(message.id, tool.id));
+      if (state?.status !== "running") this.finishTool(this.toolKey(message.id, tool.id), state?.status === "error" ? "failed" : "success", state?.output);
     }
   }
 

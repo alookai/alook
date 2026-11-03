@@ -7,6 +7,7 @@ import type {
   OpenCodeConfig,
   PiConfig,
   QoderConfig, CopilotConfig, CursorSdkConfig, PiDurableConfig,
+  InputReference, InputReturnEvidence, ExecutionOutcome, EventAttribution, SessionAcquisition, RuntimeConfigurationObservation,
   PreparedExecutionResource,
   JsonValue,
   RuntimeReasoningCatalog,
@@ -57,16 +58,20 @@ export const DEFAULT_RECOVERY_GRACE_MS = 60_000;
 export const DEFAULT_MAX_RECOVERY_EXTENSIONS = 1;
 
 export type InputMode = "busy" | "idle";
-export interface EncodeMessageOptions { mode?: InputMode }
+export interface EncodeMessageOptions { mode?: InputMode; inputs?: readonly InputReference[] }
 
-export type AdapterEvent =
-  | { kind: "session_init"; sessionId: string }
+export type AdapterEvent = AdapterEventPayload & { readonly attribution?: EventAttribution };
+type AdapterEventPayload =
+  | { kind: "session_init"; sessionId: string; acquisition?: SessionAcquisition }
+  | { kind: "configuration_observed"; observation: RuntimeConfigurationObservation }
+  | { kind: "input_observed"; inputs: readonly InputReference[]; evidence: "native_ack" | "user_message" | "conversation" }
+  | { kind: "input_returned"; inputs: readonly InputReference[]; evidence: InputReturnEvidence; reason: string; retryable?: boolean }
   | { kind: "assistant_reasoning_delta"; text: string }
   | { kind: "assistant_reasoning_completed"; text: string }
   | { kind: "assistant_message_delta"; text: string }
   | { kind: "assistant_message_completed"; text: string }
   | { kind: "tool_call"; callId?: string; name: string; input: unknown }
-  | { kind: "tool_output"; callId?: string; name: string }
+  | { kind: "tool_output"; callId?: string; name: string; outcome?: ExecutionOutcome; output?: unknown }
   | { kind: "compaction_started" }
   | { kind: "compaction_finished" }
   | { kind: "review_started" }
@@ -76,8 +81,8 @@ export type AdapterEvent =
   | { kind: "runtime_recovery"; stage: "retrying" | "recovered"; source?: string }
   | { kind: "runtime_metric"; name: "sse_reconnect"; increment: 1 }
   | { kind: "turn_owner"; receipt: string; nativeTurnId?: string }
-  | { kind: "turn_end"; sessionId?: string; turnOwner?: string; pendingContent?: "discard"; outcome?: "interrupted" }
-  | { kind: "error"; code?: string; message: string }
+  | { kind: "turn_end"; sessionId?: string; turnOwner?: string; pendingContent?: "discard"; outcome?: ExecutionOutcome; stopReason?: string }
+  | { kind: "error"; code?: string; message: string; scope?: "input" | "operation" | "turn" | "session" | "diagnostic"; inputs?: readonly InputReference[] }
   | { kind: "telemetry"; name: "token_usage"; source: string; usage: TokenUsageDelta; identity?: TokenUsageIdentity }
   | { kind: "telemetry"; name: "token_usage_status"; source: string; status: "available" | "unavailable" }
   | { kind: "telemetry"; name: "rate_limits"; source: string; quota: ProviderQuotaObservation };
@@ -86,6 +91,7 @@ export interface LaneStartInput {
   readonly text: string;
   readonly sessionId?: string;
   readonly terminalOwner?: string;
+  readonly inputs?: readonly InputReference[];
 }
 
 export interface LaneSendInput extends LaneStartInput {
@@ -160,6 +166,7 @@ export interface AdapterLaunchConfig<Config = BackendConfig> {
 }
 
 export interface AdapterLaunchContext<Id extends string = BuiltinBackendId, Config = BackendConfig> {
+  inputs?: readonly InputReference[];
   backend: Id;
   agentId: string;
   launchId: string;

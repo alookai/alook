@@ -175,7 +175,7 @@ export class CursorAcpLane implements RuntimeLane {
       if (!sessionId) throw new Error("Cursor ACP handshake completed without a session id");
       this.processActivated = true;
       this.ready = true;
-      this.events.emit("runtime_event", { kind: "session_init", sessionId } satisfies AdapterEvent);
+      this.events.emit("runtime_event", { kind: "session_init", sessionId, acquisition: { status: input.sessionId ? "resumed" : "created", evidence: "native_api" } } satisfies AdapterEvent);
       return this.admitPrompt(input.text);
     } catch (error) {
       // LogicalAgentSession owns failed-start settlement. Do not let the child
@@ -299,9 +299,12 @@ export class CursorAcpLane implements RuntimeLane {
 
   private async configureModel(session: JsonRecord, ctx: AdapterLaunchContext): Promise<void> {
     const requestedModel = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).model;
-    if (!requestedModel) return;
     const configOptions = Array.isArray(session.configOptions) ? session.configOptions : [];
     const modelConfig = configOptions.map(record).find((option) => option?.id === "model") ?? null;
+    if (!requestedModel) {
+      if (typeof modelConfig?.currentValue === "string") this.events.emit("runtime_event", { kind: "configuration_observed", observation: { evidence: "observed", effective: "current", model: modelConfig.currentValue } } satisfies AdapterEvent);
+      return;
+    }
     if (!modelConfig) {
       throw new CursorAcpIncompatibleError("Installed Cursor ACP does not support model configuration");
     }
@@ -325,6 +328,7 @@ export class CursorAcpLane implements RuntimeLane {
     if (confirmedModel?.currentValue !== match.value) {
       throw new CursorAcpIncompatibleError("Cursor ACP did not confirm the exact configured model");
     }
+    this.events.emit("runtime_event", { kind: "configuration_observed", observation: { evidence: "observed", effective: "current", model: confirmedModel.currentValue } } satisfies AdapterEvent);
   }
 
   private admitPrompt(text: string, delivery: "prompt" | "steer" = "prompt"): LaneAdmission {
@@ -385,7 +389,8 @@ export class CursorAcpLane implements RuntimeLane {
       kind: "turn_end",
       sessionId: this.sessionId ?? undefined,
       turnOwner: terminalOwner,
-      ...(result.stopReason === "cancelled" ? { outcome: "interrupted" as const } : {}),
+      outcome: result.stopReason === "cancelled" ? "interrupted" : result.stopReason === "end_turn" ? "success" : "failed",
+      stopReason: result.stopReason,
     } satisfies AdapterEvent);
   }
 
@@ -404,6 +409,7 @@ export class CursorAcpLane implements RuntimeLane {
       kind: "turn_end",
       sessionId: this.sessionId ?? undefined,
       turnOwner: terminalOwner,
+      outcome: "failed",
     } satisfies AdapterEvent);
   }
 
@@ -674,6 +680,7 @@ export class CursorAcpLane implements RuntimeLane {
           this.toolCalls.set(update.toolCallId, null);
           this.events.emit("runtime_event", {
             kind: "tool_output", callId: update.toolCallId, name: update.title,
+            outcome: update.status === "failed" ? "failed" : "success", output: update.rawOutput,
           } satisfies AdapterEvent);
         }
         return;
@@ -689,6 +696,7 @@ export class CursorAcpLane implements RuntimeLane {
           this.events.emit("runtime_event", {
             kind: "tool_output",
             callId: update.toolCallId,
+            outcome: update.status === "failed" ? "failed" : "success", output: update.rawOutput,
             name: typeof update.title === "string" ? update.title : name,
           } satisfies AdapterEvent);
         }

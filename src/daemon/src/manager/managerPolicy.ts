@@ -143,7 +143,7 @@ export type ManagerEvent =
       agentId: string;
       sessionInstanceId: string;
       commandId: string;
-      outcome: "accepted" | "failed";
+      outcome: "accepted" | "failed" | "rejected";
     }
   | {
       type: "admission_acknowledged";
@@ -630,6 +630,7 @@ function onWake(state: ManagerState, agentId: string, message: AgentMsg): Reduce
   }
 
   if (agent.status === "running") {
+    if (leaseIsWorking(agent.execution.lease) && agent.inbox.some((queued) => queued.preparedInput?.delivery === "next_turn")) return commit(state, agent, []);
     const messages = drainInbox(agent);
     const mode = leaseIsWorking(agent.execution.lease) || agent.pendingAdmissions.length > 0 ? "busy" : "idle";
     return commit(state, agent, messages.map((queued) => ({ type: "send", agentId, message: queued, mode })));

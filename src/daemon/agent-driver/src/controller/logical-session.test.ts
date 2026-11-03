@@ -124,7 +124,7 @@ class FakeDriver implements BackendAdapter {
     this.lane = new SdkLane(handle, "sdk-session");
     return this.lane;
   }
-  normalizeLine(line: string): AdapterEvent[] { return [JSON.parse(line) as AdapterEvent]; }
+  normalizeLine(line: string): AdapterEvent[] { const event = JSON.parse(line) as AdapterEvent; return [event.kind === "turn_end" ? { outcome: "success", ...event } : event]; }
   async interrupt(_input: LaneInterruptInput, process: SpawnedProcessHandle): Promise<boolean> {
     return process.kill("SIGINT");
   }
@@ -193,8 +193,8 @@ describe("LogicalAgentSession reasoning settings boundary", () => {
     });
     expect(sent).toHaveBeenCalledTimes(0);
 
-    update.resolve({ status: "applied" });
-    await expect(settings).resolves.toEqual({ status: "applied" });
+    update.resolve({ status: "acknowledged", effective: "next_turn" });
+    await expect(settings).resolves.toEqual({ status: "acknowledged", effective: "next_turn" });
     await vi.waitFor(() => expect(sent).toHaveBeenCalledTimes(1));
   });
 
@@ -333,6 +333,10 @@ function makeSession<Id extends BuiltinBackendId>(
   return { session, driver, host };
 }
 
+function makeSafeBoundarySession<Id extends BuiltinBackendId>(backend: Id, options: Parameters<typeof makeSession<Id>>[1] = {}) {
+  return makeSession(backend, { ...options, capabilities: { ...(capabilitiesFor(backend) as BackendCapabilities), midTurnDelivery: "safe_boundary_queue" } as BackendCapabilities });
+}
+
 async function emit(driver: FakeDriver, event: AdapterEvent): Promise<void> {
   emitNow(driver, event);
   await Promise.resolve();
@@ -346,6 +350,96 @@ function emitNow(driver: FakeDriver, event: AdapterEvent): void {
   else driver.processes.at(-1)!.stdout.write(`${JSON.stringify(ownedEvent)}\n`);
 }
 
+describe("shared input responsibility and evidence", () => {
+  it("preserves merged members, rejects overlapping attempts, and fences a returned input's old attempt", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
+    lane.sendAdmission = { ok: true, acceptedAs: "steer", receipt: "codex:test:1" };
+    const starts: LaneStartInput[] = [];
+    const sends: LaneSendInput[] = [];
+    lane.onStart = (input) => starts.push(input);
+    lane.onSend = (input) => sends.push(input);
+    const { session } = makeSession("codex", { lane, capabilities: { ...capabilitiesFor("codex"), midTurnDelivery: "steer" } });
+    const observed: AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>[] = [];
+    const collecting = (async () => { for await (const event of session.events) observed.push(event); })();
+    try {
+      await session.start({ id: "A", kind: "user", text: "root" });
+      const accepted = await session.send({ id: "B", kind: "user", text: "extra" });
+      expect(await session.send({ text: "extra", kind: "user", id: "B", attemptId: "B" })).toEqual(accepted);
+      expect(starts[0]!.inputs).toEqual([{ commandId: "A", attemptId: "A" }]);
+      expect(sends[0]!.inputs).toEqual([{ commandId: "B", attemptId: "B" }]);
+      expect(await session.send({ id: "B", attemptId: "B2", kind: "user", text: "extra" })).toMatchObject({ status: "rejected", reason: "duplicate_conflict" });
+      lane.emit({ kind: "input_returned", inputs: [{ commandId: "B", attemptId: "B" }], evidence: "explicitly_rejected", reason: "native_busy", retryable: true });
+      expect(await session.send({ id: "B", attemptId: "B2", kind: "user", text: "changed" })).toMatchObject({ status: "rejected", reason: "duplicate_conflict" });
+      expect(await session.send({ id: "B", attemptId: "B2", kind: "user", text: "extra" })).toMatchObject({ status: "accepted" });
+      lane.emit({ kind: "input_returned", inputs: [{ commandId: "B", attemptId: "B" }], evidence: "unknown", reason: "late" });
+      lane.emit({ kind: "error", scope: "input", message: "extra input refused" });
+      lane.emit({ kind: "turn_end", turnOwner: "codex:test:1", outcome: "success" });
+    } finally { await session.stop({ reason: "shutdown", forceAfterMs: 10 }); await collecting; }
+    expect(observed.filter((event) => event.type === "command_returned")).toEqual([
+      expect.objectContaining({ input: { commandId: "B", attemptId: "B" }, ordinal: 2, evidence: "explicitly_rejected", message: expect.objectContaining({ text: "extra" }) }),
+    ]);
+    expect(observed).toContainEqual(expect.objectContaining({ type: "turn_completed", result: { outcome: "success", backendSessionId: "" } }));
+  });
+
+  it("scopes an immediate steering refusal to B while root A succeeds", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
+    lane.sendAdmission = { ok: false, reason: "input_rejected", error: "extra input refused" };
+    const { session } = makeSession("codex", { lane });
+    const events: AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>[] = [];
+    const collecting = (async () => { for await (const event of session.events) events.push(event); })();
+    await session.start({ id: "A", kind: "user", text: "root" });
+    expect(await session.send({ id: "B", kind: "user", text: "extra" })).toMatchObject({ status: "rejected" });
+    expect(session.snapshot().activeTurn?.commandIds).toEqual(["A"]);
+    lane.emit({ kind: "turn_end", turnOwner: "codex:test:1", outcome: "success" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+    expect(events).toContainEqual(expect.objectContaining({ type: "command_failed", scope: "input", commandId: "B" }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", commandIds: ["A"], result: expect.objectContaining({ outcome: "success" }) }));
+  });
+
+  it("keeps child tools, text, errors and terminals outside root authority", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
+    const { session } = makeSession("codex", { lane });
+    const observed: AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>[] = [];
+    const collecting = (async () => { for await (const event of session.events) observed.push(event); })();
+    try {
+      await session.start({ id: "A", kind: "user", text: "root" });
+      lane.emit({ kind: "tool_call", callId: "1", name: "root tool", input: {} });
+      const attribution = { scope: "child", agentId: "child-A" } as const;
+      lane.emit({ kind: "tool_call", callId: "1", name: "child tool", input: {}, attribution });
+      lane.emit({ kind: "tool_output", callId: "1", name: "child tool", outcome: "failed", attribution });
+      lane.emit({ kind: "assistant_message_completed", text: "child text", attribution });
+      lane.emit({ kind: "error", message: "child failed", attribution });
+      lane.emit({ kind: "turn_end", turnOwner: "codex:test:1", outcome: "failed", attribution });
+      expect(session.snapshot().diagnostics.metrics.outstandingToolUses).toBe(1);
+      expect(session.snapshot().state).toBe("working");
+      lane.emit({ kind: "turn_end", turnOwner: "codex:test:1", outcome: "success" });
+    } finally { await session.stop({ reason: "shutdown", forceAfterMs: 10 }); await collecting; }
+    expect(observed.filter((event) => event.type === "activity")).toHaveLength(5);
+    expect(observed.filter((event) => event.type === "assistant_message_completed")).toEqual([]);
+    expect(observed.filter((event) => event.type === "turn_completed")).toEqual([expect.objectContaining({ result: { outcome: "success", backendSessionId: "" } })]);
+  });
+
+  it("reports same-ID recovery and absent terminal evidence as unverified and unknown", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
+    lane.onStart = () => lane.emit({ kind: "session_init", sessionId: "saved" });
+    const { session } = makeSession("codex", { lane, resumeSessionId: "saved" });
+    const observed: AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>[] = [];
+    const collecting = (async () => { for await (const event of session.events) observed.push(event); })();
+    try {
+      await session.start({ id: "A", kind: "user", text: "root" });
+      expect(session.snapshot().diagnostics.metrics.resumeOutcome).toBe("unverified");
+      lane.emit({ kind: "turn_end", turnOwner: "codex:test:1" });
+    } finally { await session.stop({ reason: "shutdown", forceAfterMs: 10 }); await collecting; }
+    expect(observed).toContainEqual(expect.objectContaining({ type: "session_acquired", acquisition: { status: "unverified", evidence: "none" } }));
+    expect(observed).toContainEqual(expect.objectContaining({ type: "turn_completed", result: { outcome: "unknown", backendSessionId: "saved" } }));
+  });
+});
+
 async function take(
   iterator: AsyncIterator<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>>,
   count: number,
@@ -354,7 +448,7 @@ async function take(
   while (events.length < count) {
     const next = await iterator.next();
     if (next.done) break;
-    events.push(next.value);
+    if (next.value.type !== "session_acquired" && next.value.type !== "configuration_observed") events.push(next.value);
   }
   return events;
 }
@@ -536,7 +630,7 @@ describe("root-turn text assembly", () => {
     lane.emit({ kind: "turn_end", turnOwner: "stale-owner", pendingContent, outcome: "interrupted" });
     lane.emit({ kind: "assistant_message_delta", text: "working" });
     lane.emit({ kind: "assistant_reasoning_delta", text: "now" });
-    lane.emit({ kind: "turn_end", turnOwner: "claude:test:1" });
+    lane.emit({ kind: "turn_end", turnOwner: "claude:test:1", outcome: "success" });
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
     await collecting;
     expect(observed.filter((event) => event.type === "assistant_message_completed"))
@@ -550,7 +644,7 @@ describe("root-turn text assembly", () => {
 
   it("preserves an owned native interruption and drains the next queued command", async () => {
     const lane = new ControlledRuntimeLane();
-    const { session } = makeSession("claude", { lane });
+    const { session } = makeSafeBoundarySession("claude", { lane });
     const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
     const collecting = (async () => { for await (const event of session.events) observed.push(event); })();
     await session.start({ id: "one", kind: "user", text: "start" });
@@ -562,7 +656,7 @@ describe("root-turn text assembly", () => {
     lane.emit({ kind: "assistant_reasoning_delta", text: "new reasoning" });
     lane.emit({ kind: "turn_end", turnOwner: "claude:test:1", outcome: "interrupted", pendingContent: "discard" });
     expect(session.snapshot().activeTurn?.commandIds).toEqual(["two"]);
-    lane.emit({ kind: "turn_end", turnOwner: "claude:test:2" });
+    lane.emit({ kind: "turn_end", turnOwner: "claude:test:2", outcome: "success" });
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
     await collecting;
     expect(observed.filter((event) => event.type === "turn_completed"))
@@ -957,7 +1051,7 @@ describe("logical delivery diagnostics", () => {
     const lane = new ControlledRuntimeLane();
     const startGate = deferredValue<LaneAdmission>();
     lane.startPromise = startGate.promise;
-    const { session } = makeSession("claude", { lane, now: () => now });
+    const { session } = makeSafeBoundarySession("claude", { lane, now: () => now });
 
     expect(session.snapshot().diagnostics).toEqual({
       deliveryPhase: "idle",
@@ -1072,7 +1166,7 @@ describe("logical delivery diagnostics", () => {
   it("reports exact resume outcomes without exposing vendor payloads", async () => {
     const lane = new ControlledRuntimeLane();
     lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
-    lane.onStart = () => lane.emit({ kind: "session_init", sessionId: "resume-exact" });
+    lane.onStart = () => lane.emit({ kind: "session_init", sessionId: "resume-exact", acquisition: { status: "resumed", evidence: "native_api" } });
     const { session } = makeSession("codex", { lane, resumeSessionId: "resume-exact" });
     expect(session.snapshot().diagnostics.metrics.resumeOutcome).toBe("pending");
     await session.start({ id: "one", kind: "user", text: "resume" });
@@ -1167,7 +1261,7 @@ describe("logical delivery diagnostics", () => {
 
 describe("closed physical-lane tombstone", () => {
   it("drops every closed per-turn lane tail before it can poison the next turn boundary", async () => {
-    const { session, driver } = makeSession("claude", {
+    const { session, driver } = makeSafeBoundarySession("claude", {
       execution: {
         lifetime: "turn",
         transport: { kind: "one_shot_cli", protocol: "test.one-shot.v1" },
@@ -1334,7 +1428,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it.each(["claude", "codex"] as const)("%s queues mid-turn and flushes at a safe boundary", async (backend) => {
-    const { session, driver } = makeSession(backend);
+    const { session, driver } = makeSafeBoundarySession(backend);
     await session.start({ id: "one", kind: "user", text: "start" });
     await emit(driver, { kind: "compaction_started" });
     expect(await session.send({ id: "two", kind: "user", text: "follow" })).toEqual({ status: "queued", reason: "unsafe_boundary", commandId: "two" });
@@ -1346,7 +1440,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it.each(["claude", "codex"] as const)("%s preserves FIFO and distinct ids for identical queued text", async (backend) => {
-    const { session, driver } = makeSession(backend);
+    const { session, driver } = makeSafeBoundarySession(backend);
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
     await emit(driver, { kind: "compaction_started" });
@@ -1367,7 +1461,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it.each(["claude", "codex"] as const)("%s flushes a message that arrives at an already-safe boundary", async (backend) => {
-    const { session, driver } = makeSession(backend);
+    const { session, driver } = makeSafeBoundarySession(backend);
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
 
@@ -1415,7 +1509,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it("flushes a safe-boundary message queued while the persistent lane is still starting", async () => {
-    const { session, driver } = makeSession("claude");
+    const { session, driver } = makeSafeBoundarySession("claude");
     const gate = deferred();
     driver.spawnGate = gate.promise;
     const starting = session.start({ id: "one", kind: "user", text: "start" });
@@ -1565,7 +1659,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it("fails every still-queued command when the session stops", async () => {
-    const { session, driver } = makeSession("claude");
+    const { session, driver } = makeSafeBoundarySession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
     await emit(driver, { kind: "compaction_started" });
@@ -1578,7 +1672,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it("emits command_failed for every safe-boundary delivery rejection", async () => {
-    const { session, driver } = makeSession("claude");
+    const { session, driver } = makeSafeBoundarySession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
     await emit(driver, { kind: "compaction_started" });
@@ -1594,7 +1688,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it("single-flights same-tick safe boundaries and delivers queued commands exactly once in FIFO order", async () => {
-    const { session, driver } = makeSession("claude");
+    const { session, driver } = makeSafeBoundarySession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
     await emit(driver, { kind: "compaction_started" });
@@ -1614,7 +1708,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it("single-flights same-tick rejected safe boundaries and fails each queued command exactly once", async () => {
-    const { session, driver } = makeSession("claude");
+    const { session, driver } = makeSafeBoundarySession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
     await emit(driver, { kind: "compaction_started" });
@@ -1635,7 +1729,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it("cancels an in-flight safe-boundary admission once before a same-tick terminal stop", async () => {
-    const { session, driver } = makeSession("claude");
+    const { session, driver } = makeSafeBoundarySession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
     await emit(driver, { kind: "compaction_started" });
@@ -1674,7 +1768,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it("fails an in-flight boundary command before a same-tick turn completion", async () => {
-    const { session, driver } = makeSession("claude");
+    const { session, driver } = makeSafeBoundarySession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
     await emit(driver, { kind: "compaction_started" });
@@ -1698,7 +1792,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it("settles a rejected in-flight boundary command once before same-tick turn completion", async () => {
-    const { session, driver } = makeSession("claude");
+    const { session, driver } = makeSafeBoundarySession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
     await emit(driver, { kind: "compaction_started" });
@@ -1725,7 +1819,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it("does not start the next turn while a cancelled boundary send is still physically in flight", async () => {
-    const { session, driver } = makeSession("claude");
+    const { session, driver } = makeSafeBoundarySession("claude");
     await session.start({ id: "one", kind: "user", text: "start" });
     await emit(driver, { kind: "compaction_started" });
     const internals = session as unknown as {
@@ -1760,7 +1854,7 @@ describe("backend-owned delivery behavior", () => {
   it.each(["claude", "codex"] as const)(
     "%s flushes at the first valid tool output while another tool remains active",
     async (backend) => {
-      const { session, driver } = makeSession(backend);
+      const { session, driver } = makeSafeBoundarySession(backend);
       await session.start({ id: "one", kind: "user", text: "start" });
       await emit(driver, { kind: "tool_call", callId: "tool-one", name: "one", input: {} });
       await emit(driver, { kind: "tool_call", callId: "tool-two", name: "two", input: {} });
@@ -1775,7 +1869,7 @@ describe("backend-owned delivery behavior", () => {
   );
 
   it("closes the boundary latch again when a later tool starts", async () => {
-    const { session, driver } = makeSession("codex");
+    const { session, driver } = makeSafeBoundarySession("codex");
     await session.start({ id: "one", kind: "user", text: "start" });
     await emit(driver, { kind: "tool_call", callId: "tool-one", name: "one", input: {} });
     await session.send({ id: "two", kind: "user", text: "first follow" });
@@ -1791,7 +1885,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it("deduplicates replayed identified tool starts and ignores unmatched finishes", async () => {
-    const { session, driver } = makeSession("claude");
+    const { session, driver } = makeSafeBoundarySession("claude");
     const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
     const collecting = (async () => { for await (const event of session.events) observed.push(event); })();
     await session.start({ id: "one", kind: "user", text: "start" });
@@ -1848,7 +1942,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it("flushes after review finishes but not while review is active", async () => {
-    const { session, driver } = makeSession("codex");
+    const { session, driver } = makeSafeBoundarySession("codex");
     await session.start({ id: "one", kind: "user", text: "start" });
     await emit(driver, { kind: "review_started" });
     await session.send({ id: "two", kind: "user", text: "follow" });
@@ -1883,7 +1977,7 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it("does not tool-boundary flush after an error in the same turn", async () => {
-    const { session, driver } = makeSession("claude");
+    const { session, driver } = makeSafeBoundarySession("claude");
     await session.start({ id: "one", kind: "user", text: "start" });
     await emit(driver, { kind: "tool_call", name: "one", input: {} });
     await session.send({ id: "two", kind: "user", text: "follow" });

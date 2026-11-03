@@ -273,35 +273,14 @@ describe("createPiSessionDependencies — createAgentSession", () => {
     expect(fake.sessionManagerContinueRecent).not.toHaveBeenCalled();
   });
 
-  it("no matching file: sessionId + empty session dir → create(cwd, sessionDir, { id })", async () => {
-    const sessionDir = mkTmp();
-    const fake = fakeSdk({ sessionDir });
+  it.each([false, true])("refuses missing history without creating an empty same-ID session (omitHelper=%s)", async (omitGetDefaultSessionDir) => {
+    const fake = fakeSdk({ sessionDir: mkTmp(), omitGetDefaultSessionDir, agentDir: mkTmp() });
     const ctx = baseCtx();
     const deps = createPiSessionDependencies(ctx, fake.loader);
-
-    await deps.createAgentSession({ cwd: ctx.workingDirectory, sessionId: "brand-new-id", spawnEnv: {} });
-
-    expect(fake.sessionManagerCreate).toHaveBeenCalledWith(ctx.workingDirectory, sessionDir, { id: "brand-new-id" });
+    await expect(deps.createAgentSession({ cwd: ctx.workingDirectory, sessionId: "missing", spawnEnv: {} })).rejects.toMatchObject({ code: "reset_required" });
+    expect(fake.sessionManagerCreate).not.toHaveBeenCalled();
     expect(fake.sessionManagerOpen).not.toHaveBeenCalled();
-    expect(fake.sessionManagerContinueRecent).not.toHaveBeenCalled();
-  });
-
-  it("resumes without throwing when the SDK barrel omits getDefaultSessionDir (the real vendor shape)", async () => {
-    // The vendor package's top-level entry re-exports only `SessionManager`
-    // from core/session-manager.js — `getDefaultSessionDir` is NOT exported.
-    // Calling it unconditionally threw "is not a function" and broke every
-    // Pi resume, so the deps must fall back to deriving the dir themselves.
-    const agentDir = mkTmp();
-    const fake = fakeSdk({ omitGetDefaultSessionDir: true, agentDir });
-    const ctx = baseCtx();
-    const deps = createPiSessionDependencies(ctx, fake.loader);
-
-    await deps.createAgentSession({ cwd: ctx.workingDirectory, sessionId: "resume-me", spawnEnv: {} });
-
-    const encoded = `--${path.resolve(ctx.workingDirectory).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
-    const expectedDir = path.join(agentDir, "sessions", encoded);
-    // No rollout file exists there, so it pins the id on a fresh session.
-    expect(fake.sessionManagerCreate).toHaveBeenCalledWith(ctx.workingDirectory, expectedDir, { id: "resume-me" });
+    expect(fake.createAgentSession).not.toHaveBeenCalled();
   });
 
   it("no sessionId: uses SessionManager.create(cwd) — a fresh session, unchanged from prior behavior", async () => {

@@ -50,7 +50,7 @@ export async function qoderWorker(init: SdkWorkerInit, emit: (event: AdapterEven
   let rejectInit!: (error: unknown) => void;
   const nativeInit = new Promise<void>((resolve, reject) => { resolveInit = resolve; rejectInit = reject; });
   void nativeInit.catch(() => {});
-  let active: { owner: string; root: string; pending: Set<string>; inputs: Map<string, { started: boolean }>; result?: any } | undefined;
+  let active: { owner: string; root: string; pending: Set<string>; inputs: Map<string, { started: boolean; references: NonNullable<LaneSendInput["inputs"]> }>; result?: any } | undefined;
   let streamed = false;
   let ready = false;
   const tools = new Map<string, string>();
@@ -72,14 +72,20 @@ export async function qoderWorker(init: SdkWorkerInit, emit: (event: AdapterEven
     for (const [callId, name] of tools) emit({ kind: "tool_output", callId, name });
     tools.clear();
     emit({ kind: "turn_end", sessionId, turnOwner: root.owner,
-      ...(/^aborted_/.test(result.terminal_reason ?? "") ? { outcome: "interrupted" as const } : {}) });
+      outcome: /^aborted_/.test(result.terminal_reason ?? "") ? "interrupted" : result.is_error ? "failed" : "success" });
   };
   const consuming = (async () => {
     for await (const frame of query) {
       if (closed) return;
-      if (frame.parent_tool_use_id) continue;
+      if (frame.parent_tool_use_id) {
+        emit({ kind: "internal_progress", source: "qoder", itemType: frame.type, attribution: { scope: "child", parentCallId: frame.parent_tool_use_id } });
+        continue;
+      }
       if (frame.session_id && frame.session_id !== sessionId) throw new Error("Qoder reported another session identity");
-      if (frame.type === "system" && frame.subtype === "init") { resolveInit(); continue; }
+      if (frame.type === "system" && frame.subtype === "init") {
+        if (typeof frame.model === "string") emit({ kind: "configuration_observed", observation: { evidence: "observed", effective: "current", model: frame.model } });
+        resolveInit(); continue;
+      }
       if (!active) continue;
       if (frame.type === "command_lifecycle") {
         const input = active.inputs.get(frame.command_uuid);
@@ -87,10 +93,11 @@ export async function qoderWorker(init: SdkWorkerInit, emit: (event: AdapterEven
         if (frame.state === "started") {
           input.started = true;
           active.result = undefined;
+          emit({ kind: "input_observed", inputs: input.references, evidence: "native_ack" });
         } else if (frame.state === "completed" || frame.state === "cancelled" || frame.state === "discarded") {
           active.pending.delete(frame.command_uuid);
           if (frame.state !== "completed") {
-            emit({ kind: "error", code: "qoder_input_cancelled", message: "Qoder cancelled or discarded an owned input" });
+            emit({ kind: "input_returned", inputs: input.references, evidence: input.started ? "unknown" : "explicitly_rejected", reason: "Qoder cancelled or discarded an owned input", retryable: !input.started });
             if (!input.started && !active.pending.size && !active.result) active.result = { terminal_reason: "aborted_queued", is_error: false };
           }
           finish();
@@ -113,7 +120,7 @@ export async function qoderWorker(init: SdkWorkerInit, emit: (event: AdapterEven
       } else if (frame.type === "user") {
         for (const block of frame.message?.content ?? []) {
           if (block.type !== "tool_result" || !tools.has(block.tool_use_id)) continue;
-          emit({ kind: "tool_output", callId: block.tool_use_id, name: tools.get(block.tool_use_id)! });
+          emit({ kind: "tool_output", callId: block.tool_use_id, name: tools.get(block.tool_use_id)!, outcome: block.is_error ? "failed" : "success", output: block.content });
           tools.delete(block.tool_use_id);
         }
       } else if (frame.type === "result") {
@@ -144,6 +151,7 @@ export async function qoderWorker(init: SdkWorkerInit, emit: (event: AdapterEven
   }
   return {
     sessionId,
+    acquisition: { status: init.sessionId ? "resumed" : "created", evidence: "native_api" },
     async send(input: LaneSendInput) {
       if (closed) return { ok: false, reason: "closed" };
       if (input.mode === "idle" && active) return { ok: false, reason: "runtime_busy" };
@@ -155,7 +163,7 @@ export async function qoderWorker(init: SdkWorkerInit, emit: (event: AdapterEven
         streamed = false;
       }
       active.pending.add(uuid);
-      active.inputs.set(uuid, { started: false });
+      active.inputs.set(uuid, { started: false, references: input.inputs ?? [] });
       queue.push({ type: "user", uuid, session_id: sessionId, priority: "next", parent_tool_use_id: null,
         message: { role: "user", content: [{ type: "text", text: input.text }] } });
       wake?.(); wake = undefined;

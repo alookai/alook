@@ -25,7 +25,7 @@ describe("CodexEventNormalizer — tool_call/tool_output symmetry", () => {
     expect(started).toEqual([{ kind: "tool_call", name: "file_change", input: {} }]);
 
     const completed = n.normalizeLine(notify("item/completed", { item: { type: "fileChange" } }));
-    expect(completed).toEqual([{ kind: "tool_output", name: "file_change" }]);
+    expect(completed).toEqual([{ kind: "tool_output", name: "file_change", outcome: "unknown" }]);
   });
 
   it("fileChange consumes raw changes at the adapter boundary and emits only an ordered-unique flat path", () => {
@@ -53,7 +53,7 @@ describe("CodexEventNormalizer — tool_call/tool_output symmetry", () => {
     expect(JSON.stringify(started)).not.toContain("secret");
 
     const completed = n.normalizeLine(notify("item/completed", { item: { type: "fileChange" } }));
-    expect(completed).toEqual([{ kind: "tool_output", name: "file_change" }]);
+    expect(completed).toEqual([{ kind: "tool_output", name: "file_change", outcome: "unknown" }]);
   });
 
   it("fileChange flattens a legacy top-level path when changes are absent", () => {
@@ -86,7 +86,7 @@ describe("CodexEventNormalizer — tool_call/tool_output symmetry", () => {
     expect(started).toEqual([{ kind: "tool_call", name: "web_search", input: { type: "webSearch" } }]);
 
     const completed = n.normalizeLine(notify("item/completed", { item: { type: "webSearch" } }));
-    expect(completed).toEqual([{ kind: "tool_output", name: "web_search" }]);
+    expect(completed).toEqual([{ kind: "tool_output", name: "web_search", outcome: "unknown" }]);
   });
 
   it("collabAgentToolCall: item/started then item/completed emits tool_call then tool_output", () => {
@@ -95,7 +95,7 @@ describe("CodexEventNormalizer — tool_call/tool_output symmetry", () => {
     expect(started).toEqual([{ kind: "tool_call", name: "collab_tool_call", input: { type: "collabAgentToolCall" } }]);
 
     const completed = n.normalizeLine(notify("item/completed", { item: { type: "collabAgentToolCall" } }));
-    expect(completed).toEqual([{ kind: "tool_output", name: "collab_tool_call" }]);
+    expect(completed).toEqual([{ kind: "tool_output", name: "collab_tool_call", outcome: "unknown" }]);
   });
 
   it("commandExecution: item/started then item/completed still pairs correctly (regression — 9b removed markProgress from this handler)", () => {
@@ -104,7 +104,7 @@ describe("CodexEventNormalizer — tool_call/tool_output symmetry", () => {
     expect(started).toEqual([{ kind: "tool_call", name: "shell", input: { type: "commandExecution" } }]);
 
     const completed = n.normalizeLine(notify("item/completed", { item: { type: "commandExecution" } }));
-    expect(completed).toEqual([{ kind: "tool_output", name: "shell" }]);
+    expect(completed).toEqual([{ kind: "tool_output", name: "shell", outcome: "unknown" }]);
   });
 
   it("mcpToolCall: item/started then item/completed still pairs correctly (regression — 9b removed markProgress from this handler)", () => {
@@ -115,7 +115,7 @@ describe("CodexEventNormalizer — tool_call/tool_output symmetry", () => {
     ]);
 
     const completed = n.normalizeLine(notify("item/completed", { item: { type: "mcpToolCall", name: "search" } }));
-    expect(completed).toEqual([{ kind: "tool_output", name: "mcp_search" }]);
+    expect(completed).toEqual([{ kind: "tool_output", name: "mcp_search", outcome: "unknown" }]);
   });
 
   it("carries the stable app-server item id across both sides of a tool lifecycle", () => {
@@ -130,6 +130,7 @@ describe("CodexEventNormalizer — tool_call/tool_output symmetry", () => {
     }]);
     expect(n.normalizeLine(notify("item/completed", { item: { ...item, status: "failed" } }))).toEqual([{
       kind: "tool_output",
+      outcome: "failed",
       callId: "item-42",
       name: "mcp_click",
     }]);
@@ -184,7 +185,7 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
         code: "codex.server_overloaded",
         message: "Selected model is at capacity. Please try a different model.",
       },
-      { kind: "turn_end", sessionId: "th_1", turnOwner: "codex:th_1:turn_x" },
+      { kind: "turn_end", sessionId: "th_1", turnOwner: "codex:th_1:turn_x" , outcome: "failed" },
     ]);
   });
 
@@ -212,7 +213,7 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
     expect(n.normalizeLine(notify("turn/completed", {
       threadId: "child-thread-1",
       turn: { id: "child-turn-1", status: "completed" },
-    }))).toEqual([]);
+    }))).toEqual([expect.objectContaining({ attribution: expect.objectContaining({ scope: "unknown" }) })]);
     expect(n.normalizeLine(notify("turn/completed", {
       threadId: "root-thread",
       turn: { id: "unknown-turn", status: "completed" },
@@ -223,7 +224,7 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
     expect(n.normalizeLine(notify("turn/completed", {
       threadId: "root-thread",
       turn: { id: "root-turn", status: "completed" },
-    }))).toEqual([{ kind: "turn_end", sessionId: "root-thread", turnOwner: "codex:root-thread:root-turn" }]);
+    }))).toEqual([{ kind: "turn_end", sessionId: "root-thread", turnOwner: "codex:root-thread:root-turn" , outcome: "success" }]);
     expect(n.currentTurnId).toBeNull();
   });
 
@@ -235,13 +236,13 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
       turn: { id: "root-turn", status: "completed" },
     });
 
-    expect(n.normalizeLine(completed)).toEqual([{ kind: "turn_end", sessionId: "root-thread", turnOwner: "codex:root-thread:root-turn" }]);
+    expect(n.normalizeLine(completed)).toEqual([{ kind: "turn_end", sessionId: "root-thread", turnOwner: "codex:root-thread:root-turn" , outcome: "success" }]);
     expect(n.currentTurnId).toBeNull();
     expect(n.normalizeLine(completed)).toEqual([]);
     expect(n.normalizeLine(notify("rawResponseItem/completed", {
       threadId: "child-thread",
       turnId: "root-turn",
-    }))).toEqual([]);
+    }))).toEqual([expect.objectContaining({ attribution: expect.objectContaining({ scope: "unknown" }) })]);
     expect(n.normalizeLine(notify("rawResponseItem/completed", {
       threadId: "root-thread",
       turnId: "stale-turn",
@@ -251,7 +252,7 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
       threadId: "root-thread",
       turnId: "root-turn",
     }))).toEqual([{ kind: "internal_progress", source: "codex_raw_item", itemType: "rawResponseItem" }]);
-    expect(n.normalizeLine(completed)).toEqual([{ kind: "turn_end", sessionId: "root-thread", turnOwner: "codex:root-thread:root-turn" }]);
+    expect(n.normalizeLine(completed)).toEqual([{ kind: "turn_end", sessionId: "root-thread", turnOwner: "codex:root-thread:root-turn" , outcome: "success" }]);
     expect(n.normalizeLine(completed)).toEqual([]);
 
     expect(n.normalizeLine(notify("turn/started", {
@@ -305,7 +306,7 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
     expect(n.normalizeLine(notify("rawResponseItem/completed", {
       threadId: "old-thread",
       turnId: "old-turn",
-    }))).toEqual([]);
+    }))).toEqual([expect.objectContaining({ attribution: expect.objectContaining({ scope: "unknown", agentId: "old-thread" }) })]);
     expect(n.normalizeLine(notify("turn/completed", {
       threadId: "new-thread",
       turn: { status: "completed" },
@@ -316,11 +317,11 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
     const n = new CodexEventNormalizer();
     adoptRootTurn(n, "root-thread", "root-turn");
 
-    expect(n.normalizeLine(notify("thread/started", { thread: { id: "child-thread" } }))).toEqual([]);
+    expect(n.normalizeLine(notify("thread/started", { thread: { id: "child-thread" } }))).toEqual([expect.objectContaining({ attribution: expect.objectContaining({ scope: "unknown", agentId: "child-thread" }) })]);
     expect(n.normalizeLine(notify("turn/started", {
       threadId: "child-thread",
       turn: { id: "child-turn", status: "inProgress" },
-    }))).toEqual([]);
+    }))).toEqual([expect.objectContaining({ attribution: expect.objectContaining({ scope: "unknown" }) })]);
     expect(n.currentSessionId).toBe("root-thread");
     expect(n.currentTurnId).toBe("root-turn");
   });
@@ -333,12 +334,12 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
       threadId: "child-thread",
       turnId: "child-turn",
       delta: "child leak",
-    }))).toEqual([]);
+    }))).toEqual([expect.objectContaining({ attribution: expect.objectContaining({ scope: "unknown" }) })]);
     expect(n.normalizeLine(notify("item/started", {
       threadId: "child-thread",
       turnId: "child-turn",
       item: { type: "commandExecution", command: "secret" },
-    }))).toEqual([]);
+    }))).toEqual([expect.objectContaining({ attribution: expect.objectContaining({ scope: "unknown" }) })]);
     expect(n.currentSessionId).toBe("root-thread");
     expect(n.currentTurnId).toBe("root-turn");
   });
@@ -383,7 +384,7 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
     expect(n.normalizeLine(notify("turn/completed", {
       threadId: "child-thread",
       turn: { id: "shared-turn-id", status: "completed" },
-    }))).toEqual([]);
+    }))).toEqual([expect.objectContaining({ attribution: expect.objectContaining({ scope: "unknown" }) })]);
     expect(n.currentSessionId).toBe("root-thread");
     expect(n.currentTurnId).toBe("shared-turn-id");
     expect(n.normalizeLine(rootUsage)).toEqual([]);
@@ -392,7 +393,7 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
       threadId: "root-thread",
       turn: { id: "shared-turn-id", status: "completed" },
     }))).toEqual([
-      { kind: "turn_end", sessionId: "root-thread", turnOwner: "codex:root-thread:shared-turn-id" },
+      { kind: "turn_end", sessionId: "root-thread", turnOwner: "codex:root-thread:shared-turn-id" , outcome: "success" },
     ]);
   });
 
@@ -412,7 +413,7 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
       threadId: "child-thread",
       turnId: "child-turn",
       item: { type: "contextCompaction" },
-    }))).toEqual([]);
+    }))).toEqual([expect.objectContaining({ attribution: expect.objectContaining({ scope: "unknown" }) })]);
     expect(n.normalizeLine(childUsage)).toHaveLength(1);
   });
 
@@ -577,7 +578,7 @@ describe("CodexEventNormalizer — complete owned event family", () => {
       turn: { id: "turn", status: "completed" },
     }));
     expect(terminal).toEqual([
-      { kind: "turn_end", sessionId: "root", turnOwner: "codex:root:turn" },
+      { kind: "turn_end", sessionId: "root", turnOwner: "codex:root:turn" , outcome: "success" },
     ]);
     expect(n.normalizeLine(first)).toEqual([]);
 

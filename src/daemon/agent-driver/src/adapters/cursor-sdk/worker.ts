@@ -47,10 +47,12 @@ export async function cursorSdkWorker(init: SdkWorkerInit, emit: (event: Adapter
     await agent.close();
     throw Object.assign(new Error("Cursor SDK did not restore the requested agent"), { code: "reset_required" });
   }
+  if (typeof agent.model?.id === "string") emit({ kind: "configuration_observed", observation: { evidence: "observed", effective: "current", model: agent.model.id } });
   let active: any;
   let closed = false;
   return {
     sessionId: agent.agentId,
+    acquisition: { status: init.sessionId ? "resumed" : "created", evidence: "native_api" },
     async send(input: LaneSendInput) {
       if (closed) return { ok: false, reason: "closed" };
       const receipt = input.terminalOwner ?? active?.id;
@@ -75,7 +77,7 @@ export async function cursorSdkWorker(init: SdkWorkerInit, emit: (event: Adapter
           tools.set(update.callId, name);
           emit({ kind: "tool_call", callId: update.callId, name, input: update.toolCall?.args ?? {} });
         } else if (update.type === "tool-call-completed" && typeof update.callId === "string" && tools.has(update.callId)) {
-          emit({ kind: "tool_output", callId: update.callId, name: tools.get(update.callId)! });
+          emit({ kind: "tool_output", callId: update.callId, name: tools.get(update.callId)!, outcome: update.toolCall?.result?.status === "success" ? "success" : update.toolCall?.result?.status === "error" ? "failed" : "unknown", output: update.toolCall?.result });
           tools.delete(update.callId);
         }
       } });
@@ -96,12 +98,12 @@ export async function cursorSdkWorker(init: SdkWorkerInit, emit: (event: Adapter
           } });
         }
         if (result.status === "error") emit({ kind: "error", code: "cursor_sdk_run_failed", message: result.error?.message ?? "Cursor SDK run failed" });
-        emit({ kind: "turn_end", sessionId: agent.agentId, turnOwner: owner, ...(result.status === "cancelled" ? { outcome: "interrupted" as const } : {}) });
+        emit({ kind: "turn_end", sessionId: agent.agentId, turnOwner: owner, outcome: result.status === "cancelled" ? "interrupted" : result.status === "error" ? "failed" : result.status === "finished" ? "success" : "unknown" });
       }).catch((error: unknown) => {
         if (closed || active !== run) return;
         terminal = true; active = undefined;
         emit({ kind: "error", message: error instanceof Error ? error.message : "Cursor SDK run failed" });
-        emit({ kind: "turn_end", sessionId: agent.agentId, turnOwner: owner });
+        emit({ kind: "turn_end", sessionId: agent.agentId, turnOwner: owner, outcome: "failed" });
       });
       return { ok: true, acceptedAs: "prompt", receipt: owner };
     },

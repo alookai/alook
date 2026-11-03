@@ -23,7 +23,7 @@ function setup() {
   const modulePath = join(root, "fixture.mjs");
   writeFileSync(modulePath, readFileSync(new URL("../../testing/fixtures/sdk/cursor-sdk.mjs", import.meta.url)));
   const registration = {
-    id: "cursor-sdk" as const, contractVersion: 1 as const, capabilities: capabilitiesFor("cursor-sdk"),
+    id: "cursor-sdk" as const, contractVersion: 2 as const, capabilities: capabilitiesFor("cursor-sdk"),
     createAdapter: () => new OptionalSdkDriver("cursor-sdk", "fixture-sdk", cursorSdkWorker, () => ({ entry: modulePath, version: "fixture" })),
   };
   const host = createFakeAgentDriverHost();
@@ -43,7 +43,7 @@ async function waitUntil(predicate: () => boolean) {
 }
 
 describe("Cursor SDK public sessions through an owned worker", () => {
-  it("keeps one worker across turns and refuses undelivered steering before acceptance", async () => {
+  it("keeps one worker across turns and queues undelivered steering for the next turn", async () => {
     const f = setup();
     const opened = await f.open();
     if (!opened.ok) throw new Error(opened.error.message);
@@ -53,14 +53,14 @@ describe("Cursor SDK public sessions through an owned worker", () => {
     try {
       const receipt = await session.start({ id: "root", kind: "user", text: "first" });
       expect(receipt, JSON.stringify(f.host.rawOutput)).toMatchObject({ status: "accepted" });
-      expect(await session.send({ id: "steer", kind: "user", text: "refuse" })).toMatchObject({ status: "rejected" });
+      expect(await session.send({ id: "steer", kind: "user", text: "refuse" })).toMatchObject({ status: "queued", reason: "runtime_busy" });
       writeFileSync(join(f.root, "release"), "go");
-      await waitUntil(() => session.snapshot().state === "idle");
+      await waitUntil(() => events.some(event => event.type === "turn_completed" && event.commandIds.includes("steer")) && session.snapshot().state === "idle");
       expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", result: expect.objectContaining({ outcome: "success" }) }));
       await session.send({ id: "next", kind: "user", text: "second" });
       await waitUntil(() => session.snapshot().state === "idle");
       expect(readFileSync(join(f.root, "opens"), "utf8").trim().split("\n")).toHaveLength(1);
-      expect(readFileSync(join(f.root, "inputs"), "utf8")).toBe("first\nsecond\n");
+      expect(readFileSync(join(f.root, "inputs"), "utf8")).toBe("first\nrefuse\nsecond\n");
     } finally { await session.stop({ reason: "shutdown", forceAfterMs: 100 }); await collecting; }
     const resumed = await f.open("fixture-agent");
     if (!resumed.ok) throw new Error(resumed.error.message);

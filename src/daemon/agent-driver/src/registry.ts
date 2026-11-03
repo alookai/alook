@@ -23,7 +23,7 @@ import type { BackendAdapter } from "./internal/adapter.js";
 
 export interface AgentBackendRegistration<Specs, Id extends BackendId<Specs>> {
   readonly id: Id;
-  readonly contractVersion: 1;
+  readonly contractVersion: 2;
   readonly capabilities: CapabilitiesOf<Specs, Id>;
   createAdapter(): BackendAdapter<Id, ConfigOf<Specs, Id>>;
 }
@@ -63,7 +63,7 @@ export function assertRegistrationShape(registration: unknown): void {
   if (typeof candidate.id !== "string" || candidate.id.length === 0) {
     throw new Error("Agent backend registration requires a non-empty id");
   }
-  if (candidate.contractVersion !== 1) {
+  if (candidate.contractVersion !== 2) {
     throw new Error(`Agent backend registration ${candidate.id} has an unsupported adapter-author contract version`);
   }
   if (!candidate.capabilities || typeof candidate.capabilities !== "object") {
@@ -219,11 +219,11 @@ const capabilities = {
   },
   claude: {
     modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true,
-    disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true,
+    disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
   },
   codex: {
     modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true,
-    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true,
+    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
   },
   cursor: {
     modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false,
@@ -245,18 +245,18 @@ const capabilities = {
 
 export function createBuiltinAgentDriverRegistry(): AgentDriverRegistry<BuiltinBackendSpecs> {
   return createAgentDriverRegistry<BuiltinBackendSpecs>([
-    { id: "claude", contractVersion: 1, capabilities: capabilities.claude, createAdapter: () => new ClaudeDriver() },
-    { id: "codex", contractVersion: 1, capabilities: capabilities.codex, createAdapter: () => new CodexDriver() },
-    { id: "cursor", contractVersion: 1, capabilities: capabilities.cursor, createAdapter: () => new CursorDriver() },
-    { id: "grok", contractVersion: 1, capabilities: capabilities.grok, createAdapter: () => new GrokDriver() },
-    { id: "opencode", contractVersion: 1, capabilities: capabilities.opencode, createAdapter: () => new OpenCodeDriver() },
-    { id: "pi", contractVersion: 1, capabilities: capabilities.pi, createAdapter: () => new PiDriver() },
-    { id: "antigravity", contractVersion: 1, capabilities: capabilities.antigravity, createAdapter: () => new AntigravityDriver() },
-    { id: "agy", contractVersion: 1, capabilities: capabilities.agy, createAdapter: () => new AgyDriver() },
-    { id: "qoder", contractVersion: 1, capabilities: capabilities.qoder, createAdapter: () => new OptionalSdkDriver("qoder", "@qoder-ai/qoder-agent-sdk", qoderWorker, undefined, { kind: "native" }) },
-    { id: "copilot", contractVersion: 1, capabilities: capabilities.copilot, createAdapter: () => new OptionalSdkDriver("copilot", "@github/copilot-sdk", copilotWorker, undefined, { kind: "native" }) },
-    { id: "cursor-sdk", contractVersion: 1, capabilities: capabilities["cursor-sdk"], createAdapter: () => new OptionalSdkDriver("cursor-sdk", "@cursor/sdk", cursorSdkWorker) },
-    { id: "pi-durable", contractVersion: 1, capabilities: capabilities["pi-durable"], createAdapter: () => new OptionalSdkDriver("pi-durable", "@earendil-works/pi-durable", piDurableWorker, undefined, { kind: "native" }) },
+    { id: "claude", contractVersion: 2, capabilities: capabilities.claude, createAdapter: () => new ClaudeDriver() },
+    { id: "codex", contractVersion: 2, capabilities: capabilities.codex, createAdapter: () => new CodexDriver() },
+    { id: "cursor", contractVersion: 2, capabilities: capabilities.cursor, createAdapter: () => new CursorDriver() },
+    { id: "grok", contractVersion: 2, capabilities: capabilities.grok, createAdapter: () => new GrokDriver() },
+    { id: "opencode", contractVersion: 2, capabilities: capabilities.opencode, createAdapter: () => new OpenCodeDriver() },
+    { id: "pi", contractVersion: 2, capabilities: capabilities.pi, createAdapter: () => new PiDriver() },
+    { id: "antigravity", contractVersion: 2, capabilities: capabilities.antigravity, createAdapter: () => new AntigravityDriver() },
+    { id: "agy", contractVersion: 2, capabilities: capabilities.agy, createAdapter: () => new AgyDriver() },
+    { id: "qoder", contractVersion: 2, capabilities: capabilities.qoder, createAdapter: () => new OptionalSdkDriver("qoder", "@qoder-ai/qoder-agent-sdk", qoderWorker, undefined, { kind: "native" }) },
+    { id: "copilot", contractVersion: 2, capabilities: capabilities.copilot, createAdapter: () => new OptionalSdkDriver("copilot", "@github/copilot-sdk", copilotWorker, undefined, { kind: "native" }) },
+    { id: "cursor-sdk", contractVersion: 2, capabilities: capabilities["cursor-sdk"], createAdapter: () => new OptionalSdkDriver("cursor-sdk", "@cursor/sdk", cursorSdkWorker) },
+    { id: "pi-durable", contractVersion: 2, capabilities: capabilities["pi-durable"], createAdapter: () => new OptionalSdkDriver("pi-durable", "@earendil-works/pi-durable", piDurableWorker, undefined, { kind: "native" }) },
   ]);
 }
 

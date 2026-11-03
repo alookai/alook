@@ -28,7 +28,7 @@ async function flushEvents(): Promise<void> {
 }
 
 describe("raw adapter → public session → manager root lease", () => {
-  it("keeps a native failed command queued through old terminal and cleanup, then replays its original input", async () => {
+  it("keeps an explicitly deferred native input through root failure and cleanup, then replays its original input", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-13T07:00:00Z"));
     let now = 0;
@@ -87,13 +87,13 @@ describe("raw adapter → public session → manager root lease", () => {
       await raw(0, { jsonrpc: "2.0", method: "item/started", params: {
         threadId: "root-thread", turnId: "root-vendor-turn", item: { id: "compaction", type: "contextCompaction" },
       } });
-      manager.deliver("a1", { id: "retry-command", seq: 2, text: "retry" });
+      manager.deliver("a1", { id: "retry-command", seq: 2, text: "retry", preparedInput: { id: "retry-command", kind: "user", text: "[fixed time] retry\n\nnative delivery footer", sequence: 2, delivery: "next_turn" } });
       await flushEvents();
-      expect(firstSend).toHaveBeenCalledOnce();
-      const original: AgentMessage = firstSend.mock.calls[0]![0];
-      expect(original).toEqual({ id: "retry-command", kind: "user", text: expect.stringMatching(/^\[[^\]]+\] retry\n\nnative delivery footer$/), sequence: 2 });
-      expect(manager.snapshot().agents.a1.pendingAdmissions.map((entry) => entry.commandId)).toEqual(["retry-command"]);
-      expect(sessions[0]!.snapshot().queuedCommands.map((command) => command.commandId)).toEqual(["retry-command"]);
+      expect(firstSend).not.toHaveBeenCalled();
+      const original: AgentMessage = manager.snapshot().agents.a1.inbox[0]!.preparedInput!;
+      expect(original).toEqual({ id: "retry-command", kind: "user", text: expect.stringMatching(/^\[[^\]]+\] retry\n\nnative delivery footer$/), sequence: 2, delivery: "next_turn" });
+      expect(manager.snapshot().agents.a1.pendingAdmissions).toEqual([]);
+      expect(sessions[0]!.snapshot().queuedCommands).toEqual([]);
 
       now = 400_000;
       vi.setSystemTime(new Date("2026-10-13T07:01:00Z"));
@@ -104,7 +104,7 @@ describe("raw adapter → public session → manager root lease", () => {
         expect(release).toHaveBeenCalledOnce();
       });
       expect(sessions[0]!.snapshot().state).toBe("stopping");
-      expect(firstSend).toHaveBeenCalledOnce();
+      expect(firstSend).not.toHaveBeenCalled();
       expect(nextStart).not.toHaveBeenCalled();
       expect(trace.some((row) => row.event === "turn_end" && row.status === "stopping" && !row.effects?.includes("send"))).toBe(true);
 

@@ -18,7 +18,8 @@ export type RuntimeSettingsUpdate = {
 };
 
 export type RuntimeSettingsUpdateResult =
-  | { readonly status: "applied" }
+  | { readonly status: "applied"; readonly observed: RuntimeSettingsUpdate }
+  | { readonly status: "acknowledged"; readonly effective: "current" | "next_turn" | "unknown" }
   | { readonly status: "unsupported"; readonly error?: AgentDriverError }
   | { readonly status: "failed"; readonly error: AgentDriverError };
 
@@ -133,8 +134,8 @@ export type FixedCapabilities<
 
 export type AntigravityCapabilities = FixedCapabilities<false, true, false, false, true, "next_turn_queue", "persistent">;
 export type AgyCapabilities = Omit<AntigravityCapabilities, "interrupt"> & { readonly interrupt: false };
-export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue", "persistent">;
-export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "safe_boundary_queue", "persistent">;
+export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "steer", "persistent">;
+export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "steer", "persistent">;
 export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "steer", "persistent">;
 export type GrokCapabilities = FixedCapabilities<false, true, false, false, true, "safe_boundary_queue", "persistent">;
 export type OpenCodeCapabilities = FixedCapabilities<false, false, false, false, true, "steer", "persistent">;
@@ -201,11 +202,39 @@ export interface AgentLaunchContext {
   readonly launchId: string;
 }
 
+export interface InputReference {
+  readonly commandId: string;
+  readonly attemptId: string;
+}
+
+export type InputReturnEvidence = "not_submitted" | "explicitly_rejected" | "unknown";
+export type ExecutionOutcome = "success" | "failed" | "interrupted" | "unknown";
+export interface EventAttribution {
+  readonly scope: "root" | "child" | "unknown";
+  readonly agentId?: string;
+  readonly parentCallId?: string;
+  readonly nativeTurnId?: string;
+}
+
+export interface SessionAcquisition {
+  readonly status: "created" | "resumed" | "unverified";
+  readonly evidence: "native_api" | "native_protocol" | "history" | "none";
+}
+
+export interface RuntimeConfigurationObservation {
+  readonly evidence: "observed" | "acknowledged" | "unverified" | "unsupported" | "refused";
+  readonly effective: "current" | "next_turn" | "after_resume" | "unknown";
+  readonly model?: string;
+  readonly reasoningEffort?: ReasoningEffort | null;
+}
+
 export interface AgentMessage {
   readonly id: string;
   readonly kind: "user" | "system" | "recovery";
   readonly text: string;
   readonly sequence?: number;
+  readonly attemptId?: string;
+  readonly delivery?: "auto" | "next_turn";
 }
 
 export interface AgentDriverError {
@@ -315,10 +344,12 @@ export type AgentSessionResult =
       readonly cleanup: HostCleanupResult;
     };
 
-export type AgentTurnResult =
+export type AgentTurnResult = { readonly stopReason?: string } & (
   | { readonly outcome: "success"; readonly backendSessionId: string }
   | { readonly outcome: "interrupted"; readonly backendSessionId?: string }
-  | { readonly outcome: "failed"; readonly backendSessionId?: string; readonly error: AgentDriverError };
+  | { readonly outcome: "failed"; readonly backendSessionId?: string; readonly error: AgentDriverError }
+  | { readonly outcome: "unknown"; readonly backendSessionId?: string }
+);
 
 export type TokenUsageIdentity = { readonly source: string; readonly index: number; readonly occurredAt: string };
 
@@ -383,6 +414,11 @@ export type ProviderQuotaObservation =
     };
 
 export type CoreAgentEventPayload =
+  | { readonly type: "session_acquired"; readonly backendSessionId: string; readonly acquisition: SessionAcquisition }
+  | { readonly type: "configuration_observed"; readonly observation: RuntimeConfigurationObservation }
+  | { readonly type: "input_observed"; readonly input: InputReference; readonly evidence: "native_ack" | "user_message" | "conversation" }
+  | { readonly type: "command_returned"; readonly input: InputReference; readonly message: AgentMessage; readonly ordinal: number; readonly evidence: InputReturnEvidence; readonly reason: string; readonly retryable: boolean }
+  | { readonly type: "activity"; readonly attribution: EventAttribution; readonly kind: string; readonly text?: string; readonly callId?: string; readonly name?: string; readonly outcome?: ExecutionOutcome; readonly output?: JsonValue }
   | { readonly type: "session_started"; readonly backendSessionId: string }
   | {
       readonly type: "command_queued";
@@ -397,6 +433,7 @@ export type CoreAgentEventPayload =
     }
   | {
       readonly type: "command_failed";
+      readonly scope?: "input" | "turn";
       readonly commandId: string;
       readonly turnId?: string;
       readonly error: AgentDriverError;
@@ -429,6 +466,7 @@ export type CoreAgentEventPayload =
       readonly callId?: string;
       readonly name: string;
       readonly output?: JsonValue;
+      readonly outcome?: ExecutionOutcome;
     }
   | { readonly type: "compaction_started"; readonly turnId: string }
   | { readonly type: "compaction_finished"; readonly turnId: string }
@@ -492,6 +530,8 @@ export type AgentEvent<Specs, Id extends BackendId<Specs>> =
   AgentEventEnvelope & (CoreAgentEventPayload | ExtraEventOf<Specs, Id>);
 
 export interface AgentSessionSnapshot {
+  readonly acquisition?: SessionAcquisition;
+  readonly configuration?: RuntimeConfigurationObservation;
   readonly sessionInstanceId: string;
   readonly state:
     | "new"
@@ -539,7 +579,7 @@ export interface AgentSessionSnapshot {
       readonly anonymousOutstandingToolUses?: number;
       /** Duplicate starts, unmatched finishes, or unattributable lifecycle events. */
       readonly toolLifecycleMismatchCount?: number;
-      readonly resumeOutcome: "not_requested" | "pending" | "resumed" | "reset_required" | "failed";
+      readonly resumeOutcome: "not_requested" | "pending" | "resumed" | "unverified" | "reset_required" | "failed";
       readonly terminalOwnerKind:
         | "transport_request"
         | "vendor_message"

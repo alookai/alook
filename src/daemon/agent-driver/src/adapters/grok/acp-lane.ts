@@ -189,7 +189,7 @@ export class GrokAcpLane implements RuntimeLane {
       if (!sessionId) throw new Error("Grok ACP handshake completed without a session id");
       this.processActivated = true;
       this.ready = true;
-      this.events.emit("runtime_event", { kind: "session_init", sessionId } satisfies AdapterEvent);
+      this.events.emit("runtime_event", { kind: "session_init", sessionId, acquisition: { status: input.sessionId ? "resumed" : "created", evidence: "native_api" } } satisfies AdapterEvent);
       return this.admitPrompt(input.text, input.terminalOwner);
     } catch (error) {
       this.suppressExit = true;
@@ -246,7 +246,7 @@ export class GrokAcpLane implements RuntimeLane {
     try {
       await this.setModel(modelId, input.reasoningEffort ?? undefined);
       this.currentReasoningEffort = input.reasoningEffort ?? undefined;
-      return { status: "applied" };
+      return { status: "acknowledged", effective: "next_turn" };
     } catch {
       return { status: "failed", error: settingsError("protocol", "settings_update_failed", "Grok rejected the settings update", true) };
     }
@@ -451,7 +451,8 @@ export class GrokAcpLane implements RuntimeLane {
       kind: "turn_end",
       sessionId: this.sessionId ?? undefined,
       turnOwner: terminalOwner,
-      ...(result.stopReason === "cancelled" ? { outcome: "interrupted" as const } : {}),
+      outcome: result.stopReason === "cancelled" ? "interrupted" : result.stopReason === "end_turn" ? "success" : "failed",
+      stopReason: result.stopReason,
     } satisfies AdapterEvent);
     void this.refreshBilling();
   }
@@ -471,6 +472,7 @@ export class GrokAcpLane implements RuntimeLane {
       kind: "turn_end",
       sessionId: this.sessionId ?? undefined,
       turnOwner: terminalOwner,
+      outcome: "failed",
     } satisfies AdapterEvent);
     void this.refreshBilling();
   }
@@ -735,6 +737,7 @@ export class GrokAcpLane implements RuntimeLane {
             this.events.emit("runtime_event", {
               kind: "tool_output",
               callId: update.toolCallId,
+              outcome: update.status === "failed" ? "failed" : "success", output: update.rawOutput,
               name: typeof update.title === "string" ? update.title : name,
             } satisfies AdapterEvent);
           }
@@ -815,7 +818,7 @@ export class GrokAcpLane implements RuntimeLane {
 
   private finishOpenTools(): void {
     for (const [callId, name] of this.openToolCalls) {
-      this.events.emit("runtime_event", { kind: "tool_output", callId, name } satisfies AdapterEvent);
+      this.events.emit("runtime_event", { kind: "tool_output", callId, name, outcome: "unknown" } satisfies AdapterEvent);
     }
     this.openToolCalls.clear();
   }

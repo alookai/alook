@@ -58,7 +58,7 @@ function setup(entry: (typeof entries)[number]) {
   const factory: SdkWorkerFactory = entry.factory;
   const sdk = createAgentDriverSdkWithRegistry<BuiltinBackendSpecs>({ host, registry: createAgentDriverRegistry([{
     id: entry.id,
-    contractVersion: 1,
+    contractVersion: 2,
     capabilities: capabilitiesFor(entry.id),
     createAdapter: () => new OptionalSdkDriver(entry.id, entry.packageName, factory, () => ({ entry: modulePath }), { kind: "native" }),
   } as AgentBackendRegistrationOf<BuiltinBackendSpecs>]) });
@@ -142,6 +142,19 @@ describe.skipIf(!nativeRoot || process.platform === "win32")("installed Copilot 
     await waitUntil(() => session.snapshot().state === "idle", "after policy refusal");
     expect(events.at(-1)).toMatchObject({ type: "turn_completed", result: { outcome: "success" } });
     expect(session.snapshot().diagnostics.metrics.physicalOpenCount).toBe(1);
+  });
+
+  it.each(["blocked extra", "error extra"])("keeps the root healthy when %s arrives before its native send reply", async (text) => {
+    const f = setup(entries[1]);
+    const { session, events } = await f.open();
+    await session.start({ id: "A", kind: "user", text: "hold root" });
+    expect(await session.send({ id: "B", attemptId: "B-1", kind: "user", text })).toMatchObject({ status: "accepted", delivery: "steer" });
+    await waitUntil(() => events.some(event => event.type === "command_returned" && event.input.commandId === "B"), "correlated refusal");
+    expect(session.snapshot().state).toBe("working");
+    expect(events).toContainEqual(expect.objectContaining({ type: "command_returned", input: { commandId: "B", attemptId: "B-1" }, evidence: text === "blocked extra" ? "explicitly_rejected" : "unknown", retryable: false }));
+    writeFileSync(join(f.root, "release"), "go");
+    await waitUntil(() => session.snapshot().state === "idle", "healthy root completion");
+    expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", commandIds: ["A"], result: expect.objectContaining({ outcome: "success" }) }));
   });
 
   it("keeps a recoverable model switch active until native idle and does not fail on unrelated warnings", async () => {

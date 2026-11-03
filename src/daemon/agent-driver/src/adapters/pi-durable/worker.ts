@@ -73,7 +73,7 @@ export async function piDurableWorker(init: SdkWorkerInit, emit: (event: Adapter
           cache: metric(message.usage.cacheRead) !== null && metric(message.usage.cacheWrite) !== null ? message.usage.cacheRead + message.usage.cacheWrite : null,
         } });
       } else if (message.role === "toolResult" && tools.has(message.toolCallId)) {
-        emit({ kind: "tool_output", callId: message.toolCallId, name: tools.get(message.toolCallId)! });
+        emit({ kind: "tool_output", callId: message.toolCallId, name: tools.get(message.toolCallId)!, outcome: message.isError ? "failed" : "success", output: message.content });
         tools.delete(message.toolCallId);
       }
     }
@@ -161,12 +161,13 @@ export async function piDurableWorker(init: SdkWorkerInit, emit: (event: Adapter
       tools.clear();
       const interrupted = root.interrupted || /abort|interrupt/.test(result.reason ?? "");
       if (result.status !== "done" && !interrupted) emit({ kind: "error", code: "pi_durable_unanswered", message: `Pi Durable could not answer the root input: ${String(result.reason ?? "unknown")}` });
-      emit({ kind: "turn_end", sessionId: String(conversation.id), turnOwner: root.owner, ...(interrupted ? { outcome: "interrupted" as const } : {}) });
+      emit({ kind: "turn_end", sessionId: String(conversation.id), turnOwner: root.owner, outcome: interrupted ? "interrupted" : result.status === "done" ? "success" : "failed" });
     } catch (error) { if (!closed) emit({ kind: "worker_error", code: "pi_durable_settlement_failed", message: error instanceof Error ? error.message : "Pi Durable settlement failed" }); }
     finally { settling = false; }
   };
   return {
     sessionId: String(conversation.id),
+    acquisition: { status: init.sessionId ? "resumed" : "created", evidence: "native_api" },
     async send(input: LaneSendInput) {
       if (closed) return { ok: false, reason: "closed" };
       if (input.mode === "busy" && !active) return { ok: false, reason: "runtime_busy" };
@@ -189,7 +190,7 @@ export async function piDurableWorker(init: SdkWorkerInit, emit: (event: Adapter
         if (closed || active !== root) return;
         root.pending.delete(requestId);
         if (requestId === root.root) root.rootResult = result;
-        if (result.status === "unanswered") emit({ kind: "error", code: "pi_durable_input_unanswered", message: `Pi Durable returned an unanswered input: ${String(result.reason)}` });
+        if (result.status === "unanswered") emit({ kind: "input_returned", inputs: input.inputs ?? [], evidence: "unknown", reason: `Pi Durable returned an unanswered input: ${String(result.reason)}`, retryable: false });
         void settleRoot();
       }).catch((error: unknown) => { if (!closed) emit({ kind: "worker_error", code: "pi_durable_submission_failed", message: error instanceof Error ? error.message : "Pi Durable submission status failed" }); });
       return { ok: true, acceptedAs: input.mode === "busy" ? "steer" : "prompt", receipt: root.owner };

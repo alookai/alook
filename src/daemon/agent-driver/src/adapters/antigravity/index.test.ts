@@ -286,10 +286,10 @@ describe("Antigravity native ACP", () => {
     expect(setters()[0]?.params?.value).toBe("gemini-3.8-flash-low");
     expect(await h.lane.updateSettings({ reasoningEffort: "high" })).toMatchObject({ status: "failed" });
     h.emit({ id: h.prompts()[0]!.id, result: { stopReason: "end_turn" } });
-    expect(await h.lane.updateSettings({ reasoningEffort: "high" })).toEqual({ status: "applied" });
+    expect(await h.lane.updateSettings({ reasoningEffort: "high" })).toEqual({ status: "acknowledged", effective: "next_turn" });
     expect(setters().at(-1)?.params?.value).toBe("gemini-3.8-flash-high");
     expect(await h.lane.updateSettings({ reasoningEffort: "ultra" })).toMatchObject({ status: "failed" });
-    expect(await h.lane.updateSettings({ reasoningEffort: null })).toEqual({ status: "applied" });
+    expect(await h.lane.updateSettings({ reasoningEffort: null })).toEqual({ status: "acknowledged", effective: "next_turn" });
     expect(h.spawn).toHaveBeenCalledTimes(1);
     expect(h.messages.filter((message) => message.method === "session/new")).toHaveLength(1);
     await h.lane.stop();

@@ -1,4 +1,5 @@
 import type { AdapterEvent, LaneAdmission, LaneSendInput, ProbeResult } from "./adapter.js";
+import type { SessionAcquisition } from "../contract.js";
 
 export type SdkWorkerEvent = AdapterEvent | { readonly kind: "worker_error"; readonly code: string; readonly message: string };
 
@@ -18,6 +19,7 @@ export interface SdkWorkerInit {
 
 export interface SdkWorkerSession {
   readonly sessionId: string;
+  readonly acquisition?: SessionAcquisition;
   send(input: LaneSendInput): Promise<LaneAdmission>;
   interrupt(): Promise<boolean>;
   close(): Promise<void>;
@@ -62,7 +64,7 @@ export async function sdkWorkerMain(factory: SdkWorkerFactory): Promise<void> {
             return;
           }
           session = result;
-          send({ event: { kind: "session_init", sessionId: result.sessionId } });
+          send({ event: { kind: "session_init", sessionId: result.sessionId, acquisition: result.acquisition } });
           send({ id: frame.id, result: { sessionId: result.sessionId } });
         })();
         await opening;

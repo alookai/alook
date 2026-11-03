@@ -42,7 +42,7 @@ import type { TimelineTurnOwner } from "../timeline/recorder.js";
 const SESSION_STOP_GRACE_MS = 2_000;
 export type AgentActivityState = "idle" | "starting" | "running" | "stopping";
 export type DaemonAgentSession = AgentSession<BuiltinBackendSpecs, BuiltinBackendId>;
-export type RuntimeConfigUpdateResult = "applied" | "deferred" | "saved_for_start" | "stale" | "idempotent";
+export type RuntimeConfigUpdateResult = "applied" | "acknowledged" | "deferred" | "saved_for_start" | "stale" | "idempotent";
 type ManagedEvent = AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>;
 type TraceTerminationCause = "runtime_error" | "killed_stalled" | "other";
 type TraceSpawnFailureReason = "ENOENT" | "handshake_timeout" | "pre_handshake_exit" | "spawn_threw" | "other";
@@ -95,6 +95,7 @@ interface ActiveSpawnState {
   activeSpan: ActiveTurnSpan | null;
   timelineTurnOwner: TimelineTurnOwner | null;
   pendingDeliverySpans: Map<string, PendingDeliveryTrace>;
+  inputDeliveries: Map<string, AgentMsg>;
 }
 interface ManagedSessionLifecycle {
   session: DaemonAgentSession;
@@ -145,7 +146,7 @@ interface FsmTraceRecord extends TraceRecordBase, Partial<TraceSpanMetadata> {
   outstandingToolUses?: number;
   anonymousOutstandingToolUses?: number;
   toolLifecycleMismatchCount?: number;
-  resumeOutcome?: "not_requested" | "pending" | "resumed" | "reset_required" | "failed";
+  resumeOutcome?: "not_requested" | "pending" | "resumed" | "unverified" | "reset_required" | "failed";
   terminalOwnerKind?: "transport_request" | "vendor_message" | "prompt_invocation" | "lane_generation";
   sinceProgressMs: number;
   sinceNativeActivityMs: number;
@@ -670,7 +671,7 @@ export class AgentProcessManager {
             return "saved_for_start";
           }
         }
-        if (result.status !== "applied") {
+        if (result.status !== "applied" && result.status !== "acknowledged") {
           this.log.warn("runtime config live apply unavailable; restarting at safe boundary", {
             agentId,
             revision: desiredRevision,
@@ -687,7 +688,7 @@ export class AgentProcessManager {
         const latestRevision = this.runtimeConfigs.get(agentId)?.runtimeConfigRevision ?? 0;
         if (latestRevision <= desiredRevision) {
           this.dispatch({ type: "runtime_config_applied", agentId });
-          return "applied";
+          return result.status;
         }
       }
       return "saved_for_start";
@@ -1300,6 +1301,7 @@ export class AgentProcessManager {
   ): boolean {
     const sessionInstanceId = owner.sessionInstanceId;
     if (!sessionInstanceId || owner.pendingDeliverySpans.has(commandId)) return false;
+    owner.inputDeliveries.set(commandId, message);
     owner.pendingDeliverySpans.set(commandId, {
       sessionInstanceId,
       span,
@@ -1335,7 +1337,7 @@ export class AgentProcessManager {
   private settlePendingDelivery(
     owner: ActiveSpawnState,
     commandId: string,
-    outcome: "accepted" | "failed" = "failed",
+    outcome: "accepted" | "failed" | "rejected" = "failed",
   ): PendingDeliveryTrace | undefined {
     const pending = owner.pendingDeliverySpans.get(commandId);
     if (!pending) return undefined;
@@ -1363,12 +1365,24 @@ export class AgentProcessManager {
           const input = message.preparedInput;
           const owner = this.activeSpawnState.get(effect.agentId);
           const exactOwner = owner?.session === session ? owner : undefined;
+          const hasExistingRoot = exactOwner?.activeSpan != null;
+          const deliveryMode = hasExistingRoot ? "busy" : "idle";
           const associatedSpan = exactOwner
             ? effect.mode === "idle"
               ? this.openTurn(exactOwner)
               : exactOwner.activeSpan
             : null;
-          if (exactOwner) this.beginPendingDelivery(exactOwner, input.id, message, effect.mode, associatedSpan);
+          if (exactOwner) this.beginPendingDelivery(exactOwner, input.id, message, deliveryMode, associatedSpan);
+          const rejectDelivery = (code: string, detail: string) => {
+            if (!exactOwner || !exactOwner.pendingDeliverySpans.has(input.id)) return;
+            this.settlePendingDelivery(exactOwner, input.id, hasExistingRoot ? "rejected" : "failed");
+            exactOwner.inputDeliveries.delete(input.id);
+            this.emitErrorAudit(effect.agentId, "runtime", code, detail);
+            if (!hasExistingRoot) {
+              this.closeTurn(exactOwner, associatedSpan, { event: "turn_abort", abortCause: "send_threw" });
+              void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
+            }
+          };
           let sent: ReturnType<DaemonAgentSession["send"]>;
           try {
             sent = session.send(input);
@@ -1378,14 +1392,9 @@ export class AgentProcessManager {
               mode: effect.mode,
             });
           } catch (error) {
-            if (exactOwner) {
-              this.settlePendingDelivery(exactOwner, input.id);
-              this.closeTurn(exactOwner, associatedSpan, {
-                event: "turn_abort",
-                abortCause: "send_threw",
-              });
-            }
-            throw error;
+            rejectDelivery("send_failed", String(error));
+            if (!hasExistingRoot) throw error;
+            break;
           }
           void Promise.resolve(sent).then((receipt) => {
             if (
@@ -1396,18 +1405,7 @@ export class AgentProcessManager {
             ) return;
             if (receipt.status === "rejected") {
               if (!exactOwner.pendingDeliverySpans.has(input.id)) return;
-              this.settlePendingDelivery(exactOwner, input.id);
-              this.closeTurn(exactOwner, associatedSpan, {
-                event: "turn_abort",
-                abortCause: "send_threw",
-              });
-              this.emitErrorAudit(
-                effect.agentId,
-                "runtime",
-                receipt.error?.code ?? receipt.reason,
-                receipt.error?.message ?? `Delivery rejected (${receipt.reason})`,
-              );
-              void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
+              rejectDelivery(receipt.error?.code ?? receipt.reason, receipt.error?.message ?? `Delivery rejected (${receipt.reason})`);
             }
           }).catch((error) => {
             if (
@@ -1417,13 +1415,7 @@ export class AgentProcessManager {
               || this.activeSpawnState.get(effect.agentId) !== exactOwner
             ) return;
             if (!exactOwner.pendingDeliverySpans.has(input.id)) return;
-            this.settlePendingDelivery(exactOwner, input.id);
-            this.closeTurn(exactOwner, associatedSpan, {
-              event: "turn_abort",
-              abortCause: "send_threw",
-            });
-            this.emitErrorAudit(effect.agentId, "runtime", "send_failed", String(error));
-            void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
+            rejectDelivery("send_failed", String(error));
           });
         } else {
           this.dispatch({
@@ -1695,6 +1687,7 @@ export class AgentProcessManager {
       activeSpan: null,
       timelineTurnOwner: null,
       pendingDeliverySpans: new Map(),
+      inputDeliveries: new Map(),
     };
     const previousOwner = this.activeSpawnState.get(agentId);
     if (previousOwner && previousOwner !== state) {
@@ -2103,10 +2096,29 @@ export class AgentProcessManager {
         );
       }
     }
+    if (event.type === "command_returned" && !sessionSuperseded) {
+      const original = owner.inputDeliveries.get(event.input.commandId);
+      const input = original?.preparedInput;
+      if (!original || !input || (input.attemptId ?? input.id) !== event.input.attemptId) return;
+      owner.inputDeliveries.delete(event.input.commandId);
+      if (event.evidence !== "unknown" && event.retryable) {
+        const retried: AgentMsg = { ...original, preparedInput: { ...input, attemptId: randomUUID(), delivery: "next_turn" } };
+        this.dispatch({ type: "queue_delivery", agentId, messages: [retried] }, owner);
+      } else {
+        this.emitErrorAudit(agentId, "runtime", "input_delivery_returned", `Input responsibility returned (${event.evidence}): ${event.reason}`);
+      }
+      return;
+    }
     if (event.type === "command_queued") this.acknowledgePendingDelivery(owner, event.commandId);
     if (event.type === "command_accepted") this.settlePendingDelivery(owner, event.commandId, "accepted");
     if (event.type === "command_failed") {
-      const pending = this.settlePendingDelivery(owner, event.commandId);
+      const inputFailure = event.scope === "input" || (event.scope !== "turn" && owner.pendingDeliverySpans.get(event.commandId)?.mode === "busy");
+      const pending = this.settlePendingDelivery(owner, event.commandId, inputFailure ? "rejected" : "failed");
+      owner.inputDeliveries.delete(event.commandId);
+      if (inputFailure) {
+        this.emitErrorAudit(agentId, "runtime", event.error.code, event.error.message);
+        return;
+      }
       if (pending && !sessionSuperseded && this.state.agents[agentId]?.status === "running") {
         this.closeTurn(owner, pending.span, { event: "turn_abort", abortCause: "send_threw" });
         this.emitErrorAudit(agentId, "runtime", event.error.code, event.error.message);
@@ -2200,6 +2212,7 @@ export class AgentProcessManager {
       }, owner);
     }
     if (event.type === "turn_completed") {
+      for (const commandId of event.commandIds) owner.inputDeliveries.delete(commandId);
       this.logSessionEnded(agentId, "turn_end");
       const marker = this.nonCleanEndMarker.get(agentId);
       this.nonCleanEndMarker.delete(agentId);
