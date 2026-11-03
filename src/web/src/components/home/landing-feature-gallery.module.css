@@ -43,22 +43,17 @@
 .controls[data-right="true"]::after {
   opacity: 1;
 }
+/* The tray, keys and press come from the shared Tabs; only overflow and drag
+ * scrolling live here. */
 .tabs {
-  display: flex;
-  flex-wrap: nowrap;
+  max-width: 100%;
   overflow-x: auto;
-  min-width: 0;
-  gap: 32px;
-  scrollbar-width: auto;
-  scrollbar-color: auto;
   overscroll-behavior-x: contain;
   touch-action: pan-x pan-y;
+  scrollbar-width: none;
 }
 .tabs::-webkit-scrollbar {
-  height: 4px;
-}
-.tabs::-webkit-scrollbar-thumb {
-  background: var(--gallery-muted);
+  display: none;
 }
 .tabs[data-overflow="true"] {
   cursor: grab;
@@ -66,37 +61,6 @@
 }
 .tabs[data-overflow="true"]:active {
   cursor: grabbing;
-}
-.tabs button {
-  position: relative;
-  scroll-margin-top: 80px;
-  flex: 0 0 auto;
-  white-space: nowrap;
-  min-height: 44px;
-  padding: 12px 0;
-  border-bottom: 2px solid transparent;
-  color: var(--gallery-muted);
-  font-family: var(--font-sans);
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: color 150ms ease-out;
-}
-.tabs button:hover,
-.tabs button[aria-selected="true"] {
-  color: var(--gallery-ink);
-}
-.tabs button[aria-selected="true"]::after {
-  content: "";
-  position: absolute;
-  inset-inline: 0;
-  bottom: 8px;
-  height: 2px;
-  background: var(--gallery-ink);
-}
-.tabs button:focus-visible {
-  outline: 2px solid var(--gallery-ink);
-  outline-offset: -4px;
 }
 .slide {
   margin: -24px;
@@ -106,7 +70,8 @@
   background: var(--gallery-surface);
   display: grid;
   grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1.28fr);
-  align-items: start;
+  /* Copy sits on the window's centre line, like the brand-visual feature row. */
+  align-items: center;
   gap: 48px;
 }
 .copy h2 {
@@ -176,13 +141,6 @@
   .controls {
     margin-bottom: 24px;
   }
-  .tabs {
-    gap: 24px;
-  }
-  .tabs button {
-  position: relative;
-    font-size: 14px;
-  }
   .slide {
   margin: -24px;
   padding: 24px;
@@ -204,11 +162,5 @@
   }
   .copy .cta {
     margin-top: 16px;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .tabs button {
-  position: relative;
-    transition: none;
   }
 }

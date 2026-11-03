@@ -17,7 +17,7 @@ beforeEach(() => {
     observe() {}
     disconnect = disconnect
   })
-  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} })
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} })
   vi.stubGlobal("matchMedia", vi.fn((media: string) => ({ media, matches: reduced, addEventListener() {}, removeEventListener() {} })))
 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
@@ -65,9 +65,13 @@ describe("feature gallery", () => {
     expect(screen.getByRole("heading")).toHaveTextContent("Chat with shared agents")
     expect(screen.getByRole("link", { name: "Share your agent" })).toHaveAttribute("href", "/sign-in")
     const tab = screen.getByRole("tab", { name: "Collaboration" })
+    // Keyboard users reach the tab list first; the shared Tabs roving focus starts there.
+    act(() => tab.focus())
     fireEvent.keyDown(tab, { key: "End" })
+    await advance(50)
     expect(screen.getByRole("tab", { name: "Persistent Memory" })).toHaveFocus()
     fireEvent.keyDown(screen.getByRole("tab", { name: "Persistent Memory" }), { key: "ArrowRight" })
+    await advance(50)
     expect(tab).toHaveFocus()
     await advance()
     expect(tab).toHaveAttribute("aria-selected", "true")

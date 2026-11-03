@@ -115,7 +115,8 @@ describe("landing content contract", () => {
     const closing = landingPageSource.match(/<section className=\{styles\.closingSection\}([\s\S]*?)<LandingFooter/)?.[1] ?? ""
 
     expect(closing).toContain("Ready to share")
-    expect(closing).toContain("Bring your team into the conversation.")
+    // The title keeps its words; "conversation" is drawn as the hand accent.
+    expect(closing.replace(/<\/?HandAccent>/g, "")).toContain("Bring your team into the conversation.")
     expect(closing).toContain("Connect your agent and invite a teammate.")
     expect(closing).toContain('href={isLoggedIn ? "/c/me" : "/sign-in"}')
     expect(closing).toContain('data-testid="landing-closing-open"')
@@ -440,7 +441,7 @@ describe("landing content contract", () => {
     expect(landingStyles).toMatch(/\.page:global\(\.landing\)\s*\{[\s\S]*?--landing-accent: #356f95;/)
     expect(landingStyles).toMatch(/\.page:global\(\.landing\)\s*\{[\s\S]*?--tw-blob-theme: var\(--landing-section-bg\);/)
     expect(landingStyles).toMatch(/\.page:global\(\.landing\)\s*\{[\s\S]*?--landing-text-muted: #47633b;/)
-    expect(landingStyles).toMatch(/\.landingHeroEmphasis\s*\{[\s\S]*?color: var\(--landing-accent\);/)
+    expect(landingStyles).toMatch(/\.landingHeroLead\s*\{[\s\S]*?color: var\(--landing-text\);/)
     expect(landingStyles).toMatch(/\.landingHeroTail\s*\{[\s\S]*?color: var\(--landing-text\);/)
     expect(landingPageSource).toContain("showMobileDesktopHint={false}")
     expect(landingStyles).not.toContain("#5b6b60")

@@ -448,7 +448,7 @@ function SignInForm({
             data-testid="sign-in-email-pane"
             aria-hidden={isExitingEmail || undefined}
             inert={isTransitioning || undefined}
-            className="flex min-h-svh w-full shrink-0 flex-col px-4 pt-[max(3rem,var(--app-safe-area-top))] pb-[max(1.5rem,var(--app-safe-area-bottom))] sm:min-h-0 sm:justify-center sm:p-8"
+            className="flex min-h-svh w-full shrink-0 flex-col justify-center px-4 pt-[max(1.5rem,var(--app-safe-area-top))] pb-[max(1.5rem,var(--app-safe-area-bottom))] sm:min-h-0 sm:p-8"
           >
             <div className="mx-auto w-full max-w-80 sm:max-w-88">
               <FieldGroup className="gap-4">
@@ -494,7 +494,7 @@ function SignInForm({
             data-testid="sign-in-code-pane"
             aria-hidden={isExitingCode || undefined}
             inert={isTransitioning || undefined}
-            className="flex min-h-svh w-full shrink-0 flex-col px-4 pt-[max(3rem,var(--app-safe-area-top))] pb-[max(1.5rem,var(--app-safe-area-bottom))] sm:min-h-0 sm:justify-center sm:p-8"
+            className="flex min-h-svh w-full shrink-0 flex-col justify-center px-4 pt-[max(1.5rem,var(--app-safe-area-top))] pb-[max(1.5rem,var(--app-safe-area-bottom))] sm:min-h-0 sm:p-8"
           >
             <div className="mx-auto w-full max-w-80 sm:max-w-88">
               <FieldGroup className="gap-4">

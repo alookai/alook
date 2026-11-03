@@ -36,6 +36,7 @@ export function HeroSection({
   showMobileDesktopHint = true,
   testId,
   backgroundDecoration,
+  artworkDecoration,
   desktopSplit = false,
   nextSectionId,
   onReady,
@@ -56,6 +57,8 @@ export function HeroSection({
   showMobileDesktopHint?: boolean;
   testId?: string;
   backgroundDecoration?: ReactNode;
+  /** Stickers and labels pinned to the typewriter artwork. */
+  artworkDecoration?: ReactNode;
   desktopSplit?: boolean;
   nextSectionId?: string;
   onReady?: () => void;
@@ -177,6 +180,7 @@ export function HeroSection({
               entranceDelay={1.2}
               className="absolute! inset-0"
             />
+            {artworkDecoration}
           </div>
         </div>
 

@@ -1217,21 +1217,17 @@
   background: linear-gradient(180deg, var(--tn-body-top), var(--tn-body)) !important;
 }
 
-/* Screen: set into the body (recessed), no outline ring */
+/* Screen: one plain, faint hairline around the app surface — not recessed,
+ * so the channel + message area doesn't look sunk in (Gus #2403). */
 .theme [data-slot="community-app-surface"] {
   --tw-ring-color: transparent !important;
-  box-shadow:
-    inset 0 0 0 1px rgb(60 45 20 / 10%),
-    0 -1px 0 rgb(60 45 20 / 16%),
-    0 1px 0 rgb(255 255 255 / 75%),
-    inset 0 2px 6px rgb(60 45 20 / 10%) !important;
+  /* The app's 1px border/40 edge is replaced by this half-pixel hairline (#2405). */
+  border-color: transparent !important;
+  box-shadow: 0 0 0 0.5px rgb(60 45 20 / 14%) !important;
 }
 .theme[data-tn-mode="dark"] [data-slot="community-app-surface"],
 [data-tn-mode="dark"] .theme [data-slot="community-app-surface"] {
-  box-shadow:
-    inset 0 0 0 1px rgb(255 255 255 / 7%),
-    0 0 0 1px rgb(110 135 255 / 10%),
-    0 0 40px -12px rgb(91 124 255 / 30%) !important;
+  box-shadow: 0 0 0 0.5px rgb(255 255 255 / 12%) !important;
 }
 
 /* Rail servers are keycaps; the current one is pressed */
@@ -2151,12 +2147,8 @@
   font-weight: 800 !important;
   letter-spacing: -0.035em !important;
 }
-.theme :global(.landing) [class*="landingHeroEmphasis"] {
-  font-family: var(--font-caveat), cursive !important;
-  font-weight: 700 !important;
-  letter-spacing: 0 !important;
-  font-size: 1.12em;
-}
+/* Brand reinforcement (Gus #2355): the lead stays in bold ink; one key phrase
+ * of each title is the hand accent (HandAccent). */
 /* No all caps on the marketing surface (#2052) */
 .theme :global(.landing) :is([class~="uppercase"], button, a) {
   text-transform: none !important;
@@ -2223,12 +2215,7 @@
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--tn-led-ok) 20%, transparent), 0 0 8px color-mix(in oklab, var(--tn-led-ok) 70%, transparent);
 }
 /* Landing closing card: a sheet of the cream paper (oklch mix with transparent drifted pink) */
-.theme :global(.landing) [class*="closingCta"] {
-  background: color-mix(in srgb, var(--landing-bg) 88%, transparent) !important;
-}
-.theme :global(.landing) [class*="closingCta"]::before {
-  background: color-mix(in srgb, var(--landing-bg) 72%, transparent) !important;
-}
+/* Closing card styling lives in landing-page.module.css (brand-visual card). */
 /* #2299: step markers are flat true circles, no key lip or offset */
 .theme [data-slot="step-number"],
 .theme [data-slot="step-number"][data-state],
@@ -2305,7 +2292,6 @@
     font-size: clamp(30px, 8.6vw, 38px) !important;
     line-height: 1.02 !important;
   }
-  .theme :global(.landing) [class*="landingHeroEmphasis"] { font-size: 1.04em; }
 }
 
 /* #2 mobile send key: brand blue like every other primary key */

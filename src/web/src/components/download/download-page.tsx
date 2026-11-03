@@ -13,6 +13,11 @@ import { ALOOK_RELEASES_URL, type DownloadCatalog } from "@/lib/download-catalog
 import { DownloadCurrentPlatform } from "./download-current-platform"
 import landing from "@/components/home/landing-page.module.css"
 import styles from "./download-page.module.css"
+import { buttonVariants } from "@/components/ui/button"
+import { HandAccent } from "@/components/brand/hand-accent"
+
+const PRIMARY = buttonVariants({ size: "lg" }) + " h-12 px-5 text-sm"
+const SECONDARY = buttonVariants({ size: "lg", variant: "secondary" }) + " h-12 px-5 text-sm"
 
 function InstallerChoices({ platform, catalog }: { platform: "macos" | "windows" | "linux" | "android"; catalog: DownloadCatalog }) {
   return <ul className={styles.installers}>
@@ -35,9 +40,9 @@ export function DownloadPageView({ catalog, initialEnvironment }: { catalog: Dow
       <section className={`${landing.siteContainer} ${styles.hero}`} aria-labelledby="download-heading">
         <div className={styles.heroCopy}>
           <p className={styles.eyebrow}>Alook, wherever you are</p>
-          <h1 id="download-heading">Good company.<br /><span>On every screen.</span></h1>
+          <h1 id="download-heading">Good company.<br />On every <HandAccent>screen.</HandAccent></h1>
           <p className={styles.intro}>Your team, friends and agents. One shared place, from your desk to your pocket.</p>
-          <div className={styles.heroActions}><DownloadCurrentPlatform installers={catalog.installers} initialEnvironment={initialEnvironment} /><a className={styles.secondary} href="/c/me"><Globe size={18} aria-hidden="true" />Open in your browser<ArrowUpRight size={16} aria-hidden="true" /></a></div>
+          <div className={styles.heroActions}><DownloadCurrentPlatform installers={catalog.installers} initialEnvironment={initialEnvironment} /><a data-variant="secondary" className={SECONDARY} href="/c/me"><Globe size={18} aria-hidden="true" />Open in your browser<ArrowUpRight size={16} aria-hidden="true" /></a></div>
           <a className={styles.textLink} href="#desktop">See all platforms <ArrowDown size={14} aria-hidden="true" /></a>
         </div>
         <div className={styles.heroMedia} role="group" aria-label="Alook on desktop and mobile"><div className={styles.characters} aria-hidden="true">{["purple", "teal", "red", "blue"].map(color => <Image key={color} src={`/download/character-${color}.svg`} width={80} height={80} alt="" />)}</div><LandingReachMotion /></div>
@@ -45,7 +50,7 @@ export function DownloadPageView({ catalog, initialEnvironment }: { catalog: Dow
 
       <section id="desktop" className={styles.desktop} aria-labelledby="desktop-heading">
         <div className={landing.siteContainer}>
-          <div className={styles.sectionLead}><p className={styles.eyebrow}><Monitor size={16} aria-hidden="true" />At your desk</p><h2 id="desktop-heading">Make room for your whole team.</h2><p>Keep the conversation close. Connect your computer when you’re ready to bring your agents along.</p></div>
+          <div className={styles.sectionLead}><p className={styles.eyebrow}><Monitor size={16} aria-hidden="true" />At your desk</p><h2 id="desktop-heading">Make room for your whole <HandAccent>team.</HandAccent></h2><p>Keep the conversation close. Connect your computer when you’re ready to bring your agents along.</p></div>
           <div className={styles.desktopBody}>
             <div className={styles.desktopMedia} role="img" aria-label="Alook’s existing Machines view with connected computers and agent runtimes"><DeferredShellMotion scene="machine" beat={SCENE_MAX_BEAT.machine} /></div>
             <div className={styles.platformList}>
@@ -62,7 +67,7 @@ export function DownloadPageView({ catalog, initialEnvironment }: { catalog: Dow
         <div className={styles.phoneMedia} role="img" aria-label="Alook’s existing mobile conversation view"><DeferredMobileChatMotion beat={SCENE_MAX_BEAT.server} /></div>
         <div className={styles.mobileCopy}>
           <p className={styles.eyebrow}><Smartphone size={16} aria-hidden="true" />Out and about</p>
-          <h2 id="mobile-heading">The conversation comes with you.</h2>
+          <h2 id="mobile-heading">The conversation comes <HandAccent>with you.</HandAccent></h2>
           <p>Check in with your people and agents, pick up a conversation, and stay in the loop from your phone.</p>
           <div className={styles.stores} role="group" aria-label="Store availability">
             <span className={styles.store}><SiApple size={24} aria-hidden="true" /><span>App Store<small>Coming soon</small></span></span>
@@ -73,7 +78,7 @@ export function DownloadPageView({ catalog, initialEnvironment }: { catalog: Dow
         </div>
       </section>
 
-      <section className={styles.browser} aria-labelledby="browser-heading"><div className={landing.siteContainer}><p className={styles.eyebrow}>No installation needed</p><h2 id="browser-heading">A tab is all it takes.</h2><p>Open Alook in your browser. Your conversations are already at home.</p><a className={styles.primary} href="/c/me">Open Alook<ArrowUpRight size={18} aria-hidden="true" /></a><a className={styles.textLink} href="https://alook.ai/c/invite/nC7ax53lwm">Need a hand? Get in touch.</a></div></section>
+      <section className={styles.browser} aria-labelledby="browser-heading"><div className={landing.siteContainer}><p className={styles.eyebrow}>No installation needed</p><h2 id="browser-heading">A tab is all it <HandAccent>takes.</HandAccent></h2><p>Open Alook in your browser. Your conversations are already at home.</p><a data-variant="default" className={PRIMARY} href="/c/me">Open Alook<ArrowUpRight size={18} aria-hidden="true" /></a><a className={styles.textLink} href="https://alook.ai/c/invite/nC7ax53lwm">Need a hand? Get in touch.</a></div></section>
     </main>
     <LandingFooter />
   </div>

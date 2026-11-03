@@ -1,11 +1,13 @@
 "use client"
 
 import { buttonVariants } from "@/components/ui/button"
+import { HandAccent } from "@/components/brand/hand-accent"
 import { cn } from "@/lib/utils"
 import { StepSlide } from "@/components/ui/step-slide"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DocumentNavigationLink } from "./document-navigation-link"
 
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode, type KeyboardEvent } from "react"
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react"
 import { trackLandingCtaClicked } from "@/lib/analytics"
 import { tid } from "@/lib/community/testids"
 import { MediaFallback } from "./deferred-landing-media"
@@ -14,12 +16,12 @@ import styles from "./landing-feature-gallery.module.css"
 import mediaStyles from "./deferred-landing-media.module.css"
 
 const FeatureScene = lazy(() => import("./landing-feature-scene"))
-const features: { id: string; tab: string; title: string; description: string; cta: string; scene: LandingScene }[] = [
-  { id: "product", description: "Bring an agent into a group chat so friends and teammates can work with it together.", title: "Chat with shared agents", cta: "Share your agent", tab: "Collaboration", scene: "server" },
-  { id: "ownership", description: "Keep the agent tools you already use, running on your own computer.", title: "Run agents on your computer", cta: "Connect your agent", tab: "Free and local", scene: "machine" },
-  { id: "reach", description: "Send a task from your phone and check the result while your agent works on your computer.", title: "Control your agent from anywhere", cta: "Work anywhere", tab: "Remote control", scene: "server" },
-  { id: "identity", description: "Give your agent one profile across rooms, so everyone knows who they’re talking to.", title: "One agent, every room", cta: "Invite your agent", tab: "Agent identity", scene: "identity" },
-  { id: "continuity", description: "Return to a task after a break. Your agent can find earlier messages and pick up where you left off.", title: "Continue earlier conversations", cta: "Start a task", tab: "Persistent Memory", scene: "continuity" },
+const features: { id: string; tab: string; title: string; accent: string; description: string; cta: string; scene: LandingScene }[] = [
+  { id: "product", description: "Bring an agent into a group chat so friends and teammates can work with it together.", title: "Chat with shared agents", accent: "shared agents", cta: "Share your agent", tab: "Collaboration", scene: "server" },
+  { id: "ownership", description: "Keep the agent tools you already use, running on your own computer.", title: "Run agents on your computer", accent: "your computer", cta: "Connect your agent", tab: "Free and local", scene: "machine" },
+  { id: "reach", description: "Send a task from your phone and check the result while your agent works on your computer.", title: "Control your agent from anywhere", accent: "anywhere", cta: "Work anywhere", tab: "Remote control", scene: "server" },
+  { id: "identity", description: "Give your agent one profile across rooms, so everyone knows who they’re talking to.", title: "One agent, every room", accent: "every room", cta: "Invite your agent", tab: "Agent identity", scene: "identity" },
+  { id: "continuity", description: "Return to a task after a break. Your agent can find earlier messages and pick up where you left off.", title: "Continue earlier conversations", accent: "earlier conversations", cta: "Start a task", tab: "Persistent Memory", scene: "continuity" },
 ]
 
 export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
@@ -111,22 +113,14 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
     setSelected(index)
   }
 
-  function navigate(event: KeyboardEvent<HTMLButtonElement>, index: number) {
-    const next = event.key === "ArrowRight" ? (index + 1) % features.length
-      : event.key === "ArrowLeft" ? (index + features.length - 1) % features.length
-      : event.key === "Home" ? 0 : event.key === "End" ? features.length - 1 : null
-    if (next === null) return
-    event.preventDefault()
-    select(next)
-    tabs.current[next]?.focus()
-  }
-
   return <section id="product" className={`${styles.section} ${current.id === "ownership" ? styles.dark : ""}`} aria-label="Explore Alook features"
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false) }}>
     <div className={styles.container} data-testid={tid.landingMainContainer}>
       <div className={styles.controls} data-left={edges.left} data-right={edges.right}>
-        <div ref={tabList} className={`${styles.tabs} thin-scrollbar`} role="tablist" aria-label="Features"
+        {/* The shared Tabs component (Gus #2354); the panel below is the step slide. */}
+        <Tabs value={current.id} onValueChange={value => { const index = features.findIndex(feature => feature.id === value); if (index >= 0) select(index) }}>
+        <TabsList ref={tabList} className={`${styles.tabs} thin-scrollbar`} aria-label="Features"
           data-overflow={edges.left || edges.right}
           onPointerDown={event => {
             if (event.pointerType !== "mouse" || event.button !== 0 || event.currentTarget.scrollWidth <= event.currentTarget.clientWidth) { drag.current = null; return }
@@ -144,16 +138,15 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
           onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
           onPointerCancel={() => { drag.current = null }}
           onClickCapture={event => { if (event.detail > 0 && drag.current?.moved) { event.preventDefault(); event.stopPropagation(); drag.current = null } }}>
-          {features.map((feature, index) => <button key={feature.id} ref={element => { tabs.current[index] = element }}
-            id={`feature-tab-${feature.id}`} type="button" role="tab" aria-selected={selected === index}
-            aria-controls="feature-panel" tabIndex={selected === index ? 0 : -1}
-            onClick={() => select(index)} onKeyDown={event => navigate(event, index)}>{feature.tab}</button>)}
-        </div>
+          {features.map((feature, index) => <TabsTrigger key={feature.id} value={feature.id} ref={element => { tabs.current[index] = element }}
+            id={`feature-tab-${feature.id}`} aria-controls="feature-panel">{feature.tab}</TabsTrigger>)}
+        </TabsList>
+        </Tabs>
       </div>
       <StepSlide testId="landing-feature-transition" step={current.id} order={selected} className={styles.slide}>
       <div id="feature-panel" role="tabpanel" aria-labelledby={`feature-tab-${current.id}`} className={styles.panel}>
         <div className={styles.copy}>
-          <h2>{current.title}</h2>
+          <h2>{current.title.slice(0, current.title.lastIndexOf(current.accent))}<HandAccent>{current.accent}</HandAccent>{current.title.slice(current.title.lastIndexOf(current.accent) + current.accent.length)}</h2>
           <p>{current.description}</p>
           <DocumentNavigationLink href={isLoggedIn ? "/c/me" : "/sign-in"} data-variant="default" className={cn(buttonVariants({ size: "lg" }), "mt-6")}
             data-testid={`landing-section-cta-${current.id}`}

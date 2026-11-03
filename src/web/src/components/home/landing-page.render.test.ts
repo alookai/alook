@@ -61,7 +61,8 @@ describe("landing feature navigation", () => {
   it.each([false, true])("renders feature labels and the correct CTA route for signed-in=%s", (isLoggedIn) => {
     const markup = renderToStaticMarkup(createElement(LandingPage, { isLoggedIn }))
     expect(markup).toContain("landing-section-cta-product")
-    expect(markup).toContain("Chat with shared agents")
+    // Visible title text, with the hand-accent span stripped.
+    expect(markup.replace(/<[^>]+>/g, "")).toContain("Chat with shared agents")
     for (const label of ["Collaboration", "Agent identity", "Persistent Memory", "Remote control", "Free and local"]) {
       expect(markup).toContain(label)
     }

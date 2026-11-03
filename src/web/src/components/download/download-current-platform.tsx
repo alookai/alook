@@ -4,7 +4,10 @@ import { useEffect } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { ArrowDown, ArrowUpRight } from "lucide-react"
 import { IOS_TESTFLIGHT_URL, currentDownloadTargets, downloadArchitecture, downloadPlatformFromOS, UNKNOWN_DOWNLOAD_ENVIRONMENT, type DownloadEnvironment, type DownloadInstaller } from "@/lib/download-platforms"
-import styles from "./download-page.module.css"
+import { buttonVariants } from "@/components/ui/button"
+
+// The shared keycap button (ui/Button styles + data-variant for the theme), on a native link.
+const PRIMARY = buttonVariants({ size: "lg" }) + " h-12 px-5 text-sm"
 
 type ClientHints = {
   platform: string
@@ -43,7 +46,7 @@ export function DownloadCurrentPlatform({ installers, initialEnvironment = UNKNO
   const available = targets.flatMap(id => installers.find(installer => installer.id === id) ?? [])
   const chooseChip = environment.platform === "macos" && environment.architecture === "unknown"
   const choices = chooseChip ? available : available.slice(0, 1)
-  if (choices.length) return <>{choices.map(installer => <a key={installer.id} className={styles.primary} href={installer.url}><ArrowDown size={18} aria-hidden="true" />{chooseChip ? installer.id === "mac-arm" ? "Mac · Apple Silicon" : "Mac · Intel" : LABELS[installer.id]}</a>)}</>
-  if (environment.platform === "ios") return <a className={styles.primary} href={IOS_TESTFLIGHT_URL}>Join the beta<ArrowUpRight size={18} aria-hidden="true" /></a>
-  return <a className={styles.primary} href="#desktop"><ArrowDown size={18} aria-hidden="true" />Choose your platform</a>
+  if (choices.length) return <>{choices.map(installer => <a key={installer.id} data-variant="default" className={PRIMARY} href={installer.url}><ArrowDown size={18} aria-hidden="true" />{chooseChip ? installer.id === "mac-arm" ? "Mac · Apple Silicon" : "Mac · Intel" : LABELS[installer.id]}</a>)}</>
+  if (environment.platform === "ios") return <a data-variant="default" className={PRIMARY} href={IOS_TESTFLIGHT_URL}>Join the beta<ArrowUpRight size={18} aria-hidden="true" /></a>
+  return <a data-variant="default" className={PRIMARY} href="#desktop"><ArrowDown size={18} aria-hidden="true" />Choose your platform</a>
 }

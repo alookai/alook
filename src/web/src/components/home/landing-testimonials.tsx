@@ -1,6 +1,7 @@
 "use client"
 
 import { ArrowUpRight } from "lucide-react"
+import { HandAccent } from "@/components/brand/hand-accent"
 import { MessageAuthorLine } from "@/components/community/messages/message-author-line"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { LANDING_TESTIMONIALS, rankTestimonials } from "./landing-testimonials-data"
@@ -16,7 +17,7 @@ export function LandingTestimonials() {
     <section id="testimonials" aria-labelledby="testimonials-heading" className={styles.section}>
       <div className={styles.container}>
         <div className={styles.intro}>
-          <h2 id="testimonials-heading">What people say about Alook.</h2>
+          <h2 id="testimonials-heading">What people say about <HandAccent>Alook</HandAccent>.</h2>
           <p>From the community, in their own words.</p>
         </div>
       </div>

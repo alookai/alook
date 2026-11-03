@@ -17,6 +17,7 @@ import { MarketingNav } from "./marketing-nav"
 import { LandingInteractiveDemo } from "./landing-interactive-demo"
 import { LandingFooter } from "./landing-footer"
 import { LANDING_HERO } from "./landing-content"
+import { HandAccent } from "@/components/brand/hand-accent"
 import styles from "./landing-page.module.css"
 import { trackLandingCtaClicked } from "@/lib/analytics"
 import { tid } from "@/lib/community/testids"
@@ -51,9 +52,12 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         isLoggedIn={isLoggedIn}
         headline={(
           <>
-            <span className={styles.landingHeroEmphasis}>{LANDING_HERO.headlineLead}</span>
+            <span className={styles.landingHeroLead}>{LANDING_HERO.headlineLead}</span>
             <br />
-            <span className={styles.landingHeroTail}>{LANDING_HERO.headlineTail}</span>
+            <span className={styles.landingHeroTail}>
+              {LANDING_HERO.headlineTail.replace(LANDING_HERO.headlineAccent, "")}
+              <HandAccent className={styles.landingHeroAccent}>{LANDING_HERO.headlineAccent}</HandAccent>
+            </span>
           </>
         )}
         subline={LANDING_HERO.subline}
@@ -71,6 +75,12 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         testId="landing-hero"
         highlightPrimaryCta
         backgroundDecoration={<HeroAvatarSwarm />}
+        artworkDecoration={(
+          <div className={styles.heroStickers} aria-hidden="true">
+            <span className={`${styles.heroSticker} ${styles.heroStickerOrange}`}><i className={styles.heroStickerLed} />3 agents online</span>
+            <span className={`${styles.heroSticker} ${styles.heroStickerBlue}`}>Claude Code · Codex</span>
+          </div>
+        )}
       />
 
       <LandingTestimonials />
@@ -84,7 +94,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
       <section className={styles.closingSection} data-testid="landing-closing">
         <div className={styles.closingCta}>
           <p className={styles.kicker}>Ready to share</p>
-          <h2>Bring your team into the conversation.</h2>
+          <h2>Bring your team into the <HandAccent>conversation</HandAccent>.</h2>
           <p>Connect your agent and invite a teammate.</p>
           <div className={styles.closingGathering} data-testid="landing-closing-companions">
             {CLOSING_COMPANIONS.map((companion) => (
