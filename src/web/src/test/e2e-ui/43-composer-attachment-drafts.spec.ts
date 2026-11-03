@@ -1,5 +1,5 @@
 import { currentCommunityFixtureError } from "./_fixtures/business-contract"
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, installInputCapability } from "./_fixtures/actions"
 import { rootWorker } from "./_fixtures/public-static-qa"
@@ -11,6 +11,46 @@ const PNG_1X1 = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
 )
+
+async function menuTargetState(target: Locator) {
+  return target.evaluate(element => {
+    const doc = element.ownerDocument
+    const identify = (node: Element | null) => node ? { tag: node.tagName, id: node.id, testId: node.getAttribute("data-testid"), slot: node.getAttribute("data-slot") } : null
+    const rectangle = (node: Element) => { const { x, y, width, height } = node.getBoundingClientRect(); return { x, y, width, height } }
+    const bounds = element.getBoundingClientRect()
+    const hit = doc.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)
+    return {
+      at: performance.now(),
+      clock: "performance.now in the current page",
+      target: identify(element),
+      bounds: rectangle(element),
+      focused: identify(doc.activeElement),
+      centerHit: identify(hit),
+      targetOwnsCenterHit: !!hit && element.contains(hit),
+      tooltips: Array.from(doc.querySelectorAll('[data-slot="tooltip-content"]'), popup => {
+        const style = doc.defaultView!.getComputedStyle(popup)
+        const parent = popup.parentElement
+        return {
+          identity: identify(popup),
+          open: popup.hasAttribute("data-open"),
+          closed: popup.hasAttribute("data-closed"),
+          ending: popup.hasAttribute("data-ending-style"),
+          state: popup.getAttribute("data-state"),
+          hidden: popup.hasAttribute("hidden"),
+          inert: popup.hasAttribute("inert"),
+          hiddenAncestor: !!popup.closest("[hidden]"),
+          inertAncestor: !!popup.closest("[inert]"),
+          display: style.display,
+          visibility: style.visibility,
+          opacity: style.opacity,
+          pointerEvents: style.pointerEvents,
+          bounds: rectangle(popup),
+          parent: parent ? { identity: identify(parent), hidden: parent.hidden, inert: parent.inert, ownsCenterHit: !!hit && parent.contains(hit) } : null,
+        }
+      }),
+    }
+  })
+}
 
 async function revealSidebar(page: Page) {
   const sidebar = page.locator('[data-slot="community-sidebar-panel-content"]')
@@ -76,17 +116,27 @@ test.describe("same-tab Community attachment drafts", () => {
       data.items.add(new File(["dropped document"], "dropped.txt", { type: "text/plain" }))
       return data
     })
+    const menuStates: Array<{ stage: string; state: Awaited<ReturnType<typeof menuTargetState>> }> = []
+    let activeMenuTarget: Locator | null = null
+    const recordMenuState = async (stage: string, target: Locator) => { menuStates.push({ stage, state: await menuTargetState(target) }) }
     try {
       for (const target of [page.getByTestId(tid.serverIcon(serverId)), page.getByTestId(tid.channelRow(channelAId))]) {
-        await composerEditable(page).hover()
+        activeMenuTarget = target
+        await recordMenuState("before-editor-focus", target)
+        await composerEditable(page).click()
+        await expect(composerEditable(page)).toBeFocused()
+        await recordMenuState("editor-focused", target)
         await page.keyboard.press("Escape")
-        await expect(page.locator('[data-slot="tooltip-content"]')).toHaveCount(0)
+        await recordMenuState("after-escape", target)
+        await target.click({ button: "right", trial: true, timeout: 10_000 })
+        await recordMenuState("native-ready-before-files", target)
         await target.dispatchEvent("dragenter", { dataTransfer: transfer })
         await target.dispatchEvent("dragover", { dataTransfer: transfer })
         await expect(composer.getByText("Drop files here", { exact: true })).toHaveCount(0)
         await target.click({ button: "right" })
         if (await target.getAttribute("data-testid") === tid.serverIcon(serverId)) await expect(page.getByTestId(tid.serverSettingsOpen)).toBeVisible()
         else await expect(page.getByRole("menuitem", { name: "Edit channel", exact: true })).toBeVisible()
+        await recordMenuState("menu-open-after-files", target)
         await page.keyboard.press("Escape")
         await target.dispatchEvent("dragleave", { dataTransfer: transfer })
       }
@@ -97,7 +147,11 @@ test.describe("same-tab Community attachment drafts", () => {
       await composer.dispatchEvent("drop", { dataTransfer: transfer })
       await expect(composer.getByText("Drop files here", { exact: true })).toHaveCount(0)
       await expect(composer.getByText("dropped.txt", { exact: true })).toBeVisible()
-    } finally { await transfer.dispose() }
+    } finally {
+      const finalTargetState = activeMenuTarget ? await menuTargetState(activeMenuTarget).catch(error => ({ captureError: String(error) })) : { captureError: "No menu target selected" }
+      await testInfo.attach("external-file-menu-input.json", { body: JSON.stringify({ observations: menuStates, finalTargetState, boundary: "Read-only DOM focus/style/center-hit evidence; native trial and actual secondary-click/menu assertions are the gates" }), contentType: "application/json" })
+      await transfer.dispose()
+    }
 
     await composerEditable(page).focus()
     await composerEditable(page).evaluate(element => {
