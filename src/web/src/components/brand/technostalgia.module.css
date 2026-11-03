@@ -423,6 +423,14 @@
   gap: 18px;
   padding: 28px;
 }
+/* The image viewer is a frameless full-viewport stage, not a card: its
+ * toolbar sits on the dialog edge, so it keeps the app's p-0 / border-none. */
+.theme :is([data-slot="dialog-content"]):has([data-testid="community-image-lightbox"]),
+.theme:is([data-slot="dialog-content"]):has([data-testid="community-image-lightbox"]) {
+  padding: 0;
+  border-width: 0;
+  background-color: transparent;
+}
 
 .theme [data-slot="dialog-title"],
 .theme:is([data-slot="dialog-content"]) [data-slot="dialog-title"] {
@@ -524,8 +532,10 @@
 
 /* App-level components, matched by their existing data-slot / test hooks */
 /* Frameless like the original app: a soft recessed fill, no outline */
-.theme [data-slot="community-user-bar-base"] {
+.theme [data-slot="community-user-bar-base"]:not([class~="rounded-b-xl"]) {
   border-color: transparent !important;
+}
+.theme [data-slot="community-user-bar-base"] {
   background: color-mix(in oklab, var(--tn-text) 4.5%, var(--tn-paper));
 }
 
@@ -1052,17 +1062,24 @@
   border: 0 !important;
 }
 
-/* User bar extension: one hairline shell, no double outline from the popover wrapper */
+/* User bar extension: one hairline shell, no double outline from the popover
+ * wrapper. The wrapper is a frameless anchor (border-0 in the app), so drop the
+ * surface border width too; a transparent 1px border would still shrink the
+ * 320px extension to 318px. */
 .theme [data-slot="popover-content"]:has(> * > [data-testid="community-user-bar-extension"]),
-.theme [data-slot="popover-content"]:has([data-testid="community-user-bar-extension"]) {
+.theme [data-slot="popover-content"]:has([data-testid="community-user-bar-extension"]),
+.theme:is([data-slot="popover-content"]):has([data-testid="community-user-bar-extension"]) {
+  border-width: 0 !important;
   border-color: transparent !important;
   background: transparent !important;
   box-shadow: none !important;
 }
-.theme [data-testid="community-user-bar-extension"] {
+/* Desktop pop-up only. On mobile the extension joins the user bar into one
+ * object, so both keep the app's shared border/40 hairline. */
+.theme [data-testid="community-user-bar-extension"][data-presentation="popup"] {
   border-color: var(--tn-line) !important;
 }
-.theme :is([data-testid="community-user-bar-extension"], [data-testid="community-profile-running-bots-card"]) {
+.theme :is([data-testid="community-user-bar-extension"][data-presentation="popup"], [data-testid="community-profile-running-bots-card"]) {
   border-color: var(--tn-line) !important;
   box-shadow: 0 12px 28px -14px color-mix(in oklab, var(--tn-text) 22%, transparent) !important;
 }
@@ -1148,10 +1165,8 @@
   --forum-tag-text-c: 0.11;
 }
 
-/* Sheets: frameless header; the panel edge is a hairline */
-.theme [data-slot="sheet-header"] {
-  border-bottom-color: transparent !important;
-}
+/* Sheets: the panel edge and the header divider are the same hairline token
+ * (Gus #2184: removing lines is not the style). */
 .theme [data-slot="sheet-content"] {
   border-color: var(--tn-line) !important;
 }
@@ -1936,14 +1951,18 @@
 .theme [data-testid="community-scroll-to-present"] {
   animation: tn-key-in 220ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
 }
+/* Fade only: the rail measures these keys while they arrive, so the entry must
+ * not change their box (no scale or translate). */
 @keyframes tn-key-in {
-  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  from { opacity: 0; }
 }
 
 /* Baseline (Stageshow): anything clickable that has no press of its own still
- * sinks a pixel when pressed, so no control feels dead. */
+ * sinks a pixel when pressed, so no control feels dead. Use transform, not
+ * translate: many controls are centred with Tailwind translate (-50% -50%),
+ * and replacing it moved them out from under the pointer mid-press. */
 .theme :is(button, [role="button"], a[href], summary, label:has(> input)):not([data-variant], [data-slot="tabs-trigger"], [data-slot$="menu-item"], [data-slot="select-item"], [data-page-swipe-reply-row], [data-shell], [data-testid^="community-channel-row-"], [data-testid^="community-dm-row-"], [data-testid^="community-server-icon-"], :disabled):active {
-  translate: 0 1px;
+  transform: translateY(1px);
 }
 .theme :is(button, [role="button"], a[href], summary):not([data-variant]) {
   transition-property: color, background-color, border-color, box-shadow, opacity, translate, transform;
@@ -2316,4 +2335,10 @@
 .theme[data-tn-mode="dark"] [data-testid="community-typing-indicator"][data-pressed],
 [data-tn-mode="dark"] .theme [data-testid="community-typing-indicator"][data-pressed] {
   box-shadow: inset 0 1px 4px rgb(0 0 0 / 70%), 0 0.5px 0 rgb(140 160 200 / 36%) !important;
+}
+
+/* CI #2330: a caller that opts its dialog close out of transitions
+ * (**:data-[slot=dialog-close]:transition-none) keeps that over the key look. */
+.theme [data-slot="dialog-content"][class*="dialog-close]:transition-none"] [data-slot="dialog-close"] {
+  transition: none !important;
 }

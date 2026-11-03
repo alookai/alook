@@ -58,7 +58,9 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
   useEffect(() => {
     if (!mounted || error) return
     function theme() {
-      const style = getComputedStyle(document.documentElement)
+      // Read tokens where the preview is shown: the app theme sets them on
+      // <body>, so <html> alone would hand the frame the unthemed palette.
+      const style = getComputedStyle(frame.current ?? document.documentElement)
       const variables = Object.fromEntries(HTML_PREVIEW_THEME_VARIABLES.map((key) => [`--${key}`, style.getPropertyValue(`--${key}`).trim()]))
       variables["--font-sans"] = style.getPropertyValue("--font-dm-sans").trim() || style.fontFamily
       variables["--font-mono"] = style.getPropertyValue("--font-dm-mono").trim() || "ui-monospace, monospace"

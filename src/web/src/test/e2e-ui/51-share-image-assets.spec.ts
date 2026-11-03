@@ -371,6 +371,131 @@ async function comparePreviewToCapture(
   }, { previewBase64: screenshot.toString("base64"), index: captureIndex, region })
 }
 
+type BrandControl = "erase" | "shift-x" | "shift-y" | "font" | "recolour"
+
+// The brand is small script text: its 1x preview raster and 2x export differ in
+// stroke weight from hinting alone, so a raw pixel mean mostly measures raster
+// density. Compare at the same density instead: downscale the export to the
+// preview's pixel size, soften both by 1px, then require the same ink
+// (mean channel difference) and the same glyph shape (luminance correlation).
+async function compareBrandGlyph(page: Page, card: Locator, captureIndex: number, control?: BrandControl) {
+  const region = await card.evaluate((node) => {
+    const cardRect = node.getBoundingClientRect()
+    const rect = node.querySelector("[data-share-brand]")!.getBoundingClientRect()
+    return { left: rect.left - cardRect.left, top: rect.top - cardRect.top, width: rect.width, height: rect.height }
+  })
+  const screenshot = await card.screenshot({ animations: "disabled" })
+  return page.evaluate(async ({ previewBase64, index, region, control }) => {
+    const captured = (window as typeof window & { __shareCaptures?: { clipboard: Blob[] } }).__shareCaptures?.clipboard[index]
+    if (!captured) throw new Error(`Missing clipboard capture ${index}`)
+    const binary = atob(previewBase64)
+    const previewBytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i += 1) previewBytes[i] = binary.charCodeAt(i)
+    const [preview, exportedBitmap] = await Promise.all([
+      createImageBitmap(new Blob([previewBytes], { type: "image/png" })),
+      createImageBitmap(captured),
+    ])
+    const scale = exportedBitmap.width / preview.width
+    const source = document.createElement("canvas")
+    source.width = exportedBitmap.width
+    source.height = exportedBitmap.height
+    const sourceContext = source.getContext("2d")!
+    const box = { x: region.left * scale, y: region.top * scale, width: region.width * scale, height: region.height * scale }
+    if (control === "shift-x" || control === "shift-y") {
+      sourceContext.fillStyle = getComputedStyle(document.body).backgroundColor
+      sourceContext.drawImage(exportedBitmap, 0, 0)
+      const patch = sourceContext.getImageData(box.x - 8, box.y - 8, box.width + 16, box.height + 16)
+      sourceContext.putImageData(patch, box.x - 8 + (control === "shift-x" ? 2 * scale : 0), box.y - 8 + (control === "shift-y" ? 2 * scale : 0))
+    } else {
+      sourceContext.drawImage(exportedBitmap, 0, 0)
+    }
+    if (control === "erase" || control === "font") {
+      const fill = sourceContext.getImageData(Math.round(box.x - 2), Math.round(box.y + box.height / 2), 1, 1).data
+      sourceContext.fillStyle = `rgb(${fill[0]}, ${fill[1]}, ${fill[2]})`
+      sourceContext.fillRect(box.x - 1, box.y - 1, box.width + 2, box.height + 2)
+    }
+    if (control === "font") {
+      const ink = getComputedStyle(document.querySelector("[data-share-brand]")!).color
+      sourceContext.fillStyle = ink
+      sourceContext.font = `700 ${14 * scale}px Arial, sans-serif`
+      sourceContext.textBaseline = "middle"
+      sourceContext.fillText("Alook", box.x, box.y + box.height / 2)
+    }
+    if (control === "recolour") {
+      // Repaint the brand ink as a clearly different (blue) colour, keeping its coverage.
+      const x = Math.floor(box.x) - 2
+      const y = Math.floor(box.y) - 2
+      const patch = sourceContext.getImageData(x, y, Math.ceil(box.width) + 4, Math.ceil(box.height) + 4)
+      const background = sourceContext.getImageData(x - 2, Math.round(box.y + box.height / 2), 1, 1).data
+      const target = [40, 90, 220]
+      for (let i = 0; i < patch.data.length; i += 4) {
+        const coverage = Math.min(1, (Math.abs(patch.data[i]! - background[0]!) + Math.abs(patch.data[i + 1]! - background[1]!) + Math.abs(patch.data[i + 2]! - background[2]!)) / 300)
+        for (let c = 0; c < 3; c += 1) patch.data[i + c] = Math.round(background[c]! + (target[c]! - background[c]!) * coverage)
+      }
+      sourceContext.putImageData(patch, x, y)
+    }
+    const sample = (image: CanvasImageSource) => {
+      const canvas = document.createElement("canvas")
+      canvas.width = preview.width
+      canvas.height = preview.height
+      const context = canvas.getContext("2d")!
+      context.imageSmoothingEnabled = true
+      context.imageSmoothingQuality = "high"
+      context.filter = "blur(1px)"
+      context.drawImage(image, 0, 0, preview.width, preview.height)
+      const pad = 2
+      return context.getImageData(Math.floor(region.left) - pad, Math.floor(region.top) - pad, Math.ceil(region.width) + 2 * pad, Math.ceil(region.height) + 2 * pad).data
+    }
+    // The strongest ink pixel, unsoftened, at each image's own density.
+    const strongestInk = (image: CanvasImageSource, width: number, height: number, factor: number) => {
+      const canvas = document.createElement("canvas")
+      canvas.width = width
+      canvas.height = height
+      const context = canvas.getContext("2d")!
+      context.drawImage(image, 0, 0)
+      const background = context.getImageData(Math.round((region.left - 2) * factor), Math.round((region.top + region.height / 2) * factor), 1, 1).data
+      const pixels = context.getImageData(Math.floor(region.left * factor), Math.floor(region.top * factor), Math.ceil(region.width * factor), Math.ceil(region.height * factor)).data
+      let best = [background[0]!, background[1]!, background[2]!]
+      let distance = -1
+      for (let i = 0; i < pixels.length; i += 4) {
+        const current = Math.abs(pixels[i]! - background[0]!) + Math.abs(pixels[i + 1]! - background[1]!) + Math.abs(pixels[i + 2]! - background[2]!)
+        if (current > distance) { distance = current; best = [pixels[i]!, pixels[i + 1]!, pixels[i + 2]!] }
+      }
+      return best
+    }
+    const previewInk = strongestInk(preview, preview.width, preview.height, 1)
+    const exportInk = strongestInk(source, source.width, source.height, scale)
+    const a = sample(preview)
+    const b = sample(source)
+    let difference = 0
+    const la: number[] = []
+    const lb: number[] = []
+    for (let i = 0; i < a.length; i += 4) {
+      difference += Math.abs(a[i]! - b[i]!) + Math.abs(a[i + 1]! - b[i + 1]!) + Math.abs(a[i + 2]! - b[i + 2]!)
+      la.push(0.299 * a[i]! + 0.587 * a[i + 1]! + 0.114 * a[i + 2]!)
+      lb.push(0.299 * b[i]! + 0.587 * b[i + 1]! + 0.114 * b[i + 2]!)
+    }
+    const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length
+    const ma = mean(la)
+    const mb = mean(lb)
+    let covariance = 0
+    let va = 0
+    let vb = 0
+    for (let i = 0; i < la.length; i += 1) {
+      covariance += (la[i]! - ma) * (lb[i]! - mb)
+      va += (la[i]! - ma) ** 2
+      vb += (lb[i]! - mb) ** 2
+    }
+    preview.close()
+    exportedBitmap.close()
+    return {
+      meanChannelDifference: difference / (la.length * 3),
+      shapeCorrelation: va && vb ? covariance / Math.sqrt(va * vb) : 0,
+      inkDifference: Math.max(...previewInk.map((channel, i) => Math.abs(channel - exportInk[i]!))),
+    }
+  }, { previewBase64: screenshot.toString("base64"), index: captureIndex, region, control })
+}
+
 function sampleCenter(card: Locator, selector: string): Promise<SamplePoint> {
   return card.evaluate((cardNode, selector) => {
     const targetNode = cardNode.querySelector(selector)
@@ -1067,6 +1192,8 @@ test("light and dark desktop and narrow previews match their frozen full PNG", a
         : { width: 390, height: 844 })
       await page.evaluate((value) => {
         document.documentElement.classList.toggle("dark", value === "dark")
+        // The app ThemeProvider writes both attributes (layout.tsx: ["class", "data-tn-mode"]).
+        document.documentElement.setAttribute("data-tn-mode", value)
         document.documentElement.style.colorScheme = value
       }, scheme)
       const dialog = await openShareDialog(page, seeded.id)
@@ -1095,8 +1222,18 @@ test("light and dark desktop and narrow previews match their frozen full PNG", a
       expect(Math.abs(comparison.exportWidth - comparison.previewWidth * 2)).toBeLessThanOrEqual(2)
       expect(Math.abs(comparison.exportHeight - comparison.previewHeight * 2)).toBeLessThanOrEqual(2)
       expect(comparison.meanChannelDifference).toBeLessThan(28)
-      const brandComparison = await comparePreviewToCapture(page, card, captureIndex, "[data-share-brand]")
-      expect(brandComparison.meanChannelDifference).toBeLessThan(20)
+      const brandComparison = await compareBrandGlyph(page, card, captureIndex)
+      const brandMatches = (result: typeof brandComparison) => result.inkDifference <= 16
+        && result.shapeCorrelation >= 0.89
+        && result.meanChannelDifference < 10
+      expect(brandComparison.inkDifference).toBeLessThanOrEqual(16)
+      expect(brandComparison.shapeCorrelation).toBeGreaterThanOrEqual(0.89)
+      expect(brandComparison.meanChannelDifference).toBeLessThan(10)
+      // Negative controls keep the check honest: a missing, moved, re-fonted or
+      // recoloured brand in the export must fail it.
+      for (const control of ["erase", "shift-x", "shift-y", "font", "recolour"] as const) {
+        expect(brandMatches(await compareBrandGlyph(page, card, captureIndex, control)), control).toBe(false)
+      }
       const point = await sampleCenter(card, `[data-testid="${tid.messageShareImage(seeded.id, 0)}"]`)
       expect((await capturePixel(page, "clipboard", captureIndex, point)).pixel[2]).toBeGreaterThan(180)
       const downloadStarted = page.waitForEvent("download")
@@ -1156,6 +1293,8 @@ test("a statistics table message generates a complete share PNG", async ({ caseA
       await page.setViewportSize(viewport === "desktop" ? { width: 1280, height: 900 } : { width: 390, height: 844 })
       await page.evaluate((scheme) => {
         document.documentElement.classList.toggle("dark", scheme === "dark")
+        // The app ThemeProvider writes both attributes (layout.tsx: ["class", "data-tn-mode"]).
+        document.documentElement.setAttribute("data-tn-mode", scheme)
         document.documentElement.style.colorScheme = scheme
       }, scheme)
       const started = Date.now()

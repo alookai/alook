@@ -237,7 +237,7 @@ for (const width of [1440, 390]) {
 
     await page.getByRole("link", { name: "Back to home", exact: true }).click()
     await expect(page).toHaveURL(/\/$/)
-    await page.locator(".hero-section").evaluate((hero) => window.scrollTo(0, hero.getBoundingClientRect().bottom + window.scrollY))
+    await page.locator(".hero-section").evaluate((hero) => window.scrollTo(0, hero.getBoundingClientRect().bottom + window.scrollY + 1))
     const nav = page.locator("nav.marketing-nav")
     await expect(nav).toBeVisible()
     if (width < 640) await nav.locator("summary").click()
