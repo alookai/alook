@@ -19,54 +19,35 @@ import type { BrowserPage } from "../../src/browser/index"
 
 const _dir = dirname(fileURLToPath(import.meta.url))
 const mockHtml = readFileSync(join(_dir, "mock-meet.html"), "utf-8")
+const chromePath = process.env.CI ? null : findChrome()
 
 let server: Server
 let serverUrl: string
 let browser: Browser
 
-beforeAll(async () => {
-  if (process.env.CI) {
-    console.warn("SKIP: browser integration tests disabled in CI (environment-dependent)")
-    return
-  }
+describe.skipIf(!chromePath)("meet-navigator (browser integration)", () => {
+  beforeAll(async () => {
+    server = createServer((_, res) => {
+      res.writeHead(200, { "Content-Type": "text/html" })
+      res.end(mockHtml)
+    })
+    await new Promise<void>((resolve) => server.listen(0, resolve))
+    const addr = server.address()
+    const port = typeof addr === "object" && addr ? addr.port : 0
+    serverUrl = `http://localhost:${port}`
 
-  const chromePath = findChrome()
-  if (!chromePath) {
-    console.warn("SKIP: Chrome not installed — browser integration tests require Chrome")
-    return
-  }
+    browser = await chromium.launch({
+      executablePath: chromePath ?? undefined,
+      headless: true,
+    })
+  }, 30_000)
 
-  server = createServer((_, res) => {
-    res.writeHead(200, { "Content-Type": "text/html" })
-    res.end(mockHtml)
-  })
-  await new Promise<void>((resolve) => server.listen(0, resolve))
-  const addr = server.address()
-  const port = typeof addr === "object" && addr ? addr.port : 0
-  serverUrl = `http://localhost:${port}`
+  afterAll(async () => {
+    await browser?.close().catch(() => {})
+    server?.close()
+  }, 30_000)
 
-  browser = await chromium.launch({
-    executablePath: chromePath,
-    headless: true,
-  })
-}, 30_000)
-
-afterAll(async () => {
-  await browser?.close().catch(() => {})
-  server?.close()
-}, 30_000)
-
-function skipIfNoBrowser() {
-  if (!browser) {
-    console.warn("skipped — no Chrome")
-    return true
-  }
-  return false
-}
-
-describe("meet-navigator (browser integration)", () => {
   it("joins meeting, types bot name, and mutes mic/camera", async () => {
-    if (skipIfNoBrowser()) return
     const page = await browser.newPage()
     const bp = page as unknown as BrowserPage
 
@@ -91,7 +72,6 @@ describe("meet-navigator (browser integration)", () => {
   }, 30_000)
 
   it("detects meeting is active after joining", async () => {
-    if (skipIfNoBrowser()) return
     const page = await browser.newPage()
     const bp = page as unknown as BrowserPage
 
@@ -104,7 +84,6 @@ describe("meet-navigator (browser integration)", () => {
   }, 30_000)
 
   it("enables captions and scrapes them", async () => {
-    if (skipIfNoBrowser()) return
     const page = await browser.newPage()
     const bp = page as unknown as BrowserPage
 
@@ -128,7 +107,6 @@ describe("meet-navigator (browser integration)", () => {
   }, 30_000)
 
   it("deduplicates when last caption repeats (real Meet behavior)", async () => {
-    if (skipIfNoBrowser()) return
     const page = await browser.newPage()
     const bp = page as unknown as BrowserPage
 
@@ -153,7 +131,6 @@ describe("meet-navigator (browser integration)", () => {
   }, 30_000)
 
   it("leaves meeting and meeting becomes inactive", async () => {
-    if (skipIfNoBrowser()) return
     const page = await browser.newPage()
     const bp = page as unknown as BrowserPage
 
