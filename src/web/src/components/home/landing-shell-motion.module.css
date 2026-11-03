@@ -29,6 +29,7 @@
 }
 
 .stage {
+  background: var(--background);
   position: relative;
   width: 100%;
   aspect-ratio: 1120 / 660;
@@ -41,6 +42,7 @@
 }
 
 .mobileStage {
+  background: var(--background);
   position: relative;
   width: 100%;
   aspect-ratio: 390 / 788;

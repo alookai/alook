@@ -5,11 +5,12 @@ import { cn } from "@/lib/utils"
 import { DocumentNavigationLink } from "./document-navigation-link"
 
 import Image from "next/image"
-import { useCallback, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import { LANDING_HUMAN_AVATARS } from "./landing-human-avatars"
 import { GeneratedAvatar } from "@/components/avatar"
 import { HeroSection } from "./hero-section"
 import { HeroAvatarSwarm } from "./hero-avatar-swarm"
+import { LandingSky, PaperFlurry } from "./landing-sky"
 import { HomepageFaq } from "./homepage-faq"
 import { LandingTestimonials } from "./landing-testimonials"
 import { LandingFeatureGallery } from "./landing-feature-gallery"
@@ -18,10 +19,12 @@ import { LandingInteractiveDemo } from "./landing-interactive-demo"
 import { LandingFooter } from "./landing-footer"
 import { LANDING_HERO } from "./landing-content"
 import { HandAccent } from "@/components/brand/hand-accent"
-import { Cassette, CdPlayer, FlipPhone, Mac } from "@/components/brand/retro-objects"
+import { ThemeToggle } from "@/components/theme-toggle"
+import { LandingClosingCollage } from "./landing-closing-collage"
 import styles from "./landing-page.module.css"
 import { trackLandingCtaClicked } from "@/lib/analytics"
 import { tid } from "@/lib/community/testids"
+import { useLandingScrollSnap } from "./use-landing-scroll-snap"
 
 const CLOSING_COMPANIONS = [
   { seed: "Maya", className: styles.closingCompanionLeft },
@@ -30,10 +33,12 @@ const CLOSING_COMPANIONS = [
 ] as const
 
 export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
+  const page = useRef<HTMLElement>(null)
+  useLandingScrollSnap(page)
   const [heroReady, setHeroReady] = useState(false)
   const handleHeroReady = useCallback(() => setHeroReady(true), [])
   return (
-    <main className={`landing ${styles.page}`}>
+    <main ref={page} className={`landing ${styles.page}`}>
       <MarketingNav
         isLoggedIn={isLoggedIn}
         showTemplates={false}
@@ -75,8 +80,14 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         secondaryCta={{ kind: "github", label: LANDING_HERO.secondaryCta }}
         testId="landing-hero"
         highlightPrimaryCta
-        backgroundDecoration={<HeroAvatarSwarm />}
+        backgroundDecoration={<><LandingSky /><HeroAvatarSwarm /></>}
+        artworkDecoration={<PaperFlurry />}
       />
+
+      {/* Light/dark switch pinned to the hero's bottom-left (Gus #2470). */}
+      <div className={styles.heroThemeToggle}>
+        <ThemeToggle />
+      </div>
 
       <LandingTestimonials />
 
@@ -87,10 +98,10 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
       <HomepageFaq />
 
       <section className={styles.closingSection} data-testid="landing-closing">
-        <div className={styles.closingCta}>
+        <div className={styles.closingCta} data-landing-scroll-anchor>
           <div className={styles.closingCopy}>
           <p className={styles.kicker}>Ready to share</p>
-          <h2>Bring your team into the <HandAccent>conversation</HandAccent>.</h2>
+          <h2>Bring your team into the <HandAccent>conversation</HandAccent></h2>
           <p>Connect your agent and invite a teammate.</p>
           <div className={styles.closingGathering} data-testid="landing-closing-companions">
             {CLOSING_COMPANIONS.map((companion) => (
@@ -119,12 +130,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
           </div>
           </div>
           {/* Cut-paper collage around the card (Gus #2408, #2412): the brand's retro objects. */}
-          <div className={styles.closingCollage} aria-hidden="true">
-            <Mac className={`${styles.collageItem} ${styles.collageMac}`} label="Alook" labelFont="var(--font-brand)" />
-            <CdPlayer className={`${styles.collageItem} ${styles.collageCd}`} />
-            <Cassette className={`${styles.collageItem} ${styles.collageCassette}`} />
-            <FlipPhone className={`${styles.collageItem} ${styles.collagePhone}`} />
-          </div>
+          <LandingClosingCollage />
         </div>
       </section>
 

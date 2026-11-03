@@ -182,14 +182,16 @@ function InviteAcceptInner({ token }: { token: string }) {
   return (
     <Shell>
       {info && (
-        <ServerIcon
-          id={info.serverId}
-          name={info.serverName}
-          initial={avatarInitial(info.serverName)}
-          icon={info.serverIcon}
-          size={84}
-          className="rounded-2xl"
-        />
+        <div data-testid={tid.serverIcon(info.serverId)} className="cursor-default select-none">
+          <ServerIcon
+            id={info.serverId}
+            name={info.serverName}
+            initial={avatarInitial(info.serverName)}
+            icon={info.serverIcon}
+            size={84}
+            className="rounded-2xl"
+          />
+        </div>
       )}
 
       <p className="mt-5 text-xs font-medium text-muted-foreground">You&apos;re invited to join</p>

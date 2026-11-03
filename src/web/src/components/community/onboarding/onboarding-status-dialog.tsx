@@ -13,6 +13,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  OnboardingProgress,
 } from "./onboarding-surface"
 import { tid } from "@/lib/community/testids"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -61,9 +62,7 @@ export function OnboardingStatusDialog({
         aria-busy={status === "loading"}
       >
         <DialogHeader className="gap-4 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 sm:pb-6">
-          <div className="flex gap-1 pr-8" aria-label={`Step ${totalSteps} of ${totalSteps}`}>
-            {Array.from({ length: totalSteps }, (_, index) => <span key={index} className={["h-1 flex-1 rounded-full bg-(--te)", "h-1 flex-1 rounded-full bg-(--ti)", "h-1 flex-1 rounded-full bg-(--tc)"][index % 3]} />)}
-          </div>
+          <OnboardingProgress current={totalSteps} total={totalSteps} done={status === "success"} />
           <div className="flex flex-col gap-2">
             <DialogTitle className="flex flex-wrap items-center gap-x-2 text-2xl leading-tight font-semibold tracking-tight">
               {status === "success" ? <span>Your</span> : <span>Building your</span>}

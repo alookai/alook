@@ -130,13 +130,13 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
             </TabsContent>
           </Tabs>
           {isMobile && (
-            <button
+            <Button
               type="button"
               onClick={picker.close}
-              className="w-full rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+              className="h-11 w-full rounded-xl"
             >
               Done
-            </button>
+            </Button>
           )}
         </DialogContent>
       </Dialog>

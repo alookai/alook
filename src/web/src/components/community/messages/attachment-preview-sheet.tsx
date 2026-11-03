@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 import { applicationKey, assertApplicationOwner, captureApplicationOwner, useApplicationOwner } from "@/lib/application-owner"
 import dynamic from "next/dynamic"
 import { CircleCheck, Download, Loader2, RefreshCw } from "lucide-react"
-import { buttonVariants } from "@/components/ui/button"
+import { Button } from "@/components/ui/button"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { cn } from "@/lib/utils"
 import { MessageBody } from "./message-body"
@@ -75,20 +75,18 @@ function AttachmentPreviewDownload({ attachment }: { attachment: FileAttachment 
         : Download
 
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
+      size="sm"
       data-testid={tid.attachmentPreviewDownload}
       onClick={() => download.state.status === "downloading" ? download.cancel() : void download.start()}
       aria-busy={download.state.status === "downloading"}
-      className={buttonVariants({
-        variant: "outline",
-        size: "sm",
-        className: "h-11 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground sm:h-7",
-      })}
+      className="h-11 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground sm:h-7"
     >
       <Icon className={`size-3.5 ${download.state.status === "downloading" ? "animate-spin motion-reduce:animate-none" : ""}`} />
       {download.state.status === "downloading" ? "Cancel download" : statusText ?? "Download"}
-    </button>
+    </Button>
   )
 }
 

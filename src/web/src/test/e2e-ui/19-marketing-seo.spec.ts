@@ -235,7 +235,8 @@ for (const width of [1440, 390]) {
     })
     const direct = await contactLayout()
 
-    await page.getByRole("link", { name: "Back to home", exact: true }).click()
+    // Subpages share the home bar (QA #14); its logo is the way home.
+    await page.getByRole("navigation", { name: "Site navigation" }).getByRole("link", { name: "Alook home", exact: true }).click()
     await expect(page).toHaveURL(/\/$/)
     await page.locator(".hero-section").evaluate((hero) => window.scrollTo(0, hero.getBoundingClientRect().bottom + window.scrollY + 1))
     const nav = page.locator("nav.marketing-nav")
@@ -245,7 +246,8 @@ for (const width of [1440, 390]) {
     await expect(page).toHaveURL(/\/contact$/)
     await expect.poll(contactLayout).toEqual(direct)
 
-    await page.getByRole("link", { name: "Back to home", exact: true }).click()
+    // Subpages share the home bar (QA #14); its logo is the way home.
+    await page.getByRole("navigation", { name: "Site navigation" }).getByRole("link", { name: "Alook home", exact: true }).click()
     await expect(page).toHaveURL(/\/$/)
     await page.getByTestId(tid.landingFooterNavigation).getByRole("link", { name: "Contact", exact: true }).click()
     await expect(page).toHaveURL(/\/contact$/)

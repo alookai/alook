@@ -116,7 +116,7 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
   return <section id="product" className={`${styles.section} ${current.id === "ownership" ? styles.dark : ""}`} aria-label="Explore Alook features"
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false) }}>
-    <div className={styles.container} data-testid={tid.landingMainContainer}>
+    <div className={styles.container} data-testid={tid.landingMainContainer} data-landing-scroll-anchor>
       <div className={styles.controls} data-left={edges.left} data-right={edges.right}>
         {/* The shared Tabs component (Gus #2354); the panel below is the step slide. */}
         <Tabs value={current.id} onValueChange={value => { const index = features.findIndex(feature => feature.id === value); if (index >= 0) select(index) }}>

@@ -1,6 +1,8 @@
 .section {
-  padding-block: clamp(72px, 9vw, 128px);
-  background: var(--landing-section-bg, var(--landing-surface));
+  padding-block: var(--landing-section-space, clamp(72px, 9vw, 128px));
+  background:
+    linear-gradient(to bottom, var(--landing-section-bg, var(--landing-surface)) 0%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 97%, var(--landing-bg)) 15%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 78%, var(--landing-bg)) 35%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 50%, var(--landing-bg)) 50%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 22%, var(--landing-bg)) 65%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 3%, var(--landing-bg)) 85%, var(--landing-bg) 100%) bottom / 100% var(--landing-section-fade, 128px) no-repeat,
+    var(--landing-section-bg, var(--landing-surface));
   color: var(--landing-text);
   scroll-margin-top: 72px;
 }
@@ -37,6 +39,10 @@
   gap: 32px;
   overflow: hidden;
   contain: paint;
+  /* Posts fade out at both edges instead of being cut mid-word (QA #12). A
+   * mask fades to the section itself, so it works in light and dark. */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 clamp(32px, 9vw, 140px), #000 calc(100% - clamp(32px, 9vw, 140px)), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 clamp(32px, 9vw, 140px), #000 calc(100% - clamp(32px, 9vw, 140px)), transparent);
 }
 
 .lane {

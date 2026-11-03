@@ -152,7 +152,7 @@ function SettingsOverview({ serverId, serverName, serverDescription, serverIcon,
     setDesc(baseline.desc)
   }
   return (
-    <div className="mx-auto w-full max-w-md space-y-8">
+    <div className="w-full space-y-8">
       <section className="space-y-8">
         {/* Server icon — centered in a soft rounded frame + hand-rolled pill
             (matches My Profile; a stock secondary Button reads as the old box). */}
@@ -275,7 +275,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
   // server-wide count so we suffix "matches" for clarity.
   const shownCount = total ?? members.length
   return (
-    <div className="mx-auto flex h-full min-h-0 max-w-xl flex-col">
+    <div className="flex h-full min-h-0 w-full flex-col">
       {onSearch && (
         <div className="relative mb-4 shrink-0">
           <Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -347,7 +347,7 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCopyInvite }: {
   const [revokingCode, setRevokingCode] = useAtom(useCreateAtom<string | null>(null))
   if (loading && invites.length === 0) return <SettingsInvitesSkeleton />
   return (
-    <div className="mx-auto max-w-xl space-y-2">
+    <div className="w-full space-y-2">
       {invites.length === 0 && (
         <p className="text-sm text-muted-foreground">No active invites — use the invite icon in the sidebar header to share this server.</p>
       )}
@@ -397,7 +397,7 @@ export function SettingsNotifications({ serverId, level, onSetLevel }: { serverI
     })
   }
   return (
-    <div className="mx-auto max-w-md space-y-2">
+    <div className="w-full space-y-2">
       <div className="mb-3 text-sm text-muted-foreground">Default notifications for this server</div>
       {bots.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-1" aria-label="Notification actor">
@@ -435,7 +435,7 @@ export function SettingsNotifications({ serverId, level, onSetLevel }: { serverI
 // so the body doesn't shift when data lands.
 function SettingsMembersSkeleton({ showSearch }: { showSearch: boolean }) {
   return (
-    <div className="mx-auto flex h-full min-h-0 max-w-xl flex-col">
+    <div className="flex h-full min-h-0 w-full flex-col">
       {showSearch && <Skeleton className="mb-4 h-11 shrink-0 rounded-md sm:h-9" />}
       <Skeleton className="mb-4 h-4 w-24 shrink-0 rounded" />
       <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
@@ -459,7 +459,7 @@ function SettingsMembersSkeleton({ showSearch }: { showSearch: boolean }) {
 
 function SettingsInvitesSkeleton() {
   return (
-    <div className="mx-auto max-w-xl space-y-2">
+    <div className="w-full space-y-2">
       {Array.from({ length: 3 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
           <Skeleton className="size-5 shrink-0 rounded" />

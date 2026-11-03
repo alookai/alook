@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   onlineFriendIds: [] as string[],
   friendsQuery: {
     friends: [] as Friend[],
+    totalFriends: 0,
     data: { friends: [] as Friend[] } as { friends: Friend[] } | undefined,
     isLoading: false,
     isError: false,
@@ -75,7 +76,7 @@ vi.mock("@/components/ui/dialog", async () => {
 vi.mock("../people-picker", async () => {
   const { createElement } = await import("react")
   return {
-    PeoplePickerBody: ({ children }: { children?: React.ReactNode }) => createElement("div", null, children),
+    PeoplePickerBody: ({ children, emptyMessage }: { children?: React.ReactNode; emptyMessage?: string }) => createElement("div", { "data-empty-message": emptyMessage }, children),
     PeoplePickerHeader: ({ title }: { title: string }) => createElement("h1", null, title),
     PeoplePickerRowsSkeleton: () => createElement("div"),
     resolvePeoplePickerViewState: () => "ready",
@@ -188,6 +189,7 @@ describe("InviteDialog presence", () => {
     mocks.onlineUserIds = new Set()
     mocks.onlineFriendIds = []
     mocks.friendsQuery.friends = []
+    mocks.friendsQuery.totalFriends = 0
     mocks.friendsQuery.data = { friends: [] }
   })
 
@@ -202,6 +204,12 @@ describe("InviteDialog presence", () => {
     client.clear()
     return html
   }
+
+  it("says there are no friends yet when the user has none, and all-here only when friends are already members", () => {
+    expect(renderDialog()).toContain("You don&#x27;t have any friends to invite yet.")
+    mocks.friendsQuery.totalFriends = 2
+    expect(renderDialog()).toContain("No friends to invite — everyone you know is already here.")
+  })
 
   it("overlays canonical live presence onto an offline API friend row", () => {
     mocks.onlineUserIds = new Set([friend.userId!])

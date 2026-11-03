@@ -4,10 +4,10 @@ import { useCallback, useEffect, useRef } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useMutation } from "@tanstack/react-query"
 import { AUTOMATION_READ_PERMISSIONS, AUTOMATION_WRITE_PERMISSIONS, isPresenceOnline, type AutomationAccessCodeCreateResponse } from "@alook/shared"
-import { Copy, RefreshCw, Loader2 } from "lucide-react"
+import { RefreshCw, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./onboarding-surface"
+import { PromptCopyPreview } from "@/components/ui/prompt-copy-preview"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, OnboardingProgress } from "./onboarding-surface"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ProviderLogo } from "@/components/provider-logo"
 import { useMachines } from "@/hooks/community/use-machines"
@@ -60,7 +60,7 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
       if (!setup.code?.accessCode.expiresAt || Date.parse(setup.code.accessCode.expiresAt) <= Date.now()) {
         const code = await origin.request<AutomationAccessCodeCreateResponse>(token, "/api/community/automation/access-codes", {
           method: "POST", signal: assert.signal, assertActive: assert,
-          body: JSON.stringify({ name: "onboard", expiresIn: "1h", permissions: [...AUTOMATION_WRITE_PERMISSIONS, ...AUTOMATION_READ_PERMISSIONS].map((permission) => ({ permission, limit: permission === "bot.create" ? 3 : 64, period: "hour" })) }),
+          body: JSON.stringify({ name: "onboard", purpose: "onboarding", expiresIn: "1h", permissions: [...AUTOMATION_WRITE_PERMISSIONS, ...AUTOMATION_READ_PERMISSIONS].map((permission) => ({ permission, limit: permission === "bot.create" ? 3 : 64, period: "hour" })) }),
         })
         assert()
         setSetup((current) => ({ ...(current.signal === assert.signal ? current : {}), signal: assert.signal, code }))
@@ -126,25 +126,20 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
   return <Dialog open onOpenChange={(open) => { if (!open) exit() }}>
     <DialogContent data-testid="onboarding-agent-dialog" className="border-0 p-6 shadow-none ring-0 sm:max-w-xl">
       <div className="space-y-6 p-4 sm:p-6">
-        <div className="flex gap-1.5" role="progressbar" aria-label="Setup progress" aria-valuemin={0} aria-valuemax={2} aria-valuenow={2} aria-valuetext="Step 2 of 2">
-          <span className="h-1.5 flex-1 rounded-full bg-(--te)" /><span className="h-1.5 flex-1 rounded-full bg-(--ti)" />
-        </div>
+        <OnboardingProgress current={2} total={2} />
         <DialogHeader className="gap-3 text-left">
           <ProviderLogo provider={harness} className="size-8" />
           <DialogTitle className="text-2xl font-semibold tracking-tight">{waiting ? "Waiting for your computer" : `Continue in ${harnessLabel}`}</DialogTitle>
           <DialogDescription>{waiting ? `Paste the copied prompt into ${harnessLabel}. Setup will close when your computer connects.` : `Copy this prompt and paste it into ${harnessLabel}.`}</DialogDescription>
         </DialogHeader>
         {waiting && !codeExpired && !pairExpired ? <div ref={waitingStatus} tabIndex={-1} data-testid="onboarding-agent-waiting" role="status" className="outline-none flex items-center gap-3 text-sm text-muted-foreground"><Loader2 aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />Waiting for connection…</div> : <div className="space-y-3">
-          {ready ? <div className="relative">
-            <Input aria-label={`Prompt for ${harnessLabel}`} data-testid="onboarding-agent-prompt" readOnly value={prompt.replace(/\n+/g, " ")} spellCheck={false} autoComplete="off" className="h-11 truncate pr-12 text-sm" />
-            <Button type="button" variant="ghost" size="icon" aria-label="Copy prompt" title="Copy prompt" className="absolute top-0 right-0 size-11 rounded-l-none" onClick={handleCopy}><Copy aria-hidden className="size-4" /></Button>
-          </div> : failed || isError || codeExpired || pairExpired || needsConnection ? <div className="space-y-3">
+          {ready ? <PromptCopyPreview value={prompt} label={`Prompt for ${harnessLabel}`} testId="onboarding-agent-prompt" onCopy={handleCopy} /> : failed || isError || codeExpired || pairExpired || needsConnection ? <div className="space-y-3">
             <p role="alert" className="text-sm text-destructive">{codeExpired || pairExpired ? "Setup credentials expired. Refresh to continue." : needsConnection ? "Your computer went offline. Prepare a new connection to continue." : "Couldn’t prepare Agent Setup. Try again, or use Manual."}</p>
             <Button type="button" variant="outline" className="h-11" disabled={pending} onClick={() => { if (isError) void refetch(); else void generate() }}><RefreshCw aria-hidden className="size-4" />Try again</Button>
           </div> : <div role="status" aria-label="Preparing Agent Setup"><Skeleton className="h-11 w-full" /></div>}
           {copied === "error" ? <p role="alert" className="text-sm text-destructive">Copy failed. Try again, or select the prompt and copy it.</p> : null}
         </div>}
-        <Button type="button" variant="ghost" className="h-11 px-0 text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={() => leave(onChooseAgent)}>Change agent</Button>
+        <Button type="button" variant="outline" className="h-11 px-3" onClick={() => leave(onChooseAgent)}>Change agent</Button>
       </div>
     </DialogContent>
   </Dialog>

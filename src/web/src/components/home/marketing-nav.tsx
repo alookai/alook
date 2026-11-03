@@ -1,6 +1,7 @@
 "use client";
 
 import { DocumentNavigationLink } from "./document-navigation-link"
+import { ThemeToggle } from "@/components/theme-toggle"
 
 import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
 /* eslint-disable @next/next/no-html-link-for-pages -- Product entrances require a new document to unload public tracking. */
@@ -30,6 +31,9 @@ export function MarketingNav({
   highlightActions = false,
   containerClassName,
   containerTestId,
+  sticky = false,
+  ariaLabel,
+  currentPath,
 }: {
   isLoggedIn: boolean;
   showTemplates?: boolean;
@@ -40,6 +44,11 @@ export function MarketingNav({
   highlightActions?: boolean;
   containerClassName?: string;
   containerTestId?: string;
+  /** Subpages: the same bar, always shown and sticky at the page top, with its
+   * links on a second row on phones instead of the overflow menu. */
+  sticky?: boolean;
+  ariaLabel?: string;
+  currentPath?: string;
 }) {
   const [revealed, setRevealed] = useAtom(useCreateAtom(false));
   const prefetch = revealAfterHero && !revealed ? false : undefined;
@@ -59,7 +68,11 @@ export function MarketingNav({
 
   return (
     <nav
-      className={`marketing-nav fixed top-0 right-0 left-0 z-50 transition-opacity duration-300 ${revealAfterHero && revealed ? "visible opacity-100" : "invisible opacity-0"}`}
+      aria-label={ariaLabel}
+      data-placement={sticky ? "sticky" : "fixed"}
+      className={sticky
+        ? "marketing-nav sticky top-0 z-50 visible opacity-100"
+        : `marketing-nav fixed top-0 right-0 left-0 z-50 transition-opacity duration-300 ${revealAfterHero && revealed ? "visible opacity-100" : "invisible opacity-0"}`}
       style={{
         backgroundColor: "var(--landing-bg-translucent)",
         backdropFilter: "blur(8px)",
@@ -67,10 +80,10 @@ export function MarketingNav({
       }}
     >
       <div
-        className={`${containerClassName ?? "mx-auto w-full max-w-5xl px-6"} flex items-center justify-between py-2`}
+        className={`${containerClassName ?? "mx-auto w-full max-w-5xl px-6"} flex items-center justify-between py-2${sticky ? " max-sm:flex-wrap max-sm:gap-y-0" : ""}`}
         data-testid={containerTestId}
       >
-        <Link prefetch={prefetch} href={homeHref} className="flex items-center gap-1">
+        <Link prefetch={prefetch} href={homeHref} aria-label="Alook home" className="flex min-h-11 items-center gap-1">
           <Image src="/alook.svg" alt="Alook" width={22} height={22} />
           <span
             className="text-lg tracking-tight"
@@ -84,25 +97,26 @@ export function MarketingNav({
           </span>
         </Link>
 
-        <div className="relative flex items-center gap-3">
+        <div className={`relative flex items-center gap-3${sticky ? " max-sm:contents" : ""}`}>
+          <div className={sticky ? "flex items-center gap-1 max-sm:order-3 max-sm:-ml-3 max-sm:w-full sm:gap-3" : "contents"}>
           {MARKETING_SITE_LINKS.map((link) => {
-            const className = `${collapseLinksOnMobile || link.usesDocumentNavigation ? "hidden sm:block" : "block"} marketing-site-link ${MARKETING_SITE_LINK_CLASS_NAME}`;
+            const visibility = sticky ? "block" : collapseLinksOnMobile || link.usesDocumentNavigation ? "hidden sm:block" : "block";
+            const className = `${visibility} marketing-site-link ${MARKETING_SITE_LINK_CLASS_NAME}`;
+            const current = currentPath === link.href ? "page" : undefined;
 
             return link.usesDocumentNavigation ? (
-              <a key={link.href} href={link.href} className={className} style={MARKETING_SITE_LINK_STYLE}>{link.label}</a>
+              <a key={link.href} href={link.href} aria-current={current} className={className} style={MARKETING_SITE_LINK_STYLE}>{link.label}</a>
             ) : (
-              <Link prefetch={prefetch} key={link.href} href={link.href} className={className} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
+              <Link prefetch={prefetch} key={link.href} href={link.href} aria-current={current} className={className} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
             );
           })}
+          </div>
           {showTemplates && (
             <Link
               prefetch={prefetch}
               href="/templates"
               className="hidden sm:block px-3 py-2 text-sm transition-opacity duration-150 hover:opacity-70"
-              style={{
-                fontFamily: "var(--font-mono)",
-                color: "var(--landing-text)",
-              }}
+              style={MARKETING_SITE_LINK_STYLE}
             >
               Templates
             </Link>
@@ -111,7 +125,7 @@ export function MarketingNav({
             surface="public_nav"
             target="_blank"
             rel="noopener noreferrer"
-            className={`${collapseLinksOnMobile ? "hidden sm:flex" : "flex"} items-center justify-center p-2 transition-opacity duration-150 hover:opacity-70`}
+            className={`${collapseLinksOnMobile || sticky ? "hidden sm:flex" : "flex"} items-center justify-center p-2 transition-opacity duration-150 hover:opacity-70`}
             aria-label="GitHub"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill={highlightActions ? "var(--landing-accent)" : "var(--landing-text)"}>
@@ -122,7 +136,7 @@ export function MarketingNav({
             href={DISCORD_INVITE_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className={`${collapseLinksOnMobile ? "hidden sm:flex" : "flex"} items-center justify-center p-2 transition-opacity duration-150 hover:opacity-70`}
+            className={`${collapseLinksOnMobile || sticky ? "hidden sm:flex" : "flex"} items-center justify-center p-2 transition-opacity duration-150 hover:opacity-70`}
             aria-label="Discord"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill={highlightActions ? "var(--landing-accent)" : "var(--landing-text)"}>
@@ -133,14 +147,15 @@ export function MarketingNav({
             href="https://x.com/alook_ai"
             target="_blank"
             rel="noopener noreferrer"
-            className={`${collapseLinksOnMobile ? "hidden sm:flex" : "flex"} items-center justify-center p-2 transition-opacity duration-150 hover:opacity-70`}
+            className={`${collapseLinksOnMobile || sticky ? "hidden sm:flex" : "flex"} items-center justify-center p-2 transition-opacity duration-150 hover:opacity-70`}
             aria-label="Follow us on X"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill={highlightActions ? "var(--landing-accent)" : "var(--landing-text)"}>
               <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
             </svg>
           </a>
-          {collapseLinksOnMobile && (
+          <ThemeToggle />
+          {collapseLinksOnMobile && !sticky && (
             <details className="group relative sm:hidden">
               <summary
                 data-variant="outline"

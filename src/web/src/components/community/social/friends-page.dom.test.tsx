@@ -174,3 +174,37 @@ describe("FriendsPage search owner", () => {
     } finally { rendered.unmount(); vi.unstubAllGlobals() }
   })
 })
+
+describe("FriendsPage add-friend feedback (QA #8)", () => {
+  async function searchFor(users: Array<{ id: string; name: string; discriminator: string }>, onSendRequest?: (target: { userId: string; username: string }) => Promise<boolean | void>) {
+    const { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION } = await import("@alook/shared")
+    const { client, registry } = await createCommunityQueryOwner()
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ users: users.map((user) => ({ ...user, image: null, avatarVersion: 1 })) }), { headers: { "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_CONTRACT_VERSION) } })))
+    const view = render(<QueryClientProvider client={client} registry={registry} retainOwner><FriendsPage friends={[]} pending={[]} blocked={[]} activeTab="new" onSendRequest={onSendRequest} /></QueryClientProvider>)
+    const field = view.getByPlaceholderText("Search by username")
+    fireEvent.change(field, { target: { value: "nobody-here" } })
+    return { view, field }
+  }
+
+  it("says inline that nobody has the handle, with no browser tooltip", async () => {
+    const { view, field } = await searchFor([])
+    try {
+      await waitFor(() => expect(view.getByTestId("friends-add-status")).toHaveTextContent("No one goes by “nobody-here”"), { timeout: 3000 })
+      expect(field).toHaveAttribute("aria-invalid", "true")
+    } finally { view.unmount(); vi.unstubAllGlobals() }
+  })
+
+  it("Enter sends to the single match and shows pending, then sent or failed", async () => {
+    let finish!: (ok: boolean) => void
+    const onSendRequest = vi.fn(() => new Promise<boolean>((done) => { finish = done }))
+    const { view, field } = await searchFor([{ id: "alice", name: "Alice", discriminator: "0042" }], onSendRequest)
+    try {
+      await waitFor(() => expect(view.getByText("Alice")).toBeInTheDocument(), { timeout: 3000 })
+      fireEvent.keyDown(field, { key: "Enter" })
+      expect(onSendRequest).toHaveBeenCalledWith({ userId: "alice", username: "Alice#0042" })
+      expect(view.getByTestId("friends-add-status")).toHaveTextContent("Sending a request to Alice#0042")
+      await act(async () => finish(false))
+      expect(view.getByTestId("friends-add-status")).toHaveTextContent("Couldn’t send a request to Alice#0042")
+    } finally { view.unmount(); vi.unstubAllGlobals() }
+  })
+})

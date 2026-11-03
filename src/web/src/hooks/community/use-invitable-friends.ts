@@ -28,7 +28,7 @@ async function invitableFriendsQueryFn(serverId: string, context: QueryFunctionC
   } finally { context.signal.removeEventListener("abort", unsubscribe); unsubscribe() }
 }
 
-export function useInvitableFriends(serverId: string, enabled = true): UseQueryResult<InvitableFriendsResponse> & { friends: Friend[] } {
+export function useInvitableFriends(serverId: string, enabled = true): UseQueryResult<InvitableFriendsResponse> & { friends: Friend[]; totalFriends: number } {
   const active = enabled && !!serverId
   const query = useQuery({ queryKey: communityKeys.invitableFriends(serverId), queryFn: (context) => invitableFriendsQueryFn(serverId, context), enabled: active, subscribed: active, retry: false })
   const rows = useFriendshipRows(query.data?.friendIds ?? [])
@@ -43,5 +43,7 @@ export function useInvitableFriends(serverId: string, enabled = true): UseQueryR
     })
   }, [rows, profiles, members])
   const data = useMemo(() => query.data ? { friends } : undefined, [query.data, friends])
-  return { ...query, data, friends } as UseQueryResult<InvitableFriendsResponse> & { friends: Friend[] }
+  // All accepted friends, before members are filtered out: tells "no friends yet" apart from "all already here".
+  const totalFriends = query.data?.friendIds.length ?? 0
+  return { ...query, data, friends, totalFriends } as UseQueryResult<InvitableFriendsResponse> & { friends: Friend[]; totalFriends: number }
 }

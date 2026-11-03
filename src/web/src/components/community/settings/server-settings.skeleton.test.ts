@@ -8,7 +8,8 @@ describe("SettingsMembers loading geometry", () => {
       "<SettingsMembersSkeleton showSearch={Boolean(onSearch)} />",
     )
     expect(source).toContain(
-      'className="mx-auto flex h-full min-h-0 max-w-xl flex-col"',
+      // The settings column width now comes from SettingsShellPanel (QA #20).
+      'className="flex h-full min-h-0 w-full flex-col"',
     )
     expect(source).toContain('className="mb-4 h-11 shrink-0 rounded-md sm:h-9"')
     expect(source).toContain(

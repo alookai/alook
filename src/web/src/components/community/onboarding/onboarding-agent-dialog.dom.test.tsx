@@ -30,7 +30,7 @@ describe("Agent Setup", () => {
     expect(mocks.request).toHaveBeenCalledTimes(2)
     const call = mocks.request.mock.calls.find(([path]) => path.includes("access-codes"))!
     expect(JSON.parse(call[1].body)).toEqual({
-      name: "onboard", expiresIn: "1h",
+      name: "onboard", purpose: "onboarding", expiresIn: "1h",
       permissions: ["bot.create", "server.create", "server.invite", "message.send", "machine.read", "friend.read", "server.read"].map((permission) => ({ permission, limit: permission === "bot.create" ? 3 : 64, period: "hour" })),
     })
     fireEvent.click(screen.getByRole("button", { name: "Copy prompt" }))
@@ -51,7 +51,7 @@ describe("Agent Setup", () => {
     render(<OnboardingAgentDialog {...input} />)
     await waitFor(() => expect(screen.getByRole("button", { name: "Copy prompt" })).toBeEnabled())
     expect(mocks.request).toHaveBeenCalledTimes(1)
-    expect((screen.getByLabelText("Prompt for Codex") as HTMLTextAreaElement).value).toContain("Connected machine ID: machine-1")
+    expect(screen.getByLabelText("Prompt for Codex").textContent).toContain("Connected machine ID: machine-1")
     expect(input.onConnected).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Copy prompt" }))
     await waitFor(() => expect(input.onConnected).toHaveBeenCalledOnce())
@@ -100,7 +100,7 @@ describe("Agent Setup", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Copy prompt" })).toBeEnabled())
     expect(mocks.request).toHaveBeenCalledTimes(3)
     await act(async () => finishOld({ ...pair(), tokenId: "old-owner-pair" }))
-    expect((screen.getByLabelText("Prompt for Codex") as HTMLTextAreaElement).value).not.toContain("old-owner-pair")
+    expect(screen.getByLabelText("Prompt for Codex").textContent).not.toContain("old-owner-pair")
     expect(mocks.request).toHaveBeenCalledTimes(3)
   })
   it("disables copying when credentials expire", async () => {
@@ -122,7 +122,7 @@ describe("Agent Setup", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Copy prompt" })).toBeEnabled())
     expect(mocks.request.mock.calls.filter(([path]) => path.includes("access-codes"))).toHaveLength(1)
     expect(mocks.request.mock.calls.some(([path]) => path === "/api/community/machines/machine-1/reconnect")).toBe(true)
-    expect((screen.getByLabelText("Prompt for Codex") as HTMLInputElement).value).toContain("reconnect machine-1 fixture-pair")
+    expect(screen.getByLabelText("Prompt for Codex").textContent).toContain("reconnect machine-1 fixture-pair")
     fireEvent.click(screen.getByRole("button", { name: "Copy prompt" }))
     await waitFor(() => expect(screen.getByTestId("onboarding-agent-waiting")).toBeInTheDocument())
     expect(input.onConnected).not.toHaveBeenCalled()

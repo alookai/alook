@@ -16,7 +16,7 @@ export function HomepageFaq() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: FAQ_PAGE_SCHEMA_JSON }}
       />
-      <div className={styles.faqLayout}>
+      <div className={styles.faqLayout} data-landing-scroll-anchor>
         <div className={styles.faqIntro}>
           <p className={styles.sectionMuted}>Alook, in plain terms</p>
           <h2 id="homepage-faq-heading">Questions, <HandAccent>answered</HandAccent></h2>

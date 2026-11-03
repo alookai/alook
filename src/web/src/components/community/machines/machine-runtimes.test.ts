@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { Children, isValidElement } from "react"
+import { Badge } from "@/components/ui/badge"
 import { MachineRuntimes } from "./machine-runtimes"
 
 function collectChips(tree: unknown): any[] {
@@ -43,7 +44,7 @@ describe("MachineRuntimes", () => {
     const tree = MachineRuntimes({ runtimes: [{ id: "codex" }] })
     const chips = collectChips(tree)
     const rendered = renderChip(chips[0])
-    expect(rendered.type).toBe("span")
+    expect(rendered.type).toBe(Badge)
     // React fragment wrapping children — collect deeply.
     const fragment = rendered.props.children as any
     const inner = Children.toArray(fragment.props.children) as any[]
@@ -65,7 +66,8 @@ describe("MachineRuntimes", () => {
     expect(tooltipChildren[1].props.children).toBe("2.0.0-canary-20260101-abcdef")
     // Trigger renders a button. aria-label surfaces the id + version.
     const triggerRender = tooltipChildren[0].props.render
-    expect(triggerRender.type).toBe("button")
+    expect(triggerRender.type).toBe(Badge)
+    expect(triggerRender.props.render.type).toBe("button")
     expect(triggerRender.props["aria-label"]).toBe(
       "claude 2.0.0-canary-20260101-abcdef"
     )
@@ -98,7 +100,8 @@ describe("MachineRuntimes", () => {
     expect(contentText).toMatch(/spawn_enoent/)
     // Trigger button carries opacity-40 (dim).
     const triggerRender = tooltipChildren[0].props.render
-    expect(triggerRender.type).toBe("button")
+    expect(triggerRender.type).toBe(Badge)
+    expect(triggerRender.props.render.type).toBe("button")
     expect(triggerRender.props.className as string).toContain("opacity-40")
     // aria-label reflects unhealthy state, not a version.
     expect(triggerRender.props["aria-label"]).toBe("codex unavailable")

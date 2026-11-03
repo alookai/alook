@@ -24,8 +24,8 @@ export function BotPiiPanel({ bots, selectedId, onSelect, emptyAction, children 
         <TabsList variant="line" aria-label="Privacy tools" className="h-auto min-h-12 w-full border-b p-0 thin-scrollbar">
           <TabsTrigger value="filters" className="min-h-12 px-4 text-base group-data-horizontal/tabs:after:bottom-0">PII Filters</TabsTrigger>
         </TabsList>
-        <TabsContent value="filters" className="flex w-full max-w-2xl flex-1 flex-col gap-8">
-          <div className="flex flex-col gap-2">
+        <TabsContent value="filters" className={`flex w-full flex-1 flex-col gap-8 ${bots.length ? "max-w-2xl" : ""}`}>
+          <div className="flex max-w-2xl flex-col gap-2">
             <h2 className="text-lg font-medium">Filters for bot message</h2>
             <p className="text-sm leading-relaxed text-muted-foreground">Filter sensitive information from messages your bot sends to Alook. Messages people send to your bot are not filtered. All filtering runs on your computer.</p>
           </div>

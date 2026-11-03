@@ -64,20 +64,17 @@ export function MachineCard({
             <span className="truncate text-xs text-muted-foreground">
               {[machine.platform, machine.arch].filter(Boolean).join(" · ")}
               {machine.daemonVersion ? ` · v${machine.daemonVersion}` : ""}
+              {(machine.platform || machine.arch || machine.daemonVersion) ? " · " : ""}
+              <Tooltip>
+                <TooltipTrigger render={<span className="text-xs text-muted-foreground" />}>
+                  {lastSeenLabel}
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={4}>
+                  {machine.lastSeenAt ?? "—"}
+                </TooltipContent>
+              </Tooltip>
             </span>
             <MachineRuntimes runtimes={machine.availableRuntimes} />
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span className="text-xs text-muted-foreground" />
-                }
-              >
-                {lastSeenLabel}
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}>
-                {machine.lastSeenAt ?? "—"}
-              </TooltipContent>
-            </Tooltip>
             {machine.lastRuntimeError && (
               <div className="mt-2 rounded-md border border-destructive/20 bg-destructive/5 p-2 text-xs text-destructive">
                 <span className="font-medium">Runtime not available</span>
@@ -139,7 +136,7 @@ export function MachineCard({
       {!isOnline && !refreshing && (
         <div className="flex justify-end">
           <Button
-            variant="outline"
+            variant="default"
             size="sm"
             data-onboarding-target="reconnect-machine"
             data-onboarding-id={machine.id}

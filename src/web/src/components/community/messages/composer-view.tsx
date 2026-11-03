@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { isMobile, stripInlineMarkup } from "@alook/shared"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button"
 import type { PendingFile } from "@/hooks/use-file-attachments"
 import type {
   ChannelRefCandidatePresentation,
@@ -240,10 +241,11 @@ export function ComposerView({
           </EmojiPickerPopover>
         )}
         {showSend && (
-          <button
+          <Button
             type="button"
+            size="icon"
             data-testid={tid.composerSend}
-            className="community-composer-send absolute right-2 bottom-2 grid size-8 place-items-center rounded-full bg-primary text-primary-foreground enabled:hover:bg-primary/90 enabled:active:bg-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
+            className="community-composer-send absolute right-2 bottom-2 size-8 rounded-full"
             aria-label="Send message"
             disabled={sendDisabled}
             onClick={onSend}
@@ -251,7 +253,7 @@ export function ComposerView({
             <SendStrokeRoundedIcon
               className="size-5 -translate-x-px translate-y-px"
             />
-          </button>
+          </Button>
         )}
       </div>
     </div>

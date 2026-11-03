@@ -21,8 +21,9 @@ describe("settings refinement", () => {
     const user = readSettings("user-settings.tsx")
     const server = readSettings("server-settings.tsx")
 
-    expect(user).toContain("max-w-md space-y-8")
-    expect(server).toContain("max-w-md space-y-8")
+    // Width is the shared SettingsShellPanel column (QA #20); the rhythm stays.
+    expect(user).toContain("w-full space-y-8")
+    expect(server).toContain("w-full space-y-8")
     expect(user).toContain('className="h-11 sm:h-8"')
     expect(server).toContain('className="h-11 sm:h-8"')
     expect(user).toContain("rounded-xl bg-muted/60 p-1")
@@ -33,8 +34,9 @@ describe("settings refinement", () => {
     const user = readSettings("user-settings.tsx")
     const server = readSettings("server-settings.tsx")
 
-    expect(user).toContain("flex flex-wrap items-center gap-x-4 gap-y-2")
-    expect(user).toContain("ml-auto flex shrink-0 items-center gap-2")
+    // Profile actions: Cancel/Save on one row, Delete account in its own row (QA #21).
+    expect(user).toContain("flex items-center justify-end gap-2")
+    expect(user).toContain('data-slot="settings-danger-zone"')
     expect(server).toContain("items-center justify-start gap-2")
     expect(server).not.toContain("items-center justify-end gap-2")
     for (const source of [user, server]) {

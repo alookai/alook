@@ -264,7 +264,7 @@ function ChannelSidebarContent({
               <button
                 onClick={() => onInvitePopoverOpenChange?.(true)}
                 disabled={!onInvitePopoverOpenChange}
-                className="ml-auto grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground enabled:hover:bg-accent enabled:hover:text-foreground disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                className="ml-auto grid size-11 shrink-0 place-items-center rounded-md text-muted-foreground sm:size-7 enabled:hover:bg-accent enabled:hover:text-foreground disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 aria-label="Invite to server"
                 title="Invite to server"
               >

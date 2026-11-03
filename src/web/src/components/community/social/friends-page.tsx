@@ -17,6 +17,7 @@ import { toastApiError } from "@/lib/api/client"
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { FieldError } from "@/components/ui/field"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
 import { Avatar } from "../avatar"
@@ -65,7 +66,8 @@ export function FriendsPage({
   onReject?: (id: string) => Promise<unknown>
   onCancelRequest?: (req: { id: string }) => void
   onUnblock?: (id: string) => void
-  onSendRequest?: (target: { userId: string; username: string }) => void
+  /** Resolves false when the request failed, so the field can say so inline. */
+  onSendRequest?: (target: { userId: string; username: string }) => void | Promise<boolean | void>
   onRemoveFriend?: (id: string) => void
   onBlock?: (id: string) => void
   onDm?: (userId: string) => void
@@ -85,6 +87,8 @@ export function FriendsPage({
   }, [friends, filter])
 
   const [addValue, setAddValue] = useAtom(useCreateAtom(""))
+  // Inline feedback for Add a friend (QA #8): pending, sent, failed.
+  const [sendState, setSendState] = useAtom(useCreateAtom<{ status: "idle" | "sending" | "sent" | "failed"; name?: string }>({ status: "idle" }))
   const [searchTerm, setSearchTerm] = useAtom(useCreateAtom(""))
   const profilesByUserId = useCanonicalProfilesByUserId()
 
@@ -152,10 +156,19 @@ export function FriendsPage({
   }
 
   const sendRequest = (u: { id: string; name: string; discriminator: string }) => {
-    onSendRequest?.({ userId: u.id, username: `${u.name}#${u.discriminator}` })
+    const username = `${u.name}#${u.discriminator}`
     setAddValue("")
     setSearchTerm("")
+    setSendState({ status: "sending", name: username })
+    void Promise.resolve(onSendRequest?.({ userId: u.id, username }))
+      .then((ok) => setSendState({ status: ok === false ? "failed" : "sent", name: username }))
+      .catch(() => setSendState({ status: "failed", name: username }))
   }
+  const typedTerm = addValue.trim()
+  const searchSettled = searchTerm === typedTerm && searchTerm.length >= MIN_SEARCH_LENGTH && !searchQuery.isFetching
+  const notFound = searchSettled && searchQuery.isSuccess && searchResults.length === 0
+  const searchFailed = searchSettled && searchQuery.isError
+  const searching = typedTerm.length >= MIN_SEARCH_LENGTH && !searchSettled
 
   const friendRow = (f: Friend) => {
     // Owner ↔ own-bot rows are synthetic — no real friendship row exists.
@@ -288,8 +301,26 @@ export function FriendsPage({
                   className="h-11 pl-9"
                   placeholder="Search by username"
                   value={addValue}
-                  onChange={(e) => setAddValue(e.target.value)}
+                  aria-invalid={notFound || searchFailed || undefined}
+                  aria-describedby="friends-add-status"
+                  onChange={(e) => { setAddValue(e.target.value); if (sendState.status !== "idle") setSendState({ status: "idle" }) }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || e.nativeEvent.isComposing) return
+                    e.preventDefault()
+                    // Enter sends when the search found exactly one person you can add.
+                    const only = searchResults.length === 1 ? searchResults[0]! : null
+                    if (only && !relById.get(only)) sendRequest(readCommunityProfile(profilesByUserId.get(only), only))
+                  }}
                 />
+              </div>
+              <div id="friends-add-status" data-testid="friends-add-status" aria-live="polite" className="min-h-5 pt-1.5 text-xs">
+                {notFound ? <FieldError>No one goes by “{typedTerm}”. Check the username and try again.</FieldError>
+                  : searchFailed ? <FieldError>Search didn’t work. Try again.</FieldError>
+                  : searching ? <span className="inline-flex items-center gap-1.5 text-muted-foreground"><LoaderCircle aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />Searching…</span>
+                  : sendState.status === "sending" ? <span className="inline-flex items-center gap-1.5 text-muted-foreground"><LoaderCircle aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />Sending a request to {sendState.name}…</span>
+                  : sendState.status === "sent" ? <span className="inline-flex items-center gap-1.5 text-foreground"><Check aria-hidden className="size-3.5 text-(--tn-led-ok,var(--primary))" />Request sent to {sendState.name}.</span>
+                  : sendState.status === "failed" ? <FieldError>Couldn’t send a request to {sendState.name}. Try again.</FieldError>
+                  : null}
               </div>
               {searchResults.length > 0 && (
                 <div className="mt-1 rounded-md border border-border bg-popover p-1 shadow-(--e2)">

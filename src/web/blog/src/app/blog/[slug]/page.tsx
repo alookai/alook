@@ -78,7 +78,7 @@ export default async function BlogPostPage({
       <article className="blog-article mx-auto max-w-3xl px-6 py-12 sm:py-16">
         <Link
           href={directory}
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8"
+          className="tn-blog-back inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8"
         >
           <ArrowLeft className="size-3.5" />
           {isGuide(post) ? "All guides" : "All posts"}
@@ -91,7 +91,7 @@ export default async function BlogPostPage({
           {topic && (
             <Link
               href={`${directory}#${topic.id}`}
-              className="mt-4 inline-flex rounded-md bg-muted px-2 py-1 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              className="tn-blog-chip mt-4 inline-flex rounded-md bg-muted px-2 py-1 text-sm font-medium text-foreground transition-colors hover:bg-accent"
             >
               {topic.label}
             </Link>

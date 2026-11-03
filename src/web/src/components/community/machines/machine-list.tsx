@@ -436,7 +436,10 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
               your phone or anywhere, wherever you sign in.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          {/* Room for the Guide me orbit: its avatar circles just outside the
+              button, so the row keeps clear of the copy above and the Connect
+              key beside it (QA #2). */}
+          <div className="mt-3 flex items-center gap-6">
             <Button
               data-onboarding-target="connect-machine"
               data-testid={tid.machinePairOpen}

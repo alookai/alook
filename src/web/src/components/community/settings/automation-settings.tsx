@@ -190,7 +190,7 @@ export function AutomationSettings({ userId }: { userId: string }) {
         : !list.data?.accessCodes.length ? <p className="min-h-32 py-4 text-sm text-muted-foreground">No access codes yet. Create one to allow a script to act on your behalf.</p>
         : <ul className="divide-y divide-border">{list.data.accessCodes.map((code) => <li key={code.id} data-testid={tid.automationCode(code.id)} className="space-y-4 py-4 first:pt-0">
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2">
-            <h2 className="flex min-h-11 min-w-0 items-center text-base leading-6 font-medium sm:min-h-8"><span className="min-w-0 wrap-break-word">{code.name}</span></h2>
+            <h2 className="flex min-h-11 min-w-0 items-center gap-2 text-base leading-6 font-medium sm:min-h-8"><span className="min-w-0 wrap-break-word">{code.name}</span>{code.purpose === "onboarding" ? <Badge variant="secondary">Onboarding</Badge> : null}</h2>
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="icon" className="size-11 sm:size-8" aria-label={`Edit ${code.name}`} onClick={() => { setError(null); setEditing(code) }}><Pencil className="size-4" /></Button>
               <Button variant="ghost" size="icon" className="size-11 sm:size-8" aria-label={`Delete ${code.name}`} onClick={() => { setError(null); setDeleting(code) }}><Trash2 className="size-4" /></Button>

@@ -88,3 +88,150 @@
   .blog-footer-primary > a { justify-self: start; }
   .blog-footer-socials { justify-self: end; gap: 0.5rem; }
 }
+
+/* ═════════ Technostalgia for Blog and Tutorials (Gus #2477–2478) ═════════
+ * CSS only: no new fonts, images or scripts. The palette mirrors the main
+ * site's theme tokens (paper, ink, hairline, brand blue) so the blog reads as
+ * the same machine; the theme module itself is not loaded here. */
+.blog-shell {
+  --tn-paper: #faf6ee;
+  --tn-paper-raised: #fffdf8;
+  --tn-ink: #1f1a15;
+  --tn-muted: #6d6250;
+  --tn-line: oklch(0.86 0.012 80);
+  --tn-grid: #dbe7ef;
+  --tn-blue: #5f8bcf;
+  --tn-blue-side: #34588f;
+  --tn-well: #f3ecdf;
+  --background: var(--tn-paper);
+  --foreground: var(--tn-ink);
+  --muted: #efe7d8;
+  --muted-foreground: var(--tn-muted);
+  --border: var(--tn-line);
+  --card: var(--tn-paper-raised);
+  background-color: var(--tn-paper);
+  background-image:
+    linear-gradient(var(--tn-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--tn-grid) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-attachment: fixed;
+  color: var(--tn-ink);
+}
+.dark .blog-shell {
+  --tn-paper: #050505;
+  --tn-paper-raised: #0f0f11;
+  --tn-ink: #eceef4;
+  --tn-muted: #9aa0ad;
+  --tn-line: rgb(255 255 255 / 10%);
+  --tn-grid: #121212;
+  --tn-blue: #7d97ff;
+  --tn-blue-side: #5b7cff;
+  --tn-well: #0b0b0c;
+  --muted: #18181b;
+}
+/* The public layout paints its own solid ground; let the grid show through. */
+.blog-shell > * > .min-h-dvh,
+.blog-shell .min-h-dvh.bg-background { background: transparent; }
+.blog-shell nav.sticky {
+  background: color-mix(in oklab, var(--tn-paper) 88%, transparent);
+  border-bottom-color: var(--tn-line);
+}
+
+/* Page kicker: the machine-label line above a title. */
+.tn-blog-kicker {
+  margin-bottom: 0.75rem;
+  color: var(--tn-muted);
+  font-family: var(--font-dm-mono), ui-monospace, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Cards: paper laid on the grid, a hairline edge; they lift on hover and
+ * press flat in place. */
+.tn-blog-card {
+  border: 1px solid var(--tn-line);
+  border-radius: 16px;
+  background: var(--tn-paper-raised);
+  box-shadow: 0 1px 0 rgb(60 45 20 / 6%), 0 6px 14px -12px rgb(60 45 20 / 35%);
+  transition: translate 120ms ease-out, box-shadow 160ms ease-out;
+}
+.tn-blog-card:hover { translate: 0 -2px; box-shadow: 0 1px 0 rgb(60 45 20 / 6%), 0 14px 24px -16px rgb(60 45 20 / 45%); }
+.tn-blog-card:active { translate: 0 1px; box-shadow: inset 0 1px 3px rgb(60 45 20 / 14%); }
+.dark .tn-blog-card { box-shadow: 0 0 0 1px rgb(255 255 255 / 4%), 0 8px 20px -14px rgb(91 124 255 / 30%); }
+.dark .tn-blog-card:hover { box-shadow: 0 0 0 1px rgb(125 151 255 / 18%), 0 14px 26px -16px rgb(91 124 255 / 40%); }
+.tn-blog-feature { padding: 12px; }
+.tn-blog-post { padding: 10px 10px 14px; }
+.tn-blog-post h3, .tn-blog-post > span:last-child { padding-inline: 4px; }
+
+/* Round keycap behind an arrow. */
+.tn-blog-key {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--tn-line);
+  border-radius: 50%;
+  background: linear-gradient(var(--tn-paper-raised), var(--muted));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 60%), 0 2px 0 rgb(60 45 20 / 18%);
+  transition: translate 90ms ease-out, background-color 120ms ease-out;
+}
+.group:hover .tn-blog-key { translate: 2px 0; color: var(--tn-blue-side); }
+.group:active .tn-blog-key { translate: 2px 2px; box-shadow: inset 0 1px 2px rgb(60 45 20 / 22%); }
+
+/* Topic tag: a cut-paper sticker. */
+.tn-blog-chip {
+  border-radius: 10px 14px 11px 13px / 12px 10px 13px 11px !important;
+  background: var(--muted) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 50%), 0 1px 2px rgb(60 45 20 / 14%);
+  rotate: -1deg;
+  transition: translate 90ms ease-out;
+}
+.tn-blog-chip:hover { translate: 0 -1px; }
+.tn-blog-chip:active { translate: 0 1px; }
+
+/* Topic filters are keys in a tray; the chosen one is pressed in. */
+.tn-blog-filter {
+  padding-inline: 14px;
+  border-radius: 999px;
+  text-decoration: none !important;
+  transition: background-color 120ms ease-out, translate 90ms ease-out, color 120ms ease-out;
+}
+.tn-blog-filter:hover { background: color-mix(in oklab, var(--tn-ink) 5%, transparent); translate: 0 -1px; }
+.tn-blog-filter:active { translate: 0 1px; }
+.tn-blog-filter[aria-pressed="true"] {
+  background: linear-gradient(var(--tn-paper-raised), var(--muted));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 60%), 0 1.5px 0 rgb(60 45 20 / 20%);
+}
+
+/* Back link and the shell's icon buttons answer like keys. */
+.tn-blog-back { transition: translate 90ms ease-out, color 120ms ease-out; }
+.tn-blog-back:hover { translate: -2px 0; }
+.tn-blog-back:active { translate: -2px 1px; }
+.blog-shell nav.sticky :is(a, button) { transition: translate 90ms ease-out, opacity 120ms ease-out; }
+.blog-shell nav.sticky :is(a, button):hover { translate: 0 -1px; }
+.blog-shell nav.sticky :is(a, button):active { translate: 0 1px; }
+
+/* Reading surface: ink prose on paper, brand-blue links, recessed code. */
+.blog-prose a { text-decoration-color: color-mix(in oklab, var(--tn-blue) 55%, transparent); }
+.blog-prose a:hover { color: var(--tn-blue-side); text-decoration-color: currentColor; }
+.blog-prose code { background: var(--tn-well); box-shadow: inset 0 1px 1px rgb(60 45 20 / 10%); }
+.blog-prose pre { border: 1px solid var(--tn-line); border-radius: 14px; background: var(--tn-well); box-shadow: inset 0 1.5px 3px rgb(60 45 20 / 10%); }
+.blog-prose pre code { box-shadow: none; }
+.blog-prose blockquote { border-left: 3px solid var(--tn-blue); border-radius: 0 12px 12px 0; padding: 0.75rem 1rem; background: color-mix(in oklab, var(--tn-blue) 7%, transparent); }
+.blog-prose img { border: 1px solid var(--tn-line); border-radius: 14px; }
+.blog-prose table { border-radius: 12px; }
+.blog-prose th { background: var(--muted); }
+.dark .blog-prose :is(code, pre) { box-shadow: inset 0 1.5px 4px rgb(0 0 0 / 70%); }
+
+/* Footer: bold slogan, light links (matches the marketing footer). */
+.blog-footer { border-top-color: var(--tn-line); background: color-mix(in oklab, var(--tn-paper) 92%, transparent); }
+.blog-footer-slogan { color: var(--tn-ink); font-weight: 800; letter-spacing: -0.01em; }
+.blog-footer-navigation a, .blog-footer-socials a { transition: translate 90ms ease-out, color 120ms ease-out; }
+.blog-footer-navigation a:hover, .blog-footer-socials a:hover { translate: 0 -1px; }
+.blog-footer-navigation a:active, .blog-footer-socials a:active { translate: 0 1px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tn-blog-card, .tn-blog-key, .tn-blog-chip, .tn-blog-filter, .tn-blog-back,
+  .blog-shell nav.sticky :is(a, button), .blog-footer-navigation a, .blog-footer-socials a { transition: none; }
+}

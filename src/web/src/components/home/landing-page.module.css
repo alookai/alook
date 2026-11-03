@@ -5,6 +5,8 @@
 
 .page:global(.landing) {
   --landing-content-max: 1320px;
+  --landing-section-space: clamp(128px, 12vw, 192px);
+  --landing-section-fade: var(--landing-section-space);
   --landing-page-gutter: clamp(24px, 5vw, 72px);
   --landing-bg: #f4f9e9;
   --landing-bg-translucent: rgb(244 249 233 / 90%);
@@ -47,6 +49,8 @@
 
 .landingHeroTail {
   color: var(--landing-text);
+  /* "for" never sits alone: the tail breaks as one unit. */
+  white-space: nowrap;
 }
 
 .landingHeroTypewriter {
@@ -54,8 +58,10 @@
 }
 
 @media (min-width: 1024px) {
+  /* The intro column stops at 592px, so the size stops where
+   * "for Team and Friends" still fits one line (QA #10). */
   .landingHeroHeadline {
-    font-size: clamp(36px, 5vw, 72px) !important;
+    font-size: clamp(36px, 5vw, 64px) !important;
   }
 
   .landingHeroTypewriter {
@@ -341,7 +347,7 @@
 .reachSection,
 .faqSection,
 .closingSection {
-  padding: clamp(96px, 12vw, 168px) var(--landing-page-gutter);
+  padding: var(--landing-section-space) var(--landing-page-gutter);
 }
 
 .closingSection {
@@ -995,7 +1001,9 @@
 }
 
 .faqSection {
-  background: var(--landing-bg);
+  background:
+    linear-gradient(to bottom, var(--landing-bg) 0%, color-mix(in oklab, var(--landing-bg) 97%, var(--landing-section-bg)) 15%, color-mix(in oklab, var(--landing-bg) 78%, var(--landing-section-bg)) 35%, color-mix(in oklab, var(--landing-bg) 50%, var(--landing-section-bg)) 50%, color-mix(in oklab, var(--landing-bg) 22%, var(--landing-section-bg)) 65%, color-mix(in oklab, var(--landing-bg) 3%, var(--landing-section-bg)) 85%, var(--landing-section-bg) 100%) bottom / 100% var(--landing-section-fade) no-repeat,
+    var(--landing-bg);
   scroll-margin-top: 72px;
 }
 
@@ -1264,6 +1272,10 @@
   background: var(--landing-section-bg);
 }
 
+main.page > .footer {
+  padding-top: 64px;
+}
+
 .footerLayout {
   display: grid;
   gap: 12px;
@@ -1447,6 +1459,11 @@
 }
 
 @media (max-width: 639px) {
+  .page:global(.landing) {
+    --landing-section-space: 96px;
+
+  }
+
   .identityProfileCardSensor {
     display: none;
   }
@@ -1553,7 +1570,7 @@
   .reachSection,
   .faqSection,
   .closingSection {
-    padding: 88px 24px;
+    padding: var(--landing-section-space) 24px;
   }
 
   .faqLayout {
@@ -1903,16 +1920,52 @@
   line-height: 1.65;
 }
 
+/* The cut-paper pieces sit on top of everything on the page (Gus #2442):
+ * above the card copy, the avatars and the neighbouring sections. */
 .closingCollage {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 20;
   pointer-events: none;
 }
 
-.collageItem {
+.closingSection {
+  position: relative;
+  z-index: 5;
+}
+
+.collagePiece {
   position: absolute;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  translate: var(--drag-x) var(--drag-y);
+  transition: scale 160ms ease-out, filter 160ms ease-out;
+}
+
+.collagePiece:hover {
+  scale: 1.03;
+}
+
+/* Held: the paper lifts off the desk with a deeper shadow and a small tilt. */
+.collagePiece[data-dragging="true"] {
+  z-index: 3;
+  cursor: grabbing;
+  scale: 1.08;
+  filter: drop-shadow(0 18px 18px rgb(60 45 20 / 25%));
+}
+
+.collagePiece[data-dragging="true"] .collageItem {
+  animation-play-state: paused;
+}
+
+.collageItem {
+  position: relative;
   display: block;
+  width: 100%;
+  /* Each piece's own bob timing (set on the piece) carries to its drawing. */
+  animation-delay: inherit !important;
+  animation-duration: inherit !important;
   /* Cut paper: a white trim and a soft lift off the grid. */
   filter: drop-shadow(0 0 0 #fffdf8) drop-shadow(2px 0 0 #fffdf8) drop-shadow(-2px 0 0 #fffdf8) drop-shadow(0 2px 0 #fffdf8) drop-shadow(0 -2px 0 #fffdf8) drop-shadow(0 10px 12px rgb(60 45 20 / 22%));
   animation: collageBob 6s ease-in-out infinite;
@@ -1965,18 +2018,34 @@
   user-select: none;
 }
 
+/* The maker's plate is the shared Badge (Gus #2438); only its type is set here. */
 .footerPlate {
-  padding: 4px 12px;
-  border: 1px solid var(--tn-line, var(--landing-border));
-  border-radius: 6px;
-  color: var(--landing-text-muted);
+  /* The signature row ignores the pointer (the wordmark is decoration); the
+   * plate itself must still answer hover and press. */
+  pointer-events: auto;
   font-family: var(--font-mono);
-  font-size: 11px;
   letter-spacing: 0.06em;
+  cursor: default;
+  transition: translate 90ms ease-out, box-shadow 90ms ease-out;
+}
+
+/* No action, but it still answers like paper: lifts on hover, presses flat. */
+.footerPlate:hover {
+  translate: 0 -1px;
+}
+
+.footerPlate:active {
+  translate: 0 1px;
+  box-shadow: inset 0 1px 2px rgb(60 45 20 / 18%) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .footerPlate { transition: none; }
 }
 
 .footerWordmark {
   display: block;
+  translate: -0.055em 0;
   margin-top: 8px;
   /* About two thirds shows above the page bottom (Gus #2420). */
   margin-bottom: -0.24em;
@@ -2012,4 +2081,106 @@
   .footerSlogan {
     font-size: 15px;
   }
+}
+
+/* Below the split layout the intro used to float over the typewriter, so a
+ * long subline ran into the machine (Gus #2422). Stack them: the intro takes
+ * its own height and the typewriter fills the rest of the first screen. */
+@media (max-width: 1023px) {
+  .page :global(.hero-stage) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .page :global(.hero-intro) {
+    position: relative !important;
+    inset: auto !important;
+    flex: 0 0 auto;
+  }
+
+  .page :global(.hero-artwork) {
+    position: relative !important;
+    inset: auto !important;
+    flex: 1 1 auto;
+    min-height: 220px;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .landingHeroHeadline {
+    font-size: clamp(40px, 6.6vw, 60px) !important;
+  }
+}
+
+/* Closing kicker: readable size and ink, as a small label-maker tag (QA #42). */
+.closingCopy > .kicker {
+  display: inline-flex;
+  padding: 4px 12px;
+  border: 1px solid var(--tn-line, var(--landing-border));
+  border-radius: 999px;
+  background: var(--tn-paper-raised, var(--landing-bg));
+  color: var(--landing-text);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+}
+
+/* ── Sky hero (Gus #2461): copy in paper tones over the brand-blue sky ── */
+.page :global(.hero-section[data-testid="landing-hero"]) {
+  --landing-text: #fffdf8;
+  --landing-text-muted: rgb(255 253 248 / 88%);
+}
+
+.page :global(.hero-section[data-testid="landing-hero"] h1) {
+  text-shadow: 0 2px 0 rgb(31 26 21 / 14%), 0 10px 30px rgb(20 40 80 / 25%);
+}
+
+.page :global(.hero-section[data-testid="landing-hero"] .hero-brand) {
+  color: #fffdf8;
+}
+
+.landingHeroAccent {
+  color: #ffd99f !important;
+}
+
+/* On the blue sky the primary key is paper with ink, the GitHub key stays beige. */
+.page :global(.hero-section[data-testid="landing-hero"] .hero-ctas a[data-variant="default"]) {
+  background: linear-gradient(#fffdf8, #efe7d8) !important;
+  color: #1f1a15 !important;
+}
+.page :global(.hero-section[data-testid="landing-hero"] .hero-ctas a[data-variant="default"]:not(:active)) {
+  box-shadow: inset 0 1px 0 #fff, 0 var(--tn-key-depth) 0 #b9a67e, 0 8px 18px -10px rgb(20 40 80 / 45%) !important;
+}
+
+/* The flurry rises from the artwork's paper slot. */
+.page :global(.hero-section[data-testid="landing-hero"] .hero-artwork) {
+  overflow: visible;
+}
+
+/* The sky melts into the testimonials ground below (Gus #2511): a long, soft
+ * fade into that section's own background, light and dark. */
+.page :global(.hero-section[data-testid="landing-hero"])::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 1;
+  height: clamp(120px, 22vh, 220px);
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 45%, transparent) 55%,
+    var(--landing-section-bg, var(--landing-surface)) 100%
+  );
+  pointer-events: none;
+}
+
+/* Hero theme switch: bottom-left of the first screen, on the page gutter. */
+.page:global(.landing) {
+  position: relative;
+}
+
+.heroThemeToggle {
+  position: absolute;
+  z-index: 30;
+  top: calc(100svh - 72px);
+  left: var(--landing-page-gutter);
 }

@@ -116,7 +116,7 @@ describe("landing content contract", () => {
 
     expect(closing).toContain("Ready to share")
     // The title keeps its words; "conversation" is drawn as the hand accent.
-    expect(closing.replace(/<\/?HandAccent>/g, "")).toContain("Bring your team into the conversation.")
+    expect(closing.replace(/<\/?HandAccent>/g, "")).toContain("Bring your team into the conversation")
     expect(closing).toContain("Connect your agent and invite a teammate.")
     expect(closing).toContain('href={isLoggedIn ? "/c/me" : "/sign-in"}')
     expect(closing).toContain('data-testid="landing-closing-open"')

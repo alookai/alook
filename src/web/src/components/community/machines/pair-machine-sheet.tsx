@@ -414,8 +414,8 @@ function Step1({
               )}
             </div>
           )}
-          <div data-slot="command-block" className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3 font-mono text-xs">
-            <code data-testid={tid.machinePairCommand} title={command} className="min-w-0 flex-1 truncate whitespace-nowrap">
+          <div data-slot="command-block" className="flex min-w-0 items-center gap-2 rounded-lg border bg-muted/30 p-3 font-mono text-xs">
+            <code data-testid={tid.machinePairCommand} title={command} className="min-w-0 flex-1 truncate leading-relaxed">
               {command}
             </code>
             <Button

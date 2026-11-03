@@ -1,5 +1,7 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { memo, useRef } from "react"
 import { useMessageMarked } from "@/hooks/community/use-inbox"
@@ -381,9 +383,9 @@ function MessageImpl({
   // approval/attachment-only rows aren't selectable (nothing to put on the card).
   const selectable = selectMode && canShare
   const reactionAddButton = (
-    <button className="grid h-6 w-7 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add reaction">
+    <Button type="button" variant="secondary" size="icon-xs" className="h-6 w-7 rounded-md text-muted-foreground hover:text-foreground" aria-label="Add reaction">
       <SmilePlus className="size-4" />
-    </button>
+    </Button>
   )
   const reactionAddPicker = (
     <EmojiPickerPopover side="top" align="start" onPick={(emoji) => onReact?.(emoji)}>

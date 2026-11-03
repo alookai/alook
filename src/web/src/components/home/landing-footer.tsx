@@ -4,6 +4,7 @@ import Link from "next/link"
 import { GithubOutboundLink } from "@/components/github-outbound-link"
 import { BRAND_SLOGAN } from "@/lib/brand-copy"
 import { HandAccent } from "@/components/brand/hand-accent"
+import { Badge } from "@/components/ui/badge"
 import { tid } from "@/lib/community/testids"
 import { MARKETING_SITE_LINK_CLASS_NAME, MARKETING_SITE_LINK_STYLE, MARKETING_SITE_LINKS } from "./marketing-site-links"
 import styles from "./landing-page.module.css"
@@ -68,7 +69,7 @@ export function LandingFooter() {
         {/* The footer's memory point (Gus #2419): the wordmark set huge, like
             the maker's name moulded into the bottom of an old machine. */}
         <div className={styles.footerSignature} aria-hidden="true">
-          <p className={styles.footerPlate}>© {new Date().getFullYear()} Alook · made by people and their agents</p>
+          <Badge variant="outline" className={styles.footerPlate}>© {new Date().getFullYear()} MEMODB PTE. LTD.</Badge>
           <span className={styles.footerWordmark}>Alook</span>
         </div>
       </footer>

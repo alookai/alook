@@ -45,12 +45,15 @@ export default function RootLayout({
       >
         <MockNetworkBanner />
         <ServiceWorkerRegistration />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify(siteStructuredData),
-          }}
-        />
+        {siteStructuredData.map((schema) => (
+          <script
+            key={schema["@type"]}
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{
+              __html: JSON.stringify(schema),
+            }}
+          />
+        ))}
         <ThemeProvider attribute={["class", "data-tn-mode"]} defaultTheme="system" enableSystem>
           <ThemeColorSync />
           <TauriThemeSync />

@@ -1,14 +1,16 @@
 "use client"
 
+import type { CSSProperties } from "react"
 import type { CommunityMachineRuntime } from "@alook/shared"
 import { CircleAlert } from "lucide-react"
 import { ProviderLogo } from "@/components/provider-logo"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { runtimeLabel } from "@/lib/community/runtime-label"
 
 const chipBase =
-  "inline-flex max-w-[160px] items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-[11px]"
+  "h-auto max-w-40 gap-2 px-2 py-1 text-[11px]"
 
 export function MachineRuntimes({ runtimes }: { runtimes: CommunityMachineRuntime[] | undefined }) {
   // Nullish guard — a legacy CommunityMachineSummary cached client-side may
@@ -21,7 +23,7 @@ export function MachineRuntimes({ runtimes }: { runtimes: CommunityMachineRuntim
     Number(a.status === "unhealthy") - Number(b.status === "unhealthy")
   )
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="mt-1 flex flex-wrap items-center gap-2">
       {sorted.map((r) => (
         <RuntimeChip key={r.id} runtime={r} />
       ))}
@@ -29,8 +31,16 @@ export function MachineRuntimes({ runtimes }: { runtimes: CommunityMachineRuntim
   )
 }
 
+function runtimeStickerTilt(name: string): CSSProperties {
+  let hash = 2166136261
+  for (const character of name) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0
+  const angle = (hash & 1 ? -1 : 1) * (0.5 + ((hash >>> 1) % 16) / 10)
+  return { "--runtime-badge-tilt": `${angle.toFixed(1)}deg` } as CSSProperties
+}
+
 function RuntimeChip({ runtime }: { runtime: CommunityMachineRuntime }) {
   const unhealthy = runtime.status === "unhealthy"
+  const stickerStyle = runtimeStickerTilt(runtimeLabel(runtime.id))
   // Tooltip content — version by default; "Unavailable — check daemon logs"
   // when the runtime is flagged unhealthy. Both cases render as a button so
   // keyboard users can focus and read the tooltip.
@@ -47,31 +57,35 @@ function RuntimeChip({ runtime }: { runtime: CommunityMachineRuntime }) {
       ) : (
         <ProviderLogo provider={runtime.id} className="size-3.5 shrink-0" />
       )}
-      <span className="truncate font-medium text-foreground">{runtimeLabel(runtime.id)}</span>
+      <span className="truncate font-medium">{runtimeLabel(runtime.id)}</span>
     </>
   )
 
   if (!tooltipText) {
     return (
-      <span className={cn(chipBase, unhealthy && "opacity-40")}>{chipInner}</span>
+      <Badge style={stickerStyle} variant="ghost" data-machine-runtime className={cn(chipBase, unhealthy && "opacity-40")}>{chipInner}</Badge>
     )
   }
   return (
     <Tooltip>
       <TooltipTrigger
+        data-slot="badge"
         render={
-          <button
-            type="button"
+          <Badge
+            variant="ghost"
+            style={stickerStyle}
+            data-machine-runtime
+            render={<button type="button" />}
             aria-label={unhealthy ? `${runtimeLabel(runtime.id)} unavailable` : `${runtimeLabel(runtime.id)} ${runtime.version}`}
             className={cn(
               chipBase,
               unhealthy && "opacity-40 cursor-not-allowed",
-              !unhealthy && "transition-colors hover:bg-accent",
+              !unhealthy && "transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             )}
           >
             {chipInner}
-          </button>
+          </Badge>
         }
       />
       <TooltipContent side="top" sideOffset={4}>

@@ -1,4 +1,5 @@
 import { ObservedStaticContent } from "@/lib/observability/regions";
+import { HandAccent } from "@/components/brand/hand-accent";
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 import Image from "next/image";
 import Link from "next/link";
@@ -44,8 +45,9 @@ export default async function BlogPage() {
       />
       <div className="mx-auto max-w-270 px-4 pb-24 pt-12 sm:px-6 sm:pt-20">
         <header>
+          <p className="tn-blog-kicker">From the Alook team</p>
           <h1 className="font-sans text-3xl font-semibold leading-none tracking-tight sm:text-[2.5rem] sm:leading-12">
-            Blog
+            <HandAccent>Blog</HandAccent>
           </h1>
         </header>
 
@@ -53,7 +55,7 @@ export default async function BlogPage() {
           <section aria-label="Featured article" className="mt-8">
             <Link
               href={`/blog/${featured.slug}`}
-              className="group grid rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background sm:grid-cols-2 sm:gap-12"
+              className="tn-blog-card tn-blog-feature group grid rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background sm:grid-cols-2 sm:gap-12"
             >
               <span className="relative block aspect-video overflow-hidden rounded-lg bg-muted">
                 <Image
@@ -70,7 +72,7 @@ export default async function BlogPage() {
                   {featured.title}
                 </h2>
                 <span className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 font-sans text-sm text-muted-foreground">
-                  <span className="rounded-md bg-muted px-2 py-1 text-foreground">{featured.topicLabel}</span>
+                  <span className="tn-blog-chip rounded-md bg-muted px-2 py-1 text-foreground">{featured.topicLabel}</span>
                   <time dateTime={featured.date}>
                     {formatBlogPostDate(featured.date)}
                   </time>

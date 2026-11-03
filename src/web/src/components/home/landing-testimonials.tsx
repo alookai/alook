@@ -15,7 +15,7 @@ export function LandingTestimonials() {
 
   return (
     <section id="testimonials" aria-labelledby="testimonials-heading" className={styles.section}>
-      <div className={styles.container}>
+      <div className={styles.container} data-landing-scroll-anchor>
         <div className={styles.intro}>
           <h2 id="testimonials-heading">What people say about <HandAccent>Alook</HandAccent>.</h2>
           <p>From the community, in their own words.</p>

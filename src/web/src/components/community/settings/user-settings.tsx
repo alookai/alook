@@ -43,12 +43,12 @@ type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy" | "term
 
 const USER_SETTINGS_TABS: SettingsShellTab<UserSettingsTab>[] = [
   { value: "profile", label: "My Profile", icon: User },
-  { value: "billing", label: "Subscription & billing", icon: CreditCard, hideIconOnDesktop: true },
+  { value: "billing", label: "Subscription & billing", icon: CreditCard },
   { value: "appearance", label: "Appearance", icon: Palette },
-  { value: "automation", label: "Automation", icon: KeyRound, hideIconOnDesktop: true },
-  { value: "advanced", label: "Advanced", icon: Database, hideIconOnDesktop: true },
-  { value: "privacy", label: "Privacy", icon: Shield, hideIconOnDesktop: true },
-  { value: "terms", label: "Terms", icon: FileText, hideIconOnDesktop: true },
+  { value: "automation", label: "Automation", icon: KeyRound },
+  { value: "advanced", label: "Advanced", icon: Database },
+  { value: "privacy", label: "Privacy", icon: Shield },
+  { value: "terms", label: "Terms", icon: FileText },
 ]
 
 function AppearanceSettings() {
@@ -58,7 +58,7 @@ function AppearanceSettings() {
   const active = mounted ? theme ?? "system" : undefined
 
   return (
-    <div className="mx-auto w-full max-w-md space-y-4">
+    <div className="w-full space-y-4">
       <Field label="Theme">
         <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted/60 p-1">
           {THEME_OPTIONS.map(({ value, label, icon: Icon }) => {
@@ -139,7 +139,7 @@ export function AdvancedSettings() {
           }
         }}
       />
-      <div className="mx-auto flex min-h-full w-full max-w-md flex-col">
+      <div className="flex min-h-full w-full flex-col">
         <section className="space-y-2">
           <h2 className="text-base font-medium tracking-tight">Clear local cache</h2>
           {clearError && <p role="alert" className="text-sm text-destructive">{clearError}</p>}
@@ -255,7 +255,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
       disabled={deletionOpen}
       navFooter={
         <Button variant="ghost" className={SETTINGS_LOGOUT_CLASS} size="sm" onClick={onLogout} aria-label="Log out" disabled={deletionOpen}>
-          <LogOut className="size-4 sm:invisible" /> <span className="sr-only sm:not-sr-only">Log Out</span>
+          <LogOut className="size-4" /> <span className="sr-only sm:not-sr-only">Log Out</span>
         </Button>
       }
     >
@@ -267,9 +267,9 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
         />
       ) : (
         <>
-          <SettingsShellPanel value="billing"><div className="mx-auto w-full max-w-xl"><BillingContent billing={billing} /></div></SettingsShellPanel>
+          <SettingsShellPanel value="billing"><div className="w-full"><BillingContent billing={billing} /></div></SettingsShellPanel>
           <SettingsShellPanel value="profile">
-            <div className="mx-auto w-full max-w-md space-y-8">
+            <div className="w-full space-y-8">
               {/* Avatar — centered in a soft rounded frame, with a hand-rolled
                   pill button beneath (matches the bot create/edit sheet; a stock
                   secondary Button reads as the old square style). */}
@@ -318,7 +318,16 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
                   </button>
                 </StatusEditor>
               </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <div className="flex items-center justify-end gap-2">
+                <Button variant="ghost" size="sm" className="h-11 sm:h-8" onClick={handleCancel} disabled={!dirty}>Cancel</Button>
+                <Button size="sm" className="h-11 sm:h-8" onClick={handleSave} disabled={!dirty}>Save changes</Button>
+              </div>
+              {/* Danger zone: kept apart from the profile's primary actions (QA #21). */}
+              <div data-slot="settings-danger-zone" className="flex items-center justify-between gap-4 border-t border-border/40 pt-6">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Delete account</div>
+                  <p className="text-xs text-muted-foreground">Permanently remove your account and its data.</p>
+                </div>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -329,10 +338,6 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
                 >
                   Delete account
                 </Button>
-                <div className="ml-auto flex shrink-0 items-center gap-2">
-                  <Button variant="ghost" size="sm" className="h-11 sm:h-8" onClick={handleCancel} disabled={!dirty}>Cancel</Button>
-                  <Button size="sm" className="h-11 sm:h-8" onClick={handleSave} disabled={!dirty}>Save changes</Button>
-                </div>
               </div>
             </div>
           </SettingsShellPanel>
@@ -346,12 +351,12 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
             <AdvancedSettings />
           </SettingsShellPanel>
           <SettingsShellPanel value="privacy">
-            <div className="mx-auto w-full max-w-2xl pb-8">
+            <div className="w-full pb-8">
               <PrivacyPolicyContent />
             </div>
           </SettingsShellPanel>
           <SettingsShellPanel value="terms">
-            <div className="mx-auto w-full max-w-2xl pb-8">
+            <div className="w-full pb-8">
               <TermsContent />
             </div>
           </SettingsShellPanel>

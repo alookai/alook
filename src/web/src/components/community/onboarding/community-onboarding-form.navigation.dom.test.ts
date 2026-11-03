@@ -146,7 +146,7 @@ describe("CommunityOnboardingForm room navigation", () => {
     fireEvent.click(screen.getByTestId("select-harness"))
     expect(screen.getByText("Agent Setup")).toBeInTheDocument()
     expect(mocks.initialize).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole("button", { name: "Manual" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Manual" }))
     expect(screen.getByRole("button", { name: "Machine connected" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Exit manual" }))
     expect(owner.runtime.ui.get().onboardingState).toBeNull()

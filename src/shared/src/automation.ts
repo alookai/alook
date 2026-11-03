@@ -20,6 +20,7 @@ export const AutomationAccessCodeCreateSchema = z.strictObject({
   name: z.string().trim().min(1).max(100),
   expiresIn: AutomationExpirySchema.default("24h"),
   permissions,
+  purpose: z.literal("onboarding").optional(),
 })
 export const AutomationAccessCodeUpdateSchema = z.strictObject({
   name: z.string().trim().min(1).max(100).optional(),
@@ -34,6 +35,7 @@ export type AutomationAccessCodeCreate = z.infer<typeof AutomationAccessCodeCrea
 export type AutomationAccessCodeUpdate = z.infer<typeof AutomationAccessCodeUpdateSchema>
 export interface AutomationAccessCode {
   id: string
+  purpose?: "onboarding" | null
   name: string
   createdAt: string
   expiresAt: string | null

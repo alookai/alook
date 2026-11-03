@@ -136,7 +136,7 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
             <article key={post.slug}>
               <Link
                 href={`/blog/${post.slug}`}
-                className="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+                className="tn-blog-card tn-blog-post group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background"
               >
                 <span className="relative block aspect-video overflow-hidden rounded-lg bg-muted">
                   <Image
@@ -160,7 +160,7 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
           ))}
         </div>
       ) : (
-        <p className="mt-8 rounded-lg border border-border px-4 py-8 font-sans text-sm text-muted-foreground">
+        <p className="tn-blog-card mt-8 rounded-lg border border-border px-4 py-8 font-sans text-sm text-muted-foreground">
           No recent stories in this topic yet.
         </p>
       )}
@@ -188,7 +188,7 @@ function TopicButton({
       type="button"
       aria-pressed={selected}
       onClick={() => onSelect(id)}
-      className={`min-h-11 shrink-0 whitespace-nowrap py-2 font-sans text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+      className={`tn-blog-filter min-h-11 shrink-0 whitespace-nowrap py-2 font-sans text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
         selected
           ? "font-semibold text-foreground underline decoration-2 underline-offset-4"
           : "font-medium text-muted-foreground hover:text-foreground"

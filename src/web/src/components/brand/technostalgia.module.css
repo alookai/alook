@@ -118,6 +118,7 @@
   --border: var(--tn-line);
   --input: var(--tn-line);
   --ring: var(--tn-blue-top);
+  --link: var(--tn-blue-top);
   --sidebar: var(--tn-paper);
   --sidebar-foreground: var(--tn-text);
   --sidebar-primary: var(--tn-blue);
@@ -150,18 +151,15 @@
 
 .theme[data-tn-mode="dark"] :is(button, a)[data-variant][data-variant="default"],
 [data-tn-mode="dark"] .theme :is(button, a)[data-variant][data-variant="default"] {
-  border-color: #3b5f9e;
   --neon: 91 124 255;
-  border-color: rgb(140 165 255 / 90%);
+  --tn-neon-inner: 35%;
+  --tn-neon-edge: 70%;
+  --tn-neon-spill: 42%;
+  --tn-key-reflection: rgb(131 160 255 / 14%);
   background:
-    radial-gradient(110% 130% at 50% 110%, rgb(var(--neon) / 75%), transparent 70%),
-    linear-gradient(#2a3a8a, #18215a);
+    radial-gradient(ellipse at 50% 50%, rgb(129 159 255 / 28%), transparent 80%),
+    linear-gradient(#2b43b4, #3b55d2 50%, #2b40ac);
   color: #f2f5ff;
-  box-shadow:
-    inset 0 0 14px rgb(160 180 255 / 45%),
-    0 var(--tn-key-depth) 0 #3349c4,
-    0 calc(var(--tn-key-depth) + 4px) 22px rgb(var(--neon) / 55%),
-    0 0 44px rgb(var(--neon) / 24%);
 }
 
 .theme[data-tn-mode="dark"] :is(button, a)[data-variant][data-variant="destructive"],
@@ -173,15 +171,7 @@
 
 .theme[data-tn-mode="dark"] :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"])::before,
 [data-tn-mode="dark"] .theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"])::before {
-  background: linear-gradient(rgb(255 255 255 / 16%), transparent);
-}
-
-.theme[data-tn-mode="dark"] :is(button, a)[data-variant]:not(:disabled):active,
-[data-tn-mode="dark"] .theme :is(button, a)[data-variant]:not(:disabled):active {
-  box-shadow:
-    inset 0 0 18px rgb(var(--neon) / 50%),
-    0 0 0 rgb(var(--neon) / 38%),
-    0 2px 28px rgb(var(--neon) / 55%);
+  background: linear-gradient(var(--tn-key-reflection, rgb(255 255 255 / 16%)), transparent);
 }
 
 .theme {
@@ -271,7 +261,7 @@
   filter: brightness(1.04);
 }
 
-.theme :is(button, a)[data-variant]:not(:disabled):active {
+.theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"], :disabled, [aria-disabled="true"], [data-disabled]):active {
   transform: translateY(var(--tn-key-depth));
   box-shadow:
     inset 0 2px 0 rgb(255 255 255 / 35%),
@@ -280,13 +270,13 @@
 }
 
 .theme :is(button, a)[data-variant][data-variant="default"] {
-  background: var(--tn-spec), linear-gradient(#7fa6df, var(--tn-blue) 60%, #4f7cc0);
-  color: #f8f6f1;
+  background: linear-gradient(rgb(255 255 255 / 16%), transparent 45%), linear-gradient(#5f88cc, #4a76bd 55%, #3d65a8);
+  color: #fff;
   box-shadow:
     inset 0 2px 0 rgb(255 255 255 / 45%),
     inset 0 -3px 0 rgb(20 40 80 / 22%),
     0 var(--tn-key-depth) 0 var(--tn-blue-side);
-  text-shadow: 0 1px 0 rgb(20 40 80 / 35%);
+  text-shadow: 0 1px 0 rgb(15 30 70 / 45%);
 }
 
 .theme :is(button, a)[data-variant][data-variant="default"]:not(:disabled):active {
@@ -1220,14 +1210,25 @@
 /* Screen: one plain, faint hairline around the app surface — not recessed,
  * so the channel + message area doesn't look sunk in (Gus #2403). */
 .theme [data-slot="community-app-surface"] {
+  --tn-shell-edge-width: 0.5px;
+  --tn-shell-edge-color: rgb(60 45 20 / 14%);
   --tw-ring-color: transparent !important;
-  /* The app's 1px border/40 edge is replaced by this half-pixel hairline (#2405). */
   border-color: transparent !important;
-  box-shadow: 0 0 0 0.5px rgb(60 45 20 / 14%) !important;
+  box-shadow: 0 0 0 var(--tn-shell-edge-width) var(--tn-shell-edge-color) !important;
 }
 .theme[data-tn-mode="dark"] [data-slot="community-app-surface"],
 [data-tn-mode="dark"] .theme [data-slot="community-app-surface"] {
-  box-shadow: 0 0 0 0.5px rgb(255 255 255 / 12%) !important;
+  --tn-shell-edge-color: rgb(255 255 255 / 12%);
+}
+.theme [data-slot="community-app-surface"] [data-slot="resizable-handle"][aria-orientation="vertical"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  width: var(--tn-shell-edge-width);
+  translate: -50% 0;
+  background: var(--tn-shell-edge-color);
+  pointer-events: none;
 }
 
 /* Rail servers are keycaps; the current one is pressed */
@@ -1760,30 +1761,6 @@
   background: transparent !important;
 }
 
-/* Option rows (bot machine / runtime pickers): keys, not bordered boxes.
- * Open = raised key; chosen = pressed in, same as the open channel. */
-.theme label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"] {
-  border-color: transparent !important;
-  border-radius: 12px !important;
-  background: linear-gradient(#fffdf8, #f3ede2);
-  box-shadow: inset 0 1px 0 #fff, 0 1.5px 0 #d8ccb4;
-  transition: transform 90ms ease-out, box-shadow 120ms ease-out, background-color 120ms ease-out;
-}
-.theme label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"]:active { transform: translateY(1px); }
-.theme label:has(> input[type="radio"]:checked)[class~="rounded-lg"][class~="border"] {
-  background: color-mix(in oklab, var(--tn-text) 6%, var(--card));
-  box-shadow: inset 0 1.5px 2px rgb(60 45 20 / 16%), inset 0 -1px 0 rgb(255 255 255 / 55%), 0 0 0 1px color-mix(in oklab, var(--tn-blue) 45%, transparent);
-}
-.theme[data-tn-mode="dark"] label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"],
-[data-tn-mode="dark"] .theme label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"] {
-  background: linear-gradient(#161618, #101012);
-  box-shadow: inset 0 0 0 1px rgb(140 160 220 / 12%), 0 1.5px 0 rgb(140 160 220 / 25%);
-}
-.theme[data-tn-mode="dark"] label:has(> input[type="radio"]:checked)[class~="rounded-lg"][class~="border"],
-[data-tn-mode="dark"] .theme label:has(> input[type="radio"]:checked)[class~="rounded-lg"][class~="border"] {
-  background: #0c0c0e;
-  box-shadow: inset 0 1.5px 3px rgb(0 0 0 / 85%), inset 0 0 0 1px rgb(125 151 255 / 40%), 0 0 12px -4px rgb(91 124 255 / 45%);
-}
 /* Unavailable options stay readable */
 .theme label:has(> input[type="radio"]:disabled)[class~="opacity-40"] { opacity: 0.6 !important; }
 
@@ -1830,20 +1807,18 @@
   --tc: var(--tn-blue-side);
 }
 
-/* Dark primary key: keep the neon inside ~10px so overflow edges never cut it (#2262) */
-.theme[data-tn-mode="dark"] :is(button, a)[data-variant][data-variant="default"],
-[data-tn-mode="dark"] .theme :is(button, a)[data-variant][data-variant="default"] {
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"]),
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"]) {
   box-shadow:
-    inset 0 0 12px rgb(160 180 255 / 40%),
-    0 var(--tn-key-depth) 0 #3349c4,
-    0 calc(var(--tn-key-depth) + 2px) 10px rgb(91 124 255 / 45%) !important;
+    inset 0 0 10px rgb(var(--neon) / var(--tn-neon-inner, 20%)),
+    0 var(--tn-key-depth) 0 rgb(var(--neon) / var(--tn-neon-edge, 38%)),
+    0 calc(var(--tn-key-depth) + 2px) 10px rgb(var(--neon) / var(--tn-neon-spill, 22%)) !important;
 }
-.theme[data-tn-mode="dark"] :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"], [data-variant="default"]),
-[data-tn-mode="dark"] .theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"], [data-variant="default"]) {
-  box-shadow:
-    inset 0 0 10px rgb(var(--neon) / 20%),
-    0 var(--tn-key-depth) 0 rgb(var(--neon) / 38%),
-    0 calc(var(--tn-key-depth) + 2px) 10px rgb(var(--neon) / 22%) !important;
+
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"], :disabled, [aria-disabled="true"], [data-disabled]):active,
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"], :disabled, [aria-disabled="true"], [data-disabled]):active {
+  box-shadow: inset 0 2px 5px rgb(0 0 0 / 65%), inset 0 1px 0 rgb(var(--neon) / 20%) !important;
+  text-shadow: none !important;
 }
 
 /* ═════════ Gus checklist (#2238 #2249 #2252 #2257 #2262 #2264 #2265) ═════════ */
@@ -2092,7 +2067,8 @@
   border-radius: 999px !important;
 }
 .theme [data-slot="command-block"] { padding-block: 10px !important; }
-.theme [data-slot="command-block"]::before { top: 50%; translate: 0 -50%; }
+/* The prompt mark sits on the first line, so a wrapped command reads right (QA #5). */
+.theme [data-slot="command-block"]::before { top: 10px; translate: none; line-height: 1.625; }
 
 /* ═════════ Landing (A1, #2288): palette + type swap on the existing layout ═════════
  * Beige computer plastic + CD blue on cream grid paper (ref-01/02/05); dark is
@@ -2240,37 +2216,12 @@
 }
 
 /* ═════════ Onboarding card (#2303): a paper card with key options ═════════ */
-.theme [data-testid="onboarding-surface"] > div:has([data-slot="dialog-title"]),
-.theme [data-testid="onboarding-surface"] [class~="bg-popover"][class~="rounded-xl"] {
+/* The popup itself is the one card: header (mode switch, close) and steps
+ * share it, so nothing floats on the backdrop (QA #4). */
+.theme [data-testid="onboarding-surface"] {
   border-radius: 20px !important;
   background: var(--tn-paper-raised) !important;
   box-shadow: 0 0 0 1px var(--tn-line), 0 28px 56px -30px rgb(60 45 20 / 40%) !important;
-}
-/* Options are keys: raised paper; chosen = pressed in with a blue ring */
-.theme [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"]) {
-  border-radius: 14px !important;
-  background: linear-gradient(#fffdf8, #f3ede2) !important;
-  box-shadow: inset 0 1px 0 #fff, 0 1.5px 0 #d8ccb4, 0 3px 6px -4px rgb(60 45 20 / 22%) !important;
-  transition: transform 90ms ease-out, box-shadow 120ms ease-out, background-color 120ms ease-out !important;
-}
-.theme [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"]):hover {
-  transform: translateY(-1px);
-}
-.theme [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"]):active,
-.theme [data-testid="onboarding-surface"] [data-slot="field-label"][data-selected] {
-  transform: translateY(1px);
-  background: color-mix(in oklab, var(--tn-text) 6%, var(--tn-paper-raised)) !important;
-  box-shadow: inset 0 1.5px 2px rgb(60 45 20 / 16%), inset 0 -1px 0 rgb(255 255 255 / 55%), 0 0 0 1.5px color-mix(in oklab, var(--tn-blue) 55%, transparent) !important;
-}
-.theme[data-tn-mode="dark"] [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"]),
-[data-tn-mode="dark"] .theme [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"]) {
-  background: linear-gradient(#161618, #101012) !important;
-  box-shadow: inset 0 0 0 1px rgb(140 160 220 / 12%), 0 1.5px 0 rgb(140 160 220 / 25%) !important;
-}
-.theme[data-tn-mode="dark"] [data-testid="onboarding-surface"] [data-slot="field-label"][data-selected],
-[data-tn-mode="dark"] .theme [data-testid="onboarding-surface"] [data-slot="field-label"][data-selected] {
-  background: #0c0c0e !important;
-  box-shadow: inset 0 1.5px 3px rgb(0 0 0 / 85%), inset 0 0 0 1px rgb(125 151 255 / 45%), 0 0 12px -4px rgb(91 124 255 / 50%) !important;
 }
 /* The step bar reads as one segmented tape */
 .theme [data-testid="onboarding-surface"] [class~="h-1"][class~="flex-1"] {
@@ -2346,6 +2297,14 @@
   max-width: calc(100% - 24px) !important;
 }
 .theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] { padding: 2px !important; gap: 0 !important; }
+.theme [data-testid="community-settings-shell"][data-orientation="horizontal"] [data-slot="tabs-list"][data-variant="line"] {
+  width: 100% !important;
+}
+.theme [data-testid="community-settings-shell"][data-orientation="horizontal"] [data-slot="tabs-list"][data-variant="line"] [data-slot="tabs-trigger"] {
+  flex: 1 1 0% !important;
+  width: auto !important;
+  min-width: 0 !important;
+}
 /* typing pill feedback comes from data flags (pointer stays pass-through) */
 .theme [data-testid="community-typing-indicator"][data-hover] { transform: translateY(-1px); }
 .theme [data-testid="community-typing-indicator"][data-pressed] {
@@ -2441,4 +2400,153 @@
     width: auto !important;
     min-width: 0;
   }
+}
+
+/* ═════════ QA pass 2 (no-context review, 2026-11-03) ═════════ */
+
+/* #17 Disabled keys: flat and clearly off, but readable — a quiet tray fill
+ * with muted ink, no lip, no glow, no gloss (light and dark). */
+.theme :is(button, a)[data-variant]:is(:disabled, [aria-disabled="true"], [data-disabled]),
+.theme :is(button, a)[data-variant][data-variant="default"]:is(:disabled, [aria-disabled="true"], [data-disabled]) {
+  opacity: 1 !important;
+  filter: none !important;
+  border-color: transparent !important;
+  background: #e6dece !important;
+  color: #7d705b !important;
+  box-shadow: inset 0 1px 2px rgb(60 45 20 / 10%) !important;
+  text-shadow: none !important;
+  cursor: not-allowed;
+}
+.theme :is(button, a)[data-variant]:is([data-variant="ghost"], [data-variant="link"]):is(:disabled, [aria-disabled="true"], [data-disabled]) {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant]:is(:disabled, [aria-disabled="true"], [data-disabled]),
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant]:is(:disabled, [aria-disabled="true"], [data-disabled]),
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant][data-variant="default"]:is(:disabled, [aria-disabled="true"], [data-disabled]),
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant][data-variant="default"]:is(:disabled, [aria-disabled="true"], [data-disabled]) {
+  border-color: rgb(255 255 255 / 6%) !important;
+  background: #18181b !important;
+  color: #7c8090 !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant]:is([data-variant="ghost"], [data-variant="link"]):is(:disabled, [aria-disabled="true"], [data-disabled]),
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant]:is([data-variant="ghost"], [data-variant="link"]):is(:disabled, [aria-disabled="true"], [data-disabled]) {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+/* Every badge answers like a paper sticker, even with no action (Gus #2440):
+ * it lifts a pixel on hover and presses flat in place. Tilt and cut-paper
+ * corners stay; translate composes with their rotate. */
+.theme [data-slot="badge"] {
+  transition: translate 90ms ease-out, box-shadow 90ms ease-out, filter 120ms ease-out;
+}
+.theme [data-slot="badge"]:hover {
+  translate: 0 -1px;
+  filter: brightness(1.03);
+}
+.theme [data-slot="badge"]:active {
+  translate: 0 1px;
+  filter: brightness(0.98);
+  box-shadow: inset 0 1px 2px rgb(60 45 20 / 18%) !important;
+}
+.theme[data-tn-mode="dark"] [data-slot="badge"]:active,
+[data-tn-mode="dark"] .theme [data-slot="badge"]:active {
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 70%) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme [data-slot="badge"] { transition: none; }
+}
+
+/* #24/#26 One dialog/sheet title style everywhere: same size, weight and ink. */
+.theme :is([data-slot="dialog-title"], [data-slot="sheet-title"]),
+.theme:is([data-slot="dialog-content"]) [data-slot="dialog-title"] {
+  color: var(--tn-text) !important;
+  font-size: 22px !important;
+  font-weight: 750 !important;
+  letter-spacing: -0.02em !important;
+  line-height: 1.2 !important;
+}
+@media (max-width: 39.99rem) {
+  .theme :is([data-slot="dialog-title"], [data-slot="sheet-title"]) {
+    font-size: 20px !important;
+  }
+}
+/* The close key keeps clear of the dialog's rounded corner. */
+.theme [data-slot="dialog-content"] > [data-slot="dialog-close"] {
+  top: 14px !important;
+  right: 14px !important;
+}
+
+/* #24 Dialogs that pad their own rows (the create/edit shell, px-5) don't also
+ * take the theme's 28px, so left and right edges match. */
+.theme [data-slot="dialog-content"][data-own-padding],
+.theme:is([data-slot="dialog-content"])[data-own-padding] {
+  padding: 0;
+}
+.theme [data-slot="dialog-content"][data-own-padding] > [data-slot="dialog-footer"],
+.theme:is([data-slot="dialog-content"])[data-own-padding] > [data-slot="dialog-footer"] {
+  margin: 0;
+  padding: 0 20px 20px;
+}
+
+/* #32 Sidebar hover is a faint beige of the same family as the pressed-in
+ * selection, not the blue tint. Covers channel and DM rows and the sidebar's
+ * shortcut links. */
+.theme :is([data-testid^="community-channel-row-"], [data-testid^="community-dm-row-"], [class~="hover:bg-sidebar-accent/60"], [class~="hover:bg-sidebar-accent"]):not([class~="bg-sidebar-accent"]):hover {
+  background-color: color-mix(in oklab, var(--tn-text) 4.5%, transparent) !important;
+}
+.theme[data-tn-mode="dark"] :is([data-testid^="community-channel-row-"], [data-testid^="community-dm-row-"], [class~="hover:bg-sidebar-accent/60"], [class~="hover:bg-sidebar-accent"]):not([class~="bg-sidebar-accent"]):hover,
+[data-tn-mode="dark"] .theme :is([data-testid^="community-channel-row-"], [data-testid^="community-dm-row-"], [class~="hover:bg-sidebar-accent/60"], [class~="hover:bg-sidebar-accent"]):not([class~="bg-sidebar-accent"]):hover {
+  background-color: rgb(255 255 255 / 5%) !important;
+}
+
+/* #35 Touch screens: a tap is not a hover, so tooltips never stick open over
+ * the content after a tap. */
+@media (hover: none) {
+  .theme [data-slot="tooltip-content"],
+  .theme:is([data-slot="tooltip-content"]) {
+    display: none !important;
+  }
+}
+
+
+.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"])) {
+  border-color: transparent !important;
+  border-radius: 12px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transition: transform 90ms ease-out, box-shadow 120ms ease-out, background-color 120ms ease-out !important;
+}
+.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"])):hover {
+  background: color-mix(in oklab, var(--tn-text) 4%, transparent) !important;
+}
+.theme :is(label:has(> input[type="radio"]:checked)[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"][data-selected]),
+.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"])):active {
+  background: color-mix(in oklab, var(--tn-text) 5%, var(--tn-paper)) !important;
+  box-shadow: inset 0 2px 4px -1px rgb(60 45 20 / 18%) !important;
+}
+.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"])):active {
+  transform: translateY(1px);
+}
+:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) :is(label:has(> input[type="radio"]:checked)[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"][data-selected]),
+:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"])):active {
+  background: #0f0f11 !important;
+  box-shadow: inset 0 2px 5px -1px rgb(0 0 0 / 85%) !important;
+}
+.theme [data-slot="badge"][data-machine-runtime][data-variant],
+:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) [data-slot="badge"][data-machine-runtime][data-variant] {
+  rotate: var(--runtime-badge-tilt, 0deg) !important;
+  background: color-mix(in oklab, var(--tn-text) 3%, var(--card)) !important;
+  color: var(--tn-text) !important;
+  border: 1px solid color-mix(in oklab, var(--tn-text) 14%, transparent) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%) !important;
+}
+.theme [data-slot="badge"][data-machine-runtime]:hover {
+  background: color-mix(in oklab, var(--tn-text) 4%, transparent) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"])) { transition: none !important; }
 }

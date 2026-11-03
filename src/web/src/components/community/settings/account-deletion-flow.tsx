@@ -181,7 +181,7 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
 
   return (
     <div
-      className="mx-auto w-full max-w-md animate-in fade-in duration-150 motion-reduce:animate-none"
+      className="w-full animate-in fade-in duration-150 motion-reduce:animate-none"
       data-testid={tid.accountDeletionFlow}
     >
       {step === "notice" ? (

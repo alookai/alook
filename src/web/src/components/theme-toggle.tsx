@@ -6,7 +6,8 @@ import { useTheme } from "next-themes";
 import { Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export function ThemeToggle() {
+/** The one light/dark switch: an icon key (public pages, landing hero and nav). */
+export function ThemeToggle({ className }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useAtom(useCreateAtom(false));
 
@@ -18,7 +19,7 @@ export function ThemeToggle() {
 
   if (!mounted) {
     return (
-      <Button variant="ghost" size="sm" disabled>
+      <Button variant="ghost" size="icon" className={className} disabled aria-label="Toggle theme">
         <Sun className="size-4" />
       </Button>
     );
@@ -27,7 +28,7 @@ export function ThemeToggle() {
   const Icon = resolvedTheme === "dark" ? Moon : Sun;
 
   return (
-    <Button variant="ghost" size="sm" onClick={toggle} aria-label="Toggle theme">
+    <Button variant="ghost" size="icon" className={className} onClick={toggle} aria-label={resolvedTheme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={resolvedTheme === "dark" ? "Light theme" : "Dark theme"}>
       <Icon className="size-4" />
     </Button>
   );

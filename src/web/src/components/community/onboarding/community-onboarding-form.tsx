@@ -15,6 +15,7 @@ import { usePathname } from "next/navigation"
 import { finishCommunityOnboardingAgentSetup, switchCommunityOnboardingSetup, advanceCommunityOnboarding, completeCommunityOnboarding, recoverCommunityOnboardingHarness, skipCommunityOnboarding, useCommunityOnboarding, readCommunityOnboardingState, updateCommunityOnboardingInitialization } from "@/lib/community-onboarding"
 
 import { Button } from "@/components/ui/button"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { X } from "lucide-react"
 import { Dialog as SetupDialog } from "@base-ui/react/dialog"
 import { AppEdgeFade, appBackdropClassName } from "@/components/ui/app-edge-fade"
@@ -291,19 +292,20 @@ export function CommunityOnboardingForm() {
   return <SetupDialog.Root open onOpenChange={(_open, details) => details.cancel()}>
     <SetupDialog.Portal>
     <SetupDialog.Backdrop className={`fixed inset-0 z-50 ${appBackdropClassName}`}><AppEdgeFade /></SetupDialog.Backdrop>
-    <SetupDialog.Popup aria-label="Set up Alook" data-testid="onboarding-surface" className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col gap-1 text-foreground outline-none">
+    <SetupDialog.Popup aria-label="Set up Alook" data-testid="onboarding-surface" className="fixed top-[max(1rem,12dvh)] left-1/2 z-50 flex max-h-[calc(100dvh-max(1rem,12dvh)-1rem)] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 flex-col overflow-hidden rounded-xl bg-popover text-foreground text-popover-foreground shadow-(--e2) outline-none">
     <OnboardingSurface>
-      <header className="flex shrink-0 items-center justify-between gap-4 px-2">
-        <nav aria-label="Setup method" className="flex gap-4">
-          {selected ? (["agent", "manual"] as const).map((value) => <button
-            key={value} type="button" data-testid={`onboarding-mode-${value}`} aria-pressed={mode === value}
-            disabled={!switching} onClick={() => { if (mode !== value) switchCommunityOnboardingSetup(runtime, value) }}
-            className={`inline-flex min-h-11 items-center bg-transparent px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed ${mode === value ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-          ><span className={`border-b-2 pb-1 ${mode === value ? "border-foreground" : "border-transparent"}`}>{value === "agent" ? "Agent" : "Manual"}</span></button>) : <span className="text-sm text-muted-foreground">Pick your local agent</span>}
-        </nav>
+      {/* Title, mode switch and close live inside the card, on its top edge (QA #4). */}
+      <header data-slot="onboarding-card-header" className="flex shrink-0 items-center justify-between gap-4 px-4 pt-2 sm:px-6">
+        {selected ? <Tabs value={mode} onValueChange={(value) => {
+          if (switching && (value === "agent" || value === "manual") && mode !== value) switchCommunityOnboardingSetup(runtime, value)
+        }}>
+          <TabsList aria-label="Setup method" className="thin-scrollbar">
+            {(["agent", "manual"] as const).map((value) => <TabsTrigger key={value} value={value} data-testid={`onboarding-mode-${value}`} disabled={!switching}>{value === "agent" ? "Agent" : "Manual"}</TabsTrigger>)}
+          </TabsList>
+        </Tabs> : <span className="text-sm text-muted-foreground">Pick your local agent</span>}
         <Button type="button" variant="ghost" size="icon" aria-label="Exit setup" title="Exit setup" className="size-11 text-foreground" onClick={() => skipCommunityOnboarding(runtime)}><X aria-hidden className="size-4" /></Button>
       </header>
-      <div className="min-h-0 overflow-y-auto thin-scrollbar rounded-xl bg-popover text-popover-foreground shadow-(--e2)">
+      <div className="min-h-0 overflow-y-auto thin-scrollbar">
         <StepSlide testId="onboarding-step-transition" step={`${state.stage}-${mode}`} order={["harness", "machine", "model", "identity", "initializing", "bot"].indexOf(state.stage) * 2 + (mode === "manual" ? 1 : 0)}>
           <CommunityOnboardingSteps />
         </StepSlide>

@@ -2,8 +2,11 @@
   --gallery-ink: var(--landing-text);
   --gallery-muted: var(--landing-text-muted);
   --gallery-surface: var(--landing-section-bg);
-  padding: 32px var(--landing-page-gutter) 64px;
-  background: var(--gallery-surface);
+  padding: var(--landing-section-space, 128px) var(--landing-page-gutter);
+  background:
+    linear-gradient(to bottom, var(--landing-bg) 0%, color-mix(in oklab, var(--landing-bg) 97%, var(--gallery-surface)) 15%, color-mix(in oklab, var(--landing-bg) 78%, var(--gallery-surface)) 35%, color-mix(in oklab, var(--landing-bg) 50%, var(--gallery-surface)) 50%, color-mix(in oklab, var(--landing-bg) 22%, var(--gallery-surface)) 65%, color-mix(in oklab, var(--landing-bg) 3%, var(--gallery-surface)) 85%, var(--gallery-surface) 100%) top / 100% var(--landing-section-fade, 128px) no-repeat,
+    linear-gradient(to bottom, var(--gallery-surface) 0%, color-mix(in oklab, var(--gallery-surface) 97%, var(--landing-bg)) 15%, color-mix(in oklab, var(--gallery-surface) 78%, var(--landing-bg)) 35%, color-mix(in oklab, var(--gallery-surface) 50%, var(--landing-bg)) 50%, color-mix(in oklab, var(--gallery-surface) 22%, var(--landing-bg)) 65%, color-mix(in oklab, var(--gallery-surface) 3%, var(--landing-bg)) 85%, var(--landing-bg) 100%) bottom / 100% var(--landing-section-fade, 128px) no-repeat,
+    var(--gallery-surface);
   color: var(--gallery-ink);
   scroll-margin-top: 72px;
 }
@@ -115,7 +118,7 @@
 }
 @media (max-width: 639px) {
   .section {
-    padding: 32px 24px;
+    padding: var(--landing-section-space, 96px) 24px;
   }
   .controls {
     margin-bottom: 24px;

@@ -100,7 +100,7 @@ export function renderBotMachineGroup(
                       {statusKnown && (!bot.isActive || (!online && machine?.status !== undefined)) && (
                         <Button
                           size="sm"
-                          variant="outline"
+                          variant={bot.isActive ? "default" : "outline"}
                           className="h-6 shrink-0 px-2 text-xs"
                           disabled={!bot.isActive && activePending}
                           aria-busy={!bot.isActive && activePending || undefined}
