@@ -28,6 +28,17 @@ function fixture() {
   return root
 }
 describe("complete build shell and worker staging", () => {
+  it("deduplicates standalone chunks through the normal post-build staging entry", async () => {
+    const root = fixture()
+    const chunks = resolve(root, ".next/standalone/src/web/.next/server/chunks")
+    mkdirSync(chunks, { recursive: true })
+    const source = 'module.exports=[123,context=>{context.exports.value="same"}];\n'
+    writeFileSync(resolve(chunks, "a.js"), source)
+    writeFileSync(resolve(chunks, "b.js"), source)
+    await stageServiceWorker(root)
+    expect(readFileSync(resolve(chunks, "a.js"), "utf8")).toBe(source)
+    expect(readFileSync(resolve(chunks, "b.js"), "utf8")).toBe('module.exports = require("./a.js");\n')
+  })
   it("builds a classic worker from explicit public asset globs", async () => {
     await stageServiceWorker(fixture())
     const options = mocks.options as RouteOptions | null
