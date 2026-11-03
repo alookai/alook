@@ -18,6 +18,7 @@ import { LandingInteractiveDemo } from "./landing-interactive-demo"
 import { LandingFooter } from "./landing-footer"
 import { LANDING_HERO } from "./landing-content"
 import { HandAccent } from "@/components/brand/hand-accent"
+import { Cassette, CdPlayer, FlipPhone, Mac } from "@/components/brand/retro-objects"
 import styles from "./landing-page.module.css"
 import { trackLandingCtaClicked } from "@/lib/analytics"
 import { tid } from "@/lib/community/testids"
@@ -75,12 +76,6 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         testId="landing-hero"
         highlightPrimaryCta
         backgroundDecoration={<HeroAvatarSwarm />}
-        artworkDecoration={(
-          <div className={styles.heroStickers} aria-hidden="true">
-            <span className={`${styles.heroSticker} ${styles.heroStickerOrange}`}><i className={styles.heroStickerLed} />3 agents online</span>
-            <span className={`${styles.heroSticker} ${styles.heroStickerBlue}`}>Claude Code · Codex</span>
-          </div>
-        )}
       />
 
       <LandingTestimonials />
@@ -93,6 +88,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
 
       <section className={styles.closingSection} data-testid="landing-closing">
         <div className={styles.closingCta}>
+          <div className={styles.closingCopy}>
           <p className={styles.kicker}>Ready to share</p>
           <h2>Bring your team into the <HandAccent>conversation</HandAccent>.</h2>
           <p>Connect your agent and invite a teammate.</p>
@@ -120,6 +116,14 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
               {isLoggedIn ? LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta}{" "}
               <span aria-hidden>↗</span>
             </DocumentNavigationLink>
+          </div>
+          </div>
+          {/* Cut-paper collage around the card (Gus #2408, #2412): the brand's retro objects. */}
+          <div className={styles.closingCollage} aria-hidden="true">
+            <Mac className={`${styles.collageItem} ${styles.collageMac}`} label="Alook" labelFont="var(--font-brand)" />
+            <CdPlayer className={`${styles.collageItem} ${styles.collageCd}`} />
+            <Cassette className={`${styles.collageItem} ${styles.collageCassette}`} />
+            <FlipPhone className={`${styles.collageItem} ${styles.collagePhone}`} />
           </div>
         </div>
       </section>

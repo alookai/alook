@@ -126,7 +126,7 @@ export function PricingView({ controller: c }: { controller: PricingController }
         <p className={styles.sharedLine}>Core Alook features are available on every plan.</p>
 
         <section className={styles.faq} aria-labelledby="pricing-faq-title">
-          <h2 id="pricing-faq-title">Questions, answered.</h2>
+          <h2 id="pricing-faq-title">Questions, <HandAccent>answered</HandAccent>.</h2>
           <dl className={styles.faqGrid}>
             <div className={styles.faqItem}>
               <dt>Which machines count toward my plan?</dt>

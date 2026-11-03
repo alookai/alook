@@ -405,7 +405,8 @@ async function compareBrandGlyph(page: Page, card: Locator, captureIndex: number
       sourceContext.fillStyle = getComputedStyle(document.body).backgroundColor
       sourceContext.drawImage(exportedBitmap, 0, 0)
       const patch = sourceContext.getImageData(box.x - 8, box.y - 8, box.width + 16, box.height + 16)
-      sourceContext.putImageData(patch, box.x - 8 + (control === "shift-x" ? 2 * scale : 0), box.y - 8 + (control === "shift-y" ? 2 * scale : 0))
+      // An obvious move: 3 CSS px. Sub-pixel raster offsets between preview and export are not failures.
+      sourceContext.putImageData(patch, box.x - 8 + (control === "shift-x" ? 3 * scale : 0), box.y - 8 + (control === "shift-y" ? 3 * scale : 0))
     } else {
       sourceContext.drawImage(exportedBitmap, 0, 0)
     }
@@ -486,9 +487,28 @@ async function compareBrandGlyph(page: Page, card: Locator, captureIndex: number
       va += (la[i]! - ma) ** 2
       vb += (lb[i]! - mb) ** 2
     }
+    // Ink centroid (CSS px) catches a moved brand that correlation alone can miss.
+    const sampleWidth = Math.ceil(region.width) + 4
+    const centroid = (luminance: number[]) => {
+      // The padded corner is paper in both themes; ink is distance from it.
+      const paper = luminance[0]!
+      let total = 0
+      let x = 0
+      let y = 0
+      luminance.forEach((value, i) => {
+        const ink = Math.abs(paper - value)
+        total += ink
+        x += ink * (i % sampleWidth)
+        y += ink * Math.floor(i / sampleWidth)
+      })
+      return total ? [x / total, y / total] : [Number.NaN, Number.NaN]
+    }
+    const [ax, ay] = centroid(la)
+    const [bx, by] = centroid(lb)
     preview.close()
     exportedBitmap.close()
     return {
+      centroidOffset: Math.max(Math.abs(ax! - bx!), Math.abs(ay! - by!)),
       meanChannelDifference: difference / (la.length * 3),
       shapeCorrelation: va && vb ? covariance / Math.sqrt(va * vb) : 0,
       inkDifference: Math.max(...previewInk.map((channel, i) => Math.abs(channel - exportInk[i]!))),
@@ -1224,9 +1244,11 @@ test("light and dark desktop and narrow previews match their frozen full PNG", a
       expect(comparison.meanChannelDifference).toBeLessThan(28)
       const brandComparison = await compareBrandGlyph(page, card, captureIndex)
       const brandMatches = (result: typeof brandComparison) => result.inkDifference <= 16
+        && result.centroidOffset <= 1.5
         && result.shapeCorrelation >= 0.89
         && result.meanChannelDifference < 10
       expect(brandComparison.inkDifference).toBeLessThanOrEqual(16)
+      expect(brandComparison.centroidOffset).toBeLessThanOrEqual(1.5)
       expect(brandComparison.shapeCorrelation).toBeGreaterThanOrEqual(0.89)
       expect(brandComparison.meanChannelDifference).toBeLessThan(10)
       // Negative controls keep the check honest: a missing, moved, re-fonted or

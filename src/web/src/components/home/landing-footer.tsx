@@ -3,9 +3,12 @@ import Image from "next/image"
 import Link from "next/link"
 import { GithubOutboundLink } from "@/components/github-outbound-link"
 import { BRAND_SLOGAN } from "@/lib/brand-copy"
+import { HandAccent } from "@/components/brand/hand-accent"
 import { tid } from "@/lib/community/testids"
 import { MARKETING_SITE_LINK_CLASS_NAME, MARKETING_SITE_LINK_STYLE, MARKETING_SITE_LINKS } from "./marketing-site-links"
 import styles from "./landing-page.module.css"
+
+const FOOTER_ACCENT = "Team and Friends"
 
 function Brand() {
   return (
@@ -46,7 +49,9 @@ export function LandingFooter() {
             <div className={styles.footerBrand} data-testid={tid.landingFooterBrand}>
               <Brand />
             </div>
-            <p className={styles.footerSlogan} data-testid={tid.landingFooterSlogan}>{BRAND_SLOGAN}</p>
+            <p className={styles.footerSlogan} data-testid={tid.landingFooterSlogan}>
+              {BRAND_SLOGAN.replace(FOOTER_ACCENT, "")}<HandAccent>{FOOTER_ACCENT}</HandAccent>
+            </p>
             <div className={styles.footerSocialGroup} data-testid={tid.landingFooterSocial}>
               <FooterSocialLinks />
             </div>
@@ -59,6 +64,12 @@ export function LandingFooter() {
             ))}
             <a href="/tutorials" className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>Tutorials</a>
           </nav>
+        </div>
+        {/* The footer's memory point (Gus #2419): the wordmark set huge, like
+            the maker's name moulded into the bottom of an old machine. */}
+        <div className={styles.footerSignature} aria-hidden="true">
+          <p className={styles.footerPlate}>© {new Date().getFullYear()} Alook · made by people and their agents</p>
+          <span className={styles.footerWordmark}>Alook</span>
         </div>
       </footer>
   )

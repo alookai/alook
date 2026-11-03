@@ -20,29 +20,8 @@
   position: relative;
   margin-bottom: 32px;
 }
-.controls::before,
-.controls::after {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  bottom: 6px;
-  width: 24px;
-  pointer-events: none;
-  opacity: 0;
-}
-.controls::before {
-  left: 0;
-  background: linear-gradient(to right, var(--gallery-surface), transparent);
-}
-.controls::after {
-  right: 0;
-  background: linear-gradient(to left, var(--gallery-surface), transparent);
-}
-.controls[data-left="true"]::before,
-.controls[data-right="true"]::after {
-  opacity: 1;
-}
+/* No edge fades: the shared tray has its own rounded ends, and a fade in the
+ * section colour smeared over the tray (Gus #2407). */
 /* The tray, keys and press come from the shared Tabs; only overflow and drag
  * scrolling live here. */
 .tabs {

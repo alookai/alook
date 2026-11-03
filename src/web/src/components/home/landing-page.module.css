@@ -1283,11 +1283,17 @@
 }
 
 .footerSlogan {
-  color: var(--landing-text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  letter-spacing: 0.08em;
+  /* Bold sans that scales with its space; links stay light (Gus #2411, #2413). */
+  color: var(--landing-text);
+  font-family: var(--font-sans);
+  font-size: clamp(0.8rem, 0.5rem + 0.8vw, 1.25rem);
+  font-weight: 800;
+  letter-spacing: -0.015em;
   text-align: center;
+}
+
+.footerSlogan [data-slot="hand-accent"] {
+  font-size: 1.32em;
 }
 
 .footerNavigation {
@@ -1298,13 +1304,22 @@
   align-items: center;
   justify-content: center;
   justify-self: center;
-  gap: 24px;
+  /* Wrapped rows stay one tight group (Gus #2421). */
+  gap: 0 20px;
 }
 
 .footerNavigation a {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
+  color: var(--landing-text-muted) !important;
+  font-family: var(--font-sans) !important;
+  font-size: 15px;
+  font-weight: 400 !important;
+}
+
+.footerNavigation a:hover {
+  color: var(--landing-text);
 }
 
 .footerSocialGroup {
@@ -1801,77 +1816,6 @@
   margin-top: 0.75em;
 }
 
-/* Hero stickers: cut-paper tags stuck to the typewriter (brand-visual). They
- * drift a little, out of step, so the first screen feels alive. */
-.heroStickers {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  pointer-events: none;
-}
-
-.heroSticker {
-  position: absolute;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border-radius: 999px;
-  color: #fffdf8;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.2;
-  white-space: nowrap;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%), 0 2px 0 rgb(0 0 0 / 14%), 0 6px 14px -8px rgb(60 45 20 / 40%);
-  rotate: var(--tilt);
-  animation: heroStickerDrift 5.5s ease-in-out infinite;
-}
-
-.heroStickerOrange {
-  --tilt: -8deg;
-  top: 14%;
-  left: 2%;
-  background: var(--tn-orange, #e38b32);
-}
-
-.heroStickerBlue {
-  --tilt: 6deg;
-  right: 2%;
-  bottom: 22%;
-  background: var(--tn-blue, #5f8bcf);
-  animation-delay: -2.4s;
-  animation-duration: 6.5s;
-}
-
-.heroStickerLed {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #c8f7a1;
-  box-shadow: 0 0 6px #c8f7a1;
-  animation: heroStickerLed 1.8s ease-in-out infinite;
-}
-
-@keyframes heroStickerDrift {
-  0%, 100% { translate: 0 0; }
-  50% { translate: 0 -5px; }
-}
-
-@keyframes heroStickerLed {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-
-@media (max-width: 639px) {
-  .heroSticker { font-size: 11px; padding: 4px 10px; }
-  .heroStickerOrange { top: 6%; left: 4%; }
-  .heroStickerBlue { right: 4%; bottom: 30%; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .heroSticker, .heroStickerLed { animation: none; }
-}
-
 /* FAQ in the brand-visual style (Gus #2354): hairline rows, and the marker is
  * a round keycap whose plus turns into a cross when the answer opens. */
 .faqMarker {
@@ -1914,14 +1858,21 @@
 
 /* Closing CTA: the brand-visual closing card (Gus #2354) — a halftone tray of
  * cut paper on the section ground, title with its hand accent. */
+/* Closing CTA (Gus #2412): the card is paper grid + the call to action,
+ * centred. The retro objects are cut-paper pieces stuck over its edges. */
 .closingCta {
-  min-height: 460px;
+  position: relative;
+  overflow: visible;
+  min-height: 480px;
   border: 1px solid var(--tn-line, var(--landing-border));
-  border-radius: 24px;
-  background-color: var(--tn-tray, var(--landing-surface));
-  background-image: radial-gradient(circle, rgb(31 26 21 / 16%) 1.1px, transparent 1.4px);
-  background-size: 7px 7px;
-  box-shadow: 0 24px 48px -32px rgb(60 45 20 / 45%);
+  border-radius: 28px;
+  background-color: var(--tn-paper, var(--landing-bg));
+  background-image:
+    linear-gradient(var(--tn-grid, #bcd6e6) 1px, transparent 1px),
+    linear-gradient(90deg, var(--tn-grid, #bcd6e6) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: center;
+  box-shadow: 0 24px 48px -32px rgb(60 45 20 / 35%);
 }
 
 .closingCta::before {
@@ -1930,9 +1881,135 @@
 
 :global(.dark) .closingCta,
 [data-tn-mode="dark"] .closingCta {
-  background-image: radial-gradient(circle, rgb(196 207 255 / 10%) 1.1px, transparent 1.4px);
+  background-color: #050505;
+  background-image:
+    linear-gradient(#141414 1px, transparent 1px),
+    linear-gradient(90deg, #141414 1px, transparent 1px);
+}
+
+.closingCopy {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.closingCopy > p:not(.kicker) {
+  max-width: 620px;
+  margin-top: 24px;
+  color: var(--landing-text-muted);
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.closingCollage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.collageItem {
+  position: absolute;
+  display: block;
+  /* Cut paper: a white trim and a soft lift off the grid. */
+  filter: drop-shadow(0 0 0 #fffdf8) drop-shadow(2px 0 0 #fffdf8) drop-shadow(-2px 0 0 #fffdf8) drop-shadow(0 2px 0 #fffdf8) drop-shadow(0 -2px 0 #fffdf8) drop-shadow(0 10px 12px rgb(60 45 20 / 22%));
+  animation: collageBob 6s ease-in-out infinite;
+}
+
+.collageMac { left: -3%; bottom: -10%; width: clamp(130px, 17vw, 220px); rotate: -6deg; }
+.collageCd { right: 4%; bottom: -12%; width: clamp(110px, 13vw, 170px); rotate: 9deg; animation-delay: -1.8s; animation-duration: 7s; }
+.collageCassette { right: -3%; top: -9%; width: clamp(110px, 13vw, 160px); rotate: 8deg; animation-delay: -3.1s; animation-duration: 6.5s; }
+.collagePhone { left: 6%; top: -12%; width: clamp(40px, 5vw, 64px); rotate: -12deg; animation-delay: -4.4s; animation-duration: 5.5s; }
+
+@keyframes collageBob {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -5px; }
+}
+
+:global(.dark) .collageItem,
+[data-tn-mode="dark"] .collageItem {
+  filter: drop-shadow(0 10px 14px rgb(0 0 0 / 60%)) drop-shadow(0 0 10px rgb(110 135 255 / 18%));
+}
+
+@media (max-width: 639px) {
+  .closingCta { min-height: 520px; }
+  .collageMac { left: -6%; bottom: -6%; width: 120px; }
+  .collageCd { right: -2%; bottom: -8%; width: 100px; }
+  .collageCassette { right: -4%; top: -6%; width: 96px; }
+  .collagePhone { left: 2%; top: -8%; width: 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collageItem { animation: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .faqMarker { transition: none; }
+}
+
+/* Footer signature: a mono maker's plate and the wordmark, cropped by the page
+ * bottom like lettering moulded into a case. */
+.footer {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.footerSignature {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  margin-top: clamp(24px, 4vw, 48px);
+  pointer-events: none;
+  user-select: none;
+}
+
+.footerPlate {
+  padding: 4px 12px;
+  border: 1px solid var(--tn-line, var(--landing-border));
+  border-radius: 6px;
+  color: var(--landing-text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.footerWordmark {
+  display: block;
+  margin-top: 8px;
+  /* About two thirds shows above the page bottom (Gus #2420). */
+  margin-bottom: -0.24em;
+  /* Caveat's k overhangs its advance; padding lets the clipped fill cover it. */
+  padding-inline: 0.12em;
+  color: transparent;
+  font-family: var(--font-brand), cursive;
+  font-size: clamp(7rem, 26vw, 22rem);
+  font-weight: 700;
+  line-height: 0.9;
+  /* Embossed: a faint fill with a lit top edge and a shadowed lower edge. */
+  background: linear-gradient(180deg, color-mix(in oklab, var(--tn-blue, var(--landing-accent)) 30%, transparent), color-mix(in oklab, var(--landing-text) 8%, transparent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 1px 0 rgb(255 255 255 / 55%), 0 -1px 0 rgb(60 45 20 / 10%);
+}
+
+:global(.dark) .footerWordmark,
+[data-tn-mode="dark"] .footerWordmark {
+  background: linear-gradient(180deg, rgb(196 207 255 / 20%), rgb(196 207 255 / 6%));
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 0 24px rgb(110 135 255 / 18%);
+}
+
+@media (max-width: 639px) {
+  .footerNavigation a {
+    min-height: 40px;
+    font-size: 14px;
+  }
+
+  /* On phones the slogan leads the footer; it is not the smallest text. */
+  .footerSlogan {
+    font-size: 15px;
+  }
 }

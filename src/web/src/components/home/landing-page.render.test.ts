@@ -50,7 +50,7 @@ describe("landing identity profile preview", () => {
     expect(footer).toContain('href="https://github.com/alookai/alook"')
     expect(footer).toContain('href="https://discord.com/invite/24PHyEHU3M"')
     expect(footer).toContain('href="https://x.com/alook_ai"')
-    expect(footer).toContain("Multi-Agent Collaboration for Team and Friends")
+    expect(footer.replace(/<[^>]+>/g, "")).toContain("Multi-Agent Collaboration for Team and Friends")
   })
 })
 

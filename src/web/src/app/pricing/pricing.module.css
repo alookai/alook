@@ -135,7 +135,8 @@
   width: 240px;
   height: 240px;
   filter: grayscale(1);
-  opacity: 0.035;
+  /* Visible enough to read as the Free plan's mark (Gus #2416). */
+  opacity: 0.09;
   transform: rotate(-8deg);
   transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out);
 }
@@ -160,7 +161,7 @@
 
 .freePlan:hover .ghostMark,
 .freePlan:focus-within .ghostMark {
-  opacity: 0.075;
+  opacity: 0.14;
   transform: rotate(-4deg) translateY(-4px);
 }
 
@@ -1035,3 +1036,17 @@
 
 /* FAQ reads like the brand FAQ: hairline rows on paper */
 .faqItem { border-top-color: var(--tn-line, var(--border)) !important; }
+
+/* FAQ sits on a paper card, not straight on the grid, so it reads (Gus #2415). */
+.faq {
+  padding: clamp(24px, 4vw, 48px);
+  border: 1px solid var(--tn-line, var(--landing-border));
+  border-radius: 24px;
+  background: var(--tn-paper-raised, var(--landing-bg));
+  box-shadow: 0 18px 40px -30px rgb(60 45 20 / 35%);
+}
+
+:global(.dark) .faq,
+[data-tn-mode="dark"] .faq {
+  background: #0b0b0c;
+}
