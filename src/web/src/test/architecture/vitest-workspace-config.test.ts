@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
@@ -43,6 +43,7 @@ describe("service test project ownership", () => {
   it("executes cold service contracts through the canonical CI unit entry", () => {
     const root = path.resolve(import.meta.dirname, "../../../../..")
     const scratch = mkdtempSync(path.join(tmpdir(), "alook-mixed-unit-contract-"))
+    const fixture = path.join(scratch, "source")
     const receipt = path.join(scratch, "execution.json")
     const planFile = path.join(scratch, "plan.json")
     const files = ["src/web/auth/index.test.ts", "src/daemon/src/logger.test.ts", "src/daemon/src/cli/daemonRefresh.test.ts", "src/web/src/lib/middleware/request-logger.test.ts", "src/web/src/lib/apple-oauth-hardening.test.ts"]
@@ -56,8 +57,35 @@ describe("service test project ownership", () => {
       'writeFileSync(process.argv[1],JSON.stringify(plan))',
     ].join("\n")
     try {
-      execFileSync(process.execPath, ["--input-type=module", "-e", source, planFile], { cwd: root, env, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 })
-      execFileSync(process.execPath, ["scripts/ci/run-unit-tests.mjs", "--ci", "--plan", planFile, "--receipt", receipt], { cwd: root, env, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 })
+      for (const name of execFileSync("git", ["rev-parse", "--local-env-vars"], { cwd: root, encoding: "utf8" }).trim().split(/\r?\n/)) delete env[name]
+      const paths = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], { cwd: root, env, encoding: "utf8" }).split("\0").filter(Boolean)
+      for (const file of paths) {
+        const from = path.join(root, file), to = path.join(fixture, file)
+        if (!existsSync(from)) continue
+        mkdirSync(path.dirname(to), { recursive: true })
+        if (lstatSync(from).isSymbolicLink()) symlinkSync(readlinkSync(from), to)
+        else copyFileSync(from, to, constants.COPYFILE_FICLONE)
+      }
+      for (const dir of new Set([".", ...paths.filter(file => file.endsWith("/package.json")).map(file => path.dirname(file))])) {
+        const from = path.resolve(root, dir, "node_modules"), to = path.resolve(fixture, dir, "node_modules")
+        if (existsSync(from) && !existsSync(to)) symlinkSync(from, to, process.platform === "win32" ? "junction" : "dir")
+      }
+      const projects: string[] = []
+      for (const dir of ["src/web", "src/web/auth", "src/daemon"]) {
+        const name = dir + "/vitest.cold-fixture.config.ts"
+        const include = files.filter(file => file.startsWith(dir + "/") && (dir !== "src/web" || file.startsWith("src/web/src/")))
+          .map(file => path.relative(dir, file).replaceAll("\\", "/"))
+        writeFileSync(path.join(fixture, name), 'import source from "./vitest.config"\nexport default {...source,cacheDir:'
+          + JSON.stringify(path.join(scratch, "vite-cache", dir)) + ',test:{...source.test,include:' + JSON.stringify(include)
+          + ',fsModuleCachePath:' + JSON.stringify(path.join(scratch, "native-cache")) + '}}\n')
+        projects.push(name)
+      }
+      copyFileSync(path.join(fixture, "vitest.config.ts"), path.join(fixture, "vitest.source-fixture.config.ts"))
+      writeFileSync(path.join(fixture, "vitest.config.ts"), 'import source from "./vitest.source-fixture.config"\nexport default {...source,test:{...source.test,projects:'
+        + JSON.stringify(projects) + ',fsModuleCachePath:' + JSON.stringify(path.join(scratch, "native-cache")) + '}}\n')
+      for (const file of files) expect(readFileSync(path.join(fixture, file)).equals(readFileSync(path.join(root, file)))).toBe(true)
+      execFileSync(process.execPath, ["--input-type=module", "-e", source, planFile], { cwd: fixture, env, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 })
+      execFileSync(process.execPath, ["scripts/ci/run-unit-tests.mjs", "--ci", "--plan", planFile, "--receipt", receipt], { cwd: fixture, env, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 })
       const result = JSON.parse(readFileSync(receipt, "utf8")) as {
         fallback: unknown
         execution: { unhandled_errors: number; files: { file: string; ok: boolean }[] }

@@ -169,13 +169,16 @@ export function queryNativeTasks({ root = ROOT, baseSha, headSha, manifest = loa
     if (result.errors?.length || !result.data) throw new Error("native Turbo task query failed")
     return result.data
   }
-  const inventory = checkTasks(query("query { packages { items { tasks { items { " + fields + " } } } } }")
-    .packages.items.flatMap((entry) => entry.tasks.items), manifest)
+  const packagesQuery = "packages { items { tasks { items { " + fields + " } } } }"
+  const affectedQuery = baseSha && headSha
+    ? "affectedTasks(base: " + JSON.stringify(baseSha) + ", head: " + JSON.stringify(headSha)
+      + ", tasks: " + JSON.stringify(CHECK_TASKS)
+      + ") { items { " + fields + " reason { __typename ... on TaskAllChanged { description } } } }"
+    : ""
+  const selection = query("query { " + packagesQuery + " " + affectedQuery + " }")
+  const inventory = checkTasks(selection.packages.items.flatMap((entry) => entry.tasks.items), manifest)
   if (!inventory.length) throw new Error("native Turbo task inventory is empty")
-  if (!baseSha || !headSha) return { inventory, affected: inventory, reason: "unresolved_native_base" }
-  const selection = query("query { affectedTasks(base: " + JSON.stringify(baseSha)
-    + ", head: " + JSON.stringify(headSha) + ", tasks: " + JSON.stringify(CHECK_TASKS)
-    + ") { items { " + fields + " reason { __typename ... on TaskAllChanged { description } } } } }")
+  if (!affectedQuery) return { inventory, affected: inventory, reason: "unresolved_native_base" }
   const fallback = selection.affectedTasks.items.find(task => task.reason?.__typename === "TaskAllChanged" && task.reason.description === "conservative affectedness fallback")
   return { inventory, affected: checkTasks(selection.affectedTasks.items, manifest),
     reason: fallback ? "native_affected_fallback" : null,

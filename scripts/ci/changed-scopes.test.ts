@@ -17,7 +17,7 @@ import {
 } from "./changed-scopes.mjs"
 import { queryNativeUiFacts } from "./e2e-shards.mjs"
 
-let nativeFixture: { root: string; base: string } | undefined
+let nativeFixture: { root: string; base: string; compatibilityBase: string } | undefined
 let nativeInventory: ReturnType<typeof queryNativeTasks>["inventory"]
 
 function nativeRepository() {
@@ -51,7 +51,15 @@ function nativeRepository() {
   git("add", ".")
   git("commit", "--quiet", "-m", "native task input baseline")
   const base = git("rev-parse", "HEAD").trim()
-  nativeFixture = { root, base }
+  nativeFixture = { root, base, compatibilityBase: base }
+  const packagePath = join(root, "src/web/package.json")
+  const pkg = JSON.parse(readFileSync(packagePath, "utf8"))
+  pkg.dependencies["react-resizable-panels"] = "4.12.3"
+  writeFileSync(packagePath, JSON.stringify(pkg))
+  git("add", "src/web/package.json")
+  git("commit", "--quiet", "-m", "baseline compatibility version")
+  nativeFixture.compatibilityBase = git("rev-parse", "HEAD").trim()
+  git("reset", "--hard", "--quiet", base)
   nativeInventory = queryNativeTasks({ root, baseSha: base, headSha: base }).inventory
   return nativeFixture
 }
@@ -77,12 +85,7 @@ function nativeFacts(changes) {
         }
       }
     }
-    const facts = queryNativeTasks({ root, baseSha: base, headSha: base, execute: (command, args, options) => {
-      if (String(args.at(-1)).startsWith("query { packages")) {
-        return JSON.stringify({ data: { packages: { items: [{ tasks: { items: nativeInventory } }] } } })
-      }
-      return execFileSync(command, args, options)
-    } })
+    const facts = queryNativeTasks({ root, baseSha: base, headSha: base })
     nativeObservations.set(observationKey, structuredClone(facts))
     return facts
   } finally {
@@ -178,20 +181,14 @@ function runFixtureCli(args: string[], root = nativeRepository().root) {
 function gitDiffFixture(changedPath = "src/app/src/commands/inbox.ts") {
   const baseline = nativeRepository()
   const root = mkdtempSync(join(tmpdir(), "alook-ci-git-"))
-  execFileSync("git", ["clone", "--quiet", "--no-hardlinks", baseline.root, root], { env: cleanGitEnvironment(), stdio: "ignore" })
+  execFileSync("git", ["worktree", "add", "--quiet", "--detach", root, baseline.compatibilityBase], { cwd: baseline.root, env: cleanGitEnvironment(), stdio: "ignore" })
   if (!existsSync(join(root, "node_modules"))) symlinkSync(resolve(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir")
   symlinkSync(resolve(import.meta.dirname, "../../src/web/node_modules"), join(root, "src/web/node_modules"), process.platform === "win32" ? "junction" : "dir")
-  mkdirSync(join(root, "fixture-hooks"))
   const runGit = (...args: string[]) => execFileSync("git", args, { cwd: root, env: cleanGitEnvironment(), stdio: "ignore" })
-  runGit("config", "core.hooksPath", join(root, "fixture-hooks"))
   const commit = (message: string) => runGit("-c", "user.name=Alook CI", "-c", "user.email=ci@alook.local",
     "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", message)
   const packagePath = join(root, "src/web/package.json")
   const pkg = JSON.parse(readFileSync(packagePath, "utf8"))
-  pkg.dependencies["react-resizable-panels"] = "4.12.3"
-  writeFileSync(packagePath, JSON.stringify(pkg))
-  runGit("add", "src/web/package.json")
-  commit("baseline compatibility version")
   if (changedPath === "src/web/package.json") {
     pkg.dependencies["react-resizable-panels"] = "4.12.4"
     writeFileSync(packagePath, JSON.stringify(pkg))
@@ -201,7 +198,8 @@ function gitDiffFixture(changedPath = "src/app/src/commands/inbox.ts") {
   }
   runGit("add", changedPath)
   commit("changed input")
-  return { changedPath, root }
+  const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], { cwd: root, env: cleanGitEnvironment(), encoding: "utf8" }).trim()
+  return { changedPath, root, gitDir, cleanup: () => execFileSync("git", ["worktree", "remove", "--force", root], { cwd: baseline.root, env: cleanGitEnvironment(), stdio: "ignore" }) }
 }
 
 describe("canonical execution plan", () => {
@@ -681,6 +679,9 @@ describe("coverage name-status contract", () => {
   })
 
   it("requires only files selected by the actual coverage globs", () => {
+    const coveragePlan = (path: string) => createExecutionPlan(modified(path), {
+      forceFull: true, nativeTasks: { inventory: nativeInventory, affected: nativeInventory },
+    })
     for (const path of [
       "src/app/scripts/app-packed-artifact.mjs",
       "src/app/scripts/bundle-daemon.mjs",
@@ -691,10 +692,10 @@ describe("coverage name-status contract", () => {
       "src/web/vitest.workspace.config.ts",
       "src/web/src/components/community/bots/bot-list-types.ts",
     ]) {
-      expect(plan([path]).coverage.required_changed_files).toEqual([])
+      expect(coveragePlan(path).coverage.required_changed_files).toEqual([])
     }
 
-    expect(plan(["scripts/ci/changed-scopes.mjs"]).coverage.required_changed_files)
+    expect(coveragePlan("scripts/ci/changed-scopes.mjs").coverage.required_changed_files)
       .toEqual(["scripts/ci/changed-scopes.mjs"])
   })
 
@@ -895,7 +896,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
       expect(dry().hash).toBe(before.hash)
       writeFileSync(join(fixture.root, "src/web/blog/public", canonical), "changed canonical image bytes")
       expect(dry().hash).not.toBe(before.hash)
-    } finally { rmSync(fixture.root, { recursive: true, force: true }) }
+    } finally { fixture.cleanup() }
   })
 
   it.each([
@@ -916,7 +917,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
       expect(facts.affected.map(task => task.fullName)).toContain("@alook/app#test")
       expect(dry().hash).not.toBe(before.hash)
       expect(createExecutionPlan([{ status: "M", path }], { nativeTasks: facts }).suites.unit_tasks).toContain("@alook/app#test")
-    } finally { rmSync(fixture.root, { recursive: true, force: true }) }
+    } finally { fixture.cleanup() }
   })
 
   it("keeps an unrelated Web component outside the App filesystem task and cache", () => {
@@ -930,7 +931,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
       expect(facts.reason).toBeNull()
       expect(facts.affected.map(task => task.fullName)).not.toContain("@alook/app#test")
       expect(dry().hash).toBe(before.hash)
-    } finally { rmSync(fixture.root, { recursive: true, force: true }) }
+    } finally { fixture.cleanup() }
   })
 
   it("hashes the real Worker-CI telemetry release input in both builds", () => {
@@ -948,7 +949,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
     } finally {
       if (previous === undefined) delete process.env.WORKERS_CI_COMMIT_SHA
       else process.env.WORKERS_CI_COMMIT_SHA = previous
-      rmSync(fixture.root, { recursive: true, force: true })
+      fixture.cleanup()
     }
   })
 
@@ -961,7 +962,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
       const after = dry()
       expect(after.hash).not.toBe(before.hash)
       expect(after.outputs).toEqual(expect.arrayContaining(["dist/**", "LICENSE"]))
-    } finally { rmSync(fixture.root, { recursive: true, force: true }) }
+    } finally { fixture.cleanup() }
   })
 
   it("reports native conservative fallback as full instead of a successful localized query", () => {
@@ -979,7 +980,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
       expect(nativeTasks.reason).toBe("native_affected_fallback")
       const result = createExecutionPlan([{ status: "M", path: "src/web/src/lib/native-fallback-fixture.ts" }], { baseSha: head, headSha: head, nativeTasks })
       expect(result).toMatchObject({ full: true, full_reason: "native_affected_fallback" })
-    } finally { rmSync(fixture.root, { recursive: true, force: true }) }
+    } finally { fixture.cleanup() }
   })
 
   it.each([
@@ -1002,7 +1003,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
         cwd: fixture.root,
         env: {
           ...cleanGitEnvironment(),
-          GIT_DIR: join(fixture.root, ".git"), GIT_WORK_TREE: fixture.root,
+          GIT_DIR: fixture.gitDir, GIT_WORK_TREE: fixture.root,
           CLASSIFIER_NODE: process.execPath, CLASSIFIER_SCRIPT: realpathSync(join(fixture.root, "scripts/ci/changed-scopes.mjs")),
           SCOPE_DIR: join(fixture.root, ".ci"), SCOPE_PLAN_FILE: join(fixture.root, ".ci/execution-plan.json"),
           EVENT_NAME: event, EVENT_SHA: "HEAD", PR_BASE_SHA: "HEAD^", PR_HEAD_SHA: "HEAD",
@@ -1028,7 +1029,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
       }
       expect(readFileSync(join(fixture.root, "outputs"), "utf8")).toContain(`execution_mode=${mode}\n`)
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true })
+      fixture.cleanup()
     }
   })
 
@@ -1131,7 +1132,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
       expect(writtenPlan.changes).toEqual([{ status: "A", path: fixture.changedPath }])
       expect(readFileSync(summary, "utf8")).toContain(fixture.changedPath)
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true })
+      fixture.cleanup()
     }
   })
 
@@ -1151,7 +1152,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
       expect(result.full).toBe(full)
       expect(result.changes).toEqual([{ status: "M", path }])
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true })
+      fixture.cleanup()
     }
   })
 
@@ -1169,7 +1170,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
       expect(result.jobs.resizable_panels_compat).toBe(true)
       expect(readFileSync(output, "utf8")).toContain("run_resizable_panels_compat=true")
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true })
+      fixture.cleanup()
     }
   })
 
