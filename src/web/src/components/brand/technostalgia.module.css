@@ -484,7 +484,7 @@
   padding: 3px 10px;
   border: 1px solid var(--tn-line);
   font-weight: 700;
-  
+
 }
 
 .theme [data-slot="badge"][data-variant="secondary"] {
@@ -2498,8 +2498,10 @@
 }
 
 /* #35 Touch screens: a tap is not a hover, so tooltips never stick open over
- * the content after a tap. */
-@media (hover: none) {
+ * the content after a tap. Phones only: from 640px a touch-first device may
+ * still hover with a mouse or trackpad (tablets, hybrids), and wide layouts
+ * such as the My Bots heatmap rely on hover tooltips for their detail. */
+@media (hover: none) and (max-width: 39.99rem) {
   .theme [data-slot="tooltip-content"],
   .theme:is([data-slot="tooltip-content"]) {
     display: none !important;
