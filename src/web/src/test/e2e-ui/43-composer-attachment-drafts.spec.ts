@@ -54,7 +54,8 @@ test.describe("same-tab Community attachment drafts", () => {
   test("desktop isolates external file events and accepts input while real image workers prepare attachments", async ({ caseActors }, testInfo) => {
     test.setTimeout(120_000)
     const actors = await caseActors(["alice", "bob"])
-    const { serverId, channelAId } = await prepareCase1(actors)
+    const { serverId, channelAId, channelBId } = await prepareCase1(actors)
+    const otherServerId = await actors.seed.seedServer("alice", `file-event-sort-${Date.now()}`)
     const { page } = await actors.asUser("alice")
     await installInputCapability(page, true)
     await page.goto(`/c/channels/${serverId}/${channelAId}`, { waitUntil: "commit" })
@@ -70,6 +71,10 @@ test.describe("same-tab Community attachment drafts", () => {
         await target.dispatchEvent("dragenter", { dataTransfer: transfer })
         await target.dispatchEvent("dragover", { dataTransfer: transfer })
         await expect(composer.getByText("Drop files here", { exact: true })).toHaveCount(0)
+        await target.click({ button: "right" })
+        if (await target.getAttribute("data-testid") === tid.serverIcon(serverId)) await expect(page.getByTestId(tid.serverSettingsOpen)).toBeVisible()
+        else await expect(page.getByRole("menuitem", { name: "Edit channel", exact: true })).toBeVisible()
+        await page.keyboard.press("Escape")
         await target.dispatchEvent("dragleave", { dataTransfer: transfer })
       }
       await page.getByTestId(tid.channelRow(channelAId)).dispatchEvent("drop", { dataTransfer: transfer })
@@ -116,6 +121,7 @@ test.describe("same-tab Community attachment drafts", () => {
       return data
     })
     for (const name of ["dropped.txt", "pasted.txt"]) await composer.getByText(name, { exact: true }).locator("..").getByRole("button", { name: "Remove file" }).click()
+    await composerEditable(page).focus()
     const workerResults = await page.evaluateHandle(() => {
       const results: { width: number; height: number; size: number; type: string }[] = []
       const NativeWorker = window.Worker
@@ -129,34 +135,104 @@ test.describe("same-tab Community attachment drafts", () => {
       }
       return results
     })
-    let typedDuringPreparation = false
-    await page.exposeFunction("recordPreparingInput", () => { typedDuringPreparation = true })
-    await composerEditable(page).evaluate((element, inputId) => {
-      element.addEventListener("input", () => {
-        if (element.closest(`[data-testid="${inputId}"]`)?.parentElement?.parentElement?.querySelector('[aria-busy="true"]')) {
-          void (window as unknown as { recordPreparingInput: () => Promise<void> }).recordPreparingInput()
-        }
-      })
+    const inputProbe = await composerEditable(page).evaluateHandle((element, inputId) => {
+      const host = element.closest(`[data-testid="${inputId}"]`)?.parentElement?.parentElement
+      const busy = () => !!host?.querySelector('[aria-busy="true"]')
+      const started = performance.now()
+      const keys: { at: number; eventToHandlerMs: number; trusted: boolean; preparing: boolean }[] = []
+      const inputs: { at: number; keyToInputMs: number | null; eventToHandlerMs: number; nextFrameMs: number | null; trusted: boolean; preparing: boolean }[] = []
+      const timerGaps: number[] = []
+      const longTasks: { at: number; durationMs: number }[] = []
+      let lastKey: number | null = null
+      let lastTimer = started
+      const keydown = (event: Event) => {
+        const at = performance.now()
+        lastKey = at
+        keys.push({ at: at - started, eventToHandlerMs: Math.max(0, at - event.timeStamp), trusted: event.isTrusted, preparing: busy() })
+      }
+      const input = (event: Event) => {
+        const at = performance.now()
+        const sample = { at: at - started, keyToInputMs: lastKey === null ? null : at - lastKey, eventToHandlerMs: Math.max(0, at - event.timeStamp), nextFrameMs: null as number | null, trusted: event.isTrusted, preparing: busy() }
+        inputs.push(sample)
+        requestAnimationFrame(() => { sample.nextFrameMs = performance.now() - at })
+      }
+      element.addEventListener("keydown", keydown)
+      element.addEventListener("input", input)
+      const timer = setInterval(() => { const now = performance.now(); timerGaps.push(now - lastTimer); lastTimer = now }, 10)
+      const longTasksSupported = PerformanceObserver.supportedEntryTypes.includes("longtask")
+      const observer = longTasksSupported ? new PerformanceObserver(list => {
+        for (const entry of list.getEntries()) longTasks.push({ at: entry.startTime - started, durationMs: entry.duration })
+      }) : null
+      observer?.observe({ type: "longtask" })
+      return {
+        snapshot: () => ({ startedAt: started, clock: "performance.now in the current page", elapsedMs: performance.now() - started, keys, inputs, timerGaps, longTasksSupported, longTasks }),
+        stop: () => { element.removeEventListener("keydown", keydown); element.removeEventListener("input", input); clearInterval(timer); observer?.disconnect() },
+      }
     }, tid.composerInput)
+    let admission: { constructor: string; files: { name: string; bytes: number }[]; consumed: boolean; focused: boolean } | undefined
+    let acceptedFiles: string[] = []
+    let survivingFiles: string[] = []
     try {
-      await composerEditable(page).dispatchEvent("paste", { clipboardData: imageData })
+      admission = await composerEditable(page).evaluate((element, clipboardData) => {
+        const event = new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true })
+        const files = Array.from(event.clipboardData?.files ?? [], file => ({ name: file.name, bytes: file.size }))
+        element.dispatchEvent(event)
+        return { constructor: event.constructor.name, files, consumed: event.defaultPrevented, focused: document.activeElement === element }
+      }, imageData)
+      expect(admission.constructor).toBe("ClipboardEvent")
+      expect(admission.files).toHaveLength(10)
+      expect(admission.consumed).toBe(true)
+      expect(admission.focused).toBe(true)
       await expect(composer.getByRole("status").first()).toBeVisible()
+      await expect(composer.getByRole("button", { name: "Remove file" })).toHaveCount(10)
+      acceptedFiles = await composer.locator('[aria-label="Remove file"]').evaluateAll(buttons => buttons.map(button => button.parentElement!.querySelector("span")!.textContent!))
+      expect(acceptedFiles).toEqual(admission.files.map(file => file.name))
       await composer.getByText("large-9.jpg", { exact: true }).locator("..").getByRole("button", { name: "Remove file" }).click()
+      await expect(composer.getByRole("button", { name: "Remove file" })).toHaveCount(9)
       await composerEditable(page).pressSequentially("typing while image files prepare", { delay: 5 })
       await expect(composerEditable(page)).toHaveText("typing while image files prepare")
-      await expect.poll(() => typedDuringPreparation).toBe(true)
+      await expect.poll(() => inputProbe.evaluate(probe => probe.snapshot().inputs.some(input => input.trusted && input.preparing))).toBe(true)
       await expect(composer.getByRole("status")).toHaveCount(0, { timeout: 30_000 })
       await expect(composer.getByText("large-9.jpg", { exact: true })).toHaveCount(0)
+      await expect(composer.getByRole("button", { name: "Remove file" })).toHaveCount(9)
+      survivingFiles = await composer.locator('[aria-label="Remove file"]').evaluateAll(buttons => buttons.map(button => button.parentElement!.querySelector("span")!.textContent!))
+      expect(survivingFiles).toEqual(acceptedFiles.slice(0, 9))
       expect(workers.length).toBeGreaterThan(0)
       const prepared = await workerResults.jsonValue()
       expect(prepared.length).toBeGreaterThan(0)
+      expect(prepared).toHaveLength(survivingFiles.length)
       for (const result of prepared) {
         expect(result).toMatchObject({ width: 6000, height: 4000, type: "image/jpeg" })
         expect(result.size).toBeLessThanOrEqual(256 * 1024)
       }
-      await testInfo.attach("image-preparation-input.json", { body: JSON.stringify({ workers, prepared, typedDuringPreparation, fixture: { width: 6000, height: 4000, files: 10 }, removedBeforePreparation: "large-9.jpg" }), contentType: "application/json" })
-    } finally { await imageData.dispose(); await workerResults.dispose() }
+    } finally {
+      const input = await inputProbe.evaluate(probe => { probe.stop(); return probe.snapshot() })
+      const prepared = await workerResults.jsonValue()
+      await testInfo.attach("image-preparation-input.json", { body: JSON.stringify({ admission, acceptedFiles, survivingFiles, workers, prepared, input, fixture: { width: 6000, height: 4000, files: 10 }, removedBeforePreparation: "large-9.jpg", timingBoundary: "Trusted page event delivery and next-frame opportunities; not compositor timestamps or a statistical performance gate" }), contentType: "application/json" })
+      await imageData.dispose()
+      await workerResults.dispose()
+      await inputProbe.dispose()
+    }
     while (await composer.getByRole("button", { name: "Remove file" }).count()) await composer.getByRole("button", { name: "Remove file" }).first().click()
+
+    const nativeSource = (id: string, server: boolean) => page.getByTestId(server ? tid.serverIcon(id) : tid.channelRow(id)).locator("xpath=ancestor-or-self::*[@draggable='true'][1]")
+    const orderPair = async (first: ReturnType<typeof nativeSource>, second: ReturnType<typeof nativeSource>) => {
+      const firstBox = await first.boundingBox(), secondBox = await second.boundingBox()
+      if (!firstBox || !secondBox) throw new Error("Native sorting source or target is not visible")
+      return firstBox.y > secondBox.y ? [first, second] as const : [second, first] as const
+    }
+    const [railSource, railTarget] = await orderPair(nativeSource(serverId, true), nativeSource(otherServerId, true))
+    const railAccepted = page.waitForResponse(response => response.request().method() === "PATCH" && new URL(response.url()).pathname === "/api/community/users/me/server-rail")
+    await railSource.dragTo(railTarget, { targetPosition: { x: 22, y: 4 } })
+    const railResponse = await railAccepted
+    expect(railResponse.status()).toBe(200)
+    expect(railResponse.request().postDataJSON()).toMatchObject({ commands: [{ kind: "reorder-top-level" }] })
+    const [channelSource, channelTarget] = await orderPair(nativeSource(channelAId, false), nativeSource(channelBId, false))
+    const channelAccepted = page.waitForResponse(response => response.request().method() === "PATCH" && new URL(response.url()).pathname === `/api/community/servers/${serverId}/channels/reorder`)
+    await channelSource.dragTo(channelTarget, { targetPosition: { x: 22, y: 4 } })
+    const channelResponse = await channelAccepted
+    expect(channelResponse.status()).toBe(200)
+    expect(channelResponse.request().postDataJSON()).toMatchObject({ channelIds: expect.arrayContaining([channelAId, channelBId]) })
     await navigateChannel(page, serverId, (await actors.seed.seedChannel("alice", serverId, "file-event-return")))
     await navigateChannel(page, serverId, channelAId)
     await expect(composer.getByRole("button", { name: "Remove file" })).toHaveCount(0)
