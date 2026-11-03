@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   resolveModelConfig,
+  requiresExplicitModel,
   formatModelLabel,
   modelSelectState,
   modelNameFromSelect,
@@ -61,4 +62,11 @@ describe("modelSelectState / modelNameFromSelect round-trip", () => {
     expect(modelNameFromSelect(MODEL_SELECT_CUSTOM, "")).toBeNull();
     expect(modelNameFromSelect(MODEL_SELECT_CUSTOM, "   ")).toBeNull();
   });
+});
+
+it.each(["opencode", "pi-durable"])("%s requires a selected model", (runtime) => {
+  expect(requiresExplicitModel(runtime)).toBe(true);
+});
+it.each(["codex", "claude", "cursor", "pi", "qoder", "copilot", "cursor-sdk", "unknown"])("%s preserves runtime defaults", (runtime) => {
+  expect(requiresExplicitModel(runtime)).toBe(false);
 });

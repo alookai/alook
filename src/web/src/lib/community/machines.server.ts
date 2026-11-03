@@ -19,7 +19,7 @@ export async function readCommunityMachines(db: Database, userId: string) {
       const quota = machine.availableRuntimes.map((runtime) => {
         const capability = runtime.id === "claude" || runtime.id === "codex" || runtime.id === "grok" || runtime.id === "antigravity"
           ? "supported" as const
-          : runtime.id === "cursor" || runtime.id === "opencode" || runtime.id === "pi" || runtime.id === "agy"
+          : runtime.id === "cursor" || runtime.id === "opencode" || runtime.id === "pi" || runtime.id === "agy" || ["qoder", "copilot", "cursor-sdk", "pi-durable"].includes(runtime.id)
             ? "unsupported" as const
             : "unknown" as const
         const runtimeState = machine.status === "offline"

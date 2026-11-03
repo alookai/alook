@@ -24,6 +24,7 @@ import { OnboardingMachineDialog } from "./onboarding-machine-dialog"
 import {
   ONBOARDING_HARNESSES,
   ONBOARDING_IDENTITIES,
+  supportsAgentSetup,
 } from "./onboarding-form-options"
 import { beginOnboardingAnalytics } from "@/lib/product-analytics"
 import { initializeCommunityOnboarding } from "./initialize-community-onboarding"
@@ -168,7 +169,7 @@ function CommunityOnboardingSteps() {
         advanceOnSelect
         submitLabel="Continue"
         onSubmit={(value) => {
-          advanceCommunityOnboarding(communityRuntime, "harness", "machine", { harness: value, setupMode: "agent" })
+          advanceCommunityOnboarding(communityRuntime, "harness", "machine", { harness: value, setupMode: supportsAgentSetup(value) ? "agent" : "manual" })
         }}
         testId={tid.onboardingHarnessDialog}
         optionTestId={tid.onboardingHarnessOption}
@@ -176,7 +177,7 @@ function CommunityOnboardingSteps() {
     )
   }
 
-  if (state.stage === "machine" && state.setupMode === "agent") {
+  if (state.stage === "machine" && state.setupMode === "agent" && supportsAgentSetup(state.harness)) {
     return <OnboardingAgentDialog
       harness={state.harness ?? ""}
       harnessLabel={harnessLabel(state.harness)}
@@ -285,7 +286,8 @@ export function CommunityOnboardingForm() {
   const state = useCommunityOnboarding()
   if (!state) return null
   const selected = Boolean(state.harness)
-  const mode = state.setupMode === "agent" ? "agent" : "manual"
+  const agentSetup = supportsAgentSetup(state.harness)
+  const mode = state.setupMode === "agent" && agentSetup ? "agent" : "manual"
   const switching = selected && ["machine", "model", "identity"].includes(state.stage)
   return <SetupDialog.Root open onOpenChange={(_open, details) => details.cancel()}>
     <SetupDialog.Portal>
@@ -296,7 +298,7 @@ export function CommunityOnboardingForm() {
         <nav aria-label="Setup method" className="flex gap-4">
           {selected ? (["agent", "manual"] as const).map((value) => <button
             key={value} type="button" data-testid={`onboarding-mode-${value}`} aria-pressed={mode === value}
-            disabled={!switching} onClick={() => { if (mode !== value) switchCommunityOnboardingSetup(runtime, value) }}
+            disabled={!switching || (value === "agent" && !agentSetup)} onClick={() => { if (mode !== value) switchCommunityOnboardingSetup(runtime, value) }}
             className={`inline-flex min-h-11 items-center bg-transparent px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed ${mode === value ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
           ><span className={`border-b-2 pb-1 ${mode === value ? "border-foreground" : "border-transparent"}`}>{value === "agent" ? "Agent" : "Manual"}</span></button>) : <span className="text-sm text-muted-foreground">Pick your local agent</span>}
         </nav>
