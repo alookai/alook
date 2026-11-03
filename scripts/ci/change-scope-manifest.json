@@ -228,7 +228,8 @@
     "all": "all",
     "contracts": {
       "blog": [
-        "54-blog-multizone.spec.ts"
+        "54-blog-multizone.spec.ts",
+        "66-public-static-resource-cache.spec.ts"
       ],
       "resizable_panels": [
         "53-mobile-inbox-surface.spec.ts",

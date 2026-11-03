@@ -11,7 +11,6 @@ import {
   packageDependencyVersionChanged,
   parseNameStatus,
   projectPlan,
-  runCli,
   stablePlanJson,
   validateExecutionPlan,
   validateScopeManifest,
@@ -170,6 +169,12 @@ function cleanGitEnvironment() {
   return environment
 }
 
+function runFixtureCli(args: string[], root = nativeRepository().root) {
+  return execFileSync(process.execPath, [realpathSync(join(root, "scripts/ci/changed-scopes.mjs")), ...args], {
+    cwd: root, env: cleanGitEnvironment(), encoding: "utf8", maxBuffer: 4 * 1024 * 1024,
+  })
+}
+
 function gitDiffFixture(changedPath = "src/app/src/commands/inbox.ts") {
   const baseline = nativeRepository()
   const root = mkdtempSync(join(tmpdir(), "alook-ci-git-"))
@@ -284,8 +289,10 @@ describe("canonical execution plan", () => {
 
   it("keeps direct browser edits and expands removed specs, shared helpers and unclassified runtime inputs", () => {
     const spec = "src/web/src/test/e2e-ui/64-billing-contact.spec.ts"
-    expect(plan([spec]).ui.specs).toContain("64-billing-contact.spec.ts")
-    expect(plan(["src/web/src/components/community/shell/user-bar.test.ts"]).ui.specs).toEqual([])
+    const nativeTasks = nativeFacts(modified(spec))
+    const uiPlan = (changes) => createExecutionPlan(changes, { nativeTasks })
+    expect(uiPlan(modified(spec)).ui.specs).toContain("64-billing-contact.spec.ts")
+    expect(uiPlan(modified("src/web/src/components/community/shell/user-bar.test.ts")).ui.specs).toEqual([])
     for (const path of [
       "src/web/src/test/e2e-ui/_fixtures/actions.ts",
       "src/web/src/test/e2e-ui/community-cache-first-warm-reload.journey.ts",
@@ -294,11 +301,24 @@ describe("canonical execution plan", () => {
       "src/web/src/app/api/community/channels/[id]/messages/route.ts",
       "src/web/src/app/globals.css",
       "src/shared/src/schema.ts",
-    ]) expect(plan([path]).ui.specs, path).toEqual(["all"])
-    const removed = buildExecutionPlan([{ status: "D", path: "src/web/src/test/e2e-ui/retired.spec.ts" }])
+    ]) expect(uiPlan(modified(path)).ui.specs, path).toEqual(["all"])
+    const removed = uiPlan([{ status: "D", path: "src/web/src/test/e2e-ui/retired.spec.ts" }])
     expect(removed.ui.specs).toEqual(["all"])
-    const renamed = buildExecutionPlan([{ status: "R100", old_path: spec, path: "src/web/src/lib/moved-runtime.ts" }])
+    const renamed = uiPlan([{ status: "R100", old_path: spec, path: "src/web/src/lib/moved-runtime.ts" }])
     expect(renamed.ui.specs).toEqual(["all"])
+  })
+
+  it("starts Blog for the native partition containing66 and keeps Web-only consumers isolated", () => {
+    const blog = plan(["src/web/src/test/e2e-ui/66-public-static-resource-cache.spec.ts"])
+    expect(blog.ui.zones).toEqual(["web", "blog"])
+    expect(JSON.parse(projectPlan(blog).e2e_matrix).include).toEqual([
+      expect.objectContaining({ specs: expect.arrayContaining(["src/test/e2e-ui/66-public-static-resource-cache.spec.ts"]), zones: ["web", "blog"] }),
+    ])
+    const web = plan(["src/web/src/test/e2e-ui/64-billing-contact.spec.ts"])
+    expect(web.ui.zones).toEqual(["web"])
+    expect(JSON.parse(projectPlan(web).e2e_matrix).include).toEqual([
+      expect.objectContaining({ specs: expect.arrayContaining(["src/test/e2e-ui/64-billing-contact.spec.ts"]), zones: ["web"] }),
+    ])
   })
 
   it("runs the complete small main smoke set without repeating full package or platform suites", () => {
@@ -396,7 +416,7 @@ describe("canonical execution plan", () => {
     expect(plan(["README.md"], { mainSmoke: true }).suites.smoke).toEqual([])
   })
 
-  it("routes Blog runtime through its independent tasks and cross-zone UI spec 54", () => {
+  it("routes Blog runtime through its independent tasks and cross-zone consumers", () => {
     const result = plan(["src/web/blog/src/app/page.tsx"])
 
     expect(result.change_class).toBe("blog")
@@ -405,7 +425,7 @@ describe("canonical execution plan", () => {
     expect(result.suites.unit).toEqual(["src/web"])
     expect(result.coverage.targets).toEqual(["web"])
     expect(result.coverage.include_roots).toEqual(["src/web/**/*.{ts,tsx,js,jsx}"])
-    expect(result.ui.specs).toEqual(["54-blog-multizone.spec.ts"])
+    expect(result.ui.specs).toEqual(["54-blog-multizone.spec.ts", "66-public-static-resource-cache.spec.ts"])
     expect(result.suites.integration).toEqual([])
     expect(result.suites.windows).toEqual([])
     expect(result.jobs.blog_build).toBe(true)
@@ -427,7 +447,7 @@ describe("canonical execution plan", () => {
     expect(result.suites.unit_tasks).toContain("@alook/web#test:blog")
     expect(result.suites.unit_tasks).not.toContain("@alook/web#test")
     expect(result.coverage.include_roots).toEqual(["src/web/**/*.{ts,tsx,js,jsx}"])
-    expect(result.ui.specs).toEqual(["54-blog-multizone.spec.ts"])
+    expect(result.ui.specs).toEqual(["54-blog-multizone.spec.ts", "66-public-static-resource-cache.spec.ts"])
     expect(result.jobs.blog_build).toBe(true)
   })
 
@@ -752,7 +772,6 @@ describe("scope manifest", () => {
     const manifest = loadScopeManifest()
     expect(() => validateScopeManifest(manifest)).not.toThrow()
     expect(manifest.schema_version).toBe(2)
-    expect(manifest.ui.contracts.blog).toEqual(["54-blog-multizone.spec.ts"])
   })
 
   it("rejects invalid versions, registries, packages, paths, targets, and specs", () => {
@@ -1047,7 +1066,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
     const planFile = join(directory, "plan.json")
     const summary = join(directory, "summary.md")
     try {
-      runCli(["--ui-shards", "1",
+      runFixtureCli(["--ui-shards", "1",
         "--base", "missing-base",
         "--head", "missing-head",
         "--output", output,
@@ -1076,7 +1095,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
     const planFile = join(directory, "plan.json")
     const summary = join(directory, "summary.md")
     try {
-      runCli(["--ui-shards", "1",
+      runFixtureCli(["--ui-shards", "1",
         "--force-full",
         "--diagnostic-only",
         "--output", output,
@@ -1102,18 +1121,8 @@ describe("compatibility and CLI fail-closed behavior", () => {
   it("reads a real Git diff and prints its canonical plan when no output file is requested", () => {
     const fixture = gitDiffFixture()
     const summary = join(fixture.root, "summary.md")
-    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
-    const localEnvironment = localGitEnvironmentNames()
-    const previousEnvironment = new Map(
-      localEnvironment.map((name) => [name, process.env[name]]),
-    )
     try {
-      for (const name of localEnvironment) delete process.env[name]
-      process.env.GIT_DIR = join(fixture.root, ".git")
-      process.env.GIT_WORK_TREE = fixture.root
-      runCli(["--ui-shards", "1", "--base", "HEAD^", "--head", "HEAD", "--main-smoke", "--summary", summary])
-
-      const written = stdout.mock.calls.map(([value]) => String(value)).join("")
+      const written = runFixtureCli(["--ui-shards", "1", "--base", "HEAD^", "--head", "HEAD", "--main-smoke", "--summary", summary], fixture.root)
       const writtenPlan = JSON.parse(written)
       expect(writtenPlan.full).toBe(false)
       expect(writtenPlan.execution_mode).toBe("main-smoke")
@@ -1122,11 +1131,6 @@ describe("compatibility and CLI fail-closed behavior", () => {
       expect(writtenPlan.changes).toEqual([{ status: "A", path: fixture.changedPath }])
       expect(readFileSync(summary, "utf8")).toContain(fixture.changedPath)
     } finally {
-      for (const name of localEnvironment) delete process.env[name]
-      for (const [name, value] of previousEnvironment) {
-        if (value !== undefined) process.env[name] = value
-      }
-      stdout.mockRestore()
       rmSync(fixture.root, { recursive: true, force: true })
     }
   })
@@ -1174,7 +1178,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
     const output = join(directory, "output")
     const planFile = join(directory, "plan.json")
     try {
-      runCli(["--ui-shards", "1", "--output", output, "--plan-file", planFile])
+      runFixtureCli(["--ui-shards", "1", "--output", output, "--plan-file", planFile])
       expect(JSON.parse(readFileSync(planFile, "utf8"))).toMatchObject({
         full: true,
         full_reason: "classifier_error",

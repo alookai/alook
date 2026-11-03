@@ -40,26 +40,32 @@ describe("service test project ownership", () => {
     expect(files.filter(file => file.file.startsWith("src/web/auth/")).every(file => file.project.startsWith("auth-"))).toBe(true)
   })
 
-  it("executes auth and daemon together through the canonical CI unit entry", () => {
+  it("executes cold service contracts through the canonical CI unit entry", () => {
     const root = path.resolve(import.meta.dirname, "../../../../..")
     const scratch = mkdtempSync(path.join(tmpdir(), "alook-mixed-unit-contract-"))
     const receipt = path.join(scratch, "execution.json")
+    const planFile = path.join(scratch, "plan.json")
+    const files = ["src/web/auth/index.test.ts", "src/daemon/src/logger.test.ts", "src/daemon/src/cli/daemonRefresh.test.ts", "src/web/src/lib/middleware/request-logger.test.ts", "src/web/src/lib/apple-oauth-hardening.test.ts"]
+    const env = { ...process.env }
+    for (const key of ["TEST", "VITEST", "NODE_ENV"]) delete env[key]
     const source = [
       'import { queryNativeTasks, buildExecutionPlan } from "./scripts/ci/changed-scopes.mjs"',
-      'import { runUnitTests } from "./scripts/ci/run-unit-tests.mjs"',
-      'const {inventory}=queryNativeTasks(); const affected=inventory.filter(task=>["@alook/web#test:auth","@alook/daemon#test"].includes(task.fullName))',
-      'const plan=buildExecutionPlan(["src/web/auth/index.test.ts","src/daemon/src/logger.test.ts"].map(path=>({status:"M",path})),{nativeTasks:{inventory,affected}})',
-      'await runUnitTests(plan,{ci:true,receiptFile:process.argv[1]})',
+      'import { writeFileSync } from "node:fs"',
+      'const {inventory}=queryNativeTasks(); const affected=inventory.filter(task=>["@alook/web#test:auth","@alook/web#test","@alook/daemon#test"].includes(task.fullName))',
+      `const plan=buildExecutionPlan(${JSON.stringify(files)}.map(path=>({status:"M",path})),{nativeTasks:{inventory,affected}})`,
+      'writeFileSync(process.argv[1],JSON.stringify(plan))',
     ].join("\n")
     try {
-      execFileSync(process.execPath, ["--input-type=module", "-e", source, receipt], { cwd: root, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 })
+      execFileSync(process.execPath, ["--input-type=module", "-e", source, planFile], { cwd: root, env, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 })
+      execFileSync(process.execPath, ["scripts/ci/run-unit-tests.mjs", "--ci", "--plan", planFile, "--receipt", receipt], { cwd: root, env, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 })
       const result = JSON.parse(readFileSync(receipt, "utf8")) as {
         fallback: unknown
         execution: { unhandled_errors: number; files: { file: string; ok: boolean }[] }
       }
       expect(result.fallback).toBeNull()
       expect(result.execution.unhandled_errors).toBe(0)
-      for (const file of ["src/web/auth/index.test.ts", "src/daemon/src/logger.test.ts"]) {
+      expect(result.execution.files).toHaveLength(files.length)
+      for (const file of files) {
         expect(result.execution.files.find(entry => entry.file === file)?.ok).toBe(true)
       }
     } finally { rmSync(scratch, { recursive: true, force: true }) }

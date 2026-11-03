@@ -95,6 +95,9 @@ export async function runUnitTests(plan, { ci = false, list = false, receiptFile
   validateExecutionPlan(plan)
   const scope = unitProjects(plan)
   if (scope.projects?.length === 0 && !scope.smoke.length) return null
+  process.env.TEST = "true"
+  process.env.VITEST = "true"
+  process.env.NODE_ENV ??= "test"
   const opts = {
     root: ROOT,
     watch: false,
