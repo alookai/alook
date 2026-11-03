@@ -7,6 +7,6 @@ export default mergeConfig(shared, defineConfig({
     name: "auth-node",
     include: ["**/*.test.ts"],
     exclude: ["test-runtime/**"],
-    sequence: { groupOrder: 2 },
+    sequence: { groupOrder: 1 },
   },
 }));

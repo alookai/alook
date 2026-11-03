@@ -12,7 +12,6 @@ describe("alook-auth Wrangler contract", () => {
         name: "auth-node",
         include: ["**/*.test.ts"],
         exclude: ["test-runtime/**"],
-        sequence: { groupOrder: 2 },
       },
     });
   });

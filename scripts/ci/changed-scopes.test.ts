@@ -862,6 +862,23 @@ describe("scope manifest", () => {
 })
 
 describe("compatibility and CLI fail-closed behavior", () => {
+  it("keeps Blog hashes independent of generated images while retaining canonical image inputs", () => {
+    const fixture = gitDiffFixture()
+    const dry = () => JSON.parse(execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/run-turbo.mjs")), "run", "@alook/web#build:blog", "--dry=json"], { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" })).tasks.find(task => task.taskId === "@alook/web#build:blog")
+    try {
+      const before = dry()
+      const generated = join(fixture.root, "src/web/blog/public/blog/_generated")
+      const manifest = join(fixture.root, "src/web/blog/src/lib/blog/image-assets.json")
+      const canonical = Object.keys(JSON.parse(readFileSync(manifest, "utf8")))[0]!
+      mkdirSync(generated, { recursive: true })
+      writeFileSync(join(generated, "derived.webp"), "generated output bytes")
+      writeFileSync(manifest, '{"derived":true}\n')
+      expect(dry().hash).toBe(before.hash)
+      writeFileSync(join(fixture.root, "src/web/blog/public", canonical), "changed canonical image bytes")
+      expect(dry().hash).not.toBe(before.hash)
+    } finally { rmSync(fixture.root, { recursive: true, force: true }) }
+  })
+
   it.each([
     "src/web/src/lib/worker-runtime.ts",
     "src/web/src/lib/observability/trace-response.ts",

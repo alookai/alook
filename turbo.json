@@ -597,7 +597,9 @@
         "!blog/public/fonts/dm-sans-600.ttf",
         "open-next-worker.d.ts",
         "!blog/next-env.d.ts",
-        "open-next-handler.d.ts"
+        "open-next-handler.d.ts",
+        "!blog/public/blog/_generated/**",
+        "!blog/src/lib/blog/image-assets.json"
       ],
       "outputs": [
         "blog/.next/**",
@@ -608,7 +610,9 @@
         "blog/public/favicon.ico",
         "blog/public/icon-192.png",
         "blog/public/fonts/dm-sans-600.ttf",
-        "blog/next-env.d.ts"
+        "blog/next-env.d.ts",
+        "blog/public/blog/_generated/**",
+        "blog/src/lib/blog/image-assets.json"
       ],
       "env": [
         "ALOOK_*",
