@@ -1,4 +1,4 @@
-import { MAX_ATTACHMENT_THUMBNAIL_EDGE_PX, MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES } from "@alook/shared"
+import { MAX_ATTACHMENT_THUMBNAIL_EDGE_PX, MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES } from "@alook/shared/constants/community"
 
 const QUALITIES = [0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]
 

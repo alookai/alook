@@ -1,3 +1,4 @@
+import { CommunityConversationEntryReadSchema } from "@alook/shared"
 import { communityFixtureFetch } from "./_fixtures/business-contract"
 import type { Page, Route } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
@@ -48,10 +49,25 @@ for (const kind of ["channel", "dm"] as const) {
     await (await prepareCase(actors)).setReadCheckpoint(channelId, nearbyReplyId)
     const { page } = await actors.asUser("alice")
     await page.setViewportSize(VIEWPORT)
-    await gotoAfterUserWsAuth(page, kind === "dm" ? `/c/me/${channelId}` : `/c/channels/${serverId}/${channelId}`)
-    const scroller = page.getByTestId(tid.messageScroller)
     const requests: Array<{ url: string; method: string }> = []
     page.on("request", request => requests.push({ url: request.url(), method: request.method() }))
+    const olderPage = await holdNextPage(page, channelId, "cursor", caseResources)
+    const entryResponsePromise = page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return response.request().method() === "GET"
+        && url.pathname === `/api/community/channels/${channelId}/messages`
+        && url.searchParams.get("entry") === "1"
+    })
+    await gotoAfterUserWsAuth(page, kind === "dm" ? `/c/me/${channelId}` : `/c/channels/${serverId}/${channelId}`)
+    const entryResponse = await entryResponsePromise
+    expect(entryResponse.ok()).toBe(true)
+    const entry = CommunityConversationEntryReadSchema.parse(await entryResponse.json())
+    const rootIds = entry.messages.map(message => message.id)
+    const relatedIds = (entry.relatedMessages ?? []).map(message => message.id)
+    expect(rootIds).toEqual(expect.arrayContaining([nearbyId, oldReplyId, nearbyReplyId]))
+    expect(rootIds).not.toContain(olderId)
+    expect(relatedIds).toContain(olderId)
+    const scroller = page.getByTestId(tid.messageScroller)
     const nearReply = scroller.getByTestId(tid.message(nearbyReplyId))
     await expect(nearReply).toBeVisible()
     await nearReply.getByRole("button", { name: "Show original message" }).click()
@@ -86,7 +102,8 @@ for (const kind of ["channel", "dm"] as const) {
     expect(contextRequests.filter(request => request.method === "PUT" && new URL(request.url).pathname.endsWith("/read"))).toEqual([])
     expect(contextRequests.filter(request => new URL(request.url).searchParams.get("anchor") === olderId)).toHaveLength(1)
     await context.dispose()
-    await testInfo.attach("reply-context-window.json", { body: Buffer.from(JSON.stringify({ kind, channelId, olderId, nearbyId, oldReplyId, before, after, newCount, contextRequests }, null, 2)), contentType: "application/json" })
+    await testInfo.attach("reply-context-window.json", { body: Buffer.from(JSON.stringify({ kind, channelId, olderId, nearbyId, oldReplyId, rootIds, relatedIds, olderCursorRequested: olderPage.wasMatched(), olderCursorHeldThroughAssertions: true, before, after, newCount, contextRequests }, null, 2)), contentType: "application/json" })
+    await olderPage.dispose()
   })
 }
 
@@ -157,12 +174,13 @@ async function holdNextPage(page: Page, channelId: string, param: "cursor" | "si
       resolveMatched()
       await gate
     }
-    await route.continue()
+    await route.fallback()
   }
   await page.route(pattern, handler)
   return {
     matched,
     release,
+    wasMatched: () => consumed,
     dispose: async () => {
       release()
       await page.unroute(pattern, handler)

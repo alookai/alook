@@ -101,6 +101,20 @@ describe("ComposerView", () => {
     expect(view.getByTestId(tid.composerInput)).toBe(editor)
   })
 
+  it("keeps a failed selection visible with an actionable error and removal", () => {
+    const file = new File(["image"], "broken.png", { type: "image/png" })
+    const removePendingFile = vi.fn()
+    const view = render(createElement(ComposerView, baseProps({
+      pendingFiles: [{ file, preparationFailed: true, thumbnailUrl: null, thumbnailBlob: null }],
+      removePendingFile,
+    })))
+    expect(view.getByText(file.name)).toBeVisible()
+    expect(view.getByRole("alert").textContent).toBe("Could not prepare. Remove this file and try again.")
+    expect(view.queryByRole("status")).toBeNull()
+    fireEvent.click(view.getByRole("button", { name: "Remove file" }))
+    expect(removePendingFile).toHaveBeenCalledExactlyOnceWith(0)
+  })
+
   it.each([false, true])("keeps the composer free of native keyboard controls and reservations (forum=%s)", async (isForumThreadBody) => {
     const descriptor = Object.getOwnPropertyDescriptor(window, "webkit")
     const tauriDescriptor = Object.getOwnPropertyDescriptor(window, "__TAURI__")

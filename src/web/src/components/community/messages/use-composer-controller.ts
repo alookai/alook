@@ -380,7 +380,7 @@ export function useComposerController(
     hideEmoji,
     showSend: !isForumThreadBody && !hoverCapable,
     sendDisabled:
-      !active || sendInFlight || (!editorHasContent && pendingFiles.length === 0),
+      !active || sendInFlight || pendingFiles.some((file) => file.preparationFailed) || (!editorHasContent && pendingFiles.length === 0),
     onSend: send,
     onEmojiPick: (emoji) => {
       if (!protocol.get().active) return
