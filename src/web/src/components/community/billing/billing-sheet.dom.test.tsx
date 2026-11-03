@@ -17,6 +17,9 @@ vi.mock("@/components/community/shell/community-sheet", () => ({
   CommunitySheet: ({ open, children, footer }: { open: boolean; children: React.ReactNode; footer: React.ReactNode }) => open ? <div>{children}{footer}</div> : null,
 }))
 
+const priceFormat = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" })
+const dateFormat = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" })
+
 const free: BillingSummary = {
   plan: { id: "free", displayName: "Free" }, isFounder: false, subscription: null,
   offers: [{ priceId: "price_a", plan: { id: "custom-tier", displayName: "Studio" }, botLimit: 10, machineLimit: 5, unitAmount: 2000, currency: "usd", interval: "month", intervalCount: 1 }],
@@ -34,7 +37,7 @@ describe("billing sheet", () => {
     const ui = view(billing)
     expect(ui.queryByText("Up to 1 online machine")).not.toBeInTheDocument()
     expect(ui.getByText((_text, el) => el?.tagName === "P" && el.textContent === "Up to 5 online machines")).toBeInTheDocument()
-    expect(ui.getByText("$20.00 USD / month")).toBeInTheDocument()
+    expect(ui.getByText(`${priceFormat.format(20)} USD / month`, { collapseWhitespace: false })).toBeInTheDocument()
     expect(ui.getByText((_text, element) => element?.tagName === "P" && element.textContent === "Up to 10 active bots")).toBeInTheDocument()
     expect(ui.getByRole("img", { name: "10 bot slots" })).toBeInTheDocument()
     fireEvent.click(ui.getByRole("button", { name: "Choose Studio" }))
@@ -90,13 +93,15 @@ describe("billing sheet", () => {
   })
   it("keeps period-end cancellation separate from an immediate loss of access", () => {
     const ui = view(state({ data: { ...free, subscription: { plan: free.plan, status: "active", cancelAt: "2026-10-08T00:00:00Z", currentPeriodEnd: "2026-10-10T00:00:00Z", scheduledChange: null } } }))
-    expect(ui.getByText(/Ends Oct 8, 2026/)).toBeInTheDocument()
+    const expectedEnd = dateFormat.format(new Date("2026-10-08T00:00:00Z"))
+    expect(ui.getByText(content => content.includes(`Ends ${expectedEnd}`), { collapseWhitespace: false })).toBeInTheDocument()
     expect(ui.queryByText(/Current period ends/)).toBeNull()
     expect(ui.getByText(/Your current access stays until then/)).toBeInTheDocument()
   })
   it("shows the billing period again after cancellation is revoked", () => {
     const ui = view(state({ data: { ...free, subscription: { plan: free.plan, status: "active", cancelAt: null, currentPeriodEnd: "2026-10-10T00:00:00Z", scheduledChange: null } } }))
-    expect(ui.getByText(/Current period ends Oct 10, 2026/)).toBeInTheDocument()
+    const expectedPeriodEnd = dateFormat.format(new Date("2026-10-10T00:00:00Z"))
+    expect(ui.getByText(content => content.includes(`Current period ends ${expectedPeriodEnd}`), { collapseWhitespace: false })).toBeInTheDocument()
     expect(ui.queryByText(/Your current access stays until then/)).toBeNull()
   })
 
