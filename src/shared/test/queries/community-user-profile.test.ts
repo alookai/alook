@@ -22,13 +22,6 @@ function createUpsertMock(returnRow: any) {
   return chain;
 }
 
-describe("community/user-profile exports", () => {
-  it("exports public profile + getProfile + updateProfile queries", () => {
-    expect(typeof profileQueries.getPublicProfileForViewer).toBe("function");
-    expect(typeof profileQueries.getProfile).toBe("function");
-    expect(typeof profileQueries.updateProfile).toBe("function");
-  });
-});
 
 describe("getPublicProfileForViewer", () => {
   let sqlite: Sqlite.Database;

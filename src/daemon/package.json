@@ -1,7 +1,7 @@
 {
   "name": "@alook/daemon",
   "version": "0.1.63",
-  "description": "Alook agent daemon — host-side runtime backend, process manager, credential proxy, and control plane.",
+  "description": "Alook agent daemon \u2014 host-side runtime backend, process manager, credential proxy, and control plane.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/alookai/alook#readme",
   "repository": {
@@ -37,9 +37,8 @@
     "access": "public"
   },
   "scripts": {
-    "prebuild": "pnpm -C agent-driver run build",
     "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external ws --external sharp --external quickjs-emscripten && bun build src/cli/index.ts --outdir dist/cli --target node --format esm --external commander --external ws --external sharp --external quickjs-emscripten && node scripts/prepare-dist.mjs",
-    "prepack": "pnpm run build",
+    "prepack": "node ../../scripts/ci/run-turbo.mjs run @alook/daemon#build",
     "typecheck": "tsc --noEmit",
     "test": "pnpm test:unit && pnpm test:packed",
     "test:unit": "vitest run --exclude src/version.packed.test.ts --exclude src/agent-driver-bundle.packed.test.ts --exclude src/cli/daemonSelfUpdate.real.test.ts",
@@ -65,7 +64,7 @@
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.0",
-    "vitest": "4.1.12",
+    "vitest": "5.1.0",
     "zod": "^4.6.7"
   }
 }

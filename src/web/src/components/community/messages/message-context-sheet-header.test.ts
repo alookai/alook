@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs"
+import rawContractInput0 from "./message-context-sheet.tsx?raw"
 import { describe, expect, it } from "vitest"
 
 describe("MessageContextSheet header", () => {
   it("supplies a structured title that truncates only the channel label", () => {
-    const source = readFileSync(new URL("./message-context-sheet.tsx", import.meta.url), "utf8")
+    const source = rawContractInput0
 
     expect(source).toContain("title={channelLabel ? (")
     expect(source).toContain('<span className="flex w-full min-w-0 items-center gap-1.5">')

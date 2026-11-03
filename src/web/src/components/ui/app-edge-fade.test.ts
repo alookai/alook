@@ -1,3 +1,4 @@
+import resolvedRawInput0 from "../../app/globals.css?raw"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { readFileSync } from "node:fs"
@@ -30,10 +31,7 @@ describe("AppEdgeFade", () => {
   })
 
   it("defines one fixed 60px token independent of the app safe-area tokens", () => {
-    const css = readFileSync(
-      fileURLToPath(new URL("../../app/globals.css", import.meta.url)),
-      "utf8",
-    )
+    const css = resolvedRawInput0
     const token = css.match(/--app-edge-fade-size:\s*([^;]+);/)
 
     expect(token?.[1]?.trim()).toBe("60px")

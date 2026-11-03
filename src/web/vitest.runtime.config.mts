@@ -9,7 +9,7 @@ export default defineProject({
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       "./.open-next/server-functions/default/src/web/.next/required-server-files.json": path.resolve(import.meta.dirname, "test-runtime/next-config-stub.json"),
-      "./.open-next/worker.js": path.resolve(
+      "#open-next-worker": path.resolve(
         import.meta.dirname,
         "test-runtime/open-next-worker-stub.ts",
       ),

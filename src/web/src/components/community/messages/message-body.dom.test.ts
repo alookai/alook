@@ -1,8 +1,8 @@
+import staticContractInput0 from "../../../app/globals.css?raw"
 import { describe, it, expect, vi } from "vitest"
 import React from "react"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
-import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { extractTableDataFromElement } from "streamdown"
@@ -107,7 +107,7 @@ describe("MessageBody — remote image geometry", () => {
   })
 
   it("caps community Markdown images at 300px without distorting their ratio", () => {
-    const css = readFileSync(resolve(componentDirectory, "../../../app/globals.css"), "utf8")
+    const css = staticContractInput0
     expect(css).toContain('[data-community-message-body] [data-streamdown="image-wrapper"]')
     expect(css).toMatch(/\[data-community-message-body\] \[data-streamdown="image-wrapper"\][^{]*\{[^}]*max-width: 100%;/s)
     expect(css).toMatch(/\[data-community-message-body\] \[data-streamdown="image"\][^{]*\{[^}]*width: 100%;[^}]*height: 100%;[^}]*max-width: 100%;[^}]*max-height: 100%;[^}]*object-fit: contain;/s)

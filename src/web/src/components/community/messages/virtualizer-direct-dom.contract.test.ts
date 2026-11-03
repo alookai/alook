@@ -1,3 +1,10 @@
+import scrollAnchorSource from "../../../hooks/community/use-scroll-anchor.ts?raw"
+import reactOptionsSource from "../../../hooks/community/virtualizer-react-options.ts?raw"
+import contractText0 from "../channels/forum-post-list.tsx?raw"
+import contractText1 from "../members/member-list.tsx?raw"
+import contractText2 from "../settings/server-settings.tsx?raw"
+import contractText3 from "./message-list.tsx?raw"
+import contractText4 from "./virtual-cursor-list.tsx?raw"
 import { describe, expect, it, vi } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
@@ -9,14 +16,24 @@ import { fileURLToPath } from "node:url"
 
 const componentDirectory = path.dirname(fileURLToPath(import.meta.url))
 const hooksDirectory = path.resolve(componentDirectory, "../../../hooks/community")
-const readComponent = (name: string) => fs.readFileSync(path.join(componentDirectory, name), "utf8")
+const contractSources: Record<string, string> = {
+  "../channels/forum-post-list.tsx": contractText0,
+  "../members/member-list.tsx": contractText1,
+  "../settings/server-settings.tsx": contractText2,
+  "message-list.tsx": contractText3,
+  "virtual-cursor-list.tsx": contractText4,
+}
+const readComponent = (path: string) => {
+  if (!(path in contractSources)) throw new Error("unregistered contract source: " + path)
+  return contractSources[path]
+}
 
 describe("community virtualizer direct DOM contract", () => {
   const virtualRows = readComponent("virtual-cursor-list.tsx")
 
   it("gives MessageList one React geometry writer with native direct updates disabled", () => {
     const messageList = readComponent("message-list.tsx")
-    const scrollAnchor = fs.readFileSync(path.join(hooksDirectory, "use-scroll-anchor.ts"), "utf8")
+    const scrollAnchor = scrollAnchorSource
 
     expect(messageList).toContain("<VirtualRows")
     expect(scrollAnchor).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
@@ -25,7 +42,7 @@ describe("community virtualizer direct DOM contract", () => {
     expect(messageList).toMatch(/<VirtualRows\s+reactLayout/)
     expect(scrollAnchor).toMatch(/\.\.\.COMMUNITY_VIRTUALIZER_REACT_OPTIONS,\s+directDomUpdates: false/)
     expect(scrollAnchor).toContain("initialRect:")
-    expect(fs.readFileSync(path.join(hooksDirectory, "virtualizer-react-options.ts"), "utf8")).toContain("directDomUpdates: true")
+    expect(reactOptionsSource).toContain("directDomUpdates: true")
   })
 
   it.each([false, true])("writes SSR height and transforms only for React layout=%s", (reactLayout) => {

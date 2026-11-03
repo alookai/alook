@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import rawContractInput0 from "../src/test/e2e-ui/perf/switch.perf.ts?raw"
 import { JSDOM } from "jsdom"
 import { createSourceFile, isCallExpression, isFunctionDeclaration, isPropertyAccessExpression, isVariableStatement, ModuleKind, ScriptTarget, transpileModule } from "typescript"
 import { afterEach, expect, it } from "vitest"
@@ -6,7 +6,7 @@ import { tid } from "../src/lib/community/testids"
 
 type Target = { serverId: string; channelId?: string; messageScrollerId: string }
 const target: Target = { serverId: "server", channelId: "target", messageScrollerId: tid.messageScroller }
-const ast = createSourceFile("switch.perf.ts", readFileSync(new URL("../src/test/e2e-ui/perf/switch.perf.ts", import.meta.url), "utf8"), ScriptTarget.ESNext, true)
+const ast = createSourceFile("switch.perf.ts", rawContractInput0, ScriptTarget.ESNext, true)
 const setupSource = ast.statements.flatMap(s => isVariableStatement(s) ? [...s.declarationList.declarations] : []).find(d => d.name.getText(ast) === "INPAGE_SETUP")!.initializer!.getText(ast)
 let predicate = ast.statements.find(s => isFunctionDeclaration(s) && s.name?.text === "samplePerfTarget")?.getText(ast)
 if (!predicate) {

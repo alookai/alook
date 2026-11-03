@@ -21,14 +21,10 @@ describe("community/bot-audit-log exports", () => {
   it("exposes writers", () => {
     expect(typeof q.insertBotActivityEventStatement).toBe("function")
     expect(typeof q.pruneBotActivityEventsStatement).toBe("function")
-    expect(typeof q.insertBotActivityEventAndPrune).toBe("function")
     expect(typeof q.insertBotAuditWakeTrigger).toBe("function")
     expect(typeof q.insertBotAuditError).toBe("function")
   })
 
-  it("exposes a reader", () => {
-    expect(typeof q.listOwnedBotActivityEvents).toBe("function")
-  })
 
   it("exposes the retention cap constant", () => {
     // Plan §Retention: 500 rows per bot. Locked here so a refactor

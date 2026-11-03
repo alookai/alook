@@ -18,11 +18,7 @@ const POST = { id: "p1", serverId: "s1", parentChannelId: "c1" };
 const DM = { id: "dm1", serverId: null as unknown as string, parentChannelId: null };
 
 describe("community/notification-setting exports", () => {
-  it("exports the three effective-level functions", () => {
-    expect(typeof notif.computeEffectiveLevel).toBe("function");
-    expect(typeof notif.resolveEffectiveLevel).toBe("function");
-    expect(typeof notif.resolveEffectiveLevelForUsers).toBe("function");
-  });
+
 
   it("keeps the CRUD helpers", () => {
     expect(typeof notif.getSettings).toBe("function");

@@ -21,6 +21,8 @@ import {
 const packageManagerCli = process.env.npm_execpath
 const workerMode = process.argv.includes("--worker")
 const withWsDo = process.argv.includes("--with-ws-do")
+const webOnly = process.argv.includes("--web-only")
+if (webOnly && !workerMode) throw new Error("--web-only requires --worker")
 const wranglerEntryFlag = process.argv.indexOf("--wrangler-entry")
 const wranglerEntry = wranglerEntryFlag === -1 ? undefined : process.argv[wranglerEntryFlag + 1]
 if (!packageManagerCli && !wranglerEntry) throw new Error("npm_execpath is required")
@@ -39,6 +41,7 @@ if ((manifestFlag !== -1 || ownerFlag !== -1) && (!manifestPath || !ownerRoot ||
   throw new Error("Public static phases require their manifest, owner root and exact combined worker mode")
 }
 const manifest = manifestPath ? readPublicStaticManifest(manifestPath, ownerRoot) : undefined
+if (manifest && webOnly) throw new Error("Public static release phases require both zones")
 const runtimeRoot = resolve(process.cwd(), "../..")
 if (manifest) assertPublicStaticWriteSeparation(manifest, [ownerRoot, resolve(runtimeRoot, "src/web/.wrangler/state"), resolve(runtimeRoot, "src/web/.wrangler/state.e2e-backup"), resolve(runtimeRoot, "src/web/blog/.wrangler/state"), resolve(runtimeRoot, "src/web/e2e-service-logs"), resolve(runtimeRoot, ".wrangler/registry")])
 const phaseGate = manifest ? createPhaseGate() : undefined
@@ -191,7 +194,7 @@ const selectedBackends = manifest ? [
     }),
   },
   ...phaseWorkerDefinitions(manifest, manifest.defaultRelease, wranglerEntry, runtimeRoot),
-] : backends
+] : backends.filter(backend => !webOnly || backend.label !== "Blog backend")
 
 for (const backend of selectedBackends) {
   const child = spawnBackend(backend.label, backend.command, backend.args)
@@ -334,7 +337,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 try {
-  await Promise.all([waitForPort(3001), waitForPort(3002)])
+  await Promise.all([waitForPort(3001), ...(!webOnly ? [waitForPort(3002)] : [])])
   assertLive()
   if (manifest) {
     await waitForHttpOk("http://127.0.0.1:8789/health")

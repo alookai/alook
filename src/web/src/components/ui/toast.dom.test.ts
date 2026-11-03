@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import staticContractInput0 from "../../app/layout.tsx?raw"
 import { resolve } from "node:path"
 import React, { type ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -217,11 +217,7 @@ describe("top-center message notification", () => {
   })
 
   it("mounts the external manager provider before authenticated producers", () => {
-    const layout = readFileSync(resolve(
-      process.cwd(),
-      process.cwd().endsWith("/src/web") ? "" : "src/web",
-      "src/app/layout.tsx",
-    ), "utf8")
+    const layout = staticContractInput0
     expect(layout.indexOf("<MessageNotificationToaster />"))
       .toBeLessThan(layout.indexOf("<TooltipProvider>"))
   })

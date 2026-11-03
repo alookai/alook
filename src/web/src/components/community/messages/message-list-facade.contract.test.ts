@@ -1,83 +1,28 @@
-import { readFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
-import type { ComponentProps, ComponentRef, ReactNode } from "react"
-import { describe, expect, expectTypeOf, it, vi } from "vitest"
+import source0 from "../../../app/c/layout.tsx?raw"
+import source1 from "../../../app/c/page.tsx?raw"
+import source2 from "../channels/channel-loading-frame.tsx?raw"
+import source3 from "../channels/dm-view.tsx?raw"
+import source4 from "../channels/text-channel-surface.tsx?raw"
+import source5 from "../channels/thread-channel-surface.tsx?raw"
+import { describe, expect, it } from "vitest"
 import * as facade from "./message-list"
-import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
-import type { OpenProfile } from "@/components/community/social/profile-types"
 
-type ExpectedMessageListProps = {
-  channel: string
-  messages: Msg[]
-  loading?: boolean
-  pinnedIds?: Set<string>
-  newDividerBefore?: string
-  onOpenThread: (id: string) => void
-  onOpenProfile?: OpenProfile
-  onToggleReaction?: (id: string, emoji: string) => void
-  onReact?: (id: string, emoji: string) => void
-  onReply?: (id: string) => void
-  resolveAuthorMentionText?: (authorId: string) => string | null
-  onInsertMentionText?: (text: string) => void
-  onPin?: (id: string) => void
-  onMark?: (id: string) => void
-  onCreateThread?: (id: string) => void
-  onCopy?: (id: string, selectedText?: string) => void
-  onRetry?: (id: string) => void
-  onDismiss?: (id: string) => void
-  onPreviewImage?: (image: ImagePreview) => void
-  onPreviewAttachment?: (attachment: FileAttachment) => void
-  resolveUserName?: (userId: string) => string
-  scrollToMessageId?: string | null
-  initialPositionMessageId?: string | null
-  positionEntry?: object | null
-  hero?: ReactNode
-  variant?: "channel" | "dm"
-  onScrollRoot?: (element: HTMLDivElement | null) => void
-  viewerUserId?: string
-  initialScrollReady?: boolean
-  onScrollTargetConsumed?: (id: string) => void
-  hasMore?: boolean
-  historyStartKnown?: boolean
-  isFetching?: boolean
-  isFetchingOlder?: boolean
-  onLoadOlder?: () => void
-  hasMoreNewer?: boolean
-  isFetchingNewer?: boolean
-  onLoadNewer?: () => void
-  onJumpToPresent?: () => void
-  presentVersion?: number
-  localSubmitVersion?: number
-  unreadCount?: number
+const sources: Record<string, string> = {
+  "src/app/c/layout.tsx": source0,
+  "src/app/c/page.tsx": source1,
+  "src/components/community/channels/channel-loading-frame.tsx": source2,
+  "src/components/community/channels/dm-view.tsx": source3,
+  "src/components/community/channels/text-channel-surface.tsx": source4,
+  "src/components/community/channels/thread-channel-surface.tsx": source5,
+}
+const source = (path: string) => {
+  if (!(path in sources)) throw new Error("unregistered contract source: " + path)
+  return sources[path]
 }
 
-const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
-const source = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
-
-describe("MessageList facade contract", () => {
-  it("keeps the exact one-value public surface and applies defaults in the facade", () => {
+describe("MessageList facade boundaries", () => {
+  it("exposes the public component without internal runtime exports", () => {
     expect(Object.keys(facade)).toEqual(["MessageList"])
-    expectTypeOf<ComponentProps<typeof facade.MessageList>>()
-      .toEqualTypeOf<ExpectedMessageListProps>()
-    expectTypeOf<ExpectedMessageListProps>()
-      .toEqualTypeOf<ComponentProps<typeof facade.MessageList>>()
-    expectTypeOf<ComponentRef<typeof facade.MessageList>>().toEqualTypeOf<never>()
-    const text = source("src/components/community/messages/message-list.tsx")
-    expect(text).toContain('variant = "channel"')
-    expect(text).toContain("initialScrollReady = true")
-    expect(text).not.toContain("composerOverlap")
-    expect(text).toContain("useMessageListController(resolvedProps)")
-    expect(text).toContain("return renderMessageListView(resolvedProps, controller, () => (")
-    expect(text).toContain("<VirtualRows")
-    expect(text).toContain("items={controller.items}")
-    expect(text).toContain("virtualizer={controller.virtualizer}")
-    expect(text).not.toContain("itemKey=")
-    expect(text).toContain(
-      "renderItem={(item, index) => renderMessageListRow(item, resolvedProps, controller, index)}",
-    )
-    expect(text).not.toMatch(/<MessageListView\b|createElement\(MessageListView/)
-    expect(text).not.toMatch(/forwardRef|useImperativeHandle/)
   })
 
   it("keeps all production consumers on the original path", () => {

@@ -2,7 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { parseBlogDiscoveryManifest, type BlogDiscoveryManifestV1 } from "@/lib/blog-discovery-manifest";
 import { finalizePublicWorkerResponse } from "@/lib/public-worker-response";
 
-import openNextHandler from "./.open-next/worker.js";
+import openNextHandler from "#blog-open-next-worker";
 
 const MANIFEST_PATH = "/internal/blog-discovery";
 

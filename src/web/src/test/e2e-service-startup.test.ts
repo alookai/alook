@@ -7,13 +7,15 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 const transport = vi.hoisted(() => ({ spawn: vi.fn(), spawnSync: vi.fn(), root: "" }))
 
 vi.mock("child_process", () => ({ spawn: transport.spawn, spawnSync: transport.spawnSync }))
-vi.mock("./e2e-ui/_setup/paths", async () => {
+vi.mock("./e2e-ui/_setup/paths", async (importOriginal) => {
+  const { requiredE2EZones } = await importOriginal<typeof import("./e2e-ui/_setup/paths")>()
   const fs = await import("node:fs")
   const os = await import("node:os")
   const path = await import("node:path")
   transport.root = fs.mkdtempSync(path.resolve(os.tmpdir(), "alook-service-startup-"))
   return {
     REPO_ROOT: transport.root,
+    requiredE2EZones,
     SERVICE_LOG_DIR: path.resolve(transport.root, "logs"),
     SERVICE_STATE_PATH: path.resolve(transport.root, "state.json"),
     resolveWsUrl: () => { throw new Error("Native startup must not resolve a split WS health URL") },
@@ -134,8 +136,8 @@ describe("normal UI service startup", () => {
       nested: lstatSync(nested).mode & 0o777,
     }
     const seen: unknown[] = []
-    transport.spawnSync.mockImplementation((command) => {
-      if (command !== "pnpm") return { status: 0, stdout: "", stderr: "" }
+    transport.spawnSync.mockImplementation((command, args) => {
+      if (command !== "node" || !args.includes("@alook/web#build")) return { status: 0, stdout: "", stderr: "" }
       seen.push({
         original: readFileSync(resolve(backupDir, "prior-state"), "utf8"),
         mode: lstatSync(resolve(backupDir, "prior-state")).mode & 0o777,
@@ -173,7 +175,7 @@ describe("normal UI service startup", () => {
     priorState()
     const previousSpawn = transport.spawnSync.getMockImplementation()!
     transport.spawnSync.mockImplementation((command, args, options) => {
-      if (command === "pnpm" && args[1] !== "db:reset") {
+      if (command === "node" && args[0] === "scripts/ci/run-turbo.mjs") {
         mkdirSync(stateDir, { recursive: true })
         writeFileSync(priorFile, "build-created state")
       }
@@ -222,7 +224,7 @@ describe("normal UI service startup", () => {
   it("does not back up build-created state when no local state existed before preparation", async () => {
     const previousSpawn = transport.spawnSync.getMockImplementation()!
     transport.spawnSync.mockImplementation((command, args, options) => {
-      if (command === "pnpm" && args[1] !== "db:reset") {
+      if (command === "node" && args[0] === "scripts/ci/run-turbo.mjs") {
         mkdirSync(stateDir, { recursive: true })
         writeFileSync(priorFile, "build-created state")
       }

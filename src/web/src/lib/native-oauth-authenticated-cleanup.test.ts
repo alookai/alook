@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs"
+import rawContractInput0 from "../app/c/layout.tsx?raw"
+import rawContractInput1 from "../app/c/community-layout-client.tsx?raw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanupAuthenticatedNativeOauthResidue } from "./native-oauth-authenticated-cleanup"
 
@@ -187,8 +188,8 @@ describe("cleanupAuthenticatedNativeOauthResidue", () => {
   })
 
   it("mounts only behind the authenticated Community layout gate", () => {
-    const communityLayout = readFileSync(new URL("../app/c/layout.tsx", import.meta.url), "utf8")
-    const communityClient = readFileSync(new URL("../app/c/community-layout-client.tsx", import.meta.url), "utf8")
+    const communityLayout = rawContractInput0
+    const communityClient = rawContractInput1
 
     expect(communityLayout).not.toContain("getSession")
     expect(communityClient).toContain("const session = useSession()")

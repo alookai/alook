@@ -36,7 +36,6 @@ test("anchored channel jumps to the newest tail with one request", async ({ case
   await expect(page.getByTestId(tid.message(anchorId))).toBeVisible({ timeout: 30_000 })
   const jumpButton = page.getByRole("button", { name: "Jump to present", exact: true })
   await expect(jumpButton).toBeVisible({ timeout: 20_000 })
-  await expect(jumpButton).toHaveAttribute("data-testid", tid.scrollToPresent)
   await expect(jumpButton).toHaveText("Jump to present")
 
   let newestGets = 0

@@ -14,7 +14,7 @@ vi.mock("cloudflare:workers", () => ({
 	},
 }));
 
-vi.mock("./.open-next/worker.js", () => ({
+vi.mock("#blog-open-next-worker", () => ({
 	default: { fetch: mocks.openNextFetch },
 }));
 

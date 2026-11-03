@@ -13,16 +13,21 @@ import {
   verifyMergedReport,
 } from "./e2e-shard-artifacts.mjs"
 
+const key = (file: string) => JSON.stringify([file, "chromium", "case"])
+const row = (file: string, shard: number, total: number) => ({ shard, total, specs: ["src/test/e2e-ui/" + file], native_shard: shard, native_total: total, case_keys: [key(file)] })
+const reportSuite = (file: string, title = "case") => ({ file, specs: [{ title, tests: [{ projectName: "chromium" }] }] })
+const reportFor = (...files: string[]) => ({ errors: [], suites: files.map(file => reportSuite(file)) })
+
 const matrix = {
   include: [
-    { shard: 1, total: 2, specs: ["src/test/e2e-ui/a.spec.ts"] },
-    { shard: 2, total: 2, specs: ["src/test/e2e-ui/b.spec.ts"] },
+    row("a.spec.ts", 1, 2),
+    row("b.spec.ts", 2, 2),
   ],
 }
 
 const singleShardMatrix = {
   include: [
-    { shard: 1, total: 1, specs: ["src/test/e2e-ui/a.spec.ts"] },
+    row("a.spec.ts", 1, 1),
   ],
 }
 
@@ -48,6 +53,7 @@ function artifactRoot(attempts = [1, 2]) {
         shard,
         total: 2,
         specs: matrix.include[shard - 1]!.specs,
+        nativeShard: shard, nativeTotal: 2, caseKeys: matrix.include[shard - 1]!.case_keys,
       }),
     ))
   }
@@ -68,6 +74,7 @@ function flatArtifactRoot() {
       shard: 1,
       total: 1,
       specs: singleShardMatrix.include[0]!.specs,
+      nativeShard: 1, nativeTotal: 1, caseKeys: singleShardMatrix.include[0]!.case_keys,
     }),
   ))
   return root
@@ -89,8 +96,8 @@ describe("expectedMatrix", () => {
 
   it("rejects duplicate cross-shard assignment", () => {
     expect(() => expectedMatrix({ include: [
-      { shard: 1, total: 2, specs: ["src/test/e2e-ui/a.spec.ts"] },
-      { shard: 2, total: 2, specs: ["src/test/e2e-ui/a.spec.ts"] },
+      row("a.spec.ts", 1, 2),
+      row("a.spec.ts", 2, 2),
     ] })).toThrow("assigned to shards")
   })
 })
@@ -285,6 +292,8 @@ describe("verifyArtifactClosure", () => {
   it.each([
     ["wrong run ID", (manifest: any) => { manifest.runId = "wrong" }, "run ID mismatch"],
     ["wrong SHA", (manifest: any) => { manifest.sha = "wrong" }, "SHA mismatch"],
+    ["wrong native identity", (manifest: any) => { manifest.nativeShard = 99 }, "native identity mismatch"],
+    ["wrong cases", (manifest: any) => { manifest.caseKeys = [] }, "cases mismatch"],
     ["wrong identity", (manifest: any) => { manifest.shard = 99 }, "manifest identity mismatch"],
     ["wrong specs", (manifest: any) => { manifest.specs = ["unexpected.spec.ts"] }, "specs mismatch"],
   ])("rejects %s", (_, mutate, message) => {
@@ -370,21 +379,24 @@ describe("runCli", () => {
       "--sha", "def456",
       "--shard", "1",
       "--total", "2",
+      "--native-shard", "1", "--native-total", "2",
       "--output", output,
     ], {
       E2E_SPECS: JSON.stringify(["src/test/e2e-ui/a.spec.ts"]),
+      E2E_CASE_KEYS: JSON.stringify([key("a.spec.ts")]),
     })
 
     const contents = readFileSync(output, "utf8")
     expect(contents.endsWith("\n")).toBe(true)
     expect(JSON.parse(contents)).toEqual({
-      version: 1,
+      version: 2,
       runId: "run-2",
       attempt: 2,
       sha: "def456",
       shard: 1,
       total: 2,
       specs: ["a.spec.ts"],
+      nativeShard: 1, nativeTotal: 2, caseKeys: [key("a.spec.ts")],
     })
   })
 
@@ -437,10 +449,7 @@ describe("runCli", () => {
     const root = mkdtempSync(join(tmpdir(), "alook-shard-cli-"))
     roots.push(root)
     const report = join(root, "report.json")
-    writeFileSync(report, JSON.stringify({ suites: [
-      { file: "src/test/e2e-ui/a.spec.ts" },
-      { file: "b.spec.ts" },
-    ] }))
+    writeFileSync(report, JSON.stringify(reportFor("src/test/e2e-ui/a.spec.ts", "b.spec.ts")))
 
     await expect(runCli([
       "verify-merged",
@@ -511,21 +520,19 @@ describe("runCliEntry", () => {
 })
 
 describe("verifyMergedReport", () => {
-  it("accepts the exact normalized unique spec set", () => {
-    expect(verifyMergedReport({
-      matrix,
-      report: { suites: [
-        { file: "a.spec.ts", suites: [] },
-        { file: "src/test/e2e-ui/b.spec.ts", suites: [] },
-        { file: "a.spec.ts", suites: [] },
-      ] },
-    })).toEqual(["a.spec.ts", "b.spec.ts"])
+  it("accepts exact native file and case identities", () => {
+    expect(verifyMergedReport({ matrix, report: reportFor("a.spec.ts", "src/test/e2e-ui/b.spec.ts") })).toEqual(["a.spec.ts", "b.spec.ts"])
   })
 
   it.each([
-    ["missing", [{ file: "a.spec.ts" }]],
-    ["unexpected", [{ file: "a.spec.ts" }, { file: "b.spec.ts" }, { file: "c.spec.ts" }]],
-  ])("rejects an exact-set %s report", (_, suites) => {
-    expect(() => verifyMergedReport({ matrix, report: { suites } })).toThrow("spec set mismatch")
+    ["missing", ["a.spec.ts"]],
+    ["unexpected", ["a.spec.ts", "b.spec.ts", "c.spec.ts"]],
+  ])("rejects an exact-set %s report", (_, files) => {
+    expect(() => verifyMergedReport({ matrix, report: reportFor(...files) })).toThrow("spec set mismatch")
+  })
+
+  it("rejects missing or duplicate cases even when files match", () => {
+    expect(() => verifyMergedReport({ matrix, report: { errors: [], suites: [reportSuite("a.spec.ts"), reportSuite("b.spec.ts", "wrong")] } })).toThrow("case set mismatch")
+    expect(() => verifyMergedReport({ matrix, report: reportFor("a.spec.ts", "a.spec.ts", "b.spec.ts") })).toThrow("duplicate native")
   })
 })

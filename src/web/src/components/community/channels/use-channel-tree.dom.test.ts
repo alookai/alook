@@ -1,5 +1,6 @@
+import staticContractInput0 from "./channel-sidebar.tsx?raw"
+import staticContractInput1 from "./channel-route.tsx?raw"
 import { act, renderHook } from "@/test/react-dom-harness"
-import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import { UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
@@ -112,21 +113,13 @@ describe("canonical channel tree ownership", () => {
 
 describe("ChannelSidebar rename ownership", () => {
   it("submits through the external mutation without eagerly mutating the local tree", () => {
-    const source = readFileSync(resolve(
-      process.cwd(),
-      process.cwd().endsWith("/src/web") ? "" : "src/web",
-      "src/components/community/channels/channel-sidebar.tsx",
-    ), "utf8")
+    const source = staticContractInput0
     expect(source).toContain("onCreate={({ name }) => { onRenameChannel?.(dialog.id, name) }}")
     expect(source).not.toContain("renameChannel(dialog.id, name)")
   })
 
   it("keeps title, same-server refs, and member UI on reconciled server detail", () => {
-    const source = readFileSync(resolve(
-      process.cwd(),
-      process.cwd().endsWith("/src/web") ? "" : "src/web",
-      "src/components/community/channels/channel-route.tsx",
-    ), "utf8")
+    const source = staticContractInput1
     expect(source).toContain("topLevelName: channelInServer?.name")
     expect(source).toContain(".map((channel) => toChannelRefCandidate(currentServer, channel))")
     expect(source).toContain("useChannelMemberViewModel({")

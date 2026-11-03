@@ -4,7 +4,16 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - src/daemon/agent-driver/**
+      - src/daemon/**
+      - src/shared/**
+      - tests/utils/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - turbo.json
+      - tsconfig.json
+      - vitest.config.ts
+      - scripts/ci/**
       - .github/workflows/windows-runtime.yml
   workflow_dispatch:
 

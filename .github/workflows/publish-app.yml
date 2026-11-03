@@ -60,17 +60,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
         if: steps.check.outputs.skip == 'false'
 
-      - name: Build packages
-        if: steps.check.outputs.skip == 'false'
-        run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/daemon --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/queue-worker
-
-      - name: Bundle app (pre-build workers)
+      - name: Build and bundle workers once
         if: steps.check.outputs.skip == 'false'
         run: pnpm -C src/app run bundle
 
       - name: Build app CLI
         if: steps.check.outputs.skip == 'false'
-        run: pnpm -C src/app run build
+        run: node scripts/ci/run-turbo.mjs run @alook/app#build
 
       - name: Publish to npm (OIDC)
         if: steps.check.outputs.skip == 'false'

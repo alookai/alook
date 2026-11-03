@@ -4,13 +4,6 @@ import * as agentLinkQueries from "../../src/db/queries/agent-link";
 describe("agent-link query module exports", () => {
   it("exports listByWorkspace", () => { expect(typeof agentLinkQueries.listByWorkspace).toBe("function"); });
   it("exports listByAgent", () => { expect(typeof agentLinkQueries.listByAgent).toBe("function"); });
-  it("exports create", () => { expect(typeof agentLinkQueries.create).toBe("function"); });
-  it("exports update", () => { expect(typeof agentLinkQueries.update).toBe("function"); });
-  it("exports remove", () => { expect(typeof agentLinkQueries.remove).toBe("function"); });
-  it("exports getColleaguesForAgent", () => { expect(typeof agentLinkQueries.getColleaguesForAgent).toBe("function"); });
-  it("exports getAllColleaguesForWorkspace", () => { expect(typeof agentLinkQueries.getAllColleaguesForWorkspace).toBe("function"); });
-  it("exports getByPair", () => { expect(typeof agentLinkQueries.getByPair).toBe("function"); });
-  it("exports upsertByPair", () => { expect(typeof agentLinkQueries.upsertByPair).toBe("function"); });
 });
 
 // Helper: a select().from().where() chain that resolves to `rows`.

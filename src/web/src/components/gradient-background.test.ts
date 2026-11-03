@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import rawContractInput0 from "../app/globals.css?raw"
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -12,7 +12,7 @@ describe("GradientBackground", () => {
   });
 
   it("keeps the app rail and document on the chat background in both themes", () => {
-    const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+    const css = rawContractInput0;
 
     expect(css).toMatch(/:root\s*\{[^}]*--app-bg:\s*var\(--background\);/s);
     expect(css).toMatch(/\.dark\s*\{[^}]*--app-bg:\s*var\(--background\);/s);

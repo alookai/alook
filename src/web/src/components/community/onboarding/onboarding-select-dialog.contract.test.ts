@@ -1,12 +1,10 @@
+import resolvedRawInput0 from "./onboarding-select-dialog.tsx?raw"
 import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
-const source = readFileSync(
-  resolve(dirname(fileURLToPath(import.meta.url)), "onboarding-select-dialog.tsx"),
-  "utf8",
-)
+const source = resolvedRawInput0
 
 describe("OnboardingSelectDialog contract", () => {
   it("builds on the shared shadcn dialog, field, and radio primitives", () => {

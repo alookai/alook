@@ -44,11 +44,12 @@ describe("packed artifact verifier", () => {
     const execSync = vi.fn();
     const cpSync = vi.fn();
     const mkdirSync = vi.fn();
+    const packageSource = readFileSync(join(import.meta.dirname, "../../web/package.json"), "utf8");
     const bundleFs = {
       cpSync,
       existsSync: vi.fn(() => false),
       mkdirSync,
-      readFileSync: vi.fn(() => 'main = "src/index.ts"'),
+      readFileSync: vi.fn((path: string) => path.endsWith("package.json") ? packageSource : 'main = "src/index.ts"'),
       readdirSync: vi.fn(() => []),
       rmSync: vi.fn(),
       writeFileSync: vi.fn(),
@@ -72,6 +73,9 @@ describe("packed artifact verifier", () => {
     const appRoot = join(import.meta.dirname, "..");
     const monoRoot = join(appRoot, "..", "..");
     const webDest = join(appRoot, "bundled", "web");
+    const packageWrite = bundleFs.writeFileSync.mock.calls.find(([path]) => path === join(webDest, "package.json"));
+    expect(packageWrite).toBeDefined();
+    expect(JSON.parse(String(packageWrite![1]))).toEqual({ type: "module", imports: JSON.parse(packageSource).imports });
     expect(mkdirSync).toHaveBeenCalledWith(join(webDest, "src", "lib"), { recursive: true });
     expect(mkdirSync).toHaveBeenCalledWith(join(webDest, "src", "lib", "observability"), { recursive: true });
     const copies = new Map(cpSync.mock.calls.map(([source, destination]) => [source, destination]));

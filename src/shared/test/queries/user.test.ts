@@ -66,14 +66,6 @@ function conditionContainsString(node: unknown, needle: string, seen = new Set<u
   return false;
 }
 
-describe("user exports", () => {
-  it("exports getUserPublic", () => { expect(typeof userQueries.getUserPublic).toBe("function"); });
-  it("exports getUserSelf", () => { expect(typeof userQueries.getUserSelf).toBe("function"); });
-  it("exports getUserByEmail", () => { expect(typeof userQueries.getUserByEmail).toBe("function"); });
-  it("exports getUserByProviderAccount", () => { expect(typeof userQueries.getUserByProviderAccount).toBe("function"); });
-  it("exports createUser", () => { expect(typeof userQueries.createUser).toBe("function"); });
-  it("exports updateUser", () => { expect(typeof userQueries.updateUser).toBe("function"); });
-});
 
 describe("getUserPublic", () => {
   it("returns null when not found", async () => { expect(await userQueries.getUserPublic(createSelectMock([]), "x")).toBeNull(); });

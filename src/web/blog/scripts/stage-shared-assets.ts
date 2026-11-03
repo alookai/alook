@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, lstatSync, readlinkSync, unlinkSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharedBuildInputs from "../shared-build-inputs.json";
@@ -17,13 +17,13 @@ export function stageSharedBlogAssets(webRoot: string): void {
     }
   }
 
-  const packageManifest = resolve(webRoot, "package.json");
   const nestedPackageManifest = resolve(webRoot, "blog/package.json");
-  if (!existsSync(nestedPackageManifest)) {
-    symlinkSync("../package.json", nestedPackageManifest, "file");
-  }
-  if (!readFileSync(packageManifest).equals(readFileSync(nestedPackageManifest))) {
-    throw new Error("Nested Blog package pointer differs from the canonical Web package manifest");
+  const nestedPackage = lstatSync(nestedPackageManifest, { throwIfNoEntry: false });
+  if (nestedPackage) {
+    if (!nestedPackage.isSymbolicLink() || readlinkSync(nestedPackageManifest) !== "../package.json") {
+      throw new Error("Unexpected nested Blog package manifest");
+    }
+    unlinkSync(nestedPackageManifest);
   }
 }
 

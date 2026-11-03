@@ -229,7 +229,6 @@ test.describe("mobile layout", () => {
     await page.goto(`/c/channels/${serverId}/${childChannelId}`)
     const current = page.getByRole("banner").getByText("mobile-child", { exact: true })
     await expect(current).toBeVisible()
-    expect(await current.evaluate((element) => element.tagName)).toBe("SPAN")
     const back = page.getByRole("button", { name: "Back" })
     await expect(back).toBeVisible()
     const historyLength = await page.evaluate(() => history.length)

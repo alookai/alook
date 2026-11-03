@@ -9,10 +9,14 @@
     "src/**/*",
     "src/app/.well-known/**/*.ts",
     "scripts/**/*",
-    "app-store-capture/**/*"
+    "app-store-capture/**/*",
+    "readme-capture/**/*"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "**/.next/**",
+    "**/.open-next/**",
+    "**/.wrangler/**"
   ],
   "files": [
     "src/components/community/messages/composer-accessory-rail.dom.test.tsx"

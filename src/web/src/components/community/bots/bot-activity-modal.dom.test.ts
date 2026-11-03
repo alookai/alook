@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import staticContractInput0 from "./bot-activity-modal.tsx?raw"
 import { resolve } from "node:path"
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -307,11 +307,7 @@ describe("BotActivityModal CommunitySheet contract", () => {
     expect(onOpenChange).toHaveBeenCalledOnce()
     expect(onOpenChange).toHaveBeenCalledWith(false)
 
-    const source = readFileSync(resolve(
-      process.cwd(),
-      process.cwd().endsWith("/src/web") ? "" : "src/web",
-      "src/components/community/bots/bot-activity-modal.tsx",
-    ), "utf8")
+    const source = staticContractInput0
     expect(source).not.toContain("@/components/ui/dialog")
     expect(source).not.toContain("@/components/ui/sheet")
     expect(source).not.toMatch(/>\s*Close\s*</)

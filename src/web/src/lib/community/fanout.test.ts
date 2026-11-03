@@ -1,5 +1,5 @@
+import rawContractInput0 from "./fanout.ts?raw"
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { readFileSync } from "node:fs"
 
 const mockGetCloudflareContext = vi.fn(() => ({ env: { DB: {} } }))
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -230,7 +230,7 @@ describe("fanOutToServerMembers", () => {
   })
 
   it("contains no local reach classifier after delegating to shared", () => {
-    const source = readFileSync(new URL("./fanout.ts", import.meta.url), "utf8")
+    const source = rawContractInput0
     expect(source).not.toMatch(/\bchannelReach\b|\bisStoredChannelType\b|switch\s*\(\s*reach\s*\)/)
   })
 })

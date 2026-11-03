@@ -1,13 +1,28 @@
 import { createHash } from "node:crypto"
+import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
-import { buildExecutionPlan, stablePlanJson } from "./changed-scopes.mjs"
-import { runCli, runIfMain, verifyCoveragePlan } from "./verify-coverage-plan.mjs"
+import { buildExecutionPlan as createExecutionPlan, queryNativeTasks, stablePlanJson } from "./changed-scopes.mjs"
+import { runCli, verifyCoveragePlan } from "./verify-coverage-plan.mjs"
 
 const baseSha = "a".repeat(40)
 const headSha = "b".repeat(40)
+
+let nativeInventory: ReturnType<typeof queryNativeTasks>["inventory"]
+function buildExecutionPlan(changes, options) {
+  if (!nativeInventory) {
+    const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim()
+    nativeInventory = queryNativeTasks({ baseSha: head, headSha: head }).inventory
+  }
+  const selected = changes.every(change => change.path.startsWith("src/web/")) ? ["@alook/web"]
+    : changes.every(change => change.path.startsWith("src/email-worker/")) ? ["@alook/email-worker"] : null
+  return createExecutionPlan(changes, {
+    ...options,
+    nativeTasks: { inventory: nativeInventory, affected: nativeInventory.filter(task => !selected || selected.includes(task.package.name)) },
+  })
+}
 
 function coveredFile(path: string, covered = true) {
   return {
@@ -30,6 +45,14 @@ function resignPlan(value) {
 }
 
 describe("verifyCoveragePlan", () => {
+  it("rejects corrupt counters independently of informational coverage percentages", () => {
+    const changed = "src/email-worker/src/index.ts"
+    const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
+    const corrupt = coveredFile(changed)
+    corrupt.s["0"] = Number.NaN
+    expect(() => verifyCoveragePlan(plan, { [changed]: corrupt })).toThrow("invalid Istanbul s counter")
+    expect(() => verifyCoveragePlan(plan, { [changed]: { path: changed } })).toThrow("invalid Istanbul s map")
+  })
   it("audits the type-only navigation model without waiving the project denominator", () => {
     const changed = "src/web/src/lib/community/models/navigation.ts"
     const runtime = "src/web/src/lib/config.ts"
@@ -125,7 +148,7 @@ describe("verifyCoveragePlan", () => {
     expect(() => verifyCoveragePlan(fixtureOnly, {})).toThrow("nonempty denominator")
   })
 
-  it("proves required changed files and a nonempty passing Codecov project denominator", () => {
+  it("proves required changed files and a nonempty Codecov project denominator", () => {
     const changed = "src/email-worker/src/index.ts"
     const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
     const report = {
@@ -161,7 +184,7 @@ describe("verifyCoveragePlan", () => {
     }
   })
 
-  it("rejects empty and below-target Codecov project reports", () => {
+  it("reports zero project percentages but rejects empty instrumentation", () => {
     const changed = "src/shared/src/semver.ts"
     const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
     const testOnlyPlan = buildExecutionPlan(
@@ -170,13 +193,18 @@ describe("verifyCoveragePlan", () => {
     )
 
     expect(() => verifyCoveragePlan(testOnlyPlan, {})).toThrow("nonempty denominator")
-    expect(() => verifyCoveragePlan(plan, {
-      [resolve("src/email-worker/src/lib/imap-client.ts")]: coveredFile(resolve("src/email-worker/src/lib/imap-client.ts")),
-      [resolve("src/email-worker/src/index.ts")]: coveredFile(resolve("src/email-worker/src/index.ts")),
+    const result = verifyCoveragePlan(plan, {
+      [resolve("src/email-worker/src/lib/imap-client.ts")]: coveredFile(resolve("src/email-worker/src/lib/imap-client.ts"), false),
+      [resolve("src/email-worker/src/index.ts")]: coveredFile(resolve("src/email-worker/src/index.ts"), false),
       [resolve(changed)]: coveredFile(resolve(changed), false),
-      [resolve("src/web/src/lib/config.ts")]: coveredFile(resolve("src/web/src/lib/config.ts")),
-      [resolve("src/ws-do/src/index.ts")]: coveredFile(resolve("src/ws-do/src/index.ts")),
-    })).toThrow("project target shared")
+      [resolve("src/web/src/lib/config.ts")]: coveredFile(resolve("src/web/src/lib/config.ts"), false),
+      [resolve("src/ws-do/src/index.ts")]: coveredFile(resolve("src/ws-do/src/index.ts"), false),
+    })
+    expect(Object.keys(result.targets).sort()).toEqual(["email-worker", "shared", "web", "ws-do"])
+    for (const target of Object.values(result.targets)) {
+      expect(target).toMatchObject({ covered: 0, percent: 0 })
+      expect(target.statements).toBeGreaterThan(0)
+    }
   })
 
   it("rejects targets absent from the Codecov contract", () => {
@@ -187,10 +215,10 @@ describe("verifyCoveragePlan", () => {
 
     expect(() => verifyCoveragePlan(resignPlan(invalid), {
       [resolve(changed)]: coveredFile(resolve(changed)),
-    })).toThrow("unknown Codecov project target")
+    })).toThrow("execution plan projections do not match native tasks and event policy")
   })
 
-  it("writes an auditable target manifest from the CLI", () => {
+  it("writes a zero-coverage report through the real CLI without a percentage failure", () => {
     const changed = "src/email-worker/src/index.ts"
     const plan = buildExecutionPlan([{ status: "M", path: changed }], { baseSha, headSha })
     const directory = mkdtempSync(join(tmpdir(), "alook-coverage-plan-"))
@@ -200,7 +228,7 @@ describe("verifyCoveragePlan", () => {
     try {
       writeFileSync(planPath, JSON.stringify(plan))
       writeFileSync(reportPath, JSON.stringify({
-        [resolve(changed)]: coveredFile(resolve(changed)),
+        [resolve(changed)]: coveredFile(resolve(changed), false),
       }))
       const args = [
         "--plan", planPath,
@@ -208,14 +236,11 @@ describe("verifyCoveragePlan", () => {
         "--output", outputPath,
         "--unused-value", "ignored",
       ]
-      runIfMain(
-        "file:///tmp/verify-coverage-plan.mjs",
-        "/tmp/verify-coverage-plan.mjs",
-        args,
-      )
+      execFileSync(process.execPath, ["scripts/ci/verify-coverage-plan.mjs", ...args], { stdio: "pipe" })
       expect(JSON.parse(readFileSync(outputPath, "utf8"))).toMatchObject({
         plan_hash: plan.plan_hash,
         required_changed_files: [changed],
+        targets: { "email-worker": { statements: 1, covered: 0, percent: 0 } },
       })
     } finally {
       rmSync(directory, { recursive: true, force: true })

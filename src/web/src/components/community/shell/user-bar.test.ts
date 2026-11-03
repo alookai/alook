@@ -1,6 +1,6 @@
+import rawContractInput0 from "../../../app/globals.css?raw"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { UserBar, UserBarSkeleton } from "./user-bar"
 import { tid } from "@/lib/community/testids"
@@ -26,7 +26,7 @@ describe("UserBar", () => {
     expect(running).toContain("sm:focus-visible:ring-offset-4")
     expect(running).toContain("focus-visible:ring-offset-muted")
     expect(running).toContain("var(--running-bots-primary)")
-    expect(readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8"))
+    expect(rawContractInput0)
       .toContain("--running-bots-primary: oklch(0.9 0.008 80);")
     expect(running).not.toContain("color-mix")
     expect(running).not.toContain("var(--primary)")
@@ -37,7 +37,7 @@ describe("UserBar", () => {
   })
 
   it("keeps the gradient ring static while reduced motion disables only its glow", () => {
-    const css = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8")
+    const css = rawContractInput0
     const reducedMotion = css.slice(css.indexOf("@keyframes user-bar-running-bots-breathe"))
 
     expect(reducedMotion).toContain(".user-bar-running-bots-glow")

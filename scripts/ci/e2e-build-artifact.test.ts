@@ -1,14 +1,17 @@
 import { createHash } from "node:crypto"
 import { spawnSync } from "node:child_process"
 import {
+  chmodSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
@@ -26,11 +29,23 @@ const roots: string[] = []
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  vi.unstubAllEnvs()
 })
 
-function fixture() {
+function fixture(zones?: string[]) {
   const root = mkdtempSync(join(tmpdir(), "alook-ui-e2e-build-"))
   roots.push(root)
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "artifact-fixture", packageManager: "pnpm@10.33.0" }))
+  writeFileSync(join(root, "pnpm-workspace.yaml"), 'packages:\n  - "src/web"\n')
+  writeFileSync(join(root, ".gitignore"), "node_modules\n")
+  mkdirSync(join(root, "src/web"), { recursive: true })
+  writeFileSync(join(root, "src/web/package.json"), JSON.stringify({ name: "@alook/web", scripts: { build: "node -e 0", "build:blog": "node -e 0" } }))
+  writeFileSync(join(root, "src/web/source.ts"), "export const value = 1\n")
+  symlinkSync(resolve(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir")
+  writeFileSync(join(root, "turbo.json"), JSON.stringify({ globalEnv: ["CI", "ALOOK_TASK_NODE", "ALOOK_TASK_PLATFORM", "ALOOK_TASK_WORKSPACE"], tasks: {
+    "@alook/web#build": { env: ["NEXT_PUBLIC_*"], inputs: ["package.json", "source.ts"], outputs: [".open-next/**"] },
+    "@alook/web#build:blog": { env: ["NEXT_PUBLIC_*"], inputs: ["package.json", "source.ts"], outputs: ["blog/.open-next/**"] },
+  } }))
   writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n")
   for (const output of BUILD_OUTPUT_ROOTS) {
     mkdirSync(join(root, output, "assets"), { recursive: true })
@@ -43,6 +58,7 @@ function fixture() {
     runId: "123",
     attempt: 2,
     headSha: HEAD_SHA,
+    zones,
   })
   return { root, ...result }
 }
@@ -52,6 +68,49 @@ function removeBuildOutputs(root: string) {
 }
 
 describe("UI E2E build artifact", () => {
+  it("preserves archived executable modes under a restrictive consumer umask", () => {
+    const artifact = fixture()
+    const entry = join(artifact.root, BUILD_OUTPUT_ROOTS[0]!, "worker.js")
+    chmodSync(entry, 0o751)
+    const options = { root: artifact.root, directory: ".ci/ui-e2e-build", runId: "123", attempt: 2, headSha: HEAD_SHA }
+    createBuildArtifact(options)
+    removeBuildOutputs(artifact.root)
+    const previous = process.umask(0o077)
+    try {
+      verifyBuildArtifact(options)
+      if (process.platform !== "win32") expect(lstatSync(entry).mode & 0o777).toBe(0o751)
+      expect(readFileSync(entry, "utf8")).toContain("export default")
+    } finally { process.umask(previous) }
+  })
+
+  it("round-trips Web alone and rejects a consumer that additionally requires Blog", () => {
+    const artifact = fixture(["web"])
+    removeBuildOutputs(artifact.root)
+    const options = { root: artifact.root, directory: ".ci/ui-e2e-build", runId: "123", attempt: 2, headSha: HEAD_SHA }
+    expect(() => verifyBuildArtifact(options)).toThrow("roots mismatch")
+    expect(verifyBuildArtifact({ ...options, zones: ["web"] }).roots).toEqual([BUILD_OUTPUT_ROOTS[0]])
+    expect(readFileSync(join(artifact.root, BUILD_OUTPUT_ROOTS[0], "worker.js"), "utf8")).toContain("export default")
+    expect(verifyArchiveMembers(artifact.archive, [BUILD_OUTPUT_ROOTS[0]]).some(path => path.includes("/blog/"))).toBe(false)
+  })
+
+  it("rejects a different build environment without exposing its values", () => {
+    const artifact = fixture()
+    vi.stubEnv("NEXT_PUBLIC_WS_DO_PORT", "8765")
+    expect(() => verifyBuildArtifact({ root: artifact.root, directory: ".ci/ui-e2e-build", runId: "123", attempt: 2, headSha: HEAD_SHA })).toThrow("build environment mismatch")
+  })
+
+  it.each(["source", "configuration"])("rejects changed %s through native Turbo task hashes", kind => {
+    const artifact = fixture()
+    if (kind === "source") writeFileSync(join(artifact.root, "src/web/source.ts"), "export const value = 2\n")
+    else {
+      const path = join(artifact.root, "turbo.json")
+      const config = JSON.parse(readFileSync(path, "utf8"))
+      config.tasks["@alook/web#build"].outputs.push("another-output/**")
+      writeFileSync(path, JSON.stringify(config))
+    }
+    expect(() => verifyBuildArtifact({ root: artifact.root, directory: ".ci/ui-e2e-build", runId: "123", attempt: 2, headSha: HEAD_SHA })).toThrow("native build task hashes mismatch")
+  })
+
   it("rejects incomplete create identities before reading the filesystem", () => {
     const options = {
       root: ".",
@@ -82,7 +141,7 @@ describe("UI E2E build artifact", () => {
     })
 
     expect(manifest).toMatchObject({
-      version: 1,
+      version: 2,
       runId: "123",
       attempt: 2,
       headSha: HEAD_SHA,
@@ -227,7 +286,7 @@ describe("UI E2E build artifact", () => {
 
   it.each([
     ["extra fields", (manifest: Record<string, unknown>) => { manifest.extra = true }, "exact contract"],
-    ["version", (manifest: Record<string, unknown>) => { manifest.version = 2 }, "version mismatch"],
+    ["version", (manifest: Record<string, unknown>) => { manifest.version = 999 }, "version mismatch"],
     ["roots", (manifest: Record<string, unknown>) => { manifest.roots = [BUILD_OUTPUT_ROOTS[0]] }, "roots mismatch"],
     ["lockfile digest", (manifest: Record<string, unknown>) => { manifest.lockfileSha256 = "invalid" }, "lockfile digest"],
     ["archive digest", (manifest: Record<string, unknown>) => { manifest.archiveSha256 = "invalid" }, "archive digest"],

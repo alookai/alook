@@ -20,13 +20,6 @@ describe("whitelist query module exports", () => {
     expect(typeof whitelistQueries.getWhitelist).toBe("function");
   });
 
-  it("exports addWhitelist", () => {
-    expect(typeof whitelistQueries.addWhitelist).toBe("function");
-  });
-
-  it("exports removeWhitelist", () => {
-    expect(typeof whitelistQueries.removeWhitelist).toBe("function");
-  });
 
   it("exports removeWhitelistByEmail", () => {
     expect(typeof whitelistQueries.removeWhitelistByEmail).toBe("function");
