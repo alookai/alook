@@ -81,6 +81,7 @@ describe("dedupeServerChunks", () => {
     f.put("two.js", 'module.exports={value:"object"};')
     f.put("data.json", chunk)
     f.put("data2.json", chunk)
+    f.put("[turbopack]_runtime.js", "globalThis.chunkRuntime = new Map();")
     expect(dedupeServerChunks(f.root).aliases).toBe(0)
   })
 
@@ -134,9 +135,55 @@ describe("dedupeServerChunks", () => {
 
   it("keeps tiny chunks when forwarding would increase their size", () => {
     const f = fixture()
-    f.put("a.js", "module.exports=[];")
-    f.put("b.js", "module.exports=[];")
+    f.put("a.js", "module.exports=[1,a=>0];")
+    f.put("b.js", "module.exports=[1,a=>0];")
     expect(dedupeServerChunks(f.root).aliases).toBe(0)
-    expect(readFileSync(join(f.standalone, "b.js"), "utf8")).toBe("module.exports=[];")
+    expect(readFileSync(join(f.standalone, "b.js"), "utf8")).toBe("module.exports=[1,a=>0];")
+  })
+
+  it.each([
+    'module.exports=[9,(()=>{let count=0;return ()=>++count})()];',
+    '(()=>{"use strict";module.exports=[9,()=>++count];let count=0})();',
+    'module.exports=[9,function counter(){return counter.n=(counter.n||0)+1}];',
+  ])("preserves independent eager or named-function state: %s", source => {
+    const f = fixture()
+    f.put("a.js", source)
+    f.put("b.js", source)
+    expect(dedupeServerChunks(f.root).aliases).toBe(0)
+    const require = createRequire(join(f.root, "entry.cjs"))
+    expect(require(join(f.standalone, "a.js"))[1]()).toBe(1)
+    expect(require(join(f.standalone, "b.js"))[1]()).toBe(1)
+  })
+
+  it.each(["module.exports", "exports", "require", "arguments", "this", 'eval("module.exports")'])("does not merge factories capturing their CommonJS wrapper: %s", expression => {
+    const f = fixture()
+    f.put("a.js", `module.exports=[321,context=>{context.value=${expression}}];`)
+    f.put("b.js", `module.exports=[321,context=>{context.value=${expression}}];`)
+    expect(dedupeServerChunks(f.root).aliases).toBe(0)
+  })
+
+  it("accepts strict factory groups and class-owned context without capturing wrapper state", () => {
+    const f = fixture()
+    const source = 'module.exports=[[123,context=>{class Example{value=this;method(){return arguments.length}};context.exports={module:Example}}],456,context=>{context.exports="plain"}];'
+    f.put("a.js", source)
+    f.put("b.js", source)
+    expect(dedupeServerChunks(f.root).aliases).toBe(1)
+  })
+
+  it.each([
+    'module.exports=[123,context=>{}',
+    'module.exports=[123];',
+    'module.exports=[context=>{}];',
+    'module.exports=[[123]];',
+    'module.exports=[...other];',
+    '(function(){module.exports=[123,context=>{}]})()',
+    'module.exports=[123,context=>{return class Example{[this.state](){}}}];',
+    'module.exports=[123,context=>{return class Example{[arguments[0]]=true}}];',
+    '(()=>{"use strict";module.exports=[123,context=>{}];sideEffect()})();',
+  ])("keeps unsupported or malformed factory containers: %s", source => {
+    const f = fixture()
+    f.put("a.js", source)
+    f.put("b.js", source)
+    expect(dedupeServerChunks(f.root).aliases).toBe(0)
   })
 })
