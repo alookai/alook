@@ -39,7 +39,7 @@ const claudeCapabilities = {
   commandOverride: true,
   resume: "by_id",
   sessionLifetime: "persistent",
-  midTurnDelivery: "safe_boundary_queue",
+  midTurnDelivery: "steer",
   interrupt: true,
 } as const;
 
@@ -58,7 +58,7 @@ function sdkTestLane(receipt = "fresh-receipt") {
 
 describe("createAgentDriverSdk", () => {
   it("exposes the built-ins with default options", () => {
-    expect(createAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy"]);
+    expect(createAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"]);
     expect(SESSION_FILE_DISCOVERY_CAPABILITIES).toEqual(["supported", "unavailable"]);
   });
 
@@ -128,7 +128,7 @@ describe("createAgentDriverSdk", () => {
   });
 
   it("public SDK factory delegates to the built-in logical SDK", () => {
-    expect(createPublicAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy"]);
+    expect(createPublicAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"]);
   });
 
   it.each(["claude", "codex", "cursor", "grok", "opencode", "pi"] as const)(
@@ -225,7 +225,7 @@ describe("createAgentDriverSdk", () => {
     const opened = await createAgentDriverSdk({ host, hostReleaseTimeoutMs: 25 }).open(claudeInput);
     expect(opened.ok).toBe(true);
     if (!opened.ok) throw new Error("expected a session");
-    expect(opened.capabilities.midTurnDelivery).toBe("safe_boundary_queue");
+    expect(opened.capabilities.midTurnDelivery).toBe("steer");
     expect(opened.session.snapshot()).toMatchObject({ state: "new", queuedCommands: [] });
     await opened.session.stop({ reason: "shutdown", forceAfterMs: 1 });
     expect(host.releases).toHaveLength(1);
@@ -246,7 +246,7 @@ describe("createAgentDriverSdk", () => {
     });
     const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
       id: "claude",
-      contractVersion: 1,
+      contractVersion: 2,
       capabilities: claudeCapabilities,
       createAdapter: () => adapter,
     }]);
@@ -286,7 +286,7 @@ describe("createAgentDriverSdk", () => {
     });
     const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
       id: "claude",
-      contractVersion: 1,
+      contractVersion: 2,
       capabilities: claudeCapabilities,
       createAdapter: () => adapter,
     }]);
@@ -319,7 +319,7 @@ describe("createAgentDriverSdk", () => {
     vi.spyOn(adapter, "openLane").mockResolvedValue(lane);
     const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
       id: "claude",
-      contractVersion: 1,
+      contractVersion: 2,
       capabilities: claudeCapabilities,
       createAdapter: () => adapter,
     }]);
@@ -354,7 +354,7 @@ describe("createAgentDriverSdk", () => {
     const openLane = vi.spyOn(adapter, "openLane").mockResolvedValue(sdkTestLane());
     const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
       id: "claude",
-      contractVersion: 1,
+      contractVersion: 2,
       capabilities: claudeCapabilities,
       createAdapter: () => adapter,
     }]);
@@ -422,7 +422,7 @@ describe("createAgentDriverSdk", () => {
     };
     const registry = createAgentDriverRegistry<SixthSpecs>([{
       id: "sixth",
-      contractVersion: 1,
+      contractVersion: 2,
       capabilities,
       createAdapter: () => adapter,
     }]);
@@ -462,7 +462,7 @@ describe("createAgentDriverSdk", () => {
     const prepare = vi.spyOn(host, "prepareExecution");
     const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
       id: "claude",
-      contractVersion: 1,
+      contractVersion: 2,
       capabilities: claudeCapabilities,
       createAdapter: () => {
         const adapter = new ClaudeDriver();
@@ -491,7 +491,7 @@ describe("createAgentDriverSdk", () => {
     });
     const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
       id: "claude",
-      contractVersion: 1,
+      contractVersion: 2,
       capabilities: claudeCapabilities,
       createAdapter: () => adapter,
     }]);
@@ -514,8 +514,8 @@ describe("createAgentDriverSdk", () => {
 
   it.each([
     ["missing", undefined],
-    ["old", 0],
-    ["unknown", 2],
+    ["old", 1],
+    ["unknown", 3],
   ] as const)("fails a %s contract version from an untrusted custom registry before side effects", async (_name, version) => {
     const host = createFakeAgentDriverHost();
     const prepare = vi.spyOn(host, "prepareExecution");
@@ -561,7 +561,7 @@ describe("createAgentDriverSdk", () => {
     vi.spyOn(adapter, "probe").mockReturnValue({ status: "healthy", version: "7.0.0" });
     const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
       id: "claude",
-      contractVersion: 1,
+      contractVersion: 2,
       capabilities: claudeCapabilities,
       createAdapter: () => adapter,
     }]);
@@ -600,7 +600,7 @@ describe("createAgentDriverSdk", () => {
     const valid = new ClaudeDriver();
     const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
       id: "claude",
-      contractVersion: 1,
+      contractVersion: 2,
       capabilities: claudeCapabilities,
       createAdapter: () => {
         for (const [key, value] of Object.entries(override)) {

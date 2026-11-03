@@ -54,3 +54,10 @@ export const MACHINE_WS_URL = resolveMachineWsUrl({
   wsUrl: WS_URL,
   singleRuntime: SINGLE_RUNTIME,
 })
+
+export function requiredE2EZones(input = process.env.ALOOK_E2E_ZONES): Array<"web" | "blog"> {
+  const zones: unknown = input === undefined ? ["web", "blog"] : JSON.parse(input)
+  if (!Array.isArray(zones) || !zones.includes("web") || new Set(zones).size !== zones.length
+    || zones.some(zone => zone !== "web" && zone !== "blog")) throw new Error("Invalid E2E service zones")
+  return zones
+}

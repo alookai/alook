@@ -1,3 +1,4 @@
+import rawContractInput0 from "./render-og-image.tsx?raw"
 import { inflateSync } from "node:zlib"
 import { readFileSync } from "node:fs"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -258,7 +259,7 @@ function countSmallColorComponents(
 
 describe("OG image", () => {
   it("loads the canonical public assets through the request-scoped ASSETS binding", async () => {
-    const rendererSource = readFileSync(new URL("./render-og-image.tsx", import.meta.url), "utf8")
+    const rendererSource = rawContractInput0
 
     expect(officialLogo.byteLength).toBeGreaterThan(1_000)
     expect(officialFont.byteLength).toBeGreaterThan(30_000)

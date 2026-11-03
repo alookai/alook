@@ -24,13 +24,6 @@ describe("conversation query module exports", () => {
     expect(typeof conversationQueries.createConversation).toBe("function");
   });
 
-  it("exports getConversation", () => {
-    expect(typeof conversationQueries.getConversation).toBe("function");
-  });
-
-  it("exports getConversationsByIds", () => {
-    expect(typeof conversationQueries.getConversationsByIds).toBe("function");
-  });
 
   it("exports listConversations", () => {
     expect(typeof conversationQueries.listConversations).toBe("function");
@@ -40,25 +33,16 @@ describe("conversation query module exports", () => {
     expect(typeof conversationQueries.listConversationsByAgent).toBe("function");
   });
 
-  it("exports updateConversationTitle", () => {
-    expect(typeof conversationQueries.updateConversationTitle).toBe("function");
-  });
 
   it("exports getOrCreateAgentConversation", () => {
     expect(typeof conversationQueries.getOrCreateAgentConversation).toBe("function");
   });
 
-  it("exports deleteConversation", () => {
-    expect(typeof conversationQueries.deleteConversation).toBe("function");
-  });
 
   it("exports listPreviousConversations", () => {
     expect(typeof conversationQueries.listPreviousConversations).toBe("function");
   });
 
-  it("exports hasPreviousConversations", () => {
-    expect(typeof conversationQueries.hasPreviousConversations).toBe("function");
-  });
 });
 
 describe("conversation query function signatures (with optional channel param)", () => {

@@ -1,7 +1,7 @@
+import rawContractInput0 from "./add-members-dialog.tsx?raw"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { readFileSync } from "node:fs"
 
 // Spy on toastApiError so the reject path can be asserted without a real DOM
 // (sonner injects a <style> at import time). Mock before importing the module.
@@ -40,7 +40,7 @@ describe("AddMemberRow", () => {
   })
 
   it("uses the shared resolved/loading/error/retry picker contract", () => {
-    const source = readFileSync(new URL("./add-members-dialog.tsx", import.meta.url), "utf8")
+    const source = rawContractInput0
     expect(source).toContain("resolved: queryState.resolved")
     expect(source).toContain("loading: queryState.loading")
     expect(source).toContain("error: queryState.error")

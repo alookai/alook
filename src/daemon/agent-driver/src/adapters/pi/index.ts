@@ -235,9 +235,9 @@ export function mapPiSdkEvent(event: any, sessionId: string, state: PiEventState
     case "auto_retry_end":
       return [{ kind: "runtime_recovery", stage: "recovered", source: "pi_auto_retry" }];
     case "tool_execution_start":
-      return [{ kind: "tool_call", name: event.toolName ?? "unknown_tool", input: event.args ?? {} }];
+      return [{ kind: "tool_call", callId: event.toolCallId, name: event.toolName ?? "unknown_tool", input: event.args ?? {} }];
     case "tool_execution_end":
-      return [{ kind: "tool_output", name: event.toolName ?? "unknown_tool" }];
+      return [{ kind: "tool_output", callId: event.toolCallId, name: event.toolName ?? "unknown_tool", outcome: event.isError === true ? "failed" : event.isError === false ? "success" : "unknown", output: event.result }];
     case "compaction_start":
       return [{ kind: "compaction_started" }];
     case "compaction_end":
@@ -341,7 +341,7 @@ export class PiDriver implements BackendAdapter {
         return session.isStreaming;
       },
     };
-    const runtimeSession = new SdkLane(handle, this.sessionId!, { terminalOnPromptSettled: true });
+    const runtimeSession = new SdkLane(handle, this.sessionId!, { terminalOnPromptSettled: true, acquisition: { status: ctx.config.sessionId ? "resumed" : "created", evidence: "native_api" } });
     session.subscribe((event: unknown) => {
       runtimeSession.emitEvents(mapPiSdkEvent(event, this.sessionId!, state));
     });

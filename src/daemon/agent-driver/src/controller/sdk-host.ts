@@ -10,6 +10,7 @@ import type {
   RuntimeLaneEventMap,
   VendorSessionHandle,
 } from "../internal/adapter.js";
+import type { InputReference, SessionAcquisition } from "../contract.js";
 
 /** Poll briefly before degrading an idle prompt to a safe steer. */
 const IDLE_PROMPT_RETRY_MS = 25;
@@ -31,7 +32,7 @@ export class SdkLane implements RuntimeLane {
   constructor(
     private readonly handle: VendorSessionHandle,
     private readonly sessionId: string,
-    private readonly options: { terminalOnPromptSettled?: boolean } = {},
+    private readonly options: { terminalOnPromptSettled?: boolean; acquisition?: SessionAcquisition } = {},
   ) {}
 
   on<K extends keyof RuntimeLaneEventMap>(
@@ -52,7 +53,7 @@ export class SdkLane implements RuntimeLane {
   emitEvents(events: AdapterEvent[]): void {
     if (!this.sentInit && events.length > 0) {
       this.sentInit = true;
-      this.events.emit("runtime_event", { kind: "session_init", sessionId: this.sessionId } as AdapterEvent);
+      this.events.emit("runtime_event", { kind: "session_init", sessionId: this.sessionId, ...(this.options.acquisition ? { acquisition: this.options.acquisition } : {}) } as AdapterEvent);
     }
     for (const e of events) this.events.emit("runtime_event", e);
   }
@@ -64,7 +65,7 @@ export class SdkLane implements RuntimeLane {
   /** Delivers immediately; failures return through normalized events. */
   send(input: LaneSendInput): Promise<LaneAdmission> {
     const receipt = input.terminalOwner ?? `${this.sessionId}:sdk:${++this.admissionSequence}`;
-    void this.deliver(input.text, input.mode, receipt);
+    void this.deliver(input.text, input.mode, receipt, input.inputs ?? []);
     return Promise.resolve({
       ok: true,
       acceptedAs: input.mode === "busy" ? "steer" : "prompt",
@@ -72,9 +73,11 @@ export class SdkLane implements RuntimeLane {
     });
   }
 
-  private async deliver(text: string, mode: InputMode, terminalOwner?: string): Promise<void> {
+  private async deliver(text: string, mode: InputMode, terminalOwner?: string, inputs: readonly InputReference[] = []): Promise<void> {
+    let steering = mode === "busy";
     try {
       if (mode === "busy") {
+        steering = true;
         await this.handle.steer(text);
         return;
       }
@@ -83,26 +86,29 @@ export class SdkLane implements RuntimeLane {
         if (this.options.terminalOnPromptSettled) {
           this.emitEvents([
             { kind: "error", message: "SDK remained busy before the next owned prompt" },
-            { kind: "turn_end", sessionId: this.sessionId, turnOwner: terminalOwner },
+            { kind: "turn_end", sessionId: this.sessionId, turnOwner: terminalOwner, outcome: "failed" },
           ]);
           return;
         }
+        steering = true;
         await this.handle.steer(text);
         return;
       }
       try {
         await this.handle.prompt(text);
         if (this.options.terminalOnPromptSettled) {
-          this.emitEvents([{ kind: "turn_end", sessionId: this.sessionId, turnOwner: terminalOwner }]);
+          this.emitEvents([{ kind: "turn_end", sessionId: this.sessionId, turnOwner: terminalOwner, outcome: "success" }]);
         }
       } catch (err) {
         this.emitEvents([
           { kind: "error", message: errorMessage(err) },
-          { kind: "turn_end", sessionId: this.sessionId, turnOwner: terminalOwner },
+          { kind: "turn_end", sessionId: this.sessionId, turnOwner: terminalOwner, outcome: "failed" },
         ]);
       }
     } catch (err) {
-      this.emitEvents([{ kind: "error", message: errorMessage(err) }]);
+      this.emitEvents(steering
+        ? [{ kind: "input_returned", inputs, evidence: "unknown", reason: errorMessage(err), retryable: false }]
+        : [{ kind: "error", message: errorMessage(err), scope: "turn" }]);
     }
   }
 

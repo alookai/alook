@@ -45,7 +45,7 @@ export async function readCommunityBots(db: Database, userId: string) {
       image: canonicalUserImage(bot.id, bot.image, bot.avatarVersion),
       dailyActivity: activityByBot.get(bot.id) ?? [],
       usage: {
-        capability: (["claude", "codex", "grok", "opencode", "pi", "antigravity", "agy"] as string[]).includes(bot.runtime)
+        capability: (["claude", "codex", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"] as string[]).includes(bot.runtime)
           ? "supported" as const
           : ["cursor"].includes(bot.runtime)
             ? "unsupported" as const

@@ -11,11 +11,14 @@ import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
 const runtimeMocks = vi.hoisted(() => ({
   spawnAgentProcess: vi.fn(),
   killProcessTree: vi.fn(async () => {}),
+  resolveCodexCommand: vi.fn((command?: string) => command?.trim() || undefined),
   probeCliRuntime: vi.fn(async (): Promise<
     | { status: "healthy"; version: string }
     | { status: "unhealthy"; lastError: string }
   > => ({ status: "healthy", version: "0.test" })),
 }));
+
+vi.mock("./command.js", () => ({ resolveCodexCommand: runtimeMocks.resolveCodexCommand }));
 
 vi.mock("../../internal/killTree.js", async () => {
   const actual = await vi.importActual<typeof import("../../internal/killTree.js")>("../../internal/killTree.js");
@@ -45,6 +48,8 @@ beforeEach(() => {
   runtimeMocks.spawnAgentProcess.mockReset();
   runtimeMocks.spawnAgentProcess.mockImplementation(simpleProcess);
   runtimeMocks.killProcessTree.mockClear();
+  runtimeMocks.resolveCodexCommand.mockReset();
+  runtimeMocks.resolveCodexCommand.mockImplementation((command?: string) => command?.trim() || undefined);
   runtimeMocks.probeCliRuntime.mockClear();
   runtimeMocks.probeCliRuntime.mockResolvedValue({ status: "healthy", version: "0.test" });
 });
@@ -80,6 +85,23 @@ function probingProcess(
 }
 
 describe("CodexDriver reasoning catalog probe", () => {
+  it("uses the discovered App binary for the version probe, catalog, and session launch", async () => {
+    const command = "/Applications/Codex.app/Contents/Resources/codex";
+    runtimeMocks.resolveCodexCommand.mockReturnValue(command);
+    const catalog = probingProcess((request) => ({
+      jsonrpc: "2.0", id: request.id,
+      result: request.method === "model/list" ? { data: [{ id: "native-model" }], nextCursor: null } : {},
+    }));
+    runtimeMocks.spawnAgentProcess.mockReturnValueOnce(catalog);
+    const driver = new CodexDriver();
+    expect(await driver.probe()).toMatchObject({ status: "healthy", reasoning: { models: [{ id: "native-model" }] } });
+    expect(runtimeMocks.probeCliRuntime).toHaveBeenCalledWith("codex", {}, command);
+    expect(runtimeMocks.spawnAgentProcess).toHaveBeenNthCalledWith(1, command, ["app-server", "--listen", "stdio://"], expect.any(Object));
+    await driver.spawn(baseCtx());
+    expect(runtimeMocks.spawnAgentProcess).toHaveBeenNthCalledWith(2, command, ["app-server", "--listen", "stdio://"], expect.any(Object));
+  });
+
+
   it("checks installation without starting the catalog app-server", async () => {
     runtimeMocks.probeCliRuntime.mockResolvedValueOnce({ status: "healthy", version: "1.2.3" });
     expect(await new CodexDriver().probe(undefined, false)).toEqual({ status: "healthy", version: "1.2.3" });
@@ -543,48 +565,18 @@ function threadStarts(writes: string[]): any[] {
 }
 
 describe("CodexDriver missing-rollout resume recovery", () => {
-  it("on a 'no rollout found' resume error, re-issues a FRESH thread/start (no threadId) and swallows the error", async () => {
-    const driver = new CodexDriver();
-    const ctx = baseCtx();
-    ctx.config = { sessionId: "th_prior" }; // resuming a now-dead thread
-    const { process: proc } = await driver.spawn(ctx);
-    await Promise.resolve(); // flush handshake (writes thread/resume)
-
-    const returned = driver.normalizeLine(missingRolloutError());
-
-    // The resume error is swallowed — not surfaced to the manager as a fault.
-    expect(returned.some((e: any) => e.kind === "error")).toBe(false);
-    // A fresh thread/start was issued, with NO threadId (fresh, not resume).
-    const starts = threadStarts(stdinWrites(proc));
-    expect(starts).toHaveLength(1);
-    expect(starts[0].params.threadId).toBeUndefined();
-  });
-
-  it("after the fallback fresh-thread's session_init, the held prompt is still delivered", async () => {
+  it.each(["no rollout found for thread id th_prior", "not found for requested rollout"])("requires reset instead of replacing a missing rollout: %s", async (message) => {
     const driver = new CodexDriver();
     const ctx = baseCtx();
     ctx.config = { sessionId: "th_prior" };
     const { process: proc } = await driver.spawn(ctx);
     await Promise.resolve();
-
-    driver.normalizeLine(missingRolloutError());        // → fresh thread/start, prompt still pending
-    driver.normalizeLine(threadStartResult("th_fresh")); // fresh thread adopted
-
-    const turns = turnStarts(stdinWrites(proc));
-    expect(turns).toHaveLength(1);
-    expect(turns[0].params.threadId).toBe("th_fresh");
-    expect(turns[0].params.input).toEqual([{ type: "text", text: "hi" }]);
-  });
-
-  it("recognizes a missing rollout when the error leads with not-found", async () => {
-    const driver = new CodexDriver();
-    const ctx = baseCtx();
-    ctx.config = { sessionId: "th_prior" };
-    const { process: proc } = await driver.spawn(ctx);
-    await Promise.resolve();
-
-    expect(driver.normalizeLine(missingRolloutError("not found for requested rollout"))).toEqual([]);
-    expect(threadStarts(stdinWrites(proc))).toHaveLength(1);
+    expect(driver.normalizeLine(missingRolloutError(message))).toEqual([
+      expect.objectContaining({ kind: "error", code: "reset_required" }),
+    ]);
+    expect(threadStarts(stdinWrites(proc))).toEqual([]);
+    driver.normalizeLine(threadStartResult("th_fresh"));
+    expect(turnStarts(stdinWrites(proc))).toEqual([]);
   });
 
   it("a successful resume does NOT trigger the fallback (no spurious fresh thread/start)", async () => {
@@ -619,14 +611,28 @@ describe("CodexDriver encodeMessage — turn/steer expectedTurnId", () => {
     expect(msg.params.input).toEqual([{ type: "text", text: "hang on" }]);
   });
 
-  it("falls back to a fresh turn/start when there is no live turn to steer", () => {
+  it("correlates native ACK and refusal to exact attempts and suppresses duplicate or late RPC replies", () => {
     const driver = new CodexDriver();
-    driver.normalizeLine(threadStartResult("th_1")); // thread but no active turn
-    const encoded = driver.encodeMessage("hi", "th_1", { mode: "busy" });
-    const msg = JSON.parse(encoded!);
-    // No turn id → don't send an invalid steer; start a fresh turn instead.
-    expect(msg.method).toBe("turn/start");
-    expect(msg.params.expectedTurnId).toBeUndefined();
+    driver.normalizeLine(threadStartResult("th_1"));
+    driver.normalizeLine(JSON.stringify({ method: "turn/started", params: { threadId: "th_1", turn: { id: "turn_9" } } }));
+    const first = [{ commandId: "B", attemptId: "B-1" }];
+    const rpc = JSON.parse(driver.encodeMessage("extra", "th_1", { mode: "busy", inputs: first })!);
+    const refusal = JSON.stringify({ id: rpc.id, error: { code: -32602, message: "turn has finished" } });
+    expect(driver.normalizeLine(refusal)).toEqual([{ kind: "input_returned", inputs: first, evidence: "explicitly_rejected", reason: "turn has finished", retryable: true }]);
+    const next = [{ commandId: "B", attemptId: "B-2" }];
+    const retry = JSON.parse(driver.encodeMessage("extra", "th_1", { mode: "busy", inputs: next })!);
+    expect(driver.normalizeLine(refusal)).toEqual([]);
+    const ack = JSON.stringify({ id: retry.id, result: {} });
+    expect(driver.normalizeLine(ack)).toEqual([{ kind: "input_observed", inputs: next, evidence: "native_ack" }]);
+    expect(driver.normalizeLine(ack)).toEqual([]);
+    expect(driver.normalizeLine(JSON.stringify({ id: retry.id, error: { message: "late refusal" } }))).toEqual([]);
+    expect(driver.currentSessionId).toBe("th_1");
+  });
+
+  it("does not create a new turn when a busy steer loses its native turn", () => {
+    const driver = new CodexDriver();
+    driver.normalizeLine(threadStartResult("th_1"));
+    expect(driver.encodeMessage("hi", "th_1", { mode: "busy" })).toBeNull();
   });
 
   it("idle message is always a fresh turn/start (no expectedTurnId)", () => {
@@ -715,7 +721,7 @@ describe("CodexDriver live reasoning settings", () => {
       .find((message) => message.method === "thread/settings/update");
     expect(request.params).toEqual({ threadId: "th_settings", effort: "xhigh" });
     expect(driver.normalizeLine(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: {} }))).toEqual([]);
-    await expect(pending).resolves.toEqual({ status: "applied" });
+    await expect(pending).resolves.toEqual({ status: "acknowledged", effective: "next_turn" });
   });
 
   it("sends null to restore Default and classifies method-not-found as unsupported", async () => {

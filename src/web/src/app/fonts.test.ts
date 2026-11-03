@@ -10,10 +10,11 @@ const { localFont } = vi.hoisted(() => ({
 
 vi.mock("next/font/local", () => ({ default: localFont }))
 
-import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "./fonts"
 
 describe("local font configuration", () => {
-  it("loads every design font from committed assets", () => {
+  it("loads every design font from committed assets", async () => {
+    vi.resetModules()
+    const { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } = await import("./fonts")
     expect(localFont.mock.calls.map(([options]) => options)).toEqual([
       {
         src: "./fonts/dm-sans-latin.woff2",

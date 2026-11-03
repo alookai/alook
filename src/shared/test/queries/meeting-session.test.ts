@@ -20,25 +20,11 @@ describe("meeting-session query module exports", () => {
     expect(typeof meetingQueries.createMeetingSession).toBe("function")
   })
 
-  it("exports getMeetingSession", () => {
-    expect(typeof meetingQueries.getMeetingSession).toBe("function")
-  })
-
-  it("exports getMeetingSessionById", () => {
-    expect(typeof meetingQueries.getMeetingSessionById).toBe("function")
-  })
 
   it("exports listMeetingSessions", () => {
     expect(typeof meetingQueries.listMeetingSessions).toBe("function")
   })
 
-  it("exports updateMeetingSession", () => {
-    expect(typeof meetingQueries.updateMeetingSession).toBe("function")
-  })
-
-  it("exports deleteMeetingSession", () => {
-    expect(typeof meetingQueries.deleteMeetingSession).toBe("function")
-  })
 
   it("exports listScheduledMeetings", () => {
     expect(typeof meetingQueries.listScheduledMeetings).toBe("function")

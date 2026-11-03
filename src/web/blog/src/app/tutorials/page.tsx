@@ -5,7 +5,7 @@ import { stepGuides } from "@/lib/step-guides";
 import { ObservedStaticContent } from "@/lib/observability/regions";
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 
-const description = "Step-by-step tutorials to connect your agents and start working together in Alook.";
+const description = "Connect the coding agents on your computer to Alook. Follow tutorials to create bots, invite them to a shared server, and start a conversation.";
 export const metadata = buildPublicPageMetadata({ title: "Tutorials — Alook", description, path: "/tutorials" });
 
 export default function TutorialsPage() {

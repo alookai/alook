@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs"
+import rawContractInput0 from "./server-rail.tsx?raw"
 import { describe, expect, it } from "vitest"
 
 describe("ServerRail Home brand mark", () => {
   it("uses the animated 40px mark with a consistent navigation label", () => {
-    const source = readFileSync(new URL("./server-rail.tsx", import.meta.url), "utf8")
+    const source = rawContractInput0
 
     expect(source).toContain('import { AnimatedAlookLogo } from "./animated-alook-logo"')
     expect(source).toContain('<AnimatedAlookLogo className="size-10" characterOnly={characterOnly} />')
@@ -19,7 +19,7 @@ describe("ServerRail Home brand mark", () => {
   })
 
   it("pins Add while the server list shrinks only when its content exceeds the remaining space", () => {
-    const source = readFileSync(new URL("./server-rail.tsx", import.meta.url), "utf8")
+    const source = rawContractInput0
 
     const scrollViewport =
       'className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip pt-2 pb-1 thin-scrollbar scrollbar-none"'
@@ -37,7 +37,7 @@ describe("ServerRail Home brand mark", () => {
   })
 
   it("keeps an explicit active server controlled until the route commits", () => {
-    const source = readFileSync(new URL("./server-rail.tsx", import.meta.url), "utf8")
+    const source = rawContractInput0
 
     expect(source).toContain("const activeId = activeFromProps || localActiveId")
     expect(source).toContain("setLocalActiveId(id)")

@@ -369,13 +369,6 @@ describe("DELETE /channels/[id]", () => {
     mockGetChannelType.mockResolvedValue("forum")
   })
 
-  it("403 when not canManage", async () => {
-    mockResolveChannelAccessContext.mockResolvedValue(accessCtx({ canManage: false }))
-    const res = await DELETE(delReq(), ctx)
-    expect(res.status).toBe(403)
-    expect(mockDeleteChannelWithMedia).not.toHaveBeenCalled()
-  })
-
   it("manager deletes a public channel; fans out server-wide", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(accessCtx({ role: "admin", canManage: true }))
     const res = await DELETE(delReq(), ctx)

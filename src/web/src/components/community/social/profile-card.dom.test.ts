@@ -1,6 +1,7 @@
+import staticContractInput0 from "./profile-card.tsx?raw"
+import staticContractInput1 from "./profile-secondary-position.ts?raw"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -403,8 +404,8 @@ describe("ProfileCard contextual metadata", () => {
       process.cwd().endsWith("/src/web") ? "" : "src/web",
       "src/components/community/social",
     )
-    const source = readFileSync(resolve(root, "profile-card.tsx"), "utf8")
-    const positionSource = readFileSync(resolve(root, "profile-secondary-position.ts"), "utf8")
+    const source = staticContractInput0
+    const positionSource = staticContractInput1
     const desktop = source.slice(source.indexOf("// desktop:"))
     const mainCard = desktop.indexOf(`data-testid={tid.profileCard}`)
     const independentPreview = desktop.indexOf(`data-testid={tid.botAuditPreviewDock}`)

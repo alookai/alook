@@ -1,25 +1,34 @@
+import migratedSource0 from "./community-onboarding-form.tsx?raw"
+import migratedSource1 from "./initialize-community-onboarding.ts?raw"
+import migratedSource2 from "./onboarding-machine-dialog.tsx?raw"
+import migratedSource3 from "./onboarding-model-dialog.tsx?raw"
+import migratedSource4 from "./onboarding-select-dialog.preview.tsx?raw"
+import migratedSource5 from "./onboarding-select-dialog.tsx?raw"
+import migratedSource6 from "./onboarding-status-dialog.tsx?raw"
+const migratedSources: Record<string, string> = {
+  "community-onboarding-form.tsx": migratedSource0,
+  "initialize-community-onboarding.ts": migratedSource1,
+  "onboarding-machine-dialog.tsx": migratedSource2,
+  "onboarding-model-dialog.tsx": migratedSource3,
+  "onboarding-select-dialog.preview.tsx": migratedSource4,
+  "onboarding-select-dialog.tsx": migratedSource5,
+  "onboarding-status-dialog.tsx": migratedSource6,
+}
+import resolvedRawInput0 from "./onboarding-select-dialog.preview.tsx?raw"
+import resolvedRawInput1 from "./community-onboarding-form.tsx?raw"
+import resolvedRawInput2 from "./onboarding-machine-dialog.tsx?raw"
+import resolvedRawInput3 from "../machines/me-machines-route.tsx?raw"
+import staticContractInput0 from "./onboarding-status-dialog.tsx?raw"
 import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 const directory = dirname(fileURLToPath(import.meta.url))
-const previewSource = readFileSync(
-  resolve(directory, "onboarding-select-dialog.preview.tsx"),
-  "utf8",
-)
-const onboardingFormSource = readFileSync(
-  resolve(directory, "community-onboarding-form.tsx"),
-  "utf8",
-)
-const machineDialogSource = readFileSync(
-  resolve(directory, "onboarding-machine-dialog.tsx"),
-  "utf8",
-)
-const machinesPageSource = readFileSync(
-  resolve(directory, "../machines/me-machines-route.tsx"),
-  "utf8",
-)
+const previewSource = resolvedRawInput0
+const onboardingFormSource = resolvedRawInput1
+const machineDialogSource = resolvedRawInput2
+const machinesPageSource = resolvedRawInput3
 
 describe("onboarding preview flow", () => {
   it("shows the machine step between harness and identity", () => {
@@ -42,7 +51,7 @@ describe("onboarding preview flow", () => {
       "onboarding-status-dialog.tsx",
       "onboarding-model-dialog.tsx",
     ]) {
-      const source = readFileSync(resolve(directory, filename), "utf8")
+      const source = migratedSources[filename]
       expect(source).toContain("<DialogContent")
       expect(source).not.toContain("overlayClassName=")
     }
@@ -79,14 +88,14 @@ describe("onboarding preview flow", () => {
       "onboarding-select-dialog.preview.tsx",
       "onboarding-status-dialog.tsx",
     ]) {
-      const source = readFileSync(resolve(directory, filename), "utf8")
+      const source = migratedSources[filename]
 
       expect(source).not.toMatch(/\b(?:Guide|Builder)\b/)
     }
 
     expect(previewSource).toMatch(/\bbots?\b/)
     expect(previewSource).toContain('key: "reviewer"')
-    expect(readFileSync(resolve(directory, "onboarding-status-dialog.tsx"), "utf8"))
+    expect(staticContractInput0)
       .toContain("checkpoint.bots.map")
     expect(onboardingFormSource).not.toContain("Two bots")
   })

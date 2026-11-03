@@ -1,6 +1,7 @@
+import staticContractInput0 from "./profile-card.tsx?raw"
+import staticContractInput1 from "../../ui/sheet.tsx?raw"
 import React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -201,16 +202,8 @@ describe("ProfileCard surface contracts", () => {
     expect(profile.className).toContain("bg-popover")
     expect(renderer.container.querySelectorAll("popover-root")).toHaveLength(0)
 
-    const profileSource = readFileSync(resolve(
-      process.cwd(),
-      process.cwd().endsWith("/src/web") ? "" : "src/web",
-      "src/components/community/social/profile-card.tsx",
-    ), "utf8")
-    const sheetSource = readFileSync(resolve(
-      process.cwd(),
-      process.cwd().endsWith("/src/web") ? "" : "src/web",
-      "src/components/ui/sheet.tsx",
-    ), "utf8")
+    const profileSource = staticContractInput0
+    const sheetSource = staticContractInput1
     expect(profileSource).not.toContain("bg-foreground/30")
     expect(profileSource).not.toContain("<SheetOverlay")
     expect(sheetSource).toContain("data-[side=bottom]:border-t")

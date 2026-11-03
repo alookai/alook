@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import type { InputReference } from "../../contract.js";
 
 interface DeliveredInput {
   acknowledged: boolean;
   followOn: boolean;
+  inputs?: readonly InputReference[];
 }
 
 /**
@@ -35,14 +37,15 @@ export class ClaudeTurnProtocol {
     return this.receipt(uuid);
   }
 
-  rootInputUuid(): string {
+  rootInputUuid(inputs?: readonly InputReference[]): string {
     if (!this.rootUuid) this.beginTurn();
+    if (inputs) this.delivered.get(this.rootUuid!)!.inputs = inputs;
     return this.rootUuid!;
   }
 
-  steeringInputUuid(): string {
+  steeringInputUuid(inputs?: readonly InputReference[]): string {
     const uuid = randomUUID();
-    this.delivered.set(uuid, { acknowledged: false, followOn: this.awaitingFollowOn });
+    this.delivered.set(uuid, { acknowledged: false, followOn: this.awaitingFollowOn, inputs });
     return uuid;
   }
 
@@ -51,6 +54,10 @@ export class ClaudeTurnProtocol {
     if (!input || this.finalized) return;
     input.acknowledged = true;
     if (input.followOn) this.segmentOwnerUuid = uuid;
+  }
+
+  inputReferences(uuid: string): readonly InputReference[] {
+    return this.delivered.get(uuid)?.inputs ?? [];
   }
 
   acceptsTurnWork(): boolean {

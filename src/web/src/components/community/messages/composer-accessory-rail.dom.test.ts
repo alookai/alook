@@ -1,5 +1,5 @@
+import staticContractInput0 from "./composer-accessory-rail.tsx?raw"
 import React from "react"
-import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
@@ -94,11 +94,7 @@ describe("ComposerAccessoryRail", () => {
   })
 
   it("does not reintroduce WS or viewport-derived width ownership", () => {
-    const source = readFileSync(resolve(
-      process.cwd(),
-      process.cwd().endsWith("/src/web") ? "" : "src/web",
-      "src/components/community/messages/composer-accessory-rail.tsx",
-    ), "utf8")
+    const source = staticContractInput0
     expect(source).not.toContain("@/stores/community/ws")
     expect(source).not.toMatch(/max-w-\[calc\([^\]]*vw/)
   })

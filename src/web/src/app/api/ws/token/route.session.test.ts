@@ -1,5 +1,6 @@
+import rawContractInput0 from "../../../../../migrations/0001_schema.sql?raw"
+import rawContractInput1 from "../../../../../migrations/0035_device_code_table.sql?raw"
 import { createHmac } from "node:crypto"
-import { readFileSync } from "node:fs"
 import { DatabaseSync } from "node:sqlite"
 import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -21,8 +22,8 @@ beforeEach(() => {
   database = new DatabaseSync(":memory:")
   database.exec(`CREATE TABLE user (id TEXT PRIMARY KEY, name TEXT, email TEXT, emailVerified INTEGER, image TEXT, createdAt INTEGER, updatedAt INTEGER, discriminator TEXT, isBot INTEGER, deletedAt TEXT);
     CREATE TABLE session (id TEXT PRIMARY KEY, token TEXT, userId TEXT, expiresAt INTEGER, createdAt INTEGER, updatedAt INTEGER, ipAddress TEXT, userAgent TEXT);`)
-  database.exec(readFileSync(new URL("../../../../../migrations/0001_schema.sql", import.meta.url), "utf8"))
-  database.exec(readFileSync(new URL("../../../../../migrations/0035_device_code_table.sql", import.meta.url), "utf8"))
+  database.exec(rawContractInput0)
+  database.exec(rawContractInput1)
   database.prepare("INSERT INTO user VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run("viewer-192", "Fixture", "ws-fixture@example.test", 1, null, new Date(now).toISOString(), new Date(now).toISOString(), "0001", 0, null)
   database.prepare("INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?, ?)")

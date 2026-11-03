@@ -1,3 +1,7 @@
+import redCharacter from "../../../public/download/character-red.svg?raw"
+import purpleCharacter from "../../../public/download/character-purple.svg?raw"
+import tealCharacter from "../../../public/download/character-teal.svg?raw"
+import blueCharacter from "../../../public/download/character-blue.svg?raw"
 import { readFileSync } from "node:fs"
 import { JSDOM } from "jsdom"
 import { createElement } from "react"
@@ -69,7 +73,7 @@ describe("complete server-rendered download page", () => {
 })
 
 it.each(["red", "purple", "teal", "blue"])("paints the real %s logo expression in the download asset", color => {
-  const svg = readFileSync(new URL(`../../../public/download/character-${color}.svg`, import.meta.url), "utf8")
+  const svg = { red: redCharacter, purple: purpleCharacter, teal: tealCharacter, blue: blueCharacter }[color]
   expect(svg).toMatch(/data-part="expression"\s+opacity="1"/)
   expect(svg).not.toMatch(/opacity="0"/)
 })

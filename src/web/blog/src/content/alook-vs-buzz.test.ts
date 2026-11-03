@@ -1,7 +1,7 @@
-import { readFileSync } from "node:fs";
+import rawContractInput0 from "./alook-vs-buzz.mdx?raw"
 import { describe, expect, it } from "vitest";
 
-const article = readFileSync(new URL("./alook-vs-buzz.mdx", import.meta.url), "utf8");
+const article = rawContractInput0;
 
 function faqPairs() {
   const [schema, body] = article.split("\n];\n\n", 2);

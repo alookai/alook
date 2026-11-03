@@ -1,5 +1,5 @@
+import staticContractInput0 from "./shell-frame-overlays.tsx?raw"
 import { createElement } from "react"
-import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render } from "@/test/react-dom-harness"
@@ -167,11 +167,7 @@ describe("ShellFrameOverlays", () => {
   })
 
   it("stays a render-only boundary", () => {
-    const source = readFileSync(resolve(
-      process.cwd(),
-      process.cwd().endsWith("/src/web") ? "" : "src/web",
-      "src/components/community/shell/shell-frame-overlays.tsx",
-    ), "utf8")
+    const source = staticContractInput0
     expect(source).toContain(
       'key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`}',
     )

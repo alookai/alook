@@ -54,14 +54,14 @@ describe("SdkLane.send", () => {
     await Promise.resolve();
     expect(received).toEqual([
       { kind: "session_init", sessionId: "s1" },
-      { kind: "turn_end", sessionId: "s1", turnOwner: "pi:1" },
+      { kind: "turn_end", sessionId: "s1", turnOwner: "pi:1" , outcome: "success" },
     ]);
 
     await session.send({ text: "same", mode: "idle", terminalOwner: "pi:2" });
     pending[1]!.resolve();
     await pending[1]!.promise;
     await Promise.resolve();
-    expect(received.at(-1)).toEqual({ kind: "turn_end", sessionId: "s1", turnOwner: "pi:2" });
+    expect(received.at(-1)).toEqual({ kind: "turn_end", sessionId: "s1", turnOwner: "pi:2" , outcome: "success" });
   });
 
   it("idle send while not streaming calls prompt() directly, no wait", async () => {
@@ -139,7 +139,7 @@ describe("SdkLane.send", () => {
       expect(received).toEqual([
         { kind: "session_init", sessionId: "s1" },
         { kind: "error", message: "SDK remained busy before the next owned prompt" },
-        { kind: "turn_end", sessionId: "s1", turnOwner: "pi:2" },
+        { kind: "turn_end", sessionId: "s1", turnOwner: "pi:2" , outcome: "failed" },
       ]);
     } finally {
       vi.useRealTimers();
@@ -186,11 +186,11 @@ describe("SdkLane.send", () => {
     expect(received).toEqual([
       { kind: "session_init", sessionId: "s1" },
       { kind: "error", message: "boom" },
-      { kind: "turn_end", sessionId: "s1", turnOwner: "s1:sdk:1" },
+      { kind: "turn_end", sessionId: "s1", turnOwner: "s1:sdk:1" , outcome: "failed" },
     ]);
   });
 
-  it("a thrown steer() surfaces as a runtime_event error instead of rejecting send()", async () => {
+  it("a thrown steer() returns the exact input with unknown delivery without failing the root", async () => {
     const handle = fakeHandle(false);
     handle.steer.mockRejectedValue(new Error("nope"));
     const session = new SdkLane(handle, "s1");
@@ -199,7 +199,7 @@ describe("SdkLane.send", () => {
 
     await expect(session.send({ text: "hi", mode: "busy" })).resolves.toMatchObject({ ok: true });
 
-    expect(received).toContainEqual({ kind: "error", message: "nope" });
+    expect(received).toContainEqual({ kind: "input_returned", inputs: [], evidence: "unknown", reason: "nope", retryable: false });
   });
 
   // A failed steer() (mode "busy") does NOT mean the turn it was steering
@@ -233,7 +233,7 @@ describe("SdkLane.send", () => {
       await vi.advanceTimersByTimeAsync(1100);
       await pending;
 
-      expect(received).toContainEqual({ kind: "error", message: "nope" });
+      expect(received).toContainEqual({ kind: "input_returned", inputs: [], evidence: "unknown", reason: "nope", retryable: false });
       expect(received).not.toContainEqual(expect.objectContaining({ kind: "turn_end" }));
     } finally {
       vi.useRealTimers();

@@ -401,6 +401,30 @@ describe("spawnAgentProcess", () => {
     });
   });
 
+  it("starts an owned native process with an isolated PATH and preserves raw Unicode output", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "agent-driver-isolated-env-"));
+    tempDirs.push(cwd);
+    const proc = spawnAgentProcess(process.execPath, ["-e", `
+      const { writeSync } = require("node:fs");
+      writeSync(1, Buffer.from("你好😀"));
+      writeSync(2, Buffer.from("日志😀"));
+    `], { cwd, env: { PATH: cwd }, stdin: "ignore" });
+    spawned.push(proc);
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    proc.stdout!.on("data", (chunk: Buffer) => stdout.push(chunk));
+    proc.stderr!.on("data", (chunk: Buffer) => stderr.push(chunk));
+    await new Promise<void>((resolve, reject) => {
+      proc.once("error", reject);
+      proc.once("close", (code, signal) => {
+        if (code === 0 && signal === null) resolve();
+        else reject(new Error(`Isolated process exited: code=${code}, signal=${signal}, stderr=${Buffer.concat(stderr).toString("utf8")}`));
+      });
+    });
+    expect(Buffer.concat(stdout).toString("utf8")).toBe("你好😀");
+    expect(Buffer.concat(stderr).toString("utf8")).toBe("日志😀");
+  });
+
   it("preserves persistent Windows stdin/stdout, cwd/env, and the exact inner exit code", async () => {
     if (process.platform !== "win32") return;
     const base = mkdtempSync(join(tmpdir(), "agent-driver-job-stdio-"));

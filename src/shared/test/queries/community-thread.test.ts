@@ -8,11 +8,8 @@ import { FORUM_ARCHIVE_TAG } from "../../src/constants/community";
 
 describe("community/thread exports", () => {
   it("exports the participant CRUD", () => {
-    expect(typeof threadQueries.addThreadParticipant).toBe("function");
-    expect(typeof threadQueries.listThreadParticipantUserIds).toBe("function");
     expect(typeof threadQueries.listThreadParticipants).toBe("function");
     expect(typeof threadQueries.removeThreadParticipant).toBe("function");
-    expect(typeof threadQueries.listParticipatingThreadIds).toBe("function");
   });
 });
 

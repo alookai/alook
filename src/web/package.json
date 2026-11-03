@@ -8,16 +8,16 @@
     "dev:blog": "node ../../scripts/dev-with-wrangler-registry.mjs ../../.wrangler/registry next dev blog --hostname 127.0.0.1 --port 3002",
     "dev:auth": "wrangler dev --config auth/wrangler.toml",
     "dev:zones:worker": "node scripts/dev-zones.mjs --worker",
-    "build": "next build && NODE_ENV=production tsx scripts/stage-service-worker.ts",
+    "build": "opennextjs-cloudflare build",
     "build:blog:next": "pnpm validate:blog && tsx blog/scripts/stage-shared-assets.ts && next build blog && tsx blog/scripts/validate-rendered.ts && tsx blog/scripts/prepare-open-next-standalone.ts",
-    "build:blog": "tsx blog/scripts/stage-shared-assets.ts && opennextjs-cloudflare build --config blog/wrangler.toml --openNextConfigPath blog/open-next.config.ts && tsx blog/scripts/stage-cache-assets.ts",
+    "build:blog": "opennextjs-cloudflare build --config blog/wrangler.toml --openNextConfigPath blog/open-next.config.ts && tsx blog/scripts/stage-cache-assets.ts",
     "build:auth": "wrangler deploy --dry-run --config auth/wrangler.toml --outdir dist",
     "validate:blog": "tsx blog/scripts/validate-blog-assets.ts",
     "verify:blog-dry-run": "tsx scripts/verify-blog-dry-run.ts",
     "verify:zone-output": "tsx scripts/verify-zone-output.ts",
     "preflight:bug-reports": "tsx scripts/preflight-bug-reports.ts",
     "start": "next start",
-    "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js src/ blog/ auth/ scripts/ app-store-capture/",
+    "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js src/ scripts/ readme-capture/ app-store-capture/",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "deploy:blog": "pnpm build:blog && opennextjs-cloudflare deploy --config blog/wrangler.toml",
     "deploy:auth": "wrangler deploy --config auth/wrangler.toml",
@@ -34,8 +34,19 @@
     "knip": "knip",
     "seed:stress": "tsx scripts/seed-stress.ts",
     "perf:switch": "tsx scripts/perf-report.ts --clear && playwright test --config playwright.perf.config.ts && tsx scripts/perf-report.ts",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p blog/tsconfig.json && tsc --noEmit -p auth/tsconfig.json",
-    "seo:check": "lhci autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs"
+    "typecheck": "tsc --noEmit",
+    "seo:check": "lhci autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs",
+    "test:blog": "vitest run --config blog/vitest.workspace.config.ts",
+    "test:auth": "vitest run --config auth/vitest.config.ts",
+    "typecheck:blog": "tsc --noEmit -p blog/tsconfig.json",
+    "typecheck:auth": "tsc --noEmit -p auth/tsconfig.json",
+    "lint:blog": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js blog/",
+    "lint:auth": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js auth/",
+    "test:runtime": "vitest run --config vitest.runtime.config.mts",
+    "test:auth:runtime": "vitest run --config auth/vitest.runtime.config.mts",
+    "test:contracts": "vitest run --config vitest.contracts.config.ts",
+    "test:tooling": "vitest run --config vitest.tooling.config.ts",
+    "build:next": "next build && NODE_ENV=production tsx scripts/stage-service-worker.ts"
   },
   "dependencies": {
     "@alook/shared": "workspace:*",
@@ -168,7 +179,18 @@
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "typescript-eslint": "8.72.0",
-    "vitest": "4.1.12",
-    "wrangler": "4.152.0"
+    "vitest": "5.1.0",
+    "wrangler": "4.152.0",
+    "@mdx-js/rollup": "3.1.1"
+  },
+  "imports": {
+    "#open-next-worker": {
+      "types": "./open-next-worker.d.ts",
+      "default": "./.open-next/worker.js"
+    },
+    "#blog-open-next-worker": {
+      "types": "./blog/open-next-worker.d.ts",
+      "default": "./blog/.open-next/worker.js"
+    }
   }
 }

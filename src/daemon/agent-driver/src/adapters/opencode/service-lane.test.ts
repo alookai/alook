@@ -1158,9 +1158,9 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     await waitForTurn(runtime, 1);
     expect(runtime).toContainEqual({ kind: "internal_progress", source: "opencode.service", itemType: "step_started" });
     expect(runtime).toContainEqual({ kind: "assistant_reasoning_completed", text: "considering" });
-    expect(runtime).toContainEqual({ kind: "tool_call", name: "Read", input: { path: "README.md" } });
-    expect(runtime).toContainEqual({ kind: "tool_output", name: "Read" });
-    expect(runtime).toContainEqual({ kind: "tool_output", name: "OpenCode tool" });
+    expect(runtime).toContainEqual({ kind: "tool_call", callId: "call_1", name: "Read", input: { path: "README.md" } });
+    expect(runtime).toContainEqual({ kind: "tool_output", callId: "call_1", name: "Read", outcome: "success" });
+    expect(runtime).toContainEqual({ kind: "tool_output", callId: "call_unknown", name: "OpenCode tool", outcome: "failed" });
     expect(runtime).toContainEqual({ kind: "compaction_started" });
     expect(runtime).toContainEqual({ kind: "compaction_finished" });
     expect(runtime).toContainEqual({

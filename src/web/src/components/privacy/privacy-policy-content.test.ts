@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs"
+import rawContractInput0 from "../../app/privacy/page.tsx?raw"
+import rawContractInput1 from "../community/settings/user-settings.tsx?raw"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
@@ -43,11 +44,8 @@ describe("shared Privacy policy", () => {
   })
 
   it("is the body source for both public and Settings entry points", () => {
-    const publicPage = readFileSync(new URL("../../app/privacy/page.tsx", import.meta.url), "utf8")
-    const userSettings = readFileSync(
-      new URL("../community/settings/user-settings.tsx", import.meta.url),
-      "utf8",
-    )
+    const publicPage = rawContractInput0
+    const userSettings = rawContractInput1
 
     for (const source of [publicPage, userSettings]) {
       expect(source).toContain("PrivacyPolicyContent")

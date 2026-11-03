@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs";
+import rawContractInput0 from "./wrangler.toml?raw"
 import { describe, expect, it } from "vitest";
 import authVitestConfig from "./vitest.config";
 
-const config = readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8");
+const config = rawContractInput0;
 
 describe("alook-auth Wrangler contract", () => {
   it("keeps the standalone node test project isolated from runtime tests", () => {
@@ -12,7 +12,6 @@ describe("alook-auth Wrangler contract", () => {
         name: "auth-node",
         include: ["**/*.test.ts"],
         exclude: ["test-runtime/**"],
-        sequence: { groupOrder: 2 },
       },
     });
   });

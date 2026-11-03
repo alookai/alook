@@ -214,8 +214,7 @@ describe("ClaudeDriver", () => {
     }))).toEqual([{
       kind: "turn_end",
       sessionId: undefined,
-      turnOwner: receipt,
-    }]);
+      turnOwner: receipt, outcome: "success" }]);
     expect(process.kill).not.toHaveBeenCalled();
   });
 

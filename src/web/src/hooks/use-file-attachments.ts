@@ -19,6 +19,7 @@ export type PendingFile = {
   file: File;
   thumbnailUrl: string | null;
   thumbnailBlob: Blob | null;
+  preparing?: boolean;
   width?: number;
   height?: number;
 };
@@ -45,12 +46,15 @@ function createDraftId() {
   return `attachment-draft-${draftIdentity.get()}`;
 }
 function revokeThumbnailUrls(files: readonly PendingFile[]) { for (const file of files) if (file.thumbnailUrl) URL.revokeObjectURL(file.thumbnailUrl); }
+type PreparationLease = { generation: number; controller: AbortController };
+function cancelPreparations(queued: ReadonlyMap<string, PreparationLease>) { for (const lease of queued.values()) lease.controller.abort(); }
+function pendingDraft(draft: AttachmentDraftFile): PendingFile { return { ...draft, thumbnailUrl: null, thumbnailBlob: null, preparing: true }; }
 
 export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
   const client = useQueryClient();
   const id = useMemo(() => createDraftId(), []);
   const key = useMemo(() => ["application", "attachment-preparation", id], [id]);
-  const protocol = useCreateStore({ files: [] as PendingFile[], queued: new Map<string, number>() as ReadonlyMap<string, number>, generation: 0, active: true, controller: new AbortController(), dragging: false, dragDepth: 0, options: { maxFileSize: opts.maxFileSize ?? DEFAULT_MAX_FILE_SIZE, maxFiles: opts.maxFiles, policy: opts.thumbnailPolicy ?? "legacy", scope: opts.draftSessionScope } });
+  const protocol = useCreateStore({ files: [] as PendingFile[], queued: new Map<string, PreparationLease>() as ReadonlyMap<string, PreparationLease>, generation: 0, active: true, controller: new AbortController(), dragging: false, dragDepth: 0, options: { maxFileSize: opts.maxFileSize ?? DEFAULT_MAX_FILE_SIZE, maxFiles: opts.maxFiles, policy: opts.thumbnailPolicy ?? "legacy", scope: opts.draftSessionScope } });
   const pendingFiles = useSelector(protocol, (state) => state.files);
   const dragging = useSelector(protocol, (state) => state.dragging);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -59,11 +63,11 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
   }, [opts.maxFileSize, opts.maxFiles, opts.thumbnailPolicy, opts.draftSessionScope, protocol]);
   useLayoutEffect(() => {
     protocol.setState((state) => ({ ...state, active: true, controller: state.controller.signal.aborted ? new AbortController() : state.controller, files: state.files.map((file) => file.thumbnailBlob && !file.thumbnailUrl ? { ...file, thumbnailUrl: URL.createObjectURL(file.thumbnailBlob) } : file) }));
-    const original = protocol.get().controller;
     return () => {
-      original.abort();
+      protocol.get().controller.abort();
+      cancelPreparations(protocol.get().queued);
       revokeThumbnailUrls(protocol.get().files);
-      protocol.setState((state) => ({ ...state, active: false, generation: state.generation + 1, queued: new Map(), files: state.files.map((file) => ({ ...file, thumbnailUrl: null })) }));
+      protocol.setState((state) => ({ ...state, active: false, generation: state.generation + 1, queued: new Map(), files: state.files.filter((file) => !file.preparing).map((file) => ({ ...file, thumbnailUrl: null })), dragging: false, dragDepth: 0 }));
     };
   }, [protocol]);
   type Preparation = { drafts: readonly AttachmentDraftFile[]; generation: number; policy: "legacy" | "community"; scope?: string; signal: AbortSignal };
@@ -71,36 +75,36 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
     mutationFn: async ({ drafts, generation, policy, scope, signal }: Preparation) => {
       const eligible = () => protocol.get().active && protocol.get().generation === generation && !signal.aborted;
       if (!eligible()) return;
-      const prepared = await Promise.all(drafts.map(async ({ draftId, file }): Promise<PendingFile | null> => {
+      for (const { draftId, file } of drafts) {
+        const lease = protocol.get().queued.get(draftId);
+        const owns = () => eligible() && protocol.get().queued.get(draftId) === lease && !lease?.controller.signal.aborted;
+        if (!lease || lease.generation !== generation || !owns()) continue;
+        const fileSignal = lease.controller.signal;
+        let prepared: PendingFile | null = null;
         try {
           const thumbnail = await new Promise<Awaited<ReturnType<typeof prepareCommunityImage>>>((resolve, reject) => {
             const decoding = new AbortController();
             const abort = () => { decoding.abort(); cleanup(); reject(new DOMException("Retired attachment preparation", "AbortError")); };
             const timer = setTimeout(() => { decoding.abort(); cleanup(); reject(new Error("Image preparation timed out")); }, 30_000);
-            const cleanup = () => { clearTimeout(timer); signal.removeEventListener("abort", abort); };
-            signal.addEventListener("abort", abort, { once: true });
-            if (signal.aborted) { abort(); return; }
+            const cleanup = () => { clearTimeout(timer); fileSignal.removeEventListener("abort", abort); };
+            fileSignal.addEventListener("abort", abort, { once: true });
+            if (fileSignal.aborted) { abort(); return; }
             void (policy === "community" ? prepareCommunityImage(file, decoding.signal) : generateThumbnail(file, decoding.signal)).then((value) => { cleanup(); resolve(value); }, (error) => { cleanup(); reject(error); });
           });
-          if (!eligible()) return null;
+          if (!owns()) continue;
           const blob = thumbnail?.blob ?? null;
           const preview = blob ?? (policy === "community" && thumbnail ? file : null);
-          return { draftId, file, thumbnailUrl: preview ? URL.createObjectURL(preview) : null, thumbnailBlob: blob, width: thumbnail?.width, height: thumbnail?.height };
+          prepared = { draftId, file, thumbnailUrl: preview ? URL.createObjectURL(preview) : null, thumbnailBlob: blob, width: thumbnail?.width, height: thumbnail?.height };
         } catch {
-          if (eligible()) { toast.error(`Could not prepare "${file.name}" for upload`); if (scope) removeComposerAttachmentSessionFiles(scope, [draftId]); }
-          return null;
+          if (owns()) { toast.error(`Could not prepare "${file.name}" for upload`); if (scope) removeComposerAttachmentSessionFiles(scope, [draftId]); }
         }
-      }));
-      const pending = prepared.filter((file): file is PendingFile => file !== null);
-      if (!eligible()) { revokeThumbnailUrls(pending); return; }
-      protocol.setState((state) => {
-        const queued = new Map(state.queued);
-        for (const { draftId } of drafts) if (queued.get(draftId) === generation) queued.delete(draftId);
-        const ids = new Set(state.files.map((file) => file.draftId));
-        const unique = pending.filter((file) => !ids.has(file.draftId));
-        revokeThumbnailUrls(pending.filter((file) => ids.has(file.draftId)));
-        return { ...state, queued, files: [...state.files, ...unique] };
-      });
+        if (!owns()) { if (prepared) revokeThumbnailUrls([prepared]); continue; }
+        protocol.setState((state) => {
+          const queued = new Map(state.queued);
+          queued.delete(draftId);
+          return { ...state, queued, files: state.files.flatMap((pending) => pending.draftId !== draftId ? [pending] : prepared ? [prepared] : []) };
+        });
+      }
     },
   });
   const mutatePreparation = preparation.mutateAsync;
@@ -108,12 +112,16 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
   const setPendingFiles = useCallback((next: PendingFile[] | ((previous: PendingFile[]) => PendingFile[])) => {
     const state = protocol.get();
     const files = typeof next === "function" ? next(state.files) : next;
+    const retained = new Set(files.map((file) => file.draftId));
+    const queued = new Map(state.queued);
+    for (const [draftId, lease] of queued) if (!retained.has(draftId)) { lease.controller.abort(); queued.delete(draftId); }
     if (!files.length) { state.controller.abort(); if (state.options.scope) clearComposerAttachmentSession(state.options.scope); revokeThumbnailUrls(state.files); }
-    protocol.setState((current) => ({ ...current, files, ...(!files.length ? { generation: current.generation + 1, queued: new Map(), controller: new AbortController() } : {}) }));
+    protocol.setState((current) => ({ ...current, files, queued, ...(!files.length ? { generation: current.generation + 1, controller: new AbortController() } : {}) }));
   }, [protocol]);
   const transferPendingFiles = useCallback(() => {
     const state = protocol.get();
     state.controller.abort();
+    cancelPreparations(state.queued);
     if (state.options.scope) transferComposerAttachmentSession(state.options.scope);
     protocol.setState((current) => ({ ...current, files: [], generation: current.generation + 1, queued: new Map(), controller: new AbortController() }));
     return state.files;
@@ -127,24 +135,26 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
       toast.error(`"${file.name}" exceeds ${Math.floor(maxFileSize / 1024 / 1024)} MB limit`); return false;
     });
     if (!valid.length) return;
-    if (maxFiles !== undefined && state.files.length + state.queued.size + valid.length > maxFiles) { toast.error(`You can attach up to ${maxFiles} files`); return; }
+    if (maxFiles !== undefined && state.files.length + valid.length > maxFiles) { toast.error(`You can attach up to ${maxFiles} files`); return; }
     const drafts = valid.map((file) => ({ draftId: createDraftId(), file }));
     if (scope) {
       const result = appendComposerAttachmentSession(scope, drafts);
       if (result.evictedScopes > 0) toast.info("Older attachment drafts were cleared to free memory");
       if (!result.accepted) { toast.error("These files exceed the attachment draft memory limit"); return; }
     }
-    protocol.setState((current) => ({ ...current, queued: new Map([...current.queued, ...drafts.map((draft) => [draft.draftId, state.generation] as const)]) }));
+    protocol.setState((current) => ({ ...current, files: [...current.files, ...drafts.map(pendingDraft)], queued: new Map([...current.queued, ...drafts.map((draft) => [draft.draftId, { generation: state.generation, controller: new AbortController() }] as const)]) }));
     await queuePreparation(drafts, state.generation, policy, scope);
   }, [protocol, queuePreparation]);
   const restorePendingFiles = useCallback(async (drafts: readonly AttachmentDraftFile[]) => {
     const previous = protocol.get();
     previous.controller.abort();
+    cancelPreparations(previous.queued);
     revokeThumbnailUrls(previous.files);
     protocol.setState((state) => ({ ...state, files: [], generation: state.generation + 1, queued: new Map(), controller: new AbortController() }));
     const state = protocol.get(), { maxFiles, policy, scope } = state.options;
-    const accepted = maxFiles === undefined ? drafts : drafts.slice(0, maxFiles);
-    protocol.setState((current) => ({ ...current, queued: new Map(accepted.map((draft) => [draft.draftId, state.generation])) }));
+    const unique = [...new Map(drafts.map((draft) => [draft.draftId, draft])).values()];
+    const accepted = maxFiles === undefined ? unique : unique.slice(0, maxFiles);
+    protocol.setState((current) => ({ ...current, files: accepted.map(pendingDraft), queued: new Map(accepted.map((draft) => [draft.draftId, { generation: state.generation, controller: new AbortController() }])) }));
     if (accepted.length) await queuePreparation(accepted, state.generation, policy, scope);
   }, [protocol, queuePreparation]);
   useLayoutEffect(() => {
@@ -172,13 +182,15 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => { if (event.target.files) void addPendingFiles(Array.from(event.target.files)).catch(() => undefined); event.target.value = ""; }, [addPendingFiles]);
   const removePendingFile = useCallback((index: number) => {
     const state = protocol.get(), removed = state.files[index];
+    const queued = new Map(state.queued);
+    if (removed?.draftId) { queued.get(removed.draftId)?.controller.abort(); queued.delete(removed.draftId); }
     if (removed?.draftId && state.options.scope) removeComposerAttachmentSessionFiles(state.options.scope, [removed.draftId]);
     if (removed?.thumbnailUrl) URL.revokeObjectURL(removed.thumbnailUrl);
-    protocol.setState((current) => ({ ...current, files: current.files.filter((_, item) => item !== index) }));
+    protocol.setState((current) => ({ ...current, queued, files: current.files.filter((_, item) => item !== index) }));
   }, [protocol]);
-  const handleDragEnter = useCallback((event: React.DragEvent) => { event.preventDefault(); event.stopPropagation(); protocol.setState((state) => ({ ...state, dragDepth: state.dragDepth + 1, dragging: state.dragging || event.dataTransfer.types.includes("Files") })); }, [protocol]);
-  const handleDragLeave = useCallback((event: React.DragEvent) => { event.preventDefault(); event.stopPropagation(); protocol.setState((state) => ({ ...state, dragDepth: Math.max(0, state.dragDepth - 1), dragging: state.dragDepth > 1 && state.dragging })); }, [protocol]);
-  const handleDragOver = useCallback((event: React.DragEvent) => { event.preventDefault(); event.stopPropagation(); }, []);
-  const handleDrop = useCallback((event: React.DragEvent) => { event.preventDefault(); event.stopPropagation(); protocol.setState((state) => ({ ...state, dragging: false, dragDepth: 0 })); void addPendingFiles(Array.from(event.dataTransfer.files)).catch(() => undefined); }, [addPendingFiles, protocol]);
+  const handleDragEnter = useCallback((event: React.DragEvent) => { if (!event.dataTransfer.types.includes("Files")) return; event.preventDefault(); event.stopPropagation(); protocol.setState((state) => ({ ...state, dragDepth: state.dragDepth + 1, dragging: true })); }, [protocol]);
+  const handleDragLeave = useCallback((event: React.DragEvent) => { if (!protocol.get().dragging) return; event.preventDefault(); event.stopPropagation(); protocol.setState((state) => ({ ...state, dragDepth: Math.max(0, state.dragDepth - 1), dragging: state.dragDepth > 1 })); }, [protocol]);
+  const handleDragOver = useCallback((event: React.DragEvent) => { if (!event.dataTransfer.types.includes("Files")) return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "copy"; }, []);
+  const handleDrop = useCallback((event: React.DragEvent) => { if (!event.dataTransfer.files.length && !event.dataTransfer.types?.includes("Files")) return; event.preventDefault(); event.stopPropagation(); protocol.setState((state) => ({ ...state, dragging: false, dragDepth: 0 })); void addPendingFiles(Array.from(event.dataTransfer.files)).catch(() => undefined); }, [addPendingFiles, protocol]);
   return { pendingFiles, readPendingFiles: () => protocol.get().files, setPendingFiles, transferPendingFiles, restorePendingFiles, awaitPendingFiles, fileInputRef, addPendingFiles, handleFileSelect, removePendingFile, dragging, handleDragEnter, handleDragLeave, handleDragOver, handleDrop };
 }

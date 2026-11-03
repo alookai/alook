@@ -1,10 +1,15 @@
 import { defineConfig } from "vitest/config"
+import turbo from "./turbo.json"
 
 export default defineConfig({
   test: {
     projects: [
       "src/shared",
       "src/web",
+      "src/web/vitest.contracts.config.ts",
+      "src/web/vitest.tooling.config.ts",
+      "src/web/blog/vitest.config.mts",
+      "src/web/blog/vitest.dom.config.mts",
       "src/web/auth/vitest.config.ts",
       "src/web/auth/vitest.runtime.config.mts",
       "src/daemon",
@@ -25,6 +30,7 @@ export default defineConfig({
       provider: "istanbul",
       include: ["src/**/*.{ts,tsx,js,jsx}", "scripts/ci/**/*.mjs"],
       exclude: [
+        ...turbo.tasks["@alook/web#build"].outputs.filter(pattern => !pattern.startsWith("!")).map(pattern => "src/web/" + pattern),
         "**/*.test.*",
         "**/*.spec.*",
         "**/node_modules/**",

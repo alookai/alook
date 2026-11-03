@@ -321,6 +321,113 @@ function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeo
   return { mgr, session, onRuntimeSpawnFailed, onRuntimeSessionEstablished };
 }
 
+describe("AgentProcessManager returned input responsibility", () => {
+  it("requeues a proven-unsent input ahead of unsent work, keeps its identity, and ignores an old attempt", async () => {
+    const { mgr, session } = makeManager();
+    const send = vi.spyOn(session, "send");
+    const stop = vi.spyOn(session, "stop");
+    mgr.deliver("a1", { id: "A", seq: 1, text: "root" });
+    session.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.turnActive).toBe(true));
+    mgr.deliver("a1", { id: "B", seq: 2, text: "extra" });
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    const original = send.mock.calls[0]![0];
+    const returned = { type: "command_returned", input: { commandId: "B", attemptId: original.attemptId ?? original.id }, message: original, ordinal: 2, evidence: "explicitly_rejected", reason: "native_busy", retryable: true } as const;
+    await session.pushAgentEvent(returned);
+    expect(stop).not.toHaveBeenCalled();
+    expect(mgr.snapshot().agents.a1.turnActive).toBe(true);
+    mgr.deliver("a1", { id: "C", seq: 3, text: "later" });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(mgr.snapshot().agents.a1.inbox.map((input) => input.id)).toEqual(["B", "C"]);
+    await session.pushAgentEvent({ type: "turn_completed", turnId: "test-turn", commandIds: ["A"], result: { outcome: "success", backendSessionId: "thread_1" } });
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(3));
+    const retried = send.mock.calls[1]![0];
+    expect(retried).toMatchObject({ id: "B", text: original.text, sequence: 2 });
+    expect(retried.attemptId).not.toBe(returned.input.attemptId);
+    expect(send.mock.calls[2]![0].id).toBe("C");
+    await session.pushAgentEvent(returned);
+    expect(mgr.snapshot().agents.a1.inbox).toEqual([]);
+    expect(send).toHaveBeenCalledTimes(3);
+    await mgr.stopAll();
+  });
+
+  it("does not replay or reorder C that was already admitted before B returned", async () => {
+    const { mgr, session } = makeManager();
+    const send = vi.spyOn(session, "send");
+    mgr.deliver("a1", { id: "A", text: "root" });
+    session.startResolver?.();
+    await drainEventTasks();
+    mgr.deliver("a1", { id: "B", text: "extra" });
+    mgr.deliver("a1", { id: "C", text: "already delivered" });
+    await drainEventTasks();
+    const input = send.mock.calls[0]![0];
+    await session.pushAgentEvent({ type: "command_returned", input: { commandId: "B", attemptId: input.attemptId ?? input.id }, message: input, ordinal: 2, evidence: "explicitly_rejected", reason: "native refused", retryable: true });
+    expect(send.mock.calls.map(([input]) => input.id)).toEqual(["B", "C"]);
+    expect(mgr.snapshot().agents.a1.inbox.map(input => input.id)).toEqual(["B"]);
+    await session.pushAgentEvent({ type: "turn_completed", turnId: "test-turn", commandIds: ["A", "C"], result: { outcome: "success", backendSessionId: "thread_1" } });
+    await drainEventTasks();
+    expect(send.mock.calls.map(([input]) => input.id)).toEqual(["B", "C", "B"]);
+    expect(send.mock.calls[2]![0].attemptId).not.toBe(input.attemptId ?? input.id);
+    await mgr.stopAll();
+  });
+
+  it.each(["event", "receipt", "throw", "promise"] as const)("keeps root A alive after immediate busy-input refusal via %s", async (failure) => {
+    const { mgr, session } = makeManager();
+    const stop = vi.spyOn(session, "stop");
+    mgr.deliver("a1", { id: "A", text: "root" });
+    session.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.turnActive).toBe(true));
+    const error = { category: "process", code: "delivery_failed", message: "input refused", retryable: false } as const;
+    vi.spyOn(session, "send").mockImplementation(() => {
+      if (failure === "throw") throw new Error(error.message);
+      if (failure === "promise") return Promise.reject(new Error(error.message));
+      if (failure === "event") void session.pushAgentEvent({ type: "command_failed", scope: "input", commandId: "B", turnId: "test-turn", error });
+      return Promise.resolve({ status: "rejected", reason: "runtime_unavailable", error });
+    });
+    mgr.deliver("a1", { id: "B", text: "extra" });
+    await drainEventTasks();
+    expect(mgr.snapshot().agents.a1.turnActive).toBe(true);
+    expect(stop).not.toHaveBeenCalled();
+    expect(mgr.snapshot().agents.a1.inbox).toEqual([]);
+    await session.pushAgentEvent({ type: "turn_completed", turnId: "test-turn", commandIds: ["A"], result: { outcome: "success", backendSessionId: "thread_1" } });
+    expect(mgr.snapshot().agents.a1.turnActive).toBe(false);
+    await mgr.stopAll();
+  });
+
+  it("releases completed input text while retaining inputs queued for a later turn", async () => {
+    const { mgr, session } = makeManager();
+    mgr.deliver("a1", { id: "A", text: "root" });
+    session.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.turnActive).toBe(true));
+    mgr.deliver("a1", { id: "B", text: "extra" });
+    await drainEventTasks();
+    const internal = mgr as unknown as { activeSpawnState: Map<string, { inputDeliveries: Map<string, unknown> }> };
+    const inputs = internal.activeSpawnState.get("a1")!.inputDeliveries;
+    expect([...inputs.keys()]).toEqual(["A", "B"]);
+    await session.pushAgentEvent({ type: "turn_completed", turnId: "test-turn", commandIds: ["A", "B"], result: { outcome: "success", backendSessionId: "thread_1" } });
+    expect(inputs.size).toBe(0);
+    await mgr.stopAll();
+  });
+
+  it.each(["unknown", "explicitly_rejected"] as const)("does not blindly replay %s or stop a healthy root", async (evidence) => {
+    const { mgr, session } = makeManager();
+    const send = vi.spyOn(session, "send");
+    const stop = vi.spyOn(session, "stop");
+    mgr.deliver("a1", { id: "A", text: "root" });
+    session.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.turnActive).toBe(true));
+    mgr.deliver("a1", { id: "B", text: "extra" });
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    const input = send.mock.calls[0]![0];
+    await session.pushAgentEvent({ type: "command_returned", input: { commandId: "B", attemptId: input.attemptId ?? input.id }, message: input, ordinal: 2, evidence, reason: "not safe to replay", retryable: evidence === "unknown" });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(mgr.snapshot().agents.a1.inbox).toEqual([]);
+    expect(mgr.snapshot().agents.a1.turnActive).toBe(true);
+    expect(stop).not.toHaveBeenCalled();
+    await mgr.stopAll();
+  });
+});
+
 describe("AgentProcessManager — running-turn interrupt", () => {
   it("audits a daemon-accepted interrupt without deleting the session", async () => {
     const onBotAuditEvent = vi.fn();
@@ -550,6 +657,22 @@ describe("AgentProcessManager runtime config revisions", () => {
     mode: { kind: "default" },
     reasoningEffort,
     runtimeConfigRevision: revision,
+  });
+
+  it("settles an acknowledged revision without restarting or applying it twice", async () => {
+    const { mgr, session } = makeManager();
+    session.updateSettings = vi.fn(async () => ({ status: "acknowledged", effective: "next_turn" } as const));
+    const stop = vi.spyOn(session, "stop");
+    mgr.register("a1", { runtimeConfig: config(1, "low") });
+    mgr.deliver("a1", { id: "root", text: "work" });
+    session.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.turnActive).toBe(true));
+    await session.pushAgentEvent({ type: "turn_completed", turnId: "test-turn", commandIds: ["root"], result: { outcome: "success", backendSessionId: "thread_1" } });
+    await expect(mgr.updateRuntimeConfig("a1", config(2, "high"))).resolves.toBe("acknowledged");
+    await expect(mgr.updateRuntimeConfig("a1", config(2, "high"))).resolves.toBe("idempotent");
+    expect(session.updateSettings).toHaveBeenCalledTimes(1);
+    expect(stop).not.toHaveBeenCalled();
+    await mgr.stopAll();
   });
 
   it("coalesces busy updates and applies only the newest revision after turn completion", async () => {
@@ -4608,7 +4731,7 @@ describe("AgentProcessManager — stopped delivery and original inputs", () => {
       expect(input).toEqual({ id: "retry", kind: "user", text: expect.stringMatching(/^\[[^\]]+\] retry text\n\noriginal footer$/), sequence: 2 });
       vi.setSystemTime(new Date("2026-10-13T07:00:30Z"));
       await first.pushAgentEvent({
-        type: "command_failed", commandId: "retry",
+        type: "command_failed", scope: "turn", commandId: "retry",
         error: { category: "process", code: "delivery_failed", message: "failed", retryable: true },
       });
       expect(first.stop).toHaveBeenCalledOnce();
@@ -4719,59 +4842,35 @@ describe("AgentProcessManager — stopped delivery and original inputs", () => {
     await second.fire("exit", { reason: "requested" });
   });
 
-  it.each([1, 2])("restores only unfinished startup sends when send %i throws, then replays after actual close", async (failingSend) => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-13T07:00:00Z"));
+  it.each([1, 2])("keeps the startup root and other inputs alive when extra send %i throws", async (failingSend) => {
     const first = fakeSession("throw-old");
-    const second = b1Session([], "replacement", "test-turn", "throw-new");
-    first.start = vi.fn(first.start);
     const send = first.send.bind(first);
-    const snapshot = first.snapshot.bind(first);
-    const error = new Error("original synchronous send failure");
-    const onBotAuditEvent = vi.fn();
+    const stop = vi.spyOn(first, "stop");
     let attempts = 0;
-    let stopping = false;
-    first.snapshot = () => ({ ...snapshot(), state: stopping ? "stopping" : "working" });
-    first.stop = vi.fn(async () => {
-      stopping = true;
-      return { status: "accepted" as const, requestId: "stop-throw-old" };
-    });
     first.send = vi.fn((input: AgentMessage) => {
-      if (++attempts === failingSend) throw error;
+      if (++attempts === failingSend) throw new Error("synchronous input refusal");
       return send(input);
     });
-    const { mgr } = b1Manager({ sessions: [first, second], stampWakePromptTime: true, wakePromptFooter: "original footer", onBotAuditEvent });
+    const onBotAuditEvent = vi.fn();
+    const { mgr } = b1Manager({ sessions: [first], onBotAuditEvent });
     try {
       mgr.deliver("a1", { id: "root", seq: 1, text: "root" });
       mgr.deliver("a1", { id: "tail-a", seq: 2, text: "tail a" });
       mgr.deliver("a1", { id: "tail-b", seq: 3, text: "tail b" });
       first.startResolver?.();
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      const failedInput = vi.mocked(first.send).mock.calls[failingSend - 1]![0];
-      const pendingIds = ["tail-a", "tail-b"].slice(failingSend - 1);
-      expect(first.start).toHaveBeenCalledOnce();
-      expect(first.send).toHaveBeenCalledTimes(failingSend);
-      expect(mgr.snapshot().agents.a1.inbox.map((message) => message.id)).toEqual(pendingIds);
-      expect(mgr.snapshot().agents.a1.inbox[0]!.preparedInput).toBe(failedInput);
+      await drainEventTasks();
+      expect(first.send).toHaveBeenCalledTimes(2);
+      expect(stop).not.toHaveBeenCalled();
+      expect(mgr.snapshot().agents.a1).toMatchObject({ turnActive: true, inbox: [], execution: { sessionInstanceId: "throw-old" } });
       expect(onBotAuditEvent).toHaveBeenCalledWith("a1", expect.objectContaining({
-        kind: "error", payload: expect.objectContaining({ scope: "runtime", code: "send_failed", message: String(error) }),
+        kind: "error", payload: expect.objectContaining({ code: "send_failed" }),
       }), expect.anything());
-      expect(first.stop).toHaveBeenCalledExactlyOnceWith({ reason: "shutdown", forceAfterMs: 2_000 });
       mgr.deliver("a1", { id: "newer", seq: 4, text: "newer" });
+      expect(first.send).toHaveBeenCalledTimes(3);
       await first.fire("runtime_event", { kind: "turn_end" });
-      expect(first.send).toHaveBeenCalledTimes(failingSend);
-      expect(second.start).not.toHaveBeenCalled();
-      expect(mgr.snapshot().agents.a1.inbox.map((message) => message.id)).toEqual([...pendingIds, "newer"]);
-      vi.setSystemTime(new Date("2026-10-13T07:01:00Z"));
-      await first.fire("exit", { reason: "requested" });
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      expect(second.start).toHaveBeenCalledExactlyOnceWith(failedInput);
-      expect(vi.mocked(second.send).mock.calls.map(([input]) => input.id)).toEqual([...pendingIds.slice(1), "newer"]);
-      expect(mgr.snapshot().agents.a1).toMatchObject({ status: "running", inbox: [], execution: { sessionInstanceId: "throw-new" } });
-      await second.fire("exit", { reason: "requested" });
+      expect(mgr.snapshot().agents.a1.turnActive).toBe(false);
     } finally {
       await mgr.stopAll();
-      vi.useRealTimers();
     }
   });
 });
@@ -5593,7 +5692,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
       error: { category: "process" as const, code: "send_denied", message: "closed", retryable: true },
     })],
     ["rejected promise", () => Promise.reject(new Error("send rejected"))],
-  ] as const)("%s from an established send closes the active turn once", async (_name, send) => {
+  ] as const)("%s from an extra input preserves the active turn", async (_name, send) => {
     const rows: B1TraceRow[] = [];
     const session = b1Session([]);
     const { mgr } = b1Manager({ sessions: [session], trace: (row) => rows.push(row) });
@@ -5605,7 +5704,10 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(session.send).toHaveBeenCalledTimes(1);
-    expect(b1SpanRows(rows, "turn_abort").filter((row) => row.abortCause === "send_threw")).toHaveLength(1);
+    expect(b1SpanRows(rows, "turn_abort").filter((row) => row.abortCause === "send_threw")).toHaveLength(0);
+    expect(mgr.snapshot().agents.a1.turnActive).toBe(true);
+    expect(session.stop).not.toHaveBeenCalled();
+    await mgr.stopAll();
   });
 
   it("reports an event-stream rejection and a closed-promise rejection", async () => {
@@ -5736,6 +5838,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     const owner = internal.activeSpawnState.get("a1")!;
     const failed = {
       type: "command_failed",
+      scope: "turn",
       commandId: "later",
       turnId: "test-turn",
       error: { category: "process", code: "delivery_failed", message: "failed", retryable: true },
@@ -5916,7 +6019,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
   });
 
   for (const mode of ["idle", "busy"] as const) {
-    it(`${mode} send synchronous throw aborts once and rethrows without another send`, async () => {
+    it(`${mode} send synchronous throw follows root ownership without another send`, async () => {
       const rows: B1TraceRow[] = [];
       const error = new Error(`unique-send-${mode}-secret`);
       const session = b1Session([]);
@@ -5929,12 +6032,13 @@ describe("B1 red gate — exact-once terminal matrix", () => {
         throw error;
       });
 
-      expect(() => mgr.deliver("a1", { seq: 2, text: "throw" })).toThrow(error);
+      if (mode === "idle") expect(() => mgr.deliver("a1", { seq: 2, text: "throw" })).toThrow(error);
+      else expect(() => mgr.deliver("a1", { seq: 2, text: "throw" })).not.toThrow();
       expect(session.send).toHaveBeenCalledTimes(1);
       const aborts = b1SpanRows(rows, "turn_abort");
-      expect(aborts.length).toBeGreaterThan(0);
-      expect(aborts.at(-1)!.abortCause).toBe("send_threw");
-      expect(aborts.filter((row) => row.abortCause === "send_threw")).toHaveLength(1);
+      expect(aborts.filter((row) => row.abortCause === "send_threw")).toHaveLength(mode === "idle" ? 1 : 0);
+      if (mode === "busy") expect(session.stop).not.toHaveBeenCalled();
+      await mgr.stopAll();
     });
   }
 
@@ -6326,7 +6430,9 @@ describe("Codex root event ownership — subagent completion isolation", () => {
 
       const publishNormalized = async (events: readonly AdapterEvent[]) => {
         for (const event of events) {
-          if (event.kind === "session_init") {
+          if (event.attribution?.scope === "child" || event.attribution?.scope === "unknown") {
+            await session.pushAgentEvent({ type: "activity", attribution: event.attribution, kind: event.kind });
+          } else if (event.kind === "session_init") {
             await session.pushAgentEvent({ type: "session_started", backendSessionId: event.sessionId });
           } else if (event.kind === "assistant_reasoning_completed") {
             await session.pushAgentEvent({ type: "assistant_reasoning_completed", turnId: "test-turn", text: event.text, truncated: false });
@@ -6362,7 +6468,7 @@ describe("Codex root event ownership — subagent completion isolation", () => {
           threadId: `child-thread-${child}`,
           turn: { id: `child-turn-${child}`, status: "completed" },
         }));
-        expect(events).toEqual([]);
+        expect(events).toEqual([expect.objectContaining({ attribution: expect.objectContaining({ scope: "unknown", agentId: `child-thread-${child}` }) })]);
         await publishNormalized(events);
         now += 40;
         await publishNormalized(adapter.normalizeLine(notify(child % 2 === 0 ? "item/completed" : "item/started", {

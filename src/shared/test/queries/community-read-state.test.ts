@@ -20,12 +20,7 @@ function createInsertBuilderMock() {
 
 describe("community/read-state exports", () => {
   it("exports markReadToMessageBuilder + markReadToMessage", () => {
-    expect(typeof readStateQueries.markReadToMessageBuilder).toBe("function");
     expect(typeof readStateQueries.markReadToMessage).toBe("function");
-    expect(typeof readStateQueries.markReadToMessageWithRevision).toBe("function");
-  });
-  it("exports markAllServerChannelsRead", () => {
-    expect(typeof readStateQueries.markAllServerChannelsRead).toBe("function");
   });
 
   it("builds one revision guard from multiple canonical effects", () => {

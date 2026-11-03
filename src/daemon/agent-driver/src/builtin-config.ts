@@ -50,6 +50,12 @@ export function toBuiltinBackendSelection(config: BuiltinRuntimeConfigInput): Bu
       };
     case "agy":
       return { backend: "agy", config: { ...base, reasoningEffort: config.reasoningEffort } };
+    case "qoder":
+      return { backend: "qoder", config: { ...base, reasoningEffort: config.reasoningEffort } };
+    case "copilot":
+      return { backend: "copilot", config: { ...base, reasoningEffort: config.reasoningEffort } };
+    case "cursor-sdk":
+      return { backend: "cursor-sdk", config: { model: config.model, environment: config.envVars, reasoningEffort: config.reasoningEffort } };
     case "antigravity":
       return { backend: "antigravity", config: { ...base, reasoningEffort: config.reasoningEffort } };
     case "cursor":
@@ -59,8 +65,9 @@ export function toBuiltinBackendSelection(config: BuiltinRuntimeConfigInput): Bu
     case "opencode":
       return { backend: "opencode", config: base };
     case "pi":
+    case "pi-durable":
       return {
-        backend: "pi",
+        backend: config.runtime,
         config: {
           model: config.model,
           environment: config.envVars,

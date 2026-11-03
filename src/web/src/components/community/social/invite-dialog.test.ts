@@ -1,8 +1,8 @@
+import rawContractInput0 from "./invite-dialog.tsx?raw"
 import { createElement } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { readFileSync } from "node:fs"
 import type { Friend } from "@/lib/community/models/people"
 
 const mocks = vi.hoisted(() => ({
@@ -170,13 +170,13 @@ describe("InviteFriendRow", () => {
   })
 
   it("keeps loading rows on the real row padding and trailing action footprint", () => {
-    const source = readFileSync(new URL("./invite-dialog.tsx", import.meta.url), "utf8")
+    const source = rawContractInput0
     expect(source).toContain('<div data-slot="invite-friends-loading">')
     expect(source).toContain('<PeoplePickerRowsSkeleton secondaryLine actionClassName="w-16" />')
   })
 
   it("distinguishes unresolved and failed candidate data from a resolved empty list", () => {
-    const source = readFileSync(new URL("./invite-dialog.tsx", import.meta.url), "utf8")
+    const source = rawContractInput0
     expect(source).toContain("resolved: friendsQuery.data !== undefined")
     expect(source).toContain("error: friendsQuery.isError")
     expect(source).toContain("friendsQuery.data === undefined && friendsQuery.isFetching")

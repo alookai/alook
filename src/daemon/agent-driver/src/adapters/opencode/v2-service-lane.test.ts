@@ -267,7 +267,7 @@ describe("OpenCode CLI v2 persisted message authority", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(native.ends).toHaveLength(0);
     native.finish();
-    await vi.waitFor(() => expect(native.ends).toEqual([{ kind: "turn_end", sessionId: native.id, turnOwner: "msg_root" }]));
+    await vi.waitFor(() => expect(native.ends).toEqual([{ kind: "turn_end", sessionId: native.id, turnOwner: "msg_root" , outcome: "success" }]));
     expect(native.errors).toHaveLength(0);
   });
 
@@ -283,7 +283,7 @@ describe("OpenCode CLI v2 persisted message authority", () => {
       { type: "tool", id: "call_two", name: "bash", state: { status: "running", input: { command: "sleep 1" } } },
     ] });
     await vi.waitFor(() => expect(native.events.filter(event => event.kind === "tool_call")).toHaveLength(2));
-    expect(native.events.filter(event => event.kind === "tool_output")).toEqual([{ kind: "tool_output", callId: "msg_a:call_one", name: "bash" }]);
+    expect(native.events.filter(event => event.kind === "tool_output")).toEqual([{ kind: "tool_output", callId: "msg_a:call_one", name: "bash", outcome: "success" }]);
     native.emit("session.tool.success", { assistantMessageID: "msg_a", id: "call_two", executed: true });
     await vi.waitFor(() => expect(native.events.filter(event => event.kind === "tool_output")).toHaveLength(2));
     native.finish(); await vi.waitFor(() => expect(native.ends).toHaveLength(1));

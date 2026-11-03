@@ -1,3 +1,7 @@
+import contractText0 from "./bot-list-controller.ts?raw"
+import contractText1 from "./bot-list-machine-group.tsx?raw"
+import contractText2 from "./bot-list-overlays.tsx?raw"
+import contractText3 from "./bot-list-view.tsx?raw"
 import React from "react"
 import { useCommunityNavigationController } from "@/components/community/shell/use-community-navigation-controller"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
@@ -5,7 +9,6 @@ import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { CommunityModuleRouteContext } from "@/contexts/community/module-route"
 import { useQueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
@@ -16,7 +19,16 @@ import type { BotSummary } from "@/hooks/community/use-bots"
 import type { BotListController } from "./bot-list-types"
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
-const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
+const contractSources: Record<string, string> = {
+  "src/components/community/bots/bot-list-controller.ts": contractText0,
+  "src/components/community/bots/bot-list-machine-group.tsx": contractText1,
+  "src/components/community/bots/bot-list-overlays.tsx": contractText2,
+  "src/components/community/bots/bot-list-view.tsx": contractText3,
+}
+const readWebSource = (path: string) => {
+  if (!(path in contractSources)) throw new Error("unregistered contract source: " + path)
+  return contractSources[path]
+}
 
 const mocks = vi.hoisted(() => ({
   hookOrder: [] as string[],

@@ -282,7 +282,7 @@ describe("CursorDriver persistent ACP transport", () => {
       sessionId: "cursor-acp-session",
       prompt: [{ type: "text", text: "busy" }],
     });
-    expect(events).toEqual([{ kind: "session_init", sessionId: "cursor-acp-session" }]);
+    expect(events).toEqual([{ kind: "session_init", sessionId: "cursor-acp-session", acquisition: { status: "created", evidence: "native_api" } }]);
   });
 
   it("keeps one root terminal owner across repeated steers and ignores every old response shape", async () => {
@@ -329,7 +329,7 @@ describe("CursorDriver persistent ACP transport", () => {
         },
       },
     })}\n`);
-    expect(events).toContainEqual({ kind: "tool_output", callId: "current-tool", name: "Current tool" });
+    expect(events).toContainEqual({ kind: "tool_output", callId: "current-tool", name: "Current tool", outcome: "success" });
 
     completePrompt(process, server.prompts[3]!, "cancelled");
     await settle();
@@ -338,6 +338,7 @@ describe("CursorDriver persistent ACP transport", () => {
       sessionId: "cursor-acp-session",
       turnOwner: "cursor:acp:4",
       outcome: "interrupted",
+      stopReason: "cancelled",
     }]);
 
     completePrompt(process, server.prompts[0]!);
@@ -383,9 +384,9 @@ describe("CursorDriver persistent ACP transport", () => {
     });
     expect(events.filter((event) => event.kind === "turn_end")).toEqual([{
       kind: "turn_end",
+      stopReason: "end_turn",
       sessionId: "cursor-acp-session",
-      turnOwner: "cursor:acp:4",
-    }]);
+      turnOwner: "cursor:acp:4", outcome: "success" }]);
     completePrompt(spawned[0]!, server.prompts[0]!);
     await settle();
     expect(events.filter((event) => event.kind === "turn_end")).toHaveLength(1);
@@ -424,15 +425,15 @@ describe("CursorDriver persistent ACP transport", () => {
         },
       },
     })}\n`);
-    expect(events).toContainEqual({ kind: "tool_output", callId: "root-tool", name: "Root tool" });
+    expect(events).toContainEqual({ kind: "tool_output", callId: "root-tool", name: "Root tool", outcome: "success" });
 
     completePrompt(process, server.prompts[0]!);
     await settle();
     expect(events.filter((event) => event.kind === "turn_end")).toEqual([{
       kind: "turn_end",
+      stopReason: "end_turn",
       sessionId: "cursor-acp-session",
-      turnOwner: "cursor:acp:4",
-    }]);
+      turnOwner: "cursor:acp:4", outcome: "success" }]);
   });
 
   it("lets only the latest prompt RPC error fail the root turn", async () => {
@@ -453,8 +454,7 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(events.filter((event) => event.kind === "turn_end")).toEqual([{
       kind: "turn_end",
       sessionId: "cursor-acp-session",
-      turnOwner: "cursor:acp:4",
-    }]);
+      turnOwner: "cursor:acp:4", outcome: "failed" }]);
 
     fail(process, server.prompts[0]!, "old failed later");
     await settle();
@@ -1349,7 +1349,7 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(events).toContainEqual({ kind: "assistant_message_delta", text: "hello" });
     expect(events).toContainEqual({ kind: "assistant_reasoning_delta", text: "thinking" });
     expect(events).toContainEqual({ kind: "tool_call", callId: "tool-1", name: "Read", input: { path: "README.md" } });
-    expect(events).toContainEqual({ kind: "tool_output", callId: "tool-1", name: "Read" });
+    expect(events).toContainEqual({ kind: "tool_output", callId: "tool-1", name: "Read", outcome: "success" });
     expect(events).toContainEqual({ kind: "internal_progress", source: "cursor.acp", itemType: "plan" });
     expect(events).toContainEqual(expect.objectContaining({
       kind: "runtime_diagnostic",

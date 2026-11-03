@@ -1,3 +1,4 @@
+import resolvedRawInput0 from "../../../app/globals.css?raw"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
@@ -1651,14 +1652,7 @@ describe("Message touch action menu", () => {
 
     const body = renderer!.root.findByProps({ "data-community-message-body": true })
     expect(body.props.className).toContain("select-text")
-    const globalCss = readFileSync(
-      resolve(
-        process.cwd(),
-        process.cwd().endsWith("/src/web") ? "" : "src/web",
-        "src/app/globals.css",
-      ),
-      "utf8",
-    )
+    const globalCss = resolvedRawInput0
     expect(globalCss).toMatch(
       /\[data-community-message-body\]\s*\{[^}]*-webkit-touch-callout:\s*default;[^}]*user-select:\s*text;/s,
     )

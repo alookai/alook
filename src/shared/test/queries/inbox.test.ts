@@ -13,18 +13,6 @@ function createMockDb(rows: any[]) {
 // Exports
 // ---------------------------------------------------------------------------
 
-describe("inbox exports", () => {
-  it("exports listUnreadConversations", () => { expect(typeof inboxQueries.listUnreadConversations).toBe("function"); });
-  it("exports getUnreadCount", () => { expect(typeof inboxQueries.getUnreadCount).toBe("function"); });
-  it("exports markConversationRead", () => { expect(typeof inboxQueries.markConversationRead).toBe("function"); });
-  it("exports markAllConversationsRead", () => { expect(typeof inboxQueries.markAllConversationsRead).toBe("function"); });
-  it("exports upsertUnreadEntry", () => { expect(typeof inboxQueries.upsertUnreadEntry).toBe("function"); });
-  it("exports updateUnreadLatestMessage", () => { expect(typeof inboxQueries.updateUnreadLatestMessage).toBe("function"); });
-  it("exports deleteUnreadEntry", () => { expect(typeof inboxQueries.deleteUnreadEntry).toBe("function"); });
-  it("exports deleteAllUnreadEntries", () => { expect(typeof inboxQueries.deleteAllUnreadEntries).toBe("function"); });
-  it("exports findLatestAssistantMessageId", () => { expect(typeof inboxQueries.findLatestAssistantMessageId).toBe("function"); });
-  it("exports isUnreadEligible", () => { expect(typeof inboxQueries.isUnreadEligible).toBe("function"); });
-});
 
 // ---------------------------------------------------------------------------
 // TC4: isUnreadEligible

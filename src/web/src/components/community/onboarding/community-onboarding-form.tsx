@@ -26,6 +26,7 @@ import { OnboardingMachineDialog } from "./onboarding-machine-dialog"
 import {
   ONBOARDING_HARNESSES,
   ONBOARDING_IDENTITIES,
+  supportsAgentSetup,
 } from "./onboarding-form-options"
 import { beginOnboardingAnalytics } from "@/lib/product-analytics"
 import { initializeCommunityOnboarding } from "./initialize-community-onboarding"
@@ -170,7 +171,7 @@ function CommunityOnboardingSteps() {
         advanceOnSelect
         submitLabel="Continue"
         onSubmit={(value) => {
-          advanceCommunityOnboarding(communityRuntime, "harness", "machine", { harness: value, setupMode: "agent" })
+          advanceCommunityOnboarding(communityRuntime, "harness", "machine", { harness: value, setupMode: supportsAgentSetup(value) ? "agent" : "manual" })
         }}
         testId={tid.onboardingHarnessDialog}
         optionTestId={tid.onboardingHarnessOption}
@@ -178,7 +179,7 @@ function CommunityOnboardingSteps() {
     )
   }
 
-  if (state.stage === "machine" && state.setupMode === "agent") {
+  if (state.stage === "machine" && state.setupMode === "agent" && supportsAgentSetup(state.harness)) {
     return <OnboardingAgentDialog
       harness={state.harness ?? ""}
       harnessLabel={harnessLabel(state.harness)}
@@ -287,7 +288,8 @@ export function CommunityOnboardingForm() {
   const state = useCommunityOnboarding()
   if (!state) return null
   const selected = Boolean(state.harness)
-  const mode = state.setupMode === "agent" ? "agent" : "manual"
+  const agentSetup = supportsAgentSetup(state.harness)
+  const mode = state.setupMode === "agent" && agentSetup ? "agent" : "manual"
   const switching = selected && ["machine", "model", "identity"].includes(state.stage)
   return <SetupDialog.Root open onOpenChange={(_open, details) => details.cancel()}>
     <SetupDialog.Portal>
@@ -297,10 +299,10 @@ export function CommunityOnboardingForm() {
       {/* Title, mode switch and close live inside the card, on its top edge (QA #4). */}
       <header data-slot="onboarding-card-header" className="flex shrink-0 items-center justify-between gap-4 px-4 pt-2 sm:px-6">
         {selected ? <Tabs value={mode} onValueChange={(value) => {
-          if (switching && (value === "agent" || value === "manual") && mode !== value) switchCommunityOnboardingSetup(runtime, value)
+          if (switching && (value === "manual" || (value === "agent" && agentSetup)) && mode !== value) switchCommunityOnboardingSetup(runtime, value)
         }}>
           <TabsList aria-label="Setup method" className="thin-scrollbar">
-            {(["agent", "manual"] as const).map((value) => <TabsTrigger key={value} value={value} data-testid={`onboarding-mode-${value}`} disabled={!switching}>{value === "agent" ? "Agent" : "Manual"}</TabsTrigger>)}
+            {(["agent", "manual"] as const).map((value) => <TabsTrigger key={value} value={value} data-testid={`onboarding-mode-${value}`} disabled={!switching || (value === "agent" && !agentSetup)}>{value === "agent" ? "Agent" : "Manual"}</TabsTrigger>)}
           </TabsList>
         </Tabs> : <span className="text-sm text-muted-foreground">Pick your local agent</span>}
         <Button type="button" variant="ghost" size="icon" aria-label="Exit setup" title="Exit setup" className="size-11 text-foreground" onClick={() => skipCommunityOnboarding(runtime)}><X aria-hidden className="size-4" /></Button>

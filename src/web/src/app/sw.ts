@@ -4,6 +4,7 @@ import { NavigationRoute, Serwist } from "serwist"
 import { isPublicAssetResponse, publicFaviconQueryParameter, restrictPublicPrecacheRoutes } from "../lib/service-worker/public-cache"
 import { publicWorkerCacheNames } from "../lib/service-worker/cache-identity"
 import { createPublicRuntimeCaching } from "../lib/service-worker/public-cache-runtime"
+import { createPublicWorkerScriptResponsePlugin } from "../lib/service-worker/worker-script-response"
 
 import { clearOutdatedPublicWorkerCaches } from "../lib/service-worker/public-cache-storage"
 import { communityShellHash, isCommunityShellAssetRequest, isCommunityShellNavigation, isCommunityShellResponse } from "../lib/service-worker/community-shell"
@@ -38,7 +39,7 @@ const serwist = new Serwist({
     cleanURLs: false,
     directoryIndex: null,
     ignoreURLParametersMatching: [publicFaviconQueryParameter],
-    plugins: [{
+    plugins: [createPublicWorkerScriptResponsePlugin(self.location.origin), {
       requestWillFetch: async ({ request }) => new Request(request, { credentials: "omit", redirect: "error" }),
       cacheWillUpdate: async ({ request, response }) => (
         new URL(request.url).pathname === shellUrl

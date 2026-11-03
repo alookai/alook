@@ -12,8 +12,12 @@ describe("builtin adapter protocol conformance", () => {
 
   it("locks the exact built-in lifetime, transport, delivery, and terminal-owner matrix", () => {
     const expected = {
-      claude: ["session", "stdio_stream", "claude.stream-json.v1", "safe_boundary_queue", "vendor_message"],
-      codex: ["session", "stdio_rpc", "codex.app-server.v1", "safe_boundary_queue", "transport_request"],
+      "qoder": ["session", "stdio_rpc", "qoder.sdk-worker.v1", "steer", "prompt_invocation"],
+      "copilot": ["session", "stdio_rpc", "copilot.sdk-worker.v1", "steer", "prompt_invocation"],
+      "cursor-sdk": ["session", "stdio_rpc", "cursor-sdk.sdk-worker.v1", "steer", "prompt_invocation"],
+      "pi-durable": ["session", "stdio_rpc", "pi-durable.sdk-worker.v1", "steer", "prompt_invocation"],
+      claude: ["session", "stdio_stream", "claude.stream-json.v1", "steer", "vendor_message"],
+      codex: ["session", "stdio_rpc", "codex.app-server.v1", "steer", "transport_request"],
       cursor: ["session", "stdio_rpc", "cursor.acp.v1", "steer", "transport_request"],
       agy: ["session", "stdio_stream", "agy.stream-json.v1", "next_turn_queue", "vendor_message"],
       antigravity: ["session", "stdio_rpc", "antigravity.acp.v1", "next_turn_queue", "transport_request"],
@@ -85,7 +89,7 @@ describe("builtin adapter protocol conformance", () => {
     });
   });
 
-  it("runs the real Codex adapter and rejects child completion/output in the shared contract", () => {
+  it("runs the real Codex adapter and keeps off-root completion/output outside root authority", () => {
     const events = runAgentBackendAdapterConformance(registry.get("codex"), {
       exercise(adapter) {
         const rootThread = "codex-root";
@@ -100,9 +104,10 @@ describe("builtin adapter protocol conformance", () => {
           ...adapter.normalizeLine(line({ jsonrpc: "2.0", method: "turn/completed", params: { threadId: rootThread, turn: { id: rootTurn, status: "completed" } } })),
         ];
       },
-      expectedEventKinds: ["session_init", "turn_owner", "tool_call", "tool_output", "turn_end"],
+      expectedEventKinds: ["session_init", "turn_owner", "internal_progress", "assistant_message_delta", "tool_call", "tool_output", "turn_end"],
     });
-    expect(JSON.stringify(events)).not.toContain("must not leak");
+    expect(JSON.stringify(events.filter(event => !event.attribution || event.attribution.scope === "root"))).not.toContain("must not leak");
+    expect(events.filter(event => event.attribution?.scope === "unknown")).toHaveLength(2);
   });
 
   it("declares the real Cursor adapter as a lane-owned persistent ACP transport", () => {

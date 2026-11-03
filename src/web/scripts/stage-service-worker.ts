@@ -5,6 +5,7 @@ import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { isPublicAssetPath } from "../src/lib/service-worker/public-cache"
 import { communityShellDirectory, communityShellHash } from "../src/lib/service-worker/community-shell"
+import { dedupeServerChunks } from "./dedupe-server-chunks"
 
 export function stageCommunityShell(webRoot: string): string {
   const prerender = JSON.parse(readFileSync(resolve(webRoot, ".next/prerender-manifest.json"), "utf8")) as { routes: Record<string, unknown> }
@@ -54,6 +55,7 @@ export async function stageServiceWorker(webRoot: string): Promise<void> {
   const bytes = Buffer.from(await response.arrayBuffer())
   if (!bytes.length || !bytes.includes(shellUrl)) throw new Error("Generated service worker is missing the current community shell")
   writeFileSync(resolve(webRoot, "public/sw.js"), bytes)
+  dedupeServerChunks(webRoot)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

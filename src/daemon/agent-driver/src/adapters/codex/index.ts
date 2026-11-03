@@ -1,18 +1,3 @@
-/**
- * Codex driver — persistent, JSON-RPC app-server, GATED steering.
- *
- * Codex runs as `app-server --listen stdio://` and speaks JSON-RPC 2.0. Like
- * Claude, a `turn/steer` sent while a tool call / compaction / review is in
- * flight can race the app-server's own turn-state handling, so busy delivery
- * is `gated` — held until a safe boundary by the manager-level mechanism in
- * `manager/managerPolicy.ts`. A
- * busy message becomes a `turn/steer` RPC against the active turn, while an
- * idle message becomes a fresh `turn/start` — the encoding itself is
- * unaffected by gating, only WHEN the manager calls it.
- *
- * Handshake (queued on spawn): `initialize` → then `thread/start` (or
- * `thread/resume` with the prior threadId). The thread id is the session id.
- */
 import type {
   BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, LaneInterruptInput, RuntimeLane,
   RuntimeLaneOpenOptions, SpawnedProcess, SpawnedProcessHandle,
@@ -22,6 +7,7 @@ import type {
   RuntimeSettingsUpdate,
   RuntimeSettingsUpdateResult,
   RuntimeReasoningCatalog,
+  InputReference,
 } from "../../contract.js";
 import { createProcessLane } from "../../controller/process-host.js";
 import { prepareCliTransport } from "../../internal/cliTransport.js";
@@ -36,6 +22,7 @@ import {
   normalizeRuntimeModelId,
   RUNTIME_MODEL_CATALOG_MAX,
 } from "../../internal/modelCatalog.js";
+import { resolveCodexCommand } from "./command.js";
 import { discoverCodexRecentContext } from "./recent-context.js";
 
 const SETTINGS_UPDATE_TIMEOUT_MS = 5_000;
@@ -93,15 +80,9 @@ export class CodexDriver implements BackendAdapter {
    * there is no prompt (a bare wake) — we don't start an empty turn.
    */
   private pendingInitialPrompt: string | null = null;
-  /**
-   * When spawn issued a `thread/resume`, the `thread/start` params to fall back
-   * to if that resume fails with "no rollout found" (the prior thread's rollout
-   * is gone). Null once we're not resuming, or once the fallback has fired. This
-   * powers the missing-rollout recovery in `normalizeLine`: re-issue a FRESH
-   * `thread/start` (no threadId) on the same live process, keeping
-   * `pendingInitialPrompt` so the fresh thread's `session_init` still delivers it.
-   */
-  private pendingResumeFallbackParams: Record<string, unknown> | null = null;
+  private requestedSessionId?: string;
+  private pendingInitialInputs: readonly InputReference[] = [];
+  private readonly pendingInputs = new Map<number, { inputs: readonly InputReference[]; steer: boolean; settled?: boolean }>();
   private readonly pendingSettingsUpdates = new Map<number, {
     resolve(result: RuntimeSettingsUpdateResult): void;
     timer: ReturnType<typeof setTimeout>;
@@ -139,12 +120,13 @@ export class CodexDriver implements BackendAdapter {
     // package resolves but the aarch64 blob is absent) fails there even
     // though resolveCommandOnPath returned a JS wrapper; probing the resolved
     // command keeps runtime health tied to what can actually execute.
-    const result = await probeCliRuntime("codex", {}, command);
+    const selected = resolveCodexCommand(command);
+    const result = await probeCliRuntime("codex", {}, selected);
     if (result.status !== "healthy") return result;
     if (!includeModels) return result;
     return {
       ...result,
-      reasoning: await this.probeReasoningCatalog(command),
+      reasoning: await this.probeReasoningCatalog(selected),
     };
   }
 
@@ -282,7 +264,7 @@ export class CodexDriver implements BackendAdapter {
     // host could surface "missing rollout" recovery — see classifyCodexResumeError).
     this.codexHomeRoot = resolveCodexHomeRootFromEnv(spawnEnv, { cwd: ctx.workingDirectory });
     // Cross-platform spawn: on Windows the codex entry is often a `.cmd` shim.
-    const override = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command;
+    const override = resolveCodexCommand(resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command);
     const spec = resolveSpawnSpec("codex", ["app-server", "--listen", "stdio://"], override);
     const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
@@ -301,6 +283,8 @@ export class CodexDriver implements BackendAdapter {
     // (a bare wake with no message) → no pending prompt, so no empty turn.
     const initialPrompt = ctx.prompt?.trim() ? ctx.prompt : null;
     this.pendingInitialPrompt = initialPrompt;
+    this.pendingInitialInputs = ctx.inputs ?? [];
+    this.requestedSessionId = ctx.config.sessionId;
 
     // Async handshake: initialize, then thread/start|resume. This ONLY sets up
     // the thread — the user prompt is delivered later (see `normalizeLine`), because
@@ -318,9 +302,6 @@ export class CodexDriver implements BackendAdapter {
 
       const f = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig);
       const resuming = Boolean(ctx.config.sessionId);
-      // Fresh-thread params (no threadId) — used directly for a fresh spawn, and
-      // stashed as the resume fallback so a "no rollout found" resume can retry
-      // as a fresh thread (see normalizeLine).
       const freshParams: Record<string, unknown> = {
         cwd: ctx.workingDirectory,
         approvalPolicy: "never",
@@ -333,7 +314,6 @@ export class CodexDriver implements BackendAdapter {
       if (f.fastMode) freshParams.serviceTier = "fast";
 
       if (resuming) {
-        this.pendingResumeFallbackParams = freshParams;
         proc.stdin?.write(
           jsonRpcRequest("thread/resume", { ...freshParams, threadId: ctx.config.sessionId }, this.nextRequestId()) + "\n",
         );
@@ -346,73 +326,41 @@ export class CodexDriver implements BackendAdapter {
     return { process: proc };
   }
 
-  /**
-   * Parse a stdout line AND, as a one-time side-effect, deliver the initial
-   * prompt. This is NOT a pure parser: on the FIRST `session_init` (the thread
-   * id is now known) it writes the held `pendingInitialPrompt` as a `turn/start`
-   * to stdin, then clears it (submit-once latch). This is where the initial user
-   * message actually reaches Codex — the spawn handshake only starts the thread.
-   *
-   * The latch also makes the double `session_init` harmless: `thread/start`
-   * emits one from its result and one from the `thread/started` notification, so
-   * without the latch we'd submit the prompt twice. Resume takes the same path
-   * (thread/resume's result also yields `session_init`), so no separate branch.
-   *
-   * SECOND side-effect — missing-rollout recovery: if a `thread/resume` fails
-   * with "no rollout found" (the prior thread's rollout is gone), Codex emits an
-   * `error` event and NO `session_init`. We re-issue a FRESH `thread/start` on
-   * the same live process and swallow the error so the manager doesn't fault the
-   * turn. `pendingInitialPrompt` is deliberately kept, so the fresh thread's
-   * `session_init` delivers it via the latch above. Without this, a stale
-   * sessionId wedges the bot: resume errors out, no turn ever runs.
-   */
   normalizeLine(line: string): AdapterEvent[] {
-    const settingsResponse = this.consumeSettingsUpdateResponse(line);
-    if (settingsResponse) return [];
-    const parsed = tryParseJsonLine(line) as { id?: unknown; method?: unknown } | null;
-    const events = this.eventNormalizer.normalizeLine(line);
-    if (
-      typeof parsed?.id === "number"
-      && this.pendingAccountReadRequestIds.delete(parsed.id)
-    ) {
-      // Establish (and, if needed, rotate) the account-scoped source epoch
-      // before asking for limits. Issuing both RPCs concurrently can associate
-      // a fast quota response with the previous account after an account swap.
-      this.requestQuotaSnapshot();
+    if (this.consumeSettingsUpdateResponse(line)) return [];
+    const parsed = tryParseJsonLine(line) as { id?: number; method?: string; error?: { message?: string }; result?: unknown } | null;
+    const pending = typeof parsed?.id === "number" ? this.pendingInputs.get(parsed.id) : undefined;
+    if (pending && parsed) {
+      if (pending.settled) return [];
+      this.pendingInputs.set(parsed.id!, { inputs: [], steer: pending.steer, settled: true });
+      if (pending.steer && parsed.error) return [{ kind: "input_returned", inputs: pending.inputs, evidence: "explicitly_rejected", reason: parsed.error.message ?? "Codex rejected steering", retryable: true }];
+      if (!parsed.error && pending.steer) return [{ kind: "input_observed", inputs: pending.inputs, evidence: "native_ack" }];
     }
+    const events = this.eventNormalizer.normalizeLine(line);
+    if (typeof parsed?.id === "number" && this.pendingAccountReadRequestIds.delete(parsed.id)) this.requestQuotaSnapshot();
     if (parsed?.method === "account/updated") this.requestAccountQuotaSnapshot();
-
-    // Missing-rollout resume recovery — before any session_init is adopted.
-    if (this.pendingResumeFallbackParams && this.proc?.stdin && !this.proc.stdin.destroyed) {
-      const rolloutErr = events.find(
-        (e) => e.kind === "error" && isCodexMissingRolloutError(e.message),
-      );
-      if (rolloutErr) {
-        const fallback = this.pendingResumeFallbackParams;
-        this.pendingResumeFallbackParams = null;
-        // Fresh thread/start (no threadId). Keep pendingInitialPrompt so the new
-        // thread's session_init delivers it. Swallow the resume error so it's
-        // not surfaced as a runtime_error fault.
-        this.proc.stdin.write(jsonRpcRequest("thread/start", fallback, this.nextRequestId()) + "\n");
-        return events.filter((e) => e !== rolloutErr);
+    if (this.requestedSessionId) {
+      const failure = events.find((event) => event.kind === "error" && isCodexMissingRolloutError(event.message));
+      if (failure?.kind === "error") {
+        this.pendingInitialPrompt = null;
+        return [{ ...failure, code: "reset_required", scope: "session" }];
       }
     }
-
-    if (this.pendingInitialPrompt !== null && events.some((e) => e.kind === "session_init")) {
+    for (const event of events) {
+      if (event.kind !== "session_init") continue;
+      if (this.requestedSessionId && event.sessionId !== this.requestedSessionId) {
+        this.pendingInitialPrompt = null;
+        return [{ kind: "error", code: "reset_required", scope: "session", message: "Codex did not restore the requested thread" }];
+      }
+      event.acquisition = { status: this.requestedSessionId ? "resumed" : "created", evidence: "native_api" };
+    }
+    if (this.pendingInitialPrompt !== null && events.some((event) => event.kind === "session_init")) {
       const threadId = this.eventNormalizer.currentSessionId;
-      // Defensive: the process is normally alive when its own stdout is being
-      // parsed, but guard the write so a mid-teardown line can't throw.
       if (threadId && this.proc?.stdin && !this.proc.stdin.destroyed) {
-        this.proc.stdin.write(this.buildTurnStart(threadId, this.pendingInitialPrompt) + "\n");
+        this.proc.stdin.write(this.buildTurnStart(threadId, this.pendingInitialPrompt, this.pendingInitialInputs) + "\n");
         this.pendingInitialPrompt = null;
       }
     }
-
-    // A successful thread adoption means resume didn't fail — drop the fallback.
-    if (events.some((e) => e.kind === "session_init")) {
-      this.pendingResumeFallbackParams = null;
-    }
-
     return events;
   }
 
@@ -484,7 +432,7 @@ export class CodexDriver implements BackendAdapter {
     this.pendingSettingsUpdates.delete(record.id);
     const error = record.error;
     if (!error || typeof error !== "object") {
-      pending.resolve({ status: "applied" });
+      pending.resolve({ status: "acknowledged", effective: "next_turn" });
       return true;
     }
     const rpcError = error as Record<string, unknown>;
@@ -555,26 +503,25 @@ export class CodexDriver implements BackendAdapter {
   }
 
   /** A `turn/start` RPC — the sole encoder for starting a fresh Codex turn. */
-  private buildTurnStart(threadId: string, text: string): string {
-    return jsonRpcRequest("turn/start", { threadId, input: [{ type: "text", text }] }, this.nextRequestId());
+  private buildTurnStart(threadId: string, text: string, inputs: readonly InputReference[] = []): string {
+    const id = this.nextRequestId();
+    this.pendingInputs.set(id, { inputs, steer: false });
+    return jsonRpcRequest("turn/start", { threadId, input: [{ type: "text", text }] }, id);
   }
 
   /** busy → `turn/steer` against the active turn; idle → fresh `turn/start`. */
   encodeMessage(text: string, sessionId: string | null, opts?: EncodeMessageOptions): string | null {
     const threadId = sessionId ?? this.eventNormalizer.currentSessionId;
     if (!threadId) return null;
-    if (opts?.mode === "idle") return this.buildTurnStart(threadId, text);
-    // Steer the in-flight turn. Codex requires `expectedTurnId` = the active
-    // turn's id (from turn/started's params.turn.id); without it it rejects the
-    // steer with "missing field expectedTurnId". If we somehow have no live turn
-    // id (raced past turn/completed), fall back to a fresh turn/start rather than
-    // send an invalid steer.
+    if (opts?.mode === "idle") return this.buildTurnStart(threadId, text, opts?.inputs);
     const turnId = this.eventNormalizer.currentTurnId;
-    if (!turnId) return this.buildTurnStart(threadId, text);
+    if (!turnId) return null;
+    const id = this.nextRequestId();
+    this.pendingInputs.set(id, { inputs: opts?.inputs ?? [], steer: true });
     return jsonRpcRequest(
       "turn/steer",
       { threadId, expectedTurnId: turnId, input: [{ type: "text", text }] },
-      this.nextRequestId(),
+      id,
     );
   }
 

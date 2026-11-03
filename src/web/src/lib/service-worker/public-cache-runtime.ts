@@ -1,6 +1,7 @@
 import { CacheFirst, ExpirationPlugin, NetworkFirst, type RuntimeCaching, type SerwistPlugin } from "serwist"
 import { publicWorkerRuntimeCacheNames } from "./cache-identity"
 import { isPublicAssetRequest, isPublicAssetResponse, publicRuntimeAssetKind } from "./public-cache"
+import { createPublicWorkerScriptResponsePlugin } from "./worker-script-response"
 
 export type PublicRuntimeLimits = Record<keyof ReturnType<typeof publicWorkerRuntimeCacheNames>, { maxEntries: number; maxAgeSeconds: number }>
 
@@ -38,6 +39,7 @@ export function createPublicRuntimeCaching(origin: string, limits: PublicRuntime
       cacheName: names[kind],
       fetchOptions: { credentials: "omit", redirect: "error", ...(kind === "images" ? { cache: "no-cache" as const } : {}) },
       plugins: [
+        createPublicWorkerScriptResponsePlugin(origin),
         { cacheWillUpdate: async ({ request, response }) => isPublicAssetResponse(request, response) ? response : null },
         waitForStaleExpiration(new ExpirationPlugin({ ...limits[kind] })),
       ],

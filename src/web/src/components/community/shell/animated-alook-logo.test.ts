@@ -1,3 +1,4 @@
+import animationSource from "./animated-alook-logo.tsx?raw"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
@@ -65,9 +66,7 @@ describe("AnimatedAlookLogo", () => {
   })
 
   it("declares desktop, mobile, reduced-motion, pointer, and keyboard behavior", async () => {
-    const source = await import("node:fs/promises").then(({ readFile }) =>
-      readFile(new URL("./animated-alook-logo.tsx", import.meta.url), "utf8"),
-    )
+    const source = animationSource
 
     expect(source).toContain('(max-width: 639px)')
     expect(source).toContain('(prefers-reduced-motion: reduce)')

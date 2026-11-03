@@ -8,7 +8,10 @@ import { createShardManifest, verifyArtifactClosure, verifyMergedReport } from "
 const root = resolve(import.meta.dirname, "../..")
 const extractor = join(root, "scripts/ci/extract-report-artifacts.py")
 const temporary: string[] = []
-const matrix = { include: [{ shard: 1, total: 1, specs: ["a.spec.ts"] }] }
+const caseKey = (file: string) => JSON.stringify([file, "chromium", "case"])
+const row = (file: string, shard: number, total: number) => ({ shard, total, specs: [file], native_shard: shard, native_total: total, case_keys: [caseKey(file)] })
+const matrix = { include: [row("a.spec.ts", 1, 1)] }
+const singleReport = { errors: [], suites: [{ file: "a.spec.ts", specs: [{ title: "case", tests: [{ projectName: "chromium" }] }] }] }
 
 afterEach(() => {
   for (const directory of temporary.splice(0)) rmSync(directory, { recursive: true, force: true })
@@ -77,7 +80,8 @@ print(json.dumps({"blob": base64.b64encode(blob).decode(), "early": early, "boun
 
 function archive(directory: string, options: Record<string, unknown> = {}, shard = 1, total = 1, attempt = 1) {
   mkdirSync(directory, { recursive: true })
-  const manifest = createShardManifest({ runId: "run-1", attempt, sha: "source-sha", shard, total, specs: [`${shard === 1 ? "a" : "b"}.spec.ts`] })
+  const file = `${shard === 1 ? "a" : "b"}.spec.ts`
+  const manifest = createShardManifest({ runId: "run-1", attempt, sha: "source-sha", shard, total, specs: [file], nativeShard: shard, nativeTotal: total, caseKeys: [caseKey(file)] })
   const result = execFileSync("python3", ["-c", fixtureBuilder, join(directory, "opaque-download"), JSON.stringify(manifest), JSON.stringify(options)], { encoding: "utf8" })
   return { manifest, ...JSON.parse(result) as { blob: string; early: number | null; boundary: number | null } }
 }
@@ -100,7 +104,7 @@ describe("central-directory report artifact extraction", () => {
     expect(JSON.parse(readFileSync(join(output, "e2e-shard-manifest/shard-manifest.json"), "utf8"))).toEqual(expected.manifest)
     expect(readFileSync(join(raw, "opaque-download"))).toEqual(before)
     expect(verifyArtifactClosure({ root: output, output: join(directory, "verified"), matrix, runId: "run-1", attempt: 1, sha: "source-sha", executedShards: new Set([1]) }).manifests).toEqual([expected.manifest])
-    expect(verifyMergedReport({ report: { suites: [{ file: "a.spec.ts" }] }, matrix })).toEqual(["a.spec.ts"])
+    expect(verifyMergedReport({ report: singleReport, matrix })).toEqual(["a.spec.ts"])
   })
 
   it("retains named multi-artifact directories and the original source, spec and attempt guards", () => {
@@ -110,13 +114,13 @@ describe("central-directory report artifact extraction", () => {
     archive(join(raw, "blob-report-run-1-2"), { directories: true }, 2, 2, 2)
     const output = join(directory, "extracted")
     expect(extract(raw, output).status).toBe(0)
-    const two = { include: [...matrix.include.map(entry => ({ ...entry, total: 2 })), { shard: 2, total: 2, specs: ["b.spec.ts"] }] }
+    const two = { include: [row("a.spec.ts", 1, 2), row("b.spec.ts", 2, 2)] }
     const args = { root: output, output: join(directory, "verified"), matrix: two, runId: "run-1", attempt: 2, sha: "source-sha", executedShards: new Set([2]) }
     expect(verifyArtifactClosure(args).manifests.map(item => item.attempt)).toEqual([1, 2])
     expect(() => verifyArtifactClosure({ ...args, sha: "wrong" })).toThrow("SHA mismatch")
     expect(() => verifyArtifactClosure({ ...args, executedShards: new Set([1, 2]) })).toThrow("artifact is stale")
-    expect(() => verifyArtifactClosure({ ...args, matrix: { include: [two.include[0], { ...two.include[1], specs: ["wrong.spec.ts"] }] } })).toThrow("specs mismatch")
-    expect(() => verifyMergedReport({ report: { suites: [{ file: "a.spec.ts" }] }, matrix: two })).toThrow("merged report spec set mismatch")
+    expect(() => verifyArtifactClosure({ ...args, matrix: { include: [two.include[0], { ...two.include[1], specs: ["wrong.spec.ts"], case_keys: [caseKey("wrong.spec.ts")] }] } })).toThrow("specs mismatch")
+    expect(() => verifyMergedReport({ report: singleReport, matrix: two })).toThrow("merged report spec set mismatch")
   })
 
   it.each(["../escape.zip", "/escape.zip", "blob-report/../escape.zip", "blob-report\\escape.zip", "C:/escape.zip", "blob-report/./report.zip"])("rejects unsafe member %s before publishing output", member => {

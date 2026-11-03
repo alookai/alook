@@ -1,10 +1,21 @@
-import { readFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import source0 from "../../ui/confirm-dialog.tsx?raw"
+import source1 from "../bots/bot-activity-modal.tsx?raw"
+import source2 from "./field.tsx?raw"
+import source3 from "./server-settings.tsx?raw"
+import source4 from "./user-settings.tsx?raw"
 import { describe, expect, it } from "vitest"
 
-const settingsDirectory = dirname(fileURLToPath(import.meta.url))
-const readSettings = (file: string) => readFileSync(resolve(settingsDirectory, file), "utf8")
+const sources: Record<string, string> = {
+  "../../ui/confirm-dialog.tsx": source0,
+  "../bots/bot-activity-modal.tsx": source1,
+  "field.tsx": source2,
+  "server-settings.tsx": source3,
+  "user-settings.tsx": source4,
+}
+const readSettings = (path: string) => {
+  if (!(path in sources)) throw new Error("unregistered contract source: " + path)
+  return sources[path]
+}
 
 describe("settings refinement", () => {
   it("shows only the injected Web version as quiet Advanced footer metadata", () => {
@@ -50,8 +61,8 @@ describe("settings refinement", () => {
 
   it("keeps settings and log controls at least 44px tall on mobile", () => {
     const server = readSettings("server-settings.tsx")
-    const activity = readFileSync(resolve(settingsDirectory, "../bots/bot-activity-modal.tsx"), "utf8")
-    const confirm = readFileSync(resolve(settingsDirectory, "../../ui/confirm-dialog.tsx"), "utf8")
+    const activity = readSettings("../bots/bot-activity-modal.tsx")
+    const confirm = readSettings("../../ui/confirm-dialog.tsx")
 
     expect(server).toContain("grid size-11 shrink-0")
     expect(server).toContain("size-11 text-muted-foreground hover:text-destructive")

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import rawContractInput0 from "../../migrations/0068_dm_to_channel.sql?raw"
 import { afterEach, expect, it } from "vitest"
 import { createRequire } from "node:module"
 import { queries } from "@alook/shared"
@@ -18,7 +18,7 @@ function fixture() {
 }
 it("retains the actual migration's two notification partial unique constraints", () => {
   const { sqlite } = fixture()
-  const migration = readFileSync(new URL("../../migrations/0068_dm_to_channel.sql", import.meta.url), "utf8")
+  const migration = rawContractInput0
   const statements = migration.split("\n").filter(line => line.startsWith("CREATE UNIQUE INDEX idx_notification_setting_user_"))
   expect(statements).toHaveLength(2)
   for (const sql of statements) {

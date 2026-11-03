@@ -13,10 +13,14 @@ import { ADAPTER_AUTHOR_CONTRACT_VERSION } from "./adapter-author.js";
  * without updating `capabilities`) trips CI.
  */
 const EXPECTED: Record<BuiltinBackendId, BackendCapabilities> = {
+  qoder: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
+  copilot: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
+  "cursor-sdk": { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: false, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
+  "pi-durable": { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: false, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
   agy: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: false },
   antigravity: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: true },
-  claude: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true, disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
-  codex: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
+  claude: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true, disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
+  codex: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
   cursor: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
   grok: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
   opencode: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
@@ -29,9 +33,13 @@ describe("driver.capabilities", () => {
   });
 
   it("pins the orthogonal built-in execution matrix and adapter-author version", () => {
-    expect(ADAPTER_AUTHOR_CONTRACT_VERSION).toBe(1);
+    expect(ADAPTER_AUTHOR_CONTRACT_VERSION).toBe(2);
     const registry = createBuiltinAgentDriverRegistry();
     const expected = {
+      "qoder": { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "qoder.sdk-worker.v1" }, wakeStart: "immediate", terminalOwnership: "prompt_invocation" },
+      "copilot": { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "copilot.sdk-worker.v1" }, wakeStart: "immediate", terminalOwnership: "prompt_invocation" },
+      "cursor-sdk": { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "cursor-sdk.sdk-worker.v1" }, wakeStart: "immediate", terminalOwnership: "prompt_invocation" },
+      "pi-durable": { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "pi-durable.sdk-worker.v1" }, wakeStart: "immediate", terminalOwnership: "prompt_invocation" },
       agy: { lifetime: "session", transport: { kind: "stdio_stream", protocol: "agy.stream-json.v1" }, wakeStart: "immediate", terminalOwnership: "vendor_message" },
       antigravity: { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "antigravity.acp.v1" }, wakeStart: "immediate", terminalOwnership: "transport_request" },
       claude: {
@@ -79,7 +87,7 @@ describe("driver.capabilities", () => {
     } as const;
     for (const id of BUILTIN_BACKEND_IDS) {
       const registration = registry.get(id);
-      expect(registration.contractVersion).toBe(1);
+      expect(registration.contractVersion).toBe(2);
       expect(registration.createAdapter().execution).toEqual(expected[id]);
     }
   });
@@ -95,7 +103,7 @@ describe("adapter registration runtime boundary", () => {
     }] as never)).toThrow("non-empty id");
     const registration = {
       id: "sixth",
-      contractVersion: 1 as const,
+      contractVersion: 2 as const,
       capabilities: EXPECTED.claude,
       createAdapter: () => ({}),
     };
@@ -105,7 +113,7 @@ describe("adapter registration runtime boundary", () => {
   it("accepts the public suggestion_only model-selection capability for extension adapters", () => {
     const registration = {
       id: "sixth",
-      contractVersion: 1 as const,
+      contractVersion: 2 as const,
       capabilities: { ...EXPECTED.claude, modelSelection: "suggestion_only" },
       createAdapter: () => ({}),
     };
@@ -115,7 +123,7 @@ describe("adapter registration runtime boundary", () => {
   it("rejects each malformed registration capability and adapter shape at runtime", () => {
     const valid = {
       id: "sixth",
-      contractVersion: 1 as const,
+      contractVersion: 2 as const,
       capabilities: EXPECTED.claude,
       createAdapter: () => new (class {
         id = "sixth";
@@ -146,11 +154,11 @@ describe("adapter registration runtime boundary", () => {
   it("fails closed for missing, old, and unknown adapter-author contract versions", () => {
     const valid = {
       id: "sixth",
-      contractVersion: 1,
+      contractVersion: 2,
       capabilities: EXPECTED.claude,
       createAdapter: () => ({}),
     };
-    for (const contractVersion of [undefined, 0, 2]) {
+    for (const contractVersion of [undefined, 0, 1, 3]) {
       expect(() => createAgentDriverRegistry([{ ...valid, contractVersion }] as never))
         .toThrow("unsupported adapter-author contract version");
     }

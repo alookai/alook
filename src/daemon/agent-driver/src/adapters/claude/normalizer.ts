@@ -86,6 +86,18 @@ export class ClaudeEventNormalizer {
   normalizeLine(line: string): AdapterEvent[] {
     const event = tryParseJsonLine(line) as any;
     if (!event) return [];
+    if (typeof event.parent_tool_use_id === "string" && event.parent_tool_use_id) {
+      const attribution = { scope: "child", parentCallId: event.parent_tool_use_id } as const;
+      const activity: AdapterEvent[] = [];
+      for (const block of event.message?.content ?? []) {
+        if (block.type === "text") activity.push({ kind: "assistant_message_completed", text: block.text, attribution });
+        else if (block.type === "thinking") activity.push({ kind: "assistant_reasoning_completed", text: block.thinking, attribution });
+        else if (block.type === "tool_use") activity.push({ kind: "tool_call", callId: block.id, name: block.name, input: block.input, attribution });
+        else if (block.type === "tool_result") activity.push({ kind: "tool_output", callId: block.tool_use_id, name: "", outcome: block.is_error ? "failed" : "success", output: block.content, attribution });
+      }
+      if (event.type === "result") activity.push({ kind: "turn_end", outcome: event.is_error ? "failed" : "success", attribution });
+      return activity;
+    }
     if (event?.session_id) this.currentSession = event.session_id;
 
     const out: AdapterEvent[] = [];
@@ -108,6 +120,7 @@ export class ClaudeEventNormalizer {
 
   private handleSystem(event: any, out: AdapterEvent[]): void {
     if (event.subtype === "init") {
+      if (typeof event.model === "string") out.push({ kind: "configuration_observed", observation: { evidence: "observed", effective: "current", model: event.model } });
       out.push({ kind: "session_init", sessionId: event.session_id ?? this.currentSession ?? "" });
       return;
     }
@@ -143,7 +156,7 @@ export class ClaudeEventNormalizer {
         }
         else completedText.push(text);
       } else if (block?.type === "tool_use") {
-        out.push({ kind: "tool_call", name: block.name ?? "unknown_tool", input: block.input });
+        out.push({ kind: "tool_call", ...(typeof block.id === "string" ? { callId: block.id } : {}), name: block.name ?? "unknown_tool", input: block.input });
       }
     }
     if (completedText.length > 0) {
@@ -154,12 +167,14 @@ export class ClaudeEventNormalizer {
   private handleUser(event: any, out: AdapterEvent[]): void {
     if (event.isReplay === true && typeof event.uuid === "string") {
       this.turnProtocol?.acknowledge(event.uuid);
+      const inputs = this.turnProtocol?.inputReferences(event.uuid) ?? [];
+      if (inputs.length) out.push({ kind: "input_observed", inputs, evidence: "user_message" });
     }
     if (!this.acceptsTurnWork()) return;
     const content = event?.message?.content;
     if (!Array.isArray(content)) return;
     for (const block of content) {
-      if (block?.type === "tool_result") out.push({ kind: "tool_output", name: "" });
+      if (block?.type === "tool_result") out.push({ kind: "tool_output", ...(typeof block.tool_use_id === "string" ? { callId: block.tool_use_id } : {}), name: "", outcome: block.is_error ? "failed" : "success", output: block.content });
     }
   }
 
@@ -192,7 +207,7 @@ export class ClaudeEventNormalizer {
       kind: "turn_end",
       sessionId: event.session_id ?? this.currentSession ?? undefined,
       ...(turnOwner ? { turnOwner } : {}),
-      ...(interruptedTerminal ? { outcome: "interrupted" as const } : {}),
+      outcome: interruptedTerminal ? "interrupted" : event.is_error || CLAUDE_RESULT_ERROR_CODES.has(event.subtype) ? "failed" : event.subtype === "success" ? "success" : "unknown",
     });
   }
 

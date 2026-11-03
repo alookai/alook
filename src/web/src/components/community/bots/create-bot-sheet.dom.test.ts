@@ -14,7 +14,7 @@ import type { CommunityMachineSummary, RuntimeReasoningCatalog } from "@alook/sh
 import { hasBotCreateFieldErrors, validateBotCreateFields } from "./bot-form-validation"
 
 it("guards programmatic create submissions while preserving other backend defaults", () => {
-  for (const [runtime, model, invalid] of [["opencode", null, true], ["opencode", "   ", true], ["opencode", "provider/custom", false], ["codex", null, false]] as const) {
+  for (const [runtime, model, invalid] of [["opencode", null, true], ["opencode", "   ", true], ["opencode", "provider/custom", false], ["pi-durable", null, true], ["pi-durable", "  ", true], ["pi-durable", "provider/custom", false], ["cursor-sdk", null, true], ["cursor-sdk", "  ", true], ["cursor-sdk", "provider/custom", false], ["codex", null, false]] as const) {
     const errors = validateBotCreateFields({ name: "Bot", machineId: "mac", runtime, model })
     expect(hasBotCreateFieldErrors(errors)).toBe(invalid)
     expect(errors.model).toBe(invalid ? "Choose a model before saving" : undefined)
@@ -229,9 +229,9 @@ describe("CreateBotSheet — auto-select defaults", () => {
     expect(botFormFieldsRenders.at(-1)?.avatarDraft.image).toBe("avatar:beam:guide-face-7")
   })
 
-  it.each([false, true])("requires an explicit OpenCode model, including guided creation=%s", async (guided) => {
+  it.each([["opencode", false], ["opencode", true], ["pi-durable", false], ["pi-durable", true], ["cursor-sdk", false], ["cursor-sdk", true]] as const)("requires an explicit %s model, including guided creation=%s", async (runtime, guided) => {
     useMachinesMock.mockReturnValue({ machines: [machine({ id: "mac", availableRuntimes: [{
-      id: "opencode", status: "healthy", reasoning: {
+      id: runtime, status: "healthy", reasoning: {
         updateMode: "unsupported", defaultModelId: "provider/picked", models: [{ id: "provider/picked", supportedReasoningEfforts: [] }],
       },
     }] })] })
@@ -244,7 +244,7 @@ describe("CreateBotSheet — auto-select defaults", () => {
     fireEvent.click(renderer.getByTestId("set-model"))
     expect(create).toBeEnabled()
     await act(async () => { fireEvent.click(create); await Promise.resolve() })
-    expect(createMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ runtime: "opencode", model: "provider/picked" }))
+    expect(createMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ runtime, model: "provider/picked" }))
   })
 
   it("pre-checks the machine and runtime with one online machine + one healthy runtime", () => {

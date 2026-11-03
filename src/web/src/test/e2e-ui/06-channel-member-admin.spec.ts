@@ -25,6 +25,10 @@ test.describe("channel & member admin", () => {
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     // She's redirected away from the server she can't access.
     await expect(page).not.toHaveURL(new RegExp(`/channels/${serverId}/${channelId}$`), { timeout: 20_000 })
+    await expect(page.getByTestId(tid.userBar)).toBeVisible()
+    await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)
+    const denied = await page.request.get(`/api/community/channels/${channelId}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS })
+    expect(denied.status()).toBe(403)
   })
 
   test("the member list shows server members", async ({ caseActors }) => {

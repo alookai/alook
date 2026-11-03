@@ -80,15 +80,6 @@ function createDbMock(opts: {
   return { db, insertCalls, selectCalls };
 }
 
-describe("community/server exports", () => {
-  it("exports createServer", () => {
-    expect(typeof serverQueries.createServer).toBe("function");
-  });
-
-  it("exports the old-value icon CAS", () => {
-    expect(typeof serverQueries.updateServerIconIfCurrent).toBe("function");
-  });
-});
 
 describe("updateServerIconIfCurrent", () => {
   function updateDb(rows: unknown[]) {

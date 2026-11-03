@@ -1,12 +1,21 @@
-import { readFileSync } from "node:fs"
+import contractText0 from "../messages/message-share-dialog.tsx?raw"
+import contractText1 from "../messages/message.tsx?raw"
+import contractText2 from "./community-invite-card.tsx?raw"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { resolveInviteCardPresentation } from "./community-invite-card"
 
 const componentDirectory = dirname(fileURLToPath(import.meta.url))
-const readComponent = (name: string) =>
-  readFileSync(resolve(componentDirectory, name), "utf8")
+const contractSources: Record<string, string> = {
+  "../messages/message-share-dialog.tsx": contractText0,
+  "../messages/message.tsx": contractText1,
+  "community-invite-card.tsx": contractText2,
+}
+const readComponent = (path: string) => {
+  if (!(path in contractSources)) throw new Error("unregistered contract source: " + path)
+  return contractSources[path]
+}
 
 describe("resolveInviteCardPresentation", () => {
   it("keeps sender state stable and non-interactive", () => {

@@ -199,7 +199,7 @@ export class CodexEventNormalizer {
   }
 
   private adoptAndInit(threadId: string): AdapterEvent[] {
-    if (this.threadId !== null && threadId !== this.threadId) return [];
+    if (this.threadId !== null && threadId !== this.threadId) return this.offRootActivity("thread/started", { threadId });
     const firstSight = threadId !== this.sessionInitEmittedFor;
     this.threadId = threadId;
     if (!firstSight) return [];
@@ -241,7 +241,9 @@ export class CodexEventNormalizer {
     }
 
     if (msg?.result?.thread?.id) {
-      return this.adoptAndInit(msg.result.thread.id);
+      const events = this.adoptAndInit(msg.result.thread.id);
+      if (typeof msg.result.model === "string") events.push({ kind: "configuration_observed", observation: { evidence: "observed", effective: "current", model: msg.result.model, ...(typeof msg.result.reasoningEffort === "string" || msg.result.reasoningEffort === null ? { reasoningEffort: msg.result.reasoningEffort } : {}) } });
+      return events;
     }
 
     if (msg?.method) return this.handleNotification(msg.method, msg.params ?? {});
@@ -258,7 +260,7 @@ export class CodexEventNormalizer {
     ) {
       const turnId = this.notificationTurnId(params);
       if (turnId) this.releaseUsageForTurn(notificationThreadId, turnId);
-      return [];
+      return this.offRootActivity(method, params);
     }
     if (
       method === "item/completed"
@@ -270,13 +272,13 @@ export class CodexEventNormalizer {
       if (turnId && itemType === "contextCompaction") {
         this.releaseUsageForTurn(notificationThreadId, turnId);
       }
-      return [];
+      return this.offRootActivity(method, params);
     }
     if (
       this.threadId !== null &&
       notificationThreadId !== null &&
       notificationThreadId !== this.threadId
-    ) return [];
+    ) return this.offRootActivity(method, params);
     if (this.isRootWorkNotification(method) && !this.acceptRootWork(params)) return [];
 
     switch (method) {
@@ -334,11 +336,11 @@ export class CodexEventNormalizer {
               code: codexErrorInfoCode(error?.codexErrorInfo, "codex.turn_failed"),
               message: error?.message ?? "Codex turn failed",
             },
-            { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) },
+            { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id), outcome: "failed" },
           ];
         }
         return [{ kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id),
-          ...(params.turn.status === "interrupted" ? { outcome: "interrupted" as const } : {}),
+          outcome: params.turn.status === "interrupted" ? "interrupted" : params.turn.status === "completed" ? "success" : "unknown",
         }];
 
       case "error":
@@ -484,6 +486,15 @@ export class CodexEventNormalizer {
     return false;
   }
 
+  private offRootActivity(method: string, params: any): AdapterEvent[] {
+    const attribution = { scope: "unknown" as const, agentId: params?.threadId, nativeTurnId: this.notificationTurnId(params) ?? undefined };
+    const events: AdapterEvent[] = method === "item/started" ? this.handleItemStarted(params)
+      : method === "item/completed" ? this.handleItemCompleted(params)
+      : method === "item/agentMessage/delta" ? [{ kind: "assistant_message_delta", text: params.delta ?? "" }]
+      : [{ kind: "internal_progress", source: "codex", itemType: method }];
+    return events.map(event => ({ ...event, attribution }));
+  }
+
   private handleItemStarted(params: any): AdapterEvent[] {
     const t = params?.item?.type ?? params?.type;
     const callId = this.itemCallId(params);
@@ -512,21 +523,25 @@ export class CodexEventNormalizer {
     const t = params?.item?.type ?? params?.type;
     const callId = this.itemCallId(params);
     const identity = callId ? { callId } : {};
+    const item = params?.item;
+    const outcome = item?.status === "failed" || item?.exitCode != null && item.exitCode !== 0 ? "failed"
+      : item?.status === "completed" || item?.exitCode === 0 ? "success" : "unknown";
+    const result = { outcome, output: item?.aggregatedOutput ?? item?.result ?? item?.output } as const;
     switch (t) {
       case "commandExecution":
-        return [{ kind: "tool_output", ...identity, name: "shell" }];
+        return [{ kind: "tool_output", ...identity, ...result, name: "shell" }];
       case "contextCompaction":
         return [{ kind: "compaction_finished" }];
       case "exitedReviewMode":
         return [{ kind: "review_finished" }];
       case "fileChange":
-        return [{ kind: "tool_output", ...identity, name: "file_change" }];
+        return [{ kind: "tool_output", ...identity, ...result, name: "file_change" }];
       case "mcpToolCall":
-        return [{ kind: "tool_output", ...identity, name: `mcp_${params?.item?.tool ?? params?.item?.name ?? "tool"}` }];
+        return [{ kind: "tool_output", ...identity, ...result, name: `mcp_${params?.item?.tool ?? params?.item?.name ?? "tool"}` }];
       case "webSearch":
-        return [{ kind: "tool_output", ...identity, name: "web_search" }];
+        return [{ kind: "tool_output", ...identity, ...result, name: "web_search" }];
       case "collabAgentToolCall":
-        return [{ kind: "tool_output", ...identity, name: "collab_tool_call" }];
+        return [{ kind: "tool_output", ...identity, ...result, name: "collab_tool_call" }];
       case "agentMessage":
         return [{ kind: "assistant_message_completed", text: params?.item?.text ?? "" }];
       case "reasoning": {

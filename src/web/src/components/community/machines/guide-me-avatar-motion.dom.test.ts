@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import staticContractInput0 from "../../../app/globals.css?raw"
 import { resolve } from "node:path"
 import React from "react"
 import { describe, expect, it, vi } from "vitest"
@@ -130,11 +130,7 @@ describe("first-signup guide avatar motion", () => {
   })
 
   it("uses phase easings for the one-shot NPC motion while the outline trace stays linear", () => {
-    const styles = readFileSync(resolve(
-      process.cwd(),
-      process.cwd().endsWith("/src/web") ? "" : "src/web",
-      "src/app/globals.css",
-    ), "utf8")
+    const styles = staticContractInput0
 
     expect(styles).toContain(
       "animation: community-guide-me-trace 6s linear infinite;",

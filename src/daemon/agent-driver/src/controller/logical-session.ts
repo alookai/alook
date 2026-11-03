@@ -4,6 +4,7 @@ import type {
   AgentMessage,
   AgentSession,
   AgentSessionResult,
+  AgentTurnResult,
   AgentSessionSnapshot,
   BackendId,
   CapabilitiesOf,
@@ -19,6 +20,11 @@ import type {
   StopReceipt,
   RuntimeSettingsUpdate,
   RuntimeSettingsUpdateResult,
+  InputReference,
+  InputReturnEvidence,
+  ExecutionOutcome,
+  SessionAcquisition,
+  RuntimeConfigurationObservation,
 } from "../contract.js";
 import type { AgentDriverHost } from "../contract.js";
 import type {
@@ -51,6 +57,13 @@ interface CommandRecord {
   method: "start" | "send";
   canonical: string;
   promise: Promise<DeliveryReceipt>;
+  message: AgentMessage;
+  attemptId: string;
+  ordinal: number;
+  admitted: boolean;
+  returned: boolean;
+  pendingReturn?: { evidence: InputReturnEvidence; reason: string; retryable: boolean };
+  observations: Set<"native_ack" | "user_message" | "conversation">;
 }
 
 interface SafeBoundaryDelivery {
@@ -88,6 +101,8 @@ interface ActiveTurn {
   pendingMessage: SemanticAssembler;
   pendingReasoning: SemanticAssembler;
   lastWorkHeartbeatAt: number | null;
+  outcome?: ExecutionOutcome;
+  stopReason?: string;
 }
 
 interface SemanticAssembler {
@@ -196,10 +211,14 @@ implements AgentSession<Specs, Id> {
 
   private state: SessionState = "new";
   private backendSessionId?: string;
+  private acquisition?: SessionAcquisition;
+  private configuration?: RuntimeConfigurationObservation;
   private lane: RuntimeLane | null = null;
   private activeTurn?: ActiveTurn;
   private readonly queued: QueuedCommand[] = [];
   private readonly commands = new Map<string, CommandRecord>();
+  private readonly latestCommands = new Map<string, CommandRecord>();
+  private commandOrdinal = 0;
   private readonly commandAdmittedAt = new Map<string, number>();
   private startedAdmitted = false;
   private eventSequence = 0;
@@ -307,7 +326,14 @@ implements AgentSession<Specs, Id> {
     const operation = this.settingsUpdateTail.then(async (): Promise<RuntimeSettingsUpdateResult> => {
       if (!this.lane?.updateSettings) return { status: "unsupported" };
       try {
-        return await this.lane.updateSettings(input);
+        const result = await this.lane.updateSettings(input);
+        const observation = result.status === "applied" && result.observed
+          ? { evidence: "observed" as const, effective: "next_turn" as const, reasoningEffort: result.observed.reasoningEffort }
+          : result.status === "applied" || result.status === "acknowledged"
+            ? { evidence: "acknowledged" as const, effective: result.status === "acknowledged" ? result.effective : "unknown" as const }
+            : { evidence: result.status === "unsupported" ? "unsupported" as const : "refused" as const, effective: "unknown" as const };
+        this.emit({ type: "configuration_observed", observation });
+        return result.status === "applied" && !result.observed ? { status: "acknowledged", effective: "unknown" } : result;
       } catch (error) {
         return {
           status: "failed",
@@ -316,7 +342,7 @@ implements AgentSession<Specs, Id> {
       }
     });
     this.settingsUpdateTail = operation.then((result) => {
-      if (result.status === "applied") {
+      if (result.status === "applied" || result.status === "acknowledged") {
         this.settingsUpdatePending = false;
         return;
       }
@@ -410,6 +436,8 @@ implements AgentSession<Specs, Id> {
 
   snapshot(): AgentSessionSnapshot {
     return {
+      ...(this.acquisition ? { acquisition: this.acquisition } : {}),
+      ...(this.configuration ? { configuration: this.configuration } : {}),
       sessionInstanceId: this.sessionInstanceId,
       state: this.state,
       backendSessionId: this.backendSessionId,
@@ -450,18 +478,33 @@ implements AgentSession<Specs, Id> {
   }
 
   private admit(method: "start" | "send", message: AgentMessage): Promise<DeliveryReceipt> {
-    const canonical = JSON.stringify(message);
-    const existing = this.commands.get(message.id);
+    const attemptId = message.attemptId ?? message.id;
+    const key = JSON.stringify([message.id, attemptId]);
+    const canonical = JSON.stringify([message.id, attemptId, message.kind, message.text, message.sequence ?? null, message.delivery ?? "auto"]);
+    const existing = this.commands.get(key);
     if (existing) {
       if (existing.method === method && existing.canonical === canonical) return existing.promise;
       return Promise.resolve({ status: "rejected", reason: "duplicate_conflict" });
     }
+    const previous = this.latestCommands.get(message.id);
+    if (previous && (!previous.returned || JSON.stringify([previous.message.kind, previous.message.text, previous.message.sequence]) !== JSON.stringify([message.kind, message.text, message.sequence]))) {
+      return Promise.resolve({ status: "rejected", reason: "duplicate_conflict" });
+    }
+    let resolve!: (receipt: DeliveryReceipt) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<DeliveryReceipt>((yes, no) => { resolve = yes; reject = no; });
+    const record: CommandRecord = {
+      method, canonical, promise, message: { ...message }, attemptId,
+      ordinal: previous?.ordinal ?? ++this.commandOrdinal, admitted: false, returned: false,
+      observations: new Set(),
+    };
+    this.commands.set(key, record);
+    this.latestCommands.set(message.id, record);
     this.commandAdmittedAt.set(message.id, this.metricNow());
-    const promise = this.admitFresh(method, message).then((receipt) => {
+    void this.admitFresh(method, message).then((receipt) => {
       if (receipt.status === "rejected") this.commandAdmittedAt.delete(message.id);
-      return receipt;
-    });
-    this.commands.set(message.id, { method, canonical, promise });
+      resolve(receipt);
+    }, reject);
     return promise;
   }
 
@@ -495,6 +538,7 @@ implements AgentSession<Specs, Id> {
       return this.startTurn([...prefix, message], "prompt");
     }
     if (this.state === "working" || this.state === "starting") {
+      if (message.delivery === "next_turn") return this.queue(message, "runtime_busy");
       if (this.behavior.midTurnDelivery === "steer" && this.activeTurn && this.lane) {
         return this.deliverSteer(message, this.activeTurn);
       }
@@ -575,7 +619,7 @@ implements AgentSession<Specs, Id> {
       try {
         let laneAdmission: LaneAdmission;
         if (reuseExistingLane) {
-          laneAdmission = await this.sendLane(text, "idle");
+          laneAdmission = await this.sendLane(text, "idle", messages);
         } else {
           const opened = await this.openLane(text, generation);
           if (!opened) {
@@ -636,6 +680,7 @@ implements AgentSession<Specs, Id> {
       workingDirectory: this.launch.workingDirectory,
       standingPrompt: this.launch.instructions,
       prompt,
+      inputs: this.inputReferences(this.turnAdmission?.messages ?? []),
       prepared: this.prepared,
       config: {
         sessionId: this.backendSessionId ?? this.launch.resumeSessionId,
@@ -681,6 +726,7 @@ implements AgentSession<Specs, Id> {
       text: prompt,
       sessionId: ctx.config.sessionId,
       terminalOwner: this.activeTurn?.terminalOwner,
+      inputs: this.inputReferences(this.turnAdmission?.messages ?? []),
     });
     if (!admission.ok) {
       if (admission.reason === "reset_required" || admission.reason === "incompatible_configuration") {
@@ -741,15 +787,42 @@ implements AgentSession<Specs, Id> {
   ): void {
     if (this.state === "closed" || this.state === "stopping" || this.finishing) return;
     if (this.isClosedPerTurnLaneTail(physicalOwner, generation)) return;
+    if (event.attribution?.scope === "child" || event.attribution?.scope === "unknown") {
+      this.emit({
+        type: "activity", attribution: event.attribution, kind: event.kind === "internal_progress" ? event.itemType ?? event.kind : event.kind,
+        ...("text" in event ? { text: boundedSemanticCompletion(event.text).text } : {}),
+        ...("callId" in event ? { callId: event.callId } : {}),
+        ...("name" in event ? { name: event.name } : {}),
+        ...("outcome" in event ? { outcome: event.outcome } : {}),
+        ...("output" in event ? { output: jsonValue(event.output) } : {}),
+      });
+      return;
+    }
     const turnId = this.activeTurn?.turnId ?? this.reopenClosedLaneForWork(event, physicalOwner, generation);
     switch (event.kind) {
+      case "input_returned":
+        for (const input of event.inputs) this.returnInput(input, event.evidence, event.reason, event.retryable === true);
+        return;
+      case "input_observed":
+        for (const input of event.inputs) {
+          const record = this.commands.get(JSON.stringify([input.commandId, input.attemptId]));
+          if (!record || record.returned || record.observations.has(event.evidence)) continue;
+          record.observations.add(event.evidence);
+          if (record.admitted) this.emit({ type: "input_observed", input, evidence: event.evidence });
+        }
+        return;
+      case "configuration_observed":
+        this.emit({ type: "configuration_observed", observation: event.observation });
+        return;
       case "session_init":
         if (this.launch.resumeSessionId && this.resumeOutcome === "pending") {
-          this.resumeOutcome = event.sessionId === this.launch.resumeSessionId ? "resumed" : "failed";
+          this.resumeOutcome = event.acquisition?.status === "resumed" && event.sessionId === this.launch.resumeSessionId ? "resumed" : event.sessionId !== this.launch.resumeSessionId ? "failed" : "unverified";
         }
         if (this.backendSessionId !== event.sessionId) {
           this.backendSessionId = event.sessionId;
           this.emit({ type: "session_started", backendSessionId: event.sessionId });
+          this.emit({ type: "session_acquired", backendSessionId: event.sessionId, acquisition: event.acquisition ?? { status: "unverified", evidence: "none" } });
+          if (!this.configuration) this.emit({ type: "configuration_observed", observation: { evidence: "unverified", effective: "unknown" } });
         }
         return;
       case "turn_owner":
@@ -838,6 +911,8 @@ implements AgentSession<Specs, Id> {
           turnId,
           ...(finishedCallId ? { callId: finishedCallId } : {}),
           name: event.name,
+          outcome: event.outcome ?? "unknown",
+          ...("output" in event ? { output: jsonValue(event.output) } : {}),
         });
         if (!this.toolBoundaryFlushDisabled) void this.flushSafeBoundaryQueue();
         return;
@@ -891,6 +966,10 @@ implements AgentSession<Specs, Id> {
         return;
       }
       case "error":
+        if (event.scope === "input" || event.scope === "operation" || event.scope === "diagnostic") {
+          this.emit({ type: "diagnostic", turnId, severity: "warning", source: this.backend, message: scrubDriverErrorMessage(event.message) });
+          return;
+        }
         this.toolBoundaryFlushDisabled = true;
         this.turnError = driverError(
           "process",
@@ -909,6 +988,8 @@ implements AgentSession<Specs, Id> {
       case "turn_end":
         if (!this.activeTurn?.terminalOwner || event.turnOwner !== this.activeTurn.terminalOwner) return;
         if (event.outcome === "interrupted") this.interruptedTurnId = this.activeTurn.turnId;
+        this.activeTurn.outcome = event.outcome ?? "unknown";
+        this.activeTurn.stopReason = event.stopReason;
         if (event.pendingContent === "discard") {
           this.activeTurn.pendingReasoning = emptySemanticAssembler();
           this.activeTurn.pendingMessage = emptySemanticAssembler();
@@ -1010,15 +1091,20 @@ implements AgentSession<Specs, Id> {
       this.backendSessionId = sessionId;
       this.emit({ type: "session_started", backendSessionId: sessionId });
     }
+    const result: AgentTurnResult = this.interruptedTurnId === active.turnId
+      ? { outcome: "interrupted", backendSessionId: this.backendSessionId }
+        : this.turnError
+          ? { outcome: "failed", backendSessionId: this.backendSessionId, error: this.turnError }
+          : active.outcome === "success"
+            ? { outcome: "success", backendSessionId: this.backendSessionId ?? "" }
+            : active.outcome === "failed"
+              ? { outcome: "failed", backendSessionId: this.backendSessionId, error: driverError("process", active.stopReason ? `native_${active.stopReason}` : "native_execution_failed", active.stopReason ? `Native execution stopped (${active.stopReason})` : "Native execution failed") }
+              : { outcome: "unknown", backendSessionId: this.backendSessionId };
     this.emit({
       type: "turn_completed",
       turnId: active.turnId,
       commandIds: active.commandIds,
-      result: this.interruptedTurnId === active.turnId
-        ? { outcome: "interrupted", backendSessionId: this.backendSessionId }
-        : this.turnError
-          ? { outcome: "failed", backendSessionId: this.backendSessionId, error: this.turnError }
-          : { outcome: "success", backendSessionId: this.backendSessionId ?? "" },
+      result: { ...result, ...(active.stopReason ? { stopReason: active.stopReason } : {}) },
     });
     if (physicalOwner) {
       this.closedLaneTombstone = {
@@ -1069,7 +1155,8 @@ implements AgentSession<Specs, Id> {
       && !this.reviewing
       && this.activeTurn !== undefined
       && this.lane !== null
-      && this.queued.length > 0;
+      && this.queued.length > 0
+      && this.queued[0]!.message.delivery !== "next_turn";
   }
 
   private async drainSafeBoundaryQueue(): Promise<void> {
@@ -1079,7 +1166,7 @@ implements AgentSession<Specs, Id> {
       const delivery: SafeBoundaryDelivery = { item, activeTurn, finalized: false };
       this.safeBoundaryDelivery = delivery;
       try {
-        await this.sendLane(item.message.text, "busy");
+        await this.sendLane(item.message.text, "busy", [item.message]);
       } catch (error) {
         if (error instanceof StructuredLaneAdmissionError && error.code === "runtime_busy") {
           this.queued.unshift(item);
@@ -1091,6 +1178,7 @@ implements AgentSession<Specs, Id> {
           delivery.finalized = true;
           this.emit({
             type: "command_failed",
+            scope: "input",
             commandId: item.message.id,
             turnId: activeTurn.turnId,
             error: driverError("process", "delivery_failed", String(error), true),
@@ -1123,6 +1211,7 @@ implements AgentSession<Specs, Id> {
     delivery.finalized = true;
     this.emit({
       type: "command_failed",
+      scope: "input",
       commandId: delivery.item.message.id,
       turnId: delivery.activeTurn.turnId,
       error: driverError(category, code, message),
@@ -1144,7 +1233,7 @@ implements AgentSession<Specs, Id> {
     admission.pendingEvents.length = 0;
     if (this.turnAdmission === admission) this.turnAdmission = undefined;
     for (const message of admission.messages) {
-      this.emit({ type: "command_failed", commandId: message.id, turnId: admission.turnId, error });
+      this.emit({ type: "command_failed", scope: "turn", commandId: message.id, turnId: admission.turnId, error });
     }
   }
 
@@ -1230,6 +1319,8 @@ implements AgentSession<Specs, Id> {
   }
 
   private emit(payload: CoreAgentEventPayload): void {
+    if (payload.type === "session_acquired") this.acquisition = payload.acquisition;
+    if (payload.type === "configuration_observed") this.configuration = payload.observation;
     const at = this.metricNow();
     if (payload.type === "command_accepted" || payload.type === "command_failed") {
       const admittedAt = this.commandAdmittedAt.get(payload.commandId);
@@ -1246,13 +1337,35 @@ implements AgentSession<Specs, Id> {
       at,
     } as AgentEvent<Specs, Id>;
     this.eventQueue.push(event, payload.type === "session_closed");
+    if (payload.type === "command_accepted") {
+      const record = this.latestCommands.get(payload.commandId);
+      if (record) {
+        record.admitted = true;
+        for (const evidence of record.observations) this.emit({ type: "input_observed", input: { commandId: payload.commandId, attemptId: record.attemptId }, evidence });
+        if (record.pendingReturn) this.returnInput({ commandId: payload.commandId, attemptId: record.attemptId }, record.pendingReturn.evidence, record.pendingReturn.reason, record.pendingReturn.retryable);
+      }
+    }
+  }
+
+  private inputReferences(messages: readonly AgentMessage[]): InputReference[] {
+    return messages.map((message) => ({ commandId: message.id, attemptId: message.attemptId ?? message.id }));
+  }
+
+  private returnInput(input: InputReference, evidence: InputReturnEvidence, reason: string, retryable: boolean): void {
+    const record = this.commands.get(JSON.stringify([input.commandId, input.attemptId]));
+    if (!record || record.returned || this.latestCommands.get(input.commandId) !== record) return;
+    if (!record.admitted) { record.pendingReturn = { evidence, reason, retryable }; return; }
+    record.returned = true;
+    record.pendingReturn = undefined;
+    if (this.activeTurn) this.activeTurn.commandIds = this.activeTurn.commandIds.filter((id) => id !== input.commandId);
+    this.emit({ type: "command_returned", input, message: record.message, ordinal: record.ordinal, evidence, reason: scrubDriverErrorMessage(reason), retryable });
   }
 
   private failQueued(category: AgentDriverError["category"], code: string, message: string): void {
     const error = driverError(category, code, message);
     for (const item of this.queued.splice(0)) {
       this.recordQueueDwell(item);
-      this.emit({ type: "command_failed", commandId: item.message.id, error });
+      this.emit({ type: "command_failed", scope: "turn", commandId: item.message.id, error });
     }
   }
 
@@ -1372,7 +1485,7 @@ implements AgentSession<Specs, Id> {
             "Turn closed before command acceptance",
           );
         }
-        await this.sendLane(message.text, "busy");
+        await this.sendLane(message.text, "busy", [message]);
         if (delivery.finalized || this.activeTurn !== activeTurn) {
           throw delivery.failure ?? driverError(
             "cancelled",
@@ -1385,12 +1498,16 @@ implements AgentSession<Specs, Id> {
         this.emit({ type: "command_accepted", commandId: message.id, turnId: activeTurn.turnId, delivery: "steer" });
         return { status: "accepted", delivery: "steer", commandId: message.id, turnId: activeTurn.turnId };
       } catch (error) {
+        if (!delivery.finalized && this.activeTurn === activeTurn && error instanceof StructuredLaneAdmissionError && error.code === "runtime_busy") {
+          delivery.finalized = true;
+          return this.queue(message, "runtime_busy");
+        }
         const failure = delivery.failure ?? (typeof error === "object" && error !== null && "category" in error
           ? error as AgentDriverError
           : driverError("process", "delivery_failed", String(error), true));
         if (!delivery.finalized) {
           delivery.finalized = true;
-          this.emit({ type: "command_failed", commandId: message.id, turnId: activeTurn.turnId, error: failure });
+          this.emit({ type: "command_failed", scope: "input", commandId: message.id, turnId: activeTurn.turnId, error: failure });
         }
         return { status: "rejected", reason: "runtime_unavailable", error: failure };
       }
@@ -1403,7 +1520,7 @@ implements AgentSession<Specs, Id> {
         : driverError("process", "delivery_failed", String(error), true));
       if (!delivery.finalized) {
         delivery.finalized = true;
-        this.emit({ type: "command_failed", commandId: message.id, turnId: activeTurn.turnId, error: failure });
+        this.emit({ type: "command_failed", scope: "input", commandId: message.id, turnId: activeTurn.turnId, error: failure });
       }
       return { status: "rejected", reason: "runtime_unavailable", error: failure };
     } finally {
@@ -1425,6 +1542,7 @@ implements AgentSession<Specs, Id> {
       delivery.failure = error;
       this.emit({
         type: "command_failed",
+        scope: "input",
         commandId: delivery.message.id,
         turnId: delivery.activeTurn.turnId,
         error,
@@ -1564,13 +1682,14 @@ implements AgentSession<Specs, Id> {
     await this.stopWithRelease({ reason: "shutdown", forceAfterMs: 5_000 }, "consumer_closed");
   }
 
-  private sendLane(text: string, mode: "busy" | "idle"): Promise<LaneAdmission> {
+  private sendLane(text: string, mode: "busy" | "idle", messages: readonly AgentMessage[] = []): Promise<LaneAdmission> {
     if (!this.lane) return Promise.reject(new Error("runtime lane is not open"));
     return this.lane.send({
       text,
       mode,
       sessionId: this.backendSessionId ?? this.launch.resumeSessionId,
       terminalOwner: mode === "idle" ? this.activeTurn?.terminalOwner : undefined,
+      inputs: this.inputReferences(messages),
     })
       .then((result) => {
         if (!result.ok) {

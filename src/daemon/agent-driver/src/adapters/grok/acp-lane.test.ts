@@ -272,15 +272,15 @@ describe("Grok ACP persistent lane", () => {
       { kind: "assistant_message_delta", text: "answer" },
       { kind: "internal_progress", source: "grok.acp", itemType: "plan" },
       { kind: "tool_call", callId: "tool-1", name: "Read", input: { path: "README.md" } },
-      { kind: "tool_output", callId: "tool-1", name: "Read" },
+      { kind: "tool_output", callId: "tool-1", name: "Read", outcome: "success" },
     ]));
 
     respond(server.process, server.prompts[0]!, { stopReason: "end_turn" });
     expect(events.filter((event) => event.kind === "turn_end")).toEqual([{
       kind: "turn_end",
+      stopReason: "end_turn",
       sessionId: "grok-session",
-      turnOwner: "root-owner",
-    }]);
+      turnOwner: "root-owner", outcome: "success" }]);
   });
 
   it("loads the exact session, gates replay, and only the matching prompt response terminates", async () => {
@@ -547,7 +547,7 @@ describe("Grok ACP persistent lane", () => {
       status: "failed",
       error: { code: "unsupported_reasoning_effort" },
     });
-    await expect(lane.updateSettings({ reasoningEffort: "low" })).resolves.toEqual({ status: "applied" });
+    await expect(lane.updateSettings({ reasoningEffort: "low" })).resolves.toEqual({ status: "acknowledged", effective: "next_turn" });
     expect(server.messages.at(-1)).toMatchObject({
       method: "session/set_model",
       params: { sessionId: "grok-session", modelId: "grok-4.6", _meta: { reasoningEffort: "low" } },
@@ -818,7 +818,7 @@ describe("Grok ACP persistent lane", () => {
     server.process.emit("error", new Error("duplicate"));
     await vi.waitFor(() => expect(exits).toEqual([{ code: null, signal: null, reason: "runtime_exit" }]));
     expect(errors).toEqual([new Error("EIO")]);
-    expect(events).toContainEqual({ kind: "tool_output", callId: "open", name: "Open" });
+    expect(events).toContainEqual({ kind: "tool_output", callId: "open", name: "Open", outcome: "unknown" });
     await vi.waitFor(() => expect(server.process.kill).toHaveBeenCalledOnce());
 
     const startupMessages: RpcMessage[] = [];
@@ -852,7 +852,7 @@ describe("Grok ACP persistent lane", () => {
     });
     exited.process.emit("exit", 17, null);
     expect(exitedSignals).toEqual([{ code: 17, signal: null, reason: "runtime_exit" }]);
-    expect(exitedEvents).toContainEqual({ kind: "tool_output", callId: "exit-tool", name: "Exit" });
+    expect(exitedEvents).toContainEqual({ kind: "tool_output", callId: "exit-tool", name: "Exit", outcome: "unknown" });
   });
 
   it("covers stop races, protocol failures, close fallback, and detached cleanup", async () => {

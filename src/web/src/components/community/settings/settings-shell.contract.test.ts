@@ -1,10 +1,17 @@
-import { readFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import source0 from "./server-settings.tsx?raw"
+import source1 from "./settings-shell.tsx?raw"
+import source2 from "./user-settings.tsx?raw"
 import { describe, expect, it } from "vitest"
 
-const settingsDirectory = dirname(fileURLToPath(import.meta.url))
-const readSettings = (file: string) => readFileSync(resolve(settingsDirectory, file), "utf8")
+const sources: Record<string, string> = {
+  "server-settings.tsx": source0,
+  "settings-shell.tsx": source1,
+  "user-settings.tsx": source2,
+}
+const readSettings = (path: string) => {
+  if (!(path in sources)) throw new Error("unregistered contract source: " + path)
+  return sources[path]
+}
 
 describe("shared settings shell", () => {
   it("owns the responsive tabs, header, content frame, and test IDs", () => {

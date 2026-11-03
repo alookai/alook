@@ -21,3 +21,8 @@ it("distinguishes an unreported catalog from a reported empty catalog", () => {
   expect(projectModelOptions("m1", { id: "opencode" })).toMatchObject({ modelRequired: true, catalogState: "not_reported", catalogOrigin: "unknown", defaultModelId: null, models: null })
   expect(projectModelOptions("m1", { id: "codex", reasoning: { updateMode: "live_next_turn", models: [] } })).toMatchObject({ catalogState: "reported", defaultModelId: null, models: [] })
 })
+it.each([["qoder", false], ["copilot", false], ["cursor-sdk", true], ["pi-durable", true]] as const)("projects %s model options without losing effort or required-model semantics", (backendId, modelRequired) => {
+  expect(projectModelOptions("m1", { id: backendId, reasoning: { updateMode: "unsupported", models: [{ id: "provider/model", supportedReasoningEfforts: [{ value: "high" }] }] } })).toMatchObject({
+    backendId, modelRequired, models: [{ id: "provider/model", reasoningEfforts: [{ value: "high" }] }],
+  })
+})

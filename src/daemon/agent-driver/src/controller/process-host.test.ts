@@ -472,12 +472,13 @@ describe("ProcessLane interrupt", () => {
 describe("ProcessLane settings updates", () => {
   it("delegates to an adapter-provided settings method", async () => {
     const { driver } = controllableDriver(() => []);
-    const updateSettings = vi.fn(async () => ({ status: "applied" as const }));
+    const updateSettings = vi.fn(async () => ({ status: "acknowledged" as const, effective: "next_turn" as const }));
     driver.updateSettings = updateSettings;
     const session = new ProcessLane(driver, minimalCtx());
 
     await expect(session.updateSettings({ reasoningEffort: "high" })).resolves.toEqual({
-      status: "applied",
+      status: "acknowledged",
+      effective: "next_turn",
     });
     expect(updateSettings).toHaveBeenCalledWith({ reasoningEffort: "high" });
   });

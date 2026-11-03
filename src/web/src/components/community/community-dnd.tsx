@@ -3,7 +3,7 @@
 import { useContext, useEffect, useMemo, type ReactNode, type RefObject } from "react"
 import { DndContext, DndProvider, useDragDropManager } from "react-dnd"
 import { createVerticalStrength, useDndScrolling } from "react-dnd-scrolling"
-import { HTML5Backend } from "react-dnd-html5-backend"
+import { CommunityHTML5Backend } from "./community-html5-backend"
 import { TouchBackend } from "react-dnd-touch-backend"
 import { MouseTransition, MultiBackend, TouchTransition } from "dnd-multi-backend"
 
@@ -11,7 +11,7 @@ export const communityTouchHoldDelay = 500
 
 export const communityDndOptions = {
   backends: [
-    { id: "html5", backend: HTML5Backend, transition: MouseTransition },
+    { id: "html5", backend: CommunityHTML5Backend, transition: MouseTransition },
     {
       id: "touch", backend: TouchBackend, transition: TouchTransition,
       options: { delayTouchStart: communityTouchHoldDelay, touchSlop: 8, enableMouseEvents: false, enableKeyboardEvents: true, ignoreContextMenu: true },

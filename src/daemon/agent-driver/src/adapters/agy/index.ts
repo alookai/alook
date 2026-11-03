@@ -94,7 +94,7 @@ export class AgyDriver implements BackendAdapter<"agy"> {
       this.initialInput = undefined;
       try { if (initial) this.process?.stdin?.write(initial + "\n"); }
       catch { return this.fail("Antigravity CLI input is unavailable"); }
-      return [{ kind: "session_init", sessionId: this.currentSessionId! }];
+      return [{ kind: "session_init", sessionId: this.currentSessionId!, acquisition: { status: this.requestedId ? "resumed" : "created", evidence: "native_protocol" } }];
     }
     if (event?.event === "step_update") {
       const step = asRecord(event.step_update);
@@ -154,7 +154,7 @@ export class AgyDriver implements BackendAdapter<"agy"> {
     } else if (!interrupted) events.push({ kind: "error", message: typeof result.error === "string" ? result.error : `Antigravity CLI status: ${String(result.status)}` });
     events.push({ kind: "turn_end", sessionId: this.currentSessionId!,
       ...(result.status !== "SUCCESS" ? { pendingContent: "discard" as const } : {}),
-      ...(interrupted ? { outcome: "interrupted" as const } : {}),
+      outcome: interrupted ? "interrupted" : result.status === "SUCCESS" ? "success" : "failed",
     });
     return events;
   }

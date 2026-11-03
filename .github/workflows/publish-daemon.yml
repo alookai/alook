@@ -60,13 +60,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
         if: steps.check.outputs.skip == 'false'
 
-      - name: Build bundled agent driver
+      - name: Build daemon and its native prerequisites
         if: steps.check.outputs.skip == 'false'
-        run: pnpm -C src/daemon/agent-driver run build
-
-      - name: Build daemon bundle
-        if: steps.check.outputs.skip == 'false'
-        run: pnpm -C src/daemon run build
+        run: node scripts/ci/run-turbo.mjs run @alook/daemon#build
 
       - name: Publish to npm (OIDC)
         if: steps.check.outputs.skip == 'false'

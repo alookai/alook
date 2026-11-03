@@ -28,14 +28,6 @@ function createUpdateBuilderMock() {
   return db;
 }
 
-describe("community/mention exports", () => {
-  it("exports markChannelMentionsReadBuilder", () => {
-    expect(typeof mentionQueries.markChannelMentionsReadBuilder).toBe("function");
-  });
-  it("exports hasMentionForMessage", () => {
-    expect(typeof mentionQueries.hasMentionForMessage).toBe("function");
-  });
-});
 
 describe("hasMentionForMessage", () => {
   function createSelectMock(rows: unknown[]) {
