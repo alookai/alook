@@ -64,6 +64,8 @@ function identitySection(config: HostLaunchConfig): string {
     );
   }
 
+  parts.push("", `Nobody can see your text output; the only way to communicate with people is through the Alook CLI (\`${CLI}\`).`);
+
   if (config.agentHandle) {
     parts.push(
       "",
