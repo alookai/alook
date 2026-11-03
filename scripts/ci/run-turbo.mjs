@@ -19,14 +19,29 @@ export function taskEnvironment(root = ROOT) {
   }
 }
 
-export function executeTurbo(args, { root = ROOT, stdio = "inherit" } = {}) {
+function invokeTurbo(args, { root, stdio, environment }) {
   return spawnSync("pnpm", ["exec", "turbo", ...args], {
     cwd: root,
-    env: taskEnvironment(root),
+    env: environment,
     stdio,
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
     shell: process.platform === "win32",
+  })
+}
+
+export function executeTurbo(args, { root = ROOT, stdio = "inherit" } = {}) {
+  return invokeTurbo(args, { root, stdio, environment: taskEnvironment(root) })
+}
+
+export function queryTurboTasks(tasks, { root = ROOT, nodeVersion } = {}) {
+  if (!tasks.length || tasks.some(task => typeof task !== "string" || !task || task.startsWith("-"))) {
+    throw new Error("native dry query requires named tasks")
+  }
+  const environment = taskEnvironment(root)
+  if (nodeVersion !== undefined) environment.ALOOK_TASK_NODE = nodeVersion
+  return invokeTurbo(["run", ...tasks, "--dry=json"], {
+    root, stdio: ["ignore", "pipe", "pipe"], environment,
   })
 }
 
