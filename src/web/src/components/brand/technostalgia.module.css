@@ -662,8 +662,9 @@
   }
 }
 
-/* Profile card: a printed ID card. Outline, screen-blue halftone banner,
- * a status sticker; no soft shadow and no gradient banner. */
+/* Profile card: a printed ID card. Outline, a status sticker; no soft shadow.
+ * The banner keeps each person's seeded marble backdrop (SeededBackdrop) so
+ * cards stay told apart by colour; the theme only adds the hairline under it. */
 .theme [data-testid="community-profile-card"] {
   border: var(--tn-stroke) solid var(--tn-line) !important;
   border-radius: 20px !important;
@@ -673,13 +674,6 @@
 
 .theme [data-testid="community-profile-card"] [class*="h-16"][class*="overflow-hidden"] {
   border-bottom: var(--tn-stroke) solid var(--tn-line);
-  background-color: var(--tn-screen);
-  background-image: radial-gradient(circle, color-mix(in oklab, var(--tn-blue-side) 35%, transparent) 1.2px, transparent 1.5px);
-  background-size: 8px 8px;
-}
-
-.theme [data-testid="community-profile-card"] [class*="h-16"][class*="overflow-hidden"] > * {
-  opacity: 0;
 }
 
 .theme [data-testid="community-profile-card"] [class*="ring-popover"] {

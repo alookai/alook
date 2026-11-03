@@ -1,11 +1,14 @@
 "use client";
 
-import { useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { TypewriterCityArt } from "./typewriter-city-art";
 
 const KEY_ROWS = [9, 7, 9];
+// rest angle of .typewriter-scene in globals.css
+const REST_RX = 10;
+const REST_RY = -20;
 
 const TW_VARS: React.CSSProperties = {
   "--tw-body": "oklch(0.25 0.01 60)",
@@ -39,29 +42,57 @@ export function TypewriterVisual({
   onPaperSettled,
 }: TypewriterVisualProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Pointer tilt with the same damped follow as the sign-in typewriter: the pointer only sets a target and a
+  // frame loop eases the pose toward it (time constant ~100 ms), so fast or jittery input never makes it shake.
+  const poseRef = useRef({ rx: REST_RX, ry: REST_RY });
+  const targetRef = useRef({ rx: REST_RX, ry: REST_RY });
+  const rafRef = useRef<number | null>(null);
+  const lastFrameRef = useRef<number | null>(null);
+
+  const tick = useCallback(function step(timestamp: number) {
+    const scene = containerRef.current?.querySelector<HTMLElement>(".typewriter-scene");
+    const pose = poseRef.current, target = targetRef.current;
+    const elapsed = lastFrameRef.current === null ? 1000 / 60 : Math.min(32, Math.max(0, timestamp - lastFrameRef.current));
+    lastFrameRef.current = timestamp;
+    const blend = 1 - Math.exp(-elapsed / 100);
+    let moving = false;
+    for (const key of ["rx", "ry"] as const) {
+      pose[key] += (target[key] - pose[key]) * blend;
+      if (Math.abs(target[key] - pose[key]) < 0.01) pose[key] = target[key];
+      else moving = true;
+    }
+    if (scene) {
+      scene.style.transition = "none";
+      const atRest = pose.rx === REST_RX && pose.ry === REST_RY && target.rx === REST_RX && target.ry === REST_RY;
+      scene.style.transform = atRest ? "" : `rotateY(${pose.ry.toFixed(2)}deg) rotateX(${pose.rx.toFixed(2)}deg)`;
+    }
+    if (moving) rafRef.current = window.requestAnimationFrame(step);
+    else { rafRef.current = null; lastFrameRef.current = null; }
+  }, []);
+
+  const schedule = useCallback(() => {
+    if (rafRef.current === null) rafRef.current = window.requestAnimationFrame(tick);
+  }, [tick]);
+
+  useEffect(() => () => { if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current); }, []);
+
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       const el = containerRef.current;
-      if (!el) return;
-      const scene = el.querySelector<HTMLElement>(".typewriter-scene");
-      if (!scene) return;
+      if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
       const rect = el.getBoundingClientRect();
-      const nx = (e.clientX - (rect.left + rect.width / 2)) / (rect.width / 2);
-      const ny = (e.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
-      scene.style.transition = "transform 0.12s ease-out";
-      scene.style.transform = `rotateY(${-20 + nx * 15}deg) rotateX(${10 + ny * -10}deg)`;
+      const nx = Math.max(-1, Math.min(1, (e.clientX - (rect.left + rect.width / 2)) / (rect.width / 2)));
+      const ny = Math.max(-1, Math.min(1, (e.clientY - (rect.top + rect.height / 2)) / (rect.height / 2)));
+      targetRef.current = { rx: REST_RX + ny * -10, ry: REST_RY + nx * 15 };
+      schedule();
     },
-    []
+    [schedule]
   );
 
   const handleMouseLeave = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const scene = el.querySelector<HTMLElement>(".typewriter-scene");
-    if (!scene) return;
-    scene.style.transition = "transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1)";
-    scene.style.transform = "";
-  }, []);
+    targetRef.current = { rx: REST_RX, ry: REST_RY };
+    schedule();
+  }, [schedule]);
 
   useGSAP(() => {
     if (!animateEntrance) return;

@@ -1002,7 +1002,7 @@
 
 .faqSection {
   background:
-    linear-gradient(to bottom, var(--landing-bg) 0%, color-mix(in oklab, var(--landing-bg) 97%, var(--landing-section-bg)) 15%, color-mix(in oklab, var(--landing-bg) 78%, var(--landing-section-bg)) 35%, color-mix(in oklab, var(--landing-bg) 50%, var(--landing-section-bg)) 50%, color-mix(in oklab, var(--landing-bg) 22%, var(--landing-section-bg)) 65%, color-mix(in oklab, var(--landing-bg) 3%, var(--landing-section-bg)) 85%, var(--landing-section-bg) 100%) bottom / 100% var(--landing-section-fade) no-repeat,
+    radial-gradient(ellipse 100% 100% at 50% 100%, var(--landing-section-bg) 0%, var(--landing-section-bg) 46%, color-mix(in oklab, var(--landing-section-bg) 99.1%, transparent) 51.4%, color-mix(in oklab, var(--landing-section-bg) 94.2%, transparent) 56.8%, color-mix(in oklab, var(--landing-section-bg) 83.7%, transparent) 62.2%, color-mix(in oklab, var(--landing-section-bg) 68.3%, transparent) 67.6%, color-mix(in oklab, var(--landing-section-bg) 50.0%, transparent) 73.0%, color-mix(in oklab, var(--landing-section-bg) 31.7%, transparent) 78.4%, color-mix(in oklab, var(--landing-section-bg) 16.3%, transparent) 83.8%, color-mix(in oklab, var(--landing-section-bg) 5.8%, transparent) 89.2%, color-mix(in oklab, var(--landing-section-bg) 0.9%, transparent) 94.6%, transparent 100.0%) bottom / 100% var(--landing-section-fade, 128px) no-repeat,
     var(--landing-bg);
   scroll-margin-top: 72px;
 }
@@ -2157,19 +2157,16 @@ main.page > .footer {
 }
 
 /* The sky melts into the testimonials ground below (Gus #2511): a long, soft
- * fade into that section's own background, light and dark. */
+ * fade into that section's own background, light and dark. Section fades use
+ * concave radial arcs with a smootherstep falloff, not straight linear bands (Gus DM #134). */
 .page :global(.hero-section[data-testid="landing-hero"])::after {
   content: "";
   position: absolute;
   inset: auto 0 0;
   z-index: 1;
   height: clamp(120px, 22vh, 220px);
-  background: linear-gradient(
-    to bottom,
-    transparent 0%,
-    color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 45%, transparent) 55%,
-    var(--landing-section-bg, var(--landing-surface)) 100%
-  );
+  /* concave arc: the ground below rises in from the bottom edge, centre first, with a smootherstep falloff */
+  background: radial-gradient(ellipse 100% 100% at 50% 100%, var(--landing-section-bg, var(--landing-surface)) 0%, var(--landing-section-bg, var(--landing-surface)) 46%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 99.1%, transparent) 51.4%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 94.2%, transparent) 56.8%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 83.7%, transparent) 62.2%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 68.3%, transparent) 67.6%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 50.0%, transparent) 73.0%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 31.7%, transparent) 78.4%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 16.3%, transparent) 83.8%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 5.8%, transparent) 89.2%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 0.9%, transparent) 94.6%, transparent 100.0%);
   pointer-events: none;
 }
 

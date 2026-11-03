@@ -991,6 +991,16 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 /* Left face — chamfered corners simulate the front/back border-radius */
+/* Side faces are only drawn while they face the viewer; a back-facing side otherwise sorts in front of the
+   front plane and covers its first key column. */
+.tw-body-back,
+.tw-body-left,
+.tw-body-right,
+.tw-body-top,
+.tw-body-bottom {
+  backface-visibility: hidden;
+}
+
 .tw-body-left {
   position: absolute;
   width: 160px;

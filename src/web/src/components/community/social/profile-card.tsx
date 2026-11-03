@@ -1,7 +1,7 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useEffect, type ComponentProps, type ReactNode } from "react"
+import { useEffect, type ComponentProps, type CSSProperties, type ReactNode } from "react"
 import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
 import { BOT_ACTIVITY_PRESETS } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
@@ -9,7 +9,7 @@ import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/she
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Avatar } from "../avatar"
-import { SeededBackdrop } from "@/components/avatar"
+import { seededStripeColors } from "@/lib/avatar/backdrop"
 import { resolveAvatar } from "@/lib/avatar/resolve"
 import { StatusEditor, hasStatus } from "./status-editor"
 import type {
@@ -188,9 +188,11 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
   }
   const card = (
     <>
-      <div className="relative -m-2 mb-0 h-16 overflow-hidden rounded-t-lg">
-        <SeededBackdrop seed={backdropSeed} />
-      </div>
+      <div
+        data-profile-banner=""
+        className="relative -m-2 mb-0 h-16 overflow-hidden rounded-t-lg"
+        style={profileBannerStyle(backdropSeed)}
+      />
       <div className="px-2 pb-2">
         {/* `pl-4` — the card body below has its own `p-4`, so its text sits
             16px in from this row's container; without matching padding here
@@ -440,4 +442,27 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
       </PopoverContent>
     </Popover>
   )
+}
+
+/** Hue of a #rrggbb colour in degrees. */
+function hueOf(hex: string): number {
+  const n = Number.parseInt(hex.replace("#", "").slice(0, 6), 16)
+  const r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
+  if (d === 0) return 0
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4
+  return (h * 60 + 360) % 360
+}
+
+/** Comic-book diagonal stripes: seven colours over half the colour wheel (30° apart), starting at the person's own palette hue,
+ * so each card keeps its own colour family. */
+function profileBannerStyle(seed: string): CSSProperties {
+  const base = hueOf(seededStripeColors(seed)[0])
+  const band = 26, line = 4
+  const stops = Array.from({ length: 7 }, (_, i) => {
+    const color = `oklch(0.8 0.15 ${((base + i * 30) % 360).toFixed(0)})`
+    const start = i * (band + line)
+    return `${color} ${start}px ${start + band}px, #1f1a15 ${start + band}px ${start + band + line}px`
+  })
+  return { backgroundImage: `repeating-linear-gradient(-30deg, ${stops.join(", ")})` }
 }

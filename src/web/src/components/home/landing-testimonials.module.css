@@ -1,7 +1,7 @@
 .section {
   padding-block: var(--landing-section-space, clamp(72px, 9vw, 128px));
   background:
-    linear-gradient(to bottom, var(--landing-section-bg, var(--landing-surface)) 0%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 97%, var(--landing-bg)) 15%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 78%, var(--landing-bg)) 35%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 50%, var(--landing-bg)) 50%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 22%, var(--landing-bg)) 65%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 3%, var(--landing-bg)) 85%, var(--landing-bg) 100%) bottom / 100% var(--landing-section-fade, 128px) no-repeat,
+    radial-gradient(ellipse 100% 100% at 50% 100%, var(--landing-bg) 0%, var(--landing-bg) 46%, color-mix(in oklab, var(--landing-bg) 99.1%, transparent) 51.4%, color-mix(in oklab, var(--landing-bg) 94.2%, transparent) 56.8%, color-mix(in oklab, var(--landing-bg) 83.7%, transparent) 62.2%, color-mix(in oklab, var(--landing-bg) 68.3%, transparent) 67.6%, color-mix(in oklab, var(--landing-bg) 50.0%, transparent) 73.0%, color-mix(in oklab, var(--landing-bg) 31.7%, transparent) 78.4%, color-mix(in oklab, var(--landing-bg) 16.3%, transparent) 83.8%, color-mix(in oklab, var(--landing-bg) 5.8%, transparent) 89.2%, color-mix(in oklab, var(--landing-bg) 0.9%, transparent) 94.6%, transparent 100.0%) bottom / 100% var(--landing-section-fade, 128px) no-repeat,
     var(--landing-section-bg, var(--landing-surface));
   color: var(--landing-text);
   scroll-margin-top: 72px;
