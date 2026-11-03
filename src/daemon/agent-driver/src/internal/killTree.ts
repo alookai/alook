@@ -22,6 +22,7 @@ import { execFileSync, spawn, type ChildProcess } from "child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import { PassThrough } from "node:stream";
+import { win32 } from "node:path";
 import { quoteWindowsShimCommand } from "./probe.js";
 
 const POLL_MS = 100;
@@ -58,7 +59,7 @@ const WINDOWS_JOB_STDIN_PIPE_ENV = "ALOOK_WINDOWS_JOB_STDIN_PIPE";
 // resumes it. Every descendant inherits the job, so the kernel retains tree
 // authority after a `.cmd` shell or runtime root exits. Persistent protocol
 // stdin uses a dedicated named pipe: PowerShell must not own that pipe because
-// its host can block while probing stdin before it runs the encoded bootstrap.
+// its host can block while probing stdin before it runs the bootstrap.
 const WINDOWS_JOB_RUNNER = "const{spawn}=require('node:child_process');const{connect}=require('node:net');const p=JSON.parse(Buffer.from(process.env.ALOOK_WINDOWS_JOB_PAYLOAD,'base64').toString('utf8'));const pipe=process.env.ALOOK_WINDOWS_JOB_STDIN_PIPE;delete process.env.ALOOK_WINDOWS_JOB_NODE;delete process.env.ALOOK_WINDOWS_JOB_PAYLOAD;delete process.env.ALOOK_WINDOWS_JOB_RUNNER;delete process.env.ALOOK_WINDOWS_JOB_STDIN_PIPE;const run=stdin=>{const c=spawn(p.command,p.args,{cwd:p.cwd,env:process.env,shell:p.shell,stdio:[stdin,'inherit','inherit'],windowsHide:true});c.once('spawn',()=>{if(stdin!=='ignore')stdin.unref()});c.once('error',e=>{console.error(e);process.exitCode=1});c.once('exit',(code,signal)=>{process.exitCode=signal?1:(code??1)})};if(pipe){const input=connect(pipe);input.once('connect',()=>run(input));input.once('error',e=>{console.error(e);process.exitCode=1})}else run('ignore')";
 
 const WINDOWS_JOB_BOOTSTRAP = String.raw`
@@ -371,8 +372,6 @@ $exitCode = [AlookAgentJob]::RunNode($env:ALOOK_WINDOWS_JOB_NODE, $env:ALOOK_WIN
 exit $exitCode
 `;
 
-const WINDOWS_JOB_ENCODED_COMMAND = Buffer.from(WINDOWS_JOB_BOOTSTRAP, "utf16le").toString("base64");
-
 interface AgentSpawnOptions {
   cwd: string;
   env: NodeJS.ProcessEnv;
@@ -427,7 +426,9 @@ export function spawnAgentProcess(command: string, args: string[], opts: AgentSp
     };
     let proc: ChildProcess;
     try {
-      proc = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", WINDOWS_JOB_ENCODED_COMMAND], {
+      const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
+      const powershell = systemRoot ? win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : "powershell.exe";
+      proc = spawn(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-Command", WINDOWS_JOB_BOOTSTRAP], {
         cwd: opts.cwd,
         // PowerShell receives NUL for stdin so its host cannot consume or
         // block the persistent protocol pipe before running the bootstrap.

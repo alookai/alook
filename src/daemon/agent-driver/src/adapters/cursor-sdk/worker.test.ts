@@ -52,7 +52,7 @@ describe("Cursor SDK public sessions through an owned worker", () => {
     const collecting = (async () => { for await (const event of session.events) events.push(event); })();
     try {
       const receipt = await session.start({ id: "root", kind: "user", text: "first" });
-      expect(receipt, JSON.stringify(f.host.rawOutput)).toMatchObject({ status: "accepted" });
+      expect(receipt, JSON.stringify({ receipt, rawOutput: f.host.rawOutput })).toMatchObject({ status: "accepted" });
       expect(await session.send({ id: "steer", kind: "user", text: "refuse" })).toMatchObject({ status: "queued", reason: "runtime_busy" });
       writeFileSync(join(f.root, "release"), "go");
       await waitUntil(() => events.some(event => event.type === "turn_completed" && event.commandIds.includes("steer")) && session.snapshot().state === "idle");
