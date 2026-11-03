@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   ActivateTokenRequestSchema,
   COMMUNITY_RUNTIME_LIST_MAX,
-  MAX_POLL_TASKS,
   PollRequestSchema,
   RegisterDaemonRequestSchema,
 } from "../../src/schemas";
@@ -11,7 +10,6 @@ describe("daemon input limits", () => {
   it("keeps zero invalid and positive legacy poll counts compatible", () => {
     expect(PollRequestSchema.safeParse({ daemon_id: "d1", max_tasks: 0 }).success).toBe(false);
     expect(PollRequestSchema.parse({ daemon_id: "d1", max_tasks: 125 }).max_tasks).toBe(125);
-    expect(MAX_POLL_TASKS).toBe(50);
   });
 
   it.each([

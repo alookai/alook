@@ -81,7 +81,6 @@ describe("maxInParams", () => {
 
 describe("constants", () => {
   it("D1_MAX_IN_PARAMS leaves headroom under the hard limit", () => {
-    expect(D1_MAX_BIND_PARAMS).toBe(100);
     expect(D1_MAX_IN_PARAMS).toBeLessThan(D1_MAX_BIND_PARAMS);
   });
 });

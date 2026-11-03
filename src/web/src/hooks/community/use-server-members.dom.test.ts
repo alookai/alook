@@ -118,12 +118,6 @@ function isSearchUrl(value: unknown): value is string {
   return typeof value === "string" && value.includes("/members/search?")
 }
 
-describe("SEARCH_DEBOUNCE_MS", () => {
-  it("is 200ms (matches plan)", () => {
-    expect(SEARCH_DEBOUNCE_MS).toBe(200)
-  })
-})
-
 describe("mergeMemberSearchPage", () => {
   it("appends serial search pages and drops duplicate boundary rows", () => {
     const first = [m("a"), m("b")]
@@ -532,8 +526,10 @@ describe("useServerMembers search lifecycle", () => {
     })
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
+      await vi.advanceTimersByTimeAsync(199)
     })
+    expect(apiFetchMock.mock.calls.filter(([url]) => isSearchUrl(url))).toEqual([])
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
     expect(apiFetchMock.mock.calls.filter(([url]) => isSearchUrl(url))).toEqual([
       ["/api/community/servers/srv_1/members/search?q=ad", expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) })],
     ])

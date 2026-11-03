@@ -11,25 +11,12 @@ import {
   HostBotAuditEventFrameSchema,
 } from "../../src/schemas"
 
-/**
- * Smoke test — verifies the bot-audit-log query module exports the documented
- * helpers. Integration-level behaviour (batch atomicity, retention prune,
- * cursor pagination, soft-delete filter) is exercised in the
- * `tests/e2e/community-bot-audit-log.e2e.test.ts` suite where a real D1 lives.
- */
 describe("community/bot-audit-log exports", () => {
   it("exposes writers", () => {
     expect(typeof q.insertBotActivityEventStatement).toBe("function")
     expect(typeof q.pruneBotActivityEventsStatement).toBe("function")
     expect(typeof q.insertBotAuditWakeTrigger).toBe("function")
     expect(typeof q.insertBotAuditError).toBe("function")
-  })
-
-
-  it("exposes the retention cap constant", () => {
-    // Plan §Retention: 500 rows per bot. Locked here so a refactor
-    // changing the constant surfaces as a test failure.
-    expect(q.AUDIT_LOG_MAX_ROWS_PER_BOT).toBe(500)
   })
 })
 
@@ -99,6 +86,46 @@ describe("listOwnedBotActivityEvents", () => {
   })
 
   afterEach(() => sqlite.close())
+
+  it("retains the newest 500 events with tied timestamps without pruning another bot", async () => {
+    const createdAt = "2026-09-02T00:00:00.000Z"
+    const insert = sqlite.prepare(`
+      INSERT INTO community_bot_activity_event
+        (id, bot_id, kind, payload, created_at)
+      VALUES (?, 'empty_bot', 'tool_call', '{}', ?)
+    `)
+    for (let i = 0; i <= 500; i++) {
+      insert.run(
+        `retention_${String(i).padStart(3, "0")}`,
+        i === 0 ? "2026-09-01T01:00:00.000Z" : "2026-09-01T00:00:00.000Z",
+      )
+    }
+    const unrelatedBefore = sqlite.prepare(
+      "SELECT * FROM community_bot_activity_event WHERE bot_id != ? ORDER BY id",
+    ).all("empty_bot")
+
+    await expect(q.insertBotActivityEventAndPrune(db, {
+      id: "retention_501",
+      botId: "empty_bot",
+      kind: "tool_call",
+      payload: "{}",
+      createdAt,
+    })).resolves.toEqual({ id: "retention_501", createdAt })
+
+    const retained = sqlite.prepare(
+      "SELECT id FROM community_bot_activity_event WHERE bot_id = ? ORDER BY created_at DESC, id DESC",
+    ).all("empty_bot")
+    expect(retained).toEqual([
+      { id: "retention_501" },
+      { id: "retention_000" },
+      ...Array.from({ length: 498 }, (_, i) => ({
+        id: `retention_${String(500 - i).padStart(3, "0")}`,
+      })),
+    ])
+    expect(sqlite.prepare(
+      "SELECT * FROM community_bot_activity_event WHERE bot_id != ? ORDER BY id",
+    ).all("empty_bot")).toEqual(unrelatedBefore)
+  })
 
   it("returns a newest-first bounded page in exactly one select", async () => {
     const selectSpy = vi.spyOn(db, "select")
