@@ -432,7 +432,9 @@ describe("canonical execution plan", () => {
 
     expect(result.change_class).toBe("blog")
     expect(result.packages.direct).toEqual(["@alook/web"])
-    expect(result.packages.affected).toEqual(["@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/web"])
+    expect(result.suites.unit_build_tasks).toEqual(["@alook/agent-driver#build"])
+    expect(result.suites.unit_tasks).not.toContain("@alook/agent-driver#test")
     expect(result.suites.unit).toEqual(["src/web"])
     expect(result.coverage.targets).toEqual(["web"])
     expect(result.coverage.include_roots).toEqual(["src/web/**/*.{ts,tsx,js,jsx}"])
@@ -453,7 +455,9 @@ describe("canonical execution plan", () => {
     expect(result.change_class).toBe("blog")
     expect(result.blog_only).toBe(true)
     expect(result.packages.direct).toEqual(["@alook/web"])
-    expect(result.packages.affected).toEqual(["@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/web"])
+    expect(result.suites.unit_build_tasks).toEqual(["@alook/agent-driver#build"])
+    expect(result.suites.unit_tasks).not.toContain("@alook/agent-driver#test")
     expect(result.suites.unit).toEqual(["src/web"])
     expect(result.suites.unit_tasks).toContain("@alook/web#test:blog")
     expect(result.suites.unit_tasks).not.toContain("@alook/web#test")
@@ -468,9 +472,12 @@ describe("canonical execution plan", () => {
     expect(result.change_class).toBe("auth")
     expect(result.auth_only).toBe(true)
     expect(result.packages.direct).toEqual(["@alook/web"])
-    expect(result.packages.affected).toEqual(["@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/web"])
+    expect(result.suites.unit_build_tasks).toEqual(["@alook/agent-driver#build"])
+    expect(result.suites.unit_tasks).not.toContain("@alook/agent-driver#test")
     expect(result.suites.static).toEqual(["@alook/web"])
     expect(result.suites.unit).toEqual(["src/web"])
+    expect(result.coverage.targets).toEqual(["web"])
     expect(result.suites.integration).toEqual([])
     expect(result.ui.specs).toEqual([])
     expect(result.jobs.auth_build).toBe(true)
@@ -718,7 +725,10 @@ describe("coverage name-status contract", () => {
       "src/web/src/lib/runtime-lookalike.config.ts",
     ])
 
-    expect(result.packages.affected).toEqual(["@alook/app", "@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/app", "@alook/web"])
+    expect(result.suites.unit_build_tasks).toEqual(["@alook/agent-driver#build"])
+    expect(result.suites.unit_tasks).not.toContain("@alook/agent-driver#test")
+    expect(result.suites.unit).toEqual(["src/app", "src/web"])
     expect(result.coverage.targets).toEqual(["web"])
     expect(result.coverage.required_changed_files).toEqual([
       "src/web/src/lib/runtime-lookalike.config.ts",
