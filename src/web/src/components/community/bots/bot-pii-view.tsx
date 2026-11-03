@@ -12,6 +12,8 @@ import { useBotPii } from "@/hooks/community/use-bot-pii"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BotPiiPanel } from "./bot-pii-panel"
+import { useCommunityModuleLocation } from "@/contexts/community/module-route"
+import { useUiHandlers } from "@/stores/community"
 import { BotPiiList } from "./bot-pii-list"
 import { BotPiiChatAction } from "./bot-pii-chat-action"
 import { BotPiiPlayground } from "./bot-pii-playground"
@@ -48,6 +50,13 @@ function BotPipeline({ botId, botName, machineId, online }: { botId: string; bot
   )
 }
 
+// Mounted only in the no-bots empty state, so the route hooks stay out of the bot pipeline.
+function OpenBotsButton() {
+  const uiHandlers = useUiHandlers()
+  const { router } = useCommunityModuleLocation()
+  return <Button onClick={() => { uiHandlers.cancelPendingNavigation?.(); router.push("/c/me/bots") }}>Open My Bots</Button>
+}
+
 export function BotPiiView() {
   const owner = useCommunityWsStore(state => `${state.profileViewerId}:${state.profileAccountEpoch}`)
   const bots = useBots()
@@ -58,7 +67,7 @@ export function BotPiiView() {
   if (bots.isError && !bots.data) return <div role="alert" className="flex flex-col items-start gap-3 p-6"><p>Could not load your bots.</p><Button variant="outline" className="min-h-11" onClick={() => { void bots.refetch() }}>Retry</Button></div>
   const machine = machines.machines.find(item => item.id === selected?.machineId)
   return (
-    <BotPiiPanel bots={bots.bots} selectedId={selected?.id ?? ""} onSelect={setChosenId}>
+    <BotPiiPanel bots={bots.bots} selectedId={selected?.id ?? ""} onSelect={setChosenId} emptyAction={<OpenBotsButton />}>
       {selected && machines.isPending ? <Skeleton className="h-20 w-full" />
         : selected && machine?.status === undefined ? <div role="status" className="flex flex-col items-start gap-3"><p className="text-sm text-muted-foreground">Could not confirm this machine’s status.</p><Button variant="outline" className="min-h-11" onClick={() => { void machines.refetch() }}>Retry</Button></div>
         : selected ? <BotPipeline key={`${owner}:${selected.id}:${selected.machineId}`} botId={selected.id} botName={selected.name} machineId={selected.machineId} online={isPresenceOnline(machine?.status)} /> : null}

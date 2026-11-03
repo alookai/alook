@@ -431,6 +431,15 @@
   border-width: 0;
   background-color: transparent;
 }
+/* Settings (user and server) is a full panel, not a card: no inner padding or
+ * gap, so the content background runs to the dialog's right and bottom edges
+ * and its corners follow the dialog's own radius (Gus #2369, #2370). */
+.theme :is([data-slot="dialog-content"]):has([data-testid="community-settings-shell"]),
+.theme:is([data-slot="dialog-content"]):has([data-testid="community-settings-shell"]) {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
 
 .theme [data-slot="dialog-title"],
 .theme:is([data-slot="dialog-content"]) [data-slot="dialog-title"] {
@@ -1901,15 +1910,19 @@
 }
 
 /* A tab list with one tab is not a switch: no tray, no key, just its label (#2273) */
-.theme [data-slot="tabs-list"]:has(> button[data-slot="tabs-trigger"]:only-of-type) {
+.theme [data-slot="tabs-list"]:has(> button[data-slot="tabs-trigger"]:only-of-type),
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"]:has(> button[data-slot="tabs-trigger"]:only-of-type) {
   background: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
+  margin-inline: 0 !important;
 }
 .theme [data-slot="tabs-list"]:has(> button[data-slot="tabs-trigger"]:only-of-type) > [data-slot="tabs-indicator"] {
   display: none !important;
 }
-.theme [data-slot="tabs-list"]:has(> button[data-slot="tabs-trigger"]:only-of-type) > [data-slot="tabs-trigger"] {
+/* Its label starts on the page's text edge, under the page title (Gus #2364). */
+.theme [data-slot="tabs-list"]:has(> button[data-slot="tabs-trigger"]:only-of-type) > [data-slot="tabs-trigger"],
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"]:has(> button[data-slot="tabs-trigger"]:only-of-type) > [data-slot="tabs-trigger"] {
   padding-inline: 0 !important;
   color: var(--tn-text) !important;
   font-weight: 600;
@@ -2173,6 +2186,24 @@
   --tw-ring-color: var(--tn-line) !important;
   box-shadow: 0 0 0 1px var(--tn-line), 0 24px 48px -28px rgb(60 45 20 / 35%) !important;
 }
+/* Phone: sign-in is one flat page on the paper grid — no sheet, no rounded
+ * top, no edge, and exactly one screen tall (Gus #2393). */
+@media (max-width: 39.99rem) {
+  .theme [data-slot="auth-page"] {
+    height: 100svh;
+    min-height: 0 !important;
+    overflow: hidden;
+  }
+  .theme [data-slot="auth-page"] [data-slot="card"] {
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .theme [data-slot="auth-page"] [data-slot="field-separator-content"] {
+    background: var(--tn-paper) !important;
+  }
+}
 
 /* PresenceStatus (one component now): an LED with a mono label, everywhere */
 .theme [data-slot="presence-status"] {
@@ -2321,8 +2352,11 @@
 .theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] [data-slot="tabs-trigger"] {
   padding-inline: 8px !important;
 }
-.theme :is([data-testid^="community-inbox"], [data-slot="community-inbox"]) [data-slot="tabs-list"][data-variant="line"] {
-  margin-inline: 12px !important;
+/* The Inbox tray is centred in its card (Gus #2357, #2386). The list itself
+ * carries the inbox test id, so match it directly. */
+.theme :is([data-testid^="community-inbox"], [data-slot="community-inbox"]) [data-slot="tabs-list"][data-variant="line"],
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"][data-testid="community-inbox-tab-list"] {
+  margin-inline: auto !important;
   max-width: calc(100% - 24px) !important;
 }
 .theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] { padding: 2px !important; gap: 0 !important; }
@@ -2341,4 +2375,84 @@
  * (**:data-[slot=dialog-close]:transition-none) keeps that over the key look. */
 .theme [data-slot="dialog-content"][class*="dialog-close]:transition-none"] [data-slot="dialog-close"] {
   transition: none !important;
+}
+
+/* Page headers with a tab tray (Friends): the tray's top and height match the
+ * sidebar's first row (top 16px into the frame, 36px tall), so both columns
+ * start on one line (Gus #2362). */
+.theme header:has(> [data-slot="tabs-list"][data-variant="line"]) {
+  height: auto !important;
+  min-height: 3rem;
+  align-items: flex-start !important;
+  padding-top: 16px !important;
+  padding-bottom: 8px !important;
+}
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) header > [data-slot="tabs-list"][data-variant="line"] {
+  height: 36px !important;
+  padding: 3px !important;
+}
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) header > [data-slot="tabs-list"][data-variant="line"] > [data-slot="tabs-trigger"] {
+  height: 100% !important;
+  padding-inline: 14px !important;
+}
+
+/* Empty-state keycaps answer hover and press like every other key (Gus #2365,
+ * Stageshow): lift on hover, sink to the floor on press, with the same spring. */
+.theme [data-slot="empty-state-icon"] {
+  cursor: default;
+  transition: transform 90ms ease-out, box-shadow 90ms ease-out, filter 120ms ease-out;
+}
+.theme [data-slot="empty-state-icon"]:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+}
+.theme [data-slot="empty-state"] [data-slot="empty-state-icon"]:active {
+  transform: translateY(var(--tn-key-depth));
+  box-shadow: inset 0 1.5px 2px rgb(60 45 20 / 22%), 0 0 0 rgb(60 45 20 / 25%) !important;
+}
+.theme[data-tn-mode="dark"] [data-slot="empty-state"] [data-slot="empty-state-icon"]:active,
+[data-tn-mode="dark"] .theme [data-slot="empty-state"] [data-slot="empty-state-icon"]:active {
+  box-shadow: inset 0 1.5px 4px rgb(0 0 0 / 70%), 0 0 0 rgb(110 135 255 / 35%) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme [data-slot="empty-state-icon"] { transition: none; }
+}
+
+/* Frameless fields (profile name/about, bot name/description, channel and
+ * server titles): never a box or focus ring. The field owns a well that is
+ * invisible at rest, shows faintly on hover and sinks in while editing — the
+ * same recessed language as the composer. Negative margin + equal padding keep
+ * the text exactly where it was (Gus #2372, #2373). */
+.theme :is(input, textarea)[class~="border-0"][class~="bg-transparent"]:is([class~="px-0"], [class~="p-0"]) {
+  margin-inline: -10px;
+  padding-inline: 10px !important;
+  width: calc(100% + 20px) !important;
+  border-radius: 10px !important;
+  outline: none !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+  box-shadow: none !important;
+  transition: background-color 160ms ease-out, box-shadow 160ms ease-out;
+}
+.theme :is(input, textarea)[class~="border-0"][class~="bg-transparent"]:is([class~="px-0"], [class~="p-0"]):hover:not(:focus, :disabled) {
+  background-color: color-mix(in oklab, var(--tn-text) 3%, transparent) !important;
+}
+.theme :is(input, textarea)[class~="border-0"][class~="bg-transparent"]:is([class~="px-0"], [class~="p-0"]):focus {
+  background-color: color-mix(in oklab, var(--tn-text) 5%, var(--tn-paper)) !important;
+  box-shadow: inset 0 2px 4px -1px rgb(60 45 20 / 18%) !important;
+}
+.theme[data-tn-mode="dark"] :is(input, textarea)[class~="border-0"][class~="bg-transparent"]:is([class~="px-0"], [class~="p-0"]):focus,
+[data-tn-mode="dark"] .theme :is(input, textarea)[class~="border-0"][class~="bg-transparent"]:is([class~="px-0"], [class~="p-0"]):focus {
+  background-color: #0f0f11 !important;
+  box-shadow: inset 0 2px 5px -1px rgb(0 0 0 / 85%) !important;
+}
+
+/* Mobile settings tabs: the tray spans the row, so its keys share it evenly
+ * instead of leaving an empty tail of tray on the right (Gus #2371). */
+@media (max-width: 39.99rem) {
+  .theme [data-testid="community-settings-nav"] [data-slot="tabs-list"] > [data-slot="tabs-trigger"] {
+    flex: 1 1 0 !important;
+    width: auto !important;
+    min-width: 0;
+  }
 }

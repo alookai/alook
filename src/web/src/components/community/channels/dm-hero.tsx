@@ -14,7 +14,7 @@ export function DmHero({ dm, onOpenProfile }: { dm: Pick<DM, "name" | "avatar" |
         aria-label={`Open ${dm.name}'s profile`}
         disabled={!onOpenProfile}
         onClick={(event) => onOpenProfile?.(dm.name, event, dm.discriminator ?? undefined, dm.userId)}
-        className="relative mb-3 w-fit rounded-full transition-transform duration-100 ease-out enabled:hover:-translate-y-px enabled:active:scale-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none"
+        className="relative mt-4 mb-2 w-fit rounded-full transition-transform duration-100 ease-out enabled:hover:-translate-y-px enabled:active:scale-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none"
       >
         <Avatar label={dm.avatar} seed={dm.userId} size={64} />
       </button>

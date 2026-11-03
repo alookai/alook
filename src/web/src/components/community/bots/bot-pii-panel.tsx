@@ -2,27 +2,29 @@
 
 import type { ReactNode } from "react"
 import { AgentAvatar } from "@/components/avatar"
+import { CreateTile } from "@/components/community/onboarding-tiles/create-tile"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Select, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { BotSelectMenuContent, BotSelectMenuItem } from "./bot-select-menu"
 
-export function BotPiiPanel({ bots, selectedId, onSelect, children }: {
+export function BotPiiPanel({ bots, selectedId, onSelect, emptyAction, children }: {
   bots: readonly { id: string; name: string; image?: string | null }[]
   selectedId: string
   onSelect: (id: string) => void
+  emptyAction?: ReactNode
   children: ReactNode
 }) {
   const selected = bots.find(bot => bot.id === selectedId)
   return (
     <section className="@container flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar" aria-labelledby="pii-heading">
       <header className="flex flex-col items-start gap-2">
-        <h1 id="pii-heading" className="text-xl font-medium text-foreground">Privacy</h1>
+        <h1 id="pii-heading" className="text-xl font-medium text-foreground max-sm:sr-only">Privacy</h1>
       </header>
-      <Tabs defaultValue="filters" className="gap-6">
+      <Tabs defaultValue="filters" className="flex-1 gap-6">
         <TabsList variant="line" aria-label="Privacy tools" className="h-auto min-h-12 w-full border-b p-0 thin-scrollbar">
           <TabsTrigger value="filters" className="min-h-12 px-4 text-base group-data-horizontal/tabs:after:bottom-0">PII Filters</TabsTrigger>
         </TabsList>
-        <TabsContent value="filters" className="mx-auto flex w-full max-w-2xl flex-col gap-8">
+        <TabsContent value="filters" className="flex w-full max-w-2xl flex-1 flex-col gap-8">
           <div className="flex flex-col gap-2">
             <h2 className="text-lg font-medium">Filters for bot message</h2>
             <p className="text-sm leading-relaxed text-muted-foreground">Filter sensitive information from messages your bot sends to Alook. Messages people send to your bot are not filtered. All filtering runs on your computer.</p>
@@ -38,9 +40,16 @@ export function BotPiiPanel({ bots, selectedId, onSelect, children }: {
             </div>
           </section> : null}
       {bots.length ? children : (
-        <div className="py-8">
-          <h2 className="font-medium">Create a bot first</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Open My Bots to create a bot, then manage its filters here.</p>
+        // Same empty-state shape as My Bots and Machines: tile, title, text, action.
+        <div data-slot="empty-state" className="flex flex-1 flex-col items-center justify-center gap-4 py-12 text-center">
+          <div className="w-full max-w-70 overflow-hidden rounded-xl">
+            <div className="aspect-200/130 w-full"><CreateTile /></div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <h2 className="text-lg font-medium text-foreground">Create a bot first</h2>
+            <p className="max-w-md text-sm text-muted-foreground">Filters belong to a bot. Create one in My Bots, then manage its filters here.</p>
+          </div>
+          {emptyAction}
         </div>
       )}
         </TabsContent>

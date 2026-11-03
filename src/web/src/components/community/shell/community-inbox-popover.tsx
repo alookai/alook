@@ -537,13 +537,13 @@ export function InboxPopover({
       </div>
       <TabsList data-testid={tid.inboxTabList} variant="line" className="mt-3 w-full border-b border-border px-3">
         <TabsTrigger value="unreads">
-          <span className="inline-flex items-center gap-2">
+          <span className="inline-flex items-center gap-1">
             Unreads
             {showUnreadDot && <span className="size-1.5 rounded-full bg-primary" />}
           </span>
         </TabsTrigger>
         <TabsTrigger value="mentions">
-          <span className="inline-flex items-center gap-2">
+          <span className="inline-flex items-center gap-1">
             Mentions
             {showMentionDot && <span className="size-1.5 rounded-full bg-primary" />}
           </span>
