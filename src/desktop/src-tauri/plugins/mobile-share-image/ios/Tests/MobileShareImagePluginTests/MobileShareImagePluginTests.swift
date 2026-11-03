@@ -100,7 +100,10 @@ final class MobileShareImagePluginTests: XCTestCase {
     )
     let settled = expectation(description: "denied")
     operations.save(.init(attemptId: attempt, pngBase64: pngBase64, filename: "card.png")) { result in
-      if case .failure(let failure) = result { XCTAssertEqual(failure.code, "permission_denied") }
+      switch result {
+      case .failure(let failure): XCTAssertEqual(failure.code, "permission_denied")
+      case .success: XCTFail("Expected permission_denied failure")
+      }
       settled.fulfill()
     }
     wait(for: [settled], timeout: 2)
@@ -144,7 +147,10 @@ final class MobileShareImagePluginTests: XCTestCase {
     )
     let first = expectation(description: "copy failure")
     operations.copy(.init(attemptId: attempt, pngBase64: pngBase64)) { result in
-      if case .failure(let failure) = result { XCTAssertEqual(failure.code, "write_failed") }
+      switch result {
+      case .failure(let failure): XCTAssertEqual(failure.code, "write_failed")
+      case .success: XCTFail("Expected write_failed failure")
+      }
       first.fulfill()
     }
     wait(for: [first], timeout: 2)
