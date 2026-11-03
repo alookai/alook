@@ -29,8 +29,10 @@ beforeEach(() => {
 
 describe("complete thread read resource", () => {
   it("writes the scoped message, attachment, reaction, reply and participant identities", async () => {
-    mocks.attachments.mockResolvedValue([{ id: "attachment", messageId: "reply", targetId: "thread", filename: "note.txt", r2Key: "owned-key", contentType: "text/plain", size: 42 }])
-    mocks.reactions.mockResolvedValue([{ messageId: "reply", emoji: "👍", userId: "viewer" }])
+    mocks.attachments.mockResolvedValueOnce([{ id: "attachment", messageId: "reply", targetId: "thread", filename: "note.txt", r2Key: "owned-key", contentType: "text/plain", size: 42 }])
+    mocks.reactions.mockResolvedValueOnce([{ messageId: "reply", emoji: "👍", userId: "viewer" }])
+    mocks.attachments.mockResolvedValueOnce([])
+    mocks.reactions.mockResolvedValueOnce([])
     mocks.replies.mockResolvedValue([{ ...row("previous", "thread"), content: "same-channel reply" }, { ...row("previous", "foreign"), content: "foreign private body" }])
     const response = await writeCommunityThreadsRead(db, "viewer", parent, [child], included(), { hasMore: true, nextCursor: "next" })
     expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
@@ -39,7 +41,8 @@ describe("complete thread read resource", () => {
       included: { tags: [{ messageId: "opener", tag: "bug" }], members: [{ channelId: "thread", userId: "viewer", relation: "notify", isCreator: true }],
         profiles: [{ id: "viewer", name: "Viewer", discriminator: "123456", avatar: null, avatarVersion: 0 }], participantCounts: [{ channelId: "thread", count: 8 }] }, page: { hasMore: true, nextCursor: "next" } })
     expect(body.included.messages.find((message) => message.id === "reply")).toMatchObject({ channelId: "thread", seq: 4, clientNonce: "client-nonce", replyToId: "previous", type: "chat",
-      replyTo: { id: "previous", text: "same-channel reply", authorId: "viewer" }, attachments: [{ id: "attachment", name: "note.txt", contentType: "text/plain", sizeBytes: 42, thumbnailUrl: null, width: null, height: null }], reactions: [{ emoji: "👍", me: true, count: 1, userIds: ["viewer"] }] })
+      replyTo: { id: "previous", authorId: "viewer" }, attachments: [{ id: "attachment", name: "note.txt", contentType: "text/plain", sizeBytes: 42, thumbnailUrl: null, width: null, height: null }], reactions: [{ emoji: "👍", me: true, count: 1, userIds: ["viewer"] }] })
+    expect(body.included.messages.find(message => message.id === "previous")).toMatchObject({ content: "same-channel reply", channelId: "thread" })
     expect(JSON.stringify(body)).not.toContain("foreign private body")
     expect(mocks.attachments).toHaveBeenCalledWith(db, ["opener", "reply"])
     expect(mocks.reactions).toHaveBeenCalledWith(db, ["opener", "reply"], "viewer")
@@ -50,7 +53,7 @@ describe("complete thread read resource", () => {
     mocks.replies.mockResolvedValue([{ ...row("previous", "foreign"), content: "private" }])
     const response = await writeCommunityThreadsRead(db, "viewer", parent, [child], included())
     const body = communityReadSchemas().threads.parse(await response.json())
-    expect(body.included.messages.find((message) => message.id === "reply")?.replyTo).toEqual({ id: "previous", authorName: "Deleted user", text: "", deleted: true })
+    expect(body.included.messages.find((message) => message.id === "reply")?.replyTo).toEqual({ id: "previous", authorName: "Deleted user", deleted: true })
   })
 
   it("does not disclose a reply from a legitimate sibling in the same included query", async () => {
@@ -58,7 +61,7 @@ describe("complete thread read resource", () => {
     mocks.replies.mockResolvedValue([{ ...row("previous", "sibling"), content: "sibling private reply" }])
     const response = await writeCommunityThreadsRead(db, "viewer", parent, [child, sibling], included())
     const body = communityReadSchemas().threads.parse(await response.json())
-    expect(body.included.messages.find((message) => message.id === "reply")?.replyTo).toEqual({ id: "previous", authorName: "Deleted user", text: "", deleted: true })
+    expect(body.included.messages.find((message) => message.id === "reply")?.replyTo).toEqual({ id: "previous", authorName: "Deleted user", deleted: true })
     expect(JSON.stringify(body)).not.toContain("sibling private reply")
     expect(mocks.replies).toHaveBeenCalledWith(db, ["previous"], ["forum", "thread", "sibling"])
   })

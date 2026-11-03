@@ -31,6 +31,8 @@ export async function readCommunityThreadsResource(db: Database, userId: string,
     const message = mapMessageForApi(item, contextForChannel(item.channelId), contract, item.channelId)
     return message
   })
+  const related = [...new Map(items.flatMap(item => contextForChannel(item.channelId).relatedMessages ?? []).map(message => [message.id, message])).values()]
+  messages.push(...related)
   const participants = threadParticipantResources((included?.participants ?? []).map((row) => ({
     channelId: row.channelId, userId: row.userId, isCreator: children.find((child) => child.id === row.channelId)?.creatorId === row.userId,
     participantCount: "participantCount" in row ? Number(row.participantCount) : undefined,

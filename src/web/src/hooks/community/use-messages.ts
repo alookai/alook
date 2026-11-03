@@ -142,6 +142,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const projection = useMessageWindowProjection(entry.canRead ? channelId : null, ids, overlay.liveIds)
   const canonicalById = useMemo(() => new Map((projection.canonicalMessages ?? []).flatMap((message) =>
     typeof message.seq === "number" ? [[message.id, { ...message, seq: message.seq }] as const] : [])), [projection.canonicalMessages])
+  const presentationResources = useMemo(() => new Map([...projection.relatedMessages.map(message => [message.id, message] as const), ...canonicalById]), [canonicalById, projection.relatedMessages])
   const missingCanonical = ids.some(id => !canonicalById.has(id))
   const projectionFailed = projection.status === "error"
   const [projectionFailure, setProjectionFailure] = useState<{ window: object; attempt: object | null; viewKey: string } | null>(null)
@@ -161,8 +162,8 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   useEffect(() => {
     if (channelId) getCommunityRuntime(client).messageStream.actions.dispatch(scope, { type: "baseChanged", messages: canonicalBase })
   }, [canonicalBase, channelId, client, scope])
-  const messages = useMemo(() => entry.canRead ? materializeMessageStream(canonicalBase, overlay, canonicalById).filter((message) => messageMatchesTag(message, tag)) : [],
-    [canonicalBase, canonicalById, overlay, entry.canRead, tag])
+  const messages = useMemo(() => entry.canRead ? materializeMessageStream(canonicalBase, overlay, presentationResources).filter((message) => messageMatchesTag(message, tag)) : [],
+    [canonicalBase, presentationResources, overlay, entry.canRead, tag])
   const latestSeq = Math.max(0, ...(query.data?.pages.map((page) => page.latestSeq ?? 0) ?? []))
   const landingWindow = entry.resource ? client.getQueryData<MessageWindowData>(entry.resource.windowKey) : undefined
   const landingLatestSeq = Math.max(0, ...(landingWindow?.pages.map(page => page.latestSeq ?? 0) ?? []))

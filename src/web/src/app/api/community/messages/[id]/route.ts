@@ -181,8 +181,8 @@ async function handleHumanGet(
   }
 
   const payload = await readCommunityMessageResource(db, userId, message, contract)
-  const profiles = await readCommunityMessageProfiles(db, [payload])
-  return writeCommunityContractJSON(CommunityMessageReadSchema.parse({ contractVersion: contract, channelId: message.channelId, message: payload, profiles }), contract)
+  const profiles = await readCommunityMessageProfiles(db, [payload.message, ...payload.relatedMessages])
+  return writeCommunityContractJSON(CommunityMessageReadSchema.parse({ contractVersion: contract, channelId: message.channelId, ...payload, profiles }), contract)
 }
 
 /**

@@ -55,7 +55,7 @@ const target = {
   serverName: null,
   channelName: null,
   parentChannelName: null,
-  attachmentContentTypes: [],
+  attachments: [],
 }
 
 function dependencies() {

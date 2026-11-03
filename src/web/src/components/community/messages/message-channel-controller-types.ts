@@ -21,8 +21,7 @@ export type MessageContextTarget = {
   serverId: string
   channelId: string
   label: string
-  seq: number
-}
+} & ({ seq: number; messageId?: never } | { messageId: string; seq?: never })
 
 export type MessageActions = {
   onToggleReaction: (id: string, emoji: string) => void
@@ -48,6 +47,7 @@ export type MessageChannelControllerValue = {
   consumeScrollTarget: (targetId: string) => void
   contextTarget: MessageContextTarget | null
   setContextTarget: (target: MessageContextTarget | null) => void
+  openContextId: (id: string) => void
   openContextSeq: (seq: number) => void
   onSheetReply: (target: ReplyTarget) => void
   jumpToSeq: (seq: number) => void

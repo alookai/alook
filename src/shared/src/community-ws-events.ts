@@ -19,10 +19,14 @@ const communityMessageCreateSchema = z.strictObject({
   channelId: string,
   serverId: string.optional(),
   parentChannelId: string.optional(),
+  relatedMessages: z.array(CommunityMessageResourceSchema).optional(),
   message: CommunityMessageResourceSchema.required({ authorName: true, authorAvatarVersion: true }),
   profiles: CommunityMessageResourcesSchema.shape.profiles,
 }).refine(event => event.message.channelId === event.channelId).superRefine((event, ctx) => {
-  const graph = CommunityMessageResourcesSchema.safeParse({ messages: [event.message], profiles: event.profiles })
+  if (event.relatedMessages?.some(message => message.channelId !== event.channelId || message.id !== event.message.replyToId)) ctx.addIssue({ code: "custom", path: ["relatedMessages"], message: "Reply resource scope mismatch" })
+  const messages = [event.message, ...(event.relatedMessages ?? [])]
+  if (new Set(messages.map(message => message.id)).size !== messages.length) ctx.addIssue({ code: "custom", path: ["relatedMessages"], message: "Duplicated message resource" })
+  const graph = CommunityMessageResourcesSchema.safeParse({ messages, profiles: event.profiles })
   if (!graph.success) for (const issue of graph.error.issues) ctx.addIssue({ code: "custom", path: issue.path, message: issue.message })
 })
 

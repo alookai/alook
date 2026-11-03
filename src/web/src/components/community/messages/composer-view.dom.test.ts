@@ -371,14 +371,14 @@ describe("ComposerView", () => {
     )
   })
 
-  it("shows the exact same-author reply target as one stripped, whole-row-truncated line", async () => {
+  it("shows the exact same-author reply target as one semantic, whole-row-truncated line", async () => {
     const first = {
       authorName: "Ada",
-      text: "**First** target with [docs](https://example.test) " + "x".repeat(320),
+      text: "First target with docs " + "x".repeat(320),
     }
     const second = {
       authorName: "Ada",
-      text: "_Second_ target",
+      text: "Second target",
     }
     const renderer = render(
       createElement(ComposerView, baseProps({ replyingTo: first })),

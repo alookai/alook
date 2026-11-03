@@ -1,13 +1,12 @@
 import { truncateMessagePreview } from "../constants/community";
-import { stripInlineMarkup } from "./title";
+import { messagePreviewText, type MessagePreviewInput } from "../lib/message-preview";
 
 export type CommunityNotificationConversationKind = "dm" | "channel" | "thread";
 
-export interface CommunityNotificationCopyInput {
+export interface CommunityNotificationCopyInput extends MessagePreviewInput {
   conversationKind: CommunityNotificationConversationKind;
   authorName: string | null;
   content: string;
-  attachmentContentTypes: ReadonlyArray<string | null | undefined>;
   serverName?: string | null;
   channelName?: string | null;
   parentChannelName?: string | null;
@@ -22,23 +21,11 @@ function displayName(value: string | null | undefined, fallback: string): string
   return value?.trim() || fallback;
 }
 
-function attachmentFallback(contentTypes: ReadonlyArray<string | null | undefined>): string {
-  const normalized = contentTypes.map((value) => value?.toLowerCase() ?? "");
-  if (normalized.some((value) => value.startsWith("image/"))) return "Photo";
-  if (normalized.some((value) => value.startsWith("video/"))) return "Video";
-  if (normalized.some((value) => value.startsWith("audio/"))) return "Audio";
-  if (normalized.length > 0) return "Attachment";
-  return "New message";
-}
-
 export function buildCommunityNotificationCopy(
   input: CommunityNotificationCopyInput,
 ): CommunityNotificationCopy {
   const authorName = displayName(input.authorName, "Alook");
-  const readable = stripInlineMarkup(input.content)
-    .replace(/\s+/gu, " ")
-    .trim();
-  const preview = readable || attachmentFallback(input.attachmentContentTypes);
+  const preview = messagePreviewText(input) || "New message";
 
   if (input.conversationKind === "dm") {
     return {

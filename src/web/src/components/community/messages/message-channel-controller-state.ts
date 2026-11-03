@@ -1,5 +1,7 @@
 "use client"
 import { createAtom, createStore, useAtom, useCreateAtom } from "@tanstack/react-store";
+import { messagePreviewText } from "@alook/shared"
+import { useCanonicalMessagesById } from "@/lib/community-db/projections"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useQueryClient } from "@tanstack/react-query"
 
@@ -75,7 +77,11 @@ export function useMessageChannelController({
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const [replyTo, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))
+  const [replyIntent, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))
+  const replyIds = useMemo(() => replyIntent ? [replyIntent.id] : [], [replyIntent])
+  const replyResources = useCanonicalMessagesById(replyIds)
+  const replyMessage = replyIntent ? replyResources?.get(replyIntent.id) : undefined
+  const replyTo = useMemo(() => replyIntent && replyMessage ? { ...replyIntent, text: messagePreviewText(replyMessage) } : replyIntent, [replyIntent, replyMessage])
   const [localSubmitVersion, setLocalSubmitVersion] = useAtom(useCreateAtom(0))
   const targetEntry = useMemo(() => ({ entry: feed.positionEntry, atom: createAtom<string | null>(anchorMessageId) }), [anchorMessageId, feed.positionEntry])
   const [scrollTargetId, setScrollTargetId] = useAtom(targetEntry.atom)
@@ -113,9 +119,14 @@ export function useMessageChannelController({
 
   const openContextSeq = useCallback((seq: number) => {
     setContextTarget((current) => (
-      current ? { ...current, seq } : { serverId, channelId, label: channelName, seq }
+      current ? { ...current, seq, messageId: undefined } : { serverId, channelId, label: channelName, seq }
     ))
   }, [setContextTarget, serverId, channelId, channelName])
+
+  const openContextId = useCallback((messageId: string) => {
+    source.capture()()
+    setContextTarget({ serverId, channelId, label: channelName, messageId })
+  }, [source, setContextTarget, serverId, channelId, channelName])
 
   const onSheetReply = useCallback((target: ReplyTarget) => {
     if (contextTarget && contextTarget.channelId !== channelId) {
@@ -154,7 +165,7 @@ export function useMessageChannelController({
   const getMessage = useCallback((id: string): Msg | undefined => {
     const registry = getCommunityDbRegistry(profileQueryClient)
     const row = registry?.collections.messages.get(id)
-    let message: Msg | undefined = row?.channelId === channelId ? presentCanonicalMessage(row) : undefined
+    let message: Msg | undefined = row?.channelId === channelId ? presentCanonicalMessage(row, row.replyToId ? registry?.collections.messages.get(row.replyToId) : undefined) : undefined
     if (!message) {
       const intents = communityRuntime.messageStream.get().entries.get(messageScopeKey({ kind: "channel", id: channelId }))?.state.outboxByNonce.values()
       const intent = [...(intents ?? [])].find((item) => item.tempId === id)
@@ -274,6 +285,7 @@ export function useMessageChannelController({
     contextTarget,
     setContextTarget,
     openContextSeq,
+    openContextId,
     onSheetReply,
     jumpToSeq,
     messageActions,
@@ -285,5 +297,5 @@ export function useMessageChannelController({
       communityWsSendTyping(communityRuntime, { channelId })
     },
     typingUsers: typingUserIds.map((id) => typingNames[id] ?? resolveUserName(id)),
-  }), [feed, pinnedIds, replyTo, setReplyTo, scrollTargetId, setScrollTargetId, consumeScrollTarget, contextTarget, setContextTarget, openContextSeq, onSheetReply, jumpToSeq, messageActions, acceptMessage, localSubmitVersion, typingUserIds, communityRuntime, channelId, typingNames, resolveUserName])
+  }), [feed, pinnedIds, replyTo, setReplyTo, scrollTargetId, setScrollTargetId, consumeScrollTarget, contextTarget, setContextTarget, openContextSeq, openContextId, onSheetReply, jumpToSeq, messageActions, acceptMessage, localSubmitVersion, typingUserIds, communityRuntime, channelId, typingNames, resolveUserName])
 }

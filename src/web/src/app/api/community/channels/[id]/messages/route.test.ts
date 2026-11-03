@@ -280,6 +280,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
     mockListMembers.mockResolvedValue([])
     mockListByMessageIds.mockResolvedValue([])
+    mockListReactionsByMessageIds.mockResolvedValue([])
     mockListMemberUserIds.mockResolvedValue([])
     mockGetMessagesByIdsInScope.mockResolvedValue([])
     mockCreateMentions.mockResolvedValue(undefined)
@@ -313,7 +314,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(response.status).toBe(replay ? 200 : 201)
     expect(response.headers.get("x-alook-community-contract")).toBe(String(BUSINESS_SCHEMA_VERSION))
     expect(response.cookies.get("alook_ga_session")).toBeUndefined()
-    expect(await response.json()).toEqual({ profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }], contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", deduped: replay, message: {
+    expect(await response.json()).toEqual({ relatedMessages: [], profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }], contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", deduped: replay, message: {
       id: "m1", channelId: "c1", seq: 12, authorId: "u1", authorName: "Alice", authorAvatar: null, authorAvatarVersion: 0,
       content: "hello", type: "chat", mentionType: null, replyToId: null, clientNonce: "v3-nonce", createdAt: "now", attachments: [],
     } })
@@ -551,7 +552,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     const body = await res.json() as { message: { id: string; seq: number; clientNonce?: string }; deduped?: boolean }
 
     expect(res.status).toBe(201)
-    expect(body).toEqual({ profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }],
+    expect(body).toEqual({ relatedMessages: [], profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }],
       contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", deduped: false,
       message: expect.objectContaining({ id: "m1", seq: 12, clientNonce: "n1" }),
     })
@@ -563,12 +564,12 @@ describe("POST /api/community/channels/[id]/messages", () => {
       replyToId: "reply_target", embeds: null, createdAt: "2026-06-30T00:00:00.000Z" }
     mockGetMessage.mockResolvedValue(row)
     if (replay) mockGetMessageByAuthorAndNonce.mockResolvedValue(row)
-    mockGetMessageInScope.mockResolvedValue({ id: "reply_target", channelId: "c1", authorId: "u2", authorName: "Bob", content: "prior" })
-    mockGetMessagesByIdsInScope.mockResolvedValue([{ id: "reply_target", channelId: "c1", authorId: "u2", authorName: "Bob", content: "prior" }])
+    mockGetMessageInScope.mockResolvedValue({ seq: 1, createdAt: "2026-06-29T00:00:00.000Z", replyToId: null, clientNonce: null, type: "default", embeds: null, mentionType: null, authorImage: null, authorAvatarVersion: 0, id: "reply_target", channelId: "c1", authorId: "u2", authorName: "Bob", content: "prior" })
+    mockGetMessagesByIdsInScope.mockResolvedValue([{ seq: 1, createdAt: "2026-06-29T00:00:00.000Z", replyToId: null, clientNonce: null, type: "default", embeds: null, mentionType: null, authorImage: null, authorAvatarVersion: 0, id: "reply_target", channelId: "c1", authorId: "u2", authorName: "Bob", content: "prior" }])
     const response = await POST(postReq({ content: "@Bob reply", nonce: "n1", replyToId: "reply_target" }), ctx)
     expect(response.status).toBe(replay ? 200 : 201)
     expect((await response.json()).message).toMatchObject({ id: row.id, replyToId: "reply_target",
-      replyTo: { id: "reply_target", authorId: "u2", authorName: "Bob", text: "prior" } })
+      replyTo: { id: "reply_target", authorId: "u2", authorName: "Bob", } })
     expect(mockGetMessagesByIdsInScope).toHaveBeenCalledWith(expect.anything(), ["reply_target"], { channelId: "c1" })
   })
 
@@ -576,10 +577,10 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetMessageByAuthorAndNonce.mockResolvedValue({ id: "reply_message", seq: 8, clientNonce: "n1", channelId: "c1", authorId: "u1", authorName: "Alice",
       authorImage: null, authorAvatarVersion: 0, content: "reply", type: "default", mentionType: null,
       replyToId: "reply_target", embeds: null, createdAt: "2026-06-30T00:00:00.000Z" })
-    mockGetMessagesByIdsInScope.mockResolvedValue([{ id: "reply_target", channelId: "other", authorId: "u2", authorName: "Secret", content: "private" }])
+    mockGetMessagesByIdsInScope.mockResolvedValue([{ seq: 1, createdAt: "2026-06-29T00:00:00.000Z", replyToId: null, clientNonce: null, type: "default", embeds: null, mentionType: null, authorImage: null, authorAvatarVersion: 0, id: "reply_target", channelId: "other", authorId: "u2", authorName: "Secret", content: "private" }])
     const response = await POST(postReq({ content: "reply", nonce: "n1" }), ctx)
     expect(response.status).toBe(200)
-    expect((await response.json()).message.replyTo).toEqual({ id: "reply_target", authorName: "Deleted user", text: "", deleted: true })
+    expect((await response.json()).message.replyTo).toEqual({ id: "reply_target", authorName: "Deleted user", deleted: true })
   })
 
   it("returns the original canonical contract for a same-nonce replay", async () => {
@@ -604,7 +605,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     const body = await res.json() as { message: { id: string; seq: number; clientNonce?: string }; deduped: boolean }
 
     expect(res.status).toBe(200)
-    expect(body).toEqual({ profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }],
+    expect(body).toEqual({ relatedMessages: [], profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }],
       contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1",
       message: expect.objectContaining({ id: "m-existing", seq: 8, clientNonce: "n1" }),
       deduped: true,
@@ -637,7 +638,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(response.status).toBe(201)
     expect(response.headers.get("x-alook-community-contract")).toBe(String(BUSINESS_SCHEMA_VERSION))
     expect(response.cookies.get("alook_ga_session")).toBeUndefined()
-    expect(await response.json()).toEqual({ profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }],
+    expect(await response.json()).toEqual({ relatedMessages: [], profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }],
       contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", deduped: false,
       message: {
         id: "m_full", channelId: "c1", seq: 42, clientNonce: "client-1",
@@ -1127,7 +1128,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
     // The (mocked) scoped query only ever returns in-scope rows — "r-out-of-scope"
     // and "r-missing" are absent, simulating the real WHERE-clause scoping.
     mockGetMessagesByIdsInScope.mockResolvedValue([
-      { id: "r-in-scope", authorId: "zed", authorName: "Zed", content: "original", channelId: "c1", dmConversationId: null },
+      { seq: 1, createdAt: "2026-06-29T00:00:00.000Z", replyToId: null, clientNonce: null, type: "default", embeds: null, mentionType: null, authorImage: null, authorAvatarVersion: 0, id: "r-in-scope", authorId: "zed", authorName: "Zed", content: "original", channelId: "c1", dmConversationId: null },
     ])
 
     const res = await GET(getReq(), ctx)
@@ -1135,10 +1136,10 @@ describe("GET /api/community/channels/[id]/messages", () => {
     const body = await res.json() as { messages: Array<{ id: string; replyTo?: { id: string; authorName: string; text: string; deleted?: boolean } }> }
     const byId = new Map(body.messages.map((m) => [m.id, m]))
 
-    expect(byId.get("m-a")?.replyTo).toEqual({ id: "r-in-scope", authorId: "zed", authorName: "Zed", text: "original" })
-    expect(byId.get("m-b")?.replyTo).toEqual({ id: "r-out-of-scope", authorName: "Deleted user", text: "", deleted: true })
-    expect(byId.get("m-c")?.replyTo).toEqual({ id: "r-missing", authorName: "Deleted user", text: "", deleted: true })
-    expect(byId.get("m-d")?.replyTo).toEqual({ id: "r-in-scope", authorId: "zed", authorName: "Zed", text: "original" })
+    expect(byId.get("m-a")?.replyTo).toEqual({ id: "r-in-scope", authorId: "zed", authorName: "Zed" })
+    expect(byId.get("m-b")?.replyTo).toEqual({ id: "r-out-of-scope", authorName: "Deleted user", deleted: true })
+    expect(byId.get("m-c")?.replyTo).toEqual({ id: "r-missing", authorName: "Deleted user", deleted: true })
+    expect(byId.get("m-d")?.replyTo).toEqual({ id: "r-in-scope", authorId: "zed", authorName: "Zed" })
     expect(byId.get("m-e")?.replyTo).toBeUndefined()
 
     expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(1)
@@ -1154,11 +1155,11 @@ describe("GET /api/community/channels/[id]/messages", () => {
     ])
     mockGetMessagesByIdsInScope
       .mockRejectedValueOnce(new Error("D1_ERROR: database is locked"))
-      .mockResolvedValueOnce([{ id: "r1", authorId: "reply-author", authorName: "B", content: "root", channelId: "c1", dmConversationId: null }])
+      .mockResolvedValueOnce([{ seq: 1, createdAt: "2026-06-29T00:00:00.000Z", replyToId: null, clientNonce: null, type: "default", embeds: null, mentionType: null, authorImage: null, authorAvatarVersion: 0, id: "r1", authorId: "reply-author", authorName: "B", content: "root", channelId: "c1", dmConversationId: null }])
     const res = await GET(getReq(), ctx)
     const body = await res.json()
     expect(body.messages).toHaveLength(1)
-    expect(body.messages[0].replyTo).toEqual({ id: "r1", authorId: "reply-author", authorName: "B", text: "root" })
+    expect(body.messages[0].replyTo).toEqual({ id: "r1", authorId: "reply-author", authorName: "B" })
     expect(body.page.hasMoreOlder).toBe(false)
     expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(2)
     expect(mockListMessages).toHaveBeenCalledTimes(1)

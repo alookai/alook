@@ -24,7 +24,7 @@ export async function enrichMessages(
   scope: MessageScope,
   items: Array<Parameters<typeof mapMessageForApi>[0] & { channelId: string }>,
   readProfiles?: CommunityResourceProfileReader,
-): Promise<{ messages: CommunityMessageResource[]; profiles: CommunityResourceProfile[]; latestSeq: number }> {
+): Promise<{ messages: CommunityMessageResource[]; profiles: CommunityResourceProfile[]; relatedMessages: CommunityMessageResource[]; latestSeq: number }> {
   const isDm = scope.isDm === true
   const messageIds = items.map((m) => m.id)
   const creationMessageIds = items.filter((message) => message.type === "bot_creation_request").map((message) => message.id)
@@ -36,7 +36,7 @@ export async function enrichMessages(
         () => queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { channelId: scope.channelId }),
         { route: "community/messages:reply-enrichment" },
       )
-      : Promise.resolve([]), true),
+      : Promise.resolve([]), { skipEmpty: true }),
     // Thread indicators only exist for non-DM channel-scoped messages.
     !isDm
       ? scope.isForum
@@ -99,7 +99,7 @@ export async function enrichMessages(
           lastReplyAt: c.lastMessageAt,
           ...(scope.isForum ? {
             tags: tagsByMessage.get(c.parentMessageId!) ?? [],
-            preview: first?.content ?? "",
+            firstMessageId: first?.id ?? null,
             participants: participantsByChannel.get(c.id) ?? [],
             participantCount: participantCountByChannel.get(c.id) ?? 0,
           } : {}),
@@ -115,5 +115,5 @@ export async function enrichMessages(
       approvalByMessageId: approvalByMessageId as Map<string, import("@alook/shared").FriendApprovalPayload>,
     }, scope.contract, scope.channelId),
   )
-  return { messages, profiles: await readCommunityMessageProfiles(db, messages, readProfiles), latestSeq }
+  return { messages, relatedMessages: context.relatedMessages ?? [], profiles: await readCommunityMessageProfiles(db, [...messages, ...(context.relatedMessages ?? [])], readProfiles), latestSeq }
 }

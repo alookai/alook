@@ -1,5 +1,8 @@
 "use client"
 
+import { useCanonicalMessagesById } from "@/lib/community-db/projections"
+import { messagePreviewText } from "@alook/shared"
+
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
@@ -169,10 +172,13 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
   const messages = useMemo(() => historyAllowed ? fetchedMessages : [], [fetchedMessages, historyAllowed])
 
 
+  const [contextSheetId, setContextSheetId] = useAtom(useCreateAtom<string | null>(null))
   const [contextSheetSeq, setContextSheetSeq] = useAtom(useCreateAtom<number | null>(null))
+  const jumpToSeq = useCallback((seq: number | null) => { setContextSheetId(null); setContextSheetSeq(seq) }, [setContextSheetSeq, setContextSheetId])
+  useEffect(() => { setContextSheetId(null) }, [dmId, setContextSheetId])
   useDmSeqContext({ dmId, historyAllowed,
     navigationAllowed: routeCommitted && !navigationBlocked,
-    setContextSeq: setContextSheetSeq,
+    setContextSeq: jumpToSeq,
   })
   // DM composer has no "current server" — flatten every member server's
   // channels into one cross-server candidate list so a `/`-ref can be
@@ -272,7 +278,6 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
   // pill via the `jumpToSeq` UI-handler. The DM view has no in-place scroll
   // target prop (unlike the channel page), so always open the context sheet,
   // which resolves seq→id and shows the message with surrounding context.
-  const jumpToSeq = useCallback((seq: number) => setContextSheetSeq(seq), [setContextSheetSeq])
   useEffect(() => {
     communityRuntime.ui.actions.registerUiHandlers({ jumpToSeq })
     return () => communityRuntime.ui.actions.registerUiHandlers({ jumpToSeq: undefined })
@@ -287,7 +292,11 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     }
   }, [communityRuntime, dmId])
 
-  const [replyTo, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))
+  const [replyIntent, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))
+  const replyIds = useMemo(() => replyIntent ? [replyIntent.id] : [], [replyIntent])
+  const replyResources = useCanonicalMessagesById(replyIds)
+  const replyMessage = replyIntent ? replyResources?.get(replyIntent.id) : undefined
+  const replyTo = useMemo(() => replyIntent && replyMessage ? { ...replyIntent, text: messagePreviewText(replyMessage) } : replyIntent, [replyIntent, replyMessage])
   const [localSubmitVersion, setLocalSubmitVersion] = useAtom(useCreateAtom(0))
 
   useEffect(() => {
@@ -335,7 +344,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
           id: m.id,
           ...(m.authorId ? { authorId: m.authorId } : {}),
           authorName: m.authorName ?? "",
-          text: m.content ?? "",
+          text: messagePreviewText(m),
         })
       }
     },
@@ -453,6 +462,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
       >
         <ConversationFooterSlotProvider>
           {dmBlocked ? null : readDenied ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : metadata.status === "retryable-error" ? <ConversationResolutionErrorFrame as="div" onRetry={metadata.retry} retrying={metadata.retrying} /> : !historyAllowed && initialLoadError ? <ConversationResolutionErrorFrame as="div" onRetry={retryInitialLoad} retrying={retryingInitialLoad} /> : <MessageList
+            onOpenContextId={(id) => { setContextSheetSeq(null); setContextSheetId(id) }}
             key={dmId}
             variant="dm"
             channel={displayName}
@@ -551,16 +561,18 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
         </ConversationFooterSlotProvider>
       </main>
       {historyAllowed && <MessageContextSheet
-        open={contextSheetSeq !== null}
-        onOpenChange={(v) => { if (!v) setContextSheetSeq(null) }}
+        open={contextSheetSeq !== null || contextSheetId !== null}
+        onOpenChange={(v) => { if (!v) { setContextSheetSeq(null); setContextSheetId(null) } }}
         channelId={dmId}
         targetSeq={contextSheetSeq}
+        targetMessageId={contextSheetId ?? undefined}
         type="dm"
         onOpenProfile={openProfile}
         resolveUserName={resolveUserName}
         onReply={dmBlocked ? undefined : (target) => {
           setReplyTo(target)
           setContextSheetSeq(null)
+          setContextSheetId(null)
         }}
       />}
     </>

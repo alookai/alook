@@ -142,6 +142,7 @@ export function TextChannelSurface({
             >
               <ConversationFooterSlotProvider>
                 <MessageList
+                  onOpenContextId={controller.openContextId}
                   key={channelId}
                   channel={channelName}
                   messages={feed.messages}
@@ -238,6 +239,7 @@ export function TextChannelSurface({
                 serverId={controller.contextTarget?.serverId ?? serverId}
                 channelLabel={controller.contextTarget?.label}
                 targetSeq={controller.contextTarget?.seq ?? null}
+                targetMessageId={controller.contextTarget?.messageId}
                 pinnedIds={controller.pinnedIds}
                 onOpenProfile={onOpenProfile}
                 resolveUserName={resolveUserName}

@@ -11,6 +11,7 @@ import type { ResolvedMessageListProps } from "./message-list-types"
 
 export function useMessageListController({
   messages,
+  onOpenContextId,
   loading,
   initialLoadError,
   newDividerBefore,
@@ -174,10 +175,11 @@ export function useMessageListController({
   const jumpClearTimerRef = useRef<number | null>(null)
   const jumpVisibilityFrameRef = useRef<number | null>(null)
   const jumpTo = useCallback((id: string, behavior: ScrollBehavior = "smooth") => {
+    if (!messages.some(message => message.id === id)) { onOpenContextId?.(id); return }
     setJumped(id)
     setJumpRevision((value) => value + 1)
     jumpToIndex(id, behavior)
-  }, [jumpToIndex, setJumped, setJumpRevision])
+  }, [messages, onOpenContextId, jumpToIndex, setJumped, setJumpRevision])
   useEffect(() => {
     if (!jumped) return
     const id = jumped

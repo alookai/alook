@@ -37,6 +37,20 @@ describe("current community resources", () => {
   })
 })
 
+describe("canonical reply resources", () => {
+  it("accepts one full same-channel reply target and rejects unrelated or duplicated rows", () => {
+    const target = { ...communityResourceMessageFixture.message, id: "target", replyToId: null }
+    const message = { ...target, id: "root", replyToId: target.id }
+    const value = { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: message.channelId, message, relatedMessages: [target], profiles: communityResourceMessageFixture.profiles }
+    expect(CommunityMessageReadSchema.parse(value)).toEqual(value)
+    for (const relatedMessages of [
+      [{ ...target, channelId: "foreign" }], [{ ...target, id: "unrelated" }], [target, target], [message],
+      [target, { ...target, id: "second-level" }],
+    ]) expect(CommunityMessageReadSchema.safeParse({ ...value, relatedMessages }).success).toBe(false)
+    expect(CommunityMessageReadSchema.safeParse({ ...value, channelId: "foreign" }).success).toBe(false)
+  })
+})
+
 describe("conversation entry resource", () => {
   const entry = () => ({
     contractVersion: BUSINESS_SCHEMA_VERSION,
@@ -182,7 +196,7 @@ describe("nested current resource facts", () => {
 describe("complete message author dependency graphs", () => {
   const author = { id: "author", name: "Former", discriminator: "0042", avatar: null, avatarVersion: 0 }
   const replyAuthor = { ...author, id: "reply-author", name: "Reply author" }
-  const message = { ...communityResourceMessageFixture.message, authorId: author.id, replyToId: "prior", replyTo: { id: "prior", authorId: replyAuthor.id, authorName: replyAuthor.name, text: "Prior" } }
+  const message = { ...communityResourceMessageFixture.message, authorId: author.id, replyToId: "prior", replyTo: { id: "prior", authorId: replyAuthor.id, authorName: replyAuthor.name } }
   it("requires every live author and preserves real nullable profile fields", () => {
     const graph = { messages: [message], profiles: [author, replyAuthor] }
     expect(CommunityMessageResourcesSchema.parse(graph)).toEqual(graph)
@@ -198,7 +212,7 @@ describe("complete message author dependency graphs", () => {
     expect(CommunityMessageResourcesSchema.safeParse(graph).success).toBe(false)
   })
   it("keeps an explicit deleted reply sentinel separate from a missing live person", () => {
-    const sentinel = { ...message, replyTo: { id: "prior", authorName: "Deleted user", text: "", deleted: true } }
+    const sentinel = { ...message, replyTo: { id: "prior", authorName: "Deleted user", deleted: true } }
     expect(CommunityMessageResourcesSchema.parse({ messages: [sentinel], profiles: [author] }).messages[0].replyTo).toEqual(sentinel.replyTo)
     expect(communityMessageProfileIds([sentinel])).toEqual([author.id])
   })

@@ -215,14 +215,14 @@ describe("GET /api/community/messages/[id]", () => {
     })
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
     mockGetMessagesByIdsInScope.mockResolvedValue([
-      { id: "m0", authorId: "bob", authorName: "Bob", content: "question?", channelId: "c1" },
+      { seq: 1, createdAt: "2026-06-29T00:00:00.000Z", replyToId: null, clientNonce: null, type: "default", embeds: null, mentionType: null, authorImage: null, authorAvatarVersion: 0, id: "m0", authorId: "bob", authorName: "Bob", content: "question?", channelId: "c1" },
     ])
 
     const res = await GET(req(), { params: { id: "m1" } } as any)
     expect(res.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
     const envelope = CommunityMessageReadSchema.parse(await res.json())
     const body = envelope.message
-    expect(body.replyTo).toEqual({ id: "m0", authorId: "bob", authorName: "Bob", text: "question?" })
+    expect(body.replyTo).toEqual({ id: "m0", authorId: "bob", authorName: "Bob" })
     const [, , scope] = mockGetMessagesByIdsInScope.mock.calls[0]
     expect(scope).toEqual({ channelId: "c1" })
   })
@@ -255,7 +255,7 @@ describe("GET /api/community/messages/[id]", () => {
     const envelope = CommunityMessageReadSchema.parse(await res.json())
     const body = envelope.message
     // Target not found in scope — mapper returns the `deleted` sentinel.
-    expect(body.replyTo).toEqual({ id: "m0", authorName: "Deleted user", text: "", deleted: true })
+    expect(body.replyTo).toEqual({ id: "m0", authorName: "Deleted user", deleted: true })
   })
 
   it("returns 404 when the message doesn't exist", async () => {

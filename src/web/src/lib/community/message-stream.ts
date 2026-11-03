@@ -194,11 +194,11 @@ export function materializeMessageStream(
   for (const id of overlay.liveIds) {
     const message = canonical.get(id)
     if (message) upsertMaterialized(byId, idByIdentity, {
-      message: { ...presentCanonicalMessage(message), failed: false },
+      message: { ...presentCanonicalMessage(message, message.replyToId ? canonical.get(message.replyToId) : undefined), failed: false },
     })
   }
   for (const message of baseMessages) {
-    upsertMaterialized(byId, idByIdentity, { message: presentCanonicalMessage(message) })
+    upsertMaterialized(byId, idByIdentity, { message: presentCanonicalMessage(message, message.replyToId ? canonical.get(message.replyToId) : undefined) })
   }
 
   return [...byId.values()].sort(materializedOrder).map((entry) => entry.message)

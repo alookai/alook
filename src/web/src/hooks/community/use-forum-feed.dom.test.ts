@@ -7,7 +7,7 @@ import { renderHook, waitFor } from "@/test/react-dom-harness"
 import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { getCanonicalCommunityMessages, getCanonicalCommunityChannels, patchCanonicalCommunityChannel } from "@/lib/community-db/sync"
+import { getCanonicalCommunityMessages, getCanonicalCommunityChannels, patchCanonicalCommunityChannel, patchCanonicalCommunityMessage } from "@/lib/community-db/sync"
 import { forumFeedWindow, normalizeThreadResources, type ForumFeedTransportPage } from "./forum-feed-window"
 import { CONVERSATION_READ_TIMEOUT_MS } from "@/lib/community/conversation-read"
 import { communityKeys } from "@/lib/query-keys"
@@ -138,10 +138,24 @@ describe("forumFeedPageQueryFn", () => {
     const feed = forumConversationEntryFixture("forum_one", "server_1").forumFeed!
     const profiles = ["opener-author", "first-author", "reply-author"].map(id => ({ id, name: id, discriminator: "0042", avatar: null, avatarVersion: 1 }))
     const messages = [messageResourceFixture({ id: "m1", channelId: "forum_one", authorId: "opener-author" }),
-      messageResourceFixture({ id: "first-t1", channelId: "t1", authorId: "first-author", replyToId: "previous", replyTo: { id: "previous", authorId: "reply-author", authorName: "reply-author", text: "Earlier" } })]
+      messageResourceFixture({ id: "first-t1", channelId: "t1", authorId: "first-author", replyToId: "previous", replyTo: { id: "previous", authorId: "reply-author", authorName: "reply-author" } })]
     apiFetchMock.mockResolvedValue({ ...feed, included: { ...feed.included, profiles, messages } })
     await forumFeedPageQueryFn("forum_one", null, client)({ pageParam: null })
     for (const profile of profiles) expect(getCommunityDbRegistry(client)!.collections.profiles.get(profile.id)).toMatchObject(profile)
+  })
+
+  it("publishes an opener's reply target without adding a post or requesting it per row", async () => {
+    const feed = forumConversationEntryFixture("forum_one", "server_1").forumFeed!
+    const target = messageResourceFixture({ id: "old-target", channelId: "forum_one", authorId: "target-author", content: "**Target** ||private||" })
+    const opener = { ...feed.included.messages[0], replyToId: target.id, replyTo: { id: target.id, authorId: target.authorId, authorName: "Target author" } }
+    const profiles = [...feed.included.profiles, { id: target.authorId, name: "Target author", discriminator: "0042", avatar: null, avatarVersion: 1 }]
+    apiFetchMock.mockResolvedValue({ ...feed, included: { ...feed.included, messages: [target, opener, ...feed.included.messages.filter(message => message.id !== opener.id)], profiles } })
+    const page = await forumFeedPageQueryFn("forum_one", null, client)({ pageParam: null })
+    expect(page.threads.map(thread => thread.id)).toEqual(["t1"])
+    expect(page.threads[0].openerMessageId).toBe(opener.id)
+    expect(getCommunityDbRegistry(client)!.collections.messages.get(target.id)?.content).toBe(target.content)
+    expect(getCommunityDbRegistry(client)!.collections.profiles.get(target.authorId)?.name).toBe("Target author")
+    expect(apiFetchMock).toHaveBeenCalledOnce()
   })
 
   it("seeds opener and participant profiles while returning only the ID window", async () => {
@@ -191,7 +205,8 @@ describe("mapForumFeedPages", () => {
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({ name: "Fallback", messageCount: 0, lastMessageAt: "", parent: { authorId: "u1", authorName: "A", text: preview }, parentSeq: 0, openerMessageId: "opener", preview })
     const updatedPreview = "updated preview".repeat(30)
-    patchCanonicalCommunityChannel(client, "post", (row) => ({ ...row, preview: updatedPreview, lastMessageAt: null }))
+    const firstId = getCommunityDbRegistry(client)!.collections.channels.get("post")!.firstMessageId!
+    patchCanonicalCommunityMessage(client, firstId, (row) => ({ ...row, content: updatedPreview }))
     const registry = getCommunityDbRegistry(client)!
     const projected = mapForumFeedPages([{ serverId: "server_1", parentType: "forum", threads: [{ id: "post", openerMessageId: "opener", participantIds: [] }], hasMore: false }], new Map(getCanonicalCommunityMessages(client).map((row) => [row.id, row])), new Map(getCanonicalCommunityChannels(client).map((row) => [row.id, row])), new Map([...registry.collections.profiles.values()].map((row) => [row.id, row])))
     expect(projected[0]).toMatchObject({ lastMessageAt: "", parent: { text: updatedPreview }, preview: updatedPreview, parentSeq: 0 })
@@ -404,8 +419,8 @@ describe("mapForumFeedPages", () => {
         name: "canonical content",
         authorId: "transport-author",
         authorAvatarVersion: 0,
-        preview: "transport preview",
-        parent: { authorName: "Canonical", text: "transport preview" },
+        preview: "",
+        parent: { authorName: "Canonical", text: "" },
       }),
     ])
     expect(result[0]).not.toHaveProperty("openerCreatedAt")

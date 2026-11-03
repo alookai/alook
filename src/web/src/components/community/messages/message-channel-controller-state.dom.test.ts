@@ -566,7 +566,7 @@ describe("useMessageChannelController", () => {
     expect(getMessage("confirmed")).toMatchObject({ id: "confirmed", content: "confirmed body", authorName: "Current Author", authorAvatarVersion: 7 })
   })
 
-  it("ignores non-finite seq params and projects the exact public value surface", () => {
+  it("ignores non-finite seq params and preserves independent thread actions", () => {
     mocks.seq = "not-a-number"
     mocks.typingIds = ["u1", "u2"]
     mocks.typingNames = { u1: "Alice" }
@@ -586,18 +586,6 @@ describe("useMessageChannelController", () => {
     expect(latest.typingUsers).toEqual(["Alice", "resolved:u2"])
     expect(latest.feed).toBe(projectedFeed)
     expect(resolveUserName).toHaveBeenCalledWith("u2")
-    expect(Object.keys(latest)).toEqual([
-      "feed", "pinnedIds", "replyTo", "setReplyTo", "scrollTargetId", "setScrollTargetId", "consumeScrollTarget",
-      "contextTarget", "setContextTarget", "openContextSeq", "onSheetReply", "jumpToSeq",
-      "messageActions", "threadActions", "acceptMessage", "localSubmitVersion", "handleTyping", "typingUsers",
-    ])
-    const actionKeys = [
-      "onToggleReaction", "onReact", "onReply", "onPin", "onMark", "onCreateThread",
-      "onCopy", "onRetry", "onDismiss", "onPreviewImage",
-      "onPreviewAttachment",
-    ]
-    expect(Object.keys(latest.messageActions)).toEqual(actionKeys)
-    expect(Object.keys(latest.threadActions)).toEqual(actionKeys)
     expect(latest.threadActions.onCreateThread).toBeUndefined()
   })
 

@@ -695,7 +695,7 @@ describe("useMessageListController", () => {
     let renderer: ReturnType<typeof rtlRender>
     act(() => {
       renderer = rtlRender(
-        React.createElement(Probe, { value: props() })
+        React.createElement(Probe, { value: props({ messages: [baseMessage, { ...baseMessage, id: "m2" }] }) })
       )
     })
     act(() => mocks.finishPosition("success"))
@@ -745,7 +745,7 @@ describe("useMessageListController", () => {
     visibleMessageIds = []
     act(() => {
       renderer = rtlRender(
-        React.createElement(Probe, { value: props() })
+        React.createElement(Probe, { value: props({ messages: [baseMessage, { ...baseMessage, id: "m2" }] }) })
       )
     })
     act(() => latest.jumpTo("m1"))

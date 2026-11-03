@@ -4,7 +4,7 @@ import { useConversationPresentation } from "@/contexts/community/conversation-a
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useInfiniteQuery, useIsMutating, useQueryClient, type Query } from "@tanstack/react-query"
-import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE, type CommunityThreadsRead } from "@alook/shared"
+import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE, messagePreviewText, type CommunityThreadsRead } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { ConversationReadTimeoutError, conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
@@ -72,7 +72,9 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null, quer
     const page = normalizeThreadResources(channelId, transport)
     const freshThreads = page.threads.filter((thread) => !protocol.get().publishedIds.has(thread.id))
     const ids = new Set(freshThreads.map((thread) => thread.id)), openerIds = new Set(freshThreads.map((thread) => thread.parentMessageId))
-    const messages = page.included.messages.filter((message) => openerIds.has(message.id) || ids.has(message.channelId))
+    const roots = page.included.messages.filter((message) => openerIds.has(message.id) || ids.has(message.channelId))
+    const replyIds = new Set(roots.flatMap(message => message.replyToId ? [message.replyToId] : []))
+    const messages = page.included.messages.filter((message) => roots.includes(message) || replyIds.has(message.id) && roots.some(root => root.replyToId === message.id && root.channelId === message.channelId))
     const users = new Set([...page.included.members.filter((member) => ids.has(member.channelId)).map((member) => member.userId), ...messages.flatMap(messageProfileIds)])
     await publishCommunityForumFeed(queryClient, channelId, { ...page, threads: freshThreads, included: {
       messages,
@@ -94,9 +96,9 @@ export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<
     const thread = channels.get(window.id), opener = window.openerMessageId ? messages.get(window.openerMessageId) : undefined
     if (!thread || !opener || thread.parentMessageId !== opener.id || !forumFeedMatchesTags(filter, thread.tags)) continue
     byId.set(thread.id, {
-      ...projectThread(thread, opener, "forum"), authorId: opener.authorId ?? thread.creatorId ?? "",
+      ...projectThread(thread, opener, "forum", thread.firstMessageId ? messages.get(thread.firstMessageId) : undefined), authorId: opener.authorId ?? thread.creatorId ?? "",
       authorAvatar: opener.authorAvatar ?? avatarInitial(opener.authorName ?? ""), authorAvatarVersion: opener.authorAvatarVersion ?? 0,
-      openerMessageId: opener.id, ...(opener.createdAt === undefined ? {} : { openerCreatedAt: opener.createdAt }), tags: thread.tags, preview: thread.preview ?? "",
+      openerMessageId: opener.id, ...(opener.createdAt === undefined ? {} : { openerCreatedAt: opener.createdAt }), tags: thread.tags, preview: thread.firstMessageId && messages.get(thread.firstMessageId) ? messagePreviewText(messages.get(thread.firstMessageId)!) : "",
       participants: window.participantIds.map((id) => { const profile = readCommunityProfile(profiles.get(id), id); return { id, name: profile.name, avatar: profile.avatar, avatarVersion: profile.avatarVersion } }), participantCount: thread.participantCount ?? 0,
     })
   }
@@ -133,7 +135,7 @@ export function useForumFeed(serverId: string, channelId: string, options?: { ro
     enabled: presented && selectionReady && entry.canRead && !entry.verificationFetching && (!entry.verificationFailed || entry.displayWindow !== undefined), subscribed: selectionReady && entry.canRead, staleTime: 5_000,
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry), networkMode: "always" })
   const displayCandidate = selectionReady && entry.canRead && entry.displayWindow !== undefined
-  const messageIds = useMemo(() => [...new Set(displayCandidate ? query.data?.pages.flatMap((page) => page.threads.flatMap((thread) => thread.openerMessageId ? [thread.openerMessageId] : [])) ?? [] : [])], [displayCandidate, query.data?.pages])
+  const messageIds = useMemo(() => [...new Set(displayCandidate ? query.data?.pages.flatMap((page) => page.threads.flatMap((thread) => [...(thread.openerMessageId ? [thread.openerMessageId] : []), ...(channels.get(thread.id)?.firstMessageId ? [channels.get(thread.id)!.firstMessageId!] : [])])) ?? [] : [])], [displayCandidate, query.data?.pages, channels])
   const messages = useCanonicalMessagesById(messageIds)
   const displayReady = displayCandidate && query.data !== undefined && messageIds.every(id => messages?.has(id))
     && query.data.pages.every(page => page.threads.every(thread => channels.has(thread.id) && thread.participantIds.every(id => profiles.has(id))))

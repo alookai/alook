@@ -483,6 +483,7 @@ describe("focused message reconnect catch-up", () => {
     expect(publishCommunityMessagesMock).toHaveBeenCalledWith(queryClient, {
       profiles: expect.arrayContaining([expect.objectContaining({ id: "viewer", discriminator: "0042", avatar: null, avatarVersion: 0 })]),
       channelId: "ch_gap",
+      relatedMessages: [],
       messages: expect.arrayContaining([
         expect.objectContaining({ id: "m_2" }),
         expect.objectContaining({ id: "m_3" }),

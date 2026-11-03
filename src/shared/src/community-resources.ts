@@ -81,7 +81,7 @@ const messageThreadSchema = z.strictObject({
   messageCount: CommunityChannelResourceSchema.shape.messageCount,
   lastReplyAt: CommunityChannelResourceSchema.shape.lastMessageAt.optional(),
   tags: z.array(z.string()).optional(),
-  preview: z.string().optional(),
+  firstMessageId: id.nullable().optional(),
   participants: z.array(CommunityMessageThreadParticipantSchema).optional(),
   participantCount: z.number().int().nonnegative().optional(),
 })
@@ -105,7 +105,6 @@ export const CommunityMessageResourceSchema = z.strictObject({
     id,
     authorId: id.optional(),
     authorName: z.string(),
-    text: z.string(),
     deleted: z.boolean().optional(),
   }).refine(reply => reply.deleted === true || reply.authorId !== undefined, { message: "Live reply author identity missing" }).optional(),
   embeds: z.array(z.unknown()).optional(),
@@ -133,6 +132,15 @@ export const CommunityMessageResourcesSchema = z.strictObject({
     ctx.addIssue({ code: "custom", path: ["profiles"], message: "Message profile missing or duplicated in resource graph" })
   }
 })
+
+function validateRelatedMessageGraph(read: { messages: CommunityMessageResource[]; relatedMessages?: CommunityMessageResource[]; opener?: CommunityMessageResource; profiles: z.infer<typeof CommunityResourceProfileSchema>[] }, ctx: z.RefinementCtx) {
+  const roots = [...read.messages, ...(read.opener ? [read.opener] : [])]
+  if (read.relatedMessages?.some(message => !roots.some(root => root.channelId === message.channelId && root.replyToId === message.id))) ctx.addIssue({ code: "custom", path: ["relatedMessages"], message: "Reply resource scope mismatch" })
+  const all = [...roots, ...(read.relatedMessages ?? [])]
+  if (new Set(all.map(message => message.id)).size !== all.length) ctx.addIssue({ code: "custom", path: ["relatedMessages"], message: "Duplicated message resource" })
+  const graph = CommunityMessageResourcesSchema.safeParse({ messages: all, profiles: read.profiles })
+  if (!graph.success) for (const issue of graph.error.issues) ctx.addIssue({ code: "custom", path: issue.path, message: issue.message })
+}
 
 export const CommunityReadStateResourceSchema = z.strictObject({
   channelId: id,
@@ -191,7 +199,8 @@ export type CommunityResourceBundle = z.infer<typeof CommunityResourceBundleSche
 
 export const CommunityChannelReadSchema = z.strictObject({ ...envelope, channel: CommunityChannelResourceSchema, access: CommunityAccessDecisionSchema })
 export const CommunityMessagesReadSchema = CommunityMessageResourcesSchema.safeExtend({ ...envelope, page: CommunityPageSchema,
-  surfaceReceipt: z.strictObject({ channelId: id, surfaceKind: z.enum(["channel", "forum", "thread", "dm"]) }) })
+  relatedMessages: z.array(CommunityMessageResourceSchema).optional(),
+  surfaceReceipt: z.strictObject({ channelId: id, surfaceKind: z.enum(["channel", "forum", "thread", "dm"]) }) }).superRefine(validateRelatedMessageGraph)
 export const CommunityConversationEntryReadSchema = CommunityMessagesReadSchema.safeExtend({
   viewerId: id,
   peer: CommunityResourceProfileSchema.nullable(),
@@ -207,10 +216,6 @@ export const CommunityConversationEntryReadSchema = CommunityMessagesReadSchema.
     anchorMessageId: nullableId,
   }),
 }).superRefine((entry, ctx) => {
-  if (entry.opener) {
-    const graph = CommunityMessageResourcesSchema.safeParse({ messages: [...entry.messages, entry.opener], profiles: entry.profiles })
-    if (!graph.success) for (const issue of graph.error.issues) ctx.addIssue({ code: "custom", path: issue.path, message: issue.message })
-  }
   for (const [path, channelId] of [
     [["channel", "id"], entry.channel.id],
     [["access", "channelId"], entry.access.channelId],
@@ -241,10 +246,10 @@ export const CommunityConversationEntryReadSchema = CommunityMessagesReadSchema.
   if (entry.selection.reason === "read_pointer_missing" && entry.readState.lastReadMessageId === null) ctx.addIssue({ code: "custom", path: ["selection", "reason"], message: "Conversation entry missing read pointer" })
 })
 export const CommunityMessageReadSchema = z.strictObject({ ...envelope,
-  message: CommunityMessageResourceSchema, profiles: CommunityMessageResourcesSchema.shape.profiles,
+  message: CommunityMessageResourceSchema, relatedMessages: z.array(CommunityMessageResourceSchema).optional(), profiles: CommunityMessageResourcesSchema.shape.profiles,
 }).superRefine((read, ctx) => {
-  const graph = CommunityMessageResourcesSchema.safeParse({ messages: [read.message], profiles: read.profiles })
-  if (!graph.success) for (const issue of graph.error.issues) ctx.addIssue({ code: "custom", path: issue.path, message: issue.message })
+  if (read.message.channelId !== read.channelId) ctx.addIssue({ code: "custom", path: ["message", "channelId"], message: "Message resource scope mismatch" })
+  validateRelatedMessageGraph({ messages: [read.message], relatedMessages: read.relatedMessages, profiles: read.profiles }, ctx)
 })
 export const CommunityMessagePostedSchema = CommunityMessageReadSchema.safeExtend({ deduped: z.boolean(), threadId: id.optional() })
 export const CommunityMembersReadSchema = z.strictObject({ ...envelope, relation: z.enum(["access", "notify"]), members: z.array(CommunityMemberRelationSchema), profiles: z.array(CommunityResourceProfileSchema) })

@@ -103,7 +103,7 @@ export function publishConversationEntry(
   const registry = proof.token.registry!
   const parent = channel.parentChannelId
   if (parent && (registry.runtime.ws.get().channelAccessScopes.get(parent)?.generation ?? 0) !== (proof.token.channelScopes.get(parent)?.generation ?? 0)) throw new DOMException("Retired conversation parent", "AbortError")
-  validateCommunityMessagePublication(registry, entry.messages, entry.profiles)
+  validateCommunityMessagePublication(registry, [...entry.messages, ...(entry.relatedMessages ?? [])], entry.profiles)
   if (entry.opener) validateCommunityMessagePublication(registry, [entry.opener], entry.profiles)
   if (entry.forumFeed) validateCommunityMessagePublication(registry, entry.forumFeed.included.messages, entry.forumFeed.included.profiles)
   const initialWindow: InitialMessageWindow = entry.selection.anchorMessageId ? { mode: "anchor", anchor: entry.selection.anchorMessageId } : { mode: "newest" }
@@ -118,9 +118,9 @@ export function publishConversationEntry(
     if (entry.peer) publishCommunityChannelMembersSnapshot(client, null, channel.id, "access", [entry.viewerId, entry.peer.id].map((userId) => ({
       channelId: channel.id, userId, relation: "access", source: "added", isCreator: channel.creatorId === userId, role: null, memberId: null,
     })), proof, [entry.peer])
-    publishCommunityMessages(client, { channelId: channel.id, messages: entry.messages, profiles: entry.profiles, proof })
+    publishCommunityMessages(client, { channelId: channel.id, messages: entry.messages, relatedMessages: entry.relatedMessages?.filter(message => message.channelId === channel.id), profiles: entry.profiles, proof })
     if (entry.opener) {
-      publishCommunityMessages(client, { channelId: entry.opener.channelId, messages: [entry.opener], profiles: entry.profiles, proof })
+      publishCommunityMessages(client, { channelId: entry.opener.channelId, messages: [entry.opener], relatedMessages: entry.relatedMessages?.filter(message => message.channelId === entry.opener!.channelId), profiles: entry.profiles, proof })
       afterCommunityCollectionWrites(registry, () => { client.setQueryData(communityKeys.message(entry.opener!.id), entry.opener!.id) })
     }
     publishCommunityConversationReadState(client, entry.readState, entry.readStateRevision, proof)
@@ -135,7 +135,7 @@ export function publishConversationEntry(
     else {
       afterCommunityCollectionWrites(registry, () => {
       if (conversationDisplayWindows(client, target, { channelId: channel.id, proof: qualified, windowKey })?.some(window => hashKey(window.key) === hashKey(windowKey))) return
-      const page = messageWindowPage({ ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages, profiles: entry.profiles })
+      const page = messageWindowPage({ ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages, relatedMessages: entry.relatedMessages?.filter(message => message.channelId === channel.id), profiles: entry.profiles })
       client.setQueryData<MessageWindowData>(windowKey, { pages: [page], pageParams: [initialWindow as MessagesPageParam] })
       })
     }
@@ -278,7 +278,7 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
           void reconcileConversationLanding(client, {
             kind: target.serverId === null ? "dm" : "channel", scopeId: target.channelId,
             serverId: target.serverId ?? undefined,
-          }, resource.windowKey, { ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages, profiles: entry.profiles }, initial,
+          }, resource.windowKey, { ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages, relatedMessages: entry.relatedMessages?.filter(message => message.channelId === entry.channelId), profiles: entry.profiles }, initial,
           { query: original!, signal, lifetime: "query", observation: captured }).catch(() => undefined)
         }
         record("delivered")

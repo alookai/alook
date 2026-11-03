@@ -7,6 +7,7 @@ import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { publishCommunityMessages, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
+import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
 import { communityKeys } from "@/lib/query-keys"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -90,10 +91,19 @@ function sheetCache(me: boolean) {
   }
 }
 
+function seedContext(initial: ReturnType<typeof sheetCache>) {
+  const proof = captureCommunityLiveSnapshotToken(owner.client, "channel_1")
+  const qualification = conversationListScopeKey({ proof, tag: null })
+  const key = [...communityKeys.messageContext("channel", "channel_1", "message_1"), qualification]
+  owner.client.setQueryData([...communityKeys.messageContext("channel", "channel_1", 1), qualification], { id: "message_1", proof, notFound: false })
+  owner.client.setQueryData(key, { ...initial, proof, messages: initial.messages.map(({ id }) => ({ id })) })
+  return key
+}
+
 async function renderSheet(me: boolean) {
   const initial = sheetCache(me)
   await publishCommunityMessages(owner.client, { profiles: messageProfilesFixture(initial.messages), channelId: "channel_1", messages: initial.messages, proof: { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
-  owner.client.setQueryData(communityKeys.messageContext("channel", "channel_1", 1), { ...initial, messages: initial.messages.map(({ id }) => ({ id })) })
+  seedContext(initial)
   const rendered = render(React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "viewer_1", retainOwner: true }, React.createElement(MessageContextSheet, {
     open: true, onOpenChange: vi.fn(), channelId: "channel_1", targetSeq: 1,
   })))
@@ -130,23 +140,23 @@ describe("MessageContextSheet reaction coordinator", () => {
   it("rereads fresh context IDs with a missing author before exposing row actions", async () => {
     const initial = sheetCache(false)
     await publishCommunityMessages(owner.client, { profiles: messageProfilesFixture(initial.messages), channelId: "channel_1", messages: initial.messages, proof: { token: captureCommunityLiveSnapshotToken(owner.client) } })
-    owner.client.setQueryData(communityKeys.messageContext("channel", "channel_1", 1), { ...initial, messages: [{ id: "message_1" }] })
+    const contextKey = seedContext(initial)
     await writeCommunityCollectionRows(owner.registry, "profiles", [], row => row.id)
     let release!: (value: ReturnType<typeof messageReadPageFixture>) => void
     const held = new Promise<ReturnType<typeof messageReadPageFixture>>(resolve => { release = resolve })
-    mocks.apiFetch.mockResolvedValueOnce({ id: "message_1" }).mockImplementationOnce(() => held)
+    mocks.apiFetch.mockImplementationOnce(() => held)
     render(React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "viewer_1", retainOwner: true }, React.createElement(MessageContextSheet, {
       open: true, onOpenChange: vi.fn(), channelId: "channel_1", targetSeq: 1,
     })))
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-    expect(mocks.apiFetch).toHaveBeenCalledTimes(2)
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1)
     expect(mocks.onAdd).toBeUndefined()
     expect(mocks.onToggle).toBeUndefined()
     await act(async () => { release(messageReadPageFixture({ messages: initial.messages, hasMore: false })); await held; await vi.advanceTimersByTimeAsync(0) })
     expect(mocks.onAdd).toEqual(expect.any(Function))
     expect(owner.registry.collections.profiles.get("author_1")).toMatchObject({ id: "author_1", name: "Author", discriminator: expect.any(String), avatarVersion: 0 })
-    expect(owner.client.getQueryData(communityKeys.messageContext("channel", "channel_1", 1))).toMatchObject({ messages: [{ id: "message_1" }] })
-    expect(mocks.apiFetch).toHaveBeenCalledTimes(2)
+    expect(owner.client.getQueryData(contextKey)).toMatchObject({ messages: [{ id: "message_1" }] })
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1)
   })
 
   it("repeats picker add without a rerender and preserves the first timer deadline", async () => {

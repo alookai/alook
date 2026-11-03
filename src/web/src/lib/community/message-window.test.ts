@@ -60,4 +60,18 @@ describe("native message window identity", () => {
     unsubscribe()
     observer.destroy()
   })
+
+  it("publishes full reply targets without inserting them into the selected window", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const target = messageResourceFixture({ id: "older", seq: 1, content: "**Full** `file_name.ts`", attachments: [{ id: "file", name: "photo.png", url: "/file", thumbnailUrl: null, contentType: "image/png", sizeBytes: 50, width: 1, height: 1 }] })
+    const reply = messageResourceFixture({ id: "reply", seq: 100, replyToId: target.id, replyTo: { id: target.id, authorId: target.authorId, authorName: "Viewer" } })
+    load.mockResolvedValueOnce({ profiles: [profileResourceFixture()], messages: [reply], relatedMessages: [target], latestSeq: 100, hasMoreOlder: true, hasMoreNewer: false })
+    const options = messageWindowOptions(client, "c1", { mode: "newest" })
+    await client.infiniteQuery({ ...options, select: undefined })
+    const data = client.getQueryData(options.queryKey)!
+    expect(data.pages[0].messages).toEqual([{ id: "reply", seq: 100 }])
+    expect(data.pages[0]).not.toHaveProperty("relatedMessages")
+    expect(registry.collections.messages.get("older")).toMatchObject({ content: target.content, attachments: target.attachments })
+    expect(load).toHaveBeenCalledOnce()
+  })
 })

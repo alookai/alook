@@ -214,7 +214,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
             ? [prefetched.page, cached] : [...(cached ? [cached] : []), ...(prefetched ? [prefetched.page] : [])]
           const pending = [refreshed, ...(prefetched ? [prefetched.page] : [])].filter(page => !published.has(page))
           if (pending.length) {
-            await publishCommunityMessages(queryClient, { channelId: scopeId, messages: pending.flatMap(page => page.messages), profiles: [...new Map(pending.flatMap(page => page.profiles).map(profile => [profile.id, profile])).values()], proof: { token, signal } })
+            await publishCommunityMessages(queryClient, { channelId: scopeId, messages: pending.flatMap(page => page.messages), relatedMessages: pending.flatMap(page => page.relatedMessages ?? []), profiles: [...new Map(pending.flatMap(page => page.profiles).map(profile => [profile.id, profile])).values()], proof: { token, signal } })
             for (const page of pending) published.add(page)
           }
           queryClient.setQueryData<MessageCache>(key, (cache) => isMessageCache(cache) ? mergeWindow(cache, refreshed, catchUp) : cache)

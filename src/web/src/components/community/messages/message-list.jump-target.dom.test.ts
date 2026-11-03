@@ -6,8 +6,8 @@ import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFr
 
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
 vi.mock("./message-row", () => ({
-  MessageRow: ({ m, highlighted }: { m: { id: string }; highlighted: boolean }) =>
-    React.createElement("div", { "data-row-id": m.id, "data-highlighted": highlighted }),
+  MessageRow: ({ m, highlighted, onJumpToId }: { m: { id: string; replyTo?: { id: string } }; highlighted: boolean; onJumpToId?: (id: string) => void }) =>
+    React.createElement("div", { "data-row-id": m.id, "data-highlighted": highlighted }, m.replyTo && React.createElement("button", { onClick: () => onJumpToId?.(m.replyTo!.id) }, "Show reply")),
 }))
 vi.mock("./message-share-dialog", () => ({ MessageShareDialog: () => null }))
 vi.mock("./typing-indicator", () => ({ TypingIndicator: () => null }))
@@ -55,5 +55,22 @@ describe("MessageList pending jump target with the installed native adapter", ()
     expect(renderer.container.querySelector('[data-msg-id="m_target"]')).toBeNull()
     expect(renderer.queryByText(/Beginning of the channel/)).toBeNull()
     expect(renderer.getByRole("button", { name: "Retry" })).toBeInTheDocument()
+  })
+  it("opens context only for replies outside the selected window and keeps local highlight", () => {
+    const context = vi.fn()
+    const reply = { ...unrelated, replyTo: { id: target.id, authorName: "Alice", text: "Target" } }
+    const list = (messages: typeof reply[] | typeof target[]) => React.createElement(MessageList, {
+      channel: "general", messages, initialScrollReady: true, onOpenThread: vi.fn(), onOpenContextId: context,
+    })
+    const renderer = render(list([reply]))
+    resize()
+    act(() => renderer.getByRole("button", { name: "Show reply" }).click())
+    expect(context).toHaveBeenCalledExactlyOnceWith(target.id)
+    expect(renderer.container.querySelector('[data-row-id="m_target"]')).toBeNull()
+    renderer.rerender(list([target, reply]))
+    resize()
+    act(() => renderer.getByRole("button", { name: "Show reply" }).click())
+    expect(context).toHaveBeenCalledOnce()
+    expect(highlighted(renderer.container)).toBe(true)
   })
 })

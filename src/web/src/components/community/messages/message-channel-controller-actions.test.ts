@@ -10,12 +10,11 @@ const mocks = vi.hoisted(() => ({
   dispatch: vi.fn(),
   toast: vi.fn(),
   toastApiError: vi.fn(),
-  deriveThreadName: vi.fn(() => "derived thread"),
+
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toast }))
 vi.mock("@/lib/api/client", () => ({ toastApiError: mocks.toastApiError }))
-vi.mock("@alook/shared", async (load) => ({ ...await load<typeof import("@alook/shared")>(), deriveThreadName: mocks.deriveThreadName }))
 
 const owners: CommunityDbRegistry[] = []
 afterEach(async () => {
@@ -178,9 +177,8 @@ describe("createMessageActions", () => {
       resolveThread = resolve
     }))
     const pendingThread = harness.actions.onCreateThread("m1")
-    expect(mocks.deriveThreadName).toHaveBeenCalledWith("hello", "general")
     expect(harness.createThreadAsync).toHaveBeenCalledWith({
-      serverId: "server_1", channelId: "channel_1", messageId: "m1", name: "derived thread", assertActive: expect.any(Function),
+      serverId: "server_1", channelId: "channel_1", messageId: "m1", name: "hello", assertActive: expect.any(Function),
     })
     const latestOpenThread = vi.fn()
     harness.actionContext.setState((state) => ({ ...state, onOpenThread: latestOpenThread }))
@@ -334,14 +332,14 @@ describe("createMessageActions", () => {
       id: "m1",
       authorId: "viewer_1",
       authorName: "Viewer",
-      text: "@Alice Smith\n> quote\n\nbody",
+      text: "@Alice Smith quote body",
     })
 
     await harness.actions.onCopy("m1")
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("@Alice Smith\n> quote\n\nbody")
 
     await harness.actions.onCreateThread("m1")
-    expect(mocks.deriveThreadName).toHaveBeenCalledWith("@Alice Smith\n> quote\n\nbody", "general")
+    expect(harness.createThreadAsync).toHaveBeenCalledWith(expect.objectContaining({ name: "@Alice Smith quote body" }))
 
 
   })

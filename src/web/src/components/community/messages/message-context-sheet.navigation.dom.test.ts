@@ -3,12 +3,17 @@ import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act } from "@/test/react-dom-harness"
-import { renderCommunity as render } from "@/test/community-owner-harness"
+import { render as renderBase } from "@/test/react-dom-harness"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { beginCommunityProfileSeed } from "@/lib/community/profile-seed"
 import type { MessageInput } from "@/lib/community/models/message"
 
 let navigationOwner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
+function render(node: React.ReactNode) {
+  return renderBase(node, { wrapper: ({ children }) => React.createElement(CommunityTestProvider, { client: navigationOwner.client, registry: navigationOwner.registry, userId: "viewer_1", retainOwner: true }, children) })
+}
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   cancel: vi.fn(),
@@ -37,6 +42,8 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({ ...await importOri
   useQuery: () => ({
     data: mocks.noData ? undefined : {
       notFound: false,
+      id: "message_1",
+      proof: captureCommunityLiveSnapshotToken(navigationOwner.client, "parent_1"),
       anchorId: "message_1",
       messages: [{
         id: "message_1",
@@ -118,6 +125,7 @@ import {
   MessageContextSheet,
   openMessageContextThread,
   messageContextQueryFn,
+  messageContextIdQueryFn,
 } from "./message-context-sheet"
 
 describe("MessageContextSheet native query publication", () => {
@@ -128,18 +136,17 @@ describe("MessageContextSheet native query publication", () => {
     const owner = await createCommunityQueryOwner("context_viewer")
     const write = vi.spyOn(owner.registry.collections.profiles.utils, "writeBatch")
     const signal = new AbortController().signal
-    mocks.apiFetch.mockResolvedValueOnce({ id: "anchor" }).mockResolvedValueOnce(messageReadPageFixture({ messages: [
+    mocks.apiFetch.mockResolvedValueOnce(messageReadPageFixture({ messages: [
       messageResourceFixture({ id: "after", channelId: "context_channel", seq: 3, content: "after", authorId: "author", authorName: "Author" }),
       messageResourceFixture({ id: "anchor", channelId: "context_channel", seq: 2, content: "anchor", authorId: "author", authorName: "Author" }),
     ], hasMore: false }))
-    await expect(messageContextQueryFn("channel", "context_channel", 2, owner.client)({ signal })).resolves.toEqual({
+    await expect(messageContextQueryFn("channel", "context_channel", "anchor", owner.client)({ signal })).resolves.toMatchObject({
       notFound: false, anchorId: "anchor", messages: [{ id: "anchor" }, { id: "after" }],
     })
     expect(mocks.apiFetch.mock.calls.map(([url]) => url)).toEqual([
-      "/api/community/channels/context_channel/messages/seq/2",
       "/api/community/channels/context_channel/messages?anchor=anchor&limit=11",
     ])
-    expect(mocks.apiFetch.mock.calls.every(([, options]) => options.signal === signal)).toBe(true)
+    expect(mocks.apiFetch.mock.calls.every(([, options]) => options.signal instanceof AbortSignal && !options.signal.aborted)).toBe(true)
     expect(write).toHaveBeenCalledTimes(1)
     expect(owner.registry.collections.messages.get("anchor")).toMatchObject({ content: "anchor", channelId: "context_channel", authorId: "author" })
     expect(owner.registry.collections.profiles.get("author")).toMatchObject({ id: "author", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 })
@@ -151,7 +158,7 @@ describe("MessageContextSheet native query publication", () => {
     const revision = beginCommunityProfileSeed(owner.registry).revision
     const { ApiError } = await import("@/lib/errors")
     mocks.apiFetch.mockRejectedValueOnce(new ApiError("missing", 404))
-    await expect(messageContextQueryFn("dm", "context_dm", 8, owner.client)()).resolves.toEqual({ notFound: true })
+    await expect(messageContextIdQueryFn("dm", "context_dm", 8, owner.client)()).resolves.toMatchObject({ notFound: true })
     expect(mocks.apiFetch).toHaveBeenCalledTimes(1)
     expect(beginCommunityProfileSeed(owner.registry).revision).toBe(revision)
     expect([...owner.registry.collections.messages.values()]).toEqual([])
@@ -161,8 +168,8 @@ describe("MessageContextSheet native query publication", () => {
     const owner = await createCommunityQueryOwner("context_viewer")
     const { retireCommunityChannelReading } = await import("@/lib/community-db/sync")
     let resolvePage!: (page: unknown) => void
-    mocks.apiFetch.mockResolvedValueOnce({ id: "anchor" }).mockImplementationOnce(() => new Promise((resolve) => { resolvePage = resolve }))
-    const pending = messageContextQueryFn("channel", "context_channel", 2, owner.client)().catch((error) => error)
+    mocks.apiFetch.mockImplementationOnce(() => new Promise((resolve) => { resolvePage = resolve }))
+    const pending = messageContextQueryFn("channel", "context_channel", "anchor", owner.client)().catch((error) => error)
     while (!resolvePage) await Promise.resolve()
     retireCommunityChannelReading(owner.registry, "context_channel", { reason: "read-denied", serverId: "context_server" })
     resolvePage({ messages: [messageResourceFixture({ id: "anchor", channelId: "context_channel", seq: 2, content: "late", authorId: "author", authorName: "Late Author" })], hasMore: false })
@@ -198,10 +205,10 @@ describe("MessageContextSheet thread navigation", () => {
     expect(mocks.toggleReaction).toBeUndefined()
   })
 
-  it("shows a missing anchor when the canonical map exists without its ID", () => {
+  it("does not label an uncached target as deleted", () => {
     mocks.canonicalMessages.mockReturnValue(new Map())
     const view = render(React.createElement(MessageContextSheet, { open: true, onOpenChange: mocks.close, channelId: "parent_1", targetSeq: 1 }))
-    expect(view.getByText("Message not found — it may have been deleted.")).toBeTruthy()
+    expect(view.queryByText("Message not found — it may have been deleted.")).toBeNull()
     expect(mocks.reply).toBeUndefined()
     expect(mocks.pin).toBeUndefined()
   })
@@ -236,7 +243,7 @@ describe("MessageContextSheet thread navigation", () => {
 
   it("opens a rendered channel thread by its flat child id and closes the sheet", () => {
     render(React.createElement(MessageContextSheet, {
-      open: false,
+      open: true,
       onOpenChange: mocks.close,
       channelId: "parent_1",
       serverId: "target_server",

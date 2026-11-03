@@ -4,6 +4,7 @@ import { test, expect } from "./_fixtures/case-fixture"
 
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
+import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
 
 async function prepareCase(actors: CaseActors) {
@@ -24,6 +25,70 @@ async function prepareCase(actors: CaseActors) {
 }
 
 const VIEWPORT = { width: 1280, height: 800 }
+
+for (const kind of ["channel", "dm"] as const) {
+  test(`${kind} reply uses the current window or an independent ID context`, async ({ caseActors, caseResources }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { seedServer, seedChannel, seedJoinServer, seedDm, seedMessage } = actors.seed
+    let serverId: string | undefined
+    let channelId: string
+    if (kind === "channel") {
+      serverId = await seedServer("alice", `Reply context ${Date.now()}`)
+      await seedJoinServer("alice", "bob", serverId)
+      channelId = await seedChannel("alice", serverId, "reply-context")
+    } else channelId = await seedDm("alice", actors.userId("bob"))
+    const olderId = await seedMessage("bob", channelId, "**Old target** ||hidden preview|| `file_name.ts`")
+    let nearbyId = ""
+    for (let index = 0; index < 51; index++) {
+      const id = await seedMessage("bob", channelId, `context filler ${index}`)
+      if (index === 28) nearbyId = id
+    }
+    const oldReplyId = await seedMessage("bob", channelId, "Reply to old target", { replyToId: olderId })
+    const nearbyReplyId = await seedMessage("bob", channelId, "Reply to nearby target", { replyToId: nearbyId })
+    await (await prepareCase(actors)).setReadCheckpoint(channelId, nearbyReplyId)
+    const { page } = await actors.asUser("alice")
+    await page.setViewportSize(VIEWPORT)
+    await gotoAfterUserWsAuth(page, kind === "dm" ? `/c/me/${channelId}` : `/c/channels/${serverId}/${channelId}`)
+    const scroller = page.getByTestId(tid.messageScroller)
+    const requests: Array<{ url: string; method: string }> = []
+    page.on("request", request => requests.push({ url: request.url(), method: request.method() }))
+    const nearReply = scroller.getByTestId(tid.message(nearbyReplyId))
+    await expect(nearReply).toBeVisible()
+    await nearReply.getByRole("button", { name: "Show original message" }).click()
+    await expect(scroller.getByTestId(tid.message(nearbyId))).toBeInViewport()
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    expect(requests.filter(request => new URL(request.url).searchParams.has("anchor"))).toEqual([])
+    await scroller.evaluate(element => { element.scrollTop = element.scrollHeight })
+    const oldReply = scroller.getByTestId(tid.message(oldReplyId))
+    await expect(oldReply).toBeVisible()
+    const originalButton = oldReply.getByRole("button", { name: "Show original message" })
+    await expect(originalButton).toContainText("Old target [Spoiler] file_name.ts")
+    await expect(originalButton).not.toContainText("hidden preview")
+    await expect(scroller.getByTestId(tid.message(olderId))).toHaveCount(0)
+    const before = await waitForStableGeometry(page)
+    const newCount = await scroller.getByTestId(tid.newDivider).count()
+    const context = await holdNextPage(page, channelId, "anchor", caseResources)
+    const start = requests.length
+    await originalButton.click()
+    await context.matched
+    const dialog = page.getByRole("dialog")
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText("Old target", { exact: true })).toBeVisible()
+    context.release()
+    await expect(dialog.locator('[data-anchor-row="1"]')).toBeVisible()
+    await expect(scroller.getByTestId(tid.message(olderId))).toHaveCount(0)
+    expect(await scroller.getByTestId(tid.newDivider).count()).toBe(newCount)
+    const after = await readGeometry(page)
+    expect(after.firstVisibleId).toBe(before.firstVisibleId)
+    expect(Math.abs(after.scrollTop - before.scrollTop)).toBeLessThanOrEqual(1)
+    const contextRequests = requests.slice(start)
+    expect(contextRequests.filter(request => new URL(request.url).pathname.includes("/messages/seq/"))).toEqual([])
+    expect(contextRequests.filter(request => request.method === "PUT" && new URL(request.url).pathname.endsWith("/read"))).toEqual([])
+    expect(contextRequests.filter(request => new URL(request.url).searchParams.get("anchor") === olderId)).toHaveLength(1)
+    await context.dispose()
+    await testInfo.attach("reply-context-window.json", { body: Buffer.from(JSON.stringify({ kind, channelId, olderId, nearbyId, oldReplyId, before, after, newCount, contextRequests }, null, 2)), contentType: "application/json" })
+  })
+}
 
 type Geometry = {
   scrollTop: number
@@ -76,7 +141,7 @@ async function readMessageOffset(page: Page, messageId: string): Promise<number 
   }, messageId)
 }
 
-async function holdNextPage(page: Page, channelId: string, param: "cursor" | "since", caseResources: CaseResources) {
+async function holdNextPage(page: Page, channelId: string, param: "cursor" | "since" | "anchor", caseResources: CaseResources) {
   let release!: () => void
   let resolveMatched!: () => void
   let consumed = false

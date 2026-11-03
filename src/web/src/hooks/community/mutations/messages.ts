@@ -127,7 +127,7 @@ export type SendMessageArgs = {
 // the same nonce — `message` is the canonical (original) row, nothing new was
 // inserted. The caller treats it as success (reconcile the optimistic row,
 // clear the failed pill), never as a failure to resend.
-export type SendMessageResult = Pick<CommunityMessagePosted, "message" | "profiles"> & { deduped?: boolean }
+export type SendMessageResult = Pick<CommunityMessagePosted, "message" | "profiles" | "relatedMessages"> & { deduped?: boolean }
 
 /**
  * Channel/thread send. The server infers thread-vs-channel routing from the
@@ -176,7 +176,6 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       const { content, replyToId, replyTo, attachments, nonce, original: token, assertActive, assertCommand } = args
       origin.assert(token); (assertCommand ?? assertActive)?.()
       const scope = sendMessageScope(args)
-      const acceptedReply = replyTo ?? getCommunityRuntime(queryClient).messageStream.actions.getRetryPayload(scope, nonce ?? "")?.message.replyTo
       const result = await origin.request<SendMessageResult>(token, `/api/community/channels/${scope.id}/messages`, {
         method: "POST", signal: assertCommand ? undefined : assertActive?.signal, assertActive: assertCommand ?? assertActive,
         body: JSON.stringify({ content, replyToId: replyTo?.id ?? replyToId,
@@ -187,7 +186,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       origin.assert(token); (assertCommand ?? assertActive)?.()
       const message = postedMessageForIntent(result.message, nonce ?? "", scope.id)
       await publishCommunityMessages(queryClient, { channelId: scope.id, profiles: result.profiles,
-        messages: [{ ...message, ...(acceptedReply && !("replyTo" in result.message) && (!("replyToId" in result.message) || result.message.replyToId === acceptedReply.id) ? { replyTo: acceptedReply } : {}) }],
+        messages: [message], relatedMessages: result.relatedMessages,
         proof: { token, ...(scope.kind === "channel" && !assertCommand ? { signal: assertActive?.signal } : {}) } })
       return result
     },

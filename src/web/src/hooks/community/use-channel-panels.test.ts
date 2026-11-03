@@ -108,7 +108,7 @@ describe("usePins / pinsQueryFn", () => {
   it("publishes rich pin facts only from the supplied full resource", async () => {
     const rich = messageResourceFixture({ id: "m_1", channelId: "ch_1", replyToId: "reply", type: "system" as const, systemKind: "thread" as const,
       authorId: "u1", content: "full", clientNonce: "known-nonce",
-      replyTo: { id: "reply", authorId: "peer", authorName: "Peer", text: "Prior" },
+      replyTo: { id: "reply", authorId: "peer", authorName: "Peer", },
       attachments: [{ id: "file", name: "known.txt", url: "/known", thumbnailUrl: null, contentType: "text/plain", sizeBytes: 1024, width: null, height: null }],
       embeds: [{ title: "Known" }], reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["peer"] }],
     })
@@ -151,12 +151,13 @@ describe("materializeThreadsResponse", () => {
     const preview = "preview".repeat(30), content = "content".repeat(30)
     const base = { ...channelResourceFixture({ id: "base", serverId: "s1", type: "thread", parentChannelId: "forum" }), muted: false, pending: false, tags: [] }
     const channels = new Map([
-      ["post", channelSchema.parse({ ...base, id: "post", name: "Fallback", createdAt: "created", preview, parentMessageId: "opener" })],
-      ["empty", channelSchema.parse({ ...base, id: "empty", name: "", preview, createdAt: "created" })],
+      ["post", channelSchema.parse({ ...base, id: "post", name: "Fallback", createdAt: "created", firstMessageId: "body", parentMessageId: "opener" })],
+      ["empty", channelSchema.parse({ ...base, id: "empty", name: "", firstMessageId: "body", createdAt: "created" })],
       ["archived", channelSchema.parse({ ...base, id: "archived", name: "Archived", archived: true })],
     ])
     const data = { parentType: "forum", serverId: "s1", parentChannelId: "forum", threads: [{ id: "post", openerMessageId: "opener" }, { id: "empty" }, { id: "archived" }] }
     const messages = new Map([["opener", { id: "opener", type: "chat" as const, content: "   ", authorId: "u1", authorName: "A", seq: 0 }]])
+    messages.set("body", { id: "body", type: "chat", content: preview, authorId: "u1", authorName: "A", seq: 1 })
     const forum = materializeThreadsResponse(data, messages, channels)
     expect(forum).toHaveLength(2)
     expect(forum[0]).toEqual({ id: "post", name: "Fallback", messageCount: 0, lastMessageAt: "created", parent: { authorId: "u1", authorName: "A", text: preview }, parentSeq: 0, openerMessageId: "opener" })

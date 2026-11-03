@@ -61,7 +61,7 @@ vi.mock("@/components/community/messages/message-channel-controller", () => ({
     feed,
     pinnedIds: new Set(), replyTo: null, setReplyTo: vi.fn(),
     scrollTargetId: null, setScrollTargetId: vi.fn(), consumeScrollTarget: vi.fn(),
-    contextTarget: null, setContextTarget: vi.fn(), openContextSeq: vi.fn(),
+    contextTarget: null, setContextTarget: vi.fn(), openContextSeq: vi.fn(), openContextId: vi.fn(),
     onSheetReply: vi.fn(), jumpToSeq: vi.fn(),
     messageActions: {} as MessageChannelControllerValue["messageActions"],
     threadActions: {} as MessageChannelControllerValue["threadActions"],

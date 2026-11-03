@@ -12,7 +12,7 @@ import {
   Smile,
   X,
 } from "lucide-react"
-import { isMobile, stripInlineMarkup } from "@alook/shared"
+import { isMobile } from "@alook/shared"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { PendingFile } from "@/hooks/use-file-attachments"
 import type {
@@ -95,7 +95,7 @@ export function ComposerView({
 }: ComposerViewProps) {
   const nativeMobile = useHydratedClient() && isMobile()
   const replyPreview = replyingTo
-    ? stripInlineMarkup(replyingTo.text).replace(/\s+/g, " ").trim()
+    ? replyingTo.text
     : null
 
   const composerRadius = replyingTo || pendingFiles.length > 0

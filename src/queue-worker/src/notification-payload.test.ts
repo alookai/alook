@@ -13,7 +13,7 @@ function target(overrides: Partial<{
   serverName: string | null
   channelName: string | null
   parentChannelName: string | null
-  attachmentContentTypes: Array<string | null>
+  attachments: Array<{ name: string; contentType: string | null }>
 }> = {}) {
   return {
     messageId: "message-1",
@@ -24,7 +24,7 @@ function target(overrides: Partial<{
     serverName: null,
     channelName: null,
     parentChannelName: null,
-    attachmentContentTypes: [],
+    attachments: [],
     ...overrides,
   }
 }
@@ -123,7 +123,7 @@ describe("mobile notification payload", () => {
   ])("uses an attachment-type fallback for %j", async (attachmentContentTypes, expected) => {
     const payload = await buildPushNotificationPayload(target({
       content: "  ",
-      attachmentContentTypes,
+      attachments: attachmentContentTypes.map(contentType => ({ name: "", contentType })),
     }), "user-1")
     expect(payload.body).toBe(expected)
   })
@@ -134,7 +134,7 @@ describe("mobile notification payload", () => {
       conversationKind: "channel",
       serverName: "Studio",
       channelName: "general",
-      attachmentContentTypes: ["image/png"],
+      attachments: [{ name: "", contentType: "image/png" }],
     }), "user-1")
 
     expect(payload.body).toBe("Alice: Photo")
