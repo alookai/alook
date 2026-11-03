@@ -204,6 +204,6 @@ it("renders the pricing document even while search parameters suspend", () => {
   expect(document.querySelector("h1")?.textContent).toBe("Choose the right space for your bots.")
   expect(document.body.textContent).toContain("Does Alook include AI model or runtime costs?")
   expect(document.querySelectorAll("article")).toHaveLength(3)
-  expect(document.querySelectorAll("button:disabled")).toHaveLength(3)
+  expect(document.querySelectorAll("button[data-testid^=\"pricing-choose-\"]:disabled")).toHaveLength(3)
   expect(state.checkout).not.toHaveBeenCalled()
 })

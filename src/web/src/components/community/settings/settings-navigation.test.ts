@@ -23,7 +23,10 @@ describe("responsive settings navigation", () => {
     expect(SETTINGS_TABS_LIST_CLASS).toContain("p-0")
     expect(SETTINGS_TABS_LIST_CLASS).toContain("group-data-horizontal/tabs:h-11")
     expect(SETTINGS_TABS_LIST_CLASS).toContain("sm:flex-col")
-    expect(SETTINGS_TAB_CLASS).toContain("size-11")
+    // Mobile tabs share the strip evenly at the 44px touch-target height.
+    expect(SETTINGS_TAB_CLASS).toContain("h-11")
+    expect(SETTINGS_TAB_CLASS).toContain("flex-1")
+    expect(SETTINGS_TAB_CLASS).toContain("sm:flex-none")
     expect(SETTINGS_TAB_CLASS).toContain("sm:h-9")
     expect(SETTINGS_TAB_CLASS).toContain("sm:w-full")
     expect(SETTINGS_TAB_CLASS).toContain("px-0")

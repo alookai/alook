@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { fireEvent } from "@/test/react-dom-harness"
 import { attachLandingScrollSnap } from "./use-landing-scroll-snap"
 
 let y: number
@@ -15,9 +16,9 @@ function move(top: number) {
   y = top
   window.dispatchEvent(new Event("scroll"))
 }
-function wheel(deltaY = 100, target: EventTarget = root) {
+function wheel(deltaY = 100, target: Element = root) {
   const event = new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true })
-  target.dispatchEvent(event)
+  fireEvent(target, event)
   return event
 }
 function point(top: number, bottom: number, hero = false) {

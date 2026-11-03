@@ -20,7 +20,7 @@ describe("Guides layout", () => {
     const breadcrumb = within(screen.getByRole("navigation", { name: "", exact: true })).getByRole("link", { name: "Guides", exact: true });
     expect(breadcrumb).toHaveAttribute("href", "/guides");
     expect(breadcrumb).toHaveAttribute("data-next-link", "true");
-    expect(screen.getByRole("button", { name: "Toggle theme" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /^Switch to (?:dark|light) theme$/ })).toBeVisible();
     for (const home of screen.getAllByRole("link", { name: /^Alook(?: Alook)?$/ })) {
       expect(home).toHaveAttribute("href", "/");
       expect(home).not.toHaveAttribute("data-next-link");

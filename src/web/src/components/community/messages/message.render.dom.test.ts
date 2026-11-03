@@ -1063,7 +1063,7 @@ describe("Message reaction picker", () => {
     expect(reactionRow).not.toHaveClass("sr-only")
   })
   it("opens the non-hover picker and suppresses its Shadow DOM selection click at the row", async () => {
-    vi.stubGlobal("window", { getSelection: () => null })
+    vi.spyOn(window, "getSelection").mockReturnValue(null)
     const onReact = vi.fn()
     let renderer: DomRenderer | undefined
     await act(async () => {

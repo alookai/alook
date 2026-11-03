@@ -421,10 +421,13 @@ describe("ComposerView", () => {
     expect(send.className).toContain("size-8")
     expect(send.className).toContain("rounded-full")
     expect(send.className).toContain("community-composer-send")
-    expect(send.className).toContain("disabled:bg-transparent")
-    expect(send.className).toContain("disabled:text-muted-foreground")
-    expect(send.className).toContain("enabled:hover:bg-primary/90")
-    expect(send.className).toContain("enabled:active:bg-primary/80")
+    // The send key is the shared primary Button: its disabled state dims and
+    // stops pointer input instead of hand-rolled enabled:/disabled: colours.
+    expect(send.dataset.slot).toBe("button")
+    expect(send.dataset.variant).toBe("default")
+    expect(send.className).toContain("bg-primary")
+    expect(send.className).toContain("disabled:opacity-50")
+    expect(send.className).toContain("disabled:pointer-events-none")
     const icon = send.querySelector("svg")!
     expect(icon.getAttribute("viewBox")).toBe("0 0 24 24")
     expect(icon.getAttribute("aria-hidden")).toBe("true")

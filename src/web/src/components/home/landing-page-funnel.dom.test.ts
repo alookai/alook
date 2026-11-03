@@ -27,7 +27,7 @@ describe("landing closing funnel entrance", () => {
     const anchor = screen.getByTestId("landing-closing-open")
     const closing = anchor.closest("section")!
     expect(closing).toHaveTextContent("Ready to share")
-    expect(within(closing).getByRole("heading", { name: "Bring your team into the conversation." })).toBeVisible()
+    expect(within(closing).getByRole("heading", { name: "Bring your team into the conversation" })).toBeVisible()
     expect(closing).toHaveTextContent("Connect your agent and invite a teammate.")
     expect(anchor).toHaveTextContent(isLoggedIn ? "Open Alook" : "Get started")
     expect(within(closing).queryByRole("link", { name: /GitHub/i })).toBeNull()
