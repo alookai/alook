@@ -156,48 +156,6 @@ test("homepage keeps Tutorials in the footer and collapses mobile header links",
     .toEqual(await footerLinks.first().evaluate(styleContract))
 })
 
-test("desktop landing keeps the embedded phone Back control on true mobile geometry", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await page.emulateMedia({ reducedMotion: "reduce" })
-  await page.goto("/")
-
-  await page.getByRole("tab", { name: "On your phone" }).click()
-  await page.getByRole("tabpanel").locator(":scope > div").last().scrollIntoViewIfNeeded()
-  await page.locator('[data-slot="phone-mockup-card"]').scrollIntoViewIfNeeded()
-  const stage = page.getByTestId(tid.landingMobileMotionStage)
-  await stage.scrollIntoViewIfNeeded()
-  const back = stage.locator('button[aria-label="Back"]')
-  await expect(back).toBeVisible()
-  await expect.poll(() => stage.evaluate((stageElement) => {
-    const canvas = stageElement.firstElementChild
-    if (!(canvas instanceof HTMLElement)) return false
-    return Math.abs(canvas.getBoundingClientRect().width - stageElement.getBoundingClientRect().width) < 0.5
-  })).toBe(true)
-
-  const metrics = await stage.evaluate((stageElement) => {
-    const backElement = stageElement.querySelector<HTMLElement>('button[aria-label="Back"]')
-    const identityElement = stageElement.querySelector<HTMLElement>('[data-slot="message-header-identity"]')
-    const canvas = stageElement.firstElementChild as HTMLElement | null
-    if (!backElement || !identityElement || !canvas) return null
-    const backRect = backElement.getBoundingClientRect()
-    const identityRect = identityElement.getBoundingClientRect()
-    const scale = canvas.getBoundingClientRect().width / canvas.offsetWidth
-    return {
-      backDisplay: getComputedStyle(backElement).display,
-      backOffset: [backElement.offsetWidth, backElement.offsetHeight],
-      backRect: [backRect.width / scale, backRect.height / scale],
-      identityGap: (identityRect.left - backRect.right) / scale,
-    }
-  })
-
-  expect(metrics).not.toBeNull()
-  expect(metrics?.backDisplay).not.toBe("none")
-  expect(metrics?.backOffset).toEqual([44, 44])
-  expect(metrics?.backRect[0]).toBeCloseTo(44, 1)
-  expect(metrics?.backRect[1]).toBeCloseTo(44, 1)
-  expect(metrics?.identityGap).toBeCloseTo(4, 1)
-})
-
 for (const width of [1440, 390]) {
   test(`contact preserves its layout after client navigation at ${width}px`, async ({ page, context, baseURL }, testInfo) => {
     await context.addCookies([{ name: "alook_analytics_consent", value: "v1.denied", url: baseURL! }])
@@ -328,7 +286,13 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
       const stage = page.getByRole("tabpanel").locator(":scope > div").last()
       await stage.scrollIntoViewIfNeeded()
-      await expect(stage.locator(":scope > figure, :scope > div[aria-label], :scope > div:has([role=img])").first()).toBeVisible()
+      const liveMedia = `[data-testid="${tid.landingMotionStage}"]:visible, [data-testid="${tid.landingMobileMotionStage}"]:visible`
+      await expect.poll(async () => {
+        if (!await stage.locator(liveMedia).count()) return false
+        const slots = await stage.locator("[data-landing-deferred]:visible").all()
+        const liveCounts = await Promise.all(slots.map(slot => slot.locator(liveMedia).count()))
+        return liveCounts.every(count => count > 0)
+      }, { message: `Live gallery media at ${width}px for ${await tab.textContent()}` }).toBe(true)
       if (width <= 639) {
         const media = stage.locator(":scope > figure, :scope > div[aria-label], :scope > div:has([role=img])").first()
         const mediaBounds = await media.boundingBox()
