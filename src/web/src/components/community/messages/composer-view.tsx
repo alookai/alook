@@ -156,7 +156,8 @@ export function ComposerView({
             const isImage = pendingFile.file.type.startsWith("image/")
             return (
               <div
-                key={index}
+                key={pendingFile.draftId ?? index}
+                aria-busy={pendingFile.preparing || undefined}
                 className="group relative flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs"
               >
                 {isImage ? (
@@ -167,6 +168,7 @@ export function ComposerView({
                 <span className="max-w-30 truncate text-foreground">
                   {pendingFile.file.name}
                 </span>
+                {pendingFile.preparing && <span role="status" className="text-muted-foreground">Preparing…</span>}
                 <button
                   onClick={() => removePendingFile(index)}
                   className="grid size-4 shrink-0 place-items-center rounded-full hover:bg-destructive/10 hover:text-destructive"

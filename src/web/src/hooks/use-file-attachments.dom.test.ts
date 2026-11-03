@@ -87,6 +87,27 @@ async function dropFiles(
 }
 
 describe("useFileAttachments — DOM drop ownership", () => {
+  it("ignores non-file drags and clears nested file feedback after leaving or an empty file drop", async () => {
+    const hook = await renderCapture()
+    const event = { preventDefault: vi.fn(), stopPropagation: vi.fn(), dataTransfer: { types: ["text/plain"], files: [], dropEffect: "none" } }
+    act(() => { hook.current.handleDragEnter(event as never); hook.current.handleDragOver(event as never); hook.current.handleDrop(event as never) })
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(event.stopPropagation).not.toHaveBeenCalled()
+    expect(hook.current.dragging).toBe(false)
+    event.dataTransfer.types = ["Files"]
+    act(() => { hook.current.handleDragEnter(event as never); hook.current.handleDragEnter(event as never); hook.current.handleDragOver(event as never) })
+    expect(hook.current.dragging).toBe(true)
+    expect(event.dataTransfer.dropEffect).toBe("copy")
+    act(() => hook.current.handleDragLeave(event as never))
+    expect(hook.current.dragging).toBe(true)
+    act(() => hook.current.handleDragLeave(event as never))
+    expect(hook.current.dragging).toBe(false)
+    act(() => { hook.current.handleDragEnter(event as never); hook.current.handleDrop(event as never) })
+    expect(hook.current.dragging).toBe(false)
+    expect(hook.current.pendingFiles).toEqual([])
+    expect(generateThumbnailMock).not.toHaveBeenCalled()
+  })
+
   it("routes picker selection and DOM drop through the same pending-file lifecycle", async () => {
     generateThumbnailMock.mockResolvedValue(null)
     const hook = await renderCapture()
@@ -155,6 +176,49 @@ describe("useFileAttachments — DOM drop ownership", () => {
 })
 
 describe("useFileAttachments — PendingFile width/height", () => {
+  it("publishes ordered preparation cards immediately and settles each file before the rest of its batch", async () => {
+    let finishFirst!: (value: null) => void
+    let finishSecond!: (value: null) => void
+    prepareCommunityImageMock
+      .mockReturnValueOnce(new Promise(resolve => { finishFirst = resolve }))
+      .mockReturnValueOnce(new Promise(resolve => { finishSecond = resolve }))
+    const hook = await renderCapture({ thumbnailPolicy: "community", maxFiles: 2 })
+    const files = [new File(["one"], "one.png", { type: "image/png" }), new File(["two"], "two.png", { type: "image/png" })]
+    let adding!: Promise<void>
+    act(() => { adding = hook.current.addPendingFiles(files) })
+    expect(hook.current.pendingFiles.map(item => [item.file.name, item.preparing])).toEqual([["one.png", true], ["two.png", true]])
+    await waitFor(() => expect(prepareCommunityImageMock).toHaveBeenCalledOnce())
+    await act(async () => { finishFirst(null) })
+    await waitFor(() => expect(prepareCommunityImageMock).toHaveBeenCalledTimes(2))
+    expect(hook.current.pendingFiles[0].preparing).toBeFalsy()
+    expect(hook.current.pendingFiles[1].preparing).toBe(true)
+    await act(async () => { finishSecond(null); await adding })
+    expect(hook.current.pendingFiles.map(item => item.file)).toEqual(files)
+  })
+
+  it("cancels a removed preparation, releases its draft/capacity, and never republishes its late result", async () => {
+    let finishRemoved!: (value: { blob: Blob; width: number; height: number }) => void
+    prepareCommunityImageMock
+      .mockReturnValueOnce(new Promise(resolve => { finishRemoved = resolve }))
+      .mockResolvedValue(null)
+    const hook = await renderCapture({ thumbnailPolicy: "community", draftSessionScope: "scope", maxFiles: 1 })
+    const removed = new File(["one"], "removed.png", { type: "image/png" })
+    const kept = new File(["two"], "kept.txt", { type: "text/plain" })
+    let adding!: Promise<void>
+    act(() => { adding = hook.current.addPendingFiles([removed]) })
+    await waitFor(() => expect(prepareCommunityImageMock).toHaveBeenCalledOnce())
+    const signal = prepareCommunityImageMock.mock.calls[0][1] as AbortSignal
+    act(() => hook.current.removePendingFile(0))
+    expect(signal.aborted).toBe(true)
+    expect(readComposerAttachmentSession("scope")).toEqual([])
+    await act(async () => { await hook.current.addPendingFiles([kept]); await adding })
+    await act(async () => finishRemoved({ blob: new Blob(["old"]), width: 100, height: 100 }))
+    expect(hook.current.pendingFiles.map(item => item.file)).toEqual([kept])
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    expect(toastErrorMock).not.toHaveBeenCalled()
+    expect(readComposerAttachmentSession("scope").map(item => item.file)).toEqual([kept])
+  })
+
   it("carries the image's natural width/height from generateThumbnail onto the PendingFile", async () => {
     generateThumbnailMock.mockResolvedValue({ blob: { size: 1 } as Blob, width: 1920, height: 1080 })
 
@@ -294,7 +358,9 @@ describe("useFileAttachments — PendingFile width/height", () => {
     expect(readComposerAttachmentSession("server/channel")).toEqual([
       { draftId: expect.stringMatching(/.+/), file },
     ])
-    expect(hook.current.pendingFiles).toEqual([])
+    expect(hook.current.pendingFiles).toEqual([
+      expect.objectContaining({ file, preparing: true }),
+    ])
 
     await act(async () => {
       release(null)

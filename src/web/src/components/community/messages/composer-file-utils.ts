@@ -79,8 +79,9 @@ export function createComposerAttachmentInputHandlers(
     onDragLeave: attachments.handleDragLeave,
     onDragOver: guardDrag(attachments.handleDragOver),
     onDrop: guardDrag((event) => {
+      if (!event.dataTransfer.files.length && !event.dataTransfer.types.includes("Files")) return
       attachments.handleDrop(event)
-      focusAfterDrop()
+      if (event.dataTransfer.files.length) focusAfterDrop()
     }),
     onFileSelect: (event) => {
       if (!isActive()) {

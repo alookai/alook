@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { generateThumbnail, prepareCommunityImage } from "./image-thumbnail"
 
+const NativeURL = URL
+
 // `generateThumbnail` runs entirely against browser APIs (Image decode,
 // canvas draw, URL.createObjectURL) that don't exist under this repo's
 // `environment: "node"` vitest config. Stub the minimal surface it touches —
@@ -36,9 +38,9 @@ function stubBrowserImageApis(blobSizes = [1]) {
   const canvases: Array<{ width: number; height: number }> = []
   let blobIndex = 0
   vi.stubGlobal("Image", FakeImage)
-  vi.stubGlobal("URL", {
-    createObjectURL: vi.fn(() => "blob:fake"),
-    revokeObjectURL: vi.fn(),
+  vi.stubGlobal("URL", class extends NativeURL {
+    static createObjectURL = vi.fn(() => "blob:fake")
+    static revokeObjectURL = vi.fn()
   })
   vi.stubGlobal("document", {
     createElement: (tag: string) => {
@@ -63,6 +65,58 @@ describe("generateThumbnail", () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     FakeImage.nextShouldError = false
+  })
+
+  it("returns a worker-prepared image without decoding it again on the page, and terminates its worker", async () => {
+    stubBrowserImageApis()
+    const blob = new Blob(["jpeg"], { type: "image/jpeg" })
+    const terminate = vi.fn()
+    vi.stubGlobal("OffscreenCanvas", class {})
+    vi.stubGlobal("createImageBitmap", vi.fn())
+    const postMessage = vi.fn()
+    vi.stubGlobal("Worker", class {
+      onmessage: ((event: { data: unknown }) => void) | null = null
+      onerror = null
+      terminate = terminate
+      postMessage(file: File) { postMessage(file); queueMicrotask(() => this.onmessage?.({ data: { result: { blob, width: 6000, height: 4000 } } })) }
+    })
+    const file = new File(["original"], "large.jpg", { type: "image/jpeg" })
+    await expect(prepareCommunityImage(file)).resolves.toEqual({ blob, width: 6000, height: 4000 })
+    expect(postMessage).toHaveBeenCalledExactlyOnceWith(file)
+    expect(terminate).toHaveBeenCalledOnce()
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it("terminates a worker immediately when its file preparation is cancelled", async () => {
+    const terminate = vi.fn()
+    vi.stubGlobal("OffscreenCanvas", class {})
+    vi.stubGlobal("createImageBitmap", vi.fn())
+    vi.stubGlobal("Worker", class { onmessage = null; onerror = null; terminate = terminate; postMessage() {} })
+    const controller = new AbortController()
+    const pending = prepareCommunityImage(new File(["image"], "large.jpg", { type: "image/jpeg" }), controller.signal)
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    controller.abort()
+    await rejected
+    expect(terminate).toHaveBeenCalledOnce()
+  })
+
+  it("falls back to the existing decoder when the worker cannot support preparation", async () => {
+    const canvases = stubBrowserImageApis()
+    FakeImage.nextWidth = 721
+    FakeImage.nextHeight = 512
+    vi.stubGlobal("OffscreenCanvas", class {})
+    vi.stubGlobal("createImageBitmap", vi.fn())
+    const terminate = vi.fn()
+    vi.stubGlobal("Worker", class {
+      onmessage: ((event: { data: unknown }) => void) | null = null
+      onerror = null
+      terminate = terminate
+      postMessage() { queueMicrotask(() => this.onmessage?.({ data: { unsupported: true } })) }
+    })
+    await expect(prepareCommunityImage(new File(["image"], "photo.png", { type: "image/png" }))).resolves.toMatchObject({ width: 721, height: 512 })
+    expect(canvases).toHaveLength(1)
+    expect(terminate).toHaveBeenCalledOnce()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:fake")
   })
 
   it.each([generateThumbnail, prepareCommunityImage])("cancels an unfinished decode and releases its source URL", async (prepare) => {

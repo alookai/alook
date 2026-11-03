@@ -1,12 +1,11 @@
 import {
-  MAX_ATTACHMENT_THUMBNAIL_EDGE_PX,
   MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES,
 } from "@alook/shared"
+import { renderCommunityThumbnail, requiresCommunityThumbnail, type CommunityImagePreparation, type CommunityImageWorkerResult } from "./community-image-thumbnail"
+
+export type { CommunityImagePreparation } from "./community-image-thumbnail"
 
 const LEGACY_MAX_SIZE = 200
-const COMMUNITY_QUALITIES = [0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]
-const COMMUNITY_DIMENSION_ATTEMPTS = 10
-const COMMUNITY_DIMENSION_SCALE = 0.85
 const COMMUNITY_RASTER_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -17,7 +16,6 @@ const COMMUNITY_RASTER_MIME_TYPES = new Set([
 class RequiredThumbnailError extends Error {}
 
 export type ThumbnailResult = { blob: Blob; width: number; height: number }
-export type CommunityImagePreparation = { blob: Blob | null; width: number; height: number }
 
 export async function generateThumbnail(file: File, signal?: AbortSignal): Promise<ThumbnailResult | null> {
   if (!isRasterImage(file)) return null
@@ -45,6 +43,12 @@ export async function prepareCommunityImage(
 ): Promise<CommunityImagePreparation | null> {
   if (!COMMUNITY_RASTER_MIME_TYPES.has(file.type.toLowerCase())) return null
 
+  if (typeof Worker === "function" && typeof OffscreenCanvas === "function" && typeof createImageBitmap === "function") {
+    const response = await prepareInWorker(file, signal)
+    if ("error" in response) throw new Error(response.error)
+    if ("result" in response) return response.result
+  }
+
   let objectUrl: string | undefined
   let requiredThumbnail = file.size > MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES
   try {
@@ -52,11 +56,18 @@ export async function prepareCommunityImage(
     const img = await loadImage(objectUrl, signal)
     const width = img.naturalWidth
     const height = img.naturalHeight
-    requiredThumbnail = Math.max(width, height) > MAX_ATTACHMENT_THUMBNAIL_EDGE_PX
-      || requiredThumbnail
+    requiredThumbnail = requiresCommunityThumbnail(file.size, width, height)
     if (!requiredThumbnail) return { blob: null, width, height }
 
-    const blob = await renderCommunityJpeg(img, signal)
+    const blob = await renderCommunityThumbnail(width, height, (w, h) => {
+      const canvas = document.createElement("canvas")
+      canvas.width = w
+      canvas.height = h
+      const context = canvas.getContext("2d")
+      if (!context) return null
+      context.drawImage(img, 0, 0, w, h)
+      return quality => canvasToBlob(canvas, "image/jpeg", quality, signal)
+    }, signal)
     if (!blob) throw new RequiredThumbnailError()
     return { blob, width, height }
   } catch (error) {
@@ -71,6 +82,21 @@ export async function prepareCommunityImage(
   } finally {
     if (objectUrl) URL.revokeObjectURL(objectUrl)
   }
+}
+
+function prepareInWorker(file: File, signal?: AbortSignal): Promise<CommunityImageWorkerResult> {
+  return new Promise((resolve, reject) => {
+    signal?.throwIfAborted()
+    let worker: Worker
+    try { worker = new Worker(new URL("./community-image.worker.ts", import.meta.url), { type: "module" }) }
+    catch { resolve({ unsupported: true }); return }
+    const cleanup = () => { signal?.removeEventListener("abort", abort); worker.terminate() }
+    const abort = () => { cleanup(); reject(signal?.reason ?? new DOMException("Image preparation cancelled", "AbortError")) }
+    signal?.addEventListener("abort", abort, { once: true })
+    worker.onmessage = (event: MessageEvent<CommunityImageWorkerResult>) => { cleanup(); resolve(event.data) }
+    worker.onerror = (event) => { event.preventDefault(); cleanup(); resolve({ unsupported: true }) }
+    try { worker.postMessage(file) } catch { cleanup(); resolve({ unsupported: true }) }
+  })
 }
 
 function loadImage(src: string, signal?: AbortSignal): Promise<HTMLImageElement> {
@@ -120,29 +146,4 @@ async function renderJpeg(
   if (!ctx) return null
   ctx.drawImage(img, 0, 0, width, height)
   return canvasToBlob(canvas, "image/jpeg", quality, signal)
-}
-
-async function renderCommunityJpeg(img: HTMLImageElement, signal?: AbortSignal): Promise<Blob | null> {
-  const fitted = fitWithin(
-    img.naturalWidth,
-    img.naturalHeight,
-    MAX_ATTACHMENT_THUMBNAIL_EDGE_PX,
-  )
-  for (let attempt = 0; attempt < COMMUNITY_DIMENSION_ATTEMPTS; attempt++) {
-    const scale = COMMUNITY_DIMENSION_SCALE ** attempt
-    const width = Math.max(1, Math.round(fitted.w * scale))
-    const height = Math.max(1, Math.round(fitted.h * scale))
-    const canvas = document.createElement("canvas")
-    canvas.width = width
-    canvas.height = height
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return null
-    ctx.drawImage(img, 0, 0, width, height)
-    for (const quality of COMMUNITY_QUALITIES) {
-      const blob = await canvasToBlob(canvas, "image/jpeg", quality, signal)
-      if (!blob) return null
-      if (blob.size <= MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES) return blob
-    }
-  }
-  return null
 }

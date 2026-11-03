@@ -161,7 +161,7 @@ export function useComposerController(
           splitListItem: () => editorRef.current?.commands.splitListItem("listItem") ?? false,
           undoInputRule: () => editorRef.current?.commands.undoInputRule() ?? false,
         }),
-      handlePaste: (view, event, slice) => {
+      handleDOMEvents: { paste: (_view, event) => {
         if (!protocol.get().active) { event.preventDefault(); return true }
         const files = clipboardFiles(event.clipboardData?.items)
         if (files.length > 0) {
@@ -183,9 +183,13 @@ export function useComposerController(
           return true
         }
 
+        return false
+      } },
+      handlePaste: (view, event, slice) => {
+        if (!protocol.get().active) { event.preventDefault(); return true }
         return preserveComposerPlainTextPaste(
           view,
-          clipboardText,
+          event.clipboardData?.getData("text/plain"),
           event.clipboardData?.getData("text/html"),
           slice,
         )

@@ -112,6 +112,7 @@ type EditorOptions = {
   editorProps: {
     attributes: Record<string, string>
     handleKeyDown: (_view: unknown, event: KeyboardEvent) => boolean
+    handleDOMEvents: { paste: (_view: unknown, event: ClipboardEvent) => boolean }
     handlePaste: (_view: unknown, event: ClipboardEvent, slice?: unknown) => boolean
     clipboardTextParser: (text: string, context: never) => unknown
   }
@@ -467,7 +468,7 @@ describe("useComposerController", () => {
     } as unknown as DataTransferItemList
     const preventDefault = vi.fn()
     expect(
-      editorOptions.editorProps.handlePaste({} as never, {
+      editorOptions.editorProps.handleDOMEvents.paste({} as never, {
         clipboardData: { items },
         preventDefault,
       } as unknown as ClipboardEvent),
@@ -494,7 +495,7 @@ describe("useComposerController", () => {
 
     const preventLongPaste = vi.fn()
     expect(
-      editorOptions.editorProps.handlePaste({} as never, {
+      editorOptions.editorProps.handleDOMEvents.paste({} as never, {
         clipboardData: {
           items: { length: 0 },
           getData: () => "x".repeat(1_001),
@@ -509,7 +510,7 @@ describe("useComposerController", () => {
     expect(await firstLongPasteFile.text()).toBe("x".repeat(1_001))
 
     expect(
-      editorOptions.editorProps.handlePaste({} as never, {
+      editorOptions.editorProps.handleDOMEvents.paste({} as never, {
         clipboardData: {
           items: { length: 0 },
           getData: () => "y".repeat(1_001),
@@ -552,7 +553,7 @@ describe("useComposerController", () => {
     expect(transferPendingFiles).toHaveBeenCalledTimes(transfersBeforeReset)
 
     expect(
-      editorOptions.editorProps.handlePaste({} as never, {
+      editorOptions.editorProps.handleDOMEvents.paste({} as never, {
         clipboardData: {
           items: { length: 0 },
           getData: () => "z".repeat(1_001),
@@ -595,7 +596,7 @@ describe("useComposerController", () => {
     renderer.rerender(createElement(Harness, props))
 
     expect(
-      editorOptions.editorProps.handlePaste({} as never, {
+      editorOptions.editorProps.handleDOMEvents.paste({} as never, {
         clipboardData: {
           items: { length: 0 },
           getData: () => "x".repeat(1_001),
@@ -1096,7 +1097,7 @@ describe("useComposerController", () => {
 
     const view = controllerView
     focus.mockClear()
-    await act(async () => view.onDrop({ type: "drop" }))
+    await act(async () => view.onDrop({ type: "drop", dataTransfer: { files: [new File(["x"], "drop.txt")] } } as unknown as Parameters<typeof view.onDrop>[0]))
     expect(handleDropRaw).toHaveBeenCalledOnce()
     expect(focus).toHaveBeenCalledWith()
     expect(handleDropRaw.mock.invocationCallOrder[0]).toBeLessThan(
@@ -1383,7 +1384,7 @@ describe("useComposerController", () => {
       if (kind === "upload") retained.onUploadFile()
       if (kind === "file") retained.onFileSelect(event as unknown as Parameters<typeof retained.onFileSelect>[0])
       if (kind === "drop") retained.onDrop(event as unknown as Parameters<typeof retained.onDrop>[0])
-      if (kind === "paste") editorOptions.editorProps.handlePaste({}, event as unknown as ClipboardEvent)
+      if (kind === "paste") editorOptions.editorProps.handleDOMEvents.paste({}, event as unknown as ClipboardEvent)
       if (kind === "remove") retained.removePendingFile(0)
       if (kind === "cancel") retained.onCancelReply?.()
       if (kind === "send") retained.onSend()
@@ -1420,7 +1421,7 @@ describe("useComposerController", () => {
     for (const active of [true, false, true]) {
       view.rerender(node(active))
       vi.clearAllMocks()
-      const event = { preventDefault: vi.fn(), stopPropagation: vi.fn(), currentTarget: { value: "picked" } }
+      const event = { preventDefault: vi.fn(), stopPropagation: vi.fn(), currentTarget: { value: "picked" }, dataTransfer: { files: [new File(["x"], "drop.txt")], types: ["Files"] } }
       await act(async () => {
         if (kind === "upload") retained.onUploadFile()
         if (kind === "file") retained.onFileSelect(event as unknown as Parameters<typeof retained.onFileSelect>[0])

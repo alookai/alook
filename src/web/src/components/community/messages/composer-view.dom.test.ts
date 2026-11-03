@@ -86,6 +86,21 @@ function baseProps(
 }
 
 describe("ComposerView", () => {
+  it("shows preparation feedback without replacing the editor and keeps removal available", () => {
+    const file = new File(["image"], "preparing.png", { type: "image/png" })
+    const removePendingFile = vi.fn()
+    const pending = { draftId: "draft", file, preparing: true, thumbnailUrl: null, thumbnailBlob: null }
+    const view = render(createElement(ComposerView, baseProps({ pendingFiles: [pending], removePendingFile })))
+    const editor = view.getByTestId(tid.composerInput)
+    expect(view.getByRole("status").textContent).toBe("Preparing…")
+    expect(view.getByText(file.name).parentElement).toHaveAttribute("aria-busy", "true")
+    fireEvent.click(view.getByRole("button", { name: "Remove file" }))
+    expect(removePendingFile).toHaveBeenCalledExactlyOnceWith(0)
+    view.rerender(createElement(ComposerView, baseProps({ pendingFiles: [{ ...pending, preparing: false }] })))
+    expect(view.queryByRole("status")).toBeNull()
+    expect(view.getByTestId(tid.composerInput)).toBe(editor)
+  })
+
   it.each([false, true])("keeps the composer free of native keyboard controls and reservations (forum=%s)", async (isForumThreadBody) => {
     const descriptor = Object.getOwnPropertyDescriptor(window, "webkit")
     const tauriDescriptor = Object.getOwnPropertyDescriptor(window, "__TAURI__")
