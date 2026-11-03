@@ -198,6 +198,43 @@ importers:
         specifier: 4.152.0
         version: 4.152.0(@cloudflare/workers-types@5.20261023.1)(@types/node@25.9.4)
 
+  src/pages:
+    dependencies:
+      drizzle-orm:
+        specifier: ^0.45.4
+        version: 0.45.4(@cloudflare/workers-types@5.20261023.1)(@opentelemetry/api@1.10.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(bun-types@1.4.4)(kysely@0.29.7)
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@cloudflare/vitest-plugin':
+        specifier: 1.4.7
+        version: 1.4.7(@cloudflare/workers-types@5.20261023.1)(@types/node@25.9.4)(vitest@4.1.12)
+      '@cloudflare/workers-types':
+        specifier: 5.20261023.1
+        version: 5.20261023.1
+      '@types/node':
+        specifier: ^25.9.4
+        version: 25.9.4
+      eslint:
+        specifier: ^9
+        version: 9.39.5(jiti@2.7.0)
+      knip:
+        specifier: ^6.32.2
+        version: 6.32.2
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      typescript-eslint:
+        specifier: 8.72.0
+        version: 8.72.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3)
+      vitest:
+        specifier: 4.1.12
+        version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@25.9.4)(@vitest/coverage-istanbul@4.1.12)(@vitest/coverage-v8@4.1.12)(jsdom@29.1.1(@noble/hashes@2.4.0))(msw@2.14.6(@types/node@25.9.4)(typescript@6.0.3))(vite@8.0.8(@types/node@25.9.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.36.0)(tsx@4.23.15)(yaml@2.9.1))
+      wrangler:
+        specifier: 4.152.0
+        version: 4.152.0(@cloudflare/workers-types@5.20261023.1)(@types/node@25.9.4)
+
   src/queue-worker:
     dependencies:
       '@alook/shared':

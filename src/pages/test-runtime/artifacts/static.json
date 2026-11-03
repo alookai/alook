@@ -1,0 +1,16 @@
+{
+  "prefix": "qa50-static",
+  "compatibilityDate": "2026-10-19",
+  "compatibilityFlags": [],
+  "variables": {
+    "MESSAGE": "pages QA"
+  },
+  "files": [
+    {
+      "part": "html",
+      "path": "/index.html",
+      "role": "asset",
+      "type": "text/html"
+    }
+  ]
+}

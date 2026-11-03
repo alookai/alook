@@ -1,0 +1,30 @@
+{
+  "name": "@alook/pages",
+  "version": "0.1.60",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --ip 127.0.0.1 --port 8792",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/ test-runtime/ dev/ --max-warnings 0",
+    "knip": "knip",
+    "test": "vitest run --config vitest.workspace.config.ts",
+    "cf-typegen": "wrangler types worker-configuration.d.ts --env-file .dev.vars.example --strict-vars=false --include-runtime=false"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.4",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.4.7",
+    "@cloudflare/workers-types": "5.20261023.1",
+    "@types/node": "^25.9.4",
+    "eslint": "^9",
+    "knip": "^6.32.2",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "8.72.0",
+    "vitest": "4.1.12",
+    "wrangler": "4.152.0"
+  }
+}

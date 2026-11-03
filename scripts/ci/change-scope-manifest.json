@@ -114,6 +114,24 @@
       "app_artifact": false
     },
     {
+      "name": "@alook/pages",
+      "root": "src/pages",
+      "static": true,
+      "build": true,
+      "knip": true,
+      "unit_root": "src/pages",
+      "coverage_roots": [
+        "src/pages/**/*.{ts,tsx,js,jsx}"
+      ],
+      "codecov_target": "pages",
+      "windows_suites": [],
+      "integration_suites": [],
+      "linux_suites": [],
+      "ui": false,
+      "lighthouse": false,
+      "app_artifact": false
+    },
+    {
       "name": "@alook/queue-worker",
       "root": "src/queue-worker",
       "static": true,
@@ -181,6 +199,7 @@
     }
   },
   "codecov_targets": {
+    "pages": { "path": "src/pages", "target": 70 },
     "shared": { "path": "src/shared", "target": 50 },
     "email-worker": { "path": "src/email-worker", "target": 70 },
     "ws-do": { "path": "src/ws-do", "target": 70 },
@@ -208,6 +227,7 @@
     "src/desktop/package.json",
     "src/email-worker/package.json",
     "src/shared/package.json",
+    "src/pages/package.json",
     "src/queue-worker/package.json",
     "src/web/package.json",
     "src/ws-do/package.json",

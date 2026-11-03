@@ -1,0 +1,53 @@
+{
+  "prefix": "qa50-backend",
+  "compatibilityDate": "2026-10-19",
+  "compatibilityFlags": [],
+  "variables": {
+    "MESSAGE": "pages QA"
+  },
+  "files": [
+    {
+      "part": "html",
+      "path": "/index.html",
+      "role": "asset",
+      "type": "text/html"
+    },
+    {
+      "part": "code",
+      "path": "backend.mjs",
+      "role": "module",
+      "type": "application/javascript+module"
+    },
+    {
+      "part": "text",
+      "path": "message.txt",
+      "role": "module",
+      "type": "text/plain"
+    },
+    {
+      "part": "binary",
+      "path": "sample.bin",
+      "role": "module",
+      "type": "application/octet-stream"
+    },
+    {
+      "part": "wasm",
+      "path": "empty.wasm",
+      "role": "module",
+      "type": "application/wasm"
+    },
+    {
+      "part": "map",
+      "path": "backend.mjs.map",
+      "role": "module",
+      "type": "application/source-map"
+    }
+  ],
+  "entry": {
+    "path": "backend.mjs",
+    "format": "module"
+  },
+  "assets": {
+    "run_worker_first": true
+  }
+}

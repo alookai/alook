@@ -1,0 +1,233 @@
+import { createHash } from "node:crypto"
+import { readFile } from "node:fs/promises"
+import { URL as NodeURL } from "node:url"
+import { describe, expect, it, vi } from "vitest"
+import { CloudflareProvider, ownership, owns, ProviderError } from "./cloudflare"
+import { manifestSchema } from "./contracts"
+import { parseUpload } from "./upload"
+import { artifact, config, manifest, upload } from "../test-runtime/fixtures"
+
+const ok = (result: unknown, status = 200) => Response.json({ success: true, result }, { status })
+const release = { target: "p-owned-1", operationId: "op", digest: "d".repeat(64) }
+
+describe("native platform adapter", () => {
+  it("reads native nested metadata and recognizes404 or explicit script:null as absent", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(ok({ script: { tags: ownership("page", release) } }))
+      .mockResolvedValueOnce(ok({ script: {} })).mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(ok({ dispatch_namespace: config.namespace, created_on: "2026-10-27T21:48:22.430546Z", modified_on: "2026-10-27T21:48:22.430546Z", script: null }))
+    const provider = new CloudflareProvider(config, "account-secret", request)
+    expect(owns((await provider.inspect(release.target))!, "page", release)).toBe(true)
+    expect(owns({ tags: ["other"] }, "page", release)).toBe(false)
+    expect(await provider.inspect(release.target)).toEqual({ tags: [] })
+    expect(await provider.inspect(release.target)).toBeNull()
+    expect(await provider.inspect(release.target)).toBeNull()
+    expect(request.mock.calls[0][0]).toBe(`https://api.cloudflare.com/client/v4/accounts/${config.account}/workers/dispatch/namespaces/test/scripts/p-owned-1`)
+    expect(new Headers(request.mock.calls[0][1]?.headers).get("authorization")).toBe("Bearer account-secret")
+  })
+  it("rejects malformed and oversized native metadata without exposing the body", async () => {
+    for (const response of [ok({}), ok({ tags: [] }), ok(null), ...[false, "", 0, [], { tags: null }, { tags: [42] }].map(script => ok({ script })), Response.json({ success: false, result: { script: null }, errors: [{ secret: "do-not-copy" }] }), new Response("bad"), new Response(null), new Response("s".repeat(65537))]) {
+      const provider = new CloudflareProvider(config, "token", vi.fn<typeof fetch>().mockResolvedValue(response))
+      await expect(provider.inspect("x")).rejects.toBeInstanceOf(ProviderError)
+    }
+    for (const status of [401, 429, 500]) {
+      const provider = new CloudflareProvider(config, "token", vi.fn<typeof fetch>().mockResolvedValue(new Response("private", { status })))
+      await expect(provider.inspect("x")).rejects.toMatchObject({ code: `provider_http_${status}`, uncertain: false })
+    }
+  })
+  it("does not retry writes, marks transport/server/invalid success as uncertain", async () => {
+    const value = await artifact()
+    for (const [response, uncertain] of [[new Response("private", { status: 302 }), true], [new Response("private", { status: 307 }), true], [new Response("private", { status: 400 }), false], [new Response("private", { status: 408 }), true], [new Response("private", { status: 499 }), true], [new Response("private", { status: 503 }), true], [ok({}), false]] as const) {
+      const request = vi.fn<typeof fetch>().mockResolvedValue(response)
+      const promise = new CloudflareProvider(config, "token", request).publish("x", value, release, "page")
+      if (response.ok) await promise
+      else await expect(promise).rejects.toMatchObject({ uncertain })
+      expect(request).toHaveBeenCalledTimes(1)
+      expect(request.mock.calls[0][1]?.redirect).toBe("manual")
+      expect(request.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal)
+    }
+    const request = vi.fn<typeof fetch>().mockRejectedValue(new Error("secret network detail"))
+    const provider = new CloudflareProvider(config, "token", request)
+    await expect(provider.publish("x", value, release, "page")).rejects.toMatchObject({ code: "provider_transport_error", uncertain: true })
+    await expect(provider.inspect("x")).rejects.toMatchObject({ uncertain: false })
+    await expect(new CloudflareProvider(config, "", request).inspect("x")).rejects.toMatchObject({ code: "missing_provider_secret", uncertain: false })
+    await expect(new CloudflareProvider(config, "token", vi.fn<typeof fetch>().mockResolvedValue(new Response("bad"))).publish("x", value, release, "page")).rejects.toMatchObject({ code: "provider_invalid_response", uncertain: true })
+    await expect(new CloudflareProvider(config, "token", vi.fn<typeof fetch>().mockResolvedValue(ok(null))).publish("x", value, release, "page")).rejects.toMatchObject({ code: "provider_invalid_publication", uncertain: true })
+  })
+  it("uploads native missing-hash groups with session JWT and publishes completion JWT", async () => {
+    const value = await parseUpload(upload({ ...manifest(), files: [
+      ...manifest().files,
+      { role: "asset", part: "binary", path: "/image.bin", type: "application/octet-stream" },
+    ] }, { index: new Blob(["<h1>Hello</h1>"]), binary: new Blob([new Uint8Array([0, 127, 128, 255])]) }), config)
+    const hashes = value.files.filter(file => file.role === "asset").map(file => file.assetHash)
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(ok({ jwt: "session-jwt", buckets: [[hashes[0]], [hashes[1]]] }))
+      .mockResolvedValueOnce(ok({}))
+      .mockResolvedValueOnce(ok({ jwt: "complete-jwt" }, 201))
+      .mockResolvedValueOnce(ok({ id: "native-script" }))
+    const provider = new CloudflareProvider(config, "account-secret", request)
+    const jwt = await provider.assets(release.target, value)
+    expect(jwt).toBe("complete-jwt")
+    expect(JSON.parse(String(request.mock.calls[0][1]?.body))).toEqual({ manifest: Object.fromEntries(value.files.filter(file => file.role === "asset").map(file => [file.path, { hash: file.assetHash, size: file.blob.size }])) })
+    for (const index of [1, 2]) {
+      const [, init] = request.mock.calls[index]
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer session-jwt")
+      const form = init?.body
+      expect(form).toBeInstanceOf(FormData)
+      if (!(form instanceof FormData)) throw new Error("expected multipart")
+      const file = form.get(hashes[index - 1])
+      if (!(file instanceof Blob)) throw new Error("expected file")
+      expect(atob(await file.text())).toBe(String.fromCharCode(...new Uint8Array(await value.files[index - 1].blob.arrayBuffer())))
+      expect(file.type).toBe(value.files[index - 1].type)
+    }
+    await provider.publish(release.target, value, release, "page", jwt)
+    const form = request.mock.calls[3][1]?.body
+    if (!(form instanceof FormData)) throw new Error("expected multipart")
+    const metadata = form.get("metadata")
+    if (!(metadata instanceof Blob)) throw new Error("expected metadata")
+    const native = JSON.parse(await metadata.text())
+    expect(native).toMatchObject({ main_module: "__alook_static__.mjs", bindings: [{ type: "assets", name: "ASSETS" }], assets: { jwt: "complete-jwt", config: {} }, tags: ownership("page", release) })
+    expect(form.has("__alook_static__.mjs")).toBe(true)
+    expect(form.has("/index.html")).toBe(false)
+    expect(JSON.stringify(native)).not.toContain("account-secret")
+  })
+  it("uses a no-missing-files session token without another upload", async () => {
+    const value = await artifact()
+    const request = vi.fn<typeof fetch>().mockResolvedValue(ok({ jwt: "already-present", buckets: [] }))
+    expect(await new CloudflareProvider(config, "token", request).assets("x", value)).toBe("already-present")
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+  it("uploads distinct MIME parts for identical bytes in one native manifest", async () => {
+    const files = [
+      { part: "html", path: "/same.html", role: "asset", type: "text/html" },
+      { part: "text", path: "/same.txt", role: "asset", type: "text/plain" },
+      { part: "copy", path: "/copy.txt", role: "asset", type: "TEXT/PLAIN" },
+    ]
+    const value = await parseUpload(upload({ ...manifest(), files }, Object.fromEntries(files.map(file => [file.part, new Blob(["same bytes"])]))), config)
+    const assets = value.files.filter(file => file.role === "asset")
+    const keys = [...new Set(assets.map(file => file.assetHash))]
+    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(ok({ jwt: "session", buckets: [keys] })).mockResolvedValueOnce(ok({ jwt: "complete" }, 201))
+    expect(await new CloudflareProvider(config, "token", request).assets("x", value)).toBe("complete")
+    const form = request.mock.calls[1][1]?.body
+    if (!(form instanceof FormData)) throw new Error("expected multipart")
+    expect([...form.keys()]).toEqual(keys)
+    for (const [index, type] of ["text/html", "text/plain"].entries()) {
+      const file = form.get(keys[index])
+      if (!(file instanceof Blob)) throw new Error("expected asset")
+      expect(file.type).toBe(type)
+      expect(atob(await file.text())).toBe("same bytes")
+    }
+    const sent = JSON.parse(String(request.mock.calls[0][1]?.body))
+    expect(sent.manifest["/same.txt"].hash).toBe(sent.manifest["/copy.txt"].hash)
+    expect(sent.manifest["/same.html"].hash).not.toBe(sent.manifest["/same.txt"].hash)
+  })
+  it("requests new bytes after a MIME-only change instead of reusing cached native headers", async () => {
+    const html = await parseUpload(upload(manifest(), { index: new Blob(["unchanged bytes"]) }), config)
+    const text = await parseUpload(upload({ ...manifest(), files: [{ ...manifest().files[0], type: "text/plain" }] }, { index: new Blob(["unchanged bytes"]) }), config)
+    const cache = new Map<string, string>()
+    const request = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/assets-upload-session")) {
+        const data = JSON.parse(String(init?.body)) as { manifest: Record<string, { hash: string }> }
+        const missing = Object.values(data.manifest).map(file => file.hash).filter(hash => !cache.has(hash))
+        return ok({ jwt: missing.length ? "session" : "complete", buckets: missing.length ? [missing] : [] })
+      }
+      if (!(init?.body instanceof FormData)) throw new Error("expected multipart")
+      for (const [hash, blob] of init.body.entries()) {
+        if (!(blob instanceof Blob)) throw new Error("expected asset")
+        cache.set(hash, blob.type)
+      }
+      return ok({ jwt: "complete" }, 201)
+    })
+    const provider = new CloudflareProvider(config, "token", request)
+    await provider.assets("first", html)
+    await provider.assets("second", text)
+    await provider.assets("third", text)
+    expect(cache.size).toBe(2)
+    expect([...cache.values()]).toEqual(["text/html", "text/plain"])
+    expect(request).toHaveBeenCalledTimes(5)
+    expect(request.mock.calls.filter(([url]) => String(url).includes("/workers/assets/upload?"))).toHaveLength(2)
+    expect(html.files[0].hash).toBe(text.files[0].hash)
+  })
+  it("rejects untrusted groups and missing completion tokens", async () => {
+    const value = await artifact()
+    const hash = value.files.filter(file => file.role === "asset")[0].assetHash
+    for (const session of [{ jwt: "x", buckets: [["bad"]] }, { jwt: "x", buckets: [["f".repeat(32)]] }, { jwt: "x", buckets: [[hash], [hash]] }, { jwt: "x", buckets: [[], [hash]] }, { buckets: [] }]) {
+      const request = vi.fn<typeof fetch>().mockResolvedValue(ok(session))
+      await expect(new CloudflareProvider(config, "token", request).assets("x", value)).rejects.toBeInstanceOf(ProviderError)
+      expect(request).toHaveBeenCalledTimes(1)
+    }
+    for (const completion of [ok({}), ok({ jwt: "not201" }), ok({ jwt: 42 }, 201)]) {
+      const request = vi.fn<typeof fetch>().mockResolvedValueOnce(ok({ jwt: "x", buckets: [[hash]] })).mockResolvedValueOnce(completion)
+      await expect(new CloudflareProvider(config, "token", request).assets("x", value)).rejects.toBeInstanceOf(ProviderError)
+    }
+  })
+  it.each(["module", "classic", "python"] as const)("builds native %s module metadata", async format => {
+    const type = { module: "application/javascript+module", classic: "application/javascript", python: "text/x-python" }[format]
+    const value = await parseUpload(upload({ ...manifest(), variables: { MESSAGE: "hello" }, entry: { path: "main", format }, files: [{ role: "module", part: "code", path: "main", type }] }, { code: new Blob(["code"]) }), config)
+    const request = vi.fn<typeof fetch>().mockResolvedValue(ok({}))
+    const provider = new CloudflareProvider(config, "token", request)
+    expect(await provider.assets("x", value)).toBeUndefined()
+    await provider.publish("x", value, release, "page")
+    const form = request.mock.calls[0][1]?.body
+    if (!(form instanceof FormData)) throw new Error("expected multipart")
+    const metadata = form.get("metadata")
+    if (!(metadata instanceof Blob)) throw new Error("expected metadata")
+    const data = JSON.parse(await metadata.text())
+    expect(data).toMatchObject({ [format === "classic" ? "body_part" : "main_module"]: "main", bindings: [{ type: "plain_text", name: "MESSAGE", text: "hello" }] })
+    expect(data.compatibility_flags).toEqual(format === "python" ? ["python_workers"] : [])
+    expect(data.assets).toBeUndefined()
+    const code = form.get("main")
+    expect(code instanceof Blob && code.type).toBe(type)
+  })
+  it.each(["python", "python-requirement"])("preserves explicit SDK flags in %s fixture metadata", async example => {
+    const fixture = (name: string) => readFile(new NodeURL(`../test-runtime/artifacts/${name}`, import.meta.url), "utf8")
+    const source = await fixture(example === "python" ? "python.py" : "python-numpy.py")
+    const parts: Record<string, Blob> = { code: new Blob([source]) }
+    if (example === "python-requirement") parts.requirement = new Blob([await fixture("requirement.txt")])
+    const value = await parseUpload(upload(JSON.parse(await fixture(`${example}.json`)), parts), config)
+    expect(value.manifest.compatibilityFlags).toEqual(["disable_python_external_sdk"])
+    const request = vi.fn<typeof fetch>().mockResolvedValue(ok({}))
+    await new CloudflareProvider(config, "token", request).publish(release.target, value, release, "page")
+    const form = request.mock.calls[0][1]?.body
+    if (!(form instanceof FormData)) throw new Error("expected multipart")
+    const metadata = form.get("metadata"); const code = form.get("entry.py")
+    if (!(metadata instanceof Blob) || !(code instanceof Blob)) throw new Error("expected modules")
+    expect(JSON.parse(await metadata.text()).compatibility_flags).toEqual(["disable_python_external_sdk", "python_workers"])
+    expect(await code.text()).toBe(source)
+    if (example === "python-requirement") {
+      const requirement = form.get("numpy")
+      if (!(requirement instanceof Blob)) throw new Error("expected requirement")
+      expect(requirement.type).toBe("text/x-python-requirement")
+      expect(await requirement.text()).toBe(await fixture("requirement.txt"))
+    }
+  })
+  it("publishes the completed vendored six artifact with pinned source and intact package files", async () => {
+    const root = new NodeURL("../test-runtime/artifacts/python-vendored/", import.meta.url)
+    const supplied = manifestSchema.parse(JSON.parse(await readFile(new NodeURL("manifest.json", root), "utf8")))
+    const parts = Object.fromEntries(await Promise.all(supplied.files.map(async file => [file.part, new Blob([new Uint8Array(await readFile(new NodeURL(file.path, root)))])] as const)))
+    const value = await parseUpload(upload(supplied, parts), config)
+    expect(value.files).toHaveLength(8)
+    expect(value.files.find(file => file.path === "python_modules/six.py")).toMatchObject({ hash: "c51c91f703d3d4b3696c923cb5fec213e05e75d9215393befac7f2fa6a3904df", type: "application/octet-stream" })
+    expect(value.files.find(file => file.path === "python_modules/six-1.17.0.dist-info/LICENSE")?.hash).toBe("4375ba20e2b9c6c4e7cad2940a628fd90e95cc3d50ee92aae755715d8ba1fbd0")
+    const provenance = JSON.parse(await readFile(new NodeURL("provenance.json", root), "utf8"))
+    expect(provenance.wheel.sha256).toBe("4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274")
+    expect(provenance.expectedResponse).toMatchObject({ dependency: "six", version: "1.17.0", value: 3, moduleSha256: value.files.find(file => file.path === "python_modules/six.py")?.hash })
+    const request = vi.fn<typeof fetch>().mockResolvedValue(ok({}))
+    await new CloudflareProvider(config, "token", request).publish(release.target, value, release, "page")
+    const form = request.mock.calls[0][1]?.body
+    if (!(form instanceof FormData)) throw new Error("expected multipart")
+    expect([...form.keys()]).toHaveLength(9)
+    const metadata = form.get("metadata")
+    if (!(metadata instanceof Blob)) throw new Error("expected metadata")
+    expect(JSON.parse(await metadata.text())).toMatchObject({ main_module: "entry.py", compatibility_flags: ["disable_python_external_sdk", "python_workers"], bindings: [{ type: "plain_text", name: "MESSAGE", text: "pages QA" }] })
+    for (const file of value.files) {
+      const part = form.get(file.path)
+      if (!(part instanceof Blob)) throw new Error("expected module")
+      expect(part.type).toBe(file.type)
+      expect(createHash("sha256").update(new Uint8Array(await part.arrayBuffer())).digest("hex")).toBe(file.hash)
+    }
+  })
+  it("accepts204 and404 deletion without attempting JSON parsing", async () => {
+    for (const status of [204, 404]) await expect(new CloudflareProvider(config, "token", vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status }))).destroy("x")).resolves.toBeUndefined()
+    await expect(new CloudflareProvider(config, "token", vi.fn<typeof fetch>().mockResolvedValue(new Response("private", { status: 500 }))).destroy("x")).rejects.toMatchObject({ code: "provider_http_500", uncertain: true })
+  })
+})

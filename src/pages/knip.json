@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "dev/driver.ts"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "test-runtime/**/*.ts",
+    "dev/**/*.ts"
+  ],
+  "includeEntryExports": true,
+  "ignoreDependencies": ["cloudflare"],
+  "vitest": {
+    "entry": [
+      "src/**/*.test.ts",
+      "test-runtime/**/*.test.ts"
+    ]
+  }
+}

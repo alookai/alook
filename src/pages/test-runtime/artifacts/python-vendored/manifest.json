@@ -1,0 +1,64 @@
+{
+  "prefix": "qa50-python-vendored",
+  "compatibilityDate": "2026-10-19",
+  "compatibilityFlags": [
+    "disable_python_external_sdk"
+  ],
+  "variables": {
+    "MESSAGE": "pages QA"
+  },
+  "files": [
+    {
+      "part": "code",
+      "path": "entry.py",
+      "role": "module",
+      "type": "text/x-python"
+    },
+    {
+      "part": "venv",
+      "path": "python_modules/pyvenv.cfg",
+      "role": "module",
+      "type": "application/octet-stream"
+    },
+    {
+      "part": "vendor0",
+      "path": "python_modules/six.py",
+      "role": "module",
+      "type": "application/octet-stream"
+    },
+    {
+      "part": "vendor1",
+      "path": "python_modules/six-1.17.0.dist-info/LICENSE",
+      "role": "module",
+      "type": "application/octet-stream"
+    },
+    {
+      "part": "vendor2",
+      "path": "python_modules/six-1.17.0.dist-info/METADATA",
+      "role": "module",
+      "type": "application/octet-stream"
+    },
+    {
+      "part": "vendor3",
+      "path": "python_modules/six-1.17.0.dist-info/WHEEL",
+      "role": "module",
+      "type": "application/octet-stream"
+    },
+    {
+      "part": "vendor4",
+      "path": "python_modules/six-1.17.0.dist-info/top_level.txt",
+      "role": "module",
+      "type": "application/octet-stream"
+    },
+    {
+      "part": "vendor5",
+      "path": "python_modules/six-1.17.0.dist-info/RECORD",
+      "role": "module",
+      "type": "application/octet-stream"
+    }
+  ],
+  "entry": {
+    "path": "entry.py",
+    "format": "python"
+  }
+}

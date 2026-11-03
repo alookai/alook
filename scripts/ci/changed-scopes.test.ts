@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
@@ -112,6 +112,30 @@ function gitDiffFixture(changedPath = "src/app/src/commands/inbox.ts") {
 }
 
 describe("canonical execution plan", () => {
+  it("selects pages static/build/Knip/unit/coverage checks without Web or app artifacts", () => {
+    const result = plan(["src/pages/src/service.ts", "src/pages/dev/driver.ts"])
+    expect(result.packages.affected).toEqual(["@alook/pages"])
+    expect(result.suites.static).toEqual(["@alook/pages"])
+    expect(result.suites.build).toEqual(["@alook/pages"])
+    expect(result.suites.knip).toEqual(["@alook/pages"])
+    expect(result.suites.unit).toEqual(["src/pages"])
+    expect(result.coverage.targets).toEqual(["pages"])
+    expect(result.coverage.required_changed_files).toEqual(["src/pages/dev/driver.ts", "src/pages/src/service.ts"])
+    expect(result.jobs.app_packed_artifact).toBe(false)
+    expect(result.jobs.ui_e2e).toBe(false)
+    expect(result.jobs.lighthouse).toBe(false)
+    const workflow = readFileSync(".github/workflows/ci.yml", "utf8")
+    expect(workflow).toContain("src/pages) projects=(pages-node pages-runtime) ;;")
+    const bump = readFileSync("scripts/bump-version.mjs", "utf8")
+    const workspaceDirs = bump.match(/const WORKSPACE_DIRS = (\[[^;]+\]);/)![1]
+    const deployDirs = bump.match(/const DEPLOY_TRIGGER_DIRS = (\[[^;]+\]);/)![1]
+    expect(JSON.parse(workspaceDirs)).toContain("src/pages")
+    expect(JSON.parse(deployDirs)).not.toContain("src/pages")
+    const sources = readdirSync("src/pages/src").filter(name => name.endsWith(".ts") && !name.endsWith(".test.ts"))
+      .map(name => `src/pages/src/${name}`).concat("src/pages/dev/driver.ts").sort()
+    expect(plan(sources).coverage.required_changed_files).toEqual(sources)
+  })
+
   it("keeps benchmark-only changes out of product jobs while retaining diff evidence", () => {
     const changes = [
       { status: "A", path: "src/benchmark/package.json" },
