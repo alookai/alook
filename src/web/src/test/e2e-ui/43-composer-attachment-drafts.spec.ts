@@ -12,14 +12,21 @@ const PNG_1X1 = Buffer.from(
   "base64",
 )
 
+async function revealSidebar(page: Page) {
+  const sidebar = page.locator('[data-slot="community-sidebar-panel-content"]')
+  if (await sidebar.getAttribute("inert") !== null) {
+    const back = page.getByRole("banner").getByRole("button", { name: "Back", exact: true })
+    await expect(back).toBeVisible()
+    await back.click()
+    await expect(sidebar).not.toHaveAttribute("inert")
+  }
+}
+
 async function navigateChannel(page: Page, serverId: string, channelId: string) {
   const route = `/c/channels/${serverId}/${channelId}`
   const row = page.getByTestId(tid.channelRow(channelId))
-  if (!await row.isVisible()) {
-    const back = page.getByRole("banner").getByRole("button", { name: "Back" })
-    if (await back.isVisible()) await back.click()
-    else await page.getByTestId(tid.serverIcon(serverId)).click()
-  }
+  await revealSidebar(page)
+  if (!await row.isVisible()) await page.getByTestId(tid.serverIcon(serverId)).click()
   await expect(row).toBeVisible()
   await row.click()
   await page.waitForURL((url) => url.pathname === route)
@@ -27,10 +34,11 @@ async function navigateChannel(page: Page, serverId: string, channelId: string) 
 }
 
 async function navigateDm(page: Page, dmId: string) {
-  await page.getByTestId(tid.homeButton).evaluate((element) => (element as HTMLElement).click())
+  await revealSidebar(page)
+  await page.getByTestId(tid.homeButton).click()
   const row = page.getByTestId(tid.dmRow(dmId))
   await expect(row).toBeVisible()
-  await row.evaluate((element) => (element as HTMLElement).click())
+  await row.click()
   await page.waitForURL((url) => url.pathname === `/c/me/${dmId}`)
   await expect(composerEditable(page)).toBeVisible({ timeout: 20_000 })
 }
@@ -70,6 +78,9 @@ test.describe("same-tab Community attachment drafts", () => {
     })
     try {
       for (const target of [page.getByTestId(tid.serverIcon(serverId)), page.getByTestId(tid.channelRow(channelAId))]) {
+        await composerEditable(page).hover()
+        await page.keyboard.press("Escape")
+        await expect(page.locator('[data-slot="tooltip-content"]')).toHaveCount(0)
         await target.dispatchEvent("dragenter", { dataTransfer: transfer })
         await target.dispatchEvent("dragover", { dataTransfer: transfer })
         await expect(composer.getByText("Drop files here", { exact: true })).toHaveCount(0)
@@ -493,7 +504,7 @@ test.describe("same-tab Community attachment drafts", () => {
       response.request().method() === "POST"
       && new URL(response.url()).pathname === `/api/community/channels/${channelAId}/messages`,
     )
-    await send.evaluate((button) => (button as HTMLButtonElement).click())
+    await send.click()
     expect((await committed).status()).toBe(201)
     await expect.poll(() => uploads).toBe(1)
     await expect.poll(() => messages).toBe(1)
