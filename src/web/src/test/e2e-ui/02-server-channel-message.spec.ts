@@ -4,6 +4,8 @@ import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable, createServer, sendMessage, expectMessageVisible } from "./_fixtures/actions"
 
+type AttachmentDraftUrls = { created: string[]; revoked: string[]; files: { url: string; name: string; size: number; type: string }[] }
+
 async function tabTo(page: Page, target: Locator) {
   for (let step = 0; step < 40; step++) {
     await page.keyboard.press("Tab")
@@ -136,7 +138,7 @@ test("mobile category actions stay hidden while title menus and desktop keyboard
     mutations }), contentType: "application/json" })
 })
 
-test("server → channel → message", async ({ caseActors, caseResources }) => {
+test("server → channel → message", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(120_000)
 
   const actors = await caseActors(["alice"])
@@ -384,57 +386,90 @@ test("server → channel → message", async ({ caseActors, caseResources }) => 
   await restored.pressSequentially(rejectedDraft)
   await page.evaluate(() => {
     const created: string[] = [], revoked: string[] = []
+    const files: { url: string; name: string; size: number; type: string }[] = []
     const create = URL.createObjectURL.bind(URL), revoke = URL.revokeObjectURL.bind(URL)
-    Object.defineProperty(window, "__attachmentDraftUrls", { configurable: true, value: { created, revoked } })
-    URL.createObjectURL = (object) => { const url = create(object); created.push(url); return url }
+    Object.defineProperty(window, "__attachmentDraftUrls", { configurable: true, value: { created, revoked, files } })
+    URL.createObjectURL = (object) => {
+      const url = create(object)
+      created.push(url)
+      if (object instanceof File) files.push({ url, name: object.name, size: object.size, type: object.type })
+      return url
+    }
     URL.revokeObjectURL = (url) => { revoked.push(url); revoke(url) }
   })
   const previewBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64")
   await page.getByTestId(tid.composerFileInput).setInputFiles({ name: "retry-preview.png", mimeType: "image/png", buffer: previewBytes })
-  await expect(page.getByText("retry-preview.png", { exact: true })).toBeVisible()
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __attachmentDraftUrls: { created: string[] } }).__attachmentDraftUrls.created.length)).toBeGreaterThanOrEqual(2)
-  const currentPreview = await page.evaluate(() => (window as unknown as { __attachmentDraftUrls: { created: string[] } }).__attachmentDraftUrls.created.at(-1)!)
-  await expect.poll(() => pendingPostCount).toBe(1)
-  await expect(restored).toContainText(rejectedDraft)
+  try {
+    const previewCard = page.getByTestId(tid.composerInput).locator("../..").getByText("retry-preview.png", { exact: true }).locator("..")
+    await expect(previewCard).toBeVisible()
+    await expect(previewCard).not.toHaveAttribute("aria-busy", "true")
+    await expect.poll(() => page.evaluate(() => {
+      const { files, revoked } = (window as unknown as { __attachmentDraftUrls: AttachmentDraftUrls }).__attachmentDraftUrls
+      return files.filter(file => file.name === "retry-preview.png" && !revoked.includes(file.url))
+    })).toEqual([{ url: expect.stringMatching(/^blob:/), name: "retry-preview.png", type: "image/png", size: previewBytes.length }])
+    const currentPreview = await page.evaluate(() => {
+      const { files, revoked } = (window as unknown as { __attachmentDraftUrls: AttachmentDraftUrls }).__attachmentDraftUrls
+      return files.find(file => file.name === "retry-preview.png" && !revoked.includes(file.url))!.url
+    })
+    await expect.poll(() => pendingPostCount).toBe(1)
+    await expect(restored).toContainText(rejectedDraft)
 
-  releasePendingSend()
-  await expect.poll(() => pendingSendCompleted).toBe(true)
-  const retry = page.getByRole("button", { name: "Message failed to send. Click to retry." })
-  await expect(retry).toHaveCount(1)
-  await expectMessageVisible(page, pendingBody)
-  await page.unroute("**/api/community/channels/*/messages")
-  const retryResponsePromise = page.waitForResponse((response) => response.request().method() === "POST"
-    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`)
-  await retry.click()
-  const retryResponse = await retryResponsePromise
-  expect(retryResponse.status()).toBe(201)
-  const retryBody = retryResponse.request().postDataJSON() as { content: string; nonce: string }
-  expect(retryBody).toMatchObject({ content: pendingBody, nonce: sendBodies[0]!.nonce })
-  expect(sends).toBe(3)
-  const retryPayload = await retryResponse.json() as { message: { id: string } }
-  await expect(page.getByTestId(tid.message(retryPayload.message.id))).toHaveCount(1)
-  await expectMessageVisible(page, pendingBody)
-  await expect(page.getByRole("button", { name: "Message failed to send. Click to retry." })).toHaveCount(0)
-  await expect(restored).toContainText(rejectedDraft)
-  await expect(page.getByText("retry-preview.png", { exact: true })).toBeVisible()
-  expect(await page.evaluate((url) => (window as unknown as { __attachmentDraftUrls: { revoked: string[] } }).__attachmentDraftUrls.revoked.includes(url), currentPreview)).toBe(false)
-  expect(await page.evaluate(async (url) => Array.from(new Uint8Array(await (await fetch(url)).arrayBuffer())), currentPreview)).toEqual(Array.from(previewBytes))
-  const previewUploadResponsePromise = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/community/channels/${channelId}/attachments`)
-  const previewMessageResponsePromise = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`)
-  await restored.click()
-  await expect.poll(() => restored.evaluate((element) => document.activeElement === element)).toBe(true)
-  await page.keyboard.press("Enter")
-  const previewUpload = await previewUploadResponsePromise
-  expect(previewUpload.ok()).toBe(true)
-  const previewAttachment = await previewUpload.json() as { id: string; filename: string; contentType: string; size: number }
-  expect(previewAttachment).toMatchObject({ filename: "retry-preview.png", contentType: "image/png", size: previewBytes.length })
-  const previewMessage = await previewMessageResponsePromise
-  expect(previewMessage.status()).toBe(201)
-  expect(previewMessage.request().postDataJSON()).toMatchObject({ content: rejectedDraft, attachments: [previewAttachment.id] })
-  const downloadedPreview = await page.request.get(`/api/community/channels/${channelId}/attachments/${previewAttachment.id}`)
-  expect(downloadedPreview.status()).toBe(200)
-  expect(await downloadedPreview.body()).toEqual(previewBytes)
-  await expect(restored).toHaveText("")
+    releasePendingSend()
+    await expect.poll(() => pendingSendCompleted).toBe(true)
+    const retry = page.getByRole("button", { name: "Message failed to send. Click to retry." })
+    await expect(retry).toHaveCount(1)
+    await expectMessageVisible(page, pendingBody)
+    await page.unroute("**/api/community/channels/*/messages")
+    const retryResponsePromise = page.waitForResponse((response) => response.request().method() === "POST"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`)
+    await retry.click()
+    const retryResponse = await retryResponsePromise
+    expect(retryResponse.status()).toBe(201)
+    const retryBody = retryResponse.request().postDataJSON() as { content: string; nonce: string }
+    expect(retryBody).toMatchObject({ content: pendingBody, nonce: sendBodies[0]!.nonce })
+    expect(sends).toBe(3)
+    const retryPayload = await retryResponse.json() as { message: { id: string } }
+    await expect(page.getByTestId(tid.message(retryPayload.message.id))).toHaveCount(1)
+    await expectMessageVisible(page, pendingBody)
+    await expect(page.getByRole("button", { name: "Message failed to send. Click to retry." })).toHaveCount(0)
+    await expect(restored).toContainText(rejectedDraft)
+    await expect(page.getByText("retry-preview.png", { exact: true })).toBeVisible()
+    expect(await page.evaluate(() => {
+      const { files, revoked } = (window as unknown as { __attachmentDraftUrls: AttachmentDraftUrls }).__attachmentDraftUrls
+      return files.filter(file => file.name === "retry-preview.png" && !revoked.includes(file.url)).map(file => file.url)
+    })).toEqual([currentPreview])
+    expect(await page.evaluate((url) => (window as unknown as { __attachmentDraftUrls: { revoked: string[] } }).__attachmentDraftUrls.revoked.includes(url), currentPreview)).toBe(false)
+    expect(await page.evaluate(async (url) => Array.from(new Uint8Array(await (await fetch(url)).arrayBuffer())), currentPreview)).toEqual(Array.from(previewBytes))
+    const previewUploadResponsePromise = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/community/channels/${channelId}/attachments`)
+    const previewMessageResponsePromise = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`)
+    await restored.click()
+    await expect.poll(() => restored.evaluate((element) => document.activeElement === element)).toBe(true)
+    await page.keyboard.press("Enter")
+    const previewUpload = await previewUploadResponsePromise
+    expect(previewUpload.ok()).toBe(true)
+    const previewAttachment = await previewUpload.json() as { id: string; filename: string; contentType: string; size: number }
+    expect(previewAttachment).toMatchObject({ filename: "retry-preview.png", contentType: "image/png", size: previewBytes.length })
+    const previewMessage = await previewMessageResponsePromise
+    expect(previewMessage.status()).toBe(201)
+    expect(previewMessage.request().postDataJSON()).toMatchObject({ content: rejectedDraft, attachments: [previewAttachment.id] })
+    const downloadedPreview = await page.request.get(`/api/community/channels/${channelId}/attachments/${previewAttachment.id}`)
+    expect(downloadedPreview.status()).toBe(200)
+    expect(await downloadedPreview.body()).toEqual(previewBytes)
+    await expect(restored).toHaveText("")
+    await expect(previewCard).toHaveCount(0)
+    await expect.poll(() => page.evaluate(() => {
+      const { files, revoked } = (window as unknown as { __attachmentDraftUrls: AttachmentDraftUrls }).__attachmentDraftUrls
+      const owned = files.filter(file => file.name === "retry-preview.png")
+      return owned.length > 0 && owned.every(file => revoked.filter(url => url === file.url).length === 1)
+    })).toBe(true)
+  } finally {
+    const lifecycle = await page.evaluate(() => ({
+      ...(window as unknown as { __attachmentDraftUrls: AttachmentDraftUrls }).__attachmentDraftUrls,
+      at: performance.now(),
+      clock: "performance.now in the current page",
+    })).catch(error => ({ captureError: String(error) }))
+    await testInfo.attach("attachment-draft-urls.json", { body: JSON.stringify(lifecycle), contentType: "application/json" })
+  }
   const attachmentDraft = `${rejectedDraft} next attachment`
   await restored.pressSequentially(attachmentDraft)
   await page.goto("/c/me", { waitUntil: "commit" })

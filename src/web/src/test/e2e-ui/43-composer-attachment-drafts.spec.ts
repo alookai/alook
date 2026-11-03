@@ -17,11 +17,11 @@ async function navigateChannel(page: Page, serverId: string, channelId: string) 
   const row = page.getByTestId(tid.channelRow(channelId))
   if (!await row.isVisible()) {
     const back = page.getByRole("banner").getByRole("button", { name: "Back" })
-    if (await back.isVisible()) await back.evaluate((element) => (element as HTMLElement).click())
-    else await page.getByTestId(tid.serverIcon(serverId)).evaluate((element) => (element as HTMLElement).click())
+    if (await back.isVisible()) await back.click()
+    else await page.getByTestId(tid.serverIcon(serverId)).click()
   }
   await expect(row).toBeVisible()
-  await row.evaluate((element) => (element as HTMLElement).click())
+  await row.click()
   await page.waitForURL((url) => url.pathname === route)
   await expect(composerEditable(page)).toBeVisible({ timeout: 20_000 })
 }
@@ -266,7 +266,8 @@ test.describe("same-tab Community attachment drafts", () => {
     const channelResponse = await channelAccepted
     expect(channelResponse.status()).toBe(200)
     expect(channelResponse.request().postDataJSON()).toMatchObject({ channelIds: expect.arrayContaining([channelAId, channelBId]) })
-    await navigateChannel(page, serverId, (await actors.seed.seedChannel("alice", serverId, "file-event-return")))
+    await expect(page).toHaveURL(url => url.pathname === `/c/channels/${serverId}/${channelAId}`)
+    await navigateChannel(page, serverId, channelBId)
     await navigateChannel(page, serverId, channelAId)
     await expect(composer.getByRole("button", { name: "Remove file" })).toHaveCount(0)
     await expect(composerEditable(page)).toHaveText("typing while image files prepare")
