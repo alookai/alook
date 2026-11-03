@@ -2,7 +2,7 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
 export type JsonObject = { readonly [key: string]: JsonValue };
 
-export type BuiltinBackendId = "claude" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "antigravity" | "agy";
+export type BuiltinBackendId = "claude" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "antigravity" | "agy" | "qoder" | "copilot" | "cursor-sdk" | "pi-durable";
 export type ReasoningEffort =
   | "minimal"
   | "low"
@@ -86,12 +86,16 @@ export interface GrokConfig extends ModelBackendConfig {
   readonly reasoningEffort?: ReasoningEffort;
 }
 export type OpenCodeConfig = ModelBackendConfig;
+export interface QoderConfig extends ModelBackendConfig { readonly reasoningEffort?: ReasoningEffort }
+export interface CopilotConfig extends ModelBackendConfig { readonly reasoningEffort?: ReasoningEffort }
+export interface CursorSdkConfig extends Omit<ModelBackendConfig, "command"> { readonly reasoningEffort?: ReasoningEffort }
 
 export interface PiConfig extends Omit<BaseBackendConfig, "command"> {
   readonly model: ModelSelection;
   readonly provider: PiProvider;
   readonly reasoningEffort?: ReasoningEffort;
 }
+export type PiDurableConfig = PiConfig;
 
 export interface BackendCapabilities {
   readonly modelSelection: "launchable" | "suggestion_only" | "unsupported";
@@ -135,6 +139,10 @@ export type CursorCapabilities = FixedCapabilities<false, false, false, false, t
 export type GrokCapabilities = FixedCapabilities<false, true, false, false, true, "safe_boundary_queue", "persistent">;
 export type OpenCodeCapabilities = FixedCapabilities<false, false, false, false, true, "steer", "persistent">;
 export type PiCapabilities = FixedCapabilities<true, true, false, false, false, "steer", "persistent">;
+export type QoderCapabilities = FixedCapabilities<false, true, false, false, true, "steer", "persistent">;
+export type CopilotCapabilities = FixedCapabilities<false, true, false, false, true, "steer", "persistent">;
+export type CursorSdkCapabilities = FixedCapabilities<false, true, false, false, false, "steer", "persistent">;
+export type PiDurableCapabilities = PiCapabilities;
 
 export interface BackendExtensionSpec<Input, Output> {
   readonly input: Input;
@@ -149,6 +157,10 @@ export interface BackendTypeSpec<Config, Capabilities, Extensions, ExtraEvent> {
 }
 
 export interface BuiltinBackendSpecs {
+  readonly qoder: BackendTypeSpec<QoderConfig, QoderCapabilities, {}, never>;
+  readonly copilot: BackendTypeSpec<CopilotConfig, CopilotCapabilities, {}, never>;
+  readonly "cursor-sdk": BackendTypeSpec<CursorSdkConfig, CursorSdkCapabilities, {}, never>;
+  readonly "pi-durable": BackendTypeSpec<PiDurableConfig, PiDurableCapabilities, {}, never>;
   readonly antigravity: BackendTypeSpec<AntigravityConfig, AntigravityCapabilities, {}, never>;
   readonly agy: BackendTypeSpec<AgyConfig, AgyCapabilities, {}, never>;
   readonly claude: BackendTypeSpec<ClaudeConfig, ClaudeCapabilities, {}, never>;

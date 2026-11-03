@@ -36,6 +36,7 @@ import {
   normalizeRuntimeModelId,
   RUNTIME_MODEL_CATALOG_MAX,
 } from "../../internal/modelCatalog.js";
+import { resolveCodexCommand } from "./command.js";
 import { discoverCodexRecentContext } from "./recent-context.js";
 
 const SETTINGS_UPDATE_TIMEOUT_MS = 5_000;
@@ -139,12 +140,13 @@ export class CodexDriver implements BackendAdapter {
     // package resolves but the aarch64 blob is absent) fails there even
     // though resolveCommandOnPath returned a JS wrapper; probing the resolved
     // command keeps runtime health tied to what can actually execute.
-    const result = await probeCliRuntime("codex", {}, command);
+    const selected = resolveCodexCommand(command);
+    const result = await probeCliRuntime("codex", {}, selected);
     if (result.status !== "healthy") return result;
     if (!includeModels) return result;
     return {
       ...result,
-      reasoning: await this.probeReasoningCatalog(command),
+      reasoning: await this.probeReasoningCatalog(selected),
     };
   }
 
@@ -282,7 +284,7 @@ export class CodexDriver implements BackendAdapter {
     // host could surface "missing rollout" recovery — see classifyCodexResumeError).
     this.codexHomeRoot = resolveCodexHomeRootFromEnv(spawnEnv, { cwd: ctx.workingDirectory });
     // Cross-platform spawn: on Windows the codex entry is often a `.cmd` shim.
-    const override = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command;
+    const override = resolveCodexCommand(resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command);
     const spec = resolveSpawnSpec("codex", ["app-server", "--listen", "stdio://"], override);
     const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,

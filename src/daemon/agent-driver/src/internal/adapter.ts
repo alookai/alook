@@ -6,6 +6,7 @@ import type {
   GrokConfig,
   OpenCodeConfig,
   PiConfig,
+  QoderConfig, CopilotConfig, CursorSdkConfig, PiDurableConfig,
   PreparedExecutionResource,
   JsonValue,
   RuntimeReasoningCatalog,
@@ -16,7 +17,7 @@ import type {
 } from "../contract.js";
 import type { ProviderQuotaObservation, TokenUsageDelta, TokenUsageIdentity } from "../contract.js";
 
-export type BackendConfig = ClaudeConfig | CodexConfig | CursorConfig | GrokConfig | OpenCodeConfig | PiConfig;
+export type BackendConfig = ClaudeConfig | CodexConfig | CursorConfig | GrokConfig | OpenCodeConfig | PiConfig | QoderConfig | CopilotConfig | CursorSdkConfig | PiDurableConfig;
 
 export type WellKnownTransportKind =
   | "stdio_stream"

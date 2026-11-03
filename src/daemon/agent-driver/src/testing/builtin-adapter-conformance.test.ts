@@ -12,6 +12,10 @@ describe("builtin adapter protocol conformance", () => {
 
   it("locks the exact built-in lifetime, transport, delivery, and terminal-owner matrix", () => {
     const expected = {
+      "qoder": ["session", "stdio_rpc", "qoder.sdk-worker.v1", "steer", "prompt_invocation"],
+      "copilot": ["session", "stdio_rpc", "copilot.sdk-worker.v1", "steer", "prompt_invocation"],
+      "cursor-sdk": ["session", "stdio_rpc", "cursor-sdk.sdk-worker.v1", "steer", "prompt_invocation"],
+      "pi-durable": ["session", "stdio_rpc", "pi-durable.sdk-worker.v1", "steer", "prompt_invocation"],
       claude: ["session", "stdio_stream", "claude.stream-json.v1", "safe_boundary_queue", "vendor_message"],
       codex: ["session", "stdio_rpc", "codex.app-server.v1", "safe_boundary_queue", "transport_request"],
       cursor: ["session", "stdio_rpc", "cursor.acp.v1", "steer", "transport_request"],

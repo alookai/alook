@@ -41,6 +41,10 @@ import { capabilitiesFor, createAgentDriverRegistry, createBuiltinAgentDriverReg
 import { createAgentDriverSdkWithRegistry } from "../sdk.js";
 
 const configs: { [Id in BuiltinBackendId]: ConfigOf<BuiltinBackendSpecs, Id> } = {
+  qoder: { model: { kind: "default" } },
+  copilot: { model: { kind: "default" } },
+  "cursor-sdk": { model: { kind: "named", name: "fixture" } },
+  "pi-durable": { model: { kind: "named", name: "openai/fixture" }, provider: { kind: "default" } },
   claude: { model: { kind: "default" }, provider: { kind: "default" }, mode: "default" },
   codex: { model: { kind: "default" }, mode: "default" },
   cursor: { model: { kind: "default" } },
@@ -195,7 +199,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
         return encoded;
       });
     }
-    vi.spyOn(classes[backend].prototype, "spawn").mockImplementation(async (ctx: AdapterLaunchContext) => {
+    vi.spyOn(classes[backend as keyof typeof classes].prototype, "spawn").mockImplementation(async (ctx: AdapterLaunchContext) => {
       contexts.push(ctx as AdapterLaunchContext);
       const process = fakeProcess();
       let stdinBuffer = "";

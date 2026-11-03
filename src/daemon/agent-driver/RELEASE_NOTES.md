@@ -1,5 +1,23 @@
 # Release notes
 
+## Additional native agent entries
+
+- Add persistent Qoder, Copilot, Cursor SDK and Pi Durable entries using optional
+  native SDK installations. Retain existing Cursor ACP and Pi coding-agent
+  entries and adapter-author contract version 1.
+- Reuse the existing process authority through persistent managed SDK workers.
+  Native immediate input, root completion, interruption and resume remain
+  adapter-owned; daemon notification batching remains daemon-owned.
+- Preserve UTF-8 across protocol chunks and all native stdout write overloads
+  when redirecting SDK logs. Bound protocol frames and cleanup the captured
+  process tree before releasing worker resources.
+- Discover the Codex executable inside macOS Codex/ChatGPT applications when
+  no explicit command or PATH installation is selected. Use the same executable
+  for installation probe, native model catalog and launch.
+- Cover native SDK/local runtime journeys and all four workers after the actual
+  daemon Bun build and npm installation, including daemon wake during work.
+  These tests do not claim real-account inference or Windows verification.
+
 ## OpenCode CLI major compatibility
 
 - Select CLI v1 or v2 within the existing OpenCode harness using the actual

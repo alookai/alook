@@ -13,6 +13,10 @@ import { ADAPTER_AUTHOR_CONTRACT_VERSION } from "./adapter-author.js";
  * without updating `capabilities`) trips CI.
  */
 const EXPECTED: Record<BuiltinBackendId, BackendCapabilities> = {
+  qoder: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
+  copilot: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
+  "cursor-sdk": { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: false, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
+  "pi-durable": { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: false, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
   agy: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: false },
   antigravity: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: true },
   claude: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true, disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
@@ -32,6 +36,10 @@ describe("driver.capabilities", () => {
     expect(ADAPTER_AUTHOR_CONTRACT_VERSION).toBe(1);
     const registry = createBuiltinAgentDriverRegistry();
     const expected = {
+      "qoder": { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "qoder.sdk-worker.v1" }, wakeStart: "immediate", terminalOwnership: "prompt_invocation" },
+      "copilot": { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "copilot.sdk-worker.v1" }, wakeStart: "immediate", terminalOwnership: "prompt_invocation" },
+      "cursor-sdk": { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "cursor-sdk.sdk-worker.v1" }, wakeStart: "immediate", terminalOwnership: "prompt_invocation" },
+      "pi-durable": { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "pi-durable.sdk-worker.v1" }, wakeStart: "immediate", terminalOwnership: "prompt_invocation" },
       agy: { lifetime: "session", transport: { kind: "stdio_stream", protocol: "agy.stream-json.v1" }, wakeStart: "immediate", terminalOwnership: "vendor_message" },
       antigravity: { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "antigravity.acp.v1" }, wakeStart: "immediate", terminalOwnership: "transport_request" },
       claude: {

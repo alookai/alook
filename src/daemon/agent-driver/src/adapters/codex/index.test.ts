@@ -11,11 +11,14 @@ import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
 const runtimeMocks = vi.hoisted(() => ({
   spawnAgentProcess: vi.fn(),
   killProcessTree: vi.fn(async () => {}),
+  resolveCodexCommand: vi.fn((command?: string) => command?.trim() || undefined),
   probeCliRuntime: vi.fn(async (): Promise<
     | { status: "healthy"; version: string }
     | { status: "unhealthy"; lastError: string }
   > => ({ status: "healthy", version: "0.test" })),
 }));
+
+vi.mock("./command.js", () => ({ resolveCodexCommand: runtimeMocks.resolveCodexCommand }));
 
 vi.mock("../../internal/killTree.js", async () => {
   const actual = await vi.importActual<typeof import("../../internal/killTree.js")>("../../internal/killTree.js");
@@ -45,6 +48,8 @@ beforeEach(() => {
   runtimeMocks.spawnAgentProcess.mockReset();
   runtimeMocks.spawnAgentProcess.mockImplementation(simpleProcess);
   runtimeMocks.killProcessTree.mockClear();
+  runtimeMocks.resolveCodexCommand.mockReset();
+  runtimeMocks.resolveCodexCommand.mockImplementation((command?: string) => command?.trim() || undefined);
   runtimeMocks.probeCliRuntime.mockClear();
   runtimeMocks.probeCliRuntime.mockResolvedValue({ status: "healthy", version: "0.test" });
 });
@@ -80,6 +85,23 @@ function probingProcess(
 }
 
 describe("CodexDriver reasoning catalog probe", () => {
+  it("uses the discovered App binary for the version probe, catalog, and session launch", async () => {
+    const command = "/Applications/Codex.app/Contents/Resources/codex";
+    runtimeMocks.resolveCodexCommand.mockReturnValue(command);
+    const catalog = probingProcess((request) => ({
+      jsonrpc: "2.0", id: request.id,
+      result: request.method === "model/list" ? { data: [{ id: "native-model" }], nextCursor: null } : {},
+    }));
+    runtimeMocks.spawnAgentProcess.mockReturnValueOnce(catalog);
+    const driver = new CodexDriver();
+    expect(await driver.probe()).toMatchObject({ status: "healthy", reasoning: { models: [{ id: "native-model" }] } });
+    expect(runtimeMocks.probeCliRuntime).toHaveBeenCalledWith("codex", {}, command);
+    expect(runtimeMocks.spawnAgentProcess).toHaveBeenNthCalledWith(1, command, ["app-server", "--listen", "stdio://"], expect.any(Object));
+    await driver.spawn(baseCtx());
+    expect(runtimeMocks.spawnAgentProcess).toHaveBeenNthCalledWith(2, command, ["app-server", "--listen", "stdio://"], expect.any(Object));
+  });
+
+
   it("checks installation without starting the catalog app-server", async () => {
     runtimeMocks.probeCliRuntime.mockResolvedValueOnce({ status: "healthy", version: "1.2.3" });
     expect(await new CodexDriver().probe(undefined, false)).toEqual({ status: "healthy", version: "1.2.3" });

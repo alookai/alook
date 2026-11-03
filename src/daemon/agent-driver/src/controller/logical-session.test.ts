@@ -29,6 +29,10 @@ import { SdkLane } from "./sdk-host.js";
 import { capabilitiesFor } from "../registry.js";
 
 const configs: Record<BuiltinBackendId, unknown> = {
+  qoder: { model: { kind: "default" } },
+  copilot: { model: { kind: "default" } },
+  "cursor-sdk": { model: { kind: "named", name: "fixture" } },
+  "pi-durable": { model: { kind: "named", name: "openai/fixture" }, provider: { kind: "default" } },
   claude: { model: { kind: "default" }, provider: { kind: "default" }, mode: "default" },
   codex: { model: { kind: "default" }, mode: "default" },
   cursor: { model: { kind: "default" } },

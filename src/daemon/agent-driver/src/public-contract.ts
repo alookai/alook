@@ -8,6 +8,7 @@ export type {
   RuntimeSettingsUpdate, RuntimeSettingsUpdateResult, ModelSelection, DefaultProvider,
   AntigravityConfig, AntigravityCapabilities, AgyConfig, AgyCapabilities, ClaudeProvider, PiProvider, BaseBackendConfig, ClaudeConfig, CodexConfig, ModelBackendConfig, CursorConfig,
   GrokConfig, OpenCodeConfig, PiConfig, BackendCapabilities, ClaudeCapabilities, CodexCapabilities, CursorCapabilities,
+  QoderConfig, CopilotConfig, CursorSdkConfig, PiDurableConfig, QoderCapabilities, CopilotCapabilities, CursorSdkCapabilities, PiDurableCapabilities,
   GrokCapabilities, OpenCodeCapabilities, PiCapabilities, BackendExtensionSpec, BackendTypeSpec, BuiltinBackendSpecs, BackendId,
   FixedCapabilities, ConfigOf, CapabilitiesOf, ExtensionsOf, ExtraEventOf, AgentInstructions, AgentLaunchContext, AgentMessage,
   AgentDriverError, OpenSessionResult, DeliveryReceipt, InterruptResult, StopInput, StopReceipt, HostCleanupResult,
