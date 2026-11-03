@@ -250,6 +250,17 @@ function ciJob(name: string): string {
 }
 
 describe("E2E UI workflow", () => {
+  it("uses one exact Node release for shared build production and verification", () => {
+    const nodeVersion = (job: string) => ciJob(job).match(/^\s*node-version:\s*["']?([^"'\s]+)["']?\s*$/m)?.[1]
+    const version = nodeVersion("ui-e2e-build")
+    expect(version).toMatch(/^\d+\.\d+\.\d+$/)
+    const verifiers = [...ciWorkflow.matchAll(/^  ([a-z][a-z0-9-]*):$/gm)]
+      .map(match => match[1])
+      .filter(job => ciJob(job).includes("e2e-build-artifact.mjs verify"))
+    expect(verifiers.length).toBeGreaterThan(0)
+    for (const job of verifiers) expect(nodeVersion(job), job).toBe(version)
+  })
+
   it("isolates resizable-panels upgrades after adopting the latest compatible release", () => {
     expect(dependabotConfig).toMatch(/^[ ]{6}resizable-panels:\n[ ]{8}patterns:\n[ ]{10}- "react-resizable-panels"$/m)
     expect(dependabotConfig).toMatch(/^[ ]{8}exclude-patterns:[\s\S]*?^[ ]{10}- "react-resizable-panels"$/m)

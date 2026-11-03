@@ -27,6 +27,7 @@ test("measured reaction updates above the fold preserve reading during repeated 
     await waitForCommittedGeometry(scroller)
     await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event("scroll")) })
     await expect(page.getByTestId(tid.message(messageId))).toHaveCount(1)
+    await waitForCommittedGeometry(scroller)
     await scroller.evaluate((element, id) => {
       const row = element.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)
       if (!row) throw new Error("The measured reaction message is required")
