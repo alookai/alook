@@ -1,4 +1,6 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from "node:child_process"
+import { createHash } from "node:crypto"
+import { mkdirSync, readdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { afterAll, describe, expect, it, vi } from "vitest"
@@ -6,6 +8,7 @@ import {
   collectPlaywrightCases,
   createE2eMatrix,
   discoverE2eSpecs,
+  listPlaywrightTests,
   queryNativeUiFacts,
   resolvePlaywrightImage,
   resolvePlaywrightVersion,
@@ -27,7 +30,20 @@ writeFileSync(join(specRoot, "imported.journey.ts"), 'import { test } from "@pla
 writeFileSync(join(specRoot, "c.spec.ts"), 'import { test } from "@playwright/test"; test("last", () => {})')
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
-const facts = () => queryNativeUiFacts(["all"], { root, shardCount: 3 })
+// Cache only successful native command text for identical controlled inputs.
+// Each caller still parses and validates it. Source/config edits change the key;
+// production callers keep the uncached executor.
+const nativeOutput = new Map<string, string>()
+const execute = (command: string, args: string[], options: ExecFileSyncOptionsWithStringEncoding) => {
+  const inputs = [join(web, "package.json"), join(web, "playwright.config.ts"),
+    ...readdirSync(specRoot).sort().map(file => join(specRoot, file))]
+  const hash = createHash("sha256")
+  for (const file of inputs) hash.update(file).update("\0").update(readFileSync(file)).update("\0")
+  const key = JSON.stringify([command, args, options.cwd, hash.digest("hex")])
+  if (!nativeOutput.has(key)) nativeOutput.set(key, execFileSync(command, args, options))
+  return nativeOutput.get(key)!
+}
+const facts = () => queryNativeUiFacts(["all"], { root, shardCount: 3, execute })
 
 describe("locked Playwright image", () => {
   const lockfile = "\n  src/web:\n    devDependencies:\n      '@playwright/test':\n        specifier: ^1.62.1\n        version: 1.62.1\n\n  src/ws-do:\n    dependencies: {}\n"
@@ -42,7 +58,7 @@ describe("locked Playwright image", () => {
 
 describe("native discovery and partition closure", () => {
   it("discovers actual registrations, including an imported journey owned by its spec", () => {
-    expect(discoverE2eSpecs(root)).toEqual(["a.spec.ts", "b.spec.ts", "c.spec.ts"])
+    expect(discoverE2eSpecs(root, execute)).toEqual(["a.spec.ts", "b.spec.ts", "c.spec.ts"])
     const value = facts()
     expect(value.cases).toHaveLength(10)
     expect(value.cases).toContainEqual({ file: "b.spec.ts", key: '["b.spec.ts","chromium","imported registration"]' })
@@ -59,11 +75,11 @@ describe("native discovery and partition closure", () => {
   })
 
   it("selects one real file and rejects unknown, duplicate or mixed-sentinel selections", () => {
-    const value = queryNativeUiFacts(["b.spec.ts"], { root })
+    const value = queryNativeUiFacts(["b.spec.ts"], { root, execute })
     expect(value.files).toEqual(["b.spec.ts"])
     expect(value.cases).toHaveLength(1)
     for (const specs of [["missing.spec.ts"], ["b.spec.ts", "b.spec.ts"], ["all", "b.spec.ts"], []]) {
-      expect(() => queryNativeUiFacts(specs, { root })).toThrow()
+      expect(() => queryNativeUiFacts(specs, { root, execute })).toThrow()
     }
   })
 
@@ -80,25 +96,35 @@ describe("native discovery and partition closure", () => {
     expect(() => validateNativeUiFacts({ ...value, playwright_version: "0.0.0" }, ["all"])).toThrow("version mismatch")
   })
 
-  it("fails discovery when native execution constraints change", () => {
+  it("refreshes native observations when execution constraints or imported registrations change", () => {
+    const journey = join(specRoot, "imported.journey.ts")
+    const original = readFileSync(journey, "utf8")
     try {
       writeFileSync(join(web, "playwright.config.ts"), config.replace("fullyParallel: false", "fullyParallel: true"))
-      expect(() => queryNativeUiFacts(["all"], { root })).toThrow("constraints changed")
+      expect(() => queryNativeUiFacts(["all"], { root, execute })).toThrow("constraints changed")
+      writeFileSync(join(web, "playwright.config.ts"), config)
+      writeFileSync(journey, original + '; test("new imported registration", () => {})')
+      const changed = listPlaywrightTests({ root, execute })
+      expect(changed.cases).toHaveLength(11)
+      expect(changed.cases.filter(test => test.file === "b.spec.ts")).toHaveLength(2)
+      expect(changed.cases).toContainEqual({ file: "b.spec.ts", key: '["b.spec.ts","chromium","new imported registration"]' })
     } finally {
       writeFileSync(join(web, "playwright.config.ts"), config)
+      writeFileSync(journey, original)
     }
+    expect(listPlaywrightTests({ root, execute }).cases).toHaveLength(10)
   })
 })
 
 describe("native shard CLI", () => {
   it("writes native matrix and a target without prediction claims", () => {
     const output = join(root, "output"), summary = join(root, "summary.md")
-    runCli(["--specs-json", '["b.spec.ts"]', "--output", output, "--summary", summary], { root })
+    runCli(["--specs-json", '["b.spec.ts"]', "--output", output, "--summary", summary], { root, execute })
     expect(JSON.parse(readFileSync(output, "utf8").trim().slice("e2e_matrix=".length)).include[0]).toMatchObject({ native_shard: 1, native_total: 1, specs: ["src/test/e2e-ui/b.spec.ts"] })
     expect(readFileSync(summary, "utf8")).toContain("not a predicted cutoff")
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
     try {
-      runCli(["--shards", "1"], { root })
+      runCli(["--shards", "1"], { root, execute })
       expect(JSON.parse(String(stdout.mock.calls[0]![0])).facts.cases).toHaveLength(10)
     } finally { stdout.mockRestore() }
   })

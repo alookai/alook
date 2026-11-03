@@ -72,8 +72,8 @@ export function listPlaywrightTests({ root = ROOT, specs = ["all"], shard, execu
   return { files: sorted(cases.map(test => test.file)), cases }
 }
 
-export function discoverE2eSpecs(root = ROOT) {
-  return listPlaywrightTests({ root }).files
+export function discoverE2eSpecs(root = ROOT, execute) {
+  return listPlaywrightTests({ root, execute }).files
 }
 
 export function validateNativeUiFacts(facts, requested) {
@@ -125,11 +125,11 @@ export function createE2eMatrix(facts, image = resolvePlaywrightImage()) {
   })) }
 }
 
-export function runCli(argv, { root = ROOT } = {}) {
+export function runCli(argv, { root = ROOT, execute } = {}) {
   const args = {}
   for (let index = 0; index < argv.length; index += 2) args[argv[index].replace(/^--/, "")] = argv[index + 1]
   const specs = args["specs-json"] ? JSON.parse(args["specs-json"]) : ["all"]
-  const facts = queryNativeUiFacts(specs, { root, shardCount: args.shards || E2E_NATIVE_SHARDS })
+  const facts = queryNativeUiFacts(specs, { root, shardCount: args.shards || E2E_NATIVE_SHARDS, execute })
   const matrix = createE2eMatrix(facts)
   if (args.output) appendFileSync(args.output, "e2e_matrix=" + JSON.stringify(matrix) + "\n")
   else process.stdout.write(JSON.stringify({ facts, matrix }, null, 2) + "\n")

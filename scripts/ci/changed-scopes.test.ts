@@ -15,7 +15,7 @@ import {
   validateExecutionPlan,
   validateScopeManifest,
 } from "./changed-scopes.mjs"
-import { queryNativeUiFacts } from "./e2e-shards.mjs"
+import { queryNativeUiFacts, validateNativeUiFacts } from "./e2e-shards.mjs"
 
 let nativeFixture: { root: string; base: string; compatibilityBase: string } | undefined
 let nativeInventory: ReturnType<typeof queryNativeTasks>["inventory"]
@@ -96,21 +96,34 @@ function nativeFacts(changes) {
   }
 }
 
-const browserFacts = new Map<string, ReturnType<typeof queryNativeUiFacts>>()
+// Policy projections share one real observation of this immutable one-case-per-file,
+// single-partition fixture. Native selection and CLI integration tests below still
+// invoke the collector independently; this helper does not predict native shards.
+let browserFacts: ReturnType<typeof queryNativeUiFacts>
 function buildExecutionPlan(changes, options = {}) {
   const settings = { nativeTasks: nativeFacts(changes), ...options }
   const draft = createExecutionPlan(changes, settings)
   if (!draft.jobs.ui_e2e) return draft
-  const key = JSON.stringify(draft.ui.specs)
-  if (!browserFacts.has(key)) browserFacts.set(key, queryNativeUiFacts(draft.ui.specs, { root: nativeRepository().root, shardCount: 1 }))
-  return createExecutionPlan(changes, { ...settings, nativeUi: browserFacts.get(key) })
+  const selection = [...draft.ui.specs].sort()
+  const files = selection[0] === "all" ? browserFacts.files : selection
+  const cases = browserFacts.cases.filter(test => files.includes(test.file))
+  const nativeUi = validateNativeUiFacts({
+    ...browserFacts,
+    selection,
+    files,
+    cases,
+    shards: [{ current: 1, total: 1, files, cases: cases.map(test => test.key) }],
+  }, draft.ui.specs)
+  return createExecutionPlan(changes, { ...settings, nativeUi })
 }
 
 function classifyPaths(paths, options = {}) {
   return buildExecutionPlan(paths.map(path => ({ status: "M", path })), options)
 }
 
-beforeAll(() => { nativeRepository() })
+beforeAll(() => {
+  browserFacts = queryNativeUiFacts(["all"], { root: nativeRepository().root, shardCount: 1 })
+})
 afterAll(() => { if (nativeFixture) rmSync(nativeFixture.root, { recursive: true, force: true }) })
 
 const sha = (character: string) => character.repeat(40)

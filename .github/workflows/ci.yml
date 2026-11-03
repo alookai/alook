@@ -371,7 +371,7 @@ jobs:
           name: unit-execution-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             .ci/unit-execution.json
-            .vitest-reports/*.blob
+            .vitest-reports/unit.blob
           if-no-files-found: error
           retention-days: 14
       - name: Run selected daemon real-process tests

@@ -990,8 +990,13 @@ describe("Turbo CI execution", () => {
     expect(linux).toContain("if: always() && env.RUN_COVERAGE == 'true'")
     expect(linux).toContain("verify-coverage-plan.mjs")
     expect(linux).toContain("coverage/coverage-final.json")
-    expect(linux).toContain(".vitest-reports/*.blob")
-    expect(linux).toContain("if-no-files-found: error")
+    const upload = linux.match(/      - name: Upload unit execution evidence\n[\s\S]*?(?=\n      - name:|$)/)?.[0] || ""
+    const reports = upload.match(/          path: \|\n((?:            [^\n]+\n)+)/)?.[1]
+      ?.trim().split("\n").map(path => path.trim())
+    expect(reports).toEqual([".ci/unit-execution.json", ".vitest-reports/unit.blob"])
+    expect(upload).not.toMatch(/include-hidden-files:\s*true/i)
+    expect(upload).toContain("if: always()")
+    expect(upload).toContain("if-no-files-found: error")
   })
 
   it("keeps real-process and packed tests serial after the unit report", () => {
