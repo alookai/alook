@@ -2,20 +2,19 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { AgentEvent, AgentSession, BuiltinBackendId, BuiltinBackendSpecs } from "../contract.js";
 import { createAgentDriverSdkWithRegistry } from "../sdk.js";
 import { capabilitiesFor, createAgentDriverRegistry, type AgentBackendRegistrationOf } from "../registry.js";
 import { createFakeAgentDriverHost } from "../testing/fake-host.js";
-import { OptionalSdkDriver } from "../internal/optional-sdk-driver.js";
-import { SdkWorkerLane } from "../internal/sdk-worker-lane.js";
 import type { SdkWorkerFactory } from "../internal/sdk-worker-api.js";
-import { qoderWorker } from "./qoder/worker.js";
-import { copilotWorker } from "./copilot/worker.js";
-import { cursorSdkWorker } from "./cursor-sdk/worker.js";
-import { piDurableWorker } from "./pi-durable/worker.js";
+
+import { buildSdkWorkerArtifact } from "../testing/sdk-worker-artifact.spec.js";
 
 const nativeRoot = process.env.ALOOK_NATIVE_SDK_ROOT;
+let artifact: Awaited<ReturnType<typeof buildSdkWorkerArtifact>>;
+beforeAll(async () => { if (nativeRoot) artifact = await buildSdkWorkerArtifact(); });
+afterAll(() => artifact?.dispose());
 const roots: string[] = [];
 const sessions: AgentSession<BuiltinBackendSpecs, BuiltinBackendId>[] = [];
 afterEach(async () => {
@@ -32,9 +31,9 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
 }
 
 const entries = [
-  { id: "qoder", packageName: "@qoder-ai/qoder-agent-sdk", factory: qoderWorker, commandFixture: "qoder-cli.mjs", model: "native-fixture", inputFile: "qoder-inputs" },
-  { id: "copilot", packageName: "@github/copilot-sdk", factory: copilotWorker, commandFixture: "copilot-cli.mjs", model: "native-fixture", inputFile: "copilot-inputs" },
-  { id: "pi-durable", packageName: "@earendil-works/pi-durable", factory: piDurableWorker, model: "faux/faux-1", inputFile: "native-requests" },
+  { id: "qoder", packageName: "@qoder-ai/qoder-agent-sdk", factory: "qoderWorker", commandFixture: "qoder-cli.mjs", model: "native-fixture", inputFile: "qoder-inputs" },
+  { id: "copilot", packageName: "@github/copilot-sdk", factory: "copilotWorker", commandFixture: "copilot-cli.mjs", model: "native-fixture", inputFile: "copilot-inputs" },
+  { id: "pi-durable", packageName: "@earendil-works/pi-durable", factory: "piDurableWorker", model: "faux/faux-1", inputFile: "native-requests" },
 ] as const;
 
 function setup(entry: (typeof entries)[number]) {
@@ -55,12 +54,12 @@ function setup(entry: (typeof entries)[number]) {
     writeFileSync(modulePath, readFileSync(new URL("../testing/fixtures/sdk/pi-harness.mjs", import.meta.url)));
   }
   const host = createFakeAgentDriverHost();
-  const factory: SdkWorkerFactory = entry.factory;
+  const factory: SdkWorkerFactory = artifact[entry.factory];
   const sdk = createAgentDriverSdkWithRegistry<BuiltinBackendSpecs>({ host, registry: createAgentDriverRegistry([{
     id: entry.id,
     contractVersion: 2,
     capabilities: capabilitiesFor(entry.id),
-    createAdapter: () => new OptionalSdkDriver(entry.id, entry.packageName, factory, () => ({ entry: modulePath }), { kind: "native" }),
+    createAdapter: () => new artifact.OptionalSdkDriver(entry.id, entry.packageName, factory, () => ({ entry: modulePath }), { kind: "native" }),
   } as AgentBackendRegistrationOf<BuiltinBackendSpecs>]) });
   const open = async (resumeSessionId?: string) => {
     const opened = await sdk.open({ backend: entry.id, config: {
@@ -123,7 +122,7 @@ describe.skipIf(!nativeRoot || process.platform === "win32").each(entries)("$id 
 
   it("reads the native model catalog through the owned protocol worker", { timeout: 15_000 }, async () => {
     const f = setup(entry);
-    const lane = new SdkWorkerLane(entry.factory, { cwd: f.root, modulePath: f.modulePath, config: { command: f.command }, probe: { includeModels: true } }, { ...process.env, QODER_PERSONAL_ACCESS_TOKEN: "fixture-local-token" });
+    const lane = new artifact.SdkWorkerLane(artifact[entry.factory], { cwd: f.root, modulePath: f.modulePath, config: { command: f.command }, probe: { includeModels: true } }, { ...process.env, QODER_PERSONAL_ACCESS_TOKEN: "fixture-local-token" });
     try {
       expect(await lane.probe()).toMatchObject({ status: "healthy", reasoning: { models: expect.arrayContaining([expect.objectContaining({ id: entry.id === "pi-durable" ? expect.any(String) : "native-fixture" })]) } });
     } finally { await lane.stop({ forceAfterMs: 300 }); }
@@ -176,7 +175,7 @@ describe.skipIf(!nativeRoot)("installed Cursor SDK API", () => {
   it("loads persistent local agent APIs without opening a paid native run", async () => {
     const prefix = resolve(nativeRoot!);
     const require = createRequire(join(prefix, "fixture.cjs"));
-    const lane = new SdkWorkerLane(cursorSdkWorker, {
+    const lane = new artifact.SdkWorkerLane(artifact.cursorSdkWorker, {
       cwd: prefix, modulePath: require.resolve("@cursor/sdk"), config: {}, probe: { includeModels: false },
     }, { ...process.env });
     try { expect(await lane.probe()).toEqual({ status: "healthy" }); }

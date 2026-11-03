@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, onTestFailed } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTestFailed, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -6,12 +6,18 @@ import type { AgentEvent, BuiltinBackendSpecs, RawOutputEvent } from "../../cont
 import { createAgentDriverSdkWithRegistry } from "../../sdk.js";
 import { capabilitiesFor, createAgentDriverRegistry } from "../../registry.js";
 import { createDefaultAgentDriverHost } from "../../host/default-host.js";
-import { OptionalSdkDriver } from "../../internal/optional-sdk-driver.js";
+import { buildSdkWorkerArtifact } from "../../testing/sdk-worker-artifact.spec.js";
+import { pathToFileURL } from "node:url";
 import { cursorSdkWorker } from "./worker.js";
+
+let artifact: Awaited<ReturnType<typeof buildSdkWorkerArtifact>>;
+beforeAll(async () => { artifact = await buildSdkWorkerArtifact(); });
+afterAll(() => artifact?.dispose());
 
 const roots: string[] = [];
 const ownedChildren = new Set<number>();
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const pid of ownedChildren) { try { process.kill(pid, "SIGKILL"); } catch { } }
   ownedChildren.clear();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -24,7 +30,7 @@ function setup() {
   writeFileSync(modulePath, readFileSync(new URL("../../testing/fixtures/sdk/cursor-sdk.mjs", import.meta.url)));
   const registration = {
     id: "cursor-sdk" as const, contractVersion: 2 as const, capabilities: capabilitiesFor("cursor-sdk"),
-    createAdapter: () => new OptionalSdkDriver("cursor-sdk", "fixture-sdk", cursorSdkWorker, () => ({ entry: modulePath, version: "fixture" })),
+    createAdapter: () => new artifact.OptionalSdkDriver("cursor-sdk", "fixture-sdk", artifact.cursorSdkWorker, () => ({ entry: modulePath, version: "fixture" })),
   };
   const rawOutput: RawOutputEvent[] = [];
   const host = {
@@ -128,5 +134,25 @@ describe("Cursor SDK public sessions through an owned worker", () => {
     expect(await f.sdk.probe({ backend: "cursor-sdk", includeModels: false })).toMatchObject({ status: "healthy", version: "fixture" });
     expect(await f.sdk.probe({ backend: "cursor-sdk" })).toMatchObject({ status: "healthy", reasoning: { models: [{ id: "fixture-model" }] } });
     expect(() => readFileSync(join(f.root, "opens"))).toThrow();
+  });
+});
+
+describe("Cursor SDK source probes", () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, "Function").mockImplementationOnce(function () {
+      return (url: string) => import(url);
+    } as unknown as FunctionConstructor);
+  });
+  it("reads the catalog without creating a native session", async () => {
+    const f = setup();
+    expect(await cursorSdkWorker({ moduleUrl: pathToFileURL(join(f.root, "fixture.mjs")).href, cwd: f.root, config: {}, probe: { includeModels: true } }, () => {})).toMatchObject({ status: "healthy", reasoning: { models: expect.arrayContaining([expect.objectContaining({ id: "fixture-model" })]) } });
+    expect(() => readFileSync(join(f.root, "opens"))).toThrow();
+  });
+
+  it("rejects an SDK missing the persistent local API", async () => {
+    const f = setup();
+    const modulePath = join(f.root, "incompatible.mjs");
+    writeFileSync(modulePath, "export const Agent = {};\n");
+    await expect(cursorSdkWorker({ moduleUrl: pathToFileURL(modulePath).href, cwd: f.root, config: {}, probe: { includeModels: false } }, () => {})).rejects.toMatchObject({ code: "incompatible_configuration" });
   });
 });

@@ -1,10 +1,16 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { SdkWorkerLane } from "./sdk-worker-lane.js";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import type { SdkWorkerLane } from "./sdk-worker-lane.js";
 import type { SdkWorkerFactory } from "./sdk-worker-api.js";
 import type { AdapterEvent } from "./adapter.js";
+
+import { buildSdkWorkerArtifact } from "../testing/sdk-worker-artifact.spec.js";
+
+let artifact: Awaited<ReturnType<typeof buildSdkWorkerArtifact>>;
+beforeAll(async () => { artifact = await buildSdkWorkerArtifact(); });
+afterAll(() => artifact?.dispose());
 
 const roots: string[] = [];
 const lanes: SdkWorkerLane[] = [];
@@ -16,7 +22,7 @@ afterEach(async () => {
 function worker(factory: SdkWorkerFactory): SdkWorkerLane {
   const cwd = mkdtempSync(join(tmpdir(), "alook-worker-protocol-"));
   roots.push(cwd);
-  const lane = new SdkWorkerLane(factory, { modulePath: "unused", cwd, config: {}, probe: { includeModels: false } }, { ...process.env });
+  const lane = new artifact.SdkWorkerLane(factory, { modulePath: "unused", cwd, config: {}, probe: { includeModels: false } }, { ...process.env });
   lanes.push(lane);
   return lane;
 }
@@ -27,7 +33,7 @@ describe("owned SDK worker transport", () => {
     roots.push(cwd);
     const modulePath = join(cwd, "sdk #%.mjs");
     writeFileSync(modulePath, "export const status = 'healthy';\n");
-    const lane = new SdkWorkerLane(async (init) => {
+    const lane = new artifact.SdkWorkerLane(async (init) => {
       if (!init.moduleUrl.startsWith("file:")) throw new Error("Expected a file URL");
       const load = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<any>;
       return { status: (await load(init.moduleUrl)).status };
