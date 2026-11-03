@@ -14,6 +14,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -21,6 +22,7 @@ import org.junit.runner.RunWith
 class MobileShareImageIntegrationTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val insertedUris = mutableListOf<Uri>()
+    private val fixtureFiles = mutableListOf<File>()
 
     @After
     fun cleanUp() {
@@ -30,6 +32,9 @@ class MobileShareImageIntegrationTest {
             .clear()
             .commit()
         File(context.cacheDir, "mobile-share-image").deleteRecursively()
+        fixtureFiles.forEach { file ->
+            assertTrue("Owned fixture file must be removed", !file.exists() || file.delete())
+        }
     }
 
     @Test
@@ -42,21 +47,25 @@ class MobileShareImageIntegrationTest {
         val allowedUri = FileProvider.getUriForFile(context, authority, allowed)
         assertEquals(authority, allowedUri.authority)
 
-        val outside = File(context.cacheDir, "outside.png").apply { writeBytes(byteArrayOf(1)) }
+        val outside = File.createTempFile("mobile-share-image-test-", ".png", context.cacheDir)
+            .also(fixtureFiles::add)
+            .apply { writeBytes(byteArrayOf(1)) }
         assertProviderRejects(authority, outside)
         val traversal = File(allowed.parentFile, "../outside.png")
         assertProviderRejects(authority, traversal)
         context.getExternalFilesDir(null)?.let { external ->
             assertProviderRejects(
                 authority,
-                File(external, "external.png").apply { writeBytes(byteArrayOf(1)) },
+                File.createTempFile("mobile-share-image-test-", ".png", external)
+                    .also(fixtureFiles::add)
+                    .apply { writeBytes(byteArrayOf(1)) },
             )
         }
     }
 
     @Test
     fun repairDeletesOnlyTheExactOwnedPendingMediaStoreRow() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
         val row = insertPendingRow()
         val prefs = writeJournal(row, includeUri = true)
 
@@ -68,7 +77,7 @@ class MobileShareImageIntegrationTest {
 
     @Test
     fun repairFindsTheExactPendingRowWhenProcessDiesBeforeUriCommit() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
         val row = insertPendingRow()
         val prefs = writeJournal(row, includeUri = false)
 
@@ -80,7 +89,7 @@ class MobileShareImageIntegrationTest {
 
     @Test
     fun repairClearsPublishedJournalWithoutDeletingTheImage() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
         val row = insertPendingRow()
         assertEquals(
             1,
@@ -100,7 +109,7 @@ class MobileShareImageIntegrationTest {
 
     @Test
     fun preparedJournalNeverDeletesAnUnrelatedPendingRow() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
         val unrelated = insertPendingRow()
         val missing = JournalRow(
             token = UUID.randomUUID().toString().replace("-", ""),

@@ -88,7 +88,6 @@ class MobileShareImageDocumentStateTest {
             events,
         )
         assertEquals(1, destination.opens)
-        assertEquals(0, destination.returnedUriDeletes)
         assertEquals(listOf(probe.staging), deleted)
         assertEquals(1, probe.terminal.resolveAttempts)
         assertEquals(0, probe.terminal.rejectAttempts)
@@ -117,7 +116,6 @@ class MobileShareImageDocumentStateTest {
             assertEquals("failure at $failurePoint", 1, failed.terminal.rejectAttempts)
             assertEquals("failure at $failurePoint", 0, failed.terminal.resolveAttempts)
             assertEquals("failure at $failurePoint", 1, failed.releases)
-            assertEquals("failure at $failurePoint", 0, destination.returnedUriDeletes)
             assertEquals("failure at $failurePoint", listOf(failed.staging), deleted)
             assertNull(core.liveToken())
 
@@ -178,28 +176,32 @@ class MobileShareImageDocumentStateTest {
 
     @Test
     fun activityResultAdapterKeepsLateCallbackBoundToItsOwnLaunchToken() {
+        data class Input(val token: String, val filename: String)
         data class Result(val destination: MobileShareImageDocumentDestination?)
 
         val callbacks = mutableMapOf<String, (Result) -> Unit>()
+        val registeredKeys = mutableListOf<String>()
         val launches = mutableListOf<String>()
         val unregistered = mutableListOf<String>()
         val orphanTokens = mutableListOf<String>()
         val core = core()
-        val adapter = MobileShareImageDocumentResultAdapter<String, Result>(
+        val adapter = MobileShareImageDocumentResultAdapter<Input, Result>(
             register = { key, callback ->
-                val token = key.substringAfterLast('.')
-                callbacks[token] = callback
-                object : MobileShareImageDocumentResultRegistration<String> {
-                    override fun launch(input: String) {
-                        launches += input
+                registeredKeys += key
+                var launchedToken: String? = null
+                object : MobileShareImageDocumentResultRegistration<Input> {
+                    override fun launch(input: Input) {
+                        launchedToken = input.token
+                        callbacks[input.token] = callback
+                        launches += "${input.token}:${input.filename}"
                     }
 
                     override fun unregister() {
-                        unregistered += token
+                        unregistered += checkNotNull(launchedToken)
                     }
                 }
             },
-            createInput = { token, filename -> "$token:$filename" },
+            createInput = { token, filename -> Input(token, filename) },
             deliver = { token, result ->
                 core.deliver(ownerOne, token, result.destination, orphanTokens::add)
             },
@@ -240,6 +242,7 @@ class MobileShareImageDocumentStateTest {
             launches,
         )
         assertEquals(listOf(tokenOne, tokenTwo), unregistered)
+        assertEquals(2, registeredKeys.toSet().size)
     }
 
     @Test
@@ -393,7 +396,6 @@ class MobileShareImageDocumentStateTest {
         private val failurePoint: String? = null,
     ) : MobileShareImageDocumentDestination {
         var opens = 0
-        var returnedUriDeletes = 0
 
         override fun open(): MobileShareImageDocumentOutput {
             opens += 1
