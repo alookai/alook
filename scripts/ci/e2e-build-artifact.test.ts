@@ -288,6 +288,7 @@ describe("UI E2E build artifact", () => {
     ["extra fields", (manifest: Record<string, unknown>) => { manifest.extra = true }, "exact contract"],
     ["version", (manifest: Record<string, unknown>) => { manifest.version = 999 }, "version mismatch"],
     ["roots", (manifest: Record<string, unknown>) => { manifest.roots = [BUILD_OUTPUT_ROOTS[0]] }, "roots mismatch"],
+    ["Node release", (manifest: Record<string, unknown>) => { manifest.toolchain = { ...(manifest.toolchain as Record<string, unknown>), node: "0.0.0" } }, "build toolchain mismatch"],
     ["lockfile digest", (manifest: Record<string, unknown>) => { manifest.lockfileSha256 = "invalid" }, "lockfile digest"],
     ["archive digest", (manifest: Record<string, unknown>) => { manifest.archiveSha256 = "invalid" }, "archive digest"],
   ])("rejects invalid manifest %s", (_name, mutate, error) => {
