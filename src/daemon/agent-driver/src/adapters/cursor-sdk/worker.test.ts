@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, it, onTestFailed } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { AgentEvent, BuiltinBackendSpecs } from "../../contract.js";
@@ -50,24 +50,48 @@ describe("Cursor SDK public sessions through an owned worker", () => {
     const session = opened.session;
     const events: AgentEvent<BuiltinBackendSpecs, "cursor-sdk">[] = [];
     const collecting = (async () => { for await (const event of session.events) events.push(event); })();
+    let phase = "first admission";
+    let current = session;
+    onTestFailed(() => {
+      const fixture = Object.fromEntries(["opens", "inputs", "steers", "fixture-history", "release"].map((name) => {
+        const path = join(f.root, name);
+        return [name, existsSync(path) ? readFileSync(path, "utf8") : null];
+      }));
+      console.error(JSON.stringify({ phase, snapshot: current.snapshot(), events: events.slice(-20), rawOutput: f.host.rawOutput, fixture }));
+    });
     try {
       const receipt = await session.start({ id: "root", kind: "user", text: "first" });
       expect(receipt, JSON.stringify({ receipt, rawOutput: f.host.rawOutput })).toMatchObject({ status: "accepted" });
+      phase = "busy steering refusal";
       expect(await session.send({ id: "steer", kind: "user", text: "refuse" })).toMatchObject({ status: "queued", reason: "runtime_busy" });
       writeFileSync(join(f.root, "release"), "go");
+      phase = "queued turn completion";
       await waitUntil(() => events.some(event => event.type === "turn_completed" && event.commandIds.includes("steer")) && session.snapshot().state === "idle");
       expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", result: expect.objectContaining({ outcome: "success" }) }));
+      phase = "next turn admission";
       await session.send({ id: "next", kind: "user", text: "second" });
+      phase = "next turn completion";
       await waitUntil(() => session.snapshot().state === "idle");
       expect(readFileSync(join(f.root, "opens"), "utf8").trim().split("\n")).toHaveLength(1);
       expect(readFileSync(join(f.root, "inputs"), "utf8")).toBe("first\nrefuse\nsecond\n");
-    } finally { await session.stop({ reason: "shutdown", forceAfterMs: 100 }); await collecting; }
+    } finally {
+      phase = `shutdown after ${phase}`;
+      await session.stop({ reason: "shutdown", forceAfterMs: 100 });
+      phase = "event stream shutdown";
+      await collecting;
+    }
+    phase = "resume open";
     const resumed = await f.open("fixture-agent");
     if (!resumed.ok) throw new Error(resumed.error.message);
+    current = resumed.session;
     try {
+      phase = "resume admission";
       await resumed.session.start({ id: "resume", kind: "user", text: "third" });
       expect(resumed.session.snapshot().diagnostics.metrics.resumeOutcome).toBe("resumed");
-    } finally { await resumed.session.stop({ reason: "shutdown", forceAfterMs: 100 }); }
+    } finally {
+      phase = `resume shutdown after ${phase}`;
+      await resumed.session.stop({ reason: "shutdown", forceAfterMs: 100 });
+    }
   });
 
   it.skipIf(process.platform === "win32")("stops a real detached tool descendant with its exact worker", async () => {
