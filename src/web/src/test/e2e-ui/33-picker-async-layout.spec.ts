@@ -183,7 +183,8 @@ test.setTimeout(180_000)
     expect(failedChainGets).toBeGreaterThanOrEqual(2)
     fail = false
     await dialog.getByRole("button", { name: "Retry" }).click()
-    await expect(dialog.getByText("No friends to invite — everyone you know is already here.", { exact: true }))
+    // The fixture has no accepted friends at all, so the empty state uses the "none yet" copy.
+    await expect(dialog.getByText("You don't have any friends to invite yet.", { exact: true }))
       .toBeVisible({ timeout: 20_000 })
     await waitForElementMotion(dialog)
     expect(acceptedGets).toBeGreaterThan(failedChainGets)

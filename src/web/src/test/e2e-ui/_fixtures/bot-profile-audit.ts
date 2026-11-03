@@ -252,9 +252,10 @@ export async function expectActivityHeader(
       descriptionLineHeight: descriptionStyle.lineHeight,
     }
   })
+  // Technostalgia sheet/dialog titles: 22px/750, 20px on phones.
   expect(styles).toMatchObject({
-    titleFontSize: "18px",
-    titleFontWeight: "600",
+    titleFontSize: width === 390 ? "20px" : "22px",
+    titleFontWeight: "750",
     descriptionFontSize: "14px",
   })
   expect(Number.parseFloat(styles.titleLineHeight)).toBeGreaterThan(Number.parseFloat(styles.titleFontSize))

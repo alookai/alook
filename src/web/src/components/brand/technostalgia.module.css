@@ -197,7 +197,10 @@
   --tn-spec: linear-gradient(transparent, transparent);
 }
 
-.theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"], .absolute, .fixed) {
+/* Tailwind's `absolute` / `fixed` are matched as class tokens: a bare `.absolute`
+ * here would be hashed by CSS modules and never match, turning positioned keys
+ * (the composer send) into in-flow ones. */
+.theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"], [class~="absolute"], [class~="fixed"]) {
   position: relative;
   isolation: isolate;
 }
@@ -2545,4 +2548,18 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"])) { transition: none !important; }
+}
+
+/* The composer send keeps its own disabled look: a quiet icon with no key
+ * face (the disabled-key tray fill above would paint its whole 44px touch
+ * target). Placed last so it also wins over the dark disabled-key rule. */
+.theme button[class~="community-composer-send"][data-variant][data-slot="button"]:is(:disabled, [data-disabled]) {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--muted-foreground) !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+.theme button[class~="community-composer-send"][data-variant][data-slot="button"]:is(:disabled, [data-disabled])::before {
+  display: none;
 }

@@ -39,6 +39,7 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
   const [edges, setEdges] = useState({ left: false, right: false })
   const drag = useRef<{ x: number; scroll: number; moved: boolean } | null>(null)
   const tabs = useRef<(HTMLButtonElement | null)[]>([])
+  const keyboardMove = useRef(false)
   const current = features[selected]
 
   useEffect(() => {
@@ -123,6 +124,7 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
         <TabsList ref={tabList} className={`${styles.tabs} thin-scrollbar`} aria-label="Features"
           data-overflow={edges.left || edges.right}
           onPointerDown={event => {
+            keyboardMove.current = false
             if (event.pointerType !== "mouse" || event.button !== 0 || event.currentTarget.scrollWidth <= event.currentTarget.clientWidth) { drag.current = null; return }
             drag.current = { x: event.clientX, scroll: event.currentTarget.scrollLeft, moved: false }
           }}
@@ -137,9 +139,13 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
           }}
           onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
           onPointerCancel={() => { drag.current = null }}
+          // Arrow keys, Home and End select the tab they move focus to (DESIGN.md). Not
+          // activateOnFocus: a mouse press that starts a tray drag must not change the tab.
+          onKeyDown={event => { keyboardMove.current = ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) }}
           onClickCapture={event => { if (event.detail > 0 && drag.current?.moved) { event.preventDefault(); event.stopPropagation(); drag.current = null } }}>
           {features.map((feature, index) => <TabsTrigger key={feature.id} value={feature.id} ref={element => { tabs.current[index] = element }}
-            id={`feature-tab-${feature.id}`} aria-controls="feature-panel">{feature.tab}</TabsTrigger>)}
+            id={`feature-tab-${feature.id}`} aria-controls="feature-panel"
+            onFocus={() => { if (keyboardMove.current) { keyboardMove.current = false; select(index) } }}>{feature.tab}</TabsTrigger>)}
         </TabsList>
         </Tabs>
       </div>

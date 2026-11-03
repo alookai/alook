@@ -147,13 +147,34 @@ test("homepage keeps Tutorials in the footer and collapses mobile header links",
       transitionProperty: style.transitionProperty,
     }
   }
-  expect(await mobileLinks.first().evaluate(styleContract))
-    .toEqual(await footerLinks.first().evaluate(styleContract))
+  // Header and footer links share one family, spacing, case and motion. The
+  // footer is the quieter tier: muted ink and its own type size.
+  const sharedContract = async (link: typeof footerLinks) => {
+    const { color: _color, fontSize: _fontSize, ...shared } = await link.evaluate(styleContract)
+    return shared
+  }
+  // Resolves a landing token where the link lives and compares it with the link's ink.
+  const inkMatchesToken = (link: typeof footerLinks, token: string) => link.evaluate((element, name) => {
+    const probe = document.createElement("span")
+    probe.style.color = `var(${name})`
+    element.parentElement!.appendChild(probe)
+    const expected = getComputedStyle(probe).color
+    probe.remove()
+    return { actual: getComputedStyle(element).color, expected }
+  }, token)
+  const expectLinkTiers = async (headerLink: typeof footerLinks) => {
+    expect(await sharedContract(headerLink)).toEqual(await sharedContract(footerLinks.first()))
+    const header = await inkMatchesToken(headerLink, "--landing-text")
+    expect(header.actual).toBe(header.expected)
+    const footer = await inkMatchesToken(footerLinks.first(), "--landing-text-muted")
+    expect(footer.actual).toBe(footer.expected)
+    expect(footer.actual).not.toBe(header.actual)
+  }
+  await expectLinkTiers(mobileLinks.first())
 
   await page.setViewportSize({ width: 768, height: 900 })
   for (const link of await inlineLinks.all()) await expect(link).toBeVisible()
-  expect(await inlineLinks.first().evaluate(styleContract))
-    .toEqual(await footerLinks.first().evaluate(styleContract))
+  await expectLinkTiers(inlineLinks.first())
 })
 
 test("desktop landing keeps the embedded phone Back control on true mobile geometry", async ({ page }) => {

@@ -37,6 +37,11 @@
 .tabs::-webkit-scrollbar {
   display: none;
 }
+/* DESIGN.md: the gallery tabs keep a 44px minimum target. The shared tray is
+ * denser, so the selector out-specifies its `[data-slot="tabs-trigger"]` rule. */
+.controls .tabs [data-slot="tabs-trigger"][role="tab"][aria-controls] {
+  min-height: 44px;
+}
 .tabs[data-overflow="true"] {
   cursor: grab;
   user-select: none;
@@ -89,7 +94,9 @@
   place-items: start center;
   width: 100%;
 }
-.profileCard {
+/* Two classes: must beat landing-page's absolute `.identityProfileCard`
+ * regardless of CSS chunk order (the production build loads it later). */
+.identityMedia .profileCard {
   position: relative;
   top: auto;
   left: auto;

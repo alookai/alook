@@ -208,10 +208,14 @@ async function expectExplicitTouchSend({
   await expect(editable).toContainText(firstLine)
   await expect(editable).toContainText(secondLine)
   await expect(send).toBeEnabled()
-  await expect(send).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+  // The enabled send is a filled keycap: its face is a gradient image, so the
+  // fill is checked on background-image rather than background-color.
+  await expect.poll(() => send.evaluate((button) => getComputedStyle(button).backgroundImage))
+    .toContain("gradient")
   await expect(send).toHaveCSS("width", "56px")
   await expect(send).toHaveCSS("height", "44px")
-  await expect(send).toHaveCSS("border-right-width", "2px")
+  // Keycaps have no border ring: the key face fills the whole 56x44 target.
+  await expect(send).toHaveCSS("border-right-width", "0px")
   await expect(send.locator("svg")).toHaveCSS("width", "24px")
   expect(messagePosts).toBe(0)
   await expect(page.locator("[data-msg-id]").filter({ hasText: firstLine })).toHaveCount(0)
