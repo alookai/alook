@@ -188,7 +188,7 @@ export class AntigravityAcpLane implements RuntimeLane {
       this.usageReader = this.options.usageReader ?? (this.usageHome ? new NativeUsageReader(this.usageHome, sessionId) : undefined);
       this.processActivated = true;
       this.ready = true;
-      this.events.emit("runtime_event", { kind: "session_init", sessionId } satisfies AdapterEvent);
+      this.events.emit("runtime_event", { kind: "session_init", sessionId, acquisition: { status: input.sessionId ? "resumed" : "created", evidence: "native_api" } } satisfies AdapterEvent);
       return this.admitPrompt([this.ctx.standingPrompt, input.text].filter(Boolean).join("\n\n"));
     } catch (error) {
       this.suppressExit = true;
@@ -329,8 +329,10 @@ export class AntigravityAcpLane implements RuntimeLane {
       const catalog = parseAntigravityCatalog(response);
       if (!catalog || catalog.currentModelId !== modelId) throw new Error("Antigravity did not confirm the selected model");
       this.catalog = catalog;
+      this.events.emit("runtime_event", { kind: "configuration_observed", observation: { evidence: "observed", effective: "next_turn", model: catalog.currentModelId } } satisfies AdapterEvent);
     } else {
       await this.call("session/set_model", { sessionId: this.sessionId, modelId });
+      this.events.emit("runtime_event", { kind: "configuration_observed", observation: { evidence: "acknowledged", effective: "next_turn" } } satisfies AdapterEvent);
       if (this.catalog) this.catalog = { ...this.catalog, currentModelId: modelId };
     }
   }
@@ -347,7 +349,7 @@ export class AntigravityAcpLane implements RuntimeLane {
     if (!modelId) return failed("unsupported_reasoning_effort", "Antigravity did not offer the requested model/effort variant");
     try {
       await this.setModel(modelId);
-      return { status: "applied" };
+      return { status: "acknowledged", effective: "next_turn" };
     } catch {
       return failed("settings_update_failed", "Antigravity rejected the settings update", true);
     }
@@ -416,6 +418,8 @@ export class AntigravityAcpLane implements RuntimeLane {
       kind: "turn_end",
       sessionId: this.sessionId ?? undefined,
       turnOwner: terminalOwner,
+      outcome: result.stopReason === "cancelled" ? "interrupted" : result.stopReason === "end_turn" ? "success" : "failed",
+      stopReason: result.stopReason,
       ...(result.stopReason === "cancelled" ? { outcome: "interrupted" as const, pendingContent: "discard" as const } : {}),
     } satisfies AdapterEvent);
   }
@@ -436,6 +440,7 @@ export class AntigravityAcpLane implements RuntimeLane {
       pendingContent: "discard",
       sessionId: this.sessionId ?? undefined,
       turnOwner: terminalOwner,
+      outcome: "failed",
     } satisfies AdapterEvent);
   }
 
@@ -704,7 +709,9 @@ export class AntigravityAcpLane implements RuntimeLane {
     }
     const configuration = record(payload.update);
     if (configuration?.sessionUpdate === "config_option_update") {
-      this.catalog = parseAntigravityCatalog(configuration) ?? this.catalog;
+      const observed = parseAntigravityCatalog(configuration);
+      this.catalog = observed ?? this.catalog;
+      if (observed?.currentModelId) this.events.emit("runtime_event", { kind: "configuration_observed", observation: { evidence: "observed", effective: "current", model: observed.currentModelId } } satisfies AdapterEvent);
       return;
     }
     if (!this.ready || this.currentPromptRequestId === null) {
@@ -749,6 +756,7 @@ export class AntigravityAcpLane implements RuntimeLane {
           this.openToolCalls.delete(update.toolCallId);
           this.events.emit("runtime_event", {
             kind: "tool_output", callId: update.toolCallId, name: update.title,
+            outcome: update.status === "failed" ? "failed" : "success", output: update.rawOutput,
           } satisfies AdapterEvent);
         }
         return;
@@ -762,6 +770,7 @@ export class AntigravityAcpLane implements RuntimeLane {
           this.events.emit("runtime_event", {
             kind: "tool_output",
             callId: update.toolCallId,
+            outcome: update.status === "failed" ? "failed" : "success", output: update.rawOutput,
             name: typeof update.title === "string" ? update.title : "Antigravity tool",
           } satisfies AdapterEvent);
         }

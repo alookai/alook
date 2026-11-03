@@ -255,9 +255,9 @@ describe("EditBotSheet — model switch toast (online-only)", () => {
     expect(toastSuccess.mock.calls.join(" ")).not.toMatch(/offline|next wake|applies when/i)
   })
 
-  it("blocks an unconfigured OpenCode bot until a model is explicitly picked", async () => {
-    updateMutateAsync.mockResolvedValue({ bot: { ...BOT, runtime: "opencode" } })
-    const renderer = renderSheet({ ...BOT, runtime: "opencode" })
+  it.each(["opencode", "pi-durable", "cursor-sdk"])("blocks an unconfigured %s bot until a model is explicitly picked", async (runtime) => {
+    updateMutateAsync.mockResolvedValue({ bot: { ...BOT, runtime } })
+    const renderer = renderSheet({ ...BOT, runtime })
     expect(saveButton(renderer)).toBeDisabled()
     fireEvent.click(saveButton(renderer))
     expect(updateMutateAsync).not.toHaveBeenCalled()
@@ -268,12 +268,12 @@ describe("EditBotSheet — model switch toast (online-only)", () => {
     expect(updateMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ model: "claude-sonnet-4-6" }))
   })
 
-  it("requires a fresh model before confirming a switch into OpenCode and restores Default on switching back", () => {
+  it.each(["opencode", "pi-durable", "cursor-sdk"])("requires a fresh model before switching into %s and restores Default on switching back", (runtime) => {
     useMachinesMock.mockReturnValue({ machines: [{ id: "mac1", availableRuntimes: [
-      { id: "claude", status: "healthy" }, { id: "opencode", status: "healthy" },
+      { id: "claude", status: "healthy" }, { id: runtime, status: "healthy" },
     ] }] })
     const renderer = renderSheet({ ...BOT, modelName: "opus" })
-    pickRuntime(renderer, "opencode")
+    pickRuntime(renderer, runtime)
     expect(saveButton(renderer)).toBeDisabled()
     fireEvent.click(saveButton(renderer))
     expect(renderer.queryByTestId("provider-confirm")).not.toBeInTheDocument()

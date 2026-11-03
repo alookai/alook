@@ -27,7 +27,7 @@ describe("agy native stream ownership", () => {
   it("uses native input identity, ignores other sessions and stale/duplicate terminals", () => {
     const driver = new AgyDriver();
     driver.encodeMessage("first");
-    expect(driver.normalizeLine(line({ event: "init", conversation_id: "native" }))).toEqual([{ kind: "session_init", sessionId: "native" }]);
+    expect(driver.normalizeLine(line({ event: "init", conversation_id: "native" }))).toEqual([{ kind: "session_init", sessionId: "native", acquisition: { status: "created", evidence: "native_protocol" } }]);
     expect(driver.normalizeLine(step(0, { step_type: "user_input" }))).toMatchObject([{ kind: "turn_owner", receipt: "agy:native:0" }]);
     expect(driver.normalizeLine(result(1, {}, "child"))).toEqual([]);
     expect(driver.normalizeLine(result(1))).toMatchObject([{ kind: "assistant_message_completed" }, { kind: "turn_end" }]);
@@ -74,7 +74,7 @@ describe("agy native stream ownership", () => {
     begin(driver);
     driver.normalizeLine(step(1, { text_delta: "partial" }));
     expect(driver.normalizeLine(result(1, { status, error }))).toEqual([
-      { kind: "error", message: error }, { kind: "turn_end", sessionId: "native", pendingContent: "discard" },
+      { kind: "error", message: error }, { kind: "turn_end", sessionId: "native", pendingContent: "discard" , outcome: "failed" },
     ]);
   });
   it.each([{ status: "CANCELLED" }, { status: "ERROR", error: "interrupted" }])("keeps native $status cancellation distinct from failure and discards unfinished content", (terminal) => {

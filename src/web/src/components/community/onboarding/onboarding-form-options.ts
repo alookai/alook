@@ -38,6 +38,10 @@ export const ONBOARDING_HARNESSES = [
     label: "Pi",
     provider: "pi",
   },
+  { value: "qoder", label: "Qoder", provider: "qoder" },
+  { value: "copilot", label: "GitHub Copilot", provider: "copilot" },
+  { value: "cursor-sdk", label: "Cursor SDK", provider: "cursor-sdk" },
+  { value: "pi-durable", label: "Pi Durable", provider: "pi-durable" },
 ] as const satisfies readonly OnboardingSelectOption[]
 
 export const ONBOARDING_IDENTITIES = [
@@ -66,3 +70,7 @@ export const ONBOARDING_IDENTITIES = [
     accentKey: "coral",
   },
 ] as const satisfies readonly OnboardingSelectOption[]
+
+export function supportsAgentSetup(harness: string | undefined): boolean {
+  return harness !== "cursor-sdk" && harness !== "pi-durable"
+}

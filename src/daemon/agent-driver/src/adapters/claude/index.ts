@@ -1,12 +1,3 @@
-/**
- * Claude Code driver — persistent stream-json process with gated steering.
- *
- * Claude's stdin protocol accepts a stable UUID on every user frame. Normal
- * terminals report the segment's `user_message_uuid`; native interruption may
- * instead emit an ownerless interrupted segment boundary before queued frames
- * replay. The turn protocol binds either vendor sequence back to the logical
- * root receipt without restarting the persistent process.
- */
 import type {
   BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, LaneInterruptInput, RuntimeLane,
   RuntimeLaneOpenOptions, SpawnedProcess, SpawnedProcessHandle, ProbeResult,
@@ -32,6 +23,7 @@ const CLAUDE_MODEL_CATALOG = {
 };
 
 export class ClaudeDriver implements BackendAdapter {
+  private requestedSessionId?: string;
   readonly id = "claude";
   readonly modelCatalogOrigin = "adapter_suggestions" as const;
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
@@ -77,6 +69,7 @@ export class ClaudeDriver implements BackendAdapter {
   }
 
   async spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess> {
+    this.requestedSessionId = ctx.config.sessionId;
     // The core materializes AGENTS.md (+ CLAUDE.md symlink) before opening the
     // lane; Claude Code auto-reads CLAUDE.md from cwd, so no CLI flag is needed.
     const { spawnEnv } = await prepareCliTransport(ctx, buildClaudeProviderIsolationEnv(ctx));
@@ -111,7 +104,7 @@ export class ClaudeDriver implements BackendAdapter {
     const stdinMsg = JSON.stringify({
       type: "user",
       message: { role: "user", content: [{ type: "text", text: ctx.prompt }] },
-      uuid: this.turnProtocol.rootInputUuid(),
+      uuid: this.turnProtocol.rootInputUuid(ctx.inputs),
       ...(ctx.config.sessionId ? { session_id: ctx.config.sessionId } : {}),
     });
     proc.stdin?.write(stdinMsg + "\n");
@@ -121,6 +114,9 @@ export class ClaudeDriver implements BackendAdapter {
 
   normalizeLine(line: string): AdapterEvent[] {
     const events = this.eventNormalizer.normalizeLine(line);
+    for (const event of events) {
+      if (event.kind === "session_init") event.acquisition = { status: this.requestedSessionId ? "resumed" : "created", evidence: "native_protocol" };
+    }
     this.flushPendingInterrupt();
     return events;
   }
@@ -171,8 +167,8 @@ export class ClaudeDriver implements BackendAdapter {
   /** Both idle and busy messages use the same stream-json user-message shape. */
   encodeMessage(text: string, sessionId: string | null, opts?: EncodeMessageOptions): string {
     const uuid = opts?.mode === "idle"
-      ? this.turnProtocol.rootInputUuid()
-      : this.turnProtocol.steeringInputUuid();
+      ? this.turnProtocol.rootInputUuid(opts?.inputs)
+      : this.turnProtocol.steeringInputUuid(opts?.inputs);
     return JSON.stringify({
       type: "user",
       message: { role: "user", content: [{ type: "text", text }] },

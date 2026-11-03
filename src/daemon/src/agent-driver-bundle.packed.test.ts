@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { execPackageManagerSync } from "./test-package-manager.js";
 
@@ -61,5 +61,18 @@ describe("packed daemon agent-driver boundary", () => {
       "--eval",
       "await import('@alook/daemon')",
     ], { cwd: installRoot, maxBuffer: 10 * 1024 * 1024 });
+    if (process.env.ALOOK_NATIVE_SDK_ROOT && process.platform !== "win32") {
+      const script = join(packageRoot, "agent-driver", "scripts", "test-bundled-sdk-workers.mjs");
+      const { stdout } = await execFileAsync(process.execPath, [
+        script,
+        pathToFileURL(join(installedRoot, "dist", "index.js")).href,
+        process.env.ALOOK_NATIVE_SDK_ROOT,
+      ], { cwd: installRoot, maxBuffer: 10 * 1024 * 1024 });
+      const reports = stdout.trim().split("\n").map((line) => JSON.parse(line) as { id: string; manager?: string });
+      for (const id of ["qoder", "copilot", "cursor-sdk", "pi-durable"]) {
+        expect(reports).toContainEqual(expect.objectContaining({ id, results: ["success", "interrupted"], closed: "stopped" }));
+        expect(reports).toContainEqual(expect.objectContaining({ id, manager: "wake-during-work", acks: 2, opens: 1, turnActive: false, sessionState: "idle" }));
+      }
+    }
   });
 });

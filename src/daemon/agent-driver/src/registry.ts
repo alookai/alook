@@ -14,11 +14,16 @@ import { CursorDriver } from "./adapters/cursor/index.js";
 import { GrokDriver } from "./adapters/grok/index.js";
 import { OpenCodeDriver } from "./adapters/opencode/index.js";
 import { PiDriver } from "./adapters/pi/index.js";
+import { OptionalSdkDriver } from "./internal/optional-sdk-driver.js";
+import { cursorSdkWorker } from "./adapters/cursor-sdk/worker.js";
+import { copilotWorker } from "./adapters/copilot/worker.js";
+import { qoderWorker } from "./adapters/qoder/worker.js";
+import { piDurableWorker } from "./adapters/pi-durable/worker.js";
 import type { BackendAdapter } from "./internal/adapter.js";
 
 export interface AgentBackendRegistration<Specs, Id extends BackendId<Specs>> {
   readonly id: Id;
-  readonly contractVersion: 1;
+  readonly contractVersion: 2;
   readonly capabilities: CapabilitiesOf<Specs, Id>;
   createAdapter(): BackendAdapter<Id, ConfigOf<Specs, Id>>;
 }
@@ -58,7 +63,7 @@ export function assertRegistrationShape(registration: unknown): void {
   if (typeof candidate.id !== "string" || candidate.id.length === 0) {
     throw new Error("Agent backend registration requires a non-empty id");
   }
-  if (candidate.contractVersion !== 1) {
+  if (candidate.contractVersion !== 2) {
     throw new Error(`Agent backend registration ${candidate.id} has an unsupported adapter-author contract version`);
   }
   if (!candidate.capabilities || typeof candidate.capabilities !== "object") {
@@ -185,9 +190,25 @@ export function assertAdapterCompatibility(
   }
 }
 
-export const BUILTIN_BACKEND_IDS = ["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy"] as const;
+export const BUILTIN_BACKEND_IDS = ["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"] as const;
 
 const capabilities = {
+  qoder: {
+    modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false,
+    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
+  },
+  copilot: {
+    modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false,
+    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
+  },
+  "cursor-sdk": {
+    modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false,
+    disallowedTools: false, commandOverride: false, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
+  },
+  "pi-durable": {
+    modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: false,
+    disallowedTools: false, commandOverride: false, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
+  },
   agy: {
     modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false,
     disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: false,
@@ -198,11 +219,11 @@ const capabilities = {
   },
   claude: {
     modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true,
-    disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true,
+    disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
   },
   codex: {
     modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true,
-    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true,
+    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
   },
   cursor: {
     modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false,
@@ -224,14 +245,18 @@ const capabilities = {
 
 export function createBuiltinAgentDriverRegistry(): AgentDriverRegistry<BuiltinBackendSpecs> {
   return createAgentDriverRegistry<BuiltinBackendSpecs>([
-    { id: "claude", contractVersion: 1, capabilities: capabilities.claude, createAdapter: () => new ClaudeDriver() },
-    { id: "codex", contractVersion: 1, capabilities: capabilities.codex, createAdapter: () => new CodexDriver() },
-    { id: "cursor", contractVersion: 1, capabilities: capabilities.cursor, createAdapter: () => new CursorDriver() },
-    { id: "grok", contractVersion: 1, capabilities: capabilities.grok, createAdapter: () => new GrokDriver() },
-    { id: "opencode", contractVersion: 1, capabilities: capabilities.opencode, createAdapter: () => new OpenCodeDriver() },
-    { id: "pi", contractVersion: 1, capabilities: capabilities.pi, createAdapter: () => new PiDriver() },
-    { id: "antigravity", contractVersion: 1, capabilities: capabilities.antigravity, createAdapter: () => new AntigravityDriver() },
-    { id: "agy", contractVersion: 1, capabilities: capabilities.agy, createAdapter: () => new AgyDriver() },
+    { id: "claude", contractVersion: 2, capabilities: capabilities.claude, createAdapter: () => new ClaudeDriver() },
+    { id: "codex", contractVersion: 2, capabilities: capabilities.codex, createAdapter: () => new CodexDriver() },
+    { id: "cursor", contractVersion: 2, capabilities: capabilities.cursor, createAdapter: () => new CursorDriver() },
+    { id: "grok", contractVersion: 2, capabilities: capabilities.grok, createAdapter: () => new GrokDriver() },
+    { id: "opencode", contractVersion: 2, capabilities: capabilities.opencode, createAdapter: () => new OpenCodeDriver() },
+    { id: "pi", contractVersion: 2, capabilities: capabilities.pi, createAdapter: () => new PiDriver() },
+    { id: "antigravity", contractVersion: 2, capabilities: capabilities.antigravity, createAdapter: () => new AntigravityDriver() },
+    { id: "agy", contractVersion: 2, capabilities: capabilities.agy, createAdapter: () => new AgyDriver() },
+    { id: "qoder", contractVersion: 2, capabilities: capabilities.qoder, createAdapter: () => new OptionalSdkDriver("qoder", "@qoder-ai/qoder-agent-sdk", qoderWorker, undefined, { kind: "native" }) },
+    { id: "copilot", contractVersion: 2, capabilities: capabilities.copilot, createAdapter: () => new OptionalSdkDriver("copilot", "@github/copilot-sdk", copilotWorker, undefined, { kind: "native" }) },
+    { id: "cursor-sdk", contractVersion: 2, capabilities: capabilities["cursor-sdk"], createAdapter: () => new OptionalSdkDriver("cursor-sdk", "@cursor/sdk", cursorSdkWorker) },
+    { id: "pi-durable", contractVersion: 2, capabilities: capabilities["pi-durable"], createAdapter: () => new OptionalSdkDriver("pi-durable", "@earendil-works/pi-durable", piDurableWorker, undefined, { kind: "native" }) },
   ]);
 }
 

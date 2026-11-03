@@ -64,13 +64,13 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           writeFileSync(release, "go");
         }
         await vi.waitFor(() => expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2));
-        const successful = ["end_turn", "max_tokens", "refusal", "max_turn_requests"].includes(terminal);
+        const hasCompletedContent = ["end_turn", "max_tokens", "refusal", "max_turn_requests"].includes(terminal);
         expect(events.filter((event) => event.type === "assistant_message_completed").map((event) => event.text))
-          .toEqual(successful ? ["first message", "next message"] : ["next message"]);
+          .toEqual(hasCompletedContent ? ["first message", "next message"] : ["next message"]);
         expect(events.filter((event) => event.type === "assistant_reasoning_completed").map((event) => event.text))
-          .toEqual(successful ? ["first reasoning", "next reasoning"] : ["next reasoning"]);
+          .toEqual(hasCompletedContent ? ["first reasoning", "next reasoning"] : ["next reasoning"]);
         expect(events.filter((event) => event.type === "turn_completed")).toMatchObject([
-          { commandIds: ["first"], result: { outcome: terminal === "interrupt" || terminal === "cancelled" ? "interrupted" : successful ? "success" : "failed" } },
+          { commandIds: ["first"], result: { outcome: terminal === "interrupt" || terminal === "cancelled" ? "interrupted" : terminal === "end_turn" ? "success" : "failed" } },
           { commandIds: ["second"], result: { outcome: "success" } },
         ]);
         expect(events.filter((event) => event.type === "command_accepted").map((event) => event.commandId)).toEqual(["first", "second"]);

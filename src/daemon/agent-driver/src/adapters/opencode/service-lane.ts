@@ -245,6 +245,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
       this.events.emit("runtime_event", {
         kind: "session_init",
         sessionId: this.sessionId,
+        acquisition: { status: input.sessionId ?? this.ctx.config.sessionId ? "resumed" : "created", evidence: "native_api" },
       } satisfies AdapterEvent);
       const admission = await this.beginRoot(input);
       this.assertStartupIdentity(startupIdentity);
@@ -844,7 +845,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
         if (typeof data.callID === "string") {
           const name = typeof data.tool === "string" ? data.tool : "OpenCode tool";
           this.toolNames.set(data.callID, name);
-          this.events.emit("runtime_event", { kind: "tool_call", name, input: data.input } satisfies AdapterEvent);
+          this.events.emit("runtime_event", { kind: "tool_call", callId: data.callID, name, input: data.input } satisfies AdapterEvent);
         }
         break;
       case "session.next.tool.success":
@@ -852,7 +853,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
         if (typeof data.callID === "string") {
           const name = this.toolNames.get(data.callID) ?? "OpenCode tool";
           this.toolNames.delete(data.callID);
-          this.events.emit("runtime_event", { kind: "tool_output", name } satisfies AdapterEvent);
+          this.events.emit("runtime_event", { kind: "tool_output", callId: data.callID, name, outcome: event.type === "session.next.tool.failed" ? "failed" : "success", output: data.output } satisfies AdapterEvent);
         }
         break;
       case "session.next.compaction.started":
@@ -1190,6 +1191,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
       kind: "turn_end",
       sessionId: this.sessionId ?? undefined,
       turnOwner: root.receipt,
+      outcome: success ? "success" : "failed",
     } satisfies AdapterEvent);
   }
 

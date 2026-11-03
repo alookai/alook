@@ -268,7 +268,7 @@ describe("PiDriver.openLane — does not fire the initial prompt itself", () => 
     subscribeCb({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "hi" } });
 
     expect(received).toEqual([
-      { kind: "session_init", sessionId: "sess_1" },
+      { kind: "session_init", sessionId: "sess_1", acquisition: { status: "created", evidence: "native_api" } },
       { kind: "assistant_message_delta", text: "hi" },
     ]);
   });
@@ -321,7 +321,7 @@ describe("PiDriver persistent RuntimeLane contract", () => {
     const beginTurn = vi.spyOn(driver, "beginTurn");
     const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
       id: "pi",
-      contractVersion: 1,
+      contractVersion: 2,
       capabilities: capabilitiesFor("pi"),
       createAdapter: () => driver,
     }]);

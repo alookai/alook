@@ -172,7 +172,7 @@ const FSM_FIELD_RULES: Readonly<Record<string, ProjectionFieldRule>> = {
   outstandingToolUses: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, optional: true },
   anonymousOutstandingToolUses: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, optional: true },
   toolLifecycleMismatchCount: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, optional: true },
-  resumeOutcome: { type: "enum", values: ["not_requested", "pending", "resumed", "reset_required", "failed"], optional: true },
+  resumeOutcome: { type: "enum", values: ["not_requested", "pending", "resumed", "unverified", "reset_required", "failed"], optional: true },
   terminalOwnerKind: { type: "enum", values: ["transport_request", "vendor_message", "prompt_invocation", "lane_generation"], optional: true },
   effects: { type: "enum_array", values: EXPECTED_MANAGER_EFFECTS, maxItems: 32, dropUnknown: true },
   nowMs: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER },

@@ -153,7 +153,7 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
     if (input.mode === "idle" && this.pendingPromptAdmission) {
       return { ok: false, reason: "runtime_busy", error: "prompt admission is already pending" };
     }
-    const encoded = this.driver.encodeMessage(input.text, input.sessionId ?? null, { mode: input.mode });
+    const encoded = this.driver.encodeMessage(input.text, input.sessionId ?? null, { mode: input.mode, inputs: input.inputs });
     if (!encoded) return { ok: false, reason: "unsupported" };
     if (input.mode === "idle") {
       const admission = this.admitPrompt(input.terminalOwner, `${this.driver.id}:send:${++this.admissionSequence}`);
@@ -306,8 +306,8 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
         for (const event of this.driver.normalizeLine(line)) {
           if (event.kind === "turn_owner" && event.receipt.trim()) {
             this.settlePendingPrompt({ ok: true, acceptedAs: "prompt", receipt: event.receipt });
-          } else if (event.kind === "error" && this.pendingPromptAdmission) {
-            this.settlePendingPrompt({ ok: false, reason: "runtime_error", error: event.message });
+          } else if (event.kind === "error" && event.scope !== "input" && event.scope !== "operation" && event.scope !== "diagnostic" && this.pendingPromptAdmission) {
+            this.settlePendingPrompt({ ok: false, reason: event.code === "reset_required" ? "reset_required" : "runtime_error", error: event.message });
           }
           const ownedEvent = event.kind === "turn_end" && !event.turnOwner && this.activeTerminalReceipt
             ? { ...event, turnOwner: this.activeTerminalReceipt }

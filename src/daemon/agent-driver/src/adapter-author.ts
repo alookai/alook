@@ -1,5 +1,5 @@
 /** Explicit extension boundary for adapter authors; not part of the consumer root API. */
-export const ADAPTER_AUTHOR_CONTRACT_VERSION = 1 as const;
+export const ADAPTER_AUTHOR_CONTRACT_VERSION = 2 as const;
 
 export type * from "./public-contract.js";
 export {

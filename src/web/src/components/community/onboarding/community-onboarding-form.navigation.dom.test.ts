@@ -14,6 +14,7 @@ function render(node: React.ReactNode) {
 
 const mocks = vi.hoisted(() => ({
   pathname: "/c/me/machines",
+  selectedHarness: "codex",
   complete: vi.fn(),
   capture: vi.fn(async () => {}),
   navigate: vi.fn(),
@@ -76,7 +77,7 @@ vi.mock("./onboarding-select-dialog", () => ({
   }) => createElement("div", {}, createElement("button", {
     "data-testid": "select-harness",
     "data-value": value,
-    onClick: () => { onValueChange("codex"); if (advanceOnSelect) onSubmit("codex") },
+    onClick: () => { onValueChange(mocks.selectedHarness); if (advanceOnSelect) onSubmit(mocks.selectedHarness) },
   }), advanceOnSelect ? null : createElement("button", { onClick: () => onSubmit("developer") }, "Finish setup")),
 }))
 vi.mock("@/hooks/community/use-machines", () => ({ useMachines: () => ({ machines: [] }) }))
@@ -230,8 +231,8 @@ describe("CommunityOnboardingForm room navigation", () => {
     expect(screen.getByTestId("select-harness")).toHaveAttribute("data-value", "")
   })
 
-  it("blocks OpenCode setup until a model is chosen and passes it to initialization", async () => {
-    mocks.state = { status: "active", stage: "model", machineId: "machine-1", harness: "opencode" }
+  it.each(["opencode", "pi-durable", "cursor-sdk"])("blocks %s setup until a model is chosen and passes it to initialization", async (harness) => {
+    mocks.state = { status: "active", stage: "model", machineId: "machine-1", harness }
     render(createElement(CommunityOnboardingForm))
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled()
     fireEvent.click(screen.getByRole("button", { name: "Continue" }))
@@ -240,14 +241,28 @@ describe("CommunityOnboardingForm room navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue" }))
     expect(mocks.initialize).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Finish setup" }))
-    await waitFor(() => expect(mocks.initialize).toHaveBeenCalledWith(expect.objectContaining({ runtime: "opencode", model: "custom/model" })))
+    await waitFor(() => expect(mocks.initialize).toHaveBeenCalledWith(expect.objectContaining({ runtime: harness, model: "custom/model" })))
   })
 
-  it.each(["codex", "opencode"])("routes a connected %s machine through only its required steps", (harness) => {
+  it.each(["codex", "opencode", "qoder", "copilot", "cursor-sdk", "pi-durable"])("routes a connected %s machine through only its required steps", (harness) => {
     mocks.state = { status: "active", stage: "machine", harness }
     render(createElement(CommunityOnboardingForm))
     fireEvent.click(screen.getByRole("button", { name: "Machine connected" }))
-    expect(owner.runtime.ui.get().onboardingState?.stage).toBe(harness === "opencode" ? "model" : "identity")
-    expect(screen.queryByRole("textbox", { name: "Model" }) !== null).toBe(harness === "opencode")
+    expect(owner.runtime.ui.get().onboardingState?.stage).toBe(["opencode", "pi-durable", "cursor-sdk"].includes(harness) ? "model" : "identity")
+    expect(screen.queryByRole("textbox", { name: "Model" }) !== null).toBe(["opencode", "pi-durable", "cursor-sdk"].includes(harness))
   })
+
+  it.each(["qoder", "copilot", "cursor-sdk", "pi-durable"])("starts %s with a usable setup method", (harness) => {
+    mocks.state = { status: "active", stage: "harness" }
+    mocks.selectedHarness = harness
+    render(createElement(CommunityOnboardingForm))
+    fireEvent.click(screen.getByTestId("select-harness"))
+    const sdkOnly = harness === "cursor-sdk" || harness === "pi-durable"
+    expect(owner.runtime.ui.get().onboardingState?.setupMode).toBe(sdkOnly ? "manual" : "agent")
+    expect(screen.getByTestId("onboarding-mode-agent").hasAttribute("disabled")).toBe(sdkOnly)
+    if (sdkOnly) expect(screen.getByRole("button", { name: "Machine connected" })).toBeInTheDocument()
+    else expect(screen.getByText("Agent Setup")).toBeInTheDocument()
+    mocks.selectedHarness = "codex"
+  })
+
 })

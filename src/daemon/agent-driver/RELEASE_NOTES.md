@@ -1,5 +1,40 @@
 # Release notes
 
+## Shared input and execution evidence (adapter-author v2)
+
+- Preserve logical command IDs and per-attempt identity through merged input,
+  native observations and returned responsibility. Reuse daemon queues/revisions;
+  retry only proven-unsent eligible inputs, without failing a healthy root.
+- Publish root/child/unknown attribution, native tool results, explicit execution
+  outcomes, session acquisition and configuration evidence. No result defaults to
+  success; a matching restored ID or an empty settings ACK is not verification.
+- Refuse missing Codex/Pi history without creating a replacement context.
+- Submit Claude/Codex busy input through native steering immediately. Preserve
+  root/attempt fences for late, duplicate, refused and off-root events.
+- Migrate all twelve backend registrations and both OpenCode protocol lanes.
+  Adapter registrations now require numeric contract version 2; settings `applied`
+  requires observed values. Native ACK-only setters return `acknowledged`.
+- Preserve persistent sessions, package boundaries and existing process authority.
+  No new runtime dependencies or additional agent transports.
+
+## Additional native agent entries
+
+- Add persistent Qoder, Copilot, Cursor SDK and Pi Durable entries using optional
+  native SDK installations. Retain existing Cursor ACP and Pi coding-agent
+  entries and adapter-author contract version 1.
+- Reuse the existing process authority through persistent managed SDK workers.
+  Native immediate input, root completion, interruption and resume remain
+  adapter-owned; daemon notification batching remains daemon-owned.
+- Preserve UTF-8 across protocol chunks and all native stdout write overloads
+  when redirecting SDK logs. Bound protocol frames and cleanup the captured
+  process tree before releasing worker resources.
+- Discover the Codex executable inside macOS Codex/ChatGPT applications when
+  no explicit command or PATH installation is selected. Use the same executable
+  for installation probe, native model catalog and launch.
+- Cover native SDK/local runtime journeys and all four workers after the actual
+  daemon Bun build and npm installation, including daemon wake during work.
+  These tests do not claim real-account inference or Windows verification.
+
 ## OpenCode CLI major compatibility
 
 - Select CLI v1 or v2 within the existing OpenCode harness using the actual

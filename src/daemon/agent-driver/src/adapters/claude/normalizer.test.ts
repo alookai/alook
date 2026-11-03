@@ -47,7 +47,7 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     const out = new ClaudeEventNormalizer().normalizeLine(
       J({ type: "user", message: { content: [{ type: "tool_result", content: "done" }] } }),
     );
-    expect(out).toEqual([{ kind: "tool_output", name: "" }]);
+    expect(out).toEqual([{ kind: "tool_output", name: "", outcome: "success", output: "done" }]);
   });
 
   it("compaction lifecycle", () => {
@@ -67,7 +67,7 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     const kinds = out.map((e) => e.kind);
     expect(kinds).toContain("turn_end");
     expect(kinds).toContain("telemetry");
-    expect(out).toContainEqual({ kind: "turn_end", sessionId: "s1", turnOwner: "claude:root-1" });
+    expect(out).toContainEqual({ kind: "turn_end", sessionId: "s1", turnOwner: "claude:root-1" , outcome: "success" });
     expect(out).toContainEqual({
       kind: "telemetry",
       name: "token_usage",
@@ -368,7 +368,7 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     const out = new ClaudeEventNormalizer().normalizeLine(
       J({ type: "result", subtype: "success", usage: { input_tokens: 3, output_tokens: 5 } }),
     );
-    expect(out).toEqual([{ kind: "turn_end", sessionId: undefined }]);
+    expect(out).toEqual([{ kind: "turn_end", sessionId: undefined , outcome: "success" }]);
   });
 
   it("uses request_id and the invocation fallback when root request identity is absent", () => {
@@ -454,7 +454,7 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     const n = new ClaudeEventNormalizer();
     const first = J({ type: "result", subtype: "success", session_id: "s1", user_message_uuid: "first" });
     const second = J({ type: "result", subtype: "success", session_id: "s1", user_message_uuid: "second" });
-    expect(n.normalizeLine(first)).toEqual([{ kind: "turn_end", sessionId: "s1", turnOwner: "claude:first" }]);
-    expect(n.normalizeLine(second)).toEqual([{ kind: "turn_end", sessionId: "s1", turnOwner: "claude:second" }]);
+    expect(n.normalizeLine(first)).toEqual([{ kind: "turn_end", sessionId: "s1", turnOwner: "claude:first" , outcome: "success" }]);
+    expect(n.normalizeLine(second)).toEqual([{ kind: "turn_end", sessionId: "s1", turnOwner: "claude:second" , outcome: "success" }]);
   });
 });
