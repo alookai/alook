@@ -13,7 +13,15 @@ import { spawnAgentProcess, killProcessTree, isAlive } from "./killTree.js";
  * real OS process-group interaction that a mock would trivially hide.
  */
 
-const spawned: ChildProcess[] = [];
+type ProcessReport = (event: string, detail?: Record<string, unknown>) => void;
+type OwnedProcess = { proc: ChildProcess; closed: Promise<void>; cwd?: string; report?: ProcessReport };
+const spawned: OwnedProcess[] = [];
+
+function ownProcess(proc: ChildProcess, diagnostics?: { cwd: string; report: ProcessReport }): ChildProcess {
+  const closed = new Promise<void>((resolve) => proc.once("close", () => resolve()));
+  spawned.push({ proc, closed, ...diagnostics });
+  return proc;
+}
 const spawnedDescendantPids: number[] = [];
 const tempDirs: string[] = [];
 
@@ -23,7 +31,7 @@ function spawnIdleChild(opts: { detached?: boolean } = {}): ChildProcess {
     stdio: "ignore",
     detached: opts.detached,
   });
-  spawned.push(proc);
+  ownProcess(proc);
   return proc;
 }
 
@@ -34,32 +42,54 @@ function spawnSigtermImmuneChild(opts: { detached?: boolean } = {}): ChildProces
     ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"],
     { stdio: "ignore", detached: opts.detached },
   );
-  spawned.push(proc);
+  ownProcess(proc);
   return proc;
 }
 
-afterEach(() => {
-  // Belt-and-suspenders cleanup in case a test fails before its own kill.
-  for (const proc of spawned.splice(0)) {
+afterEach(async () => {
+  const processes = [...spawned];
+  const descendants = [...spawnedDescendantPids];
+  const failures: unknown[] = [];
+  for (const { proc, report } of processes) {
+    report?.("cleanup-start", {
+      exitCode: proc.exitCode,
+      signalCode: proc.signalCode,
+      stdoutEnded: proc.stdout?.readableEnded,
+      stdoutClosed: proc.stdout?.closed,
+      stderrEnded: proc.stderr?.readableEnded,
+      stderrClosed: proc.stderr?.closed,
+    });
     if (proc.pid && isAlive(proc.pid)) {
       try {
-        process.kill(proc.pid, "SIGKILL");
-      } catch {
-        // already dead
+        await killProcessTree(proc.pid);
+        report?.("tree-stopped");
+      } catch (error) {
+        failures.push(error);
+        report?.("tree-stop-error", { name: error instanceof Error ? error.name : "unknown" });
       }
     }
   }
-  for (const pid of spawnedDescendantPids.splice(0)) {
+  for (const pid of descendants) {
     if (isAlive(pid)) {
       try {
-        process.kill(pid, "SIGKILL");
-      } catch {
-        // already dead
+        await killProcessTree(pid);
+      } catch (error) {
+        failures.push(error);
       }
     }
   }
-  for (const dir of tempDirs.splice(0)) {
+  if (failures.length) throw new AggregateError(failures, "Owned fixture processes did not terminate");
+  for (const { closed, report } of processes) {
+    report?.("await-cleanup-close");
+    await closed;
+    report?.("cleanup-close-observed");
+  }
+  spawned.splice(0, processes.length);
+  spawnedDescendantPids.splice(0, descendants.length);
+  for (const dir of [...tempDirs]) {
     rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    tempDirs.splice(tempDirs.indexOf(dir), 1);
+    for (const owner of processes) if (owner.cwd === dir) owner.report?.("cwd-removed");
   }
 });
 
@@ -69,7 +99,7 @@ describe("killProcessTree", () => {
       cwd: process.cwd(),
       env: process.env,
     });
-    spawned.push(proc);
+    ownProcess(proc);
     await new Promise((r) => proc.once("spawn", r));
     expect(isAlive(proc.pid!)).toBe(true);
 
@@ -115,7 +145,7 @@ describe("killProcessTree", () => {
       cwd: process.cwd(),
       env: process.env,
     });
-    spawned.push(proc);
+    ownProcess(proc);
     await new Promise((resolve) => proc.once("spawn", resolve));
     const emptyPath = mkdtempSync(join(tmpdir(), "agent-driver-empty-path-"));
     tempDirs.push(emptyPath);
@@ -137,7 +167,7 @@ describe("killProcessTree", () => {
       cwd: process.cwd(),
       env: process.env,
     });
-    spawned.push(proc);
+    ownProcess(proc);
     await new Promise((resolve) => proc.once("spawn", resolve));
     const fakeBin = mkdtempSync(join(tmpdir(), "agent-driver-fake-ps-"));
     tempDirs.push(fakeBin);
@@ -201,7 +231,7 @@ describe("killProcessTree", () => {
       // command shell, while the runtime and its descendants own the cwd.
       shell: process.platform === "win32",
     });
-    spawned.push(proc);
+    ownProcess(proc);
     await new Promise((resolve) => proc.once("spawn", resolve));
     const lines = createInterface({ input: proc.stdout! });
     const childPid = await new Promise<number>((resolve, reject) => {
@@ -259,7 +289,7 @@ describe("killProcessTree", () => {
       cwd,
       env: process.env,
     });
-    spawned.push(cursor);
+    ownProcess(cursor);
     await new Promise((resolve) => cursor.once("spawn", resolve));
     const lines = createInterface({ input: cursor.stdout! });
     const [mcpPid, context7Pid] = await new Promise<[number, number]>((resolve, reject) => {
@@ -315,7 +345,7 @@ describe("killProcessTree", () => {
       env: process.env,
       shell: true,
     });
-    spawned.push(proc);
+    ownProcess(proc);
     await new Promise((resolve) => proc.once("spawn", resolve));
     const lines = createInterface({ input: proc.stdout! });
     const [rootPid, childPid] = await new Promise<[number, number]>((resolve, reject) => {
@@ -365,7 +395,7 @@ describe("spawnAgentProcess", () => {
       cwd: process.cwd(),
       env: process.env,
     });
-    spawned.push(proc);
+    ownProcess(proc);
     await new Promise((r) => proc.once("spawn", r));
 
     // A detached child is its own process-group leader: pgid === pid.
@@ -381,7 +411,7 @@ describe("spawnAgentProcess", () => {
       env: { ...process.env, FOO: "bar" },
       shell: false,
     });
-    spawned.push(proc);
+    ownProcess(proc);
     expect(proc.stdin).not.toBeNull();
     expect(proc.stdout).not.toBeNull();
     expect(proc.stderr).not.toBeNull();
@@ -393,7 +423,7 @@ describe("spawnAgentProcess", () => {
       env: process.env,
       stdin: "ignore",
     });
-    spawned.push(proc);
+    ownProcess(proc);
     expect(proc.stdin).toBeNull();
     await new Promise((resolve, reject) => {
       proc.once("error", reject);
@@ -404,16 +434,39 @@ describe("spawnAgentProcess", () => {
   it("starts an owned native process with an isolated PATH and preserves raw Unicode output", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "agent-driver-isolated-env-"));
     tempDirs.push(cwd);
-    const proc = spawnAgentProcess(process.execPath, ["-e", `
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    const started = performance.now();
+    let pid: number | null = null;
+    const report: ProcessReport = (event, detail = {}) => console.info("AGENT_DRIVER_PROCESS", JSON.stringify({
+      case: "isolated-path-unicode",
+      event,
+      elapsedMs: performance.now() - started,
+      pid,
+      cwd,
+      stdoutBytes: stdout.reduce((bytes, chunk) => bytes + chunk.length, 0),
+      stderrBytes: stderr.reduce((bytes, chunk) => bytes + chunk.length, 0),
+      ...detail,
+    }));
+    report("spawn-requested", { node: process.version, platform: process.platform, arch: process.arch });
+    const proc = ownProcess(spawnAgentProcess(process.execPath, ["-e", `
       const { writeSync } = require("node:fs");
       writeSync(1, Buffer.from("你好😀"));
       writeSync(2, Buffer.from("日志😀"));
-    `], { cwd, env: { PATH: cwd }, stdin: "ignore" });
-    spawned.push(proc);
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    proc.stdout!.on("data", (chunk: Buffer) => stdout.push(chunk));
-    proc.stderr!.on("data", (chunk: Buffer) => stderr.push(chunk));
+    `], { cwd, env: { PATH: cwd }, stdin: "ignore" }), { cwd, report });
+    pid = proc.pid ?? null;
+    report("spawn-returned");
+    proc.once("spawn", () => report("spawn"));
+    proc.once("error", (error: NodeJS.ErrnoException) => report("error", { name: error.name, code: error.code ?? null }));
+    proc.once("exit", (code, signal) => report("exit", { code, signal }));
+    proc.once("close", (code, signal) => report("close", { code, signal }));
+    for (const [name, stream, chunks] of [["stdout", proc.stdout!, stdout], ["stderr", proc.stderr!, stderr]] as const) {
+      stream.on("data", (chunk: Buffer) => { chunks.push(chunk); report(`${name}-data`, { bytes: chunk.length }); });
+      stream.once("end", () => report(`${name}-end`));
+      stream.once("close", () => report(`${name}-close`));
+      stream.once("error", (error: NodeJS.ErrnoException) => report(`${name}-error`, { name: error.name, code: error.code ?? null }));
+    }
+    report("await-close");
     await new Promise<void>((resolve, reject) => {
       proc.once("error", reject);
       proc.once("close", (code, signal) => {
@@ -423,6 +476,7 @@ describe("spawnAgentProcess", () => {
     });
     expect(Buffer.concat(stdout).toString("utf8")).toBe("你好😀");
     expect(Buffer.concat(stderr).toString("utf8")).toBe("日志😀");
+    report("assertions-passed");
   });
 
   it("preserves persistent Windows stdin/stdout, cwd/env, and the exact inner exit code", async () => {
@@ -451,7 +505,7 @@ describe("spawnAgentProcess", () => {
       env: { ...process.env, ALOOK_JOB_FIXTURE: "job-env-ok" },
       shell: true,
     });
-    spawned.push(proc);
+    ownProcess(proc);
     const exited = new Promise<[number | null, NodeJS.Signals | null]>((resolve, reject) => {
       proc.once("error", reject);
       proc.once("exit", (code, signal) => resolve([code, signal]));
