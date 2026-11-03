@@ -216,6 +216,14 @@ function gitDiffFixture(changedPath = "src/app/src/commands/inbox.ts") {
 }
 
 describe("canonical execution plan", () => {
+  it("builds the cold service dependency for Web contracts without daemon unit selection", () => {
+    const result = plan(["src/web/src/components/home/landing-content.ts"])
+    expect(result.full).toBe(false)
+    expect(result.suites.unit_tasks).toContain("@alook/web#test:contracts")
+    expect(result.suites.unit_tasks).not.toContain("@alook/daemon#test")
+    expect(result.suites.unit_build_tasks).toContain("@alook/agent-driver#build")
+  })
+
   it.each([
     {
       path: "src/web/src/hooks/community/use-friends.ts",
@@ -432,7 +440,7 @@ describe("canonical execution plan", () => {
 
     expect(result.change_class).toBe("blog")
     expect(result.packages.direct).toEqual(["@alook/web"])
-    expect(result.packages.affected).toEqual(["@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/web"])
     expect(result.suites.unit).toEqual(["src/web"])
     expect(result.coverage.targets).toEqual(["web"])
     expect(result.coverage.include_roots).toEqual(["src/web/**/*.{ts,tsx,js,jsx}"])
@@ -453,7 +461,7 @@ describe("canonical execution plan", () => {
     expect(result.change_class).toBe("blog")
     expect(result.blog_only).toBe(true)
     expect(result.packages.direct).toEqual(["@alook/web"])
-    expect(result.packages.affected).toEqual(["@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/web"])
     expect(result.suites.unit).toEqual(["src/web"])
     expect(result.suites.unit_tasks).toContain("@alook/web#test:blog")
     expect(result.suites.unit_tasks).not.toContain("@alook/web#test")
@@ -468,7 +476,7 @@ describe("canonical execution plan", () => {
     expect(result.change_class).toBe("auth")
     expect(result.auth_only).toBe(true)
     expect(result.packages.direct).toEqual(["@alook/web"])
-    expect(result.packages.affected).toEqual(["@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/web"])
     expect(result.suites.static).toEqual(["@alook/web"])
     expect(result.suites.unit).toEqual(["src/web"])
     expect(result.suites.integration).toEqual([])
@@ -718,7 +726,7 @@ describe("coverage name-status contract", () => {
       "src/web/src/lib/runtime-lookalike.config.ts",
     ])
 
-    expect(result.packages.affected).toEqual(["@alook/app", "@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/app", "@alook/web"])
     expect(result.coverage.targets).toEqual(["web"])
     expect(result.coverage.required_changed_files).toEqual([
       "src/web/src/lib/runtime-lookalike.config.ts",
