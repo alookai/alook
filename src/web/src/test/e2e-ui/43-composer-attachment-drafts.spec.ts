@@ -2,6 +2,7 @@ import { currentCommunityFixtureError } from "./_fixtures/business-contract"
 import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, installInputCapability } from "./_fixtures/actions"
+import { rootWorker } from "./_fixtures/public-static-qa"
 
 import { tid } from "./_fixtures/testids"
 import type { CaseActors } from "./_fixtures/case-fixture"
@@ -60,6 +61,7 @@ test.describe("same-tab Community attachment drafts", () => {
     await installInputCapability(page, true)
     await page.goto(`/c/channels/${serverId}/${channelAId}`, { waitUntil: "commit" })
     await expect(composerEditable(page)).toBeVisible()
+    await rootWorker(page)
     const composer = composerAttachments(page)
     const transfer = await page.evaluateHandle(() => {
       const data = new DataTransfer()
@@ -98,6 +100,13 @@ test.describe("same-tab Community attachment drafts", () => {
     await expect(composerEditable(page)).toHaveText("")
     const workers: string[] = []
     page.on("worker", worker => workers.push(worker.url()))
+    const workerScriptResponses: { path: string; status: number; contentType: string | null; fromServiceWorker: boolean }[] = []
+    const recordWorkerScriptResponse = (response: import("@playwright/test").Response) => {
+      const path = new URL(response.url()).pathname
+      if (path.startsWith("/_next/static/chunks/") && path.endsWith(".js")) workerScriptResponses.push({ path, status: response.status(), contentType: response.headers()["content-type"] ?? null, fromServiceWorker: response.fromServiceWorker() })
+    }
+    page.on("response", recordWorkerScriptResponse)
+    const serviceWorkerController = await page.evaluate(() => ({ script: navigator.serviceWorker.controller!.scriptURL, state: navigator.serviceWorker.controller!.state }))
     const imageData = await page.evaluateHandle(async () => {
       const canvas = document.createElement("canvas")
       canvas.width = 6000
@@ -124,16 +133,39 @@ test.describe("same-tab Community attachment drafts", () => {
     await composerEditable(page).focus()
     const workerResults = await page.evaluateHandle(() => {
       const results: { width: number; height: number; size: number; type: string }[] = []
+      const messages: { worker: number; kind: string; keys: string[]; unsupported: boolean; error: string | null; blob: { constructor: string; tag: string; mainRealmBlob: boolean; bytes: number | null; type: string | null } | null }[] = []
+      const failures: { worker: number; event: string; message: string; filename: string; line: number; column: number }[] = []
+      const instances: { worker: number; url: string; type: string }[] = []
+      const capabilities = { Worker: typeof Worker, createImageBitmap: typeof createImageBitmap, OffscreenCanvas: typeof OffscreenCanvas }
+      let nextWorker = 0
       const NativeWorker = window.Worker
       window.Worker = class extends NativeWorker {
         constructor(url: string | URL, options?: WorkerOptions) {
           super(url, options)
+          const worker = ++nextWorker
+          instances.push({ worker, url: String(url), type: options?.type ?? "classic" })
+          this.addEventListener("error", event => {
+            failures.push({ worker, event: event.type, message: event.message, filename: event.filename, line: event.lineno, column: event.colno })
+          })
+          this.addEventListener("messageerror", event => {
+            failures.push({ worker, event: event.type, message: "Worker message deserialization failed", filename: "", line: 0, column: 0 })
+          })
           this.addEventListener("message", ({ data }) => {
+            const object = data && typeof data === "object" ? data : null
+            const blob = object?.result?.blob
+            messages.push({
+              worker,
+              kind: object && "result" in object ? "result" : object && "error" in object ? "error" : object?.unsupported === true ? "unsupported" : "unknown",
+              keys: object ? Object.keys(object) : [],
+              unsupported: object?.unsupported === true,
+              error: typeof object?.error === "string" ? object.error : null,
+              blob: blob == null ? null : { constructor: blob.constructor?.name ?? "unknown", tag: Object.prototype.toString.call(blob), mainRealmBlob: blob instanceof Blob, bytes: typeof blob.size === "number" ? blob.size : null, type: typeof blob.type === "string" ? blob.type : null },
+            })
             if (data?.result?.blob instanceof Blob) results.push({ width: data.result.width, height: data.result.height, size: data.result.blob.size, type: data.result.blob.type })
           })
         }
       }
-      return results
+      return { results, messages, failures, instances, capabilities }
     })
     const inputProbe = await composerEditable(page).evaluateHandle((element, inputId) => {
       const host = element.closest(`[data-testid="${inputId}"]`)?.parentElement?.parentElement
@@ -198,7 +230,7 @@ test.describe("same-tab Community attachment drafts", () => {
       survivingFiles = await composer.locator('[aria-label="Remove file"]').evaluateAll(buttons => buttons.map(button => button.parentElement!.querySelector("span")!.textContent!))
       expect(survivingFiles).toEqual(acceptedFiles.slice(0, 9))
       expect(workers.length).toBeGreaterThan(0)
-      const prepared = await workerResults.jsonValue()
+      const prepared = await workerResults.evaluate(probe => probe.results)
       expect(prepared.length).toBeGreaterThan(0)
       expect(prepared).toHaveLength(survivingFiles.length)
       for (const result of prepared) {
@@ -206,9 +238,10 @@ test.describe("same-tab Community attachment drafts", () => {
         expect(result.size).toBeLessThanOrEqual(256 * 1024)
       }
     } finally {
+      page.off("response", recordWorkerScriptResponse)
       const input = await inputProbe.evaluate(probe => { probe.stop(); return probe.snapshot() })
-      const prepared = await workerResults.jsonValue()
-      await testInfo.attach("image-preparation-input.json", { body: JSON.stringify({ admission, acceptedFiles, survivingFiles, workers, prepared, input, fixture: { width: 6000, height: 4000, files: 10 }, removedBeforePreparation: "large-9.jpg", timingBoundary: "Trusted page event delivery and next-frame opportunities; not compositor timestamps or a statistical performance gate" }), contentType: "application/json" })
+      const workerObservation = await workerResults.jsonValue()
+      await testInfo.attach("image-preparation-input.json", { body: JSON.stringify({ admission, acceptedFiles, survivingFiles, workers, prepared: workerObservation.results, workerObservation, serviceWorkerController, workerScriptResponses, input, fixture: { width: 6000, height: 4000, files: 10 }, removedBeforePreparation: "large-9.jpg", timingBoundary: "Trusted page event delivery and next-frame opportunities; not compositor timestamps or a statistical performance gate" }), contentType: "application/json" })
       await imageData.dispose()
       await workerResults.dispose()
       await inputProbe.dispose()
