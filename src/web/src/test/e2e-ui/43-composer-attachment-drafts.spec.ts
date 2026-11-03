@@ -51,6 +51,118 @@ test.describe("same-tab Community attachment drafts", () => {
     return { serverId, channelAId, channelBId, openerId, threadId, dmId }
   }
 
+  test("desktop isolates external file events and accepts input while real image workers prepare attachments", async ({ caseActors }, testInfo) => {
+    test.setTimeout(120_000)
+    const actors = await caseActors(["alice", "bob"])
+    const { serverId, channelAId } = await prepareCase1(actors)
+    const { page } = await actors.asUser("alice")
+    await installInputCapability(page, true)
+    await page.goto(`/c/channels/${serverId}/${channelAId}`, { waitUntil: "commit" })
+    await expect(composerEditable(page)).toBeVisible()
+    const composer = composerAttachments(page)
+    const transfer = await page.evaluateHandle(() => {
+      const data = new DataTransfer()
+      data.items.add(new File(["dropped document"], "dropped.txt", { type: "text/plain" }))
+      return data
+    })
+    try {
+      for (const target of [page.getByTestId(tid.serverIcon(serverId)), page.getByTestId(tid.channelRow(channelAId))]) {
+        await target.dispatchEvent("dragenter", { dataTransfer: transfer })
+        await target.dispatchEvent("dragover", { dataTransfer: transfer })
+        await expect(composer.getByText("Drop files here", { exact: true })).toHaveCount(0)
+        await target.dispatchEvent("dragleave", { dataTransfer: transfer })
+      }
+      await page.getByTestId(tid.channelRow(channelAId)).dispatchEvent("drop", { dataTransfer: transfer })
+      await expect(composer.getByText("dropped.txt", { exact: true })).toHaveCount(0)
+      await composer.dispatchEvent("dragenter", { dataTransfer: transfer })
+      await expect(composer.getByText("Drop files here", { exact: true })).toBeVisible()
+      await composer.dispatchEvent("drop", { dataTransfer: transfer })
+      await expect(composer.getByText("Drop files here", { exact: true })).toHaveCount(0)
+      await expect(composer.getByText("dropped.txt", { exact: true })).toBeVisible()
+    } finally { await transfer.dispose() }
+
+    await composerEditable(page).focus()
+    await composerEditable(page).evaluate(element => {
+      const data = new DataTransfer()
+      data.items.add(new File(["pasted document"], "pasted.txt", { type: "text/plain" }))
+      data.setData("text/html", `<p>${"discarded HTML ".repeat(30_000)}</p>`)
+      data.setData("text/plain", "discarded clipboard text")
+      element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }))
+    })
+    await expect(composer.getByText("pasted.txt", { exact: true })).toBeVisible()
+    await expect(composerEditable(page)).toHaveText("")
+    const workers: string[] = []
+    page.on("worker", worker => workers.push(worker.url()))
+    const imageData = await page.evaluateHandle(async () => {
+      const canvas = document.createElement("canvas")
+      canvas.width = 6000
+      canvas.height = 4000
+      const context = canvas.getContext("2d")!
+      const pixels = context.createImageData(canvas.width, canvas.height)
+      let seed = 98251
+      for (let index = 0; index < pixels.data.length; index += 4) {
+        seed = (seed * 1664525 + 1013904223) >>> 0
+        pixels.data[index] = seed & 255
+        pixels.data[index + 1] = seed >>> 8 & 255
+        pixels.data[index + 2] = seed >>> 16 & 255
+        pixels.data[index + 3] = 255
+      }
+      context.putImageData(pixels, 0, 0)
+      const blob = await new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob!), "image/jpeg", 0.94))
+      canvas.width = 0
+      canvas.height = 0
+      const data = new DataTransfer()
+      for (let index = 0; index < 10; index++) data.items.add(new File([blob], `large-${index}.jpg`, { type: "image/jpeg" }))
+      return data
+    })
+    for (const name of ["dropped.txt", "pasted.txt"]) await composer.getByText(name, { exact: true }).locator("..").getByRole("button", { name: "Remove file" }).click()
+    const workerResults = await page.evaluateHandle(() => {
+      const results: { width: number; height: number; size: number; type: string }[] = []
+      const NativeWorker = window.Worker
+      window.Worker = class extends NativeWorker {
+        constructor(url: string | URL, options?: WorkerOptions) {
+          super(url, options)
+          this.addEventListener("message", ({ data }) => {
+            if (data?.result?.blob instanceof Blob) results.push({ width: data.result.width, height: data.result.height, size: data.result.blob.size, type: data.result.blob.type })
+          })
+        }
+      }
+      return results
+    })
+    let typedDuringPreparation = false
+    await page.exposeFunction("recordPreparingInput", () => { typedDuringPreparation = true })
+    await composerEditable(page).evaluate((element, inputId) => {
+      element.addEventListener("input", () => {
+        if (element.closest(`[data-testid="${inputId}"]`)?.parentElement?.parentElement?.querySelector('[aria-busy="true"]')) {
+          void (window as unknown as { recordPreparingInput: () => Promise<void> }).recordPreparingInput()
+        }
+      })
+    }, tid.composerInput)
+    try {
+      await composerEditable(page).dispatchEvent("paste", { clipboardData: imageData })
+      await expect(composer.getByRole("status").first()).toBeVisible()
+      await composer.getByText("large-9.jpg", { exact: true }).locator("..").getByRole("button", { name: "Remove file" }).click()
+      await composerEditable(page).pressSequentially("typing while image files prepare", { delay: 5 })
+      await expect(composerEditable(page)).toHaveText("typing while image files prepare")
+      await expect.poll(() => typedDuringPreparation).toBe(true)
+      await expect(composer.getByRole("status")).toHaveCount(0, { timeout: 30_000 })
+      await expect(composer.getByText("large-9.jpg", { exact: true })).toHaveCount(0)
+      expect(workers.length).toBeGreaterThan(0)
+      const prepared = await workerResults.jsonValue()
+      expect(prepared.length).toBeGreaterThan(0)
+      for (const result of prepared) {
+        expect(result).toMatchObject({ width: 6000, height: 4000, type: "image/jpeg" })
+        expect(result.size).toBeLessThanOrEqual(256 * 1024)
+      }
+      await testInfo.attach("image-preparation-input.json", { body: JSON.stringify({ workers, prepared, typedDuringPreparation, fixture: { width: 6000, height: 4000, files: 10 }, removedBeforePreparation: "large-9.jpg" }), contentType: "application/json" })
+    } finally { await imageData.dispose(); await workerResults.dispose() }
+    while (await composer.getByRole("button", { name: "Remove file" }).count()) await composer.getByRole("button", { name: "Remove file" }).first().click()
+    await navigateChannel(page, serverId, (await actors.seed.seedChannel("alice", serverId, "file-event-return")))
+    await navigateChannel(page, serverId, channelAId)
+    await expect(composer.getByRole("button", { name: "Remove file" })).toHaveCount(0)
+    await expect(composerEditable(page)).toHaveText("typing while image files prepare")
+  })
+
   test("desktop restores scoped real image/file drafts, rebuilds URLs, and removal never revives", async ({ caseActors }) => {
     test.setTimeout(120_000)
 
