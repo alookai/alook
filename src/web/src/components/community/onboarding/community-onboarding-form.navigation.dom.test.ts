@@ -231,7 +231,7 @@ describe("CommunityOnboardingForm room navigation", () => {
     expect(screen.getByTestId("select-harness")).toHaveAttribute("data-value", "")
   })
 
-  it.each(["opencode", "pi-durable"])("blocks %s setup until a model is chosen and passes it to initialization", async (harness) => {
+  it.each(["opencode", "pi-durable", "cursor-sdk"])("blocks %s setup until a model is chosen and passes it to initialization", async (harness) => {
     mocks.state = { status: "active", stage: "model", machineId: "machine-1", harness }
     render(createElement(CommunityOnboardingForm))
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled()
@@ -248,8 +248,8 @@ describe("CommunityOnboardingForm room navigation", () => {
     mocks.state = { status: "active", stage: "machine", harness }
     render(createElement(CommunityOnboardingForm))
     fireEvent.click(screen.getByRole("button", { name: "Machine connected" }))
-    expect(owner.runtime.ui.get().onboardingState?.stage).toBe(["opencode", "pi-durable"].includes(harness) ? "model" : "identity")
-    expect(screen.queryByRole("textbox", { name: "Model" }) !== null).toBe(["opencode", "pi-durable"].includes(harness))
+    expect(owner.runtime.ui.get().onboardingState?.stage).toBe(["opencode", "pi-durable", "cursor-sdk"].includes(harness) ? "model" : "identity")
+    expect(screen.queryByRole("textbox", { name: "Model" }) !== null).toBe(["opencode", "pi-durable", "cursor-sdk"].includes(harness))
   })
 
   it.each(["qoder", "copilot", "cursor-sdk", "pi-durable"])("starts %s with a usable setup method", (harness) => {

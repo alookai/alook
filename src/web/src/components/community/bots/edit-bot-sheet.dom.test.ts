@@ -255,7 +255,7 @@ describe("EditBotSheet — model switch toast (online-only)", () => {
     expect(toastSuccess.mock.calls.join(" ")).not.toMatch(/offline|next wake|applies when/i)
   })
 
-  it.each(["opencode", "pi-durable"])("blocks an unconfigured %s bot until a model is explicitly picked", async (runtime) => {
+  it.each(["opencode", "pi-durable", "cursor-sdk"])("blocks an unconfigured %s bot until a model is explicitly picked", async (runtime) => {
     updateMutateAsync.mockResolvedValue({ bot: { ...BOT, runtime } })
     const renderer = renderSheet({ ...BOT, runtime })
     expect(saveButton(renderer)).toBeDisabled()
@@ -268,7 +268,7 @@ describe("EditBotSheet — model switch toast (online-only)", () => {
     expect(updateMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ model: "claude-sonnet-4-6" }))
   })
 
-  it.each(["opencode", "pi-durable"])("requires a fresh model before switching into %s and restores Default on switching back", (runtime) => {
+  it.each(["opencode", "pi-durable", "cursor-sdk"])("requires a fresh model before switching into %s and restores Default on switching back", (runtime) => {
     useMachinesMock.mockReturnValue({ machines: [{ id: "mac1", availableRuntimes: [
       { id: "claude", status: "healthy" }, { id: runtime, status: "healthy" },
     ] }] })

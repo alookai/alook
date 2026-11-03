@@ -15,7 +15,7 @@
 import type { ModelConfig } from "../runtime-config";
 
 export function requiresExplicitModel(runtime: string | null | undefined): boolean {
-  return runtime === "opencode" || runtime === "pi-durable";
+  return runtime === "opencode" || runtime === "pi-durable" || runtime === "cursor-sdk";
 }
 
 /** Select sentinel for "Default (the runtime's own default)". */

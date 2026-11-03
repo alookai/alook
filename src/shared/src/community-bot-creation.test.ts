@@ -11,10 +11,12 @@ describe("new backend creation configuration", () => {
     expect(() => resolveBotCreationConfiguration(machine, runtime, { backendId, model: "provider/model", reasoningEffort: "invalid" })).toThrow("not supported")
     expect(() => resolveBotCreationConfiguration(machine, { ...runtime, status: "unhealthy" }, { backendId, model: "provider/model" })).toThrow("currently unavailable")
   })
-  it.each([null, "", "   "])("rejects Pi Durable without a model: %s", (model) => {
-    expect(() => resolveBotCreationConfiguration(machine, { id: "pi-durable", status: "healthy" }, { backendId: "pi-durable", model })).toThrow("Choose a model before saving")
+  it.each(["pi-durable", "cursor-sdk"])("rejects %s without an explicit model", (backendId) => {
+    for (const model of [undefined, null, "", "   "]) {
+      expect(() => resolveBotCreationConfiguration(machine, { id: backendId, status: "healthy" }, { backendId, model })).toThrow("Choose a model before saving")
+    }
   })
-  it.each(["qoder", "copilot", "cursor-sdk", "codex"])("keeps %s native defaults", (backendId) => {
+  it.each(["qoder", "copilot", "codex"])("keeps %s native defaults", (backendId) => {
     expect(resolveBotCreationConfiguration(machine, { id: backendId, status: "healthy" }, { backendId }).supported).toBe(true)
   })
 })

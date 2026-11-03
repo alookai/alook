@@ -64,9 +64,9 @@ describe("modelSelectState / modelNameFromSelect round-trip", () => {
   });
 });
 
-it.each(["opencode", "pi-durable"])("%s requires a selected model", (runtime) => {
+it.each(["opencode", "pi-durable", "cursor-sdk"])("%s requires a selected model", (runtime) => {
   expect(requiresExplicitModel(runtime)).toBe(true);
 });
-it.each(["codex", "claude", "cursor", "pi", "qoder", "copilot", "cursor-sdk", "unknown"])("%s preserves runtime defaults", (runtime) => {
+it.each(["codex", "claude", "cursor", "pi", "qoder", "copilot", "unknown"])("%s preserves runtime defaults", (runtime) => {
   expect(requiresExplicitModel(runtime)).toBe(false);
 });
