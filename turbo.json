@@ -759,7 +759,8 @@
     },
     "@alook/web#test:contracts": {
       "dependsOn": [
-        "^source"
+        "^source",
+        "@alook/agent-driver#build"
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
