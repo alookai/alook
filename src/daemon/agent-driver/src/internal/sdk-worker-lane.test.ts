@@ -60,8 +60,14 @@ describe("owned SDK worker transport", () => {
     const events: AdapterEvent[] = [];
     let stderr = "";
     lane.on("runtime_event", (event) => events.push(event));
-    lane.on("stderr", (text) => { stderr += text; });
+    const stderrComplete = new Promise<void>((resolve) => {
+      lane.on("stderr", (text) => {
+        stderr += text;
+        if (Buffer.byteLength(stderr) >= Buffer.byteLength("日志😀")) resolve();
+      });
+    });
     expect(await lane.probe()).toEqual({ status: "healthy" });
+    await stderrComplete;
     expect(events).toEqual([{ kind: "assistant_message_delta", text: "你好😀" }]);
     expect(stderr).toBe("日志😀");
   });
@@ -78,8 +84,14 @@ describe("owned SDK worker transport", () => {
       return { status: "healthy" };
     });
     let stderr = "";
-    lane.on("stderr", (text) => { stderr += text; });
+    const stderrComplete = new Promise<void>((resolve) => {
+      lane.on("stderr", (text) => {
+        stderr += text;
+        if (Buffer.byteLength(stderr) >= Buffer.byteLength("带编码😀带回调")) resolve();
+      });
+    });
     expect(await lane.probe()).toEqual({ status: "healthy" });
+    await stderrComplete;
     expect(stderr).toBe("带编码😀带回调");
   });
 });
