@@ -34,3 +34,5 @@ src/daemon/LICENSE
 .superpowers/
 
 src/web/blog/public/blog/_generated/
+.ci/
+.vitest/

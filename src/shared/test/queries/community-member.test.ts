@@ -28,20 +28,6 @@ function createTerminalWhereMock(rows: any[]) {
   return chain;
 }
 
-describe("community/member exports", () => {
-  it("exports listMemberUserIds", () => {
-    expect(typeof memberQueries.listMemberUserIds).toBe("function");
-  });
-  it("exports countMembers", () => {
-    expect(typeof memberQueries.countMembers).toBe("function");
-  });
-  it("exports listMembersPaginated", () => {
-    expect(typeof memberQueries.listMembersPaginated).toBe("function");
-  });
-  it("exports the atomic member + owner-bot removal", () => {
-    expect(typeof memberQueries.removeMemberAndOwnerBots).toBe("function");
-  });
-});
 
 describe("removeMemberAndOwnerBots", () => {
   it("batches rail cleanup with target and bot deletes and returns the removed target", async () => {
@@ -256,9 +242,6 @@ describe("searchMembers", () => {
     return chain;
   }
 
-  it("exports searchMembers", () => {
-    expect(typeof memberQueries.searchMembers).toBe("function");
-  });
 
   it("prefix-only: 'Ali' returns Alice + Alicia; 'Bob' returns Bob; 'li' returns nothing", async () => {
     // The Drizzle mock returns whatever `.limit()` resolves to — assert that the
@@ -378,9 +361,6 @@ describe("getMembersByUserIds", () => {
     return chain;
   }
 
-  it("exports getMembersByUserIds", () => {
-    expect(typeof memberQueries.getMembersByUserIds).toBe("function");
-  });
 
   it("returns [] without querying when the id list is empty", async () => {
     const db = createMock([{ id: "should_not_be_used" }]);

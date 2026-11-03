@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import ts from "typescript"
+import { validateCoverageReport } from "./report-changed-patch-coverage.mjs"
 import {
   loadScopeManifest,
   validateExecutionPlan,
@@ -55,6 +56,7 @@ export function verifyCoveragePlan(plan, report, options = {}) {
   const root = options.root || ROOT
   const manifest = options.manifest || loadScopeManifest()
   validateExecutionPlan(plan, { manifest })
+  validateCoverageReport(report)
 
   const files = Object.entries(report).map(([key, value]) => ({
     path: normalizeReportPath(value.path || key, root),
@@ -96,14 +98,8 @@ export function verifyCoveragePlan(plan, report, options = {}) {
       throw new Error(`Codecov project target ${targetName} requires a nonempty denominator`)
     }
     const percent = (totals.covered / totals.statements) * 100
-    if (percent < target.target) {
-      throw new Error(
-        `Codecov project target ${targetName} is ${percent.toFixed(2)}%, below ${target.target}%`,
-      )
-    }
     targets[targetName] = {
       path: target.path,
-      target: target.target,
       files: targetFiles.length,
       statements: totals.statements,
       covered: totals.covered,

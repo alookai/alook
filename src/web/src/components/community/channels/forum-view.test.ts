@@ -1,5 +1,5 @@
+import rawContractInput0 from "../../../app/globals.css?raw"
 import { beforeEach, describe, it, expect, vi } from "vitest"
-import { readFileSync } from "node:fs"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import {
@@ -459,7 +459,7 @@ describe("ForumView filter bar / composer swap", () => {
     const html = render([makePost({ tags: ["alpha", "beta", "gamma", "delta"] })])
     const railIndex = html.indexOf(tid.forumTagScroller)
     const railMarkup = html.slice(Math.max(0, railIndex - 400), railIndex + 900)
-    const css = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8")
+    const css = rawContractInput0
 
     expect(railMarkup).toContain("overflow-x-auto")
     expect(railMarkup).toContain("thin-scrollbar scrollbar-none")

@@ -1,5 +1,8 @@
+import staticContractInput0 from "../../next.config.ts?raw"
+import staticContractInput1 from "../app/c/community-shell.tsx?raw"
+import staticContractInput2 from "./community/shell/shell-frame.tsx?raw"
 import { StrictMode, createElement } from "react"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
@@ -87,7 +90,7 @@ describe("DaemonUpdateNotice", () => {
   })
 
   it("uses the release daemon package as the Web build target", () => {
-    const config = readFileSync(resolve(webRoot, "next.config.ts"), "utf8")
+    const config = staticContractInput0
     expect(config).toContain('path.resolve(__dirname, "../daemon/package.json")')
     expect(config).toContain("NEXT_PUBLIC_LATEST_DAEMON_VERSION: daemonPkg.version")
   })
@@ -247,11 +250,8 @@ describe("DaemonUpdateNotice", () => {
   })
 
   it("keeps daemon updates in the Community shell after legacy pages retire", () => {
-    const communityShell = readFileSync(resolve(webRoot, "src/app/c/community-shell.tsx"), "utf8")
-    const shellFrame = readFileSync(resolve(
-      webRoot,
-      "src/components/community/shell/shell-frame.tsx",
-    ), "utf8")
+    const communityShell = staticContractInput1
+    const shellFrame = staticContractInput2
     expect(communityShell).not.toContain("DaemonUpdateNotice")
     expect(shellFrame).toContain("useShellDaemonUpdateController")
   })

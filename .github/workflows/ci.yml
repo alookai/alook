@@ -41,7 +41,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}-${{ (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'release:')) && github.run_id || 'latest' }}
   cancel-in-progress: true
 
 jobs:
@@ -50,16 +50,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      execution_plan: ${{ steps.scope.outputs.execution_plan }}
+      plan_artifact_name: execution-plan-${{ github.run_id }}-${{ github.run_attempt }}
       plan_hash: ${{ steps.scope.outputs.plan_hash }}
       plan_schema_version: ${{ steps.scope.outputs.plan_schema_version }}
       full: ${{ steps.scope.outputs.full }}
+      execution_mode: ${{ steps.scope.outputs.execution_mode }}
       base_sha: ${{ steps.scope.outputs.base_sha }}
       head_sha: ${{ steps.scope.outputs.head_sha }}
       auth_only: ${{ steps.scope.outputs.auth_only }}
       blog_only: ${{ steps.scope.outputs.blog_only }}
       run_auth_build: ${{ steps.scope.outputs.run_auth_build }}
       run_blog_build: ${{ steps.scope.outputs.run_blog_build }}
+      run_worker_build: ${{ steps.scope.outputs.run_worker_build }}
+      worker_zones: ${{ steps.scope.outputs.worker_zones }}
+      browser_zones: ${{ steps.scope.outputs.browser_zones }}
+      worker_build_image: ${{ steps.scope.outputs.worker_build_image }}
       run_code_checks: ${{ steps.scope.outputs.run_code_checks }}
       run_static_checks: ${{ steps.scope.outputs.run_static_checks }}
       run_linux: ${{ steps.scope.outputs.run_linux }}
@@ -71,10 +76,16 @@ jobs:
       run_lighthouse: ${{ steps.scope.outputs.run_lighthouse }}
       run_knip: ${{ steps.scope.outputs.run_knip }}
       run_app_packed_artifact: ${{ steps.scope.outputs.run_app_packed_artifact }}
+      static_tasks: ${{ steps.scope.outputs.static_tasks }}
+      build_tasks: ${{ steps.scope.outputs.build_tasks }}
+      knip_tasks: ${{ steps.scope.outputs.knip_tasks }}
+      unit_tasks: ${{ steps.scope.outputs.unit_tasks }}
+      unit_build_tasks: ${{ steps.scope.outputs.unit_build_tasks }}
       static_packages: ${{ steps.scope.outputs.static_packages }}
       build_packages: ${{ steps.scope.outputs.build_packages }}
       knip_packages: ${{ steps.scope.outputs.knip_packages }}
       unit_test_roots: ${{ steps.scope.outputs.unit_test_roots }}
+      smoke_test_files: ${{ steps.scope.outputs.smoke_test_files }}
       windows_suites: ${{ steps.scope.outputs.windows_suites }}
       integration_suites: ${{ steps.scope.outputs.integration_suites }}
       linux_suites: ${{ steps.scope.outputs.linux_suites }}
@@ -87,6 +98,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -95,6 +112,7 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MERGE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           PUSH_BASE_SHA: ${{ github.event.before }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
           DISPATCH_MODE: ${{ inputs.mode }}
           CANDIDATE_PR: ${{ inputs.candidate_pr }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
@@ -122,8 +140,10 @@ jobs:
             args+=(--base "$PR_BASE_SHA" --head "$PR_HEAD_SHA")
           elif [[ "$EVENT_NAME" == "merge_group" ]]; then
             args+=(--base "$MERGE_BASE_SHA" --head "$EVENT_SHA")
+          elif [[ "$EVENT_NAME" == "push" && "$HEAD_COMMIT_MESSAGE" == release:* ]]; then
+            args+=(--base "$PUSH_BASE_SHA" --head "$EVENT_SHA" --force-full)
           elif [[ "$EVENT_NAME" == "push" ]]; then
-            args+=(--base "$PUSH_BASE_SHA" --head "$EVENT_SHA" --full-unless-benchmark-only)
+            args+=(--base "$PUSH_BASE_SHA" --head "$EVENT_SHA" --main-smoke)
           else
             args+=(--base "$EVENT_SHA" --head "$EVENT_SHA" --force-full)
           fi
@@ -143,9 +163,16 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
           CI_PROJECTION_NAME: run_auth_build
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.run_auth_build }}
@@ -166,15 +193,30 @@ jobs:
 
   blog-build:
     name: Blog build
-    needs: scope
+    needs: [scope, ui-e2e-build]
     if: needs.scope.outputs.run_blog_build == 'true'
     runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.scope.outputs.worker_build_image }}
+      options: --init --ipc=host --user 1001
+    defaults:
+      run:
+        shell: bash
+    env:
+      NEXT_PUBLIC_WS_DO_PORT: "3000"
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
           CI_PROJECTION_NAME: run_blog_build
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.run_blog_build }}
@@ -192,10 +234,21 @@ jobs:
             turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @alook/web validate:blog
-      - run: pnpm --filter @alook/web exec tsc --noEmit -p blog/tsconfig.json
-      - run: pnpm --filter @alook/web exec eslint blog/
-      - run: pnpm --filter @alook/web exec vitest run --config vitest.workspace.config.ts --project=web-node --project=web-dom blog
-      - run: pnpm --filter @alook/web build:blog
+      - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.ui-e2e-build.outputs.artifact_name }}
+          path: .ci/ui-e2e-build
+      - name: Verify exact-head build artifact
+        env:
+          WORKER_ZONES: ${{ needs.scope.outputs.worker_zones }}
+        run: |
+          zones=$(node -e 'console.log(JSON.parse(process.env.WORKER_ZONES).join(","))')
+          node scripts/ci/e2e-build-artifact.mjs verify \
+            --directory .ci/ui-e2e-build \
+            --run-id "${{ github.run_id }}" \
+            --attempt "${{ needs.ui-e2e-build.outputs.artifact_attempt }}" \
+            --head-sha "${{ github.sha }}" --zones "$zones"
       - run: pnpm --filter @alook/web verify:blog-dry-run
 
   static-checks:
@@ -203,6 +256,9 @@ jobs:
     needs: scope
     if: needs.scope.outputs.run_static_checks == 'true'
     runs-on: ubuntu-latest
+    env:
+      CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
+      CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -221,46 +277,31 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: pnpm install --frozen-lockfile
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
-          CI_PROJECTION_NAME: static_packages
-          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.static_packages }}
+          CI_PROJECTION_NAME: static_tasks
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.static_tasks }}
         run: node scripts/ci/validate-execution-plan.mjs
-      - name: Typecheck selected packages
-        env:
-          SELECTED_PACKAGES: ${{ needs.scope.outputs.static_packages }}
-        run: |
-          mapfile -t packages < <(node -e 'for (const value of JSON.parse(process.env.SELECTED_PACKAGES)) console.log(value)')
-          filters=(); for package in "${packages[@]}"; do filters+=("--filter=$package"); done
-          pnpm turbo run typecheck "${filters[@]}"
-      - name: Lint selected packages
-        env:
-          SELECTED_PACKAGES: ${{ needs.scope.outputs.static_packages }}
-        run: |
-          mapfile -t packages < <(node -e 'for (const value of JSON.parse(process.env.SELECTED_PACKAGES)) console.log(value)')
-          filters=(); for package in "${packages[@]}"; do filters+=("--filter=$package"); done
-          pnpm turbo run lint "${filters[@]}"
+      - name: Check selected application tasks
+        run: node scripts/ci/run-turbo.mjs --plan-group static_tasks
       - run: pnpm typegrep:ws
       - run: pnpm typegrep:agent-driver
-      - name: Build selected packages
-        if: needs.scope.outputs.build_packages != '[]'
-        env:
-          SELECTED_PACKAGES: ${{ needs.scope.outputs.build_packages }}
-        run: |
-          mapfile -t packages < <(node -e 'for (const value of JSON.parse(process.env.SELECTED_PACKAGES)) console.log(value)')
-          filters=(); for package in "${packages[@]}"; do filters+=("--filter=$package"); done
-          pnpm turbo run build "${filters[@]}"
-      - name: Dead code detection for selected packages
-        if: needs.scope.outputs.knip_packages != '[]'
+      - name: Build selected non-Web tasks
+        if: needs.scope.outputs.build_tasks != '[]'
+        run: node scripts/ci/run-turbo.mjs --plan-group build_tasks --filter=!@alook/web
+      - name: Dead code detection for selected tasks
+        if: needs.scope.outputs.knip_tasks != '[]'
         continue-on-error: true
-        env:
-          SELECTED_PACKAGES: ${{ needs.scope.outputs.knip_packages }}
-        run: |
-          mapfile -t packages < <(node -e 'for (const value of JSON.parse(process.env.SELECTED_PACKAGES)) console.log(value)')
-          filters=(); for package in "${packages[@]}"; do filters+=("--filter=$package"); done
-          pnpm turbo run knip "${filters[@]}"
+        run: node scripts/ci/run-turbo.mjs --plan-group knip_tasks
 
   test-linux:
     name: Tests & Coverage (ubuntu-latest)
@@ -269,7 +310,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}
+      CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
+      CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+      RUN_COVERAGE: ${{ needs.scope.outputs.execution_mode != 'main-smoke' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -287,103 +330,50 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: pnpm install --frozen-lockfile
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
           CI_PROJECTION_NAME: unit_test_roots
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.unit_test_roots }}
         run: node scripts/ci/validate-execution-plan.mjs
-      - name: Build selected agent-driver fixture
-        if: >-
-          contains(fromJSON(needs.scope.outputs.unit_test_roots), 'src/daemon/agent-driver') ||
-          contains(fromJSON(needs.scope.outputs.unit_test_roots), 'src/daemon') ||
-          contains(fromJSON(needs.scope.outputs.linux_suites), 'agent-driver-packed') ||
-          contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-packed') ||
-          contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-real')
-        run: pnpm --filter @alook/agent-driver build
-      - name: Run selected unit tests
+      - name: Build native unit prerequisites
+        if: needs.scope.outputs.unit_build_tasks != '[]'
+        run: node scripts/ci/run-turbo.mjs --plan-group unit_build_tasks
+      - name: Run selected unit files
         env:
-          UNIT_ROOTS: ${{ needs.scope.outputs.unit_test_roots }}
-          COVERAGE_ROOTS: ${{ needs.scope.outputs.coverage_include_roots }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
         run: |
-          set -euo pipefail
-          mapfile -t roots < <(node -e 'for (const value of JSON.parse(process.env.UNIT_ROOTS)) console.log(value)')
-          mapfile -t coverage_roots < <(node -e 'for (const value of JSON.parse(process.env.COVERAGE_ROOTS)) console.log(value)')
-          daemon=false; non_daemon=(); daemon_coverage=()
-          for root in "${roots[@]}"; do
-            if [[ "$root" == "src/daemon" ]]; then daemon=true; else non_daemon+=("$root"); fi
-          done
-          for root in "${coverage_roots[@]}"; do
-            if [[ "$root" == src/daemon/src/* || "$root" == src/daemon/scripts/* ]]; then
-              daemon_coverage+=("--coverage.include=$root")
-            fi
-          done
-          report_dir="$PWD/.vitest-reports"
-          coverage_dir="$RUNNER_TEMP/vitest-coverage"
-          mkdir -p "$report_dir"
-          mkdir -p "$coverage_dir"
-          root_index=0
-          for root in "${non_daemon[@]}"; do
-            ((root_index += 1))
-            root_coverage=()
-            report_stem=${root//\//-}
-            if [[ "$RUN_COVERAGE" == "true" ]]; then
-              for include in "${coverage_roots[@]}"; do
-                if [[ "$include" == "$root/"* ]]; then
-                  root_coverage+=("--coverage.include=$include")
-                fi
-              done
-              if (( ${#root_coverage[@]} )); then
-                root_coverage=(
-                  --coverage
-                  --coverage.reporter=json
-                  "--coverage.reportsDirectory=$coverage_dir/root-${root_index}-${report_stem}"
-                  "${root_coverage[@]}"
-                )
-              fi
-            fi
-            case "$root" in
-              scripts/ci) projects=(ci-scripts) ;;
-              src/email-worker) projects=(email-worker-node email-worker-runtime) ;;
-              src/queue-worker) projects=(queue-worker-node queue-worker-runtime) ;;
-              src/web) projects=(web-node web-dom web-runtime auth-node auth-runtime) ;;
-              src/ws-do) projects=(ws-do-node ws-do-runtime) ;;
-              *) projects=("$(node -e 'console.log(require("./" + process.argv[1] + "/package.json").name)' "$root")") ;;
-            esac
-            project_args=()
-            for project in "${projects[@]}"; do project_args+=("--project=$project"); done
-            vitest_args=("${project_args[@]}")
-            if (( ${#root_coverage[@]} )); then vitest_args+=("${root_coverage[@]}"); fi
-            pnpm vitest run "${vitest_args[@]}" \
-              --reporter=default --reporter=blob \
-              --outputFile.blob="$report_dir/root-${root_index}-${report_stem}.blob" \
-              --exclude src/pack.test.ts
-          done
-          if [[ "$daemon" == "true" ]]; then
-            coverage=(); if [[ "$RUN_COVERAGE" == "true" ]]; then coverage=(--coverage); fi
-            VITEST_MAX_WORKERS=1 pnpm vitest run --project=daemon-node src/daemon "${coverage[@]}" \
-              "${daemon_coverage[@]}" --reporter=default --reporter=blob \
-              --outputFile.blob="$report_dir/daemon.blob" \
-              --exclude src/cli/daemonLifecycle.real.test.ts \
-              --exclude src/cli/diagnosticsLifecycle.real.test.ts \
-              --exclude src/cli/daemonStop.test.ts \
-              --exclude src/version.packed.test.ts \
-              --exclude src/agent-driver-bundle.packed.test.ts \
-              --exclude src/cli/daemonSelfUpdate.real.test.ts
-          fi
-      - name: Merge and verify selected coverage
-        if: env.RUN_COVERAGE == 'true'
+          args=(--ci --receipt .ci/unit-execution.json)
+          if [[ "$RUN_COVERAGE" == "true" ]]; then args+=(--coverage); fi
+          node scripts/ci/run-unit-tests.mjs "${args[@]}"
+      - name: Verify selected coverage
+        if: always() && env.RUN_COVERAGE == 'true'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
         run: |
-          printf '%s\n' "$CI_EXECUTION_PLAN" > "$RUNNER_TEMP/execution-plan.json"
-          pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text \
-            --merge-reports=.vitest-reports
           node scripts/ci/verify-coverage-plan.mjs \
-            --plan "$RUNNER_TEMP/execution-plan.json" \
+            --plan "$CI_EXECUTION_PLAN_FILE" \
             --report coverage/coverage-final.json \
             --output "$RUNNER_TEMP/coverage-target-manifest.json"
+      - name: Upload unit execution evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: unit-execution-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .ci/unit-execution.json
+            .vitest-reports/unit.blob
+          if-no-files-found: error
+          retention-days: 14
       - name: Run selected daemon real-process tests
         if: contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-real')
         run: |
@@ -409,12 +399,12 @@ jobs:
           files: ./coverage/coverage-final.json
           fail_ci_if_error: true
       - name: Upload coverage plan evidence
-        if: env.RUN_COVERAGE == 'true'
+        if: always() && env.RUN_COVERAGE == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-plan-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/execution-plan.json
+            .ci/execution-plan.json
             ${{ runner.temp }}/coverage-target-manifest.json
             coverage/coverage-final.json
           if-no-files-found: error
@@ -443,9 +433,16 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: pnpm install --frozen-lockfile
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
           CI_PROJECTION_NAME: windows_suites
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.windows_suites }}
@@ -487,7 +484,7 @@ jobs:
               filters+=("--filter=@alook/$suite")
             fi
           done
-          pnpm turbo run test "${filters[@]}"
+          node scripts/ci/run-turbo.mjs run test "${filters[@]}"
 
   app-packed-artifact:
     name: App Packed Artifact
@@ -497,9 +494,16 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
           CI_PROJECTION_NAME: run_app_packed_artifact
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.run_app_packed_artifact }}
@@ -540,7 +544,7 @@ jobs:
   e2e:
     name: E2E Tests
     needs: scope
-    if: needs.scope.outputs.run_e2e == 'true' && github.event_name != 'push'
+    if: needs.scope.outputs.run_e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -554,9 +558,16 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
           CI_PROJECTION_NAME: integration_suites
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.integration_suites }}
@@ -615,10 +626,16 @@ jobs:
       RUSTFLAGS: -D warnings
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
         working-directory: ${{ github.workspace }}
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
           CI_PROJECTION_NAME: run_rust
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.run_rust }}
@@ -645,7 +662,7 @@ jobs:
   lighthouse:
     name: Lighthouse SEO
     needs: scope
-    if: needs.scope.outputs.run_lighthouse == 'true' && github.event_name != 'push'
+    if: needs.scope.outputs.run_lighthouse == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -653,9 +670,16 @@ jobs:
       BETTER_AUTH_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
           CI_PROJECTION_NAME: run_lighthouse
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.run_lighthouse }}
@@ -672,28 +696,38 @@ jobs:
         run: npx @lhci/cli autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs
 
   ui-e2e-build:
-    name: UI Playwright E2E build
+    name: Web and Blog OpenNext artifacts
     needs: scope
     outputs:
       artifact_name: ${{ steps.artifact_identity.outputs.artifact_name }}
       artifact_attempt: ${{ steps.artifact_identity.outputs.artifact_attempt }}
-    if: needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push'
+    if: needs.scope.outputs.run_worker_build == 'true'
     runs-on: ubuntu-latest
     container:
-      image: ${{ fromJSON(needs.scope.outputs.e2e_matrix).include[0].image }}
+      image: ${{ needs.scope.outputs.worker_build_image }}
       options: --init --ipc=host --user 1001
     defaults:
       run:
         shell: bash
+    env:
+      NEXT_PUBLIC_WS_DO_PORT: "3000"
+      WORKER_ZONES: ${{ needs.scope.outputs.worker_zones }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
-          CI_PROJECTION_NAME: e2e_matrix
-          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.e2e_matrix }}
+          CI_PROJECTION_NAME: worker_zones
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.worker_zones }}
         run: node scripts/ci/validate-execution-plan.mjs
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -707,19 +741,22 @@ jobs:
           printf 'artifact_name=ui-e2e-build-%s-%s\n' "${{ github.run_id }}" "${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
           printf 'artifact_attempt=%s\n' "${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
       - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
-      - name: Build Web and Blog OpenNext workers
-        env:
-          NEXT_PUBLIC_WS_DO_PORT: "3000"
+      - name: Build selected OpenNext workers once
         run: |
-          pnpm --filter @alook/web exec opennextjs-cloudflare build
-          pnpm --filter @alook/web build:blog
+          mapfile -t zones < <(node -e 'for (const value of JSON.parse(process.env.WORKER_ZONES)) console.log(value)')
+          tasks=(); for zone in "${zones[@]}"; do
+            if [[ "$zone" == web ]]; then tasks+=("@alook/web#build"); else tasks+=("@alook/web#build:blog"); fi
+          done
+          node scripts/ci/run-turbo.mjs run "${tasks[@]}" --concurrency=1
+          if [[ "$WORKER_ZONES" == '["web","blog"]' ]]; then pnpm --filter @alook/web verify:zone-output; fi
       - name: Create exact-head build artifact
         run: |
+          zones=$(node -e 'console.log(JSON.parse(process.env.WORKER_ZONES).join(","))')
           node scripts/ci/e2e-build-artifact.mjs create \
             --directory .ci/ui-e2e-build \
             --run-id "${{ github.run_id }}" \
             --attempt "${{ steps.artifact_identity.outputs.artifact_attempt }}" \
-            --head-sha "${{ github.sha }}"
+            --head-sha "${{ github.sha }}" --zones "$zones"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.artifact_identity.outputs.artifact_name }}
@@ -733,7 +770,7 @@ jobs:
   e2e-ui:
     name: UI Playwright E2E (${{ matrix.shard }}/${{ matrix.total }})
     needs: [scope, ui-e2e-build]
-    if: needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push'
+    if: needs.scope.outputs.run_ui_e2e == 'true'
     runs-on: ubuntu-latest
     container:
       image: ${{ matrix.image }}
@@ -746,19 +783,29 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.scope.outputs.e2e_matrix) }}
     env:
+      NEXT_PUBLIC_WS_DO_PORT: "3000"
+      WORKER_ZONES: ${{ needs.scope.outputs.worker_zones }}
       BETTER_AUTH_SECRET: ci-e2e-ui-secret
       BETTER_AUTH_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
           CI_PROJECTION_NAME: e2e_matrix
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.e2e_matrix }}
         run: node scripts/ci/validate-execution-plan.mjs
       - env:
           E2E_SPECS: ${{ toJSON(matrix.specs) }}
+          E2E_CASE_KEYS: ${{ toJSON(matrix.case_keys) }}
         run: |
           node scripts/ci/e2e-shard-artifacts.mjs write-manifest \
             --output src/web/e2e-shard-manifest/shard-manifest.json \
@@ -766,7 +813,9 @@ jobs:
             --attempt "${{ github.run_attempt }}" \
             --sha "${{ github.sha }}" \
             --shard "${{ matrix.shard }}" \
-            --total "${{ matrix.total }}"
+            --total "${{ matrix.total }}" \
+            --native-shard "${{ matrix.native_shard }}" \
+            --native-total "${{ matrix.native_total }}"
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
@@ -780,17 +829,24 @@ jobs:
           path: .ci/ui-e2e-build
       - name: Verify exact-head build artifact
         run: |
+          zones=$(node -e 'console.log(JSON.parse(process.env.WORKER_ZONES).join(","))')
           node scripts/ci/e2e-build-artifact.mjs verify \
             --directory .ci/ui-e2e-build \
             --run-id "${{ github.run_id }}" \
             --attempt "${{ needs.ui-e2e-build.outputs.artifact_attempt }}" \
-            --head-sha "${{ github.sha }}"
-      - env:
+            --head-sha "${{ github.sha }}" --zones "$zones"
+      - name: Run native Playwright partition
+        timeout-minutes: 14
+        env:
           ALOOK_E2E_PREBUILT: "1"
-          E2E_SPECS: ${{ toJSON(matrix.specs) }}
+          ALOOK_E2E_ZONES: ${{ toJSON(matrix.zones) }}
+          E2E_SPECS: ${{ needs.scope.outputs.ui_specs }}
         run: |
-          mapfile -t specs < <(node -e 'for (const spec of JSON.parse(process.env.E2E_SPECS)) console.log(spec)')
-          pnpm --filter @alook/web exec playwright test "${specs[@]}"
+          mapfile -t specs < <(node -e 'for (const spec of JSON.parse(process.env.E2E_SPECS)) if (spec !== "all") console.log("src/test/e2e-ui/" + spec)')
+          pnpm --filter @alook/web exec playwright test "${specs[@]}" --shard=${{ matrix.native_shard }}/${{ matrix.native_total }}
+      - name: Restore browser services
+        if: ${{ always() }}
+        run: pnpm --filter @alook/web exec tsx -e 'import teardown from "./src/test/e2e-ui/_setup/global-teardown.ts"; teardown().catch(error => { console.error(error); process.exitCode = 1 })'
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -815,7 +871,7 @@ jobs:
   resizable-panels-compat:
     name: Resizable panels compatibility
     needs: [scope, ui-e2e-build]
-    if: needs.scope.outputs.run_resizable_panels_compat == 'true' && github.event_name != 'push'
+    if: needs.scope.outputs.run_resizable_panels_compat == 'true'
     runs-on: ubuntu-latest
     container:
       image: ${{ fromJSON(needs.scope.outputs.e2e_matrix).include[0].image }}
@@ -825,13 +881,22 @@ jobs:
         shell: bash
     timeout-minutes: 15
     env:
+      NEXT_PUBLIC_WS_DO_PORT: "3000"
+      WORKER_ZONES: ${{ needs.scope.outputs.worker_zones }}
       BETTER_AUTH_SECRET: ci-e2e-ui-secret
       BETTER_AUTH_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
           CI_PROJECTION_NAME: e2e_matrix
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.e2e_matrix }}
@@ -849,14 +914,16 @@ jobs:
           path: .ci/ui-e2e-build
       - name: Verify exact-head build artifact
         run: |
+          zones=$(node -e 'console.log(JSON.parse(process.env.WORKER_ZONES).join(","))')
           node scripts/ci/e2e-build-artifact.mjs verify \
             --directory .ci/ui-e2e-build \
             --run-id "${{ github.run_id }}" \
             --attempt "${{ needs.ui-e2e-build.outputs.artifact_attempt }}" \
-            --head-sha "${{ github.sha }}"
+            --head-sha "${{ github.sha }}" --zones "$zones"
       - name: Run responsive shell compatibility journeys
         env:
           ALOOK_E2E_PREBUILT: "1"
+          ALOOK_E2E_ZONES: '["web"]'
         run: |
           pnpm --filter @alook/web exec playwright test \
             src/test/e2e-ui/53-mobile-inbox-surface.spec.ts \
@@ -876,14 +943,21 @@ jobs:
   merge-reports:
     name: Merge Playwright Reports
     needs: [scope, e2e-ui]
-    if: ${{ !cancelled() && needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }}
+    if: ${{ !cancelled() && needs.scope.outputs.run_ui_e2e == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
           CI_PROJECTION_NAME: e2e_matrix
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.e2e_matrix }}
@@ -955,15 +1029,22 @@ jobs:
           {"name":"test-linux","expected":${{ needs.scope.outputs.run_linux == 'true' }},"result":"${{ needs.test-linux.result }}"},
           {"name":"test-windows","expected":${{ needs.scope.outputs.run_windows == 'true' }},"result":"${{ needs.test-windows.result }}"},
           {"name":"app-packed-artifact","expected":${{ needs.scope.outputs.run_app_packed_artifact == 'true' }},"result":"${{ needs.app-packed-artifact.result }}"},
-          {"name":"e2e","expected":${{ needs.scope.outputs.run_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.e2e.result }}"},
+          {"name":"e2e","expected":${{ needs.scope.outputs.run_e2e == 'true' }},"result":"${{ needs.e2e.result }}"},
           {"name":"desktop-rust","expected":${{ needs.scope.outputs.run_rust == 'true' }},"result":"${{ needs.desktop-rust.result }}"},
-          {"name":"lighthouse","expected":${{ needs.scope.outputs.run_lighthouse == 'true' && github.event_name != 'push' }},"result":"${{ needs.lighthouse.result }}"}
+          {"name":"lighthouse","expected":${{ needs.scope.outputs.run_lighthouse == 'true' }},"result":"${{ needs.lighthouse.result }}"}
         ]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
         run: node scripts/ci/validate-execution-plan.mjs
       - run: node scripts/ci/assert-gate.mjs
@@ -978,16 +1059,23 @@ jobs:
       CI_GATE_RESULTS: >-
         [
           {"name":"scope","expected":true,"result":"${{ needs.scope.result }}"},
-          {"name":"ui-e2e-build","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.ui-e2e-build.result }}"},
-          {"name":"e2e-ui","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.e2e-ui.result }}"},
-          {"name":"resizable-panels-compat","expected":${{ needs.scope.outputs.run_resizable_panels_compat == 'true' && github.event_name != 'push' }},"result":"${{ needs.resizable-panels-compat.result }}"},
-          {"name":"merge-reports","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.merge-reports.result }}"}
+          {"name":"ui-e2e-build","expected":${{ needs.scope.outputs.run_worker_build == 'true' }},"result":"${{ needs.ui-e2e-build.result }}"},
+          {"name":"e2e-ui","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' }},"result":"${{ needs.e2e-ui.result }}"},
+          {"name":"resizable-panels-compat","expected":${{ needs.scope.outputs.run_resizable_panels_compat == 'true' }},"result":"${{ needs.resizable-panels-compat.result }}"},
+          {"name":"merge-reports","expected":${{ needs.scope.outputs.run_ui_e2e == 'true' }},"result":"${{ needs.merge-reports.result }}"}
         ]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
       - name: Validate execution plan
+        if: needs.scope.result == 'success'
         env:
-          CI_EXECUTION_PLAN: ${{ needs.scope.outputs.execution_plan }}
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
           CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
         run: node scripts/ci/validate-execution-plan.mjs
       - run: node scripts/ci/assert-gate.mjs

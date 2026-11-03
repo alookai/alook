@@ -23,21 +23,11 @@ describe("message query module exports", () => {
     expect(typeof messageQueries.createMessage).toBe("function");
   });
 
-  it("exports getNewestMessageId", () => {
-    expect(typeof messageQueries.getNewestMessageId).toBe("function");
-  });
-
-  it("exports getActiveMessageCount", () => {
-    expect(typeof messageQueries.getActiveMessageCount).toBe("function");
-  });
 
   it("exports listMessages", () => {
     expect(typeof messageQueries.listMessages).toBe("function");
   });
 
-  it("exports getMessage", () => {
-    expect(typeof messageQueries.getMessage).toBe("function");
-  });
 
   it("exports updateMessageTaskId", () => {
     expect(typeof messageQueries.updateMessageTaskId).toBe("function");

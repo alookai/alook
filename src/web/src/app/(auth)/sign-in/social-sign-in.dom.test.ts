@@ -1,3 +1,6 @@
+import resolvedRawInput0 from "./social-sign-in.tsx?raw"
+import resolvedRawInput1 from "./apple-sign-in-artwork.ts?raw"
+import staticContractInput0 from "../../globals.css?raw"
 import { createElement } from "react"
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
@@ -183,7 +186,7 @@ describe("social sign-in stack and native boundary", () => {
   })
 
   it("keeps every provider on Apple's mandated black-on-light and white-on-dark tokens", () => {
-    const globalsCss = readFileSync(resolve(webRoot, "src/app/globals.css"), "utf8")
+    const globalsCss = staticContractInput0
     expect(globalsCss).toMatch(
       /:root\s*\{[^}]*--apple-signin:\s*oklch\(0 0 0\);[^}]*--apple-signin-foreground:\s*oklch\(1 0 0\);/s,
     )
@@ -201,14 +204,8 @@ describe("social sign-in stack and native boundary", () => {
       }),
     )
 
-    const source = readFileSync(
-      resolve(webRoot, "src/app/(auth)/sign-in/social-sign-in.tsx"),
-      "utf8",
-    )
-    const artwork = readFileSync(
-      resolve(webRoot, "src/app/(auth)/sign-in/apple-sign-in-artwork.ts"),
-      "utf8",
-    )
+    const source = resolvedRawInput0
+    const artwork = resolvedRawInput1
     expect(source).not.toContain("SiApple")
     expect(source).not.toContain("appleid.cdn-apple.com/appleid/button/logo")
     expect(artwork).not.toContain("appleid.cdn-apple.com/appleid/button/logo")

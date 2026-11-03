@@ -10,9 +10,6 @@ function createMockDb(rows: any[]) {
 }
 
 describe("agent query module exports", () => {
-  it("exports getExistingHandles", () => {
-    expect(typeof agentQueries.getExistingHandles).toBe("function");
-  });
 
   it("exports getAgentByHandle", () => {
     expect(typeof agentQueries.getAgentByHandle).toBe("function");

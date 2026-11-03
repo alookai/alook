@@ -1,7 +1,7 @@
 import { communityFixtureFetch } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
-import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
+import { communityFrameEvents, proxyCommunityWebSockets, type CapturedCommunityFrame } from "./_fixtures/community-ws-proxy"
 import { tid } from "./_fixtures/testids"
 
 import { WEB_URL } from "./_setup/paths"
@@ -52,7 +52,30 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
   }
 
   const { page, context } = await asUser("alice")
-  const proxy = await proxyCommunityWebSockets(context)
+  const liveBody = `live during upward scroll ${Date.now()}`
+  const liveFrame = (frame: Parameters<typeof communityFrameEvents>[0]) => communityFrameEvents(frame).some(event =>
+    event.type === "community:message.create" && event.channelId === channelId && event.message?.content === liveBody)
+  const proxy = await proxyCommunityWebSockets(context, { decide: frame => liveFrame(frame) ? "hold" : "forward" })
+  await page.addInitScript(() => {
+    const frames: Array<{ type: string }> = []
+    Object.defineProperty(window, "__e2eScrollReceivedFrames", { value: frames })
+    const NativeWebSocket = window.WebSocket
+    window.WebSocket = class extends NativeWebSocket {
+      constructor(...args: ConstructorParameters<typeof WebSocket>) {
+        super(...args)
+        if (new URL(this.url).pathname !== "/api/ws/user") return
+        this.addEventListener("message", (event) => {
+          if (typeof event.data !== "string") return
+          try {
+            const frame = JSON.parse(event.data) as { type?: unknown }
+            if (typeof frame?.type === "string" && frame.type.startsWith("community:")) {
+              frames.push(frame as { type: string })
+            }
+          } catch {}
+        })
+      }
+    }
+  })
   await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
   await page.waitForURL(new RegExp(channelId), { timeout: 20_000, waitUntil: "commit" })
   const divider = page.getByTestId(tid.newDivider)
@@ -63,6 +86,17 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
   const box = await scroller.boundingBox()
   expect(box).not.toBeNull()
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)
+
+  const liveMessageId = await seedMessage("bob", channelId, liveBody)
+  const receivedCount = async () => {
+    const frames = await page.evaluate(() => (window as typeof window & {
+      __e2eScrollReceivedFrames: CapturedCommunityFrame[]
+    }).__e2eScrollReceivedFrames)
+    return frames.flatMap(communityFrameEvents).filter(event => event.type === "community:message.create"
+      && event.channelId === channelId && event.message?.id === liveMessageId).length
+  }
+  await expect.poll(() => proxy.heldCount()).toBe(1)
+  expect(await receivedCount()).toBe(0)
 
   const recorder = await scroller.evaluateHandle((element) => {
     const root = element as HTMLElement
@@ -100,25 +134,24 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
   })
 
   let bodySamples: BodySample[] = []
-  let liveMessageId = ""
   try {
-    const liveAppend = (async () => {
-      await page.waitForTimeout(250) // inject the append during the upward-scroll gesture
-      return seedMessage("bob", channelId, `live during upward scroll ${Date.now()}`)
-    })()
     for (let index = 0; index < 60; index++) {
       await page.mouse.wheel(0, -24)
+      if (index === 10) expect(proxy.releaseHeld(liveFrame)).toBe(1)
       await page.waitForTimeout(24) // fixed wheel-event cadence under test
       await recorder.evaluate((recording) => recording.sample())
+      if (index === 30) {
+        expect(await receivedCount()).toBe(1)
+      }
     }
-    liveMessageId = await liveAppend
     await page.waitForTimeout(250) // post-append scroll-correction exclusion window
   } finally {
+    proxy.releaseHeld(liveFrame)
     bodySamples = await recorder.evaluate((recording) => recording.finish())
     await recorder.dispose()
   }
 
-  await expect.poll(() => proxy.frames.filter(frame => communityFrameEvents(frame).some(event =>
+  expect(proxy.frames.filter(frame => communityFrameEvents(frame).some(event =>
     event.type === "community:message.create" && event.channelId === channelId && event.message?.id === liveMessageId,
   )).length).toBe(1)
   expect(bodySamples.length).toBeGreaterThan(1)

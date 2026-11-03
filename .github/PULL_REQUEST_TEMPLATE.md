@@ -5,8 +5,8 @@
 ...
 
 ## Checklist
-- [ ] Tests added/updated as needed
-- [ ] All CI checks pass
+- [ ] Changed risks have effective tests; removed/merged tests name their remaining guard
+- [ ] Applicable CI gates pass; selected, skipped and unrun checks are stated
 - [ ] PR targets the correct branch
 
 ## Impact Areas

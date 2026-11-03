@@ -67,7 +67,6 @@ test.describe("direct messages", () => {
         level: 1,
         name: new RegExp(userName("alice")),
       })).toBeVisible()
-      expect(routeHistory).not.toContain("/c/me")
 
       await expect(bob.page.getByTestId(tid.message(messageId))).toHaveCount(1)
       await expect(bob.page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })

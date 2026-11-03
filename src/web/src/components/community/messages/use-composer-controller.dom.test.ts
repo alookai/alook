@@ -1,3 +1,4 @@
+import resolvedRawInput0 from "./use-composer-controller.ts?raw"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { forwardRef, createElement, createRef } from "react"
@@ -1344,14 +1345,7 @@ describe("useComposerController", () => {
   })
 
   it("pins the layout/draft/typing ordering boundaries in source", () => {
-    const source = readFileSync(
-      resolve(
-        process.cwd(),
-        process.cwd().endsWith("/src/web") ? "" : "src/web",
-        "src/components/community/messages/use-composer-controller.ts",
-      ),
-      "utf8",
-    )
+    const source = resolvedRawInput0
     const gate = source.indexOf("if (!editor || client.isMutating(")
     const awaitFiles = source.indexOf("await awaitPendingFiles()")
     const secondCheck = source.indexOf("assert()", awaitFiles)

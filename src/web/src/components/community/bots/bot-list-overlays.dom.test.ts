@@ -1,5 +1,5 @@
+import contractText0 from "./bot-list-overlays.tsx?raw"
 import React from "react"
-import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotListController } from "./bot-list-types"
@@ -8,7 +8,13 @@ import { fireEvent, render } from "@/test/react-dom-harness"
 const webRoot = process.cwd().endsWith("/src/web")
   ? process.cwd()
   : resolve(process.cwd(), "src/web")
-const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
+const contractSources: Record<string, string> = {
+  "src/components/community/bots/bot-list-overlays.tsx": contractText0,
+}
+const readWebSource = (path: string) => {
+  if (!(path in contractSources)) throw new Error("unregistered contract source: " + path)
+  return contractSources[path]
+}
 
 function host(name: string) {
   const Host = ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>

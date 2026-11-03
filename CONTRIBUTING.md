@@ -21,7 +21,7 @@ pnpm dev
 This starts the web app and workers locally. To work on the CLI separately:
 
 ```bash
-pnpm dev:cli
+pnpm dev:app
 ```
 
 ### Frontend telemetry build configuration
@@ -67,18 +67,20 @@ A few ground rules:
 ### 3. Validate before pushing
 
 ```bash
-pnpm typecheck
-pnpm lint
-pnpm test
+pnpm check             # canonical affected checks; shared Turbo cache
+pnpm check --plan      # inspect source scope and commands without running them
+pnpm check:full        # explicit complete six-check contract
 ```
 
-All three must pass. A pre-commit hook runs lint and test automatically.
+The normal pre-commit hook runs `pnpm check` too. Both entries use the existing impact closure and normal package scripts; Turbo may replay identical tasks. Policy, unknown paths and unresolved Git inputs fall back to the full contract. The local entry includes branch commits, staged/unstaged changes and untracked source. It keeps driver builds/tests ordered and stops at the first failed child. Individual `pnpm typecheck`, `pnpm lint` and `pnpm test` commands remain available.
+
+Report the checks actually selected and run, including cache replay, skipped groups and original failures. Do not rerun a full suite only to obtain another copy of the same result.
 
 ### 4. Open a PR
 
 - Target the `main` branch
 - Fill out the PR template — link the issue, describe what changed, check the impact areas
-- CI runs typecheck, lint, tests (Ubuntu + Windows), e2e, build, and Lighthouse
+- CI follows the trigger and impact matrix below; stable CI/UI gates must finish for their applicable jobs
 
 ## Commit Messages
 
@@ -156,15 +158,40 @@ Use the normal Web Vitest configs and repository gates. Real QA must also bind t
 - **Framework:** Vitest
 - **E2E:** Playwright (web package)
 - **Run all:** `pnpm test`
-- **Run by package:** `pnpm test:shared`, `pnpm test:cli`, `pnpm test:web`, `pnpm test:e2e`
+- **Run by package:** `pnpm test:shared`, `pnpm test:daemon`, `pnpm test:web`, `pnpm test:e2e`
 
-Tests run on both Ubuntu and Windows in CI.
+Affected platform-specific contracts run on their relevant CI platforms. A Windows process or installed-package test is not replaced by a Linux mock.
+
+### CI trigger and test responsibilities
+
+| Trigger | Checks |
+| --- | --- |
+| PR / merge group | Native Turbo affected tasks, Vitest related files, key browser paths and matched feature groups |
+| Ordinary main | Small existing behavior smoke set plus relevant build/artifact checks |
+| Release main (`release:` commit) | Full package/platform, API/browser and artifact regression |
+| Manual CI `full` | Full regression; diagnostic dispatch keeps its existing exact-source guard |
+| Docs / benchmark only | No unrelated product checks; stable gates report applicable skips |
+| Policy, core/unknown classification or unresolved diff | Conservative full fallback; no silent narrowing |
+
+Turbo owns task inputs, dependencies and cache outputs. Web, Blog and Auth are separate tasks/projects inside the Web package. The unit entry uses Vitest's native related analysis, unions directly changed tests, and runs the complete selected project for structural contracts, nonmodule/configuration inputs or analysis errors. Selection receipts distinguish discovered, selected and executed files; a graph failure cannot become an empty success. Full commands remain available through `pnpm check:full` and `pnpm test`.
+
+Package boundaries, smoke files and UI feature paths/specs live in `scripts/ci/change-scope-manifest.json`. All consumers use the same validated execution plan. A localized rule applies only when every relevant runtime path is covered; shared helpers and unclassified runtime changes expand to the full browser inventory. Renames include both sides, and deleted specs do not silently disappear. Full manual/release runs retain every discovered browser spec. No daily schedule is added.
+
+Keep production permission, session, persistence, message replay and process-authority tests. Test observable outcomes at the layer that owns the risk; do not require a second implementation-text snapshot for behavior already tested through the real component. A source-reading test can still guard an actual architecture, package or native-code boundary. Each deletion or merge must name its remaining executable guard and its limits.
+
+Codecov project and patch statuses and the optional `node scripts/ci/report-changed-patch-coverage.mjs --base <ref> --report <coverage-json>` output are review information. No coverage percentage is a minimum gate, including in the repository verifier; valid zero-coverage reports still retain their actual counts and percentages. Failed tests, invalid reports, missing required instrumentation and failed uploads remain errors. Named project path groups and report completeness remain checked. Browser E2E is not part of Vitest coverage.
+
+The Web/Blog OpenNext producer builds each required zone once. Blog dry-run and browser jobs verify source, native task hashes, toolchain, environment and archived output identity before consuming it. Web-only browser jobs omit Blog build/start. Lighthouse, Auth, packed artifacts and native platforms keep their own contracts.
+
+Playwright owns discovery and file sharding. The signed plan freezes actual case identities and native partition pairs; each job runs the complete selected file set with its native `--shard` pair. Empty native partitions create no job. One worker, zero retries and existing case/expect limits remain. The 240-second target is measured separately from the command/job deadlines; no duration table or predicted bound is used. An always-run teardown restores the existing service owner before report collection.
+
+The browser workflow reuses one exact-source build across selected shards and verifies their reports. Stable `CI Gate` and `UI E2E Gate` checks are the integration boundary; individual out-of-scope shards may be skipped. Selection and discovery do not prove execution. Release CI also does not gate an independent Cloudflare Git deployment or imply that a store accepted a build.
 
 ### UI browser E2E and formal local QA
 
 Run `pnpm test:e2e-ui` from the repository root. Local runs and CI use the
 same built Worker graph: one pinned Wrangler loads Web, WS and the real
-queue worker; Blog runs separately with its own storage. The public ingress
+queue worker; Blog runs separately with its own storage when selected. Local full runs select both Web and Blog. The public ingress
 is `http://localhost:3000`, with Web on port 3001 and Blog on port 3002. Stop other dev
 stacks before this run. The runner does not reuse a stack based on health
 responses and does not stop listeners owned by another worktree.
@@ -232,7 +259,7 @@ outside this change.
 |---------|-------------|
 | `pnpm dev` | Start all dev servers (except CLI) |
 | `pnpm dev:web` | Next.js on :3000 |
-| `pnpm dev:cli` | CLI daemon |
+| `pnpm dev:app` | CLI daemon |
 | `pnpm dev:email` | Email worker on :8787 |
 | `pnpm typecheck` | Typecheck all packages |
 | `pnpm lint` | Lint all packages |

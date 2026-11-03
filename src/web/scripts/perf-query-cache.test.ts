@@ -1,6 +1,6 @@
+import rawContractInput0 from "../src/test/e2e-ui/perf/perf-query-cache.ts?raw"
 import { IDBFactory } from "fake-indexeddb"
 import { createStore, get, set } from "idb-keyval"
-import { readFileSync } from "node:fs"
 import { ScriptTarget, ModuleKind, transpileModule } from "typescript"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createIdbPersister, PERSIST_BUSTER, PERSIST_CACHE_PREFIX, PERSIST_VERSION } from "../src/lib/query-persister"
@@ -52,7 +52,7 @@ describe("perf switch current disk qualification", () => {
   it("executes the browser-serialized operation against the actual canonical collection rows", async () => {
     await set(key, JSON.stringify(snapshot()), store)
     expect(await operatePerfQueryCache(expected)).toBe(true)
-    const source = readFileSync(new URL("../src/test/e2e-ui/perf/perf-query-cache.ts", import.meta.url), "utf8")
+    const source = rawContractInput0
     const compiled = transpileModule(source, { compilerOptions: { target: ScriptTarget.ESNext, module: ModuleKind.CommonJS } }).outputText
     const exports = {} as { operatePerfQueryCache: typeof operatePerfQueryCache }
     new Function("exports", compiled)(exports)

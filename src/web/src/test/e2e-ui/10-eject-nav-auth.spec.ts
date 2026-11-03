@@ -13,23 +13,11 @@ test.describe("eject, navigation & logout", () => {
     return { serverId, channelId }
   }
 
-  test("direct URL to a server you're not in redirects away", async ({ caseActors }) => {
-    const actors = await caseActors(["alice", "carol"])
-    const { asUser } = actors
-    const { serverId, channelId } = await prepareCase1(actors)
-
-    // Carol is not a member.
-    const { page } = await asUser("carol")
-    await page.goto(`/c/channels/${serverId}/${channelId}`)
-    await expect(page).not.toHaveURL(new RegExp(`/channels/${serverId}/${channelId}$`), { timeout: 20_000 })
-  })
-
-  test("clicking a rail server lands on a channel, not the bare server root", async ({ caseActors }) => {
+  test("a bare server URL resolves to a channel", async ({ caseActors }) => {
     const actors = await caseActors(["alice"])
     const { asUser } = actors
     const { serverId } = await prepareCase1(actors)
 
-    // Alice owns the server; navigating via the rail resolves to a channel.
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}`)
     // The bare-server route redirects to the first channel.

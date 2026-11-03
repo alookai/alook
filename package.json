@@ -3,16 +3,16 @@
   "private": true,
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "build": "turbo run build",
-    "test": "pnpm --filter @alook/agent-driver build && turbo run test --filter=!@alook/agent-driver && pnpm --filter @alook/agent-driver test && vitest run --project ci-scripts",
-    "predev": "[ -f src/web/.dev.vars ] || (cp src/web/.dev.vars.example src/web/.dev.vars && sed -i '' \"s|^BETTER_AUTH_SECRET=$|BETTER_AUTH_SECRET=$(openssl rand -base64 32)|\" src/web/.dev.vars && sed -i '' \"s|^ENCRYPTION_KEY=$|ENCRYPTION_KEY=$(openssl rand -base64 32)|\" src/web/.dev.vars && echo '✓ Generated src/web/.dev.vars (fill in OAuth keys if needed)'); [ -f src/email-worker/.dev.vars ] || cp src/email-worker/.dev.vars.example src/email-worker/.dev.vars; ALOOK_ENCRYPTION_KEY=$(grep '^ENCRYPTION_KEY=' src/web/.dev.vars | cut -d= -f2-); sed -i '' \"s|^ENCRYPTION_KEY=.*$|ENCRYPTION_KEY=$ALOOK_ENCRYPTION_KEY|\" src/email-worker/.dev.vars; [ -f src/queue-worker/.dev.vars ] || cp src/queue-worker/.dev.vars.example src/queue-worker/.dev.vars; sed -i '' \"s|^ENCRYPTION_KEY=.*$|ENCRYPTION_KEY=$ALOOK_ENCRYPTION_KEY|\" src/queue-worker/.dev.vars; echo '✓ Synced ENCRYPTION_KEY to email-worker and queue-worker'",
-    "dev": "turbo run dev --filter=@alook/web --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/queue-worker --filter=@alook/shared",
+    "build": "node scripts/ci/run-turbo.mjs run build",
+    "test": "node scripts/ci/run-turbo.mjs run test test:contracts test:tooling test:runtime test:blog test:auth test:auth:runtime --filter=!@alook/agent-driver && node scripts/ci/run-turbo.mjs run @alook/agent-driver#test && vitest run --project ci-scripts",
+    "predev": "[ -f src/web/.dev.vars ] || (cp src/web/.dev.vars.example src/web/.dev.vars && sed -i '' \"s|^BETTER_AUTH_SECRET=$|BETTER_AUTH_SECRET=$(openssl rand -base64 32)|\" src/web/.dev.vars && sed -i '' \"s|^ENCRYPTION_KEY=$|ENCRYPTION_KEY=$(openssl rand -base64 32)|\" src/web/.dev.vars && echo '\u2713 Generated src/web/.dev.vars (fill in OAuth keys if needed)'); [ -f src/email-worker/.dev.vars ] || cp src/email-worker/.dev.vars.example src/email-worker/.dev.vars; ALOOK_ENCRYPTION_KEY=$(grep '^ENCRYPTION_KEY=' src/web/.dev.vars | cut -d= -f2-); sed -i '' \"s|^ENCRYPTION_KEY=.*$|ENCRYPTION_KEY=$ALOOK_ENCRYPTION_KEY|\" src/email-worker/.dev.vars; [ -f src/queue-worker/.dev.vars ] || cp src/queue-worker/.dev.vars.example src/queue-worker/.dev.vars; sed -i '' \"s|^ENCRYPTION_KEY=.*$|ENCRYPTION_KEY=$ALOOK_ENCRYPTION_KEY|\" src/queue-worker/.dev.vars; echo '\u2713 Synced ENCRYPTION_KEY to email-worker and queue-worker'",
+    "dev": "node scripts/ci/run-turbo.mjs run dev --filter=@alook/web --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/queue-worker --filter=@alook/shared",
     "clean": "rm -rf node_modules src/*/node_modules src/*/dist src/*/.turbo src/daemon/agent-driver/node_modules src/daemon/agent-driver/dist src/daemon/agent-driver/.turbo .turbo src/web/.next src/web/.open-next src/web/blog/.next src/web/blog/.open-next src/*/.wrangler .alook",
     "clean:builds": "rm -rf src/*/dist src/daemon/agent-driver/dist src/web/.next src/web/.open-next src/web/blog/.next src/web/blog/.open-next .turbo src/*/.turbo src/daemon/agent-driver/.turbo",
     "reinstall": "pnpm run clean && pnpm install",
-    "typecheck": "turbo run typecheck",
-    "lint": "turbo run lint",
-    "knip": "turbo run knip",
+    "typecheck": "node scripts/ci/run-turbo.mjs run typecheck typecheck:blog typecheck:auth",
+    "lint": "node scripts/ci/run-turbo.mjs run lint lint:blog lint:auth",
+    "knip": "node scripts/ci/run-turbo.mjs run knip",
     "dev:web": "pnpm --filter @alook/web dev",
     "daemon": "pnpm --filter @alook/daemon exec tsx src/cli/index.ts daemon",
     "daemon-use": "pnpm --filter @alook/daemon exec tsx src/cli/index.ts use",
@@ -46,26 +46,24 @@
     "readme:capture": "node src/web/readme-capture/capture.mjs",
     "app-store:capture": "node src/web/app-store-capture/capture.mjs",
     "app-store:creative": "node src/web/app-store-capture/creative/capture.mjs",
-    "prepare": "simple-git-hooks"
+    "prepare": "simple-git-hooks",
+    "check": "node scripts/ci/check-local.mjs",
+    "check:full": "node scripts/ci/check-local.mjs --full"
   },
   "simple-git-hooks": {
-    "pre-commit": "pnpm typecheck && pnpm lint && pnpm test && pnpm typegrep:ws && pnpm typegrep:agent-driver && pnpm knip"
+    "pre-commit": "pnpm check"
   },
   "devDependencies": {
-    "@vitest/coverage-istanbul": "4.1.12",
+    "@vitest/coverage-istanbul": "5.1.0",
     "badge-maker": "6.0.0",
     "sharp": "^0.35.5",
     "simple-git-hooks": "^2.14.0",
     "turbo": "^2.11.10",
     "typescript": "^6.0.3",
-    "vitest": "4.1.12",
+    "vitest": "5.1.0",
     "wrangler": "4.152.0"
   },
   "pnpm": {
-    "overrides": {
-      "@vitest/runner": "4.1.11",
-      "@vitest/snapshot": "4.1.11"
-    },
     "patchedDependencies": {
       "@opennextjs/cloudflare@1.20.10": "patches/@opennextjs__cloudflare@1.20.10.patch",
       "@base-ui/react@1.9.0": "patches/@base-ui__react@1.9.0.patch"

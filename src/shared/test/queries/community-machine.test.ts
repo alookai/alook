@@ -42,26 +42,13 @@ function rotateEpoch(
 
 describe("community/machine exports", () => {
   it("exports the documented helpers", () => {
-    expect(typeof q.createPairingToken).toBe("function");
-    expect(typeof q.createReconnectPairingToken).toBe("function");
-    expect(typeof q.claimPairingToken).toBe("function");
-    expect(typeof q.findActiveToken).toBe("function");
-    expect(typeof q.findTokenById).toBe("function");
     expect(typeof q.touchTokenLastUsed).toBe("function");
     expect(typeof q.revokeToken).toBe("function");
     expect(typeof q.getMachineByIdForUser).toBe("function");
     expect(typeof q.listMachinesForUser).toBe("function");
     expect(typeof q.deleteMachineForUser).toBe("function");
-    expect(typeof q.toSummary).toBe("function");
     expect(typeof sessionEpoch.transitionMachineSessionEpoch).toBe("function");
-    expect(typeof q.hashCredential).toBe("function");
-    expect(typeof q.doNameFromHash).toBe("function");
-    expect(typeof q.findCredentialByHash).toBe("function");
-    expect(typeof q.findActiveCredentialByBearer).toBe("function");
     expect(typeof q.revokeCredential).toBe("function");
-    expect(typeof q.revokeCredentialsForMachine).toBe("function");
-    expect(typeof q.mintAgentRunnerKey).toBe("function");
-    expect(typeof q.findActiveAgentRunnerKeyByBearer).toBe("function");
   });
 
   it("does not export legacy machineUuid helpers", () => {

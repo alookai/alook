@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs"
+import rawContractInput0 from "../../../../components/community/channels/dm-view.tsx?raw"
 import { describe, expect, it } from "vitest"
 
 describe("DM page loading ownership", () => {
   it("keeps full-frame and message-body ownership separate", () => {
-    const source = readFileSync(new URL("../../../../components/community/channels/dm-view.tsx", import.meta.url), "utf8")
+    const source = rawContractInput0
     expect(source).toContain("fullFramePending: !hasDm && dmsLoading")
     expect(source).toContain("missingPeer: !hasDm && !dmsLoading")
     expect(source).toContain("messageBodyLoading: hasDm && messagesLoading")
@@ -33,13 +33,13 @@ describe("DM page loading ownership", () => {
   })
 
   it("uses the cache-first DM projection as the header and composer identity", () => {
-    const source = readFileSync(new URL("../../../../components/community/channels/dm-view.tsx", import.meta.url), "utf8")
+    const source = rawContractInput0
     expect(source).toContain("const directoryDm = dms.find(candidate => candidate.id === dmId)")
     expect(source).not.toContain("profilesByUserId.get(raw.userId)")
   })
 
   it("owns lazy channel-directory state and retry inside the keyed DM view", () => {
-    const source = readFileSync(new URL("../../../../components/community/channels/dm-view.tsx", import.meta.url), "utf8")
+    const source = rawContractInput0
     expect(source).toContain("export function DmView({ dmId, routeCommitted")
     expect(source).toContain("useChannelRefDirectory(channelRefDirectoryEnabled)")
     expect(source).toContain("loading: !channelRefDirectoryResolved")
@@ -51,7 +51,7 @@ describe("DM page loading ownership", () => {
   })
 
   it("keeps chip toggle and picker add on separate reaction intents", () => {
-    const source = readFileSync(new URL("../../../../components/community/channels/dm-view.tsx", import.meta.url), "utf8")
+    const source = rawContractInput0
     expect(source).toContain("const toggleReaction = useToggleReactionApi()")
     expect(source).toContain("const addReaction = useAddReactionApi()")
     expect(source).toContain("onToggleReaction: (id: string, emoji: string) =>\n      toggleReaction(")

@@ -1,3 +1,4 @@
+import resolvedRawInput0 from "../../../app/globals.css?raw"
 import { createElement, type ReactNode } from "react"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
@@ -179,14 +180,7 @@ describe("ComposerView", () => {
   })
 
   it("scopes single-line placeholder containment to chat composers", () => {
-    const css = readFileSync(
-      resolve(
-        process.cwd(),
-        process.cwd().endsWith("/src/web") ? "" : "src/web",
-        "src/app/globals.css",
-      ),
-      "utf8",
-    )
+    const css = resolvedRawInput0
     const globalRule = css.match(
       /\.tiptap p\.is-editor-empty:first-child::before\s*\{([^}]*)\}/,
     )?.[1]

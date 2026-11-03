@@ -12,7 +12,7 @@ Alook's main purpose is to make the cli agent always on, and give it a email add
 
 ## MUST
 - Don't write comment: comment may be outdated, code never. Unless the comment are specs and rules.
-- run `pnpm typecheck`, `pnpm test` as the final check when you think the code is ready.
+- Run `pnpm check` before delivery. It uses the canonical impact plan and normal repository checks. Use `pnpm check:full` for an explicit complete check; policy, unknown or unresolved inputs fall back to full automatically. Record actual selected and executed checks, not a blanket all-tests claim.
 - service must be STATELESS! All the state must be in DB or local, never put important states in memory.
 - scope the queries before, not check the ownership after. don't query data then check if the data belongs to a workspace, use workspace id ahead to query the data.
 - respect others' works, don't reset any other git changes just because it's not done by you, others may working at the same time, never revert anything without asking the user.
@@ -29,7 +29,7 @@ pnpm bump patch --desktop  # trigger desktop build
 This updates every `src/*/package.json` and commits `release: vX.Y.Z`.
 Add `--min-cli` when the release contains breaking changes that require users to update their CLI.
 Add `--desktop` when the release includes desktop app changes that need a new build.
-Mobile store releases are not configured; add current signing accounts and rebuild the release workflow before exposing a mobile release flag.
+Add `--mobile` to trigger the existing iOS TestFlight upload and Android artifact workflow. Upload, store processing and review acceptance are separate outcomes.
 
 After reviewing the commit:
 ```bash
@@ -37,16 +37,17 @@ git push origin main
 ```
 
 This triggers:
-- **CI** — typecheck, lint, tests, coverage (uploaded to Codecov)
+- **CI** — the complete regression for release commits; ordinary main commits use key smoke checks and relevant artifacts
 - **Auto-Tag & Release** — CI detects the `release: vX.Y.Z` commit message, creates the git tag, and creates a GitHub Release with generated changelog (`auto-tag-release.yml`)
 - **@alook/app** → auto-published to npm via `publish-app.yml` (watches `src/app/package.json`)
 - **@alook/daemon** → auto-published to npm via `publish-daemon.yml` (watches `src/daemon/package.json`)
-- **CF Workers** → each module redeploys when its own `package.json` changes
+- **CF Workers** → existing Cloudflare Git integration and watch rules determine deployments; GitHub CI is not an external deployment gate
 
-### E2E UI (browser tests)
-Playwright browser E2E for the web UI lives in `src/web/src/test/e2e-ui/`. The `e2e-ui.yml` workflow starts for every PR and merge-queue check, then runs the browser matrix only when the diff touches `src/web`/`src/shared`/`src/ws-do`; blog-only and unrelated changes finish through the lightweight scope and gate jobs. The workflow also supports manual full runs, but does not run after pushes to `main`. It is deliberately NOT tied to the release chain: a `release:` bump only changes version numbers, so gating there would test nothing, and the production web app deploys via Cloudflare's own Git integration (outside GitHub Actions) which a workflow gate can't block anyway. Run locally with `pnpm test:e2e-ui` (backs up and restores your local `.wrangler/state`).
+### CI and browser tests
 
-> Branch protection may require the stable `UI E2E Gate` check. Do not require the individual `UI Playwright E2E (n/N)` matrix jobs, because skipped shards are expected for changes outside the UI scope.
+`.github/workflows/ci.yml` owns one canonical impact plan. PR and merge-queue checks use native Turbo affected tasks and Vitest related files plus key browser paths and matched feature groups. Web, Blog and Auth retain separate task/project inputs. Structural, nonmodule/configuration and graph-error boundaries run complete selected projects; keep selection/execution receipts. Core, policy, unknown and unresolved inputs retain full fallback. Ordinary main pushes run the small behavior smoke set and relevant artifacts; release commits and manual full dispatch run the full regression. See [CONTRIBUTING.md](CONTRIBUTING.md#ci-trigger-and-test-responsibilities) for the matrix and explicit commands.
+
+Browser specs remain in `src/web/src/test/e2e-ui/`. Reuse the zone-aware build-once artifact, native Playwright file partitions and exact case/report verification. Freeze native discovery once in the plan; consumers run the entire selected file set with the original native shard pair. Keep one worker, zero retries and existing case limits;240 seconds is a measurement target, not a prediction. Keep stable `CI Gate` and `UI E2E Gate` checks; skipped out-of-scope jobs are expected, so do not require individual shards. No daily schedule is implied. Browser tests do not contribute to Vitest coverage. Codecov project and patch percentages are informational; neither hosted status nor the repository verifier enforces a percentage minimum. Failed tests, missing required instrumentation, malformed reports and upload errors still fail.
 
 ## Plan-driven Development
 - You must make a markdown plan at `plans/` before you implement any my request, otherwise I will reject your implementation.
@@ -58,17 +59,16 @@ Playwright browser E2E for the web UI lives in `src/web/src/test/e2e-ui/`. The `
   - in `new deps` section, you must list all the new external dependencies that will be added.
   - use checklist in `TODOS` section, for each checkbox, you must have a clear description of what to do and list all the files that will be modified.
     - at the end of TODOS, you must include `test cases` sub section, use checklist format to list all the test cases that should be covered.
-  - `QA tests` section is REQUIRED. It must be a checklist of end-to-end user journeys the `alook-c-qa` agent will drive after implementation lands. For each journey: name it, list the routes/testids it exercises, and state the backend signal (D1 row, WS frame, worker log) that proves it worked. This section is the QA agent's brief — it will fail if the section is missing or vague.
+  - `QA tests` is required. For changed app behavior, name each necessary journey, its routes/testids and confirming backend signal. For tooling, name the real command/event, expected output and failure/cleanup signal. Reuse existing tests; do not invent a UI journey for a documentation or CI-only change. Name the assigned executor and state unrun or out-of-scope evidence explicitly.
 
-## QA after every new /c feature
-- After any change that touches `src/web` (especially the `/c` surface), `src/ws-do`, or `src/shared` community queries/schema, you MUST launch the `alook-c-qa` subagent to verify the feature end-to-end before reporting the task complete. Typecheck + unit tests are necessary but not sufficient — a green build with a broken user journey is still a broken feature.
-- The QA agent lives at `.claude/agents/alook-c-qa.md`. Invoke it via the Agent tool with `subagent_type: alook-c-qa` and hand it the `QA tests` checklist from the plan. It boots (or reuses) the local dev stack, drives the browser, correlates against D1 + WS + worker logs, and reports PASS/FAIL/BLOCKED with evidence.
-- If the QA agent returns FAIL or BLOCKED, treat that as an unfinished task — fix the defect and re-run the QA agent. Do not mark the plan checkbox complete on a failing journey. If a journey is genuinely out of scope for a change, say so in the report and skip it explicitly, don't silently drop it.
-- The QA agent is scoped to `/c` (community). For changes elsewhere in `src/web` (blog, marketing, calendar, etc.) it is not the right tool — run the relevant unit/E2E tests directly.
+## Behavioral tests and QA
 
-## Always WRITE/RUN TESTS!
-- never report to me about your code changes without running tests first.
-- always write tests for your code changes, only when your code changes are already covered by the current tests.
+- Select the lowest layer that proves the risk: pure/module tests for logic, DOM for visible state and events, native database/Worker/process integration for platform contracts, and browser E2E for key user journeys and changed integration boundaries.
+- A `/c` behavior change needs the relevant existing key/feature journeys. A source-path touch alone does not require another complete browser run. CI/test-only changes need real tooling/selection checks, not an invented product journey.
+- Use the task's assigned QA executor. If no executor is assigned and community runtime QA is needed, use `.claude/agents/alook-c-qa.md` with the plan's actual journey checklist. Do not duplicate an already assigned independent QA owner. Non-community surfaces use their relevant tests.
+- Keep authentication, permission, message consistency, durable writes and process cleanup assertions. A QA FAIL/BLOCKED remains unfinished unless the owner explicitly accepts that scoped gap; discovery, compile, cached replay and actual runtime execution are different evidence.
+- Add or change a test only when it independently proves changed behavior or an uncovered risk. Do not copy implementation text, mirror a complete internal props definition, add arbitrary line-count limits or manufacture a private exception to raise coverage. When removing or combining a test, state its former risk, the exact remaining executable guard and any coverage loss.
+- Review test value again before freezing a candidate. Preserve distinct negative, concurrency and failure cases; two layers with different real boundaries are not duplicates merely because their names match. Do not weaken assertions, retries, budgets, source identity or cleanup to reduce runtime.
 
 ## Don't use plan MODE, try to write the plan md directly
 

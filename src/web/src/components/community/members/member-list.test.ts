@@ -1,3 +1,4 @@
+import resolvedRawInput0 from "./member-list.tsx?raw"
 import { describe, it, expect } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
@@ -70,19 +71,13 @@ describe("hasMemberMenu", () => {
 
 describe("member action identity contract", () => {
   it("sends the stable member id, never the display name, to role mutations", () => {
-    const source = fs.readFileSync(
-      path.join(path.dirname(fileURLToPath(import.meta.url)), "member-list.tsx"),
-      "utf8",
-    )
+    const source = resolvedRawInput0
     expect(source).toContain("onSetRole?.(mem.id, r)")
     expect(source).not.toContain("onSetRole?.(mem.name, r)")
   })
 
   it("keeps loading inside the real toolbar and scroll ownership", () => {
-    const source = fs.readFileSync(
-      path.join(path.dirname(fileURLToPath(import.meta.url)), "member-list.tsx"),
-      "utf8",
-    )
+    const source = resolvedRawInput0
     expect(source).toContain(
       "<MemberListSkeleton showSearch={Boolean(onSearch)} showAddMember={Boolean(onAddMember)} />",
     )

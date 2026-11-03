@@ -1,5 +1,5 @@
 import React from "react"
-import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render } from "@/test/react-dom-harness"
 import { InboxPopover } from "./community-inbox-popover"
 import type { Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
@@ -98,16 +98,6 @@ describe("InboxPopover thread opener rows", () => {
     expect(icon.style.height).toBe("14px")
     const unreads = renderer.getByTestId(tid.inboxTabScroll("unreads"))
     expect(unreads.querySelector(".lucide-chevron-right")).toBeNull()
-  })
-
-  it("accepts the generic thread callback used by opener-backed buttons", () => {
-    expectTypeOf<Parameters<typeof InboxPopover>[0]>().toExtend<{
-      onOpenThread?: (
-        server: UnreadServer,
-        parent: UnreadServer["channels"][number],
-        child: UnreadServer["channels"][number]["children"][number],
-      ) => void
-    }>()
   })
 
   it("renders the authoritative opener title and passes parent/opener targets", () => {

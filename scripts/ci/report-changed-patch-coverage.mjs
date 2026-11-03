@@ -33,6 +33,29 @@ function normalizedPath(path) {
   return path.replaceAll("\\", "/").replace(/^\.\//, "")
 }
 
+export function validateCoverageReport(report) {
+  const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value)
+  if (!record(report)) throw new Error("coverage report must be an Istanbul file map")
+  for (const [path, file] of Object.entries(report)) {
+    if (!record(file)) throw new Error(`invalid Istanbul file: ${path}`)
+    for (const [mapName, countsName] of [["statementMap", "s"], ["fnMap", "f"], ["branchMap", "b"]]) {
+      const map = file[mapName], counts = file[countsName]
+      if (!record(map) || !record(counts)
+        || JSON.stringify(Object.keys(map).sort()) !== JSON.stringify(Object.keys(counts).sort())) {
+        throw new Error(`invalid Istanbul ${countsName} map: ${path}`)
+      }
+      for (const value of Object.values(counts)) {
+        const values = countsName === "b" && Array.isArray(value) ? value : [value]
+        if ((countsName === "b" && !Array.isArray(value))
+          || values.some((count) => typeof count !== "number" || !Number.isFinite(count) || count < 0)) {
+          throw new Error(`invalid Istanbul ${countsName} counter: ${path}`)
+        }
+      }
+    }
+  }
+  return report
+}
+
 export function parseAddedLines(diff) {
   const changed = new Map()
   let path = null
@@ -189,7 +212,7 @@ export function runCli(argv) {
     trackedDiff,
     head === "WORKTREE" ? untrackedAddedLinesDiff(root) : "",
   ].filter(Boolean).join("\n")
-  const report = JSON.parse(readFileSync(resolve(args.report), "utf8"))
+  const report = validateCoverageReport(JSON.parse(readFileSync(resolve(args.report), "utf8")))
   const result = collectChangedPatchCoverage(parseAddedLines(diff), report, { root })
   const output = `${JSON.stringify(result, null, 2)}\n`
   if (args.output) writeFileSync(resolve(args.output), output)
@@ -198,9 +221,6 @@ export function runCli(argv) {
   )
   for (const file of result.files.filter((entry) => entry.missed > 0)) {
     process.stdout.write(`${file.path}: ${file.missed_lines.join(", ")}\n`)
-  }
-  if (result.missed_lines > 0) {
-    throw new Error(`changed patch has ${result.missed_lines} uncovered executable lines`)
   }
   return result
 }

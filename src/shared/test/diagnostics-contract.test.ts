@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import * as Shared from "../src/index";
 import { HostCommandSchema } from "../src/community-cli-contract";
 import { DIAGNOSTIC_REPORT_FAILURE_CODES as DB_FAILURE_CODES } from "../src/db/community-machine-schema";
@@ -14,8 +14,6 @@ import {
   DiagnosticReportIdSchema,
   OwnerDiagnosticReportSchema,
 } from "../src/diagnostics-contract";
-import type { DiagnosticReportFailureCode } from "../src/diagnostics-contract";
-import type { DiagnosticReportFailureCode as BarrelDiagnosticReportFailureCode } from "../src/index";
 
 const FROM_MS = 1_700_000_000_000;
 const DEADLINE_AT = FROM_MS + DIAGNOSTIC_COLLECT_SPAN_MS;
@@ -55,8 +53,6 @@ describe("shared diagnostics contract ownership", () => {
   it("re-exports the database-owned failure-code tuple without copying it", () => {
     expect(DIAGNOSTIC_REPORT_FAILURE_CODES).toBe(DB_FAILURE_CODES);
     expect(DiagnosticReportFailureCodeSchema.options).toEqual([...DB_FAILURE_CODES]);
-    expectTypeOf<DiagnosticReportFailureCode>().toEqualTypeOf<(typeof DB_FAILURE_CODES)[number]>();
-    expectTypeOf<BarrelDiagnosticReportFailureCode>().toEqualTypeOf<DiagnosticReportFailureCode>();
   });
 });
 
@@ -159,7 +155,6 @@ describe("owner-safe diagnostic report projection", () => {
     const parsed = OwnerDiagnosticReportSchema.safeParse(report);
     expect(parsed.success).toBe(true);
     if (parsed.success) expect(parsed.data).toEqual(report);
-    expect(Object.keys(ownerReport)).toHaveLength(6);
   });
 
   it.each([

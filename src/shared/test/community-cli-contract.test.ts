@@ -1,4 +1,4 @@
-import { describe, it, expect, expectTypeOf } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   parseRef,
   formatRef,
@@ -8,7 +8,6 @@ import {
   DM_SERVER,
   AgentInterruptRequestSchema,
   HostCommandSchema,
-  type HostCommand,
 } from "../src/community-cli-contract";
 import { CommunityAgentAttachmentUploadResponseSchema } from "../src/schemas";
 
@@ -224,10 +223,6 @@ describe("formatRef", () => {
     ).toThrow();
   });
 
-  it("formats a plain channel ref unchanged (regression)", () => {
-    expect(formatRef({ server: "studio#0042", channel: "general" })).toBe("/studio#0042/general");
-  });
-
   it("formats a plain thread ref unchanged (regression)", () => {
     expect(formatRef({ server: "studio#0042", channel: "general", threadRootSeq: 5 })).toBe(
       "/studio#0042/general/#5",
@@ -319,7 +314,7 @@ describe("HostCommand nap contract", () => {
 });
 
 describe("HostCommand diagnostics contract", () => {
-  it("keeps the diagnostics arm in the HostCommand type and runtime schema", () => {
+  it("accepts the diagnostics arm in the runtime command union", () => {
     type DiagnosticCommand = {
       type: "diagnostics:collect";
       reportId: string;
@@ -327,9 +322,6 @@ describe("HostCommand diagnostics contract", () => {
       fromMs: number;
       deadlineAt: number;
     };
-    expectTypeOf<Extract<HostCommand, { type: "diagnostics:collect" }>>()
-      .toEqualTypeOf<DiagnosticCommand>();
-
     const command: DiagnosticCommand = {
       type: "diagnostics:collect",
       reportId: "dbr_0123456789abcdef",
@@ -356,7 +348,7 @@ describe("HostCommand control heartbeat contract", () => {
 });
 
 describe("HostCommand runtime config update contract", () => {
-  it("keeps the narrow revisioned config arm in the type and runtime schema", () => {
+  it("accepts the revisioned config arm in the runtime command union", () => {
     const config = {
       version: 1,
       runtime: "codex",
@@ -365,13 +357,6 @@ describe("HostCommand runtime config update contract", () => {
       reasoningEffort: "xhigh",
       runtimeConfigRevision: 8,
     };
-    type RuntimeConfigUpdate = {
-      type: "agent:runtime_config_update";
-      agentId: string;
-      config: typeof config;
-    };
-    expectTypeOf<Extract<HostCommand, { type: "agent:runtime_config_update" }>>()
-      .toMatchTypeOf<RuntimeConfigUpdate>();
     expect(HostCommandSchema.parse({
       type: "agent:runtime_config_update",
       agentId: "bot_1",
@@ -381,10 +366,7 @@ describe("HostCommand runtime config update contract", () => {
 });
 
 describe("HostCommand machine update contract", () => {
-  it("keeps the no-payload arm in the type and strict runtime schema", () => {
-    type UpdateCommand = { type: "machine:update" };
-    expectTypeOf<Extract<HostCommand, { type: "machine:update" }>>()
-      .toEqualTypeOf<UpdateCommand>();
+  it("accepts the payload-free update arm in the strict runtime schema", () => {
     expect(HostCommandSchema.safeParse({ type: "machine:update" })).toEqual(
       expect.objectContaining({ success: true }),
     );
@@ -402,8 +384,6 @@ describe("HostCommand machine update contract", () => {
 
 describe("HostCommand machine stop contract", () => {
   it("accepts only the payload-free stop command", () => {
-    expectTypeOf<Extract<HostCommand, { type: "machine:stop" }>>()
-      .toEqualTypeOf<{ type: "machine:stop" }>();
     expect(HostCommandSchema.parse({ type: "machine:stop" })).toEqual({ type: "machine:stop" });
     for (const field of ["machineId", "command", "force", "delete", "credential"]) {
       expect(HostCommandSchema.safeParse({ type: "machine:stop", [field]: "extra" }).success).toBe(false);

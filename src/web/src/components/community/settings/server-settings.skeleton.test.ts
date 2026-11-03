@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs"
+import rawContractInput0 from "./server-settings.tsx?raw"
 import { describe, expect, it } from "vitest"
 
 describe("SettingsMembers loading geometry", () => {
   it("keeps search, count, and the loaded scroll owner", () => {
-    const source = readFileSync(new URL("./server-settings.tsx", import.meta.url), "utf8")
+    const source = rawContractInput0
     expect(source).toContain(
       "<SettingsMembersSkeleton showSearch={Boolean(onSearch)} />",
     )

@@ -1,8 +1,19 @@
-import { existsSync, readFileSync } from "node:fs"
+import contractText0 from "./fanout.ts?raw"
+import contractText1 from "./message-dispatcher.ts?raw"
+import contractText2 from "./message-handler.ts?raw"
+import contractText3 from "./queue-producer.ts?raw"
+import { existsSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
-function source(name: string): string {
-  return readFileSync(new URL(name, import.meta.url), "utf8")
+const contractSources: Record<string, string> = {
+  "./fanout.ts": contractText0,
+  "./message-dispatcher.ts": contractText1,
+  "./message-handler.ts": contractText2,
+  "./queue-producer.ts": contractText3,
+}
+const source = (path: string) => {
+  if (!(path in contractSources)) throw new Error("unregistered contract source: " + path)
+  return contractSources[path]
 }
 
 describe("committed-message delivery architecture", () => {

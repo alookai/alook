@@ -1,9 +1,12 @@
+import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { projectPlan, validateExecutionPlan } from "./changed-scopes.mjs"
 
-export function validatePlanEnvelope({ planJson, planHash, projectionName, projectionValue }) {
-  if (!planJson) throw new Error("CI execution plan is required")
-  const plan = validateExecutionPlan(JSON.parse(planJson))
+export function validatePlanEnvelope({ planJson, planFile, planHash, projectionName, projectionValue }) {
+  if (planJson && planFile) throw new Error("choose one execution plan input")
+  const body = planFile ? readFileSync(planFile, "utf8") : planJson
+  if (!body) throw new Error("CI execution plan is required")
+  const plan = validateExecutionPlan(JSON.parse(body))
   if (plan.plan_hash !== planHash) throw new Error("CI execution plan envelope hash mismatch")
 
   if (projectionName) {
@@ -21,6 +24,7 @@ export function validatePlanEnvelope({ planJson, planHash, projectionName, proje
 export function runCli(env = process.env) {
   const plan = validatePlanEnvelope({
     planJson: env.CI_EXECUTION_PLAN,
+    planFile: env.CI_EXECUTION_PLAN_FILE,
     planHash: env.CI_PLAN_HASH,
     projectionName: env.CI_PROJECTION_NAME,
     projectionValue: env.CI_PROJECTION_VALUE,

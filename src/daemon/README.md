@@ -277,7 +277,7 @@ This project uses **pnpm** (see the `packageManager` field).
 ```bash
 pnpm install
 pnpm run typecheck           # tsc --noEmit (passes clean)
-pnpm test                    # vitest — unit tests only (drivers/manager/inbox/credentials/server)
+pnpm test                    # Vitest package suite, including its packed/runtime categories
 pnpm run test:integration    # real infra: requires wrangler dev + ws-do dev + queue-worker dev (see below)
 ```
 

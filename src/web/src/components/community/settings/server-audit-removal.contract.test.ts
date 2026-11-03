@@ -1,3 +1,11 @@
+import auditMigration from "../../../../migrations/0084_drop_community_audit_log.sql?raw"
+import communitySchema from "../../../../../shared/src/db/community-schema.ts?raw"
+import contractText0 from "../../../app/api/community/bots/[id]/audit-log/route.ts?raw"
+import contractText1 from "../channels/channel-sidebar.tsx?raw"
+import contractText2 from "./server-settings.tsx?raw"
+import contractText3 from "./settings-types.ts?raw"
+import contractText4 from "../../../hooks/community/use-server-panels.ts?raw"
+import contractText5 from "../../../lib/query-keys.ts?raw"
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -7,8 +15,19 @@ const componentDirectory = dirname(fileURLToPath(import.meta.url))
 const webRoot = resolve(componentDirectory, "../../../..")
 const repositoryRoot = resolve(webRoot, "../..")
 
-const readWeb = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
-const readRepository = (path: string) => readFileSync(resolve(repositoryRoot, path), "utf8")
+const contractSources: Record<string, string> = {
+  "src/app/api/community/bots/[id]/audit-log/route.ts": contractText0,
+  "src/components/community/channels/channel-sidebar.tsx": contractText1,
+  "src/components/community/settings/server-settings.tsx": contractText2,
+  "src/components/community/settings/settings-types.ts": contractText3,
+  "src/hooks/community/use-server-panels.ts": contractText4,
+  "src/lib/query-keys.ts": contractText5,
+  "migrations/0084_drop_community_audit_log.sql": auditMigration,
+}
+const readWeb = (path: string) => {
+  if (!(path in contractSources)) throw new Error("unregistered contract source: " + path)
+  return contractSources[path]
+}
 
 describe("server audit removal contract", () => {
   it("removes the server settings surface and client query", () => {
@@ -31,6 +50,6 @@ describe("server audit removal contract", () => {
   it("preserves the independent bot activity contract", () => {
     expect(existsSync(resolve(webRoot, "src/app/api/community/bots/[id]/audit-log/route.ts"))).toBe(true)
     expect(existsSync(resolve(repositoryRoot, "src/shared/src/db/queries/community/bot-audit-log.ts"))).toBe(true)
-    expect(readRepository("src/shared/src/db/community-schema.ts")).toContain("communityBotActivityEvent")
+    expect(communitySchema).toContain("communityBotActivityEvent")
   })
 })

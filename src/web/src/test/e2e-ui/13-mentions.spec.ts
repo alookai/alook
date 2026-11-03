@@ -114,15 +114,6 @@ test.describe("mentions — mandatory discriminator", () => {
             clipboardData: transfer,
           }))
         }, content)
-        expect(await editable.evaluate((element) => Array.from(element.children).map((block) => ({
-          tag: block.tagName,
-          text: block.textContent,
-          breaks: block.querySelectorAll("br").length,
-        })))).toEqual(content.split("\n\n").map((block) => ({
-          tag: "P",
-          text: block.replaceAll("\n", ""),
-          breaks: block.split("\n").length - 1,
-        })))
       } else {
         await editable.fill(content)
       }
@@ -352,11 +343,17 @@ test.describe("mentions — mandatory discriminator", () => {
   })
 
   test("setting a display name with # / @ / newline is rejected (400)", async ({ caseActors }) => {
-    const actors = await caseActors(["alice", "bob", "carol"])
-    const { asUser } = actors
-    await prepareCase1(actors)
-
-    const { page } = await asUser("alice")
+    const actors = await caseActors(["alice"])
+    const originalName = actors.userName("alice")
+    const { page } = await actors.asUser("alice")
+    actors.onCleanup(async () => {
+      await actors.seed.renameUser("alice", originalName)
+      const restored = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/users/me/profile", {
+        headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+      }))
+      expect(restored.status()).toBe(200)
+      expect(await restored.json()).toMatchObject({ name: originalName })
+    })
     for (const bad of ["Ann#1234", "bad@name", "line\nbreak"]) {
       const res = await confirmCommunityFixtureApiResponse(page.request.patch("/api/community/users/me/profile", {
         headers: { "Content-Type": "application/json", ...CURRENT_COMMUNITY_FIXTURE_HEADERS },

@@ -25,6 +25,10 @@ describe("ModelField with the real Select", () => {
       const view = render(<ModelField runtime={{ ...runtime, id: "opencode" }} value={null} onChange={onChange} menu={{ open: true, container: host }} />);
       await act(async () => {});
       expect(host.querySelectorAll('[role="option"]')).toHaveLength(3);
+      expect(host.querySelector('[data-slot="select-content"]')).toHaveClass("p-1.5");
+      for (const option of host.querySelectorAll('[role="option"]')) {
+        expect(option).toHaveClass("min-h-10", "py-2", "pr-9", "pl-3", "leading-snug");
+      }
       expect(host.querySelector('[data-testid="bot-model-filter-input"]')).not.toBe(document.activeElement);
       expect(onChange).not.toHaveBeenCalled();
       view.rerender(<ModelField runtime={{ ...runtime, id: "opencode" }} value="gemini-3.1-pro-high" onChange={onChange} menu={{ open: false, container: host }} />);

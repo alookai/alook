@@ -30,9 +30,20 @@
     "app-store-capture/next.config.ts",
     "app-store-capture/postcss.config.mjs",
     "app-store-capture/app/**/page.tsx",
-    "app-store-capture/app/layout.tsx"
+    "app-store-capture/app/layout.tsx",
+    "blog/vitest.config.mts",
+    "blog/vitest.dom.config.mts"
   ],
-  "project": ["src/**/*.{ts,tsx,css,mdx}", "blog/**/*.{ts,tsx,css,mdx}", "auth/**/*.{ts,tsx,mts}", "scripts/**/*.{ts,mjs}", "test-runtime/**/*.ts", "app-store-capture/**/*.{ts,tsx,mjs,css}", "!app-store-capture/.next/**", "!app-store-capture/next-env.d.ts"],
+  "project": [
+    "src/**/*.{ts,tsx,css,mdx}",
+    "blog/**/*.{ts,tsx,mts,css,mdx}",
+    "auth/**/*.{ts,tsx,mts}",
+    "scripts/**/*.{ts,mjs}",
+    "test-runtime/**/*.ts",
+    "app-store-capture/**/*.{ts,tsx,mjs,css}",
+    "!app-store-capture/.next/**",
+    "!app-store-capture/next-env.d.ts"
+  ],
   "ignoreDependencies": [
     "cloudflare",
     "rehype-autolink-headings",
@@ -45,9 +56,18 @@
     "src/components/ui/**"
   ],
   "vitest": {
-    "entry": ["src/**/*.test.{ts,tsx}", "blog/**/*.test.{ts,tsx}", "auth/**/*.test.ts", "scripts/**/*.test.ts", "src/test/**/*.{ts,tsx}", "test-runtime/**/*.test.ts"]
+    "entry": [
+      "src/**/*.test.{ts,tsx}",
+      "blog/**/*.test.{ts,tsx}",
+      "auth/**/*.test.ts",
+      "scripts/**/*.test.ts",
+      "src/test/**/*.{ts,tsx}",
+      "test-runtime/**/*.test.ts"
+    ]
   },
   "eslint": {
-    "entry": ["eslint.config.mjs"]
+    "entry": [
+      "eslint.config.mjs"
+    ]
   }
 }

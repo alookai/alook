@@ -51,13 +51,15 @@ if (existsSync(bundledDir)) rmSync(bundledDir, { recursive: true });
 // --- Build Web ---
 console.log("\n=== Building Web (opennextjs-cloudflare) ===\n");
 const webSrc = join(monoRoot, "src", "web");
-run("npx opennextjs-cloudflare build", webSrc);
+run("node ../../scripts/ci/run-turbo.mjs run @alook/web#build @alook/email-worker#build @alook/ws-do#build @alook/queue-worker#build", appRoot);
 
 const webDest = join(bundledDir, "web");
 mkdirSync(webDest, { recursive: true });
 cpSync(join(webSrc, ".open-next"), join(webDest, ".open-next"), { recursive: true });
 rewriteAbsolutePaths(webDest);
 cpSync(join(webSrc, "wrangler.toml"), join(webDest, "wrangler.toml"));
+const webPackage = JSON.parse(readFileSync(join(webSrc, "package.json"), "utf8"));
+writeFileSync(join(webDest, "package.json"), JSON.stringify({ type: "module", imports: webPackage.imports }, null, 2) + "\n");
 cpSync(join(webSrc, "custom-worker.ts"), join(webDest, "custom-worker.ts"));
 mkdirSync(join(webDest, "src", "lib"), { recursive: true });
 mkdirSync(join(webDest, "src", "lib", "observability"), { recursive: true });
@@ -75,7 +77,6 @@ const emailSrc = join(monoRoot, "src", "email-worker");
 const emailDest = join(bundledDir, "email-worker");
 mkdirSync(emailDest, { recursive: true });
 
-run("npx wrangler deploy --dry-run --outdir dist", emailSrc);
 cpSync(join(emailSrc, "dist", "index.js"), join(emailDest, "index.js"));
 
 const emailToml = readFileSync(join(emailSrc, "wrangler.toml"), "utf-8");
@@ -90,7 +91,6 @@ const wsSrc = join(monoRoot, "src", "ws-do");
 const wsDest = join(bundledDir, "ws-do");
 mkdirSync(wsDest, { recursive: true });
 
-run("npx wrangler deploy --dry-run --outdir dist", wsSrc);
 cpSync(join(wsSrc, "dist", "index.js"), join(wsDest, "index.js"));
 
 const wsToml = readFileSync(join(wsSrc, "wrangler.toml"), "utf-8");
@@ -105,7 +105,6 @@ const queueSrc = join(monoRoot, "src", "queue-worker");
 const queueDest = join(bundledDir, "queue-worker");
 mkdirSync(queueDest, { recursive: true });
 
-run("npx wrangler deploy --dry-run --outdir dist", queueSrc);
 cpSync(join(queueSrc, "dist", "index.js"), join(queueDest, "index.js"));
 
 const queueToml = readFileSync(join(queueSrc, "wrangler.toml"), "utf-8");

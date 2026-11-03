@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import rawContractInput0 from "../community/settings/user-settings.tsx?raw"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
@@ -27,7 +27,7 @@ describe("Terms of Service", () => {
   })
 
   it("uses the same content in its own Settings tab and keeps public sharing metadata canonical", () => {
-    const settings = readFileSync(new URL("../community/settings/user-settings.tsx", import.meta.url), "utf8")
+    const settings = rawContractInput0
     expect(settings).toMatch(/\{\s*value: "terms",\s*label: "Terms",/)
     expect(settings).toContain('<SettingsShellPanel value="terms">')
     expect(settings).toContain("<TermsContent />")

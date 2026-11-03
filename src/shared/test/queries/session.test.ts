@@ -9,9 +9,6 @@ function createMockDb(rows: any[]) {
   return chain;
 }
 
-describe("session exports", () => {
-  it("exports getValidSession", () => { expect(typeof sessionQueries.getValidSession).toBe("function"); });
-});
 
 describe("getValidSession", () => {
   it("returns null when no valid session", async () => { expect(await sessionQueries.getValidSession(createMockDb([]), "tok")).toBeNull(); });

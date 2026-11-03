@@ -10,14 +10,6 @@ import {
 
 vi.mock("nanoid", () => ({ nanoid: vi.fn(() => "m_generated") }));
 
-describe("community/message exports", () => {
-  it("exports getMessagesByIds", () => {
-    expect(typeof messageQueries.getMessagesByIds).toBe("function");
-  });
-  it("exports createMessage", () => {
-    expect(typeof messageQueries.createMessage).toBe("function");
-  });
-});
 
 describe("getMessageIdentityByChannelAndSeq", () => {
   it("projects only message identity for channel-scoped resolution", async () => {
@@ -115,9 +107,6 @@ describe("getMessagesByIds", () => {
 });
 
 describe("getMessageInScope", () => {
-  it("exports as a function", () => {
-    expect(typeof messageQueries.getMessageInScope).toBe("function");
-  });
 
   it("returns the row when the db finds an in-scope match", async () => {
     const db = createSelectMock([messageRow("m_1")]);
@@ -143,9 +132,6 @@ describe("getMessageInScope", () => {
 });
 
 describe("getMessagesByIdsInScope", () => {
-  it("exports as a function", () => {
-    expect(typeof messageQueries.getMessagesByIdsInScope).toBe("function");
-  });
 
   it("returns [] and does NOT hit db when ids is empty", async () => {
     const db = createSelectMock([messageRow("m_1")]);

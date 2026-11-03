@@ -17,16 +17,7 @@ function createMockDb(rows: any[]) {
 }
 
 describe("machine query module exports", () => {
-  it("exports upsertMachine", () => { expect(typeof machineQueries.upsertMachine).toBe("function"); });
-  it("exports updateMachineLastSeen", () => { expect(typeof machineQueries.updateMachineLastSeen).toBe("function"); });
-  it("exports setMachineLastSeenNull", () => { expect(typeof machineQueries.setMachineLastSeenNull).toBe("function"); });
-  it("exports getMachineByDaemon", () => { expect(typeof machineQueries.getMachineByDaemon).toBe("function"); });
   it("exports listMachinesForWorkspace", () => { expect(typeof machineQueries.listMachinesForWorkspace).toBe("function"); });
-  it("exports deleteMachine", () => { expect(typeof machineQueries.deleteMachine).toBe("function"); });
-  it("exports setPendingUpdateVersion", () => { expect(typeof machineQueries.setPendingUpdateVersion).toBe("function"); });
-  it("exports clearPendingUpdateVersion", () => { expect(typeof machineQueries.clearPendingUpdateVersion).toBe("function"); });
-  it("exports setPendingRescan", () => { expect(typeof machineQueries.setPendingRescan).toBe("function"); });
-  it("exports clearPendingRescan", () => { expect(typeof machineQueries.clearPendingRescan).toBe("function"); });
 });
 
 describe("upsertMachine", () => {

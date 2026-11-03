@@ -18,14 +18,9 @@ import { computeDiscriminator } from "../../src/lib/discriminator"
  */
 describe("community/bot exports", () => {
   it("exposes read helpers", () => {
-    expect(typeof q.listBotsForOwner).toBe("function")
-    expect(typeof q.getBotOwnedBy).toBe("function")
     expect(typeof q.getLiveBotAvatar).toBe("function")
     expect(typeof q.countLiveBotsForOwner).toBe("function")
-    expect(typeof q.getBotBinding).toBe("function")
-    expect(typeof q.listBotsForMachine).toBe("function")
     expect(typeof q.listBotsBoundToMachine).toBe("function")
-    expect(typeof q.getMachineForOwner).toBe("function")
   })
 
   it("exposes bot-activity heatmap helpers", () => {
@@ -35,7 +30,6 @@ describe("community/bot exports", () => {
   })
 
   it("exposes write helpers", () => {
-    expect(typeof q.createBot).toBe("function")
     expect(typeof q.updateBot).toBe("function")
     expect(typeof q.softDeleteBot).toBe("function")
     expect(typeof q.assertNoLiveBots).toBe("function")

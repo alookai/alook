@@ -17,11 +17,23 @@ import {
   isolatedRepositoryGitEnvironment,
   parseAddedLines,
   runCli,
-} from "./verify-changed-patch-coverage.mjs"
+  validateCoverageReport,
+} from "./report-changed-patch-coverage.mjs"
 
 function location(line: number) {
   return { start: { line, column: 0 }, end: { line, column: 1 } }
 }
+
+it("keeps malformed reports fatal while allowing genuine uncovered counters", () => {
+  const file = { path: "source.ts", statementMap: { "0": location(1) }, s: { "0": 0 }, fnMap: {}, f: {}, branchMap: {}, b: {} }
+  expect(validateCoverageReport({ "source.ts": file })).toEqual({ "source.ts": file })
+  for (const value of [null, [], "not a file map"]) {
+    expect(() => validateCoverageReport(value)).toThrow("Istanbul file map")
+  }
+  expect(() => validateCoverageReport({ "source.ts": { ...file, s: {} } })).toThrow("invalid Istanbul s map")
+  expect(() => validateCoverageReport({ "source.ts": { ...file, s: { "0": "1" } } })).toThrow("invalid Istanbul s counter")
+  expect(() => validateCoverageReport({ "source.ts": { ...file, branchMap: { "0": {} }, b: { "0": -1 } } })).toThrow("invalid Istanbul b counter")
+})
 
 function git(root: string, ...args: string[]) {
   return execFileSync("git", args, {
@@ -258,7 +270,7 @@ describe("changed patch coverage", () => {
     }
   })
 
-  it("supports an explicit head and reports every missed file before failing", () => {
+  it("supports an explicit head and reports misses without enforcing a percentage", () => {
     const parent = poisonParentGitEnvironment()
     let root: string | undefined
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
@@ -270,12 +282,13 @@ describe("changed patch coverage", () => {
       git(root, "commit", "--quiet", "-m", "head")
       const reportPath = writeReport(root, "src/base.mjs", 0)
 
-      expect(() => runCli([
+      const result = runCli([
         "--base", base,
         "--head", "HEAD",
         "--report", reportPath,
         "--root", root,
-      ])).toThrow("changed patch has 1 uncovered executable lines")
+      ])
+      expect(result).toMatchObject({ covered_lines: 0, missed_lines: 1, total_lines: 1, percent: 0 })
       expect(stdout).toHaveBeenCalledWith(expect.stringContaining("0/1 lines"))
       expect(stdout).toHaveBeenCalledWith("src/base.mjs: 1\n")
       parent.expectUnchanged()
