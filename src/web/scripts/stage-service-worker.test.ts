@@ -1,5 +1,6 @@
 import type { createSerwistRoute } from "@serwist/turbopack"
 import { createHash } from "node:crypto"
+import { createRequire } from "node:module"
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
@@ -37,7 +38,13 @@ describe("complete build shell and worker staging", () => {
     writeFileSync(resolve(chunks, "b.js"), source)
     await stageServiceWorker(root)
     expect(readFileSync(resolve(chunks, "a.js"), "utf8")).toBe(source)
-    expect(readFileSync(resolve(chunks, "b.js"), "utf8")).toBe('module.exports = require("./a.js");\n')
+    const require = createRequire(resolve(root, "entry.cjs"))
+    const canonical = require(resolve(chunks, "a.js"))
+    const alias = require(resolve(chunks, "b.js"))
+    expect(alias).toBe(canonical)
+    const context = { exports: {} }
+    alias[1](context)
+    expect(context.exports).toEqual({ value: "same" })
   })
   it("builds a classic worker from explicit public asset globs", async () => {
     await stageServiceWorker(fixture())

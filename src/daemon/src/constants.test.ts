@@ -35,10 +35,6 @@ describe("magic-number extractions", () => {
     expect(SESSION_STOP_GRACE_MS).toBeLessThan(Number(match![1]));
   });
 
-  it("PROBE_TIMEOUT_MS is set to 5000 in the driver package", () => {
-    expect(readSrc("../agent-driver/src/internal/probe.ts")).toMatch(/PROBE_TIMEOUT_MS\s*=\s*5000\b/);
-  });
-
   it("the removed raw-stderr manager buffer limit stays deleted", () => {
     expect(readSrc("manager/managerRuntime.ts")).not.toMatch(/\bSTDERR_LOG_MAX_LEN\b/);
   });

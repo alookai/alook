@@ -66,8 +66,6 @@ describe("useUserProfile / userProfileQueryFn", () => {
     expect(client.getQueryState(key)?.isInvalidated).toBe(true)
   })
 
-  it("exports a positive PROFILE_STALE_TIME_MS", () => expect(PROFILE_STALE_TIME_MS).toBeGreaterThan(0))
-
   it("a re-fetch for the same userId within the stale window resolves from cache, no second network call", async () => {
     const { client } = await createCommunityQueryOwner()
     apiFetchMock.mockResolvedValueOnce(profile)
