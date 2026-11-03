@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it, onTestFailed } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { AgentEvent, BuiltinBackendSpecs } from "../../contract.js";
+import type { AgentEvent, BuiltinBackendSpecs, RawOutputEvent } from "../../contract.js";
 import { createAgentDriverSdkWithRegistry } from "../../sdk.js";
 import { capabilitiesFor, createAgentDriverRegistry } from "../../registry.js";
-import { createFakeAgentDriverHost } from "../../testing/fake-host.js";
+import { createDefaultAgentDriverHost } from "../../host/default-host.js";
 import { OptionalSdkDriver } from "../../internal/optional-sdk-driver.js";
 import { cursorSdkWorker } from "./worker.js";
 
@@ -26,7 +26,11 @@ function setup() {
     id: "cursor-sdk" as const, contractVersion: 2 as const, capabilities: capabilitiesFor("cursor-sdk"),
     createAdapter: () => new OptionalSdkDriver("cursor-sdk", "fixture-sdk", cursorSdkWorker, () => ({ entry: modulePath, version: "fixture" })),
   };
-  const host = createFakeAgentDriverHost();
+  const rawOutput: RawOutputEvent[] = [];
+  const host = {
+    ...createDefaultAgentDriverHost({ onRawOutput: (event) => { rawOutput.push(event); } }),
+    rawOutput,
+  };
   const sdk = createAgentDriverSdkWithRegistry<BuiltinBackendSpecs>({ host, registry: createAgentDriverRegistry([registration]) });
   const open = (resumeSessionId?: string) => sdk.open({ backend: "cursor-sdk", config: { model: { kind: "named", name: "fixture-model" } }, launch: {
     workingDirectory: root, instructions: { format: "markdown", content: "fixture instructions" }, launchId: "fixture", resumeSessionId,
@@ -52,15 +56,20 @@ describe("Cursor SDK public sessions through an owned worker", () => {
     const collecting = (async () => { for await (const event of session.events) events.push(event); })();
     let phase = "first admission";
     let current = session;
+    const admissionTimings: Record<string, number> = {};
+    const firstStartedAt = Date.now();
+    let resumeStartedAt: number | undefined;
     onTestFailed(() => {
       const fixture = Object.fromEntries(["opens", "inputs", "steers", "fixture-history", "release"].map((name) => {
         const path = join(f.root, name);
         return [name, existsSync(path) ? readFileSync(path, "utf8") : null];
       }));
-      console.error(JSON.stringify({ phase, snapshot: current.snapshot(), events: events.slice(-20), rawOutput: f.host.rawOutput, fixture }));
+      console.error(JSON.stringify({ phase, admissionTimings, resumeWaitMs: resumeStartedAt === undefined ? null : Date.now() - resumeStartedAt,
+        snapshot: current.snapshot(), events: events.slice(-20), rawOutput: f.host.rawOutput, fixture }));
     });
     try {
       const receipt = await session.start({ id: "root", kind: "user", text: "first" });
+      admissionTimings.firstMs = Date.now() - firstStartedAt;
       expect(receipt, JSON.stringify({ receipt, rawOutput: f.host.rawOutput })).toMatchObject({ status: "accepted" });
       phase = "busy steering refusal";
       expect(await session.send({ id: "steer", kind: "user", text: "refuse" })).toMatchObject({ status: "queued", reason: "runtime_busy" });
@@ -86,7 +95,10 @@ describe("Cursor SDK public sessions through an owned worker", () => {
     current = resumed.session;
     try {
       phase = "resume admission";
+      resumeStartedAt = Date.now();
       await resumed.session.start({ id: "resume", kind: "user", text: "third" });
+      admissionTimings.resumeMs = Date.now() - resumeStartedAt;
+      console.info(JSON.stringify({ cursorWorkerAdmissionTimings: admissionTimings }));
       expect(resumed.session.snapshot().diagnostics.metrics.resumeOutcome).toBe("resumed");
     } finally {
       phase = `resume shutdown after ${phase}`;
