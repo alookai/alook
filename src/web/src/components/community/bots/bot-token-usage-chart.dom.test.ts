@@ -39,6 +39,8 @@ import {
 } from "./bot-token-usage-chart"
 
 const unavailable = null
+const numberFormat = new Intl.NumberFormat(undefined)
+const dayFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" })
 
 function usageDay(
   day: string,
@@ -117,7 +119,7 @@ describe("BotTokenUsageHeatmap", () => {
     const heatmap = renderer.getByTestId("community-bot-usage-bot_1")
     expect(heatmap).toHaveClass("grid-flow-col")
     expect(heatmap.className).toContain("grid-template-rows:repeat(3")
-    expect(heatmap).toHaveAttribute("aria-label", expect.stringContaining("610,000,001 known tokens total"))
+    expect(heatmap).toHaveAttribute("aria-label", expect.stringContaining(`${numberFormat.format(610_000_001)} known tokens total`))
 
     const cells = Array.from(renderer.container.querySelectorAll<HTMLElement>("[data-cell]"))
     expect(cells).toHaveLength(30)
@@ -144,12 +146,12 @@ describe("BotTokenUsageHeatmap", () => {
     }
     const renderer = renderUsage(usage)
     const today = renderer.getByTestId("community-bot-usage-day-bot_1-2026-08-30")
-    expect(today.getAttribute("aria-label")).toContain("Aug 30")
-    expect(today.getAttribute("aria-label")).toContain("Input 8")
-    expect(today.getAttribute("aria-label")).toContain("Output 2")
+    expect(today.getAttribute("aria-label")).toContain(dayFormat.format(new Date("2026-08-30T00:00:00Z")))
+    expect(today.getAttribute("aria-label")).toContain(`Input ${numberFormat.format(8)}`)
+    expect(today.getAttribute("aria-label")).toContain(`Output ${numberFormat.format(2)}`)
     expect(today.getAttribute("aria-label")).toContain("Cache Unavailable")
-    expect(text(renderer.container)).toContain("Input 8")
-    expect(text(renderer.container)).toContain("Output 2")
+    expect(text(renderer.container)).toContain(`Input ${numberFormat.format(8)}`)
+    expect(text(renderer.container)).toContain(`Output ${numberFormat.format(2)}`)
     expect(text(renderer.container)).toContain("Cache Unavailable")
   })
 
@@ -193,11 +195,11 @@ describe("BotTokenUsageHeatmap", () => {
     expect(newest).toHaveAttribute("aria-pressed", "true")
     expect(newest).toHaveClass("font-medium")
     const summary = renderer.getByTestId("community-bot-usage-dialog-summary-bot_1")
-    expect(text(summary)).toContain("Aug 30")
-    expect(text(summary)).toContain("Known total 20")
-    expect(text(summary)).toContain("Input 8")
-    expect(text(summary)).toContain("Output 2")
-    expect(text(summary)).toContain("Cache 10")
+    expect(text(summary)).toContain(dayFormat.format(new Date("2026-08-30T00:00:00Z")))
+    expect(text(summary)).toContain(`Known total ${numberFormat.format(20)}`)
+    expect(text(summary)).toContain(`Input ${numberFormat.format(8)}`)
+    expect(text(summary)).toContain(`Output ${numberFormat.format(2)}`)
+    expect(text(summary)).toContain(`Cache ${numberFormat.format(10)}`)
   })
 
   it("updates mobile values and pressed state when an older date is selected", () => {
@@ -216,8 +218,8 @@ describe("BotTokenUsageHeatmap", () => {
     expect(renderer.getByTestId("community-bot-usage-dialog-day-bot_1-2026-08-30"))
       .toHaveAttribute("aria-pressed", "false")
     const summary = renderer.getByTestId("community-bot-usage-dialog-summary-bot_1")
-    expect(text(summary)).toContain("Aug 28")
-    expect(text(summary)).toContain("Known total 9,000,000")
+    expect(text(summary)).toContain(dayFormat.format(new Date("2026-08-28T00:00:00Z")))
+    expect(text(summary)).toContain(`Known total ${numberFormat.format(9_000_000)}`)
     expect(text(summary)).toContain("Cache Unavailable")
   })
 
@@ -231,14 +233,14 @@ describe("BotTokenUsageHeatmap", () => {
   })
 
   it.each([
-    { metrics: { input: 129, output: unavailable, cache: 1029 }, total: "1,158", missing: "Output" },
-    { metrics: { input: 90, output: 24, cache: unavailable }, total: "114", missing: "Cache" },
-    { metrics: { input: unavailable, output: 24, cache: 23 }, total: "47", missing: "Input" },
+    { metrics: { input: 129, output: unavailable, cache: 1029 }, total: 1158, missing: "Output" },
+    { metrics: { input: 90, output: 24, cache: unavailable }, total: 114, missing: "Cache" },
+    { metrics: { input: unavailable, output: 24, cache: 23 }, total: 47, missing: "Input" },
   ])("labels partial usage as Known total with $missing unavailable", ({ metrics, total, missing }) => {
     mocks.breakpoint = "mobile"
     const renderer = renderUsage({ capability: "supported", days: thirtyDays({ 30: metrics }) })
     const summary = renderer.getByTestId("community-bot-usage-dialog-summary-bot_1")
-    expect(text(summary)).toContain(`Known total ${total}`)
+    expect(text(summary)).toContain(`Known total ${numberFormat.format(total)}`)
     expect(text(summary)).toContain(`${missing} Unavailable`)
     expect(renderer.container.querySelector("dialog-description")).toHaveTextContent(
       "Choose a date to view token usage. Known total excludes unavailable values.",
@@ -252,7 +254,7 @@ describe("BotTokenUsageHeatmap", () => {
       days: thirtyDays({ 30: { input: 0, output: 0, cache: 0 } }),
     })
     const summary = renderer.getByTestId("community-bot-usage-dialog-summary-bot_1")
-    expect(text(summary)).toContain("Known total 0")
+    expect(text(summary)).toContain(`Known total ${numberFormat.format(0)}`)
     expect(text(summary)).not.toContain("Unavailable")
   })
 })
