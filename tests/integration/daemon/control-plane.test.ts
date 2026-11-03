@@ -304,7 +304,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
           headers: { Authorization: `Bearer ${fixture.paired.credential}`, "content-type": "application/json" },
           body: JSON.stringify({ agentId: bot.botUserId }),
         })
-        expect(enrollRes.ok).toBe(true)
+        await assertResOk(enrollRes, "agent enrollment (multi-bot wake→enroll)")
         const { runnerKey } = (await enrollRes.json()) as { runnerKey: string }
 
         const pullRes = await fetchWithRetry(`${APP_URL}/api/community/users/me/inbox/pull`, {
