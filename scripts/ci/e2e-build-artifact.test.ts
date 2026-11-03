@@ -23,6 +23,7 @@ import {
   verifyArchiveMembers,
   verifyBuildArtifact,
 } from "./e2e-build-artifact.mjs"
+import { executeTurbo, queryTurboTasks, taskEnvironment } from "./run-turbo.mjs"
 
 const HEAD_SHA = "a".repeat(40)
 const roots: string[] = []
@@ -32,7 +33,7 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-function fixture(zones?: string[]) {
+function fixture(zones?: string[], producerNode?: string) {
   const root = mkdtempSync(join(tmpdir(), "alook-ui-e2e-build-"))
   roots.push(root)
   writeFileSync(join(root, "package.json"), JSON.stringify({ name: "artifact-fixture", packageManager: "pnpm@10.33.0" }))
@@ -60,7 +61,22 @@ function fixture(zones?: string[]) {
     headSha: HEAD_SHA,
     zones,
   })
+  if (producerNode !== undefined) {
+    const tasks = result.manifestData.roots.map(path => path.includes("/blog/") ? "@alook/web#build:blog" : "@alook/web#build")
+    const query = queryTurboTasks(tasks, { root, nodeVersion: producerNode })
+    expect(query.status).toBe(0)
+    const report = JSON.parse(query.stdout)
+    result.manifestData.toolchain.node = producerNode
+    result.manifestData.taskHashes = Object.fromEntries(report.tasks.filter(task => tasks.includes(task.taskId))
+      .sort((left, right) => left.taskId.localeCompare(right.taskId)).map(task => [task.taskId, task.hash]))
+    writeFileSync(result.manifest, JSON.stringify(result.manifestData))
+  }
   return { root, ...result }
+}
+
+function otherPatch() {
+  const [major, minor, patch] = process.versions.node.split(".")
+  return [major, minor, Number(patch) > 0 ? Number(patch) - 1 : 1].join(".")
 }
 
 function removeBuildOutputs(root: string) {
@@ -68,6 +84,60 @@ function removeBuildOutputs(root: string) {
 }
 
 describe("UI E2E build artifact", () => {
+  it("accepts a same-major producer patch while preserving its full version and native source identity", () => {
+    const producerNode = otherPatch()
+    const artifact = fixture(undefined, producerNode)
+    const current = queryTurboTasks(["@alook/web#build"], { root: artifact.root })
+    expect(current.status).toBe(0)
+    const currentHash = JSON.parse(current.stdout).tasks.find(task => task.taskId === "@alook/web#build").hash
+    expect(currentHash).not.toBe(artifact.manifestData.taskHashes["@alook/web#build"])
+    const result = verifyBuildArtifact({ root: artifact.root, directory: ".ci/ui-e2e-build", runId: "123", attempt: 2, headSha: HEAD_SHA })
+    expect(result.toolchain.node).toBe(producerNode)
+    expect(taskEnvironment(artifact.root).ALOOK_TASK_NODE).toBe(process.versions.node)
+  })
+
+  it("keeps a producer dry context read-only and normal execution on the actual full Node", () => {
+    const artifact = fixture(["web"])
+    expect(artifact.manifestData.toolchain.node).toBe(process.versions.node)
+    const web = join(artifact.root, "src/web")
+    const capture = join(web, "normal-node.json")
+    writeFileSync(join(web, "capture.cjs"), 'require("node:fs").writeFileSync("normal-node.json", JSON.stringify({node:process.versions.node,taskNode:process.env.ALOOK_TASK_NODE}))')
+    const pkg = JSON.parse(readFileSync(join(web, "package.json"), "utf8"))
+    pkg.scripts.build = "node capture.cjs"
+    writeFileSync(join(web, "package.json"), JSON.stringify(pkg))
+    const config = JSON.parse(readFileSync(join(artifact.root, "turbo.json"), "utf8"))
+    config.tasks["@alook/web#build"].inputs.push("capture.cjs")
+    writeFileSync(join(artifact.root, "turbo.json"), JSON.stringify(config))
+    vi.stubEnv("ALOOK_TASK_NODE", "0.0.0")
+    const query = queryTurboTasks(["@alook/web#build"], { root: artifact.root, nodeVersion: otherPatch() })
+    expect(query.status).toBe(0)
+    expect(() => readFileSync(capture)).toThrow()
+    expect(() => queryTurboTasks(["--", "@alook/web#build"], { root: artifact.root, nodeVersion: otherPatch() })).toThrow("requires named tasks")
+    const executed = executeTurbo(["run", "@alook/web#build"], { root: artifact.root, stdio: ["ignore", "pipe", "pipe"] })
+    expect(executed.status, executed.stderr).toBe(0)
+    expect(JSON.parse(readFileSync(capture, "utf8"))).toEqual({ node: process.versions.node, taskNode: process.versions.node })
+    expect(process.env.ALOOK_TASK_NODE).toBe("0.0.0")
+  })
+
+  it.each([
+    { field: "node", value: `${Number(process.versions.node.split(".")[0]) + 1}.0.0` },
+    { field: "platform", value: "incompatible-platform" },
+  ])("rejects an incompatible producer $field", ({ field, value }) => {
+    const artifact = fixture()
+    const manifest = JSON.parse(readFileSync(artifact.manifest, "utf8"))
+    manifest.toolchain[field] = value
+    writeFileSync(artifact.manifest, JSON.stringify(manifest))
+    expect(() => verifyBuildArtifact({ root: artifact.root, directory: ".ci/ui-e2e-build", runId: "123", attempt: 2, headSha: HEAD_SHA })).toThrow("build toolchain mismatch")
+  })
+
+  it("rejects a malformed producer Node identity", () => {
+    const artifact = fixture()
+    const manifest = JSON.parse(readFileSync(artifact.manifest, "utf8"))
+    manifest.toolchain.node = "22.invalid"
+    writeFileSync(artifact.manifest, JSON.stringify(manifest))
+    expect(() => verifyBuildArtifact({ root: artifact.root, directory: ".ci/ui-e2e-build", runId: "123", attempt: 2, headSha: HEAD_SHA })).toThrow("build Node version is invalid")
+  })
+
   it("preserves archived executable modes under a restrictive consumer umask", () => {
     const artifact = fixture()
     const entry = join(artifact.root, BUILD_OUTPUT_ROOTS[0]!, "worker.js")
@@ -93,14 +163,17 @@ describe("UI E2E build artifact", () => {
     expect(verifyArchiveMembers(artifact.archive, [BUILD_OUTPUT_ROOTS[0]]).some(path => path.includes("/blog/"))).toBe(false)
   })
 
-  it("rejects a different build environment without exposing its values", () => {
-    const artifact = fixture()
+  it.each(["current", "compatible patch"])("rejects a different build environment for %s without exposing its values", producer => {
+    const artifact = fixture(undefined, producer === "current" ? undefined : otherPatch())
     vi.stubEnv("NEXT_PUBLIC_WS_DO_PORT", "8765")
     expect(() => verifyBuildArtifact({ root: artifact.root, directory: ".ci/ui-e2e-build", runId: "123", attempt: 2, headSha: HEAD_SHA })).toThrow("build environment mismatch")
   })
 
-  it.each(["source", "configuration"])("rejects changed %s through native Turbo task hashes", kind => {
-    const artifact = fixture()
+  it.each([
+    { kind: "source", producer: "current" }, { kind: "configuration", producer: "current" },
+    { kind: "source", producer: "compatible patch" }, { kind: "configuration", producer: "compatible patch" },
+  ])("rejects changed $kind through native Turbo task hashes for $producer", ({ kind, producer }) => {
+    const artifact = fixture(undefined, producer === "current" ? undefined : otherPatch())
     if (kind === "source") writeFileSync(join(artifact.root, "src/web/source.ts"), "export const value = 2\n")
     else {
       const path = join(artifact.root, "turbo.json")
@@ -288,7 +361,6 @@ describe("UI E2E build artifact", () => {
     ["extra fields", (manifest: Record<string, unknown>) => { manifest.extra = true }, "exact contract"],
     ["version", (manifest: Record<string, unknown>) => { manifest.version = 999 }, "version mismatch"],
     ["roots", (manifest: Record<string, unknown>) => { manifest.roots = [BUILD_OUTPUT_ROOTS[0]] }, "roots mismatch"],
-    ["Node release", (manifest: Record<string, unknown>) => { manifest.toolchain = { ...(manifest.toolchain as Record<string, unknown>), node: "0.0.0" } }, "build toolchain mismatch"],
     ["lockfile digest", (manifest: Record<string, unknown>) => { manifest.lockfileSha256 = "invalid" }, "lockfile digest"],
     ["archive digest", (manifest: Record<string, unknown>) => { manifest.archiveSha256 = "invalid" }, "archive digest"],
   ])("rejects invalid manifest %s", (_name, mutate, error) => {

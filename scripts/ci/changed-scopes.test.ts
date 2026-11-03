@@ -216,6 +216,14 @@ function gitDiffFixture(changedPath = "src/app/src/commands/inbox.ts") {
 }
 
 describe("canonical execution plan", () => {
+  it("builds the cold service dependency for Web contracts without daemon unit selection", () => {
+    const result = plan(["src/web/src/components/home/landing-content.ts"])
+    expect(result.full).toBe(false)
+    expect(result.suites.unit_tasks).toContain("@alook/web#test:contracts")
+    expect(result.suites.unit_tasks).not.toContain("@alook/daemon#test")
+    expect(result.suites.unit_build_tasks).toContain("@alook/agent-driver#build")
+  })
+
   it.each([
     {
       path: "src/web/src/hooks/community/use-friends.ts",

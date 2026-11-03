@@ -16,7 +16,7 @@ import { tmpdir } from "node:os"
 import { join, resolve, sep } from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
-import { executeTurbo, taskEnvironment } from "./run-turbo.mjs"
+import { queryTurboTasks, taskEnvironment } from "./run-turbo.mjs"
 
 export const BUILD_ARTIFACT_VERSION = 2
 export const BUILD_ARCHIVE_NAME = "ui-e2e-build.tgz"
@@ -33,9 +33,9 @@ export function buildOutputRoots(zones = ["web", "blog"]) {
   return ["web", "blog"].filter(zone => zones.includes(zone)).map(zone => zone === "web" ? "src/web/.open-next" : "src/web/blog/.open-next")
 }
 
-function nativeBuildHashes(root, outputRoots) {
+function nativeBuildHashes(root, outputRoots, nodeVersion) {
   const tasks = outputRoots.map(path => path.includes("/blog/") ? "@alook/web#build:blog" : "@alook/web#build")
-  const result = executeTurbo(["run", ...tasks, "--dry=json"], { root, stdio: ["ignore", "pipe", "pipe"] })
+  const result = queryTurboTasks(tasks, { root, nodeVersion })
   if (result.error || result.status !== 0) throw new Error("native build identity query failed")
   const report = JSON.parse(result.stdout)
   const hashes = Object.fromEntries(report.tasks.filter(task => tasks.includes(task.taskId))
@@ -46,7 +46,7 @@ function nativeBuildHashes(root, outputRoots) {
   return hashes
 }
 
-function buildIdentity(root, outputRoots) {
+function buildIdentity(root, outputRoots, nodeVersionForHash) {
   const packageManager = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).packageManager
   requiredString(packageManager, "package manager")
   const turbo = JSON.parse(readFileSync(resolve(root, "turbo.json"), "utf8"))
@@ -66,7 +66,7 @@ function buildIdentity(root, outputRoots) {
   }
   const environment = taskEnvironment(root)
   return {
-    taskHashes: nativeBuildHashes(root, outputRoots),
+    taskHashes: nativeBuildHashes(root, outputRoots, nodeVersionForHash),
     toolchain: { node: environment.ALOOK_TASK_NODE, bun: environment.ALOOK_TASK_BUN, platform: environment.ALOOK_TASK_PLATFORM, packageManager, workspace: realpathSync(root) },
     environmentSha256: createHash("sha256").update(JSON.stringify({ env, files })).digest("hex"),
   }
@@ -253,6 +253,13 @@ function assertEqual(actual, expected, label) {
   }
 }
 
+function compatibleToolchain(toolchain) {
+  if (typeof toolchain?.node !== "string" || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/.test(toolchain.node)) {
+    throw new Error("build Node version is invalid")
+  }
+  return { ...toolchain, node: toolchain.node.split(".")[0] }
+}
+
 export function verifyBuildArtifact({ root, directory, runId, attempt, headSha, zones }) {
   const repositoryRoot = resolve(root)
   const paths = artifactPaths(repositoryRoot, directory)
@@ -288,8 +295,9 @@ export function verifyBuildArtifact({ root, directory, runId, attempt, headSha, 
   assertRegularFile(lockfile, "pnpm lockfile")
   assertEqual(sha256File(lockfile), manifest.lockfileSha256, "build lockfile SHA-256")
   assertEqual(sha256File(paths.archive), manifest.archiveSha256, "build archive SHA-256")
-  const currentIdentity = buildIdentity(repositoryRoot, outputRoots)
-  assertEqual(JSON.stringify(manifest.toolchain), JSON.stringify(currentIdentity.toolchain), "build toolchain")
+  const producerToolchain = compatibleToolchain(manifest.toolchain)
+  const currentIdentity = buildIdentity(repositoryRoot, outputRoots, manifest.toolchain.node)
+  assertEqual(JSON.stringify(producerToolchain), JSON.stringify(compatibleToolchain(currentIdentity.toolchain)), "build toolchain")
   assertManifestDigest(manifest.environmentSha256, "build environment digest")
   assertEqual(manifest.environmentSha256, currentIdentity.environmentSha256, "build environment")
   assertEqual(JSON.stringify(manifest.taskHashes), JSON.stringify(currentIdentity.taskHashes), "native build task hashes")
