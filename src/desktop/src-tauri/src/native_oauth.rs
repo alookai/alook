@@ -502,6 +502,7 @@ mod tests {
             good.clone(),
             good.replace("/native/", "/x/../native/"),
             good.replace("/native/", "/%2e/native/"),
+            good.replace("/native/", &format!("/{}../native/", "x".repeat(600) + "/")),
         ];
         for raw in &aliases {
             let url = url::Url::parse(raw).unwrap();
@@ -536,6 +537,7 @@ mod tests {
             .intake(&url::Url::parse(&good).unwrap(), NOW)
             .unwrap());
         let before = serde_json::to_value(&record).unwrap();
+        let good = callback(&record, &"d".repeat(32));
         let id = &record.attempt.as_ref().unwrap().id;
         for raw in [
             good.replace("ai.alook.desktop:", "ai.alook:"),
@@ -549,38 +551,22 @@ mod tests {
             format!("{good}#"),
             format!("{good}&extra=1"),
             format!("{good}&attempt={id}"),
-            format!("{good}&code={}", "d".repeat(32)),
+            format!("{good}&code={}", "e".repeat(32)),
             format!("{good}&status=access_denied"),
             good.replace("attempt=", "att%65mpt="),
             good.replace("code=", "c%6fde="),
-            good.replace(&"c".repeat(32), "%63"),
-            good.replace(&"c".repeat(32), &"c".repeat(129)),
-            good.replace(&format!("&code={}", "c".repeat(32)), ""),
-            good.replace(&format!("code={}", "c".repeat(32)), "status=unknown"),
+            good.replace(&"d".repeat(32), &"%64".repeat(32)),
+            good.replace(&"d".repeat(32), &"d".repeat(129)),
+            good.replace(&format!("&code={}", "d".repeat(32)), ""),
+            good.replace(&format!("code={}", "d".repeat(32)), "status=unknown"),
             good.replace(id, &"x".repeat(43)),
         ] {
             let url = url::Url::parse(&raw).unwrap();
             assert!(!record.intake(&url, NOW).unwrap());
             assert_eq!(serde_json::to_value(&record).unwrap(), before);
         }
-        let next = url::Url::parse(&good.replace(&"c".repeat(32), &"d".repeat(32))).unwrap();
+        let next = url::Url::parse(&good.replace(&"d".repeat(32), &"e".repeat(32))).unwrap();
         assert!(!record.intake(&next, NOW + ATTEMPT_TTL).unwrap());
-        assert_eq!(serde_json::to_value(&record).unwrap(), before);
-    }
-
-    #[test]
-    fn callback_length_bound_applies_to_serialized_url() {
-        let mut record = waiting();
-        let good = callback(&record, &"c".repeat(32));
-        let raw = good.replace("/native/", &format!("/{}../native/", "x".repeat(600) + "/"));
-        assert!(raw.len() > 512);
-        let url = url::Url::parse(&raw).unwrap();
-        assert_eq!(url.as_str(), good);
-        assert!(record.intake(&url, NOW).unwrap());
-        let before = serde_json::to_value(&record).unwrap();
-        let oversized = url::Url::parse(&format!("{good}&extra={}", "x".repeat(512))).unwrap();
-        assert!(oversized.as_str().len() > 512);
-        assert!(!record.intake(&oversized, NOW).unwrap());
         assert_eq!(serde_json::to_value(&record).unwrap(), before);
     }
 

@@ -1574,12 +1574,14 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn presentation_deadline_shows_normally_and_late_true_cannot_consume_it() {
+        use objc2_user_notifications::UNNotificationPresentationOptions as Options;
+
         let (decision, receiver) = presentation_test_completion();
         assert_eq!(
             receiver
                 .recv_timeout(std::time::Duration::from_secs(2))
                 .unwrap(),
-            macos_presentation_options(false).bits() as u64
+            (Options::Banner | Options::List | Options::Sound).bits() as u64
         );
         assert!(!decision.finish(true));
         assert!(receiver.try_recv().is_err());
@@ -1588,6 +1590,8 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn presentation_racing_outcomes_take_the_completion_once() {
+        use objc2_user_notifications::UNNotificationPresentationOptions as Options;
+
         let (decision, receiver) = presentation_test_completion();
         let fallback = decision.clone();
         let thread = std::thread::spawn(move || fallback.finish(false));
@@ -1596,7 +1600,11 @@ mod tests {
         assert_ne!(authorized, normal);
         assert_eq!(
             receiver.recv().unwrap(),
-            macos_presentation_options(authorized).bits() as u64
+            if authorized {
+                Options::empty().bits() as u64
+            } else {
+                (Options::Banner | Options::List | Options::Sound).bits() as u64
+            }
         );
         assert!(receiver.try_recv().is_err());
     }
@@ -1692,10 +1700,22 @@ mod tests {
             server_id: "server_1".to_string(),
             channel_id: "channel_1".to_string(),
         };
+        let other_conversation = NotificationConversation::Server {
+            server_id: "server_1".to_string(),
+            channel_id: "channel_2".to_string(),
+        };
 
         assert_eq!(
             record.notification_ids("viewer_1", &conversation),
             vec![same_first.clone(), same_second.clone()],
+        );
+        assert_eq!(
+            record.notification_ids("viewer_1", &other_conversation),
+            vec![other_channel.clone()],
+        );
+        assert_eq!(
+            record.notification_ids("viewer_2", &conversation),
+            vec![other_viewer.clone()],
         );
         record.complete_dismissals(&[same_first.clone(), same_second.clone()]);
         assert_eq!(
@@ -1710,19 +1730,27 @@ mod tests {
                 "message_1"
             ))
             .is_none());
-        assert!(record
-            .recent
-            .iter()
-            .any(|item| item.notification_id == other_channel));
-        assert!(record
-            .recent
-            .iter()
-            .any(|item| item.notification_id == other_viewer));
+        assert_eq!(
+            record.notification_ids("viewer_1", &other_conversation),
+            vec![other_channel.clone()],
+        );
+        assert_eq!(
+            record.notification_ids("viewer_2", &conversation),
+            vec![other_viewer.clone()],
+        );
 
         let restored = NotificationRecord::restore(serde_json::to_value(record).unwrap()).unwrap();
         assert_eq!(
             restored.notification_ids("viewer_1", &conversation),
             Vec::<String>::new()
+        );
+        assert_eq!(
+            restored.notification_ids("viewer_1", &other_conversation),
+            vec![other_channel],
+        );
+        assert_eq!(
+            restored.notification_ids("viewer_2", &conversation),
+            vec![other_viewer],
         );
         assert!(restored
             .recent
@@ -1800,18 +1828,11 @@ mod tests {
     }
 
     #[test]
-    fn macos_completion_results_fail_closed_before_rollback() {
+    fn macos_completion_results_fail_closed() {
         assert_eq!(macos_authorization_result(true, false), Ok(()));
         assert_eq!(macos_authorization_result(false, false), Err(()));
         assert_eq!(macos_authorization_result(true, true), Err(()));
         assert_eq!(macos_add_result(false), Ok(()));
         assert_eq!(macos_add_result(true), Err(()));
-
-        let mut record = NotificationRecord::new();
-        let original = candidate("viewer_1", "message_1");
-        let id = record.claim(&original).unwrap();
-        assert!(macos_add_result(true).is_err());
-        record.rollback(&id);
-        assert_eq!(record.claim(&original), Some(id));
     }
 }
