@@ -45,6 +45,7 @@ describe("sitemap", () => {
     expect(urls.filter(url => url.startsWith("https://alook.ai/tutorials/"))).toEqual(stepGuides.map(guide => `https://alook.ai/tutorials/${guide.slug}`));
     expect(urls).not.toContain("https://alook.ai/guides/codex-and-claude-code");
     expect(urls).toContain("https://alook.ai/privacy");
+    expect(urls).toContain("https://alook.ai/terms");
     expect(urls).toContain("https://alook.ai/blog/revised");
     expect(urls).not.toContain("https://alook.ai/sign-in");
     expect(urls).not.toContain("https://alook.ai/llms.txt");
@@ -94,6 +95,7 @@ describe("sitemap", () => {
     expect(urls).not.toContain("https://alook.ai/blog");
     expect(urls).not.toContain("https://alook.ai/guides");
     expect(urls).toContain("https://alook.ai/privacy");
+    expect(urls).toContain("https://alook.ai/terms");
   });
 
 	it("includes an undated Blog index for an empty discovery manifest", () => {

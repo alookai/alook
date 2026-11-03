@@ -25,7 +25,7 @@ type GuideDefinition = {
 const definitions: readonly GuideDefinition[] = [
   {
     slug: "codex-and-claude-code", agents: defaultTutorialPair, date: "2026-10-27",
-    description: "Connect your computer, create Codex and Claude Code bots, and bring them into one Alook server.",
+    description: "Connect your computer to Alook, create Codex and Claude Code bots, invite them to the same server, and give both agents a task in one shared channel.",
     connectLead: "Connect the computer where Codex and Claude Code are installed.",
     firstBotLead: "Start with Codex. The example names this bot Milo.",
     secondBotLead: "Add Claude Code as your second bot. The example names it Nova.",
