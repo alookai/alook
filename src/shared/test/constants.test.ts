@@ -10,7 +10,7 @@ import {
   NOTIF_LEVELS, NOTIFICATION_LEVEL_VALUES, notifLevelDisplay, normalizeNotifLevel,
   PARTICIPANT_SOURCE, MENTION_KIND,
 } from "../src/constants/community"
-import { communityChannel, communityMention } from "../src/db/community-schema"
+import { communityMention } from "../src/db/community-schema"
 
 describe("constants", () => {
   it("OFFLINE_THRESHOLD_MS is 30s", () => expect(OFFLINE_THRESHOLD_MS).toBe(30_000))
@@ -169,10 +169,4 @@ describe("PARTICIPANT_SOURCE / MENTION_KIND (single source)", () => {
     expect((communityMention.kind as { default?: unknown }).default).toBe(MENTION_KIND.MENTION)
   })
 
-  it("community_channel.parentChannelId column exists (schema module loaded for the default probe)", () => {
-    // Sanity that the schema import resolved; the meaningful assertion is the
-    // kind-default parity above. (channel_member.source lives on a table not
-    // re-exported here; message-handler/thread tests cover its use.)
-    expect(communityChannel).toBeTruthy()
-  })
 })

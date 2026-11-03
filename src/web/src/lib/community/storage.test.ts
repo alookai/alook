@@ -27,12 +27,9 @@ describe("serverIconUrl", () => {
 })
 
 describe("buildUserAvatarKey", () => {
-  it("is deterministic (no randomness)", () => {
-    expect(buildUserAvatarKey("u1")).toBe(buildUserAvatarKey("u1"))
-  })
-
-  it("has the correct format", () => {
-    expect(buildUserAvatarKey("u1")).toBe("user-avatar/u1")
+  it("returns the canonical alias on repeated calls", () => {
+    expect([buildUserAvatarKey("u1"), buildUserAvatarKey("u1")])
+      .toEqual(["user-avatar/u1", "user-avatar/u1"])
   })
 })
 
@@ -47,12 +44,9 @@ describe("user avatar object ownership", () => {
 })
 
 describe("buildBotAvatarKey", () => {
-  it("is deterministic (no randomness)", () => {
-    expect(buildBotAvatarKey("b1")).toBe(buildBotAvatarKey("b1"))
-  })
-
-  it("has the correct format", () => {
-    expect(buildBotAvatarKey("b1")).toBe("bot-avatar/b1")
+  it("returns the canonical alias on repeated calls", () => {
+    expect([buildBotAvatarKey("b1"), buildBotAvatarKey("b1")])
+      .toEqual(["bot-avatar/b1", "bot-avatar/b1"])
   })
 })
 

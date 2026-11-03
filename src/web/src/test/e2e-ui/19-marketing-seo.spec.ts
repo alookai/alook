@@ -360,6 +360,16 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
       } else {
         await expect(motion.locator("[data-camera-scale]")).toHaveCount(1)
         await expect(motion).not.toHaveAttribute("data-layout", "compact")
+        // every deferred media slot of a motion tab must hold live media (main #1168)
+        const liveMedia = `[data-testid="${tid.landingMotionStage}"]:visible, [data-testid="${tid.landingMobileMotionStage}"]:visible`
+        await expect.poll(async () => {
+          if (!await stage.locator(liveMedia).count()) return false
+          const slots = await stage.locator("[data-landing-deferred]:visible").all()
+          // a slot is live once its motion stage is mounted; the phone stage may sit hidden between beats
+          const mounted = `[data-testid="${tid.landingMotionStage}"], [data-testid="${tid.landingMobileMotionStage}"]`
+          const liveCounts = await Promise.all(slots.map(slot => slot.locator(mounted).count()))
+          return liveCounts.every(count => count > 0)
+        }, { message: `Live gallery media at ${width}px for ${await tab.textContent()}` }).toBe(true)
       }
       if (await tab.textContent() === "Remote control") {
         const screenRatio = await motion.evaluate(element => {
