@@ -835,7 +835,7 @@ describe("createDaemon", () => {
 
   it("starts the builtin Codex lane from a fresh nested daemon workspace", async () => {
     const base = mkdtempSync(join(tmpdir(), "daemon-fresh-workspace-"));
-    startupSweepDirs.push(base);
+
     const rawLines: string[] = [];
     const workingDirectory = join(base, "daemon", "agent-fresh");
     const fakeRuntime = join(base, process.platform === "win32" ? "fake-codex.cmd" : "fake-codex");
@@ -916,9 +916,14 @@ for await (const line of createInterface({ input: process.stdin })) {
       expect(admission).toMatchObject({ status: "accepted" });
       expect(readFileSync(join(workingDirectory, "AGENTS.md"), "utf8")).toBe("Fresh daemon instructions.");
       expect(readFileSync(join(workingDirectory, "CLAUDE.md"), "utf8")).toBe("Fresh daemon instructions.");
+    } catch (error) {
+      console.error("ADMISSION_ORIGINAL", error);
+      throw error;
     } finally {
       await session.stop({ reason: "shutdown", forceAfterMs: 10 });
-      await session.closed;
+      console.error("SESSION_CLOSED", JSON.stringify(await session.closed));
+      console.error("RUNTIME_STDOUT", JSON.stringify(rawLines));
+      console.error("RUNTIME_EVENTS", JSON.stringify(events));
       await collectEvents;
       // `session.closed` is a teardown ownership boundary: the spawned shell and
       // every runtime descendant must have released the workspace by this point.
