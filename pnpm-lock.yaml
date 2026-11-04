@@ -224,9 +224,15 @@ importers:
 
   src/shared:
     dependencies:
+      '@philflow/tsdav-utils':
+        specifier: 0.7.0
+        version: 0.7.0
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@cloudflare/workers-types@5.20261023.1)(@opentelemetry/api@1.10.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(bun-types@1.4.4)(kysely@0.29.7)
+      ical.js:
+        specifier: 2.2.1
+        version: 2.2.1
       mdast-util-find-and-replace:
         specifier: ^3.0.3
         version: 3.0.3
@@ -2849,6 +2855,9 @@ packages:
 
   '@paulirish/trace_engine@0.0.53':
     resolution: {integrity: sha512-PUl/vlfo08Oj804VI5nDPeSk9vyslnBlVzDDwFt8SUVxY8+KdGMkra/vrXjEEHe8gb7+RqVTfOIlGw0nyrEelA==}
+
+  '@philflow/tsdav-utils@0.7.0':
+    resolution: {integrity: sha512-reKM1zCykID+HOv1duqbuTqKpfuX7bQoYtYtkYQJ67IVmeHMHY1ASNrIpLjFMiZoD/ncmjUXMxG/vYWM+ZeWdw==}
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -6715,6 +6724,9 @@ packages:
   iconv-lite@0.4.24:
     resolution: {integrity: sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==}
     engines: {node: '>=0.10.0'}
+
+  ical.js@2.2.1:
+    resolution: {integrity: sha512-yK/UlPbEs316igb/tjRgbFA8ZV75rCsBJp/hWOatpyaPNlgw0dGDmU+FoicOcwX4xXkeXOkYiOmCqNPFpNPkQg==}
 
   iconv-lite@0.6.3:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
@@ -12301,6 +12313,10 @@ snapshots:
       legacy-javascript: 0.0.4
       third-party-web: 0.30.0
 
+  '@philflow/tsdav-utils@0.7.0':
+    dependencies:
+      ical.js: 2.2.1
+
   '@pkgjs/parseargs@0.11.0':
     optional: true
 
@@ -16376,6 +16392,8 @@ snapshots:
   iconv-lite@0.4.24:
     dependencies:
       safer-buffer: 2.1.2
+
+  ical.js@2.2.1: {}
 
   iconv-lite@0.6.3:
     dependencies:

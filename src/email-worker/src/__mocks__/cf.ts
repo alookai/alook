@@ -105,7 +105,13 @@ export interface MockMessageOpts {
   extraHeaders?: Record<string, string>
 }
 
-export const CALENDAR_CONTENT = "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:日程🙂\nEND:VEVENT\nEND:VCALENDAR\n"
+export const CALENDAR_CONTENT = [
+  "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTIMEZONE", "TZID:Office", "BEGIN:STANDARD",
+  "DTSTART:20000101T000000", "TZOFFSETFROM:+0100", "TZOFFSETTO:+0100", "END:STANDARD", "END:VTIMEZONE",
+  "BEGIN:VEVENT", "SUMMARY:日程🙂", "DTSTART;TZID=Office:20261101T100000", "DTEND;TZID=Office:20261101T110000",
+  "LOCATION:https://meet.google.com/abc-defg-hij", "ATTENDEE;CN=Guest:mailto:guest@example.test",
+  "END:VEVENT", "END:VCALENDAR", "",
+].join("\n")
 export const CALENDAR_MESSAGE = {
   body: CALENDAR_CONTENT.replace(/\n/g, "\r\n"),
   extraHeaders: {

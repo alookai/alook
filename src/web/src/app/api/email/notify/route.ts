@@ -37,7 +37,7 @@ export const POST = withEnv(async (req: NextRequest, ctx) => {
       workspaceId: body.workspaceId,
       title: mi.title || body.subject,
       meetingUrl: mi.meetingUrl,
-      status: body.isWhitelisted ? MeetingStatus.SCHEDULED : MeetingStatus.PENDING,
+      status: body.isWhitelisted && mi.startTime !== null ? MeetingStatus.SCHEDULED : MeetingStatus.PENDING,
       fromEmail: body.from,
       isWhitelisted: body.isWhitelisted,
       participants: mi.attendees.map(a => a.email),
