@@ -3,26 +3,12 @@ import { createDb } from "../../src/db";
 import * as inboxQueries from "../../src/db/queries/community/inbox";
 import { isChannelUnread, isDmUnread } from "../../src/db/queries/community/inbox";
 
-// These tests pin the shape of the public API; SQL behavior is covered by
-// integration runs against D1. The fact that this file imports cleanly
-// also surfaces accidental query syntax regressions at typecheck time.
-//
 // ref/id read-model seq unification: the unread predicate now compares SEQ
 // (`EXISTS(message.seq > lastReadSeq)`, computed in SQL) instead of the old
 // `lastMessageAt > lastReadAt` timestamp. The pure predicates take the SQL
 // results — `hasReadState` (is there a read-state row) + `hasUnreadBeyondSeq`
 // (the EXISTS result) — and the no-read-state branch still uses `joinedAt`
 // (channels) / "any message" (DMs), which are orthogonal to the seq switch.
-
-describe("community/inbox exports", () => {
-  it("exports isChannelUnread", () => {
-    expect(typeof inboxQueries.isChannelUnread).toBe("function");
-  });
-  it("exports isDmUnread", () => {
-    expect(typeof inboxQueries.isDmUnread).toBe("function");
-  });
-
-});
 
 describe("isChannelUnread — two-branch predicate (seq)", () => {
   const j = "2026-07-06T00:00:00.000Z"; // joinedAt
@@ -73,13 +59,13 @@ describe("isChannelUnread — two-branch predicate (seq)", () => {
     ).toBe(false);
   });
 
-  it("has read-state takes the seq branch even when lastMessageAt < joinedAt (branch precedence)", () => {
-    // With a read-state row, the joinedAt branch never runs — the seq EXISTS
-    // is authoritative. A pre-join lastMessageAt with hasUnreadBeyondSeq=false
-    // is not unread; the joinedAt comparison is irrelevant here.
+  it.each([
+    [false, false],
+    [true, true],
+  ] as const)("has read-state takes the seq branch even when lastMessageAt < joinedAt (branch precedence): unread=%s → %s", (hasUnreadBeyondSeq, expected) => {
     expect(
-      isChannelUnread({ archived: false, lastMessageAt: before, hasReadState: true, hasUnreadBeyondSeq: false, joinedAt: j }),
-    ).toBe(false);
+      isChannelUnread({ archived: false, lastMessageAt: before, hasReadState: true, hasUnreadBeyondSeq, joinedAt: j }),
+    ).toBe(expected);
   });
 });
 
@@ -97,7 +83,6 @@ describe("listUnreadChannels — seq read-watermark behaviour", () => {
     chain.select = vi.fn(() => chain);
     chain.from = vi.fn(() => chain);
     chain.innerJoin = vi.fn(() => chain);
-    chain.leftJoin = vi.fn(() => chain);
     chain.leftJoin = vi.fn(() => chain);
     chain.where = vi.fn(() => Promise.resolve(rows));
     return chain;
@@ -138,7 +123,7 @@ describe("listUnreadChannels — seq read-watermark behaviour", () => {
     const db = createUnreadRowMock([
       {
         channelId: "ch_archived", channelName: "old", serverId: "srv_1", serverName: "server 1",
-        parentChannelId: null, lastMessageAt: "2026-07-06T00:00:00.000Z", hasReadState: 0, hasUnreadBeyondSeq: 0, archived: true, joinedAt: j,
+        parentChannelId: null, lastMessageAt: "2026-07-06T00:00:05.000Z", hasReadState: 1, hasUnreadBeyondSeq: 1, archived: true, joinedAt: j,
       },
     ]);
     const result = await inboxQueries.listUnreadChannels(db, "u_1", ["ch_archived"]);
