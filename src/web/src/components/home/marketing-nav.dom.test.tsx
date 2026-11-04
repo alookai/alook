@@ -12,22 +12,29 @@ import { MarketingNav } from "./marketing-nav";
 
 afterEach(() => vi.restoreAllMocks());
 
+function prefetchLinks(container: HTMLElement) {
+  const links = container.querySelectorAll("[data-prefetch]");
+  expect(links.length).toBeGreaterThan(0);
+  return links;
+}
+
 it("defers route prefetch until the homepage navigation is revealed, without changing link destinations", () => {
   let bottom = 100;
   const { container } = render(<><section className="hero-section" /><MarketingNav isLoggedIn={false} revealAfterHero collapseLinksOnMobile /></>);
   vi.spyOn(container.querySelector(".hero-section")!, "getBoundingClientRect").mockImplementation(() => ({ bottom }) as DOMRect);
   fireEvent.scroll(window);
-  for (const link of container.querySelectorAll("[data-prefetch]")) expect(link).toHaveAttribute("data-prefetch", "disabled");
+  for (const link of prefetchLinks(container)) expect(link).toHaveAttribute("data-prefetch", "disabled");
   expect(screen.getAllByRole("link", { name: "Pricing" })[0]).toHaveAttribute("href", "/pricing");
   bottom = -1;
   fireEvent.scroll(window);
-  for (const link of container.querySelectorAll("[data-prefetch]")) expect(link).toHaveAttribute("data-prefetch", "auto");
+  for (const link of prefetchLinks(container)) expect(link).toHaveAttribute("data-prefetch", "auto");
   bottom = 100;
   fireEvent.scroll(window);
-  for (const link of container.querySelectorAll("[data-prefetch]")) expect(link).toHaveAttribute("data-prefetch", "disabled");
+  for (const link of prefetchLinks(container)) expect(link).toHaveAttribute("data-prefetch", "disabled");
 });
 
 it("preserves default prefetch outside the homepage reveal behavior", () => {
   const { container } = render(<MarketingNav isLoggedIn={false} />);
-  for (const link of container.querySelectorAll("[data-prefetch]")) expect(link).toHaveAttribute("data-prefetch", "auto");
+  expect(screen.getByRole("link", { name: /^Pricing$/ })).toHaveAttribute("href", "/pricing");
+  for (const link of prefetchLinks(container)) expect(link).toHaveAttribute("data-prefetch", "auto");
 });

@@ -62,8 +62,6 @@ describe("landing section calls to action", () => {
     const markup = renderToStaticMarkup(createElement(LandingPage, { isLoggedIn }))
     const links = [...markup.matchAll(/<a\b[^>]*data-testid="landing-section-cta-([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)]
     expect(links.map((match) => match[1])).toEqual(["product"])
-    const labels = links.map((match) => match[2])
-    expect(new Set(labels).size).toBe(1)
     for (const link of links) {
       expect(link[0]).toContain(`href="${isLoggedIn ? "/c/me" : "/sign-in"}"`)
       expect(link[2].trim().split(/\s+/).length).toBeLessThanOrEqual(3)
@@ -74,11 +72,11 @@ describe("landing section calls to action", () => {
 describe("standalone interactive second screen", () => {
   it("inserts a pure workspace before the preserved product scene", () => {
     const markup = renderToStaticMarkup(createElement(LandingPage, { isLoggedIn: false }))
-    expect(markup.indexOf('id="workspace"')).toBeLessThan(markup.indexOf('id="product"'))
+    expect(Array.from(markup.matchAll(/\sid="(testimonials|workspace|product)"/g), match => match[1]))
+      .toEqual(["testimonials", "workspace", "product"])
     expect(markup).not.toContain('src="/demo"')
     expect(markup).toContain("Loading Alook workspace")
     expect(markup).toContain("/landing/posters/server.webp")
-    expect(markup.indexOf('id="testimonials"')).toBeLessThan(markup.indexOf('id="workspace"'))
     expect(markup).not.toContain("Reset demo")
     expect(markup).not.toContain("Sample conversations")
   })
