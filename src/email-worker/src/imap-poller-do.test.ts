@@ -214,6 +214,11 @@ describe("alarm — normal UID-based flow", () => {
     expect(notify1.subject).toBe("Hi")
     expect(notify1.isWhitelisted).toBe(true)
     expect(notify1.messageId).toBe("<msg1>")
+    expect(notify1.meetingInfo).toEqual({
+      title: "日程🙂", meetingUrl: "https://meet.google.com/abc-defg-hij",
+      startTime: "2026-11-01T09:00:00.000Z", endTime: "2026-11-01T10:00:00.000Z",
+      attendees: [{ name: "Guest", email: "guest@example.test" }],
+    })
     expect(JSON.parse(notify1.attachments)).toEqual([
       { key: "inline:0", filename: "invite.ics", contentType: "text/calendar", size: new TextEncoder().encode(CALENDAR_CONTENT).byteLength },
     ])

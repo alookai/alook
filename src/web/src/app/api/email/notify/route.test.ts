@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
+import { parseIcs } from "@alook/shared"
 
 const mocks = vi.hoisted(() => ({
   agent: vi.fn(), email: vi.fn(), meeting: vi.fn(), broadcast: vi.fn(), invalidate: vi.fn(),
@@ -22,6 +23,22 @@ vi.mock("@/lib/cache", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/cache")>(), invalidate: mocks.invalidate,
 }))
 import { POST } from "./route"
+
+const ANCIENT_MONTHLY_ZONE = `BEGIN:VTIMEZONE
+TZID:Ancient/Monthly
+BEGIN:DAYLIGHT
+DTSTART:10000101T000000
+TZOFFSETFROM:+0000
+TZOFFSETTO:+0100
+RRULE:FREQ=MONTHLY;BYMONTHDAY=1
+END:DAYLIGHT
+BEGIN:STANDARD
+DTSTART:10000115T000000
+TZOFFSETFROM:+0100
+TZOFFSETTO:+0000
+RRULE:FREQ=MONTHLY;BYMONTHDAY=15
+END:STANDARD
+END:VTIMEZONE`
 
 const body = {
   agentId: "a1", workspaceId: "ws1", r2Key: "emails/fixture/raw",
@@ -53,23 +70,45 @@ describe("inbound email after legacy execution removal", () => {
     expect(mocks.invalidate).toHaveBeenCalledTimes(2)
   })
 
-  it.each([true, false])("retains meeting records for whitelisted=%s mail", async isWhitelisted => {
-    const response = await POST(request({ ...body, isWhitelisted, meetingInfo: {
-      title: "Planning", meetingUrl: "https://meet.example.test/room", startTime: "2026-11-01T10:00:00Z",
-      endTime: null, attendees: [{ name: "Guest", email: "guest@example.test" }],
-    } }))
+  it.each([
+    { isWhitelisted: true, start: "DTSTART:20261101T100000Z", scheduledAt: "2026-11-01T10:00:00.000Z", status: "scheduled" },
+    { isWhitelisted: false, start: "DTSTART:20261101T100000Z", scheduledAt: "2026-11-01T10:00:00.000Z", status: "pending" },
+    { isWhitelisted: true, start: "DTSTART;TZID=Ancient/Monthly:20260610T100000", zone: ANCIENT_MONTHLY_ZONE, scheduledAt: null, status: "pending" },
+    { isWhitelisted: true, start: "", scheduledAt: null, status: "pending" },
+    { isWhitelisted: false, start: "", scheduledAt: null, status: "pending" },
+  ])("retains meeting records for whitelisted=$isWhitelisted and start=$start", async ({ isWhitelisted, start, zone = "", scheduledAt, status }) => {
+    const meetingInfo = parseIcs([
+      "BEGIN:VCALENDAR", "VERSION:2.0", zone, "BEGIN:VEVENT", start, "SUMMARY:Planning",
+      "LOCATION:https://meet.google.com/abc-defg-hij",
+      "ATTENDEE;CN=Guest:mailto:guest@example.test", "END:VEVENT", "END:VCALENDAR",
+    ].filter(Boolean).join("\r\n"))
+    const response = await POST(request({ ...body, isWhitelisted, meetingInfo }))
     expect(response.status).toBe(200)
+    expect(mocks.email).toHaveBeenCalledWith({}, expect.objectContaining({ r2Key: body.r2Key, subject: body.subject }))
     expect(mocks.meeting).toHaveBeenCalledWith({}, expect.objectContaining({
       agentId: "a1", workspaceId: "ws1", title: "Planning", participants: ["guest@example.test"],
-      status: isWhitelisted ? "scheduled" : "pending", isWhitelisted,
+      status, isWhitelisted, scheduledAt,
     }))
     expect(mocks.task).not.toHaveBeenCalled()
   })
 
-  it("rejects invalid notification input before any data write", async () => {
-    const response = await POST(request({ agentId: "a1" }))
+  it.each([
+    { name: "missing notification fields", payload: { agentId: "a1" } },
+    ...[
+      { startTime: "2026-11-01T10:00:00", endTime: null },
+      { startTime: "2026-02-30T10:00:00Z", endTime: null },
+      { startTime: "2026-11-01T10:00:00+01:00", endTime: null },
+      { startTime: null, endTime: "2026-11-01T11:00:00" },
+    ].map(times => ({ name: JSON.stringify(times), payload: { ...body, meetingInfo: {
+      title: "Planning", meetingUrl: "https://meet.google.com/abc-defg-hij", attendees: [], ...times,
+    } } })),
+  ])("rejects invalid notification $name before any data write", async ({ payload }) => {
+    const response = await POST(request(payload))
     expect(response.status).toBe(400)
+    expect(mocks.agent).not.toHaveBeenCalled()
     expect(mocks.email).not.toHaveBeenCalled()
+    expect(mocks.meeting).not.toHaveBeenCalled()
+    expect(mocks.conversation).not.toHaveBeenCalled()
     expect(mocks.task).not.toHaveBeenCalled()
   })
 

@@ -580,11 +580,15 @@ export type UpdateEmailStatusRequest = z.infer<
   typeof UpdateEmailStatusRequestSchema
 >;
 
+const MeetingTimeSchema = z.iso.datetime()
+  .transform(value => new Date(value).toISOString())
+  .nullable();
+
 export const MeetingInfoSchema = z.object({
   title: z.string(),
   meetingUrl: z.string(),
-  startTime: z.string().nullable(),
-  endTime: z.string().nullable(),
+  startTime: MeetingTimeSchema,
+  endTime: MeetingTimeSchema,
   attendees: z.array(z.object({ name: z.string(), email: z.string() })),
 });
 
