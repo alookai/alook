@@ -70,3 +70,43 @@ A small owned loopback server serves only the artwork document, CSS/noise and de
 The composition uses the final approved HTML cascade: large centered wordmark and four supporting blue/teal/purple/red faces, with no interface thumbnail or standalone orange face. The header keeps its one-line headline. Actual critical element boxes, local resources, renderer and input/output hashes are recorded. CSS filter blur is outside element-box measurements; visual comparison against the supplied originals remains necessary. See source provenance below and in [SOURCES.md](SOURCES.md).
 
 The supplied reference PNGs were converted from browser JPEG previews. The generator captures clear PNG directly; JPEG compression pixels are not part of the composition contract. The approved HTML remains the source for fonts, assets, geometry and crop.
+
+## Google Play listing
+
+Use the same component renderer with the explicit preset. The default 24 App Store
+JPEGs and their filters are unchanged. Google Play is a complete set; do not combine
+this preset with `--device` or `--story`.
+
+```sh
+pnpm app-store:capture --store google-play --output /absolute/isolated/output --overview
+```
+
+The preset exports four 1080×1920 RGB PNG phone images reached through actual
+homepage-demo controls, plus official-brand feature art and the existing icon:
+
+- `phone-1080x1920/01-conversation.png`
+- `phone-1080x1920/02-dm.png`
+- `phone-1080x1920/03-profile.png`
+- `phone-1080x1920/04-rooms.png`
+- `feature-1024x500.png`
+- `icon-512.png`
+
+Each phone uses a uniformly scaled 402×650 real Web viewport with 16px App root
+text, without a hardware chassis. Conversation, Home→Alli DM and the actual Alli
+profile button are public UI actions; the fourth image retains the room list.
+The measured marketing box ends within the top 20% of the image. The exporter
+records interactions, component/font readiness, composition bounds, exact source
+and dependency inputs, encoding and final hashes in `manifest.json`.
+
+Phone and feature PNGs are 24-bit RGB without alpha. The 512×512 icon keeps the
+existing official geometry/colors and composites exterior transparency on the
+existing cream background, then exports 32-bit sRGB RGBA PNG under 1024KB. No outer
+mask, shadow or store badge is added. `--overview` also writes a review JPEG; this
+is not one of the six upload assets. The default output is `assets/google-play`;
+prefer an isolated output when preparing a new listing candidate.
+
+Review all six final images at full resolution before upload. This is marketing
+artwork from controlled homepage demos; it does not verify an installed Android
+build or store acceptance. Current specifications:
+[preview assets](https://support.google.com/googleplay/android-developer/answer/9866151?hl=en)
+and [icon design](https://developer.android.com/distribute/google-play/resources/icon-design-specifications).
