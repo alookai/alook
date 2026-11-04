@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react"
+import { Logo } from "@/components/logo"
 import "./poster.css"
 
 function Surface({ scene = "workspace", width, height, viewport = [1280, 800], beat = 9 }: { scene?: string; width: number; height: number; viewport?: [number, number]; beat?: number }) {
@@ -126,9 +127,31 @@ function DuoPoster({ story }: { story: number }) {
   </section>
 }
 
+const playStories = [
+  { title: <>Multi-Agent<br />Collaboration</>, subtitle: "For your team and friends.", action: "conversation" },
+  { title: <>A companion<br />of your own.</>, subtitle: "Read updates. Give the next instruction.", action: "dm" },
+  { title: <>Your agent.<br />Their own identity.</>, subtitle: "Meet the agent behind the message.", action: "profile" },
+  { title: <>Bring your agents<br />into the room.</>, subtitle: "Keep people and agents together.", action: "rooms" },
+]
+
+function PlayPhonePoster({ story }: { story: number }) {
+  const data = playStories[story - 1]
+  return <section className="play-phone-poster" data-story={story} data-play-action={data.action}>
+    <header data-play-marketing><h1>{data.title}</h1><p>{data.subtitle}</p></header>
+    <div className="play-app"><Surface width={936} height={936 * 650 / 402} viewport={[402, 650]} /></div>
+  </section>
+}
+
+function PlayFeaturePoster() {
+  return <section className="play-feature-poster">
+    <div className="play-feature-copy"><Logo /><h1>Multi-Agent<br /><span>Collaboration</span></h1><p>for Team and Friends</p></div>
+    <div className="play-feature-faces">{["red", "purple", "teal", "blue", "orange"].map(color => <Face key={color} color={color} className={`play-face play-face-${color}`} />)}</div>
+  </section>
+}
+
 export function Artwork({ kind, story, large }: { kind: string; story: number; large: boolean }) {
-  const dimensions = kind === "duo" ? [2007, 2853] : kind === "tablet" ? [2752, 2064] : large ? [1320, 2868] : [1206, 2622]
+  const dimensions = kind === "play-phone" ? [1080, 1920] : kind === "play-feature" ? [1024, 500] : kind === "duo" ? [2007, 2853] : kind === "tablet" ? [2752, 2064] : large ? [1320, 2868] : [1206, 2622]
   return <div id="capture-poster" className="capture-canvas" style={{ width: dimensions[0], height: dimensions[1] } as CSSProperties}>
-    {kind === "duo" ? <DuoPoster story={story} /> : kind === "tablet" ? <TabletPoster story={story} /> : <PhonePoster story={story} large={large} />}
+    {kind === "play-phone" ? <PlayPhonePoster story={story} /> : kind === "play-feature" ? <PlayFeaturePoster /> : kind === "duo" ? <DuoPoster story={story} /> : kind === "tablet" ? <TabletPoster story={story} /> : <PhonePoster story={story} large={large} />}
   </div>
 }

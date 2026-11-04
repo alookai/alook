@@ -98,6 +98,30 @@ describe("App Store capture document and poster entry", () => {
     expect(duo.querySelectorAll(".face")).toHaveLength(5)
   })
 
+  it.each(["conversation", "dm", "profile", "rooms"])("renders the Google Play %s composition around one complete real mobile viewport", (action) => {
+    const story = ["conversation", "dm", "profile", "rooms"].indexOf(action) + 1
+    const document = documentFor(<Artwork kind="play-phone" story={story} large={false} />)
+    const canvas = document.querySelector<HTMLElement>("#capture-poster")!
+    expect([canvas.style.width, canvas.style.height]).toEqual(["1080px", "1920px"])
+    expect(document.querySelector("[data-play-action]")?.getAttribute("data-play-action")).toBe(action)
+    expect(document.querySelector("[data-play-marketing] h1")?.textContent).toBeTruthy()
+    const frames = [...document.querySelectorAll("iframe")]
+    expect(frames).toHaveLength(1)
+    expect([frames[0].width, frames[0].height]).toEqual(["402", "650"])
+    expect(new URL(frames[0].src).searchParams.get("scene")).toBe("workspace")
+    expect(document.querySelector(".phone, .device, .monitor-neck, .monitor-base")).toBeNull()
+  })
+
+  it("renders the Google Play feature from official brand assets without a device surface", () => {
+    const document = documentFor(<Artwork kind="play-feature" story={1} large={false} />)
+    const canvas = document.querySelector<HTMLElement>("#capture-poster")!
+    expect([canvas.style.width, canvas.style.height]).toEqual(["1024px", "500px"])
+    expect(document.querySelector('img[alt="Alook"]')?.getAttribute("src")).toBe("/alook.svg")
+    expect(document.querySelector('button[aria-label="Toggle theme"]')?.textContent).toBe("Alook")
+    expect(document.querySelectorAll(".play-face")).toHaveLength(5)
+    expect(document.querySelector("iframe, .phone, .device")).toBeNull()
+  })
+
   it.each(posterQueries)("resolves the awaited query %j before composing its poster", async (query, kind, story, width) => {
     const element = await CapturePage({ searchParams: Promise.resolve(query) })
     const document = documentFor(element)

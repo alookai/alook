@@ -100,6 +100,18 @@ describe("component-rendered App Store artwork", () => {
     expect(() => selectCaptures({ device: "watch" })).toThrow("Invalid device")
   })
 
+  it("selects the complete Google Play PNG set without changing the Apple defaults", () => {
+    const selected = selectCaptures({ store: "google-play" })
+    expect(selected.filter(capture => capture.device === "phone").map(capture => [capture.width, capture.height, capture.format])).toEqual(Array.from({ length: 4 }, () => [1080, 1920, "png"]))
+    expect(selected.map(capture => capture.url)).toEqual(["/?kind=play-phone&story=1", "/?kind=play-phone&story=2", "/?kind=play-phone&story=3", "/?kind=play-phone&story=4", "/?kind=play-feature"])
+    expect(selected.at(-1)).toMatchObject({ width: 1024, height: 500, format: "png" })
+    expect(new Set(selected.map(capture => capture.filename)).size).toBe(5)
+    expect(selectCaptures({ store: "app-store" })).toEqual(captures)
+    expect(() => selectCaptures({ store: "unknown" })).toThrow("Invalid store")
+    expect(() => selectCaptures({ store: "google-play", device: "phone" })).toThrow("complete fixed set")
+    expect(() => selectCaptures({ store: "google-play", story: 1 })).toThrow("complete fixed set")
+  })
+
   it("stops its owned process group and leaves an unrelated listener alive", async () => {
     const unrelated = createServer((_request, response) => response.end("unrelated"))
     unrelated.listen(0, "127.0.0.1")
@@ -128,6 +140,9 @@ describe("component-rendered App Store artwork", () => {
     try {
       await expect(captureArtwork({ signal: AbortSignal.abort(new Error("cancelled")) })).rejects.toThrow("cancelled")
       await expect(main(["--device", "watch"])).rejects.toThrow("Invalid device")
+      await expect(main(["--store", "unknown"])).rejects.toThrow("Invalid store")
+      await expect(main(["--store", "google-play", "--story", "1"])).rejects.toThrow("complete fixed set")
+      await expect(main(["--store"])).rejects.toThrow("Usage:")
       for (const args of [["--device"], ["--story"], ["--story", "7"], ["--story", "1.5"]]) await expect(main(args)).rejects.toThrow("Usage:")
       expect(launch).not.toHaveBeenCalled()
     } finally { vi.restoreAllMocks() }
