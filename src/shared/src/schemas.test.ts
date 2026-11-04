@@ -78,6 +78,7 @@ describe("CommunityServerOnboardRequestSchema", () => {
         { id: "bot-a", wakePrompt: "Do" },
       ],
       leadBotId: "bot-a",
+      action: { type: "finalize" },
     }).success).toBe(false)
     expect(CommunityServerOnboardRequestSchema.safeParse({
       bots: [],
