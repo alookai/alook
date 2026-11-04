@@ -66,11 +66,11 @@ describe("forum opener message pagination against real SQLite", () => {
     sqlite.prepare("UPDATE community_message SET embeds = ?, client_nonce = ?, friendship_id = ? WHERE id = ?")
       .run('[{"title":"Native"}]', "nonce", "friendship", "m1")
     const reads = [
-      { row: await messageQueries.getMessage(db as never, "m1"), extra: ["seq", "authorEmail"] },
+      { row: await messageQueries.getMessage(db as never, "m1"), extra: ["seq", "friendshipId", "authorEmail"] },
       { row: await messageQueries.getMessageByAuthorAndNonce(db as never, "u1", "nonce"), extra: ["seq", "clientNonce", "authorEmail"] },
       { row: (await messageQueries.getMessagesByIds(db as never, ["m1"]))[0], extra: ["seq", "authorEmail"] },
       { row: await messageQueries.getMessageInScope(db as never, "m1", { channelId: "c1" }), extra: ["authorEmail"] },
-      { row: (await messageQueries.getMessagesByIdsInChannels(db as never, ["m1"], ["c1"]))[0], extra: ["seq", "clientNonce", "discriminator", "authorEmail"] },
+      { row: (await messageQueries.getMessagesByIdsInChannels(db as never, ["m1"], ["c1"]))[0], extra: ["seq", "clientNonce", "friendshipId", "discriminator", "authorEmail"] },
       { row: (await messageQueries.getFirstMessageResourcesByChannelIds(db as never, ["c1"]))[0], extra: ["seq", "clientNonce"] },
       { row: (await messageQueries.listMessages(db as never, { channelId: "c1", limit: 6 })).find((row) => row.id === "m1"), extra: ["seq", "clientNonce", "friendshipId", "authorEmail"] },
     ]

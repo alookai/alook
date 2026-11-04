@@ -1,7 +1,12 @@
 "use client"
-import { useAtom, useCreateAtom } from "@tanstack/react-store"
+
+import { messagePreviewText } from "@alook/shared"
+import { useAtom, useCreateAtom, useSelector } from "@tanstack/react-store"
 
 
+import { useCommunityRuntime } from "@/stores/community/runtime"
+import { getQualifiedConversationScope } from "@/lib/community/conversation-entry"
+import { isChannelMetadataTokenCurrent, conversationListScopeKey } from "@/lib/community/conversation-qualification"
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import { useCommunityRouter } from "@/contexts/community/module-route"
 import { toast } from "sonner"
@@ -30,6 +35,7 @@ import {
 import type { FileAttachment, ImagePreview, MessagesReadPage, Msg, RenderMsg, ReplyTarget } from "@/lib/community/models/message"
 import { apiFetchCommunity, communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { isAbortError } from "@/lib/errors"
+import { withConversationReadDeadline, conversationReadRetryPolicy, isConversationAnchorMissingError } from "@/lib/community/conversation-read"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { channelHref } from "@/lib/community/community-route"
@@ -48,7 +54,6 @@ import {
   publishCommunityEmbeddedMessages,
 } from "@/lib/community-db/sync"
 
-export type { ReplyTarget } from "@/lib/community/models/message"
 
 // Preview window sizing — small on purpose. The sheet is a read-only
 // excerpt with just enough surrounding context to make the target message
@@ -91,16 +96,34 @@ function anchorFetchUrl(_type: ScopeType, id: string, anchor: string, limit: num
 type SheetCache = {
   notFound?: boolean
   anchorId?: Msg["id"]
+  proof?: ReturnType<typeof captureCommunityLiveSnapshotToken>
   messages?: Pick<Msg, "id">[]
+}
+
+export function messageContextIdQueryFn(type: ScopeType, channelId: string, seq: number, queryClient: ReturnType<typeof useQueryClient>) {
+  return ({ signal }: { signal?: AbortSignal } = {}) => withConversationReadDeadline(signal, async signal => {
+    const proof = captureCommunityLiveSnapshotToken(queryClient, channelId)
+    await proof.registry?.ready
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, proof, signal)
+    try {
+      const result = await apiFetch<Pick<Msg, "id">>(seqLookupUrl(type, channelId, seq), communityRequestOptions(queryClient, proof, signal))
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, proof, signal)
+      return { id: result.id, proof, notFound: false }
+    } catch (error) {
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, proof, signal)
+      if (error instanceof ApiError && error.status === 404) return { id: undefined, proof, notFound: true }
+      throw error
+    }
+  })
 }
 
 export function messageContextQueryFn(
   type: ScopeType,
   channelId: string,
-  targetSeq: number,
+  targetId: string,
   queryClient: ReturnType<typeof useQueryClient>,
 ) {
-  return async ({ signal }: { signal?: AbortSignal } = {}): Promise<SheetCache> => {
+  return ({ signal }: { signal?: AbortSignal } = {}): Promise<SheetCache> => withConversationReadDeadline(signal, async signal => {
     const publicationToken = captureCommunityLiveSnapshotToken(queryClient, channelId)
     const registry = publicationToken.registry
     const assert = () => assertCommunityLiveSnapshotTokenCurrent(queryClient, publicationToken, signal)
@@ -108,31 +131,25 @@ export function messageContextQueryFn(
     assert()
     await registry?.collections.messages.preload()
     assert()
-    let lookup: Pick<Msg, "id">
-    try {
-      lookup = await apiFetch<Pick<Msg, "id">>(
-        seqLookupUrl(type, channelId, targetSeq),
-        communityRequestOptions(queryClient, publicationToken, signal, assert),
-      )
-    } catch (error) {
-      assert()
-      if (error instanceof ApiError && error.status === 404) return { notFound: true }
-      throw error
-    }
-    assert()
-    const page = await apiFetchCommunity<MessagesReadPage>(
-      anchorFetchUrl(type, channelId, lookup.id, CONTEXT_LIMIT),
+    let page: MessagesReadPage
+    try { page = await apiFetchCommunity<MessagesReadPage>(
+      anchorFetchUrl(type, channelId, targetId, CONTEXT_LIMIT),
       { signal, assertActive: assert }, publicationToken,
     )
+    } catch (error) {
+      assert()
+      if (isConversationAnchorMissingError(error)) return { notFound: true, proof: publicationToken }
+      throw error
+    }
     const messages = (page.messages ?? []).slice().sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
     await publishCommunityEmbeddedMessages(queryClient, {
-      entries: messages.map((message) => ({ channelId, message })),
+      entries: [...messages, ...(page.relatedMessages ?? [])].map((message) => ({ channelId, message })),
       profiles: page.profiles,
       proof: { token: publicationToken, signal },
     })
     assert()
-    return { notFound: false, anchorId: lookup.id, messages: messages.map(({ id }) => ({ id })) }
-  }
+    return { notFound: false, proof: publicationToken, anchorId: targetId, messages: messages.map(({ id }) => ({ id })) }
+  })
 }
 
 
@@ -158,13 +175,27 @@ export function messageContextQueryFn(
  * Retry is disabled — the sheet only shows server-persisted messages, never
  * failed optimistic rows.
  */
-export function MessageContextSheet({
+export function MessageContextSheet(props: React.ComponentProps<typeof MessageContextSheetContent>) {
+  const runtime = useCommunityRuntime()
+  const client = useQueryClient()
+  const ws = useSelector(runtime.ws, state => state)
+  const lifecycle = useSelector(runtime.lifecycle, state => state)
+  const denied = runtime.ws.actions.isChannelAccessRevoked(props.channelId, props.serverId)
+  if (!props.open || !lifecycle.active || ws.profileViewerId === null || !getCommunityDbRegistry(client)) return null
+  const token = captureCommunityLiveSnapshotToken(client, props.channelId)
+  const scopeKey = conversationListScopeKey({ proof: token, tag: null })
+  if (denied) return <CommunitySheet open onOpenChange={props.onOpenChange} title="Message"><p role="alert" className="p-4 text-sm text-muted-foreground">You can no longer read this conversation.</p></CommunitySheet>
+  return <MessageContextSheetContent key={JSON.stringify([scopeKey, props.targetMessageId ?? props.targetSeq])} {...props} />
+}
+
+function MessageContextSheetContent({
   open,
   onOpenChange,
   channelId,
   serverId,
   channelLabel,
   targetSeq,
+  targetMessageId,
   pinnedIds,
   onOpenProfile,
   resolveUserName,
@@ -182,6 +213,7 @@ export function MessageContextSheet({
   // header names which channel's context this is (Gus #417/#423, Alli #420).
   channelLabel?: string
   targetSeq: number | null
+  targetMessageId?: string
   pinnedIds?: Set<string>
   onOpenProfile?: OpenProfile
   resolveUserName?: (userId: string) => string
@@ -204,22 +236,36 @@ export function MessageContextSheet({
   const toggleReactionApi = useToggleReactionApi()
   const addReactionApi = useAddReactionApi()
 
-  const queryKey = useMemo(
-    () => communityKeys.messageContext(type, channelId, targetSeq),
-    [type, channelId, targetSeq],
-  )
-
-  // Two-step fetch: seq → id, then anchor-fetch around the id.
-  const query = useQuery({
-    queryKey,
-    enabled: open && !!channelId && !!targetSeq,
-    queryFn: messageContextQueryFn(type, channelId, targetSeq!, queryClient),
+  const [localAnchorId, setLocalAnchorId] = useAtom(useCreateAtom<string | null>(null))
+  const [nestedId, setNestedId] = useAtom(useCreateAtom<string | null>(null))
+  const requestedId = nestedId ?? targetMessageId
+  const qualification = conversationListScopeKey({ proof: captureCommunityLiveSnapshotToken(queryClient, channelId), tag: null })
+  const lookup = useQuery({
+    queryKey: [...communityKeys.messageContext(type, channelId, targetSeq), qualification],
+    enabled: open && !!channelId && !requestedId && !!targetSeq,
+    queryFn: messageContextIdQueryFn(type, channelId, targetSeq!, queryClient),
     staleTime: 30_000,
+    networkMode: "always",
+    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.messageContexts(type, channelId) }).retry),
   })
-  const selectedIds = useMemo(() => query.data?.messages?.map((message) => message.id) ?? [], [query.data?.messages])
-  const canonicalMessages = useCanonicalMessagesById(selectedIds)
+  const resolved = lookup.data && isChannelMetadataTokenCurrent(lookup.data.proof) ? lookup.data : undefined
+  const targetId = requestedId ?? resolved?.id
+  const query = useQuery({
+    queryKey: [...communityKeys.messageContext(type, channelId, targetId ?? null), qualification],
+    enabled: open && !!channelId && !!targetId,
+    queryFn: messageContextQueryFn(type, channelId, targetId!, queryClient),
+    staleTime: 30_000,
+    networkMode: "always",
+    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.messageContexts(type, channelId) }).retry),
+  })
+  const cached = query.data?.proof && isChannelMetadataTokenCurrent(query.data.proof) ? query.data : undefined
   const registry = getCommunityDbRegistry(queryClient)
-  const selectedResources = selectedIds.map(id => registry?.collections.messages.get(id))
+  const scope = getQualifiedConversationScope(queryClient, { channelId, serverId: type === "dm" ? null : serverId ?? null })
+  const qualified = !!scope && !!targetId && registry?.collections.messages.get(targetId)?.channelId === channelId
+  const references = useMemo(() => cached?.messages ?? (!cached && qualified && targetId ? [{ id: targetId }] : []), [cached, qualified, targetId])
+  const selectedIds = useMemo(() => references.map(message => message.id), [references])
+  const canonicalMessages = useCanonicalMessagesById(selectedIds)
+  const selectedResources = selectedIds.map(id => { const row = registry?.collections.messages.get(id); return row?.channelId === channelId ? row : undefined })
   const graph = getCanonicalCommunityMessageResources(queryClient, selectedResources)
   const profiles = useCanonicalProfilesProjection(graph ? communityMessageProfileIds(graph.messages) : [])
   const nativeGraph = graph && CommunityMessageResourcesSchema.safeParse({ messages: graph.messages, profiles: [...profiles.resourceProfiles.values()].flatMap(profile => {
@@ -229,13 +275,13 @@ export function MessageContextSheet({
   const graphReady = !!graph && profiles.isReady && !profiles.isError && nativeGraph?.success === true
   const refetch = query.refetch
   useEffect(() => {
-    if (open && query.data && !query.data.notFound && !graph && query.isSuccess && !query.isFetching) void refetch({ cancelRefetch: false })
-  }, [open, query.data, graph, query.isSuccess, query.isFetching, refetch])
+    if (open && cached && !cached.notFound && !graph && query.isSuccess && !query.isFetching) void refetch({ cancelRefetch: false })
+  }, [open, cached, graph, query.isSuccess, query.isFetching, refetch])
 
 
   const renderRows = useMemo<RenderMsg[]>(() => {
-    if (!query.data || query.data.notFound || !query.data.messages) return []
-    const src = materializeCanonicalMessages(query.data.messages, canonicalMessages)
+    if (cached?.notFound) return []
+    const src = materializeCanonicalMessages(references, canonicalMessages)
     // Same grouping heuristic the main list uses (adjacent same-author within
     // ~5 min → collapse header). Inlined here rather than sharing the util
     // because the excerpt is small enough that the extra dep isn't worth the
@@ -252,20 +298,25 @@ export function MessageContextSheet({
         new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000
       return { ...m, grouped }
     })
-  }, [canonicalMessages, query.data])
+  }, [canonicalMessages, references, cached])
 
-  const anchorId = query.data && !query.data.notFound ? (query.data.anchorId ?? null) : null
+  const anchorId = cached?.notFound ? null : localAnchorId ?? cached?.anchorId ?? targetId ?? null
 
-  const canonicalPending = !!query.data && !query.data.notFound && (canonicalMessages === undefined || !graphReady)
-  const anchorMissing = !canonicalPending && canonicalMessages !== undefined && !!anchorId && !canonicalMessages.has(anchorId)
+  const canonicalPending = !cached?.notFound && (canonicalMessages === undefined || !graphReady)
+  const anchorMissing = cached?.notFound === true || resolved?.notFound === true
+
+  const jumpToReply = useCallback((id: string) => {
+    if (references.some(message => message.id === id)) setLocalAnchorId(id)
+    else { setLocalAnchorId(null); setNestedId(id) }
+  }, [references, setLocalAnchorId, setNestedId])
 
   // ── Sheet-local actions ──────────────────────────────────────────────────
   const findMessage = useCallback(
     (id: string): Msg | undefined => {
-      const transport = query.data?.messages?.find((message) => message.id === id)
+      const transport = references.find((message) => message.id === id)
       return transport ? materializeCanonicalMessage(transport, canonicalMessages) : undefined
     },
-    [canonicalMessages, query.data],
+    [canonicalMessages, references],
   )
 
   const runReactionIntent = useCallback((
@@ -311,7 +362,7 @@ export function MessageContextSheet({
       id: m.id,
       ...(m.authorId ? { authorId: m.authorId } : {}),
       authorName: m.authorName ?? "",
-      text: m.content ?? "",
+      text: messagePreviewText(m),
     })
   }, [findMessage, onReply])
 
@@ -348,8 +399,7 @@ export function MessageContextSheet({
     if (type === "dm") return
     if (!serverId) return
     const m = findMessage(id)
-    const content = m ? (m.content ?? "") : undefined
-    const name = deriveThreadName(content, "channel")
+    const name = deriveThreadName(m, "channel")
     try {
       await createThreadMut.mutateAsync({ serverId, channelId, messageId: id, name })
     } catch (e) {
@@ -420,7 +470,9 @@ export function MessageContextSheet({
       cancelAnimationFrame(r1)
       if (r2) cancelAnimationFrame(r2)
     }
-  }, [open, anchorId, targetSeq])
+  }, [open, anchorId, targetSeq, renderRows.length])
+
+  const displayedSeq = canonicalMessages?.get(anchorId ?? "")?.seq ?? (requestedId ? undefined : targetSeq)
 
   return (
     <CommunitySheet
@@ -430,33 +482,34 @@ export function MessageContextSheet({
         <span className="flex w-full min-w-0 items-center gap-1.5">
           <ChannelIcon className="shrink-0 text-muted-foreground" />
           <span className="min-w-0 truncate">{channelLabel}</span>
-          <span className="shrink-0 font-mono text-base font-normal text-muted-foreground">#{targetSeq ?? ""}</span>
+          <span className="shrink-0 font-mono text-base font-normal text-muted-foreground">#{displayedSeq ?? ""}</span>
         </span>
       ) : (
         <span className="font-mono text-2xl">
-          <span className="text-muted-foreground">#</span>{targetSeq ?? ""}
+          <span className="text-muted-foreground">#</span>{displayedSeq ?? ""}
         </span>
       )}
       bodyRef={bodyRef}
       bodyClassName="px-4 py-3"
     >
-      {(query.isLoading || canonicalPending) && <ContextSkeleton />}
+      {!anchorMissing && !renderRows.length && !(query.isError || lookup.isError) && <ContextSkeleton />}
 
-      {query.isError && (
+      {(query.isError || lookup.isError) && (
         <p className="py-8 text-center text-sm text-muted-foreground">
-          Couldn&rsquo;t load the message. Check your connection and retry.
+          Couldn&rsquo;t load the message. <button type="button" className="underline" onClick={() => { void (lookup.isError ? lookup.refetch() : query.refetch()) }}>Retry</button>
         </p>
       )}
 
-      {(query.data?.notFound || anchorMissing) && (
+      {anchorMissing && (
         <p className="py-8 text-center text-sm text-muted-foreground">
           Message not found — it may have been deleted.
         </p>
       )}
 
-      {!query.isLoading && !query.isError && !canonicalPending && !anchorMissing && query.data && !query.data.notFound && (
+      {!anchorMissing && !canonicalPending && renderRows.length > 0 && (
         <ContextRows
           rows={renderRows}
+          onJumpToId={jumpToReply}
           viewerUserId={currentUser.id}
           anchorId={anchorId}
           pinnedIds={pinnedIds}
@@ -480,6 +533,7 @@ export function MessageContextSheet({
 
 function ContextRows({
   rows,
+  onJumpToId,
   viewerUserId,
   anchorId,
   pinnedIds,
@@ -496,6 +550,7 @@ function ContextRows({
   onPreviewImage,
   onPreviewAttachment,
 }: {
+  onJumpToId: (id: string) => void
   rows: RenderMsg[]
   viewerUserId: string
   anchorId: string | null
@@ -543,6 +598,7 @@ function ContextRows({
             <div data-anchor-row={isTarget ? "1" : undefined}>
               <MessageRow
                 m={m}
+                onJumpToId={onJumpToId}
                 hoverCapable={hoverCapable}
                 viewerUserId={viewerUserId}
                 pinned={pinnedIds?.has(m.id)}

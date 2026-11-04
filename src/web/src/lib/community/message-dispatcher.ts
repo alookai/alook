@@ -14,7 +14,7 @@ import {
   type CommunityContract,
   type AlookQueueTask,
 } from "@alook/shared"
-import { mapMessageForWs, readCommunityMessageProfiles, type MessageRow } from "./message-payload"
+import { mapMessageForWs, loadApiMessageContext, readCommunityMessageProfiles } from "./message-payload"
 import { sendMessageDeliveryBatch } from "./message-delivery-transport"
 import { enqueueQueueTasks } from "./queue-producer"
 
@@ -116,11 +116,7 @@ export async function planCommittedMessage(
     ),
     message.replyToId
       ? withD1Retry(
-          () => queries.communityMessage.getWakeContextMessageInScope(
-            db,
-            message.replyToId!,
-            { channelId: message.channelId },
-          ),
+          () => queries.communityMessage.getMessagesByIdsInScope(db, [message.replyToId!], { channelId: message.channelId }).then(rows => rows[0] ?? null),
           { route: "message-dispatcher:reply" },
         )
       : Promise.resolve(null),
@@ -173,15 +169,8 @@ export async function planCommittedMessage(
     ...mentionUserIds,
   ])
 
-  const replyMap = new Map<string, Pick<MessageRow, "id" | "authorId" | "authorName" | "content">>()
-  if (replyTarget) {
-    replyMap.set(replyTarget.id, {
-      id: replyTarget.id,
-      authorId: replyTarget.authorId,
-      authorName: replyTarget.authorName,
-      content: replyTarget.content,
-    })
-  }
+  const relatedContext = (await loadApiMessageContext(db, message.authorId, [], () => Promise.resolve(replyTarget ? [replyTarget] : []), { skipEmpty: true }))(message.channelId)
+  const replyMap = relatedContext.replyMap
   const creationRequest = channel.type === "dm" && message.type === "bot_creation_request"
     ? (await queries.communityBotCreation.hydrateCreationRequestsForDmMessages(db, [message.id], message.authorId)).get(message.id)
     : undefined
@@ -190,6 +179,7 @@ export async function planCommittedMessage(
     channelId: message.channelId,
     ...(channel.serverId ? { serverId: channel.serverId } : {}),
     ...(channel.parentChannelId ? { parentChannelId: channel.parentChannelId } : {}),
+    relatedMessages: relatedContext.relatedMessages,
     message: mapMessageForWs(message, {
       replyMap,
       botCreation: creationRequest,
@@ -197,7 +187,7 @@ export async function planCommittedMessage(
       resourceAttachments: groupAttachments(attachments)[message.id] ?? [],
     }, contract, message.channelId),
   }
-  const profiles = await readCommunityMessageProfiles(db, [messageInput.message])
+  const profiles = await readCommunityMessageProfiles(db, [messageInput.message, ...(relatedContext.relatedMessages ?? [])])
   const messageResult = validateCommunityWsEvent({ ...messageInput, profiles }, contract)
   if (!messageResult.ok || messageResult.event.type !== WS_EVENTS.MESSAGE_CREATE) throw new Error("Invalid committed message event")
   const messageEvent = messageResult.event

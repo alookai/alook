@@ -110,12 +110,12 @@ describe("complete canonical coverage at the existing repair owner", () => {
 
   it("retains current-window correction of a deleted reply target even when creations are cached", async () => {
     const h = await setup()
-    ingestMessages(h.registry, "c1", [{ ...row(100), replyTo: { id: "gone", authorId: "peer", authorName: "Peer", text: "old reply" } }, row(101)])
-    load.mockResolvedValueOnce(page([{ ...row(100), replyTo: { id: "gone", authorName: "Deleted user", text: "", deleted: true } }], 101))
+    ingestMessages(h.registry, "c1", [{ ...row(100), replyTo: { id: "gone", authorId: "peer", authorName: "Peer", } }, row(101)])
+    load.mockResolvedValueOnce(page([{ ...row(100), replyTo: { id: "gone", authorName: "Deleted user", deleted: true } }], 101))
     try {
       await reconcileFocusedMessageQueries(h.client, "channel", "c1", "s1")
       expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages"])
-      expect(h.registry.collections.messages.get("m100")?.replyTo).toEqual({ id: "gone", authorName: "Deleted user", text: "", deleted: true })
+      expect(h.registry.collections.messages.get("m100")?.replyTo).toEqual({ id: "gone", authorName: "Deleted user", deleted: true })
       expect(h.ids()).toEqual(["m98", "m99", "m100", "m101"])
     } finally { h.unsubscribe() }
   })

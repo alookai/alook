@@ -72,6 +72,7 @@ export const messageQueryFn = (
     await publishCommunityMessages(queryClient, {
       channelId: publishChannelId,
       messages: [message],
+      relatedMessages: read.relatedMessages,
       profiles: read.profiles,
       proof: { token, signal: readSignal },
     })
@@ -119,7 +120,7 @@ export async function prefetchCommunityLatestMessage(queryClient: QueryClient, c
         `/api/community/channels/${channelId}/messages?limit=1`,
         { signal: readSignal, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) } }, token,
       )
-      await publishCommunityMessages(queryClient, { channelId, messages: page.messages, profiles: page.profiles, proof: { token, signal: readSignal } })
+      await publishCommunityMessages(queryClient, { channelId, messages: page.messages, relatedMessages: page.relatedMessages, profiles: page.profiles, proof: { token, signal: readSignal } })
       return page.messages[0]?.id ?? null
     }),
     select: undefined,
@@ -135,7 +136,7 @@ export function findCachedMessage(
   const graph = getCanonicalCommunityMessageResources(queryClient, [message])
   const author = graph?.profiles.find(profile => profile.id === message.authorId)
   if (!author) return undefined
-  const view = presentCanonicalMessage(message)
+  const view = presentCanonicalMessage(message, message.replyToId ? getCanonicalCommunityMessages(queryClient).find(row => row.id === message.replyToId && row.channelId === message.channelId) : undefined)
   return {
     ...view,
     authorId: message.authorId,

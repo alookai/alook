@@ -41,11 +41,11 @@ import type {
 } from "./schema"
 
 function projectedCanonicalMessage(message: MessageRow, child?: ChannelRow): CommunityMessageResource {
-  return { ...message, ...(child ? { thread: { id: child.id, name: child.name ?? "", messageCount: child.messageCount ?? 0, lastReplyAt: child.lastMessageAt ?? undefined, tags: child.tags, preview: child.preview, participantCount: child.participantCount } } : {}) }
+  return { ...message, ...(child ? { thread: { id: child.id, name: child.name ?? "", messageCount: child.messageCount ?? 0, lastReplyAt: child.lastMessageAt ?? undefined, tags: child.tags, firstMessageId: child.firstMessageId, participantCount: child.participantCount } } : {}) }
 }
 
-function projectedMessage(message: MessageRow, child?: ChannelRow): Msg {
-  return presentCanonicalMessage(projectedCanonicalMessage(message, child))
+function projectedMessage(message: MessageRow, child?: ChannelRow, reply?: MessageRow): Msg {
+  return presentCanonicalMessage(projectedCanonicalMessage(message, child), reply?.channelId === message.channelId ? reply : undefined)
 }
 
 let communityDbContext: Context<CommunityDbRegistry | null> | null = null
@@ -345,14 +345,14 @@ export function useRouteChannelProjection(channelId: string | null) {
 function useJoinedMessageQuery(channelId: string | null | undefined, ids?: readonly string[]) {
   const registry = useOptionalCommunityDbRegistry()
   const result = useLiveQuery(communityJoinedMessagesQuery(registry, channelId, ids))
-  return { registry, data: result.data as Array<{ message: MessageRow; child?: ChannelRow }> | undefined, status: result.status }
+  return { registry, data: result.data as Array<{ message: MessageRow; child?: ChannelRow; reply?: MessageRow }> | undefined, status: result.status }
 }
 
 export function useCanonicalMessagesById(ids?: readonly string[]): ReadonlyMap<string, Msg> | undefined {
   const { registry, data } = useJoinedMessageQuery(undefined, ids)
   return useMemo(() => !registry ? undefined : new Map(
-    (data ?? []).map(({ message, child }) => {
-      return [message.id, projectedMessage(message, child)]
+    (data ?? []).map(({ message, child, reply }) => {
+      return [message.id, projectedMessage(message, child, reply)]
     }),
   ), [registry, data])
 }
@@ -363,7 +363,8 @@ export function useMessageWindowProjection(channelId: string | null, ids: readon
   const canonicalMessages = useMemo(() => !channelId || !data ? undefined : data
     .sort((a, b) => (a.message.seq ?? 0) - (b.message.seq ?? 0))
     .map(({ message, child }) => projectedCanonicalMessage(message, child)), [channelId, data])
-  return { canonicalMessages, windowIds: ids, status }
+  const relatedMessages = useMemo(() => data?.flatMap(({ message, reply }) => reply?.channelId === message.channelId ? [reply] : []) ?? [], [data])
+  return { canonicalMessages, relatedMessages, windowIds: ids, status }
 }
 
 function useCollectionById<N extends "channels" | "servers">(name: N) {

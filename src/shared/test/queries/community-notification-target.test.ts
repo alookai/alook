@@ -31,13 +31,16 @@ describe("community notification target query", () => {
         id TEXT PRIMARY KEY NOT NULL,
         author_id TEXT NOT NULL,
         content TEXT NOT NULL,
-        channel_id TEXT NOT NULL
+        channel_id TEXT NOT NULL,
+        type TEXT, friendship_id TEXT, embeds TEXT
       );
       CREATE TABLE community_attachment (
         id TEXT PRIMARY KEY NOT NULL,
         content_type TEXT,
+        filename TEXT NOT NULL DEFAULT '', size INTEGER,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE community_bot_creation_request (id TEXT PRIMARY KEY, message_id TEXT);
       CREATE TABLE community_message_attachment (message_id TEXT, attachment_id TEXT, position INTEGER);
       INSERT INTO user (id, name) VALUES
         ('author-1', 'Alice'),
@@ -85,7 +88,7 @@ describe("community notification target query", () => {
       serverName: null,
       channelName: null,
       parentChannelName: null,
-      attachmentContentTypes: [],
+      attachments: [],
     });
   });
 
@@ -99,7 +102,7 @@ describe("community notification target query", () => {
       serverName: "Studio",
       channelName: "general",
       parentChannelName: null,
-      attachmentContentTypes: ["image/png", "application/pdf"],
+      attachments: [{ id: "attachment-1", name: "", contentType: "image/png", sizeBytes: null }, { id: "attachment-2", name: "", contentType: "application/pdf", sizeBytes: null }],
     });
   });
 
@@ -118,7 +121,7 @@ describe("community notification target query", () => {
         serverName: "Studio",
         channelName,
         parentChannelName,
-        attachmentContentTypes: [],
+        attachments: [],
       });
     },
   );
@@ -133,7 +136,7 @@ describe("community notification target query", () => {
       serverName: "   ",
       channelName: null,
       parentChannelName: "   ",
-      attachmentContentTypes: [],
+      attachments: [],
     });
   });
 
@@ -147,7 +150,7 @@ describe("community notification target query", () => {
       serverName: null,
       channelName: "Still pushable",
       parentChannelName: null,
-      attachmentContentTypes: [],
+      attachments: [],
     });
   });
 

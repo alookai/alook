@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, CommunityMessageReadSchema, type CommunityMessageResource } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { profileResourceFixture } from "@/test/community-resource-fixtures"
+import { messageResourceFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
 import { writeCommunityProfilePatches, communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { ingestMessages, retireCommunityChannelReading } from "@/lib/community-db/sync"
 import { findCachedMessage, messageQueryFn, prefetchCommunityMessage, prefetchCommunityLatestMessage } from "./use-message"
@@ -150,7 +150,7 @@ describe("useMessage / messageQueryFn", () => {
     ingestMessages(registry, payload.channelId, [{ ...payload,
       attachments: [{ id: "old", name: "old.txt", url: "/old", sizeBytes: 1024, thumbnailUrl: null, contentType: null, width: null, height: null }],
       embeds: [{ title: "Old" }], reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["peer"] }],
-      replyToId: "reply", replyTo: { id: "reply", authorId: "peer", authorName: "Peer", text: "Old reply" },
+      replyToId: "reply", replyTo: { id: "reply", authorId: "peer", authorName: "Peer", },
     }])
     apiFetchMock.mockResolvedValueOnce(singleRead({ ...payload, seq: 1, replyToId: null, clientNonce: null, attachments: [], embeds: [], reactions: [] }))
     await client.query({ queryKey: communityKeys.message(payload.id), queryFn: messageQueryFn(payload.id, client) })
@@ -183,19 +183,19 @@ describe("useMessage / messageQueryFn", () => {
   })
 
   it("derives an opener placeholder from a persisted canonical message window", async () => {
-    const { client, registry } = await createCommunityQueryOwner()
+    const { client, registry } = await createCommunityQueryOwner("u_1")
     const message = {
       ...payload, content: "cached opener",
-      replyToId: "m_0", replyTo: { id: "m_0", authorId: "u_0", authorName: "Bob", text: "parent" },
+      replyToId: "m_0", replyTo: { id: "m_0", authorId: "u_0", authorName: "Bob", },
       attachments: [{ id: "notes", name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, thumbnailUrl: null, contentType: null, width: null, height: null }],
       embeds: [{ title: "Reference" }],
       reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_1"] }],
     }
     writeCommunityProfilePatches([authorProfile, profileResourceFixture({ id: "u_0", name: "Bob" })].map(profile => communityUserProfilePatch(profile.id, profile)), registry)
-    ingestMessages(registry, "channel-1", [message])
+    ingestMessages(registry, "channel-1", [message, messageResourceFixture({ id: "m_0", channelId: "channel-1", authorId: "u_0", content: "parent" })])
     client.setQueryData(communityKeys.channelMessages("channel-1"), { pages: [{ ids: [message.id], hasMoreOlder: false, hasMoreNewer: false }], pageParams: [{ mode: "newest" }] })
     const { channelId: _channelId, replyToId: _replyToId, clientNonce: _clientNonce, ...view } = message
-    expect(findCachedMessage(client, message.id)).toMatchObject({ ...view, authorAvatar: "A", attachments: [{ kind: "file", name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, size: "1.0 KB" }] })
+    expect(findCachedMessage(client, message.id)).toMatchObject({ ...view, replyTo: { ...message.replyTo, text: "parent" }, authorAvatar: "A", attachments: [{ kind: "file", name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, size: "1.0 KB" }] })
     expect(findCachedMessage(client, "missing")).toBeUndefined()
   })
 

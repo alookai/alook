@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 
-export const REDACTED = /\[REDACTED(?:_[A-Z0-9]+)*\]/g
+import { REDACTED } from "@alook/shared/redaction"
+export { REDACTED } from "@alook/shared/redaction"
 
 export function RedactedBadge({ children }: { children?: ReactNode }) {
   return <span data-redacted role="img" aria-label="redacted" className="inline-block whitespace-nowrap rounded-sm bg-muted px-1 align-baseline font-sans text-xs font-medium leading-normal text-muted-foreground after:content-['redacted']"><span aria-hidden className="sr-only">{children}</span></span>

@@ -10,7 +10,7 @@ import { toBlob } from "html-to-image"
 import { toast } from "sonner"
 import { Check, Copy, Download, Highlighter, Loader2 } from "lucide-react"
 import { writeImage } from "@tauri-apps/plugin-clipboard-manager"
-import { isDesktop, isMobile, isTauri, stripInlineMarkup } from "@alook/shared"
+import { isDesktop, isMobile, isTauri } from "@alook/shared"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Avatar } from "../avatar"
@@ -331,7 +331,7 @@ export function MessageShareDialog({ m, open, onClose }: {
                     ) : (
                       <>
                         <span className="shrink-0 font-medium text-foreground/80">@{replyAuthor?.name ?? msg.replyTo.authorName}</span>
-                        <span className="min-w-0 truncate">{stripInlineMarkup(msg.replyTo.text)}</span>
+                        <span className="min-w-0 truncate">{msg.replyTo.text}</span>
                       </>
                     )}
                   </div>

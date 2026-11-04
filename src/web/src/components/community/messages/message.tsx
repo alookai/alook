@@ -31,7 +31,6 @@ import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
 import { usePageSwipeStart } from "@/components/ui/swipe-container"
 import { avatarInitial } from "@/lib/community/avatar"
-import { stripInlineMarkup } from "@alook/shared"
 import type { FileAttachment, ImagePreview, RenderMsg } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { attachmentImageFrameStyle } from "./attachment-layout"
@@ -670,14 +669,14 @@ function MessageImpl({
 
       {m.replyTo && (
         <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-2">
-          <button onClick={onJumpReply} className="col-start-2 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
+          <button aria-label="Show original message" onClick={onJumpReply} className="col-start-2 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
             <div className="h-2 w-4 shrink-0 rounded-tl-md border-l-2 border-t-2 border-border" />
             {m.replyTo.deleted ? (
               <span className="italic text-muted-foreground">Original message was deleted</span>
             ) : (
               <>
                 <span className="shrink-0 font-medium text-foreground/80">@{replyAuthorName}</span>
-                <span className="min-w-0 truncate">{stripInlineMarkup(m.replyTo.text)}</span>
+                <span className="min-w-0 truncate">{m.replyTo.text}</span>
               </>
             )}
           </button>

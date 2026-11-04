@@ -343,6 +343,7 @@ async function uploadImage(args: {
     mimeType,
     buffer,
   })
+  await expect(page.getByText(name, { exact: true })).toBeVisible()
   await expect.poll(() => editable.evaluate((element) => document.activeElement === element)).toBe(true)
   await page.keyboard.press("Enter")
 

@@ -20,6 +20,7 @@ export type PendingFile = {
   thumbnailUrl: string | null;
   thumbnailBlob: Blob | null;
   preparing?: boolean;
+  preparationFailed?: boolean;
   width?: number;
   height?: number;
 };
@@ -72,7 +73,7 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
   }, [protocol]);
   type Preparation = { drafts: readonly AttachmentDraftFile[]; generation: number; policy: "legacy" | "community"; scope?: string; signal: AbortSignal };
   const preparation = useMutation({ meta: { observabilityAction: "attachment.prepare" }, mutationKey: key, scope: { id }, gcTime: 0,
-    mutationFn: async ({ drafts, generation, policy, scope, signal }: Preparation) => {
+    mutationFn: async ({ drafts, generation, policy, signal }: Preparation) => {
       const eligible = () => protocol.get().active && protocol.get().generation === generation && !signal.aborted;
       if (!eligible()) return;
       for (const { draftId, file } of drafts) {
@@ -96,7 +97,7 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
           const preview = blob ?? (policy === "community" && thumbnail ? file : null);
           prepared = { draftId, file, thumbnailUrl: preview ? URL.createObjectURL(preview) : null, thumbnailBlob: blob, width: thumbnail?.width, height: thumbnail?.height };
         } catch {
-          if (owns()) { toast.error(`Could not prepare "${file.name}" for upload`); if (scope) removeComposerAttachmentSessionFiles(scope, [draftId]); }
+          if (owns()) { toast.error(`Could not prepare "${file.name}" for upload`); prepared = { draftId, file, thumbnailUrl: null, thumbnailBlob: null, preparationFailed: true }; }
         }
         if (!owns()) { if (prepared) revokeThumbnailUrls([prepared]); continue; }
         protocol.setState((state) => {
@@ -177,7 +178,10 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
       original.controller.signal.addEventListener("abort", finish, { once: true });
       finish();
     });
-    assert(); return protocol.get().files;
+    assert();
+    const files = protocol.get().files;
+    if (files.some((file) => file.preparationFailed)) throw new Error("Attachment preparation failed");
+    return files;
   }, [client, key, protocol]);
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => { if (event.target.files) void addPendingFiles(Array.from(event.target.files)).catch(() => undefined); event.target.value = ""; }, [addPendingFiles]);
   const removePendingFile = useCallback((index: number) => {

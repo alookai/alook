@@ -36,8 +36,9 @@ export async function readCommunityResourceBundle(db: Database, viewerId: string
   ])
   if (input.messageIds?.some(id => !messageRows.some(row => row.id === id))) throw new Error("Requested message resource missing from scope")
   const context = await loadApiMessageContext(db, viewerId, messageRows.map(row => row.id), () =>
-    queries.communityMessage.getMessagesByIdsInChannels(db, messageRows.flatMap(row => row.replyToId ? [row.replyToId] : []), allowedIds), true)
+    queries.communityMessage.getMessagesByIdsInChannels(db, messageRows.flatMap(row => row.replyToId ? [row.replyToId] : []), allowedIds), { skipEmpty: true, rootMessages: messageRows })
   const messages = messageRows.map(row => mapMessageForApi(row, context(row.channelId), COMMUNITY_RESOURCE_CONTRACT_VERSION, row.channelId))
+  messages.push(...[...new Map(messageRows.flatMap(row => context(row.channelId).relatedMessages ?? []).map(message => [message.id, message])).values()])
   const profiles = await readCommunityResourceProfiles(db, [viewerId, ...(input.profileIds ?? []), ...communityMessageProfileIds(messages)])
   const serverIds = new Set([...(input.serverIds ?? []), ...channels.flatMap(row => row.serverId ? [row.serverId] : [])])
   const selectedServers = serverRows.flatMap((row, position) => serverIds.has(row.id) ? [{ row, position }] : [])

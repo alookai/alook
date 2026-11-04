@@ -12,7 +12,7 @@ import {
   Smile,
   X,
 } from "lucide-react"
-import { isMobile, stripInlineMarkup } from "@alook/shared"
+import { isMobile } from "@alook/shared"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { PendingFile } from "@/hooks/use-file-attachments"
 import type {
@@ -95,7 +95,7 @@ export function ComposerView({
 }: ComposerViewProps) {
   const nativeMobile = useHydratedClient() && isMobile()
   const replyPreview = replyingTo
-    ? stripInlineMarkup(replyingTo.text).replace(/\s+/g, " ").trim()
+    ? replyingTo.text
     : null
 
   const composerRadius = replyingTo || pendingFiles.length > 0
@@ -158,7 +158,7 @@ export function ComposerView({
               <div
                 key={pendingFile.draftId ?? index}
                 aria-busy={pendingFile.preparing || undefined}
-                className="group relative flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs"
+                className="group relative flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs"
               >
                 {isImage ? (
                   <ImageIcon className="size-3.5 text-muted-foreground" />
@@ -176,6 +176,7 @@ export function ComposerView({
                 >
                   <X className="size-3" />
                 </button>
+                {pendingFile.preparationFailed && <span role="alert" className="basis-full text-destructive">Could not prepare. Remove this file and try again.</span>}
               </div>
             )
           })}

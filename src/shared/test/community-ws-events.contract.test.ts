@@ -173,6 +173,17 @@ describe("Community browser event runtime contract", () => {
     })).toMatchObject({ reason: "unknown-community-type" })
   })
 
+  it("validates full reply targets before a message event can publish any resource", () => {
+    const base = communityWsEventFixtures["community:message.create"]
+    const target = { ...base.message, id: "target", replyToId: null }
+    const event = { ...base, message: { ...base.message, replyToId: target.id }, relatedMessages: [target] }
+    expect(CommunityWsEventSchema.parse(event)).toEqual(event)
+    for (const relatedMessages of [
+      [{ ...target, channelId: "foreign" }], [{ ...target, id: "unrelated" }], [target, target], [event.message],
+      [target, { ...target, id: "second-level" }],
+    ]) expect(CommunityWsEventSchema.safeParse({ ...event, relatedMessages }).success).toBe(false)
+  })
+
   it("keeps exact and candidate guards distinct", () => {
     expect(isCommunityEventType("community:message.create")).toBe(true)
     expect(isCommunityEventType("community:future")).toBe(false)

@@ -2,14 +2,16 @@ import resolvedRawInput0 from "./use-composer-controller.ts?raw"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { forwardRef, createElement, createRef } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act } from "@/test/react-dom-harness"
+import { act, waitFor } from "@/test/react-dom-harness"
 import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
   useEditor: vi.fn(),
   useFileAttachments: vi.fn(),
+  prepareCommunityImage: vi.fn(),
   useSuggestions: vi.fn(),
   clearDraft: vi.fn(),
   readDraft: vi.fn(),
@@ -57,6 +59,10 @@ vi.mock("@tiptap/pm/model", () => ({
 vi.mock("@/hooks/use-file-attachments", () => ({
   useFileAttachments: (...args: unknown[]) =>
     mocks.useFileAttachments(...args),
+}))
+vi.mock("@/lib/image-thumbnail", () => ({
+  prepareCommunityImage: (...args: unknown[]) => mocks.prepareCommunityImage(...args),
+  generateThumbnail: vi.fn(),
 }))
 vi.mock("@/hooks/use-hover-capable", () => ({
   useHoverCapable: () => mocks.hoverCapable,
@@ -107,6 +113,7 @@ import type { ComposerHandle, ComposerProps } from "./composer-types"
 import type { PendingFile } from "@/hooks/use-file-attachments"
 
 let controllerView: ReturnType<typeof useComposerController>
+let controllerClient: ReturnType<typeof useQueryClient>
 
 type EditorOptions = {
   editorProps: {
@@ -158,6 +165,7 @@ type TestEditor = {
 const Harness = forwardRef<ComposerHandle, ComposerProps>(
   function Harness(props, ref) {
     const view = useComposerController(props, ref)
+    controllerClient = useQueryClient()
     controllerView = view
     return createElement("div", { "data-controller-probe": "" })
   },
@@ -327,6 +335,41 @@ describe("useComposerController", () => {
       thumbnailPolicy: "community",
       draftSessionScope: "viewer:server/channel",
     }))
+  })
+
+  it.each(["before-send", "during-send"])("keeps selected files and text unsent when preparation fails %s", async (timing) => {
+    const { useFileAttachments: realHook } = await vi.importActual<typeof import("@/hooks/use-file-attachments")>("@/hooks/use-file-attachments")
+    let files!: ReturnType<typeof realHook>
+    mocks.useFileAttachments.mockImplementation((options: Parameters<typeof realHook>[0]) => {
+      files = realHook(options)
+      return files
+    })
+    let fail!: (error: Error) => void
+    mocks.prepareCommunityImage.mockReturnValue(new Promise((_, reject) => { fail = reject }))
+    const accept = vi.fn(() => true)
+    render(createElement(Harness, acceptedProps(accept)))
+    act(() => editorOptions.onUpdate({ editor }))
+    const file = new File(["image"], "broken.png", { type: "image/png" })
+    let preparation!: Promise<void>
+    act(() => { preparation = files.addPendingFiles([file]) })
+    await waitFor(() => expect(mocks.prepareCommunityImage).toHaveBeenCalledOnce())
+    if (timing === "during-send") await enter()
+    await act(async () => { fail(new Error("decode failed")); await preparation })
+    if (timing === "before-send") await enter()
+    await waitFor(() => expect(controllerClient.isMutating({ mutationKey: ["community", "composer-accept"] })).toBe(0))
+    expect(controllerView.sendDisabled).toBe(true)
+    expect(accept).not.toHaveBeenCalled()
+    expect(clearContent).not.toHaveBeenCalled()
+    expect(mocks.clearDraft).not.toHaveBeenCalled()
+    expect(mocks.clearAttachmentSession).not.toHaveBeenCalled()
+    expect(mocks.transferAttachmentSession).not.toHaveBeenCalled()
+    expect(files.pendingFiles).toEqual([expect.objectContaining({ file, preparationFailed: true })])
+
+    act(() => files.removePendingFile(0))
+    await enter()
+    await waitFor(() => expect(accept).toHaveBeenCalledExactlyOnceWith("hello @everyone", undefined, "everyone"))
+    expect(clearContent).toHaveBeenCalledOnce()
+    expect(mocks.clearDraft).toHaveBeenCalledOnce()
   })
 
   it("forwards the optional channel source into suggestions and its presentation into the view", async () => {

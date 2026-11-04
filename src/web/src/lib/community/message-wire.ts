@@ -1,4 +1,4 @@
-import { BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, type CommunityMessageResource } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, messagePreview, type CommunityMessageResource } from "@alook/shared"
 import { MessageEmbedSchema, type Msg, type CanonicalMessage } from "@/lib/community/models/message"
 import { avatarInitial } from "@/lib/community/avatar"
 import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
@@ -28,10 +28,11 @@ function projectMessageRichContent(value: unknown): Pick<Msg, "attachments" | "e
   }
 }
 
-export function presentCanonicalMessage(message: CommunityMessageResource): Msg {
-  const { channelId: _channelId, replyToId: _replyToId, clientNonce, authorAvatar, attachments: _attachments, embeds: _embeds, thread, ...fields } = message
+export function presentCanonicalMessage(message: CommunityMessageResource, replyTarget?: CommunityMessageResource): Msg {
+  const { channelId: _channelId, replyToId: _replyToId, clientNonce, authorAvatar, attachments: _attachments, embeds: _embeds, thread, replyTo, ...fields } = message
   return {
     ...fields,
+    ...(replyTo ? { replyTo: { ...replyTo, text: replyTarget?.id === replyTo.id && replyTarget.channelId === message.channelId ? messagePreview(replyTarget) : replyTo.deleted ? "" : "Loading message…" } } : {}),
     ...(authorAvatar === undefined ? {} : { authorAvatar: authorAvatar ?? avatarInitial(message.authorName ?? "") }),
     ...(clientNonce != null ? { clientNonce } : {}),
     ...(thread ? { thread: presentMessageThread(thread) } : {}),

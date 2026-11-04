@@ -853,3 +853,6 @@ export { CommunityDmReadItemSchema, CommunityDmsReadSchema, parseCommunityDmsRea
 export * from "./community-profile-reads"
 
 export * from "./machine-refresh-contract";
+
+export { messagePreview, messagePreviewText } from "./lib/message-preview";
+export type { MessagePreviewInput } from "./lib/message-preview";

@@ -14,7 +14,7 @@
  * embeds pass-through, and mentionType projection so adding/removing a
  * field on the wire is one edit, not four.
  */
-import { BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, queries, truncateMessagePreview, type CommunityContract, type Database, type MentionType, type CommunityMessageResource, type CommunityMessageAttachment } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, queries, type CommunityContract, type Database, type MentionType, type CommunityMessageResource, type CommunityMessageAttachment } from "@alook/shared"
 import type { BotCreationPayload, FriendApprovalPayload } from "@alook/shared"
 
 import { readCommunityResourceProfiles, type CommunityResourceProfileReader } from "./resource-profiles.server"
@@ -25,14 +25,15 @@ import { groupAttachments, groupReactions } from "./messages"
 export type MessageRow = Pick<Awaited<ReturnType<typeof queries.communityMessage.getMessagesByIdsInScope>>[number],
   "id" | "authorId" | "authorName" | "authorImage" | "authorAvatarVersion" | "mentionType" | "replyToId" | "seq" | "createdAt"> & { content: string | null; type: string | null; embeds: unknown; clientNonce?: string | null; friendshipId?: string | null }
 
-type ReplyTargetRow = Pick<MessageRow, "id" | "authorId" | "authorName" | "content">
+type ReplyIdentity = Pick<MessageRow, "id" | "authorId" | "authorName">
+type ReplyTargetRow = Awaited<ReturnType<typeof queries.communityMessage.getMessagesByIdsInScope>>[number]
 
 type UiReaction = NonNullable<CommunityMessageResource["reactions"]>[number]
 type ReplyPreview = NonNullable<CommunityMessageResource["replyTo"]>
 type ThreadPreview = NonNullable<CommunityMessageResource["thread"]>
 
 /** Common fields shared by both API and WS variants — derived exactly once. */
-function coreFields(row: MessageRow, replyMap: Map<string, ReplyTargetRow>) {
+function coreFields(row: MessageRow, replyMap: ReadonlyMap<string, ReplyIdentity>) {
   return {
     ...projectMessageWireType(row.type),
     replyTo: resolveReply(row, replyMap),
@@ -61,21 +62,21 @@ function coreFields(row: MessageRow, replyMap: Map<string, ReplyTargetRow>) {
  * upstream, or actually deleted), we return the `{ deleted: true }` sentinel
  * so the client renders "reply to [deleted]" without leaking data.
  */
-function resolveReply(row: MessageRow, replyMap: Map<string, ReplyTargetRow>): ReplyPreview | undefined {
+function resolveReply(row: MessageRow, replyMap: ReadonlyMap<string, ReplyIdentity>): ReplyPreview | undefined {
   if (!row.replyToId) return undefined
   const target = replyMap.get(row.replyToId)
-  if (!target) return { id: row.replyToId, authorName: "Deleted user", text: "", deleted: true }
+  if (!target) return { id: row.replyToId, authorName: "Deleted user", deleted: true }
   return {
     id: target.id,
     authorId: target.authorId,
     authorName: target.authorName,
-    text: truncateMessagePreview(target.content ?? ""),
   }
 }
 
 export type ApiMessageContext = {
   viewerId: string
-  replyMap: Map<string, ReplyTargetRow>
+  relatedMessages?: CommunityMessageResource[]
+  replyMap: ReadonlyMap<string, ReplyIdentity>
   attachmentsByMessage: Record<string, CommunityMessageAttachment[] | undefined>
   reactionsByMessage: Record<string, UiReaction[] | undefined>
   /** Optional: only channel GET surfaces a thread child; DM/thread don't. */
@@ -85,23 +86,42 @@ export type ApiMessageContext = {
   botCreationByMessageId?: Map<string, BotCreationPayload>
 }
 
-export async function loadApiMessageContext(db: Database, userId: string, ids: string[], readReplies: () => ReturnType<typeof queries.communityMessage.getMessagesByIdsInChannels>, skipEmpty = false) {
-  const [attachments, reactions, replies] = await Promise.all([
-    skipEmpty && !ids.length ? Promise.resolve([]) : queries.communityAttachment.listByMessageIds(db, ids),
-    skipEmpty && !ids.length ? Promise.resolve([]) : queries.communityReaction.listReactionsByMessageIds(db, ids, userId),
+type MessageContextOptions = { skipEmpty?: boolean; rootReactions?: boolean; rootMessages?: readonly Pick<MessageRow, "id" | "type" | "friendshipId">[] }
+
+export async function loadApiMessageContext(db: Database, userId: string, ids: string[], readReplies: () => ReturnType<typeof queries.communityMessage.getMessagesByIdsInChannels>, options: MessageContextOptions = {}) {
+  const [attachments, reactions, replyRows] = await Promise.all([
+    options.skipEmpty && !ids.length ? Promise.resolve([]) : queries.communityAttachment.listByMessageIds(db, ids),
+    options.rootReactions === false || options.skipEmpty && !ids.length ? Promise.resolve([]) : queries.communityReaction.listReactionsByMessageIds(db, ids, userId),
     readReplies(),
   ])
-  const attachmentsByMessage = groupAttachments(attachments), reactionsByMessage = groupReactions(reactions, userId)
-  return (channelId: string): ApiMessageContext => ({ viewerId: userId, attachmentsByMessage, reactionsByMessage,
-    replyMap: new Map(replies.filter((reply) => reply.channelId === channelId).map((reply) => [reply.id, reply])),
-  })
+  const replies = [...new Map(replyRows.map(reply => [`${reply.channelId}:${reply.id}`, reply])).values()]
+  const related = replies.filter(reply => !ids.includes(reply.id))
+  const relatedIds = related.map(reply => reply.id)
+  const cardRows = [...new Map([...(options.rootMessages ?? []), ...related].map(row => [row.id, row])).values()]
+  const [replyAttachments, replyReactions, approvalByMessageId, botCreationByMessageId] = await Promise.all([
+    relatedIds.length ? queries.communityAttachment.listByMessageIds(db, relatedIds) : Promise.resolve([]),
+    relatedIds.length ? queries.communityReaction.listReactionsByMessageIds(db, relatedIds, userId) : Promise.resolve([]),
+    cardRows.some(row => row.friendshipId) ? queries.communityFriendship.hydrateApprovalsForDmMessages(db, cardRows.filter(row => row.friendshipId).map(row => row.id), userId) : Promise.resolve(new Map<string, FriendApprovalPayload>()),
+    cardRows.some(row => row.type === "bot_creation_request") ? queries.communityBotCreation.hydrateCreationRequestsForDmMessages(db, cardRows.filter(row => row.type === "bot_creation_request").map(row => row.id), userId) : Promise.resolve(new Map<string, BotCreationPayload>()),
+  ])
+  const attachmentsByMessage = groupAttachments([...attachments, ...replyAttachments]), reactionsByMessage = groupReactions([...reactions, ...replyReactions], userId)
+  return (channelId: string): ApiMessageContext => {
+    const replyMap = new Map(replies.filter(reply => reply.channelId === channelId).map(reply => [reply.id, reply]))
+    const context: ApiMessageContext = { viewerId: userId, attachmentsByMessage, reactionsByMessage, replyMap, approvalByMessageId, botCreationByMessageId }
+    context.relatedMessages = [...replyMap.values()].filter(reply => !ids.includes(reply.id)).map(reply => {
+      const resource = mapMessageForApi(reply, context, BUSINESS_SCHEMA_VERSION, channelId)
+      delete resource.replyTo
+      return resource
+    })
+    return context
+  }
 }
 
-export async function readCommunityMessageResource(db: Database, userId: string, message: Parameters<typeof mapMessageForApi>[0] & { channelId: string }, contract: CommunityContract) {
+export async function readCommunityMessageResource(db: Database, userId: string, message: Parameters<typeof mapMessageForApi>[0] & { channelId: string }, contract: CommunityContract, options: MessageContextOptions = {}) {
   const context = await loadApiMessageContext(db, userId, [message.id], () => message.replyToId
-    ? queries.communityMessage.getMessagesByIdsInScope(db, [message.replyToId], { channelId: message.channelId }) : Promise.resolve([]))
-  const botCreationByMessageId = message.type === "bot_creation_request" ? await queries.communityBotCreation.hydrateCreationRequestsForDmMessages(db, [message.id], userId) : new Map<string, BotCreationPayload>()
-  return mapMessageForApi(message, { ...context(message.channelId), botCreationByMessageId }, contract, message.channelId)
+    ? queries.communityMessage.getMessagesByIdsInScope(db, [message.replyToId], { channelId: message.channelId }) : Promise.resolve([]), { ...options, rootMessages: [message] })
+  const ctx = context(message.channelId)
+  return { message: mapMessageForApi(message, ctx, contract, message.channelId), relatedMessages: ctx.relatedMessages ?? [] }
 }
 
 // Splits the DB's `type` column value into the wire's `{ type, systemKind }`
@@ -138,16 +158,11 @@ function mapMessageResource(row: MessageRow, ctx: Omit<ApiMessageContext, "viewe
 
 export async function mapPostedMessageForApi(db: Database, channelId: string, row: MessageRow, contract: number = BUSINESS_SCHEMA_VERSION) {
   if (contract !== BUSINESS_SCHEMA_VERSION) throw new Error("Posted message protocol mismatch")
-  const [replies, attachments] = await Promise.all([
-    row.replyToId ? queries.communityMessage.getMessagesByIdsInScope(db, [row.replyToId], { channelId }) : Promise.resolve([]),
-    queries.communityAttachment.listByMessageIds(db, [row.id]),
-  ])
-  const replyMap = new Map(replies.filter(reply => reply.channelId === channelId).map(reply => [reply.id, reply]))
-  return mapMessageForApi(row, { viewerId: row.authorId, replyMap, attachmentsByMessage: groupAttachments(attachments), reactionsByMessage: {} }, contract, channelId)
+  return readCommunityMessageResource(db, row.authorId, { ...row, channelId }, contract, { rootReactions: false })
 }
 
 export type WsMessageContext = {
-  replyMap: Map<string, ReplyTargetRow>
+  replyMap: ReadonlyMap<string, ReplyIdentity>
   resourceAttachments: CommunityMessageAttachment[]
   clientNonce?: string
   botCreation?: BotCreationPayload

@@ -21,6 +21,15 @@ function wire(
 }
 
 describe("projectCommunityMessageCreate", () => {
+  it("derives a semantic reply from the current canonical target without copying raw text into the relation", () => {
+    const target = wire({ id: "target", content: "**Visible** ||hidden|| `file_name.ts`", attachments: [{ id: "a", name: "photo.png", url: "/a", thumbnailUrl: null, contentType: "image/png", sizeBytes: 5, width: 1, height: 1 }] })
+    const reply = wire({ replyToId: target.id, replyTo: { id: target.id, authorId: "u1", authorName: "Gus" } })
+    expect(presentCanonicalMessage(reply, target).replyTo?.text).toBe("Visible [Spoiler] file_name.ts Photo: photo.png")
+    expect(reply.replyTo).not.toHaveProperty("text")
+    expect(presentCanonicalMessage(reply).replyTo?.text).toBe("Loading message…")
+    expect(presentCanonicalMessage(reply, { ...target, channelId: "other" }).replyTo?.text).toBe("Loading message…")
+    expect(presentCanonicalMessage(reply, { ...target, content: "edited" }).replyTo?.text).toBe("edited Photo: photo.png")
+  })
   it("presents full thread participants without altering stored facts", () => {
     const thread = { id: "thread", name: null, messageCount: 2, lastReplyAt: null, participants: [
       { id: "unknown", name: "", avatar: null, avatarVersion: 0 },
@@ -46,7 +55,7 @@ describe("projectCommunityMessageCreate", () => {
     expect(sparse).not.toHaveProperty("embeds")
   })
   it("preserves canonical identity and presentation fields", () => {
-    const replyTo = { authorId: "peer", id: "m0", authorName: "A", text: "prior" }
+    const replyTo = { authorId: "peer", id: "m0", authorName: "A" }
     const approval = {
       friendshipId: "f1",
       status: "pending" as const,
@@ -178,7 +187,7 @@ describe("projectPostedMessage", () => {
   })
 
   it.each([0, 46])("preserves all current POST rich facts at seq %s", (seq) => {
-    const full = wire({ seq, clientNonce: "nonce", replyToId: "prior", replyTo: { id: "prior", authorId: "peer", authorName: "Peer", text: "quoted" },
+    const full = wire({ seq, clientNonce: "nonce", replyToId: "prior", replyTo: { id: "prior", authorId: "peer", authorName: "Peer" },
       attachments: [{ id: "file", name: "file.txt", url: "/file", thumbnailUrl: null, contentType: "text/plain", sizeBytes: 4, width: null, height: null }],
       embeds: [{ title: "Card" }], reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["peer"] }],
       thread: { id: "thread", name: "Thread", messageCount: 1, lastReplyAt: null },

@@ -1,15 +1,15 @@
-import { FORUM_ARCHIVE_TAG, communityReadSchemas, type CommunityChannelResource, type CommunityThreadsRead, type CommunityMessageResource, type CommunityMemberRelation } from "@alook/shared"
+import { FORUM_ARCHIVE_TAG, communityReadSchemas, messagePreviewText, type CommunityChannelResource, type CommunityThreadsRead, type CommunityMessageResource, type CommunityMemberRelation } from "@alook/shared"
 import type { InfiniteData } from "@tanstack/react-query"
 import type { Msg, Thread } from "@/lib/community/models/message"
 import type { ChannelRow } from "@/lib/community-db/schema"
 
-export function projectThread(thread: ChannelRow, opener: Msg | undefined, parentType: string): Thread {
+export function projectThread(thread: ChannelRow, opener: Msg | undefined, parentType: string, first?: Msg): Thread {
   return {
     id: thread.id,
     name: parentType === "forum" ? (opener?.content?.trim() ? opener.content : thread.name || "Post") : thread.name ?? "",
     messageCount: thread.messageCount ?? 0,
     lastMessageAt: thread.lastMessageAt ?? "",
-    parent: { authorId: opener?.authorId, authorName: opener?.authorName ?? "", text: parentType === "forum" ? thread.preview ?? "" : opener?.content ?? thread.preview ?? "" },
+    parent: { authorId: opener?.authorId, authorName: opener?.authorName ?? "", text: parentType === "forum" ? first ? messagePreviewText(first) : "" : opener ? messagePreviewText(opener) : "" },
     ...(opener?.seq === undefined ? {} : { parentSeq: opener.seq }),
   }
 }
@@ -24,7 +24,11 @@ export function normalizeThreadResources(channelId: string, value: unknown): Com
   const data = communityReadSchemas().threads.parse(value)
   if (data.channelId !== channelId || data.channel.id !== channelId
     || data.threads.some(thread => thread.parentChannelId !== channelId || thread.serverId !== data.channel.serverId)) throw new Error("Thread resource scope mismatch")
-  return { ...data, included: { ...data.included, previews: data.included.messages.filter(message => message.channelId !== channelId) } }
+  const previews = data.threads.flatMap(thread => {
+    const first = data.included.messages.filter(message => message.channelId === thread.id).sort((a, b) => a.seq - b.seq)[0]
+    return first ? [first] : []
+  })
+  return { ...data, included: { ...data.included, previews } }
 }
 
 export type ForumFeedPage = Pick<CommunityThreadsRead["page"], "hasMore"> & {

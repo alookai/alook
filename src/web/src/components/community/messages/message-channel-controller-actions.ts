@@ -1,3 +1,4 @@
+import { messagePreviewText } from "@alook/shared"
 import { deriveThreadName } from "@alook/shared"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
@@ -105,7 +106,7 @@ export function createMessageActions({
           id: message.id,
           ...(message.authorId ? { authorId: message.authorId } : {}),
           authorName: message.authorName ?? "",
-          text: message.content ?? "",
+          text: messagePreviewText(message),
         })
       }
     },
@@ -133,10 +134,7 @@ export function createMessageActions({
       const original = captureView(), context = actionContext.get()
       original()
       const message = getMessage(id)
-      const content = message
-        ? (message.content ?? "")
-        : undefined
-      const name = deriveThreadName(content, context.channelName)
+      const name = deriveThreadName(message, context.channelName)
       try {
         const data = await createThreadAsync({ serverId, channelId, messageId: id, name, assertActive: original })
         original()

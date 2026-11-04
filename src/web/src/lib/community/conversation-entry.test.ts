@@ -442,7 +442,7 @@ it.each(["main", "opener"] as const)("validates the effective retained %s reply 
   const { client, registry } = await createCommunityQueryOwner()
   const value = entry()
   const original = { ...value.messages[0], ...(location === "opener" ? { id: "opener", channelId: "parent" } : {}) }
-  const retainedReply = { id: "prior", authorId: "prior-author", authorName: "Prior author", text: "Retained reply" }
+  const retainedReply = { id: "prior", authorId: "prior-author", authorName: "Prior author" }
   ingestMessages(registry, original.channelId, [{ ...original, replyToId: "prior", replyTo: retainedReply }])
   const incoming = { ...original, replyToId: "prior" }
   if (location === "main") value.messages = [incoming]

@@ -41,13 +41,13 @@ describe("truncateTitle", () => {
 });
 
 describe("stripInlineMarkup", () => {
-  it("unwraps ||spoiler|| to its inner text", () => {
-    expect(stripInlineMarkup("a ||secret|| b")).toBe("a secret b");
+  it("masks spoiler text", () => {
+    expect(stripInlineMarkup("a ||secret|| b")).toBe("a [Spoiler] b");
   });
 
-  it("removes HTML/XML-style tags but keeps their text", () => {
-    expect(stripInlineMarkup("<spoiler>secret</spoiler> plan")).toBe("secret plan");
-    expect(stripInlineMarkup("line<br/>break")).toBe("linebreak");
+  it("retains literal typed HTML", () => {
+    expect(stripInlineMarkup("<spoiler>secret</spoiler> plan")).toBe("<spoiler>secret</spoiler> plan");
+    expect(stripInlineMarkup("line<br/>break")).toBe("line<br/>break");
   });
 
   it("strips bold/emphasis/strike markers", () => {
@@ -56,7 +56,7 @@ describe("stripInlineMarkup", () => {
 
   it("keeps inner text of inline and fenced code", () => {
     expect(stripInlineMarkup("run `npm test` now")).toBe("run npm test now");
-    expect(stripInlineMarkup("```ts\nconst x = 1\n```")).toBe("const x = 1\n");
+    expect(stripInlineMarkup("```ts\nconst x = 1\n```")).toBe("Code: const x = 1");
   });
 
   it("strips leading block markers (heading, quote, list)", () => {
@@ -68,19 +68,19 @@ describe("stripInlineMarkup", () => {
 
   it("keeps link/image label text", () => {
     expect(stripInlineMarkup("see [the docs](https://x.io)")).toBe("see the docs");
-    expect(stripInlineMarkup("![alt text](a.png) after")).toBe("alt text after");
-    expect(stripInlineMarkup("ref [label][1]")).toBe("ref label");
+    expect(stripInlineMarkup("![alt text](a.png) after")).toBe("Photo: alt text after");
+    expect(stripInlineMarkup("ref [label][1]")).toBe("ref [label][1]");
   });
 
-  it("drops a @mention discriminator but keeps unicode names", () => {
-    expect(stripInlineMarkup("hi @李四#0042 there")).toBe("hi @李四 there");
+  it("keeps a @mention discriminator but keeps unicode names", () => {
+    expect(stripInlineMarkup("hi @李四#0042 there")).toBe("hi @李四#0042 there");
   });
 });
 
 describe("deriveThreadName", () => {
   it("strips markup then keeps the first six words", () => {
     expect(deriveThreadName("||secret|| plan **for** the big launch today", "fallback")).toBe(
-      "secret plan for the big launch",
+      "[Spoiler] plan for the big launch",
     );
   });
 
@@ -93,7 +93,7 @@ describe("deriveThreadName", () => {
     expect(deriveThreadName("", "General")).toBe("General");
     expect(deriveThreadName("   \n\t ", "General")).toBe("General");
     expect(deriveThreadName(null, "General")).toBe("General");
-    expect(deriveThreadName("<br/>", "General")).toBe("General");
+    expect(deriveThreadName("<br/>", "General")).toBe("<br/>");
   });
 
   it("collapses whitespace across lines", () => {
