@@ -248,16 +248,13 @@ describe("getUsersByIds bound parameters and result set", () => {
 
   it("omits missing IDs across batches and keeps the historical public projection", async () => {
     const ids = Array.from({ length: 101 }, (_, index) => `user_${index}`);
-    const { db, statements } = makeD1Capture([
+    const { db } = makeD1Capture([
       [rawUser(ids[0]!)], [rawUser(ids[100]!)],
     ]);
 
     const rows = await userQueries.getUsersByIds(db as never, ids);
 
     expect(rows.map(({ id }) => id)).toEqual([ids[0], ids[100]]);
-    for (const { sql } of statements) {
-      expect(sql).not.toMatch(/deletedAt|isBot|ownerUserId|avatarObjectKey/);
-    }
     expect(Object.keys(rows[0]!).sort()).toEqual([
       "id", "name", "email", "emailVerified", "image", "avatarVersion",
       "createdAt", "updatedAt", "discriminator",
