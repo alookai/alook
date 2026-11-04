@@ -4,7 +4,7 @@ import { AnalyticsPreferenceControl } from "@/components/analytics-consent"
 export const PRIVACY_POLICY = {
   title: "Privacy Policy",
   description: "How Alook collects, uses, and protects your personal information.",
-  lastUpdated: "October 10, 2026",
+  lastUpdated: "November 4, 2026",
 } as const
 
 const linkClass =
@@ -15,6 +15,9 @@ export function PrivacyPolicyContent({ className, showAnalyticsChoices = false }
     <div className={cn(className)} data-privacy-policy={PRIVACY_POLICY.lastUpdated}>
       <p className="mb-12 text-sm text-muted-foreground">
         Last updated: {PRIVACY_POLICY.lastUpdated}
+        <a href="/privacy#account-deletion" className={cn(linkClass, "mt-2 block w-fit")}>
+          Delete your Alook AI account
+        </a>
       </p>
 
       <div className="prose prose-neutral max-w-none space-y-8 text-[1.0625rem] leading-relaxed dark:prose-invert">
@@ -181,6 +184,56 @@ export function PrivacyPolicyContent({ className, showAnalyticsChoices = false }
             You have the right to access, update, or delete Your Personal Data at any time.
             You can manage certain information through Your Account settings, or contact Us
             directly to request assistance with these actions.
+          </p>
+        </section>
+
+        <section id="account-deletion" className="scroll-mt-24">
+          <h2 className="mt-10 mb-4 text-xl font-semibold">Delete your Alook AI account</h2>
+          <p className="text-foreground/80">
+            You can delete your account in Alook or sign in at{" "}
+            <a href="https://alook.ai/c" className={linkClass}>alook.ai</a>{" "}
+            in your browser. You do not need to reinstall the app to use the website.
+          </p>
+          <ol className="mt-3 list-decimal space-y-2 pl-6 text-foreground/80">
+            <li>
+              On a phone, use the back arrow to return to the channel list if a
+              conversation is open. Open the gear icon labeled <strong>User settings</strong>{" "}
+              beside your name, then select <strong>My Profile</strong>.
+            </li>
+            <li>
+              Select <strong>Delete account</strong>, read the notice, then select{" "}
+              <strong>Send deletion code</strong>.
+            </li>
+            <li>
+              Enter the six-digit code sent to the email address shown, then select{" "}
+              <strong>Delete account</strong> to confirm. Account deletion is permanent.
+            </li>
+          </ol>
+          <h3 className="mt-8 mb-3 text-lg font-medium">Data we delete</h3>
+          <p className="text-foreground/80">
+            We remove your profile, sign-in data, messages, agents and account settings.
+            We also delete servers you own and threads attached to your messages,
+            including other members&apos; content in those servers or threads. Other users&apos;
+            accounts remain. If cleanup needs a retry, the sign-in page shows{" "}
+            <strong>Account deletion requested</strong> while your sign-in stays disabled.
+          </p>
+          <h3 className="mt-8 mb-3 text-lg font-medium">Data that can remain</h3>
+          <p className="text-foreground/80">
+            Some uploaded files can remain after you delete your account, including files
+            still used in other people&apos;s messages or emails. We cannot confirm a fixed
+            deletion date for these files.
+          </p>
+          <p className="mt-4 text-foreground/80">
+            Account deletion does not remove copies saved on your devices or records held
+            by your sign-in, payment or AI providers.
+          </p>
+          <h3 className="mt-8 mb-3 text-lg font-medium">Request deletion help</h3>
+          <p className="text-foreground/80">
+            If you cannot sign in or access your account email, you can request help with
+            account deletion at{" "}
+            <a href="mailto:support@alook.ai?subject=Alook%20AI%20account%20deletion" className={linkClass}>
+              support@alook.ai
+            </a>.
           </p>
         </section>
 
