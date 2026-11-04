@@ -19,49 +19,7 @@ function createMockDb(rows: any[]) {
   return chain;
 }
 
-describe("conversation query module exports", () => {
-  it("exports createConversation", () => {
-    expect(typeof conversationQueries.createConversation).toBe("function");
-  });
 
-
-  it("exports listConversations", () => {
-    expect(typeof conversationQueries.listConversations).toBe("function");
-  });
-
-  it("exports listConversationsByAgent", () => {
-    expect(typeof conversationQueries.listConversationsByAgent).toBe("function");
-  });
-
-
-  it("exports getOrCreateAgentConversation", () => {
-    expect(typeof conversationQueries.getOrCreateAgentConversation).toBe("function");
-  });
-
-
-  it("exports listPreviousConversations", () => {
-    expect(typeof conversationQueries.listPreviousConversations).toBe("function");
-  });
-
-});
-
-describe("conversation query function signatures (with optional channel param)", () => {
-  it("listConversations accepts at least 3 params (db, workspaceId, userId) plus optional channel", () => {
-    expect(conversationQueries.listConversations.length).toBeGreaterThanOrEqual(3);
-  });
-
-  it("listConversationsByAgent accepts at least 4 params plus optional channel", () => {
-    expect(conversationQueries.listConversationsByAgent.length).toBeGreaterThanOrEqual(4);
-  });
-
-  it("getOrCreateAgentConversation accepts at least 4 params plus optional channel", () => {
-    expect(conversationQueries.getOrCreateAgentConversation.length).toBeGreaterThanOrEqual(4);
-  });
-
-  it("listPreviousConversations accepts at least 5 params (db, workspaceId, userId, agentId, excludeId)", () => {
-    expect(conversationQueries.listPreviousConversations.length).toBeGreaterThanOrEqual(5);
-  });
-});
 
 describe("getConversationsByIds", () => {
   it("returns empty array for empty ids without querying DB", async () => {

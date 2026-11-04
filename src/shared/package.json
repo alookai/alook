@@ -27,7 +27,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@philflow/tsdav-utils": "0.7.0",
     "drizzle-orm": "^0.45.4",
+    "ical.js": "2.2.1",
     "nanoid": "^5.1.16",
     "zod": "^4.6",
     "unified": "^11.0.5",

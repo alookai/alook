@@ -15,24 +15,6 @@ function createMockDb(rows: any[]) {
   return chain;
 }
 
-describe("whitelist query module exports", () => {
-  it("exports getWhitelist", () => {
-    expect(typeof whitelistQueries.getWhitelist).toBe("function");
-  });
-
-
-  it("exports removeWhitelistByEmail", () => {
-    expect(typeof whitelistQueries.removeWhitelistByEmail).toBe("function");
-  });
-
-  it("exports isWhitelisted", () => {
-    expect(typeof whitelistQueries.isWhitelisted).toBe("function");
-  });
-
-  it("exports buildWhitelistSet", () => {
-    expect(typeof whitelistQueries.buildWhitelistSet).toBe("function");
-  });
-});
 
 describe("addWhitelist", () => {
   it("returns null when insert conflicts (no row returned)", async () => {

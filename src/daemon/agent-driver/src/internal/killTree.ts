@@ -52,6 +52,26 @@ const WINDOWS_JOB_NODE_ENV = "ALOOK_WINDOWS_JOB_NODE";
 const WINDOWS_JOB_PAYLOAD_ENV = "ALOOK_WINDOWS_JOB_PAYLOAD";
 const WINDOWS_JOB_RUNNER_ENV = "ALOOK_WINDOWS_JOB_RUNNER";
 const WINDOWS_JOB_STDIN_PIPE_ENV = "ALOOK_WINDOWS_JOB_STDIN_PIPE";
+const WINDOWS_JOB_TRACE_ENV = "ALOOK_WINDOWS_JOB_TRACE";
+const WINDOWS_JOB_ENV_COUNT_ENV = "ALOOK_WINDOWS_JOB_ENV_COUNT";
+const WINDOWS_JOB_ENV_CHUNK_PREFIX = "ALOOK_WINDOWS_JOB_ENV_CHUNK_";
+const WINDOWS_JOB_ENV_CHUNK_SIZE = 16_384;
+const WINDOWS_JOB_PRIVATE_ENV = /^ALOOK_WINDOWS_JOB_(?:NODE|PAYLOAD|RUNNER|STDIN_PIPE|TRACE|ENV_COUNT|ENV_CHUNK_[0-9]+)$/i;
+
+function copyWindowsEnvironment(input: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const result: NodeJS.ProcessEnv = Object.create(null);
+  for (const key in input) {
+    if (WINDOWS_JOB_PRIVATE_ENV.test(key)) continue;
+    const value = input[key];
+    if (value === undefined) continue;
+    const text = `${value}`;
+    if (key.includes("\0") || text.includes("\0")) {
+      throw Object.assign(new TypeError("Environment keys and values must not contain null bytes"), { code: "ERR_INVALID_ARG_VALUE" });
+    }
+    result[key] = text;
+  }
+  return result;
+}
 
 // The tracked Windows child is a PowerShell supervisor that owns a kill-on-close
 // Job Object. It creates the inner Node process suspended, gives it the
@@ -60,10 +80,88 @@ const WINDOWS_JOB_STDIN_PIPE_ENV = "ALOOK_WINDOWS_JOB_STDIN_PIPE";
 // authority after a `.cmd` shell or runtime root exits. Persistent protocol
 // stdin uses a dedicated named pipe: PowerShell must not own that pipe because
 // its host can block while probing stdin before it runs the bootstrap.
-const WINDOWS_JOB_RUNNER = "const{spawn}=require('node:child_process');const{connect}=require('node:net');const p=JSON.parse(Buffer.from(process.env.ALOOK_WINDOWS_JOB_PAYLOAD,'base64').toString('utf8'));const pipe=process.env.ALOOK_WINDOWS_JOB_STDIN_PIPE;delete process.env.ALOOK_WINDOWS_JOB_NODE;delete process.env.ALOOK_WINDOWS_JOB_PAYLOAD;delete process.env.ALOOK_WINDOWS_JOB_RUNNER;delete process.env.ALOOK_WINDOWS_JOB_STDIN_PIPE;const run=stdin=>{const c=spawn(p.command,p.args,{cwd:p.cwd,env:process.env,shell:p.shell,stdio:[stdin,'inherit','inherit'],windowsHide:true});c.once('spawn',()=>{if(stdin!=='ignore')stdin.unref()});c.once('error',e=>{console.error(e);process.exitCode=1});c.once('exit',(code,signal)=>{process.exitCode=signal?1:(code??1)})};if(pipe){const input=connect(pipe);input.once('connect',()=>run(input));input.once('error',e=>{console.error(e);process.exitCode=1})}else run('ignore')";
+const WINDOWS_JOB_RUNNER = String.raw`
+const traceDirectory = process.env.ALOOK_WINDOWS_JOB_TRACE;
+const mark = (stage, childPid) => {
+  if (!traceDirectory) return;
+  try {
+    const nanoseconds = process.hrtime.bigint().toString();
+    const { writeFileSync, renameSync } = require('node:fs');
+    const { join } = require('node:path');
+    const path = join(traceDirectory, stage + '.json');
+    writeFileSync(path + '.tmp', JSON.stringify({ stage, pid: process.pid, childPid, clock: 'node-hrtime', nanoseconds, node: process.version, platform: process.platform, arch: process.arch }));
+    renameSync(path + '.tmp', path);
+  } catch {}
+};
+mark('runner-enter');
+const { spawn } = require('node:child_process');
+const { connect } = require('node:net');
+const p = JSON.parse(Buffer.from(process.env.ALOOK_WINDOWS_JOB_PAYLOAD, 'base64').toString('utf8'));
+const pipe = process.env.ALOOK_WINDOWS_JOB_STDIN_PIPE;
+const privateEnvironment = ${WINDOWS_JOB_PRIVATE_ENV};
+const targetEnv = (() => {
+  try {
+    const countText = process.env.${WINDOWS_JOB_ENV_COUNT_ENV};
+    if (!/^[1-9][0-9]*$/.test(countText ?? '')) throw new Error();
+    const count = Number(countText);
+    if (!Number.isSafeInteger(count) || count < 1) throw new Error();
+    const chunks = [];
+    for (let index = 0; index < count; index++) {
+      const value = process.env['${WINDOWS_JOB_ENV_CHUNK_PREFIX}' + index];
+      if (typeof value !== 'string' || value.length < 1 || value.length > ${WINDOWS_JOB_ENV_CHUNK_SIZE} || (index < count - 1 && value.length !== ${WINDOWS_JOB_ENV_CHUNK_SIZE})) throw new Error();
+      chunks.push(value);
+    }
+    const encoded = chunks.join('');
+    const bytes = Buffer.from(encoded, 'base64');
+    if (bytes.toString('base64') !== encoded) throw new Error();
+    const { TextDecoder } = require('node:util');
+    const input = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error();
+    const result = Object.create(null);
+    for (const [key, value] of Object.entries(input)) {
+      if (typeof value !== 'string' || key.includes('\0') || value.includes('\0') || privateEnvironment.test(key)) throw new Error();
+      result[key] = value;
+    }
+    return result;
+  } catch {
+    throw new Error('Invalid Windows target environment');
+  }
+})();
+for (const key of Object.keys(process.env)) if (privateEnvironment.test(key)) delete process.env[key];
+const run = stdin => {
+  const c = spawn(p.command, p.args, { cwd: p.cwd, env: targetEnv, shell: p.shell, stdio: [stdin, 'inherit', 'inherit'], windowsHide: true });
+  c.once('spawn', () => { mark('target-spawn', c.pid); if (stdin !== 'ignore') stdin.unref() });
+  c.once('error', e => { console.error(e); process.exitCode = 1 });
+  c.once('exit', (code, signal) => { process.exitCode = signal ? 1 : (code ?? 1) });
+};
+if (pipe) {
+  const input = connect(pipe);
+  input.once('connect', () => run(input));
+  input.once('error', e => { console.error(e); process.exitCode = 1 });
+} else run('ignore');
+`;
 
 const WINDOWS_JOB_BOOTSTRAP = String.raw`
 $ErrorActionPreference = "Stop"
+$traceDirectory = $env:ALOOK_WINDOWS_JOB_TRACE
+if ($traceDirectory) {
+  try {
+    $ticks = [Diagnostics.Stopwatch]::GetTimestamp().ToString([Globalization.CultureInfo]::InvariantCulture)
+    $frequency = [Diagnostics.Stopwatch]::Frequency.ToString([Globalization.CultureInfo]::InvariantCulture)
+    $highResolution = [Diagnostics.Stopwatch]::IsHighResolution.ToString().ToLowerInvariant()
+    $path = [IO.Path]::Combine($traceDirectory, 'ps-enter.json')
+    $record = '{"stage":"ps-enter","pid":' + $PID + ',"clock":"windows-qpc-stopwatch","ticks":"' + $ticks + '","frequency":"' + $frequency + '","highResolution":' + $highResolution + '}'
+    [IO.File]::WriteAllText($path + '.tmp', $record)
+    [IO.File]::Move($path + '.tmp', $path)
+  } catch {}
+}
+$jobEnvironment = @{}
+foreach ($entry in [Environment]::GetEnvironmentVariables().GetEnumerator()) {
+  if ([regex]::IsMatch([string]$entry.Key, '${WINDOWS_JOB_PRIVATE_ENV.source}', [Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
+    $jobEnvironment[[string]$entry.Key] = [string]$entry.Value
+    [Environment]::SetEnvironmentVariable([string]$entry.Key, $null)
+  }
+}
 Add-Type -TypeDefinition @"
 using System;
 using System.ComponentModel;
@@ -72,6 +170,24 @@ using System.Text;
 using System.Threading;
 
 public static class AlookAgentJob {
+  [DllImport("kernel32.dll")]
+  private static extern uint GetCurrentProcessId();
+
+  public static void Mark(string directory, string stage, uint childPid, long capturedTicks) {
+    if (String.IsNullOrEmpty(directory)) return;
+    try {
+      long ticks = capturedTicks == 0 ? System.Diagnostics.Stopwatch.GetTimestamp() : capturedTicks;
+      var culture = System.Globalization.CultureInfo.InvariantCulture;
+      string path = System.IO.Path.Combine(directory, stage + ".json");
+      string record = "{\"stage\":\"" + stage + "\",\"pid\":" + GetCurrentProcessId().ToString(culture)
+        + ",\"childPid\":" + childPid.ToString(culture) + ",\"clock\":\"windows-qpc-stopwatch\",\"ticks\":\"" + ticks.ToString(culture)
+        + "\",\"frequency\":\"" + System.Diagnostics.Stopwatch.Frequency.ToString(culture)
+        + "\",\"highResolution\":" + System.Diagnostics.Stopwatch.IsHighResolution.ToString().ToLowerInvariant() + "}";
+      System.IO.File.WriteAllText(path + ".tmp", record);
+      System.IO.File.Move(path + ".tmp", path);
+    } catch {}
+  }
+
   [StructLayout(LayoutKind.Sequential)]
   private struct BasicLimits {
     public long PerProcessUserTimeLimit;
@@ -297,7 +413,7 @@ public static class AlookAgentJob {
     }
   }
 
-  public static int RunNode(string nodePath, string runner) {
+  public static int RunNode(string nodePath, string runner, string traceDirectory) {
     const uint CreateSuspended = 0x00000004;
     const uint StartfUseStdHandles = 0x00000100;
     const uint Infinite = 0xffffffff;
@@ -334,11 +450,14 @@ public static class AlookAgentJob {
       )) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcessW failed");
       bool assigned = false;
       try {
+        long createdTicks = String.IsNullOrEmpty(traceDirectory) ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
         if (!AssignProcessToJobObject(job, child.Process))
           throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed");
         assigned = true;
+        Mark(traceDirectory, "native-created", child.ProcessId, createdTicks);
         if (ResumeThread(child.Thread) == uint.MaxValue)
           throw new Win32Exception(Marshal.GetLastWin32Error(), "ResumeThread failed");
+        Mark(traceDirectory, "native-resumed", child.ProcessId, 0);
         if (WaitForSingleObject(child.Process, Infinite) == WaitFailed)
           throw new Win32Exception(Marshal.GetLastWin32Error(), "WaitForSingleObject failed");
         uint exitCode;
@@ -368,13 +487,17 @@ public static class AlookAgentJob {
   }
 }
 "@
-$exitCode = [AlookAgentJob]::RunNode($env:ALOOK_WINDOWS_JOB_NODE, $env:ALOOK_WINDOWS_JOB_RUNNER)
+[AlookAgentJob]::Mark($traceDirectory, 'add-type-ready', 0, 0)
+foreach ($entry in $jobEnvironment.GetEnumerator()) {
+  [Environment]::SetEnvironmentVariable([string]$entry.Key, [string]$entry.Value)
+}
+$exitCode = [AlookAgentJob]::RunNode($env:ALOOK_WINDOWS_JOB_NODE, $env:ALOOK_WINDOWS_JOB_RUNNER, $traceDirectory)
 exit $exitCode
 `;
 
 interface AgentSpawnOptions {
   cwd: string;
-  env: NodeJS.ProcessEnv;
+  env?: NodeJS.ProcessEnv;
   /** Run through a shell — needed on Windows for `.cmd`/`.bat` shims. */
   shell?: boolean;
   /**
@@ -383,6 +506,7 @@ interface AgentSpawnOptions {
    * stdout/stderr stay piped regardless for protocol output and diagnostics.
    */
   stdin?: "pipe" | "ignore";
+  traceDirectory?: string;
 }
 
 /**
@@ -395,6 +519,13 @@ interface AgentSpawnOptions {
  */
 export function spawnAgentProcess(command: string, args: string[], opts: AgentSpawnOptions): ChildProcess {
   if (!isPosix) {
+    const encodedTargetEnv = Buffer.from(JSON.stringify(copyWindowsEnvironment(opts.env ?? process.env))).toString("base64");
+    const environment = copyWindowsEnvironment(process.env);
+    let chunks = 0;
+    for (let offset = 0; offset < encodedTargetEnv.length; offset += WINDOWS_JOB_ENV_CHUNK_SIZE) {
+      environment[`${WINDOWS_JOB_ENV_CHUNK_PREFIX}${chunks++}`] = encodedTargetEnv.slice(offset, offset + WINDOWS_JOB_ENV_CHUNK_SIZE);
+    }
+    const payload = Buffer.from(JSON.stringify({ command: opts.shell ? quoteWindowsShimCommand(command) : command, args, cwd: opts.cwd, shell: opts.shell ? (process.env.comspec || "cmd.exe") : false })).toString("base64");
     const stdin = opts.stdin ?? "pipe";
     const stdinProxy = stdin === "pipe" ? new PassThrough() : undefined;
     const stdinPipe = stdinProxy
@@ -418,11 +549,13 @@ export function spawnAgentProcess(command: string, args: string[], opts: AgentSp
     stdinServer?.once("error", () => stdinProxy?.destroy());
     if (stdinPipe) stdinServer?.listen(stdinPipe);
     const env: NodeJS.ProcessEnv = {
-      ...opts.env,
+      ...environment,
       [WINDOWS_JOB_NODE_ENV]: process.execPath,
-      [WINDOWS_JOB_PAYLOAD_ENV]: Buffer.from(JSON.stringify({ command: opts.shell ? quoteWindowsShimCommand(command) : command, args, cwd: opts.cwd, shell: opts.shell ?? false })).toString("base64"),
+      [WINDOWS_JOB_PAYLOAD_ENV]: payload,
       [WINDOWS_JOB_RUNNER_ENV]: WINDOWS_JOB_RUNNER,
-      ...(stdinPipe ? { [WINDOWS_JOB_STDIN_PIPE_ENV]: stdinPipe } : {}),
+      [WINDOWS_JOB_TRACE_ENV]: opts.traceDirectory,
+      [WINDOWS_JOB_STDIN_PIPE_ENV]: stdinPipe,
+      [WINDOWS_JOB_ENV_COUNT_ENV]: String(chunks),
     };
     let proc: ChildProcess;
     try {

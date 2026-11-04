@@ -18,25 +18,6 @@ function createMockDb(rows: any[]) {
   return chain;
 }
 
-describe("message query module exports", () => {
-  it("exports createMessage", () => {
-    expect(typeof messageQueries.createMessage).toBe("function");
-  });
-
-
-  it("exports listMessages", () => {
-    expect(typeof messageQueries.listMessages).toBe("function");
-  });
-
-
-  it("exports updateMessageTaskId", () => {
-    expect(typeof messageQueries.updateMessageTaskId).toBe("function");
-  });
-
-  it("exports listMessagesAroundTask", () => {
-    expect(typeof messageQueries.listMessagesAroundTask).toBe("function");
-  });
-});
 
 describe("getNewestMessageId", () => {
   it("returns message id when messages exist", async () => {

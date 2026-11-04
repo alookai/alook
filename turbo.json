@@ -62,6 +62,12 @@
         "^source"
       ]
     },
+    "@alook/web#knip": {
+      "dependsOn": [
+        "^source",
+        "build:blog"
+      ]
+    },
     "dev": {
       "cache": false,
       "persistent": true

@@ -449,6 +449,8 @@ describe("canonical execution plan", () => {
     expect(result.ui.specs).toEqual(["54-blog-multizone.spec.ts", "66-public-static-resource-cache.spec.ts"])
     expect(result.suites.integration).toEqual([])
     expect(result.suites.windows).toEqual([])
+    expect(result.suites.build_tasks).toContain("@alook/web#build:blog")
+    expect(result.suites.knip_tasks).toContain("@alook/web#knip")
     expect(result.jobs.blog_build).toBe(true)
     expect(result.jobs.lighthouse).toBe(true)
     expect(result.jobs.app_packed_artifact).toBe(false)
@@ -477,6 +479,9 @@ describe("canonical execution plan", () => {
   it("routes the standalone auth Worker through Web checks and its own dry-run only", () => {
     const result = plan(["src/web/auth/index.ts"])
 
+    expect(result.native_tasks.affected.find(task => task.fullName === "@alook/web#build:blog").reason).toEqual({
+      __typename: "TaskAllChanged", description: "required by an affected task",
+    })
     expect(result.change_class).toBe("auth")
     expect(result.auth_only).toBe(true)
     expect(result.packages.direct).toEqual(["@alook/web"])
@@ -484,6 +489,8 @@ describe("canonical execution plan", () => {
     expect(result.suites.unit_build_tasks).toEqual(["@alook/agent-driver#build"])
     expect(result.suites.unit_tasks).not.toContain("@alook/agent-driver#test")
     expect(result.suites.static).toEqual(["@alook/web"])
+    expect(result.suites.build_tasks).toEqual(["@alook/web#build:auth"])
+    expect(result.suites.knip_tasks).toEqual(["@alook/web#knip"])
     expect(result.suites.unit).toEqual(["src/web"])
     expect(result.coverage.targets).toEqual(["web"])
     expect(result.suites.integration).toEqual([])
@@ -492,6 +499,7 @@ describe("canonical execution plan", () => {
     expect(result.jobs.blog_build).toBe(false)
     expect(result.jobs.lighthouse).toBe(false)
     expect(result.jobs.app_packed_artifact).toBe(false)
+    expect(result.artifacts.worker_zones).toEqual([])
   })
 
   it("selects the active app package without retired CLI suites", () => {
@@ -913,6 +921,29 @@ describe("scope manifest", () => {
 })
 
 describe("compatibility and CLI fail-closed behavior", () => {
+  it("orders Web Knip after Blog generation and keeps non-Web Knip independent", () => {
+    const fixture = gitDiffFixture()
+    const previous = process.env.WORKERS_CI_COMMIT_SHA
+    const dry = (task: string) => JSON.parse(execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/run-turbo.mjs")), "run", task, "--dry=json"], { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" })).tasks
+    try {
+      process.env.WORKERS_CI_COMMIT_SHA = "a".repeat(40)
+      const web = dry("@alook/web#knip")
+      const unrelated = dry("@alook/agent-driver#knip")
+      const knip = web.find(task => task.taskId === "@alook/web#knip")
+      expect(web.map(task => task.taskId)).toContain("@alook/web#build:blog")
+      expect(knip.dependencies).toContain("@alook/web#build:blog")
+      expect(unrelated.map(task => task.taskId)).not.toContain("@alook/web#build:blog")
+      expect(unrelated.map(task => task.taskId)).not.toContain("@alook/web#knip")
+      process.env.WORKERS_CI_COMMIT_SHA = "b".repeat(40)
+      expect(dry("@alook/web#knip").find(task => task.taskId === "@alook/web#knip").hash).not.toBe(knip.hash)
+      expect(dry("@alook/agent-driver#knip").find(task => task.taskId === "@alook/agent-driver#knip").hash).toBe(unrelated.find(task => task.taskId === "@alook/agent-driver#knip").hash)
+    } finally {
+      if (previous === undefined) delete process.env.WORKERS_CI_COMMIT_SHA
+      else process.env.WORKERS_CI_COMMIT_SHA = previous
+      fixture.cleanup()
+    }
+  })
+
   it("keeps Blog hashes independent of generated images while retaining canonical image inputs", () => {
     const fixture = gitDiffFixture()
     const dry = () => JSON.parse(execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/run-turbo.mjs")), "run", "@alook/web#build:blog", "--dry=json"], { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" })).tasks.find(task => task.taskId === "@alook/web#build:blog")

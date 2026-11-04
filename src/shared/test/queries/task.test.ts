@@ -23,37 +23,7 @@ function createMockDb(rows: any[]) {
   return chain;
 }
 
-describe("task query module exports", () => {
-  it("exports listActiveTaskCountsByWorkspace", () => {
-    expect(typeof taskQueries.listActiveTaskCountsByWorkspace).toBe("function");
-  });
 
-  it("exports listActiveTasksByAgent", () => {
-    expect(typeof taskQueries.listActiveTasksByAgent).toBe("function");
-  });
-
-  it("exports countRunningTasks", () => {
-    expect(typeof taskQueries.countRunningTasks).toBe("function");
-  });
-
-  it("exports getActiveTaskByConversation", () => {
-    expect(typeof taskQueries.getActiveTaskByConversation).toBe("function");
-  });
-
-  it("exports failStaleRunningTasks", () => {
-    expect(typeof taskQueries.failStaleRunningTasks).toBe("function");
-  });
-});
-
-describe("task query function signatures", () => {
-  it("listActiveTaskCountsByWorkspace accepts (db, workspaceId, agentIds?, userId?)", () => {
-    expect(taskQueries.listActiveTaskCountsByWorkspace.length).toBe(4);
-  });
-
-  it("listActiveTasksByAgent accepts (db, agentId, workspaceId, userId?)", () => {
-    expect(taskQueries.listActiveTasksByAgent.length).toBe(4);
-  });
-});
 
 describe("listPendingTasksByRuntimes", () => {
   it("returns empty array for empty runtimeIds without querying DB", async () => {

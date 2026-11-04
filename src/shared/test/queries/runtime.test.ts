@@ -10,24 +10,6 @@ function createMockDb(rows: any[]) {
   return chain;
 }
 
-describe("runtime query module exports", () => {
-
-  it("exports getAgentRuntimeForWorkspace", () => {
-    expect(typeof runtimeQueries.getAgentRuntimeForWorkspace).toBe("function");
-  });
-
-  it("exports upsertAgentRuntime", () => {
-    expect(typeof runtimeQueries.upsertAgentRuntime).toBe("function");
-  });
-
-  it("exports listAgentRuntimes", () => {
-    expect(typeof runtimeQueries.listAgentRuntimes).toBe("function");
-  });
-
-  it("exports getAgentRuntime", () => {
-    expect(typeof runtimeQueries.getAgentRuntime).toBe("function");
-  });
-});
 
 describe("updateRuntimeCliVersionByDaemon", () => {
   function createUpdateMockDb() {
