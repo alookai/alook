@@ -2111,8 +2111,8 @@
   --landing-phosphor: #c4cfff;
   --tw-blob-theme: #0f1222;
   background-image:
-    linear-gradient(#121212 1px, transparent 1px),
-    linear-gradient(90deg, #121212 1px, transparent 1px) !important;
+    linear-gradient(#1d2230 1px, transparent 1px),
+    linear-gradient(90deg, #1d2230 1px, transparent 1px) !important;
 }
 /* Headlines: bold sans, tight; the emphasis line becomes the handwritten accent */
 .theme :global(.landing) :is(h1, h2, h3) {
@@ -2144,8 +2144,8 @@
 [data-tn-mode="dark"] .theme [data-slot="auth-page"] {
   background-color: #000 !important;
   background-image:
-    linear-gradient(#121212 1px, transparent 1px),
-    linear-gradient(90deg, #121212 1px, transparent 1px) !important;
+    linear-gradient(#1d2230 1px, transparent 1px),
+    linear-gradient(90deg, #1d2230 1px, transparent 1px) !important;
 }
 .theme [data-slot="auth-page"] [data-slot="card"] {
   --tw-ring-color: var(--tn-line) !important;
