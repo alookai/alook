@@ -6,6 +6,7 @@ bundled/
 .turbo/
 .wrangler/
 .env
+gha-creds-*.json
 .env.*
 !.env.example
 .next/
