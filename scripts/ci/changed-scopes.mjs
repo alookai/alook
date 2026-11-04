@@ -466,8 +466,10 @@ export function buildExecutionPlan(inputChanges, options = {}) {
   const selectedTasks = full ? nativeTasks?.inventory || [] : docsOnly || benchmarkOnly ? [] : nativeTasks.affected
   const suites = packageSets(affectedPackages)
   const tasks = (prefix) => selectedTasks.filter((task) => task.name === prefix || task.name.startsWith(prefix + ":"))
+  const buildTasks = tasks("build").filter((task) => task.reason?.__typename !== "TaskAllChanged"
+    || task.reason.description !== "required by an affected task")
   suites.static_tasks = tasks("typecheck").concat(tasks("lint")).map((task) => task.fullName)
-  suites.build_tasks = tasks("build").map((task) => task.fullName)
+  suites.build_tasks = buildTasks.map((task) => task.fullName)
   suites.knip_tasks = tasks("knip").map((task) => task.fullName)
   suites.unit_tasks = tasks("test").map((task) => task.fullName)
   const unitDependencies = new Set(tasks("test").flatMap((task) => task.allDependencies?.items.map((dependency) => dependency.fullName) || []))
@@ -475,7 +477,7 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     && (task.name === "build" || task.name.startsWith("build:"))).map((task) => task.fullName)
   if (nativeTasks) {
     suites.static = sorted(tasks("typecheck").concat(tasks("lint")).map((task) => task.package.name))
-    suites.build = sorted(tasks("build").map((task) => task.package.name))
+    suites.build = sorted(buildTasks.map((task) => task.package.name))
     suites.knip = sorted(tasks("knip").map((task) => task.package.name))
     suites.unit = sorted(tasks("test").map((task) => task.package.path))
   }
