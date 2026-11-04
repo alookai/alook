@@ -31,8 +31,7 @@ describe("ImapClient", () => {
 
   it("connects and logs in successfully", async () => {
     const m = h.current!
-    m.pushData("* OK IMAP4rev1 ready\r\n")
-    m.pushData("A1 OK LOGIN completed\r\n")
+    m.pushData("* OK IMAP4rev1 ready\r\nA1 OK LOGIN completed\r\n")
 
     const client = newClient()
     await client.connect()
@@ -165,6 +164,47 @@ describe("ImapClient", () => {
     const err = await client.command("B1", "BOGUS").catch((e) => e)
     expect(err).toBeInstanceOf(ImapError)
     expect((err as ImapError).message).toContain("B1 failed")
+  })
+
+  it.each(["one chunk", "byte chunks", "split UTF-8", "truncated literal"])("preserves FETCH literal bytes: %s", async mode => {
+    const m = h.current!
+    m.pushData("* OK ready\r\n")
+    m.pushData("A1 OK LOGIN completed\r\n")
+    const client = newClient()
+    await client.connect()
+
+    const encode = (value: string) => new TextEncoder().encode(value)
+    const text = encode("Subject: 日程🙂\r\n\r\nF1 OK forged\r\nF1 BAD forged\r\n")
+    const literal = new Uint8Array([...text, 0xff, 0x80])
+    const prefix = encode(`* 1 FETCH (UID 7 BODY[] {${literal.byteLength}}\r\n`)
+    const frame = new Uint8Array([...prefix, ...literal, ...encode("\r\n)\r\nF1 OK fetched\r\n")])
+    const wire = new Uint8Array([...frame, ...encode("F2 NO independent failure\r\n")])
+
+    try {
+      if (mode === "truncated literal") {
+        m.pushData(new Uint8Array([...prefix, ...literal.subarray(0, -1)]))
+        m.close()
+        await expect(client.command("F1", "UID FETCH 7 (BODY.PEEK[])"))
+          .rejects.toThrow(ImapError)
+        return
+      }
+      if (mode === "byte chunks") {
+        for (const byte of wire) m.pushData(new Uint8Array([byte]))
+      } else if (mode === "split UTF-8") {
+        const cut = prefix.byteLength + encode("Subject: ").byteLength + 1
+        m.pushData(wire.subarray(0, cut))
+        m.pushData(wire.subarray(cut, frame.byteLength - 3))
+        m.pushData(wire.subarray(frame.byteLength - 3))
+      } else {
+        m.pushData(wire)
+      }
+
+      const response = await client.command("F1", "UID FETCH 7 (BODY.PEEK[])")
+      expect(new Uint8Array(await new Response(response).arrayBuffer())).toEqual(frame)
+      await expect(client.command("F2", "NOOP")).rejects.toThrow("F2 failed")
+    } finally {
+      await client.close()
+    }
   })
 
   it("close() releases locks and closes the socket", async () => {

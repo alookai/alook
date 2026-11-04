@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import { buildRawMessage, CALENDAR_CONTENT, CALENDAR_MESSAGE } from "./__mocks__/cf"
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -29,7 +30,7 @@ vi.mock("./lib/imap-client", () => ({
     connect = mockConnect
     select = mockSelect
     logout = mockLogout
-    command = mockCommand
+    command = async (tag: string, cmd: string) => new TextEncoder().encode(await mockCommand(tag, cmd))
   },
   ImapAuthError: MockImapAuthError,
   ImapError: class extends Error {
@@ -157,7 +158,7 @@ function createDO() {
 }
 
 function buildFetchResponse(uid: number, rawEmail: string): string {
-  return `* 1 FETCH (UID ${uid} BODY[] {${rawEmail.length}}\r\n${rawEmail}\r\n)\r\nF${uid} OK UID FETCH completed\r\n`
+  return `* 1 FETCH (UID ${uid} BODY[] {${new TextEncoder().encode(rawEmail).byteLength}}\r\n${rawEmail}\r\n)\r\nF${uid} OK UID FETCH completed\r\n`
 }
 
 const RAW_EMAIL_1 = "From: alice@example.com\r\nSubject: Hi\r\nMessage-ID: <msg1>\r\n\r\nHello"
@@ -184,14 +185,20 @@ beforeEach(() => {
 describe("alarm — normal UID-based flow", () => {
   it("searches by UID, fetches, stores in R2, notifies web, and updates lastSyncedUid", async () => {
     const { durable, ctx, putR2, webFetch } = createDO()
+    const rawCalendar = buildRawMessage({
+      from: "alice@example.com", to: ACCOUNT.emailAddress, subject: "Hi",
+      ...CALENDAR_MESSAGE,
+      extraHeaders: { ...CALENDAR_MESSAGE.extraHeaders, "Message-ID": "<msg1>" },
+    })
+    const { default: PostalMime } = await vi.importActual<typeof import("postal-mime")>("postal-mime")
 
     mockPostalParse
-      .mockResolvedValueOnce({ from: { name: "", address: "alice@example.com" }, subject: "Hi", messageId: "<msg1>", inReplyTo: "", references: "" })
-      .mockResolvedValueOnce({ from: { name: "", address: "bob@example.com" }, subject: "Hey", messageId: "<msg2>", inReplyTo: "", references: "" })
+      .mockImplementationOnce(raw => PostalMime.parse(raw))
+      .mockImplementationOnce(raw => PostalMime.parse(raw))
 
     mockCommand
       .mockResolvedValueOnce("* SEARCH 101 102\r\nS1 OK UID SEARCH completed\r\n")
-      .mockResolvedValueOnce(buildFetchResponse(101, RAW_EMAIL_1))
+      .mockResolvedValueOnce(buildFetchResponse(101, rawCalendar))
       .mockResolvedValueOnce(buildFetchResponse(102, RAW_EMAIL_2))
 
     mockGetEmailAccount.mockResolvedValue({ ...ACCOUNT, lastSyncedUid: "100" })
@@ -207,10 +214,24 @@ describe("alarm — normal UID-based flow", () => {
     expect(notify1.subject).toBe("Hi")
     expect(notify1.isWhitelisted).toBe(true)
     expect(notify1.messageId).toBe("<msg1>")
+    expect(JSON.parse(notify1.attachments)).toEqual([
+      { key: "inline:0", filename: "invite.ics", contentType: "text/calendar", size: new TextEncoder().encode(CALENDAR_CONTENT).byteLength },
+    ])
+    expect(new Uint8Array(await new Response(putR2.mock.calls[0][1]).arrayBuffer()))
+      .toEqual(new TextEncoder().encode(rawCalendar))
+    expect(putR2.mock.calls[0][0]).toBe(notify1.r2Key)
 
     const notify2 = JSON.parse(webFetch.mock.calls[1][1].body)
     expect(notify2.from).toBe("bob@example.com")
     expect(notify2.subject).toBe("Hey")
+    expect(new Uint8Array(await new Response(putR2.mock.calls[1][1]).arrayBuffer()))
+      .toEqual(new TextEncoder().encode(RAW_EMAIL_2))
+    expect(putR2.mock.calls[1][0]).toBe(notify2.r2Key)
+    expect(mockCommand.mock.calls).toEqual([
+      ["S1", "UID SEARCH UID 101:*"],
+      ["F101", "UID FETCH 101 (BODY.PEEK[])"],
+      ["F102", "UID FETCH 102 (BODY.PEEK[])"],
+    ])
 
     expect(mockUpdateEmailAccount).toHaveBeenCalledWith(
       expect.anything(), "aea_test1", "ws_test1",

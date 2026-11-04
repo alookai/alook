@@ -69,13 +69,12 @@ describe("extractAttachmentMeta", () => {
     expect(result[0].contentType).toBe("application/octet-stream");
   });
 
-  it("handles Uint8Array content size as 0 (no byteLength on content check)", () => {
-    const content = new Uint8Array([1, 2, 3]);
+  it("counts only the bytes in a Uint8Array view", () => {
+    const content = new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4);
     const result = extractAttachmentMeta([
       { disposition: "attachment", filename: "data.bin", mimeType: "application/octet-stream", content },
     ]);
-    // Uint8Array is not ArrayBuffer and not string, so size = 0
-    expect(result[0].size).toBe(0);
+    expect(result[0].size).toBe(3);
   });
 
   it("handles multiple attachments with sequential indices after filtering", () => {

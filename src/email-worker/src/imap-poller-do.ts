@@ -140,7 +140,7 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
         searchCmd = `UID SEARCH SINCE ${since.getDate()}-${months[since.getMonth()]}-${since.getFullYear()}`
       }
 
-      const searchResp = await client.command("S1", searchCmd)
+      const searchResp = new TextDecoder().decode(await client.command("S1", searchCmd))
       const searchLine = searchResp.split("\r\n").find(l => l.startsWith("* SEARCH"))
       const uids: number[] = searchLine
         ? searchLine.replace("* SEARCH", "").trim().split(/\s+/).map(Number).filter(n => !isNaN(n) && n > lastUid)
@@ -172,7 +172,7 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
         const fetchResp = await client.command(tag, `UID FETCH ${uid} (BODY.PEEK[])`)
 
         const rawEmail = this.extractEmailFromFetch(fetchResp)
-        if (!rawEmail) {
+        if (!rawEmail || rawEmail.byteLength === 0) {
           pollLog.warn("failed to extract email content", { uid })
           maxUid = Math.max(maxUid, uid)
           continue
@@ -262,14 +262,20 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
     }
   }
 
-  private extractEmailFromFetch(response: string): string | null {
-    const literalMatch = response.match(/\{(\d+)\}\r\n/)
-    if (!literalMatch) return null
-
-    const literalLen = parseInt(literalMatch[1]!, 10)
-    const contentStart = response.indexOf(literalMatch[0]) + literalMatch[0].length
-    if (contentStart + literalLen <= response.length) {
-      return response.substring(contentStart, contentStart + literalLen)
+  private extractEmailFromFetch(response: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> | null {
+    let lineStart = 0
+    for (let end = 1; end < response.byteLength; end++) {
+      if (response[end - 1] !== 13 || response[end] !== 10) continue
+      const line = new TextDecoder().decode(response.subarray(lineStart, end + 1))
+      const literalMatch = line.match(/\{(\d+)\}\r\n$/)
+      if (literalMatch) {
+        const size = Number(literalMatch[1])
+        const contentStart = end + 1
+        return Number.isSafeInteger(size) && size <= response.byteLength - contentStart
+          ? response.subarray(contentStart, contentStart + size)
+          : null
+      }
+      lineStart = end + 1
     }
     return null
   }
