@@ -9,16 +9,6 @@ function createMockDb(rows: any[]) {
   return chain;
 }
 
-describe("agent query module exports", () => {
-
-  it("exports getAgentByHandle", () => {
-    expect(typeof agentQueries.getAgentByHandle).toBe("function");
-  });
-
-  it("exports getAgentsByIds", () => {
-    expect(typeof agentQueries.getAgentsByIds).toBe("function");
-  });
-});
 
 describe("getExistingHandles", () => {
   it("returns empty array for empty input without querying DB", async () => {

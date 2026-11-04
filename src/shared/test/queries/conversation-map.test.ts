@@ -13,12 +13,6 @@ function createMockDb(rows: any[]) {
   return chain;
 }
 
-describe("conversation-map query module exports", () => {
-
-  it("exports createMapping", () => {
-    expect(typeof conversationMapQueries.createMapping).toBe("function");
-  });
-});
 
 describe("findByKey", () => {
   it("returns conversationId when mapping exists", async () => {

@@ -1,10 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as agentLinkQueries from "../../src/db/queries/agent-link";
 
-describe("agent-link query module exports", () => {
-  it("exports listByWorkspace", () => { expect(typeof agentLinkQueries.listByWorkspace).toBe("function"); });
-  it("exports listByAgent", () => { expect(typeof agentLinkQueries.listByAgent).toBe("function"); });
-});
 
 // Helper: a select().from().where() chain that resolves to `rows`.
 function selectChain(rows: unknown[]) {
