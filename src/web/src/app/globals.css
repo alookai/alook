@@ -978,7 +978,8 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 .tw-body > .tw-paper-track {
-  transform: translateX(-50%) translateZ(79px);
+  /* The sheet stands in the middle of the top deck, so its foot disappears into the body. */
+  transform: translateX(-50%) translateZ(0);
 }
 
 /* Back face */
@@ -1001,8 +1002,8 @@ body.driver-active .community-ws-reconnect-overlay * {
   backface-visibility: hidden;
 }
 
-/* Side, top and bottom planes stop where the front's 24px corner radius starts, and four 45° chamfer strips
-   close the depth edges between them, so the box has no see-through gaps at any tilt. */
+/* Side, top and bottom planes stop where the front's 24px corner radius starts; rounded edge strips close the
+   depth edges between them, so the box has no see-through gaps at any tilt. */
 .tw-body-left,
 .tw-body-right {
   position: absolute;
@@ -1041,31 +1042,26 @@ body.driver-active .community-ws-reconnect-overlay * {
   box-shadow: 0 60px 100px oklch(0 0 0 / 20%);
 }
 
-/* Each strip is 24√2 px wide and spans the 160px depth; its centre sits on the chord of a corner radius. */
+/* Rounded depth edges; size, shade and placement of each strip come from EDGE_STRIPS in typewriter-visual.tsx. */
 .tw-body-edge {
   position: absolute;
   top: 0;
   left: 0;
-  width: 34px;
-  height: 160px;
   backface-visibility: hidden;
 }
-
-.tw-body-edge-tl { background: oklch(0.25 0.01 59); transform: translate3d(-5px, -68px, 0) rotateZ(-45deg) rotateX(90deg); }
-.tw-body-edge-tr { background: oklch(0.22 0.01 58); transform: translate3d(391px, -68px, 0) rotateZ(45deg) rotateX(90deg); }
-.tw-body-edge-bl { background: oklch(0.16 0.01 55); transform: translate3d(-5px, 168px, 0) rotateZ(45deg) rotateX(-90deg); }
-.tw-body-edge-br { background: oklch(0.15 0.01 55); transform: translate3d(391px, 168px, 0) rotateZ(-45deg) rotateX(-90deg); }
 
 /* ── Roller assembly — at the top of body, wider than body ── */
 .tw-roller-assembly {
   position: absolute;
-  top: -6px;
+  /* Platen rests on the top deck around the sheet's foot. */
+  top: -22px;
   left: -24px;
   right: -24px;
   height: 28px;
   display: flex;
   align-items: center;
   z-index: 6;
+  transform: translateZ(6px);
 }
 
 .tw-roller {
