@@ -1,6 +1,5 @@
 "use client"
 
-import { PresenceStatus } from "@/components/community/presence-status"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import {
   useEffect,
@@ -19,17 +18,15 @@ import {
   Check,
   MoreVertical,
   MousePointer2,
-  PlusCircle,
   RotateCcw,
   Search,
-  Smile,
   UserPlus,
 } from "lucide-react"
 import type { CommunityMachineSummary } from "@alook/shared"
-import { AgentAvatar, type AvatarDraft } from "@/components/avatar"
-import { ProviderLogo } from "@/components/provider-logo"
+import type { AvatarDraft } from "@/components/avatar"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { ComposerPreview } from "@/components/community/messages/composer-preview"
+import { BotCardView } from "@/components/community/bots/bot-card-view"
 import { Input } from "@/components/ui/input"
 import { AppSurface } from "@/components/ui/app-surface"
 import { SheetBody, SheetFooter, SheetHeader } from "@/components/ui/sheet"
@@ -1150,13 +1147,15 @@ function PrototypeChannelSidebar({
         currentUserId="gus"
       />
       {(room || serverNameOverride) && (
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
           data-motion-target="invite-life"
           className="absolute right-2 top-2 grid size-7 place-items-center rounded-md text-muted-foreground"
           aria-label="Invite to server"
         >
           <UserPlus className="size-4" />
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -1500,18 +1499,12 @@ export function PrototypeComposer({
   placeholder: string
 }) {
   return (
-    <div className="relative px-3 pb-3 pt-0">
-      <div
-        className={targetClass(
-          snapshot,
-          target,
-          "relative rounded-xl bg-muted shadow-(--e1) ring-1 ring-border/40 transition-shadow",
-        )}
-      >
+    <div className={targetClass(snapshot, target)}>
+      <ComposerPreview hasText={Boolean(snapshot.composerText)}>
         <div
           data-motion-target={target}
           data-motion-anchor-x="0.24"
-          className="relative grid px-12 py-3 text-base leading-6"
+          className="relative grid min-h-6 text-base chat-input-line-height"
         >
           <span
             data-visible={!snapshot.composerText}
@@ -1535,19 +1528,7 @@ export function PrototypeComposer({
             {!snapshot.composerText && <span data-composer-caret className="ml-0.5 inline-block h-5 w-px bg-foreground align-middle" />}
           </span>
         </div>
-        <button
-          className="absolute bottom-2 left-2 grid size-8 place-items-center rounded-full text-muted-foreground"
-          aria-label="Add"
-        >
-          <PlusCircle className="size-5" />
-        </button>
-        <button
-          className="absolute right-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground"
-          aria-label="Emoji picker"
-        >
-          <Smile className="size-5" />
-        </button>
-      </div>
+      </ComposerPreview>
     </div>
   )
 }
@@ -1807,24 +1788,15 @@ export function BotCard({
     "flex items-center gap-2 rounded-md px-2 py-2 text-sm text-popover-foreground"
   return (
     <div className="relative">
-      <Card className="flex flex-col gap-3 p-4">
-        <div className="flex items-start gap-3">
-          <AgentAvatar name={name} seed={name.toLowerCase()} size={40} />
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[15px] font-medium text-foreground">{name}</span>
-              <PresenceStatus online label={status} />
-            </div>
-            <span className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <ProviderLogo provider={runtime} className="size-3.5" />
-                <span>{runtime}</span>
-              </span>
-              <span aria-hidden>·</span>
-              <span className="font-mono">{model ?? "local default"}</span>
-            </span>
-          </div>
-          <button
+      <BotCardView
+        bot={{ id: name.toLowerCase(), name, image: null, runtime, modelName: model }}
+        online={status !== "Offline"}
+        statusKnown={status !== "Status unknown"}
+        statusLabel={status}
+        actions={(
+          <Button
+            variant="ghost"
+            size="icon"
             aria-label="Bot actions"
             data-motion-target={snapshot ? "bot-actions" : undefined}
             className={
@@ -1834,9 +1806,9 @@ export function BotCard({
             }
           >
             <MoreVertical className="size-4" />
-          </button>
-        </div>
-      </Card>
+          </Button>
+        )}
+      />
       {snapshot && (
         <div data-visible={menuOpen} className={styles.botMenu}>
           <div className={menuItemClass}>

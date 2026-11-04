@@ -237,7 +237,7 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onO
                 {item.error && (
                   <div role="status" aria-live="polite" className="mt-1 flex items-center justify-end gap-2 text-xs text-destructive">
                     <span>{item.error}</span>
-                    <button className="min-h-11 min-w-11 font-medium underline sm:min-h-0 sm:min-w-0" onClick={() => onRetryFriendRequest?.(item)}>Retry</button>
+                    <Button variant="ghost" size="sm" className="min-h-11 min-w-11 font-medium underline sm:min-h-0 sm:min-w-0" onClick={() => onRetryFriendRequest?.(item)}>Retry</Button>
                   </div>
                 )}
               </div>
@@ -408,7 +408,7 @@ function MarkedTab({ marked, loading, onOpenMarked, onUnmark, profilesByUserId, 
           </button>
           {onUnmark && (
             <DropdownMenu>
-              <DropdownMenuTrigger render={<button className="mt-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100" aria-label="More" />}>
+              <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="mt-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100" aria-label="More" />}>
                 <MoreHorizontal className="size-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" sideOffset={4} className="w-36">
@@ -527,13 +527,13 @@ export function InboxPopover({
         <Inbox className="size-5" />
         <h2 className="flex-1 text-lg font-semibold">Inbox</h2>
         {onMarkAllRead && (
-          <button
+          <Button variant="ghost" size="sm"
             onClick={onMarkAllRead}
             disabled={!hasMessageUnread}
-            className="text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+            className="h-auto p-0 text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
           >
             Mark all read
-          </button>
+          </Button>
         )}
       </div>
       <TabsList data-testid={tid.inboxTabList} variant="line" className="mt-3 w-full border-b border-border px-3">

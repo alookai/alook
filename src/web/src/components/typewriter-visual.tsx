@@ -84,6 +84,8 @@ interface TypewriterVisualProps {
   className?: string;
   entranceDelay?: number;
   animateEntrance?: boolean;
+  interaction?: "pointer" | "hover";
+  frontFacing?: boolean;
   paper?: React.ReactNode;
   blobScale?: number;
   blobBottom?: string;
@@ -94,6 +96,8 @@ export function TypewriterVisual({
   className,
   entranceDelay = 0.3,
   animateEntrance = true,
+  interaction = "pointer",
+  frontFacing = false,
   paper,
   blobScale = 1,
   blobBottom,
@@ -104,6 +108,7 @@ export function TypewriterVisual({
   // frame loop eases the pose toward it (time constant ~100 ms), so fast or jittery input never makes it shake.
   const poseRef = useRef({ rx: REST_RX, ry: REST_RY });
   const targetRef = useRef({ rx: REST_RX, ry: REST_RY });
+  const hoveredRef = useRef(false);
   const rafRef = useRef<number | null>(null);
   const lastFrameRef = useRef<number | null>(null);
 
@@ -147,10 +152,26 @@ export function TypewriterVisual({
     [schedule]
   );
 
-  const handleMouseLeave = useCallback(() => {
-    targetRef.current = { rx: REST_RX, ry: REST_RY };
+  const updateHoverPose = useCallback((hovered: boolean) => {
+    hoveredRef.current = hovered;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const target = frontFacing || hovered ? { rx: 0, ry: 0 } : { rx: REST_RX, ry: REST_RY };
+    if (target.rx === targetRef.current.rx && target.ry === targetRef.current.ry) return;
+    targetRef.current = target;
     schedule();
-  }, [schedule]);
+  }, [frontFacing, schedule]);
+
+  useEffect(() => {
+    if (interaction === "hover") updateHoverPose(hoveredRef.current);
+  }, [interaction, updateHoverPose]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (interaction === "hover") updateHoverPose(false);
+    else {
+      targetRef.current = { rx: REST_RX, ry: REST_RY };
+      schedule();
+    }
+  }, [interaction, updateHoverPose, schedule]);
 
   useGSAP(() => {
     if (!animateEntrance) return;
@@ -179,7 +200,8 @@ export function TypewriterVisual({
       ref={containerRef}
       className={`typewriter-visual${className ? ` ${className}` : ""}`}
       style={TW_VARS}
-      onMouseMove={handleMouseMove}
+      onMouseEnter={interaction === "hover" ? () => updateHoverPose(true) : undefined}
+      onMouseMove={interaction === "pointer" ? handleMouseMove : undefined}
       onMouseLeave={handleMouseLeave}
     >
       <div className="typewriter-blob" style={(blobScale !== 1 || blobBottom) ? { "--blob-scale": blobScale, ...(blobBottom ? { "--blob-bottom": blobBottom } : {}) } as React.CSSProperties : undefined} />

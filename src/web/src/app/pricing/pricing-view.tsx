@@ -34,7 +34,7 @@ export function PricingView({ controller: c }: { controller: PricingController }
         <p className={styles.contactLine}>Questions about a plan? <Link href="/contact">Contact us</Link></p>
 
         <div className={styles.status} aria-live="polite">{c.message}</div>
-        {c.error && <div className={styles.status} role="alert">{c.error} <button type="button" onClick={c.retry}>Try again</button></div>}
+        {c.error && <div className={styles.status} role="alert">{c.error} <Button variant="ghost" size="sm" type="button" onClick={c.retry}>Try again</Button></div>}
         <section className={styles.plans} aria-label="Alook plans">
           <article className={`${styles.plan} ${styles.freePlan}`}>
             <Image

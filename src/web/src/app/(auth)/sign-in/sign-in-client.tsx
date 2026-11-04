@@ -427,7 +427,7 @@ function SignInForm({
                     lastUsedMethod={lastUsedMethod}
                   />
 
-                  <FieldSeparator className="*:data-[slot=field-separator-content]:bg-background *:data-[slot=field-separator-content]:text-xs sm:*:data-[slot=field-separator-content]:bg-card">
+                  <FieldSeparator className="*:data-[slot=field-separator-content]:text-xs">
                     or
                   </FieldSeparator>
 
@@ -452,7 +452,7 @@ function SignInForm({
           >
             <div className="mx-auto w-full max-w-80 sm:max-w-88">
               <FieldGroup className="gap-4">
-                <Button variant="ghost" type="button" className="h-11 w-fit gap-2 px-0" disabled={loading || isTransitioning} onClick={() => switchMethodsStep("methods")}>
+                <Button variant="ghost" type="button" className="h-11 w-fit gap-2" disabled={loading || isTransitioning} onClick={() => switchMethodsStep("methods")}>
                   <ArrowLeft className="size-4" aria-hidden />
                   Back
                 </Button>
@@ -614,7 +614,7 @@ function ProductGallery() {
         </div>
         <div className={galleryStyles.gallerySwitcher} aria-label="Product stories">
           {galleryScenes.map((item, i) => (
-            <button
+            <Button variant="ghost" size="sm"
               key={item.scene}
               onClick={() => setActive(i)}
               className="grid size-8 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -631,7 +631,7 @@ function ProductGallery() {
                   opacity: i === active ? 1 : 0.3,
                 }}
               />
-            </button>
+            </Button>
           ))}
         </div>
       </div>

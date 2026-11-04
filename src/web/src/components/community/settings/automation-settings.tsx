@@ -6,6 +6,7 @@ import { AUTOMATION_READ_PERMISSIONS, AutomationAccessCodeCreateSchema, type Aut
 import { ChevronDown, Copy, Pencil, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -99,7 +100,7 @@ export function AutomationCodeForm({ code, pending, onCancel, onSave }: {
           const policy = policies[index]
           return <div key={permission} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm sm:min-h-8">
-              <input type="checkbox" checked={policy.enabled} onChange={(event) => updatePolicy(index, { enabled: event.target.checked })} className="size-4 accent-primary focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring" />
+              <Switch checked={policy.enabled} onCheckedChange={(checked) => updatePolicy(index, { enabled: checked })} disabled={pending} />
               {label}
             </label>
           </div>

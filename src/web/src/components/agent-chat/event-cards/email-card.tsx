@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback } from "react";
 import { relativeTime } from "@/lib/time";
@@ -130,7 +131,7 @@ export function EmailCard({
       <Sheet open={touchSheetOpen} onOpenChange={setTouchSheetOpen}>
         <SheetContent side="bottom" showCloseButton={false} className="rounded-t-2xl p-2">
           <div className="flex flex-col">
-            <button
+            <Button variant="ghost" size="sm"
               type="button"
               onClick={() => {
                 touchAction.onClick();
@@ -140,7 +141,7 @@ export function EmailCard({
             >
               <span className="text-muted-foreground"><MessageSquare className="w-5 h-5" /></span>
               {touchAction.label}
-            </button>
+            </Button>
           </div>
         </SheetContent>
       </Sheet>

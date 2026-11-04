@@ -2,7 +2,6 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
-import { Check } from "lucide-react"
 import { EntityIcon } from "../entity-icon"
 import { CreateDialogShell } from "./create-dialog-shell"
 import { Button } from "@/components/ui/button"
@@ -12,6 +11,8 @@ import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import type { ChannelType } from "@alook/shared"
 import { Input } from "@/components/ui/input"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { FieldLabel } from "@/components/ui/field"
 
 // Create / edit Channel dialog. v0.1 supports Text + Forum only. No private toggle.
 // Submits { name, type }.
@@ -73,26 +74,25 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
           {!editing && (
             <div>
               <div className="mb-1 text-xs text-muted-foreground">Type</div>
-              <div className="space-y-1">
+              <RadioGroup value={type} onValueChange={(value) => setType(value as ChannelType)} aria-label="Channel type" className="gap-1">
                 {options.map((o) => (
-                  <button
+                  <FieldLabel
                     key={o.value}
-                    onClick={() => setType(o.value)}
-                    aria-pressed={type === o.value}
+                    data-selected={type === o.value || undefined}
                     className={[
-                      "flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors",
+                      "flex w-full items-center gap-3 rounded-lg border p-2 text-left cursor-pointer transition-colors",
                       type === o.value ? "bg-accent" : "hover:bg-accent/40",
                     ].join(" ")}
                   >
+                    <RadioGroupItem value={o.value} />
                     <EntityIcon kind={o.value} className="size-4 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-medium">{o.label}</span>
                       <span className="block text-xs text-muted-foreground">{o.desc}</span>
                     </span>
-                    {type === o.value && <Check className="size-4 shrink-0 text-primary" />}
-                  </button>
+                  </FieldLabel>
                 ))}
-              </div>
+              </RadioGroup>
             </div>
           )}
         </div>

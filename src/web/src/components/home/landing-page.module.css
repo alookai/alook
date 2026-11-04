@@ -54,7 +54,7 @@
 }
 
 .landingHeroTypewriter {
-  transform: translateY(-7%);
+  transform: none;
 }
 
 @media (min-width: 1024px) {
@@ -71,7 +71,7 @@
   /* The first screen is one composition: copy and typewriter are centred
    * together in the viewport under the brand row (Gus #2398). */
   .page :global(.hero-section-split .hero-content) {
-    height: 100svh;
+    height: 100%;
     max-height: none;
     padding-block: 24px 40px;
   }
@@ -2114,6 +2114,22 @@ main.page > .footer {
   }
 }
 
+@media (max-width: 639px) {
+  .page :global(.hero-section[data-testid="landing-hero"] .typewriter-visual) {
+    top: auto !important;
+    bottom: 0 !important;
+    height: auto;
+  }
+
+  .page :global(.hero-section[data-testid="landing-hero"] .typewriter-scene) {
+    transform-origin: center bottom;
+  }
+
+  .page :global(.hero-section[data-testid="landing-hero"] .hero-ctas) {
+    margin-top: 24px;
+  }
+}
+
 @media (min-width: 640px) and (max-width: 1023px) {
   .landingHeroHeadline {
     font-size: clamp(40px, 6.6vw, 60px) !important;
@@ -2134,6 +2150,8 @@ main.page > .footer {
 
 /* ── Hero on grid paper (Gus #2709, #2727): the landing grid runs through the hero; ink copy, no sky. ── */
 .page :global(.hero-section[data-testid="landing-hero"]) {
+  height: 100svh;
+  min-height: 100svh;
   background-color: transparent !important;
 }
 
@@ -2150,7 +2168,7 @@ main.page > .footer {
   position: absolute;
   inset: auto 0 0;
   z-index: 1;
-  height: clamp(120px, 22vh, 220px);
+  height: 96px;
   /* concave arc: the ground below rises in from the bottom edge, centre first, with a smootherstep falloff */
   background: radial-gradient(ellipse 100% 100% at 50% 100%, var(--landing-section-bg, var(--landing-surface)) 0%, var(--landing-section-bg, var(--landing-surface)) 46%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 99.1%, transparent) 51.4%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 94.2%, transparent) 56.8%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 83.7%, transparent) 62.2%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 68.3%, transparent) 67.6%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 50.0%, transparent) 73.0%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 31.7%, transparent) 78.4%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 16.3%, transparent) 83.8%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 5.8%, transparent) 89.2%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 0.9%, transparent) 94.6%, transparent 100.0%);
   pointer-events: none;

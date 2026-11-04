@@ -2,6 +2,8 @@ import { ObservedStaticContent } from "@/lib/observability/regions";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
+import technostalgia from "@/components/brand/technostalgia.module.css";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { isGuide } from "@blog/lib/blog/guides";
 import { getAllPosts, getPostBySlug } from "@blog/lib/blog/posts";
@@ -89,12 +91,11 @@ export default async function BlogPostPage({
             {post.title}
           </h1>
           {topic && (
-            <Link
-              href={`${directory}#${topic.id}`}
-              className="tn-blog-chip mt-4 inline-flex rounded-md bg-muted px-2 py-1 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-            >
-              {topic.label}
-            </Link>
+            <div className={`${technostalgia.theme} mt-4 w-fit`}>
+              <Badge variant="secondary" className="h-auto py-1 text-sm" render={<Link href={`${directory}#${topic.id}`} />}>
+                {topic.label}
+              </Badge>
+            </div>
           )}
           <BlogPostByline post={post} />
         </header>

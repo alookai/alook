@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 import { Pause, Play, RotateCcw } from "lucide-react";
 import { claimGuidePlayback, refreshGuidePlayback, registerGuidePlayback } from "./playback";
 import styles from "./guide.module.css";
+import technostalgia from "@/components/brand/technostalgia.module.css";
 
-type Timeline = { play: () => unknown; pause: () => unknown; restart: () => unknown; kill: () => unknown; progress: (value: number) => unknown };
+type Timeline = { play: () => unknown; pause: () => unknown; restart: () => unknown; kill: () => unknown; progress: { (): number; (value: number, suppressEvents?: boolean): unknown } };
 type SceneModule = { createScene: (root: HTMLElement, complete: () => void) => Timeline };
 const loaders: Record<"connect" | "bots" | "server" | "message", () => Promise<SceneModule>> = {
   connect: () => import("./scenes/connect"),
@@ -43,7 +45,8 @@ export function DeferredDemo({ scene, label, children }: { scene: keyof typeof l
       void loaders[scene]().then((module) => {
         if (disposed || request !== generation || motion.matches) return;
         timeline.current = module.createScene(element, () => { ended.current = true; setStatus("ended"); });
-        setStatus("ready");
+        if (manuallyPaused.current) timeline.current.progress(0.001, false);
+        setStatus(manuallyPaused.current ? "paused" : "ready");
         refreshGuidePlayback();
       }).catch(() => {
         if (!disposed && request === generation) setStatus("failed");
@@ -113,15 +116,15 @@ export function DeferredDemo({ scene, label, children }: { scene: keyof typeof l
   return (
     <figure className={styles.demo} aria-label={label} data-guide-demo={scene} data-demo-status={status}>
       <noscript><style>{`.${styles.stage}{height:auto!important}.${styles.stage} [data-demo-frame]{position:relative;inset:auto;visibility:visible;opacity:1}.${styles.demoCaption}{display:none}`}</style></noscript>
-      <div ref={root} className={styles.stage} aria-hidden="true" inert>{children}</div>
-      <div className={styles.demoCaption} role="group" aria-label={`${label} playback`}>
+      <div ref={root} className={`${technostalgia.theme} ${styles.stage}`} aria-hidden="true" inert>{children}</div>
+      <div className={`${technostalgia.theme} ${styles.demoCaption}`} role="group" aria-label={`${label} playback`}>
         <div className={styles.controls}>
-          {status === "failed" ? <button onClick={() => load.current()}>Retry animation</button> :
-            <button disabled={!enabled} aria-label={status === "playing" ? `Pause ${label}` : `Play ${label}`} onClick={() => {
+          {status === "failed" ? <Button variant="ghost" size="sm" className="min-h-8 max-sm:min-h-11 max-sm:min-w-11" onClick={() => load.current()}>Retry animation</Button> :
+            <Button variant="ghost" size="sm" className="min-h-8 max-sm:min-h-11 max-sm:min-w-11" disabled={!enabled} aria-label={status === "playing" ? `Pause ${label}` : `Play ${label}`} onClick={() => {
               if (status === "playing") { manuallyPaused.current = true; timeline.current?.pause(); setStatus("paused"); }
               else play();
-            }}>{status === "playing" ? <Pause size={14} /> : <Play size={14} />}<span>{status === "playing" ? "Pause" : "Play"}</span></button>}
-          <button disabled={!enabled} aria-label={`Replay ${label}`} onClick={() => play(true)}><RotateCcw size={14} /><span>Replay</span></button>
+            }}>{status === "playing" ? <Pause size={14} /> : <Play size={14} />}<span>{status === "playing" ? "Pause" : "Play"}</span></Button>}
+          <Button variant="ghost" size="sm" className="min-h-8 max-sm:min-h-11 max-sm:min-w-11" disabled={!enabled} aria-label={`Replay ${label}`} onClick={() => play(true)}><RotateCcw size={14} /><span>Replay</span></Button>
         </div>
       </div>
     </figure>

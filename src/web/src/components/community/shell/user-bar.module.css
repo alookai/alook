@@ -12,26 +12,6 @@
 .visual { width: 28px; height: 28px; }
 .name { height: 44px; }
 
-.squareButton { isolation: isolate; }
-
-.squareButton::before {
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  width: 28px;
-  height: 28px;
-  margin: auto;
-  border-radius: var(--radius);
-  pointer-events: none;
-  content: "";
-}
-
-.update::before { background: var(--secondary); }
-
-.update:hover::before,
-.hoverBackground:hover::before,
-.inbox[aria-expanded="true"]::before { background: var(--accent); }
-
 @media (min-width: 640px) {
   .target { width: 28px; height: 28px; }
   .name { height: 28px; }

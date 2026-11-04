@@ -1,4 +1,6 @@
 import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
+import { Badge } from "@/components/ui/badge";
+import technostalgia from "@/components/brand/technostalgia.module.css";
 import Image from "next/image";
 import { ZoneLink } from "@/components/public-layout";
 import { SiGithub, SiDiscord, SiX } from "@icons-pack/react-simple-icons";
@@ -29,7 +31,7 @@ export function BlogFooter() {
           <ZoneLink href="/llms.txt" zone="blog">llms.txt</ZoneLink>
           <ZoneLink href="/privacy" zone="blog">Privacy</ZoneLink>
         </nav>
-        <p className="blog-footer-copyright">&copy; {new Date().getFullYear()} Alook AI</p>
+        <p className={`${technostalgia.theme} blog-footer-copyright`}><Badge variant="outline">&copy; {new Date().getFullYear()} MEMODB PTE. LTD.</Badge></p>
       </div>
     </footer>
   );

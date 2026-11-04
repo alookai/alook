@@ -1,4 +1,5 @@
 "use client"
+import { Button } from "@/components/ui/button"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
@@ -274,7 +275,7 @@ export function MemberList({
               </div>
             )}
             {onAddMember && (
-              <button
+              <Button variant="ghost" size="sm"
                 type="button"
                 onClick={onAddMember}
                 className="grid size-9 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -282,7 +283,7 @@ export function MemberList({
                 title="Add members"
               >
                 <UserPlus className="size-4" />
-              </button>
+              </Button>
             )}
           </div>
         )}

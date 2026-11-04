@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dices } from "lucide-react"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
@@ -59,14 +60,14 @@ export function BotFormFields({
             aria-describedby={nameError ? "bot-name-error" : undefined}
             className="w-full border-0 bg-transparent px-0 py-1 text-2xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:text-muted-foreground/40 placeholder:font-normal focus-visible:ring-0"
           />
-          <button
+          <Button variant="ghost" size="sm"
             type="button"
             onClick={onShuffle}
             aria-label="Randomize name"
             className="absolute right-0 top-1/2 -translate-y-1/2 rounded p-2 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground"
           >
             <Dices className="size-4" />
-          </button>
+          </Button>
         </div>
         {nameError && (
           <p id="bot-name-error" className="mt-1 text-xs text-destructive">

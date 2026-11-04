@@ -36,6 +36,7 @@ export function SettingsShell<Value extends string>({
   onValueChange,
   label,
   title,
+  titleId,
   tabs,
   onClose,
   navFooter,
@@ -45,6 +46,7 @@ export function SettingsShell<Value extends string>({
   value: Value
   onValueChange: (value: Value) => void
   label: string
+  titleId?: string
   title: ReactNode
   tabs: SettingsShellTab<Value>[]
   onClose: () => void
@@ -64,7 +66,7 @@ export function SettingsShell<Value extends string>({
     >
       <header className="col-start-1 row-start-1 flex h-16 min-w-0 items-center px-4 sm:col-start-2 sm:px-8">
         {/* The title sits on the same column edge as the panel content (QA #20). */}
-        <div className="min-w-0 flex-1"><h1 className="mx-auto w-full max-w-xl truncate text-lg font-medium tracking-tight">{title}</h1></div>
+        <div className="min-w-0 flex-1"><h1 id={titleId} className="mx-auto w-full max-w-xl truncate text-lg font-medium tracking-tight">{title}</h1></div>
         <Button
           variant="ghost"
           size="icon-sm"

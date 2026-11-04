@@ -1,5 +1,7 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
+import technostalgia from "@/components/brand/technostalgia.module.css";
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useMemo, type Ref } from "react";
 import Image from "next/image";
@@ -102,7 +104,7 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
         >
           <nav
             aria-label="Filter recent posts"
-            className="flex w-max min-w-full flex-nowrap gap-6"
+            className={`${technostalgia.theme} flex w-max min-w-full flex-nowrap gap-2 py-1`}
           >
             <TopicButton
               id={allTopicsId}
@@ -182,19 +184,17 @@ function TopicButton({
   onSelect: (id: string) => void;
 }) {
   return (
-    <button
+    <Button
+      size="sm"
+      variant={selected ? "secondary" : "ghost"}
       ref={buttonRef}
       id={id === allTopicsId ? undefined : id}
       type="button"
       aria-pressed={selected}
       onClick={() => onSelect(id)}
-      className={`tn-blog-filter min-h-11 shrink-0 whitespace-nowrap py-2 font-sans text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
-        selected
-          ? "font-semibold text-foreground underline decoration-2 underline-offset-4"
-          : "font-medium text-muted-foreground hover:text-foreground"
-      }`}
+      className="min-h-11 shrink-0 py-2 font-sans text-sm"
     >
       {label}
-    </button>
+    </Button>
   );
 }

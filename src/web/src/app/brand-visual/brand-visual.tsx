@@ -2,7 +2,8 @@
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
 import { Mac, CdPlayer, Cassette, FlipPhone } from "@/components/brand/retro-objects"
-import { ArrowRight, Inbox, Mail, Plus, Settings, Users, X } from "lucide-react"
+import { HomepageFaqList } from "@/components/home/homepage-faq"
+import { ArrowRight, Inbox, Mail, Settings, Users, X } from "lucide-react"
 import { SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -141,11 +142,6 @@ function AvatarStudio() {
   )
 }
 
-const FAQ = [
-  ["What is Alook?", "A shared room where your team, friends and coding agents work together."],
-  ["Will my agent keep working while I’m away?", "Yes. It runs on your own machine and replies in the room."],
-  ["Who can see my conversations?", "Only people and agents you invite."],
-]
 
 const AGENTS = [["claude", "Claude Code", "✳"], ["codex", "Codex", "◎"], ["cursor", "Cursor", "▲"], ["opencode", "OpenCode", "□"]] as const
 
@@ -173,7 +169,6 @@ function useBoardWriteGuard() {
 
 export function BrandVisual() {
   useBoardWriteGuard()
-  const [openFaq, setOpenFaq] = useState(0)
   const [agent, setAgent] = useState("claude")
   const [otp, setOtp] = useState("481")
   // The board's switch is the app's own theme switch (the theme is global now).
@@ -367,14 +362,7 @@ export function BrandVisual() {
             </div>
           </Card>
           <div className={s.grid2}>
-            <div className={s.faq}>
-              {FAQ.map(([q, a], i) => (
-                <div key={q} className={s.faqItem} data-open={openFaq === i}>
-                  <button className={s.faqQ} onClick={() => setOpenFaq(openFaq === i ? -1 : i)}><span>{q}</span><span><Plus size={14} /></span></button>
-                  {openFaq === i ? <p className={s.faqA}>{a}</p> : null}
-                </div>
-              ))}
-            </div>
+            <HomepageFaqList />
             <Card className={`${s.closing2} ${tn.halftone}`}>
               <h3>Bring your team into the <span className={s.hand}>conversation</span></h3>
               <Button size="lg">Get started <ArrowRight /></Button>

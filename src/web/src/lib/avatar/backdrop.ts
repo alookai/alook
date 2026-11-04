@@ -48,3 +48,9 @@ export function seededStripeColors(seed: string): [string, string, string] {
   const pick = (index: number) => palette[(hash + index) % palette.length]
   return [pick(0), pick(1), pick(2)]
 }
+
+export function seededStripeAngle(seed: string): number {
+  const hash = avatarHash(`${seed}:stripe-angle`)
+  const magnitude = 22.5 + (Math.floor(hash / 2) % 2251) / 100
+  return hash % 2 === 0 ? magnitude : -magnitude
+}

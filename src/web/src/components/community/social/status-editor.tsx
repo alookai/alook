@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import type React from "react"
@@ -60,17 +61,17 @@ export function StatusEditor({
       <PopoverContent side={side} align={align} className="w-64 space-y-2 p-2">
         <div className="space-y-0.5">
           {STATUS_PRESETS.map((preset) => (
-            <button
+            <Button variant="ghost" size="sm"
               key={preset.text}
               onClick={() => { onChange(preset.emoji, preset.text); setBoth(false) }}
               className={[
-                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                "h-auto w-full justify-start gap-2 px-2 py-1.5 text-left text-sm",
                 selectedPreset === preset ? "bg-accent" : "",
               ].join(" ")}
             >
               <span className="text-base">{preset.emoji}</span>
               <span>{preset.text}</span>
-            </button>
+            </Button>
           ))}
         </div>
         <Separator />
@@ -79,12 +80,12 @@ export function StatusEditor({
               emoji override — otherwise picking an emoji before blurring/
               pressing Enter on the text field would silently discard it. */}
           <EmojiPickerPopover side="top" align="start" onPick={(e) => onChange(e, draftTextTrimmed() || null)}>
-            <button
+            <Button variant="ghost" size="sm"
               className="grid size-8 shrink-0 place-items-center rounded-md border border-border text-base hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               aria-label="Choose emoji"
             >
               {emoji || "🙂"}
-            </button>
+            </Button>
           </EmojiPickerPopover>
           <Input
             value={draftText}
@@ -101,12 +102,12 @@ export function StatusEditor({
           />
         </div>
         {hasStatus(emoji, text) && (
-          <button
+          <Button variant="ghost" size="sm"
             onClick={() => { onChange(null, null); setBoth(false) }}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none rounded"
           >
             <X className="size-3.5" /> Clear status
-          </button>
+          </Button>
         )}
       </PopoverContent>
     </Popover>

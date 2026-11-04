@@ -101,6 +101,8 @@ describe("ShellFrameOverlays", () => {
     expect(profileCard.onOpenBotAudit).toBe(controller.openBotAudit)
     expect(profileCard.canMessage).toBe(true)
     expect(hostProps.get("crop-dialog")?.maskShape).toBe("circle")
+    expect(hostProps.get("dialog-content")?.["aria-labelledby"]).toBeTruthy()
+    expect(hostProps.get("dialog-content")?.["aria-labelledby"]).toBe(hostProps.get("user-settings")?.titleId)
 
     ;(hostProps.get("attachment-sheet")?.onOpenChange as (open: boolean) => void)(false)
     expect(controller.onAttachmentPreviewOpenChange).toHaveBeenCalledWith(false)

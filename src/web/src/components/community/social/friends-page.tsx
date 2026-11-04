@@ -395,7 +395,7 @@ export function FriendsPage({
                         {item.error && (
                           <div role="status" aria-live="polite" className="mt-1 flex items-center justify-end gap-2 text-xs text-destructive">
                             <span>{item.error}</span>
-                            <button className="min-h-11 min-w-11 font-medium underline sm:min-h-0 sm:min-w-0" onClick={() => { void incomingActions.retry(item) }}>Retry</button>
+                            <Button variant="ghost" size="sm" className="min-h-11 min-w-11 font-medium underline sm:min-h-0 sm:min-w-0" onClick={() => { void incomingActions.retry(item) }}>Retry</Button>
                           </div>
                         )}
                       </div>

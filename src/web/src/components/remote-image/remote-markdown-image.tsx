@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
 import { Download } from "lucide-react"
 import { FileDownloadButton } from "@/components/file-download-button"
 import { cn } from "@/lib/utils"
@@ -81,13 +82,13 @@ function MarkdownImageAttempt({
           className="absolute inset-0 z-2 flex flex-col items-center justify-center gap-1 bg-muted px-2 text-center text-xs text-muted-foreground"
         >
           <span>Image not available</span>
-          <button
+          <Button variant="ghost" size="sm"
             type="button"
             onClick={retry}
             className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             Retry
-          </button>
+          </Button>
         </div>
       )}
       {status === "ready" && (

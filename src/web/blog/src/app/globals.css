@@ -179,17 +179,6 @@
 .group:hover .tn-blog-key { translate: 2px 0; color: var(--tn-blue-side); }
 .group:active .tn-blog-key { translate: 2px 2px; box-shadow: inset 0 1px 2px rgb(60 45 20 / 22%); }
 
-/* Topic tag: a cut-paper sticker. */
-.tn-blog-chip {
-  border-radius: 10px 14px 11px 13px / 12px 10px 13px 11px !important;
-  background: var(--muted) !important;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 50%), 0 1px 2px rgb(60 45 20 / 14%);
-  rotate: -1deg;
-  transition: translate 90ms ease-out;
-}
-.tn-blog-chip:hover { translate: 0 -1px; }
-.tn-blog-chip:active { translate: 0 1px; }
-
 /* Topic filters are keys in a tray; the chosen one is pressed in. */
 .tn-blog-filter {
   padding-inline: 14px;
@@ -232,6 +221,6 @@
 .blog-footer-navigation a:active, .blog-footer-socials a:active { translate: 0 1px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .tn-blog-card, .tn-blog-key, .tn-blog-chip, .tn-blog-filter, .tn-blog-back,
+  .tn-blog-card, .tn-blog-key, .tn-blog-filter, .tn-blog-back,
   .blog-shell nav.sticky :is(a, button), .blog-footer-navigation a, .blog-footer-socials a { transition: none; }
 }

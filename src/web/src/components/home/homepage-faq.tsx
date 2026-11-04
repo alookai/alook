@@ -23,6 +23,14 @@ export function HomepageFaq() {
           <h2 id="homepage-faq-heading">Questions, <HandAccent>answered</HandAccent></h2>
           <p>What runs where, who stays in control, and how Alook fits beside the tools you already use.</p>
         </div>
+        <HomepageFaqList />
+      </div>
+    </section>
+  )
+}
+
+export function HomepageFaqList() {
+  return (
         <Card className={styles.faqList}>
           {HOME_FAQS.map(({ question, answer, link }) => (
             <details key={question} className={styles.faqItem}>
@@ -46,7 +54,5 @@ export function HomepageFaq() {
             </details>
           ))}
         </Card>
-      </div>
-    </section>
   )
 }

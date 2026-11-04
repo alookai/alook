@@ -91,13 +91,15 @@ export function MachineCard({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <button
+              <Button
+                variant="ghost"
+                size="icon"
                 aria-label="Machine actions"
                 data-testid={tid.machineActions(machine.id)}
                 className="grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground sm:size-8"
               >
                 <MoreVertical className="size-4" />
-              </button>
+              </Button>
             }
           />
           <DropdownMenuContent align="end">

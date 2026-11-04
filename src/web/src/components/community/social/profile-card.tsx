@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, type ComponentProps, type CSSProperties, type ReactNode } from "react"
 import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
@@ -9,7 +10,7 @@ import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/she
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Avatar } from "../avatar"
-import { seededStripeColors } from "@/lib/avatar/backdrop"
+import { seededStripeAngle, seededStripeColors } from "@/lib/avatar/backdrop"
 import { resolveAvatar } from "@/lib/avatar/resolve"
 import { StatusEditor, hasStatus } from "./status-editor"
 import type {
@@ -249,7 +250,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
                     render={children}` (which clones this exact element) or
                     nesting an interactive `Tooltip.Trigger` inside a
                     `<button>` that's already a trigger for something else. */}
-                <button title={statusText || undefined} className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                <Button variant="ghost" size="sm" title={statusText || undefined} className="h-auto absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
                   {hasStatus(statusEmoji, statusText) ? (
                     <>
                       {statusEmoji && <span>{statusEmoji}</span>}
@@ -258,11 +259,11 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
                   ) : (
                     <span className="text-muted-foreground">Set a status</span>
                   )}
-                </button>
+                </Button>
               </StatusEditor>
             ) : (
               hasStatus(statusEmoji, statusText) && (
-                <div data-testid={tid.statusPill} title={statusText || undefined} className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1)">
+                <div data-testid={tid.statusPill} title={statusText || undefined} className="h-auto absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1)">
                   {statusEmoji && <span>{statusEmoji}</span>}
                   {statusText && <span className="min-w-0 truncate">{statusText}</span>}
                 </div>
@@ -336,13 +337,13 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
                 className="h-9 pr-10 text-[15px]"
                 placeholder={`Message @${name}`}
               />
-              <button
+              <Button variant="ghost" size="sm"
                 onClick={send}
                 className="absolute top-1/2 right-1 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 aria-label="Send message"
               >
                 <MessagesSquare className="size-4" />
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -454,15 +455,16 @@ function hueOf(hex: string): number {
   return (h * 60 + 360) % 360
 }
 
-/** Comic-book diagonal stripes: seven colours over half the colour wheel (30° apart), starting at the person's own palette hue,
- * so each card keeps its own colour family. */
 function profileBannerStyle(seed: string): CSSProperties {
   const base = hueOf(seededStripeColors(seed)[0])
-  const band = 26, line = 4
-  const stops = Array.from({ length: 7 }, (_, i) => {
+  const band = 26, line = 4, feather = 0.5, count = 7
+  const period = count * (band + line)
+  const stops = [`#1f1a15 0px ${line / 2 - feather}px`]
+  for (let i = 0; i < count; i++) {
     const color = `oklch(0.8 0.15 ${((base + i * 30) % 360).toFixed(0)})`
-    const start = i * (band + line)
-    return `${color} ${start}px ${start + band}px, #1f1a15 ${start + band}px ${start + band + line}px`
-  })
-  return { backgroundImage: `repeating-linear-gradient(-30deg, ${stops.join(", ")})` }
+    const start = i * (band + line) + line / 2
+    stops.push(`${color} ${start + feather}px ${start + band - feather}px`,
+      `#1f1a15 ${start + band + feather}px ${Math.min(start + band + line - feather, period)}px`)
+  }
+  return { backgroundImage: `repeating-linear-gradient(${seededStripeAngle(seed)}deg, ${stops.join(", ")})` }
 }

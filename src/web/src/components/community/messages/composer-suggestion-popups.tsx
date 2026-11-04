@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button"
 import { useEffect, useRef } from "react"
 import { createPortal } from "react-dom"
 import { Users } from "lucide-react"
@@ -104,8 +105,8 @@ export function CommunityMentionList({
         ))}
         {pagination?.hasMore && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
         {pagination?.failed && pagination.retry && (
-          <button type="button" className="h-11 w-full text-sm sm:h-9"
-            onMouseDown={event => event.preventDefault()} onClick={pagination.retry}>Retry</button>
+          <Button variant="ghost" size="sm" type="button" className="h-11 w-full text-sm sm:h-9"
+            onMouseDown={event => event.preventDefault()} onClick={pagination.retry}>Retry</Button>
         )}
         {presentation.status !== "ready" && (
           <MentionStatus status={presentation.status} hasItems={items.length > 0} />

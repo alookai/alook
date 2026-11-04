@@ -14,7 +14,10 @@ import { DownloadCurrentPlatform } from "./download-current-platform"
 import landing from "@/components/home/landing-page.module.css"
 import styles from "./download-page.module.css"
 import { buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import { HandAccent } from "@/components/brand/hand-accent"
+
+const INSTALLER = cn(buttonVariants({ variant: "secondary" }), "h-auto min-h-13 w-full justify-between gap-4 px-4 py-2 text-left whitespace-normal")
 
 const PRIMARY = buttonVariants({ size: "lg" }) + " h-12 px-5 text-sm"
 const SECONDARY = buttonVariants({ size: "lg", variant: "secondary" }) + " h-12 px-5 text-sm"
@@ -24,7 +27,7 @@ function InstallerChoices({ platform, catalog }: { platform: "macos" | "windows"
     {DOWNLOAD_TARGETS.filter(target => target.platform === platform).map(target => {
       const installer = catalog.installers.find(item => item.id === target.id)
       return <li key={target.id}>
-        {installer ? <a href={installer.url} className={styles.installer}>
+        {installer ? <a href={installer.url} data-variant="secondary" className={`${INSTALLER} ${styles.installer}`}>
           <span><strong>{target.label}</strong><small>{target.format} · v{installer.version} · {(installer.bytes / 1_000_000).toFixed(1)} MB</small></span>
           <ArrowDown size={18} aria-hidden="true" />
         </a> : <span className={styles.unavailable}><strong>{target.label} · {target.format}</strong><small>Not available right now</small></span>}
@@ -73,7 +76,7 @@ export function DownloadPageView({ catalog, initialEnvironment }: { catalog: Dow
             <span className={styles.store}><SiApple size={24} aria-hidden="true" /><span>App Store<small>Coming soon</small></span></span>
             <span className={styles.store}><SiGoogleplay size={24} aria-hidden="true" /><span>Google Play<small>Coming soon</small></span></span>
           </div>
-          <div className={styles.mobileDownload}><h3><Image src="/download/testflight.png" width={21} height={21} alt="" />TestFlight</h3><ul className={styles.installers}><li><a className={styles.installer} href={IOS_TESTFLIGHT_URL}><span><strong>iPhone &amp; iPad</strong><small>Public beta</small></span><ArrowUpRight size={18} aria-hidden="true" /></a></li></ul></div>
+          <div className={styles.mobileDownload}><h3><Image src="/download/testflight.png" width={21} height={21} alt="" />TestFlight</h3><ul className={styles.installers}><li><a data-variant="secondary" className={`${INSTALLER} ${styles.installer}`} href={IOS_TESTFLIGHT_URL}><span><strong>iPhone &amp; iPad</strong><small>Public beta</small></span><ArrowUpRight size={18} aria-hidden="true" /></a></li></ul></div>
           <div id="android" className={styles.mobileDownload}><h3><SiAndroid size={21} aria-hidden="true" />Android APK</h3><InstallerChoices platform="android" catalog={catalog} /></div>
         </div>
       </section>

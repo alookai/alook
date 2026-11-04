@@ -72,6 +72,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
           letterSpacing: "-0.035em",
         }}
         typewriterClassName={styles.landingHeroTypewriter}
+        typewriterInteraction="hover"
         largeCtas
         showCommunityLinks={false}
         showMobileDesktopHint={false}

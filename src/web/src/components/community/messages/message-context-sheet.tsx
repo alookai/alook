@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
 import { messagePreviewText } from "@alook/shared"
 import { useAtom, useCreateAtom, useSelector } from "@tanstack/react-store"
 
@@ -496,7 +497,7 @@ function MessageContextSheetContent({
 
       {(query.isError || lookup.isError) && (
         <p className="py-8 text-center text-sm text-muted-foreground">
-          Couldn&rsquo;t load the message. <button type="button" className="underline" onClick={() => { void (lookup.isError ? lookup.refetch() : query.refetch()) }}>Retry</button>
+          Couldn&rsquo;t load the message. <Button variant="ghost" size="sm" type="button" className="h-auto p-0 underline" onClick={() => { void (lookup.isError ? lookup.refetch() : query.refetch()) }}>Retry</Button>
         </p>
       )}
 

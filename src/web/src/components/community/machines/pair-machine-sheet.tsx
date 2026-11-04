@@ -324,7 +324,7 @@ function Step1({
             delay={150}
             data-testid={tid.machinePairHelp}
             aria-label="Why run a terminal command?"
-            render={<button type="button" />}
+            render={<Button variant="ghost" size="sm" type="button" />}
             className="grid size-11 shrink-0 place-items-center rounded-md text-foreground hover:bg-accent active:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-8"
           >
             <CircleHelp aria-hidden className="size-5" />

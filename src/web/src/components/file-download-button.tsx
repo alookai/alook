@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import type { ComponentProps } from "react"
 import { fileDownloadStatusText, useFileDownload } from "@/lib/file-download"
@@ -9,7 +10,7 @@ export function FileDownloadButton({ url, filename, children, onClick, ...props 
   const message = fileDownloadStatusText(download.state)
   const busy = download.state.status === "downloading"
   return (
-    <button
+    <Button variant="ghost" size="sm"
       {...props}
       type="button"
       aria-label={busy ? `Cancel download ${filename}` : props["aria-label"] ?? `Download ${filename}`}
@@ -27,6 +28,6 @@ export function FileDownloadButton({ url, filename, children, onClick, ...props 
     >
       {children}
       <span role="status" className="sr-only">{message}</span>
-    </button>
+    </Button>
   )
 }

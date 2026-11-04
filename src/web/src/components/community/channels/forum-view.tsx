@@ -63,14 +63,14 @@ function ForumTagSummary({ tags }: { tags: string[] }) {
         <Popover>
           <PopoverTrigger
             render={(
-              <button
+              <Button variant="ghost" size="sm"
                 type="button"
-                className="shrink-0 rounded px-1 py-0.5 hover:bg-accent hover:text-foreground"
+                className="h-auto shrink-0 px-1 py-0.5 text-xs"
                 aria-label={`Show ${hidden.length} more tags`}
                 onClick={(event) => event.stopPropagation()}
               >
                 +{hidden.length}
-              </button>
+              </Button>
             )}
           />
           <PopoverContent
@@ -239,16 +239,17 @@ export function ForumView({
               className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar scrollbar-none"
             >
               {!tagsKnown ? tagsError ? (
-                <button type="button" className="h-7 shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 text-muted-foreground hover:text-foreground" onClick={onRetryTags}>Retry tags</button>
+                <Button variant="ghost" size="sm" type="button" className="h-7 shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 text-muted-foreground hover:text-foreground" onClick={onRetryTags}>Retry tags</Button>
               ) : (
                 <div role="status" aria-label="Loading tag filters" className="flex h-7 shrink-0 items-center gap-2">
                   <Skeleton className="h-7 w-16 rounded-lg" /><Skeleton className="h-7 w-20 rounded-lg" /><Skeleton className="h-7 w-16 rounded-lg" />
                 </div>
               ) : (
                 <>
-                  <button
+                  <Button variant="ghost" size="sm"
                     ref={tag === "All" ? activeFilterRef : undefined}
                     type="button"
+                    aria-pressed={tag === "All"}
                     data-testid={tid.forumTagAll}
                     className={cn(
                       "shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 transition-colors",
@@ -257,10 +258,11 @@ export function ForumView({
                     onClick={() => onTagChange("All")}
                   >
                     All
-                  </button>
+                  </Button>
                   {displayFilterTags.map((t) => (
-                    <button
+                    <Button variant="ghost" size="sm"
                       key={t}
+                      aria-pressed={tag === t}
                       ref={tag === t ? activeFilterRef : undefined}
                       type="button"
                       style={tagColorStyle(t)}
@@ -273,7 +275,7 @@ export function ForumView({
                       onClick={() => onTagChange(t)}
                     >
                       {t === FORUM_ARCHIVE_TAG ? "Archived" : `#${t}`}
-                    </button>
+                    </Button>
                   ))}
                 </>
               )}
@@ -341,7 +343,7 @@ export function ForumView({
                         {canEdit && (
                           <PostTagDialog
                             trigger={(
-                              <button
+                              <Button variant="ghost" size="sm"
                                 type="button"
                                 data-testid={tid.forumThreadTagBtn(p.id)}
                                 onClick={(event) => event.stopPropagation()}
@@ -349,7 +351,7 @@ export function ForumView({
                                 aria-label="Edit tags"
                               >
                                 <Tag className="size-4" />
-                              </button>
+                              </Button>
                             )}
                             postName={p.name}
                             current={p.tags}
@@ -359,7 +361,7 @@ export function ForumView({
                           />
                         )}
                         {canEdit && (
-                          <button
+                          <Button variant="ghost" size="sm"
                             type="button"
                             data-testid={tid.forumThreadArchiveBtn(p.id)}
                             disabled={savingTags}
@@ -376,10 +378,10 @@ export function ForumView({
                             {archived
                               ? <ArchiveRestore aria-hidden="true" className="size-4" />
                               : <Archive aria-hidden="true" className="size-4" />}
-                          </button>
+                          </Button>
                         )}
                         {canDelete && (
-                          <button
+                          <Button variant="ghost" size="sm"
                             type="button"
                             data-testid={tid.forumThreadDeleteBtn(p.id)}
                             disabled={deletingPost === p.id}
@@ -388,7 +390,7 @@ export function ForumView({
                             aria-label="Delete post"
                           >
                             <Trash2 className="size-4" />
-                          </button>
+                          </Button>
                         )}
                       </div>
                     )}

@@ -30,6 +30,7 @@ export function HeroSection({
   headlineClassName,
   headlineStyle,
   typewriterClassName,
+  typewriterInteraction,
   staticPaper = false,
   largeCtas = false,
   highlightPrimaryCta = false,
@@ -51,6 +52,7 @@ export function HeroSection({
   headlineClassName?: string;
   headlineStyle?: CSSProperties;
   typewriterClassName?: string;
+  typewriterInteraction?: "pointer" | "hover";
   staticPaper?: boolean;
   largeCtas?: boolean;
   highlightPrimaryCta?: boolean;
@@ -64,6 +66,7 @@ export function HeroSection({
   onReady?: () => void;
 }) {
   const [paperSettled, setPaperSettled] = useState(false);
+  const [primaryCtaHovered, setPrimaryCtaHovered] = useState(false);
   const handlePaperSettled = useCallback(() => setPaperSettled(true), []);
   const heroRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -175,6 +178,8 @@ export function HeroSection({
           {/* Full Typewriter */}
           <div data-static-paper={staticPaper || undefined} className={`hero-artwork absolute inset-0 ${typewriterClassName ?? ""}`}>
             <TypewriterVisual
+              interaction={typewriterInteraction}
+              frontFacing={primaryCtaHovered}
               onPaperSettled={onReady ? handlePaperSettled : undefined}
               animateEntrance={!staticPaper}
               entranceDelay={1.2}
@@ -245,6 +250,8 @@ export function HeroSection({
           {isLoggedIn ? (
             <a
               href="/c/me"
+              onMouseEnter={typewriterInteraction === "hover" ? () => setPrimaryCtaHovered(true) : undefined}
+              onMouseLeave={typewriterInteraction === "hover" ? () => setPrimaryCtaHovered(false) : undefined}
               onClick={() => trackLandingCtaClicked({ cta_name: "open_app" })}
               data-variant={highlightPrimaryCta ? "default" : "secondary"}
               className={cn(buttonVariants({ variant: highlightPrimaryCta ? "default" : "secondary", size: "lg" }), ctaSizingClassName)}
@@ -259,6 +266,8 @@ export function HeroSection({
           ) : (
             <DocumentNavigationLink
               href="/sign-in"
+              onMouseEnter={typewriterInteraction === "hover" ? () => setPrimaryCtaHovered(true) : undefined}
+              onMouseLeave={typewriterInteraction === "hover" ? () => setPrimaryCtaHovered(false) : undefined}
               onClick={() => trackLandingCtaClicked({ cta_name: "get_started" })}
               data-variant={highlightPrimaryCta ? "default" : "secondary"}
               className={cn(buttonVariants({ variant: highlightPrimaryCta ? "default" : "secondary", size: "lg" }), ctaSizingClassName)}

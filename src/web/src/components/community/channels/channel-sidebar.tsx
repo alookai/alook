@@ -12,6 +12,7 @@ import { CommunityDndProvider, useCommunityDndScrolling } from "../community-dnd
 import { ChannelDndScope, ChannelDropContainer, useChannelDragActive } from "./channel-dnd"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { SortableCategory } from "./sortable-category"
 import { SortableChannel, PendingChannelRow } from "./sortable-channel"
@@ -261,7 +262,7 @@ function ChannelSidebarContent({
           </DropdownMenu>
           {serverId && (
             <>
-              <button
+              <Button variant="ghost" size="icon"
                 onClick={() => onInvitePopoverOpenChange?.(true)}
                 disabled={!onInvitePopoverOpenChange}
                 className="ml-auto grid size-11 shrink-0 place-items-center rounded-md text-muted-foreground sm:size-7 enabled:hover:bg-accent enabled:hover:text-foreground disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -269,7 +270,7 @@ function ChannelSidebarContent({
                 title="Invite to server"
               >
                 <UserPlus className="size-4" />
-              </button>
+              </Button>
               {onInvitePopoverOpenChange && (
                 <InviteDialog
                   open={!!invitePopoverOpen}

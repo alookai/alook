@@ -32,7 +32,7 @@ export default function BlogRootLayout({
 					type="application/ld+json"
 					dangerouslySetInnerHTML={{ __html: JSON.stringify(siteStructuredData) }}
 				/>
-				<ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+				<ThemeProvider attribute={["class", "data-tn-mode"]} defaultTheme="system" enableSystem>
 					<ThemeColorSync />
 					{children}
 					<ObservedRouteCommit />

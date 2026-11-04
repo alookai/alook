@@ -34,10 +34,10 @@ describe("SettingsNotifications server default", () => {
       onSetLevel,
     }))
 
-    const all = screen.getByRole("button", { name: /Every message/ })
-    const mentions = screen.getByRole("button", { name: /Mentions only/ })
-    expect(all).toHaveClass("bg-accent")
-    expect(mentions).not.toHaveClass("bg-accent")
+    const all = screen.getByRole("radio", { name: /Every message/ })
+    const mentions = screen.getByRole("radio", { name: /Mentions only/ })
+    expect(all).toHaveAttribute("aria-checked", "true")
+    expect(mentions).toHaveAttribute("aria-checked", "false")
 
     await user.click(mentions)
     expect(onSetLevel).toHaveBeenCalledOnce()

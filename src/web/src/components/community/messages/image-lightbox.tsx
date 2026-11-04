@@ -205,14 +205,14 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
           className="absolute bottom-3 left-1/2 z-10 flex min-h-11 w-max max-w-full -translate-x-1/2 items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm shadow-sm"
         >
           <span>Failed to load original image</span>
-          <button
+          <Button variant="ghost" size="sm"
             type="button"
             data-testid={tid.imageLightboxRetry}
             onClick={retryOriginal}
             className="h-12 min-w-12 rounded-md px-3 font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:min-w-0"
           >
             Retry
-          </button>
+          </Button>
         </div>
       )}
     </div>

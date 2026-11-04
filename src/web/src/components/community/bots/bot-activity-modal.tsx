@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
 import { EmptyState } from "../empty-state"
 import { Activity } from "lucide-react"
 
@@ -160,14 +161,14 @@ export function BotActivityModal({
       desktopWidth={672}
       resizable
       footer={isFetchNextPageError ? (
-        <button
+        <Button variant="ghost" size="sm"
           type="button"
           onClick={loadOlder}
           disabled={isFetching}
           className="min-h-11 rounded-md px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8"
         >
           Retry older
-        </button>
+        </Button>
       ) : undefined}
       contentTestId={tid.botActivityModal}
       bodyRef={setLogBody}

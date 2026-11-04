@@ -99,6 +99,8 @@
   --tn-tray: #111;
   --tn-chip: #1c1c1c;
   --tn-chip-text: #ededed;
+  --tn-recessed-background: linear-gradient(180deg, #040405, #15171c);
+  --tn-recessed-shadow: inset 0 4px 6px -2px #000, inset 0 -1px 0 rgb(210 220 240 / 30%);
 
   --background: var(--tn-paper);
   --foreground: var(--tn-text);
@@ -380,6 +382,14 @@
 .theme [data-slot="radio-group-item"] [data-slot="radio-group-indicator"] span {
   width: 10px;
   height: 10px;
+}
+
+:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) [data-slot="radio-group-item"] {
+  background: var(--tn-recessed-background) !important;
+}
+
+:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) [data-slot="radio-group-item"]:not(:focus-visible) {
+  box-shadow: var(--tn-recessed-shadow);
 }
 
 /* Surfaces: outline only, no shadow */
@@ -664,18 +674,11 @@
   }
 }
 
-/* Profile card: a printed ID card. Outline, a status sticker; no soft shadow.
- * The banner keeps each person's seeded marble backdrop (SeededBackdrop) so
- * cards stay told apart by colour; the theme only adds the hairline under it. */
 .theme [data-testid="community-profile-card"] {
   border: var(--tn-stroke) solid var(--tn-line) !important;
   border-radius: 20px !important;
   background: var(--tn-surface) !important;
   box-shadow: none !important;
-}
-
-.theme [data-testid="community-profile-card"] [class*="h-16"][class*="overflow-hidden"] {
-  border-bottom: var(--tn-stroke) solid var(--tn-line);
 }
 
 .theme [data-testid="community-profile-card"] [class*="ring-popover"] {
@@ -1521,10 +1524,8 @@
 }
 .theme[data-tn-mode="dark"] [data-testid^="community-channel-row-"][class~="bg-sidebar-accent"],
 [data-tn-mode="dark"] .theme [data-testid^="community-channel-row-"][class~="bg-sidebar-accent"] {
-  background: #0f0f11 !important;
-  box-shadow:
-    inset 0 1.5px 3px rgb(0 0 0 / 85%),
-    inset 0 0 0 1px rgb(125 151 255 / 18%) !important;
+  background: var(--tn-recessed-background) !important;
+  box-shadow: var(--tn-recessed-shadow) !important;
 }
 
 /* Tabs follow Stageshow (#2213): press, then the selection travels.
@@ -1612,8 +1613,8 @@
 }
 .theme[data-tn-mode="dark"] [data-slot="dm-sidebar-shortcut-indicator"],
 [data-tn-mode="dark"] .theme [data-slot="dm-sidebar-shortcut-indicator"] {
-  background: #0f0f11 !important;
-  box-shadow: inset 0 1.5px 3px rgb(0 0 0 / 85%), inset 0 0 0 1px rgb(125 151 255 / 18%);
+  background: var(--tn-recessed-background) !important;
+  box-shadow: var(--tn-recessed-shadow);
 }
 
 /* Empty states: the faint dot grid, in the area's own colour, fading at the edges (#2174, #2215) */
@@ -1786,8 +1787,8 @@
 }
 .theme[data-tn-mode="dark"] [data-testid^="community-dm-row-"][class~="bg-sidebar-accent"],
 [data-tn-mode="dark"] .theme [data-testid^="community-dm-row-"][class~="bg-sidebar-accent"] {
-  background: #0f0f11 !important;
-  box-shadow: inset 0 1.5px 3px rgb(0 0 0 / 85%), inset 0 0 0 1px rgb(125 151 255 / 18%) !important;
+  background: var(--tn-recessed-background) !important;
+  box-shadow: var(--tn-recessed-shadow) !important;
 }
 
 /* Footers that opt out of the dialog bleed (m-0) keep their own box */
@@ -2021,7 +2022,9 @@
 }
 .theme [data-slot="command-block"]::before {
   position: absolute;
-  top: 14px;
+  top: 50%;
+  translate: 0 -50%;
+  line-height: 1.625;
   left: 13px;
   color: #8fd19a;
   content: "$";
@@ -2063,8 +2066,6 @@
   border-radius: 999px !important;
 }
 .theme [data-slot="command-block"] { padding-block: 10px !important; }
-/* The prompt mark sits on the first line, so a wrapped command reads right (QA #5). */
-.theme [data-slot="command-block"]::before { top: 10px; translate: none; line-height: 1.625; }
 
 /* ═════════ Landing (A1, #2288): palette + type swap on the existing layout ═════════
  * Beige computer plastic + CD blue on cream grid paper (ref-01/02/05); dark is
@@ -2155,9 +2156,6 @@
     border-radius: 0 !important;
     background: transparent !important;
     box-shadow: none !important;
-  }
-  .theme [data-slot="auth-page"] [data-slot="field-separator-content"] {
-    background: var(--tn-paper) !important;
   }
 }
 
@@ -2503,28 +2501,28 @@
 }
 
 
-.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"])) {
+.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has([data-slot="radio-group-item"])) {
   border-color: transparent !important;
   border-radius: 12px !important;
   background: transparent !important;
   box-shadow: none !important;
   transition: transform 90ms ease-out, box-shadow 120ms ease-out, background-color 120ms ease-out !important;
 }
-.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"])):hover {
+.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has([data-slot="radio-group-item"])):hover {
   background: color-mix(in oklab, var(--tn-text) 4%, transparent) !important;
 }
-.theme :is(label:has(> input[type="radio"]:checked)[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"][data-selected]),
-.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"])):active {
+.theme :is(label:has(> input[type="radio"]:checked)[class~="rounded-lg"][class~="border"], [data-slot="field-label"][data-selected]),
+.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has([data-slot="radio-group-item"])):active {
   background: color-mix(in oklab, var(--tn-text) 5%, var(--tn-paper)) !important;
   box-shadow: inset 0 2px 4px -1px rgb(60 45 20 / 18%) !important;
 }
-.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"])):active {
+.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has([data-slot="radio-group-item"])):active {
   transform: translateY(1px);
 }
-:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) :is(label:has(> input[type="radio"]:checked)[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"][data-selected]),
-:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"])):active {
-  background: #0f0f11 !important;
-  box-shadow: inset 0 2px 5px -1px rgb(0 0 0 / 85%) !important;
+:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) :is(label:has(> input[type="radio"]:checked)[class~="rounded-lg"][class~="border"], [data-slot="field-label"][data-selected]),
+:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has([data-slot="radio-group-item"])):active {
+  background: var(--tn-recessed-background) !important;
+  box-shadow: var(--tn-recessed-shadow) !important;
 }
 .theme [data-slot="badge"][data-machine-runtime][data-variant],
 :is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) [data-slot="badge"][data-machine-runtime][data-variant] {
@@ -2538,7 +2536,7 @@
   background: color-mix(in oklab, var(--tn-text) 4%, transparent) !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  .theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-testid="onboarding-surface"] [data-slot="field-label"]:has([data-slot="radio-group-item"])) { transition: none !important; }
+  .theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has([data-slot="radio-group-item"])) { transition: none !important; }
 }
 
 /* The composer send keeps its own disabled look: a quiet icon with no key

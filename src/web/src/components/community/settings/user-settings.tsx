@@ -64,20 +64,16 @@ function AppearanceSettings() {
           {THEME_OPTIONS.map(({ value, label, icon: Icon }) => {
             const selected = active === value
             return (
-              <button
+              <Button
                 key={value}
+                variant={selected ? "secondary" : "ghost"}
                 onClick={() => setTheme(value)}
                 aria-pressed={selected}
-                className={[
-                  "flex min-h-16 flex-col items-center justify-center gap-2 rounded-lg px-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                  selected
-                    ? "bg-background text-foreground shadow-(--e1)"
-                    : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
-                ].join(" ")}
+                className="h-auto min-h-16 flex-col gap-2 px-2 text-sm"
               >
                 <Icon className="size-5" />
                 {label}
-              </button>
+              </Button>
             )
           })}
         </div>
@@ -183,7 +179,8 @@ export function AdvancedSettings() {
   )
 }
 
-export function UserSettings({ initialTab = "profile", billingReturn = null, onClose, userId, userName, userEmail, aboutMe, avatar, statusEmoji, statusText, onSave, onLogout, onAccountDeleted, onUploadAvatar }: {
+export function UserSettings({ titleId, initialTab = "profile", billingReturn = null, onClose, userId, userName, userEmail, aboutMe, avatar, statusEmoji, statusText, onSave, onLogout, onAccountDeleted, onUploadAvatar }: {
+  titleId?: string
   initialTab?: UserSettingsTab
   billingReturn?: BillingReturn
   onClose: () => void
@@ -246,6 +243,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
 
   return (
     <SettingsShell
+      titleId={titleId}
       value={tab}
       onValueChange={setTab}
       label="User Settings"
@@ -270,20 +268,18 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
           <SettingsShellPanel value="billing"><div className="w-full"><BillingContent billing={billing} /></div></SettingsShellPanel>
           <SettingsShellPanel value="profile">
             <div className="w-full space-y-8">
-              {/* Avatar — centered in a soft rounded frame, with a hand-rolled
-                  pill button beneath (matches the bot create/edit sheet; a stock
-                  secondary Button reads as the old square style). */}
+              {/* Avatar and the shared change-photo action. */}
               <div className="flex flex-col items-center gap-2">
                 <span className="block size-24 overflow-hidden rounded-full ring-1 ring-border/50">
                   <Avatar label={avatar} seed={userId ?? undefined} size={96} />
                 </span>
-                <button
+                <Button variant="ghost" size="sm"
                   type="button"
                   onClick={onUploadAvatar}
                   className="flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8"
                 >
                   <Camera className="size-3.5" /> Change photo
-                </button>
+                </Button>
               </div>
               {/* Display name — inline title input, borderless (name-as-heading,
                   like the agent name on the bot page). */}
@@ -309,13 +305,13 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
               <div className="space-y-2">
                 <div className="text-xs text-muted-foreground">Status</div>
                 <StatusEditor emoji={status.emoji} text={status.text} onChange={(emoji, text) => setStatus({ emoji, text })}>
-                  <button className="inline-flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-sm transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8">
+                  <Button variant="ghost" size="sm" className="inline-flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-sm transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8">
                     {hasStatus(status.emoji, status.text) ? (
                       <span>{status.emoji} {status.text}</span>
                     ) : (
                       <span className="text-muted-foreground">Set a status</span>
                     )}
-                  </button>
+                  </Button>
                 </StatusEditor>
               </div>
               <div className="flex items-center justify-end gap-2">

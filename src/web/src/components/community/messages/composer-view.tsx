@@ -139,13 +139,13 @@ export function ComposerView({
             <span aria-hidden="true"> · </span>
             <span className="text-foreground/70">{replyPreview}</span>
           </div>
-          <button
+          <Button variant="ghost" size="icon"
             onClick={onCancelReply}
             className="ml-auto grid size-4 shrink-0 place-items-center rounded-full hover:bg-foreground/10 hover:text-foreground"
             aria-label="Cancel reply"
           >
             <X className="size-3.5" />
-          </button>
+          </Button>
         </div>
       )}
 
@@ -170,13 +170,13 @@ export function ComposerView({
                   {pendingFile.file.name}
                 </span>
                 {pendingFile.preparing && <span role="status" className="text-muted-foreground">Preparing…</span>}
-                <button
+                <Button variant="ghost" size="icon"
                   onClick={() => removePendingFile(index)}
                   className="grid size-4 shrink-0 place-items-center rounded-full hover:bg-destructive/10 hover:text-destructive"
                   aria-label="Remove file"
                 >
                   <X className="size-3" />
-                </button>
+                </Button>
                 {pendingFile.preparationFailed && <span role="alert" className="basis-full text-destructive">Could not prepare. Remove this file and try again.</span>}
               </div>
             )
@@ -223,7 +223,7 @@ export function ComposerView({
           />}
         </div>
         {!hideAttach && (
-          <button
+          <Button variant="ghost" size="icon"
             type="button"
             data-testid={tid.composerAttach}
             className="absolute left-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -231,16 +231,16 @@ export function ComposerView({
             onClick={onUploadFile}
           >
             <PlusCircle className="size-5" />
-          </button>
+          </Button>
         )}
         {!hideEmoji && !showSend && (
           <EmojiPickerPopover side="top" align="end" onPick={onEmojiPick}>
-            <button
+            <Button variant="ghost" size="icon"
               className="absolute right-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
               aria-label="Emoji picker"
             >
               <Smile className="size-5" />
-            </button>
+            </Button>
           </EmojiPickerPopover>
         )}
         {showSend && (

@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button"
 import { TemplateAccountLink } from "./_components/template-account-link"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
@@ -75,17 +76,16 @@ export function TemplatesClient({
       <div className="mx-auto max-w-4xl px-6 pt-8 pb-6">
         <div className="flex flex-wrap gap-2">
           {["All", ...categories].map((cat) => (
-            <button
+            <Button
               key={cat}
+              size="sm"
+              variant={activeCategory === cat ? "secondary" : "ghost"}
+              aria-pressed={activeCategory === cat}
               onClick={() => handleCategoryChange(cat as "All" | TemplateCategory)}
-              className={`rounded-full px-4 py-2 text-xs font-medium transition-colors duration-150 ${
-                activeCategory === cat
-                  ? "bg-foreground text-background"
-                  : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
+              className="h-8 px-4 text-xs"
             >
               {cat}
-            </button>
+            </Button>
           ))}
         </div>
       </div>

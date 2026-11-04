@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import {
   useId,
@@ -268,11 +269,11 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
       </button>
       <div className="flex shrink-0 items-center gap-1">
         {extension?.updateBadgePhase && (
-          <button
+          <Button variant="ghost" size="icon-sm"
             ref={updateBadgeRef}
             type="button"
             data-testid={tid.daemonUpdateBadge}
-            className={cn(styles.target, styles.squareButton, styles.update, "rounded-lg text-secondary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
+            className={cn(styles.target,   "rounded-lg text-secondary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
             aria-label={updateBadgeLabel}
             onClick={() => {
               onRequestExtensionFocus("update")
@@ -283,21 +284,17 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
               "size-4",
               extension.updateBadgePhase === "updating" && "animate-spin motion-reduce:animate-none",
             )} />
-          </button>
+          </Button>
         )}
         {inbox ? (
-          <button
+          <Button variant="ghost" size="icon-sm"
             ref={inboxTriggerRef}
             type="button"
             data-testid={tid.inboxTrigger}
             className={cn(
               styles.target,
-              styles.squareButton,
-              styles.inbox,
               "rounded-lg text-muted-foreground aria-expanded:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-              mobile
-                ? "hover:text-foreground active:text-foreground"
-                : cn(styles.hoverBackground, "hover:text-foreground"),
+              mobile && "active:text-foreground",
             )}
             aria-label={mobile ? (inboxOpen || inboxOpening ? "Close Inbox" : "Open Inbox") : "Inbox"}
             aria-busy={inboxOpening || undefined}
@@ -317,9 +314,9 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
               partial={unreadCountPartial ?? (unreadCount === undefined && hasUnread)}
               open={Boolean(inboxOpen)}
             />
-          </button>
+          </Button>
         ) : null}
-        <button
+        <Button variant="ghost" size="icon-sm"
           onClick={() => {
             if (extension) extension.onDismiss()
             else closeInboxForAction()
@@ -327,17 +324,14 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
           }}
           className={cn(
             styles.target,
-            styles.squareButton,
             "rounded-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-            breakpoint === "mobile"
-              ? "hover:text-foreground active:text-foreground"
-              : cn(styles.hoverBackground, "hover:text-foreground"),
+            mobile && "active:text-foreground",
           )}
           aria-label="User settings"
           data-testid={tid.userSettingsOpen}
         >
           <Settings className="size-4" />
-        </button>
+        </Button>
       </div>
     </div>
   )
