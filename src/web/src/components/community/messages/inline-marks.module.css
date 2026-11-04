@@ -11,3 +11,20 @@
 .reference:is(button):hover {
   background-color: color-mix(in srgb, var(--primary) 18%, var(--muted));
 }
+
+
+/* Functional reference text is separate from the material's accent tint. */
+:global(body:has([data-community-shell])) .broadcast,
+:global(body:has([data-community-shell])) .reference:is(button):hover,
+:global(body:has([data-community-shell])) .reference:is(button):hover .prefix {
+  color: var(--link);
+}
+
+:global(body:has([data-community-shell])) .reference .prefix {
+  color: color-mix(in srgb, var(--foreground) 75%, transparent);
+}
+
+:global(body:has([data-community-shell])) .reference[class~="opacity-60"] {
+  color: color-mix(in srgb, var(--foreground) 75%, transparent);
+  opacity: 1;
+}

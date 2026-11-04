@@ -2557,3 +2557,113 @@
   background-image: var(--tn-paper-grid-image) !important;
   background-size: var(--tn-paper-grid-size) !important;
 }
+
+/* App functional colors need text/icon contrast on their actual surfaces.
+ * The route marker also scopes portal content through body inheritance;
+ * marketing materials keep their accepted palette. */
+:global(body).theme:has([data-community-shell]) {
+  --primary: var(--link);
+  --primary-foreground: var(--tn-paper-raised);
+  --status-online: #315e3b;
+  --destructive: #973f32;
+}
+
+:global(.dark) :global(body).theme:has([data-community-shell]),
+:global(body).theme[data-tn-mode="dark"]:has([data-community-shell]) {
+  --primary: var(--tn-blue);
+  --primary-foreground: #0d0d0d;
+  --status-online: var(--tn-sage);
+  --destructive: var(--tn-rose);
+}
+
+:global(body).theme:has([data-community-shell]) :is([data-testid^="community-category-header-"], h3[class~="mb-2"][class~="px-1"][class~="text-xs"]) {
+  color: var(--primary) !important;
+}
+
+:global(body).theme:has([data-community-shell]) :is(input, textarea)::placeholder,
+:global(body).theme:has([data-community-shell]) :is(input, textarea):focus::placeholder {
+  color: var(--muted-foreground) !important;
+  opacity: 1;
+}
+
+:global(body).theme:has([data-community-shell]) :global(.tiptap) p[class~="is-editor-empty"]:first-child::before,
+:global(body).theme:has([data-community-shell]) :global(.chat-placeholder-overlay) {
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+
+:global(body).theme:has([data-community-shell]) [data-testid^="community-channel-row-"] [class~="opacity-70"] {
+  opacity: 0.85;
+}
+
+
+:global(body).theme:has([data-community-shell]) :is(button, a):is([class~="text-destructive"], [data-variant="destructive"]) {
+  color: var(--destructive) !important;
+}
+
+/* White labels must remain readable through the primary key's reflection. */
+:global(html:not(.dark)) :global(body).theme:not([data-tn-mode="dark"]):has([data-community-shell]) :is(button, a)[data-variant="default"] {
+  --tn-blue-side: #1d365d;
+  background:
+    linear-gradient(rgb(255 255 255 / 8%), transparent 45%),
+    linear-gradient(#284d80, #254776 55%, #203f6b);
+}
+
+:global(html:not(.dark)) :global(body).theme:not([data-tn-mode="dark"]):has([data-community-shell]) :is(button, a)[data-variant="default"]::before {
+  background: linear-gradient(rgb(255 255 255 / 12%), rgb(255 255 255 / 2%));
+}
+
+/* Muted channels remain available navigation, with a quiet but legible label. */
+:global(body).theme:has([data-community-shell]) :is([data-testid^="community-channel-row-"], [data-testid^="community-forum-sidebar-thread-"])[class~="text-muted-foreground/50"] {
+  color: color-mix(in srgb, var(--muted-foreground) 94%, transparent);
+}
+
+:global(body).theme:has([data-community-shell]) :is([data-testid^="community-channel-row-"], [data-testid^="community-forum-sidebar-thread-"])[class~="text-muted-foreground/50"]:is(:hover, :focus-visible) {
+  color: var(--muted-foreground);
+}
+
+:global(body).theme:has([data-community-shell]) [data-code-preview-line-numbers] {
+  color: var(--muted-foreground);
+}
+
+/* Keep the dark primary label clear of the internal light, as well as its base. */
+:global(.dark) :global(body).theme:has([data-community-shell]) :is(button, a)[data-variant="default"],
+:global(body).theme[data-tn-mode="dark"]:has([data-community-shell]) :is(button, a)[data-variant="default"] {
+  --tn-neon-inner: 18%;
+  --tn-key-reflection: rgb(131 160 255 / 6%);
+  background:
+    radial-gradient(ellipse at 50% 50%, rgb(129 159 255 / 8%), transparent 80%),
+    linear-gradient(#263ba2, #324ac0 50%, #263994);
+}
+
+:global(body).theme:has([data-community-shell]) :is([data-testid^="community-forum-tag-chip-"], [data-testid^="community-forum-tag-dialog-chip-"]):not(:disabled):not([aria-disabled="true"]) {
+  opacity: 1;
+}
+
+:global(body).theme:has([data-community-shell]) :is([data-testid^="community-forum-tag-chip-"], [data-testid^="community-forum-tag-dialog-chip-"])[class~="ring-current/20"] {
+  --tw-ring-color: currentColor;
+}
+
+/* These metadata fields remain necessary reading, rather than decoration. */
+:global(body).theme:has([data-community-shell]) :is([data-testid="bot-activity-row"], [data-testid="community-bot-audit-preview"]) [class~="text-muted-foreground/70"],
+:global(body).theme:has([data-community-shell]) [data-testid="bot-card-model"][class~="text-muted-foreground/70"],
+:global(body).theme:has([data-community-shell]) [data-slot="inbox-mention-context"],
+:global(body).theme:has([data-community-shell]) [data-slot="empty-state"] [class~="text-muted-foreground/80"] {
+  color: var(--muted-foreground);
+}
+
+:global(body).theme:has([data-community-shell]) [data-testid="community-bot-audit-preview"] [class~="text-primary/70"] {
+  color: var(--primary);
+}
+
+:global(body).theme:has([data-community-shell]) [aria-label="Randomize name"]:not(:hover) {
+  color: var(--muted-foreground);
+}
+
+:global(body).theme:has([data-community-shell]) [data-testid="community-settings-channels"] [class~="text-muted-foreground/80"]:not(:hover) {
+  color: var(--muted-foreground);
+}
+
+:global(body).theme:has([data-community-shell]) [data-testid="community-settings-channels"] [class~="opacity-70"] {
+  opacity: 0.85;
+}

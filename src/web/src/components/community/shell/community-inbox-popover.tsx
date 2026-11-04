@@ -352,7 +352,7 @@ function MentionsTab({ mentions, loading, error, onRetry, onOpenMention, onDelet
               <div className="flex h-5 items-center pr-7 text-sm font-medium leading-5">
                 <span className="truncate">{author.discriminator ? formatHandle(author.name, author.discriminator) : author.name}</span>
               </div>
-              <div className="truncate text-[11px] leading-4 text-muted-foreground/75">
+              <div data-slot="inbox-mention-context" className="truncate text-[11px] leading-4 text-muted-foreground/75">
                 {mn.server} · <ChannelIcon className="inline h-[1em] w-auto align-[-0.1em]" />{mn.channel}
               </div>
               <div className="truncate text-sm text-muted-foreground">{messagePreviewText(mn.m)}</div>

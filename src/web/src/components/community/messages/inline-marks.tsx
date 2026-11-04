@@ -44,7 +44,7 @@ export function MentionPill({
   const title = label ?? (typeof children === "string" ? children : undefined)
   const className = [
     "inline-block max-w-[12rem] truncate align-bottom rounded-[4px] px-1 font-medium",
-    everyone ? "bg-primary/15 text-primary" : `${styles.reference} bg-accent text-foreground`,
+    everyone ? `${styles.broadcast} bg-primary/15 text-primary` : `${styles.reference} bg-accent text-foreground`,
     onClick ? "cursor-pointer transition-colors hover:bg-primary/15 hover:text-primary" : "",
   ].join(" ")
   if (onClick) {
@@ -97,7 +97,7 @@ export function ChannelPill({
       {showIcon && <ChannelIcon className="shrink-0 text-xs" />}
       {StatusIcon && <StatusIcon aria-hidden data-ref-status={state} className={`size-3 shrink-0${state === "loading" ? " animate-spin motion-reduce:animate-none" : ""}`} />}
       {serverPrefix && (
-        <span className="shrink-0 text-muted-foreground transition-colors group-hover/pill:text-primary">{serverPrefix} /</span>
+        <span className={`${styles.prefix} shrink-0 text-muted-foreground transition-colors group-hover/pill:text-primary`}>{serverPrefix} /</span>
       )}
       <span className="min-w-0 truncate">{children}</span>
       {isMsgRef && <span className="shrink-0 font-semibold">#{seqSuffix}</span>}
