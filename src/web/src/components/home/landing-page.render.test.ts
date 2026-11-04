@@ -66,6 +66,12 @@ describe("landing feature navigation", () => {
     for (const label of ["Collaboration", "Agent identity", "Persistent Memory", "Remote control", "Free and local"]) {
       expect(markup).toContain(label)
     }
+    const links = [...markup.matchAll(/<a\b[^>]*data-testid="landing-section-cta-([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)]
+    expect(links.map((match) => match[1])).toEqual(["product"])
+    for (const link of links) {
+      expect(link[0]).toContain(`href="${isLoggedIn ? "/c/me" : "/sign-in"}"`)
+      expect(link[2].replace(/<[^>]+>/g, " ").trim().split(/\s+/).length).toBeLessThanOrEqual(3)
+    }
     expect(markup).toContain(`href="${isLoggedIn ? "/c/me" : "/sign-in"}"`)
   })
 })
@@ -73,11 +79,11 @@ describe("landing feature navigation", () => {
 describe("standalone interactive second screen", () => {
   it("inserts a pure workspace before the preserved product scene", () => {
     const markup = renderToStaticMarkup(createElement(LandingPage, { isLoggedIn: false }))
-    expect(markup.indexOf('id="workspace"')).toBeLessThan(markup.indexOf('id="product"'))
+    expect(Array.from(markup.matchAll(/\sid="(testimonials|workspace|product)"/g), match => match[1]))
+      .toEqual(["testimonials", "workspace", "product"])
     expect(markup).not.toContain('src="/demo"')
     expect(markup).toContain("Loading Alook workspace")
     expect(markup).toContain("/landing/posters/server.webp")
-    expect(markup.indexOf('id="testimonials"')).toBeLessThan(markup.indexOf('id="workspace"'))
     expect(markup).not.toContain("Reset demo")
     expect(markup).not.toContain("Sample conversations")
   })

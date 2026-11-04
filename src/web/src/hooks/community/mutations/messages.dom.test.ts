@@ -197,6 +197,8 @@ describe("useSendMessage — happy path", () => {
     runtime.ui.actions.setCurrentServerId(scope.serverId)
     runtime.ui.actions.subscribe({ channelId: scope.id })
     const replyTo = { id: "reply_1", authorId: "reply-author", authorName: "Reply Author", text: "preview" }
+    const { text: _previewText, ...replyRelation } = replyTo
+    const replyTarget = messageResourceFixture({ id: replyTo.id, channelId: scope.id, authorId: "reply-author", authorName: replyTo.authorName, content: "preview" })
     const attachment = { id: "file_1", filename: "notes.txt", contentType: "text/plain", size: 1024 }
     const remoteAttachment = { id: attachment.id, kind: "file" as const, name: attachment.filename,
       url: "/api/community/channels/ch_1/attachments/file_1", contentType: attachment.contentType,
@@ -224,7 +226,7 @@ describe("useSendMessage — happy path", () => {
       let currentBase: import("@/lib/community/message-stream").CanonicalMessage[] = [older]
       for (const stage of stages) {
         if (stage === "post") {
-          await act(async () => { release({ profiles: messageProfilesFixture([postedMessage("server_id_1", 9, scope.id, { clientNonce: "n1", replyToId: replyTo.id, replyTo, attachments: [wireAttachment] })]), message: postedMessage("server_id_1", 9, scope.id, { clientNonce: "n1", replyToId: replyTo.id, replyTo, attachments: [wireAttachment] }) }); await pending })
+          await act(async () => { release({ relatedMessages: [replyTarget], profiles: messageProfilesFixture([postedMessage("server_id_1", 9, scope.id, { clientNonce: "n1", replyToId: replyTo.id, replyTo: replyRelation, attachments: [wireAttachment] })]), message: postedMessage("server_id_1", 9, scope.id, { clientNonce: "n1", replyToId: replyTo.id, replyTo: replyRelation, attachments: [wireAttachment] }) }); await pending })
           expect(getMessageStreamState(capturedQc, scope).liveIds).toContain("server_id_1")
           expect(materializeMessageStream([], getMessageStreamState(capturedQc, scope), canonicalMessageReader(capturedQc)).find(row => row.id === "server_id_1")).toMatchObject({
             id: "server_id_1", seq: 9, authorName: "Canonical Name", content: "canonical content",
@@ -232,15 +234,15 @@ describe("useSendMessage — happy path", () => {
             embeds: [{ title: "Canonical embed" }], replyTo, attachments: [remoteAttachment], clientNonce: "n1", failed: false,
           })
         } else if (stage === "ws") {
-          await act(async () => { dispatchCommunityWsEvent({ profiles: messageProfilesFixture([{ id: "server_id_1", channelId: scope.id, seq: 9, type: "chat", authorId: "u_me",
+          await act(async () => { dispatchCommunityWsEvent({ relatedMessages: [replyTarget], profiles: messageProfilesFixture([{ id: "server_id_1", channelId: scope.id, seq: 9, type: "chat", authorId: "u_me",
               authorName: "Canonical Name", authorAvatar: "https://avatar.test/me.png", authorAvatarVersion: 0, content: "canonical content",
-              createdAt: "2026-08-07T10:00:00.000Z", clientNonce: "n1", replyToId: replyTo.id, replyTo,
+              createdAt: "2026-08-07T10:00:00.000Z", clientNonce: "n1", replyToId: replyTo.id, replyTo: replyRelation,
               embeds: [{ title: "Canonical embed" }],
               attachments: [wireAttachment],
             }]), type: "community:message.create", serverId: scope.serverId,
             channelId: scope.id, message: { id: "server_id_1", channelId: scope.id, seq: 9, type: "chat", authorId: "u_me",
               authorName: "Canonical Name", authorAvatar: "https://avatar.test/me.png", authorAvatarVersion: 0, content: "canonical content",
-              createdAt: "2026-08-07T10:00:00.000Z", clientNonce: "n1", replyToId: replyTo.id, replyTo,
+              createdAt: "2026-08-07T10:00:00.000Z", clientNonce: "n1", replyToId: replyTo.id, replyTo: replyRelation,
               embeds: [{ title: "Canonical embed" }],
               attachments: [wireAttachment],
             } }, { deliveryMode: "single", queryClient: capturedQc, communityStore: runtime.ui, wsStore: runtime.ws,
@@ -250,9 +252,9 @@ describe("useSendMessage — happy path", () => {
           const { channelMessagesQueryFn } = await import("@/hooks/community/use-messages")
           const { decodeCommunityReadResponse } = await import("@/lib/community/read-response")
           const path = `/api/community/channels/${scope.id}/messages`
-          const confirmed = postedMessage("server_id_1", 9, scope.id, { clientNonce: "n1", replyToId: replyTo.id, replyTo, attachments: [wireAttachment] })
+          const confirmed = postedMessage("server_id_1", 9, scope.id, { clientNonce: "n1", replyToId: replyTo.id, replyTo: replyRelation, attachments: [wireAttachment] })
           apiFetchMock.mockResolvedValueOnce(decodeCommunityReadResponse(path, "GET", new Response(null, { headers: { "X-Alook-Community-Contract": String(BUSINESS_SCHEMA_VERSION) } }), { profiles: messageProfilesFixture([older, confirmed]),
-            contractVersion: BUSINESS_SCHEMA_VERSION, channelId: scope.id, messages: [older, confirmed],
+            contractVersion: BUSINESS_SCHEMA_VERSION, relatedMessages: [replyTarget], channelId: scope.id, messages: [older, confirmed],
             surfaceReceipt: { channelId: scope.id, surfaceKind: "channel" },
             page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 9 },
           }))

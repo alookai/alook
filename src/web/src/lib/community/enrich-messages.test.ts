@@ -78,7 +78,7 @@ describe("enrichMessages attachment projection", () => {
 
   it("skips empty DM attachment, reaction, reply and approval hydration while reading latest sequence", async () => {
     const db = {} as never
-    expect(await enrichMessages(db, "u1", { channelId: "dm1", isDm: true }, [])).toEqual({ messages: [], profiles: [], latestSeq: 9 })
+    expect(await enrichMessages(db, "u1", { channelId: "dm1", isDm: true }, [])).toEqual({ messages: [], relatedMessages: [], profiles: [], latestSeq: 9 })
     expect(mocks.listAttachments).not.toHaveBeenCalled()
     expect(mocks.listReactions).not.toHaveBeenCalled()
     expect(mocks.getReplies).not.toHaveBeenCalled()
@@ -112,7 +112,7 @@ describe("enrichMessages attachment projection", () => {
   })
 
   it("projects a canonical thumbnail beside reply enrichment", async () => {
-    mocks.listAttachments.mockResolvedValue([{
+    mocks.listAttachments.mockResolvedValueOnce([{
       id: "att_1",
       messageId: "m1",
       targetId: "c1",
@@ -124,8 +124,9 @@ describe("enrichMessages attachment projection", () => {
       width: 640,
       height: 480,
     }])
+    mocks.listAttachments.mockResolvedValueOnce([])
     mocks.getReplies.mockResolvedValue([{
-      id: "reply_1",
+      id: "reply_1", seq: 1, createdAt: "2026-08-12T00:00:00.000Z", replyToId: null, clientNonce: null, type: "default", mentionType: null, embeds: null, authorAvatarVersion: 0,
       authorId: "bob",
       authorName: "Bob",
       content: "original",
@@ -154,7 +155,7 @@ describe("enrichMessages attachment projection", () => {
 
     expect(result.messages).toEqual([
       expect.objectContaining({
-        replyTo: { id: "reply_1", authorId: "bob", authorName: "Bob", text: "original" },
+        replyTo: { id: "reply_1", authorId: "bob", authorName: "Bob" },
         attachments: [{
           id: "att_1",
           name: "photo.png",
@@ -182,7 +183,7 @@ describe("enrichMessages attachment projection", () => {
       createdAt: "2026-08-13T00:00:00.000Z",
     }])
     mocks.getFirstMessages.mockResolvedValue([{
-      channelId: "thread-1",
+      id: "body-1", channelId: "thread-1",
       content: preview,
     }])
     mocks.listParticipants.mockResolvedValue([{
@@ -218,7 +219,7 @@ describe("enrichMessages attachment projection", () => {
     expect(result.messages[0]).toMatchObject({
       thread: {
         id: "thread-1",
-        preview,
+        firstMessageId: "body-1",
         participants: [{
           id: "u2",
           avatar: "/api/community/users/u2/avatar?v=4",

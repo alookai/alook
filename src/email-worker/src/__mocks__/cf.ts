@@ -6,7 +6,7 @@ export interface MockSocket {
   /** The fake Socket to hand back from `connect()` / `startTls()`. */
   socket: Socket
   /** Push a raw server response chunk into the readable stream (caller usually appends \r\n). */
-  pushData: (text: string) => void
+  pushData: (data: string | Uint8Array) => void
   /** Signal end-of-stream so a pending read resolves `{ done: true }`. */
   close: () => void
   /** All payloads written by the client, decoded to strings. */
@@ -50,8 +50,8 @@ export function createMockSocket(): MockSocket {
     },
   })
 
-  const pushData = (text: string) => {
-    const bytes = new TextEncoder().encode(text)
+  const pushData = (data: string | Uint8Array) => {
+    const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data
     if (controller) controller.enqueue(bytes)
     else pending.push(bytes)
   }
@@ -105,6 +105,28 @@ export interface MockMessageOpts {
   extraHeaders?: Record<string, string>
 }
 
+export const CALENDAR_CONTENT = "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:日程🙂\nEND:VEVENT\nEND:VCALENDAR\n"
+export const CALENDAR_MESSAGE = {
+  body: CALENDAR_CONTENT.replace(/\n/g, "\r\n"),
+  extraHeaders: {
+    "MIME-Version": "1.0",
+    "Content-Type": "text/calendar; charset=utf-8",
+    "Content-Disposition": "attachment; filename=invite.ics",
+    "Content-Transfer-Encoding": "8bit",
+  },
+}
+
+export function buildRawMessage(opts: MockMessageOpts): string {
+  return [
+    `From: ${opts.from}`,
+    `To: ${opts.to}`,
+    `Subject: ${opts.subject ?? ""}`,
+    ...Object.entries(opts.extraHeaders ?? {}).map(([key, value]) => `${key}: ${value}`),
+    "",
+    opts.body ?? "",
+  ].join("\r\n")
+}
+
 export function createMockMessage(opts: MockMessageOpts) {
   const headers = new Headers()
   if (opts.subject !== undefined && opts.subject !== null) {
@@ -116,13 +138,7 @@ export function createMockMessage(opts: MockMessageOpts) {
     }
   }
 
-  const rawText = [
-    `From: ${opts.from}`,
-    `To: ${opts.to}`,
-    `Subject: ${opts.subject ?? ""}`,
-    "",
-    opts.body ?? "",
-  ].join("\r\n")
+  const rawText = buildRawMessage(opts)
 
   const setReject = vi.fn()
   const forward = vi.fn().mockResolvedValue(undefined)
@@ -134,7 +150,7 @@ export function createMockMessage(opts: MockMessageOpts) {
       to: opts.to,
       headers,
       raw: new Response(rawText).body!,
-      rawSize: rawText.length,
+      rawSize: new TextEncoder().encode(rawText).byteLength,
       setReject,
       forward,
       reply,

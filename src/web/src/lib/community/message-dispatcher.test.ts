@@ -6,11 +6,13 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockGetMessage = vi.fn()
-const mockGetWakeContextMessageInScope = vi.fn()
+const mockGetMessagesByIdsInScope = vi.fn()
 const mockGetMessageClientNonceForDelivery = vi.fn()
 const mockGetChannel = vi.fn()
 const mockListAttention = vi.fn()
 const mockListAttachments = vi.fn()
+const mockRelatedAttachments = vi.fn()
+const mockRelatedReactions = vi.fn()
 const mockResolveRecipients = vi.fn()
 const mockResolveNotificationRecipients = vi.fn()
 const mockResolveEligibility = vi.fn()
@@ -34,8 +36,8 @@ vi.mock("@alook/shared", async () => {
       communityUserProfile: { getResourceProfiles: async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: "Alice", discriminator: "0042", avatar: null, avatarVersion: 0 })) },
       communityMessage: {
         getMessage: (...args: unknown[]) => mockGetMessage(...args),
-        getWakeContextMessageInScope: (...args: unknown[]) =>
-          mockGetWakeContextMessageInScope(...args),
+        getMessagesByIdsInScope: (...args: unknown[]) =>
+          mockGetMessagesByIdsInScope(...args),
         getMessageClientNonceForDelivery: (...args: unknown[]) =>
           mockGetMessageClientNonceForDelivery(...args),
       },
@@ -45,7 +47,9 @@ vi.mock("@alook/shared", async () => {
       communityMention: {
         listMessageAttentionTargets: (...args: unknown[]) => mockListAttention(...args),
       },
+      communityReaction: { listReactionsByMessageIds: (...args: unknown[]) => mockRelatedReactions(...args) },
       communityAttachment: {
+        listByMessageIds: (...args: unknown[]) => mockRelatedAttachments(...args),
         listMessageAttachments: (...args: unknown[]) => mockListAttachments(...args),
       },
       communityMembersResolver: {
@@ -109,7 +113,7 @@ function messageContextRow(overrides: Partial<{
   channelId: string
 }> = {}) {
   return {
-    id: "context_1",
+    ...message, id: "context_1", friendshipId: null,
     authorId: "human_1",
     authorName: "Private Human Name",
     authorDiscriminator: "1234",
@@ -161,10 +165,12 @@ describe("planCommittedMessage", () => {
     vi.clearAllMocks()
     mockGetMessage.mockResolvedValue(message)
     mockHydrateCreation.mockResolvedValue(new Map())
-    mockGetWakeContextMessageInScope.mockResolvedValue(null)
+    mockGetMessagesByIdsInScope.mockResolvedValue([])
     mockGetMessageClientNonceForDelivery.mockResolvedValue("nonce_1")
     mockGetChannel.mockResolvedValue(channel)
     mockListAttachments.mockResolvedValue([])
+    mockRelatedAttachments.mockResolvedValue([])
+    mockRelatedReactions.mockResolvedValue([])
     mockListAttention.mockResolvedValue([
       { userId: "u_mentions", kind: "mention" },
       { userId: "u_mention_only", kind: "mention" },
@@ -275,11 +281,11 @@ describe("planCommittedMessage", () => {
 
   it("rehydrates attachment dimensions and reply preview from committed rows", async () => {
     mockGetMessage.mockResolvedValue({ ...message, replyToId: "reply_1" })
-    mockGetWakeContextMessageInScope.mockResolvedValue(messageContextRow({
+    mockGetMessagesByIdsInScope.mockResolvedValue([messageContextRow({
       id: "reply_1",
       authorName: "Earlier",
       content: "previous message",
-    }))
+    })])
     mockListAttachments.mockResolvedValue([{
       id: "att_1",
       messageId: "msg_1",
@@ -296,7 +302,6 @@ describe("planCommittedMessage", () => {
     expect(plan.messageEvent.message.replyTo).toMatchObject({
       id: "reply_1",
       authorName: "Earlier",
-      text: "previous message",
     })
     expect(plan.messageEvent.message.attachments).toEqual([
       expect.objectContaining({
@@ -316,14 +321,14 @@ describe("planCommittedMessage", () => {
       mentionType: "everyone",
       replyToId: "reply_1",
     })
-    mockGetWakeContextMessageInScope.mockResolvedValue(messageContextRow({
+    mockGetMessagesByIdsInScope.mockResolvedValue([messageContextRow({
       id: "reply_1",
       authorId: "bot_1",
       authorName: "Bot",
       authorDiscriminator: "0001",
       authorIsBot: true,
       content: "previous message",
-    }))
+    })])
     mockListAttention.mockResolvedValue([{ userId: "bot_1", kind: "mention" }])
     mockListAttachments.mockResolvedValue([{
       id: "att_1",
@@ -352,7 +357,6 @@ describe("planCommittedMessage", () => {
     expect(plan.messageEvent.message.replyTo).toMatchObject({
       id: "reply_1",
       authorName: "Bot",
-      text: "previous message",
     })
   })
 
@@ -573,9 +577,11 @@ describe("dispatchCommittedMessage", () => {
     vi.clearAllMocks()
     mockGetMessage.mockResolvedValue(message)
     mockGetChannel.mockResolvedValue(channel)
-    mockGetWakeContextMessageInScope.mockResolvedValue(null)
+    mockGetMessagesByIdsInScope.mockResolvedValue([])
     mockGetMessageClientNonceForDelivery.mockResolvedValue("nonce_1")
     mockListAttachments.mockResolvedValue([])
+    mockRelatedAttachments.mockResolvedValue([])
+    mockRelatedReactions.mockResolvedValue([])
     mockListAttention.mockResolvedValue([])
     mockResolveRecipients.mockResolvedValue(["author_1"])
     mockResolveNotificationRecipients.mockImplementation(

@@ -113,8 +113,8 @@ export const communityKeys = {
     [...communityKeys.all, "message", messageId] as const,
   messageContexts: (_type: "channel" | "dm", channelId: string) =>
     [...communityKeys.all, "channel", channelId, "message-context"] as const,
-  messageContext: (type: "channel" | "dm", channelId: string, targetSeq: number | null) =>
-    [...communityKeys.messageContexts(type, channelId), targetSeq] as const,
+  messageContext: (type: "channel" | "dm", channelId: string, target: number | string | null) =>
+    [...communityKeys.messageContexts(type, channelId), typeof target === "string" ? "id" : "seq", target] as const,
   reactionDetailsAll: () =>
     [...communityKeys.all, "reaction-details"] as const,
   reactionDetails: (messageId: string) =>

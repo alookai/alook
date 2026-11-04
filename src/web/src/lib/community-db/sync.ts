@@ -963,7 +963,10 @@ export function ingestMessages(
 
 function ingestMessageResources(registry: CommunityDbRegistry, resources: readonly CommunityMessageResource[], profiles: readonly CommunityResourceProfile[]) {
   const fullProfiles = new Map(profiles.map(profile => [profile.id, profile]))
-  const rows = [...resources]
+  const viewerId = registry.accountId
+  const rows = resources.map(resource => resource.reactions ? { ...resource,
+    reactions: resource.reactions.map(reaction => ({ ...reaction, me: viewerId !== null && reaction.userIds.includes(viewerId) })),
+  } : resource)
   upsertRows(registry, "messages", rows)
   afterCanonicalWrites(registry, () => {
   const threads = new Map<string, CommunityCollectionRows["channels"]>()
@@ -975,7 +978,7 @@ function ingestMessageResources(registry: CommunityDbRegistry, resources: readon
       name: thread.name, messageCount: thread.messageCount,
       ...(thread.lastReplyAt === undefined ? {} : { lastMessageAt: thread.lastReplyAt }),
       ...(thread.tags === undefined ? {} : { tags: thread.tags }),
-      ...(thread.preview === undefined ? {} : { preview: thread.preview }),
+      ...(thread.firstMessageId === undefined ? {} : { firstMessageId: thread.firstMessageId }),
       ...(thread.participantCount === undefined ? {} : { participantCount: thread.participantCount }),
     }))
   }
@@ -1772,12 +1775,13 @@ export function publishCommunityMessages(
   publication: {
     channelId: string
     messages: MessageInput[]
+    relatedMessages?: readonly CommunityMessageResource[]
     profiles: readonly CommunityResourceProfile[]
     proof: CommunityFreshQueryProof
   },
 ) {
   return withCommunityQueryProof(queryClient, publication.proof, (registry) => {
-    const graph = validateCommunityMessagePublication(registry, publication.messages, publication.profiles)
+    const graph = validateCommunityMessagePublication(registry, [...publication.messages, ...(publication.relatedMessages ?? [])], publication.profiles)
     if (graph.messages.some(message => message.channelId !== publication.channelId)) throw new Error("Message channel mismatch")
     notifyManager.batch(() => {
       ingestResourceProfiles(registry, graph.profiles, publication.proof)
@@ -2059,7 +2063,7 @@ export function publishCommunityForumFeed(queryClient: QueryClient, forumChannel
         ...thread, type: "thread", serverId: page.channel.serverId, parentChannelId: forumChannelId,
         pending: false,
         tags: page.included.tags.filter((tag) => tag.messageId === thread.parentMessageId).map((tag) => tag.tag),
-        preview: first?.content ?? "",
+
         firstMessageId: page.channel.type === "forum" ? first?.id || null : null,
         participantCount: page.included.participantCounts.find((row) => row.channelId === thread.id)?.count ?? 0,
       }, registry.collections.channels.get(thread.id))
@@ -2500,7 +2504,7 @@ export function projectCommunityWsEventToDb(
     }
     case "community:message.create": {
       const projected = projectCommunityMessageCreate(event.message, event.channelId, contract)
-      const graph = validateCommunityMessagePublication(registry, [projected], event.profiles)
+      const graph = validateCommunityMessagePublication(registry, [projected, ...(event.relatedMessages ?? [])], event.profiles)
       notifyManager.batch(() => {
         writeCanonicalProfilePatches(registry, graph.profiles.map(profile => communityUserProfilePatch(profile.id, profile)), true)
         ingestMessages(registry, event.channelId, graph.messages, graph.profiles)

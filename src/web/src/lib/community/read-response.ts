@@ -49,13 +49,13 @@ export function decodeCommunityReadResponse(path: string, method: string | undef
   if (target.resource === "posted") {
     const data = CommunityMessagePostedSchema.parse(value)
     assertScope(data.channelId); assertScope(data.message.channelId)
-    return { profiles: data.profiles, message: data.message, deduped: data.deduped, ...(data.threadId ? { threadId: data.threadId } : {}) }
+    return { profiles: data.profiles, ...(data.relatedMessages ? { relatedMessages: data.relatedMessages } : {}), message: data.message, deduped: data.deduped, ...(data.threadId ? { threadId: data.threadId } : {}) }
   }
   if (target.resource === "messages") {
     const data = schemas.messages.parse(value)
     assertScope(data.channelId); assertScope(data.surfaceReceipt.channelId)
     for (const message of data.messages) assertScope(message.channelId)
-    return { profiles: data.profiles, messages: data.messages,
+    return { profiles: data.profiles, ...(data.relatedMessages ? { relatedMessages: data.relatedMessages } : {}), messages: data.messages,
       olderCursor: data.page.olderCursor ?? undefined, newerCursor: data.page.newerCursor ?? undefined,
       hasMoreOlder: data.page.hasMoreOlder, hasMoreNewer: data.page.hasMoreNewer, latestSeq: data.page.latestSeq,
       surfaceReceipt: data.surfaceReceipt }

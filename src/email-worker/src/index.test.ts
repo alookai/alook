@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { createMockR2, createMockFetcher, createMockMessage, createMockSendEmail } from "./__mocks__/cf"
+import { createMockR2, createMockFetcher, createMockMessage, createMockSendEmail, CALENDAR_CONTENT, CALENDAR_MESSAGE } from "./__mocks__/cf"
 
 // Mock cloudflare:workers (DO base class) — needed because index.ts re-exports ImapPollerDO
 vi.mock("cloudflare:workers", () => ({
@@ -194,7 +194,10 @@ describe("R2 storage", () => {
 
 describe("whitelisted path", () => {
   it("notifies web service with isWhitelisted: true", async () => {
-    const { env, message, wsFetch } = setup({ isWhitelisted: true })
+    const { env, message, wsFetch, put, rawText } = setup({
+      isWhitelisted: true,
+      messageOpts: { from: "owner@example.com", to: "jarvis@alook.ai", subject: "Hello", ...CALENDAR_MESSAGE },
+    })
 
     await handler.email(message, env)
 
@@ -210,6 +213,11 @@ describe("whitelisted path", () => {
     expect(body.subject).toBe("Hello")
     expect(body.isWhitelisted).toBe(true)
     expect(body.forwarded).toBeUndefined()
+    expect(JSON.parse(body.attachments)).toEqual([
+      { key: "inline:0", filename: "invite.ics", contentType: "text/calendar", size: new TextEncoder().encode(CALENDAR_CONTENT).byteLength },
+    ])
+    expect(new Uint8Array(await new Response(put.mock.calls[0][1]).arrayBuffer()))
+      .toEqual(new TextEncoder().encode(rawText))
   })
 
   it("defaults subject to '(No Subject)' when header is missing", async () => {

@@ -162,6 +162,7 @@ describe("communityKeys", () => {
       "channel",
       "d1",
       "message-context",
+      "seq",
       7,
     ])
     expect(communityKeys.messageContexts("dm", "d1")).toEqual([

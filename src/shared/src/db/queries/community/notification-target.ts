@@ -7,9 +7,11 @@ import {
   communityServer,
 } from "../../community-schema";
 import { user } from "../../schema";
+import { communityBotCreationRequest } from "../../bot-creation-schema";
+import type { MessagePreviewInput } from "../../../lib/message-preview";
 import type { Database } from "../../index";
 
-export interface PushNotificationTarget {
+export interface PushNotificationTarget extends Pick<MessagePreviewInput, "attachments" | "approval" | "botCreation" | "systemKind" | "embeds"> {
   messageId: string;
   channelId: string;
   authorName: string;
@@ -18,7 +20,6 @@ export interface PushNotificationTarget {
   serverName: string | null;
   channelName: string | null;
   parentChannelName: string | null;
-  attachmentContentTypes: Array<string | null>;
 }
 
 export async function getPushNotificationTarget(
@@ -35,6 +36,10 @@ export async function getPushNotificationTarget(
       channelId: communityMessage.channelId,
       authorName: user.name,
       content: communityMessage.content,
+      type: communityMessage.type,
+      requestId: communityBotCreationRequest.id,
+      friendshipId: communityMessage.friendshipId,
+      embeds: communityMessage.embeds,
       channelType: communityChannel.type,
       channelName: communityChannel.name,
       parentChannelId: communityChannel.parentChannelId,
@@ -55,13 +60,14 @@ export async function getPushNotificationTarget(
       communityServer,
       eq(communityServer.id, communityChannel.serverId),
     )
+    .leftJoin(communityBotCreationRequest, eq(communityBotCreationRequest.messageId, communityMessage.id))
     .where(eq(communityMessage.id, messageId))
     .limit(1);
   const message = rows[0];
   if (!message) return null;
 
   const attachments = await db
-    .select({ contentType: communityAttachment.contentType })
+    .select({ id: communityAttachment.id, name: communityAttachment.filename, contentType: communityAttachment.contentType, sizeBytes: communityAttachment.size })
     .from(communityAttachment)
     .innerJoin(communityMessageAttachment, eq(communityMessageAttachment.attachmentId, communityAttachment.id))
     .where(eq(communityMessageAttachment.messageId, messageId))
@@ -83,6 +89,10 @@ export async function getPushNotificationTarget(
     serverName: message.serverName,
     channelName: message.channelName,
     parentChannelName: message.parentChannelName,
-    attachmentContentTypes: attachments.map((row) => row.contentType),
+    attachments,
+    ...(message.friendshipId ? { approval: { friendshipId: message.friendshipId } } : {}),
+    ...(message.requestId ? { botCreation: { requestId: message.requestId } } : {}),
+    ...(message.type === "thread_created" ? { systemKind: "thread" as const } : {}),
+    ...(Array.isArray(message.embeds) ? { embeds: message.embeds } : {}),
   };
 }

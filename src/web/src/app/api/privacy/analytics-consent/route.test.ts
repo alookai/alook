@@ -28,6 +28,18 @@ function request(
   })
 }
 
+function readConsentCookies(response: Response) {
+  const cookies = response.headers.getSetCookie()
+  expect(cookies.map(cookie => cookie.split("=", 1)[0]).sort()).toEqual([
+    "alook_analytics_consent",
+    "alook_analytics_consent_proof",
+  ])
+  return {
+    readable: cookies.find(cookie => cookie.startsWith("alook_analytics_consent="))!,
+    proof: cookies.find(cookie => cookie.startsWith("alook_analytics_consent_proof="))!,
+  }
+}
+
 beforeEach(() => {
   vi.resetAllMocks()
   mocks.env.BETTER_AUTH_SECRET = "route-consent-signing-secret"
@@ -38,23 +50,21 @@ beforeEach(() => {
 describe("POST /api/privacy/analytics-consent", () => {
   it.each(["granted", "denied"] as const)("sets the readable and signed %s cookies", async (decision) => {
     const response = await POST(request({ decision }))
-    const cookies = response.headers.getSetCookie()
+    const { readable, proof: signed } = readConsentCookies(response)
 
     expect(response.status).toBe(200)
     expect(response.headers.get("Cache-Control")).toBe("no-store, max-age=0")
     expect(await response.json()).toEqual({ decision })
-    expect(cookies).toHaveLength(2)
-    expect(cookies[0]).toContain(`alook_analytics_consent=v1.${decision}`)
-    expect(cookies[0]).toContain("Path=/")
-    expect(cookies[0]).toContain("Max-Age=15552000")
-    expect(cookies[0]).toContain("SameSite=lax")
-    expect(cookies[0]).toContain("Secure")
-    expect(cookies[0]).not.toContain("HttpOnly")
-    expect(cookies[1]).toContain("alook_analytics_consent_proof=")
-    expect(cookies[1]).toContain("HttpOnly")
-    expect(cookies[1]).toContain("Secure")
+    expect(readable).toContain(`alook_analytics_consent=v1.${decision}`)
+    expect(readable).toContain("Path=/")
+    expect(readable).toContain("Max-Age=15552000")
+    expect(readable).toContain("SameSite=lax")
+    expect(readable).toContain("Secure")
+    expect(readable).not.toContain("HttpOnly")
+    expect(signed).toContain("HttpOnly")
+    expect(signed).toContain("Secure")
 
-    const proof = cookies[1].match(/^[^=]+=([^;]+)/u)?.[1]
+    const proof = signed.match(/^[^=]+=([^;]+)/u)?.[1]
     await expect(verifyAnalyticsConsentProof(
       proof,
       mocks.env.BETTER_AUTH_SECRET,
@@ -68,14 +78,16 @@ describe("POST /api/privacy/analytics-consent", () => {
       "http://localhost:3000/api/privacy/analytics-consent",
     ))
     expect(response.status).toBe(200)
-    expect(response.headers.getSetCookie().every((cookie) => !cookie.includes("Secure"))).toBe(true)
+    const { readable, proof } = readConsentCookies(response)
+    expect(readable).not.toContain("Secure")
+    expect(proof).not.toContain("Secure")
   })
 
   it("persists an authenticated decision before issuing its proof", async () => {
     mocks.userId = "owner"
     const response = await POST(request({ decision: "denied" }))
     expect(response.status).toBe(200)
-    const proof = response.headers.getSetCookie()[1]?.match(/^[^=]+=([^;]+)/u)?.[1]
+    const proof = readConsentCookies(response).proof.match(/^[^=]+=([^;]+)/u)?.[1]
     const verified = await verifyAnalyticsConsentProof(proof, mocks.env.BETTER_AUTH_SECRET)
     expect(mocks.recordAnalyticsConsent).toHaveBeenCalledWith(
       mocks.env.DB,
@@ -117,7 +129,9 @@ describe("POST /api/privacy/analytics-consent", () => {
     ))
 
     expect(response.status).toBe(200)
-    expect(response.headers.getSetCookie().every((cookie) => !cookie.includes("Secure"))).toBe(true)
+    const { readable, proof } = readConsentCookies(response)
+    expect(readable).not.toContain("Secure")
+    expect(proof).not.toContain("Secure")
   })
 
   it.each([

@@ -378,7 +378,7 @@ describe("createIdbPersister — serialize filter", () => {
             botProfile: { id: "approval_bot", name: "Bot", discriminator: "0001", image: null, avatarVersion: 0 },
             waitingOnProfile: { id: "approval_waiting", name: "Owner", discriminator: "0001", image: null, avatarVersion: 0 },
           },
-          replyTo: { id: "reply", authorId: "reply_author", authorName: "Reply", text: "Prior" },
+          replyTo: { id: "reply", authorId: "reply_author", authorName: "Reply", },
           thread: { id: "thread", name: "Thread", messageCount: 0, participants: [{ id: "thread_participant", name: "Participant", avatar: "P", avatarVersion: 0 }] },
         } : {}),
       }))

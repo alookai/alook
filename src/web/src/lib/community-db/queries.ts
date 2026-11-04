@@ -17,6 +17,7 @@ export function communityJoinedMessagesQuery(registry: CommunityDbRegistry | nul
     ? q.from({ message: registry.collections.messages }).where(({ message }) => channelId === undefined ? eq(1, 1) : eq(message.channelId, channelId))
       .where(({ message }) => ids === undefined ? eq(1, 1) : inArray(message.id, [...ids]))
       .leftJoin({ child: registry.collections.channels }, ({ message, child }) => eq(message.id, child.parentMessageId))
-      .select(({ message, child }) => ({ message, child }))
+      .leftJoin({ reply: registry.collections.messages }, ({ message, reply }) => eq(message.replyToId, reply.id))
+      .select(({ message, child, reply }) => ({ message, child, reply }))
     : undefined }
 }

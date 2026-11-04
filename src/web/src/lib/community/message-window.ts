@@ -89,6 +89,7 @@ export const channelMessagesQueryFn =
       const result = await publishCommunityMessages(originalClient, {
         channelId,
         messages: page.messages,
+        relatedMessages: page.relatedMessages,
         profiles: page.profiles,
         proof: { token: publicationToken, signal },
       })

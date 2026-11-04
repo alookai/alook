@@ -1,5 +1,5 @@
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
-import { COMMUNITY_CONVERSATION_ANCHOR_MISSING, communityChannelResourceFromStorage, CommunityConversationEntryReadSchema, CommunityThreadsReadSchema, CommunityMessageResourceSchema, queries, withD1Retry, type CommunityConversationEntryRead, type Database } from "@alook/shared"
+import { COMMUNITY_CONVERSATION_ANCHOR_MISSING, communityChannelResourceFromStorage, CommunityConversationEntryReadSchema, CommunityThreadsReadSchema, queries, withD1Retry, type CommunityConversationEntryRead, type Database } from "@alook/shared"
 import { createCommunityResourceProfileReader, type CommunityResourceProfileReader } from "./resource-profiles.server"
 import { readCommunityMessageWindow } from "./message-window.server"
 import { communityMessagesReadFromPage } from "./read-contract"
@@ -37,11 +37,11 @@ export async function readCommunityConversationEntry(db: Database, input: Conver
     channel.parentChannelId ? readParent(db, viewerId, channel.parentChannelId) : Promise.resolve(undefined),
   ])
   if (!read.ok) return read
-  const openerProfiles = opener ? await readCommunityMessageProfiles(db, [opener], readProfiles) : []
+  const openerProfiles = opener ? await readCommunityMessageProfiles(db, [opener.message, ...opener.relatedMessages], readProfiles) : []
   const profiles = [...new Map([...read.page.profiles, ...openerProfiles].map(profile => [profile.id, profile])).values()]
   return { ok: true, entry: CommunityConversationEntryReadSchema.parse({
     ...communityMessagesReadFromPage(channelId, read.page), profiles, viewerId, channel, peer,
-    ...(opener ? { opener } : {}),
+    ...(opener ? { opener: opener.message, relatedMessages: [...new Map([...(read.page.relatedMessages ?? []), ...opener.relatedMessages].filter(message => !read.page.messages.some(root => (root as { id: string }).id === message.id) && message.id !== opener.message.id).map(message => [message.id, message])).values()] } : {}),
     ...(parent ? { parent } : {}),
     readState: read.readState, readStateRevision: read.revision, selection: read.selection,
     ...("forumFeed" in read ? { forumFeed: read.forumFeed } : {}),
@@ -63,7 +63,7 @@ async function readEntryWindow(db: Database, { viewerId, target, window, preferT
     const page = await readCommunityForumRows(db, channelId, { tag, pageSize: window.pageSize, includes: new Set(["parentMessage", "firstMessage", "tags", "participants"]) })
     const forumFeed = CommunityThreadsReadSchema.parse(await readCommunityThreadsResource(db, viewerId, target.access.channel, page.threads,
       { messages: [...page.parentMessages, ...page.firstMessages], tags: page.tags, participants: page.participants }, { hasMore: page.hasMore, nextCursor: page.nextCursor ?? null }, COMMUNITY_RESOURCE_CONTRACT_VERSION))
-    return { ok: true as const, page: { messages: [], profiles: [], latestSeq: readState.lastReadSeq, hasMoreOlder: false, hasMoreNewer: false, surfaceReceipt: { channelId, surfaceKind: "forum" as const } },
+    return { ok: true as const, page: { messages: [], relatedMessages: [], profiles: [], latestSeq: readState.lastReadSeq, hasMoreOlder: false, hasMoreNewer: false, surfaceReceipt: { channelId, surfaceKind: "forum" as const } },
       readState, revision, selection: { reason: "tail" as const, anchorMessageId: null }, forumFeed }
   }
   const anchorId = window.anchorId ?? (preferTail ? undefined : readState.lastReadMessageId ?? undefined)
@@ -91,7 +91,7 @@ async function readPeer(db: Database, peerId: string, readProfiles: CommunityRes
 
 async function readOpener(db: Database, viewerId: string, channelId: string, messageId: string) {
   const [message] = await withD1Retry(() => queries.communityMessage.getMessagesByIdsInScope(db, [messageId], { channelId }), { route: "community/messages:entry-opener" })
-  return message ? CommunityMessageResourceSchema.parse(await readCommunityMessageResource(db, viewerId, message, COMMUNITY_RESOURCE_CONTRACT_VERSION)) : undefined
+  return message ? readCommunityMessageResource(db, viewerId, message, COMMUNITY_RESOURCE_CONTRACT_VERSION) : undefined
 }
 
 async function readParent(db: Database, viewerId: string, channelId: string) {

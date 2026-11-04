@@ -230,7 +230,7 @@ describe("MessageShareDialog session lifecycle", () => {
       createdAt,
       authorAvatar: "https://avatars.githubusercontent.com/u/1?v=4",
       content: "@Bob\n**visible** body",
-      replyTo: { id: "original", authorName: "Bob", text: "Original **body**" },
+      replyTo: { id: "original", authorName: "Bob", text: "Original body" },
       attachments: [
         { kind: "image", name: "photo.png", url: "/photo.png", width: 800, height: 400 },
         { kind: "file", name: "notes.txt", url: "/notes.txt" },
@@ -347,7 +347,7 @@ describe("MessageShareDialog message projection", () => {
       replyTo: {
         id: "original",
         authorName: "Bob",
-        text: "A **formatted** reply",
+        text: "A formatted reply",
       },
     }))
 

@@ -73,8 +73,8 @@ const pendingApproval = { friendshipId: "friendship", status: "pending" as const
 const registries: CommunityDbRegistry[] = []
 const unregisters: Array<() => void> = []
 
-async function registry(preload = true) {
-  const result = createCommunityDbRegistry(new QueryClient(), "viewer")
+async function registry(preload = true, accountId = "viewer") {
+  const result = createCommunityDbRegistry(new QueryClient(), accountId)
   registries.push(result)
   if (preload) await result.preload()
   unregisters.push(registerCommunityDbRegistry(result))
@@ -273,7 +273,7 @@ describe("community DB sync", () => {
 
   it("keeps confirmed reply identity on incomplete same-message input and accepts explicit deletion", async () => {
     const db = await registry()
-    const replyTo = { id: "reply", authorId: "peer", authorName: "Peer", text: "confirmed" }
+    const replyTo = { id: "reply", authorId: "peer", authorName: "Peer" }
     const row = { id: "posted", channelId: "c1", type: "chat" as const, authorId: "viewer", clientNonce: "nonce", seq: 1, replyTo, replyToId: replyTo.id }
     ingestMessages(db, "c1", messageSeedFixture("c1", [row]))
     ingestMessages(db, "c1", messageSeedFixture("c1", [{ ...row, replyTo: undefined }]))
@@ -286,8 +286,8 @@ describe("community DB sync", () => {
       authorAvatar: null, authorAvatarVersion: 0, createdAt: "2026-10-08T00:00:00Z", content: "posted", clientNonce: row.clientNonce, replyToId: row.replyToId, embeds: [] }), row.clientNonce, "c1")
     ingestMessages(db, "c1", messageSeedFixture("c1", [posted]))
     expect(db.collections.messages.get(row.id)?.replyTo).toEqual(replyTo)
-    ingestMessages(db, "c1", messageSeedFixture("c1", [{ ...row, replyTo: { id: replyTo.id, authorName: "Deleted user", text: "", deleted: true } }]))
-    expect(db.collections.messages.get(row.id)?.replyTo).toMatchObject({ deleted: true, text: "" })
+    ingestMessages(db, "c1", messageSeedFixture("c1", [{ ...row, replyTo: { id: replyTo.id, authorName: "Deleted user", deleted: true } }]))
+    expect(db.collections.messages.get(row.id)?.replyTo).toMatchObject({ deleted: true })
     ingestMessages(db, "c1", messageSeedFixture("c1", [{ ...incomplete, replyToId: null }]))
     expect(db.collections.messages.get(row.id)?.replyTo).toBeUndefined()
     expect(db.collections.messages.get(row.id)?.replyToId).toBeNull()
@@ -296,7 +296,7 @@ describe("community DB sync", () => {
   it.each(["author", "nonce", "channel"])("does not retain a confirmed quote for a different %s owner", async (field) => {
     const db = await registry()
     const identity = { id: "owned-reply", channelId: "c1", type: "chat" as const, authorId: "viewer", clientNonce: "nonce", seq: 1 }
-    ingestMessages(db, "c1", messageSeedFixture("c1", [{ ...identity, replyTo: { id: "target", authorId: "peer", authorName: "Peer", text: "private" }, replyToId: "target" }]))
+    ingestMessages(db, "c1", messageSeedFixture("c1", [{ ...identity, replyTo: { id: "target", authorId: "peer", authorName: "Peer", }, replyToId: "target" }]))
     ingestMessages(db, field === "channel" ? "c2" : "c1", messageSeedFixture(field === "channel" ? "c2" : "c1", [{ ...identity,
       ...(field === "author" ? { authorId: "other" } : field === "nonce" ? { clientNonce: "other" } : { channelId: "c2" }) }]))
     expect(db.collections.messages.get(identity.id)?.replyTo).toBeUndefined()
@@ -305,7 +305,7 @@ describe("community DB sync", () => {
 
   it("rejects a weak preview instead of mutating full canonical message facts", async () => {
     const db = await registry()
-    const full = CommunityMessageResourceSchema.parse({ id: "raw", channelId: "c1", seq: 1, type: "chat", authorId: "peer", authorName: "Peer", authorAvatar: null, authorAvatarVersion: 4, content: "full", createdAt: "now", replyToId: "reply", replyTo: { id: "reply", authorId: "peer", authorName: "Peer", text: "prior" }, clientNonce: "nonce", attachments: [{ id: "a2", name: "raw", url: "/raw", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null }], embeds: [null, { unsupported: true }], thread: { id: "thread", name: null, messageCount: 0, lastReplyAt: null, participants: [{ id: "peer", name: "Peer", avatar: null, avatarVersion: 4 }] } })
+    const full = CommunityMessageResourceSchema.parse({ id: "raw", channelId: "c1", seq: 1, type: "chat", authorId: "peer", authorName: "Peer", authorAvatar: null, authorAvatarVersion: 4, content: "full", createdAt: "now", replyToId: "reply", replyTo: { id: "reply", authorId: "peer", authorName: "Peer", }, clientNonce: "nonce", attachments: [{ id: "a2", name: "raw", url: "/raw", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null }], embeds: [null, { unsupported: true }], thread: { id: "thread", name: null, messageCount: 0, lastReplyAt: null, participants: [{ id: "peer", name: "Peer", avatar: null, avatarVersion: 4 }] } })
     ingestMessages(db, "c1", messageSeedFixture("c1", [full]))
     const preview = { id: "raw", seq: 1, type: "chat", authorId: "peer", createdAt: "now", content: "preview" }
     expect(() => ingestMessages(db, "c1", [preview])).toThrow()
@@ -584,6 +584,28 @@ describe("community DB sync", () => {
     expect(db.collections.channelMemberships.get(`${dm.id}:viewer:access`)).toBeDefined()
     expect(db.collections.channelMemberships.get(`${dm.id}:peer:access`)).toBeDefined()
     expect(db.collections.profiles.get("peer")).toMatchObject({ name: "Peer" })
+  })
+
+  it.each(["alice", "bob"])("derives shared reply target reaction selection for each receiving account when %s reacted", async reactorId => {
+    const alice = await registry(true, "alice"), bob = await registry(true, "bob")
+    const target = messageResourceFixture({ id: "older-target", channelId: "c1", authorId: "alice", seq: 1, content: "Older target",
+      reactions: [{ emoji: "👍", count: 1, me: reactorId === "alice", userIds: [reactorId] }] })
+    const reply = messageResourceFixture({ id: "new-reply", channelId: "c1", authorId: "alice", authorName: "Alice", authorAvatarVersion: 0, seq: 2, content: "Reply",
+      replyToId: target.id, replyTo: { id: target.id, authorId: "alice", authorName: "Alice" } })
+    const profiles = messageProfilesFixture([target, reply])
+    await publishCommunityMessages(bob.queryClient, { channelId: "c1", messages: [{ ...target, reactions: [{ ...target.reactions![0], me: reactorId === "bob" }] }], profiles,
+      proof: { token: captureCommunityLiveSnapshotToken(bob.queryClient, "c1") } })
+    expect(bob.collections.messages.get(target.id)?.reactions?.[0].me).toBe(reactorId === "bob")
+    const delivery = { type: "community:message.create" as const, channelId: "c1", message: reply, relatedMessages: [target], profiles }
+    const parsed = validateCommunityWsEvent(delivery, BUSINESS_SCHEMA_VERSION)
+    if (!parsed.ok) throw new Error("Expected a valid shared reply event")
+    for (const receiver of [alice, bob]) projectCommunityWsEventToDb(receiver.queryClient, parsed.event)
+    for (const receiver of [alice, bob]) {
+      expect(receiver.collections.messages.get(target.id)?.reactions).toEqual([{ emoji: "👍", count: 1, me: receiver.accountId === reactorId, userIds: [reactorId] }])
+      expect(receiver.collections.messages.get(reply.id)?.replyToId).toBe(target.id)
+    }
+    expect(delivery.relatedMessages[0].reactions).toEqual([{ emoji: "👍", count: 1, me: reactorId === "alice", userIds: [reactorId] }])
+    expect(parsed.event).toEqual(delivery)
   })
 
   it("preserves a same-entity WS message reaction over an older HTTP response", async () => {
@@ -2269,7 +2291,7 @@ describe("community DB sync", () => {
       if (warm) writeCommunityProfilePatches([{ id: profile.id, identityAbout: { name: "Previously Known", discriminator: "0042", aboutMe: "Retained bio" },
         avatar: { avatar: "previous.png", avatarVersion: 5 } }], db)
       const message = messageResourceFixture({ id: "m1", channelId: "c1", authorId: profile.id, authorName: "Historical Author", authorAvatar: "hint.png", authorAvatarVersion: hintVersion,
-        replyToId: "earlier", replyTo: { id: "earlier", authorId: profile.id, authorName: "Historical Reply", text: "Earlier" } })
+        replyToId: "earlier", replyTo: { id: "earlier", authorId: profile.id, authorName: "Historical Reply", } })
       const proof = { token: captureCommunityLiveSnapshotToken(db.queryClient, "c1") }
       if (surface === "bundle") {
         const resources = fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "s1" })], [channelResourceFixture({ id: "c1", serverId: "s1" })], [message], [profile])
@@ -2295,7 +2317,7 @@ describe("community DB sync", () => {
       avatar: { avatar: "rich.png", avatarVersion: 2 }, status: { statusEmoji: "Shipping", statusText: "Shipping" } }], db)
     const rich = messageResourceFixture({ id: "m1", channelId: "c1", authorId: "u2", authorName: "Alice", content: "rich", replyToId: "m0",
       attachments: [{ id: "proof", name: "proof.png", url: "/proof.png", thumbnailUrl: null, contentType: "image/png", sizeBytes: null, width: null, height: null }],
-      replyTo: { id: "m0", authorId: "u3", authorName: "Bob", text: "earlier" } })
+      replyTo: { id: "m0", authorId: "u3", authorName: "Bob", } })
     ingestMessages(db, "c1", [rich])
     const profile = { id: "u2", name: "Alice Updated", discriminator: "0002", avatar: "base.png", avatarVersion: 2 }
     const resources = fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "s1" })], [channelResourceFixture({ id: "c1", serverId: "s1" })], [{ ...rich, content: "new preview" }], [profile, profileResourceFixture({ id: "u3", name: "Bob" })])
@@ -2677,7 +2699,7 @@ describe("community DB sync", () => {
     ingestMessages(db, "c1", messageSeedFixture("c1", [{
       id: "m1", type: "chat", authorId: "author", authorName: "Author", content: "rich",
       createdAt: "2026-09-25T00:00:00.000Z",
-      replyTo: { id: "reply", authorId: "reply-author", authorName: "Reply", text: "reply" },
+      replyTo: { id: "reply", authorId: "reply-author", authorName: "Reply", },
       thread: {
         id: "thread1", name: "Thread", messageCount: 1,
         participants: [{ id: "participant", name: "Participant", avatar: "P", avatarVersion: 1 }],

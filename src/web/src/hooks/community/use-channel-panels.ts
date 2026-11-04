@@ -65,7 +65,7 @@ export function materializeThreadsResponse(data: ThreadsResponse | undefined, me
   return data.threads.flatMap((window) => {
     const thread = channels.get(window.id), opener = window.openerMessageId ? messages?.get(window.openerMessageId) : undefined
     if (!thread || (window.openerMessageId && !opener) || thread.archived) return []
-    const core = projectThread(thread, opener, data.parentType)
+    const core = projectThread(thread, opener, data.parentType, thread.firstMessageId ? messages?.get(thread.firstMessageId) : undefined)
     return [{ ...core, lastMessageAt: thread.lastMessageAt ?? thread.createdAt ?? "", parent: data.parentType === "forum" ? core.parent : { ...core.parent, text: core.parent.text.slice(0, 100) }, ...(window.openerMessageId ? { openerMessageId: window.openerMessageId } : {}) }]
   })
 }
@@ -84,7 +84,7 @@ export function useThreads(channelId: string | null, requested = true): UseQuery
       : (() => Promise.reject(new Error("disabled"))),
     enabled: enabled && presented && requested,
   })
-  const messageIds = useMemo(() => query.data?.threads.flatMap((thread) => thread.openerMessageId ? [thread.openerMessageId] : []) ?? [], [query.data?.threads])
+  const messageIds = useMemo(() => query.data?.threads.flatMap((thread) => [...(thread.openerMessageId ? [thread.openerMessageId] : []), ...(channels.get(thread.id)?.firstMessageId ? [channels.get(thread.id)!.firstMessageId!] : [])]) ?? [], [query.data?.threads, channels])
   const canonicalMessages = useCanonicalMessagesById(messageIds)
   const threads = materializeThreadsResponse(query.data, canonicalMessages, channels)
   return {

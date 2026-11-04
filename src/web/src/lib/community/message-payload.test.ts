@@ -1,9 +1,9 @@
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { beforeEach, describe, it, expect, vi } from "vitest"
-const creationMocks = vi.hoisted(() => ({ hydrate: vi.fn(), attachments: vi.fn(), reactions: vi.fn() }))
+const creationMocks = vi.hoisted(() => ({ hydrate: vi.fn(), approvals: vi.fn(), attachments: vi.fn(), reactions: vi.fn() }))
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
-  return { ...actual, queries: { ...actual.queries, communityBotCreation: { hydrateCreationRequestsForDmMessages: creationMocks.hydrate }, communityAttachment: { listByMessageIds: creationMocks.attachments }, communityReaction: { listReactionsByMessageIds: creationMocks.reactions } } }
+  return { ...actual, queries: { ...actual.queries, communityFriendship: { ...actual.queries.communityFriendship, hydrateApprovalsForDmMessages: creationMocks.approvals }, communityBotCreation: { hydrateCreationRequestsForDmMessages: creationMocks.hydrate }, communityAttachment: { listByMessageIds: creationMocks.attachments }, communityReaction: { listReactionsByMessageIds: creationMocks.reactions } } }
 })
 import { botCreationFixture } from "@/test/bot-creation-fixtures"
 import { readCommunityMessageResource, mapMessageForApi, mapMessageForWs, type MessageRow } from "./message-payload"
@@ -71,22 +71,21 @@ describe("mapMessageForApi", () => {
   it("resolves replyTo from an in-scope replyMap entry", () => {
     const replyMap = new Map([["m0", { id: "m0", authorId: "bob", authorName: "Bob", content: "hey there" }]])
     const out = mapMessageForApi({ ...baseRow, replyToId: "m0" }, { ...emptyApiCtx, replyMap }, BUSINESS_SCHEMA_VERSION, "channel")
-    expect(out.replyTo).toEqual({ id: "m0", authorId: "bob", authorName: "Bob", text: "hey there" })
+    expect(out.replyTo).toEqual({ id: "m0", authorId: "bob", authorName: "Bob" })
   })
 
   it("emits { deleted: true } when replyToId is set but the target is missing (out-of-scope filtered upstream)", () => {
     const out = mapMessageForApi({ ...baseRow, replyToId: "m-gone" }, emptyApiCtx, BUSINESS_SCHEMA_VERSION, "channel")
-    expect(out.replyTo).toEqual({ id: "m-gone", authorName: "Deleted user", text: "", deleted: true })
+    expect(out.replyTo).toEqual({ id: "m-gone", authorName: "Deleted user", deleted: true })
   })
 
-  it("gives API and WS projections the same ellipsized reply preview", () => {
+  it("gives API and WS the same relation without copying source text", () => {
     const long = "x".repeat(500)
     const replyMap = new Map([["m0", { id: "m0", authorId: "bob", authorName: "Bob", content: long }]])
     const apiOut = mapMessageForApi({ ...baseRow, replyToId: "m0" }, { ...emptyApiCtx, replyMap }, BUSINESS_SCHEMA_VERSION, "channel")
     const wsOut = mapMessageForWs({ ...baseRow, replyToId: "m0" }, { ...emptyWsCtx, replyMap }, BUSINESS_SCHEMA_VERSION, "channel")
-    const expected = `${"x".repeat(119)}…`
-    expect(apiOut.replyTo?.text).toBe(expected)
-    expect(wsOut.replyTo?.text).toBe(expected)
+    expect(apiOut.replyTo).toEqual(wsOut.replyTo)
+    expect(apiOut.replyTo).not.toHaveProperty("text")
   })
 
   it("omits attachments/reactions when there are none", () => {
@@ -161,7 +160,7 @@ describe("mapMessageForWs", () => {
       { ...baseRow, replyToId: "m0", mentionType: "everyone" },
       { ...emptyWsCtx, replyMap }, BUSINESS_SCHEMA_VERSION, "channel"
     )
-    expect(out.replyTo).toEqual({ id: "m0", authorId: "bob", authorName: "Bob", text: "hey there" })
+    expect(out.replyTo).toEqual({ id: "m0", authorId: "bob", authorName: "Bob" })
     expect(out.mentionType).toBe("everyone")
   })
 
@@ -225,12 +224,21 @@ describe("single-message creation payload hydration", () => {
     await readCommunityMessageResource({} as never, "viewer", { ...baseRow, type, channelId: "dm" }, BUSINESS_SCHEMA_VERSION)
     expect(creationMocks.hydrate).not.toHaveBeenCalled()
   })
+  it("hydrates a root friendship card from its canonical relation rather than raw content", async () => {
+    const profile = { id: "peer", name: "Peer", discriminator: "0042", image: null, avatarVersion: 0 }
+    const approval = { friendshipId: "friendship", status: "pending" as const, waitingOn: "you" as const, otherProfile: profile, botProfile: { ...profile, id: "bot" } }
+    creationMocks.approvals.mockResolvedValue(new Map([[baseRow.id, approval]]))
+    const resource = await readCommunityMessageResource({} as never, "viewer", { ...baseRow, friendshipId: approval.friendshipId, channelId: "dm" }, BUSINESS_SCHEMA_VERSION)
+    expect(creationMocks.approvals).toHaveBeenCalledExactlyOnceWith({}, [baseRow.id], "viewer")
+    expect(resource.message.approval).toEqual(approval)
+    expect(resource.message.content).toBe(baseRow.content)
+  })
   it("hydrates a creation card with the same immutable owner identity", async () => {
     const payload = botCreationFixture()
     creationMocks.hydrate.mockResolvedValue(new Map([[baseRow.id, payload]]))
     const message = await readCommunityMessageResource({} as never, "viewer", { ...baseRow, type: "bot_creation_request", channelId: "dm" }, BUSINESS_SCHEMA_VERSION)
     expect(creationMocks.hydrate).toHaveBeenCalledExactlyOnceWith({}, [baseRow.id], "viewer")
-    expect(message.botCreation).toEqual(payload)
-    expect(message.botCreation).not.toHaveProperty("canDecide")
+    expect(message.message.botCreation).toEqual(payload)
+    expect(message.message.botCreation).not.toHaveProperty("canDecide")
   })
 })

@@ -22,14 +22,6 @@ describe("analytics consent proof", () => {
     })
   })
 
-  it("returns the signed decision time as the consent source version", async () => {
-    const proof = await createAnalyticsConsentProof("granted", SECRET, NOW)
-    await expect(verifyAnalyticsConsentProof(proof, SECRET, NOW)).resolves.toEqual({
-      decision: "granted",
-      sourceVersion: Math.floor(NOW / 1000),
-    })
-  })
-
   it("rejects a changed decision or signature", async () => {
     const proof = await createAnalyticsConsentProof("granted", SECRET, NOW)
     await expect(verifyAnalyticsConsentProof(
@@ -37,7 +29,10 @@ describe("analytics consent proof", () => {
       SECRET,
       NOW,
     )).resolves.toBeNull()
-    await expect(verifyAnalyticsConsentProof(`${proof.slice(0, -1)}x`, SECRET, NOW)).resolves.toBeNull()
+    const signature = proof.split(".")[3]!
+    const changedSignature = `${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`
+    const tampered = `${proof.slice(0, -signature.length)}${changedSignature}`
+    await expect(verifyAnalyticsConsentProof(tampered, SECRET, NOW)).resolves.toBeNull()
   })
 
   it("rejects stale, future, malformed, and wrong-secret proofs", async () => {

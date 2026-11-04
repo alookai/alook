@@ -1054,6 +1054,7 @@ export async function getMessage(db: Database, messageId: string) {
     .select({
       ...messageProjection,
       seq: communityMessage.seq,
+      friendshipId: communityMessage.friendshipId,
       authorEmail: user.email,
     })
     .from(communityMessage)
@@ -1237,6 +1238,7 @@ export async function getMessagesByIdsInChannels(db: Database, ids: string[], ch
             ...messageProjection,
             seq: communityMessage.seq,
             clientNonce: communityMessage.clientNonce,
+            friendshipId: communityMessage.friendshipId,
             discriminator: user.discriminator,
             authorEmail: user.email,
           })

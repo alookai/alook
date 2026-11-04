@@ -159,7 +159,7 @@ describe("useFileAttachments — DOM drop ownership", () => {
     expect(generateThumbnailMock).not.toHaveBeenCalled()
   })
 
-  it("removes a DOM-dropped Community image when preparation fails visibly", async () => {
+  it("retains a failed DOM-dropped image until the user explicitly removes it", async () => {
     prepareCommunityImageMock.mockRejectedValue(new Error("decode failed"))
     const hook = await renderCapture({
       thumbnailPolicy: "community",
@@ -167,11 +167,21 @@ describe("useFileAttachments — DOM drop ownership", () => {
     })
     const dropped = new File(["image"], "broken.png", { type: "image/png" })
 
-    await dropFiles(hook, [dropped])
+    const preventDefault = vi.fn()
+    const stopPropagation = vi.fn()
+    act(() => hook.current.handleDrop({
+      preventDefault, stopPropagation, dataTransfer: { files: [dropped] },
+    } as unknown as React.DragEvent))
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not prepare "broken.png" for upload'))
+    await expect(hook.current.awaitPendingFiles()).rejects.toThrow("Attachment preparation failed")
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(stopPropagation).toHaveBeenCalledOnce()
+    expect(hook.current.pendingFiles).toEqual([expect.objectContaining({ file: dropped, preparationFailed: true })])
+    expect(readComposerAttachmentSession("server/channel")).toEqual([{ draftId: hook.current.pendingFiles[0]?.draftId, file: dropped }])
 
-    expect(hook.current.pendingFiles).toEqual([])
+    act(() => hook.current.removePendingFile(0))
+    await expect(hook.current.awaitPendingFiles()).resolves.toEqual([])
     expect(readComposerAttachmentSession("server/channel")).toEqual([])
-    expect(toastErrorMock).toHaveBeenCalledWith('Could not prepare "broken.png" for upload')
   })
 })
 
@@ -337,9 +347,10 @@ describe("useFileAttachments — PendingFile width/height", () => {
 
     await hook.addFiles([file])
 
-    expect(hook.current.pendingFiles).toEqual([])
+    await expect(hook.current.awaitPendingFiles()).rejects.toThrow("Attachment preparation failed")
+    expect(hook.current.pendingFiles).toEqual([expect.objectContaining({ file, preparationFailed: true, thumbnailBlob: null, thumbnailUrl: null })])
     expect(toastErrorMock).toHaveBeenCalledWith('Could not prepare "photo.png" for upload')
-    expect(readComposerAttachmentSession("server/channel")).toEqual([])
+    expect(readComposerAttachmentSession("server/channel")).toEqual([{ draftId: hook.current.pendingFiles[0]?.draftId, file }])
   })
 
   it("registers raw Community Files synchronously before async image preparation", async () => {

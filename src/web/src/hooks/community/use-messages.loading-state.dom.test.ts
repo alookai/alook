@@ -109,17 +109,18 @@ describe("useMessages — instant channel switch", () => {
     const scope: MessageScope = kind === "channel" ? { kind, id: "ch_new", serverId: "s1" } : { kind, id: "dm_new" }
     const attachments = [{ id: "attachment", name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, thumbnailUrl: null, contentType: "text/plain", width: null, height: null }]
     const presentedAttachments = [{ id: "attachment", name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, contentType: "text/plain", kind: "file", size: "1.0 KB" }]
-    const embeds = [{ title: "Existing embed" }], replyTo = { id: "reply", authorId: "peer", authorName: "Peer", text: "reply" }
+    const embeds = [{ title: "Existing embed" }], replyTo = { id: "reply", authorId: "peer", authorName: "Peer" }
+    const visibleReply = { ...replyTo, text: "reply" }
     const message: CanonicalMessage = { id: "rich", seq: 3, type: "chat", authorId: "peer", authorName: "Peer", content: "before", clientNonce: "rich-nonce", createdAt: "2026-08-07T10:00:00.000Z" }
-    ingestMessages(registry, scope.id, [messageResourceFixture({ ...message, channelId: scope.id, replyToId: "reply", attachments, embeds, replyTo })])
+    ingestMessages(registry, scope.id, [messageResourceFixture({ ...message, channelId: scope.id, replyToId: "reply", attachments, embeds, replyTo }), messageResourceFixture({ id: "reply", channelId: scope.id, authorId: "peer", content: "reply" })])
     const rendered = kind === "channel" ? await renderChannelMessages(undefined, [{ id: message.id, seq: message.seq }], client) : await renderDmMessages([{ id: message.id, seq: message.seq }], client)
-    expect(rendered.result.current.messages, JSON.stringify(rendered.result.current.messages)).toEqual([expect.objectContaining({ id: message.id, attachments: presentedAttachments, embeds, replyTo })])
+    expect(rendered.result.current.messages, JSON.stringify(rendered.result.current.messages)).toEqual([expect.objectContaining({ id: message.id, attachments: presentedAttachments, embeds, replyTo: visibleReply })])
     await act(async () => { publishCommunityMessageFields(client, message.id, { content: "content patch" }, { token: captureCommunityLiveSnapshotToken(client, scope.id) }) })
     expect(registry.collections.messages.get(message.id)).toMatchObject({ content: "content patch", attachments, embeds, replyTo })
-    expect(rendered.result.current.messages, JSON.stringify(rendered.result.current.messages)).toEqual([expect.objectContaining({ id: message.id, content: "content patch", attachments: presentedAttachments, embeds, replyTo })])
+    expect(rendered.result.current.messages, JSON.stringify(rendered.result.current.messages)).toEqual([expect.objectContaining({ id: message.id, content: "content patch", attachments: presentedAttachments, embeds, replyTo: visibleReply })])
     await act(async () => { dispatchLive(client, scope, { type: "wsMessage", message: { ...message, channelId: scope.id, replyToId: "reply", content: "cleared", attachments: [], embeds: [] } }) })
     expect(registry.collections.messages.get(message.id)).toMatchObject({ attachments: [], embeds: [] })
-    expect(rendered.result.current.messages, JSON.stringify(rendered.result.current.messages)).toEqual([expect.objectContaining({ id: message.id, content: "cleared", attachments: [], embeds: [], replyTo })])
+    expect(rendered.result.current.messages, JSON.stringify(rendered.result.current.messages)).toEqual([expect.objectContaining({ id: message.id, content: "cleared", attachments: [], embeds: [], replyTo: visibleReply })])
     expect(apiFetchMock).not.toHaveBeenCalled()
   })
   it("paints a warm cache without waiting on the anchor", async () => {

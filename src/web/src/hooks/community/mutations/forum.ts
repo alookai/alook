@@ -61,7 +61,7 @@ export function useCreateForumThread() {
       await Promise.all([origin.registry!.collections.channels.preload(), origin.registry!.collections.messages.preload(), origin.registry!.collections.channelMemberships.preload()])
       assert()
       const attachmentIds = attachments?.map((a) => a.id)
-      const structure = await origin.request<CreateForumThreadResult & Pick<CommunityMessagePosted, "message" | "profiles">>(token,
+      const structure = await origin.request<CreateForumThreadResult & Pick<CommunityMessagePosted, "message" | "profiles" | "relatedMessages">>(token,
         `/api/community/channels/${channelId}/messages`,
         {
           method: "POST", signal: assertActive?.signal, assertActive,
@@ -71,19 +71,19 @@ export function useCreateForumThread() {
       assert()
       const parent = origin.registry!.collections.channels.get(channelId)
       if (parent && structure.message) {
-        await publishCommunityMessages(queryClient, { channelId, profiles: structure.profiles, messages: [projectPostedMessage(structure.message, `${nonce}:opener`, channelId)], proof: { token, signal: assertActive?.signal } })
+        await publishCommunityMessages(queryClient, { channelId, profiles: structure.profiles, relatedMessages: structure.relatedMessages, messages: [projectPostedMessage(structure.message, `${nonce}:opener`, channelId)], proof: { token, signal: assertActive?.signal } })
         const child = await origin.request<CommunityChannelResource>(token, `/api/community/channels/${structure.threadId}`, { method: "GET", signal: assertActive?.signal, assertActive })
         assert()
         if (child.parentChannelId !== channelId || child.parentMessageId !== structure.message.id || child.serverId !== parent.serverId) throw new Error("Created forum child scope mismatch")
         await completeCommunityPublication(queryClient, () => publishCommunityCreatedChannel(queryClient, child, { token, signal: assertActive?.signal }))
       }
       assert()
-      const reply = await origin.request<Pick<CommunityMessagePosted, "message" | "profiles">>(token, `/api/community/channels/${structure.threadId}/messages`, {
+      const reply = await origin.request<Pick<CommunityMessagePosted, "message" | "profiles" | "relatedMessages">>(token, `/api/community/channels/${structure.threadId}/messages`, {
         method: "POST", signal: assertActive?.signal, assertActive,
         body: JSON.stringify({ content, attachments: attachmentIds, nonce: `${nonce}:reply` }),
       })
       assert()
-      if (reply.message) await publishCommunityMessages(queryClient, { channelId: structure.threadId, profiles: reply.profiles, messages: [projectPostedMessage(reply.message, `${nonce}:reply`, structure.threadId)], proof: { token, signal: assertActive?.signal } })
+      if (reply.message) await publishCommunityMessages(queryClient, { channelId: structure.threadId, profiles: reply.profiles, relatedMessages: reply.relatedMessages, messages: [projectPostedMessage(reply.message, `${nonce}:reply`, structure.threadId)], proof: { token, signal: assertActive?.signal } })
       for (const query of resources) if (queryClient.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query) void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false }).catch(() => undefined)
       return structure
     },

@@ -1,6 +1,6 @@
 
 import { Bookmark, Check, Inbox, LoaderCircle, MoreHorizontal, Trash2, X } from "lucide-react"
-import { formatHandle, stripInlineMarkup } from "@alook/shared"
+import { formatHandle, messagePreviewText } from "@alook/shared"
 import { EntityIcon } from "../entity-icon"
 import { ServerIcon } from "../server-icon"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -355,7 +355,7 @@ function MentionsTab({ mentions, loading, error, onRetry, onOpenMention, onDelet
               <div className="truncate text-[11px] leading-4 text-muted-foreground/75">
                 {mn.server} · <ChannelIcon className="inline h-[1em] w-auto align-[-0.1em]" />{mn.channel}
               </div>
-              <div className="truncate text-sm text-muted-foreground">{stripInlineMarkup(mn.m.content ?? "")}</div>
+              <div className="truncate text-sm text-muted-foreground">{messagePreviewText(mn.m)}</div>
             </div>
           </button>
           {onDeleteMention && (
@@ -403,7 +403,7 @@ function MarkedTab({ marked, loading, onOpenMarked, onUnmark, profilesByUserId, 
                   {mk.m.createdAt && <> · {formatRelativeTime(mk.m.createdAt)}</>}
                 </span>
               </div>
-              <div className="truncate text-sm text-muted-foreground">{stripInlineMarkup(mk.m.content ?? "")}</div>
+              <div className="truncate text-sm text-muted-foreground">{messagePreviewText(mk.m)}</div>
             </div>
           </button>
           {onUnmark && (

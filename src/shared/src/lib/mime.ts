@@ -20,7 +20,7 @@ export function extractAttachmentMeta(attachments: ParsedAttachment[]): InboundA
     .map((att, i) => ({
       key: `inline:${i}`,
       filename: att.filename || `attachment-${i}`,
-      size: att.content instanceof ArrayBuffer ? att.content.byteLength : typeof att.content === "string" ? att.content.length : 0,
+      size: typeof att.content === "string" ? att.content.length : att.content.byteLength,
       contentType: att.mimeType || "application/octet-stream",
     }));
 }

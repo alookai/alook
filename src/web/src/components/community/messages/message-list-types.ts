@@ -20,6 +20,7 @@ export type MessageListProps = {
   onOpenProfile?: OpenProfile
   onToggleReaction?: (id: string, emoji: string) => void
   onReact?: (id: string, emoji: string) => void
+  onOpenContextId?: (id: string) => void
   onReply?: (id: string) => void
   resolveAuthorMentionText?: (authorId: string) => string | null
   onInsertMentionText?: (text: string) => void

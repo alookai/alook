@@ -361,9 +361,9 @@ export function createSeed(identity: SeedIdentity) {
   // Post a message into a channel via API (persisted with a real server id).
   // Use when a spec needs a pre-existing message as a precondition rather than
   // exercising the send UI itself. Returns the message id.
-  async function seedMessage(author: UserKey, channelId: string, content: string): Promise<string> {
+  async function seedMessage(author: UserKey, channelId: string, content: string, options?: { replyToId: string }): Promise<string> {
     identity.assertResource?.("channel", channelId)
-    const res = await post(author, `/api/community/channels/${channelId}/messages`, { content })
+    const res = await post(author, `/api/community/channels/${channelId}/messages`, { content, ...options })
     const data = (await res.json()) as { message: { id: string } }
     identity.onResourceCreated?.("message", data.message.id)
     return data.message.id

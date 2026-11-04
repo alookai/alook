@@ -4,7 +4,7 @@ import { buildCommunityNotificationCopy } from "../../src/utils/community-notifi
 const base = {
   authorName: " Alice ",
   content: "**Hello** [there](https://example.test)\nnext line",
-  attachmentContentTypes: [] as Array<string | null>,
+  attachments: [],
 };
 
 describe("buildCommunityNotificationCopy", () => {
@@ -52,13 +52,13 @@ describe("buildCommunityNotificationCopy", () => {
       conversationKind: "thread",
       authorName: " ",
       content: " ",
-      attachmentContentTypes: ["application/pdf", "IMAGE/PNG"],
+      attachments: [{ name: "notes.pdf", contentType: "application/pdf" }, { name: "photo.png", contentType: "IMAGE/PNG" }],
       serverName: null,
       channelName: null,
       parentChannelName: null,
     })).toEqual({
       title: "Server · #Channel · Thread",
-      body: "Alook: Photo",
+      body: "Alook: Attachment: notes.pdf Photo: photo.png",
     });
   });
 
@@ -72,7 +72,7 @@ describe("buildCommunityNotificationCopy", () => {
       ...base,
       conversationKind: "dm",
       content: "",
-      attachmentContentTypes,
+      attachments: attachmentContentTypes.map(contentType => ({ name: "", contentType })),
     })).toEqual({
       title: "Alice",
       body: expected,

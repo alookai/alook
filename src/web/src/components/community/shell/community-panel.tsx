@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useState } from "react"
 import { MessagesSquare, Pin, Users } from "lucide-react"
-import { stripInlineMarkup, type CommunityRole as Role } from "@alook/shared"
+import { messagePreviewText, type CommunityRole as Role } from "@alook/shared"
 
 import { Avatar } from "@/components/community/avatar"
 import { MemberList } from "@/components/community/members/member-list"
@@ -141,7 +141,7 @@ function renderCommunityPanelBody({
             timestampProps={{ dateTime: message.createdAt }}
           />
           <div className="truncate text-sm text-muted-foreground">
-            {stripInlineMarkup(message.content ?? "")}
+            {messagePreviewText(message)}
           </div>
         </div>
       </button>
@@ -174,7 +174,7 @@ function renderCommunityPanelBody({
                 <span className="font-medium text-foreground/80">
                   {author?.name ?? thread.parent.authorName}
                 </span>{" "}
-                {stripInlineMarkup(thread.parent.text)}
+                {thread.parent.text}
               </div>
               <div className="mt-1 text-xs text-muted-foreground" suppressHydrationWarning>
                 {thread.messageCount} messages · {formatRelativeTime(thread.lastMessageAt)}
