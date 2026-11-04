@@ -1,9 +1,12 @@
 import Sqlite from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
+import { eq } from "drizzle-orm"
+import { user } from "../../src/db/schema"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import type { Database } from "../../src/db"
 import {
   advanceReadStateRevisionBuilder,
+  advanceReadStateRevisionWhenAnyBuilder,
   markReadToMessageBuilder,
   getChannelReadStateSnapshot,
 } from "../../src/db/queries/community/read-state"
@@ -15,6 +18,7 @@ describe("community read-state SQLite monotonicity", () => {
   beforeEach(() => {
     sqlite = new Sqlite(":memory:")
     sqlite.exec(`
+      CREATE TABLE user (id TEXT PRIMARY KEY);
       CREATE TABLE community_read_state (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
@@ -83,5 +87,29 @@ describe("community read-state SQLite monotonicity", () => {
     })
     await expect(getChannelReadStateSnapshot(db, { userId: "viewer", channelId: "missing" })).resolves.toEqual({ revision: 4, readState: null })
     await expect(getChannelReadStateSnapshot(db, { userId: "missing", channelId: "c1" })).resolves.toEqual({ revision: 0, readState: null })
+  })
+
+  describe("advanceReadStateRevisionWhenAnyBuilder real SQLite", () => {
+    it.each([
+      { left: 0, right: 0, expectedRevision: 0 },
+      { left: 1, right: 0, expectedRevision: 1 },
+      { left: 0, right: 1, expectedRevision: 1 },
+      { left: 1, right: 1, expectedRevision: 1 },
+    ])("advances only the target account for effects $left/$right", ({ left, right, expectedRevision }) => {
+      sqlite.exec("INSERT INTO user (id) VALUES ('target'), ('neighbor')")
+      sqlite.exec("INSERT INTO community_read_state_revision (user_id, revision) VALUES ('neighbor', 9)")
+
+      const rows = (advanceReadStateRevisionWhenAnyBuilder(db, "target", [
+        eq(user.id, left ? "target" : "neighbor"),
+        eq(user.id, right ? "target" : "neighbor"),
+      ]) as any).all()
+
+      expect(rows).toEqual(expectedRevision === 0 ? [] : [{ revision: 1 }])
+      expect(sqlite.prepare(`
+        SELECT user_id AS userId, revision FROM community_read_state_revision ORDER BY user_id
+      `).all()).toEqual(expectedRevision === 0
+        ? [{ userId: "neighbor", revision: 9 }]
+        : [{ userId: "neighbor", revision: 9 }, { userId: "target", revision: 1 }])
+    })
   })
 })

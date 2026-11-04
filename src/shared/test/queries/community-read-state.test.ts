@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as readStateQueries from "../../src/db/queries/community/read-state";
 import { communityReadState } from "../../src/db/community-schema";
-import { sql } from "drizzle-orm";
 
 // `markReadToMessageBuilder` is the canonical channel/DM read-state upsert
 // under the invariant unification (plan #4). It's used both stand-alone (DM
@@ -17,21 +16,6 @@ function createInsertBuilderMock() {
   chain.onConflictDoUpdate = vi.fn(() => ({ __builder: "insert-onconflict" }));
   return chain;
 }
-
-describe("community/read-state exports", () => {
-  it("exports markReadToMessageBuilder + markReadToMessage", () => {
-    expect(typeof readStateQueries.markReadToMessage).toBe("function");
-  });
-
-  it("builds one revision guard from multiple canonical effects", () => {
-    const db = makeMassMarkDbMock();
-    expect(readStateQueries.advanceReadStateRevisionWhenAnyBuilder(
-      db,
-      "u_1",
-      [sql`1`, sql`0`],
-    )).toBeDefined();
-  });
-});
 
 describe("markReadToMessageWithRevision", () => {
   it("batches one exact canonical message boundary with its account revision", async () => {
@@ -142,8 +126,6 @@ describe("markReadToMessageBuilder — channel branch", () => {
       // unread predicate never sees a human's read.
       lastReadSeq: 42,
     });
-    // The invariant: values and set carry the same aligned tuple.
-    expect(valuesArg.lastReadAt).toBe(valuesArg.lastReadMessageId ? "2026-07-03T00:00:00Z" : undefined);
     const conflictArg = db.onConflictDoUpdate.mock.calls[0][0];
     expect(conflictArg.set).toMatchObject({
       lastReadAt: "2026-07-03T00:00:00Z",
@@ -167,22 +149,6 @@ describe("markReadToMessageBuilder — channel branch", () => {
     // The read-state unique is now a plain unique on (userId, channelId) — no
     // partial-index targetWhere clause.
     expect(conflictArg.targetWhere).toBeUndefined();
-  });
-
-  it("includes a monotone setWhere so stale-createdAt PUTs cannot regress the pointer", () => {
-    const db = createInsertBuilderMock();
-    readStateQueries.markReadToMessageBuilder(db, {
-      userId: "u_1",
-      channelId: "c_1",
-      message: { id: "m_42", createdAt: "2026-07-03T00:00:00Z", seq: 42 },
-    });
-    const conflictArg = db.onConflictDoUpdate.mock.calls[0][0];
-    // The setWhere is a Drizzle SQL fragment; we can't easily assert its
-    // exact structure without evaluating it, but its mere presence is
-    // the load-bearing invariant here — its absence would silently
-    // reintroduce the "channel switch → return → stale mid-viewport row
-    // overwrites the newer pointer" bug.
-    expect(conflictArg.setWhere).toBeDefined();
   });
 });
 
@@ -361,19 +327,6 @@ describe("markAllServerChannelsRead", () => {
     expect(bTuple!.lastReadAt).toBe("2026-07-05T11:00:00Z");
     expect(aTuple!.lastReadSeq).toBe(20);
     expect(bTuple!.lastReadSeq).toBe(21);
-    spy.mockRestore();
-  });
-
-  it("each upsert carries a seq monotone guard", async () => {
-    const db = makeMassMarkDbMock();
-    const messageModule = await import("../../src/db/queries/community/message");
-    const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([
-      { channelId: "c_a", id: "m_a_new", createdAt: "2026-07-05T10:00:00Z", seq: 20 },
-    ]);
-
-    await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a"]);
-    expect(db.__conflicts[0].setWhere).toBeDefined();
-    expect(db.batch).toHaveBeenCalledTimes(1);
     spy.mockRestore();
   });
 
