@@ -996,8 +996,10 @@ body.driver-active .community-ws-reconnect-overlay * {
 
 .tw-body > .tw-paper-track {
   /* The sheet goes into the top deck behind the platen and stands parallel to the back panel (Gus #2778).
-     The full-width paper guide hides its foot at the rounded deck ends. */
+     Below the deck line the 20px foot exists only over the flat deck (24px in from each side, Gus #2797):
+     the sheet keeps its full width above the deck. */
   transform: translateX(-50%) translateZ(-40px);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 20px), calc(100% - 24px) calc(100% - 20px), calc(100% - 24px) 100%, 24px 100%, 24px calc(100% - 20px), 0 calc(100% - 20px));
 }
 
 

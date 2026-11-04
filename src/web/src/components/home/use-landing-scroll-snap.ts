@@ -5,6 +5,14 @@ import { useEffect, type RefObject } from "react"
 const DESKTOP_SCROLL_QUERY = "(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)"
 const ANCHORS = '[data-landing-scroll-anchor], [data-testid="landing-hero"]'
 
+/** The cue and wheel snap share the content anchor and space below the navigation. */
+export function landingScrollTop(target: HTMLElement) {
+  const anchor = target.matches(ANCHORS) ? target : target.querySelector<HTMLElement>(ANCHORS) ?? target
+  const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+  const offset = anchor.dataset.testid === "landing-hero" ? 0 : 88
+  return Math.max(0, Math.min(max, window.scrollY + anchor.getBoundingClientRect().top - offset))
+}
+
 export function useLandingScrollSnap(root: RefObject<HTMLElement | null>) {
   useEffect(() => {
     if (root.current) return attachLandingScrollSnap(root.current)
@@ -38,8 +46,7 @@ export function attachLandingScrollSnap(root: HTMLElement) {
       .filter(element => element.getClientRects().length > 0)
       .map(element => {
         const section = element.closest("section") ?? element
-        const offset = element.dataset.testid === "landing-hero" ? 0 : 88
-        const top = Math.max(0, Math.min(max, window.scrollY + element.getBoundingClientRect().top - offset))
+        const top = landingScrollTop(element)
         const bottom = window.scrollY + section.getBoundingClientRect().bottom - (parseFloat(getComputedStyle(section).paddingBottom) || 0)
         return { top, end: Math.max(top, Math.min(max, bottom - window.innerHeight + 24)) }
       })

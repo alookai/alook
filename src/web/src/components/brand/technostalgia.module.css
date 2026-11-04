@@ -178,16 +178,15 @@
   --tn-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .35  0 0 0 0 .28  0 0 0 0 .2  0 0 0 .28 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
   --tn-grain-strong: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .35  0 0 0 0 .28  0 0 0 0 .2  0 0 0 .5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
   --tn-halftone: radial-gradient(circle, rgb(31 26 21 / 22%) 1.1px, transparent 1.4px);
+  --tn-paper-grid-image: var(--tn-grain), linear-gradient(var(--tn-grid) 1px, transparent 1px), linear-gradient(90deg, var(--tn-grid) 1px, transparent 1px);
+  --tn-paper-grid-size: 180px 180px, 32px 32px, 32px 32px;
 }
 
 /* Paper: blue grid printed on slightly toothy stock */
 .grid {
   background-color: var(--tn-paper);
-  background-image:
-    var(--tn-grain),
-    linear-gradient(var(--tn-grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--tn-grid) 1px, transparent 1px);
-  background-size: 180px 180px, 32px 32px, 32px 32px;
+  background-image: var(--tn-paper-grid-image);
+  background-size: var(--tn-paper-grid-size);
 }
 
 /* Gloss: the shell reflection Gus picked (#2098, #2102). A soft pill of
@@ -1338,19 +1337,19 @@
 [data-tn-mode="dark"] .theme [class~="max-w-[160px]"][class~="rounded-md"] { background: #1a1a1a !important; }
 
 /* Status pills become an LED with a mono label */
-.theme [data-slot="card"] span[class~="rounded-full"][class~="text-[11px]"] {
+.theme [data-slot="card"] span[class~="rounded-full"][class~="text-[11px]"]:not([data-slot="badge"]) {
   padding: 0 !important;
   background: transparent !important;
   color: var(--tn-muted) !important;
   font-family: var(--font-dm-mono), monospace;
   letter-spacing: 0.02em;
 }
-.theme [data-slot="card"] span[class~="rounded-full"][class~="text-[11px]"] > span[class~="rounded-full"] {
+.theme [data-slot="card"] span[class~="rounded-full"][class~="text-[11px]"]:not([data-slot="badge"]) > span[class~="rounded-full"] {
   width: 7px !important;
   height: 7px !important;
   background: color-mix(in oklab, var(--tn-text) 25%, transparent) !important;
 }
-.theme [data-slot="card"] span[class~="rounded-full"][class~="text-[11px]"] > span[class~="bg-status-online"] {
+.theme [data-slot="card"] span[class~="rounded-full"][class~="text-[11px]"]:not([data-slot="badge"]) > span[class~="bg-status-online"] {
   background: var(--tn-led-ok) !important;
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--tn-led-ok) 20%, transparent), 0 0 8px color-mix(in oklab, var(--tn-led-ok) 70%, transparent);
 }
@@ -2090,10 +2089,8 @@
   --tw-blob-theme: #e9dfcb;
   --font-crt: var(--font-sans);
   background-color: var(--landing-bg) !important;
-  background-image:
-    linear-gradient(#bcd6e6 1px, transparent 1px),
-    linear-gradient(90deg, #bcd6e6 1px, transparent 1px) !important;
-  background-size: 32px 32px, 32px 32px !important;
+  background-image: var(--tn-paper-grid-image) !important;
+  background-size: var(--tn-paper-grid-size) !important;
   background-attachment: fixed;
 }
 :global(.dark) .theme :global(.landing),
@@ -2110,9 +2107,7 @@
   --landing-crt-bg: #050506;
   --landing-phosphor: #c4cfff;
   --tw-blob-theme: #0f1222;
-  background-image:
-    linear-gradient(#1d2230 1px, transparent 1px),
-    linear-gradient(90deg, #1d2230 1px, transparent 1px) !important;
+  background-image: var(--tn-paper-grid-image) !important;
 }
 /* Headlines: bold sans, tight; the emphasis line becomes the handwritten accent */
 .theme :global(.landing) :is(h1, h2, h3) {
@@ -2135,17 +2130,13 @@
 /* Sign-in (#2288): the card sits on the same grid paper as the landing */
 .theme [data-slot="auth-page"] {
   background-color: var(--tn-paper) !important;
-  background-image:
-    linear-gradient(#bcd6e6 1px, transparent 1px),
-    linear-gradient(90deg, #bcd6e6 1px, transparent 1px) !important;
-  background-size: 32px 32px, 32px 32px !important;
+  background-image: var(--tn-paper-grid-image) !important;
+  background-size: var(--tn-paper-grid-size) !important;
 }
 :global(.dark) .theme [data-slot="auth-page"] > [aria-hidden][class~="fixed"],
 [data-tn-mode="dark"] .theme [data-slot="auth-page"] {
   background-color: #000 !important;
-  background-image:
-    linear-gradient(#1d2230 1px, transparent 1px),
-    linear-gradient(90deg, #1d2230 1px, transparent 1px) !important;
+  background-image: var(--tn-paper-grid-image) !important;
 }
 .theme [data-slot="auth-page"] [data-slot="card"] {
   --tw-ring-color: var(--tn-line) !important;
@@ -2562,4 +2553,11 @@
 }
 .theme button[class~="community-composer-send"][data-variant][data-slot="button"]:is(:disabled, [data-disabled])::before {
   display: none;
+}
+
+/* Brand Visual's paper stock also surrounds onboarding; the form itself stays a flat reading surface. */
+.theme [data-slot="onboarding-backdrop"] {
+  background-color: var(--tn-paper) !important;
+  background-image: var(--tn-paper-grid-image) !important;
+  background-size: var(--tn-paper-grid-size) !important;
 }

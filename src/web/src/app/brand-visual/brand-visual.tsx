@@ -26,6 +26,7 @@ import type { CommunityProfile } from "@/lib/community/models/people"
 import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
 import tn from "@/components/brand/technostalgia.module.css"
 import { useTheme } from "next-themes"
+import { PaperStickerSpecimen } from "./paper-sticker-specimen"
 import { AppComponents, FeatureMessages } from "./app-components"
 import { AppSettingsSpecimens } from "./app-settings"
 import { AppBotsSpecimens } from "./app-bots"
@@ -200,6 +201,8 @@ export function BrandVisual() {
           <h1>Alook <span className={s.hand}>technostalgia</span></h1>
           <p>Beige plastic and CD blue on grid paper, with quiet hairline edges. Built from our real shadcn components.</p>
         </header>
+
+        <PaperStickerSpecimen />
 
         <Section title="Foundations">
           <div className={s.swatches}>

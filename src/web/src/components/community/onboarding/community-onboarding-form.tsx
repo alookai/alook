@@ -293,7 +293,7 @@ export function CommunityOnboardingForm() {
   const switching = selected && ["machine", "model", "identity"].includes(state.stage)
   return <SetupDialog.Root open onOpenChange={(_open, details) => details.cancel()}>
     <SetupDialog.Portal>
-    <SetupDialog.Backdrop className={`fixed inset-0 z-50 ${appBackdropClassName}`}><AppEdgeFade /></SetupDialog.Backdrop>
+    <SetupDialog.Backdrop data-slot="onboarding-backdrop" className={`fixed inset-0 z-50 ${appBackdropClassName}`}><AppEdgeFade /></SetupDialog.Backdrop>
     <SetupDialog.Popup aria-label="Set up Alook" data-testid="onboarding-surface" className="fixed top-[max(1rem,12dvh)] left-1/2 z-50 flex max-h-[calc(100dvh-max(1rem,12dvh)-1rem)] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 flex-col overflow-hidden rounded-xl bg-popover text-foreground text-popover-foreground shadow-(--e2) outline-none">
     <OnboardingSurface>
       {/* Title, mode switch and close live inside the card, on its top edge (QA #4). */}

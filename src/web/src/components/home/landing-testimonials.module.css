@@ -33,106 +33,65 @@
   line-height: 1.6;
 }
 
-/* The wall is a machine body: a beige plastic panel the posts are stuck onto as stickers (Gus #2742–2743). */
+/* Posts and grain travel together as one wall; there is no movement between the rows. */
 .wall {
-  display: grid;
-  width: calc(100% - var(--landing-page-gutter) * 2);
-  max-width: calc(var(--landing-content-max) + 160px);
+  container-type: inline-size;
+  width: 100%;
+  max-width: none;
   margin-inline: auto;
   min-width: 0;
-  gap: 28px;
-  padding-block: 36px;
-  border-radius: 32px;
-  background:
-    var(--tn-grain, none),
-    linear-gradient(175deg, #efe6d3, #e2d6bd 70%, #d9cbb0);
-  background-size: 180px 180px, 100% 100%;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%), inset 0 -10px 24px -16px rgb(80 60 30 / 35%), 0 0 0 0.5px rgb(60 45 20 / 18%);
+  border-radius: 0;
   overflow: hidden;
   contain: paint;
 }
 
-/* Posts fade out at both edges instead of being cut mid-word (QA #12). The mask sits on each lane,
- * so the panel edge stays crisp in light and dark. */
-.lane {
-  overflow-x: hidden;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 clamp(24px, 6vw, 96px), #000 calc(100% - clamp(24px, 6vw, 96px)), transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 clamp(24px, 6vw, 96px), #000 calc(100% - clamp(24px, 6vw, 96px)), transparent);
-}
-
-.track {
-  display: flex;
+.wallSurface {
+  display: grid;
   width: max-content;
-  animation: drift 100s linear infinite;
-}
-
-.lane:nth-child(2) .track {
-  animation-direction: reverse;
-  animation-duration: 110s;
+  min-width: 100%;
+  gap: 20px;
+  padding-block: 36px;
+  border-radius: 0;
+  background:
+    var(--tn-grain, none),
+    linear-gradient(175deg, var(--tn-plastic), var(--tn-plastic-side));
+  background-size: 180px 180px, 100% 100%;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 45%), inset 0 -10px 24px -16px rgb(80 60 30 / 35%);
+  animation: wallPan 180s linear infinite alternate;
 }
 
 .messages {
   display: flex;
+  align-items: flex-start;
+  width: max-content;
   gap: 40px;
   margin: 0;
-  /* Room for tilted sticker corners (up to ±4° on 360 px ≈ 13 px) inside the clipped lane. */
-  padding: 18px 40px 18px 8px;
+  padding: 34px 40px;
   list-style: none;
 }
+
+.messages:nth-child(2) { padding-left: 200px; }
 
 .messages > li {
   width: 360px;
   flex-shrink: 0;
-  rotate: var(--sticker-tilt, 0deg);
-  transition: rotate 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), translate 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Hand-placed: each sticker sits a few pixels higher or lower (from the author's name). */
+  margin-top: var(--sticker-jitter, 0px);
 }
 
-/* Hover straightens and lifts a sticker; pressing pushes it back onto the panel. */
-.messages > li:hover {
-  rotate: 0deg;
-  translate: 0 -3px;
-}
-
-.messages > li:active {
-  translate: 0 0;
-  transition-duration: 0.08s;
-}
-
-/* Each post is a printed sticker on the shared Card: paper face, hairline edge, a thin contact shadow. */
-.card {
-  height: 100%;
-  padding: 0;
-  border-radius: 14px !important;
-  background: linear-gradient(160deg, #fffdf8, #f7f1e5) !important;
-  box-shadow: 0 0 0 0.5px rgb(60 45 20 / 16%), 0 1px 1px rgb(60 45 20 / 10%), 0 8px 16px -10px rgb(60 45 20 / 40%) !important;
-}
-
-:global(.dark) .wall,
-[data-tn-mode="dark"] .wall {
-  background:
-    linear-gradient(175deg, #1c1d22, #15161a 70%, #111215);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%), inset 0 -10px 24px -16px rgb(0 0 0 / 60%), 0 0 0 0.5px rgb(255 255 255 / 10%);
-}
-
-:global(.dark) .card,
-[data-tn-mode="dark"] .card {
-  background: linear-gradient(160deg, #24252b, #1e1f24) !important;
-  box-shadow: 0 0 0 0.5px rgb(255 255 255 / 10%), 0 8px 16px -10px rgb(0 0 0 / 70%) !important;
-}
-
+/* The link is only the hit area; the PaperSticker carries the look and the hover/press response. */
 .message {
-  display: flex;
-  gap: 12px;
-  min-height: 44px;
+  display: block;
   height: 100%;
-  padding: 16px;
-  border-radius: inherit;
-  color: var(--landing-text);
+  border-radius: 19px;
+  color: inherit;
   text-decoration: none;
 }
 
-.message:focus-visible {
-  background: var(--landing-surface);
+.sticker {
+  display: block;
+  height: auto;
+  padding: 30px 22px 24px;
 }
 
 .message:focus-visible {
@@ -169,11 +128,11 @@
 
 .sourceIcon {
   flex-shrink: 0;
-  color: var(--landing-text-muted);
+  color: rgb(42 35 27 / 55%);
 }
 
 .handle {
-  color: var(--landing-text-muted);
+  color: rgb(42 35 27 / 62%);
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.4;
@@ -181,47 +140,55 @@
 }
 
 .body blockquote {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-  margin-top: 8px;
-  font-size: 15px;
-  line-height: 1.375;
+  display: block;
+  overflow: visible;
+  margin-top: 22px;
+  font-size: 17px;
+  line-height: 1.42;
   overflow-wrap: anywhere;
   white-space: pre-line;
 }
 
-@keyframes drift {
-  to { transform: translateX(-50%); }
+@keyframes wallPan {
+  to { transform: translateX(min(0px, calc(100cqw - 100%))); }
 }
 
-.wall:hover .track,
-.wall:active .track {
+.wall:hover .wallSurface,
+.wall:active .wallSurface {
   animation-play-state: paused;
 }
 
-.wall:has(:focus-visible) .track {
+.wall:has(:focus-visible) .wallSurface {
   animation: none;
 }
 
-.wall:has(:focus-visible) .lane {
-  overflow-x: auto;
+.wall:has(:focus-visible) { overflow-x: auto; }
+
+/* The portrait, author and full quote share the contour in the wall and the design specimen. */
+.sticker > [data-slot="avatar"] {
+  position: absolute;
+  top: 44px;
+  left: calc(4.2% + 2px);
+  width: calc(16% - 4px);
+  height: auto;
+  aspect-ratio: 1;
+  transform: translateY(-50%);
 }
 
-.wall:has(:focus-visible) .duplicate {
-  display: none;
-}
+.sticker .author,
+.sticker .handle { margin-left: 64px; }
 
 @media (max-width: 639px) {
   .intro { margin-bottom: 32px; }
-  .wall { gap: 24px; }
-  .messages { gap: 24px; padding-right: 24px; }
-  .messages > li { width: min(360px, calc(100vw - 48px)); }
+  .messages { gap: 24px; padding-inline: 32px; }
+  .messages:nth-child(2) { padding-left: 176px; }
+  .messages > li { width: min(360px, calc(100vw - 80px)); }
+  .sticker { padding-inline: 20px; }
+  .sticker .author,
+  .sticker .handle { margin-left: 54px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .track { animation: none; }
-  .lane { overflow-x: auto; }
-  .duplicate { display: none; }
+  .wallSurface { animation: none; }
+  .wall { overflow-x: auto; }
 }
