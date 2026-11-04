@@ -17,7 +17,7 @@ describe("shared Privacy policy", () => {
 
     expect(html).toContain(`data-privacy-policy="${PRIVACY_POLICY.lastUpdated}"`)
     expect(html).toContain(`Last updated: ${PRIVACY_POLICY.lastUpdated}`)
-    expect(PRIVACY_POLICY.lastUpdated).toBe("October 10, 2026")
+    expect(PRIVACY_POLICY.lastUpdated).toBe("November 4, 2026")
     expect(html).toContain("Interpretation and Definitions")
     expect(html).toContain("Collecting and Using Your Personal Data")
     expect(html).toContain("Your Data Rights")
