@@ -384,8 +384,8 @@ export function FriendsPage({
                             <span className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</span>
                           </button>
                           <div className="flex gap-2">
-                            <Button variant="secondary" size="icon" disabled={actionPending} onClick={() => { void incomingActions.act(item, "accept") }} className="size-11 rounded-full text-status-online sm:size-8" aria-label={`Accept ${p.name}'s friend request`}>
-                              {actionPending && item.action === "accept" ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
+                            <Button variant="secondary" size="icon" disabled={actionPending} onClick={() => { void incomingActions.act(item, "accept") }} className="size-11 rounded-full sm:size-8" aria-label={`Accept ${p.name}'s friend request`}>
+                              {actionPending && item.action === "accept" ? <LoaderCircle className="size-4 animate-spin" /> : <Check className={actionPending ? "size-4" : "size-4 text-status-online"} />}
                             </Button>
                             <Button variant="secondary" size="icon" disabled={actionPending} onClick={() => { void incomingActions.act(item, "reject") }} className="size-11 rounded-full text-destructive sm:size-8" aria-label={`Reject ${p.name}'s friend request`}>
                               {actionPending && item.action === "reject" ? <LoaderCircle className="size-4 animate-spin" /> : <X className="size-4" />}

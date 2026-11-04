@@ -614,7 +614,7 @@ function ProductGallery() {
         </div>
         <div className={galleryStyles.gallerySwitcher} aria-label="Product stories">
           {galleryScenes.map((item, i) => (
-            <Button variant="ghost" size="sm"
+            <Button variant="ghost" size="icon"
               key={item.scene}
               onClick={() => setActive(i)}
               className="grid size-8 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

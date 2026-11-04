@@ -213,11 +213,11 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onO
                       disabled={pending}
                       onClick={() => onAcceptFriendRequest?.(item)}
                       aria-label={`Accept ${profile.name}'s friend request`}
-                      className="size-11 rounded-full text-status-online sm:size-8"
+                      className="size-11 rounded-full sm:size-8"
                     >
                       {pending && item.action === "accept"
                         ? <LoaderCircle className="size-4 animate-spin" />
-                        : <Check className="size-4" />}
+                        : <Check className={pending ? "size-4" : "size-4 text-status-online"} />}
                     </Button>
                     <Button
                       data-testid={tid.inboxFriendRequestReject(request.id)}
@@ -359,8 +359,8 @@ function MentionsTab({ mentions, loading, error, onRetry, onOpenMention, onDelet
             </div>
           </button>
           {onDeleteMention && (
-            <Button variant="secondary" size="icon" onClick={() => onDeleteMention(mn.id)} aria-label="Mark mention as read" className="z-10 col-start-2 row-start-1 size-5 text-muted-foreground">
-              <Check className="size-3.5" />
+            <Button variant="secondary" size="icon" onClick={() => onDeleteMention(mn.id)} aria-label="Mark mention as read" className="z-10 col-start-2 row-start-1 size-5">
+              <Check className="size-3.5 text-muted-foreground" />
             </Button>
           )}
         </div>
@@ -408,7 +408,7 @@ function MarkedTab({ marked, loading, onOpenMarked, onUnmark, profilesByUserId, 
           </button>
           {onUnmark && (
             <DropdownMenu>
-              <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="mt-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100" aria-label="More" />}>
+              <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="mt-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100" aria-label="More" />}>
                 <MoreHorizontal className="size-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" sideOffset={4} className="w-36">

@@ -273,7 +273,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             ref={updateBadgeRef}
             type="button"
             data-testid={tid.daemonUpdateBadge}
-            className={cn(styles.target,   "rounded-lg text-secondary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
+            className={cn(styles.target, styles.squareButton, styles.update, "rounded-lg text-secondary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
             aria-label={updateBadgeLabel}
             onClick={() => {
               onRequestExtensionFocus("update")
@@ -293,6 +293,8 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             data-testid={tid.inboxTrigger}
             className={cn(
               styles.target,
+              styles.squareButton,
+              styles.inbox,
               "rounded-lg text-muted-foreground aria-expanded:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
               mobile && "active:text-foreground",
             )}
@@ -324,7 +326,8 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
           }}
           className={cn(
             styles.target,
-            "rounded-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+            styles.squareButton,
+            "rounded-lg text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
             mobile && "active:text-foreground",
           )}
           aria-label="User settings"

@@ -142,7 +142,7 @@ let caseJourneyFailure2Present = false
       `[data-testid^="${tid.botAuditPreviewRow("")}"]`,
     )
     const activityScroller = sticker
-      .getByRole("tabpanel", { name: "Recent thoughts" })
+      .getByRole("tabpanel", { name: "Recent thoughts", exact: true })
       .getByTestId(tid.botAuditPreviewScroll)
     await expect(activityTab).toHaveAttribute("aria-selected", "true")
     await expect(auditRows).toHaveCount(10)

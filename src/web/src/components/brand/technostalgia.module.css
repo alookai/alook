@@ -223,7 +223,7 @@
   opacity: 0.55;
 }
 
-.theme :is(button, a)[data-variant][data-size^="icon"]::before {
+.theme :is(button, a)[data-variant][data-size^="icon"]:not([data-variant="ghost"], [data-variant="link"])::before {
   right: 5px;
   left: 5px;
 }
@@ -243,9 +243,9 @@
 }
 
 
-/* Buttons: keycaps. A beige or blue face, an ink outline, a short darker
- * side that disappears when the key goes down. */
-.theme :is(button, a)[data-variant] {
+/* Raised variants are keycaps. Ghost/link keep caller typography, color,
+ * surfaces and focus rings so business states survive the theme. */
+.theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"]) {
   border-width: 0;
   border-radius: 999px;
   background: var(--tn-spec), linear-gradient(#e6dccb, var(--tn-plastic) 62%, #c3b190);
@@ -297,10 +297,8 @@
 }
 
 .theme :is(button, a)[data-variant]:is([data-variant="ghost"], [data-variant="link"]) {
-  color: var(--tn-text);
+  border-width: 0;
   border-color: transparent;
-  background: transparent;
-  box-shadow: none;
 }
 
 .theme :is(button, a)[data-variant][data-variant="ghost"]:hover {

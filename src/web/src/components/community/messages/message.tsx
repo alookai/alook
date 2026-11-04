@@ -383,7 +383,7 @@ function MessageImpl({
   const selectable = selectMode && canShare
   const reactionAddButton = (
     <Button type="button" variant="secondary" size="icon-xs" className="h-6 w-7 rounded-md text-muted-foreground hover:text-foreground" aria-label="Add reaction">
-      <SmilePlus className="size-4" />
+      <SmilePlus className="size-4 text-muted-foreground group-hover/button:text-foreground group-aria-expanded/button:text-foreground" />
     </Button>
   )
   const reactionAddPicker = (
@@ -641,24 +641,24 @@ function MessageImpl({
           )}
           {onReact && (
             <EmojiPickerPopover side="bottom" align="end" onPick={(e) => onReact(e)} onOpenChange={setToolbarOpen}>
-              <Button variant="ghost" size="sm" data-testid={tid.reactionAdd(m.id)} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" aria-label="Add reaction">
+              <Button variant="ghost" size="icon-sm" data-testid={tid.reactionAdd(m.id)} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" aria-label="Add reaction">
                 <SmilePlus className="size-4" />
               </Button>
             </EmojiPickerPopover>
           )}
           {onReply && (
-            <Button variant="ghost" size="sm" onClick={onReply} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Reply">
+            <Button variant="ghost" size="icon-sm" onClick={onReply} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Reply">
               <Reply className="size-4" />
             </Button>
           )}
           {canShare && (onEnterSelect || onShareSingle) && (
-            <Button variant="ghost" size="sm" data-testid={tid.messageShare(m.id)} onClick={onEnterSelect ?? onShareSingle} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Share as image">
+            <Button variant="ghost" size="icon-sm" data-testid={tid.messageShare(m.id)} onClick={onEnterSelect ?? onShareSingle} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Share as image">
               <Share className="size-4" />
             </Button>
           )}
           <DropdownMenu onOpenChange={setToolbarOpen}>
             <DropdownMenuTrigger
-              render={<Button variant="ghost" size="sm" aria-label="More actions" className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" />}
+              render={<Button variant="ghost" size="icon-sm" aria-label="More actions" className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" />}
             >
               <MoreHorizontal className="size-4" />
             </DropdownMenuTrigger>
@@ -671,13 +671,13 @@ function MessageImpl({
 
       {m.replyTo && (
         <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-2">
-          <Button variant="ghost" size="sm" aria-label="Show original message" onClick={onJumpReply} className="h-auto whitespace-normal p-0 col-start-2 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" aria-label="Show original message" onClick={onJumpReply} className="h-auto whitespace-normal p-0 col-start-2 flex min-w-0 items-center justify-start gap-2 text-left text-[13px] font-normal text-muted-foreground hover:text-foreground hover:bg-transparent!">
             <div className="h-2 w-4 shrink-0 rounded-tl-md border-l-2 border-t-2 border-border" />
             {m.replyTo.deleted ? (
               <span className="italic text-muted-foreground">Original message was deleted</span>
             ) : (
               <>
-                <span className="shrink-0 font-medium text-foreground/80">@{replyAuthorName}</span>
+                <span className="shrink-0 text-foreground/80">@{replyAuthorName}</span>
                 <span className="min-w-0 truncate">{m.replyTo.text}</span>
               </>
             )}

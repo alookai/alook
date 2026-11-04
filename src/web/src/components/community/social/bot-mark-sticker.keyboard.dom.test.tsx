@@ -25,6 +25,6 @@ describe("Bot log keyboard navigation", () => {
     expect(renderer.container.querySelector("footer")).toBe(footer)
     await user.keyboard("{ArrowLeft}{Enter}")
     expect(thoughts).toHaveFocus()
-    expect(renderer.getByRole("tabpanel", { name: "Thoughts" })).toBeVisible()
+    expect(renderer.getByRole("tabpanel", { name: "Recent thoughts" })).toBeVisible()
   })
 })

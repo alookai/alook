@@ -250,7 +250,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
                     render={children}` (which clones this exact element) or
                     nesting an interactive `Tooltip.Trigger` inside a
                     `<button>` that's already a trigger for something else. */}
-                <Button variant="ghost" size="sm" title={statusText || undefined} className="h-auto absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                <Button variant="ghost" size="sm" title={statusText || undefined} style={{ translate: "0 -50%" }} className="h-auto absolute left-full top-[68.5px] ml-2 flex max-w-32 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
                   {hasStatus(statusEmoji, statusText) ? (
                     <>
                       {statusEmoji && <span>{statusEmoji}</span>}
@@ -337,9 +337,9 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
                 className="h-9 pr-10 text-[15px]"
                 placeholder={`Message @${name}`}
               />
-              <Button variant="ghost" size="sm"
+              <Button variant="ghost" size="icon-sm"
                 onClick={send}
-                className="absolute top-1/2 right-1 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                className="absolute inset-y-0 right-1 my-auto grid size-7 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 aria-label="Send message"
               >
                 <MessagesSquare className="size-4" />

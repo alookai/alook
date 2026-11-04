@@ -343,7 +343,7 @@ export function ForumView({
                         {canEdit && (
                           <PostTagDialog
                             trigger={(
-                              <Button variant="ghost" size="sm"
+                              <Button variant="ghost" size="icon"
                                 type="button"
                                 data-testid={tid.forumThreadTagBtn(p.id)}
                                 onClick={(event) => event.stopPropagation()}
@@ -361,7 +361,7 @@ export function ForumView({
                           />
                         )}
                         {canEdit && (
-                          <Button variant="ghost" size="sm"
+                          <Button variant="ghost" size="icon"
                             type="button"
                             data-testid={tid.forumThreadArchiveBtn(p.id)}
                             disabled={savingTags}
@@ -381,7 +381,7 @@ export function ForumView({
                           </Button>
                         )}
                         {canDelete && (
-                          <Button variant="ghost" size="sm"
+                          <Button variant="ghost" size="icon"
                             type="button"
                             data-testid={tid.forumThreadDeleteBtn(p.id)}
                             disabled={deletingPost === p.id}

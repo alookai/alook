@@ -336,7 +336,7 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
     await page.goto("/")
     const order = await page.locator("#testimonials, #workspace, #product").evaluateAll(elements => elements.map(element => element.id))
     expect(order).toEqual(["testimonials", "workspace", "product"])
-    await expect(page.getByRole("heading", { name: "Try it. Imagine your team and friends here." })).toHaveCount(1)
+    await expect(page.getByRole("heading", { name: "Try it: imagine your team and friends here" })).toHaveCount(1)
     const tabs = page.getByRole("tablist", { name: "Features" }).getByRole("tab")
     await tabs.first().scrollIntoViewIfNeeded()
     await expect(tabs).toHaveCount(5)

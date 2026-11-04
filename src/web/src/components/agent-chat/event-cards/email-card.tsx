@@ -137,7 +137,7 @@ export function EmailCard({
                 touchAction.onClick();
                 setTouchSheetOpen(false);
               }}
-              className="flex items-center gap-3 rounded-lg px-3 py-3 text-left text-[0.95rem] active:bg-muted text-foreground"
+              className="h-auto flex items-center justify-start gap-3 rounded-lg px-3 py-3 text-left text-[0.95rem] active:bg-muted text-foreground"
             >
               <span className="text-muted-foreground"><MessageSquare className="w-5 h-5" /></span>
               {touchAction.label}

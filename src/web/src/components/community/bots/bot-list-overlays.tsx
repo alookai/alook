@@ -43,10 +43,10 @@ export function renderBotListOverlaySlots(
         onOpenChange={controller.setEditOpen}
       />
     ),
-    memberships: controller.membershipBot ? <BotMembershipsSheet key={controller.membershipsGeneration} bot={controller.membershipBot} open={controller.membershipsOpen} onOpenChange={controller.setMembershipsOpen} /> : null,
+    memberships: controller.membershipBot ? <BotMembershipsSheet key={`memberships:${controller.membershipsGeneration}`} bot={controller.membershipBot} open={controller.membershipsOpen} onOpenChange={controller.setMembershipsOpen} /> : null,
     activity: (
       <BotActivityModal
-        key={controller.activityGeneration}
+        key={`activity:${controller.activityGeneration}`}
         bot={controller.activityBot}
         open={controller.activityOpen}
         onOpenChange={controller.onActivityOpenChange}
@@ -58,7 +58,7 @@ export function renderBotListOverlaySlots(
     ),
     bug: controller.bugReportBot ? (
       <BugReportDialog
-        key={controller.bugReportBot.id}
+        key={`bug:${controller.bugReportBot.id}`}
         bot={controller.bugReportBot}
         open={controller.bugReportOpen}
         onOpenChange={controller.setBugReportOpen}

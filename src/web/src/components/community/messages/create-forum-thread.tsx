@@ -139,7 +139,7 @@ export function CreateForumThread({
           maxLength={MAX_CHANNEL_NAME_LENGTH}
           className="w-full min-w-0 bg-transparent text-2xl font-semibold outline-none placeholder:text-muted-foreground"
         />
-        <Button variant="ghost" size="sm"
+        <Button variant="ghost" size="icon-sm"
           type="button"
           onClick={onCancelGuarded}
           className="grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -167,7 +167,7 @@ export function CreateForumThread({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={(
-              <Button variant="ghost" size="sm"
+              <Button variant="ghost" size="icon"
                 type="button"
                 className="grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
                 aria-label="Add"

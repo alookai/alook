@@ -4,6 +4,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import type React from "react"
 import { CircleAlert, Link2Off, LoaderCircle, LockKeyhole } from "lucide-react"
+import styles from "./inline-marks.module.css"
 import { ChannelIcon } from "../channels/channel-icon"
 
 // Pill components the streamdown renderer maps custom tags to (see message-markdown.tsx).
@@ -43,7 +44,7 @@ export function MentionPill({
   const title = label ?? (typeof children === "string" ? children : undefined)
   const className = [
     "inline-block max-w-[12rem] truncate align-bottom rounded-[4px] px-1 font-medium",
-    everyone ? "bg-primary/15 text-primary" : "bg-accent text-foreground",
+    everyone ? "bg-primary/15 text-primary" : `${styles.reference} bg-accent text-foreground`,
     onClick ? "cursor-pointer transition-colors hover:bg-primary/15 hover:text-primary" : "",
   ].join(" ")
   if (onClick) {
@@ -87,7 +88,7 @@ export function ChannelPill({
   const isMsgRef = seqSuffix !== undefined
   const StatusIcon = state === "loading" ? LoaderCircle : state === "missing" ? Link2Off : state === "forbidden" ? LockKeyhole : state === "error" ? CircleAlert : null
   const className = [
-    "inline-flex max-w-[16rem] items-center gap-1 rounded-lg bg-accent px-1 align-bottom font-medium text-foreground",
+    `${styles.reference} inline-flex max-w-[16rem] items-center gap-1 rounded-lg bg-accent px-1 align-bottom font-medium text-foreground`,
     muted ? "opacity-60" : "",
     onClick ? "group/pill cursor-pointer transition-colors hover:bg-primary/15 hover:text-primary" : "",
   ].join(" ")
@@ -127,7 +128,7 @@ export function ServerPill({
 }) {
   const title = typeof children === "string" ? children : undefined
   const className = [
-    "inline-flex max-w-[16rem] items-center gap-1 rounded-lg bg-accent px-1 align-bottom font-medium text-foreground",
+    `${styles.reference} inline-flex max-w-[16rem] items-center gap-1 rounded-lg bg-accent px-1 align-bottom font-medium text-foreground`,
     muted ? "opacity-60" : "",
     onClick ? "group/pill cursor-pointer transition-colors hover:bg-primary/15 hover:text-primary" : "",
   ].join(" ")

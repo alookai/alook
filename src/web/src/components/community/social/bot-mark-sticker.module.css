@@ -54,8 +54,13 @@
 .hole { fill: var(--note-hole); }
 .content { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; padding: 16px 18px 8px 42px; }
 .header { margin-bottom: 8px; }
-.thoughtTime:hover { background: color-mix(in srgb, var(--note-ink) 4%, transparent); }
-.thoughtTime:active { background: color-mix(in srgb, var(--note-ink) 8%, transparent); }
+.tabs { display: flex; flex-shrink: 0; gap: 16px; margin-top: 0; border-bottom: 1px solid var(--note-rule); padding-bottom: 4px; }
+.tab { position: relative; display: flex; min-width: 44px; min-height: 28px; align-items: center; justify-content: center; gap: 6px; padding-inline: 8px; border-radius: 5px; color: var(--note-muted); font-size: 12px; font-weight: 500; }
+.tabLabel { position: relative; display: inline-flex; height: 28px; align-items: center; }
+.tab[aria-selected="true"] { color: var(--note-ink); }
+.tab[aria-selected="true"]::after { position: absolute; inset: auto 8px -5px; height: 1.5px; background: currentColor; content: ""; }
+.tab:hover, .thoughtTime:hover { background: color-mix(in srgb, var(--note-ink) 4%, transparent); }
+.tab:active, .thoughtTime:active { background: color-mix(in srgb, var(--note-ink) 8%, transparent); }
 .entry { flex-shrink: 0; }
 .entry + .entry { margin-top: 16px; }
 .thoughtTime { display: block; margin-bottom: 4px; padding-inline: 8px; border-radius: 5px; color: var(--note-muted); font-size: 10px; line-height: 16px; }
@@ -65,12 +70,16 @@
 .notebook :global([data-streamdown="table"]) { width: max-content !important; min-width: 100%; max-width: none; table-layout: auto; }
 .footer { display: flex; flex-shrink: 0; min-height: 45px; align-items: center; gap: 8px; margin-top: 0; border-top: 1px solid var(--note-rule); padding-top: 0; font-size: 12px; line-height: 16px; }
 .footer > div { display: flex; align-items: center; }
+.stop { display: flex; min-width: 58px; min-height: 28px; flex-shrink: 0; align-items: center; justify-content: center; gap: 6px; padding-inline: 8px; border-radius: 5px; color: var(--note-stop); font-size: 12px; line-height: 16px; }
 .stopLabel { transform: translateY(1px); }
+.stop:hover { background: color-mix(in srgb, var(--note-stop) 6%, transparent); }
+.stop:active { background: color-mix(in srgb, var(--note-stop) 10%, transparent); }
+.stop:disabled { color: var(--note-muted); cursor: wait; }
 @media (max-width: 639px) {
-  .thoughtTime { min-height: 44px; }
+  .thoughtTime, .stop { min-height: 44px; }
   .footer { min-height: 60px; }
 }
-.thoughtTime:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.tab:focus-visible, .thoughtTime:focus-visible, .stop:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .scrollbar { scrollbar-color: var(--note-rule) transparent; }
 .scrollbar:hover { scrollbar-color: var(--note-muted) transparent; }
 .notebook ::selection { background: color-mix(in srgb, var(--note-ink) 15%, var(--note-paper)); }

@@ -69,25 +69,25 @@ describe("UserBar", () => {
     expect(html).toContain('class="truncate text-sm font-medium leading-tight"')
     expect(html).toContain('class="flex shrink-0 items-center gap-1"')
     const desktopSettingsClass = html.match(
-      /class="([^"]*)" aria-label="User settings"/,
+      /<button(?=[^>]*aria-label="User settings")[^>]*class="([^"]*)"[^>]*>/,
     )?.[1]?.split(" ")
-    expect(desktopSettingsClass).toContain(styles.hoverBackground)
+    expect(desktopSettingsClass).toContain(styles.squareButton)
     expect(desktopSettingsClass).not.toContain("hover:bg-accent")
   })
 
-  it("keeps the mobile Settings action as a color-only icon button", () => {
+  it("keeps mobile Settings on the compact shared icon surface", () => {
     const html = renderToStaticMarkup(createElement(UserBar, {
       breakpoint: "mobile",
       user: { id: "u1", name: "User", avatar: "U" },
     }))
     const settingsClass = html.match(
-      /class="([^"]*)" aria-label="User settings"/,
+      /<button(?=[^>]*aria-label="User settings")[^>]*class="([^"]*)"[^>]*>/,
     )?.[1]?.split(" ")
     expect(settingsClass).toContain("hover:text-foreground")
     expect(settingsClass).toContain("active:text-foreground")
     expect(settingsClass).not.toContain("hover:bg-accent")
-    expect(settingsClass).not.toContain(styles.hoverBackground)
-    expect(settingsClass).not.toContain("border")
+    expect(settingsClass).toContain(styles.squareButton)
+    expect(settingsClass).toContain("border-transparent")
     expect(settingsClass).not.toContain("shadow")
     expect(settingsClass).toContain("focus-visible:ring-2")
   })

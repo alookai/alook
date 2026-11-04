@@ -10,8 +10,6 @@ import { useBotAuditPreview } from "@/hooks/community/use-bot-audit-preview"
 import { useBotMarks } from "@/hooks/community/use-bot-marks"
 import { formatRelativeTime } from "@/lib/community/format-time"
 import { tid } from "@/lib/community/testids"
-import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar } from "../avatar"
 import { MessageBody } from "../messages/message-body"
 import { MessageAuthorLine } from "../messages/message-author-line"
@@ -67,6 +65,8 @@ export function BotMarkStickerView({
   isError: boolean
 }) {
   const [view, setView] = useAtom(useCreateAtom<StickerView>("thoughts"))
+  const tabsId = useId()
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const activityScrollRef = useRef<HTMLDivElement>(null)
   const latestEventIdRef = useRef<string | undefined>(undefined)
   const didInitialTailScrollRef = useRef(false)
@@ -129,27 +129,39 @@ export function BotMarkStickerView({
       <div aria-hidden className={styles.stack} />
       <div aria-hidden className={styles.paper} />
       <NotebookBinding front />
-      <Tabs value={view} onValueChange={(value) => setView(value as StickerView)} className={`${styles.content} gap-0`}>
+      <div className={styles.content}>
       <header className={`${styles.header} flex shrink-0 items-center gap-2`}>
         <span className="font-brand text-[34px] font-bold leading-none">Bot log</span>
         <span className="ml-auto flex items-center gap-1 whitespace-nowrap text-[10px]" style={{ color: "var(--note-muted)" }}>
           <Lock className="size-3" aria-hidden />Only you
         </span>
       </header>
-      <TabsList variant="line" aria-label="Bot log view" className="shrink-0">
+      <div role="tablist" aria-label="Bot log view" className={styles.tabs}>
         {(["thoughts", "marks"] as const).map((tab) => (
-          <TabsTrigger key={tab} value={tab} aria-label={tab === "thoughts" ? "Thoughts" : "Marked messages"}>
-            <span>{tab === "thoughts" ? "Thoughts" : "Marks"}</span>
+          <button key={tab} type="button" role="tab" aria-label={tab === "thoughts" ? "Thoughts" : "Marked messages"}
+            id={`${tabsId}-${tab}-tab`} aria-controls={`${tabsId}-${tab}-panel`}
+            ref={(node) => { tabRefs.current[tab === "thoughts" ? 0 : 1] = node }}
+            tabIndex={view === tab ? 0 : -1} aria-selected={view === tab}
+            onKeyDown={(event) => {
+              const index = tab === "thoughts" ? 0 : 1
+              const next = event.key === "Home" ? 0 : event.key === "End" ? 1
+                : event.key === "ArrowRight" || event.key === "ArrowLeft" ? 1 - index : undefined
+              if (next === undefined) return
+              event.preventDefault()
+              tabRefs.current[next]?.focus()
+            }}
+            onClick={() => setView(tab)} className={styles.tab}>
+            <span className={styles.tabLabel}>{tab === "thoughts" ? "Thoughts" : "Marks"}</span>
             {tab === "marks" && marks.length > 0 && (
               <span data-testid={hasOverflow ? tid.botMarkStickerOverflow : undefined} role={hasOverflow ? "status" : undefined} className="text-[10px] tabular-nums">
                 {hasOverflow && <span className="sr-only">More marked work</span>}{hasOverflow ? "3+" : marks.length}
               </span>
             )}
-          </TabsTrigger>
+          </button>
         ))}
-      </TabsList>
+      </div>
       {view === "thoughts" ? (
-        <TabsContent value="thoughts" aria-label="Recent thoughts" className="flex min-h-0 flex-1 flex-col pt-2">
+        <div id={`${tabsId}-thoughts-panel`} role="tabpanel" aria-label="Recent thoughts" className="flex min-h-0 flex-1 flex-col pt-2">
           <div ref={activityScrollRef} data-testid={tid.botAuditPreviewScroll}
             onScroll={({ currentTarget }) => {
               nearTailRef.current = currentTarget.scrollHeight - (currentTarget.scrollTop + currentTarget.clientHeight) < 80
@@ -175,9 +187,9 @@ export function BotMarkStickerView({
               })}
             </div>
           </div>
-        </TabsContent>
+        </div>
       ) : (
-        <TabsContent value="marks" className={`thin-scrollbar ${styles.scrollbar} mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1`}>
+        <div id={`${tabsId}-marks-panel`} role="tabpanel" aria-label="Marked messages" className={`thin-scrollbar ${styles.scrollbar} mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1`}>
           {isLoading ? (
             <StickerState label="Loading marked messages" />
           ) : isError ? (
@@ -243,20 +255,20 @@ export function BotMarkStickerView({
               })}
             </div>
           )}
-        </TabsContent>
+        </div>
       )}
 
       <footer className={styles.footer}>
         <div className="min-w-0 flex-1 overflow-hidden">
           {active ? <BotAuditActiveRow showTime={false} /> : <span className="text-xs text-(--note-muted)">Ready when you are</span>}
         </div>
-        {showStop && <Button variant="ghost" size="sm" type="button" data-testid={tid.botMarkStickerStop} onClick={onStop} disabled={stopPending}
-          aria-label={stopPending ? "Stopping current agent turn" : "Stop current agent turn"} className="h-7 shrink-0 gap-1.5 px-2 text-xs text-(--note-stop) max-sm:min-h-11">
+        {showStop && <button type="button" data-testid={tid.botMarkStickerStop} onClick={onStop} disabled={stopPending}
+          aria-label={stopPending ? "Stopping current agent turn" : "Stop current agent turn"} className={styles.stop}>
           {stopPending ? <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <CircleStop className="size-3.5" aria-hidden />}
           <span className={styles.stopLabel}>{stopPending ? "Stopping…" : "Stop"}</span>
-        </Button>}
+        </button>}
       </footer>
-      </Tabs>
+      </div>
     </section>
   )
 }
