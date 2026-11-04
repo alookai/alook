@@ -2644,6 +2644,11 @@
   --tw-ring-color: currentColor;
 }
 
+/* Compose the filter's selection/focus ring with its paper lift. */
+:global(body).theme:has([data-community-shell]) :is([data-testid^="community-forum-tag-chip-"], [data-testid="community-forum-tag-all"]) {
+  box-shadow: var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tn-paper-lift) !important;
+}
+
 /* These metadata fields remain necessary reading, rather than decoration. */
 :global(body).theme:has([data-community-shell]) :is([data-testid="bot-activity-row"], [data-testid="community-bot-audit-preview"]) [class~="text-muted-foreground/70"],
 :global(body).theme:has([data-community-shell]) [data-testid="bot-card-model"][class~="text-muted-foreground/70"],
