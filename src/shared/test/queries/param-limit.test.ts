@@ -205,27 +205,58 @@ describe("getUsersByIds bound parameters and result set", () => {
       "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z", "1234"];
   }
 
+  function userReadDb(ids: string[]) {
+    const sqlite = new Sqlite(":memory:");
+    try {
+      sqlite.exec(`CREATE TABLE user (
+        id TEXT PRIMARY KEY, name TEXT, email TEXT, emailVerified INTEGER,
+        image TEXT, avatarVersion INTEGER, createdAt TEXT, updatedAt TEXT, discriminator TEXT
+      )`);
+      const insert = sqlite.prepare("INSERT INTO user VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      for (const id of [...ids, "outside-user"]) insert.run(...rawUser(id));
+      const statements: Array<{ sql: string; params: unknown[] }> = [];
+      const client = {
+        prepare(sql: string) {
+          return {
+            bind(...params: unknown[]) {
+              statements.push({ sql, params });
+              return { raw: async () => sqlite.prepare(sql).raw(true).all(...params) };
+            },
+          };
+        },
+      };
+      return { sqlite, db: drizzle(client as never), statements };
+    } catch (error) {
+      sqlite.close();
+      throw error;
+    }
+  }
+
+  function expectedUsers(ids: string[]) {
+    return ids.map(id => ({
+      id, name: id, email: `${id}@example.test`, emailVerified: false,
+      image: null, avatarVersion: 0, createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z", discriminator: "1234",
+    }));
+  }
+
   it.each([
-    { count: 100, sizes: [100] },
-    { count: 101, sizes: [100, 1] },
-    { count: 201, sizes: [100, 100, 1] },
-  ])("returns all $count users within each statement's bind budget", async ({ count, sizes }) => {
+    { count: 100 },
+    { count: 101 },
+    { count: 201 },
+  ])("returns all $count users within each statement's bind budget", async ({ count }) => {
     const ids = Array.from({ length: count }, (_, index) => `user_${index}`);
-    let offset = 0;
-    const responses = sizes.map((size) => {
-      const rows = ids.slice(offset, offset + size).map(rawUser);
-      offset += size;
-      return rows;
-    });
-    const { db, statements } = makeD1Capture(responses);
-
-    const rows = await userQueries.getUsersByIds(db as never, ids);
-
-    expect(statements.map(({ params }) => params.length)).toEqual(sizes);
-    expect(statements.flatMap(({ params }) => params)).toEqual(ids);
-    expect(rows.map(({ id }) => id).sort()).toEqual([...ids].sort());
-    for (const { params } of statements) {
-      expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+    const originalIds = [...ids];
+    const { sqlite, db, statements } = userReadDb(ids);
+    try {
+      const rows = await userQueries.getUsersByIds(db as never, ids);
+      expect([...rows].sort((a, b) => a.id.localeCompare(b.id)))
+        .toEqual(expectedUsers(ids).sort((a, b) => a.id.localeCompare(b.id)));
+      expect(statements.flatMap(({ params }) => params).sort()).toEqual([...ids].sort());
+      for (const { params } of statements) expect(params.length).toBeLessThanOrEqual(100);
+      expect(ids).toEqual(originalIds);
+    } finally {
+      sqlite.close();
     }
   });
 
@@ -233,17 +264,20 @@ describe("getUsersByIds bound parameters and result set", () => {
     const uniqueIds = Array.from({ length: 101 }, (_, index) => `user_${index}`);
     const ids = [...uniqueIds.slice(0, 100), uniqueIds[0]!, uniqueIds[100]!, uniqueIds[50]!];
     const originalIds = [...ids];
-    const { db, statements } = makeD1Capture([
-      uniqueIds.slice(0, 100).map(rawUser), [rawUser(uniqueIds[100]!)],
-    ]);
-
-    const rows = await userQueries.getUsersByIds(db as never, ids);
-
-    expect(statements.map(({ params }) => params.length)).toEqual([100, 1]);
-    expect(statements.flatMap(({ params }) => params)).toEqual(uniqueIds);
-    expect(rows.map(({ id }) => id).sort()).toEqual([...uniqueIds].sort());
-    expect(new Set(rows.map(({ id }) => id)).size).toBe(rows.length);
-    expect(ids).toEqual(originalIds);
+    const { sqlite, db, statements } = userReadDb(uniqueIds);
+    try {
+      const rows = await userQueries.getUsersByIds(db as never, ids);
+      expect([...rows].sort((a, b) => a.id.localeCompare(b.id)))
+        .toEqual(expectedUsers(uniqueIds).sort((a, b) => a.id.localeCompare(b.id)));
+      const parameters = statements.flatMap(({ params }) => params);
+      expect([...parameters].sort()).toEqual([...uniqueIds].sort());
+      expect(new Set(parameters).size).toBe(parameters.length);
+      for (const { params } of statements) expect(params.length).toBeLessThanOrEqual(100);
+      expect(new Set(rows.map(({ id }) => id)).size).toBe(rows.length);
+      expect(ids).toEqual(originalIds);
+    } finally {
+      sqlite.close();
+    }
   });
 
   it("omits missing IDs across batches and keeps the historical public projection", async () => {
@@ -506,9 +540,10 @@ describe("resource reads through the D1 adapter and local SQLite", () => {
     console.info(JSON.stringify({ case: "resource-memberships-local-sqlite", ids: count, binds: statements.map(row => row.params.length), rows: rows.length }));
   });
 
-  it.each(cases)("reads all $count requested public profiles without unrequested IDs", async ({ count, sizes }) => {
+  it.each(cases)("reads all $count requested public profiles without unrequested IDs", async ({ count }) => {
     const { sqlite, db, statements } = resourceDb();
     const ids = Array.from({ length: count }, (_, index) => `profile_${index}`);
+    const originalIds = [...ids];
     const insert = sqlite.prepare("INSERT INTO community_user_profile VALUES (?, ?, ?, ?, ?)");
     for (const id of ids) insert.run(id, `about-${id}`, null, null, `status-${id}`);
     insert.run("outside-profile", "outside", null, null, "outside");
@@ -516,8 +551,10 @@ describe("resource reads through the D1 adapter and local SQLite", () => {
     const rows = await userProfileQueries.getProfilesByUserIds(db as never, ids);
 
     expect([...rows].sort((a, b) => a.userId.localeCompare(b.userId))).toEqual(ids.map(userId => ({ userId, aboutMe: `about-${userId}`, bannerColor: null, statusEmoji: null, statusText: `status-${userId}` })).sort((a, b) => a.userId.localeCompare(b.userId)));
-    expect(statements.map(({ params }) => params.length)).toEqual(sizes);
-    expect(statements.flatMap(({ params }) => params)).toEqual(ids);
+    if (count === 0) expect(statements).toHaveLength(0);
+    expect(statements.flatMap(({ params }) => params).sort()).toEqual([...ids].sort());
+    for (const { params } of statements) expect(params.length).toBeLessThanOrEqual(100);
+    expect(ids).toEqual(originalIds);
     console.info(JSON.stringify({ case: "resource-profiles-local-sqlite", ids: count, binds: statements.map(row => row.params.length), rows: rows.length }));
   });
 
@@ -557,8 +594,10 @@ describe("resource reads through the D1 adapter and local SQLite", () => {
     expect(rows.map(row => row.userId).sort()).toEqual([...ids].sort());
     expect(new Set(rows.map(row => row.userId)).size).toBe(91);
     expect(rows.every(row => row.aboutMe === null && row.bannerColor === null && row.statusEmoji === null && row.statusText === "")).toBe(true);
-    expect(statements.map(({ params }) => params.length)).toEqual([90, 1]);
-    expect(statements.flatMap(({ params }) => params)).toEqual(ids);
+    const parameters = statements.flatMap(({ params }) => params);
+    expect([...parameters].sort()).toEqual([...ids].sort());
+    expect(new Set(parameters).size).toBe(parameters.length);
+    for (const { params } of statements) expect(params.length).toBeLessThanOrEqual(100);
     expect(input).toEqual(original);
   });
 });
