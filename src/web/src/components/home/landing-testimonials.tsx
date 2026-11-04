@@ -4,6 +4,7 @@ import { ArrowUpRight } from "lucide-react"
 import { HandAccent } from "@/components/brand/hand-accent"
 import { MessageAuthorLine } from "@/components/community/messages/message-author-line"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Card } from "@/components/ui/card"
 import { LANDING_TESTIMONIALS, rankTestimonials } from "./landing-testimonials-data"
 import styles from "./landing-testimonials.module.css"
 
@@ -29,6 +30,7 @@ export function LandingTestimonials() {
                 <ul className={`${styles.messages} ${duplicate ? styles.duplicate : ""}`} key={String(duplicate)} aria-hidden={duplicate || undefined}>
                   {lane.map((post) => (
                     <li key={post.id}>
+                      <Card size="sm" className={styles.card}>
                       <a href={post.url} target="_blank" rel="noopener noreferrer" className={styles.message} tabIndex={duplicate ? -1 : undefined}>
                         <Avatar size="lg" className={styles.avatar}>
                           {post.avatar && <AvatarImage src={post.avatar} alt="" loading="lazy" />}
@@ -44,6 +46,7 @@ export function LandingTestimonials() {
                           <span className="sr-only">Open original post by {post.name} (opens in a new tab)</span>
                         </div>
                       </a>
+                      </Card>
                     </li>
                   ))}
                 </ul>

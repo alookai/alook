@@ -1,5 +1,6 @@
 import styles from "./landing-page.module.css"
 import { HandAccent } from "@/components/brand/hand-accent"
+import { Card } from "@/components/ui/card"
 import { FAQ_PAGE_SCHEMA, HOME_FAQS } from "./landing-content"
 
 const FAQ_PAGE_SCHEMA_JSON = JSON.stringify(FAQ_PAGE_SCHEMA).replace(/</g, "\\u003c")
@@ -18,11 +19,11 @@ export function HomepageFaq() {
       />
       <div className={styles.faqLayout} data-landing-scroll-anchor>
         <div className={styles.faqIntro}>
-          <p className={styles.sectionMuted}>Alook, in plain terms</p>
+          <p className={`${styles.sectionMuted} ${styles.faqKicker}`}>Alook, in plain terms</p>
           <h2 id="homepage-faq-heading">Questions, <HandAccent>answered</HandAccent></h2>
           <p>What runs where, who stays in control, and how Alook fits beside the tools you already use.</p>
         </div>
-        <div className={styles.faqList}>
+        <Card className={styles.faqList}>
           {HOME_FAQS.map(({ question, answer, link }) => (
             <details key={question} className={styles.faqItem}>
               <summary>
@@ -44,7 +45,7 @@ export function HomepageFaq() {
               </div>
             </details>
           ))}
-        </div>
+        </Card>
       </div>
     </section>
   )

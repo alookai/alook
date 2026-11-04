@@ -1,12 +1,6 @@
 import { useId, type CSSProperties } from "react"
 import styles from "./landing-sky.module.css"
 
-/** Landing hero sky (Gus #2461, #2506–2508): only the sky gradient with a
- * fine paper grain — no clouds, no sun. Night sky in dark. Decoration only. */
-export function LandingSky() {
-  return <div className={styles.sky} aria-hidden="true" />
-}
-
 type Sheet = { size: number; delay: number; duration: number; path: string; mobilePath: string; spin: number; line?: { who: string; text: string } }
 
 // Arcs start at the typewriter's paper slot (0,0) and drift up and outwards

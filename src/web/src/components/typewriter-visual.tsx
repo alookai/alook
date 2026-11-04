@@ -183,6 +183,7 @@ export function TypewriterVisual({
 
       <div className="typewriter-scene">
         <div className="tw-machine">
+          <div className="tw-floor-shadow" aria-hidden="true" />
           <div className="tw-body">
             <div className="tw-body-back" />
             <div className="tw-body-left" />

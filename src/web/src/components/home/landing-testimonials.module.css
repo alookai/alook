@@ -73,13 +73,19 @@
   flex-shrink: 0;
 }
 
+/* Each post sits in the shared machine-case Card (hairline edge, shallow base). */
+.card {
+  height: 100%;
+  padding: 0;
+}
+
 .message {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   min-height: 44px;
-  margin: -8px;
-  padding: 8px;
-  border-radius: 4px;
+  height: 100%;
+  padding: 16px;
+  border-radius: inherit;
   color: var(--landing-text);
   text-decoration: none;
 }
@@ -128,6 +134,7 @@
 
 .handle {
   color: var(--landing-text-muted);
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.4;
   overflow-wrap: anywhere;

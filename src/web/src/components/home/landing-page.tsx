@@ -10,7 +10,7 @@ import { LANDING_HUMAN_AVATARS } from "./landing-human-avatars"
 import { GeneratedAvatar } from "@/components/avatar"
 import { HeroSection } from "./hero-section"
 import { HeroAvatarSwarm } from "./hero-avatar-swarm"
-import { LandingSky, PaperFlurry } from "./landing-sky"
+import { PaperFlurry } from "./landing-sky"
 import { HomepageFaq } from "./homepage-faq"
 import { LandingTestimonials } from "./landing-testimonials"
 import { LandingFeatureGallery } from "./landing-feature-gallery"
@@ -80,7 +80,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         secondaryCta={{ kind: "github", label: LANDING_HERO.secondaryCta }}
         testId="landing-hero"
         highlightPrimaryCta
-        backgroundDecoration={<><LandingSky /><HeroAvatarSwarm /></>}
+        backgroundDecoration={<HeroAvatarSwarm />}
         artworkDecoration={<PaperFlurry />}
       />
 

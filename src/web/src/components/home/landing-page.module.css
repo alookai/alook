@@ -1039,12 +1039,20 @@
   line-height: 1.7;
 }
 
+/* The questions sit in one shared machine-case Card; rows are split by hairlines inside it. */
 .faqList {
+  gap: 0;
+  padding: 0 24px;
+}
+
+.faqItem + .faqItem {
   border-top: 1px solid var(--landing-border);
 }
 
-.faqItem {
-  border-bottom: 1px solid var(--landing-border);
+/* The theme resets landing <p> to the sans; the kicker is a label, so it keeps the mono face. */
+.faqKicker {
+  font-family: var(--font-mono) !important;
+  font-size: 0.85rem;
 }
 
 .faqItem summary {
@@ -2124,31 +2132,9 @@ main.page > .footer {
   letter-spacing: 0.08em;
 }
 
-/* ── Sky hero (Gus #2461): copy in paper tones over the brand-blue sky ── */
+/* ── Hero on grid paper (Gus #2709, #2727): the landing grid runs through the hero; ink copy, no sky. ── */
 .page :global(.hero-section[data-testid="landing-hero"]) {
-  --landing-text: #fffdf8;
-  --landing-text-muted: rgb(255 253 248 / 88%);
-}
-
-.page :global(.hero-section[data-testid="landing-hero"] h1) {
-  text-shadow: 0 2px 0 rgb(31 26 21 / 14%), 0 10px 30px rgb(20 40 80 / 25%);
-}
-
-.page :global(.hero-section[data-testid="landing-hero"] .hero-brand) {
-  color: #fffdf8;
-}
-
-.landingHeroAccent {
-  color: #ffd99f !important;
-}
-
-/* On the blue sky the primary key is paper with ink, the GitHub key stays beige. */
-.page :global(.hero-section[data-testid="landing-hero"] .hero-ctas a[data-variant="default"]) {
-  background: linear-gradient(#fffdf8, #efe7d8) !important;
-  color: #1f1a15 !important;
-}
-.page :global(.hero-section[data-testid="landing-hero"] .hero-ctas a[data-variant="default"]:not(:active)) {
-  box-shadow: inset 0 1px 0 #fff, 0 var(--tn-key-depth) 0 #b9a67e, 0 8px 18px -10px rgb(20 40 80 / 45%) !important;
+  background-color: transparent !important;
 }
 
 /* The flurry rises from the artwork's paper slot. */
@@ -2156,7 +2142,7 @@ main.page > .footer {
   overflow: visible;
 }
 
-/* The sky melts into the testimonials ground below (Gus #2511): a long, soft
+/* The hero grid melts into the testimonials ground below (Gus #2511): a long, soft
  * fade into that section's own background, light and dark. Section fades use
  * concave radial arcs with a smootherstep falloff, not straight linear bands (Gus DM #134). */
 .page :global(.hero-section[data-testid="landing-hero"])::after {
