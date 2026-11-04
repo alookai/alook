@@ -178,6 +178,7 @@ export function HeroSection({
               onPaperSettled={onReady ? handlePaperSettled : undefined}
               animateEntrance={!staticPaper}
               entranceDelay={1.2}
+              blobScale={0.88}
               className="absolute! inset-0"
             />
             {artworkDecoration}

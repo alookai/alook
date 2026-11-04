@@ -306,7 +306,7 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
       {isMobile && !collapsed ? (
         <TypewriterVisual
           animateEntrance={false}
-          blobScale={0.95}
+          blobScale={1.2}
           className={styles.typewriter}
         />
       ) : null}
