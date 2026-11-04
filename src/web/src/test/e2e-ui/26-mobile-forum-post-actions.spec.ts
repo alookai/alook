@@ -946,12 +946,14 @@ test("forum post actions stay discoverable on mobile without changing permission
   const unauthorizedCard = unauthorized.page.getByTestId(tid.forumThreadCard(primaryPostId))
   await expect(unauthorizedCard).toBeVisible({ timeout: 20_000 })
   for (const post of postCases) {
+    await expect(unauthorized.page.getByTestId(tid.forumThreadCard(post.id))).toHaveAttribute("role", "button")
     await expect(unauthorized.page.getByTestId(tid.forumThreadTagBtn(post.id))).toHaveCount(0)
     await expect(unauthorized.page.getByTestId(tid.forumThreadArchiveBtn(post.id))).toHaveCount(0)
     await expect(unauthorized.page.getByTestId(tid.forumThreadDeleteBtn(post.id))).toHaveCount(0)
   }
   await unauthorized.page.setViewportSize({ width: 320, height: 844 })
   for (const post of postCases) {
+    await expect(unauthorized.page.getByTestId(tid.forumThreadCard(post.id))).toHaveAttribute("role", "button")
     await expect(unauthorized.page.getByTestId(tid.forumThreadTagBtn(post.id))).toHaveCount(0)
     await expect(unauthorized.page.getByTestId(tid.forumThreadArchiveBtn(post.id))).toHaveCount(0)
     await expect(unauthorized.page.getByTestId(tid.forumThreadDeleteBtn(post.id))).toHaveCount(0)

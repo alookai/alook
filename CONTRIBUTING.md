@@ -2,6 +2,16 @@
 
 Thanks for your interest in contributing to Alook. This guide covers everything you need to get started.
 
+## Android release and Play draft upload
+
+`Mobile Release` keeps the mobile-version marker trigger and existing iOS upload path. Android builds signed APK and AAB files together, using the shared release version and `GITHUB_RUN_NUMBER` as their version code. The Android artifact contains both files and the verified AAB receipt. Automatic marker pushes also attach the APK to the GitHub Release. Manual runs leave the public APK and Release body unchanged.
+
+For an Android-only manual run, disable `ios` and enable `android`. Leave `play_upload` false for the first build-only bundle needed by Play Console. After the first website upload, matching Play final signing key and API permissions are established, enable `play_upload` to build and upload an internal-track draft. Automatic mobile release pushes request the same draft upload. This does not publish a production release. No product version bump is needed for a manual workflow check.
+
+Configure repository variables `GOOGLE_PLAY_WORKLOAD_IDENTITY_PROVIDER` and `GOOGLE_PLAY_SERVICE_ACCOUNT` for GitHub OIDC through the Play service account. Restrict WIF to this repository's immutable IDs, `refs/heads/main`, and the Mobile Release workflow; grant only the required Alook testing-track permissions in Play. A short-lived `androidpublisher` access token is obtained after building. Missing configuration fails a requested upload. Never commit credentials or upload `gha-creds-*.json`.
+
+The AAB must pass official bundletool validation, trusted JDK signature verification, and package/version/ARM/certificate checks. Upload consumes the same hashed bytes, checks the Play-returned version/hash, commits only an internal draft and confirms it through a new read edit. Existing in-review changes cause an error instead of review cancellation. A failed commit can have an unknown external outcome; inspect its receipt and Play Console before starting another operation. A rerun retains its version code, so start a new workflow run after that code has already been uploaded. Offline tests do not establish actual signing, upload, account readiness or the final Play signing certificate.
+
 ## Prerequisites
 
 - **Node.js** ≥ 18
