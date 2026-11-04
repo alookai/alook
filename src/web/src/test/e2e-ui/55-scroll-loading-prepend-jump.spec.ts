@@ -8,7 +8,7 @@ test("cold and warm loading, older prepend, and jump-to-present remain observabl
     test.setTimeout(180_000)
     const actors = await caseActors(["alice", "bob", "carol"])
     const asUser = tracedAsUser(actors)
-    const { serverId, coldChannelId, loadingChannelId, loadingProfile } = await seedScrollCase(actors)
+    const { serverId, coldChannelId, loadingChannelId, upwardChannelId, loadingProfile } = await seedScrollCase(actors)
 
     const alice = await asUser("alice")
     await alice.page.setViewportSize(VIEWPORT)
@@ -82,8 +82,8 @@ test("cold and warm loading, older prepend, and jump-to-present remain observabl
     await mobileInitialMessages.dispose()
 
     await installScrollTraceInCurrentDocument(alice.page)
-    await alice.page.getByTestId(tid.channelRow(loadingChannelId)).click()
-    await alice.page.waitForURL(new RegExp(loadingChannelId), { waitUntil: "commit" })
+    await alice.page.getByTestId(tid.channelRow(upwardChannelId)).click()
+    await alice.page.waitForURL(new RegExp(upwardChannelId), { waitUntil: "commit" })
     await expect(alice.page.getByTestId(tid.messageScroller)).toBeVisible()
     const warmRequest = await holdNextRequest(actors,
       alice.page,
@@ -115,7 +115,15 @@ test("cold and warm loading, older prepend, and jump-to-present remain observabl
     await anchored.page.setViewportSize(VIEWPORT)
     await installScrollTrace(anchored.page)
     await anchored.page.goto(`/c/channels/${serverId}/${loadingChannelId}`, { waitUntil: "commit" })
+    const anchoredScroller = anchored.page.getByTestId(tid.messageScroller)
+    await expect.poll(() => anchoredScroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
+    const newAction = anchored.page.getByTestId(tid.scrollToNew)
+    await expect(newAction).toBeVisible({ timeout: 30_000 })
+    await newAction.click()
     const anchoredNewDivider = anchored.page.getByTestId(tid.newDivider)
+    await expect.poll(() => anchoredNewDivider.evaluate(element => Math.abs(element.getBoundingClientRect().top
+      - element.closest('[data-testid="community-message-scroller"]')!.getBoundingClientRect().top))).toBeLessThanOrEqual(1)
+    await expect(newAction).toBeHidden()
     await expect(async () => {
       expect(await anchoredNewDivider.count()).toBe(1)
       expect(await anchoredNewDivider.isVisible()).toBe(true)

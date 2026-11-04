@@ -34,6 +34,8 @@ export function decodeCommunityReadResponse(path: string, method: string | undef
   if (target.resource === "entry") {
     const data = CommunityConversationEntryReadSchema.parse(value)
     assertScope(data.channelId)
+    const requestedBoundary = new URL(path, "https://alook.invalid").searchParams.get("newAfterSeq")
+    if (requestedBoundary !== null && String(data.newBoundary.afterSeq) !== requestedBoundary) throw new Error("Community entry New snapshot mismatch")
     return { ...data, messages: data.messages }
   }
   if (target.resource === "message") {

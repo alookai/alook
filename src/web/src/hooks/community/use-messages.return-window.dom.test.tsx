@@ -37,6 +37,7 @@ async function holdSelectedWindowRepair() {
   old.selection = { reason: "tail", anchorMessageId: null }
   old.readState = { channelId: "c1", lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 }
   old.readStateRevision = 0
+  old.newBoundary = { afterSeq: 0, target: { id: "m1", channelId: "c1", seq: 1, authorId: "peer" } }
   load.mockResolvedValueOnce(old)
   const useSurface = () => useMessages("c1", { serverId: "s1", viewerUserId: "viewer" })
   const first = renderHook(useSurface, { wrapper: owner.wrapper })
@@ -47,51 +48,102 @@ async function holdSelectedWindowRepair() {
   }] }))
   const fresh = fixture()
   fresh.readStateRevision = 1
-  fresh.messages.push({ ...fresh.messages[0], id: "m2", seq: 2, createdAt: "2026-10-01T00:00:02.000Z" })
-  fresh.page.latestSeq = 2
+  const missing = { ...fresh.messages[0], id: "m2", seq: 2, createdAt: "2026-10-01T00:00:02.000Z" }
+  fresh.messages = [{ ...missing, id: "m3", seq: 3, createdAt: "2026-10-01T00:00:03.000Z" }]
+  fresh.page.latestSeq = 3
+  fresh.newBoundary = { afterSeq: 1, target: { id: "m2", channelId: "c1", seq: 2, authorId: "peer" } }
   const late = deferred<{ messages: typeof fresh.messages; latestSeq: number; hasMoreNewer: boolean }>()
   load.mockImplementation((url: string) => new URL(url, "https://example.test").searchParams.has("entry")
     ? Promise.resolve(fresh) : late.promise)
   vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6000)
   const hook = renderHook(useSurface, { wrapper: owner.wrapper })
-  await waitFor(() => expect(load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages")).toBe(true))
-  const call = load.mock.calls.find(([url]) => url === "/api/community/channels/c1/messages")!
+  await waitFor(() => expect(load.mock.calls.some(([url]) => new URL(url, "https://example.test").searchParams.has("since"))).toBe(true))
+  const call = load.mock.calls.find(([url]) => new URL(url, "https://example.test").searchParams.has("since"))!
   expect(hook.result.current.messages.map(message => message.id)).toEqual(["m1"])
   expect(hook.result.current.readSnapshot?.lastReadSeq).toBe(1)
   return { ...owner, hook, late, signal: call[1].signal as AbortSignal,
-    key: communityKeys.channelMessagesWindow("c1", { mode: "newest" }), fresh }
+    key: communityKeys.channelMessagesWindow("c1", { mode: "newest" }), fresh: { ...fresh, messages: [missing, ...fresh.messages] } }
 }
 
 describe("returned entry and selected message window", () => {
-  it("qualifies complete cached rows for positioning while the selected window repair is pending", async () => {
+  it.each(["query replacement", "access withdrawal", "unmount", "new Present attempt"] as const)("binds updated Present data to its query owner until %s", async retirement => {
+    const { wrapper, client, registry } = await setup()
+    const entry = fixture()
+    entry.selection = { reason: "explicit_anchor", anchorMessageId: "m1" }
+    entry.page.hasMoreNewer = true
+    load.mockResolvedValueOnce(entry)
+    const hook = renderHook(() => useMessages("c1", { serverId: "s1", anchorMessageId: "m1" }), { wrapper })
+    let unmounted = false
+    try {
+      await waitFor(() => expect(hook.result.current.initialPositionKnown).toBe(true))
+      const held = deferred<ReturnType<typeof messageReadPageFixture>>()
+      load.mockReturnValue(held.promise)
+      let request!: ReturnType<typeof hook.result.current.jumpToPresent>
+      act(() => { request = hook.result.current.jumpToPresent() })
+      if (!request.accepted) throw new Error("Expected the current Present request to be accepted")
+      const historyKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" })
+      await act(async () => { client.setQueryData<MessageWindowData>(historyKey, data => data && ({ ...data,
+        pages: data.pages.map(page => ({ ...page, latestSeq: 2 })) })) })
+      await act(async () => held.resolve(messageReadPageFixture({ messages: [{ ...entry.messages[0], id: "m2", seq: 2 }],
+        latestSeq: 2, hasMoreOlder: false, hasMoreNewer: false })))
+      const completed = await request.completed
+      if (completed.status !== "success" || !completed.windowState) throw new Error("Expected a successful Present selection proof")
+      const windowState = completed.windowState
+      await waitFor(() => expect(hook.result.current.messages.map(message => message.id)).toEqual(["m2"]))
+      expect(windowState(hook.result.current.messageWindow)).toBe("ready")
+      const tailKey = communityKeys.channelMessagesWindow("c1", { mode: "newest" })
+      await act(async () => { client.setQueryData<MessageWindowData>(tailKey, data => data && ({ ...data,
+        pages: data.pages.map(page => ({ ...page, latestSeq: 3 })) })) })
+      expect(client.getQueryData(tailKey)).not.toBe(completed.window)
+      await waitFor(() => expect(hook.result.current.latestSeq).toBe(3))
+      const updated = hook.result.current.messageWindow
+      expect(updated).not.toBe(completed.window)
+      expect(windowState(updated)).toBe("ready")
+      expect(windowState(completed.window)).toBe("pending")
+      if (retirement === "query replacement") {
+        await act(async () => {
+          client.removeQueries({ queryKey: tailKey, exact: true })
+          client.setQueryData(tailKey, updated)
+        })
+      } else if (retirement === "access withdrawal") {
+        await act(async () => registry.runtime.ws.actions.revokeChannelAccess("s1", "c1"))
+      } else if (retirement === "new Present attempt") {
+        act(() => { expect(hook.result.current.jumpToPresent().accepted).toBe(true) })
+      } else {
+        hook.unmount()
+        unmounted = true
+      }
+      expect(windowState(updated)).toBe("retired")
+    } finally { if (!unmounted) hook.unmount(); client.clear() }
+  })
+
+  it("retains complete cached rows but waits for latest positioning while the selected window repair is pending", async () => {
     const { hook, late, fresh } = await holdSelectedWindowRepair()
     try {
       expect(hook.result.current.readSnapshotFetching).toBe(true)
       expect(hook.result.current.positionDataState).toBe("pending")
-      expect(hook.result.current.initialPositionKnown).toBe(true)
+      expect(hook.result.current.initialScrollReady).toBe(false)
       expect(hook.result.current.messages.map(message => message.id)).toEqual(["m1"])
-      await act(async () => late.resolve(messageReadPageFixture({ messages: fresh.messages, latestSeq: 2, hasMoreNewer: false })))
+      await act(async () => late.resolve(messageReadPageFixture({ messages: fresh.messages, latestSeq: 3, hasMoreNewer: false })))
       await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
     } finally { hook.unmount() }
   })
 
-  it.each(["different-key newest", "same-key anchor"] as const)("publishes the new entry into the actual feed after %s return", async kind => {
+  it.each(["different-key history", "same-key newest"] as const)("publishes the new entry into the actual feed after %s return", async kind => {
     const { wrapper, client, registry } = await setup()
     const old = fixture()
     old.readStateRevision = 1
     old.page.hasMoreOlder = false
     old.page.olderCursor = null
-    if (kind === "different-key newest") {
-      old.readState = { channelId: "c1", lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 }
-      old.readStateRevision = 0
-      old.selection = { reason: "tail", anchorMessageId: null }
-    }
+    let anchorMessageId: string | undefined = kind === "different-key history" ? "m1" : undefined
+    if (anchorMessageId) old.selection = { reason: "explicit_anchor", anchorMessageId }
     load.mockResolvedValueOnce(old)
-    const useSurface = () => useMessages("c1", { serverId: "s1", viewerUserId: "viewer" })
+    const useSurface = () => useMessages("c1", { serverId: "s1", viewerUserId: "viewer", anchorMessageId })
     const first = renderHook(useSurface, { wrapper })
     await waitFor(() => expect(first.result.current.initialPositionKnown).toBe(true))
     expect(first.result.current.messages.map(message => message.id)).toEqual(["m1"])
     first.unmount()
+    anchorMessageId = undefined
     await act(async () => ingestReadStateSnapshot(registry, { revision: 1, readStates: [{
       channelId: "c1", lastReadMessageId: "m1", lastReadAt: old.messages[0].createdAt, lastReadSeq: 1,
     }] }))
@@ -102,6 +154,7 @@ describe("returned entry and selected message window", () => {
       ...fresh.messages[0], id: `m${index + 1}`, seq: index + 1,
       content: `Mention ${index + 1}`, createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString(),
     }))
+    fresh.newBoundary = { afterSeq: 1, target: { id: "m2", channelId: "c1", seq: 2, authorId: "peer" } }
     fresh.channel.messageCount = 13
     fresh.channel.lastMessageAt = fresh.messages.at(-1)!.createdAt
     fresh.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 13 }
@@ -119,23 +172,24 @@ describe("returned entry and selected message window", () => {
     const returned = renderHook(useSurface, { wrapper })
     try {
       await waitFor(() => expect(load).toHaveBeenCalledTimes(2))
-      const oldParam = kind === "different-key newest" ? { mode: "newest" } : { mode: "anchor", anchor: "m1" }
-      expect(returned.result.current.data?.pageParams[0]).toEqual(oldParam)
-      expect(returned.result.current.messages.map(message => message.id)).toEqual(["m1"])
-      expect(returned.result.current.readSnapshot?.lastReadSeq).toBe(1)
+      const oldParam = { mode: "newest" }
+      expect(returned.result.current.data?.pageParams[0]).toEqual(kind === "same-key newest" ? oldParam : undefined)
+      expect(returned.result.current.messages.map(message => message.id)).toEqual(kind === "same-key newest" ? ["m1"] : [])
+      expect(returned.result.current.readSnapshot?.lastReadSeq).toBe(kind === "same-key newest" ? 1 : undefined)
       await act(async () => response.resolve(fresh))
       await waitFor(() => expect(returned.result.current.isFetching).toBe(false))
       const expectedIds = fresh.messages.map(message => message.id)
-      const anchorKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" })
-      expect(client.getQueryData<MessageWindowData>(anchorKey)?.pages.flatMap(page => page.messages.map(message => message.id))).toEqual(expectedIds)
+      const latestKey = communityKeys.channelMessagesWindow("c1", { mode: "newest" })
+      expect(client.getQueryData<MessageWindowData>(latestKey)?.pages.flatMap(page => page.messages.map(message => message.id))).toEqual(expectedIds)
       expect(expectedIds.every(id => registry.collections.messages.has(id))).toBe(true)
+      if (kind === "different-key history") expect(client.getQueryData<MessageWindowData>(communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" }))?.pages[0].messages.map(message => message.id)).toEqual(["m1"])
       expect(returned.result.current.readSnapshot?.lastReadMessageId).toBe("m1")
       expect(returned.result.current.readSnapshot?.lastReadSeq).toBe(1)
       expect(returned.result.current.initialPositionKnown).toBe(true)
       await waitFor(() => expect(returned.result.current.messages.map(message => message.id)).toEqual(expectedIds))
       expect(returned.result.current.latestSeq).toBe(13)
       expect(returned.result.current.data?.pageParams[0]).toEqual(oldParam)
-      expect(load.mock.calls.filter(([url]) => url === "/api/community/channels/c1/messages")).toHaveLength(kind === "different-key newest" ? 1 : 0)
+      expect(load.mock.calls.filter(([url]) => url === "/api/community/channels/c1/messages")).toHaveLength(0)
       const capturedSnapshot = returned.result.current.readSnapshot
       await act(async () => ingestReadStateSnapshot(registry, { revision: 2, readStates: [{
         channelId: "c1", lastReadMessageId: "m13", lastReadAt: fresh.messages.at(-1)!.createdAt, lastReadSeq: 13,
@@ -153,6 +207,7 @@ describe("returned entry and selected message window", () => {
     old.selection = { reason: "tail", anchorMessageId: null }
     old.readState = { channelId: "c1", lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 }
     old.readStateRevision = 0
+    old.newBoundary = { afterSeq: 0, target: { id: "m1", channelId: "c1", seq: 1, authorId: "peer" } }
     load.mockResolvedValueOnce(old)
     const useSurface = () => useMessages("c1", { serverId: "s1", viewerUserId: "viewer" })
     const first = renderHook(useSurface, { wrapper })
@@ -192,8 +247,9 @@ describe("returned entry and selected message window", () => {
       await waitFor(() => expect(load.mock.calls.filter(([url]) => url === "/api/community/channels/c1/messages")).toHaveLength(1))
       await act(async () => entry.resolve(fresh))
       await waitFor(() => expect(returned.result.current.isFetching).toBe(false))
-      const anchorKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" })
-      expect(client.getQueryData<MessageWindowData>(anchorKey)?.pages[0].messages).toHaveLength(13)
+      const latestKey = communityKeys.channelMessagesWindow("c1", { mode: "newest" })
+      expect(client.getQueryData<MessageWindowData>(latestKey)?.pages[0].messages.map(message => message.id)).toEqual(["m1"])
+      expect(fresh.messages.every(message => registry.collections.messages.has(message.id))).toBe(true)
       await act(async () => {
         oldWindow.resolve(messageReadPageFixture({ messages: old.messages, latestSeq: 1, hasMoreNewer: false }))
         await olderRepair
@@ -217,10 +273,10 @@ describe("returned entry and selected message window", () => {
       else hook.unmount()
     })
     expect(signal.aborted).toBe(true)
-    const lateMessage = { ...fresh.messages[0], id: "late_m3", seq: 3 }
-    await act(async () => late.resolve(messageReadPageFixture({ messages: [...fresh.messages, lateMessage], latestSeq: 3, hasMoreNewer: false })))
-    expect(registry.collections.messages.get("late_m3")).toBeUndefined()
-    expect(client.getQueryData<MessageWindowData>(key)?.pages.flatMap(page => page.messages.map(message => message.id)) ?? []).not.toContain("late_m3")
+    const lateMessage = { ...fresh.messages[0], id: "late_m4", seq: 4 }
+    await act(async () => late.resolve(messageReadPageFixture({ messages: [...fresh.messages, lateMessage], latestSeq: 4, hasMoreNewer: false })))
+    expect(registry.collections.messages.get("late_m4")).toBeUndefined()
+    expect(client.getQueryData<MessageWindowData>(key)?.pages.flatMap(page => page.messages.map(message => message.id)) ?? []).not.toContain("late_m4")
     if (kind !== "unmount") hook.unmount()
   })
 
@@ -236,7 +292,7 @@ describe("returned entry and selected message window", () => {
     expect(hook.result.current.readSnapshot?.lastReadSeq).toBe(1)
     expect(hook.result.current.initialPositionKnown).toBe(true)
     expect(hook.result.current.initialLoadError).toBeNull()
-    expect(load.mock.calls.filter(([url]) => url === "/api/community/channels/c1/messages")).toHaveLength(3)
+    expect(load.mock.calls.filter(([url]) => new URL(url, "https://example.test").searchParams.has("since"))).toHaveLength(3)
     hook.unmount()
   })
 })

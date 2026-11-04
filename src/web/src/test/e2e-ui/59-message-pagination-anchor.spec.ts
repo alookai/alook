@@ -4,6 +4,7 @@ import type { Page, Route } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 
 import { tid } from "./_fixtures/testids"
+import { createScrollTraceIdentity } from "./_fixtures/scroll-trace"
 import { WEB_URL } from "./_setup/paths"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
@@ -233,12 +234,8 @@ test("older and newer pages preserve a real-message anchor and do not replay", a
       olderRequests.push(url.search)
     }
   })
-  await olderUser.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
-  const olderNewDivider = olderUser.page.getByTestId(tid.newDivider)
-  await expect(async () => {
-    expect(await olderNewDivider.count()).toBe(1)
-    expect(await olderNewDivider.isVisible()).toBe(true)
-  }).toPass({ timeout: 30_000 })
+  await olderUser.page.goto(`/c/channels/${serverId}/${channelId}?msg=${ids[65]}`, { waitUntil: "commit" })
+  await expect(olderUser.page.getByTestId(tid.message(ids[65]))).toBeInViewport({ timeout: 30_000 })
   await expect(olderUser.page.getByTestId(tid.messageScroller).locator('[data-message-list-content][data-read-position-ready="true"][data-initial-position-phase="revealed"]')).toBeVisible()
   const olderPage = await holdNextPage(olderUser.page, channelId, "cursor", caseResources)
   await moveToEdge(olderUser.page, "start")
@@ -260,12 +257,8 @@ test("older and newer pages preserve a real-message anchor and do not replay", a
       newerRequests.push(url.search)
     }
   })
-  await newerUser.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
-  const newerNewDivider = newerUser.page.getByTestId(tid.newDivider)
-  await expect(async () => {
-    expect(await newerNewDivider.count()).toBe(1)
-    expect(await newerNewDivider.isVisible()).toBe(true)
-  }).toPass({ timeout: 30_000 })
+  await newerUser.page.goto(`/c/channels/${serverId}/${channelId}?msg=${ids[65]}`, { waitUntil: "commit" })
+  await expect(newerUser.page.getByTestId(tid.message(ids[65]))).toBeInViewport({ timeout: 30_000 })
   await expect(newerUser.page.getByTestId(tid.messageScroller).locator('[data-message-list-content][data-read-position-ready="true"][data-initial-position-phase="revealed"]')).toBeVisible()
   const newerPage = await holdNextPage(newerUser.page, channelId, "since", caseResources)
   await moveToEdge(newerUser.page, "end")
@@ -279,7 +272,7 @@ test("older and newer pages preserve a real-message anchor and do not replay", a
 
   await testInfo.attach("pagination-anchor-trajectory.json", {
     body: JSON.stringify({
-      sourceSha: "b1ea24a7f73778717662b5d894f1e14b019c8c08",
+      sourceSha: createScrollTraceIdentity({ account: actors.userId("alice"), channel: channelId, viewport: VIEWPORT }).sourceSha,
       older: { before: olderBefore, after: olderAfter, retainedOffset: olderRetainedOffset, requests: olderRequests },
       newer: { before: newerBefore, after: newerAfter, retainedOffset: newerRetainedOffset, requests: newerRequests },
     }, null, 2),

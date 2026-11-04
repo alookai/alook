@@ -260,7 +260,7 @@ describe("desktop system notification candidates", () => {
       title: "Studio · #general",
       body: "Ada: Hello there",
     })
-    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("/api/community/channels/channel_1/messages?entry=1", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer_1" }))
+    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("/api/community/channels/channel_1/messages?entry=1&window=tail", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer_1" }))
   })
 
   it("uses the default empty snapshot while resolving cold channel metadata", async () => {
@@ -287,7 +287,7 @@ describe("desktop system notification candidates", () => {
       title: "Server · #general",
       body: "Ada: Hello there",
     })
-    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("/api/community/channels/channel_1/messages?entry=1", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer_1" }))
+    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("/api/community/channels/channel_1/messages?entry=1&window=tail", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer_1" }))
   })
 
   it("resolves cold thread and parent channel names before formatting the desktop copy", async () => {
@@ -325,7 +325,7 @@ describe("desktop system notification candidates", () => {
       title: "Studio · #general · Release notes",
       body: "Ada: Hello there",
     })
-    expect(channelMetadataMocks.fetch.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/thread_1/messages?entry=1", "/api/community/channels/channel_1/messages?entry=1"])
+    expect(channelMetadataMocks.fetch.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/thread_1/messages?entry=1&window=tail", "/api/community/channels/channel_1/messages?entry=1&window=tail"])
   })
 
   it("uses complete current-account collections without metadata I/O", async () => {

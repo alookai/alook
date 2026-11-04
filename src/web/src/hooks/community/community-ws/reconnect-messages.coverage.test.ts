@@ -35,6 +35,7 @@ async function setup(sequences = [98, 99, 100], tag: string | null = null) {
     channel: { ...fixture().channel, messageCount: messages.length, createdAt: messages[0].createdAt, lastMessageAt: last.createdAt },
     readState: { channelId: "c1", lastReadMessageId: last.id, lastReadAt: last.createdAt, lastReadSeq: last.seq },
     selection: { reason: "tail" as const, anchorMessageId: null },
+    newBoundary: { afterSeq: last.seq, target: null },
     page: { ...fixture().page, latestSeq: last.seq, hasMoreOlder: true, hasMoreNewer: false },
   }
   const options = conversationEntryOptions(owner.client, target)

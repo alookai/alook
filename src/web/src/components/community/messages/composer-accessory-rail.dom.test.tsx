@@ -1,7 +1,7 @@
 import React from "react"
 import { createPortal } from "react-dom"
 import { describe, expect, it, vi } from "vitest"
-import { render } from "@/test/react-dom-harness"
+import { fireEvent, render } from "@/test/react-dom-harness"
 import { tid } from "@/lib/community/testids"
 import { ComposerAccessoryRail } from "./composer-accessory-rail"
 import { ConversationFooterShell, ConversationFooterSlotProvider, useConversationFooterSlot } from "./conversation-footer-shell"
@@ -11,6 +11,23 @@ vi.mock("@/components/ui/number-ticker", () => ({
 }))
 
 describe("ComposerAccessoryRail geometry", () => {
+  it("shows New by itself, keeps the present action independent and hides an accepted pending jump", () => {
+    const onNew = vi.fn(), onScroll = vi.fn()
+    const view = (pending: boolean, count = 0) => <ComposerAccessoryRail typingNames={[]} scrollCount={count} scrollMode="scroll"
+      onScroll={onScroll} newVisible newPending={pending} onNew={onNew} />
+    const renderer = render(view(false))
+    expect(renderer.getByTestId(tid.composerAccessoryRail)).toBeDefined()
+    expect(renderer.queryByTestId(tid.scrollToPresent)).toBeNull()
+    fireEvent.click(renderer.getByRole("button", { name: "Jump to New" }))
+    expect(onNew).toHaveBeenCalledOnce()
+    expect(onScroll).not.toHaveBeenCalled()
+    renderer.rerender(view(false, 8))
+    expect(renderer.getByTestId(tid.scrollToNew)).toBeDefined()
+    expect(renderer.getByTestId(tid.scrollToPresent)).toBeDefined()
+    renderer.rerender(view(true, 8))
+    expect(renderer.queryByTestId(tid.scrollToNew)).toBeNull()
+    expect(renderer.getByTestId(tid.scrollToPresent)).toBeDefined()
+  })
   it("shares the composer's logical safe-area-aware inline edges", () => {
     function Accessory() {
       const target = useConversationFooterSlot()?.accessoryTarget

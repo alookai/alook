@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { configureTelemetry, installTelemetrySink, retireTelemetry } from "@/lib/observability/telemetry"
-import { installMessageScrollFixture, restoreMessageScrollFixture, mount, message, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import { installMessageScrollFixture, restoreMessageScrollFixture, mount, message, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { captureChannelMetadataToken } from "@/lib/community/conversation-qualification"
 
@@ -71,8 +71,13 @@ it.each(["manual", "hidden", "entry", "unmount"] as const)("records %s retiremen
 
 it.each(["read_anchor", "new_divider", "tail"] as const)("records the actual %s selection instead of inferring it from initial/settled", source => {
   mount({ ...(source === "read_anchor" ? { initialPositionMessageId: "m4" } : {}),
-    ...(source === "new_divider" ? { newDividerBefore: "m4" } : {}) })
-  expect(terminals()).toEqual([expect.objectContaining({ position_source: source, position_reason: "settled" })])
+    ...(source === "new_divider" ? { newDividerBefore: "m4", items: Array.from({ length: 14 }, (_, i) => ({ ...message(`m${i}`), newDivider: i === 4 })) } : {}) })
+  if (source === "new_divider") {
+    act(() => scrollFixture.latest.requestNewPosition("m4"))
+    resize()
+  }
+  expect(terminals().at(-1)).toEqual(expect.objectContaining({ position_source: source, position_reason: "settled" }))
+  expect(terminals()).toHaveLength(source === "new_divider" ? 2 : 1)
 })
 
 it("attributes a reconstructed list to its normal entry rule without physical snapshot fields", async () => {

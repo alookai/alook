@@ -15,7 +15,7 @@ import { getCommunityRuntime } from "@/stores/community/runtime"
 import { useMessageOverlayIds } from "@/stores/community/message-stream"
 import { materializeMessageStream, type MessageScope } from "@/lib/community/message-stream"
 import { messageWindowOptions, type InitialMessageWindow, type MessageWindowData } from "@/lib/community/message-window"
-import { knownConversationLatestSeq, type findConversationEntryWindow } from "@/lib/community/conversation-entry"
+import { conversationEntryOptions, knownConversationLatestSeq, type findConversationEntryWindow } from "@/lib/community/conversation-entry"
 import type { Msg } from "@/lib/community/models/message"
 import type { MessagePositionState, MessageRequest, MessageRequestResult } from "@/lib/community/message-position"
 import { ConversationReadTimeoutError, withConversationReadDeadline } from "@/lib/community/conversation-read"
@@ -128,8 +128,8 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const originalQuery = client.getQueryCache().find({ queryKey, exact: true })
   const owner = useMemo(() => ({ present, retries, query: originalQuery, enabled: enabled && presented }), [present, retries, originalQuery, enabled, presented])
   const committed = useRef<typeof owner | null>(null)
-  const committedWindowReady = useRef(entry.windowReady)
-  useLayoutEffect(() => { committedWindowReady.current = entry.windowReady }, [entry.windowReady])
+  const committedWindowReady = useRef(false)
+  const committedNewReady = useRef(false)
   useLayoutEffect(() => {
     committed.current = owner
     return () => { if (committed.current === owner) committed.current = null }
@@ -145,6 +145,8 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const presentationResources = useMemo(() => new Map([...projection.relatedMessages.map(message => [message.id, message] as const), ...canonicalById]), [canonicalById, projection.relatedMessages])
   const missingCanonical = ids.some(id => !canonicalById.has(id))
   const projectionFailed = projection.status === "error"
+  const selectedWindowReady = entry.windowReady && !!query.data && projection.canonicalMessages !== undefined && !missingCanonical && !projectionFailed
+  useLayoutEffect(() => { committedWindowReady.current = selectedWindowReady }, [selectedWindowReady])
   const [projectionFailure, setProjectionFailure] = useState<{ window: object; attempt: object | null; viewKey: string } | null>(null)
   useEffect(() => {
     if (!entry.canRead || !query.data || !missingCanonical || projectionFailed) return
@@ -212,7 +214,14 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
       if (!isCurrent()) return { status: "retired" }
       present.setState((state) => ({ ...state, pending: false, version: attempt,
         window: { key: tail.queryKey, initial: { mode: "newest" }, tag } }))
-      return { status: "success", window: data }
+      return { status: "success", window: data, windowState: window => {
+        const current = committed.current
+        if (!current?.enabled || current.present !== present || present.get().attempt !== attempt || !isChannelMetadataTokenCurrent(token)
+          || client.getQueryCache().get(captured.queryHash) !== captured) return "retired"
+        if (current.query === captured) return window === captured.state.data ? "ready" : "pending"
+        return current.query === original.query && !!original.query
+          && client.getQueryCache().get(original.query.queryHash) === original.query ? "pending" : "retired"
+      } }
     }, (error: unknown) => {
       if (!isCurrent()) return { status: "retired" } as const
       present.setState((state) => ({ ...state, pending: false, error: error instanceof Error ? error : new Error("Could not load recent messages") }))
@@ -222,6 +231,45 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     present.setState(state => ({ ...state, request }))
     return request
   }, [channelId, client, observation, owner, present, tag])
+  const loadNewTarget = useCallback((id: string): MessageRequest => {
+    const original = committed.current
+    if (!channelId || !original?.enabled || original !== owner || !committedNewReady.current || present.get().pending) return { accepted: false }
+    if (references.some(message => message.id === id) && query.data) return { accepted: true, completed: Promise.resolve({ status: "success", window: query.data }) }
+    const token = captureChannelMetadataToken(client, channelId)
+    const initial = { mode: "anchor" as const, anchor: id }
+    const anchored = messageWindowOptions(client, channelId, initial, tag, { observation })
+    const captured = client.getQueryCache().build<unknown, Error, unknown>(client, { queryKey: anchored.queryKey })
+    present.setState(state => ({ ...state, attempt: state.attempt + 1, pending: true, error: null }))
+    const attempt = present.get().attempt
+    let cancelled = false
+    const isCurrent = () => !cancelled && present.get().attempt === attempt && committed.current === original && isChannelMetadataTokenCurrent(token)
+      && client.getQueryCache().get(captured.queryHash) === captured
+    const completed = client.infiniteQuery({ ...anchored, staleTime: 0, select: undefined }).then((data): MessageRequestResult => {
+      if (!isCurrent()) return { status: "retired" }
+      if (!data.pages.some(page => page.messages.some(message => message.id === id))) {
+        present.setState(state => ({ ...state, pending: false }))
+        return { status: "missing" }
+      }
+      present.setState(state => ({ ...state, pending: false, window: { key: anchored.queryKey, initial, tag } }))
+      return { status: "success", window: data }
+    }, (error: unknown): MessageRequestResult => {
+      if (!isCurrent()) return { status: "retired" }
+      present.setState(state => ({ ...state, pending: false }))
+      return { status: typeof error === "object" && error !== null && "status" in error && (error.status === 403 || error.status === 404) ? "missing" : "error" }
+    })
+    return { accepted: true, completed, cancel: () => {
+      cancelled = true
+      if (committed.current === original && present.get().attempt === attempt) present.setState(state => ({ ...state, pending: false }))
+    } }
+  }, [channelId, client, observation, owner, present, query.data, references, tag])
+  const readNewBoundary = useCallback(async (afterSeq: number) => {
+    const original = committed.current
+    if (!channelId || !original?.enabled || original !== owner || !committedNewReady.current) return
+    const token = captureChannelMetadataToken(client, channelId)
+    const resource = await client.query({ ...conversationEntryOptions(client, { channelId, serverId, tag, preferTail: true, newAfterSeq: afterSeq }, observation()), staleTime: 0 })
+    if (committed.current !== original || !isChannelMetadataTokenCurrent(token)) return
+    return { boundary: resource.newBoundaryAtEntry, latestSeq: resource.latestSeqAtEntry }
+  }, [channelId, client, observation, owner, serverId, tag])
   const error = query.error ?? entry.error
   const windowAvailable = !!selectedWindow && query.data !== undefined
   const projectionError = projectionFailed || missingCanonical && !!projectionFailure && projectionFailure.window === query.data
@@ -229,7 +277,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const initialLoadError = windowAvailable ? projectionError : retrySelection.error ?? error ?? (entry.failed ? INITIAL_ENTRY_ERROR : null)
   const repairError = repairQuery && isFailedMessageRepair(client, repairQuery) ? repair.error : null
   const targetLoadError = windowAvailable && !selection.window && !entry.isFetching && entry.error?.name !== "AbortError"
-    ? (!entry.targetCovered ? entry.error : null) ?? repairError : null
+    ? (!entry.targetCovered || entry.newBoundary === undefined ? entry.error : null) ?? repairError : null
   const loading = !!channelId && (windowAvailable ? projection.canonicalMessages === undefined : !initialLoadError && !entry.denied && !entry.anchorMissing)
   const entryWindow = entry.window, retryEntry = entry.retry, refetchWindow = query.refetch
   const retryInitialLoad = useCallback(() => {
@@ -241,19 +289,23 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     const request = repairError ? reconcileWindow(client, {
       kind: serverId === null ? "dm" : "channel", scopeId: channelId, serverId: serverId ?? undefined,
     }, queryKey).then(() => ({ error: null }), error => ({ error: error instanceof Error ? error : new Error("Could not repair this message window") }))
-      : entryWindow && entry.targetCovered ? refetchWindow({ cancelRefetch: false }) : retryEntry()
+      : entryWindow && entry.targetCovered && entry.newBoundary !== undefined ? refetchWindow({ cancelRefetch: false }) : retryEntry()
     void request.then(result => {
       if (!current()) return
       retries.setState(() => ({ attempt, pending: false, error: result.error }))
     })
-  }, [channelId, client, entryWindow, entry.targetCovered, queryKey, repairError, retryEntry, refetchWindow, retries, serverId])
+  }, [channelId, client, entryWindow, entry.targetCovered, entry.newBoundary, queryKey, repairError, retryEntry, refetchWindow, retries, serverId])
   const targetPositionDataState: MessagePositionState = retrySelection.pending ? "pending"
     : initialLoadError || targetLoadError || retrySelection.error || entry.denied || !windowAvailable && entry.anchorMissing && !entry.isFetching ? "error"
       : !windowAvailable || loading || missingCanonical || !!anchorMessageId && !entry.targetCovered && !selection.window && !entry.anchorMissing ? "pending"
         : messages.length ? "ready" : "empty"
-  const positionDataState: MessagePositionState = targetPositionDataState === "error" && !targetLoadError ? "error"
+  const positionDataState: MessagePositionState = targetPositionDataState === "error"
+    && (!targetLoadError || !anchorMessageId && !entry.targetCovered && !entry.retainedWindow && !selection.window) ? "error"
     : !windowAvailable || !entry.snapshot || loading || readSnapshotFetching || retrySelection.pending ? "pending"
       : messages.length ? "ready" : "empty"
+  useLayoutEffect(() => { committedNewReady.current = entry.canRead && windowAvailable && !loading && !missingCanonical
+    && !initialLoadError && !targetLoadError && positionDataState === "ready" },
+  [entry.canRead, windowAvailable, loading, missingCanonical, initialLoadError, targetLoadError, positionDataState])
   return {
     ...query, observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: entry.targetCovered || selection.window ? "covered" as const : "uncovered" as const,
       wait_reason: !entry.canRead ? "entry" as const : !windowAvailable ? "window" as const : loading ? "projection" as const : "none" as const },
@@ -263,12 +315,13 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     error, initialLoadError, targetLoadError, isFetching: entry.isFetching || query.isFetching,
     isFetchingOlder: query.isFetchingNextPage,
     isFetchingNewer: query.isFetchingPreviousPage || selection.pending,
-    fetchOlder, fetchNewer, jumpToPresent, presentVersion: selection.version, presentRequest: selection.request,
+    fetchOlder, fetchNewer, jumpToPresent, loadNewTarget, readNewBoundary, newBoundary: entry.newBoundary, retiredNewTargetId: entry.retiredNewTargetId, presentVersion: selection.version, presentRequest: selection.request,
     anchorReconciled: entry.targetCovered || !!selection.window,
-    navigationBlocked: !entry.windowReady,
+    navigationBlocked: !selectedWindowReady,
     readSnapshot: entry.snapshot, readSnapshotFetching,
     initialDisplayReady: windowAvailable && !loading && !missingCanonical && !initialLoadError,
-    preserveInitialPresentation: !!retrySelection.attempt && windowAvailable,
+    initialScrollReady: windowAvailable && !loading && !missingCanonical && !initialLoadError && (!!anchorMessageId || !readSnapshotFetching),
+    preserveInitialPresentation: !!retrySelection.attempt && windowAvailable && (!!anchorMessageId || entry.targetCovered || entry.retainedWindow),
     initialPositionKnown: windowAvailable && entry.snapshot !== null && !loading && !missingCanonical && !initialLoadError && !retrySelection.pending && !entry.initialPositionPending,
     initialPositionMessageId: entry.initialPositionMessageId, positionEntry, positionScope, positionDataState, targetPositionDataState, messageWindow: query.data,
     onUserTakeover: entry.retainWindow,

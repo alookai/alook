@@ -73,9 +73,9 @@ export const communityKeys = {
     initial.mode === "newest" && !tag ? communityKeys.channelMessages(channelId)
       : [...communityKeys.channelMessages(channelId), "window", { ...initial, tag: tag ?? null }] as const,
   conversationEntries: (channelId: string) => [...communityKeys.all, "channel", channelId, "entry"] as const,
-  conversationEntry: (channelId: string, intent: { serverId?: string | null; anchorMessageId?: string | null; tag?: string | null; preferTail?: boolean } = {}, qualification?: { accountEpoch: number; accessEpoch: number; channelGeneration: number }) =>
+  conversationEntry: (channelId: string, intent: { serverId?: string | null; anchorMessageId?: string | null; tag?: string | null; preferTail?: boolean; newAfterSeq?: number | null } = {}, qualification?: { accountEpoch: number; accessEpoch: number; channelGeneration: number }) =>
     [...communityKeys.conversationEntries(channelId), {
-      serverId: intent.serverId ?? null, anchorMessageId: intent.anchorMessageId ?? null, tag: intent.tag ?? null, preferTail: intent.preferTail === true,
+      serverId: intent.serverId ?? null, anchorMessageId: intent.anchorMessageId ?? null, tag: intent.tag ?? null, preferTail: intent.preferTail !== false, newAfterSeq: intent.newAfterSeq ?? null,
     }, ...(qualification ? [qualification] : [])] as const,
   dmMessages: (dmId: string) =>
     communityKeys.channelMessages(dmId),

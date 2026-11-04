@@ -23,7 +23,7 @@ describe("channel resource options use the common entry", () => {
     const metadata = channelMetadataOptions(client, serverId, "c1")
     expect(metadata.queryKey).toEqual(conversationEntryOptions(client, { channelId: "c1", serverId }).queryKey)
     await client.query({ ...metadata, select: undefined })
-    expect(load.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/c1/messages?entry=1"])
+    expect(load.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/c1/messages?entry=1&window=tail"])
     expect(registry.collections.channels.get("c1")).toMatchObject(packet.channel)
   })
 

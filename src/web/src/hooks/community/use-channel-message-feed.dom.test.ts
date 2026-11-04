@@ -9,6 +9,7 @@ import { ConversationActivityContext } from "@/contexts/community/conversation-a
 const mocks = vi.hoisted(() => ({
   messages: { messages: [{ id: "read", authorId: "viewer", seq: 1 }, { id: "peer", authorId: "peer", seq: 2 }],
     readSnapshot: { channelId: "c1", lastReadMessageId: "read", lastReadSeq: 1, lastReadAt: null } as { channelId: string; lastReadMessageId: string | null; lastReadSeq: number; lastReadAt: null } | null,
+    newBoundary: { afterSeq: 1, target: { id: "peer", channelId: "c1", seq: 2, authorId: "peer" } } as { afterSeq: number; target: { id: string; channelId: string; seq: number; authorId: string } } | undefined,
     readSnapshotFetching: false, anchorReconciled: true, initialPositionKnown: true,
     entryDenied: false, initialLoadError: null as Error | null, isPending: false, isError: false, hasMoreNewer: false,
     latestSeq: 2, retryInitialLoad: vi.fn(), refetch: vi.fn(),
@@ -25,7 +26,7 @@ beforeEach(async () => {
   owner = await createCommunityQueryOwner("viewer")
   mocks.useMessages.mockClear(); mocks.watermark.mockClear(); mocks.messages.retryInitialLoad.mockClear()
   Object.assign(mocks.messages, { readSnapshot: { channelId: "c1", lastReadMessageId: "read", lastReadSeq: 1, lastReadAt: null }, readSnapshotFetching: false,
-    entryDenied: false, initialLoadError: null, isPending: false, isError: false, anchorReconciled: true, initialPositionKnown: true })
+    newBoundary: { afterSeq: 1, target: { id: "peer", channelId: "c1", seq: 2, authorId: "peer" } }, entryDenied: false, initialLoadError: null, isPending: false, isError: false, anchorReconciled: true, initialPositionKnown: true })
 })
 
 describe("message feed consumes the entry snapshot", () => {
@@ -42,14 +43,13 @@ describe("message feed consumes the entry snapshot", () => {
     const hook = renderHook(() => useChannelMessageFeed(target), { wrapper: Owner })
     expect(hook.result.current.newDividerBefore).toBe("peer")
     expect(hook.result.current.unreadCount).toBe(1)
-    expect(hook.result.current.anchorInCache).toBe(true)
     expect(hook.result.current.threadsLoading).toBe(true)
     expect(mocks.watermark).toHaveBeenLastCalledWith(expect.objectContaining({ snapshotStatus: "ready", confirmedSeq: 1, feedStatus: "ready" }))
     hook.unmount()
   })
 
   it("keeps an unresolved entry pointer pending without a second leaf-read gate", () => {
-    mocks.messages.readSnapshot = null; mocks.messages.readSnapshotFetching = true; mocks.messages.initialPositionKnown = false
+    mocks.messages.newBoundary = undefined; mocks.messages.readSnapshot = null; mocks.messages.readSnapshotFetching = true; mocks.messages.initialPositionKnown = false
     const hook = renderHook(() => useChannelMessageFeed({ ...target, anchorMessageId: "deep" }), { wrapper: Owner })
     expect(hook.result.current.newDividerBefore).toBeUndefined()
     expect(mocks.watermark).toHaveBeenLastCalledWith(expect.objectContaining({ snapshotStatus: "pending" }))

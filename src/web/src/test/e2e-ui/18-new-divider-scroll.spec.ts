@@ -78,11 +78,20 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
   })
   await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
   await page.waitForURL(new RegExp(channelId), { timeout: 20_000, waitUntil: "commit" })
-  const divider = page.getByTestId(tid.newDivider)
-  await expect(divider).toBeVisible({ timeout: 30_000 })
-
   const scroller = page.getByTestId(tid.messageScroller)
   await expect(scroller).toHaveCount(1)
+  await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
+  const jumpToNew = page.getByTestId(tid.scrollToNew)
+  await expect(jumpToNew).toBeVisible({ timeout: 30_000 })
+  await jumpToNew.click()
+  const divider = page.getByTestId(tid.newDivider)
+  await expect(divider).toBeInViewport()
+  await expect.poll(() => divider.evaluate(element => {
+    const root = element.closest('[data-testid="community-message-scroller"]')!
+    return Math.abs(element.getBoundingClientRect().top - root.getBoundingClientRect().top)
+  })).toBeLessThanOrEqual(1)
+  await expect(jumpToNew).toBeHidden()
+
   const box = await scroller.boundingBox()
   expect(box).not.toBeNull()
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)

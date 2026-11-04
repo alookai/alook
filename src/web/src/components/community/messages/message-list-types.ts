@@ -3,6 +3,7 @@ import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/m
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { MessagePositionState, MessageRequest } from "@/lib/community/message-position"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
+import type { CommunityConversationEntryRead } from "@alook/shared"
 
 export type MessageListProps = {
   observation?: import("@/lib/observability/regions").ResourceObservation
@@ -15,6 +16,11 @@ export type MessageListProps = {
   onRetryInitialLoad?: () => void
   pinnedIds?: Set<string>
   newDividerBefore?: string
+  newBoundary?: CommunityConversationEntryRead["newBoundary"]
+  latestSeq?: number
+  retiredNewTargetId?: string
+  onLoadNewTarget?: (id: string) => MessageRequest
+  onReadNewBoundary?: (afterSeq: number) => Promise<{ boundary: CommunityConversationEntryRead["newBoundary"]; latestSeq: number } | undefined>
   typingUsers?: string[]
   onOpenThread: (id: string) => void
   onOpenProfile?: OpenProfile
