@@ -650,7 +650,6 @@ body.driver-active .community-ws-reconnect-overlay * {
   --tw-chrome-hi: oklch(0.82 0.005 80);
   --tw-paper: oklch(0.97 0.008 80);
   --tw-blob: oklch(0.88 0.025 82);
-  --tw-roller: oklch(0.15 0.01 55);
 }
 
 /* ─── CRT panel reusable styles ─── */
@@ -983,7 +982,7 @@ body.driver-active .community-ws-reconnect-overlay * {
 
 .tw-body > .tw-paper-track {
   /* The sheet stands in the middle of the top deck, so its foot disappears into the body. */
-  transform: translateX(-50%) translateZ(-25px);
+  transform: translateX(-50%) translateZ(-34px);
 }
 
 /* Back face */
@@ -1059,51 +1058,32 @@ body.driver-active .community-ws-reconnect-overlay * {
   backface-visibility: hidden;
 }
 
-/* ── Roller assembly — at the top of body, wider than body ── */
+/* ── Platen and knobs — 3D cylinders resting on the top deck, just in front of the sheet ──
+   Strip geometry comes from ROLLER_STRIPS / KNOB_CAPS in typewriter-visual.tsx; the container is the axis origin. */
 .tw-roller-assembly {
   position: absolute;
-  /* Platen rests on the top deck around the sheet's foot. */
-  top: -22px;
-  left: -24px;
-  right: -24px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  z-index: 6;
-  transform: translateZ(-19px);
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform: translate3d(0, -8px, -19px);
+  pointer-events: none;
 }
 
-.tw-roller {
-  flex: 1;
-  height: 22px;
-  background: var(--tw-roller);
-  border-radius: 11px;
-  box-shadow:
-    inset 0 -5px 10px rgba(0, 0, 0, 0.5),
-    inset 0 4px 6px rgba(255, 255, 255, 0.05),
-    0 2px 8px rgba(0, 0, 0, 0.3);
+.tw-roller-strip,
+.tw-knob-cap {
+  position: absolute;
+  backface-visibility: hidden;
 }
 
-/* Roller knobs */
-.tw-knob {
-  width: 20px;
-  height: 32px;
-  background: oklch(0.20 0.01 55);
-  border-radius: 4px;
-  box-shadow:
-    inset 0 -3px 5px rgba(0, 0, 0, 0.4),
-    inset 0 1px 2px rgba(255, 255, 255, 0.06),
-    0 2px 4px rgba(0, 0, 0, 0.3);
-  flex-shrink: 0;
-  border: 1px solid oklch(0.30 0.01 55);
-}
-
-.tw-knob-left {
-  margin-right: -3px;
-}
-
-.tw-knob-right {
-  margin-left: -3px;
+/* Bakelite knob face: soft top-left highlight, a turned ring, and a centre boss. */
+.tw-knob-cap {
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, oklch(0.30 0.008 60) 0 4px, transparent 4.5px),
+    radial-gradient(circle at 50% 50%, transparent 0 11px, oklch(0.12 0.008 60 / 70%) 11.5px 12.5px, transparent 13px),
+    radial-gradient(circle at 35% 30%, oklch(0.34 0.008 60), oklch(0.16 0.008 60) 70%);
 }
 
 /* ── Type-bar fan — below roller ── */

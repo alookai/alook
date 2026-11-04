@@ -19,7 +19,6 @@ const TW_VARS: React.CSSProperties = {
   "--tw-chrome-hi": "oklch(0.82 0.005 80)",
   "--tw-paper": "oklch(0.97 0.008 80)",
   "--tw-blob": "var(--tw-blob-theme, oklch(0.88 0.025 82))",
-  "--tw-roller": "oklch(0.15 0.01 55)",
 } as React.CSSProperties;
 
 // Body box: 420 × 260 × 160 px with a 24 px corner radius. Each depth edge is a quarter cylinder built from
@@ -49,6 +48,34 @@ const EDGE_STRIPS: React.CSSProperties[] = EDGE_CENTERS.flatMap(([cx, cy], corne
     };
   }),
 );
+
+// Platen and knobs are real cylinders along the x axis, built from shaded strips (light from top-front).
+// Axis sits on the top deck (see .tw-roller-assembly); x is measured on the 420 px body.
+function cylinderStrips(x0: number, length: number, radius: number, segments: number, base: number, gain: number, ribbed = false): React.CSSProperties[] {
+  const stripH = 2 * radius * Math.sin(Math.PI / segments) + 0.8;
+  return Array.from({ length: segments }, (_, k) => {
+    const angle = (k * 360) / segments;
+    const rad = (angle * Math.PI) / 180;
+    const lit = Math.max(0, 0.65 * Math.sin(rad) + 0.35 * Math.cos(rad));
+    const lightness = base + gain * lit ** 1.4 + (ribbed && k % 2 ? -0.025 : 0);
+    return {
+      left: `${x0}px`,
+      top: `${(-stripH / 2).toFixed(2)}px`,
+      width: `${length}px`,
+      height: `${stripH.toFixed(2)}px`,
+      background: `oklch(${lightness.toFixed(3)} 0.008 60)`,
+      transform: `rotateX(${angle}deg) translateZ(${radius}px)`,
+    };
+  });
+}
+const PLATEN_R = 13, KNOB_R = 19, KNOB_W = 18, PLATEN_X0 = 4, PLATEN_X1 = BODY_W - 4;
+const ROLLER_STRIPS = [
+  ...cylinderStrips(PLATEN_X0, PLATEN_X1 - PLATEN_X0, PLATEN_R, 16, 0.11, 0.32),
+  ...cylinderStrips(PLATEN_X0 - KNOB_W, KNOB_W, KNOB_R, 24, 0.15, 0.24, true),
+  ...cylinderStrips(PLATEN_X1, KNOB_W, KNOB_R, 24, 0.15, 0.24, true),
+];
+// Knob end caps: [x, facing +x?]
+const KNOB_CAPS: [number, boolean][] = [[PLATEN_X0 - KNOB_W, false], [PLATEN_X0, true], [PLATEN_X1, false], [PLATEN_X1 + KNOB_W, true]];
 
 interface TypewriterVisualProps {
   className?: string;
@@ -165,10 +192,15 @@ export function TypewriterVisual({
             {EDGE_STRIPS.map((style, i) => <div key={i} className="tw-body-edge" style={style} />)}
 
             {paperTrack}
-            <div className="tw-roller-assembly">
-              <div className="tw-knob tw-knob-left" />
-              <div className="tw-roller" />
-              <div className="tw-knob tw-knob-right" />
+            <div className="tw-roller-assembly" aria-hidden="true">
+              {ROLLER_STRIPS.map((style, i) => <div key={i} className="tw-roller-strip" style={style} />)}
+              {KNOB_CAPS.map(([x, outward], i) => (
+                <div
+                  key={`cap-${i}`}
+                  className="tw-knob-cap"
+                  style={{ left: `${x - KNOB_R}px`, top: `${-KNOB_R}px`, width: `${2 * KNOB_R}px`, height: `${2 * KNOB_R}px`, transform: `rotateY(${outward ? 90 : -90}deg)` }}
+                />
+              ))}
             </div>
             <div className="tw-body-front">
               <div className="tw-typebar-fan" />
