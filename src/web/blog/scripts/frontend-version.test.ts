@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
-import { afterEach, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, expect, it, vi } from "vitest"
 
 vi.mock("@next/mdx", () => ({ default: () => (config: unknown) => config }))
 vi.mock("@opennextjs/cloudflare", () => ({ initOpenNextCloudflareForDev: vi.fn() }))
@@ -44,9 +44,15 @@ function loadBuildConfigs(mode: string, source: string) {
   return JSON.parse(encoded.slice("FARO_BUILD_CONFIG=".length)) as Array<{ env: Record<string, string>; assetPrefix?: string }>
 }
 
+let productionWithoutSource: ReturnType<typeof loadBuildConfigs>
+
+beforeAll(() => {
+  productionWithoutSource = loadBuildConfigs("production", "")
+})
+
 it("injects the same shared frontend package version into the Blog build", () => {
   const pkg = JSON.parse(readFileSync(fileURLToPath(new URL("../../package.json", import.meta.url)), "utf8"))
-  const config = loadBuildConfigs("production", "")[1]
+  const config = structuredClone(productionWithoutSource)[1]
   expect(config.env?.NEXT_PUBLIC_APP_VERSION).toBe(pkg.version)
   expect(config.assetPrefix).toBe("/blog-static")
 })
@@ -57,7 +63,8 @@ it.each([
   { mode: "production", source: "", release: "", environment: "production" },
   { mode: "test", source: "", release: "", environment: "" },
 ])("embeds native provenance in both apps for $mode with source '$source'", ({ mode, source, release, environment }) => {
-  for (const config of loadBuildConfigs(mode, source)) {
+  const configs = mode === "production" && source === "" ? structuredClone(productionWithoutSource) : loadBuildConfigs(mode, source)
+  for (const config of configs) {
     expect(config.env).toMatchObject({ NEXT_PUBLIC_FARO_RELEASE: release, NEXT_PUBLIC_FARO_ENVIRONMENT: environment })
   }
 })
