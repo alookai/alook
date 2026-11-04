@@ -7,7 +7,7 @@ import { TypewriterCityArt } from "./typewriter-city-art";
 
 const KEY_ROWS = [9, 7, 9];
 // rest angle of .typewriter-scene in globals.css
-const REST_RX = -10;
+const REST_RX = 10;
 const REST_RY = -20;
 
 const TW_VARS: React.CSSProperties = {

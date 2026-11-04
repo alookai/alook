@@ -186,7 +186,7 @@ describe("SignInMobileTypewriter", () => {
     expect(stage.style.cssText).toBe(held)
     act(() => { drainFrames() })
     expect(Number.parseFloat(stage.style.getPropertyValue("--tw-ry"))).toBe(-20)
-    expect(Number.parseFloat(stage.style.getPropertyValue("--tw-rx"))).toBe(-10)
+    expect(Number.parseFloat(stage.style.getPropertyValue("--tw-rx"))).toBe(10)
     act(() => { orientation(65, -20) })
     expect(rafQueue).toHaveLength(0)
   })

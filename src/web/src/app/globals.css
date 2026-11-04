@@ -901,7 +901,7 @@ body.driver-active .community-ws-reconnect-overlay * {
   z-index: 2;
   perspective: 2500px;
   transform-style: preserve-3d;
-  transform: rotateY(-20deg) rotateX(-10deg);
+  transform: rotateY(-20deg) rotateX(10deg);
   transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -932,7 +932,8 @@ body.driver-active .community-ws-reconnect-overlay * {
 
 /* ── Paper — slides up inside the track ── */
 .tw-paper.tw-paper-city {
-  padding: 8px 8px 24px;
+  /* A slightly deeper bottom margin lifts the city clear of the platen (Gus #2771). */
+  padding: 8px 8px 36px;
 }
 
 .tw-paper {
@@ -994,17 +995,11 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 .tw-body > .tw-paper-track {
-  /* The sheet goes into the top deck behind the platen and leans back parallel to the keyboard face
-     (Gus #2771, #2775). Its foot sits 30px down, past the deck's 24px corner radius, so no paper shows
-     between the knobs and the rounded deck ends; extra bottom padding keeps the content riding high. */
-  bottom: calc(100% - 30px);
-  transform-origin: 50% 100%;
-  transform: translateX(-50%) translateZ(-40px) rotateX(12.995deg);
+  /* The sheet goes into the top deck behind the platen and stands parallel to the back panel (Gus #2778).
+     The full-width paper guide hides its foot at the rounded deck ends. */
+  transform: translateX(-50%) translateZ(-40px);
 }
 
-.tw-body > .tw-paper-track .tw-paper {
-  padding-bottom: 70px;
-}
 
 /* Back face */
 .tw-body-back {
@@ -1067,6 +1062,10 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 .tw-body-bottom {
+  /* 2px wider each side, tucked under the rounded edge strips, so the underside never shows a light seam
+     from the default up-left view (Gus #2783). */
+  left: 22px;
+  width: 376px;
   background: oklch(0.14 0.01 55);
   transform: rotateX(-90deg) translateZ(180px);
   box-shadow: 0 60px 100px oklch(0 0 0 / 20%);
