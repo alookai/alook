@@ -1349,7 +1349,7 @@ describe("Mobile release availability", () => {
     expect(build).toBeGreaterThan(restore)
   })
 
-  it("attaches a signed Android APK to --mobile GitHub releases without Google Play", () => {
+  it("keeps signed Android APK downloads on --mobile GitHub releases", () => {
     expect(desktopAndroidConfig.identifier).toBe("ai.alook.android")
     expect(androidGradle).toContain('namespace = "ai.alook.android"')
     expect(androidGradle).toContain('applicationId = "ai.alook.android"')
@@ -1390,7 +1390,6 @@ describe("Mobile release availability", () => {
     expect(mobileReleaseWorkflow).toContain("## Android")
     expect(mobileReleaseWorkflow).toContain("[Download signed APK](${base}/${APK_NAME})")
     expect(mobileReleaseWorkflow).toContain('gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$notes_file"')
-    expect(mobileReleaseWorkflow).not.toContain("Google Play")
   })
 })
 

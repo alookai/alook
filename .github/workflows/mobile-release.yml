@@ -7,13 +7,23 @@ on:
       - "src/desktop/.deploy-version-mobile"
   workflow_dispatch:
     inputs:
+      ios:
+        description: Build iOS (disable for an Android-only run)
+        required: true
+        default: true
+        type: boolean
       upload:
         description: Upload the signed IPA to App Store Connect for TestFlight processing
         required: true
         default: false
         type: boolean
       android:
-        description: Build and attach the signed Android APK
+        description: Build signed Android APK and AAB
+        required: true
+        default: false
+        type: boolean
+      play_upload:
+        description: Upload the verified AAB as a Google Play internal draft
         required: true
         default: false
         type: boolean
@@ -25,6 +35,7 @@ concurrency:
 jobs:
   build-ios:
     name: Build signed iOS IPA
+    if: github.event_name == 'push' || inputs.ios == true
     runs-on: xcode-27
     timeout-minutes: 45
     permissions:
@@ -244,12 +255,15 @@ jobs:
             --apiIssuer "$APPLE_API_ISSUER"
 
   build-android:
-    name: Build signed Android APK
-    if: github.event_name == 'push' || inputs.android == true
+    name: Build signed Android APK and AAB
+    if: github.event_name == 'push' || inputs.android == true || inputs.play_upload == true
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
       contents: write
+      id-token: write
+    env:
+      ANDROID_RELEASE_CERTIFICATE_SHA256: 9DC6EDE94BA663EEC9EC98FF7BAFD55E248B6C4BC2157FCF042DF59B0E410806
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -355,12 +369,13 @@ jobs:
             echo "SIGNING_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
           } >> "$GITHUB_ENV"
 
-      - name: Build signed universal APK
+      - name: Build signed universal APK and AAB
         working-directory: src/desktop
         run: |
           set -euo pipefail
           pnpm tauri android build \
             --apk \
+            --aab \
             --ci \
             --target aarch64 armv7 \
             --config "{\"bundle\":{\"android\":{\"versionCode\":${GITHUB_RUN_NUMBER}}}}"
@@ -389,7 +404,7 @@ jobs:
           signature=$($apksigner verify --verbose --print-certs "$apk_source")
           grep -F 'Verifies' <<<"$signature"
           normalized_signature=$(tr '[:lower:]' '[:upper:]' <<<"$signature" | tr -d ':')
-          grep -F '9DC6EDE94BA663EEC9EC98FF7BAFD55E248B6C4BC2157FCF042DF59B0E410806' <<<"$normalized_signature"
+          grep -F "$ANDROID_RELEASE_CERTIFICATE_SHA256" <<<"$normalized_signature"
 
           manifest_path="$RUNNER_TEMP/android-manifest-tree.txt"
           $aapt dump xmltree "$apk_source" AndroidManifest.xml > "$manifest_path"
@@ -458,15 +473,44 @@ jobs:
           echo "name=$apk_name" >> "$GITHUB_OUTPUT"
           echo "path=$apk_path" >> "$GITHUB_OUTPUT"
 
-      - name: Upload signed APK artifact
+      - name: Verify and stage signed Android App Bundle
+        id: aab
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          bundletool="$RUNNER_TEMP/bundletool-all-1.18.3.jar"
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 180 \
+            --output "$bundletool" \
+            https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
+          echo "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  $bundletool" | sha256sum --check --strict
+          aab_path="$RUNNER_TEMP/Alook_${EXPECTED_VERSION}_android.aab"
+          receipt_path="$RUNNER_TEMP/android-bundle-receipt.json"
+          python3 scripts/ci/verify-android-bundle.py \
+            --bundle src/desktop/src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab \
+            --bundletool "$bundletool" \
+            --version-name "$EXPECTED_VERSION" \
+            --version-code "$GITHUB_RUN_NUMBER" \
+            --certificate-sha256 "$ANDROID_RELEASE_CERTIFICATE_SHA256" \
+            --output "$aab_path" \
+            --receipt "$receipt_path"
+          echo "path=$aab_path" >> "$GITHUB_OUTPUT"
+          echo "receipt=$receipt_path" >> "$GITHUB_OUTPUT"
+
+      - name: Upload signed Android artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: alook-android-${{ github.run_id }}
-          path: ${{ steps.apk.outputs.path }}
+          path: |
+            ${{ steps.apk.outputs.path }}
+            ${{ steps.aab.outputs.path }}
+            ${{ steps.aab.outputs.receipt }}
           if-no-files-found: error
           retention-days: 14
 
       - name: Resolve GitHub release
+        if: github.event_name == 'push'
         id: release
         shell: bash
         env:
@@ -484,12 +528,14 @@ jobs:
           exit 1
 
       - name: Attach APK to GitHub release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: v${{ steps.version.outputs.value }}
         run: gh release upload "$TAG" "${{ steps.apk.outputs.path }}#${{ steps.apk.outputs.name }}" --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Append Android download to release body
+        if: github.event_name == 'push'
         env:
           APK_NAME: ${{ steps.apk.outputs.name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -519,3 +565,41 @@ jobs:
           EOF
 
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$notes_file"
+
+      - name: Verify Google Play authentication inputs
+        if: github.event_name == 'push' || inputs.play_upload == true
+        env:
+          GOOGLE_PLAY_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GOOGLE_PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          GOOGLE_PLAY_SERVICE_ACCOUNT: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$GOOGLE_PLAY_WORKLOAD_IDENTITY_PROVIDER"
+          test -n "$GOOGLE_PLAY_SERVICE_ACCOUNT"
+
+      - name: Authenticate Google Play upload
+        if: github.event_name == 'push' || inputs.play_upload == true
+        id: play_auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GOOGLE_PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Upload and confirm Google Play internal draft
+        if: github.event_name == 'push' || inputs.play_upload == true
+        env:
+          GOOGLE_PLAY_ACCESS_TOKEN: ${{ steps.play_auth.outputs.access_token }}
+          BUNDLE_RECEIPT: ${{ steps.aab.outputs.receipt }}
+        run: node scripts/ci/upload-google-play.mjs "$BUNDLE_RECEIPT" "$RUNNER_TEMP/google-play-result.json"
+
+      - name: Upload Google Play result receipt
+        if: always() && (github.event_name == 'push' || inputs.play_upload == true)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: alook-google-play-${{ github.run_id }}
+          path: ${{ runner.temp }}/google-play-result.json
+          if-no-files-found: warn
+          retention-days: 14
