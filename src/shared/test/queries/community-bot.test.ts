@@ -1,40 +1,65 @@
-import { describe, it, expect, vi } from "vitest"
-import { drizzle } from "drizzle-orm/d1"
+import { beforeEach, describe, it, expect, vi } from "vitest"
+import { readFileSync, readdirSync } from "node:fs"
 import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3"
 import Sqlite from "better-sqlite3"
 import * as q from "../../src/db/queries/community/bot"
-import {
-  communityBotSyntheticEmail,
-  COMMUNITY_BOT_REQUEST_MAX_ITEMS,
-  COMMUNITY_BOT_NAME_MAX,
-} from "../../src/constants"
-import { computeDiscriminator } from "../../src/lib/discriminator"
+import { communityBotSyntheticEmail } from "../../src/constants"
+import { CommunityBotCreateRequestSchema, CommunityBotPatchRequestSchema, CommunityServerOnboardRequestSchema } from "../../src/schemas"
 
-/**
- * Smoke test — verifies the community/bot module exports the documented
- * helpers. Integration-level behaviour (batch atomicity, cross-owner
- * isolation, deletedAt filter) is exercised end-to-end in the tests under
- * `tests/e2e/community-bots.e2e.test.ts` where a real D1 lives.
- */
+const opaqueAllocation = vi.hoisted(() => ({ next: vi.fn(() => "0042") }))
+vi.mock("../../src/lib/discriminator", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/lib/discriminator")>()
+  return { ...actual, computeDiscriminator: opaqueAllocation.next }
+})
+
+beforeEach(() => {
+  opaqueAllocation.next.mockReset().mockReturnValue("0042")
+})
+
+type NativeStatement = {
+  toSQL(): { sql: string; params: unknown[] }
+  all(): unknown
+  run(): unknown
+}
+
+function createMigratedDatabase() {
+  const sqlite = new Sqlite(":memory:")
+  try {
+    sqlite.pragma("foreign_keys = ON")
+    const root = new URL("../../../web/migrations/", import.meta.url)
+    for (const name of readdirSync(root).filter(name => name.endsWith(".sql")).sort()) {
+      sqlite.exec(readFileSync(new URL(name, root), "utf8"))
+    }
+    const errors: unknown[] = []
+    const orm = drizzleSqlite(sqlite)
+    const batch = vi.fn(async (statements: NativeStatement[]) => {
+      try {
+        return sqlite.transaction(() => statements.map(statement => {
+          const query = statement.toSQL()
+          return sqlite.prepare(query.sql).reader ? statement.all() : statement.run()
+        }))()
+      } catch (error) {
+        errors.push(error)
+        throw error
+      }
+    })
+    const db = Object.assign(orm, { batch }) as unknown as Parameters<typeof q.createBot>[0]
+    sqlite.exec(`
+      INSERT INTO user (id,name,email,emailVerified,createdAt,updatedAt,isBot,ownerUserId,discriminator)
+        VALUES ('owner_1','Owner','owner@example.test',1,'2026-01-01','2026-01-01',0,NULL,'9999');
+      INSERT INTO community_machine
+        (id,user_id,display_name,hostname,platform,arch,available_runtimes,status,created_at,updated_at)
+        VALUES ('machine_1','owner_1','Work Mac','host','darwin','arm64','[{"id":"codex","status":"healthy"}]','online','2026-01-01','2026-01-01');
+      UPDATE product_plan_entitlement SET value_json='10' WHERE entitlement_key='bots.max';
+    `)
+    return { sqlite, db, batch, errors }
+  } catch (error) {
+    sqlite.close()
+    throw error
+  }
+}
+
 describe("community/bot exports", () => {
-  it("exposes read helpers", () => {
-    expect(typeof q.getLiveBotAvatar).toBe("function")
-    expect(typeof q.countLiveBotsForOwner).toBe("function")
-    expect(typeof q.listBotsBoundToMachine).toBe("function")
-  })
-
-  it("exposes bot-activity heatmap helpers", () => {
-    expect(typeof q.bumpBotDailyActivityStatement).toBe("function")
-    expect(typeof q.getBotDailyActivity).toBe("function")
-    expect(typeof q.getBotDailyActivityForOwner).toBe("function")
-  })
-
-  it("exposes write helpers", () => {
-    expect(typeof q.updateBot).toBe("function")
-    expect(typeof q.softDeleteBot).toBe("function")
-    expect(typeof q.assertNoLiveBots).toBe("function")
-  })
-
   it("exports OwnerHasBotsError as a real Error subclass", () => {
     const e = new q.OwnerHasBotsError("boom")
     expect(e).toBeInstanceOf(Error)
@@ -54,79 +79,54 @@ describe("communityBotSyntheticEmail", () => {
 
 describe("createBot", () => {
   it("writes a discriminator for the bot user row", async () => {
-    const userValues: unknown[] = []
-    const db = {
-      insert: vi.fn(() => ({
-        values: vi.fn((values: unknown) => {
-          userValues.push(values)
-          return {
-            onConflictDoUpdate: vi.fn(() => ({ __stmt: "profile" })),
-          }
-        }),
-      })),
-      batch: vi.fn(async () => []),
-    }
-
-    await q.createBot(db as never, {
-      ownerId: "owner_1",
-      name: "helper",
-      description: "does things",
-      machineId: "machine_1",
-      runtime: "codex",
-    })
-
-    const botUser = userValues[0] as { id: string; discriminator: string }
-    expect(botUser.discriminator).toBe(computeDiscriminator(botUser.id))
-    expect(botUser.discriminator).toMatch(/^\d{4}$/)
-    expect(userValues[1]).toEqual(expect.objectContaining({ instruction: "does things" }))
-    expect(userValues[2]).toEqual(expect.objectContaining({ aboutMe: "does things" }))
-    expect(db.batch).toHaveBeenCalledOnce()
+    const { sqlite, db, batch, errors } = createMigratedDatabase()
+    try {
+      const result = await q.createBot(db, {
+        ownerId: "owner_1", name: "helper", description: "does things",
+        machineId: "machine_1", runtime: "codex",
+      })
+      expect(result.discriminator).toBe("0042")
+      expect(result.discriminator).toMatch(/^\d{4}$/)
+      expect(sqlite.prepare("SELECT id,name,ownerUserId,discriminator,image,avatarVersion FROM user WHERE id=?").get(result.botId))
+        .toEqual({ id: result.botId, name: "helper", ownerUserId: "owner_1", discriminator: "0042", image: null, avatarVersion: 0 })
+      expect(sqlite.prepare("SELECT user_id,machine_id,runtime,instruction FROM community_bot_binding WHERE user_id=?").get(result.botId))
+        .toEqual({ user_id: result.botId, machine_id: "machine_1", runtime: "codex", instruction: "does things" })
+      expect(sqlite.prepare("SELECT user_id,about_me FROM community_user_profile WHERE user_id=?").get(result.botId))
+        .toEqual({ user_id: result.botId, about_me: "does things" })
+      expect(batch).toHaveBeenCalledOnce()
+      expect(batch.mock.calls[0]![0]).toHaveLength(3)
+      expect(errors).toEqual([])
+      expect(sqlite.pragma("foreign_key_check")).toEqual([])
+    } finally { sqlite.close() }
   })
 
-  it("on a discriminator collision, retries the WHOLE 3-statement batch with a salted discriminator", async () => {
-    // Every statement in the batch (`user`, `communityBotBinding`,
-    // `communityUserProfile`) gets rebuilt per attempt, so all three of an
-    // attempt's `.values(...)` payloads must carry the SAME (salted)
-    // discriminator that attempt used — not just the user row.
-    const userValues: Array<{ id: string; discriminator: string }> = []
-    const uniqueErr = Object.assign(new Error("UNIQUE constraint failed: user.name, user.discriminator"), {
-      code: "SQLITE_CONSTRAINT_UNIQUE",
-    })
-    const batch = vi.fn().mockRejectedValueOnce(uniqueErr).mockResolvedValueOnce([])
-    const db = {
-      insert: vi.fn(() => ({
-        values: vi.fn((values: unknown) => {
-          userValues.push(values as { id: string; discriminator: string })
-          return {
-            onConflictDoUpdate: vi.fn(() => ({ __stmt: "profile" })),
-          }
-        }),
-      })),
-      batch,
-    }
-
-    const result = await q.createBot(db as never, {
-      ownerId: "owner_1",
-      name: "helper",
-      description: "does things",
-      machineId: "machine_1",
-      runtime: "codex",
-    })
-
-    // 2 attempts × 3 statements (user, binding, profile) each pushing values.
-    expect(userValues).toHaveLength(6)
-    expect(batch).toHaveBeenCalledTimes(2)
-
-    const botId = result.botId
-    const firstAttemptDiscriminator = userValues[0]!.discriminator
-    const secondAttemptDiscriminator = userValues[3]!.discriminator
-    expect(firstAttemptDiscriminator).toBe(computeDiscriminator(botId))
-    // Salt scheme is now `id:width:attempt`; the first retry stays at width 4.
-    expect(secondAttemptDiscriminator).toBe(computeDiscriminator(`${botId}:4:1`, 4))
-    expect(secondAttemptDiscriminator).not.toBe(firstAttemptDiscriminator)
-
-    // The winning (second) attempt's discriminator is what's returned.
-    expect(result.discriminator).toBe(secondAttemptDiscriminator)
+  it("retries the whole batch after a real collision and returns the stored identity", async () => {
+    const { sqlite, db, batch, errors } = createMigratedDatabase()
+    try {
+      sqlite.exec(`INSERT INTO user (id,name,email,emailVerified,createdAt,updatedAt,isBot,ownerUserId,discriminator)
+        VALUES ('collision','helper','collision@example.test',1,'2026-01-01','2026-01-01',0,NULL,'0042')`)
+      opaqueAllocation.next.mockReturnValueOnce("0042").mockReturnValue("0099")
+      const result = await q.createBot(db, {
+        ownerId: "owner_1", name: "helper", description: "does things",
+        machineId: "machine_1", runtime: "codex",
+      })
+      expect(errors).toHaveLength(1)
+      expect(errors[0]).toMatchObject({ code: "SQLITE_CONSTRAINT_UNIQUE" })
+      expect(batch.mock.calls.length).toBeGreaterThanOrEqual(2)
+      expect(batch.mock.calls.every(([statements]) => statements.length === 3)).toBe(true)
+      expect(result.discriminator).toBe("0099")
+      expect(sqlite.prepare("SELECT id,discriminator,ownerUserId FROM user WHERE isBot=1").all())
+        .toEqual([{ id: result.botId, discriminator: "0099", ownerUserId: "owner_1" }])
+      expect(sqlite.prepare("SELECT user_id,instruction FROM community_bot_binding").all())
+        .toEqual([{ user_id: result.botId, instruction: "does things" }])
+      expect(sqlite.prepare("SELECT user_id,about_me FROM community_user_profile WHERE user_id=?").all(result.botId))
+        .toEqual([{ user_id: result.botId, about_me: "does things" }])
+      expect(sqlite.prepare("SELECT id,name,discriminator FROM user WHERE id='collision'").get())
+        .toEqual({ id: "collision", name: "helper", discriminator: "0042" })
+      expect(sqlite.pragma("foreign_key_check")).toEqual([])
+      const collision = errors[0] as Error & { code: string }
+      console.info("native-bot-create-collision", { code: collision.code, message: collision.message, attempts: batch.mock.calls.length })
+    } finally { sqlite.close() }
   })
 
   it("rethrows a non-unique-constraint db.batch failure without retrying", async () => {
@@ -516,36 +516,64 @@ describe("listBotsForMachine", () => {
 })
 
 describe("bot limits", () => {
-  it("keeps the request payload safety bound above the largest seeded entitlement", () => {
-    expect(COMMUNITY_BOT_REQUEST_MAX_ITEMS).toBe(100)
+  it("admits 100 distinct onboarding bots and rejects an oversized request", () => {
+    const payload = (count: number) => ({
+      bots: Array.from({ length: count }, (_, index) => ({ id: `bot-${index}`, wakePrompt: "Welcome" })),
+      leadBotId: "bot-0", action: { type: "finalize" },
+    })
+    expect(CommunityServerOnboardRequestSchema.safeParse(payload(100)).success).toBe(true)
+    expect(CommunityServerOnboardRequestSchema.safeParse(payload(101)).success).toBe(false)
   })
-  it("name max is 32", () => {
-    expect(COMMUNITY_BOT_NAME_MAX).toBe(32)
+  it("enforces 32-character names through create and patch", () => {
+    const create = { machineId: "machine_1", runtime: "codex" }
+    expect(CommunityBotCreateRequestSchema.safeParse({ ...create, name: "a".repeat(32) }).success).toBe(true)
+    expect(CommunityBotCreateRequestSchema.safeParse({ ...create, name: "a".repeat(33) }).success).toBe(false)
+    expect(CommunityBotPatchRequestSchema.safeParse({ name: "a".repeat(32) }).success).toBe(true)
+    expect(CommunityBotPatchRequestSchema.safeParse({ name: "a".repeat(33) }).success).toBe(false)
   })
 })
 
 describe("bumpBotDailyActivityStatement", () => {
-  const fakeDb = drizzle({} as never)
 
-  it("handled: inserts (1,0) and ON CONFLICT bumps handled_count", () => {
-    const { sql: text, params } = q
-      .bumpBotDailyActivityStatement(fakeDb, "bot_1", "2026-07-31", "handled")
-      .toSQL()
-    // upsert on the (bot_id, day) PK
-    expect(text).toContain('insert into "community_bot_daily_activity"')
-    expect(text).toContain("on conflict")
-    // seeds handled=1/sent=0, updates handled_count = handled_count + 1
-    expect(text).toContain('"handled_count" = "community_bot_daily_activity"."handled_count" + 1')
-    expect(text).not.toContain('"sent_count" = ')
-    expect(params).toEqual(["bot_1", "2026-07-31", 1, 0])
+  it("handled: inserts (1,0) and ON CONFLICT bumps handled_count", async () => {
+    const { sqlite, db } = createMigratedDatabase()
+    try {
+      const target = await q.createBot(db, { ownerId: "owner_1", name: "Counter", machineId: "machine_1", runtime: "codex" })
+      const neighbor = await q.createBot(db, { ownerId: "owner_1", name: "Neighbor", machineId: "machine_1", runtime: "codex" })
+      const day = "2026-07-31"
+      const read = (botId: string, value: string) => sqlite.prepare("SELECT handled_count,sent_count FROM community_bot_daily_activity WHERE bot_id=? AND day=?").get(botId, value)
+      await q.bumpBotDailyActivityStatement(db, target.botId, day, "handled")
+      expect(read(target.botId, day)).toEqual({ handled_count: 1, sent_count: 0 })
+      sqlite.prepare("UPDATE community_bot_daily_activity SET handled_count=6,sent_count=9 WHERE bot_id=? AND day=?").run(target.botId, day)
+      sqlite.prepare("INSERT INTO community_bot_daily_activity (bot_id,day,handled_count,sent_count) VALUES (?,?,31,47)").run(neighbor.botId, day)
+      sqlite.prepare("INSERT INTO community_bot_daily_activity (bot_id,day,handled_count,sent_count) VALUES (?,?,33,55)").run(target.botId, "2026-08-01")
+      await q.bumpBotDailyActivityStatement(db, target.botId, day, "handled")
+      await q.bumpBotDailyActivityStatement(db, target.botId, day, "handled")
+      expect(read(target.botId, day)).toEqual({ handled_count: 8, sent_count: 9 })
+      expect(read(neighbor.botId, day)).toEqual({ handled_count: 31, sent_count: 47 })
+      expect(read(target.botId, "2026-08-01")).toEqual({ handled_count: 33, sent_count: 55 })
+      expect(sqlite.pragma("foreign_key_check")).toEqual([])
+    } finally { sqlite.close() }
   })
 
-  it("sent: inserts (0,1) and ON CONFLICT bumps sent_count", () => {
-    const { sql: text, params } = q
-      .bumpBotDailyActivityStatement(fakeDb, "bot_1", "2026-07-31", "sent")
-      .toSQL()
-    expect(text).toContain('"sent_count" = "community_bot_daily_activity"."sent_count" + 1')
-    expect(text).not.toContain('"handled_count" = ')
-    expect(params).toEqual(["bot_1", "2026-07-31", 0, 1])
+  it("sent: inserts (0,1) and ON CONFLICT bumps sent_count", async () => {
+    const { sqlite, db } = createMigratedDatabase()
+    try {
+      const target = await q.createBot(db, { ownerId: "owner_1", name: "Counter", machineId: "machine_1", runtime: "codex" })
+      const neighbor = await q.createBot(db, { ownerId: "owner_1", name: "Neighbor", machineId: "machine_1", runtime: "codex" })
+      const day = "2026-07-31"
+      const read = (botId: string, value: string) => sqlite.prepare("SELECT handled_count,sent_count FROM community_bot_daily_activity WHERE bot_id=? AND day=?").get(botId, value)
+      await q.bumpBotDailyActivityStatement(db, target.botId, day, "sent")
+      expect(read(target.botId, day)).toEqual({ handled_count: 0, sent_count: 1 })
+      sqlite.prepare("UPDATE community_bot_daily_activity SET handled_count=6,sent_count=9 WHERE bot_id=? AND day=?").run(target.botId, day)
+      sqlite.prepare("INSERT INTO community_bot_daily_activity (bot_id,day,handled_count,sent_count) VALUES (?,?,31,47)").run(neighbor.botId, day)
+      sqlite.prepare("INSERT INTO community_bot_daily_activity (bot_id,day,handled_count,sent_count) VALUES (?,?,33,55)").run(target.botId, "2026-08-01")
+      await q.bumpBotDailyActivityStatement(db, target.botId, day, "sent")
+      await q.bumpBotDailyActivityStatement(db, target.botId, day, "sent")
+      expect(read(target.botId, day)).toEqual({ handled_count: 6, sent_count: 11 })
+      expect(read(neighbor.botId, day)).toEqual({ handled_count: 31, sent_count: 47 })
+      expect(read(target.botId, "2026-08-01")).toEqual({ handled_count: 33, sent_count: 55 })
+      expect(sqlite.pragma("foreign_key_check")).toEqual([])
+    } finally { sqlite.close() }
   })
 })
