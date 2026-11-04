@@ -33,20 +33,31 @@
   line-height: 1.6;
 }
 
+/* The wall is a machine body: a beige plastic panel the posts are stuck onto as stickers (Gus #2742–2743). */
 .wall {
   display: grid;
+  width: calc(100% - var(--landing-page-gutter) * 2);
+  max-width: calc(var(--landing-content-max) + 160px);
+  margin-inline: auto;
   min-width: 0;
-  gap: 32px;
+  gap: 28px;
+  padding-block: 36px;
+  border-radius: 32px;
+  background:
+    var(--tn-grain, none),
+    linear-gradient(175deg, #efe6d3, #e2d6bd 70%, #d9cbb0);
+  background-size: 180px 180px, 100% 100%;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%), inset 0 -10px 24px -16px rgb(80 60 30 / 35%), 0 0 0 0.5px rgb(60 45 20 / 18%);
   overflow: hidden;
   contain: paint;
-  /* Posts fade out at both edges instead of being cut mid-word (QA #12). A
-   * mask fades to the section itself, so it works in light and dark. */
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 clamp(32px, 9vw, 140px), #000 calc(100% - clamp(32px, 9vw, 140px)), transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 clamp(32px, 9vw, 140px), #000 calc(100% - clamp(32px, 9vw, 140px)), transparent);
 }
 
+/* Posts fade out at both edges instead of being cut mid-word (QA #12). The mask sits on each lane,
+ * so the panel edge stays crisp in light and dark. */
 .lane {
   overflow-x: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 clamp(24px, 6vw, 96px), #000 calc(100% - clamp(24px, 6vw, 96px)), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 clamp(24px, 6vw, 96px), #000 calc(100% - clamp(24px, 6vw, 96px)), transparent);
 }
 
 .track {
@@ -64,19 +75,49 @@
   display: flex;
   gap: 40px;
   margin: 0;
-  padding: 8px 40px 8px 8px;
+  /* Room for tilted sticker corners (up to ±4° on 360 px ≈ 13 px) inside the clipped lane. */
+  padding: 18px 40px 18px 8px;
   list-style: none;
 }
 
 .messages > li {
   width: 360px;
   flex-shrink: 0;
+  rotate: var(--sticker-tilt, 0deg);
+  transition: rotate 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), translate 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* Each post sits in the shared machine-case Card (hairline edge, shallow base). */
+/* Hover straightens and lifts a sticker; pressing pushes it back onto the panel. */
+.messages > li:hover {
+  rotate: 0deg;
+  translate: 0 -3px;
+}
+
+.messages > li:active {
+  translate: 0 0;
+  transition-duration: 0.08s;
+}
+
+/* Each post is a printed sticker on the shared Card: paper face, hairline edge, a thin contact shadow. */
 .card {
   height: 100%;
   padding: 0;
+  border-radius: 14px !important;
+  background: linear-gradient(160deg, #fffdf8, #f7f1e5) !important;
+  box-shadow: 0 0 0 0.5px rgb(60 45 20 / 16%), 0 1px 1px rgb(60 45 20 / 10%), 0 8px 16px -10px rgb(60 45 20 / 40%) !important;
+}
+
+:global(.dark) .wall,
+[data-tn-mode="dark"] .wall {
+  background:
+    linear-gradient(175deg, #1c1d22, #15161a 70%, #111215);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%), inset 0 -10px 24px -16px rgb(0 0 0 / 60%), 0 0 0 0.5px rgb(255 255 255 / 10%);
+}
+
+:global(.dark) .card,
+[data-tn-mode="dark"] .card {
+  background: linear-gradient(160deg, #24252b, #1e1f24) !important;
+  box-shadow: 0 0 0 0.5px rgb(255 255 255 / 10%), 0 8px 16px -10px rgb(0 0 0 / 70%) !important;
 }
 
 .message {
@@ -90,7 +131,6 @@
   text-decoration: none;
 }
 
-.message:hover,
 .message:focus-visible {
   background: var(--landing-surface);
 }

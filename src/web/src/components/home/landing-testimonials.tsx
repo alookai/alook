@@ -1,5 +1,6 @@
 "use client"
 
+import type { CSSProperties } from "react"
 import { ArrowUpRight } from "lucide-react"
 import { HandAccent } from "@/components/brand/hand-accent"
 import { MessageAuthorLine } from "@/components/community/messages/message-author-line"
@@ -7,6 +8,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Card } from "@/components/ui/card"
 import { LANDING_TESTIMONIALS, rankTestimonials } from "./landing-testimonials-data"
 import styles from "./landing-testimonials.module.css"
+
+/** Sticker tilt from the author's name: a stable FNV-1a hash mapped to −4°…4° (never flat). */
+function stickerTilt(name: string): number {
+  let hash = 0x811c9dc5
+  for (const char of name) hash = Math.imul(hash ^ char.codePointAt(0)!, 0x01000193) >>> 0
+  const magnitude = 1.2 + (hash % 1000) / 1000 * 2.8
+  return Number(((hash & 0x10000 ? 1 : -1) * magnitude).toFixed(2))
+}
 
 export function LandingTestimonials() {
   const posts = rankTestimonials(LANDING_TESTIMONIALS)
@@ -29,7 +38,7 @@ export function LandingTestimonials() {
               {[false, true].map((duplicate) => (
                 <ul className={`${styles.messages} ${duplicate ? styles.duplicate : ""}`} key={String(duplicate)} aria-hidden={duplicate || undefined}>
                   {lane.map((post) => (
-                    <li key={post.id}>
+                    <li key={post.id} style={{ "--sticker-tilt": `${stickerTilt(post.name)}deg` } as CSSProperties}>
                       <Card size="sm" className={styles.card}>
                       <a href={post.url} target="_blank" rel="noopener noreferrer" className={styles.message} tabIndex={duplicate ? -1 : undefined}>
                         <Avatar size="lg" className={styles.avatar}>

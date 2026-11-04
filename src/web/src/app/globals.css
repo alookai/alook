@@ -995,7 +995,7 @@ body.driver-active .community-ws-reconnect-overlay * {
 
 .tw-body > .tw-paper-track {
   /* The sheet stands in the middle of the top deck, so its foot disappears into the body. */
-  transform: translateX(-50%) translateZ(-34px);
+  transform: translateX(-50%) translateZ(-40px);
 }
 
 /* Back face */
@@ -1081,6 +1081,19 @@ body.driver-active .community-ws-reconnect-overlay * {
   height: 0;
   transform-style: preserve-3d;
   transform: translate3d(0, -8px, -19px);
+  pointer-events: none;
+}
+
+/* Paper guide: a dark plate between the sheet and the platen, so the crevice under the platen reads as
+   machine, not as the sheet's white foot. */
+.tw-paper-guide {
+  position: absolute;
+  top: -16px;
+  left: 6px;
+  width: 408px;
+  height: 18px;
+  background: linear-gradient(oklch(0.2 0.01 58), oklch(0.13 0.01 55));
+  transform: translateZ(-35px);
   pointer-events: none;
 }
 

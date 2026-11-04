@@ -8,7 +8,6 @@ vi.mock("./landing-page.module.css", () => ({
   default: new Proxy({}, { get: (_target, key) => String(key) }),
 }))
 vi.mock("./hero-section", () => ({ HeroSection: () => null }))
-vi.mock("./hero-avatar-swarm", () => ({ HeroAvatarSwarm: () => null }))
 vi.mock("./homepage-faq", () => ({ HomepageFaq: () => null }))
 vi.mock("./landing-reach-motion", () => ({ LandingReachMotion: () => null }))
 vi.mock("./marketing-nav", () => ({ MarketingNav: () => null }))

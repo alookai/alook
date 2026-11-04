@@ -2156,7 +2156,7 @@ main.page > .footer {
   pointer-events: none;
 }
 
-/* Hero theme switch: bottom-left of the first screen, on the page gutter. */
+/* Hero theme switch: top-right of the first screen, on the page gutter. */
 .page:global(.landing) {
   position: relative;
 }
@@ -2164,6 +2164,7 @@ main.page > .footer {
 .heroThemeToggle {
   position: absolute;
   z-index: 30;
-  top: calc(100svh - 72px);
-  left: var(--landing-page-gutter);
+  /* Top-right of the first screen (Gus #2745), level with the hero brand. */
+  top: 30px;
+  right: var(--landing-page-gutter);
 }

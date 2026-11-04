@@ -52,7 +52,7 @@ const EDGE_STRIPS: React.CSSProperties[] = EDGE_CENTERS.flatMap(([cx, cy], corne
 // Platen and knobs are real cylinders along the x axis, built from shaded strips (light from top-front).
 // Axis sits on the top deck (see .tw-roller-assembly); x is measured on the 420 px body.
 function cylinderStrips(x0: number, length: number, radius: number, segments: number, base: number, gain: number, ribbed = false): React.CSSProperties[] {
-  const stripH = 2 * radius * Math.sin(Math.PI / segments) + 0.8;
+  const stripH = 2 * radius * Math.sin(Math.PI / segments) + 2; // overlap hides anti-aliased seams
   return Array.from({ length: segments }, (_, k) => {
     const angle = (k * 360) / segments;
     const rad = (angle * Math.PI) / 180;
@@ -193,6 +193,7 @@ export function TypewriterVisual({
             {EDGE_STRIPS.map((style, i) => <div key={i} className="tw-body-edge" style={style} />)}
 
             {paperTrack}
+            <div className="tw-paper-guide" aria-hidden="true" />
             <div className="tw-roller-assembly" aria-hidden="true">
               {ROLLER_STRIPS.map((style, i) => <div key={i} className="tw-roller-strip" style={style} />)}
               {KNOB_CAPS.map(([x, outward], i) => (
