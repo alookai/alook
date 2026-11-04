@@ -18,7 +18,7 @@ export function useChannelMetadata(serverId: string | null, channelId: string | 
   const storedTag = useStoredForumTag(forumSelection ? channelId ?? null : null)
   const selectedTag = forumSelection ? forumTagFromUrl(intent?.tag) ?? storedTag : intent?.tag ?? "All"
   const tag = selectedTag === "All" ? null : selectedTag
-  const entry = useConversationResource(channelId ? { channelId, serverId, ...intent, tag } : null, null, false, "metadata", selectedTag !== null)
+  const entry = useConversationResource(channelId ? { channelId, serverId, ...intent, tag } : null, null, "metadata", selectedTag !== null)
   const { query, canonical, scope, canRead, windowReady, revoked, denied } = entry
   const runtime = useCommunityRuntime()
   const denialCode = useSelector(runtime.ws, state => {

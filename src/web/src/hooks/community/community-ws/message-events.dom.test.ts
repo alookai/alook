@@ -164,7 +164,7 @@ describe("useCommunityWs — message.create", () => {
     await seedCanonicalForumSidebar("srv_1")
     expect(hasCanonicalChannel("post_live")).toBe(false)
     getCommunityApiFetchMock().mockImplementation(async (url: string) => {
-      if (url === "/api/community/channels/post_live/messages?entry=1") {
+      if (url === "/api/community/channels/post_live/messages?entry=1&window=tail") {
         return conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
           id: "post_live",
           serverId: "srv_1",
@@ -195,7 +195,7 @@ describe("useCommunityWs — message.create", () => {
       .find((channel) => channel.id === "post_live")?.lastMessageAt)
       .toBe("2026-07-03T00:00:00.000Z")
     expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
-      "/api/community/channels/post_live/messages?entry=1",
+      "/api/community/channels/post_live/messages?entry=1&window=tail",
       expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function), authenticationAccount: "u_me" }),
     )
 
@@ -206,7 +206,7 @@ describe("useCommunityWs — message.create", () => {
       parentChannelId: "forum_1",
     } satisfies CommunityMessageCreate))
     await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
-      "/api/community/channels/post_unavailable/messages?entry=1",
+      "/api/community/channels/post_unavailable/messages?entry=1&window=tail",
       expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function), authenticationAccount: "u_me" }),
     ))
     expect(hasCanonicalChannel("post_unavailable")).toBe(false)

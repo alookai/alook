@@ -29,6 +29,7 @@ const mockListMessages = vi.fn()
 const mockListMessagesAround = vi.fn()
 const mockListMessagesSince = vi.fn()
 const mockGetLatestMessageSeq = vi.fn()
+const mockGetFirstPeerMessageAfterSeq = vi.fn<(...args: unknown[]) => Promise<null>>(async () => null)
 const mockListByMessageIds = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
 const mockGetUserPublic = vi.fn()
@@ -109,6 +110,7 @@ vi.mock("@alook/shared", async () => {
         listMessagesAround: (...a: unknown[]) => mockListMessagesAround(...a),
         listMessagesSince: (...a: unknown[]) => mockListMessagesSince(...a),
         getLatestMessageSeq: (...a: unknown[]) => mockGetLatestMessageSeq(...a),
+        getFirstPeerMessageAfterSeq: (...a: unknown[]) => mockGetFirstPeerMessageAfterSeq(...a),
         getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
         hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
         getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
@@ -1584,6 +1586,7 @@ describe("GET explicit conversation entry", () => {
       contractVersion: BUSINESS_SCHEMA_VERSION, readStateRevision: 0, viewerId: "u1", channelId: "c1", channel: { id: "c1", type: "text", archived: false },
       access: { channelId: "c1", canRead: true, canSend: true, canCreateDiscussion: true },
       readState: { channelId: "c1", lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 },
+      newBoundary: { afterSeq: 0, target: null },
       selection: { reason: "tail", anchorMessageId: null }, messages: [],
       page: { hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 },
     })

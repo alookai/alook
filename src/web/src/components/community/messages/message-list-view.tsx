@@ -39,6 +39,9 @@ export function renderMessageListView(
           scrollCount={controller.pillCount}
           scrollMode={controller.pillMode}
           onScroll={controller.pillOnClick}
+          newVisible={controller.newJumpVisible}
+          newPending={controller.newJumpPending}
+          onNew={controller.jumpToNew}
         />,
         accessoryFooterSlot,
       )}
@@ -49,9 +52,9 @@ export function renderMessageListView(
           onClose={controller.closeShare}
         />
       )}
-      {props.targetLoadError && controller.initialPosition.contentVisible && <div role="alert" className="flex items-center justify-between gap-2 px-4 py-2 text-sm">
-        <span>Couldn’t load the requested messages</span>
-        <Button variant="ghost" className="h-11 sm:h-9" disabled={props.retryingInitialLoad} onClick={props.onRetryInitialLoad}>
+      {(props.targetLoadError || controller.newLoadError) && controller.initialPosition.contentVisible && <div role="alert" className="flex items-center justify-between gap-2 px-4 py-2 text-sm">
+        <span>{controller.newLoadError ? "Couldn’t load New" : "Couldn’t load the requested messages"}</span>
+        <Button variant="ghost" className="h-11 sm:h-9" disabled={props.retryingInitialLoad || controller.newJumpPending} onClick={controller.newLoadError ? controller.retryNew : props.onRetryInitialLoad}>
           {props.retryingInitialLoad ? "Retrying…" : "Retry"}
         </Button>
       </div>}

@@ -635,7 +635,7 @@ describe("membership metadata and access lifetime", () => {
     else expect(capturedQueryClient.getQueryData(key)).toEqual(content)
     await vi.waitFor(() => expect(capturedQueryClient.getQueryData(entryKey("server", "child"))).toMatchObject({ channelId: "child", proof: expect.any(Object) }))
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(false)
-    expect(api).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1", expect.anything())
+    expect(api).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1&window=tail", expect.anything())
   })
 
   it("retires a DM access denial including only its subscription and content", async () => {
@@ -670,10 +670,10 @@ describe("membership metadata and access lifetime", () => {
     const api = getCommunityApiFetchMock()
     const fallback = api.getMockImplementation()!
     const error = new ApiError("metadata lookup failed", status)
-    api.mockImplementation((...args) => args[0] === "/api/community/channels/child/messages?entry=1" ? Promise.reject(error) : fallback(...args))
+    api.mockImplementation((...args) => args[0] === "/api/community/channels/child/messages?entry=1&window=tail" ? Promise.reject(error) : fallback(...args))
     const query = vi.spyOn(capturedQueryClient, "query")
     capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "access", present: true }))
-    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1", expect.anything()))
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1&window=tail", expect.anything()))
     await expect(query.mock.results[0]!.value).rejects.toBe(error)
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(status !== 500)
     expect(getCapturedRuntime().ws.get().accessEpoch).toBe(before)
@@ -688,13 +688,13 @@ describe("membership metadata and access lifetime", () => {
     const api = getCommunityApiFetchMock()
     const fallback = api.getMockImplementation()!
     const archived = new ApiError("archived", 403)
-    api.mockImplementation((...args) => args[0] === "/api/community/channels/child/messages?entry=1" ? Promise.reject(archived) : fallback(...args))
+    api.mockImplementation((...args) => args[0] === "/api/community/channels/child/messages?entry=1&window=tail" ? Promise.reject(archived) : fallback(...args))
     const key = communityKeys.channelMessages("child")
     capturedQueryClient.setQueryData(key, { pages: [{ messages: [{ id: "private" }] }] })
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(false)
     const query = vi.spyOn(capturedQueryClient, "query")
     capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "access", present: true }))
-    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1", expect.anything()))
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1&window=tail", expect.anything()))
     await expect(query.mock.results[0]!.value).rejects.toBe(archived)
     await vi.waitFor(() => expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(true))
     expect(capturedQueryClient.getQueryData(key)).toBeUndefined()
@@ -801,7 +801,7 @@ describe("membership metadata and access lifetime", () => {
     await vi.waitFor(() => expect(canonicalMessage(currentBody.id)?.content).toBe("Current body"))
     const reads: Array<{ signal: AbortSignal; resolve: (value: unknown) => void; reject: (error: unknown) => void }> = []
     api.mockImplementation(async (...args: unknown[]) => {
-      if (args[0] !== "/api/community/channels/child/messages?entry=1") return payload
+      if (args[0] !== "/api/community/channels/child/messages?entry=1&window=tail") return payload
       return await new Promise((resolve, reject) => {
         reads.push({ signal: (args[1] as { signal: AbortSignal }).signal, resolve, reject })
       })
@@ -851,7 +851,7 @@ describe("membership metadata and access lifetime", () => {
     api.mockResolvedValue(payload)
     const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
-    const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1").length
+    const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1&window=tail").length
     const events = [
       { relation: "access", present: true, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" },
       { relation: "access", present: true, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" },
@@ -865,7 +865,7 @@ describe("membership metadata and access lifetime", () => {
     })
     if (!encoded.ok) throw new Error("Participant events must encode")
     await act(async () => capturedOnMessage!(encoded.batch))
-    await vi.waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1")).toHaveLength(before + 1))
+    await vi.waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1&window=tail")).toHaveLength(before + 1))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
     expect(isChannelMetadataTokenCurrent(metadata.result.current.data!.identityProof!)).toBe(true)
     expect(hasCanonicalChannelNotify("child", "u_me")).toBe(false)
@@ -884,17 +884,17 @@ describe("membership metadata and access lifetime", () => {
     capturedQueryClient.setQueryDefaults(communityKeys.conversationEntries("child"), { retryDelay: 0 })
     const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
-    const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1").length
+    const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1&window=tail").length
     api.mockRejectedValue(new ApiError("temporary", 503))
     capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: true, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" }))
     await vi.waitFor(() => expect(metadata.result.current).toMatchObject({ isError: true, fetchStatus: "idle", isVerified: false }))
-    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1")).toHaveLength(before + 2)
+    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1&window=tail")).toHaveLength(before + 2)
     await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 20)) })
-    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1")).toHaveLength(before + 2)
+    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1&window=tail")).toHaveLength(before + 2)
     api.mockResolvedValue(payload)
     await act(async () => { await metadata.result.current.refetch({ cancelRefetch: false }) })
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
-    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1")).toHaveLength(before + 3)
+    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1&window=tail")).toHaveLength(before + 3)
   })
 
   it.each(["parent", "server", "account", "unmount"] as const)("does not restart participation metadata after %s retirement before handoff", async (race) => {
@@ -918,7 +918,7 @@ describe("membership metadata and access lifetime", () => {
     const gate = new Promise<void>((resolve) => { release = resolve })
     const cancel = capturedQueryClient.cancelQueries.bind(capturedQueryClient)
     vi.spyOn(capturedQueryClient, "cancelQueries").mockImplementation(async (...args) => { await cancel(...args); await gate })
-    const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1").length
+    const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1&window=tail").length
     await act(async () => {
       capturedOnMessage!(currentCommunityEventFixture({ relation: "notify", present: false, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" }))
       if (race === "parent") capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: false, type: "community:channel.membership.change", channelId: "parent", serverId: "server", userId: "u_me" }))
@@ -927,7 +927,7 @@ describe("membership metadata and access lifetime", () => {
       else metadata.unmount()
     })
     await act(async () => { release(); await Promise.resolve(); await Promise.resolve() })
-    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1")).toHaveLength(before)
+    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1&window=tail")).toHaveLength(before)
     if (race === "parent" || race === "server") {
       const current = capturedQueryClient.getQueryCache().find({ queryKey: metaKey, exact: true })
       expect(current).not.toBe(original)
@@ -1005,7 +1005,7 @@ describe("membership metadata and access lifetime", () => {
     const key = communityKeys.channelMessages("child")
     capturedQueryClient.setQueryData(key, { pages: [] })
     capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.membership.change", relation: "access", present, channelId: "child", serverId: "server", userId: "u_me" }))
-    await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1", expect.anything()))
+    await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1&window=tail", expect.anything()))
     await vi.waitFor(() => expect(capturedQueryClient.getQueryState(entryKey("server", "child"))?.fetchStatus ?? "idle").toBe("idle"))
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child")).toBe(!present || status !== 500)
     expect(capturedQueryClient.getQueryData(key) === undefined).toBe(!present || status !== 500)

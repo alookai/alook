@@ -20,6 +20,9 @@ const readWebSource = (path: string) => {
 const mocks = vi.hoisted(() => ({
   readPositionReady: false,
   paginationEnabled: false,
+  followingTail: false,
+  requestNewPosition: vi.fn(),
+  newDividerVisibility: "offscreen" as "offscreen" | "visible" | "pending",
   scrollInputs: [] as unknown[],
   paginationInputs: [] as unknown[],
   scrollRef: { current: null as HTMLDivElement | null },
@@ -57,6 +60,9 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
       positionOutcome,
       readPositionReady: mocks.readPositionReady,
       paginationEnabled: mocks.paginationEnabled,
+      followingTail: mocks.followingTail,
+      requestNewPosition: mocks.requestNewPosition,
+      newDividerVisibility: mocks.newDividerVisibility,
       captureOlderPageAnchor: mocks.captureOlderPageAnchor,
       captureNewerPageAnchor: mocks.captureNewerPageAnchor,
     }
@@ -128,9 +134,9 @@ describe("useMessageListController", () => {
     isConnected: true,
     querySelectorAll: () => visibleMessageIds.map((id) => ({
       dataset: { msgId: id },
-      getBoundingClientRect: () => ({ top: 10, bottom: 20 }),
+      getBoundingClientRect: () => ({ top: 10, bottom: 20, left: 0, right: 100, width: 100, height: 10 }),
     })),
-    getBoundingClientRect: () => ({ top: 0, bottom: 100 }),
+    getBoundingClientRect: () => ({ top: 0, bottom: 100, left: 0, right: 100, width: 100, height: 100 }),
   }
 
   beforeEach(() => {
@@ -139,6 +145,9 @@ describe("useMessageListController", () => {
     disconnect.mockClear()
     mocks.readPositionReady = false
     mocks.paginationEnabled = false
+    mocks.followingTail = false
+    mocks.newDividerVisibility = "offscreen"
+    mocks.requestNewPosition.mockReset().mockReturnValue({ accepted: false })
     mocks.captureOlderPageAnchor.mockClear()
     mocks.captureNewerPageAnchor.mockClear()
     mocks.scrollInputs.length = 0
@@ -184,6 +193,153 @@ describe("useMessageListController", () => {
     act(() => entry[1](0))
     return entry[0]
   }
+
+  const boundary = (seq: number | null, afterSeq = 0) => ({ afterSeq,
+    target: seq === null ? null : { id: `m${seq}`, seq, channelId: "c1", authorId: "peer" } })
+  const peer = (seq: number) => ({ ...baseMessage, id: `m${seq}`, seq, authorId: "peer" })
+
+  it("keeps one New target across ACK and consumes only a completed successful position", async () => {
+    let finish!: (value: "success" | "error") => void
+    mocks.requestNewPosition.mockImplementation(() => ({ accepted: true, completed: new Promise(resolve => { finish = resolve }) }))
+    const value = props({ messages: [peer(1), peer(2)], newBoundary: boundary(1), viewerUserId: "viewer" })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    expect(latest.newJumpVisible).toBe(true)
+    view.rerender(React.createElement(Probe, { value: { ...value, newBoundary: boundary(null, 2) } }))
+    expect(latest.items.some(item => item.kind === "divider" && item.messageId === "m1" && item.newDivider)).toBe(true)
+    act(() => latest.jumpToNew())
+    expect(mocks.requestNewPosition).toHaveBeenCalledWith("m1", undefined)
+    expect(latest.newJumpPending).toBe(true)
+    await act(async () => finish("error"))
+    expect(latest.newLoadError).toBeInstanceOf(Error)
+    expect(latest.newJumpVisible).toBe(true)
+    act(() => latest.retryNew())
+    await act(async () => finish("success"))
+    expect(latest.newJumpVisible).toBe(false)
+    view.rerender(React.createElement(Probe, { value: { ...value, latestSeq: 2 } }))
+    expect(latest.newJumpVisible).toBe(false)
+    view.unmount()
+  })
+
+  it("keeps cancellation retryable and ignores completion after a new entry", async () => {
+    let finish!: (value: "success" | "cancelled") => void
+    mocks.requestNewPosition.mockImplementation(() => ({ accepted: true, completed: new Promise(resolve => { finish = resolve }) }))
+    const value = props({ messages: [peer(1)], newBoundary: boundary(1), positionEntry: {} })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    act(() => latest.jumpToNew())
+    await act(async () => finish("cancelled"))
+    expect(latest.newJumpVisible).toBe(true)
+    act(() => latest.jumpToNew())
+    view.rerender(React.createElement(Probe, { value: { ...value, newBoundary: boundary(2), positionEntry: {} } }))
+    await act(async () => finish("success"))
+    expect(latest.items.some(item => item.kind === "divider" && item.messageId === "m1" && item.newDivider)).toBe(false)
+    expect(latest.newJumpPending).toBe(false)
+    view.unmount()
+  })
+
+  it("retires an exact deleted target and hides any partly visible divider", () => {
+    const value = props({ messages: [peer(1)], newBoundary: boundary(1) })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    expect(latest.newJumpVisible).toBe(true)
+    mocks.newDividerVisibility = "visible"
+    view.rerender(React.createElement(Probe, { value: { ...value } }))
+    expect(latest.newJumpVisible).toBe(false)
+    mocks.newDividerVisibility = "offscreen"
+    view.rerender(React.createElement(Probe, { value: { ...value, retiredNewTargetId: "m1" } }))
+    expect(latest.newJumpVisible).toBe(false)
+    expect(latest.items.some(item => item.kind === "divider" && item.newDivider)).toBe(false)
+    view.unmount()
+  })
+
+  it("does not read or rearm a batch for own or normally visible arrivals", () => {
+    mocks.readPositionReady = true
+    const read = vi.fn()
+    const value = props({ messages: [peer(1)], newBoundary: boundary(null, 1), viewerUserId: "viewer", onReadNewBoundary: read })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    visibleMessageIds = ["m2"]
+    view.rerender(React.createElement(Probe, { value: { ...value, messages: [peer(1), { ...peer(2), authorId: "viewer" }] } }))
+    expect(read).not.toHaveBeenCalled()
+    view.rerender(React.createElement(Probe, { value: { ...value, messages: [peer(1), peer(2)] } }))
+    expect(read).not.toHaveBeenCalled()
+    expect(latest.newJumpVisible).toBe(false)
+    mocks.followingTail = true
+    visibleMessageIds = []
+    view.rerender(React.createElement(Probe, { value: { ...value, messages: [peer(1), peer(2), peer(3)] } }))
+    expect(read).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it("does not skip an unseen peer when the first peer becomes visible during the boundary read", async () => {
+    mocks.readPositionReady = true
+    visibleMessageIds = []
+    let finish!: (value: { boundary: ReturnType<typeof boundary>; latestSeq: number }) => void
+    const read = vi.fn().mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+      .mockResolvedValueOnce({ boundary: boundary(3, 2), latestSeq: 3 })
+    const value = props({ messages: [peer(1)], newBoundary: boundary(null, 1), viewerUserId: "viewer", onReadNewBoundary: read })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    const arrived = { ...value, messages: [peer(1), peer(2), peer(3)] }
+    view.rerender(React.createElement(Probe, { value: arrived }))
+    expect(read).toHaveBeenCalledExactlyOnceWith(1)
+    visibleMessageIds = ["m2"]
+    await act(async () => finish({ boundary: boundary(2, 1), latestSeq: 3 }))
+    expect(read.mock.calls).toEqual([[1], [2]])
+    expect(latest.newJumpVisible).toBe(true)
+    expect(latest.items.some(item => item.kind === "divider" && item.messageId === "m3" && item.newDivider)).toBe(true)
+    view.unmount()
+  })
+
+  it.each(["before the read", "during the read"] as const)("keeps a consumed visible New divider when the next batch arrives %s", async timing => {
+    mocks.readPositionReady = true
+    visibleMessageIds = []
+    mocks.requestNewPosition.mockReturnValue({ accepted: true, completed: Promise.resolve("success") })
+    const next = { boundary: boundary(3, 2), latestSeq: 3 }
+    let finish!: (value: typeof next) => void
+    const read = timing === "during the read"
+      ? vi.fn().mockImplementationOnce(() => new Promise(resolve => { finish = resolve })).mockResolvedValue(next)
+      : vi.fn().mockResolvedValue(next)
+    const value = props({ messages: [peer(1), peer(2)], newBoundary: boundary(1), viewerUserId: "viewer", onReadNewBoundary: read })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    try {
+      await act(async () => latest.jumpToNew())
+      if (timing === "before the read") mocks.newDividerVisibility = "visible"
+      const arrived = { ...value, messages: [peer(1), peer(2), peer(3)] }
+      view.rerender(React.createElement(Probe, { value: arrived }))
+      if (timing === "during the read") {
+        expect(read).toHaveBeenCalledExactlyOnceWith(2)
+        mocks.newDividerVisibility = "visible"
+        view.rerender(React.createElement(Probe, { value: arrived }))
+        await act(async () => finish(next))
+      } else {
+        await act(async () => {})
+        expect(read).not.toHaveBeenCalled()
+      }
+      expect(latest.items.some(item => item.kind === "divider" && item.messageId === "m1" && item.newDivider)).toBe(true)
+      expect(latest.newJumpVisible).toBe(false)
+      mocks.newDividerVisibility = "offscreen"
+      view.rerender(React.createElement(Probe, { value: arrived }))
+      await act(async () => {})
+      expect(read).toHaveBeenCalledTimes(timing === "during the read" ? 2 : 1)
+      expect(latest.items.some(item => item.kind === "divider" && item.messageId === "m3" && item.newDivider)).toBe(true)
+      expect(latest.newJumpVisible).toBe(true)
+    } finally { view.unmount() }
+  })
+
+  it("retries a failed later metadata read and creates a new batch after the prior successful use", async () => {
+    mocks.readPositionReady = true
+    visibleMessageIds = []
+    mocks.requestNewPosition.mockReturnValue({ accepted: true, completed: Promise.resolve("success") })
+    const read = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({ boundary: boundary(3, 2), latestSeq: 3 })
+    const value = props({ messages: [peer(1), peer(2)], newBoundary: boundary(1), viewerUserId: "viewer", onReadNewBoundary: read })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    await act(async () => latest.jumpToNew())
+    view.rerender(React.createElement(Probe, { value: { ...value, messages: [peer(1), peer(2), peer(3)] } }))
+    await act(async () => {})
+    expect(latest.newLoadError?.message).toBe("offline")
+    expect(read).toHaveBeenCalledExactlyOnceWith(2)
+    await act(async () => latest.retryNew())
+    expect(read.mock.calls).toEqual([[2], [2]])
+    expect(latest.newJumpVisible).toBe(true)
+    view.unmount()
+  })
 
   it("requires a new positioning settlement for a fresh entry on the retained list", () => {
     const value = props({ positionEntry: {} })

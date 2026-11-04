@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowDown, ImageIcon, X } from "lucide-react"
+import { ArrowDown, ArrowUp, ImageIcon, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -15,18 +15,26 @@ export function ComposerAccessoryRail({
   scrollCount,
   scrollMode,
   onScroll,
+  newVisible = false,
+  newPending = false,
+  onNew,
 }: {
   typingNames: string[]
   scrollCount: number | undefined
   scrollMode: "scroll" | "jump"
   onScroll: () => void
+  newVisible?: boolean
+  newPending?: boolean
+  onNew?: () => void
 }) {
   const hasTyping = typingNames.length > 0
   const hasScroll = scrollMode === "jump" || (scrollCount ?? 0) > 0
+  const hasNew = newVisible && !newPending && !!onNew
   const layout = allocateComposerAccessoryRail({
     mode: "normal",
     left: hasTyping,
     center: hasScroll,
+    right: hasNew,
   })
 
   if (layout === "empty") return null
@@ -54,6 +62,18 @@ export function ComposerAccessoryRail({
           <div className="col-start-2 h-full min-w-0 max-w-full justify-self-center">
             <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} />
           </div>
+        )}
+        {hasNew && (
+          <button
+            type="button"
+            data-testid={tid.scrollToNew}
+            aria-label="Jump to New"
+            onClick={onNew}
+            className="pointer-events-auto col-start-3 flex h-full min-w-11 max-w-full items-center justify-center gap-1.5 justify-self-end rounded-full border border-destructive bg-background/90 px-2 text-xs font-medium text-destructive shadow-(--e1) backdrop-blur-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            <ArrowUp className="size-3.5 shrink-0" />
+            <span>New</span>
+          </button>
         )}
       </div>
     </div>

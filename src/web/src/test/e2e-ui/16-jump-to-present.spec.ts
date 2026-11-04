@@ -32,7 +32,7 @@ test("anchored channel jumps to the newest tail with one request", async ({ case
   expect(readResponse.ok).toBe(true)
 
   const { page } = await asUser("alice")
-  await page.goto(`/c/channels/${serverId}/${channelId}`)
+  await page.goto(`/c/channels/${serverId}/${channelId}?msg=${anchorId}`)
   await expect(page.getByTestId(tid.message(anchorId))).toBeVisible({ timeout: 30_000 })
   const jumpButton = page.getByRole("button", { name: "Jump to present", exact: true })
   await expect(jumpButton).toBeVisible({ timeout: 20_000 })

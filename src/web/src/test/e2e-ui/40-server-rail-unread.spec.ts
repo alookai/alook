@@ -341,9 +341,6 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
   void clearResponse.catch(() => {})
   await page.getByTestId(tid.channelRow(backgroundChannel)).click()
   await expect(page.getByTestId(tid.message(lastMessageId))).toBeVisible()
-  await expect(page.getByTestId(tid.newDivider)).toBeInViewport()
-  await expect(page.getByTestId(tid.message(lastMessageId))).not.toBeInViewport({ ratio: 0.2 })
-  await page.getByTestId(tid.scrollToPresent).click()
   await expect(page.getByTestId(tid.message(lastMessageId))).toBeInViewport({ ratio: 0.2 })
   const cleared = await clearResponse
   expect(cleared.status()).toBe(200)

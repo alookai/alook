@@ -77,11 +77,13 @@ describe("native navigation warming and DM consumer mounting", () => {
     if (mode === "return") {
       await seedConversationEntry(owner.client, entry)
       ingestReadStateSnapshot(owner.registry, { revision: 22, readStates: [{ channelId: "c1", lastReadMessageId: "m28", lastReadSeq: 28, lastReadAt: "later" }] })
-      entry.messages = Array.from({ length: 26 }, (_, n) => ({ ...entry.messages[0], id: `m${n + 3}`, seq: n + 3 }))
+      entry.messages = Array.from({ length: 27 }, (_, n) => ({ ...entry.messages[0], id: `m${n + 2}`, seq: n + 2,
+        createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, n + 2)).toISOString() }))
       entry.channel.messageCount = 28
       entry.readState = { ...entry.readState, lastReadMessageId: "m28", lastReadSeq: 28, lastReadAt: "later" }
       entry.readStateRevision = 22
-      entry.selection = { reason: "read_pointer", anchorMessageId: "m28" }
+      entry.selection = { reason: "tail", anchorMessageId: null }
+      entry.newBoundary = { afterSeq: 28, target: null }
       entry.page.latestSeq = 28
     } else {
       await publishCommunityLiveSnapshot(owner.client, { snapshot: { kind: "dms", data: { conversations: [dmListRowFixture({ id: "c1", userId: "peer", name: "Peer", discriminator: "0042", avatarVersion: 0, avatar: "P", status: "offline", preview: "" })] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
@@ -142,7 +144,7 @@ describe("native navigation warming and DM consumer mounting", () => {
       const href = source === "route" ? "/c/channels/s1/c1?tag=explicit" : "/c/channels/s1/c1"
       await prepareNavigationMetadata(owner.client, href, "prefetch")
       await prepareNavigationMetadata(owner.client, href, "foreground")
-      expect(load.mock.calls.map(([url]) => url)).toEqual([`/api/community/channels/c1/messages?entry=1&tag=${source === "route" ? "explicit" : "saved"}`])
+      expect(load.mock.calls.map(([url]) => url)).toEqual([`/api/community/channels/c1/messages?entry=1&window=tail&tag=${source === "route" ? "explicit" : "saved"}`])
     } finally { localStorage.clear() }
   })
 

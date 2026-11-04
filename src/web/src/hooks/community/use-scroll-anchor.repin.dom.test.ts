@@ -629,19 +629,20 @@ describe("locked native adapter and existing message scroll owner", () => {
       onScrollTargetPositioned: positioned,
     })
     h.stage(intent === "target" ? { scrollToMessageId: "m0" } : { initialScrollReady: true })
-    runFrames(2)
+    if (intent === "unread") act(() => scrollFixture.latest.requestNewPosition("m0"))
+    resize()
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     if (intent === "target") expect(positioned).toHaveBeenCalledWith("m0")
-    expect(h.root.scrollTop).toBe(0)
+    expect(h.root.scrollTop).toBe(intent === "unread" ? scrollFixture.firstPrefix : 0)
     scrollFixture.width = 639
     resize(0)
-    expect(h.root.scrollTop).toBe(0)
+    expect(h.root.scrollTop).toBe(intent === "unread" ? scrollFixture.firstPrefix : 0)
     scrollFixture.width = 265
     scrollFixture.height = 727
     scrollFixture.bodyHeights.set("m2", 900)
     resize()
     expect(h.root.scrollHeight).toBeGreaterThan(h.root.clientHeight)
-    expect(h.root.scrollTop).toBe(0)
+    expect(h.root.scrollTop).toBe(intent === "unread" ? scrollFixture.firstPrefix : 0)
     expect(bodyTop(h.root, "m0")).toBeGreaterThanOrEqual(0)
     expect(bodyTop(h.root, "m0")).toBeLessThan(h.root.clientHeight)
   })
@@ -654,23 +655,27 @@ describe("locked native adapter and existing message scroll owner", () => {
     h.update({ tailPaddingEnd: 40 })
     expect(h.root.scrollHeight).toBe(scrollFixture.latest.virtualizer.getTotalSize())
   })
-  it("centers the independent New row beside a long message with the native index command", () => {
+  it("positions the independent New row at the top beside a long message", () => {
     scrollFixture.bodyHeights.set("m4", 1800)
     const items = Array.from({ length: 12 }, (_, i) => ({ ...message(`m${i}`), ...(i === 4 ? { newDivider: true } : {}) }))
     const h = mount({ items, newDividerBefore: "m4", hasMoreNewer: true })
+    act(() => scrollFixture.latest.requestNewPosition("m4"))
+    resize()
     const marker = h.root.querySelector('[data-new-divider]')!.getBoundingClientRect()
-    expect((marker.top + marker.bottom) / 2).toBeCloseTo(scrollFixture.height / 2, 0)
+    expect(marker.top).toBeCloseTo(0, 0)
     expect(bodyTop(h.root, "m4")).toBeLessThan(scrollFixture.height)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
-  it("clamps a first-row merged date/New boundary to the actual content origin", () => {
+  it("positions a first-row merged date/New boundary above the long message", () => {
     scrollFixture.firstPrefix = 152
     scrollFixture.bodyHeights.set("first", 1800)
     const item = { ...message("first"), dateLabel: "Today", newDivider: true }
     const h = mount({ items: [item], hasMoreOlder: false, newDividerBefore: "first" })
+    act(() => scrollFixture.latest.requestNewPosition("first"))
+    resize()
     const marker = h.root.querySelector('[data-new-divider]')!.getBoundingClientRect()
-    expect(h.root.scrollTop).toBe(0)
-    expect(marker.top).toBeGreaterThanOrEqual(0)
+    expect(h.root.scrollTop).toBe(scrollFixture.firstPrefix)
+    expect(marker.top).toBeCloseTo(0, 0)
     expect(marker.bottom).toBeLessThan(scrollFixture.height)
     expect(bodyTop(h.root, "first")).toBeLessThan(scrollFixture.height)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
@@ -1606,13 +1611,12 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(end).toHaveBeenCalledOnce()
     expect(scrollFixture.latest.virtualizer.getVirtualItems().at(-1)?.key).toBe("client:send-1")
   })
-  it("keeps a warm position unchanged until the original unread boundary is qualified", () => {
+  it("keeps warm entry pending and then lands at the bottom despite its unread boundary", () => {
     const h = mount({ initialScrollReady: false })
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     expect(h.root.scrollTop).toBe(0)
     h.update({ initialScrollReady: true, newDividerBefore: "m4", items: h.input.items.map(item => ({ ...item, newDivider: item.m.id === "m4" })) })
-    const marker = h.root.querySelector('[data-new-divider]')!.getBoundingClientRect()
-    expect((marker.top + marker.bottom) / 2).toBeCloseTo(scrollFixture.height / 2, 0)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
   it("combines current prefix growth with the existing footer reading-offset policy once", () => {
@@ -1645,8 +1649,7 @@ describe("current composer intent and native passive ownership", () => {
   it("does not reinterpret an old composer version on a new list mount", () => {
     const items = Array.from({ length: 14 }, (_, i) => ({ ...message(`m${i}`), newDivider: i === 4 }))
     const h = mount({ items, newDividerBefore: "m4", localSubmitVersion: 8 })
-    const marker = h.root.querySelector('[data-new-divider]')!.getBoundingClientRect()
-    expect((marker.top + marker.bottom) / 2).toBeCloseTo(scrollFixture.height / 2, 0)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     h.move(300)
     const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
     h.update({ items: [...h.input.items, message("remote-self", "me")] })

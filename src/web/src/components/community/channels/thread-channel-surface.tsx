@@ -251,6 +251,11 @@ export function ThreadChannelSurface({
                   onRetryInitialLoad={controller.feed.retryInitialLoad}
                   pinnedIds={controller.pinnedIds}
                   newDividerBefore={controller.feed.newDividerBefore}
+                  newBoundary={controller.feed.newBoundary}
+                  latestSeq={controller.feed.latestSeq}
+                  retiredNewTargetId={controller.feed.retiredNewTargetId}
+                  onLoadNewTarget={controller.feed.loadNewTarget}
+                  onReadNewBoundary={controller.feed.readNewBoundary}
                   onOpenThread={ignoreNestedThread}
                   {...controller.threadActions}
                   onPin={canManagePins ? controller.threadActions.onPin : undefined}
@@ -262,7 +267,7 @@ export function ThreadChannelSurface({
                   hero={opener}
                   onScrollRoot={controller.feed.setScrollRootEl}
                   viewerUserId={viewer.id}
-                  initialScrollReady={controller.feed.initialDisplayReady}
+                  initialScrollReady={controller.feed.initialScrollReady}
                   preserveInitialPresentation={controller.feed.preserveInitialPresentation}
                   onUserTakeover={controller.feed.onUserTakeover}
                   onScrollTargetConsumed={controller.consumeScrollTarget}

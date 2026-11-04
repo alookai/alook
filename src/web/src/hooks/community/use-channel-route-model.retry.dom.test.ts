@@ -194,7 +194,7 @@ describe("unresolved metadata terminal error and retry", () => {
     await until(() => current.routeLifecycle === "ready")
     expect(current.metadataError).toBe(false)
     expect(current.currentChannelMeta?.id).toBe("post-1")
-    expect(mocks.apiFetch.mock.calls.every(([url]) => url === "/api/community/channels/post-1/messages?entry=1")).toBe(true)
+    expect(mocks.apiFetch.mock.calls.every(([url]) => url === "/api/community/channels/post-1/messages?entry=1&window=tail")).toBe(true)
     expect(client.getQueryCache().findAll({ queryKey: channelMetadataOptions(client, "server-1", "post-1").queryKey, exact: true })).toHaveLength(1)
     expect(mocks.replace).not.toHaveBeenCalled()
   })
@@ -266,7 +266,7 @@ describe("unresolved metadata terminal error and retry", () => {
     })
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
     expect(client.getQueryState(channelMetadataOptions(client, "server-1", "post-1").queryKey)?.status).toBe("error")
-    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/community/channels/post-1/messages?entry=1", expect.anything())
+    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/community/channels/post-1/messages?entry=1&window=tail", expect.anything())
     expect(current.routeLifecycle).toBe("ready")
     expect(current.currentChannelMeta?.id).toBe("post-1")
     expect(current.metadataError).toBe(false)
@@ -338,7 +338,7 @@ describe("unresolved metadata terminal error and retry", () => {
   })
 
   it("requires fresh metadata after reauthorization and can exit again on a later denial", async () => {
-    const metadataPath = "/api/community/channels/post-1/messages?entry=1"
+    const metadataPath = "/api/community/channels/post-1/messages?entry=1&window=tail"
     const metadataCalls = () => mocks.apiFetch.mock.calls.filter(([path]) => path === metadataPath).length
     let readMetadata: () => Promise<unknown> = async () => payload()
     mocks.apiFetch.mockImplementation((path: string) => path === metadataPath ? readMetadata() : Promise.resolve({ id: "viewer-1", name: "Viewer", discriminator: "0001", avatar: "V", avatarVersion: 0 }))

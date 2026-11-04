@@ -129,7 +129,7 @@ export function useForumFeed(serverId: string, channelId: string, options?: { ro
   } })
   useEffect(() => { if (selectionReady && !pendingTagCommands && tagsQuery.isSuccess && tag !== "All" && validateForumTagSelection(tag, tagsQuery.data.tags) === "All") selectTag("All") }, [selectionReady, pendingTagCommands, tag, tagsQuery.isSuccess, tagsQuery.data, selectTag])
   const selectedTag = tag === "All" ? null : tag
-  const entry = useConversationResource(selectionReady ? { channelId, serverId, tag: selectedTag } : null, null, false, "forum")
+  const entry = useConversationResource(selectionReady ? { channelId, serverId, tag: selectedTag } : null, null, "forum")
   const queryKey = communityKeys.forumFeed(entry.canRead ? channelId : "__none__", selectedTag)
   const query = useInfiniteQuery({ queryKey, queryFn: forumFeedPageQueryFn(channelId, selectedTag, queryClient), initialPageParam: null as string | null, getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined,
     enabled: presented && selectionReady && entry.canRead && !entry.verificationFetching && (!entry.verificationFailed || entry.displayWindow !== undefined), subscribed: selectionReady && entry.canRead, staleTime: 5_000,

@@ -14,7 +14,7 @@ test("jumping to present lets the next peer message follow the tail", async ({ c
     const alice = await actors.asUser("alice")
     await alice.page.setViewportSize(VIEWPORT)
     const proxy = await proxyCommunityWebSockets(alice.context)
-    await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
+    await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}?msg=${profile.ids[23]}`)
     const scroller = alice.page.getByTestId(tid.messageScroller)
     await expect(scroller).toBeVisible({ timeout: 30_000 })
     const present = alice.page.getByTestId(tid.scrollToPresent)

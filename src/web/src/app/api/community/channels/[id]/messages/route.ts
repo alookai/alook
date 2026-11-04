@@ -104,8 +104,11 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
   if (tag && tag.length > MAX_FORUM_TAG_LENGTH) return writeError(`tag must be ≤ ${MAX_FORUM_TAG_LENGTH} characters`, 400)
 
   if (params.get("entry") === "1") {
+    const boundary = params.get("newAfterSeq")
+    const newAfterSeq = boundary === null ? undefined : Number(boundary)
+    if (boundary !== null && (!/^(0|[1-9]\d*)$/.test(boundary) || !Number.isSafeInteger(newAfterSeq))) return writeError("invalid New snapshot", 400)
     const result = await readCommunityConversationEntry(db, {
-      viewerId: userId, target: resolved.value, window, tag, preferTail: params.get("window") === "tail",
+      viewerId: userId, target: resolved.value, window, tag, preferTail: params.get("window") === "tail", newAfterSeq,
     })
     if (!result.ok) return NextResponse.json({ error: result.error, ...(result.details ? { details: result.details } : {}) }, { status: result.status })
     return writeCommunityConversationEntryRead(result.entry)
