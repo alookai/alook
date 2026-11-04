@@ -694,7 +694,7 @@ function MessageImpl({
             className="shrink-0 self-start"
             aria-label={onMentionAuthor
               ? `Open ${authorName} profile; long press to mention`
-              : undefined}
+              : `Open ${authorName} profile`}
           >
             <Avatar label={authorAvatar} seed={m.authorId} size={40} />
           </button>

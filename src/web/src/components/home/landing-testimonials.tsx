@@ -63,7 +63,7 @@ export function LandingTestimonials() {
   const lanes = [posts.slice(0, midpoint), posts.slice(midpoint)].filter((lane) => lane.length > 0)
 
   return (
-    <section id="testimonials" aria-labelledby="testimonials-heading" className={styles.section}>
+    <section id="testimonials" tabIndex={-1} aria-labelledby="testimonials-heading" className={styles.section}>
       <div className={styles.container} data-landing-scroll-anchor>
         <div className={styles.intro}>
           <h2 id="testimonials-heading">What people say about <HandAccent>Alook</HandAccent></h2>

@@ -413,6 +413,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
       />
       <PopoverContent
         ref={popoverRef}
+        aria-label={`${name} profile`}
         side="right"
         align="start"
         sideOffset={8}

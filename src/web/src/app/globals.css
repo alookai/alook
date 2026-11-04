@@ -1091,8 +1091,7 @@ body.driver-active .community-ws-reconnect-overlay * {
   pointer-events: none;
 }
 
-/* The dark guide spans the knob overhang (x -14…434), closing the background gap above the rounded case
-   corners (Gus #2797). A solid fill keeps the shallow 3D plate opaque at both hero poses. */
+/* The dark guide spans the knob overhang (x -14…434), closing the background gap above the rounded case corners. */
 .tw-paper-guide {
   position: absolute;
   top: -16px;
