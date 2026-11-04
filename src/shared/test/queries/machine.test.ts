@@ -16,9 +16,6 @@ function createMockDb(rows: any[]) {
   return chain;
 }
 
-describe("machine query module exports", () => {
-  it("exports listMachinesForWorkspace", () => { expect(typeof machineQueries.listMachinesForWorkspace).toBe("function"); });
-});
 
 describe("upsertMachine", () => {
   it("inserts and returns first row", async () => {

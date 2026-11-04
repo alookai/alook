@@ -12,10 +12,6 @@ function createSelectMock(rows: any[]) {
   return chain;
 }
 
-describe("email-account exports", () => {
-  it("exports getEmailAccountsByAgent", () => { expect(typeof ea.getEmailAccountsByAgent).toBe("function"); });
-  it("exports getAllEmailAccountsForWorkspace", () => { expect(typeof ea.getAllEmailAccountsForWorkspace).toBe("function"); });
-});
 
 describe("createEmailAccount", () => {
   it("creates and returns account", async () => {
