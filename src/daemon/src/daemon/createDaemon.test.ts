@@ -894,6 +894,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     const collectEvents = (async () => {
       for await (const event of session.events) events.push(event);
     })();
+    const failures: unknown[] = [];
     try {
       const started = session.start({ id: "first", kind: "user", text: "hello" });
       const admission = await new Promise<Awaited<typeof started>>((resolve, reject) => {
@@ -916,13 +917,22 @@ for await (const line of createInterface({ input: process.stdin })) {
       expect(admission).toMatchObject({ status: "accepted" });
       expect(readFileSync(join(workingDirectory, "AGENTS.md"), "utf8")).toBe("Fresh daemon instructions.");
       expect(readFileSync(join(workingDirectory, "CLAUDE.md"), "utf8")).toBe("Fresh daemon instructions.");
+    } catch (error) {
+      failures.push(error);
     } finally {
-      await session.stop({ reason: "shutdown", forceAfterMs: 10 });
-      await session.closed;
-      await collectEvents;
-      // `session.closed` is a teardown ownership boundary: the spawned shell and
-      // every runtime descendant must have released the workspace by this point.
-      rmSync(base, { recursive: true, force: true });
+      startupSweepDirs.splice(startupSweepDirs.indexOf(base), 1);
+      try {
+        await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+        await session.closed;
+        await collectEvents;
+        rmSync(base, { recursive: true, force: true });
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) {
+      throw new AggregateError(failures, "Fresh Codex admission and teardown both failed");
     }
   }, 30_000);
 
