@@ -24,7 +24,9 @@ const TW_VARS: React.CSSProperties = {
 
 // Body box: 420 × 260 × 160 px with a 24 px corner radius. Each depth edge is a quarter cylinder built from
 // EDGE_SEGMENTS flat strips; a strip's lightness blends between the two faces it joins.
-const BODY_W = 420, BODY_H = 260, BODY_D = 160, RADIUS = 24, EDGE_SEGMENTS = 6;
+// The body is a wedge: BODY_D deep at the base and SLOPE px shallower at the top deck, matching the keyboard
+// face's lean in globals.css (.tw-body-front, .tw-body-left/right clip paths).
+const BODY_W = 420, BODY_H = 260, BODY_D = 160, SLOPE = 60, RADIUS = 24, EDGE_SEGMENTS = 6;
 // Face lightness by outward normal angle, clockwise from straight up: top, right, bottom, left.
 const FACE_L = [0.28, 0.18, 0.14, 0.22];
 const EDGE_CENTERS = [[BODY_W - RADIUS, RADIUS], [BODY_W - RADIUS, BODY_H - RADIUS], [RADIUS, BODY_H - RADIUS], [RADIUS, RADIUS]];
@@ -36,11 +38,14 @@ const EDGE_STRIPS: React.CSSProperties[] = EDGE_CENTERS.flatMap(([cx, cy], corne
     const rad = (angle * Math.PI) / 180;
     const x = cx + RADIUS * Math.sin(rad), y = cy - RADIUS * Math.cos(rad);
     const lightness = FACE_L[corner] + (FACE_L[(corner + 1) % 4] - FACE_L[corner]) * t;
+    // From the back plane to the slanted front at this height, plus 1 px tucked behind the front face.
+    const depth = BODY_D - SLOPE * (1 - y / BODY_H) + 1;
+    const z = (depth - BODY_D) / 2;
     return {
       width: `${STRIP_W.toFixed(2)}px`,
-      height: `${BODY_D}px`,
+      height: `${depth.toFixed(2)}px`,
       background: `oklch(${lightness.toFixed(3)} 0.01 57)`,
-      transform: `translate3d(${(x - STRIP_W / 2).toFixed(2)}px, ${(y - BODY_D / 2).toFixed(2)}px, 0) rotateZ(${angle}deg) rotateX(90deg)`,
+      transform: `translate3d(${(x - STRIP_W / 2).toFixed(2)}px, ${(y - depth / 2).toFixed(2)}px, ${z.toFixed(2)}px) rotateZ(${angle}deg) rotateX(90deg)`,
     };
   }),
 );

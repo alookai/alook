@@ -963,13 +963,17 @@ body.driver-active .community-ws-reconnect-overlay * {
 /* Front face — main visible surface */
 .tw-body-front {
   position: absolute;
-  inset: 0;
   background: linear-gradient(180deg,
       var(--tw-body-hi) 0%,
       var(--tw-body) 30%,
       var(--tw-body-lo) 100%);
   border-radius: 24px;
-  transform: translateZ(80px);
+  /* The keyboard face leans back ~13° from its bottom edge, so the body is a wedge: 160px deep at the base,
+     100px at the top deck. Height is the slanted length sqrt(260² + 60²) so the top edge still lands at y=0. */
+  inset: auto 0 0 0;
+  height: 266.83px;
+  transform-origin: 50% 100%;
+  transform: translateZ(80px) rotateX(12.995deg);
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 6%),
     inset -5px -5px 15px oklch(0 0 0 / 10%),
@@ -979,7 +983,7 @@ body.driver-active .community-ws-reconnect-overlay * {
 
 .tw-body > .tw-paper-track {
   /* The sheet stands in the middle of the top deck, so its foot disappears into the body. */
-  transform: translateX(-50%) translateZ(0);
+  transform: translateX(-50%) translateZ(-25px);
 }
 
 /* Back face */
@@ -1012,13 +1016,16 @@ body.driver-active .community-ws-reconnect-overlay * {
   height: 212px;
 }
 
+/* Side wedges: the front edge follows the keyboard slope, z = 20 + 60·y/260 (y measured on the body). */
 .tw-body-left {
+  clip-path: polygon(0 0, 105.54px 0, 154.46px 100%, 0 100%);
   background: oklch(0.22 0.01 58);
   transform: rotateY(-90deg) translateZ(80px);
   box-shadow: inset 10px 0 30px oklch(0 0 0 / 6%);
 }
 
 .tw-body-right {
+  clip-path: polygon(54.46px 0, 100% 0, 100% 100%, 5.54px 100%);
   background: var(--tw-body-lo);
   transform: rotateY(90deg) translateZ(340px);
 }
@@ -1032,8 +1039,10 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 .tw-body-top {
+  height: 100px;
   background: var(--tw-body-top);
-  transform: rotateX(90deg) translateZ(80px);
+  /* Top deck spans z −80…20. */
+  transform: translateZ(-30px) rotateX(90deg) translateZ(50px);
 }
 
 .tw-body-bottom {
@@ -1061,7 +1070,7 @@ body.driver-active .community-ws-reconnect-overlay * {
   display: flex;
   align-items: center;
   z-index: 6;
-  transform: translateZ(6px);
+  transform: translateZ(-19px);
 }
 
 .tw-roller {
