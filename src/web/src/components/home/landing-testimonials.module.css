@@ -41,7 +41,7 @@
   margin-inline: auto;
   min-width: 0;
   border-radius: 0;
-  overflow: hidden;
+  overflow: clip;
   contain: paint;
 }
 
