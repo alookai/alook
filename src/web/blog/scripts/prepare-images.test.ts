@@ -12,9 +12,11 @@ describe("Blog image preparation", () => {
       await mkdir(join(root, "src/content"), { recursive: true });
       await mkdir(join(root, "public/blog/example"), { recursive: true });
       await sharp({ create: { width: 1200, height: 800, channels: 3, background: "white" } }).png().toFile(join(root, "public/blog/example/hero.png"));
-      await writeFile(join(root, "src/content/example.mdx"), 'export const metadata = { image: "/blog/example/hero.png" };\n![Example](/blog/example/hero.png)');
+      await sharp({ create: { width: 800, height: 600, channels: 3, background: "white" } }).png().toFile(join(root, "public/blog/example/metadata.png"));
+      await writeFile(join(root, "src/content/example.mdx"), 'export const metadata = { image: "/blog/example/metadata.png" };\n![Example](/blog/example/hero.png)');
       const assets = await prepareBlogImages(root);
       expect(assets["/blog/example/hero.png"]).toMatchObject({ width: 1200, height: 800 });
+      expect(assets["/blog/example/metadata.png"]).toMatchObject({ width: 800, height: 600 });
       const srcSet = assets["/blog/example/hero.png"].srcSet!;
       const first = srcSet.split(" ")[0];
       expect((await sharp(await readFile(join(root, "public", first))).metadata()).width).toBe(480);
@@ -29,9 +31,10 @@ describe("Blog image preparation", () => {
       await mkdir(join(root, "src/content"), { recursive: true });
       await mkdir(join(root, "public/blog/example"), { recursive: true });
       await writeFile(join(root, "public/blog/example/hero.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800"/>');
+      await writeFile(join(root, "public/blog/example/fallback.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400"/>');
       const source = join(root, "src/content/example.mdx");
-      await writeFile(source, '<picture><source srcSet="/blog/example/hero.svg 1200w" /><img src="/blog/example/hero.svg" alt="" /></picture>');
-      expect(await prepareBlogImages(root)).toEqual({ "/blog/example/hero.svg": { width: 1200, height: 800 } });
+      await writeFile(source, '<picture><source srcSet="/blog/example/hero.svg 1200w" /><img src="/blog/example/fallback.svg" alt="" /></picture>');
+      expect(await prepareBlogImages(root)).toEqual({ "/blog/example/hero.svg": { width: 1200, height: 800 }, "/blog/example/fallback.svg": { width: 600, height: 400 } });
       const probe = vi.spyOn(sharp.prototype, "metadata").mockResolvedValueOnce({} as sharp.Metadata);
       await expect(prepareBlogImages(root)).rejects.toThrow("Missing Blog image dimensions");
       probe.mockRestore();
