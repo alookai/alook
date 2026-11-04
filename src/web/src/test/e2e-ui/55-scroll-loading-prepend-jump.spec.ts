@@ -115,7 +115,15 @@ test("cold and warm loading, older prepend, and jump-to-present remain observabl
     await anchored.page.setViewportSize(VIEWPORT)
     await installScrollTrace(anchored.page)
     await anchored.page.goto(`/c/channels/${serverId}/${loadingChannelId}`, { waitUntil: "commit" })
+    const anchoredScroller = anchored.page.getByTestId(tid.messageScroller)
+    await expect.poll(() => anchoredScroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
+    const newAction = anchored.page.getByTestId(tid.scrollToNew)
+    await expect(newAction).toBeVisible({ timeout: 30_000 })
+    await newAction.click()
     const anchoredNewDivider = anchored.page.getByTestId(tid.newDivider)
+    await expect.poll(() => anchoredNewDivider.evaluate(element => Math.abs(element.getBoundingClientRect().top
+      - element.closest('[data-testid="community-message-scroller"]')!.getBoundingClientRect().top))).toBeLessThanOrEqual(1)
+    await expect(newAction).toBeHidden()
     await expect(async () => {
       expect(await anchoredNewDivider.count()).toBe(1)
       expect(await anchoredNewDivider.isVisible()).toBe(true)

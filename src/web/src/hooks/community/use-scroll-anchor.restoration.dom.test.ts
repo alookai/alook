@@ -26,7 +26,7 @@ describe("ordinary reconstruction and one-shot late unread ownership", () => {
       }, strict)
       const native = scrollFixture.latest.virtualizer
       expect(returned.root.scrollTop).not.toBe(offset)
-      if (source === "tail") expect(returned.root.scrollHeight - returned.root.clientHeight - returned.root.scrollTop).toBeLessThanOrEqual(1)
+      if (source === "tail" || source === "new") expect(returned.root.scrollHeight - returned.root.clientHeight - returned.root.scrollTop).toBeLessThanOrEqual(1)
       else {
         const id = source === "read" ? "m120" : source === "new" ? "m100" : "m80"
         const index = native.getVirtualItems().find(row => row.key === `msg:${id}`)!.index
@@ -96,6 +96,10 @@ describe("ordinary reconstruction and one-shot late unread ownership", () => {
       ...(source === "target" ? { scrollToMessageId: id } : {}),
       ...(source === "new" || source === "new-fallback" ? { newDividerBefore: id } : {}),
     })
+    if (source === "new" || source === "new-fallback") {
+      act(() => scrollFixture.latest.requestNewPosition(id))
+      resize()
+    }
     const body = h.root.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)!
     const rect = body.getBoundingClientRect()
     expect(h.root.clientHeight).toBe(500)
@@ -108,7 +112,7 @@ describe("ordinary reconstruction and one-shot late unread ownership", () => {
     else {
       const key = source === "new" ? "divider:msg:m120" : `msg:${id}`
       const index = native.getVirtualItems().find(item => item.key === key)!.index
-      expect(h.root.scrollTop).toBeCloseTo(native.getOffsetForIndex(index, "center")![0], 0)
+      expect(h.root.scrollTop).toBeCloseTo(native.getOffsetForIndex(index, source === "new" || source === "new-fallback" ? "start" : "center")![0], 0)
     }
     expect(rect.top).toBeLessThan(500)
     expect(rect.top + body.scrollHeight).toBeGreaterThan(0)
@@ -153,23 +157,23 @@ describe("ordinary reconstruction and one-shot late unread ownership", () => {
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 
-  it("centers the first late NEW once while data is pending and never restarts it for later boundaries", () => {
+  it("preserves its local target when late NEW changes while data is pending", () => {
     const h = mount({ initialPositionMessageId: "m4", positionDataState: "pending" })
     const native = scrollFixture.latest.virtualizer
     const index = vi.spyOn(native, "scrollToIndex")
     h.update({ newDividerBefore: "m8" })
-    expect(index).toHaveBeenCalledOnce()
+    expect(index).not.toHaveBeenCalled()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     const before = h.root.scrollTop
     h.update({ newDividerBefore: "m10" })
-    expect(index).toHaveBeenCalledOnce()
+    expect(index).not.toHaveBeenCalled()
     expect(h.root.scrollTop).toBe(before)
     h.update({ positionDataState: "ready" })
     expect(h.root.scrollTop).toBe(before)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 
-  it("keeps the first late NEW eligible beyond five seconds and waits for a real viewport without polling", () => {
+  it("keeps bottom entry pending beyond five seconds despite late NEW and waits for a real viewport without polling", () => {
     scrollFixture.height = 0
     const shown = vi.fn()
     const h = mount({ onInitialPositionSettled: shown }, false, undefined, undefined, 0)
@@ -184,9 +188,8 @@ describe("ordinary reconstruction and one-shot late unread ownership", () => {
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     scrollFixture.height = 500
     resize()
-    expect(index).toHaveBeenCalledOnce()
-    const marker = h.root.querySelector("[data-new-divider]")!.getBoundingClientRect()
-    expect((marker.top + marker.bottom) / 2).toBeCloseTo(250, 0)
+    expect(index).not.toHaveBeenCalled()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     expect(shown).toHaveBeenCalledOnce()
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
@@ -216,16 +219,16 @@ describe("ordinary reconstruction and one-shot late unread ownership", () => {
     expect(h.root.scrollTop).toBe(before)
   })
 
-  it("gives a late NEW priority over native append following before issuing either command", () => {
+  it("keeps normal native append following when late NEW metadata arrives", () => {
     const h = mount()
     const native = scrollFixture.latest.virtualizer
     const end = vi.spyOn(native, "scrollToEnd"), index = vi.spyOn(native, "scrollToIndex")
     h.stage({ items: [...h.input.items, { ...message("m14"), newDivider: true }, message("m15")], newDividerBefore: "m14" })
-    expect(native.options.followOnAppend).toBe(false)
-    expect(end).not.toHaveBeenCalled()
+    expect(native.options.followOnAppend).toBe("auto")
+    expect(end).toHaveBeenCalledOnce()
     resize()
-    expect(index).toHaveBeenCalledOnce()
-    expect(end).not.toHaveBeenCalled()
+    expect(index).not.toHaveBeenCalled()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 })

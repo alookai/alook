@@ -1,1 +1,1 @@
-export const BUSINESS_SCHEMA_VERSION = 9 as const
+export const BUSINESS_SCHEMA_VERSION = 10 as const

@@ -2,6 +2,7 @@ export type ComposerAccessoryRailOccupancy = {
   mode: "normal"
   left: boolean
   center: boolean
+  right?: boolean
 }
 
 export type ComposerAccessoryRailLayout =
@@ -12,7 +13,7 @@ export type ComposerAccessoryRailLayout =
 export function allocateComposerAccessoryRail(
   occupancy: ComposerAccessoryRailOccupancy,
 ): ComposerAccessoryRailLayout {
-  if (occupancy.center) return "centered"
+  if (occupancy.center || occupancy.right) return "centered"
   if (occupancy.left) return "left-only"
   return "empty"
 }

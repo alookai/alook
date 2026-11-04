@@ -23,7 +23,7 @@ describe("forum common entry", () => {
     await waitFor(() => expect(view.result.current.entry.snapshot?.lastReadMessageId).toBe("m1"))
     expect(view.result.current.feed.posts.map(post => post.name)).toEqual(empty ? [] : ["Body"])
     expect(view.result.current.feed.isLoading).toBe(false)
-    expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1"])
+    expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&window=tail"])
     view.rerender()
     expect(load).toHaveBeenCalledOnce()
     view.unmount()

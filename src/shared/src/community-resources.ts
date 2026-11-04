@@ -119,6 +119,10 @@ export const CommunityMessageResourceSchema = z.strictObject({
   botCreation: BotCreationPayloadSchema.optional(),
 })
 
+const CommunityMessagePositionSchema = CommunityMessageResourceSchema.pick({
+  id: true, channelId: true, seq: true, authorId: true,
+})
+
 export function communityMessageProfileIds(messages: readonly Pick<CommunityMessageResource, "authorId" | "replyTo">[]) {
   return [...new Set(messages.flatMap(message => [message.authorId, ...(message.replyTo?.authorId && message.replyTo.deleted !== true ? [message.replyTo.authorId] : [])]))]
 }
@@ -208,6 +212,10 @@ export const CommunityConversationEntryReadSchema = CommunityMessagesReadSchema.
   access: CommunityAccessDecisionSchema.extend({ canRead: z.literal(true) }),
   readState: CommunityReadStateResourceSchema,
   readStateRevision: z.number().int().nonnegative(),
+  newBoundary: z.strictObject({
+    afterSeq: CommunityReadStateResourceSchema.shape.lastReadSeq,
+    target: CommunityMessagePositionSchema.nullable(),
+  }),
   forumFeed: z.lazy(() => CommunityThreadsReadSchema).optional(),
   opener: CommunityMessageResourceSchema.optional(),
   parent: CommunityChannelResourceSchema.optional(),
@@ -216,6 +224,18 @@ export const CommunityConversationEntryReadSchema = CommunityMessagesReadSchema.
     anchorMessageId: nullableId,
   }),
 }).superRefine((entry, ctx) => {
+  if (entry.newBoundary.afterSeq > Math.max(entry.readState.lastReadSeq, entry.page.latestSeq)) {
+    ctx.addIssue({ code: "custom", path: ["newBoundary"], message: "Conversation New snapshot mismatch" })
+  }
+  if (entry.newBoundary.target) {
+    const target = entry.newBoundary.target
+    const message = entry.messages.find(message => message.id === target.id)
+    if (entry.channel.type === "forum" || target.channelId !== entry.channelId || target.authorId === entry.viewerId
+      || target.seq <= entry.newBoundary.afterSeq || target.seq > entry.page.latestSeq
+      || message && (message.seq !== target.seq || message.authorId !== target.authorId)) {
+      ctx.addIssue({ code: "custom", path: ["newBoundary", "target"], message: "Conversation New target mismatch" })
+    }
+  }
   for (const [path, channelId] of [
     [["channel", "id"], entry.channel.id],
     [["access", "channelId"], entry.access.channelId],
@@ -281,6 +301,7 @@ export type CommunityCategoryResource = z.infer<typeof CommunityCategoryResource
 export type CommunityChannelResource = z.infer<typeof CommunityChannelResourceSchema>
 export type CommunityChannelIdentity = z.infer<typeof CommunityChannelIdentitySchema>
 export type CommunityMessageResource = z.infer<typeof CommunityMessageResourceSchema>
+export type CommunityMessagePosition = z.infer<typeof CommunityMessagePositionSchema>
 export type CommunityMemberRelation = z.infer<typeof CommunityMemberRelationSchema>
 export type CommunityReadStateResource = z.infer<typeof CommunityReadStateResourceSchema>
 export type CommunityAccessDecision = z.infer<typeof CommunityAccessDecisionSchema>

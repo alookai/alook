@@ -63,8 +63,11 @@ function Conversation({ channelId, kind, anchorMessageId }: { channelId: string;
   })
   const props = { channel: "Conversation", messages: feed.messages,
     loading: feed.isLoading, initialLoadError: feed.initialLoadError,
+    newBoundary: feed.newBoundary, latestSeq: feed.latestSeq, retiredNewTargetId: feed.retiredNewTargetId,
+    onLoadNewTarget: feed.loadNewTarget, onReadNewBoundary: feed.readNewBoundary,
     newDividerBefore: feed.newDividerBefore, initialPositionMessageId: feed.initialPositionMessageId,
-    initialScrollReady: feed.initialPositionKnown,
+    initialScrollReady: feed.initialScrollReady,
+    preserveInitialPresentation: feed.preserveInitialPresentation,
     positionEntry: feed.positionEntry, positionScope: feed.positionScope,
     positionDataState: feed.positionDataState, messageWindow: feed.messageWindow, presentRequest: feed.presentRequest,
     scrollToMessageId: channel.scrollTargetId, onScrollTargetConsumed: channel.consumeScrollTarget,
@@ -94,7 +97,8 @@ function entry(kind: Kind, channelId = "c1", ownTail = false) {
   }))
   value.profiles = messageProfilesFixture(value.messages)
   value.readState = { channelId, lastReadMessageId: `${prefix}30`, lastReadSeq: 30, lastReadAt: value.messages[29].createdAt }
-  value.selection = { reason: "read_pointer", anchorMessageId: `${prefix}30` }
+  value.selection = { reason: "tail", anchorMessageId: null }
+  value.newBoundary = { afterSeq: 30, target: { id: `${prefix}31`, channelId, seq: 31, authorId: "peer" } }
   value.surfaceReceipt = { channelId, surfaceKind: kind === "channel" ? "channel" : "thread" }
   value.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 42 }
   return value
@@ -125,13 +129,29 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
   const canonicalTransport = new Promise(resolve => { finishCanonical = resolve })
   releaseTransport = () => { finishPut({ changed: true, revision: 6, targetSeq: 42 }); finishCanonical({ revision: 6, readStates: [] }) }
   load.mockImplementation((url: string) => {
-    if (url === "/api/community/channels/c1/messages?entry=1" && options.refresh) return options.refresh
+    if (url.startsWith("/api/community/channels/c1/messages?") && new URL(url, "https://test.invalid").searchParams.has("entry") && options.refresh) return options.refresh
     if (url === "/api/community/channels/c1/messages" && options.refreshWindow) return options.refreshWindow.then(value => ({
       ...value.page, profiles: value.profiles, messages: value.messages,
     }))
     if (url.startsWith("/api/community/channels/c1/messages?since=") && options.refresh) return options.refresh.then(value => ({
       ...value.page, profiles: value.profiles, messages: value.messages.filter(message => message.seq > 1),
     }))
+    if (url.includes("/messages?") && new URL(url, "https://test.invalid").searchParams.has("entry")) {
+      const requested = new URL(url, "https://test.invalid")
+      const id = requested.pathname.split("/").at(-2)!
+      const packet = entry(id === "c1" ? kind : "channel", id, ownTail && id === "c1")
+      const current = currentConversationReadState(owner.client, id)
+      if (current) {
+        packet.readState = { channelId: id, lastReadMessageId: current.lastReadMessageId, lastReadSeq: current.lastReadSeq, lastReadAt: current.lastReadAt }
+        packet.readStateRevision = current.observedRevision ?? packet.readStateRevision
+      }
+      const afterSeq = Number(requested.searchParams.get("newAfterSeq") ?? packet.readState.lastReadSeq)
+      const first = packet.messages.find(message => message.seq > afterSeq && message.authorId !== viewer.id)
+      packet.newBoundary = { afterSeq, target: first ? { id: first.id, channelId: id, seq: first.seq, authorId: first.authorId } : null }
+      const anchor = requested.searchParams.get("anchor")
+      if (anchor) packet.selection = { reason: "explicit_anchor", anchorMessageId: anchor }
+      return Promise.resolve(packet)
+    }
     if (url.endsWith("/read")) return put
     if (url === "/api/community/users/me/read-state") return canonicalTransport
     if (url === "/api/community/users/me/attention") return Promise.resolve({ scopes: [], items: [], limit: 100, truncated: false })
@@ -236,6 +256,7 @@ describe("conversation entry positioning through real reading owners", () => {
     cached.channel.messageCount = 1
     cached.page.latestSeq = 1
     cached.readState = { channelId: "c1", lastReadMessageId: null, lastReadSeq: 0, lastReadAt: null }
+    cached.newBoundary = { afterSeq: 0, target: { id: "m1", channelId: "c1", seq: 1, authorId: "peer" } }
     cached.selection = { reason: "tail", anchorMessageId: null }
     const view = await setup("channel", false, false, { cached, initialActive: mode !== "inactive" })
     expect(view.root().querySelector('[data-read-position-ready]')).toHaveAttribute("data-read-position-ready", "false")
@@ -263,27 +284,29 @@ describe("conversation entry positioning through real reading owners", () => {
     expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
     await view.setActivity(true)
     expect(latest.feed.positionEntry).toBe(entry)
-    expect(view.visible("m31")).toBe(true)
+    expect(view.visible("m42")).toBe(true)
     expect(view.root().querySelector('[data-read-position-ready]')).toHaveAttribute("data-read-position-ready", "true")
-    const row = view.root().querySelector('[data-msg-id="m31"]')!
+    const row = view.root().querySelector('[data-msg-id="m42"]')!
     const observer = boundObserver(row)
     act(() => observer.callback([intersection(row)], {} as IntersectionObserver))
-    expect(getReadCoordinator(owner.client, viewer.id).state.get().scopes.get("timeline:c1")?.accepted?.intent.seq).toBe(31)
+    expect(getReadCoordinator(owner.client, viewer.id).state.get().scopes.get("timeline:c1")?.accepted?.intent.seq).toBe(42)
   })
 
-  it.each([{ delayCanonical: false, previousTail: false }, { delayCanonical: true, previousTail: false }, { delayCanonical: false, previousTail: true }])("keeps a cached read tail visible until native data is complete, delayed canonical=$delayCanonical, previous tail=$previousTail", async ({ delayCanonical, previousTail }) => {
+  it.each([{ delayCanonical: false, previousTail: false }, { delayCanonical: true, previousTail: false }, { delayCanonical: false, previousTail: true }])("waits for the latest ordinary native window before revealing, delayed canonical=$delayCanonical, previous tail=$previousTail", async ({ delayCanonical, previousTail }) => {
     const fresh = entry("channel")
     fresh.messages = fresh.messages.slice(0, 13)
     fresh.channel.messageCount = 13
     const readPointer = { channelId: "c1", lastReadMessageId: "m1", lastReadSeq: 1, lastReadAt: fresh.messages[0].createdAt }
     fresh.readState = readPointer
-    fresh.selection = { reason: "read_pointer", anchorMessageId: "m1" }
+    fresh.selection = { reason: "tail", anchorMessageId: null }
+    fresh.newBoundary = { afterSeq: 1, target: { id: "m2", channelId: "c1", seq: 2, authorId: "peer" } }
     fresh.readStateRevision = 2
     fresh.page.latestSeq = 13
-    const cached = { ...fresh, channel: { ...fresh.channel, messageCount: 1 }, messages: fresh.messages.slice(0, 1), page: { ...fresh.page, latestSeq: 1 } }
+    const cached = { ...fresh, channel: { ...fresh.channel, messageCount: 1 }, messages: fresh.messages.slice(0, 1), page: { ...fresh.page, latestSeq: 1 }, newBoundary: { afterSeq: 1, target: null } as typeof fresh.newBoundary }
     if (previousTail) {
       cached.readState = { channelId: "c1", lastReadMessageId: null, lastReadSeq: 0, lastReadAt: null }
       cached.readStateRevision = 1
+      cached.newBoundary = { afterSeq: 0, target: { id: "m1", channelId: "c1", seq: 1, authorId: "peer" } }
       cached.selection = { reason: "tail", anchorMessageId: null }
     }
     let finishRefresh!: (value: typeof fresh) => void
@@ -304,9 +327,10 @@ describe("conversation entry positioning through real reading owners", () => {
     }
     try {
       expect(latest.feed.messages.map(message => message.id)).toEqual(["m1"])
-      expect(view.visible("m1")).toBe(true)
+      expect(view.visible("m1")).toBe(false)
+      expect(view.root().closest("[aria-busy]")).toHaveAttribute("aria-busy", "true")
       expect(latest.feed.isFetching).toBe(true)
-      const initialReadReady = view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready")
+      const initialReadReady = view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready") ?? "false"
       await act(async () => { finishRefresh(fresh); await vi.advanceTimersByTimeAsync(0) })
       resize()
       if (delayCanonical) {
@@ -314,17 +338,9 @@ describe("conversation entry positioning through real reading owners", () => {
         resize()
         expect({ latestSeq: latest.feed.latestSeq, messages: latest.feed.messages.map(message => message.id),
           fetching: latest.feed.isFetching, readSnapshotFetching: latest.feed.readSnapshotFetching,
-          readReady: view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready"),
-        }).toEqual({ latestSeq: previousTail ? 13 : 1, messages: ["m1"], fetching: !previousTail, readSnapshotFetching: true, readReady: "false" })
+          readReady: view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready") ?? "false",
+        }).toEqual({ latestSeq: 1, messages: ["m1"], fetching: true, readSnapshotFetching: true, readReady: "false" })
         await act(async () => { await publish(); await vi.advanceTimersByTimeAsync(0) })
-        resize()
-      }
-      if (previousTail) {
-        expect({ latestSeq: latest.feed.latestSeq, messages: latest.feed.messages.map(message => message.id),
-          fetching: latest.feed.isFetching, readSnapshotFetching: latest.feed.readSnapshotFetching,
-          readReady: view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready"),
-        }).toEqual({ latestSeq: 1, messages: ["m1"], fetching: false, readSnapshotFetching: true, readReady: "false" })
-        await act(async () => { finishWindow(fresh); await vi.advanceTimersByTimeAsync(0) })
         resize()
       }
       expect(latest.feed.error).toBeNull()
@@ -333,7 +349,7 @@ describe("conversation entry positioning through real reading owners", () => {
       const viewport = view.root().getBoundingClientRect()
       expect({ initialReadReady, newInViewport: marker.bottom > viewport.top && marker.top < viewport.bottom,
         lastInViewport: view.visible("m13"), readReadyAfter: view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready"),
-      }).toEqual({ initialReadReady: "false", newInViewport: true, lastInViewport: false, readReadyAfter: "true" })
+      }).toEqual({ initialReadReady: "false", newInViewport: false, lastInViewport: true, readReadyAfter: "true" })
       expect(latest.feed.readSnapshot?.lastReadSeq).toBe(1)
       expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
     } finally {
@@ -341,7 +357,7 @@ describe("conversation entry positioning through real reading owners", () => {
     }
   })
 
-  it("uses the normal unread entry after a stale cached message-owner remount", async () => {
+  it("uses normal bottom entry after a stale cached message-owner remount", async () => {
     const view = await setup("channel", true)
     await view.tail()
     const oldRoot = view.root()
@@ -354,11 +370,11 @@ describe("conversation entry positioning through real reading owners", () => {
     expect(oldRoot.isConnected).toBe(false)
     await act(async () => vi.advanceTimersByTimeAsync(6000))
     const previousLoad = load.getMockImplementation()!
-    load.mockImplementation((url: string, options: unknown) => url === "/api/community/channels/c1/messages?entry=1" ? new Promise(() => {}) : previousLoad(url, options))
+    load.mockImplementation((url: string, options: unknown) => url.includes("/messages?entry=1") ? new Promise(() => {}) : previousLoad(url, options))
     await view.navigate("/c/channels/s1/c1")
-    expect(load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1")).toBe(true)
+    expect(load.mock.calls.some(([url]) => url.includes("/messages?entry=1"))).toBe(true)
     expect(view.root().scrollTop).not.toBeCloseTo(offset, 0)
-    expect(view.visible("m31")).toBe(true)
+    expect(view.visible("m42")).toBe(true)
     expect(latest.feed.newDividerBefore).toBe("m31")
     expect(currentConversationReadState(owner.client, "c1")?.lastReadSeq).toBe(30)
     expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
@@ -370,7 +386,7 @@ describe("conversation entry positioning through real reading owners", () => {
   ] as const)("positions a fresh retained $kind entry once while semantic resume keeps its viewport (StrictMode=$strict)", async ({ kind, strict }) => {
     const view = await setup(kind, false, strict)
     const originalRoot = view.root(), originalWindow = latest.feed.readSnapshot
-    expect(view.visible("m31")).toBe(true)
+    expect(view.visible("m42")).toBe(true)
     act(() => latest.channel.jumpToSeq(10))
     resize()
     expect(view.visible("m10")).toBe(true)
@@ -384,12 +400,13 @@ describe("conversation entry positioning through real reading owners", () => {
     await view.navigate("/c/channels/s1/c1")
     expect(latest.feed.readSnapshot?.lastReadSeq).toBe(40)
     expect(view.root()).toBe(originalRoot)
-    expect(view.visible("m41")).toBe(true)
+    expect(view.visible("m42")).toBe(true)
     const landed = view.root().scrollTop
     await view.canonical(42)
     expect(latest.feed.readSnapshot?.lastReadSeq).toBe(40)
     expect(view.root().scrollTop).toBe(landed)
-    expect(messageOrReadRequests()).toEqual([])
+    expect(messageOrReadRequests().filter(([, options]) => options?.method === "PUT")).toEqual([])
+    expect(messageOrReadRequests().filter(([url]) => String(url).includes("entry=1"))).toHaveLength(1)
   })
 
   it("adopts a new same-pane msg after target consumption, including a repeated target and an independent seq", async () => {
@@ -421,7 +438,7 @@ describe("conversation entry positioning through real reading owners", () => {
 
   it.each([false, true])("cancels a target lost by the current ready query window without granting its old observer a read (StrictMode=%s)", async strict => {
     const view = await setup("channel", false, strict), root = view.root()
-    const previousRow = root.querySelector('[data-msg-id="m31"]')!
+    const previousRow = root.querySelector('[data-msg-id="m42"]')!
     const previousObserver = boundObserver(previousRow)
     const explicit = entry("channel")
     explicit.selection = { reason: "explicit_anchor", anchorMessageId: "m5" }
@@ -490,8 +507,8 @@ describe("conversation entry positioning through real reading owners", () => {
     act(() => observer.callback([record], {} as IntersectionObserver))
     expect(getLocalReadingPosition(owner.client, "c1")).toBeNull()
     await view.navigate("/c/channels/s1/c1")
-    expect(view.visible("m42")).toBe(false)
-    expect(view.visible("m31")).toBe(true)
+    expect(view.visible("m31")).toBe(false)
+    expect(view.visible("m42")).toBe(true)
     expect(getLocalReadingPosition(owner.client, "c1")).toBeNull()
     const offset = view.root().scrollTop
     await view.canonical(42)
@@ -511,8 +528,8 @@ describe("conversation entry positioning through real reading owners", () => {
     visibility = "visible"
     await view.navigate("/c/channels/s1/c2")
     await view.navigate("/c/channels/s1/c1")
-    expect(view.visible("m42")).toBe(false)
-    expect(view.visible("m31")).toBe(true)
+    expect(view.visible("m31")).toBe(false)
+    expect(view.visible("m42")).toBe(true)
     expect(getLocalReadingPosition(owner.client, "c1")).toBeNull()
     expect(currentConversationReadState(owner.client, "c1")?.lastReadSeq).toBe(30)
     expect(messageOrReadRequests()).toEqual([])

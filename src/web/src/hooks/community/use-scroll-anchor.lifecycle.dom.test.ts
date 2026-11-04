@@ -90,7 +90,7 @@ describe("qualified positioning lifecycle", () => {
     const native = scrollFixture.latest.virtualizer
     const end = vi.spyOn(native, "scrollToEnd")
     const index = vi.spyOn(native, "scrollToIndex")
-    if (target === "end") expect(native.isAtEnd(1)).toBe(true)
+    if (target === "end" || target === "unread") expect(native.isAtEnd(1)).toBe(true)
     else {
       expect(bodyTop(h.root, "m5")).toBeGreaterThan(0)
       expect(bodyTop(h.root, "m5")).toBeLessThan(h.root.clientHeight)
@@ -112,7 +112,7 @@ describe("qualified positioning lifecycle", () => {
   })
 
   it.each((["local", "unread", "tail"] as const).flatMap(target => [false, true].flatMap(strict =>
-    [320, 1280].map(width => [target, strict, width] as const))))("finishes cached %s positioning with StrictMode=%s at %spx while reads remain pending and consumes late NEW at most once", (target, strict, width) => {
+    [320, 1280].map(width => [target, strict, width] as const))))("finishes cached %s positioning with StrictMode=%s at %spx while reads remain pending without late NEW taking ownership", (target, strict, width) => {
     scrollFixture.width = width
     const settled = vi.fn()
     const items = Array.from({ length: 14 }, (_, i) => ({ ...message(`m${i}`), newDivider: i === 5 }))
@@ -123,7 +123,7 @@ describe("qualified positioning lifecycle", () => {
     expect(settled).toHaveBeenCalledOnce()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     expect(scrollFixture.latest.paginationEnabled).toBe(false)
-    const targetId = target === "local" ? "m4" : target === "unread" ? "m5" : "m13"
+    const targetId = target === "local" ? "m4" : "m13"
     expect(bodyTop(h.root, targetId)).toBeGreaterThan(0)
     expect(bodyTop(h.root, targetId)).toBeLessThan(h.root.clientHeight)
     const anchor = [...h.root.querySelectorAll<HTMLElement>("[data-msg-id]")]
@@ -134,14 +134,8 @@ describe("qualified positioning lifecycle", () => {
     act(() => vi.advanceTimersByTime(6500))
     h.update({ items: [...items.map(item => ({ ...item, newDivider: false })),
       { ...message("m14"), newDivider: true }, message("m15")], newDividerBefore: "m14" })
-    if (target === "unread") {
-      expect(bodyTop(h.root, anchor)).toBeCloseTo(before, 0)
-      expect(index).not.toHaveBeenCalled()
-    } else {
-      const targetIndex = native.getVirtualItems().find(row => row.key === "divider:msg:m14")!.index
-      expect(h.root.scrollTop).toBeCloseTo(native.getOffsetForIndex(targetIndex, "center")![0], 0)
-      expect(index).toHaveBeenCalledOnce()
-    }
+    expect(bodyTop(h.root, anchor)).toBeCloseTo(before, 0)
+    expect(index).not.toHaveBeenCalled()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     const landed = h.root.scrollTop
     const commands = index.mock.calls.length
@@ -154,20 +148,20 @@ describe("qualified positioning lifecycle", () => {
     expect(settled).toHaveBeenCalledOnce()
   })
 
-  it("withdraws reading during a data wait and admits its first late NEW without repeating initial reveal", () => {
+  it("withdraws reading during a data wait and preserves the reader when late NEW arrives", () => {
     const settled = vi.fn()
     const h = mount({ initialPositionMessageId: "m5", onInitialPositionSettled: settled })
     const native = scrollFixture.latest.virtualizer
     const index = vi.spyOn(native, "scrollToIndex")
+    const before = h.root.scrollTop
     h.update({ positionDataState: "pending" })
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     expect(scrollFixture.latest.paginationEnabled).toBe(false)
     act(() => vi.advanceTimersByTime(6500))
     h.update({ positionDataState: "ready", newDividerBefore: "m10" })
-    const targetIndex = native.getVirtualItems().find(row => row.key === "msg:m10")!.index
-    expect(h.root.scrollTop).toBeCloseTo(native.getOffsetForIndex(targetIndex, "center")![0], 0)
+    expect(h.root.scrollTop).toBe(before)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
-    expect(index).toHaveBeenCalledOnce()
+    expect(index).not.toHaveBeenCalled()
     expect(settled).toHaveBeenCalledOnce()
   })
 
@@ -280,8 +274,8 @@ describe("qualified positioning lifecycle", () => {
       ...(target === "local" ? { initialPositionMessageId: "m5" } : target === "unread" ? { newDividerBefore: "m5" } : {}),
     })
     expect(scrollFixture.latest.readPositionReady).toBe(true)
-    expect(end).toHaveBeenCalledTimes(target === "end" ? 1 : 0)
-    if (target !== "end") expect(bodyTop(h.root, "m5")).toBeGreaterThan(0)
+    expect(end).toHaveBeenCalledTimes(target === "local" ? 0 : 1)
+    if (target === "local") expect(bodyTop(h.root, "m5")).toBeGreaterThan(0)
   })
 
   it("does not revive initial positioning when data resolves after user takeover", () => {

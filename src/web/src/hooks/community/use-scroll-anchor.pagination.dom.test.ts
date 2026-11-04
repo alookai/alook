@@ -115,12 +115,14 @@ describe("native pagination and original semantic epoch", () => {
     runFrames()
     expect(h.root.scrollTop).toBe(settled)
   })
-  it("restores initial New intent and bounded settling after StrictMode effect replay", () => {
+  it("positions manual New and settles once after StrictMode effect replay", () => {
     const shown = vi.fn()
     const items = Array.from({ length: 14 }, (_, i) => ({ ...message(`m${i}`), newDivider: i === 4 }))
     const h = mount({ items, newDividerBefore: "m4", onInitialPositionSettled: shown }, true)
+    act(() => scrollFixture.latest.requestNewPosition("m4"))
+    resize()
     const marker = h.root.querySelector('[data-new-divider]')!.getBoundingClientRect()
-    expect((marker.top + marker.bottom) / 2).toBeCloseTo(scrollFixture.height / 2, 0)
+    expect(marker.top).toBeCloseTo(0, 0)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     expect(shown).toHaveBeenCalledOnce()
   })
@@ -176,14 +178,15 @@ describe("native pagination and original semantic epoch", () => {
     expect(h.root.querySelector('[data-msg-id="m5"]')).toBeNull()
     expect(end).not.toHaveBeenCalled()
   })
-  it("keeps the original initial New intent while an older page moves its numeric index", () => {
+  it("keeps a requested New intent while an older page moves its numeric index", () => {
     const items = Array.from({ length: 14 }, (_, i) => ({ ...message(`m${i}`), newDivider: i === 4 }))
     const h = mount({ items, newDividerBefore: "m4", initialScrollReady: false, hasMoreNewer: true })
+    act(() => scrollFixture.latest.requestNewPosition("m4"))
     act(() => scrollFixture.latest.captureOlderPageAnchor())
     h.update({ isFetchingOlder: true })
     h.update({ items: [message("older"), ...h.input.items], isFetchingOlder: false, initialScrollReady: true })
     const marker = h.root.querySelector('[data-new-divider]')!.getBoundingClientRect()
-    expect((marker.top + marker.bottom) / 2).toBeCloseTo(scrollFixture.height / 2, 0)
+    expect(marker.top).toBeCloseTo(0, 0)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
   it("retires the old native index once on replacement and rejects its canceled frame", () => {

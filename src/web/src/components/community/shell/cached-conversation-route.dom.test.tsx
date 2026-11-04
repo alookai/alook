@@ -105,6 +105,7 @@ describe("cached target through the real route, entry and message consumers", ()
       createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString() }))
     entry.readState = { channelId: "c1", lastReadMessageId: "m42", lastReadSeq: 42, lastReadAt: entry.messages[41].createdAt }
     entry.selection = { reason: "tail", anchorMessageId: null }
+    entry.newBoundary = { afterSeq: 42, target: null }
     entry.page = { ...entry.page, hasMoreOlder: false, hasMoreNewer: false, olderCursor: null, newerCursor: null, latestSeq: 42 }
     await seedConversationEntry(owner.client, entry)
     scrollFixture.width = 905
@@ -148,12 +149,12 @@ describe("cached target through the real route, entry and message consumers", ()
     expect(previous.isConnected).toBe(false)
     await act(async () => vi.advanceTimersByTimeAsync(6000))
     const previousLoad = mocks.load.getMockImplementation()!
-    mocks.load.mockImplementation((url: string) => url === "/api/community/channels/c1/messages?entry=1"
+    mocks.load.mockImplementation((url: string) => url === "/api/community/channels/c1/messages?entry=1&window=tail"
       ? new Promise(() => {}) : previousLoad(url))
     const serverTarget = resolveCommunityLandingHref({ serverId: "s1", channelIds: ["c1"], last: "c1", breakpoint: "desktop" })
     await go(serverTarget)
     expect(serverTarget).toBe(href)
-    expect(mocks.load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1")).toBe(true)
+    expect(mocks.load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1&window=tail")).toBe(true)
     expect(root().scrollTop).not.toBe(offset)
     expect(root().scrollHeight - root().clientHeight - root().scrollTop).toBeLessThanOrEqual(1)
     expect(root().querySelector('[data-message-list-content]')).toHaveAttribute("aria-hidden", "false")

@@ -31,7 +31,7 @@ it.each(["URL", "saved"] as const)("shares one cold %s-tag entry between route m
     feed: useForumFeed("s1", "c1", source === "URL" ? { routeTag: "beta" } : undefined),
   }), { wrapper: ({ children }) => <QueryClientProvider client={owner.client}><CommunityDbProvider registry={owner.registry}>{children}</CommunityDbProvider></QueryClientProvider> })
   await waitFor(() => expect(release).toBeTypeOf("function"))
-  expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&tag=beta"])
+  expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&window=tail&tag=beta"])
   await act(async () => release())
   await waitFor(() => expect(hook.result.current.feed.posts.map(post => post.id)).toEqual(["t1"]))
   expect(hook.result.current.route.routeLifecycle).toBe("ready")
@@ -53,7 +53,7 @@ it("updates metadata and body from the same-window saved selection without an ex
   await waitFor(() => expect(hook.result.current.feed.data).toBeDefined())
   await act(async () => hook.result.current.feed.selectTag("gamma"))
   await waitFor(() => expect(hook.result.current.feed.tag).toBe("gamma"))
-  expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&tag=beta", "/api/community/channels/c1/messages?entry=1&tag=gamma"])
+  expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&window=tail&tag=beta", "/api/community/channels/c1/messages?entry=1&window=tail&newAfterSeq=1&tag=gamma"])
   hook.unmount()
 })
 

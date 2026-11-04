@@ -63,6 +63,7 @@ async function createDmOwner() {
     value.messages = []
     value.selection = { reason: "tail", anchorMessageId: null }
     value.readState = { ...value.readState, lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 }
+    value.newBoundary = { afterSeq: 0, target: null }
     value.page = { ...value.page, olderCursor: null, hasMoreOlder: false, latestSeq: 0 }
     await seedConversationEntry(owner.client, value)
   }

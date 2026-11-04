@@ -22,7 +22,7 @@ import {
   type InboxReadReservationLease,
 } from "./inbox-read-reservation"
 
-const READ_VISIBILITY_THRESHOLD = 0.2
+export const READ_VISIBILITY_THRESHOLD = 0.2
 const MESSAGE_LIST_CONTENT_SELECTOR = "[data-message-list-content]"
 
 function readPresentationReadable(scrollRootEl: HTMLElement) {
