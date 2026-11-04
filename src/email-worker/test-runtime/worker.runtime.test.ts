@@ -21,6 +21,20 @@ RRULE:FREQ=MONTHLY;BYMONTHDAY=15
 END:STANDARD
 END:VTIMEZONE`
 
+const FINITE_ONE_DAY_ZONE = `BEGIN:VTIMEZONE
+TZID:Finite/OneDay
+BEGIN:DAYLIGHT
+DTSTART:20260601T000000
+TZOFFSETFROM:+0000
+TZOFFSETTO:+0100
+END:DAYLIGHT
+BEGIN:STANDARD
+DTSTART:20260602T000000
+TZOFFSETFROM:+0100
+TZOFFSETTO:+0000
+END:STANDARD
+END:VTIMEZONE`
+
 const runtimeEnv = env as unknown as {
   DB: D1Database
   EMAIL_BUCKET: R2Bucket
@@ -37,6 +51,7 @@ describe("email-worker workerd runtime", () => {
     { name: "gap", start: "20070311T023000", embedded: true, expected: "2007-03-11T07:30:00.000Z", before: "2007-03-11T07:29:59.999Z", status: "scheduled" },
     { name: "exhausted ancient monthly recurrence", start: "20260610T100000", embedded: true, zoneOverride: ANCIENT_MONTHLY_ZONE, tzid: "Ancient/Monthly", expected: null, before: "2026-06-10T08:59:59.999Z", status: "pending" },
     { name: "unresolved bare IANA", start: "20071104T013000", embedded: false, expected: null, before: "2007-11-04T05:29:59.999Z", status: "pending" },
+    { name: "unsupported finite one-day observances", start: "20260601T120000", embedded: true, zoneOverride: FINITE_ONE_DAY_ZONE, tzid: "Finite/OneDay", expected: null, before: "2026-06-01T10:59:59.999Z", status: "pending" },
   ])("persists qualified invitation time in real D1: $name", async ({ start, embedded, zoneOverride, tzid = "America/New_York", expected, before, status }) => {
     const zone = ["BEGIN:VTIMEZONE", "TZID:America/New_York", "BEGIN:DAYLIGHT",
       "DTSTART:20070311T020000", "TZOFFSETFROM:-0500", "TZOFFSETTO:-0400", "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU", "END:DAYLIGHT",

@@ -40,6 +40,20 @@ RRULE:FREQ=MONTHLY;BYMONTHDAY=15
 END:STANDARD
 END:VTIMEZONE`
 
+const FINITE_ONE_DAY_ZONE = `BEGIN:VTIMEZONE
+TZID:Finite/OneDay
+BEGIN:DAYLIGHT
+DTSTART:20260601T000000
+TZOFFSETFROM:+0000
+TZOFFSETTO:+0100
+END:DAYLIGHT
+BEGIN:STANDARD
+DTSTART:20260602T000000
+TZOFFSETFROM:+0100
+TZOFFSETTO:+0000
+END:STANDARD
+END:VTIMEZONE`
+
 const body = {
   agentId: "a1", workspaceId: "ws1", r2Key: "emails/fixture/raw",
   from: "sender@example.test", to: "recipient@example.test", subject: "Stored message",
@@ -76,6 +90,7 @@ describe("inbound email after legacy execution removal", () => {
     { isWhitelisted: true, start: "DTSTART;TZID=Ancient/Monthly:20260610T100000", zone: ANCIENT_MONTHLY_ZONE, scheduledAt: null, status: "pending" },
     { isWhitelisted: true, start: "", scheduledAt: null, status: "pending" },
     { isWhitelisted: false, start: "", scheduledAt: null, status: "pending" },
+    { isWhitelisted: true, start: "DTSTART;TZID=Finite/OneDay:20260601T120000", zone: FINITE_ONE_DAY_ZONE, scheduledAt: null, status: "pending" },
   ])("retains meeting records for whitelisted=$isWhitelisted and start=$start", async ({ isWhitelisted, start, zone = "", scheduledAt, status }) => {
     const meetingInfo = parseIcs([
       "BEGIN:VCALENDAR", "VERSION:2.0", zone, "BEGIN:VEVENT", start, "SUMMARY:Planning",

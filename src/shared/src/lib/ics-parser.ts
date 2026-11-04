@@ -18,17 +18,18 @@ const IcsDateTimeSchema = z.iso.datetime({ local: true })
 const IcsOffsetSchema = z.string().regex(/^[+-](?:[01]\d|2[0-3]):[0-5]\d$/)
   .refine(value => value !== "-00:00")
 
-function hasCompleteObservances(zone: ICAL.Component, targetYear: number): boolean {
+function hasSupportedObservances(zone: ICAL.Component, targetYear: number): boolean {
   // The pinned converter looks ahead 3660 days from its UTC probes (within
   // three days of this wall time). January of targetYear + 12 covers all of it.
   const throughYear = targetYear + 12
   if (throughYear > 9999) return false
   let remainingOnsets = 4096
+  const onsetTimes: number[] = []
   const observances = [
     ...zone.getAllSubcomponents("standard"),
     ...zone.getAllSubcomponents("daylight"),
   ]
-  return observances.length > 0 && observances.every(observance => {
+  const complete = observances.length > 0 && observances.every(observance => {
     const start = observance.getFirstProperty("dtstart")
     const value: unknown = start?.toJSON()[3]
     if (start?.type !== "date-time" || start.getParameter("tzid") !== undefined || typeof value !== "string"
@@ -38,11 +39,22 @@ function hasCompleteObservances(zone: ICAL.Component, targetYear: number): boole
         IcsOffsetSchema.safeParse(observance.getFirstProperty(name)?.toJSON()[3]).success)
       || --remainingOnsets < 0) return false
 
+    const onsets = new Set<number>()
+    const addOnset = (date: string) => {
+      if (date.endsWith("Z") || !IcsDateTimeSchema.safeParse(date).success) return false
+      const coordinate = Date.parse(`${date}Z`)
+      if (!Number.isFinite(coordinate)) return false
+      onsets.add(coordinate)
+      return true
+    }
+    if (!addOnset(value)) return false
+
     for (const property of observance.getAllProperties("rdate")) {
       if (property.type !== "date-time" || property.getParameter("tzid") !== undefined) return false
       for (const date of property.toJSON().slice(3)) {
         if (typeof date !== "string" || date.endsWith("Z")
           || !IcsDateTimeSchema.safeParse(date).success || --remainingOnsets < 0) return false
+        if (!addOnset(date)) return false
       }
     }
     for (const property of observance.getAllProperties("rrule")) {
@@ -57,11 +69,19 @@ function hasCompleteObservances(zone: ICAL.Component, targetYear: number): boole
       for (;;) {
         if (--remainingOnsets < 0) return false
         const next = iterator.next()
-        if (!next || next.year >= throughYear) break
+        if (!next) break
+        if (!addOnset(next.toString())) return false
+        if (next.year >= throughYear) break
       }
     }
+    onsetTimes.push(...onsets)
     return true
   })
+  if (!complete) return false
+  // Offsets below 24 hours make seven wall-clock days exceed five UTC days.
+  // This bounds adjacent transitions away from the converter's ±2-day probes.
+  onsetTimes.sort((a, b) => a - b)
+  return onsetTimes.every((time, index) => index === 0 || time - onsetTimes[index - 1]! >= 7 * 24 * 60 * 60 * 1000)
 }
 
 function parseIcsDate(event: ICAL.Component, calendar: ICAL.Component, name: string): string | null {
@@ -79,7 +99,7 @@ function parseIcsDate(event: ICAL.Component, calendar: ICAL.Component, name: str
     const zones = calendar.getAllSubcomponents("vtimezone")
       .filter(zone => zone.getFirstPropertyValue("tzid") === tzid)
     const zone = zones[0]
-    if (zones.length !== 1 || !zone || !hasCompleteObservances(zone, Number(value.slice(0, 4)))) return null
+    if (zones.length !== 1 || !zone || !hasSupportedObservances(zone, Number(value.slice(0, 4)))) return null
     const converter = resolveZone(tzid, zone)
     if (converter?.source !== "vtimezone") return null
     return MeetingInfoSchema.shape.startTime.parse(converter.toInstant(value).toISOString())

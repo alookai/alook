@@ -78,6 +78,28 @@ RRULE:FREQ=MONTHLY;BYMONTHDAY=15
 END:STANDARD
 END:VTIMEZONE`
 
+const FINITE_ONE_DAY_ICS = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VTIMEZONE
+TZID:Finite/OneDay
+BEGIN:DAYLIGHT
+DTSTART:20260601T000000
+TZOFFSETFROM:+0000
+TZOFFSETTO:+0100
+END:DAYLIGHT
+BEGIN:STANDARD
+DTSTART:20260602T000000
+TZOFFSETFROM:+0100
+TZOFFSETTO:+0000
+END:STANDARD
+END:VTIMEZONE
+BEGIN:VEVENT
+DTSTART;TZID=Finite/OneDay:20260601T120000
+SUMMARY:Finite interval qualification
+END:VEVENT
+END:VCALENDAR
+`
+
 const RFC_TIME_VECTORS = [
   ["summer", "20260428T100000", "2026-04-28T14:00:00.000Z"],
   ["winter", "20260128T100000", "2026-01-28T15:00:00.000Z"],
@@ -181,6 +203,12 @@ describe("ics-parser", () => {
       { name: "unsupported observance recurrence", ics: timeInvitation("DTSTART;TZID=Office:20260428T100000", fixedZone("+0100").replace("END:STANDARD", "RRULE:FREQ=DAILY\nEND:STANDARD")), start: null, end: null },
       { name: "known start with unknown end", ics: timeInvitation("DTSTART:20260428T140000Z", "", "DTEND:20260428T150000"), start: "2026-04-28T14:00:00.000Z", end: null },
       { name: "unknown start with known end", ics: timeInvitation("DTSTART:20260428T140000", "", "DTEND:20260428T150000Z"), start: null, end: "2026-04-28T15:00:00.000Z" },
+      { name: "finite one-day observances are unsupported", ics: FINITE_ONE_DAY_ICS, start: null, end: null },
+      { name: "well-separated finite observances", ics: FINITE_ONE_DAY_ICS.replace("DTSTART:20260602T000000", "DTSTART:20260609T000000"), start: "2026-06-01T11:00:00.000Z", end: null },
+      { name: "close RDATE observances are unsupported", ics: timeInvitation("DTSTART;TZID=Ancient/Monthly:20260601T120000", ANCIENT_MONTHLY_ZONE.replaceAll("1000", "2020").replace("RRULE:FREQ=MONTHLY;BYMONTHDAY=1", "RDATE:20260601T000000").replace("RRULE:FREQ=MONTHLY;BYMONTHDAY=15", "RDATE:20260602T000000")), start: null, end: null },
+      { name: "close recurring observances are unsupported", ics: timeInvitation("DTSTART;TZID=Ancient/Monthly:20260601T120000", ANCIENT_MONTHLY_ZONE.replaceAll("1000", "2020").replace("RRULE:FREQ=MONTHLY;BYMONTHDAY=15", "RRULE:FREQ=MONTHLY;BYMONTHDAY=2")), start: null, end: null },
+      { name: "coincident observance walls are unsupported", ics: FINITE_ONE_DAY_ICS.replace("DTSTART:20260602T000000", "DTSTART:20260601T000000").replace("20260601T120000", "20260601T003000"), start: null, end: null },
+      { name: "close observances across the first century are unsupported", ics: FINITE_ONE_DAY_ICS.replaceAll("20260601", "00991231").replace("20260602", "01000101"), start: null, end: null },
     ])("resolves only absolute invitation times: $name", ({ ics, start, end }) => {
       const result = parseIcs(ics)
       expect(result.startTime).toBe(start)
