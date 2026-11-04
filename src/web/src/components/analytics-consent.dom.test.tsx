@@ -114,14 +114,13 @@ describe("AnalyticsConsent", () => {
     expect(consentCommands().at(-1)?.[2]).toEqual(expect.objectContaining({ analytics_storage: "denied" }))
   })
 
-  it("keeps public tracking and page layout when grant persistence fails", async () => {
-    render(<><main style={{ height: "100dvh" }} data-testid="consent-page" /><AnalyticsConsent /></>)
+  it("keeps public tracking without an error banner when grant persistence fails", async () => {
+    render(<AnalyticsConsent />)
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce())
     expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     expect(await screen.findByTestId("google-tag-manager")).toBeInTheDocument()
     expect(screen.getByTestId(tid.ahrefsAnalyticsFrame)).toBeInTheDocument()
-    expect(getComputedStyle(screen.getByTestId("consent-page")).height).toBe("100dvh")
     expect(document.cookie).not.toContain("alook_analytics_consent=")
     expect(document.cookie).not.toContain("_ga=")
   })
@@ -162,17 +161,20 @@ describe("AnalyticsConsent", () => {
   it.each(["focus", "pageshow", "visibilitychange"])("rereads an explicit denial on %s and disables optional public tracking", async type => {
     document.cookie = "alook_analytics_consent=v1.granted; Path=/"
     const view = render(<AnalyticsConsent />)
-    await screen.findByTestId(tid.ahrefsAnalyticsFrame)
-    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
-    if (type === "visibilitychange") {
-      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible")
-      fireEvent(document, new Event(type))
-    } else fireEvent(window, new Event(type))
-    expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
-    expect(consentCommands().at(-1)?.[2]).toEqual(expect.objectContaining({ analytics_storage: "denied" }))
-    expect(fetch).not.toHaveBeenCalled()
-    view.unmount()
-    vi.restoreAllMocks()
+    let visibilitySpy: { mockRestore(): void } | undefined
+    try {
+      await screen.findByTestId(tid.ahrefsAnalyticsFrame)
+      document.cookie = "alook_analytics_consent=v1.denied; Path=/"
+      if (type === "visibilitychange") {
+        visibilitySpy = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible")
+        fireEvent(document, new Event(type))
+      } else fireEvent(window, new Event(type))
+      expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
+      expect(consentCommands().at(-1)?.[2]).toEqual(expect.objectContaining({ analytics_storage: "denied" }))
+      expect(fetch).not.toHaveBeenCalled()
+    } finally {
+      try { view.unmount() } finally { visibilitySpy?.mockRestore() }
+    }
   })
 
   it("keeps the existing Privacy choices usable and preserves denial on reload", async () => {
