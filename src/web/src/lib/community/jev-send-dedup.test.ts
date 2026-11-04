@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Database } from "@alook/shared"
 
-const mocks = vi.hoisted(() => ({ recent: vi.fn(), author: vi.fn(), pending: vi.fn(), previous: vi.fn(), decide: vi.fn(), create: vi.fn() }))
+const mocks = vi.hoisted(() => ({ recent: vi.fn(), author: vi.fn(), previous: vi.fn(), decide: vi.fn(), create: vi.fn() }))
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return { ...actual, queries: { ...actual.queries, communityMessage: {
@@ -31,7 +31,6 @@ describe("bot send duplicate judgment", () => {
     vi.resetAllMocks()
     mocks.recent.mockResolvedValue([row(3), row(2, 90_000), row(1, 180_000)])
     mocks.author.mockResolvedValue({ name: "helper", discriminator: "5678" })
-    mocks.pending.mockResolvedValue([])
     mocks.previous.mockResolvedValue([])
     mocks.create.mockReturnValue({ name: "openrouter", decide: mocks.decide })
     mocks.decide.mockResolvedValue({ answers: { duplicate: { type: "noul", noul: 0.9 } }, model: "test" })
@@ -46,7 +45,6 @@ describe("bot send duplicate judgment", () => {
       recent_messages: [1, 2, 3].map((seq) => ({ handle: `other${seq}#1234`, content: `Release update ${seq}.` })),
     })
     expect(mocks.author).toHaveBeenCalledExactlyOnceWith(input.db, "bot")
-    expect(mocks.pending).not.toHaveBeenCalled()
     expect(mocks.previous).not.toHaveBeenCalled()
     expect(mocks.recent).toHaveBeenCalledExactlyOnceWith(input.db, "channel")
     expect(mocks.create.mock.calls[0][0].threshold).toBe(0.5)

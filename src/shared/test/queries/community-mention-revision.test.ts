@@ -74,6 +74,10 @@ describe("community mention revision effects", () => {
   it("guards bounded mention repairs and versions only real mark-all or dismiss effects", async () => {
     expect(conditions()).toEqual({ throughOne: 1, exactFive: 1 })
 
+    sqlite.prepare("UPDATE community_mention SET read = 1 WHERE id = 'mention-1'").run()
+    expect(conditions()).toEqual({ throughOne: 0, exactFive: 1 })
+    sqlite.prepare("UPDATE community_mention SET read = 0 WHERE id = 'mention-1'").run()
+
     ;(markMessageMentionsReadBuilder(db, "u1", "m5") as any).run()
     expect(conditions()).toEqual({ throughOne: 1, exactFive: 0 })
 

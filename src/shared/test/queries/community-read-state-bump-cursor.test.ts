@@ -87,13 +87,15 @@ describe("bumpReadCursor", () => {
     expect(db.__insertCalls[0].onConflict.setWhere).toBeDefined();
   });
 
-  it("idempotent — a lower/equal seq than what's already recorded is a no-op (never regresses)", async () => {
+  it.each([
+    { id: "m_2", createdAt: "2026-07-05T09:00:00.000Z", seq: 2 },
+    { id: "m_5", createdAt: "2026-07-05T10:00:00.000Z", seq: 5 },
+  ])("idempotent — a lower/equal seq than what's already recorded is a no-op (never regresses): $seq", async (incoming) => {
     const db = createMockDb([
-      [{ id: "m_2", createdAt: "2026-07-05T09:00:00.000Z", seq: 2 }], // resolves to an OLDER message
-      [{ lastReadAt: "2026-07-05T10:00:00.000Z", lastReadMessageId: "m_5", lastReadSeq: 5 }], // already ahead
+      [incoming],
+      [{ lastReadAt: "2026-07-05T10:00:00.000Z", lastReadMessageId: "m_5", lastReadSeq: 5 }],
     ]);
-    const result = await bumpReadCursor(db, "u_1", { channelId: "ch_1" }, 2);
-    // MAX semantics: existing pointer wins, no write happens.
+    const result = await bumpReadCursor(db, "u_1", { channelId: "ch_1" }, incoming.seq);
     expect(result).toEqual({ id: "m_5", createdAt: "2026-07-05T10:00:00.000Z", seq: 5 });
     expect(db.insert).not.toHaveBeenCalled();
   });
