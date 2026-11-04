@@ -90,13 +90,42 @@ describe("community invite quota consumption", () => {
       .toEqual([{ user_id: "u1" }]);
   });
 
-  it("rolls the counter back when the membership UNIQUE constraint rejects", async () => {
+  it("preserves duplicate capacity and rolls back earlier writes after a late analytics failure", async () => {
     seedInvite(null);
-    await useInvite(db as never, "token1", "u1");
-    await expect(useInvite(db as never, "token1", "u1")).rejects.toThrow();
-
+    sqlite.prepare("INSERT INTO user (id, name, discriminator) VALUES (?, ?, ?)")
+      .run("owner", "Owner", "0009");
+    const first = await useInvite(db as never, "token1", "u1");
+    expect(first).not.toBeNull();
+    const beforeMembers = sqlite.prepare("SELECT * FROM community_server_member ORDER BY id").all();
+    const beforeEvents = sqlite.prepare("SELECT * FROM community_funnel_analytics_event ORDER BY id").all();
+    expect(beforeMembers).toHaveLength(1);
+    expect(beforeMembers[0]).toMatchObject({ server_id: "s1", user_id: "u1", role: "member" });
+    const memberId = (beforeMembers[0] as { id: string }).id;
+    expect(first!.member.id).toBe(memberId);
+    expect(beforeEvents).toHaveLength(1);
+    expect(beforeEvents[0]).toMatchObject({
+      owner_user_id: "owner", event_name: "invited_human_joined", source_id: memberId,
+    });
     expect(sqlite.prepare("SELECT uses FROM community_server_invite WHERE id='iv1'").get())
       .toEqual({ uses: 1 });
+
+    await expect(useInvite(db as never, "token1", "u1")).rejects.toThrow();
+    expect(sqlite.prepare("SELECT uses FROM community_server_invite WHERE id='iv1'").get())
+      .toEqual({ uses: 1 });
+    expect(sqlite.prepare("SELECT * FROM community_server_member ORDER BY id").all()).toEqual(beforeMembers);
+    expect(sqlite.prepare("SELECT * FROM community_funnel_analytics_event ORDER BY id").all()).toEqual(beforeEvents);
+
+    sqlite.exec(`
+      CREATE TRIGGER reject_late_invite_event
+      BEFORE INSERT ON community_funnel_analytics_event
+      WHEN NEW.event_name = 'invited_human_joined'
+      BEGIN SELECT RAISE(ABORT, 'late analytics insertion rejected'); END;
+    `);
+    await expect(useInvite(db as never, "token1", "u2")).rejects.toThrow("late analytics insertion rejected");
+    expect(sqlite.prepare("SELECT uses FROM community_server_invite WHERE id='iv1'").get())
+      .toEqual({ uses: 1 });
+    expect(sqlite.prepare("SELECT * FROM community_server_member ORDER BY id").all()).toEqual(beforeMembers);
+    expect(sqlite.prepare("SELECT * FROM community_funnel_analytics_event ORDER BY id").all()).toEqual(beforeEvents);
   });
 
   it("admits a legacy invite without inventing a funnel owner", async () => {

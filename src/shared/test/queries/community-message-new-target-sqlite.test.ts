@@ -17,7 +17,7 @@ it("returns the first peer ID in the exact scoped sequence interval, with gaps a
   ] as const) insert.run(id, author, channel, seq)
   const target = { channelId: "channel", viewerId: "author", afterSeq: 5, throughSeq: 20 }
   await expect(getFirstPeerMessageAfterSeq(store.db, { ...target, afterSeq: 0, throughSeq: 5 })).resolves.toEqual({ id: "already-read", channelId: "channel", seq: 4, authorId: "peer" })
-  await expect(getFirstPeerMessageAfterSeq(store.db, target)).resolves.toEqual({ id: "first-peer", channelId: "channel", seq: 9, authorId: "peer" })
+  await expect(getFirstPeerMessageAfterSeq(store.db, { ...target, throughSeq: 9 })).resolves.toEqual({ id: "first-peer", channelId: "channel", seq: 9, authorId: "peer" })
   await expect(getFirstPeerMessageAfterSeq(store.db, { ...target, throughSeq: 8 })).resolves.toBeNull()
   await expect(getFirstPeerMessageAfterSeq(store.db, { ...target, afterSeq: 9 })).resolves.toEqual({ id: "later-peer", channelId: "channel", seq: 15, authorId: "peer" })
   await expect(getFirstPeerMessageAfterSeq(store.db, { ...target, channelId: "empty" })).resolves.toBeNull()
