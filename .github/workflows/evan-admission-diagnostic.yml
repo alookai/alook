@@ -20,4 +20,12 @@ jobs:
           bun-version: 1.3.11
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @alook/agent-driver build
-      - run: pnpm --filter @alook/daemon exec vitest run src/daemon/createDaemon.test.ts -t "starts the builtin Codex lane from a fresh nested daemon workspace"
+      - shell: pwsh
+        run: |
+          $failed = 0
+          for ($attempt = 1; $attempt -le 10; $attempt++) {
+            Write-Output "ATTEMPT $attempt"
+            pnpm --filter @alook/daemon exec vitest run src/daemon/createDaemon.test.ts -t "starts the builtin Codex lane from a fresh nested daemon workspace"
+            if ($LASTEXITCODE -ne 0) { $failed++ }
+          }
+          if ($failed -gt 0) { exit 1 }
