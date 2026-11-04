@@ -994,8 +994,16 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 .tw-body > .tw-paper-track {
-  /* The sheet stands in the middle of the top deck, so its foot disappears into the body. */
-  transform: translateX(-50%) translateZ(-40px);
+  /* The sheet goes into the top deck behind the platen and leans back parallel to the keyboard face
+     (Gus #2771, #2775). Its foot sits 30px down, past the deck's 24px corner radius, so no paper shows
+     between the knobs and the rounded deck ends; extra bottom padding keeps the content riding high. */
+  bottom: calc(100% - 30px);
+  transform-origin: 50% 100%;
+  transform: translateX(-50%) translateZ(-40px) rotateX(12.995deg);
+}
+
+.tw-body > .tw-paper-track .tw-paper {
+  padding-bottom: 70px;
 }
 
 /* Back face */
@@ -1028,16 +1036,17 @@ body.driver-active .community-ws-reconnect-overlay * {
   height: 212px;
 }
 
-/* Side wedges: the front edge follows the keyboard slope, z = 20 + 60·y/260 (y measured on the body). */
+/* Side wedges: the front edge follows the keyboard slope, z = 20 + 60·y/260 (y measured on the body), pushed
+   2px past it so the seam hides behind the keyboard face instead of anti-aliasing to the page. */
 .tw-body-left {
-  clip-path: polygon(0 0, 105.54px 0, 154.46px 100%, 0 100%);
+  clip-path: polygon(0 0, 107.54px 0, 156.46px 100%, 0 100%);
   background: oklch(0.22 0.01 58);
   transform: rotateY(-90deg) translateZ(80px);
   box-shadow: inset 10px 0 30px oklch(0 0 0 / 6%);
 }
 
 .tw-body-right {
-  clip-path: polygon(54.46px 0, 100% 0, 100% 100%, 5.54px 100%);
+  clip-path: polygon(52.46px 0, 100% 0, 100% 100%, 3.54px 100%);
   background: var(--tw-body-lo);
   transform: rotateY(90deg) translateZ(340px);
 }
@@ -1051,10 +1060,10 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 .tw-body-top {
-  height: 100px;
+  height: 102px;
   background: var(--tw-body-top);
-  /* Top deck spans z −80…20. */
-  transform: translateZ(-30px) rotateX(90deg) translateZ(50px);
+  /* Top deck spans z −80…22: 2px under the keyboard face's top edge so their seam never shows the page. */
+  transform: translateZ(-29px) rotateX(90deg) translateZ(51px);
 }
 
 .tw-body-bottom {
@@ -1089,9 +1098,9 @@ body.driver-active .community-ws-reconnect-overlay * {
 .tw-paper-guide {
   position: absolute;
   top: -16px;
-  left: 6px;
-  width: 408px;
-  height: 18px;
+  left: 0;
+  width: 420px;
+  height: 42px;
   background: linear-gradient(oklch(0.2 0.01 58), oklch(0.13 0.01 55));
   transform: translateZ(-35px);
   pointer-events: none;

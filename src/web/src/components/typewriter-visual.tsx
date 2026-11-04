@@ -75,6 +75,8 @@ const ROLLER_STRIPS = [
   ...cylinderStrips(PLATEN_X1, KNOB_W, KNOB_R, 24, 0.15, 0.24, true),
 ];
 // Knob end caps: [x, facing +x?]
+// Caps are a hair larger than the 24-sided band so its flat strips never leave a light crescent at the rim.
+const KNOB_CAP_R = KNOB_R + 0.8;
 const KNOB_CAPS: [number, boolean][] = [[PLATEN_X0 - KNOB_W, false], [PLATEN_X0, true], [PLATEN_X1, false], [PLATEN_X1 + KNOB_W, true]];
 
 interface TypewriterVisualProps {
@@ -200,7 +202,7 @@ export function TypewriterVisual({
                 <div
                   key={`cap-${i}`}
                   className="tw-knob-cap"
-                  style={{ left: `${x - KNOB_R}px`, top: `${-KNOB_R}px`, width: `${2 * KNOB_R}px`, height: `${2 * KNOB_R}px`, transform: `rotateY(${outward ? 90 : -90}deg)` }}
+                  style={{ left: `${x - KNOB_CAP_R}px`, top: `${-KNOB_CAP_R}px`, width: `${2 * KNOB_CAP_R}px`, height: `${2 * KNOB_CAP_R}px`, transform: `rotateY(${outward ? 90 : -90}deg)` }}
                 />
               ))}
             </div>
