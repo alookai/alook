@@ -159,6 +159,7 @@ function feed(overrides: Record<string, unknown> = {}) {
     anchorInCache: true,
     initialPositionKnown: true,
     initialDisplayReady: true,
+    initialScrollReady: true,
     newDividerBefore: undefined,
     unreadCount: 0,
     setScrollRootEl: vi.fn(),

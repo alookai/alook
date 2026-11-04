@@ -154,6 +154,11 @@ export function TextChannelSurface({
                   onRetryInitialLoad={feed.retryInitialLoad}
                   pinnedIds={controller.pinnedIds}
                   newDividerBefore={feed.newDividerBefore}
+                  newBoundary={feed.newBoundary}
+                  latestSeq={feed.latestSeq}
+                  retiredNewTargetId={feed.retiredNewTargetId}
+                  onLoadNewTarget={feed.loadNewTarget}
+                  onReadNewBoundary={feed.readNewBoundary}
                   onOpenThread={onOpenThread}
                   {...controller.messageActions}
                   onPin={canManagePins ? controller.messageActions.onPin : undefined}
@@ -164,7 +169,7 @@ export function TextChannelSurface({
                   scrollToMessageId={controller.scrollTargetId}
                   onScrollRoot={feed.setScrollRootEl}
                   viewerUserId={viewer.id}
-                  initialScrollReady={feed.initialDisplayReady}
+                  initialScrollReady={feed.initialScrollReady}
                   preserveInitialPresentation={feed.preserveInitialPresentation}
                   onUserTakeover={feed.onUserTakeover}
                   onScrollTargetConsumed={controller.consumeScrollTarget}

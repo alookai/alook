@@ -9,8 +9,8 @@ export function conversationEntryFixture(): CommunityConversationEntryRead {
     profiles: [profileResourceFixture({ id: "peer", name: "Peer", discriminator: "0042", avatarVersion: 5 })],
     channel: { id: "c1", type: "text", serverId: "s1", categoryId: null, name: "Channel", topic: "", parentChannelId: null, parentMessageId: null, creatorId: "viewer", position: 0, archived: false, createdAt: at, lastMessageAt: at, messageCount: 1 },
     access: { channelId: "c1", canRead: true, canSend: true, canCreateDiscussion: true },
-    readState: { channelId: "c1", lastReadMessageId: "m1", lastReadAt: at, lastReadSeq: 1 }, readStateRevision: 4,
-    selection: { reason: "read_pointer", anchorMessageId: "m1" },
+    readState: { channelId: "c1", lastReadMessageId: "m1", lastReadAt: at, lastReadSeq: 1 }, readStateRevision: 4, newBoundary: { afterSeq: 1, target: null },
+    selection: { reason: "tail", anchorMessageId: null },
     surfaceReceipt: { channelId: "c1", surfaceKind: "channel" },
     messages: [{ id: "m1", channelId: "c1", seq: 1, authorId: "peer", createdAt: at, type: "chat", content: "Body", replyToId: null, clientNonce: null, attachments: [] }],
     page: { olderCursor: "older", newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 1 },
@@ -45,7 +45,7 @@ export function conversationEntryFromChannel(value: CommunityChannelIdentity, vi
   return { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: channel.id, viewerId, channel,
     peer: channel.type === "dm" ? { id: "peer", name: "Peer", discriminator: "0042", avatar: null, avatarVersion: 0 } : null,
     access: { channelId: channel.id, canRead: true, canSend: true, canCreateDiscussion: channel.type === "text" || channel.type === "forum" },
-    readState: { channelId: channel.id, lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 }, readStateRevision: 0,
+    readState: { channelId: channel.id, lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 }, readStateRevision: 0, newBoundary: { afterSeq: 0, target: null },
     selection: { reason: "tail", anchorMessageId: null }, surfaceReceipt: { channelId: channel.id, surfaceKind: channel.type === "text" ? "channel" : channel.type },
     messages: [], profiles: [], page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 } }
 }

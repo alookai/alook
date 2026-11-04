@@ -1,20 +1,29 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { flattenMessageItems } from "@/lib/community/message-list-items"
 import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor-pagination"
 import { useInitialPositionTransition } from "./initial-position-transition"
 import type { ResolvedMessageListProps } from "./message-list-types"
+import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
+import { hashKey } from "@tanstack/react-query"
+import { READ_VISIBILITY_THRESHOLD } from "@/hooks/community/use-read-observer"
 
 export function useMessageListController({
   messages,
+  viewerUserId,
   onOpenContextId,
   loading,
   initialLoadError,
   newDividerBefore,
+  newBoundary,
+  latestSeq,
+  retiredNewTargetId,
+  onLoadNewTarget,
+  onReadNewBoundary,
   scrollToMessageId,
   initialPositionMessageId,
   positionEntry,
@@ -44,10 +53,20 @@ export function useMessageListController({
 }: ResolvedMessageListProps) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
+  const scopeKey = positionScope ? hashKey(conversationListScopeKey(positionScope)) : null
+  const observedSeq = Math.max(latestSeq ?? 0, ...messages.map(message => message.seq ?? 0))
+  const createLookback = () => ({ owner: {}, scopeKey, entry: positionEntry,
+    initialized: newBoundary !== undefined || newDividerBefore !== undefined,
+    target: newBoundary !== undefined ? newBoundary.target?.id ?? null : newDividerBefore ?? null,
+    used: false, pending: false, checking: false, throughSeq: observedSeq, checkedThrough: -1, error: null as Error | null })
+  const [lookback, setLookback] = useState(createLookback)
+  if (lookback.scopeKey !== scopeKey || lookback.entry !== positionEntry) setLookback(createLookback())
+  const dividerTarget = lookback.initialized ? lookback.target ?? undefined
+    : newBoundary !== undefined ? newBoundary.target?.id : newDividerBefore
 
   const items = useMemo(
-    () => flattenMessageItems(messages, newDividerBefore, !!hasMore, !!hasMoreNewer),
-    [messages, newDividerBefore, hasMore, hasMoreNewer],
+    () => flattenMessageItems(messages, dividerTarget, !!hasMore, !!hasMoreNewer),
+    [messages, dividerTarget, hasMore, hasMoreNewer],
   )
 
   const [selectMode, setSelectMode] = useAtom(useCreateAtom(false))
@@ -107,9 +126,12 @@ export function useMessageListController({
     captureOlderPageAnchor,
     captureNewerPageAnchor,
     positionOutcome,
+    requestNewPosition,
+    newDividerVisibility,
+    followingTail,
   } = useScrollAnchor({
     items,
-    newDividerBefore,
+    newDividerBefore: dividerTarget,
     initialScrollReady,
     ...(preserveInitialPresentation ? { preserveInitialPresentation } : {}),
     ...(onUserTakeover ? { onUserTakeover } : {}),
@@ -137,6 +159,90 @@ export function useMessageListController({
     authoritativeEmpty,
     positionSettled: positionOutcome !== "pending",
   })
+  const readVisiblePeerSeq = useCallback(() => {
+    const root = scrollRef.current
+    if (!root || active === false || !readPositionReady) return 0
+    const viewport = root.getBoundingClientRect()
+    const peers = new Map(messages.filter(message => message.authorId && message.authorId !== viewerUserId)
+      .map(message => [message.id, message.seq ?? 0]))
+    let through = 0
+    for (const body of root.querySelectorAll<HTMLElement>("[data-msg-id]")) {
+      const seq = peers.get(body.dataset.msgId ?? "")
+      if (!seq || seq <= through) continue
+      const rect = body.getBoundingClientRect()
+      const visibleArea = Math.max(0, Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top))
+        * Math.max(0, Math.min(rect.right, viewport.right) - Math.max(rect.left, viewport.left))
+      if (rect.width > 0 && rect.height > 0 && visibleArea / (rect.width * rect.height) >= READ_VISIBILITY_THRESHOLD) through = seq
+    }
+    return through
+  }, [active, messages, readPositionReady, scrollRef, viewerUserId])
+  const lookbackView = useRef<{ owner: object; throughSeq: number; followingTail: boolean; readable: boolean; dividerVisibility: typeof newDividerVisibility; visiblePeerSeq: () => number } | null>(null)
+  useLayoutEffect(() => {
+    lookbackView.current = { owner: lookback.owner, throughSeq: observedSeq, followingTail,
+      readable: active !== false && readPositionReady, dividerVisibility: newDividerVisibility, visiblePeerSeq: readVisiblePeerSeq }
+    return () => { if (lookbackView.current?.owner === lookback.owner) lookbackView.current = null }
+  }, [active, followingTail, lookback.owner, observedSeq, readPositionReady, newDividerVisibility, readVisiblePeerSeq])
+  useLayoutEffect(() => {
+    if (!lookback.initialized && newBoundary !== undefined) {
+      setLookback(current => current.owner === lookback.owner ? { ...current, initialized: true, target: newBoundary.target?.id ?? null,
+        throughSeq: observedSeq } : current)
+    } else if (lookback.target && lookback.target === retiredNewTargetId) {
+      setLookback(current => current.owner === lookback.owner ? { ...current, target: null, used: true, pending: false } : current)
+    } else if (lookback.target && !lookback.used && observedSeq > lookback.throughSeq) {
+      setLookback(current => current.owner === lookback.owner ? { ...current, throughSeq: observedSeq } : current)
+    }
+  }, [lookback, newBoundary, observedSeq, retiredNewTargetId])
+  useEffect(() => {
+    if (!lookback.initialized || lookback.target && !lookback.used || observedSeq <= lookback.throughSeq) return
+    if (active === false || !readPositionReady || lookback.pending || lookback.checking) return
+    const visibleThrough = followingTail ? observedSeq : readVisiblePeerSeq()
+    if (visibleThrough > lookback.throughSeq) {
+      setLookback(current => current.owner === lookback.owner ? { ...current, throughSeq: visibleThrough, error: null } : current)
+      return
+    }
+    if (lookback.target && lookback.used && newDividerVisibility !== "offscreen") return
+    if (lookback.checkedThrough >= observedSeq || !onReadNewBoundary
+      || !messages.some(message => message.authorId && message.authorId !== viewerUserId && (message.seq ?? 0) > lookback.throughSeq)) return
+    const owner = lookback.owner
+    setLookback(current => current.owner === owner ? { ...current, checking: true, checkedThrough: observedSeq, error: null } : current)
+    void onReadNewBoundary(lookback.throughSeq).then(result => {
+      const view = lookbackView.current
+      if (!view || view.owner !== owner) return
+      const visibleThrough = view.visiblePeerSeq()
+      setLookback(current => {
+        if (current.owner !== owner) return current
+        if (!result) return { ...current, checking: false, error: new Error("Could not load New") }
+        if (view.readable && view.followingTail) return { ...current, checking: false, throughSeq: Math.max(current.throughSeq, result.latestSeq, view.throughSeq) }
+        if (!result.boundary.target) return { ...current, checking: false, throughSeq: Math.max(current.throughSeq, result.latestSeq) }
+        if (result.boundary.target.seq <= visibleThrough) return { ...current, checking: false,
+          throughSeq: Math.max(current.throughSeq, visibleThrough), checkedThrough: -1 }
+        if (current.target && current.used && view.dividerVisibility !== "offscreen") return { ...current, checking: false, checkedThrough: -1 }
+        return { ...current, checking: false, target: result.boundary.target.id, used: false,
+          throughSeq: Math.max(current.throughSeq, result.latestSeq) }
+      })
+    }, error => {
+      if (lookbackView.current?.owner === owner) setLookback(current => current.owner === owner
+        ? { ...current, checking: false, error: error instanceof Error ? error : new Error("Could not load New") } : current)
+    })
+  }, [active, followingTail, lookback, messages, newDividerVisibility, observedSeq, onReadNewBoundary, readPositionReady, readVisiblePeerSeq, viewerUserId])
+  const jumpToNew = useCallback(() => {
+    const id = lookback.target, owner = lookback.owner
+    if (!id || lookback.used || lookback.pending || lookbackView.current?.owner !== owner) return
+    const request = requestNewPosition(id, onLoadNewTarget ? () => onLoadNewTarget(id) : undefined)
+    if (!request.accepted) return
+    setLookback(current => current.owner === owner ? { ...current, pending: true, error: null } : current)
+    void request.completed.then(result => {
+      if (lookbackView.current?.owner !== owner) return
+      setLookback(current => current.owner !== owner || current.target !== id ? current : { ...current, pending: false,
+        used: result === "success" || result === "missing" || current.used,
+        target: result === "missing" ? null : current.target,
+        error: result === "error" ? new Error("Could not jump to New") : null })
+    })
+  }, [lookback, onLoadNewTarget, requestNewPosition])
+  const retryNew = useCallback(() => {
+    if (lookback.target && !lookback.used) jumpToNew()
+    else setLookback(current => ({ ...current, checkedThrough: -1, error: null }))
+  }, [jumpToNew, lookback.target, lookback.used])
 
   useEffect(() => {
     if (!onScrollRoot) return
@@ -262,6 +368,12 @@ export function useMessageListController({
     pillCount,
     pillMode: jumpMode ? "jump" as const : "scroll" as const,
     pillOnClick,
+    newJumpVisible: !!dividerTarget && !lookback.used && newDividerVisibility === "offscreen"
+      && (!!onLoadNewTarget || messages.some(message => message.id === dividerTarget)),
+    newJumpPending: lookback.pending,
+    jumpToNew,
+    newLoadError: lookback.error,
+    retryNew,
   }
 }
 

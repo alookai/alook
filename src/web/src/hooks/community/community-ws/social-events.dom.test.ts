@@ -238,7 +238,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     const metadata = { ...baseMetadata, peer: { ...baseMetadata.peer!, id: "u_a" } }
     const api = getCommunityApiFetchMock()
     const original = api.getMockImplementation()!
-    api.mockImplementation((...args: unknown[]) => args[0] === "/api/community/channels/dm_u_a/messages?entry=1" ? Promise.resolve(metadata) : original(...args))
+    api.mockImplementation((...args: unknown[]) => args[0] === "/api/community/channels/dm_u_a/messages?entry=1&window=tail" ? Promise.resolve(metadata) : original(...args))
     await capturedQueryClient.query(channelMetadataOptions(capturedQueryClient, null, "dm_u_a"))
     const proof = captureCommunityLiveSnapshotToken(capturedQueryClient)
     const oldMetadata = captureChannelMetadataToken(capturedQueryClient, "dm_u_a")
@@ -246,9 +246,9 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     expect(canonicalMessage("private")?.content).toBe("private body")
     let release!: (value: typeof metadata) => void
     const held = new Promise<typeof metadata>((resolve) => { release = resolve })
-    api.mockImplementation((...args: unknown[]) => args[0] === "/api/community/channels/dm_u_a/messages?entry=1" ? held : original(...args))
+    api.mockImplementation((...args: unknown[]) => args[0] === "/api/community/channels/dm_u_a/messages?entry=1&window=tail" ? held : original(...args))
     const pending = capturedQueryClient.query({ ...channelMetadataOptions(capturedQueryClient, null, "dm_u_a"), staleTime: 0 }).catch((error: unknown) => error)
-    await vi.waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/dm_u_a/messages?entry=1")).toHaveLength(2))
+    await vi.waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/dm_u_a/messages?entry=1&window=tail")).toHaveLength(2))
     act(() => {
       getCapturedRuntime().ui.actions.setCurrentChannelId("dm_u_a")
       getCapturedRuntime().ui.setState((state) => ({ ...state, subscription: { dmConversationId: "dm_u_a" } }))

@@ -11,7 +11,7 @@ import { useCanonicalMessagesById, useCanonicalProfilesProjection, useChannelRea
 import { canonicalMessageResource } from "@/lib/community-db/resources"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCommunityRuntime } from "@/stores/community/runtime"
-import { isChannelMetadataTokenCurrent } from "@/lib/community/conversation-qualification"
+import { conversationListScopeKey, isChannelMetadataTokenCurrent } from "@/lib/community/conversation-qualification"
 import { actionAttributes, currentPageObservation, navigationForHref } from "@/lib/observability/context"
 import { emitTelemetry, telemetryGeneration } from "@/lib/observability/telemetry"
 import {
@@ -22,11 +22,10 @@ import { messageWindowIdentity, type MessageWindowData } from "@/lib/community/m
 import { communityKeys } from "@/lib/query-keys"
 import { reconcileWindow } from "./community-ws/reconnect-messages"
 import { isConversationAccessError, isConversationAnchorMissingError } from "@/lib/community/conversation-read"
-import { getLocalReadingPosition } from "./read-coordinator"
 
 type EntryWindow = NonNullable<ReturnType<typeof findConversationEntryWindow>>
 
-export function useConversationResource(target: ConversationEntryTarget | null, intent?: { href: string; resume?: boolean } | null, useLocalPosition = false, consumer: "metadata" | "messages" | "forum" = "metadata", networkEnabled = true) {
+export function useConversationResource(target: ConversationEntryTarget | null, intent?: { href: string; resume?: boolean } | null, consumer: "metadata" | "messages" | "forum" = "metadata", networkEnabled = true) {
   const client = useQueryClient()
   const restoring = useIsRestoring()
   const active = useConversationActivity()
@@ -49,9 +48,30 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
   const serverId = target?.serverId ?? null
   const anchorMessageId = target?.anchorMessageId ?? null
   const tag = target?.tag ?? null
-  const preferTail = target?.preferTail === true
-  const enabled = target !== null && networkEnabled
-  const baseInput = useMemo(() => ({ channelId, serverId, anchorMessageId, tag, preferTail }), [channelId, serverId, anchorMessageId, tag, preferTail])
+  const preferTail = target?.preferTail !== false
+  const cutoffScope = hashKey([channelId, serverId, anchorMessageId, tag, preferTail, accountEpoch, accessEpoch, generation, parentGeneration, lifetime])
+  const providedCutoff = target?.newAfterSeq ?? null
+  const qualifiedPointer = target && getQualifiedConversationScope(client, target) ? currentConversationReadState(client, channelId) : undefined
+  const captureCutoff = () => {
+    if (providedCutoff !== null) return providedCutoff
+    const qualification = { accountEpoch, accessEpoch, channelGeneration: generation }
+    const pending = client.getQueryCache().findAll({ queryKey: communityKeys.conversationEntries(channelId) }).find(query => {
+      if (query.state.fetchStatus !== "fetching") return false
+      const candidate = query.queryKey[communityKeys.conversationEntries(channelId).length] as Parameters<typeof communityKeys.conversationEntry>[1] | undefined
+      return candidate && hashKey(communityKeys.conversationEntry(channelId, { serverId, anchorMessageId, tag, preferTail, newAfterSeq: candidate.newAfterSeq }, qualification)) === query.queryHash
+    })
+    if (pending) return (pending.queryKey[communityKeys.conversationEntries(channelId).length] as NonNullable<Parameters<typeof communityKeys.conversationEntry>[1]>).newAfterSeq ?? null
+    return qualifiedPointer?.lastReadSeq ?? null
+  }
+  const [entryCutoff, setEntryCutoff] = useState(() => ({ client, cutoffScope, intent, providedCutoff, restoring, afterSeq: captureCutoff() }))
+  let currentCutoff = entryCutoff
+  if (entryCutoff.client !== client || entryCutoff.cutoffScope !== cutoffScope || entryCutoff.intent !== intent || entryCutoff.providedCutoff !== providedCutoff || entryCutoff.restoring !== restoring) {
+    currentCutoff = { client, cutoffScope, intent, providedCutoff, restoring, afterSeq: captureCutoff() }
+    setEntryCutoff(currentCutoff)
+  }
+  const newAfterSeq = currentCutoff.afterSeq
+  const enabled = target !== null && networkEnabled && !restoring
+  const baseInput = useMemo(() => ({ channelId, serverId, anchorMessageId, tag, preferTail, newAfterSeq }), [channelId, serverId, anchorMessageId, tag, preferTail, newAfterSeq])
   const qualification = useMemo(() => ({ accountEpoch, accessEpoch, generation, parentGeneration, lifetime, parentId: canonical?.parentChannelId }),
     [accountEpoch, accessEpoch, generation, parentGeneration, lifetime, canonical?.parentChannelId])
   const assessment = assessConversationScope(client, baseInput)
@@ -63,19 +83,9 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
     return { qualification, intent, scope, resource: cached && isChannelMetadataTokenCurrent(cached.proof) ? cached : getQualifiedConversationEntry(client, channelId) }
   }, [client, baseInput, channelId, qualification, intent, scope])
   const cachedResource = cachedSelection.resource
-  const landing = useMemo(() => {
-    const search = new URLSearchParams(intent?.href.split("?")[1] ?? "")
-    const position = useLocalPosition && enabled && !anchorMessageId && !tag && !preferTail && !intent?.resume && !search.has("msg") && !search.has("seq")
-      ? getLocalReadingPosition(client, channelId) : null
-    const pointer = currentConversationReadState(client, channelId)
-    if (!position || !pointer || pointer.lastReadSeq >= position.seq) return { qualification: cachedSelection.qualification, input: baseInput, requestInput: baseInput, position: null }
-    const input = { ...baseInput, anchorMessageId: position.messageId }
-    const cachedScope = cachedSelection.resource ?? cachedSelection.scope
-    const covered = cachedScope && findConversationEntryWindow(client, input, cachedScope, pointer)
-    return { qualification: cachedSelection.qualification, input, requestInput: covered ? baseInput : input, position }
-  }, [client, baseInput, cachedSelection, intent, useLocalPosition, enabled, anchorMessageId, channelId, tag, preferTail])
-  const input = landing.input
-  const options = useMemo(() => conversationEntryOptions(client, landing.requestInput), [client, landing])
+  const input = baseInput
+  const request = useMemo(() => ({ qualification, options: conversationEntryOptions(client, input) }), [client, input, qualification])
+  const options = request.options
   const entryHash = hashKey(options.queryKey)
   const restoreSubscriptionEnabled = restoring && target !== null
   const subscribeRestoredEntry = useCallback((notify: () => void) => restoreSubscriptionEnabled
@@ -108,20 +118,20 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
   const refetch = query.refetch
   useEffect(() => { if (presented && enabled && verification.needed) void refetch({ cancelRefetch: false }) }, [refetch, verification, enabled, presented])
   useEffect(() => {
-    if (!presented || !target || revoked || !query.data || isChannelMetadataTokenCurrent(query.data.proof) || query.isFetching || query.isError) return
+    if (!presented || restoring || !target || revoked || !query.data || isChannelMetadataTokenCurrent(query.data.proof) || query.isFetching || query.isError) return
     void client.invalidateQueries({ queryKey: options.queryKey, exact: true })
-  }, [client, parentGeneration, options.queryKey, query.data, query.isFetching, query.isError, revoked, target, presented])
+  }, [client, parentGeneration, options.queryKey, query.data, query.isFetching, query.isError, revoked, target, presented, restoring])
   const fallbackRefetch = fallback.refetch
   const retryVerification = useCallback(() => (anchorMissing ? fallbackRefetch : refetch)({ cancelRefetch: false }), [anchorMissing, fallbackRefetch, refetch])
   useEffect(() => {
-    if (!presented || !target || !intent || revoked || !query.data || query.isFetching || query.isError) return
+    if (!presented || restoring || !target || !intent || revoked || !query.data || query.isFetching || query.isError) return
     if (client.getQueryData(options.queryKey) !== query.data) return
     const pointer = currentConversationReadState(client, channelId)
     const received = client.getQueryData<MessageWindowData>(query.data.windowKey)
     const anchor = input.anchorMessageId ?? pointer?.lastReadMessageId
     if (received?.pages?.some(page => Array.isArray(page.messages) && (anchor ? page.messages.some(message => message.id === anchor) : page.hasMoreNewer === false))) return
     if (pointer && !findConversationEntryWindow(client, input, query.data, pointer)) void client.query({ ...options, select: undefined }).catch(() => undefined)
-  }, [client, channelId, intent, input, options, query.data, query.isFetching, query.isError, revoked, target, presented])
+  }, [client, channelId, intent, input, options, query.data, query.isFetching, query.isError, revoked, target, presented, restoring])
   const currentPointer = read.readState ?? (read.hasSnapshot ? currentConversationReadState(client, channelId) : undefined)
   const retainedIds = client.getQueryCache().findAll({ queryKey: communityKeys.channelMessages(channelId) }).flatMap(query => {
     const identity = messageWindowIdentity(query.queryKey)
@@ -187,8 +197,7 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
     emitTelemetry("conversation.cache", { ...actionAttributes(action), cache_consumer: consumer, cache_reason: assessment.reason,
       cache_window: cacheWindow, entry_status: entryStatus, target_coverage: targetCoverage, eligibility: scopeAvailable ? "eligible" : "rejected" })
   }, [active, assessment.reason, cacheWindow, channelId, consumer, enabled, entryStatus, intent, scopeAvailable, serverId, targetCoverage, telemetryOwner])
-  return { client, cachedResource, scope: readableScope, currentPointer, windowReady, displayWindow: cachedWindow, input: anchorMissing && landing.position ? baseInput : input, options, query, canonical, resource: qualified ? resource : undefined, canRead: qualified, revoked,
-    localPosition: anchorMissing ? null : landing.position,
+  return { client, cachedResource, scope: readableScope, currentPointer, windowReady, displayWindow: cachedWindow, input, options, query, canonical, resource: qualified ? resource : undefined, canRead: qualified, revoked,
     denied: serverRevoked || revoked && (!verification.needed || generation !== verification.generation) || isConversationAccessError(query.error) && Number((query.error as { status?: unknown } | null)?.status) !== 401, anchorMissing,
     verificationError: (!qualified && anchorMissing ? fallback.error : query.error)?.name === "AbortError" ? null : !qualified && anchorMissing ? fallback.error : query.error,
     verificationPending: !qualified && (anchorMissing ? fallback.isPending : query.isPending),
@@ -211,42 +220,47 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
       ? current : { path: expectedPath, intent: incomingIntent })
   }, [active, expectedPath, incomingIntent, resuming])
   const intent = (active && !resuming) || retainedIntent.path !== expectedPath ? incomingIntent : retainedIntent.intent
-  const { client, cachedResource, scope, currentPointer, input, options: entryOptions, query, canonical, resource, canRead, windowReady, revoked, denied, anchorMissing, localPosition } = useConversationResource(target, intent, true, "messages")
-  const canonicalInput = useMemo(() => localPosition ? { ...input, anchorMessageId: null } : input, [input, localPosition])
-  const entry = useMemo(() => {
+  const baseTarget = useMemo(() => target ? { ...target, preferTail: true } : null,
+    [target?.channelId, target?.serverId, target?.anchorMessageId, target?.tag])
+  const { client, cachedResource, scope, currentPointer, input, options: entryOptions, query, canonical, resource, canRead, windowReady, revoked, denied, anchorMissing } = useConversationResource(baseTarget, intent, "messages")
+  const entryIdentity = hashKey([input, scope ? conversationListScopeKey({ proof: scope.proof, tag: input.tag }) : null])
+  const createEntry = () => {
     const pointer = scope ? currentConversationReadState(client, input.channelId) : undefined
     const cachedScope = cachedResource ?? scope
-    const covered = cachedScope ? findConversationEntryWindow(client,
-      localPosition && pointer && pointer.lastReadSeq >= localPosition.seq ? canonicalInput : input, cachedScope, pointer) : undefined
+    const covered = cachedScope ? findConversationEntryWindow(client, input, cachedScope, pointer) : undefined
     const window = covered ?? (cachedScope ? findConversationDisplayWindow(client, input, cachedScope) : undefined)
-    return { intent, knownRevision: pointer?.observedRevision ?? -1, state: createStore<{ snapshot: CommunityReadStateResource | null; window: EntryWindow | null; covered: boolean; retained: boolean }>({
+    const boundary = cachedResource && (query.isSuccess && !query.isFetching && query.data === cachedResource
+      || input.newAfterSeq !== null && cachedResource.newBoundaryAtEntry.target !== null) && (input.newAfterSeq !== null
+      ? cachedResource.newBoundaryAtEntry.afterSeq === input.newAfterSeq
+      : cachedResource.readStateRevision >= (pointer?.observedRevision ?? -1)) ? cachedResource.newBoundaryAtEntry : undefined
+    return { client, identity: entryIdentity, intent, knownRevision: pointer?.observedRevision ?? -1, state: createStore<{ snapshot: CommunityReadStateResource | null; window: EntryWindow | null; covered: boolean; retained: boolean; newBoundary: ConversationEntryResource["newBoundaryAtEntry"] | undefined }>({
       snapshot: pointer ?? null,
-      window: window ?? null, covered: !!covered, retained: false,
+      window: window ?? null, covered: !!covered, retained: false, newBoundary: boundary,
     }) }
-  }, [client, cachedResource, scope, input, canonicalInput, localPosition, intent])
+  }
+  const [entry, setEntry] = useState(createEntry)
+  if (entry.client !== client || entry.identity !== entryIdentity || entry.intent !== intent) setEntry(createEntry())
   const selected = useSelector(entry.state, (state) => state)
   const currentRevision = currentPointer?.observedRevision ?? -1
-  const needsCanonicalWindow = !!localPosition && !!resource && (resource.readStateRevision < currentRevision && !findConversationEntryWindow(client, canonicalInput, resource, currentPointer)
-    || resource.readStateAtEntry.lastReadSeq >= localPosition.seq && !findConversationEntryWindow(client, canonicalInput, resource, resource.readStateAtEntry))
-  const canonicalQuery = useQuery({ ...conversationEntryOptions(client, canonicalInput), enabled: presented && canRead && needsCanonicalWindow,
-    subscribed: needsCanonicalWindow, staleTime: 0, refetchOnReconnect: false, refetchOnWindowFocus: false })
-  const candidateResource = needsCanonicalWindow && canonicalQuery.data && isChannelMetadataTokenCurrent(canonicalQuery.data.proof)
-    && canonicalQuery.data.readStateRevision >= Math.max(entry.knownRevision, currentRevision) ? canonicalQuery.data : resource
+  const candidateResource = resource
   const candidatePointer = candidateResource && candidateResource.readStateRevision >= Math.max(entry.knownRevision, currentRevision)
     ? candidateResource.readStateAtEntry : scope ? currentConversationReadState(client, input.channelId) : undefined
-  const candidateTarget = localPosition && candidatePointer && candidatePointer.lastReadSeq >= localPosition.seq
-    ? canonicalInput : input
   const candidateScope = candidateResource ?? scope
-  const candidate = (!selected.covered || needsCanonicalWindow) && candidateScope
-    ? findConversationEntryWindow(client, candidateTarget, candidateScope, candidatePointer) : undefined
+  const candidate = !selected.covered && candidateScope
+    ? findConversationEntryWindow(client, input, candidateScope, candidatePointer) : undefined
   const display = !selected.window && candidateScope ? findConversationDisplayWindow(client, input, candidateScope) : undefined
   const window = canRead ? (selected.retained ? selected.window : candidate) ?? selected.window ?? candidate ?? display ?? null : null
-  const snapshot = window ? (needsCanonicalWindow || !selected.covered ? candidatePointer ?? selected.snapshot : selected.snapshot) ?? null : null
-  const targetCovered = canRead && (needsCanonicalWindow ? !!candidate : selected.covered || !!candidate)
+  const snapshot = window ? (!selected.covered ? candidatePointer ?? selected.snapshot : selected.snapshot) ?? null : null
+  const targetCovered = canRead && (selected.covered || !!candidate)
+  const newBoundary = selected.newBoundary ?? (candidateResource
+    && (query.isSuccess && !query.isFetching && query.data === candidateResource
+      || input.newAfterSeq !== null && candidateResource.newBoundaryAtEntry.target !== null)
+    && (input.newAfterSeq === null || candidateResource.newBoundaryAtEntry.afterSeq === input.newAfterSeq)
+    ? candidateResource.newBoundaryAtEntry : undefined)
   useLayoutEffect(() => {
-    if (!window || !snapshot || selected.window === window && selected.snapshot === snapshot && selected.covered === targetCovered) return
-    entry.state.setState(current => ({ ...current, window, snapshot, covered: targetCovered }))
-  }, [window, snapshot, targetCovered, entry, selected])
+    if (!window || !snapshot || selected.window === window && selected.snapshot === snapshot && selected.covered === targetCovered && selected.newBoundary === newBoundary) return
+    entry.state.setState(current => ({ ...current, window, snapshot, covered: targetCovered, newBoundary }))
+  }, [window, snapshot, targetCovered, newBoundary, entry, selected])
   const retainWindow = useCallback(() => {
     if (!canRead || !window) return
     entry.state.setState(current => current.retained ? current : { ...current, window, retained: true })
@@ -265,14 +279,18 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
     }, window.key, target, undefined, owner ? { query: owner, signal: controller.signal } : undefined).catch(() => undefined)
     return () => controller.abort()
   }, [canRead, client, entryOptions.queryKey, input.channelId, input.serverId, resource, window, presented, selected.covered, entry.state, query.isFetching])
-  const activeQuery = needsCanonicalWindow ? canonicalQuery : query
+  const activeQuery = query
   const refetch = activeQuery.refetch
   const retry = useCallback(() => refetch({ cancelRefetch: false }), [refetch])
-  return { ...activeQuery, intent, resource, scope, canonical, canRead, windowReady, window, snapshot, targetCovered, revoked, denied, anchorMissing,
+  const refreshedBoundary = query.isSuccess && !query.isFetching && query.data && isChannelMetadataTokenCurrent(query.data.proof)
+    ? query.data.newBoundaryAtEntry : undefined
+  const retiredNewTargetId = newBoundary?.target && refreshedBoundary?.afterSeq === newBoundary.afterSeq
+    && refreshedBoundary.target?.id !== newBoundary.target.id ? newBoundary.target.id : undefined
+  return { ...activeQuery, intent, resource, scope, canonical, canRead, windowReady, window, snapshot, newBoundary: canRead ? newBoundary : undefined, retiredNewTargetId, targetCovered, revoked, denied, anchorMissing,
     initialPositionPending: !targetCovered,
-    initialPositionMessageId: targetCovered && localPosition && snapshot && snapshot.lastReadSeq < localPosition.seq ? localPosition.messageId : null,
+    initialPositionMessageId: null,
     isPending: !!target && !window && !denied && !anchorMissing && !activeQuery.isError && activeQuery.errorUpdatedAt === 0,
     failed: !window && activeQuery.errorUpdatedAt > 0,
-    retry, retrying: activeQuery.isFetching, retainWindow,
+    retry, retrying: activeQuery.isFetching, retainWindow, retainedWindow: selected.retained,
   }
 }

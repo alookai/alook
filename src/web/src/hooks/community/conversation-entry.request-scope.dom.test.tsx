@@ -46,7 +46,7 @@ it("retains hidden message and panel caches without starting requests, then load
   hook.rerender()
   await waitFor(() => expect(load.mock.calls.map(([url]) => String(url))).toHaveLength(3))
   expect(load.mock.calls.map(([url]) => String(url))).toEqual(expect.arrayContaining([
-    "/api/community/channels/c1/messages?entry=1", "/api/community/channels/c1/pins",
+    "/api/community/channels/c1/messages?entry=1&window=tail&newAfterSeq=1", "/api/community/channels/c1/pins",
     "/api/community/channels/c1/threads?include=parentMessage,firstMessage,tags,participants&archived=false",
   ]))
   expect(hook.result.current.feed.messages.map(message => message.id)).toEqual(["m1"])

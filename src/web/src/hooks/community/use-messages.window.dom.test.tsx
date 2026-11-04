@@ -56,8 +56,8 @@ describe("native conversation windows", () => {
     await waitFor(() => expect(hook.result.current.messages.map((message) => message.content)).toEqual(["Body"]))
     expect(hook.result.current.isLoading).toBe(false)
     expect(hook.result.current.readSnapshot?.lastReadMessageId).toBe("m1")
-    expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1"])
-    const key = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" })
+    expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&window=tail"])
+    const key = communityKeys.channelMessagesWindow("c1", { mode: "newest" })
     expect(JSON.stringify(client.getQueryData(key))).not.toContain("Body")
     hook.unmount()
   })
@@ -68,7 +68,7 @@ describe("native conversation windows", () => {
     load.mockImplementation((url: string) => {
       const search = new URL(url, "https://example.test").searchParams
       if (search.has("entry")) return Promise.resolve(fixture())
-      if (search.has("anchor")) return refresh.promise
+      if (search.size === 0) return refresh.promise
       if (search.get("cursor") === "older") return Promise.resolve(page("m0", 0))
       throw new Error("Unexpected message window")
     })
@@ -80,7 +80,7 @@ describe("native conversation windows", () => {
     expect(load.mock.calls.some(([url]) => new URL(url, "https://example.test").searchParams.has("cursor"))).toBe(false)
     await act(async () => { refresh.resolve(page("m1", 1, true)); await refetch })
     await waitFor(() => expect(hook.result.current.messages.map((message) => message.id)).toEqual(["m0", "m1"]))
-    expect(hook.result.current.data?.pageParams).toEqual([{ mode: "anchor", anchor: "m1" }, { mode: "older", cursor: "older" }])
+    expect(hook.result.current.data?.pageParams).toEqual([{ mode: "newest" }, { mode: "older", cursor: "older" }])
     hook.unmount()
   })
 
@@ -109,10 +109,11 @@ describe("native conversation windows", () => {
   it.each(["success", "error"] as const)("returns a real newer cursor request's %s receipt", async status => {
     const { wrapper } = await setup()
     const packet = fixture()
+    packet.selection = { reason: "explicit_anchor", anchorMessageId: "m1" }
     packet.page.hasMoreNewer = true
     packet.page.newerCursor = "newer"
     load.mockResolvedValue(packet)
-    const hook = renderHook(() => useMessages("c1", options), { wrapper })
+    const hook = renderHook(() => useMessages("c1", { ...options, anchorMessageId: "m1" }), { wrapper })
     await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
     const original = hook.result.current.data
     load.mockImplementation(() => status === "success" ? Promise.resolve(page("m2", 2)) : Promise.reject(new ConversationReadTimeoutError()))
@@ -138,13 +139,16 @@ describe("native conversation windows", () => {
     const { wrapper, client } = await setup()
     const first = deferred<MessagesPage>()
     const second = deferred<MessagesPage>()
+    const packet = fixture()
+    packet.selection = { reason: "explicit_anchor", anchorMessageId: "m1" }
     let attempts = 0
     load.mockImplementation((url: string) => new URL(url, "https://example.test").searchParams.has("entry")
-      ? Promise.resolve(fixture()) : ++attempts === 1 ? first.promise : second.promise)
-    const hook = renderHook(() => useMessages("c1", options), { wrapper })
+      ? Promise.resolve(packet) : ++attempts === 1 ? first.promise : second.promise)
+    const hook = renderHook(() => useMessages("c1", { ...options, anchorMessageId: "m1" }), { wrapper })
     await waitFor(() => expect(hook.result.current.messages).toHaveLength(1))
     const anchorKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" })
     const original = client.getQueryData(anchorKey)
+    expect(original).toBeDefined()
     await act(async () => hook.result.current.jumpToPresent())
     expect(hook.result.current.isFetchingNewer).toBe(true)
     expect(hook.result.current.messages[0].id).toBe("m1")

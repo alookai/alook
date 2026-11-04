@@ -31,6 +31,7 @@ export type ConversationEntryTarget = {
   anchorMessageId?: string | null
   tag?: string | null
   preferTail?: boolean
+  newAfterSeq?: number | null
 }
 
 export type ConversationEntryResource = {
@@ -40,13 +41,15 @@ export type ConversationEntryResource = {
   windowKey: QueryKey
   readStateAtEntry: CommunityReadStateResource
   readStateRevision: number
+  latestSeqAtEntry: number
+  newBoundaryAtEntry: CommunityConversationEntryRead["newBoundary"]
   selection: CommunityConversationEntryRead["selection"]
   access: CommunityConversationEntryRead["access"]
   proof: ReturnType<typeof captureCommunityLiveSnapshotToken>
 }
 
 export type ConversationWindowScope = Pick<ConversationEntryResource, "channelId" | "proof">
-  & Partial<Pick<ConversationEntryResource, "windowKey" | "readStateAtEntry" | "selection">>
+  & Partial<Pick<ConversationEntryResource, "windowKey" | "readStateAtEntry" | "readStateRevision" | "selection">>
 
 type ConversationDisplayWindow = { key: QueryKey; initial: InitialMessageWindow; tag: string | null; resources?: CommunityMessageResources }
 const qualifiedWindows = new WeakMap<Query, { resources: CommunityMessageResources; window: ConversationDisplayWindow }>()
@@ -99,7 +102,9 @@ export function publishConversationEntry(
   const channel = entry.channel
   if (entry.viewerId !== proof.token.viewerId || proof.token.channelId !== target.channelId || entry.channelId !== target.channelId || channel.serverId !== target.serverId
     || (target.serverId === null ? channel.type !== "dm" : channel.type === "dm")
-    || target.anchorMessageId && (entry.selection.reason !== "explicit_anchor" || entry.selection.anchorMessageId !== target.anchorMessageId)) throw new Error("Conversation entry target mismatch")
+    || target.anchorMessageId && (entry.selection.reason !== "explicit_anchor" || entry.selection.anchorMessageId !== target.anchorMessageId)
+    || !target.anchorMessageId && target.preferTail !== false && (entry.selection.reason !== "tail" || entry.selection.anchorMessageId !== null)
+    || target.newAfterSeq != null && entry.newBoundary.afterSeq !== target.newAfterSeq) throw new Error("Conversation entry target mismatch")
   const registry = proof.token.registry!
   const parent = channel.parentChannelId
   if (parent && (registry.runtime.ws.get().channelAccessScopes.get(parent)?.generation ?? 0) !== (proof.token.channelScopes.get(parent)?.generation ?? 0)) throw new DOMException("Retired conversation parent", "AbortError")
@@ -140,7 +145,7 @@ export function publishConversationEntry(
       })
     }
   })
-  return { channelId: channel.id, source, initialWindow, windowKey, readStateAtEntry: entry.readState, readStateRevision: entry.readStateRevision, selection: entry.selection, access: entry.access, proof: qualified }
+  return { channelId: channel.id, source, initialWindow, windowKey, readStateAtEntry: entry.readState, readStateRevision: entry.readStateRevision, latestSeqAtEntry: entry.page.latestSeq, newBoundaryAtEntry: entry.newBoundary, selection: entry.selection, access: entry.access, proof: qualified }
   }, () => assertCommunityLiveSnapshotTokenCurrent(client, proof.token, proof.signal))
 }
 
@@ -204,15 +209,21 @@ function conversationDisplayWindows(client: QueryClient, target: ConversationEnt
 }
 
 export function findConversationDisplayWindow(client: QueryClient, target: ConversationEntryTarget, scope: ConversationWindowScope) {
-  return conversationDisplayWindows(client, target, scope)?.[0]
+  return conversationDisplayWindows(client, target, scope)?.find(window => !messageWindowIdentity(window.key) || target.preferTail === false || !!target.anchorMessageId
+    || window.initial.mode === "newest" && client.getQueryData<MessageWindowData>(window.key)?.pages[0]?.hasMoreNewer === false)
 }
 
 export function findConversationEntryWindow(client: QueryClient, target: ConversationEntryTarget, resource: ConversationWindowScope, pointer: CommunityReadStateResource | undefined) {
   if (!pointer && !target.anchorMessageId) return
-  const anchor = target.anchorMessageId ?? (target.preferTail ? null : pointer?.lastReadMessageId)
+  const anchor = target.anchorMessageId ?? (target.preferTail !== false ? null : pointer?.lastReadMessageId)
   return conversationDisplayWindows(client, target, resource)?.find(window => {
     if (!messageWindowIdentity(window.key)) return true
     const data = client.getQueryData<MessageWindowData>(window.key)!
+    if (target.preferTail !== false && !target.anchorMessageId) {
+      if (window.initial.mode !== "newest") return false
+      const latest = Math.max(0, ...data.pages.map(page => page.latestSeq ?? 0))
+      if (pointer && pointer.lastReadSeq > latest && (resource.readStateAtEntry?.lastReadSeq ?? -1) < pointer.lastReadSeq) return false
+    }
     const anchored = !!anchor && data.pages.some(page => page.messages.some(message => message.id === anchor))
     const missingPointer = !target.anchorMessageId && pointer?.lastReadMessageId === resource.readStateAtEntry?.lastReadMessageId && resource.selection?.reason === "read_pointer_missing"
       && hashKey(window.key) === hashKey(resource.windowKey ?? []) && window.initial.mode === "newest" && data.pages[0].hasMoreNewer === false
@@ -232,10 +243,24 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
     accountEpoch: qualification.accountEpoch, accessEpoch: qualification.accessEpoch,
     channelGeneration: qualification.channelScopes.get(target.channelId)?.generation ?? 0,
   })
+  const expectedInitial: InitialMessageWindow = target.anchorMessageId ? { mode: "anchor", anchor: target.anchorMessageId } : { mode: "newest" }
+  const expectedWindow = communityKeys.channelMessagesWindow(target.channelId, expectedInitial, target.tag)
+  const reusable = target.newAfterSeq == null || !assessConversationScope(client, target).scope ? undefined : client.getQueryCache().findAll({ queryKey: communityKeys.conversationEntries(target.channelId) })
+    .filter(query => {
+      const resource = query.state.data as ConversationEntryResource | undefined
+      return query.state.status === "success" && query.state.fetchStatus === "idle"
+        && hashKey([query.queryKey.at(-1)]) === hashKey([queryKey.at(-1)])
+        && resource && isChannelMetadataTokenCurrent(resource.proof) && resource.channelId === target.channelId
+        && resource.newBoundaryAtEntry.afterSeq === target.newAfterSeq
+        && hashKey(resource.windowKey) === hashKey(expectedWindow)
+        && (target.preferTail === false || target.anchorMessageId || resource.selection.reason === "tail")
+    }).sort((left, right) => right.state.dataUpdatedAt - left.state.dataUpdatedAt)[0]
   const cached = client.getQueryData<ConversationEntryResource>(queryKey)
   const knownPointer = cached && isChannelMetadataTokenCurrent(cached.proof) ? currentConversationReadState(client, target.channelId) : undefined
   return queryOptions<ConversationEntryResource>({
     queryKey,
+    initialData: reusable?.state.data as ConversationEntryResource | undefined,
+    initialDataUpdatedAt: reusable?.state.dataUpdatedAt,
     queryFn: async ({ signal }) => {
       const token = captureCommunityLiveSnapshotToken(client, target.channelId)
       const original = client.getQueryCache().find({ queryKey, exact: true })
@@ -245,7 +270,8 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
       }
       const search = new URLSearchParams({ entry: "1" })
       if (target.anchorMessageId) search.set("anchor", target.anchorMessageId)
-      else if (target.preferTail) search.set("window", "tail")
+      else if (target.preferTail !== false) search.set("window", "tail")
+      if (target.newAfterSeq != null) search.set("newAfterSeq", String(target.newAfterSeq))
       if (target.tag) search.set("tag", target.tag)
       const expectedPath = target.serverId === null ? `/c/me/${encodeURIComponent(target.channelId)}` : channelHref(target.serverId, target.channelId)
       const action = typeof window !== "undefined" && window.location.pathname === expectedPath ? navigationForHref(window.location.pathname + window.location.search) : undefined

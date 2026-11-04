@@ -23,7 +23,7 @@ async function wireOwner() {
   const read = { ...base.readState, lastReadMessageId: "m240", lastReadSeq: 240, lastReadAt: messages[239].createdAt }
   const entry = { ...base, channel: { ...base.channel, messageCount: 240, lastMessageAt: messages[239].createdAt },
     messages: messages.slice(214, 240), readState: read, readStateRevision: 121,
-    selection: { reason: "read_pointer" as const, anchorMessageId: "m240" },
+    selection: { reason: "tail" as const, anchorMessageId: null }, newBoundary: { afterSeq: 240, target: null },
     page: { olderCursor: `${messages[214].createdAt}|m215`, newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 240 },
   }
   const requests: Array<{ query: string; version: string | null }> = []
@@ -66,7 +66,7 @@ async function wireOwner() {
   const app = (active = true) => <Providers>{active ? <Probe /> : <div data-testid="away" />}</Providers>
   const view = render(app())
   await waitFor(() => expect(latest.messages).toHaveLength(26))
-  const key = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m240" })
+  const key = communityKeys.channelMessagesWindow("c1", { mode: "newest" })
   return { ...owner, view, key, requests, get latest() { return latest }, app,
     enableCatchUp: () => { catchUp = true }, forceLegacyPages: () => { legacyPages = true },
   }

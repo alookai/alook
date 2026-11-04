@@ -1,5 +1,5 @@
 import { communityFixtureFetch } from "./_fixtures/business-contract"
-import type { CommunityConversationEntryRead } from "@alook/shared"
+import { CommunityMessagesReadSchema, type CommunityConversationEntryRead } from "@alook/shared"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
@@ -40,8 +40,29 @@ test("local history submission and passive remote append use distinct owners", a
     expect(anchored.status()).toBe(200)
     expectPublicCommunityDocument(await (await documentResponse).text())
     const anchorPage = await anchored.json() as CommunityConversationEntryRead
-    expect(anchorPage.selection.reason).toBe("read_pointer")
-    expect(anchorPage.page.hasMoreNewer).toBe(true)
+    expect(anchorPage.selection.reason).toBe("tail")
+    expect(anchorPage.page.hasMoreNewer).toBe(false)
+    await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
+    const newTarget = anchorPage.newBoundary.target
+    expect(newTarget).not.toBeNull()
+    const historyResponse = alice.page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return response.request().method() === "GET" && url.pathname === `/api/community/channels/${channelId}/messages`
+        && url.searchParams.get("anchor") === newTarget!.id && !url.searchParams.has("entry")
+    })
+    const newAction = alice.page.getByTestId(tid.scrollToNew)
+    await expect(newAction).toBeVisible()
+    await newAction.click()
+    const history = await historyResponse
+    expect(history.ok()).toBe(true)
+    const historyPage = CommunityMessagesReadSchema.parse(await history.json())
+    expect(historyPage.page.hasMoreNewer).toBe(true)
+    expect(historyPage.messages.some(message => message.id === newTarget!.id)).toBe(true)
+    const newDivider = alice.page.getByTestId(tid.newDivider)
+    await expect.poll(() => newDivider.evaluate((element, scrollerTestId) => Math.abs(element.getBoundingClientRect().top
+      - element.closest(`[data-testid="${scrollerTestId}"]`)!.getBoundingClientRect().top), tid.messageScroller)).toBeLessThanOrEqual(1)
+    await expect(newAction).toBeHidden()
+    await expect(scroller.locator('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
     let newestGets = 0
     alice.page.on("request", request => {
       const url = new URL(request.url())

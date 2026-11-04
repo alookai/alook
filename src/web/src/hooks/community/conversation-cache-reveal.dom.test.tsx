@@ -6,8 +6,8 @@ import { conversationEntryFixture, dmConversationEntryFixture, seedConversationE
 import { ingestReadStateSnapshot } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import { MessageList } from "@/components/community/messages/message-list"
+import { ConversationFooterShell, ConversationFooterSlotProvider } from "@/components/community/messages/conversation-footer-shell"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
-import { resolveMessageReadProjection } from "@/lib/community/message-read-projection"
 import { useDmMessages, useMessages } from "./use-messages"
 import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 
@@ -43,7 +43,7 @@ beforeEach(() => { installMessageScrollFixture(); load.mockReset(); preCommand.l
 afterEach(restoreMessageScrollFixture)
 const kinds = ["text", "text-thread", "forum-post", "dm"] as const
 
-it.each(["text", "dm"] as const)("keeps ordinary $0 cached entry at the qualified tail after refresh", async kind => {
+it.each(["text", "dm"] as const)("waits for the latest ordinary $0 entry when only a history window is cached", async kind => {
   scrollFixture.width = 390
   const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
   const packet = kind === "dm" ? dmConversationEntryFixture() : conversationEntryFixture()
@@ -52,8 +52,9 @@ it.each(["text", "dm"] as const)("keeps ordinary $0 cached entry at the qualifie
   packet.messages = rows.slice(0, 35)
   packet.readState = { ...packet.readState, lastReadMessageId: "m35", lastReadSeq: 35, lastReadAt: rows[34].createdAt }
   packet.selection = { reason: "read_pointer", anchorMessageId: "m35" }
+  packet.newBoundary = { afterSeq: 35, target: { id: "m36", channelId: "c1", seq: 36, authorId: "peer" } }
   packet.page = { olderCursor: null, newerCursor: `${rows[34].createdAt}|m35`, hasMoreOlder: false, hasMoreNewer: true, latestSeq: 80 }
-  await seedConversationEntry(owner.client, packet)
+  await seedConversationEntry(owner.client, packet, { channelId: "c1", serverId: packet.channel.serverId, preferTail: false })
   const read = { ...packet.readState, lastReadMessageId: "m80", lastReadSeq: 80, lastReadAt: rows[79].createdAt }
   ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [read] })
   owner.client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
@@ -64,33 +65,33 @@ it.each(["text", "dm"] as const)("keeps ordinary $0 cached entry at the qualifie
     const channel = useMessages(kind === "dm" ? null : "c1", { serverId: "s1" })
     const dm = useDmMessages(kind === "dm" ? "c1" : null)
     feed = kind === "dm" ? dm : channel
-    const projection = resolveMessageReadProjection({ messages: feed.messages, lastReadMessageId: feed.readSnapshot?.lastReadMessageId ?? null,
-      viewerUserId: "viewer", anchorReconciled: feed.anchorReconciled })
+    const newBoundary = feed.newBoundary
     return <MessageList channel="Channel" variant={kind === "dm" ? "dm" : "channel"} messages={feed.messages}
       loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
-      initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
+      initialScrollReady={feed.initialScrollReady} preserveInitialPresentation={feed.preserveInitialPresentation} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
       positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
-      newDividerBefore={projection.newDividerBefore} hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
+      newBoundary={newBoundary} latestSeq={feed.latestSeq} retiredNewTargetId={feed.retiredNewTargetId}
+        onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary} hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
       onUserTakeover={feed.onUserTakeover} onRetryInitialLoad={feed.retryInitialLoad} retryingInitialLoad={feed.retryingInitialLoad} onOpenThread={() => {}} />
   }
   const view = render(<CommunityTestProvider {...owner}><Probe /></CommunityTestProvider>)
   const phases: unknown[] = []
   try {
     resize()
-    const root = view.getByTestId("community-message-scroller")
+    let root = view.getByTestId("community-message-scroller")
     const capture = (phase: string) => phases.push({ phase, scrollTop: root.scrollTop, scrollHeight: root.scrollHeight, clientHeight: root.clientHeight,
       distanceToEnd: root.scrollHeight - root.clientHeight - root.scrollTop, first: feed.messages[0]?.id, last: feed.messages.at(-1)?.id,
       hasMoreNewer: feed.hasMoreNewer, positionDataState: feed.positionDataState, busy: root.getAttribute("aria-busy") })
-    capture("cached-display")
-    expect(root).toHaveAttribute("aria-busy", "false")
-    expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBeLessThanOrEqual(1)
+    capture("waiting-for-latest")
+    expect(root.closest("[aria-busy]")).toHaveAttribute("aria-busy", "true")
+    expect(feed.messages).toEqual([])
     const fresh = { ...packet, messages: rows.slice(34), readState: read, readStateRevision: 5,
-      selection: { reason: "read_pointer" as const, anchorMessageId: "m80" },
+      selection: { reason: "tail" as const, anchorMessageId: null }, newBoundary: { afterSeq: 80, target: null },
       page: { olderCursor: `${rows[34].createdAt}|m35`, newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 80 } }
     await act(async () => { release(fresh); await vi.advanceTimersByTimeAsync(0) })
     resize()
     capture("entry-refresh")
-    expect(view.getByTestId("community-message-scroller")).toBe(root)
+    root = view.getByTestId("community-message-scroller")
     expect(feed.messages.at(-1)?.id).toBe("m80")
     expect(root.querySelector("[data-new-divider]")).toBeNull()
     expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBeLessThanOrEqual(1)
@@ -118,8 +119,10 @@ it.each(kinds.flatMap(kind => [
       createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString() }))
     packet.messages = rows.slice(0, 35)
     packet.readState = { ...packet.readState, lastReadMessageId: "m10", lastReadSeq: 10 }
-    packet.selection = { reason: "read_pointer", anchorMessageId: "m10" }
-    packet.page = { olderCursor: null, newerCursor: `${rows[34].createdAt}|m35`, hasMoreOlder: false, hasMoreNewer: true, latestSeq: 80 }
+    packet.selection = { reason: "tail", anchorMessageId: null }
+    packet.newBoundary = { afterSeq: 10, target: { id: "m11", channelId: "c1", seq: 11, authorId: "peer" } }
+    packet.channel.messageCount = 35
+    packet.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 35 }
     await seedConversationEntry(owner.client, packet)
     const read = { ...packet.readState, lastReadMessageId: "m60", lastReadSeq: 60, lastReadAt: rows[59].createdAt }
     ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [read] })
@@ -131,48 +134,53 @@ it.each(kinds.flatMap(kind => [
       const channel = useMessages(kind === "dm" ? null : "c1", { serverId: "s1" })
       const dm = useDmMessages(kind === "dm" ? "c1" : null)
       feed = kind === "dm" ? dm : channel
-      const projection = resolveMessageReadProjection({ messages: feed.messages, lastReadMessageId: feed.readSnapshot?.lastReadMessageId ?? null,
-        viewerUserId: "viewer", anchorReconciled: feed.anchorReconciled })
-      return <MessageList channel="Channel" variant={kind === "dm" ? "dm" : "channel"} messages={feed.messages}
+      const newBoundary = feed.newBoundary
+      return <ConversationFooterSlotProvider><div data-slot="community-conversation-surface"><MessageList channel="Channel" variant={kind === "dm" ? "dm" : "channel"} messages={feed.messages}
         loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
-        initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
+        initialScrollReady={feed.initialScrollReady} preserveInitialPresentation={feed.preserveInitialPresentation} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
         positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
-        newDividerBefore={projection.newDividerBefore} hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
+        newBoundary={newBoundary} latestSeq={feed.latestSeq} retiredNewTargetId={feed.retiredNewTargetId}
+        onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary} hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
         onUserTakeover={feed.onUserTakeover} onRetryInitialLoad={feed.retryInitialLoad} retryingInitialLoad={feed.retryingInitialLoad} onOpenThread={() => {}} />
+        <ConversationFooterShell><div>composer</div></ConversationFooterShell>
+      </div></ConversationFooterSlotProvider>
     }
     const view = render(<CommunityTestProvider {...owner}><Probe /></CommunityTestProvider>)
     try {
       resize()
-      const root = view.getByTestId("community-message-scroller")
-      expect(root).toHaveAttribute("aria-busy", "false")
-      expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
+      let root = view.getByTestId("community-message-scroller")
+      expect(root.closest("[aria-busy]")).toHaveAttribute("aria-busy", "true")
+      expect(root.querySelector('[data-read-position-ready="true"]')).toBeNull()
       expect(root).toHaveAttribute("data-pagination-enabled", "false")
       await act(async () => { reject(new Error("held entry failed")); await vi.advanceTimersByTimeAsync(2000) })
       resize()
+      root = view.getByTestId("community-message-scroller")
+      expect(root.querySelector('[data-msg-id="m10"]')).not.toBeNull()
       let release!: (value: typeof packet) => void
       const retry = new Promise<typeof packet>(resolve => { release = resolve })
-      const repairPage = { ...packet.page, profiles: packet.profiles, messages: packet.messages }
+      const repairPage = { ...packet.page, latestSeq: 80, profiles: packet.profiles, messages: rows.slice(35) }
       let failRepair = repairFailure
       load.mockImplementation((url: string) => url.includes("entry=1") ? retry
         : failRepair ? Promise.reject(new Error("owned window repair failed")) : Promise.resolve(repairPage))
       fireEvent.click(view.getByRole("button", { name: "Retry" }))
       await act(async () => { await vi.advanceTimersByTimeAsync(0) })
       resize()
-      expect(root).toHaveAttribute("aria-busy", "false")
+      expect(root).toHaveAttribute("aria-busy", "true")
       expect(root).toHaveAttribute("data-pagination-enabled", "false")
       if (takeover) {
-        fireEvent.wheel(root, { deltaY: -300 })
-        act(() => root.scrollTo({ top: root.scrollTop - 300 }))
+        fireEvent.wheel(root, { deltaY: 1000 })
+        act(() => root.scrollTo({ top: 1000 }))
         resize()
       }
+      expect(root).toHaveAttribute("aria-busy", takeover ? "false" : "true")
       const viewport = root.getBoundingClientRect()
       const reader = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]")).find(row => row.getBoundingClientRect().bottom > viewport.top + 1)!
       const readerId = reader.dataset.msgId!
       const offset = reader.getBoundingClientRect().top - viewport.top
       expect(Number(readerId.slice(1))).toBeLessThan(35)
-      const fresh = { ...packet, messages: rows.slice(34), readState: read, readStateRevision: 5,
-        selection: { reason: "read_pointer" as const, anchorMessageId: "m60" },
-        page: { olderCursor: `${rows[34].createdAt}|m35`, newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 80 } }
+      const fresh = { ...packet, channel: { ...packet.channel, messageCount: 80 }, messages: rows.slice(59), readState: read, readStateRevision: 5,
+        selection: { reason: "tail" as const, anchorMessageId: null }, newBoundary: { afterSeq: 60, target: { id: "m61", channelId: "c1", seq: 61, authorId: "peer" } },
+        page: { olderCursor: `${rows[59].createdAt}|m60`, newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 80 } }
       await act(async () => { release(fresh); await vi.advanceTimersByTimeAsync(0) })
       resize()
       expect(view.getByTestId("community-message-scroller")).toBe(root)
@@ -184,10 +192,10 @@ it.each(kinds.flatMap(kind => [
         expect(root.querySelector(`[data-msg-id="${readerId}"]`)).toBe(reader)
         expect(Math.abs(reader.getBoundingClientRect().top - root.getBoundingClientRect().top - offset)).toBeLessThanOrEqual(1)
       } else {
-        expect(feed.messages.map(row => row.id)).toEqual(rows.slice(34).map(row => row.id))
-        const divider = root.querySelector<HTMLElement>("[data-new-divider]")!.getBoundingClientRect()
-        expect(divider.bottom).toBeGreaterThan(viewport.top)
-        expect(divider.top).toBeLessThan(viewport.bottom)
+        expect(feed.messages.map(row => row.id)).toEqual(rows.map(row => row.id))
+        expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBeLessThanOrEqual(1)
+        expect(feed.newBoundary?.target?.id).toBe("m61")
+        expect(view.getByRole("button", { name: "Jump to New" })).toBeVisible()
       }
       if (repairFailure) {
         expect(root).toHaveAttribute("data-pagination-enabled", "false")
@@ -227,24 +235,25 @@ it.each(kinds.flatMap(kind => (["success", "offline", "timeout"] as const).map(r
     }
     packet.messages = Array.from({ length: 42 }, (_, index) => ({ ...packet.messages[0], id: `m${index + 1}`, seq: index + 1 }))
     packet.readState = { ...packet.readState, lastReadMessageId: "m30", lastReadSeq: 30 }
-    packet.selection = { reason: "read_pointer", anchorMessageId: "m30" }
-    packet.page = { olderCursor: null, newerCursor: "newer", hasMoreOlder: false, hasMoreNewer: true, latestSeq: 80 }
+    packet.selection = { reason: "tail", anchorMessageId: null }
+    packet.newBoundary = { afterSeq: 30, target: { id: "m31", channelId: "c1", seq: 31, authorId: "peer" } }
+    packet.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 42 }
     await seedConversationEntry(owner.client, packet)
-    if (kind === "dm") ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [{ ...packet.readState, lastReadMessageId: "m60", lastReadSeq: 60, lastReadAt: packet.messages[0].createdAt }] })
     owner.client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
     let resolve!: (value: typeof packet) => void, reject!: (error: Error) => void
     load.mockReturnValue(new Promise<typeof packet>((yes, no) => { resolve = yes; reject = no }))
     let feed!: ReturnType<typeof useMessages>
     function Probe() {
       const channel = useMessages(kind === "dm" ? null : "c1", { serverId: "s1", anchorMessageId: "m60" })
-      const dm = useDmMessages(kind === "dm" ? "c1" : null)
+      const dm = useDmMessages(kind === "dm" ? "c1" : null, { anchorMessageId: "m60" })
       feed = kind === "dm" ? dm : channel
-      const projection = resolveMessageReadProjection({ messages: feed.messages, lastReadMessageId: feed.readSnapshot?.lastReadMessageId ?? null, viewerUserId: "viewer", anchorReconciled: feed.anchorReconciled })
+      const newBoundary = feed.newBoundary
       return <MessageList channel="Channel" variant={kind === "dm" ? "dm" : "channel"} messages={feed.messages}
         loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
-        initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
+        initialScrollReady={feed.initialScrollReady} preserveInitialPresentation={feed.preserveInitialPresentation} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
         positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
-        newDividerBefore={projection.newDividerBefore} scrollToMessageId={kind === "dm" ? undefined : "m60"} hasMoreNewer={feed.hasMoreNewer}
+        newBoundary={newBoundary} latestSeq={feed.latestSeq} retiredNewTargetId={feed.retiredNewTargetId}
+        onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary} scrollToMessageId="m60" hasMoreNewer={feed.hasMoreNewer}
         onRetryInitialLoad={feed.retryInitialLoad} retryingInitialLoad={feed.retryingInitialLoad} onOpenThread={() => {}} />
     }
     const view = render(<CommunityTestProvider {...owner}><Probe /></CommunityTestProvider>)
@@ -254,19 +263,18 @@ it.each(kinds.flatMap(kind => (["success", "offline", "timeout"] as const).map(r
       expect(feed.initialDisplayReady).toBe(true)
       expect(feed.initialPositionKnown).toBe(false)
       expect(feed.readSnapshotFetching).toBe(true)
-      expect(feed.targetPositionDataState).toBe(kind === "dm" ? "ready" : "pending")
+      expect(feed.targetPositionDataState).toBe("pending")
       expect(feed.positionDataState).toBe("pending")
       expect(root).toHaveAttribute("aria-busy", "false")
       expect(root.querySelector("[data-message-list-content]")).toHaveAttribute("aria-hidden", "false")
       expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
       expect(root).toHaveAttribute("data-pagination-enabled", "false")
       expect(root.querySelectorAll("[data-msg-id]").length).toBeGreaterThan(0)
-      expect(load.mock.calls.some(([path]) => path.endsWith(kind === "dm" ? "entry=1" : "entry=1&anchor=m60"))).toBe(true)
+      expect(load.mock.calls.some(([path]) => new URL(path, "https://test.invalid").searchParams.get("anchor") === "m60")).toBe(true)
       expect(load.mock.calls.some(([path]) => path.endsWith("/read"))).toBe(false)
-      const fresh = { ...packet, selection: { reason: kind === "dm" ? "read_pointer" as const : "explicit_anchor" as const, anchorMessageId: "m60" },
-        ...(kind === "dm" ? { readState: { ...packet.readState, lastReadMessageId: "m60", lastReadSeq: 60 }, readStateRevision: 5 } : {}),
+      const fresh = { ...packet, selection: { reason: "explicit_anchor" as const, anchorMessageId: "m60" },
         messages: Array.from({ length: 22 }, (_, index) => ({ ...packet.messages[0], id: `m${index + 59}`, seq: index + 59 })),
-        page: { ...packet.page, hasMoreOlder: true, hasMoreNewer: false, newerCursor: null } }
+        page: { ...packet.page, latestSeq: 80, hasMoreOlder: true, hasMoreNewer: false, newerCursor: null } }
       await act(async () => {
         if (result === "success") resolve(fresh)
         else if (result === "offline") reject(new Error("offline"))
@@ -346,7 +354,8 @@ it.each([
   packet.messages = rows
   packet.channel.messageCount = 60
   packet.readState = { ...packet.readState, lastReadMessageId: "ro60", lastReadSeq: 60, lastReadAt: rows[59].createdAt }
-  packet.selection = { reason: "read_pointer", anchorMessageId: "ro60" }
+  packet.selection = { reason: "tail", anchorMessageId: null }
+  packet.newBoundary = { afterSeq: 60, target: null }
   packet.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 60 }
   await seedConversationEntry(owner.client, packet)
   load.mockResolvedValue(packet)
@@ -358,12 +367,11 @@ it.each([
   const handovers = vi.fn(() => feed.onUserTakeover())
   function Probe() {
     feed = useDmMessages("c1")
-    const projection = resolveMessageReadProjection({ messages: feed.messages, lastReadMessageId: feed.readSnapshot?.lastReadMessageId ?? null,
-      viewerUserId: "viewer", anchorReconciled: feed.anchorReconciled })
-    newDivider = projection.newDividerBefore
+    const newBoundary = feed.newBoundary
+    newDivider = newBoundary?.target?.id
     return <MessageList channel="DM" variant="dm" messages={feed.messages} loading={feed.isLoading}
       initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
-      initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation}
+      initialScrollReady={feed.initialScrollReady} preserveInitialPresentation={feed.preserveInitialPresentation}
       positionScope={feed.positionScope} positionEntry={feed.positionEntry}
       positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
       initialPositionMessageId={feed.initialPositionMessageId} newDividerBefore={newDivider}

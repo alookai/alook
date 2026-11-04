@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, exists, gt, lt, or, sql, inArray, count, min, type SQL, type GetColumnData } from "drizzle-orm";
+import { eq, ne, and, asc, desc, exists, gt, lt, lte, or, sql, inArray, count, min, type SQL, type GetColumnData } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -14,6 +14,7 @@ import {
 import { user } from "../../schema";
 import { nanoid } from "nanoid";
 import type { Database } from "../../index";
+import type { CommunityMessagePosition } from "../../../community-resources";
 import { attachmentReadableSql } from "./attachment";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "../../../constants/community";
 import { createLogger } from "../../../logger";
@@ -997,6 +998,24 @@ export async function getMessageByChannelAndSeq(
     })
     .from(communityMessage)
     .where(and(eq(communityMessage.channelId, target.channelId), eq(communityMessage.seq, seq)));
+  return rows[0] ?? null;
+}
+
+export async function getFirstPeerMessageAfterSeq(
+  db: Database,
+  target: { channelId: string; viewerId: string; afterSeq: number; throughSeq: number },
+): Promise<CommunityMessagePosition | null> {
+  const rows = await db
+    .select({ id: communityMessage.id, channelId: communityMessage.channelId, seq: communityMessage.seq, authorId: communityMessage.authorId })
+    .from(communityMessage)
+    .where(and(
+      eq(communityMessage.channelId, target.channelId),
+      ne(communityMessage.authorId, target.viewerId),
+      gt(communityMessage.seq, target.afterSeq),
+      lte(communityMessage.seq, target.throughSeq),
+    ))
+    .orderBy(asc(communityMessage.seq))
+    .limit(1);
   return rows[0] ?? null;
 }
 

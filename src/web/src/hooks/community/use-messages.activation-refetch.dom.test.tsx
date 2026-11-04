@@ -51,10 +51,10 @@ describe("entry-owned message activation", () => {
     load.mockResolvedValue(fixture())
     const first = renderHook(() => useMessages("c1", { serverId: "s1" }), { wrapper })
     await waitFor(() => expect(first.result.current.initialPositionKnown).toBe(true))
-    const key = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" })
+    const key = communityKeys.channelMessagesWindow("c1", { mode: "newest" })
     const cached = client.getQueryData<MessageWindowData>(key)!
     const pages = [cached.pages[0], { ...cached.pages[0], messages: [], olderCursor: "old-2" }, { ...cached.pages[0], messages: [], hasMoreOlder: false }]
-    await act(async () => client.setQueryData(key, { pages, pageParams: [{ mode: "anchor", anchor: "m1" }, { mode: "older", cursor: "old-1" }, { mode: "older", cursor: "old-2" }] }))
+    await act(async () => client.setQueryData(key, { pages, pageParams: [{ mode: "newest" }, { mode: "older", cursor: "old-1" }, { mode: "older", cursor: "old-2" }] }))
     first.unmount()
     const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6000)
     try {
@@ -89,7 +89,7 @@ describe("entry-owned message activation", () => {
       expect(urls.filter(url => url.includes("entry=1"))).toHaveLength(2)
       expect(urls[2]).toContain("since=")
       expect(urls.filter(url => url.includes("anchor="))).toHaveLength(0)
-      expect(client.getQueryData<MessageWindowData>(communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" }))?.pages).toHaveLength(1)
+      expect(client.getQueryData<MessageWindowData>(communityKeys.channelMessagesWindow("c1", { mode: "newest" }))?.pages).toHaveLength(1)
       returned.unmount()
     } finally { clock.mockRestore() }
   })

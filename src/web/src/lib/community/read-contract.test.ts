@@ -71,7 +71,7 @@ describe("current conversation entry ingress", () => {
     channel: channel,
     access: { channelId: "channel", canRead: true, canSend: false, canCreateDiscussion: false },
     readState: { channelId: "channel", lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 },
-    readStateRevision: 0, selection: { reason: "tail", anchorMessageId: null },
+    readStateRevision: 0, newBoundary: { afterSeq: 0, target: null }, selection: { reason: "tail", anchorMessageId: null },
     surfaceReceipt: { channelId: "channel", surfaceKind: "dm" }, messages: [], profiles: [],
     page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 },
   })

@@ -150,6 +150,6 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   fireEvent.contextMenu(scroll, { button: 2 })
   expect(await view.findByRole("menuitem", { name: "Create category" })).toBeVisible()
   await user.keyboard("{Escape}")
-  expect(mocks.load.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/channel/messages?entry=1"])
+  expect(mocks.load.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/channel/messages?entry=1&window=tail"])
   expect(mocks.load.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true)
 })
