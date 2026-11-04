@@ -94,15 +94,36 @@ describe("deferred guide demos", () => {
   });
 
   it("retains the static scene if animation setup fails and permits retry", async () => {
-    scene.create.mockImplementationOnce(() => { throw new Error("chunk failed"); });
+    const failure = new Error("scene setup failed");
+    scene.create.mockImplementation(() => { throw failure; });
     const user = setupUser();
-    render(<DeferredDemo scene="connect" label="Connection"><p>Static command</p></DeferredDemo>);
-    await act(async () => intersect([{ isIntersecting: true, intersectionRatio: 1 }]));
-    await user.click(await screen.findByRole("button", { name: "Retry animation" }));
-    await waitFor(() => expect(scene.create).toHaveBeenCalledTimes(2));
-    expect(screen.getByText("Static command")).toBeVisible();
-    expect(screen.queryByText(/Illustrative demo/)).not.toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Connection playback" })).toBeVisible();
+    try {
+      render(<DeferredDemo scene="connect" label="Connection"><p>Static command</p></DeferredDemo>);
+      await act(async () => {
+        intersect([{ isIntersecting: true, intersectionRatio: 1 }]);
+        await vi.dynamicImportSettled();
+        await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+        await vi.dynamicImportSettled();
+      });
+      const retry = await screen.findByRole("button", { name: "Retry animation" });
+      expect(screen.getByRole("figure", { name: "Connection" })).toHaveAttribute("data-demo-status", "failed");
+      expect(scene.create.mock.results.some(result => result.type === "throw" && result.value === failure)).toBe(true);
+      expect(scene.play).not.toHaveBeenCalled();
+      expect(screen.getByText("Static command")).toBeVisible();
+      expect(screen.getByRole("group", { name: "Connection playback" })).toBeVisible();
+
+      scene.create.mockReturnValue(scene);
+      await user.click(retry);
+      await waitFor(() => expect(scene.create).toHaveReturnedTimes(1));
+      expect(await screen.findByRole("button", { name: "Pause Connection" })).toBeVisible();
+      expect(scene.play).toHaveBeenCalled();
+      expect(screen.getByText("Static command")).toBeVisible();
+      expect(screen.queryByText(/Illustrative demo/)).not.toBeInTheDocument();
+      expect(screen.getByRole("group", { name: "Connection playback" })).toBeVisible();
+    } finally {
+      try { await act(async () => { await vi.dynamicImportSettled(); }); }
+      finally { scene.create.mockReturnValue(scene); }
+    }
   });
 });
 
