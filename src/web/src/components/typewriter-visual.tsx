@@ -53,15 +53,16 @@ const EDGE_STRIPS: React.CSSProperties[] = EDGE_CENTERS.flatMap(([cx, cy], corne
 // Axis sits on the top deck (see .tw-roller-assembly); x is measured on the 420 px body.
 function cylinderStrips(x0: number, length: number, radius: number, segments: number, base: number, gain: number, ribbed = false): React.CSSProperties[] {
   const stripH = 2 * radius * Math.sin(Math.PI / segments) + 2; // overlap hides anti-aliased seams
+  const endOverlap = 0.6; // Intersect the end caps so their joint cannot show the background.
   return Array.from({ length: segments }, (_, k) => {
     const angle = (k * 360) / segments;
     const rad = (angle * Math.PI) / 180;
     const lit = Math.max(0, 0.65 * Math.sin(rad) + 0.35 * Math.cos(rad));
     const lightness = base + gain * lit ** 1.4 + (ribbed && k % 2 ? -0.025 : 0);
     return {
-      left: `${x0}px`,
+      left: `${x0 - endOverlap}px`,
       top: `${(-stripH / 2).toFixed(2)}px`,
-      width: `${length}px`,
+      width: `${length + 2 * endOverlap}px`,
       height: `${stripH.toFixed(2)}px`,
       background: `oklch(${lightness.toFixed(3)} 0.008 60)`,
       transform: `rotateX(${angle}deg) translateZ(${radius}px)`,

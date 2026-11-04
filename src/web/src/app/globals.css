@@ -995,11 +995,8 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 .tw-body > .tw-paper-track {
-  /* The sheet goes into the top deck behind the platen and stands parallel to the back panel (Gus #2778).
-     Below the deck line the 20px foot exists only over the flat deck (24px in from each side, Gus #2797):
-     the sheet keeps its full width above the deck. */
+  /* The sheet goes into the top deck behind the platen and stands parallel to the back panel (Gus #2778). */
   transform: translateX(-50%) translateZ(-40px);
-  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 20px), calc(100% - 24px) calc(100% - 20px), calc(100% - 24px) 100%, 24px 100%, 24px calc(100% - 20px), 0 calc(100% - 20px));
 }
 
 
@@ -1094,15 +1091,15 @@ body.driver-active .community-ws-reconnect-overlay * {
   pointer-events: none;
 }
 
-/* Paper guide: a dark plate between the sheet and the platen, so the crevice under the platen reads as
-   machine, not as the sheet's white foot. */
+/* The dark guide spans the knob overhang (x -14…434), closing the background gap above the rounded case
+   corners (Gus #2797). A solid fill keeps the shallow 3D plate opaque at both hero poses. */
 .tw-paper-guide {
   position: absolute;
   top: -16px;
-  left: 0;
-  width: 420px;
+  left: -14px;
+  width: 448px;
   height: 42px;
-  background: linear-gradient(oklch(0.2 0.01 58), oklch(0.13 0.01 55));
+  background: var(--tw-body-lo);
   transform: translateZ(-35px);
   pointer-events: none;
 }
