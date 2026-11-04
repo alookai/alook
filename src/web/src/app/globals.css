@@ -902,7 +902,7 @@ body.driver-active .community-ws-reconnect-overlay * {
   z-index: 2;
   perspective: 2500px;
   transform-style: preserve-3d;
-  transform: rotateY(-20deg) rotateX(10deg);
+  transform: rotateY(-20deg) rotateX(-10deg);
   transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -1001,46 +1001,60 @@ body.driver-active .community-ws-reconnect-overlay * {
   backface-visibility: hidden;
 }
 
-.tw-body-left {
+/* Side, top and bottom planes stop where the front's 24px corner radius starts, and four 45° chamfer strips
+   close the depth edges between them, so the box has no see-through gaps at any tilt. */
+.tw-body-left,
+.tw-body-right {
   position: absolute;
+  top: 24px;
   width: 160px;
-  height: 260px;
+  height: 212px;
+}
+
+.tw-body-left {
   background: oklch(0.22 0.01 58);
-  border-radius: 24px;
   transform: rotateY(-90deg) translateZ(80px);
   box-shadow: inset 10px 0 30px oklch(0 0 0 / 6%);
 }
 
-/* Right face */
 .tw-body-right {
-  position: absolute;
-  width: 160px;
-  height: 260px;
   background: var(--tw-body-lo);
-  border-radius: 24px;
   transform: rotateY(90deg) translateZ(340px);
 }
 
-/* Top face */
-.tw-body-top {
+.tw-body-top,
+.tw-body-bottom {
   position: absolute;
-  width: 420px;
+  left: 24px;
+  width: 372px;
   height: 160px;
-  background: oklch(0.30 0.01 60);
-  border-radius: 24px;
+}
+
+.tw-body-top {
+  background: var(--tw-body-top);
   transform: rotateX(90deg) translateZ(80px);
 }
 
-/* Bottom face */
 .tw-body-bottom {
-  position: absolute;
-  width: 420px;
-  height: 160px;
   background: oklch(0.14 0.01 55);
-  border-radius: 24px;
   transform: rotateX(-90deg) translateZ(180px);
   box-shadow: 0 60px 100px oklch(0 0 0 / 20%);
 }
+
+/* Each strip is 24√2 px wide and spans the 160px depth; its centre sits on the chord of a corner radius. */
+.tw-body-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 34px;
+  height: 160px;
+  backface-visibility: hidden;
+}
+
+.tw-body-edge-tl { background: oklch(0.25 0.01 59); transform: translate3d(-5px, -68px, 0) rotateZ(-45deg) rotateX(90deg); }
+.tw-body-edge-tr { background: oklch(0.22 0.01 58); transform: translate3d(391px, -68px, 0) rotateZ(45deg) rotateX(90deg); }
+.tw-body-edge-bl { background: oklch(0.16 0.01 55); transform: translate3d(-5px, 168px, 0) rotateZ(45deg) rotateX(-90deg); }
+.tw-body-edge-br { background: oklch(0.15 0.01 55); transform: translate3d(391px, 168px, 0) rotateZ(-45deg) rotateX(-90deg); }
 
 /* ── Roller assembly — at the top of body, wider than body ── */
 .tw-roller-assembly {

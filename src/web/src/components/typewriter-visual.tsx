@@ -7,7 +7,7 @@ import { TypewriterCityArt } from "./typewriter-city-art";
 
 const KEY_ROWS = [9, 7, 9];
 // rest angle of .typewriter-scene in globals.css
-const REST_RX = 10;
+const REST_RX = -10;
 const REST_RY = -20;
 
 const TW_VARS: React.CSSProperties = {
@@ -134,6 +134,10 @@ export function TypewriterVisual({
             <div className="tw-body-right" />
             <div className="tw-body-top" />
             <div className="tw-body-bottom" />
+            <div className="tw-body-edge tw-body-edge-tl" />
+            <div className="tw-body-edge tw-body-edge-tr" />
+            <div className="tw-body-edge tw-body-edge-bl" />
+            <div className="tw-body-edge tw-body-edge-br" />
 
             {!animateEntrance && paperTrack}
             <div className="tw-body-front">
