@@ -2501,6 +2501,7 @@
 
 /* Brand Visual's paper stock also surrounds onboarding; the form itself stays a flat reading surface. */
 .theme [data-slot="onboarding-backdrop"] {
+  --app-edge-fade-color: var(--tn-paper);
   background-color: var(--tn-paper) !important;
   background-image: var(--tn-paper-grid-image) !important;
   background-size: var(--tn-paper-grid-size) !important;

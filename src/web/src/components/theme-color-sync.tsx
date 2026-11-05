@@ -23,6 +23,10 @@ export function syncThemeColorToVisibleBackground(
   if (!surface) backgroundColor = readStyle(doc.body).backgroundColor.trim();
   if (!backgroundColor || TRANSPARENT_COLORS.has(backgroundColor)) return;
 
+  if (doc.body.style.getPropertyValue("--app-edge-fade-color") !== backgroundColor) {
+    doc.body.style.setProperty("--app-edge-fade-color", backgroundColor);
+  }
+
   let themeColorMetas = Array.from(
     doc.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]'),
   );

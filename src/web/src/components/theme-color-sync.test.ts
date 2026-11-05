@@ -5,11 +5,19 @@ function fakeStyle(backgroundColor: string) {
   return { backgroundColor } as CSSStyleDeclaration;
 }
 
+function fakeBody() {
+  const properties = new Map<string, string>();
+  return { style: {
+    getPropertyValue: (name: string) => properties.get(name) ?? "",
+    setProperty: (name: string, value: string) => { properties.set(name, value); },
+  } };
+}
+
 describe("syncThemeColorToVisibleBackground", () => {
   it("notifies native chrome once when the painted surface changes", () => {
     const dispatchEvent = vi.fn()
     const meta = { content: "previous" }
-    const doc = { body: {}, defaultView: { dispatchEvent }, querySelectorAll: () => [meta] } as unknown as Document
+    const doc = { body: fakeBody(), defaultView: { dispatchEvent }, querySelectorAll: () => [meta] } as unknown as Document
     syncThemeColorToVisibleBackground(doc, () => fakeStyle("rgb(224, 213, 192)"))
     syncThemeColorToVisibleBackground(doc, () => fakeStyle("rgb(224, 213, 192)"))
     expect(dispatchEvent).toHaveBeenCalledOnce()
@@ -21,7 +29,7 @@ describe("syncThemeColorToVisibleBackground", () => {
   it("updates every theme-color meta to the computed document backdrop", () => {
     const metas = [{ content: "light" }, { content: "dark" }];
     const doc = {
-      body: {},
+      body: fakeBody(),
       querySelectorAll: vi.fn(() => metas),
     } as unknown as Document;
 
@@ -47,7 +55,7 @@ describe("syncThemeColorToVisibleBackground", () => {
       },
     };
     const doc = {
-      body: {},
+      body: fakeBody(),
       querySelectorAll: vi.fn(() => [meta]),
     } as unknown as Document;
 
@@ -63,7 +71,7 @@ describe("syncThemeColorToVisibleBackground", () => {
     const createdMeta = { name: "", content: "" };
     const appendChild = vi.fn();
     const doc = {
-      body: {},
+      body: fakeBody(),
       head: { appendChild },
       querySelectorAll: vi.fn(() => []),
       createElement: vi.fn(() => createdMeta),
@@ -86,7 +94,7 @@ describe("syncThemeColorToVisibleBackground", () => {
     (backgroundColor) => {
       const meta = { content: "fallback" };
       const doc = {
-        body: {},
+        body: fakeBody(),
         querySelectorAll: vi.fn(() => [meta]),
       } as unknown as Document;
 

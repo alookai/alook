@@ -549,9 +549,6 @@ describe("ShellFrameView", () => {
       "inset-x-0",
       "bottom-0",
       "-z-10",
-      "bg-linear-to-t",
-      "from-(--app-bg)",
-      "to-transparent",
     ]))
     expect(userBarUnderlay.style.height).toBe(
       "calc(60px + var(--app-safe-area-bottom))",
