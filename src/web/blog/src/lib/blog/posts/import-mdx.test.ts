@@ -17,7 +17,7 @@ const { evaluationFailure, metadata } = vi.hoisted(() => ({
 }));
 
 vi.mock("@blog/content/ai-agent-identity.mdx", () => ({ metadata }));
-vi.mock("@blog/content/humans-and-ai-agents-in-one-room.mdx", () => ({
+vi.mock("@blog/content/run-ai-agent-team-that-stays-on-track.mdx", () => ({
   get metadata() {
     throw evaluationFailure;
   },
@@ -47,7 +47,7 @@ describe("importMdxMetadata", () => {
   it("returns loaded metadata and propagates unexpected loader failures", async () => {
     await expect(importMdxMetadata("ai-agent-identity")).resolves.toEqual(metadata);
     await expect(
-      importMdxMetadata("humans-and-ai-agents-in-one-room"),
+      importMdxMetadata("run-ai-agent-team-that-stays-on-track"),
     ).rejects.toBe(evaluationFailure);
   });
 });
