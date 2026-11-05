@@ -1,5 +1,6 @@
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
+import { WEB_URL } from "./_setup/paths"
 import { beginScrollTraceAnalysis, endScrollTraceAnalysis, installScrollTraceInCurrentDocument, markScrollTrace, startScrollTrace } from "./_fixtures/scroll-trace"
 import { tid } from "./_fixtures/testids"
 import { VIEWPORT, seedResizableHtmlPreview, seedProfile, identity, finishAndAttach, establishScrollDistancePrecondition, advanceScrollTraceFrame, tracedAsUser } from "./_fixtures/message-scroll-characterization"
@@ -10,11 +11,11 @@ test("controlled upward release before native movement prevents HTML tail resize
     const actors = await caseActors(["alice"])
     const serverId = await actors.seed.seedServer("alice", `Released HTML ${Date.now()}`)
     const channelId = await actors.seed.seedChannel("alice", serverId, "released-html")
-    const { page } = await tracedAsUser(actors)("alice")
+    const { page } = await tracedAsUser(actors)("alice", { baseURL: WEB_URL })
     await page.setViewportSize(VIEWPORT)
-    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
     await seedProfile(actors, channelId, 24, false, "alice")
     const { attachmentId } = await seedResizableHtmlPreview(page, channelId)
+    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
     const scroller = page.getByTestId(tid.messageScroller)
     const iframe = page.getByTestId(tid.htmlPreviewFrame(attachmentId))
     await expect(page.getByTestId(tid.htmlPreview(attachmentId))).toHaveAttribute("data-html-preview-status", "ready")
