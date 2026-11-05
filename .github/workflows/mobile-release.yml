@@ -27,6 +27,16 @@ on:
         required: true
         default: false
         type: boolean
+      testflight45_submit:
+        description: Apply the independently reviewed build45-only TestFlight notes, existing-group association and Beta Review submission
+        required: true
+        default: false
+        type: boolean
+      testflight45_ack_existing_notifications:
+        description: Acknowledge existing autoNotify=true can notify existing testers after Apple approval
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: mobile-release-${{ github.ref }}
@@ -35,7 +45,7 @@ concurrency:
 jobs:
   inspect-testflight45:
     name: Inspect TestFlight45 preflight (GET only)
-    if: github.event_name == 'workflow_dispatch' && inputs.ios == false && inputs.android == false && inputs.upload == false && inputs.play_upload == false
+    if: github.event_name == 'workflow_dispatch' && inputs.ios == false && inputs.android == false && inputs.upload == false && inputs.play_upload == false && inputs.testflight45_submit != true
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -62,9 +72,39 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  submit-testflight45:
+    name: Distribute existing TestFlight45 (reviewed intent only)
+    if: github.event_name == 'workflow_dispatch' && inputs.ios == false && inputs.android == false && inputs.upload == false && inputs.play_upload == false && inputs.testflight45_submit == true && inputs.testflight45_ack_existing_notifications == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22
+      - name: Test target guards, mutation boundaries and interrupted receipts
+        run: node --test scripts/ci/submit-testflight45.test.mjs
+      - name: Apply only the reviewed existing45 distribution steps
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          TESTFLIGHT45_SUBMIT_ALLOWED: reviewed
+        run: node scripts/ci/submit-testflight45.mjs --confirm-target ai.alook.ios:0.1.64:45 --ack-existing-auto-notify --out .ci/testflight45-submit.json
+      - name: Upload safe final or interrupted distribution receipt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: testflight45-submit-${{ github.run_id }}
+          path: .ci/testflight45-submit.json
+          if-no-files-found: error
+          retention-days: 14
+
   build-ios:
     name: Build signed iOS IPA
-    if: github.event_name == 'push' || inputs.ios == true
+    if: (github.event_name == 'push' || inputs.ios == true) && inputs.testflight45_submit != true
     runs-on: xcode-27
     timeout-minutes: 45
     permissions:
@@ -285,7 +325,7 @@ jobs:
 
   build-android:
     name: Build signed Android APK and AAB
-    if: github.event_name == 'push' || inputs.android == true || inputs.play_upload == true
+    if: (github.event_name == 'push' || inputs.android == true || inputs.play_upload == true) && inputs.testflight45_submit != true
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
