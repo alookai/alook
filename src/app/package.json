@@ -1,7 +1,7 @@
 {
   "name": "@alook/app",
-  "version": "0.1.63",
-  "description": "Run Alook locally \u2014 one command, no clone needed",
+  "version": "0.1.64",
+  "description": "Run Alook locally — one command, no clone needed",
   "license": "Apache-2.0",
   "homepage": "https://github.com/alookai/alook#readme",
   "repository": {
@@ -31,7 +31,7 @@
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external wrangler && node scripts/bundle-daemon.mjs",
-    "prepack": "node ../../scripts/ci/run-turbo.mjs run @alook/app#build && node -e \"const{existsSync}=require('fs');if(!existsSync('bundled/web'))throw new Error('bundled/ missing \u2014 run pnpm bundle first')\"",
+    "prepack": "node ../../scripts/ci/run-turbo.mjs run @alook/app#build && node -e \"const{existsSync}=require('fs');if(!existsSync('bundled/web'))throw new Error('bundled/ missing — run pnpm bundle first')\"",
     "bundle": "bun run scripts/bundle.ts",
     "knip": "knip",
     "lint": "eslint src/",

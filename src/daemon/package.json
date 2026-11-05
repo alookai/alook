@@ -1,7 +1,7 @@
 {
   "name": "@alook/daemon",
-  "version": "0.1.63",
-  "description": "Alook agent daemon \u2014 host-side runtime backend, process manager, credential proxy, and control plane.",
+  "version": "0.1.64",
+  "description": "Alook agent daemon — host-side runtime backend, process manager, credential proxy, and control plane.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/alookai/alook#readme",
   "repository": {
