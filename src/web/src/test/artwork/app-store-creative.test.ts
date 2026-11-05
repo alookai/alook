@@ -1,18 +1,21 @@
 import { readFile } from "node:fs/promises"
+import { once } from "node:events"
 import { createServer, Server } from "node:http"
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
 import sharp from "sharp"
+import { JSDOM } from "jsdom"
+import { build } from "esbuild"
 import { describe, expect, it, vi } from "vitest"
-import { creativeCaptures, selectCreatives, startCreativeServer, captureCreatives, main } from "../../src/web/app-store-capture/creative/capture.mjs"
-import { assertArtworkHash, assertArtworkProvenance } from "./artwork-manifest"
+import { creativeCaptures, selectCreatives, startCreativeServer, captureCreatives, main } from "../../../app-store-capture/creative/capture.mjs"
+import { assertArtworkHash, assertArtworkProvenance } from "../../../../../scripts/ci/artwork-manifest"
 
-const root = resolve(import.meta.dirname, "../..")
+const root = resolve(import.meta.dirname, "../../../../..")
 const { chromium } = createRequire(resolve(root, "src/web/package.json"))("@playwright/test")
 
 async function close(server: Server) {
   server.closeAllConnections()
-  await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  if (server.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
 }
 
 describe("App Store creative PNG capture", () => {
@@ -28,37 +31,79 @@ describe("App Store creative PNG capture", () => {
 
   it("serves the local document and only declared resources, then closes its own listener", async () => {
     const unrelated = createServer((_request, response) => response.end("unrelated"))
-    await new Promise<void>(resolve => unrelated.listen(0, "127.0.0.1", resolve))
-    const address = unrelated.address()
-    if (!address || typeof address === "string") throw new Error("Missing fixture address")
-    const server = await startCreativeServer()
+    let server: Awaited<ReturnType<typeof startCreativeServer>> | undefined
     try {
+      unrelated.listen(0, "127.0.0.1")
+      await once(unrelated, "listening")
+      const address = unrelated.address()
+      if (!address || typeof address === "string") throw new Error("Missing fixture address")
+      server = await startCreativeServer()
+      const declared = new Set<string>()
       for (const asset of ["header", "search"]) {
         const response = await fetch(`${server.origin}/?asset=${asset}`)
         expect(response.status).toBe(200)
         expect(response.headers.get("content-type")).toContain("text/html")
-        expect(await response.text()).toContain(`canvas ${asset}-art`)
+        const document = new JSDOM(await response.text(), { url: server.origin })
+        try {
+          const dom = document.window.document
+          const subjects = dom.querySelectorAll('[role="img"]')
+          expect(subjects).toHaveLength(1)
+          expect(subjects[0].getAttribute("aria-label")).toBe(`Alook ${asset} artwork`)
+          expect(subjects[0].querySelector("h2")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Multi-Agent Collaboration")
+          expect(subjects[0].querySelector("p")?.textContent).toBe("for Team and Friends")
+          const imagePaths = [...subjects[0].querySelectorAll("img")].map(image => new URL(image.src).pathname)
+          expect(imagePaths.sort()).toEqual(["/alook.svg", "/faces/face-blue.svg", "/faces/face-purple.svg", "/faces/face-red.svg", "/faces/face-teal.svg"])
+          for (const pathname of imagePaths) declared.add(pathname)
+          const stylesheets = [...dom.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')]
+          expect(stylesheets.map(link => new URL(link.href).pathname)).toEqual(["/artwork.css"])
+          for (const stylesheet of stylesheets) {
+            const url = new URL(stylesheet.href)
+            expect(url.origin).toBe(server.origin)
+            declared.add(url.pathname)
+            const styleResponse = await fetch(url)
+            expect(styleResponse.status).toBe(200)
+            const compiled = await build({
+              stdin: { contents: await styleResponse.text(), loader: "css" },
+              bundle: true, external: ["*"], write: false, metafile: true,
+            })
+            expect(compiled.outputFiles).toHaveLength(1)
+            const outputs = Object.values(compiled.metafile.outputs)
+            expect(outputs).toHaveLength(1)
+            for (const dependency of outputs[0].imports) {
+              expect(dependency.kind).toBe("url-token")
+              const resource = new URL(dependency.path, stylesheet.href)
+              expect(resource.origin).toBe(server.origin)
+              declared.add(resource.pathname)
+            }
+          }
+        } finally { document.window.close() }
       }
       const expected = [
-        ["/artwork.css", "text/css"], ["/noise.svg", "image/svg+xml"], ["/alook.svg", "image/svg+xml"],
-        ["/fonts/caveat.woff2", "font/woff2"], ["/fonts/dm-sans.woff2", "font/woff2"],
-        ...["blue", "teal", "purple", "red"].map(color => [`/faces/face-${color}.svg`, "image/svg+xml"]),
+        ["/artwork.css", "text/css", "src/web/app-store-capture/creative/artwork.css"],
+        ["/noise.svg", "image/svg+xml", "src/web/app-store-capture/creative/noise.svg"],
+        ["/alook.svg", "image/svg+xml", "src/web/public/alook.svg"],
+        ["/fonts/caveat.woff2", "font/woff2", "src/web/src/app/fonts/caveat-latin.woff2"],
+        ["/fonts/dm-sans.woff2", "font/woff2", "src/web/src/app/fonts/dm-sans-latin.woff2"],
+        ...["blue", "teal", "purple", "red"].map(color => [`/faces/face-${color}.svg`, "image/svg+xml", `src/web/app-store-capture/assets/face-${color}.svg`]),
       ]
-      for (const [pathname, type] of expected) {
+      expect(declared).toEqual(new Set(expected.map(([pathname]) => pathname)))
+      for (const [pathname, type, file] of expected) {
         const response = await fetch(`${server.origin}${pathname}`)
         expect(response.status).toBe(200)
         expect(response.headers.get("content-type")).toContain(type)
-        expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(100)
+        expect(Buffer.from(await response.arrayBuffer())).toEqual(await readFile(resolve(root, file)))
       }
       for (const pathname of ["/unknown", "/../package.json", "/%2e%2e/AGENTS.md", "/faces/face-orange.svg"]) expect((await fetch(`${server.origin}${pathname}`)).status).toBe(404)
       expect((await fetch(`${server.origin}/?asset=invalid`)).status).toBe(400)
       expect((await fetch(server.origin, { method: "POST" })).status).toBe(405)
-    } finally { await server.close() }
-    try {
+      await server.close()
       await server.close()
       await expect(fetch(server.origin)).rejects.toThrow()
       expect(await (await fetch(`http://127.0.0.1:${address.port}`)).text()).toBe("unrelated")
-    } finally { await close(unrelated) }
+    } finally {
+      try { await server?.close() }
+      finally { await close(unrelated) }
+    }
   })
 
   it("rejects invalid selection and pre-aborted work before resource launch", async () => {

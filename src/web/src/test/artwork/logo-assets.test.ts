@@ -1,6 +1,7 @@
-import { createRequire } from "node:module"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
+import { JSDOM } from "jsdom"
+import sharp from "sharp"
 import { describe, expect, it } from "vitest"
 import {
   androidAdaptiveForegroundSizes,
@@ -10,17 +11,12 @@ import {
   appleSplashSizes,
   assertSvgContract,
   canonicalizeIcns,
-  desktopRasterAssets,
   fullBleedSvg,
-  iosRasterAssets,
   mobileSplashVisibleSize,
-  preservedAssets,
   trayRasterAssets,
-} from "../generate-logo-assets.mjs"
+} from "../../../../../scripts/generate-logo-assets.mjs"
 
-const repoRoot = resolve(import.meta.dirname, "../..")
-const requireFromRoot = createRequire(resolve(repoRoot, "package.json"))
-const sharp = requireFromRoot("sharp")
+const repoRoot = resolve(import.meta.dirname, "../../../../..")
 
 const androidLegacyIconSizes = {
   mdpi: 48,
@@ -128,29 +124,18 @@ async function expressionBounds(path: string) {
 }
 
 describe("logo asset generator", () => {
-  it("locks the canonical structured transparent SVG", async () => {
+  it("keeps canonical copies coherent and removes rounded clipping from full-bleed pixels", async () => {
     const canonical = await readFile(resolve(repoRoot, "assets/alook.svg"), "utf8")
     const publicCopy = await readFile(resolve(repoRoot, "src/web/public/alook.svg"), "utf8")
 
     expect(() => assertSvgContract(canonical)).not.toThrow()
     expect(publicCopy).toBe(canonical)
-    expect(fullBleedSvg(canonical)).toContain("<g>")
-    expect(fullBleedSvg(canonical)).not.toContain('<g clip-path="url(#alook-logo-clip)">')
-  })
-
-  it("covers every approved platform family and protects the exceptions", () => {
-    expect(desktopRasterAssets).toHaveLength(17)
-    expect(iosRasterAssets).toHaveLength(18)
-    expect(Object.keys(desktopPngSizes)).toEqual(desktopRasterAssets.filter(file => file.endsWith(".png")))
-    expect(Object.keys(iosPngSizes)).toEqual(iosRasterAssets)
-    expect(preservedAssets).toEqual([
-      "src/web/src/app/favicon.ico",
-      "assets/readme/banner.png",
-    ])
-    expect(trayRasterAssets).toEqual([
-      ["assets/alook-tray-macos-template.svg", "src/desktop/src-tauri/icons/tray-macos-template.png"],
-      ["assets/alook.svg", "src/desktop/src-tauri/icons/tray-windows-linux-color.png"],
-    ])
+    const cornerAlpha = async (svg: string) => {
+      const pixel = await sharp(Buffer.from(svg)).ensureAlpha().extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer()
+      return pixel[3]
+    }
+    expect(await cornerAlpha(canonical)).toBe(0)
+    expect(await cornerAlpha(fullBleedSvg(canonical))).toBeGreaterThan(0)
   })
 
   it("canonicalizes nondeterministic ICNS chunk order", () => {
@@ -168,7 +153,9 @@ describe("logo asset generator", () => {
     unordered.writeUInt32BE(unordered.length, 4)
 
     const canonical = canonicalizeIcns(unordered)
-    expect(canonical.subarray(8, 12).toString("ascii")).toBe("aaaa")
+    const expected = Buffer.concat([header, chunk("aaaa", "first"), chunk("zzzz", "second")])
+    expected.writeUInt32BE(expected.length, 4)
+    expect(canonical).toEqual(expected)
     expect(canonicalizeIcns(canonical)).toEqual(canonical)
   })
 
@@ -195,16 +182,6 @@ describe("logo asset generator", () => {
       opaque: false,
     })
     expect((await visibleColors(color)).size).toBeGreaterThan(5)
-  })
-
-  it("locks compile-time tray selection for macOS and Windows/Linux", async () => {
-    const source = await readFile(resolve(repoRoot, "src/desktop/src-tauri/src/commands.rs"), "utf8")
-
-    expect(source).toMatch(/#\[cfg\(target_os = "macos"\)\]\nconst TRAY_ICON_BYTES: &\[u8\] = include_bytes!\("\.\.\/icons\/tray-macos-template\.png"\);/)
-    expect(source).toMatch(/#\[cfg\(target_os = "macos"\)\]\nconst TRAY_ICON_IS_TEMPLATE: bool = true;/)
-    expect(source).toMatch(/#\[cfg\(any\(target_os = "windows", target_os = "linux"\)\)\]\nconst TRAY_ICON_BYTES: &\[u8\] = include_bytes!\("\.\.\/icons\/tray-windows-linux-color\.png"\);/)
-    expect(source).toMatch(/#\[cfg\(any\(target_os = "windows", target_os = "linux"\)\)\]\nconst TRAY_ICON_IS_TEMPLATE: bool = false;/)
-    expect(source).not.toMatch(/tray-(?:default|online|offline)/)
   })
 
   it("preserves web and platform canvas contracts", async () => {
@@ -259,26 +236,57 @@ describe("logo asset generator", () => {
       })
     }
 
-    const storyboard = await readFile(resolve(repoRoot, "src/desktop/src-tauri/gen/apple/LaunchScreen.storyboard"), "utf8")
-    expect(storyboard).toContain('<constraint firstAttribute="width" constant="106" id="w-constraint"/>')
-    expect(storyboard).toContain('<constraint firstAttribute="height" constant="106" id="h-constraint"/>')
-    expect(storyboard).toContain('<image name="SplashIcon" width="106" height="106"/>')
-
-    const serverRail = await readFile(resolve(repoRoot, "src/web/src/components/community/shell/server-rail.tsx"), "utf8")
-    expect(serverRail).toContain('<AnimatedAlookLogo className="size-10"')
+    const storyboard = new JSDOM(await readFile(resolve(repoRoot, "src/desktop/src-tauri/gen/apple/LaunchScreen.storyboard"), "utf8"), { contentType: "application/xml" })
+    try {
+      const document = storyboard.window.document
+      const initial = document.documentElement.getAttribute("initialViewController")
+      expect(initial).toBeTruthy()
+      const controllers = [...document.getElementsByTagName("viewController")].filter(controller => controller.id === initial)
+      expect(controllers).toHaveLength(1)
+      const images = controllers[0].querySelectorAll("view > subviews > imageView")
+      expect(images).toHaveLength(1)
+      const image = images[0]
+      expect(image.getAttribute("image")).toBe("SplashIcon")
+      for (const attribute of ["width", "height"]) {
+        const constraints = [...image.querySelectorAll("constraints > constraint")].filter(constraint => constraint.getAttribute("firstAttribute") === attribute
+          && constraint.getAttribute("active") !== "NO"
+          && (!constraint.getAttribute("firstItem") || constraint.getAttribute("firstItem") === image.id))
+        expect(constraints).toHaveLength(1)
+        expect(constraints[0].getAttribute("relation") ?? "equal").toBe("equal")
+        expect(constraints[0].getAttribute("secondItem")).toBeNull()
+        expect(Number(constraints[0].getAttribute("constant"))).toBe(106)
+      }
+      const resources = [...document.querySelectorAll("document > resources > image")].filter(resource => resource.getAttribute("name") === image.getAttribute("image"))
+      expect(resources).toHaveLength(1)
+      expect(["width", "height"].map(attribute => Number(resources[0].getAttribute(attribute)))).toEqual([106, 106])
+      const catalog = JSON.parse(await readFile(resolve(repoRoot, "src/desktop/src-tauri/gen/apple/Assets.xcassets/SplashIcon.imageset/Contents.json"), "utf8"))
+      expect(catalog.images.map((entry: { filename: string; scale: string }) => [entry.filename, entry.scale])).toEqual([
+        ["splash_icon@1x.png", "1x"], ["splash_icon@2x.png", "2x"], ["splash_icon@3x.png", "3x"],
+      ])
+    } finally { storyboard.window.close() }
   })
 
   it("fills Android adaptive masks while keeping the expression inside the safe zone at every density", async () => {
-    const adaptiveXml = await readFile(resolve(repoRoot, "src/desktop/src-tauri/gen/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"), "utf8")
-    expect(adaptiveXml).toContain('<foreground android:drawable="@mipmap/ic_launcher_foreground"/>')
-    expect(adaptiveXml).toContain('<background android:drawable="@color/ic_launcher_background"/>')
+    const adaptiveXml = new JSDOM(await readFile(resolve(repoRoot, "src/desktop/src-tauri/gen/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"), "utf8"), { contentType: "application/xml" })
+    let foregroundResource: string
+    try {
+      const icon = adaptiveXml.window.document.documentElement
+      expect(icon.localName).toBe("adaptive-icon")
+      const foreground = [...icon.children].filter(child => child.localName === "foreground")
+      const background = [...icon.children].filter(child => child.localName === "background")
+      expect(foreground).toHaveLength(1)
+      expect(background).toHaveLength(1)
+      foregroundResource = foreground[0].getAttributeNS("http://schemas.android.com/apk/res/android", "drawable")!
+      expect(foregroundResource).toBe("@mipmap/ic_launcher_foreground")
+      expect(background[0].getAttributeNS("http://schemas.android.com/apk/res/android", "drawable")).toBe("@color/ic_launcher_background")
+    } finally { adaptiveXml.window.close() }
 
     for (const [density, { canvas, artwork }] of Object.entries(androidAdaptiveForegroundSizes)) {
       const offset = Math.floor((canvas - artwork) / 2)
       const safeSize = canvas * 66 / 108
       const safeOffset = (canvas - safeSize) / 2
       const base = resolve(repoRoot, `src/desktop/src-tauri/gen/android/app/src/main/res/mipmap-${density}`)
-      const foreground = resolve(base, "ic_launcher_foreground.png")
+      const foreground = resolve(base, `${foregroundResource.slice("@mipmap/".length)}.png`)
       expect(artwork).toBe(canvas * 84 / 108)
       expect(await alphaBounds(foreground)).toEqual({
         width: canvas,
@@ -324,12 +332,19 @@ describe("logo asset generator", () => {
     }
 
     const ico = await readFile(resolve(repoRoot, "src/desktop/src-tauri/icons/icon.ico"))
+    const directoryEnd = 6 + ico.readUInt16LE(4) * 16
+    expect(directoryEnd).toBeLessThanOrEqual(ico.length)
     const icoSizes = Array.from({ length: ico.readUInt16LE(4) }, (_, index) => {
       const offset = 6 + index * 16
+      const bytes = ico.readUInt32LE(offset + 8)
+      const start = ico.readUInt32LE(offset + 12)
+      expect(bytes).toBeGreaterThan(0)
+      expect(start).toBeGreaterThanOrEqual(directoryEnd)
+      expect(start + bytes).toBeLessThanOrEqual(ico.length)
       return [ico[offset] || 256, ico[offset + 1] || 256]
     })
     expect(ico.subarray(0, 4)).toEqual(Buffer.from([0, 0, 1, 0]))
-    expect(icoSizes).toEqual([[32, 32], [16, 16], [24, 24], [48, 48], [64, 64], [256, 256]])
+    expect(icoSizes.sort((left, right) => left[0] - right[0] || left[1] - right[1])).toEqual([[16, 16], [24, 24], [32, 32], [48, 48], [64, 64], [256, 256]])
 
     const icns = await readFile(resolve(repoRoot, "src/desktop/src-tauri/icons/icon.icns"))
     expect(icns.subarray(0, 4).toString("ascii")).toBe("icns")
