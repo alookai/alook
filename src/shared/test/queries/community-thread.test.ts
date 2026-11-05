@@ -1,92 +1,95 @@
+import { readFileSync, readdirSync } from "node:fs";
 import Sqlite from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { drizzle as drizzleProxy } from "drizzle-orm/sqlite-proxy";
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import * as threadQueries from "../../src/db/queries/community/thread";
-import { D1_MAX_BIND_PARAMS } from "../../src/db/queries/_chunk";
-import { FORUM_ARCHIVE_TAG } from "../../src/constants/community";
+import { FORUM_ARCHIVE_TAG, type ParticipantSource } from "../../src/constants/community";
+import { communityChannel, communityChannelMember, communityMessage, communityMessageTag, communityServer } from "../../src/db/community-schema";
+import { user } from "../../src/db/schema";
+import type { Database } from "../../src/db";
 
-describe("community/thread exports", () => {
-  it("exports the participant CRUD", () => {
-    expect(typeof threadQueries.listThreadParticipants).toBe("function");
-    expect(typeof threadQueries.removeThreadParticipant).toBe("function");
-  });
+const openedDatabases = new Set<Sqlite.Database>();
+const createdAt = "2026-01-01T00:00:00.000Z";
+
+afterEach(() => {
+  for (const sqlite of openedDatabases) sqlite.close();
+  openedDatabases.clear();
 });
+
+function createForumFixture() {
+  const sqlite = new Sqlite(":memory:");
+  openedDatabases.add(sqlite);
+  sqlite.pragma("foreign_keys = ON");
+  const migrations = new URL("../../../web/migrations/", import.meta.url);
+  for (const file of readdirSync(migrations).filter(file => file.endsWith(".sql")).sort()) {
+    sqlite.exec(readFileSync(new URL(file, migrations), "utf8"));
+  }
+  const queries: Array<{ sql: string; params: unknown[] }> = [];
+  const orm = drizzle(sqlite, { logger: { logQuery(sql, params) { queries.push({ sql, params: [...params] }); } } });
+  const seed = drizzle(sqlite);
+  let userSequence = 0;
+  const forums = new Set<string>();
+  const sequences = new Map<string, number>();
+  const addUser = (id: string, name = id, discriminator = "0001") => {
+    seed.insert(user).values({ id, name, discriminator, email: `fixture-${userSequence++}@thread.test`, createdAt, updatedAt: createdAt }).run();
+  };
+  addUser("fixture-owner");
+  seed.insert(communityServer).values({ id: "fixture-server", name: "Fixture server", discriminator: "0001", ownerId: "fixture-owner", createdAt }).run();
+  const forum = (id: string) => {
+    if (forums.has(id)) return;
+    seed.insert(communityChannel).values({ id, serverId: "fixture-server", name: id, type: "forum", createdAt }).run();
+    forums.add(id);
+  };
+  const thread = (row: { id: string; parentChannelId?: string; name?: string; type?: string; parentMessageId?: string | null; archived?: number; lastMessageAt?: string | null; createdAt?: string }) => {
+    const parentChannelId = row.parentChannelId ?? "forum_1";
+    forum(parentChannelId);
+    const parentMessageId = row.parentMessageId === undefined ? `opener-${row.id}` : row.parentMessageId;
+    if (parentMessageId !== null) {
+      const seq = (sequences.get(parentChannelId) ?? 0) + 1;
+      sequences.set(parentChannelId, seq);
+      seed.insert(communityMessage).values({ id: parentMessageId, channelId: parentChannelId, authorId: "fixture-owner", content: row.id, seq, createdAt: row.createdAt ?? createdAt }).run();
+    }
+    seed.insert(communityChannel).values({ id: row.id, serverId: "fixture-server", name: row.name ?? row.id, type: row.type ?? "thread", parentChannelId, parentMessageId, archived: row.archived ?? 0, lastMessageAt: row.lastMessageAt ?? null, createdAt: row.createdAt ?? createdAt }).run();
+  };
+  const member = (channelId: string, userId: string, relation: "access" | "notify" = "notify", source: ParticipantSource = "spoke", addedAt = "2026-08-08T00:00:00.000Z") => {
+    seed.insert(communityChannelMember).values({ channelId, userId, relation, source, addedAt }).run();
+  };
+  const tag = (id: string, messageId: string, value: string) => {
+    seed.insert(communityMessageTag).values({ id, messageId, tag: value }).run();
+  };
+  const baseline = () => {
+    thread({ id: "t_new", name: "new activity", parentMessageId: "m_new", lastMessageAt: "2026-08-08T05:00:00.000Z" });
+    thread({ id: "t_tie_b", name: "tie b", parentMessageId: "m_tie_b", lastMessageAt: "2026-08-08T04:00:00.000Z", createdAt: "2026-01-02T00:00:00.000Z" });
+    thread({ id: "t_tie_a", name: "tie a", parentMessageId: "m_tie_a", lastMessageAt: "2026-08-08T04:00:00.000Z", createdAt: "2026-01-02T00:00:00.000Z" });
+    thread({ id: "t_created", name: "created fallback", parentMessageId: "m_created", createdAt: "2026-08-08T02:00:00.000Z" });
+    thread({ id: "t_tag_archived", name: "tag archived", parentMessageId: "m_tag_archived", createdAt: "2026-08-09T02:00:00.000Z" });
+    thread({ id: "t_archived", name: "archived", parentMessageId: "m_archived", archived: 1, lastMessageAt: "2026-08-09T00:00:00.000Z" });
+    thread({ id: "t_rootless", name: "rootless", parentMessageId: null, lastMessageAt: "2026-08-09T00:00:00.000Z" });
+    thread({ id: "not_thread", name: "text child", type: "text", parentMessageId: "m_text", lastMessageAt: "2026-08-09T00:00:00.000Z" });
+    thread({ id: "foreign", name: "foreign", parentChannelId: "forum_2", parentMessageId: "m_foreign", lastMessageAt: "2026-08-10T00:00:00.000Z" });
+    tag("tag_tie", "m_tie_a", "bug"); tag("tag_created", "m_created", "bug");
+    tag("tag_archive", "m_tag_archived", FORUM_ARCHIVE_TAG); tag("tag_archive_bug", "m_tag_archived", "bug"); tag("tag_foreign", "m_foreign", "bug");
+  };
+  const members = () => sqlite.prepare("SELECT id, channel_id, user_id, relation, source, added_at FROM community_channel_member ORDER BY channel_id, user_id, relation").all() as Array<{ id: string; channel_id: string; user_id: string; relation: string; source: string; added_at: string }>;
+  return { sqlite, orm, db: orm as unknown as Database, queries, user: addUser, forum, thread, member, tag, baseline, members };
+}
+
+function expectD1Budget(queries: Array<{ sql: string; params: unknown[] }>) {
+  expect(queries.length).toBeGreaterThan(0);
+  for (const query of queries) expect(query.params.length).toBeLessThanOrEqual(100);
+}
 
 describe("listForumThreadsByCreatedAt against real SQLite", () => {
   let sqlite: Sqlite.Database;
   let db: ReturnType<typeof drizzle>;
 
+  let fixture: ReturnType<typeof createForumFixture>;
   beforeEach(() => {
-    sqlite = new Sqlite(":memory:");
-    sqlite.exec(`
-      CREATE TABLE community_channel (
-        id TEXT PRIMARY KEY,
-        server_id TEXT,
-        category_id TEXT,
-        name TEXT,
-        type TEXT NOT NULL DEFAULT 'text',
-        topic TEXT DEFAULT '',
-        position INTEGER DEFAULT 0,
-        parent_channel_id TEXT,
-        creator_id TEXT,
-        message_count INTEGER DEFAULT 0,
-        archived INTEGER DEFAULT 0,
-        parent_message_id TEXT,
-        last_message_at TEXT,
-        created_at TEXT NOT NULL
-      );
-      CREATE TABLE community_message_tag (
-        id TEXT PRIMARY KEY,
-        message_id TEXT NOT NULL,
-        tag TEXT NOT NULL,
-        UNIQUE(message_id, tag)
-      );
-      CREATE INDEX idx_channel_forum_created
-      ON community_channel(parent_channel_id, created_at DESC, id DESC)
-      WHERE type = 'thread' AND archived = 0 AND parent_message_id IS NOT NULL;
-      CREATE TABLE user (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        image TEXT
-        ,avatarVersion INTEGER NOT NULL DEFAULT 0
-        ,avatarObjectKey TEXT
-        ,discriminator TEXT
-      );
-      CREATE TABLE community_channel_member (
-        id TEXT PRIMARY KEY,
-        channel_id TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        relation TEXT NOT NULL,
-        source TEXT NOT NULL,
-        added_by TEXT,
-        added_at TEXT NOT NULL
-      );
-    `);
-    const insertChannel = sqlite.prepare(`
-      INSERT INTO community_channel
-        (id, name, type, parent_channel_id, parent_message_id, archived, last_message_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    insertChannel.run("t_new", "new activity", "thread", "forum_1", "m_new", 0, "2026-08-08T05:00:00.000Z", "2026-01-01T00:00:00.000Z");
-    insertChannel.run("t_tie_b", "tie b", "thread", "forum_1", "m_tie_b", 0, "2026-08-08T04:00:00.000Z", "2026-01-02T00:00:00.000Z");
-    insertChannel.run("t_tie_a", "tie a", "thread", "forum_1", "m_tie_a", 0, "2026-08-08T04:00:00.000Z", "2026-01-02T00:00:00.000Z");
-    insertChannel.run("t_created", "created fallback", "thread", "forum_1", "m_created", 0, null, "2026-08-08T02:00:00.000Z");
-    insertChannel.run("t_tag_archived", "tag archived", "thread", "forum_1", "m_tag_archived", 0, null, "2026-08-09T02:00:00.000Z");
-    insertChannel.run("t_archived", "archived", "thread", "forum_1", "m_archived", 1, "2026-08-09T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
-    insertChannel.run("t_rootless", "rootless", "thread", "forum_1", null, 0, "2026-08-09T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
-    insertChannel.run("not_thread", "text child", "text", "forum_1", "m_text", 0, "2026-08-09T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
-    insertChannel.run("foreign", "foreign", "thread", "forum_2", "m_foreign", 0, "2026-08-10T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
-    const insertTag = sqlite.prepare("INSERT INTO community_message_tag (id, message_id, tag) VALUES (?, ?, ?)");
-    insertTag.run("tag_tie", "m_tie_a", "bug");
-    insertTag.run("tag_created", "m_created", "bug");
-    insertTag.run("tag_archive", "m_tag_archived", FORUM_ARCHIVE_TAG);
-    insertTag.run("tag_archive_bug", "m_tag_archived", "bug");
-    insertTag.run("tag_foreign", "m_foreign", "bug");
-    db = drizzle(sqlite);
+    fixture = createForumFixture();
+    sqlite = fixture.sqlite;
+    db = fixture.orm;
+    fixture.baseline();
   });
-
-  afterEach(() => sqlite.close());
 
   it("keeps creation order when an older post has newer activity and pages ties without overlap", async () => {
     const first = await threadQueries.listForumThreadsByCreatedAt(db as never, {
@@ -102,16 +105,20 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
     expect(first.map((row) => row.id)).toEqual(["t_created", "t_tie_b"]);
     expect(second.map((row) => row.id)).toEqual(["t_tie_a", "t_new"]);
     expect(second[1]!.activityAt).toBe("2026-08-08T05:00:00.000Z");
-    expect(new Set([...first, ...second].map((row) => row.id)).size).toBe(4);
   });
 
   it("applies the tag and forum scope before the creation limit", async () => {
+    fixture.thread({ id: "t_untagged_front", createdAt: "2026-08-11T00:00:00.000Z" });
     const rows = await threadQueries.listForumThreadsByCreatedAt(db as never, {
       parentChannelId: "forum_1",
       tag: "bug",
       limit: 5,
     });
     expect(rows.map((row) => row.id)).toEqual(["t_created", "t_tie_a"]);
+    const first = await threadQueries.listForumThreadsByCreatedAt(db as never, {
+      parentChannelId: "forum_1", tag: "bug", limit: 1,
+    });
+    expect(first.map(row => row.id)).toEqual(["t_created"]);
   });
 
   it("treats the archive tag as an exclusive feed before pagination", async () => {
@@ -135,27 +142,27 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
     expect(archived.map((row) => row.id)).toEqual(["t_tag_archived"]);
   });
 
-  it("uses the forum creation index without a temp B-tree for the untagged feed", () => {
-    const plan = sqlite.prepare(`
-      EXPLAIN QUERY PLAN
-      SELECT id
-      FROM community_channel
-      WHERE parent_channel_id = ?
-        AND type = 'thread'
-        AND archived = 0
-        AND parent_message_id IS NOT NULL
-      ORDER BY created_at DESC, id DESC
-      LIMIT ?
-    `).all("forum_1", 50) as Array<{ detail: string }>;
-    const details = plan.map((row) => row.detail);
-
-    expect(details.some((detail) => detail.includes("USING INDEX idx_channel_forum_created"))).toBe(true);
-    expect(details.some((detail) => detail.includes("USE TEMP B-TREE"))).toBe(false);
+  it("keeps the actual untagged feed ordered without a temporary sort under equivalent indexes", async () => {
+    const expected = ["t_created", "t_tie_b", "t_tie_a", "t_new"];
+    const plans = async () => {
+      fixture.queries.length = 0;
+      const rows = await threadQueries.listForumThreadsByCreatedAt(db as never, { parentChannelId: "forum_1", limit: 50 });
+      expect(rows.map(row => row.id)).toEqual(expected);
+      expect(fixture.queries.length).toBeGreaterThan(0);
+      return fixture.queries.flatMap(query => sqlite.prepare(`EXPLAIN QUERY PLAN ${query.sql}`).all(...query.params) as Array<{ detail: string }>);
+    };
+    const sorts = (plan: Array<{ detail: string }>) => plan.some(row => row.detail.includes("USE TEMP B-TREE"));
+    expect(sorts(await plans())).toBe(false);
+    const indexes = sqlite.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'community_channel' AND sql IS NOT NULL").all() as Array<{ name: string; sql: string }>;
+    expect(indexes.length).toBeGreaterThan(0);
+    for (const index of indexes) sqlite.exec(`DROP INDEX "${index.name.replaceAll('"', '""')}"`);
+    expect(sorts(await plans())).toBe(true);
+    for (const index of indexes) sqlite.exec(index.sql.replace(index.name, `equivalent_${index.name}`));
+    expect(sorts(await plans())).toBe(false);
   });
-
   it("preserves SQLite BINARY participant tie ordering for case-sensitive ids", async () => {
-    sqlite.prepare("INSERT INTO user (id, name) VALUES (?, ?)").run("A", "upper");
-    sqlite.prepare("INSERT INTO user (id, name) VALUES (?, ?)").run("a", "lower");
+    fixture.user("A", "upper");
+    fixture.user("a", "lower");
     const insertMember = sqlite.prepare(`
       INSERT INTO community_channel_member
         (id, channel_id, user_id, relation, source, added_at)
@@ -175,11 +182,12 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
   });
 
   it.each([undefined, 1])("retains real participant numbers across chunks and duplicate channel ids (limit %s)", async (limit) => {
-    sqlite.prepare("INSERT INTO user (id, name, discriminator) VALUES (?, ?, ?)").run("numbered", "Numbered", "123456");
-    sqlite.prepare("INSERT INTO user (id, name, discriminator) VALUES (?, ?, ?)").run("later", "Later", "0042");
+    fixture.user("numbered", "Numbered", "123456");
+    fixture.user("later", "Later", "0042");
     const insert = sqlite.prepare("INSERT INTO community_channel_member (id, channel_id, user_id, relation, source, added_at) VALUES (?, ?, ?, 'notify', 'added', ?)");
     const channelIds = Array.from({ length: 100 }, (_, index) => `numbered_thread_${index}`);
     for (const channelId of channelIds) {
+      fixture.thread({ id: channelId });
       insert.run(`${channelId}:first`, channelId, "numbered", "2026-10-11T01:00:00Z");
       insert.run(`${channelId}:second`, channelId, "later", "2026-10-11T02:00:00Z");
     }
@@ -213,7 +221,7 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
   });
 
   it("returns per-forum recent notify rows and retains an older open post", async () => {
-    sqlite.prepare("INSERT INTO user (id, name) VALUES (?, ?)").run("viewer", "Viewer");
+    fixture.user("viewer", "Viewer");
     const insertMember = sqlite.prepare(`
       INSERT INTO community_channel_member
         (id, channel_id, user_id, relation, source, added_at)
@@ -267,7 +275,7 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
     expect(channelArchived.retained).toBeNull();
     expect(channelArchived.retainedDisposition).toBe("genuine-negative");
 
-    sqlite.prepare("INSERT INTO user (id, name) VALUES (?, ?)").run("outsider", "Outsider");
+    fixture.user("outsider", "Outsider");
     const nonparticipantArchived = await threadQueries.listParticipatingForumThreads(db as never, {
       parentChannelIds: ["forum_1"],
       userId: "outsider",
@@ -291,14 +299,9 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
   });
 
   it("filters archived openers before top-five ranking and refills from the sixth active post", async () => {
-    sqlite.prepare("INSERT INTO user (id, name) VALUES (?, ?)").run("viewer", "Viewer");
-    const insertChannel = sqlite.prepare(`
-      INSERT INTO community_channel
-        (id, name, type, parent_channel_id, parent_message_id, archived, last_message_at, created_at)
-      VALUES (?, ?, 'thread', 'forum_1', ?, 0, ?, '2026-01-01T00:00:00.000Z')
-    `);
-    insertChannel.run("t_fifth", "fifth", "m_fifth", "2026-08-08T03:30:00.000Z");
-    insertChannel.run("t_sixth", "sixth", "m_sixth", "2026-08-08T03:00:00.000Z");
+    fixture.user("viewer", "Viewer");
+    fixture.thread({ id: "t_fifth", name: "fifth", parentMessageId: "m_fifth", lastMessageAt: "2026-08-08T03:30:00.000Z" });
+    fixture.thread({ id: "t_sixth", name: "sixth", parentMessageId: "m_sixth", lastMessageAt: "2026-08-08T03:00:00.000Z" });
     const insertMember = sqlite.prepare(`
       INSERT INTO community_channel_member
         (id, channel_id, user_id, relation, source, added_at)
@@ -360,33 +363,26 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
 });
 
 describe("addThreadParticipant", () => {
-  function insertMock(returned: any[]) {
-    const chain: any = {};
-    chain.insert = vi.fn(() => chain);
-    chain.values = vi.fn(() => chain);
-    chain.onConflictDoNothing = vi.fn(() => chain);
-    chain.returning = vi.fn(() => Promise.resolve(returned));
-    return chain;
-  }
-
-  it("returns the inserted row for a new participant", async () => {
-    const db = insertMock([{ id: "tp1", threadChannelId: "t1", userId: "u1" }]);
-    const res = await threadQueries.addThreadParticipant(db, {
-      threadChannelId: "t1",
-      userId: "u1",
-      source: "spoke",
-    });
-    expect(res).toMatchObject({ id: "tp1" });
+  it("returns and persists a new notify participant alongside existing access", async () => {
+    const f = createForumFixture(); f.user("u1"); f.thread({ id: "t1" }); f.thread({ id: "t2" });
+    f.member("t1", "u1", "access", "added"); f.member("t2", "u1");
+    const before = f.members();
+    const result = await threadQueries.addThreadParticipant(f.db, { threadChannelId: "t1", userId: "u1", source: "spoke" });
+    expect(result).toMatchObject({ channelId: "t1", userId: "u1", relation: "notify", source: "spoke" });
+    expect(result!.id.length).toBeGreaterThan(0);
+    expect(f.members()).toEqual(expect.arrayContaining(before));
+    expect(f.members().filter(row => row.channel_id === "t1" && row.relation === "notify"))
+      .toEqual([expect.objectContaining({ id: result!.id, user_id: "u1", source: "spoke" })]);
+    expect(f.members()).toHaveLength(before.length + 1);
   });
 
-  it("returns null on conflict (already a participant)", async () => {
-    const db = insertMock([]);
-    const res = await threadQueries.addThreadParticipant(db, {
-      threadChannelId: "t1",
-      userId: "u1",
-      source: "mention",
-    });
-    expect(res).toBeNull();
+  it("returns null on a real duplicate without replacing its original source", async () => {
+    const f = createForumFixture(); f.user("u1"); f.thread({ id: "t1" });
+    f.member("t1", "u1", "access", "added"); f.member("t1", "u1", "notify", "spoke");
+    const before = f.members();
+    const result = await threadQueries.addThreadParticipant(f.db, { threadChannelId: "t1", userId: "u1", source: "mention" });
+    expect(result).toBeNull();
+    expect(f.members()).toEqual(before);
   });
 });
 
@@ -397,78 +393,100 @@ describe("addThreadParticipants — bulk", () => {
     expect(chain.insert).not.toHaveBeenCalled();
   });
 
-  it("inserts one row per (userId, source) pair with onConflictDoNothing", async () => {
-    const returning = vi.fn(() => Promise.resolve([{ userId: "u1" }, { userId: "u2" }]));
-    const values = vi.fn(() => ({
-      onConflictDoNothing: vi.fn(() => ({ returning })),
-    }));
-    const chain: any = { insert: vi.fn(() => ({ values })) };
-    await expect(threadQueries.addThreadParticipants(chain, "t1", [
-      { userId: "u1", source: "spoke" },
-      { userId: "u2", source: "mention" },
-    ])).resolves.toEqual(["u1", "u2"]);
-    expect(chain.insert).toHaveBeenCalledTimes(1); // single bulk insert, not N
-    expect(values).toHaveBeenCalledWith([
-      { channelId: "t1", userId: "u1", relation: "notify", source: "spoke" },
-      { channelId: "t1", userId: "u2", relation: "notify", source: "mention" },
-    ]);
-    expect(returning).toHaveBeenCalledTimes(1);
+  it("persists complete bulk rows within the real bind budget and preserves conflicts", async () => {
+    const f = createForumFixture(); f.thread({ id: "t1" }); f.thread({ id: "t2" });
+    for (const id of ["u1", "u2", "u3"]) f.user(id);
+    f.member("t1", "u1", "access", "added"); f.member("t2", "u1");
+    const before = f.members();
+    expect(await threadQueries.addThreadParticipants(f.db, "t1", [
+      { userId: "u1", source: "spoke" }, { userId: "u2", source: "mention" },
+    ])).toEqual(["u1", "u2"]);
+    expect(f.queries).toHaveLength(1);
+    expectD1Budget(f.queries);
+    expect(f.members()).toEqual(expect.arrayContaining(before));
+    expect(f.members()).toHaveLength(before.length + 2);
+    expect(f.members().filter(row => row.channel_id === "t1" && row.relation === "notify").map(row => ({ userId: row.user_id, source: row.source })))
+      .toEqual([{ userId: "u1", source: "spoke" }, { userId: "u2", source: "mention" }]);
+    const inserted = f.members();
+    expect(await threadQueries.addThreadParticipants(f.db, "t1", [
+      { userId: "u1", source: "mention" }, { userId: "u3", source: "added" },
+    ])).toEqual(["u3"]);
+    expect(f.members()).toEqual(expect.arrayContaining(inserted));
+    expect(f.members()).toHaveLength(inserted.length + 1);
+    expect(f.members().filter(row => row.user_id === "u3"))
+      .toEqual([expect.objectContaining({ channel_id: "t1", relation: "notify", source: "added" })]);
+    const beforeMany = f.members();
+    const many = Array.from({ length: 19 }, (_, index) => ({ userId: `bulk-${index}`, source: "mention" as const }));
+    for (const row of many) f.user(row.userId);
+    const input = structuredClone(many); f.queries.length = 0;
+    expect((await threadQueries.addThreadParticipants(f.db, "t1", many)).sort()).toEqual(many.map(row => row.userId).sort());
+    expect(many).toEqual(input);
+    expectD1Budget(f.queries);
+    expect(f.members()).toEqual(expect.arrayContaining(beforeMany));
+    expect(f.members()).toHaveLength(beforeMany.length + many.length);
+    expect(f.members().filter(row => row.user_id.startsWith("bulk-")).map(row => ({ userId: row.user_id, source: row.source, channelId: row.channel_id, relation: row.relation })))
+      .toEqual(many.map(row => ({ ...row, channelId: "t1", relation: "notify" })).sort((a, b) => a.userId < b.userId ? -1 : 1));
   });
 });
 
 describe("listThreadParticipantUserIds — notify set", () => {
-  function whereMock(rows: any[]) {
-    const chain: any = {};
-    chain.select = vi.fn(() => chain);
-    chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => Promise.resolve(rows));
-    return chain;
-  }
-
-  it("returns every participant's userId", async () => {
-    const db = whereMock([{ userId: "u1" }, { userId: "u2" }]);
-    const res = await threadQueries.listThreadParticipantUserIds(db, "t1");
-    expect(res).toEqual(["u1", "u2"]);
+  it("returns the channel's complete notify set without foreign or access-only users", async () => {
+    const f = createForumFixture(); f.thread({ id: "t1" }); f.thread({ id: "t2" });
+    for (const id of ["u1", "u2", "u3", "u4"]) f.user(id);
+    f.member("t1", "u1"); f.member("t1", "u2"); f.member("t1", "u3", "access", "added"); f.member("t2", "u4");
+    expect((await threadQueries.listThreadParticipantUserIds(f.db, "t1")).sort()).toEqual(["u1", "u2"]);
   });
 });
 
 describe("listParticipantsForChannels — D1 bind cap", () => {
   it("chunks 100 channel ids so every ranked statement stays within 100 binds", async () => {
-    const paramCounts: number[] = [];
-    const db = drizzleProxy(async (_sql, params) => {
-      paramCounts.push(params.length);
-      return { rows: [] };
-    });
-
-    await threadQueries.listParticipantsForChannels(
-      db as never,
-      Array.from({ length: 100 }, (_, i) => `thread_${i}`),
-      5,
-    );
-
-    expect(paramCounts).toHaveLength(2);
-    expect(Math.max(...paramCounts)).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+    const f = createForumFixture(); f.user("viewer"); f.user("access-only");
+    const channelIds = Array.from({ length: 100 }, (_, index) => `thread_${index}`);
+    for (const id of channelIds) { f.thread({ id }); f.member(id, "viewer"); f.member(id, "access-only", "access", "added"); }
+    f.thread({ id: "foreign" }); f.member("foreign", "viewer");
+    const input = [...channelIds, channelIds[0]!];
+    const snapshot = [...input];
+    const rows = await threadQueries.listParticipantsForChannels(f.db, input, 5);
+    expect(rows.map(row => row.channelId).sort()).toEqual([...channelIds].sort());
+    expect(rows.every(row => row.userId === "viewer" && row.participantCount === 1)).toBe(true);
+    expect(input).toEqual(snapshot);
+    expectD1Budget(f.queries);
   });
 });
 
 describe("listParticipatingForumThreads — D1 bind cap", () => {
   it("chunks 100 visible forum ids so ranked and retained statements stay within 100 binds", async () => {
-    const paramCounts: number[] = [];
-    const db = drizzleProxy(async (_sql, params) => {
-      paramCounts.push(params.length);
-      return { rows: [] };
-    });
-
-    await threadQueries.listParticipatingForumThreads(db as never, {
-      parentChannelIds: Array.from({ length: 100 }, (_, i) => `forum_${i}`),
-      userId: "viewer_1",
-      activeAfter: "2026-08-05T00:00:00.000Z",
-      limitPerParent: 5,
-      retainId: "thread_1",
-    });
-
-    expect(paramCounts).toHaveLength(4);
-    expect(Math.max(...paramCounts)).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+    const f = createForumFixture(); f.user("viewer_1"); f.user("other");
+    const parentChannelIds = Array.from({ length: 100 }, (_, index) => `forum_${index}`);
+    const expected: string[] = [];
+    for (const parentChannelId of parentChannelIds) {
+      for (let index = 0; index < 6; index++) {
+        const id = `${parentChannelId}:post-${index}`;
+        f.thread({ id, parentChannelId, lastMessageAt: `2026-08-08T0${index}:00:00.000Z` });
+        f.member(id, "viewer_1");
+        if (index > 0) expected.push(id);
+      }
+    }
+    f.thread({ id: "thread_1", parentChannelId: parentChannelIds[99]!, lastMessageAt: "2026-08-01T00:00:00.000Z" });
+    f.member("thread_1", "viewer_1");
+    f.thread({ id: "foreign", parentChannelId: "foreign-forum", lastMessageAt: "2026-08-09T00:00:00.000Z" }); f.member("foreign", "viewer_1");
+    f.thread({ id: "access-only", parentChannelId: parentChannelIds[0]!, lastMessageAt: "2026-08-09T00:00:00.000Z" }); f.member("access-only", "viewer_1", "access", "added");
+    f.thread({ id: "other-viewer", parentChannelId: parentChannelIds[0]!, lastMessageAt: "2026-08-09T00:00:00.000Z" }); f.member("other-viewer", "other");
+    const input = { parentChannelIds: [...parentChannelIds, parentChannelIds[0]!], userId: "viewer_1", activeAfter: "2026-08-05T00:00:00.000Z", limitPerParent: 5, retainId: "thread_1" };
+    const snapshot = structuredClone(input);
+    const result = await threadQueries.listParticipatingForumThreads(f.db, input);
+    expect(result.canonical.map(row => row.id).sort()).toEqual(expected.sort());
+    expect(result.retained).toMatchObject({ id: "thread_1", parentChannelId: parentChannelIds[99] });
+    expect(result.retainedDisposition).toBe("eligible");
+    expect(input).toEqual(snapshot);
+    expectD1Budget(f.queries);
+    f.tag("retained-archived", "opener-thread_1", FORUM_ARCHIVE_TAG);
+    f.queries.length = 0;
+    const archived = await threadQueries.listParticipatingForumThreads(f.db, input);
+    expect(archived.canonical.map(row => row.id).sort()).toEqual(expected);
+    expect(archived.retained).toBeNull();
+    expect(archived.retainedDisposition).toBe("opener-archived");
+    expectD1Budget(f.queries);
   });
 });
 
@@ -488,10 +506,11 @@ describe("listParticipatingThreadIds", () => {
     expect(db.select).not.toHaveBeenCalled();
   });
 
-  it("returns the participating thread ids", async () => {
-    const db = whereMock([{ channelId: "t1" }, { channelId: "t3" }]);
-    const res = await threadQueries.listParticipatingThreadIds(db, ["t1", "t2", "t3"], "u1");
-    expect(res).toEqual(["t1", "t3"]);
+  it("returns only requested notify channels for the selected user", async () => {
+    const f = createForumFixture(); f.user("u1"); f.user("u2");
+    for (const id of ["t1", "t2", "t3", "t4"]) f.thread({ id });
+    f.member("t1", "u1"); f.member("t3", "u1"); f.member("t2", "u2"); f.member("t2", "u1", "access", "added"); f.member("t4", "u1");
+    expect((await threadQueries.listParticipatingThreadIds(f.db, ["t1", "t2", "t3"], "u1")).sort()).toEqual(["t1", "t3"]);
   });
 });
 
@@ -505,12 +524,7 @@ describe("removeParticipantFromChildChannels — member-remove notify cascade", 
     deleteChain.delete = vi.fn(() => deleteChain);
     deleteChain.where = vi.fn(() => deleteChain);
     deleteChain.returning = vi.fn(() => Promise.resolve(deletedRows));
-    return {
-      select: selectChain.select,
-      from: selectChain.from,
-      where: selectChain.where,
-      delete: deleteChain.delete,
-    } as any;
+    return { select: selectChain.select, from: selectChain.from, where: selectChain.where, delete: deleteChain.delete } as any;
   }
 
   it("skips the delete when the parent has no children", async () => {
@@ -520,10 +534,13 @@ describe("removeParticipantFromChildChannels — member-remove notify cascade", 
     expect(db.delete).not.toHaveBeenCalled();
   });
 
-  it("deletes the user's participant rows across the parent's children", async () => {
-    const db = makeDb([{ id: "p1" }, { id: "p2" }], [{ id: "tp1" }, { id: "tp2" }]);
-    const n = await threadQueries.removeParticipantFromChildChannels(db, "forum_1", "u_removed");
-    expect(n).toBe(2);
-    expect(db.delete).toHaveBeenCalled();
+  it("deletes only the selected user's child notify rows and preserves physical neighbors", async () => {
+    const f = createForumFixture(); f.user("u_removed"); f.user("other");
+    f.thread({ id: "p1" }); f.thread({ id: "p2" }); f.thread({ id: "foreign", parentChannelId: "forum_2" });
+    f.member("p1", "u_removed"); f.member("p2", "u_removed"); f.member("foreign", "u_removed");
+    f.member("p1", "other"); f.member("p1", "u_removed", "access", "added"); f.member("forum_1", "u_removed", "access", "added");
+    const before = f.members();
+    expect(await threadQueries.removeParticipantFromChildChannels(f.db, "forum_1", "u_removed")).toBe(2);
+    expect(f.members()).toEqual(before.filter(row => !(row.user_id === "u_removed" && row.relation === "notify" && ["p1", "p2"].includes(row.channel_id))));
   });
 });
