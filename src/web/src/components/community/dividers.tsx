@@ -4,9 +4,9 @@ import { tid } from "@/lib/community/testids"
 export function DateDivider({ label }: { label: string }) {
   return (
     <div className="my-2 flex items-center gap-2">
-      <Separator className="flex-1" />
+      <Separator className="flex-1 bg-(--message-date-divider,var(--border))" />
       <span className="text-xs text-muted-foreground" suppressHydrationWarning>{label}</span>
-      <Separator className="flex-1" />
+      <Separator className="flex-1 bg-(--message-date-divider,var(--border))" />
     </div>
   )
 }

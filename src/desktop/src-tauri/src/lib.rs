@@ -199,18 +199,15 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         commands::setup_tray(app)?;
         updater::auto_check_updates(app.handle().clone());
 
-        // macOS: inset the webview with rounded corners, window bg as frame
-        #[cfg(target_os = "macos")]
-        {
-            if let Some(window) = app.get_webview_window("main") {
-                match window.theme() {
-                    Ok(theme) => {
-                        commands::set_window_theme(window.clone(), theme == tauri::Theme::Dark);
-                    }
-                    Err(error) => eprintln!("startup window theme unavailable: {error}"),
+        if let Some(window) = app.get_webview_window("main") {
+            match window.theme() {
+                Ok(theme) => {
+                    commands::set_window_theme(window.clone(), theme == tauri::Theme::Dark, None);
                 }
-                macos_window::setup_inset_webview(&window);
+                Err(error) => eprintln!("startup window theme unavailable: {error}"),
             }
+            #[cfg(target_os = "macos")]
+            macos_window::setup_inset_webview(&window);
         }
         let main = app.get_webview_window("main");
         #[cfg(all(target_os = "macos", debug_assertions))]

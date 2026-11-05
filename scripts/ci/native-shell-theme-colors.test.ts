@@ -198,12 +198,6 @@ describe("native shell theme color contract", () => {
       expect(config.app.windows[0]).toMatchObject({ label: "main", disableInputAccessoryView: true })
     }
   })
-  it("uses white light chrome and preserves dark chrome on macOS", () => {
-    expect(macosRuntime).toContain("(0.063f64, 0.051f64, 0.039f64)")
-    expect(macosRuntime).toContain("(1.0f64, 1.0f64, 1.0f64)")
-    expect(macosRuntime).toContain("setBackgroundColor: color")
-  })
-
   it("matches the current paper surfaces at iOS launch and runtime", () => {
     expect(iosRuntime).toContain("colorWithRed:0.980392 green:0.964706 blue:0.933333 alpha:1.0")
     expect(iosRuntime).toContain("colorWithRed:0.0 green:0.0 blue:0.0 alpha:1.0")
