@@ -21,12 +21,13 @@ describe("saved artwork integrity independent of current source", () => {
       const file = join(directory, "surface.css")
       writeFileSync(file, "body { color: red }")
       const inputs = artworkInputHashes([file], [])
+      const originalInputs = structuredClone(inputs)
       const saved = { inputs }
       assertArtworkProvenance(saved, [])
       writeFileSync(file, "body { color: blue }")
       expect(artworkInputHashes([file], [])).not.toEqual(inputs)
       expect(() => assertArtworkProvenance(saved, [])).not.toThrow()
-      expect(saved.inputs).toBe(inputs)
+      expect(saved.inputs).toEqual(originalInputs)
     } finally { rmSync(directory, { recursive: true, force: true }) }
   })
   it("accepts historical batches with different real source closures", () => {
