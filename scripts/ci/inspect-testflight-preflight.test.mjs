@@ -105,7 +105,8 @@ test("missing contact, reviewer login, localized test info or notes never counts
   const invalid = await inspectPreflight(fixtures({ appMetadata: invalidLocale, targetBuild: nullLocaleNotes }).get)
   assert.equal(invalid.metadata.primaryLocale, null)
   assert.equal(invalid.metadata.primaryLocaleTestInfoComplete, false)
-  assert.equal(invalid.build.primaryLocaleNotesPresent, false)
+  assert.equal(invalid.build.primaryLocaleNotesPresent, null)
+  assert.equal(invalid.build.primaryLocaleNoteRecordCount, null)
   assert.equal(invalid.submissionPrerequisitesComplete, false)
 })
 
@@ -147,6 +148,63 @@ test("partial group/notes relationships stay unknown; group duplicates and disab
   assert.equal((await inspectPreflight(fixtures({ existingPublicGroup: duplicates }).get)).publicGroup.enabled, null)
   const disabled = changed(groups, x => { x.data[0].attributes.publicLinkEnabled = false })
   assert.equal((await inspectPreflight(fixtures({ existingPublicGroup: disabled }).get)).submissionPrerequisitesComplete, false)
+})
+
+test("primary note records distinguish absence, blank values, nonempty text and unknown attributes without exposing values", async () => {
+  const absent = changed(builds, x => { x.data[0].relationships.betaBuildLocalizations.data = []; x.included = x.included.filter(row => row.type !== "betaBuildLocalizations") })
+  const absentReceipt = await inspectPreflight(fixtures({ targetBuild: absent }).get)
+  assert.equal(absentReceipt.build.notesInspectionComplete, true)
+  assert.equal(absentReceipt.build.primaryLocaleNoteRecordCount, 0)
+  assert.equal(absentReceipt.build.primaryLocaleNoteRecordExists, false)
+  assert.equal(absentReceipt.build.primaryLocaleNoteRecordUnique, false)
+  assert.equal(absentReceipt.build.primaryLocaleNoteRecordBlank, null)
+  for (const value of ["", "  ", null, "private-notes", undefined, 42]) {
+    const note = changed(builds, x => { x.included[2].attributes.whatsNew = value })
+    const receipt = await inspectPreflight(fixtures({ targetBuild: note }).get)
+    assert.equal(receipt.build.notesInspectionComplete, true)
+    assert.equal(receipt.build.primaryLocaleNoteRecordCount, 1)
+    assert.equal(receipt.build.primaryLocaleNoteRecordExists, true)
+    assert.equal(receipt.build.primaryLocaleNoteRecordUnique, true)
+    assert.equal(receipt.build.primaryLocaleNoteRecordBlank, value === null || typeof value === "string" ? !(typeof value === "string" && value.trim().length) : null)
+    for (const secret of ["note-1", "private-notes", privateText]) assert.equal(JSON.stringify(receipt).includes(secret), false)
+  }
+})
+
+test("two primary-locale records remain nonunique even when one is nonempty; unrelated locale rows are excluded", async () => {
+  const duplicateLocale = changed(builds, x => {
+    x.data[0].relationships.betaBuildLocalizations.data.push({ type: "betaBuildLocalizations", id: "note-2" })
+    x.included.push({ type: "betaBuildLocalizations", id: "note-2", attributes: { locale: "en-US", whatsNew: "" } })
+  })
+  const ambiguous = await inspectPreflight(fixtures({ targetBuild: duplicateLocale }).get)
+  assert.equal(ambiguous.build.notesInspectionComplete, true)
+  assert.equal(ambiguous.build.primaryLocaleNoteRecordCount, 2)
+  assert.equal(ambiguous.build.primaryLocaleNoteRecordExists, true)
+  assert.equal(ambiguous.build.primaryLocaleNoteRecordUnique, false)
+  assert.equal(ambiguous.build.primaryLocaleNoteRecordBlank, null)
+  const secondary = changed(duplicateLocale, x => { x.included.at(-1).attributes.locale = "zh-Hans" })
+  const unique = await inspectPreflight(fixtures({ targetBuild: secondary }).get)
+  assert.equal(unique.build.primaryLocaleNoteRecordCount, 1)
+  assert.equal(unique.build.primaryLocaleNoteRecordUnique, true)
+  assert.equal(unique.build.primaryLocaleNoteRecordBlank, false)
+})
+
+test("invalid, duplicate or incomplete note relationships cannot produce definitive record counts", async () => {
+  const malformed = [
+    x => { x.data[0].relationships.betaBuildLocalizations.data.push({ ...x.data[0].relationships.betaBuildLocalizations.data[0] }) },
+    x => { x.included.push(structuredClone(x.included[2])) },
+    x => { x.data[0].relationships.betaBuildLocalizations.data[0].type = "other" },
+    x => { x.data[0].relationships.betaBuildLocalizations.data[0].id = "../other"; x.included[2].id = "../other" },
+    x => { x.included[2].attributes.locale = privateText },
+    x => { delete x.included[2].attributes.locale },
+    x => { x.data[0].relationships.betaBuildLocalizations.links = { next: "private-next" } },
+    x => { x.data[0].relationships.betaBuildLocalizations.meta = { paging: { total: 2 } } },
+    x => { x.included.pop() },
+  ]
+  for (const mutate of malformed) {
+    const receipt = await inspectPreflight(fixtures({ targetBuild: changed(builds, mutate) }).get)
+    assert.equal(receipt.build.notesInspectionComplete, false)
+    for (const field of ["primaryLocaleNoteRecordCount", "primaryLocaleNoteRecordExists", "primaryLocaleNoteRecordUnique", "primaryLocaleNoteRecordBlank"]) assert.equal(receipt.build[field], null)
+  }
 })
 
 test("wrong bundle, ambiguous build or wrong prerelease stops before broader reads", async () => {

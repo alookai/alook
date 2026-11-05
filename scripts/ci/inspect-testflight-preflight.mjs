@@ -166,14 +166,27 @@ export async function inspectPreflight(get) {
     const associationsComplete = associatedIds !== null && associatedIds.length === groupRelation.data.length && !groupRelation.links?.next && associatedIds.length < 50
       && !(groupRelation.meta?.paging?.total > associatedIds.length)
     const noteRelation = build.relationships?.betaBuildLocalizations
-    const notesComplete = Array.isArray(noteRelation?.data) && noteRelation.data.length < 50 && !noteRelation.links?.next
-      && notes.length === noteRelation.data.length && !(noteRelation.meta?.paging?.total > notes.length)
+    const noteIds = Array.isArray(noteRelation?.data) ? noteRelation.data.filter(row => row?.type === "betaBuildLocalizations" && typeof row.id === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(row.id)).map(row => row.id) : null
+    const notesComplete = noteIds !== null && noteIds.length === noteRelation.data.length && new Set(noteIds).size === noteIds.length
+      && noteIds.length < 50 && !noteRelation.links?.next && notes.length === noteIds.length
+      && noteIds.every(id => notes.filter(row => row.id === id).length === 1)
+      && notes.every(row => typeof row.attributes?.locale === "string" && /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/.test(row.attributes.locale))
+      && !(noteRelation.meta?.paging?.total > notes.length)
+    const primaryNotes = notes.filter(row => primaryLocale !== null && row.attributes?.locale === primaryLocale)
+    const primaryNoteCount = notesComplete && primaryLocale !== null ? primaryNotes.length : null
+    const uniquePrimaryNote = primaryNoteCount === 1 ? primaryNotes[0].attributes : null
+    const primaryNoteBlank = uniquePrimaryNote && (uniquePrimaryNote.whatsNew === null || typeof uniquePrimaryNote.whatsNew === "string")
+      ? !present(uniquePrimaryNote.whatsNew) : null
     result.build = { processingState: state(build.attributes.processingState), expired: typeof build.attributes.expired === "boolean" ? build.attributes.expired : null,
       audience: state(build.attributes.buildAudienceType), encryptionDeclarationPresent: typeof build.attributes.usesNonExemptEncryption === "boolean",
       internalBuildState: state(beta?.internalBuildState), externalBuildState: state(beta?.externalBuildState),
       autoNotifyEnabled: typeof beta?.autoNotifyEnabled === "boolean" ? beta.autoNotifyEnabled : null,
       existingBetaReviewState: state(review?.betaReviewState), primaryLocaleNotesPresent: primaryLocale !== null && notes.some(row => row.attributes?.locale === primaryLocale && present(row.attributes?.whatsNew)) ? true : notesComplete ? false : null,
       notesInspectionComplete: notesComplete,
+      primaryLocaleNoteRecordCount: primaryNoteCount,
+      primaryLocaleNoteRecordExists: primaryNoteCount === null ? null : primaryNoteCount > 0,
+      primaryLocaleNoteRecordUnique: primaryNoteCount === null ? null : primaryNoteCount === 1,
+      primaryLocaleNoteRecordBlank: primaryNoteBlank,
       groupAssociationComplete: associationsComplete, associatedGroupCount: associationsComplete ? new Set(associatedIds).size : null }
 
     stage = "existingPublicGroup"
