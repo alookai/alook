@@ -55,10 +55,10 @@ export async function readShellEnvironment(options: { env?: NodeJS.ProcessEnv; p
     const child = (options.spawnProcess ?? spawn)(command.file, command.args, { env: command.env, argv0: command.argv0, detached: platform !== "win32", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
     const chunks: Buffer[] = [];
     let bytes = 0;
-    let failed = false;
-    const fail = (): void => {
-      if (failed) return;
-      failed = true;
+    let failure: "timeout" | "output_limit" | undefined;
+    const fail = (cause: "timeout" | "output_limit"): void => {
+      if (failure) return;
+      failure = cause;
       if (child.pid) {
         if (platform === "win32") {
           const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
@@ -68,18 +68,18 @@ export async function readShellEnvironment(options: { env?: NodeJS.ProcessEnv; p
         }
       }
     };
-    const timeout = setTimeout(fail, options.timeoutMs ?? 5000);
+    const timeout = setTimeout(() => fail("timeout"), options.timeoutMs ?? 5000);
     child.stdout.on("data", (data: Buffer) => {
       bytes += data.length;
-      if (bytes > MAX_BYTES) fail();
+      if (bytes > MAX_BYTES) fail("output_limit");
       else chunks.push(data);
     });
-    child.once("error", () => { clearTimeout(timeout); reject(new Error("environment_unavailable")); });
+    child.once("error", () => { clearTimeout(timeout); reject(new Error("environment_unavailable", { cause: failure ?? "child_error" })); });
     child.once("close", (code) => {
       clearTimeout(timeout);
-      if (failed || code !== 0) { reject(new Error("environment_unavailable")); return; }
+      if (failure || code !== 0) { reject(new Error("environment_unavailable", { cause: failure ?? "exit" })); return; }
       try { resolve(parseShellEnvironment(Buffer.concat(chunks), platform)); }
-      catch { reject(new Error("environment_unavailable")); }
+      catch { reject(new Error("environment_unavailable", { cause: "parse" })); }
     });
   });
 }

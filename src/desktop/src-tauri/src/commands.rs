@@ -1257,8 +1257,26 @@ mod tests {
 
     #[test]
     fn tray_icon_template_mode_matches_the_current_platform() {
-        assert!(!TRAY_ICON_BYTES.is_empty());
+        let image = tauri::image::Image::from_bytes(TRAY_ICON_BYTES).expect("compiled tray image");
+        assert_eq!((image.width(), image.height()), (36, 36));
+        assert_eq!(image.rgba().len(), 36 * 36 * 4);
+        let pixels: Vec<_> = image.rgba().chunks_exact(4).collect();
+        assert!(pixels.iter().any(|pixel| pixel[3] > 0));
+        assert!(pixels.iter().any(|pixel| pixel[3] == 0));
         assert_eq!(TRAY_ICON_IS_TEMPLATE, cfg!(target_os = "macos"));
+        if cfg!(target_os = "macos") {
+            assert!(pixels
+                .iter()
+                .filter(|pixel| pixel[3] > 0)
+                .all(|pixel| pixel[..3] == [0, 0, 0]));
+        } else {
+            let colors: std::collections::HashSet<_> = pixels
+                .iter()
+                .filter(|pixel| pixel[3] > 0)
+                .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+                .collect();
+            assert!(colors.len() > 5);
+        }
     }
 
     #[test]
