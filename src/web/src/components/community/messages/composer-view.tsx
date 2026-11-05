@@ -127,7 +127,7 @@ export function ComposerView({
       />
 
       {replyingTo && (
-        <div className="flex items-center gap-2 rounded-t-xl border border-b-0 border-border/40 bg-muted/60 px-4 py-2 text-xs text-muted-foreground">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-t-xl border border-b-0 border-border/40 bg-muted px-4 py-2 text-xs text-muted-foreground">
           <div
             data-slot="composer-reply-preview"
             className="min-w-0 flex-1 truncate"
@@ -151,7 +151,7 @@ export function ComposerView({
 
       {pendingFiles.length > 0 && (
         <div
-          className={`flex flex-wrap gap-2 border-x border-b border-border/40 bg-muted/40 px-4 py-2 ${replyingTo ? "" : "rounded-t-xl border-t"}`}
+          className={`pointer-events-auto flex flex-wrap gap-2 border-x border-b border-border/40 bg-muted px-4 py-2 ${replyingTo ? "" : "rounded-t-xl border-t"}`}
         >
           {pendingFiles.map((pendingFile, index) => {
             const isImage = pendingFile.file.type.startsWith("image/")
@@ -186,7 +186,7 @@ export function ComposerView({
 
       <div
         data-slot="community-composer-base"
-        className={`relative ${
+        className={`pointer-events-auto relative ${
           isForumThreadBody
             ? "bg-transparent ring-0"
             : "bg-muted shadow-(--e1) ring-1 ring-border/40 transition-shadow focus-within:ring-2 focus-within:ring-ring/60"

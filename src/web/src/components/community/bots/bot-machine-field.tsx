@@ -59,7 +59,7 @@ export function BotMachineField({ machines, machineId, onChange, error, radioNam
                         <span
                           className={cn(
                             "inline-block size-1.5 rounded-full",
-                            online ? "bg-status-online" : "bg-muted-foreground",
+                            online ? "bg-status-online" : "bg-status-offline",
                           )}
                         />
                         {online ? "Online" : "Offline"}

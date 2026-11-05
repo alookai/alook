@@ -1,17 +1,19 @@
 #include "bindings/bindings.h"
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
+#import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 
 static UIColor *alookLightColor(void) {
-    return [UIColor colorWithRed:1.0 green:1.0 blue:1.0 alpha:1.0];
+    return [UIColor colorWithRed:0.980392 green:0.964706 blue:0.933333 alpha:1.0];
 }
 
 static UIColor *alookDarkColor(void) {
-    return [UIColor colorWithRed:0.063 green:0.051 blue:0.039 alpha:1.0];
+    return [UIColor colorWithRed:0.0 green:0.0 blue:0.0 alpha:1.0];
 }
 
 static const void *kAlookResolvedDarkThemeKey = &kAlookResolvedDarkThemeKey;
+static const void *kAlookWebBackgroundKey = &kAlookWebBackgroundKey;
 static const void *kAlookWebDarkThemeKey = &kAlookWebDarkThemeKey;
 static const void *kAlookSafeAreaTopKey = &kAlookSafeAreaTopKey;
 static const void *kAlookKeyboardLayoutViewKey = &kAlookKeyboardLayoutViewKey;
@@ -169,40 +171,93 @@ static void alookInstallCommunityRootScrollLock(UIView *host, WKWebView *webView
 
 static NSDictionary *alookMeasureKeyboardSnapshot(UIViewController *controller, WKWebView *webView) {
     UIView *host = controller.view;
-    CGRect keyboardFrame = [webView convertRect:host.keyboardLayoutGuide.layoutFrame fromView:host];
+    CGRect guideFrame = host.keyboardLayoutGuide.layoutFrame;
+    UIView *tracker = objc_getAssociatedObject(controller, kAlookKeyboardLayoutViewKey);
+    CALayer *presentation = tracker.layer.presentationLayer;
+    if (presentation != nil) {
+        CGFloat top = CGRectGetMaxY(presentation.frame);
+        guideFrame = CGRectMake(guideFrame.origin.x, top, guideFrame.size.width,
+                                MAX(0, CGRectGetMaxY(host.bounds) - top));
+    }
+    CGRect keyboardFrame = [webView convertRect:guideFrame fromView:host];
     CGRect bounds = webView.bounds;
     CGFloat bottomInset = alookKeyboardBottomInset(bounds, keyboardFrame,
-        host.keyboardLayoutGuide.layoutFrame, host.safeAreaLayoutGuide.layoutFrame);
+        guideFrame, host.safeAreaLayoutGuide.layoutFrame);
     return @{
         @"bottomInset": @(bottomInset),
         @"viewportWidth": @(bounds.size.width)
     };
 }
 
-static void alookPublishKeyboardSnapshots(UIViewController *controller) {
+static void alookPublishKeyboardSnapshots(UIViewController *controller, BOOL animating) {
     if (!alookIsTauriRootController(controller) || !controller.isViewLoaded) return;
     for (UIView *subview in controller.view.subviews) {
         if (![subview isKindOfClass:[WKWebView class]]) continue;
         WKWebView *webView = (WKWebView *)subview;
-        NSDictionary *snapshot = alookMeasureKeyboardSnapshot(controller, webView);
+        NSMutableDictionary *snapshot = [alookMeasureKeyboardSnapshot(controller, webView) mutableCopy];
+        snapshot[@"isAnimating"] = @(animating);
         NSDictionary *published = objc_getAssociatedObject(webView, kAlookPublishedKeyboardSnapshotKey);
         if (![snapshot isEqualToDictionary:published]) {
             objc_setAssociatedObject(webView, kAlookPublishedKeyboardSnapshotKey, snapshot, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            [webView evaluateJavaScript:@"window.dispatchEvent(new Event('alook:keyboard-change'))" completionHandler:nil];
+            NSData *json = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:nil];
+            NSString *detail = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
+            NSString *script = [NSString stringWithFormat:
+                @"window.dispatchEvent(new CustomEvent('alook:keyboard-change',{detail:%@}))", detail];
+            [webView evaluateJavaScript:script completionHandler:nil];
         }
     }
 }
 
 @interface AlookKeyboardLayoutView : UIView
 @property (nonatomic, weak) UIViewController *viewController;
+@property (nonatomic, strong) CADisplayLink *displayLink;
+@property (nonatomic) CFTimeInterval animationDeadline;
+@property (nonatomic) CFTimeInterval animationTimeout;
+- (void)keyboardWillChange:(NSNotification *)notification;
 @end
 
 @implementation AlookKeyboardLayoutView
 
+- (void)keyboardWillChange:(NSNotification *)notification {
+    NSTimeInterval duration = [notification.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    self.animationDeadline = CACurrentMediaTime() + duration;
+    self.animationTimeout = self.animationDeadline + 1.0;
+    if (self.displayLink == nil) {
+        self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(sampleKeyboard:)];
+        [self.displayLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+    }
+}
+
+- (void)sampleKeyboard:(CADisplayLink *)link {
+    UIViewController *controller = self.viewController;
+    CALayer *presentation = self.layer.presentationLayer;
+    BOOL settled = presentation == nil || fabs(CGRectGetMaxY(presentation.frame) - CGRectGetMaxY(self.frame)) < 0.25;
+    BOOL animating = controller != nil && self.window != nil
+        && (link.timestamp < self.animationDeadline || (!settled && link.timestamp < self.animationTimeout));
+    alookPublishKeyboardSnapshots(controller, animating);
+    if (!animating) {
+        [self.displayLink invalidate];
+        self.displayLink = nil;
+    }
+}
+
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    if (self.window == nil) {
+        [self.displayLink invalidate];
+        self.displayLink = nil;
+    }
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    [self.displayLink invalidate];
+}
+
 - (void)layoutSubviews {
     [super layoutSubviews];
     UIViewController *controller = self.viewController;
-    if (controller != nil && self.superview == controller.view) alookPublishKeyboardSnapshots(controller);
+    if (controller != nil && self.superview == controller.view && self.displayLink == nil) alookPublishKeyboardSnapshots(controller, NO);
 }
 
 @end
@@ -215,6 +270,8 @@ static void alookInstallKeyboardLayout(UIViewController *controller) {
     [previous removeFromSuperview];
     AlookKeyboardLayoutView *content = [[AlookKeyboardLayoutView alloc] init];
     content.viewController = controller;
+    [NSNotificationCenter.defaultCenter addObserver:content selector:@selector(keyboardWillChange:)
+        name:UIKeyboardWillChangeFrameNotification object:nil];
     content.accessibilityIdentifier = @"alook.keyboard-layout";
     content.accessibilityElementsHidden = YES;
     content.userInteractionEnabled = NO;
@@ -314,7 +371,8 @@ static void alookApplyTheme(UIViewController *viewController, BOOL isDark) {
         @(isDark),
         OBJC_ASSOCIATION_RETAIN_NONATOMIC
     );
-    viewController.view.backgroundColor = isDark ? alookDarkColor() : alookLightColor();
+    UIColor *webBackground = objc_getAssociatedObject(viewController, kAlookWebBackgroundKey);
+    viewController.view.backgroundColor = webBackground ?: (isDark ? alookDarkColor() : alookLightColor());
     if (statusBarNeedsUpdate) [viewController setNeedsStatusBarAppearanceUpdate];
 }
 
@@ -370,13 +428,26 @@ static NSString *const kThemeObserverScript =
     @"(function(){"
     "if(window.__alookThemeObserverInstalled)return;"
     "window.__alookThemeObserverInstalled=true;"
+    "function background(){"
+    "if(!document.body)return null;"
+    "var c=document.createElement('canvas');c.width=c.height=1;"
+    "var x=c.getContext('2d');if(!x)return null;"
+    "var m=document.querySelector('meta[name=theme-color]');"
+    "x.fillStyle=m&&m.content?m.content:getComputedStyle(document.body).backgroundColor;"
+    "x.fillRect(0,0,1,1);var p=x.getImageData(0,0,1,1).data;"
+    "if(p[3]!==255)return null;"
+    "return '#'+Array.from(p).slice(0,3).map(function(v){"
+    "return v.toString(16).padStart(2,'0');}).join('');}"
     "function sync(){var r=document.documentElement;"
     "var d=r.classList.contains('dark');"
     "if(!d&&!r.classList.contains('light'))return;"
-    "window.webkit.messageHandlers.alookTheme.postMessage(d?'dark':'light');}"
+    "window.webkit.messageHandlers.alookTheme.postMessage({theme:d?'dark':'light',background:background()});}"
+    "document.addEventListener('DOMContentLoaded',sync);"
+    "window.addEventListener('load',sync);"
+    "window.addEventListener('alook:theme-color-change',sync);"
     "sync();"
     "new MutationObserver(sync).observe(document.documentElement,"
-    "{attributes:true,attributeFilter:['class']});"
+    "{attributes:true,attributeFilter:['class','data-tn-mode']});"
     "})();";
 
 @interface AlookThemeHandler : NSObject <WKScriptMessageHandler>
@@ -388,7 +459,21 @@ static NSString *const kThemeObserverScript =
 - (void)userContentController:(WKUserContentController *)userContentController
       didReceiveScriptMessage:(WKScriptMessage *)message {
     if (![message.name isEqualToString:@"alookTheme"]) return;
-    NSString *theme = message.body;
+    NSDictionary *payload = [message.body isKindOfClass:NSDictionary.class] ? message.body : nil;
+    NSString *theme = payload != nil ? payload[@"theme"] : message.body;
+    if (![theme isKindOfClass:NSString.class] ||
+        (![theme isEqualToString:@"dark"] && ![theme isEqualToString:@"light"])) return;
+    NSString *hex = payload[@"background"];
+    UIColor *background = nil;
+    if ([hex isKindOfClass:NSString.class] && hex.length == 7 && [hex hasPrefix:@"#"]) {
+        unsigned int rgb = 0;
+        NSScanner *scanner = [NSScanner scannerWithString:[hex substringFromIndex:1]];
+        if ([scanner scanHexInt:&rgb] && scanner.isAtEnd) {
+            background = [UIColor colorWithRed:((rgb >> 16) & 255) / 255.0
+                                        green:((rgb >> 8) & 255) / 255.0
+                                         blue:(rgb & 255) / 255.0 alpha:1.0];
+        }
+    }
     BOOL isDark = [theme isEqualToString:@"dark"];
     dispatch_async(dispatch_get_main_queue(), ^{
         UIViewController *viewController = self.viewController;
@@ -399,6 +484,7 @@ static NSString *const kThemeObserverScript =
             @(isDark),
             OBJC_ASSOCIATION_RETAIN_NONATOMIC
         );
+        objc_setAssociatedObject(viewController, kAlookWebBackgroundKey, background, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         alookApplyTheme(viewController, isDark);
     });
 }
@@ -535,6 +621,8 @@ static NSString *const kThemeObserverScript =
 
             WKWebView *webView = (WKWebView *)subview;
             if (isTauriRoot) {
+                // The native frame already consumes safe areas. Do not inset the scroll view a second time.
+                webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
                 alookInstallCommunityRootScrollLock(self.view, webView);
                 NSNumber *previousTop = objc_getAssociatedObject(webView, kAlookSafeAreaTopKey);
                 if (previousTop == nil) {
@@ -580,7 +668,8 @@ static NSString *const kThemeObserverScript =
             alookApplyTheme(self, alookEffectiveDarkTheme(self));
         }
     }
-    if (isTauriRoot) alookPublishKeyboardSnapshots(self);
+    AlookKeyboardLayoutView *tracker = objc_getAssociatedObject(self, kAlookKeyboardLayoutViewKey);
+    if (isTauriRoot && tracker.displayLink == nil) alookPublishKeyboardSnapshots(self, NO);
 }
 
 @end

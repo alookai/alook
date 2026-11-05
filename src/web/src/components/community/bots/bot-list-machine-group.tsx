@@ -56,7 +56,7 @@ export function renderBotMachineGroup(
             <span
               className={[
                 "inline-block size-1.5 shrink-0 rounded-full",
-                machineOnline ? "bg-status-online" : "bg-muted-foreground",
+                machine?.status === undefined ? "bg-muted-foreground" : machineOnline ? "bg-status-online" : "bg-status-offline",
               ].join(" ")}
             />
           </button>

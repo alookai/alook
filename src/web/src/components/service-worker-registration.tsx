@@ -3,9 +3,9 @@
 import { useEffect } from "react"
 import { useSelector } from "@tanstack/react-store"
 import { businessSchemaLifecycle, rememberBusinessUpdateAttempt, retryBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
-import { tid } from "@/lib/community/testids"
 import { AnimatedAlookLogo } from "@/components/community/shell/animated-alook-logo"
 import { Button } from "@/components/ui/button"
+import { tid } from "@/lib/community/testids"
 
 export function ServiceWorkerRegistration() {
   const phase = useSelector(businessSchemaLifecycle, state => state.phase)

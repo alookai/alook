@@ -30,7 +30,7 @@ export function BotCardView({ bot, online, statusKnown, statusLabel, statusActio
               <span title={bot.name} className="min-w-0 max-w-full truncate text-[15px] font-medium text-foreground">
                 {bot.name}
               </span>
-              <PresenceStatus online={online === true} label={statusLabel ?? (!statusKnown ? "Status unknown" : online ? "Online" : "Offline")} />
+              <PresenceStatus online={online === true} known={statusKnown} label={statusLabel ?? (!statusKnown ? "Status unknown" : online ? "Online" : "Offline")} />
               {statusAction}
             </div>
             <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">

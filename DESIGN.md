@@ -60,7 +60,10 @@ Inspired by vintage Macintosh product photography — a warm cream object on a d
 
 | Token | Role |
 | --- | --- |
-| `background` / `foreground` | Page surface and primary text. The warm cream-vs-near-black pair. |
+| `background` / `foreground` | Main reading canvas and primary text. Light paper is brighter than the navigation paper; dark reading is black. |
+| `sidebar` / `sidebar-foreground` | Navigation surface and labels. It must remain distinct from the reading canvas in both modes. |
+| `app-frame` | Outer application chassis, including the server rail. |
+| `app-bg` | Existing alias of `background` for reading-canvas consumers. |
 | `card` / `popover` | Raised surfaces — slightly lighter (light) / lighter (dark) than `background`. |
 | `primary` / `primary-foreground` | The single most important action or the strongest text. Solid warm fill. |
 | `secondary` / `secondary-foreground` | Secondary surfaces and controls. |
@@ -68,9 +71,11 @@ Inspired by vintage Macintosh product photography — a warm cream object on a d
 | `accent` / `accent-foreground` | Hover tint and gentle emphasis. |
 | `border` / `input` / `ring` | Dividers, field outlines, and the focus ring. |
 | `destructive` | Errors and irreversible actions only. Warm red — never repurpose it for emphasis. |
-| `status-online` / `status-offline` | Presence dots only (green / red). Reserved — do not use as UI accents. |
+| `status-online` / `status-offline` | Presence dots only (green online / deep gray offline). Reserved — do not use as UI accents. |
 | `warning` | Recoverable degraded states that need attention without implying failure. Muted amber. |
 | `sidebar-*` | Sidebar-scoped variants of the above, so the rail can read distinctly from content. |
+
+The application frame, navigation, and reading canvas are separate semantic surfaces. Keep their assignments in the theme, not in individual channel, DM, Me, or message-row fixes. AppSurface uses the reading canvas; AppBackground uses the outer frame. On mobile community pages, native chrome follows the active list or detail surface after navigation and theme changes, including while the keyboard is open. Desktop and non-community pages follow the painted document surface. Landing and authentication keep their own paper backgrounds; their embedded application uses the same application surface tokens.
 
 Rules:
 - **Pick tokens by intent, not by lightness.** Don't reach for `muted` because it "looks the right gray" — reach for it because the content is genuinely secondary.

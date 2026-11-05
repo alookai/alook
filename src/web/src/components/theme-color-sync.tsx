@@ -6,13 +6,21 @@ import { usePathname } from "next/navigation";
 
 const TRANSPARENT_COLORS = new Set(["transparent", "rgba(0, 0, 0, 0)"]);
 
-export function syncThemeColorToRailBackground(
+export function syncThemeColorToVisibleBackground(
   doc: Document = document,
   readStyle: typeof getComputedStyle = getComputedStyle,
 ) {
-  // The server rail is transparent, so the body's painted background is its
-  // visible background. Reading the computed value keeps this in sync with CSS.
-  const backgroundColor = readStyle(doc.body).backgroundColor.trim();
+  const pathname = doc.location?.pathname;
+  let surface = pathname === "/c" || pathname?.startsWith("/c/")
+    ? doc.querySelector<HTMLElement>('[data-slot="community-shell-root"] [data-community-mobile-surface]')
+    : null;
+  let backgroundColor = "";
+  while (surface) {
+    backgroundColor = readStyle(surface).backgroundColor.trim();
+    if (backgroundColor && !TRANSPARENT_COLORS.has(backgroundColor)) break;
+    surface = surface.parentElement;
+  }
+  if (!surface) backgroundColor = readStyle(doc.body).backgroundColor.trim();
   if (!backgroundColor || TRANSPARENT_COLORS.has(backgroundColor)) return;
 
   let themeColorMetas = Array.from(
@@ -26,11 +34,14 @@ export function syncThemeColorToRailBackground(
     themeColorMetas = [themeColorMeta];
   }
 
+  let changed = false;
   for (const themeColorMeta of themeColorMetas) {
     if (themeColorMeta.content !== backgroundColor) {
       themeColorMeta.content = backgroundColor;
+      changed = true;
     }
   }
+  if (changed) doc.defaultView?.dispatchEvent(new Event("alook:theme-color-change"));
 }
 
 export function ThemeColorSync() {
@@ -45,14 +56,13 @@ export function ThemeColorSync() {
       if (frame !== null) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         frame = null;
-        syncThemeColorToRailBackground();
+        syncThemeColorToVisibleBackground();
       });
     };
 
-    syncThemeColorToRailBackground();
+    syncThemeColorToVisibleBackground();
     scheduleSync();
 
-    // Next can replace viewport metadata during client navigation.
     const observer = new MutationObserver(() => {
       scheduleSync();
     });
@@ -61,6 +71,12 @@ export function ThemeColorSync() {
       attributeFilter: ["content", "media"],
       childList: true,
       subtree: true,
+    });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-community-mobile-surface"],
     });
 
     return () => {

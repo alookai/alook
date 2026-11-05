@@ -1,5 +1,6 @@
 import { expect, test } from "./_fixtures/case-fixture"
 import { composerEditable } from "./_fixtures/actions"
+import { waitForCommittedGeometry } from "./_fixtures/message-scroll-characterization"
 
 import { tid } from "./_fixtures/testids"
 import type { CaseActors } from "./_fixtures/case-fixture"
@@ -375,8 +376,19 @@ test.describe("desktop thread split view", () => {
     await scroller.hover()
     await page.mouse.wheel(0, -120)
     await expect(parent.locator('[data-message-list-content][data-read-position-ready="true"][data-initial-position-phase="revealed"]')).toBeVisible()
-    await parent.getByTestId(tid.threadIndicator(openerB)).scrollIntoViewIfNeeded()
-    const scrollTop = await scroller.evaluate((node) => node.scrollTop)
+    const targetOpener = parent.getByTestId(tid.threadIndicator(openerB))
+    await targetOpener.scrollIntoViewIfNeeded()
+    const footer = parent.locator('[data-slot="community-conversation-footer"]')
+    const [openerBox, footerBox] = await Promise.all([targetOpener.boundingBox(), footer.boundingBox()])
+    if (!openerBox || !footerBox) throw new Error("Text split readable target is unavailable")
+    const occludedBy = openerBox.y + openerBox.height - footerBox.y
+    if (occludedBy >= 0) await page.mouse.wheel(0, occludedBy + 16)
+    await expect.poll(async () => {
+      const [target, footer] = await Promise.all([targetOpener.boundingBox(), parent.locator('[data-slot="community-conversation-footer"]').boundingBox()])
+      return !!target && !!footer && target.y + target.height <= footer.y - 1
+    }).toBe(true)
+    await targetOpener.click({ trial: true })
+    const scrollTop = (await waitForCommittedGeometry(scroller)).scrollTop
     expect(scrollTop).toBeGreaterThan(0)
     const width = (await thread.boundingBox())?.width ?? 0
     const group = await shell.locator('[data-slot="resizable-panel-group"]').elementHandle()

@@ -57,6 +57,8 @@ type RailMetrics = {
     firstVisibleId: string | null
     firstVisibleOffset: number | null
   }
+  occlusion: number
+  readableBottom: number
   composer: Rect
   footer: Rect
   accessorySlot: Rect
@@ -127,6 +129,8 @@ async function railMetrics(page: Page, finalMessageId?: string): Promise<RailMet
           ? firstVisible.getBoundingClientRect().top - scrollerRect.top
           : null,
       },
+      occlusion: Number(scroller.dataset.composerOcclusion ?? 0),
+      readableBottom: scrollerRect.bottom - Number(scroller.dataset.composerOcclusion ?? 0),
       composer: toRect(composer.getBoundingClientRect()),
       footer: toRect(footer.getBoundingClientRect()),
       accessorySlot: toRect(accessorySlot.getBoundingClientRect()),
@@ -241,8 +245,10 @@ function expectCheckpoint(
   expect(metrics.contentPaddingBottom, evidence).toBe(0)
   expect(metrics.contentPaddingLeft, evidence).toBe(metrics.composerPaddingLeft)
   expect(metrics.contentPaddingRight, evidence).toBe(metrics.composerPaddingRight)
-  expect(metrics.scroller.bottom, evidence).toBeLessThanOrEqual(metrics.composer.top + 1)
-  expect(Math.abs(metrics.scroller.bottom - metrics.footer.top), evidence).toBeLessThanOrEqual(1)
+  expect(metrics.occlusion, evidence).toBe(selection ? 0 : metrics.footer.height)
+  expect(Math.abs(metrics.scroller.bottom - (selection ? metrics.footer.top : metrics.footer.bottom)), evidence).toBeLessThanOrEqual(1)
+  expect(metrics.readableBottom, evidence).toBeLessThanOrEqual(metrics.composer.top + 1)
+  expect(Math.abs(metrics.readableBottom - metrics.footer.top), evidence).toBeLessThanOrEqual(1)
   if (metrics.rail) {
     expect(metrics.railInFooter, evidence).toBe(true)
     expect(metrics.railInScroller, evidence).toBe(false)
@@ -256,15 +262,15 @@ function expectCheckpoint(
   }
   if (metrics.typing?.width) {
     expect(metrics.typing.height, `typing ${evidence}`).toBe(32)
-    expect(Math.abs(metrics.scroller.bottom - metrics.typing.bottom - expectedGap), evidence)
+    expect(Math.abs(metrics.readableBottom - metrics.typing.bottom - expectedGap), evidence)
       .toBeLessThanOrEqual(1)
   }
   if (metrics.center?.width) {
     if (!selection) {
       expect(metrics.rail, evidence).not.toBeNull()
-      expect(Math.abs(metrics.scroller.bottom - metrics.center.bottom - expectedGap), evidence)
+      expect(Math.abs(metrics.readableBottom - metrics.center.bottom - expectedGap), evidence)
         .toBeLessThanOrEqual(1)
-      expect(metrics.rail!.bottom, evidence).toBeLessThanOrEqual(metrics.scroller.bottom + 1)
+      expect(metrics.rail!.bottom, evidence).toBeLessThanOrEqual(metrics.readableBottom + 1)
       expect(metrics.center.height, `scroll ${evidence}`).toBe(32)
     } else {
       expect(metrics.rail, evidence).toBeNull()
@@ -273,8 +279,8 @@ function expectCheckpoint(
       expect(metrics.center.height, `selection ${evidence}`).toBe(width < 640 ? 40 : 38)
     }
   }
-  if (metrics.finalMessage && metrics.finalMessage.bottom <= metrics.scroller.bottom + 1) {
-    const tailGap = metrics.scroller.bottom - metrics.finalMessage.bottom
+  if (metrics.finalMessage && metrics.finalMessage.bottom <= metrics.readableBottom + 1) {
+    const tailGap = metrics.readableBottom - metrics.finalMessage.bottom
     expect(tailGap, evidence).toBeGreaterThanOrEqual(expectedTailGap - 1)
   }
 }
@@ -400,11 +406,11 @@ async function captureEmptyState(
     expect(metrics.contentPaddingBottom).toBe(0)
     expect(metrics.contentPaddingLeft).toBe(metrics.composerPaddingLeft)
     expect(metrics.contentPaddingRight).toBe(metrics.composerPaddingRight)
-    expect(metrics.scroller.bottom - metrics.finalMessage!.bottom)
+    expect(metrics.readableBottom - metrics.finalMessage!.bottom)
       .toBeGreaterThanOrEqual(expectedTailGap - 1)
-    expect(Math.abs(metrics.scroller.bottom - metrics.finalMessage!.bottom - expectedTailGap))
+    expect(Math.abs(metrics.readableBottom - metrics.finalMessage!.bottom - expectedTailGap))
       .toBeLessThanOrEqual(1)
-    expect(metrics.scroller.bottom).toBeLessThanOrEqual(metrics.composer.top + 1)
+    expect(metrics.readableBottom).toBeLessThanOrEqual(metrics.composer.top + 1)
     const documentWidths = await page.evaluate(() => ({
       client: document.documentElement.clientWidth,
       scroll: document.documentElement.scrollWidth,

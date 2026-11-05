@@ -108,6 +108,7 @@ export function useScrollAnchor({
   presentRequest,
   localSubmitVersion,
   tailPaddingEnd = MESSAGE_RAIL_TAIL_PADDING_END_PX,
+  viewportInsetEnd = 0,
   onInitialPositionSettled,
   onUserTakeover,
 }: {
@@ -135,6 +136,7 @@ export function useScrollAnchor({
   presentRequest?: MessageRequest | null
   localSubmitVersion?: number
   tailPaddingEnd?: number
+  viewportInsetEnd?: number
   onInitialPositionSettled?: (outcome: PositionOutcome) => void
   onUserTakeover?: () => void
 }) {
@@ -179,7 +181,7 @@ export function useScrollAnchor({
   const entryActivationRef = useRef({ entry: positionEntry, seen: visible })
   const dataState = positionDataState ?? (initialScrollReady ? items.some(item => item.kind === "message") ? "ready" : "empty" : "pending")
   const targetDataState = targetPositionDataState ?? dataState
-  const contextRef = useRef({ dataState, targetDataState, initialScrollReady, messageWindow, isFetchingOlder, isFetchingNewer, visible, newDividerBefore, newDividerSeq })
+  const contextRef = useRef({ dataState, targetDataState, initialScrollReady, messageWindow, isFetchingOlder, isFetchingNewer, visible, newDividerBefore, newDividerSeq, viewportInsetEnd })
   const [requestRevision, setRequestRevision] = useState(0)
   const newReadingRef = useRef(false)
   const [newDividerVisibility, setNewDividerVisibility] = useState<"above" | "visible" | "below" | "pending">("pending")
@@ -245,9 +247,9 @@ export function useScrollAnchor({
     onTargetCancelledRef.current = onScrollTargetCancelled
     settleCallbackRef.current = onInitialPositionSettled
     userTakeoverRef.current = onUserTakeover
-    contextRef.current = { dataState, targetDataState, initialScrollReady, messageWindow, isFetchingOlder, isFetchingNewer, visible, newDividerBefore, newDividerSeq }
+    contextRef.current = { dataState, targetDataState, initialScrollReady, messageWindow, isFetchingOlder, isFetchingNewer, visible, newDividerBefore, newDividerSeq, viewportInsetEnd }
     positionScopeRef.current = positionScope
-  }, [items, positionEntry, positionScope, initialScrollReady, newDividerBefore, newDividerSeq, onScrollTargetPositioned, onScrollTargetCancelled, onInitialPositionSettled, onUserTakeover, dataState, targetDataState, messageWindow, isFetchingOlder, isFetchingNewer, visible])
+  }, [items, positionEntry, positionScope, initialScrollReady, newDividerBefore, newDividerSeq, onScrollTargetPositioned, onScrollTargetCancelled, onInitialPositionSettled, onUserTakeover, dataState, targetDataState, messageWindow, isFetchingOlder, isFetchingNewer, visible, viewportInsetEnd])
   const followSuspension = useCreateAtom(false)
   const [followSuspended, writeFollowSuspended] = useAtom(followSuspension)
   const setFollowSuspended = useCallback((suspended: boolean) => {
@@ -479,6 +481,7 @@ export function useScrollAnchor({
       return index < 0 || indexes.includes(index) ? indexes : [...indexes, index].sort((a, b) => a - b)
     },
     scrollPaddingStart: scrollPaddingStartRef.current,
+    scrollPaddingEnd: viewportInsetEnd,
     anchorTo: !entryChanged && ownerKind === "idle" && !awaitingTarget && !pendingLocalSubmit
       && (paginationDirection !== null || (readPositionReady && (nativeOriginKey === null || nativeOriginKey !== items[0]?.key))) ? "end" : "start",
     followOnAppend: visible && !entryChanged && ownerKind === "idle" && readPositionReady && dataState === "ready" && !awaitingTarget
@@ -572,13 +575,13 @@ export function useScrollAnchor({
         const rect = divider.getBoundingClientRect(), viewport = root.getBoundingClientRect()
         if (rect.height > 0 && rect.width > 0 && viewport.height > 0 && viewport.width > 0) {
           if (rect.bottom <= viewport.top) next = "above"
-          else if (rect.top >= viewport.bottom) next = "below"
+          else if (rect.top >= viewport.bottom - contextRef.current.viewportInsetEnd) next = "below"
           else if (rect.right > viewport.left && rect.left < viewport.right) next = "visible"
         }
       } else if (index !== null) {
         const row = virtualizerRef.current?.measurementsCache[index]
         if (row && row.end <= root.scrollTop) next = "above"
-        else if (row && row.start >= root.scrollTop + root.clientHeight) next = "below"
+        else if (row && row.start >= root.scrollTop + root.clientHeight - contextRef.current.viewportInsetEnd) next = "below"
       } else {
         const seq = contextRef.current.newDividerSeq
         const sequences = currentItemsRef.current.flatMap(item => item.kind === "message" && item.m.seq !== undefined ? [item.m.seq] : [])
@@ -644,7 +647,7 @@ export function useScrollAnchor({
         landed = native.isAtEnd(1)
           && Math.abs(Math.max(0, root.scrollHeight - root.clientHeight) - root.scrollTop) <= 1
           && !!rect && rect.height > 0 && !!wrapper && wrapper.height > 0
-          && rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1
+          && rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - contextRef.current.viewportInsetEnd - 1
       } else if (intent.id) {
         if (index !== intent.index) {
           intent.index = index
@@ -666,8 +669,8 @@ export function useScrollAnchor({
             if (Math.abs(root.scrollTop - targetOffset) > 1) native.scrollToOffset(targetOffset, { behavior: intent.behavior })
           }
           landed = targetOffset !== undefined && Math.abs(root.scrollTop - targetOffset) <= 1
-            && rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1
-            && body.bottom > viewport.top + 1 && body.top < viewport.bottom - 1
+            && rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - contextRef.current.viewportInsetEnd - 1
+            && body.bottom > viewport.top + 1 && body.top < viewport.bottom - contextRef.current.viewportInsetEnd - 1
         }
       }
       if (landed) {
@@ -976,7 +979,7 @@ export function useScrollAnchor({
         && contextRef.current.dataState === "ready" && contextRef.current.targetDataState === "ready"
         && hasCommittedRows() && !next.isScrolling) setReadPositionReady(true)
     } else {
-      const clampedByResize = viewportResized && !previous.isScrolling && previous.scrollTop > max
+      const clampedByResize = viewportResized && (!previous.isScrolling || newReadingRef.current) && previous.scrollTop > max
         && Math.abs(root.scrollTop - max) <= 1
       if (!readReady.get() && !input.handover
         && (!next || (native.isScrolling && !clampedByResize))) return false
@@ -1384,7 +1387,7 @@ export function useScrollAnchor({
   const visibleItems = virtualizer.getVirtualItems()
   const root = scrollRef.current
   const lastVisibleIndex = root
-    ? visibleItems.filter((item) => item.start < root.scrollTop + root.clientHeight).at(-1)?.index ?? -1
+    ? visibleItems.filter((item) => item.start < root.scrollTop + root.clientHeight - viewportInsetEnd).at(-1)?.index ?? -1
     : -1
   const belowCount = root && virtualizer.isAtEnd(MESSAGE_LIST_DISPLAY_END_THRESHOLD_PX)
     ? 0 : computeBelowCount(items, lastVisibleIndex)

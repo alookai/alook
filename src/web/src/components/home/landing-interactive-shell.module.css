@@ -33,7 +33,7 @@
 
 .workspaceSkeleton { position: absolute; inset: 0; container-type: inline-size; background: var(--background); }
 .skeletonLayout { display: flex; width: 100%; height: 100%; font-size: 14px; }
-.skeletonRail { display: flex; flex-direction: column; align-items: center; gap: 16px; flex: 0 0 56px; padding-block: 16px; background: var(--app-bg); }
+.skeletonRail { display: flex; flex-direction: column; align-items: center; gap: 16px; flex: 0 0 56px; padding-block: 16px; background: var(--app-frame); }
 .skeletonSidebar { display: flex; flex-direction: column; flex: 0 0 240px; min-width: 0; background: var(--sidebar); border-right: 1px solid var(--border); }
 .skeletonHeader { display: flex; align-items: center; gap: 8px; flex: 0 0 48px; padding-inline: 16px; border-bottom: 1px solid var(--border); }
 .skeletonChannels { padding: 24px 16px; }
