@@ -1,4 +1,4 @@
-import test from "node:test"
+import { pathToFileURL } from "node:url"
 import assert from "node:assert/strict"
 import { generateKeyPairSync, verify } from "node:crypto"
 import { createReadClient, createReadToken, failureReceipt, inspectBuild, InspectionError, TARGET } from "./inspect-testflight-build.mjs"
@@ -35,6 +35,7 @@ function fixtures(overrides = {}) {
   return { get, calls }
 }
 
+export function registerContracts(test) {
 test("ES256 signature verifies and token scope contains one exact GET with120s lifetime", () => {
   const url = new URL("https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=ai.alook.ios")
   const token = createReadToken(credentials, url, 1000)
@@ -154,3 +155,9 @@ test("pagination is bounded and never converts a truncated collection into no gr
 test("unexpected error text is never included in the failure receipt", () => {
   assert.equal(JSON.stringify(failureReceipt(new Error(credentials.privateKey))).includes("PRIVATE KEY"), false)
 })
+
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  registerContracts((await import("node:test")).default)
+}
