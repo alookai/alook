@@ -315,7 +315,7 @@ export class CodexDriver implements BackendAdapter {
 
       if (resuming) {
         proc.stdin?.write(
-          jsonRpcRequest("thread/resume", { ...freshParams, threadId: ctx.config.sessionId }, this.nextRequestId()) + "\n",
+          jsonRpcRequest("thread/resume", { ...freshParams, threadId: ctx.config.sessionId, excludeTurns: true }, this.nextRequestId()) + "\n",
         );
       } else {
         proc.stdin?.write(jsonRpcRequest("thread/start", freshParams, this.nextRequestId()) + "\n");

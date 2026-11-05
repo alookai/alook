@@ -183,6 +183,57 @@ describe("ProcessLane — raw stdout tap (P0-1)", () => {
   });
 });
 
+describe("ProcessLane streamed lines", () => {
+  it("preserves fragmented lines, CRLF, whitespace, adjacent records and unfinished tails", async () => {
+    const normalizeLine = vi.fn((_line: string) => []);
+    const { driver, stdout } = controllableDriver(normalizeLine);
+    const tapped: string[] = [];
+    const session = new ProcessLane(driver, minimalCtx(), { onRawStdoutLine: (line) => tapped.push(line) });
+    await session.start({ text: "go" });
+
+    stdout.write(' {"id":');
+    stdout.write('1}\r');
+    stdout.write('\n \t\r\n{"id":2}\n{"id":');
+    expect(tapped).toEqual([' {"id":1}\r', '{"id":2}']);
+    stdout.write('3}');
+    expect(normalizeLine).toHaveBeenCalledTimes(2);
+    stdout.write('\n');
+    expect(tapped).toEqual([' {"id":1}\r', '{"id":2}', '{"id":3}']);
+    expect(normalizeLine.mock.calls.map(([line]) => line)).toEqual(tapped);
+  });
+
+  it("decodes UTF-8 characters split across pipe chunks", async () => {
+    const normalizeLine = vi.fn((_line: string) => []);
+    const { driver, stdout } = controllableDriver(normalizeLine);
+    const session = new ProcessLane(driver, minimalCtx());
+    await session.start({ text: "go" });
+    const line = '{"text":"恢复会话🌙"}';
+    for (const byte of Buffer.from(`${line}\n`)) stdout.write(Buffer.from([byte]));
+    expect(normalizeLine).toHaveBeenCalledExactlyOnceWith(line);
+  });
+
+  it("admits a command after a large fragmented record within its admission budget", async () => {
+    const lines: string[] = [];
+    const { driver, stdout } = controllableDriver((line) => {
+      lines.push(line);
+      return line.startsWith('{"kind":') ? [JSON.parse(line)] : [];
+    });
+    Object.assign(driver, { execution: { ...driver.execution, lifetime: "session", terminalOwnership: "transport_request" } });
+    const admissionBudgetMs = 5_000;
+    const session = new ProcessLane(driver, minimalCtx(), { promptAdmissionTimeoutMs: admissionBudgetMs });
+    const starting = session.start({ text: "go" });
+    await Promise.resolve();
+    const line = JSON.stringify({ history: "x".repeat(8 * 1024 * 1024) });
+    const began = performance.now();
+    for (let offset = 0; offset < line.length; offset += 257) stdout.write(line.slice(offset, offset + 257));
+    expect(lines).toEqual([]);
+    stdout.write('\n{"kind":"turn_owner","receipt":"resumed-command"}\n');
+    await expect(starting).resolves.toEqual({ ok: true, acceptedAs: "prompt", receipt: "resumed-command" });
+    expect(performance.now() - began).toBeLessThan(admissionBudgetMs);
+    expect(lines).toEqual([line, '{"kind":"turn_owner","receipt":"resumed-command"}']);
+  });
+});
+
 describe("ProcessLane prompt admission ownership", () => {
   it("exposes process state and rejects a second start", async () => {
     const { driver } = controllableDriver(() => []);

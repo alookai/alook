@@ -527,15 +527,22 @@ describe("CodexDriver initial-prompt delivery", () => {
     expect(turnStarts(stdinWrites(proc))).toHaveLength(1);
   });
 
-  it("delivers the prompt on resume too (thread/resume result yields session_init)", async () => {
+  it("resumes without returning history and delivers the prompt once on the original thread", async () => {
     const driver = new CodexDriver();
     const ctx = baseCtx();
     ctx.config = { sessionId: "th_prior" }; // resuming
     const { process: proc } = await driver.spawn(ctx);
     await Promise.resolve();
 
-    // resume result carries the (same) thread id.
+    const requests = stdinWrites(proc).map((line) => JSON.parse(line.trim()));
+    expect(requests.filter((request) => request.method === "thread/resume")).toEqual([
+      expect.objectContaining({ params: expect.objectContaining({ threadId: "th_prior", excludeTurns: true }) }),
+    ]);
+    expect(requests.some((request) => request.method === "thread/start")).toBe(false);
+    expect(turnStarts(stdinWrites(proc))).toEqual([]);
+
     driver.normalizeLine(threadStartResult("th_prior"));
+    driver.normalizeLine(threadStartedNotif("th_prior"));
 
     const turns = turnStarts(stdinWrites(proc));
     expect(turns).toHaveLength(1);
