@@ -7,6 +7,7 @@ import { MobilePageBackContext, type MobilePageBack } from "@/contexts/community
 import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { requestNativeBack } from "@/components/ui/native-back-layer"
 import { MobilePage } from "./mobile-page"
+import { MobilePageMotionContext } from "@/contexts/community/mobile-page-motion"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { Message } from "@/components/community/messages/message"
 
@@ -57,6 +58,23 @@ function holdExit(popup: HTMLElement) {
 }
 
 describe("mobile page dismissal", () => {
+  it("keeps shell-owned entry separate from Back authority and the draft", async () => {
+    const task = fixture()
+    render(<MobilePageMotionContext value={{ entryHandled: true, pauseEntry: vi.fn(), resumeEntry: vi.fn(), exitEntry: vi.fn(), resetExit: vi.fn(), isExiting: () => false }}><task.Fixture /></MobilePageMotionContext>)
+    const input = screen.getByRole<HTMLInputElement>("textbox", { name: "Page draft" })
+    fireEvent.input(input, { target: { value: "Unsent draft" } })
+    const popup = input.closest<HTMLElement>('[data-slot="mobile-page"]')!
+    expect(popup).toHaveAttribute("data-entry-handled", "true")
+    const animation = holdExit(popup)
+    expect(task.back()).toBe(true)
+    await waitFor(() => expect(popup).toHaveAttribute("data-closed"))
+    expect(task.replace).not.toHaveBeenCalled()
+    expect(input.value).toBe("Unsent draft")
+    await waitFor(() => expect(animation.animations).toHaveBeenCalled())
+    await act(async () => animation.finish())
+    expect(task.replace).toHaveBeenCalledExactlyOnceWith("/c/me", { resume: true })
+  })
+
   it.each([
     { userAgent: "iPhone", start: 8 },
     { userAgent: "Android WebView", start: 80 },

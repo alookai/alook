@@ -3,10 +3,14 @@
 import {
   useCallback,
   useInsertionEffect,
+  useImperativeHandle,
+  useMemo,
   useLayoutEffect,
   useRef,
+  useState,
   type CSSProperties,
   type ReactNode,
+  type RefObject,
 } from "react"
 import { flushSync } from "react-dom"
 import {
@@ -40,6 +44,7 @@ import {
 } from "./shell-frame-geometry"
 import { useCommunityPreviewNavigation } from "./community-preview-navigation"
 import { Shell } from "./shell"
+import { MobilePageMotionContext, type MobileEntryMotion } from "@/contexts/community/mobile-page-motion"
 import { useHydratedClient } from "./use-hydrated-client"
 
 const SHELL_SURFACE_CLASS = "rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none"
@@ -64,6 +69,8 @@ type CommunityShellLayoutProps = {
   routeKind?: string
   testId?: string
   preserveHiddenMobileModules?: boolean
+  motionKey?: string
+  mobileMotionRef?: RefObject<MobileEntryMotion | null>
 }
 
 type PendingDesktopRestore = {
@@ -104,6 +111,8 @@ export function CommunityShellLayout({
   routeKind,
   testId,
   preserveHiddenMobileModules = false,
+  motionKey = "detail",
+  mobileMotionRef,
 }: CommunityShellLayoutProps) {
   const preview = useCommunityPreviewNavigation()
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
@@ -115,6 +124,81 @@ export function CommunityShellLayout({
   const persistedSidebarPercentage = hydratedClient
     ? defaultLayout?.sidebar
     : undefined
+  const mainContentRef = useRef<HTMLDivElement>(null)
+  const animationRef = useRef<Animation | null>(null)
+  const exitRef = useRef<Promise<boolean> | null>(null)
+  const exitAnimationRef = useRef<Animation | null>(null)
+  const motion = useMemo<MobileEntryMotion>(() => ({
+    pauseEntry: () => { if (!exitRef.current && animationRef.current?.playState === "running") animationRef.current.pause() },
+    resumeEntry: () => { if (!exitRef.current && animationRef.current?.playState === "paused") animationRef.current.play() },
+    isExiting: () => exitRef.current !== null,
+    resetExit: () => {
+      if (animationRef.current === exitAnimationRef.current) {
+        animationRef.current?.cancel()
+        animationRef.current = null
+      }
+    },
+    exitEntry: () => {
+      if (exitRef.current) return exitRef.current
+      const element = mainContentRef.current
+      if (!element?.animate) return Promise.resolve(false)
+      const transform = getComputedStyle(element).transform
+      animationRef.current?.cancel()
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      const animation = element.animate(reduced
+        ? [{ opacity: 1 }, { opacity: 0 }]
+        : [{ transform }, { transform: "translate3d(100%, 0, 0)" }], {
+        duration: reduced ? 100 : 240,
+        easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+        fill: "forwards",
+      })
+      animationRef.current = animation
+      exitAnimationRef.current = animation
+      const result = animation.finished.then(() => true, () => false).finally(() => {
+        if (exitRef.current === result) exitRef.current = null
+      })
+      exitRef.current = result
+      return result
+    },
+  }), [])
+  const previousSurfaceRef = useRef({ breakpoint, surface })
+  const [entryState, setEntryState] = useState({ breakpoint, surface, motionKey, handled: false })
+  const enteringDetail = breakpoint === "mobile" && surface === "detail"
+    && entryState.breakpoint === "mobile" && entryState.surface === "list"
+  const entryHandled = breakpoint === "mobile" && surface === "detail"
+    && (enteringDetail || entryState.motionKey === motionKey && entryState.handled)
+  if (entryState.breakpoint !== breakpoint || entryState.surface !== surface || entryState.motionKey !== motionKey) {
+    setEntryState({ breakpoint, surface, motionKey, handled: entryHandled })
+  }
+
+  useImperativeHandle<MobileEntryMotion | null, MobileEntryMotion | null>(mobileMotionRef, () => entryHandled && mainContentRef.current?.animate ? motion : null, [entryHandled, motion])
+  const pageMotion = useMemo(() => ({ ...motion, entryHandled }), [entryHandled, motion])
+
+  useLayoutEffect(() => {
+    const shouldEnter = breakpoint === "mobile" && surface === "detail"
+      && previousSurfaceRef.current.breakpoint === "mobile"
+      && previousSurfaceRef.current.surface === "list"
+    previousSurfaceRef.current = { breakpoint, surface }
+    if (!shouldEnter) return
+    const element = mainContentRef.current
+    if (!element?.animate) return
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const animation = element.animate(preference.matches
+      ? [{ opacity: 0 }, { opacity: 1 }]
+      : [{ transform: "translate3d(100%, 0, 0)" }, { transform: "translate3d(0, 0, 0)" }], {
+      duration: preference.matches ? 100 : 280,
+      easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+    })
+    animationRef.current = animation
+    const reduceMotion = () => { if (preference.matches) animationRef.current?.finish() }
+    preference.addEventListener?.("change", reduceMotion)
+    return () => {
+      preference.removeEventListener?.("change", reduceMotion)
+      animationRef.current?.cancel()
+      animationRef.current = null
+    }
+  }, [breakpoint, surface, motionKey])
+
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
   const panelGroupHandleRef = useRef<GroupImperativeHandle | null>(null)
   const sidebarPanelHandleRef = useRef<PanelImperativeHandle | null>(null)
@@ -482,6 +566,7 @@ export function CommunityShellLayout({
               className={cn("flex min-w-0 flex-col sm:bg-background max-sm:absolute max-sm:inset-0 max-sm:pointer-events-none", isInitialDetail && "max-sm:bg-background", mainMobileHidden && "max-sm:hidden")}
             >
               <div
+                ref={mainContentRef}
                 data-slot="community-main-panel-content"
                 data-community-mobile-surface={isMobileDetail ? "detail" : undefined}
                 hidden={isMobileList}
@@ -492,7 +577,7 @@ export function CommunityShellLayout({
                   isInitial && surface === "list" && "max-sm:hidden",
                 )}
               >
-                {main}
+                <MobilePageMotionContext value={pageMotion}>{main}</MobilePageMotionContext>
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>

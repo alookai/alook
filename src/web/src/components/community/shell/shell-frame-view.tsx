@@ -1,6 +1,8 @@
 "use client"
 
 import { MobilePage } from "./mobile-page"
+import type { RefObject } from "react"
+import type { MobileEntryMotion } from "@/contexts/community/mobile-page-motion"
 import { DmRoute } from "@/components/community/channels/dm-route"
 import { ChannelSidebarSkeleton } from "@/components/community/channels/channel-sidebar"
 import { DmSidebarSkeleton } from "@/components/community/channels/dm-sidebar"
@@ -31,6 +33,7 @@ import { ProfileRunningBotsCard } from "@/components/community/social/profile-ru
 
 type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   breakpoint: Breakpoint
+  mobileMotionRef?: RefObject<MobileEntryMotion | null>
   routeCommitted?: boolean
   checkpoint: CommunityCheckpointPlan
   rail: ReturnType<typeof useShellRailController>
@@ -47,6 +50,7 @@ type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
 
 export function ShellFrameView({
   breakpoint,
+  mobileMotionRef,
   routeCommitted = true,
   checkpoint,
   sidebar,
@@ -123,6 +127,8 @@ export function ShellFrameView({
     <CommunityShellLayout
       breakpoint={breakpoint}
       surface={surface}
+      motionKey={checkpoint.targetHref}
+      mobileMotionRef={mobileMotionRef}
       rail={<ServerRail {...rail.railProps} bottomInset={60} />}
       preserveHiddenMobileModules
       sidebar={<>
