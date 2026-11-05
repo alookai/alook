@@ -43,17 +43,30 @@ describe("community onboarding journey", () => {
     vi.clearAllMocks();
   });
 
-  it("finishes an agent handoff without counting it as skipped or a completed team", () => {
+  it("completes an agent handoff once, only in agent machine setup", () => {
     startCommunityOnboarding(runtime());
     finishCommunityOnboardingAgentSetup(runtime());
     expect(readCommunityOnboardingState(runtime())?.stage).toBe("harness");
     advanceCommunityOnboarding(runtime(), "harness", "machine", { harness: "codex", setupMode: "manual" });
     finishCommunityOnboardingAgentSetup(runtime());
     expect(readCommunityOnboardingState(runtime())?.stage).toBe("machine");
+    expect(analytics.product).not.toHaveBeenCalled();
     switchCommunityOnboardingSetup(runtime(), "agent");
+    finishCommunityOnboardingAgentSetup(runtime());
     finishCommunityOnboardingAgentSetup(runtime());
     expect(readCommunityOnboardingState(runtime())).toBeNull();
     expect(analytics.skipped).not.toHaveBeenCalled();
+    expect(analytics.product).toHaveBeenCalledExactlyOnceWith({ event: "community_onboarding_completed" }, expect.any(Function));
+    expect(analytics.stageCompleted.mock.calls).toEqual([["harness"], ["machine"]]);
+  });
+
+  it("does not complete an agent setup after cancellation", () => {
+    startCommunityOnboarding(runtime());
+    advanceCommunityOnboarding(runtime(), "harness", "machine", { harness: "codex", setupMode: "agent" });
+    skipCommunityOnboarding(runtime());
+    finishCommunityOnboardingAgentSetup(runtime());
+    expect(readCommunityOnboardingState(runtime())).toBeNull();
+    expect(analytics.skipped).toHaveBeenCalledExactlyOnceWith("machine");
     expect(analytics.product).not.toHaveBeenCalled();
   });
 

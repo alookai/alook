@@ -132,8 +132,12 @@ export function completeCommunityOnboarding(runtime: CommunityRuntime, pathname?
 export function finishCommunityOnboardingAgentSetup(runtime: CommunityRuntime) {
   const state = readCommunityOnboardingState(runtime);
   if (state?.stage !== "machine" || state.setupMode !== "agent") return state;
+  const generation = runtime.lifecycle.get().generation;
   publish(runtime, null);
   trackCommunityOnboardingStageCompleted("machine");
+  void captureProductAnalytics({ event: "community_onboarding_completed" }, () => {
+    if (!runtime.lifecycle.get().active || runtime.lifecycle.get().generation !== generation) throw new DOMException("Retired onboarding owner", "AbortError");
+  });
   return null;
 }
 
