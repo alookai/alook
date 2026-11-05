@@ -22,7 +22,7 @@ const mocks = vi.hoisted(() => ({
   paginationEnabled: false,
   followingTail: false,
   requestNewPosition: vi.fn(),
-  newDividerVisibility: "offscreen" as "offscreen" | "visible" | "pending",
+  newDividerVisibility: "above" as "above" | "below" | "visible" | "pending",
   scrollInputs: [] as unknown[],
   paginationInputs: [] as unknown[],
   scrollRef: { current: null as HTMLDivElement | null },
@@ -146,7 +146,7 @@ describe("useMessageListController", () => {
     mocks.readPositionReady = false
     mocks.paginationEnabled = false
     mocks.followingTail = false
-    mocks.newDividerVisibility = "offscreen"
+    mocks.newDividerVisibility = "above"
     mocks.requestNewPosition.mockReset().mockReturnValue({ accepted: false })
     mocks.captureOlderPageAnchor.mockClear()
     mocks.captureNewerPageAnchor.mockClear()
@@ -206,6 +206,7 @@ describe("useMessageListController", () => {
     expect(latest.newJumpVisible).toBe(true)
     view.rerender(React.createElement(Probe, { value: { ...value, newBoundary: boundary(null, 2) } }))
     expect(latest.items.some(item => item.kind === "divider" && item.messageId === "m1" && item.newDivider)).toBe(true)
+    expect(mocks.scrollInputs.at(-1)).toMatchObject({ newDividerBefore: "m1", newDividerSeq: 1 })
     act(() => latest.jumpToNew())
     expect(mocks.requestNewPosition).toHaveBeenCalledWith("m1", undefined)
     expect(latest.newJumpPending).toBe(true)
@@ -236,6 +237,14 @@ describe("useMessageListController", () => {
     view.unmount()
   })
 
+  it.each(["above", "visible", "below", "pending"] as const)("offers New only above the viewport: %s", visibility => {
+    mocks.newDividerVisibility = visibility
+    const value = props({ messages: [peer(1)], newBoundary: boundary(1) })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    expect(latest.newJumpVisible).toBe(visibility === "above")
+    view.unmount()
+  })
+
   it("retires an exact deleted target and hides any partly visible divider", () => {
     const value = props({ messages: [peer(1)], newBoundary: boundary(1) })
     const view = rtlRender(React.createElement(Probe, { value }))
@@ -243,7 +252,7 @@ describe("useMessageListController", () => {
     mocks.newDividerVisibility = "visible"
     view.rerender(React.createElement(Probe, { value: { ...value } }))
     expect(latest.newJumpVisible).toBe(false)
-    mocks.newDividerVisibility = "offscreen"
+    mocks.newDividerVisibility = "above"
     view.rerender(React.createElement(Probe, { value: { ...value, retiredNewTargetId: "m1" } }))
     expect(latest.newJumpVisible).toBe(false)
     expect(latest.items.some(item => item.kind === "divider" && item.newDivider)).toBe(false)
@@ -314,7 +323,7 @@ describe("useMessageListController", () => {
       }
       expect(latest.items.some(item => item.kind === "divider" && item.messageId === "m1" && item.newDivider)).toBe(true)
       expect(latest.newJumpVisible).toBe(false)
-      mocks.newDividerVisibility = "offscreen"
+      mocks.newDividerVisibility = "above"
       view.rerender(React.createElement(Probe, { value: arrived }))
       await act(async () => {})
       expect(read).toHaveBeenCalledTimes(timing === "during the read" ? 2 : 1)

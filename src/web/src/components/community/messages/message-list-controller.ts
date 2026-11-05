@@ -58,6 +58,7 @@ export function useMessageListController({
   const createLookback = () => ({ owner: {}, scopeKey, entry: positionEntry,
     initialized: newBoundary !== undefined || newDividerBefore !== undefined,
     target: newBoundary !== undefined ? newBoundary.target?.id ?? null : newDividerBefore ?? null,
+    targetSeq: newBoundary !== undefined ? newBoundary.target?.seq : messages.find(message => message.id === newDividerBefore)?.seq,
     used: false, pending: false, checking: false, throughSeq: observedSeq, checkedThrough: -1, error: null as Error | null })
   const [lookback, setLookback] = useState(createLookback)
   if (lookback.scopeKey !== scopeKey || lookback.entry !== positionEntry) setLookback(createLookback())
@@ -132,6 +133,7 @@ export function useMessageListController({
   } = useScrollAnchor({
     items,
     newDividerBefore: dividerTarget,
+    newDividerSeq: lookback.initialized ? lookback.targetSeq : newBoundary?.target?.seq,
     initialScrollReady,
     ...(preserveInitialPresentation ? { preserveInitialPresentation } : {}),
     ...(onUserTakeover ? { onUserTakeover } : {}),
@@ -184,10 +186,10 @@ export function useMessageListController({
   }, [active, followingTail, lookback.owner, observedSeq, readPositionReady, newDividerVisibility, readVisiblePeerSeq])
   useLayoutEffect(() => {
     if (!lookback.initialized && newBoundary !== undefined) {
-      setLookback(current => current.owner === lookback.owner ? { ...current, initialized: true, target: newBoundary.target?.id ?? null,
+      setLookback(current => current.owner === lookback.owner ? { ...current, initialized: true, target: newBoundary.target?.id ?? null, targetSeq: newBoundary.target?.seq,
         throughSeq: observedSeq } : current)
     } else if (lookback.target && lookback.target === retiredNewTargetId) {
-      setLookback(current => current.owner === lookback.owner ? { ...current, target: null, used: true, pending: false } : current)
+      setLookback(current => current.owner === lookback.owner ? { ...current, target: null, targetSeq: undefined, used: true, pending: false } : current)
     } else if (lookback.target && !lookback.used && observedSeq > lookback.throughSeq) {
       setLookback(current => current.owner === lookback.owner ? { ...current, throughSeq: observedSeq } : current)
     }
@@ -200,7 +202,7 @@ export function useMessageListController({
       setLookback(current => current.owner === lookback.owner ? { ...current, throughSeq: visibleThrough, error: null } : current)
       return
     }
-    if (lookback.target && lookback.used && newDividerVisibility !== "offscreen") return
+    if (lookback.target && lookback.used && newDividerVisibility !== "above" && newDividerVisibility !== "below") return
     if (lookback.checkedThrough >= observedSeq || !onReadNewBoundary
       || !messages.some(message => message.authorId && message.authorId !== viewerUserId && (message.seq ?? 0) > lookback.throughSeq)) return
     const owner = lookback.owner
@@ -216,8 +218,8 @@ export function useMessageListController({
         if (!result.boundary.target) return { ...current, checking: false, throughSeq: Math.max(current.throughSeq, result.latestSeq) }
         if (result.boundary.target.seq <= visibleThrough) return { ...current, checking: false,
           throughSeq: Math.max(current.throughSeq, visibleThrough), checkedThrough: -1 }
-        if (current.target && current.used && view.dividerVisibility !== "offscreen") return { ...current, checking: false, checkedThrough: -1 }
-        return { ...current, checking: false, target: result.boundary.target.id, used: false,
+        if (current.target && current.used && view.dividerVisibility !== "above" && view.dividerVisibility !== "below") return { ...current, checking: false, checkedThrough: -1 }
+        return { ...current, checking: false, target: result.boundary.target.id, targetSeq: result.boundary.target.seq, used: false,
           throughSeq: Math.max(current.throughSeq, result.latestSeq) }
       })
     }, error => {
@@ -236,6 +238,7 @@ export function useMessageListController({
       setLookback(current => current.owner !== owner || current.target !== id ? current : { ...current, pending: false,
         used: result === "success" || result === "missing" || current.used,
         target: result === "missing" ? null : current.target,
+        targetSeq: result === "missing" ? undefined : current.targetSeq,
         error: result === "error" ? new Error("Could not jump to New") : null })
     })
   }, [lookback, onLoadNewTarget, requestNewPosition])
@@ -368,7 +371,7 @@ export function useMessageListController({
     pillCount,
     pillMode: jumpMode ? "jump" as const : "scroll" as const,
     pillOnClick,
-    newJumpVisible: !!dividerTarget && !lookback.used && newDividerVisibility === "offscreen"
+    newJumpVisible: !!dividerTarget && !lookback.used && newDividerVisibility === "above"
       && (!!onLoadNewTarget || messages.some(message => message.id === dividerTarget)),
     newJumpPending: lookback.pending,
     jumpToNew,

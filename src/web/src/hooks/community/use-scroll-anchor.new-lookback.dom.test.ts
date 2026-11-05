@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { act } from "@/test/react-dom-harness"
 import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, scrollFixture } from "@/test/message-scroll-fixture"
 import type { MessageRequest, MessageRequestResult, NewPositionRequest, NewPositionResult } from "@/lib/community/message-position"
+import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 import { CONVERSATION_READ_TIMEOUT_MS } from "@/lib/community/conversation-read"
 
 beforeEach(installMessageScrollFixture)
@@ -19,7 +20,7 @@ it("enters at the real bottom and keeps late New metadata from taking scroll own
   const h = mount({ items: items(), newDividerBefore: "m5" })
   try {
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
-    expect(scrollFixture.latest.newDividerVisibility).toBe("offscreen")
+    expect(scrollFixture.latest.newDividerVisibility).toBe("above")
     h.update({ newDividerBefore: undefined })
     h.update({ newDividerBefore: "m5" })
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
@@ -27,7 +28,7 @@ it("enters at the real bottom and keeps late New metadata from taking scroll own
   } finally { h.view.unmount() }
 })
 
-it.each([5, 49])("finishes only with actual New divider-start geometry, target index=%s", async target => {
+it.each([5, 49])("finishes at the measured New boundary within natural content bounds, target index=%s", async target => {
   const id = `m${target}`
   const rows = items().map((item, index) => ({ ...item, newDivider: index === target }))
   const h = mount({ items: rows, newDividerBefore: id })
@@ -40,12 +41,17 @@ it.each([5, 49])("finishes only with actual New divider-start geometry, target i
     await act(async () => {})
     expect(outcome).toBe("success")
     const divider = h.root.querySelector<HTMLElement>(`[data-message-divider-for="${id}"] [data-new-divider]`)!
-    expect(Math.abs(divider.getBoundingClientRect().top - h.root.getBoundingClientRect().top)).toBeLessThanOrEqual(1)
+    const top = divider.getBoundingClientRect().top - h.root.getBoundingClientRect().top
+    const naturalDestination = Math.max(0, Math.min(h.root.scrollHeight - h.root.clientHeight, h.root.scrollTop + top))
+    expect(Math.abs(h.root.scrollTop - naturalDestination)).toBeLessThanOrEqual(1)
+    if (target === 5) expect(Math.abs(top)).toBeLessThanOrEqual(1)
+    else expect(top).toBeGreaterThan(1)
+    expect(scrollFixture.latest.virtualizer.options.paddingEnd).toBe(MESSAGE_RAIL_TAIL_PADDING_END_PX)
     expect(scrollFixture.latest.newDividerVisibility).toBe("visible")
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     expect(scrollFixture.latest.followingTail).toBe(false)
     h.update({ items: [...rows, message("arrived-after-New")] })
-    expect(Math.abs(divider.getBoundingClientRect().top - h.root.getBoundingClientRect().top)).toBeLessThanOrEqual(1)
+    expect(Math.abs(divider.getBoundingClientRect().top - h.root.getBoundingClientRect().top - top)).toBeLessThanOrEqual(1)
     expect(scrollFixture.latest.followingTail).toBe(false)
   } finally { h.view.unmount() }
 })
@@ -112,7 +118,7 @@ it("keeps data and layout failures retryable instead of consuming an issued scro
   } finally { h.view.unmount() }
 })
 
-it("keeps short-suffix New reading at its viewport origin through viewport size changes", async () => {
+it("keeps short-suffix New reading inside natural bounds through viewport size changes", async () => {
   const rows = items().map((item, index) => ({ ...item, newDivider: index === 49 }))
   const h = mount({ items: rows, newDividerBefore: "m49" })
   try {
@@ -120,51 +126,134 @@ it("keeps short-suffix New reading at its viewport origin through viewport size 
     resize()
     await act(async () => {})
     expect(await request.completed).toBe("success")
+    const naturalHeight = h.root.scrollHeight
     for (const height of [680, 320, 500]) {
+      const priorOffset = h.root.scrollTop
       scrollFixture.height = height
       resize()
       const divider = h.root.querySelector<HTMLElement>('[data-message-divider-for="m49"] [data-new-divider]')!
-      expect(Math.abs(divider.getBoundingClientRect().top - h.root.getBoundingClientRect().top)).toBeLessThanOrEqual(1)
+      expect(h.root.scrollTop).toBe(Math.min(priorOffset, naturalHeight - height))
+      expect(scrollFixture.latest.newDividerVisibility).toBe(divider.getBoundingClientRect().top >= height ? "below" : "visible")
+      expect(h.root.scrollHeight).toBe(naturalHeight)
+      expect(scrollFixture.latest.virtualizer.options.paddingEnd).toBe(MESSAGE_RAIL_TAIL_PADDING_END_PX)
       expect(scrollFixture.latest.followingTail).toBe(false)
       expect(scrollFixture.latest.readPositionReady).toBe(true)
     }
   } finally { h.view.unmount() }
 })
 
-it("restores an owned New suffix reserve after append exhausts it and the viewport grows", async () => {
+it("preserves New reading across append and viewport growth without manufacturing suffix space", async () => {
   const rows = items().map((item, index) => ({ ...item, newDivider: index === 49 }))
   const h = mount({ items: rows, newDividerBefore: "m49" })
   try {
-    const naturalHeight = h.root.scrollHeight
     const request = start("m49")
     resize()
     await act(async () => {})
     expect(await request.completed).toBe("success")
+    const naturalHeight = h.root.scrollHeight
+    const divider = h.root.querySelector<HTMLElement>('[data-message-divider-for="m49"] [data-new-divider]')!
+    const top = divider.getBoundingClientRect().top
     h.update({ items: [...rows, ...Array.from({ length: 4 }, (_, index) => message(`later${index}`))] })
     expect(h.root.scrollHeight).toBe(naturalHeight + 400)
+    expect(Math.abs(divider.getBoundingClientRect().top - top)).toBeLessThanOrEqual(1)
     scrollFixture.height = 680
     resize()
-    const divider = h.root.querySelector<HTMLElement>('[data-message-divider-for="m49"] [data-new-divider]')!
-    expect(Math.abs(divider.getBoundingClientRect().top - h.root.getBoundingClientRect().top)).toBeLessThanOrEqual(1)
+    expect(h.root.scrollHeight).toBe(naturalHeight + 400)
+    expect(scrollFixture.latest.virtualizer.options.paddingEnd).toBe(MESSAGE_RAIL_TAIL_PADDING_END_PX)
     expect(scrollFixture.latest.followingTail).toBe(false)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   } finally { h.view.unmount() }
 })
 
-it.each(["explicit", "present"] as const)("releases measured lookback end space when %s takes position ownership", async action => {
+it.each(["explicit", "present"] as const)("lets %s take ownership after a bounded New jump without changing content extent", async action => {
   const rows = items().map((item, index) => ({ ...item, newDivider: index === 49 }))
   const h = mount({ items: rows, newDividerBefore: "m49" })
   try {
-    const naturalHeight = h.root.scrollHeight
     const request = start("m49")
     resize()
     await act(async () => {})
     expect(await request.completed).toBe("success")
-    expect(h.root.scrollHeight).toBeGreaterThan(naturalHeight)
+    const naturalHeight = h.root.scrollHeight
     if (action === "explicit") h.update({ scrollToMessageId: "m49" })
     else act(() => scrollFixture.latest.scrollToBottom())
     resize()
     expect(h.root.scrollHeight).toBe(naturalHeight)
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+  } finally { h.view.unmount() }
+})
+
+it("reports mounted and virtualized boundaries above, inside and below the viewport", () => {
+  const h = mount({ items: items(), newDividerBefore: "m5" })
+  try {
+    expect(h.root.querySelector('[data-new-divider]')).toBeNull()
+    expect(scrollFixture.latest.newDividerVisibility).toBe("above")
+    h.move(0)
+    expect(scrollFixture.latest.newDividerVisibility).toBe("below")
+    const divider = h.root.querySelector<HTMLElement>('[data-new-divider]')!
+    const boundaryOffset = h.root.scrollTop + divider.getBoundingClientRect().top
+    h.move(boundaryOffset - h.root.clientHeight + 1)
+    expect(scrollFixture.latest.newDividerVisibility).toBe("visible")
+    h.move(boundaryOffset + divider.getBoundingClientRect().height)
+    expect(scrollFixture.latest.newDividerVisibility).toBe("above")
+    h.update({ items: items().map((item, index) => ({ ...item, newDivider: index === 45 })), newDividerBefore: "m45" })
+    h.move(0)
+    expect(h.root.querySelector('[data-new-divider]')).toBeNull()
+    expect(scrollFixture.latest.newDividerVisibility).toBe("below")
+  } finally { h.view.unmount() }
+})
+
+it.each([
+  { seq: 1, expected: "above" },
+  { seq: 99, expected: "below" },
+  { seq: 25, expected: "pending" },
+  { seq: undefined, expected: "pending" },
+])("keeps an unloaded boundary direction honest: $seq -> $expected", ({ seq, expected }) => {
+  const rows = Array.from({ length: 20 }, (_, index) => ({ ...message(`loaded${index}`), m: { ...message(`loaded${index}`).m, seq: 20 + index } }))
+  const h = mount({ items: rows, newDividerBefore: "unloaded", newDividerSeq: seq })
+  try {
+    expect(scrollFixture.latest.newDividerVisibility).toBe(expected)
+    h.update({ positionDataState: "pending" })
+    expect(scrollFixture.latest.newDividerVisibility).toBe("pending")
+    h.update({ positionDataState: "ready", active: false })
+    expect(scrollFixture.latest.newDividerVisibility).toBe("pending")
+  } finally { h.view.unmount() }
+})
+
+it.each([1, 3])("does not create blank tail space for a whole short conversation of %s messages", async count => {
+  const rows = Array.from({ length: count }, (_, index) => ({ ...message(`m${index}`), newDivider: index === 0 }))
+  const h = mount({ items: rows, newDividerBefore: "m0", hasMoreOlder: false })
+  try {
+    const height = h.root.scrollHeight
+    expect(scrollFixture.latest.newDividerVisibility).toBe("visible")
+    const request = start("m0")
+    resize()
+    await act(async () => {})
+    expect(await request.completed).toBe("success")
+    expect(h.root.scrollHeight).toBe(height)
+    expect(h.root.scrollTop).toBe(0)
+    expect(scrollFixture.latest.virtualizer.options.paddingEnd).toBe(MESSAGE_RAIL_TAIL_PADDING_END_PX)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  } finally { h.view.unmount() }
+})
+
+it("handles late image-size growth during a bounded New load without extra tail padding", async () => {
+  const rows = Array.from({ length: 8 }, (_, index) => ({ ...message(`m${index}`), newDivider: index === 7 }))
+  const h = mount({ items: rows, newDividerBefore: "m7" })
+  let complete!: (result: MessageRequestResult) => void
+  try {
+    const request = start("m7", () => ({ accepted: true, completed: new Promise(resolve => { complete = resolve }) }))
+    const priorHeight = h.root.scrollHeight
+    scrollFixture.bodyHeights.set("m6", 350)
+    resize()
+    const window = {}
+    await act(async () => complete({ status: "success", window }))
+    h.update({ messageWindow: window })
+    expect(await request.completed).toBe("success")
+    expect(h.root.scrollHeight).toBe(priorHeight + 250)
+    const divider = h.root.querySelector<HTMLElement>('[data-new-divider]')!
+    expect(divider.getBoundingClientRect().top).toBeGreaterThanOrEqual(0)
+    expect(divider.getBoundingClientRect().bottom).toBeLessThanOrEqual(h.root.clientHeight)
+    expect(scrollFixture.latest.virtualizer.options.paddingEnd).toBe(MESSAGE_RAIL_TAIL_PADDING_END_PX)
+    expect(scrollFixture.latest.followingTail).toBe(false)
   } finally { h.view.unmount() }
 })

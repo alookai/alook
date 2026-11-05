@@ -24,12 +24,14 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
   await seedJoinServer("alice", "carol", serverId)
 
   let readThroughId = ""
+  let beforeNewId = ""
   for (let index = 0; index < 24; index++) {
     readThroughId = await seedMessage(
       "alice",
       channelId,
       `read history ${index}\n${Array.from({ length: 10 + (index % 8) }, (_, line) => `line ${line} variable width ${"x".repeat((line % 4) * 18)}`).join("\n")}`,
     )
+    if (index === 22) beforeNewId = readThroughId
   }
 
   const readResponse = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
@@ -83,6 +85,13 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
   await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
   const jumpToNew = page.getByTestId(tid.scrollToNew)
   await expect(jumpToNew).toBeVisible({ timeout: 30_000 })
+  await scroller.hover()
+  await page.mouse.wheel(0, -100_000)
+  await expect(page.getByTestId(tid.message(beforeNewId))).toBeInViewport()
+  await expect(jumpToNew).toBeHidden()
+  await page.mouse.wheel(0, 100_000)
+  await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
+  await expect(jumpToNew).toBeVisible()
   await jumpToNew.click()
   const divider = page.getByTestId(tid.newDivider)
   await expect(divider).toBeInViewport()
@@ -202,15 +211,28 @@ test("New reading near the tail survives peer and remote-self messages until the
     body: JSON.stringify({ lastReadMessageId: readThroughId }),
   })
   expect(read.status).toBe(200)
-  for (let index = 0; index < 5; index++) await seedMessage(index % 2 ? "bob" : "carol", channelId, `unread ${index}`)
+  let lastUnreadId = ""
+  for (let index = 0; index < 5; index++) lastUnreadId = await seedMessage(index % 2 ? "bob" : "carol", channelId, `unread ${index}`)
   const { page, context } = await asUser("alice")
-  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.setViewportSize({ width: 1280, height: 360 })
   const proxy = await proxyCommunityWebSockets(context)
   await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
   const scroller = page.getByTestId(tid.messageScroller)
   const divider = page.getByTestId(tid.newDivider)
-  await expect(divider).toBeVisible()
   await expect(scroller.locator('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
+  await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
+  await expect(page.getByTestId(tid.scrollToNew)).toBeVisible()
+  await page.getByTestId(tid.scrollToNew).click()
+  await expect(divider).toBeInViewport()
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await expect(scroller.locator('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
+  await expect(divider).toBeInViewport()
+  await expect(page.getByTestId(tid.scrollToNew)).toBeHidden()
+  await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
+  await expect.poll(() => page.getByTestId(tid.message(lastUnreadId)).evaluate((body, scrollerTestId) => {
+    const root = body.closest(`[data-testid="${scrollerTestId}"]`)!
+    return Math.abs(root.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom - 40)
+  }, tid.messageScroller)).toBeLessThanOrEqual(1)
   await scroller.evaluate(element => {
     element.scrollTop = element.scrollHeight - element.clientHeight - 20
     element.dispatchEvent(new Event("scroll"))
