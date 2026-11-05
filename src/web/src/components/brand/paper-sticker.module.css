@@ -1,0 +1,65 @@
+/* Two overlapping masks form one paper silhouette. Both the margin and the printed face use it;
+   the reflection is painted once over the whole face, so it never breaks where head and body meet. */
+.sticker {
+  --sticker-paper: #fffdf8;
+  --sticker-ink: #2a231b;
+  position: relative;
+  display: block;
+  color: var(--sticker-ink);
+  rotate: var(--sticker-tilt, 0deg);
+  transition: rotate 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.08s ease;
+  --sticker-head-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20360%2096%22%20preserveAspectRatio%3D%22none%22%3E%3Cpath%20fill%3D%22white%22%20d%3D%22M81%2030L113%2029L132%2031L153%2029L181%2031L201%2029L222%2030L247%2029L264%2031L286%2030L307%2031L333%2030Q358%2030%20358%2054L357%2067L359%2079L357%2090L358%20104H2V94Q2%2082%2017%2075C8%2068%203%2057%204%2044C4%2022%2022%204%2044%204C60%204%2075%2014%2081%2030Z%22/%3E%3C/svg%3E");
+  --sticker-head-face-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20360%2096%22%20preserveAspectRatio%3D%22none%22%3E%3Cpath%20fill%3D%22white%22%20stroke%3D%22black%22%20stroke-width%3D%2214%22%20vector-effect%3D%22non-scaling-stroke%22%20d%3D%22M81%2030L113%2029L132%2031L153%2029L181%2031L201%2029L222%2030L247%2029L264%2031L286%2030L307%2031L333%2030Q358%2030%20358%2054L357%2067L359%2079L357%2090L358%20104H2V94Q2%2082%2017%2075C8%2068%203%2057%204%2044C4%2022%2022%204%2044%204C60%204%2075%2014%2081%2030Z%22/%3E%3C/svg%3E");
+  --sticker-body-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20360%20200%22%20preserveAspectRatio%3D%22none%22%3E%3Cpath%20fill%3D%22white%22%20d%3D%22M2%20-4H358L357%2021L359%2039L357%2053L358%2074L356%2090L358%20112L357%20133L359%20150L356%20173Q358%20194%20340%20197L321%20196L307%20199L284%20197L269%20199L249%20197L227%20199L208%20197L189%20198L173%20196L151%20199L133%20197L111%20199L92%20197L73%20198L55%20196L34%20198Q5%20199%202%20181L3%20162L1%20146L3%20128L1%20110L3%2090L2%2072L4%2054L2%2036L3%2017Z%22/%3E%3C/svg%3E");
+  --sticker-body-face-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20360%20200%22%20preserveAspectRatio%3D%22none%22%3E%3Cpath%20fill%3D%22white%22%20stroke%3D%22black%22%20stroke-width%3D%2214%22%20vector-effect%3D%22non-scaling-stroke%22%20d%3D%22M2%20-4H358L357%2021L359%2039L357%2053L358%2074L356%2090L358%20112L357%20133L359%20150L356%20173Q358%20194%20340%20197L321%20196L307%20199L284%20197L269%20199L249%20197L227%20199L208%20197L189%20198L173%20196L151%20199L133%20197L111%20199L92%20197L73%20198L55%20196L34%20198Q5%20199%202%20181L3%20162L1%20146L3%20128L1%20110L3%2090L2%2072L4%2054L2%2036L3%2017Z%22/%3E%3C/svg%3E");
+  isolation: isolate;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  filter: drop-shadow(0 1px 0.75px rgb(40 30 15 / 28%));
+}
+
+.sticker::before,
+.sticker::after {
+  position: absolute;
+  content: "";
+  border-radius: 0;
+  mask-image: var(--sticker-head-mask), var(--sticker-body-mask);
+  mask-mode: luminance;
+  mask-size: 100% 96px, 100% calc(100% - 90px);
+  mask-position: center top, center bottom;
+  mask-repeat: no-repeat;
+  pointer-events: none;
+}
+
+.sticker::after {
+  z-index: -2;
+  inset: 0;
+  background: var(--sticker-paper);
+}
+
+.sticker::before {
+  z-index: -1;
+  inset: 0;
+  mask-image: var(--sticker-head-face-mask), var(--sticker-body-face-mask);
+  background:
+    linear-gradient(118deg, transparent 28%, rgb(255 255 255 / 42%) 40%, rgb(255 255 255 / 8%) 50%, transparent 58%),
+    var(--sticker-tint, var(--sticker-paper));
+}
+
+.sticker:hover {
+  rotate: calc(var(--sticker-tilt, 0deg) * 0.4);
+  translate: 0 0;
+  box-shadow: none;
+}
+
+.sticker:active {
+  translate: 0 0;
+  box-shadow: none;
+  filter: brightness(0.98) drop-shadow(0 0.5px 0.5px rgb(40 30 15 / 20%));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sticker { transition: none; }
+}

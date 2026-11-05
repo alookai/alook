@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { isMobile } from "@alook/shared"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button"
 import type { PendingFile } from "@/hooks/use-file-attachments"
 import type {
   ChannelRefCandidatePresentation,
@@ -138,13 +139,13 @@ export function ComposerView({
             <span aria-hidden="true"> · </span>
             <span className="text-foreground/70">{replyPreview}</span>
           </div>
-          <button
+          <Button variant="ghost" size="icon"
             onClick={onCancelReply}
             className="ml-auto grid size-4 shrink-0 place-items-center rounded-full hover:bg-foreground/10 hover:text-foreground"
             aria-label="Cancel reply"
           >
             <X className="size-3.5" />
-          </button>
+          </Button>
         </div>
       )}
 
@@ -169,13 +170,13 @@ export function ComposerView({
                   {pendingFile.file.name}
                 </span>
                 {pendingFile.preparing && <span role="status" className="text-muted-foreground">Preparing…</span>}
-                <button
+                <Button variant="ghost" size="icon"
                   onClick={() => removePendingFile(index)}
                   className="grid size-4 shrink-0 place-items-center rounded-full hover:bg-destructive/10 hover:text-destructive"
                   aria-label="Remove file"
                 >
                   <X className="size-3" />
-                </button>
+                </Button>
                 {pendingFile.preparationFailed && <span role="alert" className="basis-full text-destructive">Could not prepare. Remove this file and try again.</span>}
               </div>
             )
@@ -222,7 +223,7 @@ export function ComposerView({
           />}
         </div>
         {!hideAttach && (
-          <button
+          <Button variant="ghost" size="icon"
             type="button"
             data-testid={tid.composerAttach}
             className="absolute left-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -230,23 +231,24 @@ export function ComposerView({
             onClick={onUploadFile}
           >
             <PlusCircle className="size-5" />
-          </button>
+          </Button>
         )}
         {!hideEmoji && !showSend && (
           <EmojiPickerPopover side="top" align="end" onPick={onEmojiPick}>
-            <button
+            <Button variant="ghost" size="icon"
               className="absolute right-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
               aria-label="Emoji picker"
             >
               <Smile className="size-5" />
-            </button>
+            </Button>
           </EmojiPickerPopover>
         )}
         {showSend && (
-          <button
+          <Button
             type="button"
+            size="icon"
             data-testid={tid.composerSend}
-            className="community-composer-send absolute right-2 bottom-2 grid size-8 place-items-center rounded-full bg-primary text-primary-foreground enabled:hover:bg-primary/90 enabled:active:bg-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
+            className="community-composer-send absolute right-2 bottom-2 size-8 rounded-full"
             aria-label="Send message"
             disabled={sendDisabled}
             onClick={onSend}
@@ -254,7 +256,7 @@ export function ComposerView({
             <SendStrokeRoundedIcon
               className="size-5 -translate-x-px translate-y-px"
             />
-          </button>
+          </Button>
         )}
       </div>
     </div>

@@ -114,8 +114,10 @@ export default function MeFriendsPage() {
         try {
           await sendFriendRequest.mutateAsync({ userId, username })
           toast("Friend request sent")
+          return true
         } catch (e) {
           toastApiError(e, "Failed to send friend request")
+          return false
         }
       }}
       onRemoveFriend={(id) =>

@@ -44,7 +44,7 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
     const el = stageRef.current
     if (!el) return
     const p = poseRef.current
-    const rx = clamp(p.tiltRx + p.shakeY * 0.45, -2, 25)
+    const rx = clamp(p.tiltRx + p.shakeY * 0.45, REST_RX - 12, REST_RX + 15)
     const ry = clamp(p.tiltRy + p.shakeX * 0.65, -36, -2)
     const tx = clamp(p.tiltTx + p.shakeX, -22, 22)
     const ty = clamp(p.tiltTy + p.shakeY, -16, 16)
@@ -306,7 +306,7 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
       {isMobile && !collapsed ? (
         <TypewriterVisual
           animateEntrance={false}
-          blobScale={0.95}
+          blobScale={1.2}
           className={styles.typewriter}
         />
       ) : null}

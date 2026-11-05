@@ -82,7 +82,7 @@ function PostTagEditorBody({
               || tag.length > MAX_FORUM_TAG_LENGTH
             )
             return (
-              <button
+              <Button variant="ghost" size="sm"
                 key={tag}
                 type="button"
                 data-testid={tid.forumTagDialogChip(tag)}
@@ -99,7 +99,7 @@ function PostTagEditorBody({
               >
                 <span className="min-w-0 truncate">#{tag}</span>
                 {active && <X aria-hidden="true" className="ml-1 size-3 shrink-0" />}
-              </button>
+              </Button>
             )
           })}
 

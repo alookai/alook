@@ -12,7 +12,7 @@ import { useBreakpoint } from "@/hooks/use-mobile"
 import { DmHeader, DmHeaderSkeleton } from "@/components/community/channels/dm-header"
 import { DmLoadingFrame } from "@/components/community/channels/dm-loading-frame"
 import { DmRouteErrorFrame } from "@/components/community/channels/dm-route-error-frame"
-import { Avatar } from "@/components/community/avatar"
+import { DmHero } from "@/components/community/channels/dm-hero"
 import { Skeleton } from "@/components/ui/skeleton"
 import { MessageList } from "@/components/community/messages/message-list"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
@@ -498,11 +498,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             unreadCount={unreadCount}
             typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
             hero={
-              dm ? <>
-                <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} seed={dm.userId} size={64} /></div>
-                <h2 className="text-2xl font-semibold leading-tight">{dm.name}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">This is the beginning of your direct message history with <span className="font-medium text-foreground">{dm.name}</span>.</p>
-              </> : <>
+              dm ? <DmHero dm={dm} onOpenProfile={openProfile} /> : <>
                 <Skeleton className="mb-3 size-16 rounded-full" />
                 <Skeleton className="h-8 w-48 rounded" />
                 <Skeleton className="mt-1 h-5 w-72 max-w-full rounded" />

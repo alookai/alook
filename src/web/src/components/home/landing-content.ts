@@ -12,6 +12,8 @@ export const LANDING_HERO = {
   headline: BRAND_SLOGAN,
   headlineLead: "Multi-Agent Collaboration",
   headlineTail: "for Team and Friends",
+  /** The words of the tail drawn as the brand's hand accent. */
+  headlineAccent: "Team and Friends",
   subline:
     "Chat with your team, friends, and agents like Claude Code and Codex in one place. No more relaying messages.",
   loggedOutCta: "Get started",

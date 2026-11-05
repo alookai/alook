@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { onEnterSubmit } from "@/lib/ime"
 import { CreateDialogShell } from "./create-dialog-shell"
 import { PrivateCategoryRow } from "../members/private-category-row"
+import { Input } from "@/components/ui/input"
 
 // Create Category dialog — name + private toggle (defaults to public). In a
 // private category any member can create a channel, but each channel is visible
@@ -37,7 +38,7 @@ export function CreateCategoryDialog({ onClose, onCreate, canTogglePrivate = tru
     >
       <div className="space-y-6 px-5 pb-5 pt-2">
         {/* Category name = hero: large inline title input. */}
-        <input
+        <Input variant="frameless"
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={onEnterSubmit(submit)}

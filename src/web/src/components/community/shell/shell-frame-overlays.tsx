@@ -1,6 +1,6 @@
 "use client"
 
-import type { ReactNode } from "react"
+import { useId, type ReactNode } from "react"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { UserSettings } from "../settings/user-settings"
@@ -23,6 +23,7 @@ export function ShellFrameOverlays({
   extraDialogs?: ReactNode
   suppressProfileCard?: boolean
 }) {
+  const settingsTitleId = useId()
   const { profile, currentUser } = controller
   const pendingAvatarCrop = controller.pendingAvatarCrop
   return (
@@ -56,8 +57,9 @@ export function ShellFrameOverlays({
         <DialogContent
           className="flex h-dvh max-h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[calc(100vh-4rem)] sm:max-h-180 sm:w-[calc(100vw-4rem)] sm:max-w-4xl sm:rounded-xl"
           showCloseButton={false}
+          aria-labelledby={settingsTitleId}
         >
-          <UserSettings {...controller.userSettingsProps} />
+          <UserSettings {...controller.userSettingsProps} titleId={settingsTitleId} />
         </DialogContent>
       </Dialog>
       {pendingAvatarCrop && (

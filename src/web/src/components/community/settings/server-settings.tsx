@@ -14,10 +14,12 @@ import {
 } from "@alook/shared"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Button } from "@/components/ui/button"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { FieldLabel } from "@/components/ui/field"
 import { formatRelativeTime } from "@/lib/community/format-time"
 import { Input } from "@/components/ui/input"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
-import { Badge, badgeVariants } from "@/components/ui/badge"
+import { Badge } from "@/components/ui/badge"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
@@ -152,25 +154,24 @@ function SettingsOverview({ serverId, serverName, serverDescription, serverIcon,
     setDesc(baseline.desc)
   }
   return (
-    <div className="mx-auto w-full max-w-md space-y-8">
+    <div className="w-full space-y-8">
       <section className="space-y-8">
-        {/* Server icon — centered in a soft rounded frame + hand-rolled pill
-            (matches My Profile; a stock secondary Button reads as the old box). */}
+        {/* Server icon and the shared change-icon action. */}
         <div className="flex flex-col items-center gap-2">
           <span className="block overflow-hidden rounded-2xl ring-1 ring-border/50">
             <ServerIcon id={serverId} name={name} initial={avatarInitial(name)} icon={serverIcon} size={96} className="rounded-2xl" />
           </span>
-          <button
+          <Button variant="ghost" size="sm"
             type="button"
             onClick={onUploadIcon}
             className="flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8"
           >
             <Camera className="size-3.5" /> Change icon
-          </button>
+          </Button>
         </div>
         {/* Server name — borderless inline title. */}
         <div>
-          <input
+          <Input variant="frameless"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Server name"
@@ -275,7 +276,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
   // server-wide count so we suffix "matches" for clarity.
   const shownCount = total ?? members.length
   return (
-    <div className="mx-auto flex h-full min-h-0 max-w-xl flex-col">
+    <div className="flex h-full min-h-0 w-full flex-col">
       {onSearch && (
         <div className="relative mb-4 shrink-0">
           <Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -310,7 +311,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
                 ) : (
                   <DropdownMenu>
                     <DropdownMenuTrigger
-                      render={<button className={badgeVariants({ variant: "secondary" }) + " min-h-11 cursor-pointer gap-1 sm:min-h-6"} />}
+                      render={<Badge variant="secondary" className="min-h-11 cursor-pointer gap-1 sm:min-h-6" render={<button type="button" />} />}
                     >
                       <Shield className="size-3.5" /> {capitalize(m.role)}
                     </DropdownMenuTrigger>
@@ -347,7 +348,7 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCopyInvite }: {
   const [revokingCode, setRevokingCode] = useAtom(useCreateAtom<string | null>(null))
   if (loading && invites.length === 0) return <SettingsInvitesSkeleton />
   return (
-    <div className="mx-auto max-w-xl space-y-2">
+    <div className="w-full space-y-2">
       {invites.length === 0 && (
         <p className="text-sm text-muted-foreground">No active invites — use the invite icon in the sidebar header to share this server.</p>
       )}
@@ -397,7 +398,7 @@ export function SettingsNotifications({ serverId, level, onSetLevel }: { serverI
     })
   }
   return (
-    <div className="mx-auto max-w-md space-y-2">
+    <div className="w-full space-y-2">
       <div className="mb-3 text-sm text-muted-foreground">Default notifications for this server</div>
       {bots.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-1" aria-label="Notification actor">
@@ -410,22 +411,24 @@ export function SettingsNotifications({ serverId, level, onSetLevel }: { serverI
       {botId && botSetting.isError && (
         <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">This bot cannot access this server.</div>
       )}
+      <RadioGroup value={selectedLevel} aria-label="Default server notifications" onValueChange={(value) => {
+        const choice = levels.find((item) => item.value === value)
+        if (choice) update(choice.value, choice.raw)
+      }}>
       {levels.map((l) => (
-        <button
+        <FieldLabel
           key={l.value}
-          onClick={() => update(l.value, l.raw)}
-          disabled={Boolean(botId && (botSetting.isLoading || botSetting.isError || setBotSetting.isPending))}
-          className={`flex min-h-11 w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors disabled:opacity-50 ${selectedLevel === l.value ? "bg-accent" : "hover:bg-accent/40"}`}
+          data-selected={selectedLevel === l.value || undefined}
+          className="flex min-h-11 w-full items-center gap-3 rounded-lg border p-2 text-left cursor-pointer has-data-disabled:pointer-events-none has-data-disabled:opacity-50"
         >
-          <span className={`grid size-4 shrink-0 place-items-center rounded-full border ${selectedLevel === l.value ? "border-primary" : "border-muted-foreground"}`}>
-            {selectedLevel === l.value && <span className="size-2 rounded-full bg-primary" />}
-          </span>
+          <RadioGroupItem value={l.value} disabled={Boolean(botId && (botSetting.isLoading || botSetting.isError || setBotSetting.isPending))} />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium">{l.label}</div>
             <div className="text-xs text-muted-foreground">{l.hint}</div>
           </div>
-        </button>
+        </FieldLabel>
       ))}
+      </RadioGroup>
       <p className="pt-2 text-xs text-muted-foreground">Changing this setting clears existing unread in every affected channel.</p>
     </div>
   )
@@ -435,7 +438,7 @@ export function SettingsNotifications({ serverId, level, onSetLevel }: { serverI
 // so the body doesn't shift when data lands.
 function SettingsMembersSkeleton({ showSearch }: { showSearch: boolean }) {
   return (
-    <div className="mx-auto flex h-full min-h-0 max-w-xl flex-col">
+    <div className="flex h-full min-h-0 w-full flex-col">
       {showSearch && <Skeleton className="mb-4 h-11 shrink-0 rounded-md sm:h-9" />}
       <Skeleton className="mb-4 h-4 w-24 shrink-0 rounded" />
       <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
@@ -459,7 +462,7 @@ function SettingsMembersSkeleton({ showSearch }: { showSearch: boolean }) {
 
 function SettingsInvitesSkeleton() {
   return (
-    <div className="mx-auto max-w-xl space-y-2">
+    <div className="w-full space-y-2">
       {Array.from({ length: 3 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
           <Skeleton className="size-5 shrink-0 rounded" />

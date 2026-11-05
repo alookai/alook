@@ -13,6 +13,7 @@ import { tid } from "@/lib/community/testids"
 import { CreateDialogShell } from "./create-dialog-shell"
 import { ImageCropDialog } from "../image-crop-dialog"
 import { SlugHint } from "./slug-hint"
+import { Input } from "@/components/ui/input"
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)"
 
@@ -161,7 +162,7 @@ export function CreateServerDialog({ onClose, onCreateServer, previewName }: {
               </span>
             </button>
             <div className="min-w-0 flex-1">
-              <input
+              <Input variant="frameless"
                 ref={nameRef}
                 value={name}
                 onChange={(e) => onNameChange(e.target.value)}

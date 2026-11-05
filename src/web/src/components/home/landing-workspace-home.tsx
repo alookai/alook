@@ -12,15 +12,21 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import type { BotSummary } from "@/lib/community/bots"
 import type { MachineSummary } from "@/lib/community/machines"
 import type { OpenProfile } from "@/components/community/social/profile-types"
+import { runtimeLabel } from "@/lib/community/runtime-label"
 import { DEMO_PROFILES } from "./landing-interactive-shell-data"
+
+// Static preview of every built-in backend in agent-driver/src/registry.ts. Keep this fixture in the
+// web layer: the public demo must never load daemon adapters or probe a visitor's computer.
+const DEMO_BACKENDS = ["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"] as const
+const BOT_BACKENDS = ["codex", "claude", "cursor", "grok", "pi"] as const
 
 const MACHINE: MachineSummary = {
   id: "demo-mac", hostname: "gus-macbook", displayName: "Gus’s MacBook Pro", platform: "darwin", arch: "arm64", osRelease: "25.0", daemonVersion: "0.1.56",
-  status: "online", lastSeenAt: "2026-10-21T05:00:00Z", createdAt: "2026-10-01T09:00:00Z", updatedAt: "2026-10-21T05:00:00Z", availableRuntimes: [{ id: "codex", status: "healthy", version: "0.116.0" }, { id: "claude", status: "healthy", version: "2.1.0" }],
+  status: "online", lastSeenAt: "2026-10-21T05:00:00Z", createdAt: "2026-10-01T09:00:00Z", updatedAt: "2026-10-21T05:00:00Z", availableRuntimes: DEMO_BACKENDS.map((id) => ({ id, status: "healthy" })),
 }
 const BOTS: BotSummary[] = ["alli", "cecilia", "claudette", "evan", "devin"].map((name, index) => {
   const profile = DEMO_PROFILES.get(`demo-${name}`)!
-  return { id: profile.id, name: profile.name!, description: profile.aboutMe!, image: profile.avatar!, avatarVersion: 0, machineId: MACHINE.id, runtime: index === 1 ? "claude" : "codex", modelName: null, reasoningEffort: null, runtimeConfigRevision: 1, isActive: true }
+  return { id: profile.id, name: profile.name!, description: profile.aboutMe!, image: profile.avatar!, avatarVersion: 0, machineId: MACHINE.id, runtime: BOT_BACKENDS[index], modelName: null, reasoningEffort: null, runtimeConfigRevision: 1, isActive: true }
 })
 const emptyOverlays = Object.fromEntries(["billing", "create", "help", "edit", "memberships", "activity", "bug", "deleteDialog", "resetDialog", "resetMachineDialog"].map((key) => [key, <span key={key} />])) as BotListOverlaySlots
 
@@ -83,7 +89,7 @@ export function WorkspaceHome({ page, onBack, onDm, onOpenProfile, onMachines }:
     <Sheet open={panel !== null} onOpenChange={(open) => { if (!open) setPanel(null) }}>
       <SheetContent><SheetHeader><SheetTitle>{panel}</SheetTitle></SheetHeader>
         <div className="flex flex-col gap-4 p-6">
-          {panel === "Create bot" || panel === "Edit bot" ? <><label className="flex flex-col gap-2 text-sm">Name<Input value={name} onChange={(event) => setName(event.target.value)} /></label><label className="flex flex-col gap-2 text-sm">Description<Input value={description} onChange={(event) => setDescription(event.target.value)} /></label><p className="text-sm text-muted-foreground">Codex · {MACHINE.displayName}</p><Button onClick={saveBot}>Save</Button></>
+          {panel === "Create bot" || panel === "Edit bot" ? <><label className="flex flex-col gap-2 text-sm">Name<Input value={name} onChange={(event) => setName(event.target.value)} /></label><label className="flex flex-col gap-2 text-sm">Description<Input value={description} onChange={(event) => setDescription(event.target.value)} /></label><p className="text-sm text-muted-foreground">{runtimeLabel(editingBot?.runtime ?? BOTS[0].runtime)} · {MACHINE.displayName}</p><Button onClick={saveBot}>Save</Button></>
           : panel === "Delete bot" ? <><p>Delete {editingBot?.name} from My Bots?</p><Button variant="destructive" onClick={() => { setBots((rows) => rows.filter((row) => row.id !== editingBot?.id)); setPanel(null) }}>Delete</Button></>
           : panel === "Activity" ? <><p className="text-sm text-muted-foreground">{editingBot?.name} · Today</p><p>Reviewed the shared design in Alook / design-review.</p><p>Answered Shelly’s question in Side Projects / coffee-map.</p><Button onClick={() => { if (editingBot) onDm(editingBot.id); setPanel(null) }}>Open conversation</Button></>
           : panel === "Connect a machine" ? <><p>Connect your computer to run agents with your local tools and projects.</p><Button onClick={() => { setMachines([MACHINE]); setPanel(null) }}>Connect MacBook Pro</Button></>

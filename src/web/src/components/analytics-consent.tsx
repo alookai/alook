@@ -15,6 +15,8 @@ import {
   readAnalyticsConsent,
   type AnalyticsConsentDecision,
 } from "@/lib/analytics-consent"
+import { Button } from "@/components/ui/button"
+import technostalgia from "@/components/brand/technostalgia.module.css"
 import { GeneratedAvatar } from "@/components/avatar"
 import styles from "./analytics-consent.module.css"
 import { tid } from "@/lib/community/testids"
@@ -148,7 +150,8 @@ function ConsentButtons({
 
   return (
     <div className={styles.actions}>
-      <button
+      <Button
+        variant="outline"
         type="button"
         className={styles.necessaryButton}
         disabled={saving !== null}
@@ -156,7 +159,7 @@ function ConsentButtons({
         onClick={() => onChoose("denied")}
       >
         {saving === "denied" ? "Saving…" : "Only necessary"}
-      </button>
+      </Button>
       <span className={styles.allowWrap}>
         <span
           className={styles.allowAvatars}
@@ -169,15 +172,16 @@ function ConsentButtons({
             </span>
           ))}
         </span>
-        <button
+        <Button
           type="button"
+          variant="default"
           className={styles.allowButton}
           disabled={saving !== null}
           data-testid={tid.analyticsConsentAllow}
           onClick={() => onChoose("granted")}
         >
           {saving === "granted" ? "Saving…" : "Allow analytics"}
-        </button>
+        </Button>
       </span>
     </div>
   )
@@ -243,7 +247,7 @@ export function AnalyticsPreferenceControl() {
   return (
     <section
       id="analytics-choices"
-      className={styles.preferenceControl}
+      className={`${technostalgia.theme} ${styles.preferenceControl}`}
       data-testid={tid.analyticsPreferenceControl}
     >
       <div className={styles.copy}>

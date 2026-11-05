@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useRef } from "react";
 import gsap from "gsap";
@@ -157,20 +158,13 @@ export function UseCasesSection() {
         {/* Left: Scenario picker */}
         <div className="flex flex-row gap-2 overflow-x-auto thin-scrollbar pb-2 md:w-72 md:shrink-0 md:flex-col md:overflow-x-visible md:pb-0">
           {scenarios.map((scenario, i) => (
-            <button
+            <Button size="sm"
               key={scenario.id}
               type="button"
               onClick={() => { setSlideDir(i > activeIndex ? "left" : "right"); setActiveIndex(i); }}
-              className={`flex items-start gap-3 rounded-xl px-4 py-3 text-left transition-all duration-200 cursor-pointer shrink-0 md:shrink md:w-full ${
-                i === activeIndex
-                  ? "ring-1 ring-[var(--landing-border)] shadow-sm"
-                  : "hover:bg-[oklch(0.88_0.02_75)] opacity-70 hover:opacity-100"
-              }`}
-              style={
-                i === activeIndex
-                  ? { backgroundColor: "var(--landing-surface)" }
-                  : undefined
-              }
+              aria-pressed={i === activeIndex}
+              variant={i === activeIndex ? "secondary" : "ghost"}
+              className="h-auto shrink-0 items-start justify-start gap-3 px-4 py-3 text-left whitespace-normal md:w-full md:shrink"
             >
               <span
                 className="mt-1 shrink-0"
@@ -200,7 +194,7 @@ export function UseCasesSection() {
                   </div>
                 )}
               </div>
-            </button>
+            </Button>
           ))}
         </div>
 

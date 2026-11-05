@@ -1,6 +1,7 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { Button } from "@/components/ui/button"
 import { useEffect } from "react"
 import {
   Tooltip,
@@ -233,21 +234,17 @@ export function BotTokenUsageHeatmap({
             {mobileDays.map((day) => {
               const selected = day.day === selectedDay?.day
               return (
-                <button
+                <Button
+                  variant={selected ? "secondary" : "ghost"}
                   key={day.day}
                   type="button"
                   aria-pressed={selected}
                   data-testid={tid.botUsageDialogDay(botId, day.day)}
-                  className={[
-                    "h-11 shrink-0 whitespace-nowrap rounded-md border px-3 text-sm outline-none active:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                    selected
-                      ? "border-foreground bg-foreground font-medium text-background"
-                      : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
-                  ].join(" ")}
+                  className="h-11 shrink-0 px-3 text-sm"
                   onClick={() => setSelectedDayKey(day.day)}
                 >
                   {fullDayLabel(day)}
-                </button>
+                </Button>
               )
             })}
           </div>

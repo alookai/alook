@@ -8,7 +8,7 @@ import { parseNameAndTag } from "../../lib/discriminator"
 import type { Database } from "../index"
 import { automationExpiresAt, type AutomationAccessCode, type AutomationAccessCodeCreate, type AutomationAccessCodeUpdate, type AutomationPermission } from "../../automation"
 
-const publicFields = { id: code.id, name: code.name, createdAt: code.createdAt, expiresAt: code.expiresAt }
+const publicFields = { purpose: code.purpose, id: code.id, name: code.name, createdAt: code.createdAt, expiresAt: code.expiresAt }
 
 export async function listAccessCodes(db: Database, ownerId: string, now = new Date().toISOString()): Promise<AutomationAccessCode[]> {
   const rows = await db.select({ ...publicFields, permission: policy.permission, limit: policy.limit, period: policy.period })
@@ -18,7 +18,7 @@ export async function listAccessCodes(db: Database, ownerId: string, now = new D
   for (const row of rows) {
     let item = codes.get(row.id)
     if (!item) {
-      item = { id: row.id, name: row.name, createdAt: row.createdAt, expiresAt: row.expiresAt, permissions: [] }
+      item = { purpose: row.purpose, id: row.id, name: row.name, createdAt: row.createdAt, expiresAt: row.expiresAt, permissions: [] }
       codes.set(row.id, item)
     }
     if (row.permission && row.limit !== null && row.period) item.permissions.push({ permission: row.permission, limit: row.limit, period: row.period })
@@ -36,12 +36,19 @@ export async function getAccessCode(db: Database, ownerId: string, id: string): 
 }
 
 export async function createAccessCode(db: Database, ownerId: string, input: AutomationAccessCodeCreate, secretHash: string): Promise<AutomationAccessCode> {
-  const row = { id: nanoid(), ownerId, name: input.name, secretHash, createdAt: new Date().toISOString(), expiresAt: automationExpiresAt(input.expiresIn) }
-  await db.batch([
-    db.insert(code).values(row),
-    db.insert(policy).values(input.permissions.map((permission) => ({ ...permission, codeId: row.id }))),
-  ])
-  return { id: row.id, name: row.name, createdAt: row.createdAt, expiresAt: row.expiresAt, permissions: input.permissions }
+  const row = { purpose: input.purpose ?? null, id: nanoid(), ownerId, name: input.name, secretHash, createdAt: new Date().toISOString(), expiresAt: automationExpiresAt(input.expiresIn) }
+  const insertCode = db.insert(code).values(row)
+  const insertPolicies = db.insert(policy).values(input.permissions.map((permission) => ({ ...permission, codeId: row.id })))
+  if (input.purpose === "onboarding") {
+    await db.batch([
+      db.delete(code).where(and(eq(code.ownerId, ownerId), eq(code.purpose, "onboarding"))),
+      insertCode,
+      insertPolicies,
+    ])
+  } else {
+    await db.batch([insertCode, insertPolicies])
+  }
+  return { purpose: row.purpose, id: row.id, name: row.name, createdAt: row.createdAt, expiresAt: row.expiresAt, permissions: input.permissions }
 }
 
 export async function updateAccessCode(db: Database, ownerId: string, id: string, input: AutomationAccessCodeUpdate): Promise<AutomationAccessCode | null> {

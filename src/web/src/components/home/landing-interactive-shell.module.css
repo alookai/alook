@@ -1,7 +1,7 @@
-.section { scroll-margin-top: 72px; padding: 32px clamp(16px, 4vw, 64px) 64px; background: var(--landing-bg); }
+.section { scroll-margin-top: 72px; padding: var(--landing-section-space, 128px) clamp(16px, 4vw, 64px); background: var(--landing-bg); }
 .frame { position: relative; overflow: hidden; display: block; width: 100%; max-width: 1080px; height: min(640px, 76svh); min-height: 480px; margin-inline: auto; border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--e2); background: var(--background); }
 @media (max-width: 639px) {
-  .section { scroll-margin-top: 64px; padding: 16px 12px 40px; }
+  .section { scroll-margin-top: 64px; padding: var(--landing-section-space, 96px) 12px; }
   .frame { height: 74svh; min-height: 480px; }
 }
 

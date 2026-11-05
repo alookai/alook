@@ -18,17 +18,15 @@ import {
   Check,
   MoreVertical,
   MousePointer2,
-  PlusCircle,
   RotateCcw,
   Search,
-  Smile,
   UserPlus,
 } from "lucide-react"
 import type { CommunityMachineSummary } from "@alook/shared"
-import { AgentAvatar, type AvatarDraft } from "@/components/avatar"
-import { ProviderLogo } from "@/components/provider-logo"
+import type { AvatarDraft } from "@/components/avatar"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { ComposerPreview } from "@/components/community/messages/composer-preview"
+import { BotCardView } from "@/components/community/bots/bot-card-view"
 import { Input } from "@/components/ui/input"
 import { AppSurface } from "@/components/ui/app-surface"
 import { SheetBody, SheetFooter, SheetHeader } from "@/components/ui/sheet"
@@ -653,7 +651,6 @@ export function LandingShellMotion({
   machineIntroDescription,
   overviewDetails = false,
   beat: controlledBeat,
-  compact = false,
   children,
   dms,
   activeDm,
@@ -664,7 +661,6 @@ export function LandingShellMotion({
   machineIntroDescription?: string
   overviewDetails?: boolean
   beat?: number
-  compact?: boolean
   children?: ReactNode
   dms?: DM[]
   activeDm?: string
@@ -713,7 +709,7 @@ export function LandingShellMotion({
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
-    const sync = () => setStageScale(stage.getBoundingClientRect().width / 1120)
+    const sync = () => setStageScale(stage.clientWidth / 1120)
     sync()
     const observer = new ResizeObserver(sync)
     observer.observe(stage)
@@ -733,20 +729,6 @@ export function LandingShellMotion({
   const camera = galleryCameraTransform(
     snapshot.camera,
     cameraReady ? cursor : null,
-  )
-
-  if (compact) return (
-    <div ref={playbackRef} className={styles.root}>
-      <div ref={stageRef} className={styles.compactStage} data-layout="compact" data-testid="landing-motion-stage" data-scene={scene} data-beat={snapshot.beat} aria-hidden>
-        <CommunityPreviewProfileOwner profiles={LANDING_PREVIEW_PROFILES}>
-          <QueryClientProvider client={queryClient}>
-            <CommunityDbProvider registry={registry}>
-              <PrototypeSceneContent scene={scene} snapshot={visualSnapshot} machineIntroDescription={machineIntroDescription} overviewDetails={overviewDetails} compact />
-            </CommunityDbProvider>
-          </QueryClientProvider>
-        </CommunityPreviewProfileOwner>
-      </div>
-    </div>
   )
 
   return (
@@ -820,7 +802,7 @@ export function LandingMobileChatMotion({ beat }: { beat: number }) {
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
-    const sync = () => setStageScale(stage.getBoundingClientRect().width / 390)
+    const sync = () => setStageScale(stage.clientWidth / 390)
     sync()
     const observer = new ResizeObserver(sync)
     observer.observe(stage)
@@ -971,15 +953,14 @@ function PrototypeShell({
   )
 }
 
-function PrototypeSceneContent({ scene, snapshot, machineIntroDescription, overviewDetails, compact = false }: {
+function PrototypeSceneContent({ scene, snapshot, machineIntroDescription, overviewDetails }: {
   scene: LandingScene
   snapshot: SceneSnapshot
   machineIntroDescription?: string
   overviewDetails: boolean
-  compact?: boolean
 }) {
   if (scene === "server") return <ServerScene snapshot={snapshot} showTypingPill={overviewDetails} />
-  if (scene === "machine") return <MachineScene snapshot={snapshot} introDescription={machineIntroDescription} compact={compact} />
+  if (scene === "machine") return <MachineScene snapshot={snapshot} introDescription={machineIntroDescription} />
   if (scene === "provider") return <ProviderScene snapshot={snapshot} />
   if (scene === "spaces") return <SpacesScene snapshot={snapshot} />
   if (scene === "identity") return <IdentityScene snapshot={snapshot} />
@@ -1058,7 +1039,7 @@ function PrototypeUserBar({
       )}
       <UserBar
         breakpoint="desktop"
-        user={{ id: "gus", name: "Gus", avatar: userAvatar ?? LANDING_HUMAN_AVATARS.gus }}
+        user={{ id: "gus", name: "Gus", avatar: userAvatar ?? LANDING_HUMAN_AVATARS.gus, runningBotCount: 1 }}
         onEditProfile={() => {}}
         inbox={scene === "continuity" || scene === "server" || scene === "machine" ? <span /> : undefined}
         hasUnread={hasUnread}
@@ -1166,13 +1147,15 @@ function PrototypeChannelSidebar({
         currentUserId="gus"
       />
       {(room || serverNameOverride) && (
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
           data-motion-target="invite-life"
           className="absolute right-2 top-2 grid size-7 place-items-center rounded-md text-muted-foreground"
           aria-label="Invite to server"
         >
           <UserPlus className="size-4" />
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -1516,18 +1499,12 @@ export function PrototypeComposer({
   placeholder: string
 }) {
   return (
-    <div className="relative px-3 pb-3 pt-0">
-      <div
-        className={targetClass(
-          snapshot,
-          target,
-          "relative rounded-xl bg-muted shadow-(--e1) ring-1 ring-border/40 transition-shadow",
-        )}
-      >
+    <div className={targetClass(snapshot, target)}>
+      <ComposerPreview hasText={Boolean(snapshot.composerText)}>
         <div
           data-motion-target={target}
           data-motion-anchor-x="0.24"
-          className="relative grid px-12 py-3 text-base leading-6"
+          className="relative grid min-h-6 text-base chat-input-line-height"
         >
           <span
             data-visible={!snapshot.composerText}
@@ -1551,19 +1528,7 @@ export function PrototypeComposer({
             {!snapshot.composerText && <span data-composer-caret className="ml-0.5 inline-block h-5 w-px bg-foreground align-middle" />}
           </span>
         </div>
-        <button
-          className="absolute bottom-2 left-2 grid size-8 place-items-center rounded-full text-muted-foreground"
-          aria-label="Add"
-        >
-          <PlusCircle className="size-5" />
-        </button>
-        <button
-          className="absolute right-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground"
-          aria-label="Emoji picker"
-        >
-          <Smile className="size-5" />
-        </button>
-      </div>
+      </ComposerPreview>
     </div>
   )
 }
@@ -1571,11 +1536,9 @@ export function PrototypeComposer({
 function MachineScene({
   snapshot,
   introDescription,
-  compact = false,
 }: {
   snapshot: SceneSnapshot
   introDescription?: string
-  compact?: boolean
 }) {
   const online = snapshot.machineState === "online"
   const pairOpen = snapshot.pairSheet !== "closed"
@@ -1588,7 +1551,7 @@ function MachineScene({
           data-visible={!online}
           className={`${styles.stateLayer} flex min-w-0 flex-col`}
         >
-          <div className={`flex flex-1 flex-col items-center justify-center gap-4 text-center ${compact ? "p-4" : "p-12"}`}>
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
             <div className="w-full max-w-70 overflow-hidden rounded-xl">
               <div className="aspect-200/130 w-full">
                 <ConnectTile idPrefix="landing-motion-connect" />
@@ -1622,9 +1585,9 @@ function MachineScene({
 
         <div
           data-visible={online}
-          className={`${styles.stateLayer} flex min-w-0 flex-col gap-6 overflow-hidden ${compact ? "p-4" : "p-6"}`}
+          className={`${styles.stateLayer} flex min-w-0 flex-col gap-6 overflow-hidden p-6`}
         >
-          <header className={`flex ${compact ? "flex-col items-start gap-4" : "items-center justify-between"}`}>
+          <header className="flex items-center justify-between">
             <div>
               <div className="font-heading text-xl font-medium leading-[1.15] tracking-[-0.015em] text-foreground">
                 Machines
@@ -1825,27 +1788,15 @@ export function BotCard({
     "flex items-center gap-2 rounded-md px-2 py-2 text-sm text-popover-foreground"
   return (
     <div className="relative">
-      <Card className="flex flex-col gap-3 p-4">
-        <div className="flex items-start gap-3">
-          <AgentAvatar name={name} seed={name.toLowerCase()} size={40} />
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[15px] font-medium text-foreground">{name}</span>
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                <span className="size-1.5 rounded-full bg-status-online" />
-                {status}
-              </span>
-            </div>
-            <span className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <ProviderLogo provider={runtime} className="size-3.5" />
-                <span>{runtime}</span>
-              </span>
-              <span aria-hidden>·</span>
-              <span className="font-mono">{model ?? "local default"}</span>
-            </span>
-          </div>
-          <button
+      <BotCardView
+        bot={{ id: name.toLowerCase(), name, image: null, runtime, modelName: model }}
+        online={status !== "Offline"}
+        statusKnown={status !== "Status unknown"}
+        statusLabel={status}
+        actions={(
+          <Button
+            variant="ghost"
+            size="icon"
             aria-label="Bot actions"
             data-motion-target={snapshot ? "bot-actions" : undefined}
             className={
@@ -1855,9 +1806,9 @@ export function BotCard({
             }
           >
             <MoreVertical className="size-4" />
-          </button>
-        </div>
-      </Card>
+          </Button>
+        )}
+      />
       {snapshot && (
         <div data-visible={menuOpen} className={styles.botMenu}>
           <div className={menuItemClass}>

@@ -1,5 +1,6 @@
 "use client"
 
+import { PresenceStatus } from "../presence-status"
 import { useMemo, type ReactNode } from "react"
 import { Monitor, MoreVertical } from "lucide-react"
 import type { MachineSummary } from "@/hooks/community/use-machines"
@@ -19,7 +20,7 @@ import { tid } from "@/lib/community/testids"
 import { MachineRuntimes } from "./machine-runtimes"
 
 export function MachineCardFrame({ children }: { children: ReactNode }) {
-  return <Card className="flex flex-col gap-3 p-4">{children}</Card>
+  return <Card data-shell="jewel-case" className="flex flex-col gap-3 p-4">{children}</Card>
 }
 
 export function MachineCard({
@@ -58,40 +59,22 @@ export function MachineCard({
               <span className="truncate text-[15px] font-medium text-foreground">
                 {machineName(machine)}
               </span>
-              <span
-                className={[
-                  "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium",
-                  isOnline
-                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                    : "bg-muted text-muted-foreground",
-                ].join(" ")}
-              >
-                <span
-                  className={[
-                    "inline-block size-1.5 rounded-full",
-                    isOnline ? "bg-status-online" : "bg-muted-foreground",
-                  ].join(" ")}
-                />
-                {machine.status === undefined ? "Status unknown" : isOnline ? "Online" : "Offline"}
-              </span>
+              <PresenceStatus online={isOnline} label={machine.status === undefined ? "Status unknown" : isOnline ? "Online" : "Offline"} />
             </div>
             <span className="truncate text-xs text-muted-foreground">
               {[machine.platform, machine.arch].filter(Boolean).join(" · ")}
               {machine.daemonVersion ? ` · v${machine.daemonVersion}` : ""}
+              {(machine.platform || machine.arch || machine.daemonVersion) ? " · " : ""}
+              <Tooltip>
+                <TooltipTrigger render={<span className="text-xs text-muted-foreground" />}>
+                  {lastSeenLabel}
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={4}>
+                  {machine.lastSeenAt ?? "—"}
+                </TooltipContent>
+              </Tooltip>
             </span>
             <MachineRuntimes runtimes={machine.availableRuntimes} />
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span className="text-xs text-muted-foreground" />
-                }
-              >
-                {lastSeenLabel}
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}>
-                {machine.lastSeenAt ?? "—"}
-              </TooltipContent>
-            </Tooltip>
             {machine.lastRuntimeError && (
               <div className="mt-2 rounded-md border border-destructive/20 bg-destructive/5 p-2 text-xs text-destructive">
                 <span className="font-medium">Runtime not available</span>
@@ -108,13 +91,15 @@ export function MachineCard({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <button
+              <Button
+                variant="ghost"
+                size="icon"
                 aria-label="Machine actions"
                 data-testid={tid.machineActions(machine.id)}
                 className="grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground sm:size-8"
               >
                 <MoreVertical className="size-4" />
-              </button>
+              </Button>
             }
           />
           <DropdownMenuContent align="end">
@@ -153,7 +138,7 @@ export function MachineCard({
       {!isOnline && !refreshing && (
         <div className="flex justify-end">
           <Button
-            variant="outline"
+            variant="default"
             size="sm"
             data-onboarding-target="reconnect-machine"
             data-onboarding-id={machine.id}

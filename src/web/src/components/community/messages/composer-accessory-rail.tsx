@@ -64,16 +64,18 @@ export function ComposerAccessoryRail({
           </div>
         )}
         {hasNew && (
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             data-testid={tid.scrollToNew}
             aria-label="Jump to New"
             onClick={onNew}
-            className="pointer-events-auto col-start-3 flex h-full min-w-11 max-w-full items-center justify-center gap-1.5 justify-self-end rounded-full border border-destructive bg-background/90 px-2 text-xs font-medium text-destructive shadow-(--e1) backdrop-blur-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="pointer-events-auto col-start-3 h-full min-w-11 max-w-full gap-1.5 justify-self-end rounded-full border-destructive px-2 text-xs font-medium text-destructive hover:text-destructive"
           >
             <ArrowUp className="size-3.5 shrink-0" />
             <span>New</span>
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -161,15 +163,17 @@ function ScrollControl({
     ? knownCount ? `Jump to present, ${count} unread below` : "Jump to present"
     : `Scroll to bottom, ${count} more below`
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
+      size="sm"
       data-testid={tid.scrollToPresent}
       onClick={onClick}
       aria-label={aria}
-      className="pointer-events-auto flex h-full items-center gap-1.5 justify-self-center rounded-full border border-border bg-background/90 pl-2 pr-3 text-xs font-medium text-foreground shadow-(--e1) backdrop-blur-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="pointer-events-auto h-full gap-1.5 justify-self-center rounded-full pl-2 pr-3 text-xs font-medium"
     >
       <ArrowDown className="size-3.5 text-muted-foreground" />
       {knownCount ? <NumberTicker value={count} /> : <span>Jump to present</span>}
-    </button>
+    </Button>
   )
 }

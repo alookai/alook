@@ -129,11 +129,11 @@ describe("first-signup guide avatar motion", () => {
     expect(scheduler.cancelAnimationFrame).toHaveBeenCalledWith(2)
   })
 
-  it("uses phase easings for the one-shot NPC motion while leaving orbit linear", () => {
+  it("uses phase easings for the one-shot NPC motion while the outline trace stays linear", () => {
     const styles = staticContractInput0
 
     expect(styles).toContain(
-      "animation: community-guide-me-orbit 4.8s linear infinite;",
+      "animation: community-guide-me-trace 6s linear infinite;",
     )
     expect(styles).toContain(
       "animation: community-first-signup-guide-travel 4s linear both;",

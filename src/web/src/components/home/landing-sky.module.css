@@ -1,0 +1,94 @@
+/* ── Paper flurry ── */
+.flurry {
+  position: absolute;
+  left: 50%;
+  top: 12%;
+  z-index: 0;
+  width: 0;
+  height: 0;
+  perspective: 700px;
+  pointer-events: none;
+}
+
+.sheet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--sheet-size);
+  margin-left: calc(var(--sheet-size) / -2);
+  offset-path: var(--sheet-path);
+  offset-rotate: 0deg;
+  offset-anchor: 50% 50%;
+  opacity: 0;
+  animation: sheetRise var(--sheet-duration) cubic-bezier(0.35, 0.1, 0.4, 1) var(--sheet-delay) infinite;
+  transform-style: preserve-3d;
+}
+
+.flutter {
+  position: relative;
+  transform-style: preserve-3d;
+  animation: sheetFlutter calc(var(--sheet-duration) / 4) ease-in-out var(--sheet-delay) infinite alternate;
+  filter: drop-shadow(0 10px 10px rgb(20 40 80 / 28%));
+}
+
+.paper {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.line {
+  position: absolute;
+  left: 13%;
+  right: 10%;
+  top: 18%;
+  color: #1f1a15;
+  font-family: var(--font-sans);
+  font-size: calc(var(--sheet-size) * 0.12);
+  line-height: 1.3;
+}
+
+/* Plain ink on paper, names included (Gus #2474). */
+/* Message author row: the shared community Avatar (sized from the sheet in TSX) beside the name. */
+.lineAuthor {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  margin-bottom: 0.4em;
+}
+
+.lineAuthor > :first-child {
+  flex-shrink: 0;
+}
+
+.line b {
+  display: block;
+  overflow: hidden;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes sheetRise {
+  0% { offset-distance: 0%; opacity: 0; scale: 0.45; }
+  8% { opacity: 1; }
+  78% { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; scale: 1; }
+}
+
+@keyframes sheetFlutter {
+  0% { transform: rotateX(22deg) rotateY(calc(var(--sheet-spin) * -28deg)) rotateZ(calc(var(--sheet-spin) * -10deg)); }
+  50% { transform: rotateX(-12deg) rotateY(calc(var(--sheet-spin) * 18deg)) rotateZ(calc(var(--sheet-spin) * 6deg)); }
+  100% { transform: rotateX(16deg) rotateY(calc(var(--sheet-spin) * 34deg)) rotateZ(calc(var(--sheet-spin) * 14deg)); }
+}
+
+@media (max-width: 1023px) {
+  .flurry { top: 32%; }
+  .sheet { offset-path: var(--sheet-mobile-path); width: calc(var(--sheet-size) * 0.7); margin-left: calc(var(--sheet-size) * -0.35); }
+  .sheet[data-mobile-hidden] { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet { animation: none; opacity: 1; offset-distance: var(--sheet-rest); }
+  .flutter { animation: none; transform: rotateX(14deg) rotateY(calc(var(--sheet-spin) * 20deg)) rotateZ(calc(var(--sheet-spin) * 8deg)); }
+}

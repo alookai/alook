@@ -2,6 +2,11 @@
 
 import Image from "next/image"
 import Link from "next/link"
+import { HandAccent } from "@/components/brand/hand-accent"
+import { Button } from "@/components/ui/button"
+import { PublicSiteHeader } from "@/components/home/public-site-header"
+import { LandingFooter } from "@/components/home/landing-footer"
+import landing from "@/components/home/landing-page.module.css"
 import { PlanBots, PlanBarcode } from "@/components/pricing/plan-art"
 import styles from "./pricing.module.css"
 import type { PricingController } from "./pricing-client"
@@ -20,24 +25,16 @@ function PricingPrice({ offer, free, className, inverse }: { offer?: import("@al
 
 export function PricingView({ controller: c }: { controller: PricingController }) {
   return (
-    <div className={`dark ${styles.page}`}>
-      <header className={styles.header}>
-        <Link className={styles.brand} href="/" aria-label="Alook home">
-          <Image src="/alook.svg" alt="" width={28} height={28} priority />
-          <span>Alook</span>
-        </Link>
-        <Link className={styles.backLink} href="/">
-          Back to Alook
-        </Link>
-      </header>
+    <div className={`landing ${landing.page} ${styles.page}`}>
+      <PublicSiteHeader currentPath="/pricing" />
 
       <main className={styles.main}>
         <p className={styles.eyebrow}>Pricing</p>
-        <h1>Choose the right space for your bots.</h1>
+        <h1>Choose the right <HandAccent>space</HandAccent> for your bots.</h1>
         <p className={styles.contactLine}>Questions about a plan? <Link href="/contact">Contact us</Link></p>
 
         <div className={styles.status} aria-live="polite">{c.message}</div>
-        {c.error && <div className={styles.status} role="alert">{c.error} <button type="button" onClick={c.retry}>Try again</button></div>}
+        {c.error && <div className={styles.status} role="alert">{c.error} <Button variant="ghost" size="sm" type="button" onClick={c.retry}>Try again</Button></div>}
         <section className={styles.plans} aria-label="Alook plans">
           <article className={`${styles.plan} ${styles.freePlan}`}>
             <Image
@@ -55,9 +52,9 @@ export function PricingView({ controller: c }: { controller: PricingController }
                 Up to <strong>{c.catalog?.free.botLimit ?? "—"}</strong> active bots
               </p>
               <p className={styles.limit}>Up to <strong>{c.catalog?.free.machineLimit ?? "—"}</strong> online machine{c.catalog?.free.machineLimit === 1 ? "" : "s"}</p>
-              <button className={styles.ghostButton} type="button" disabled={c.disabled("free")} onClick={() => c.choose("free")} data-testid="pricing-choose-free">
+              <Button size="lg" variant="secondary" className={styles.ghostButton} type="button" disabled={c.disabled("free")} onClick={() => c.choose("free")} data-testid="pricing-choose-free">
                 {c.label("free")}
-              </button>
+              </Button>
             </div>
           </article>
 
@@ -76,9 +73,9 @@ export function PricingView({ controller: c }: { controller: PricingController }
                   Up to <strong>{c.offer("studio")?.botLimit ?? "—"}</strong> active bots
                 </p>
                 <p className={styles.limit}>Up to <strong>{c.offer("studio")?.machineLimit ?? "—"}</strong> online machine{c.offer("studio")?.machineLimit === 1 ? "" : "s"}</p>
-                <button className={styles.studioButton} type="button" disabled={c.disabled("studio")} onClick={() => c.choose("studio")} data-testid="pricing-choose-studio">
+                <Button size="lg" variant="default" className={styles.studioButton} type="button" disabled={c.disabled("studio")} onClick={() => c.choose("studio")} data-testid="pricing-choose-studio">
                 {c.label("studio")}
-                </button>
+                </Button>
                 <div className={styles.tagFooter}>
                   <span>ALO-STD-010</span>
                   <PlanBarcode className={styles.barcode} />
@@ -99,9 +96,9 @@ export function PricingView({ controller: c }: { controller: PricingController }
                 Up to <strong>{c.offer("house")?.botLimit ?? "—"}</strong> active bots
               </p>
               <p className={styles.houseLimit}>Up to <strong>{c.offer("house")?.machineLimit ?? "—"}</strong> online machine{c.offer("house")?.machineLimit === 1 ? "" : "s"}</p>
-              <button className={styles.houseButton} type="button" disabled={c.disabled("house")} onClick={() => c.choose("house")} data-testid="pricing-choose-house">
+              <Button size="lg" variant="secondary" className={styles.houseButton} type="button" disabled={c.disabled("house")} onClick={() => c.choose("house")} data-testid="pricing-choose-house">
                 {c.label("house")}
-              </button>
+              </Button>
               <span className={styles.ticketSerial}>ISSUE 01 / MONTHLY ACCESS</span>
             </div>
 
@@ -129,7 +126,7 @@ export function PricingView({ controller: c }: { controller: PricingController }
         <p className={styles.sharedLine}>Core Alook features are available on every plan.</p>
 
         <section className={styles.faq} aria-labelledby="pricing-faq-title">
-          <h2 id="pricing-faq-title">Questions, answered.</h2>
+          <h2 id="pricing-faq-title">Questions, <HandAccent>answered</HandAccent>.</h2>
           <dl className={styles.faqGrid}>
             <div className={styles.faqItem}>
               <dt>Which machines count toward my plan?</dt>
@@ -178,6 +175,7 @@ export function PricingView({ controller: c }: { controller: PricingController }
           </dl>
         </section>
       </main>
+      <LandingFooter />
     </div>
   )
 }

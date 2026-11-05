@@ -132,3 +132,24 @@ describe("server message walkthrough", () => {
     } finally { timeline.kill(); }
   });
 });
+
+
+describe("paused scene reconstruction", () => {
+  it("returns to a visible opening frame after a paused camera rebuild", async () => {
+    const { MessageDemo } = await import("../message-demo");
+    const { createScene } = await import("./message");
+    render(<MessageDemo />);
+    const root = screen.getByTestId("scene");
+    let timeline = createScene(root, vi.fn());
+    try {
+      act(() => { timeline.time(7, false); });
+      act(() => { timeline.progress(0); timeline.kill(); root.querySelector("[data-message-channel]")!.dispatchEvent(new CustomEvent("tutorial-draft", { detail: { mentions: 0, text: "", popup: -1 } })); });
+      expect(root.querySelector("[data-tutorial-editor]")).not.toHaveTextContent("@Milo");
+      timeline = createScene(root, vi.fn());
+      act(() => { timeline.progress(0.001, false); });
+      expect(timeline.paused()).toBe(true);
+      expect(root.querySelector<HTMLElement>('[data-demo-frame]')!.style.visibility).toBe("inherit");
+      expect(root.querySelector('[data-tutorial-editor]')).not.toHaveTextContent("@Milo");
+    } finally { timeline.kill(); }
+  });
+});

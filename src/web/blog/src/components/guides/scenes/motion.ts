@@ -3,6 +3,9 @@ import { gsap } from "gsap";
 export function demoMotion(root: HTMLElement, complete: () => void) {
   const frames = root.querySelectorAll<HTMLElement>("[data-demo-frame]");
   const pointer = root.querySelector<HTMLElement>("[data-demo-pointer]")!;
+  // Reset camera writes from the previous scene before resolving new target bounds.
+  gsap.set(frames, { autoAlpha: 0, scale: 1, x: 0, y: 0, transformOrigin: "top left" });
+  gsap.set(frames[0], { autoAlpha: 1 });
   let trackedTarget: Element | null = null;
   const timeline = gsap.timeline({ paused: true, onComplete: complete });
   timeline.call(() => { trackedTarget = null; }, [], 0);

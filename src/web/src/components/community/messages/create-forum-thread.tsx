@@ -1,5 +1,6 @@
 "use client"
 
+import { Input } from "@/components/ui/input"
 import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
 import { useCallback, useRef, useMemo, useEffect } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
@@ -129,7 +130,7 @@ export function CreateForumThread({
       className="flex w-full min-w-0 shrink-0 flex-col border-b border-border px-4 py-3"
     >
       <div className="flex items-center gap-2 px-2">
-        <input
+        <Input variant="frameless"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(event) => onEnterSubmit(focusBody, { onEscape: onCancelGuarded })(event)}
@@ -138,14 +139,14 @@ export function CreateForumThread({
           maxLength={MAX_CHANNEL_NAME_LENGTH}
           className="w-full min-w-0 bg-transparent text-2xl font-semibold outline-none placeholder:text-muted-foreground"
         />
-        <button
+        <Button variant="ghost" size="icon-sm"
           type="button"
           onClick={onCancelGuarded}
           className="grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label="Cancel post"
         >
           <X className="size-5" />
-        </button>
+        </Button>
       </div>
       <Composer
         sendContract="deferred"
@@ -166,7 +167,7 @@ export function CreateForumThread({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={(
-              <button
+              <Button variant="ghost" size="icon"
                 type="button"
                 className="grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
                 aria-label="Add"

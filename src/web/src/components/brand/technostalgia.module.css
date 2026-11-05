@@ -1,0 +1,2674 @@
+/*
+ * Technostalgia theme (brand direction A1) as a layer over the existing
+ * shadcn components. Wrap any subtree in `.theme`; components keep their
+ * code and only their tokens and slot styling change.
+ *
+ * Reference: beige computer plastic, CD-player blue, near-black ink lines on
+ * blue grid paper. Outlines carry the style; the only depth is the keycap
+ * press on buttons.
+ */
+
+.theme {
+  --tn-paper: #faf6ee;
+  --tn-paper-raised: #fffdf8;
+  --tn-plastic-top: #e3d8c4;
+  --tn-plastic: #d0c0a5;
+  --tn-plastic-side: #b9a67e;
+  --tn-blue: #5f8bcf;
+  --tn-blue-top: #78a0dc;
+  --tn-blue-side: #34588f;
+  --tn-blue-tint: #d6e3f3;
+  --tn-screen: #d8e7ea;
+  --tn-orange: #e38b32;
+  --tn-sage: #6f9a72;
+  --tn-rose: #c95f4c;
+  --tn-ink: #1f1a15;
+  --tn-muted: #6d6250;
+  --tn-grid: #bcd6e6;
+  --tn-stroke: 1px;
+  --tn-key-depth: 2.5px;
+
+  --background: var(--tn-paper);
+  --foreground: var(--tn-ink);
+  --card: var(--tn-paper-raised);
+  --card-foreground: var(--tn-ink);
+  --popover: var(--tn-paper-raised);
+  --popover-foreground: var(--tn-ink);
+  --primary: var(--tn-blue);
+  --primary-foreground: var(--tn-paper-raised);
+  --secondary: var(--tn-plastic);
+  --secondary-foreground: var(--tn-ink);
+  --muted: #efe7d8;
+  --muted-foreground: var(--tn-muted);
+  --accent: var(--tn-blue-tint);
+  --accent-foreground: var(--tn-ink);
+  --destructive: var(--tn-rose);
+  --border: oklch(0.86 0.012 80);
+  --input: oklch(0.86 0.012 80);
+  --ring: var(--tn-blue);
+  --link: var(--tn-blue-side);
+  --status-online: var(--tn-sage);
+  --radius: 0.75rem;
+  --tn-line: oklch(0.86 0.012 80);
+  --tn-text: var(--tn-ink);
+  --tn-hair: #d9cdb7;
+  --tn-surface: var(--tn-paper-raised);
+  --tn-surface-2: var(--tn-paper);
+  --tn-tray: var(--tn-plastic);
+  --tn-chip: var(--tn-plastic);
+  --tn-chip-text: var(--tn-ink);
+  --sidebar: var(--tn-paper);
+  --sidebar-foreground: var(--tn-ink);
+  --sidebar-primary: var(--tn-blue);
+  --sidebar-primary-foreground: var(--tn-paper-raised);
+  --sidebar-accent: var(--tn-blue-tint);
+  --sidebar-accent-foreground: var(--tn-ink);
+  --sidebar-border: var(--tn-ink);
+  --sidebar-ring: var(--tn-blue);
+  --app-bg: var(--tn-paper-raised);
+
+  color: var(--tn-text);
+  color-scheme: light;
+}
+
+/* Dark: pure black like the reference night scene, neutral greys (no
+ * purple cast), keys lit from inside like neon tubes (dream pop). */
+.theme[data-tn-mode="dark"],
+[data-tn-mode="dark"] .theme {
+  --tn-paper: #000;
+  --tn-paper-raised: #0d0d0d;
+  --tn-plastic-top: #1c1c1c;
+  --tn-plastic: #141414;
+  --tn-plastic-side: #050505;
+  --tn-blue: #5b7cff;
+  --tn-blue-top: #7d98ff;
+  --tn-blue-side: #2b3fa8;
+  --tn-blue-tint: rgb(91 124 255 / 16%);
+  --tn-screen: #1a1f24;
+  --tn-orange: #ff8a73;
+  --tn-sage: #6fe0a6;
+  --tn-rose: #ff7d6e;
+  --tn-grid: #121212;
+  --tn-muted: #8c8c8c;
+  --tn-line: oklch(1 0 0 / 9%);
+  --tn-text: #ededed;
+  --tn-hair: #1c1c1c;
+  --tn-grain: none;
+  --tn-surface: #0d0d0d;
+  --tn-surface-2: #151515;
+  --tn-tray: #111;
+  --tn-chip: #1c1c1c;
+  --tn-chip-text: #ededed;
+  --tn-recessed-background: linear-gradient(180deg, #040405, #15171c);
+  --tn-recessed-shadow: inset 0 4px 6px -2px #000, inset 0 -1px 0 rgb(210 220 240 / 30%);
+
+  --background: var(--tn-paper);
+  --foreground: var(--tn-text);
+  --card: var(--tn-paper-raised);
+  --card-foreground: var(--tn-text);
+  --popover: var(--tn-paper-raised);
+  --popover-foreground: var(--tn-text);
+  --primary: var(--tn-blue);
+  --primary-foreground: #f4f7fc;
+  --secondary: var(--tn-plastic);
+  --secondary-foreground: var(--tn-text);
+  --muted: #151515;
+  --muted-foreground: var(--tn-muted);
+  --accent: var(--tn-blue-tint);
+  --accent-foreground: var(--tn-text);
+  --destructive: var(--tn-rose);
+  --border: var(--tn-line);
+  --input: var(--tn-line);
+  --ring: var(--tn-blue-top);
+  --link: var(--tn-blue-top);
+  --sidebar: var(--tn-paper);
+  --sidebar-foreground: var(--tn-text);
+  --sidebar-primary: var(--tn-blue);
+  --sidebar-accent: var(--tn-blue-tint);
+  --sidebar-accent-foreground: var(--tn-text);
+  --sidebar-border: var(--tn-line);
+  --app-bg: var(--tn-paper-raised);
+
+  color: var(--tn-text);
+  color-scheme: dark;
+}
+
+/* Dark keys: the plastic reflection becomes neon scatter. Light comes
+ * from inside the key and bleeds outward; the face stays dark glass. */
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"]),
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"]) {
+  --neon: 140 160 200;
+  border-width: 1px;
+  border-color: rgb(var(--neon) / 50%);
+  background:
+    radial-gradient(120% 140% at 50% 120%, rgb(var(--neon) / 30%), transparent 60%),
+    linear-gradient(#1a1a1a, #0e0e0e);
+  color: var(--tn-text);
+  box-shadow:
+    inset 0 0 12px rgb(var(--neon) / 22%),
+    0 var(--tn-key-depth) 0 rgb(var(--neon) / 38%),
+    0 calc(var(--tn-key-depth) + 4px) 18px rgb(var(--neon) / 26%);
+  text-shadow: 0 0 8px rgb(var(--neon) / 55%);
+}
+
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant][data-variant="default"],
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant][data-variant="default"] {
+  --neon: 91 124 255;
+  --tn-neon-inner: 35%;
+  --tn-neon-edge: 70%;
+  --tn-neon-spill: 42%;
+  --tn-key-reflection: rgb(131 160 255 / 14%);
+  background:
+    radial-gradient(ellipse at 50% 50%, rgb(129 159 255 / 28%), transparent 80%),
+    linear-gradient(#2b43b4, #3b55d2 50%, #2b40ac);
+  color: #f2f5ff;
+}
+
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant][data-variant="destructive"],
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant][data-variant="destructive"] {
+  border-color: #d29a8b;
+  --neon: 255 125 110;
+  color: #ffd9d2;
+}
+
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"])::before,
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"])::before {
+  background: linear-gradient(var(--tn-key-reflection, rgb(255 255 255 / 16%)), transparent);
+}
+
+.theme {
+  --tn-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .35  0 0 0 0 .28  0 0 0 0 .2  0 0 0 .28 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  --tn-grain-strong: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .35  0 0 0 0 .28  0 0 0 0 .2  0 0 0 .5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  --tn-halftone: radial-gradient(circle, rgb(31 26 21 / 22%) 1.1px, transparent 1.4px);
+  --tn-paper-grid-image: var(--tn-grain), linear-gradient(var(--tn-grid) 1px, transparent 1px), linear-gradient(90deg, var(--tn-grid) 1px, transparent 1px);
+  --tn-paper-grid-size: 180px 180px, 32px 32px, 32px 32px;
+}
+
+/* Paper: blue grid printed on slightly toothy stock */
+.grid {
+  background-color: var(--tn-paper);
+  background-image: var(--tn-paper-grid-image);
+  background-size: var(--tn-paper-grid-size);
+}
+
+/* Gloss: the shell reflection Gus picked (#2098, #2102). A soft pill of
+ * reflected light across the upper half of the key, under the label, over
+ * a smooth falloff and an inner bevel. No separate hard glint. */
+.theme {
+  --tn-spec: linear-gradient(transparent, transparent);
+}
+
+/* Tailwind's `absolute` / `fixed` are matched as class tokens: a bare `.absolute`
+ * here would be hashed by CSS modules and never match, turning positioned keys
+ * (the composer send) into in-flow ones. */
+.theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"], [class~="absolute"], [class~="fixed"]) {
+  position: relative;
+  isolation: isolate;
+}
+
+.theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"])::before {
+  position: absolute;
+  z-index: -1;
+  top: 2px;
+  right: 7px;
+  left: 7px;
+  height: 48%;
+  border-radius: 999px;
+  background: linear-gradient(rgb(255 255 255 / 68%), rgb(255 255 255 / 6%));
+  content: "";
+  pointer-events: none;
+}
+
+.theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"]):active::before {
+  opacity: 0.55;
+}
+
+.theme :is(button, a)[data-variant][data-size^="icon"]:not([data-variant="ghost"], [data-variant="link"])::before {
+  right: 5px;
+  left: 5px;
+}
+
+/* Paper grain belongs on static chrome (page ground, rails, headers,
+ * landing and sign-in backgrounds). Reading surfaces such as the message
+ * list, composer and dialogs stay flat for long reading. */
+.paper {
+  background-image: var(--tn-grain);
+  background-size: 180px 180px;
+}
+
+/* Halftone screentone for shaded areas */
+.halftone {
+  background-image: var(--tn-halftone);
+  background-size: 7px 7px;
+}
+
+
+/* Raised variants are keycaps. Ghost/link keep caller typography, color,
+ * surfaces and focus rings so business states survive the theme. */
+.theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"]) {
+  border-width: 0;
+  border-radius: 999px;
+  background: var(--tn-spec), linear-gradient(#e6dccb, var(--tn-plastic) 62%, #c3b190);
+  color: var(--tn-ink);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 55%),
+    inset 0 -3px 0 rgb(80 60 30 / 16%),
+    0 var(--tn-key-depth) 0 var(--tn-plastic-side);
+  font-weight: 650;
+  transition:
+    transform 90ms ease-out,
+    box-shadow 90ms ease-out,
+    filter 140ms ease-out;
+}
+
+.theme :is(button, a)[data-variant]:hover {
+  filter: brightness(1.04);
+}
+
+.theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"], :disabled, [aria-disabled="true"], [data-disabled]):active {
+  transform: translateY(var(--tn-key-depth));
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 35%),
+    inset 0 -1px 0 rgb(80 60 30 / 14%),
+    0 0 0 var(--tn-plastic-side);
+}
+
+.theme :is(button, a)[data-variant][data-variant="default"] {
+  background: linear-gradient(rgb(255 255 255 / 16%), transparent 45%), linear-gradient(#5f88cc, #4a76bd 55%, #3d65a8);
+  color: #fff;
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 45%),
+    inset 0 -3px 0 rgb(20 40 80 / 22%),
+    0 var(--tn-key-depth) 0 var(--tn-blue-side);
+  text-shadow: 0 1px 0 rgb(15 30 70 / 45%);
+}
+
+.theme :is(button, a)[data-variant][data-variant="default"]:not(:disabled):active {
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 30%),
+    inset 0 -1px 0 rgb(20 40 80 / 18%),
+    0 0 0 var(--tn-blue-side);
+}
+
+.theme :is(button, a)[data-variant][data-variant="destructive"] {
+  background: var(--tn-spec), linear-gradient(#f9e6df, #f2d3c8);
+  color: #8f3424;
+  box-shadow: 0 var(--tn-key-depth) 0 #d9a595;
+}
+
+.theme :is(button, a)[data-variant]:is([data-variant="ghost"], [data-variant="link"]) {
+  border-width: 0;
+  border-color: transparent;
+}
+
+.theme :is(button, a)[data-variant][data-variant="ghost"]:hover {
+  background: var(--tn-blue-tint);
+  filter: none;
+}
+
+.theme :is(button, a)[data-variant]:is([data-variant="ghost"], [data-variant="link"]):active {
+  transform: scale(0.97);
+}
+
+.theme :is(button, a)[data-variant]:disabled {
+  box-shadow: none;
+}
+
+/* Fields */
+.theme :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]):not([class~="border-0"]) {
+  border: var(--tn-stroke) solid var(--tn-line);
+  border-radius: 12px;
+  background: var(--tn-paper-raised);
+}
+
+.theme :is([data-slot="input"], [data-slot="textarea"]):not([class~="border-0"]):focus-visible {
+  border-color: var(--tn-blue-side);
+  box-shadow: 0 0 0 3px var(--tn-blue-tint);
+}
+
+.theme [data-slot="input-otp-slot"] {
+  width: 44px;
+  height: 52px;
+  font-size: 20px;
+  border: var(--tn-stroke) solid var(--tn-line);
+  background: var(--tn-paper-raised);
+}
+
+.theme [data-slot="input-otp-slot"]:first-child {
+  border-radius: 12px 0 0 12px;
+}
+
+.theme [data-slot="input-otp-slot"]:last-child {
+  border-radius: 0 12px 12px 0;
+}
+
+.theme [data-slot="switch"] {
+  width: 44px !important;
+  height: 26px !important;
+  padding: 2px;
+  border: var(--tn-stroke) solid var(--tn-line);
+}
+
+.theme [data-slot="switch"][data-unchecked] {
+  background: var(--tn-plastic);
+}
+
+.theme [data-slot="switch-thumb"] {
+  width: 18px !important;
+  height: 18px !important;
+  border: var(--tn-stroke) solid var(--tn-line);
+  background: var(--tn-paper-raised);
+}
+
+.theme [data-slot="switch-thumb"] {
+  translate: 0 0 !important;
+  transition: translate 160ms ease-out;
+}
+
+.theme [data-slot="switch"][data-checked] [data-slot="switch-thumb"] {
+  translate: 20px 0 !important;
+}
+
+.theme [data-slot="radio-group-item"] {
+  width: 20px;
+  height: 20px;
+  border: var(--tn-stroke) solid var(--tn-line) !important;
+  background: var(--tn-paper-raised) !important;
+  color: var(--tn-blue);
+}
+
+.theme [data-slot="radio-group-item"] [data-slot="radio-group-indicator"] span {
+  width: 10px;
+  height: 10px;
+}
+
+:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) [data-slot="radio-group-item"] {
+  background: var(--tn-recessed-background) !important;
+}
+
+:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) [data-slot="radio-group-item"]:not(:focus-visible) {
+  box-shadow: var(--tn-recessed-shadow);
+}
+
+/* Surfaces: outline only, no shadow */
+.theme :is([data-slot="card"], [data-slot="dialog-content"], [data-slot="dropdown-menu-content"], [data-slot="select-content"], [data-slot="popover-content"]),
+.theme:is([data-slot="dialog-content"], [data-slot="dropdown-menu-content"], [data-slot="select-content"], [data-slot="popover-content"]) {
+  border: var(--tn-stroke) solid var(--tn-line);
+  border-radius: 20px;
+  background-color: var(--tn-surface);
+  background-image: none;
+  box-shadow: none;
+  --tw-ring-shadow: 0 0 #0000;
+}
+
+.theme :is([data-slot="dropdown-menu-content"], [data-slot="select-content"]),
+.theme:is([data-slot="dropdown-menu-content"], [data-slot="select-content"]) {
+  min-width: 220px;
+  padding: 6px;
+  border-radius: 16px;
+}
+
+.theme [data-slot="dropdown-menu-item"] {
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.theme [data-slot="dropdown-menu-item"]:hover,
+.theme [data-slot="dropdown-menu-item"][data-highlighted] {
+  background: var(--tn-blue-tint);
+}
+
+.theme [data-slot="dialog-content"],
+.theme:is([data-slot="dialog-content"]) {
+  gap: 18px;
+  padding: 28px;
+}
+/* The image viewer is a frameless full-viewport stage, not a card: its
+ * toolbar sits on the dialog edge, so it keeps the app's p-0 / border-none. */
+.theme :is([data-slot="dialog-content"]):has([data-testid="community-image-lightbox"]),
+.theme:is([data-slot="dialog-content"]):has([data-testid="community-image-lightbox"]) {
+  padding: 0;
+  border-width: 0;
+  background-color: transparent;
+}
+/* Settings (user and server) is a full panel, not a card: no inner padding or
+ * gap, so the content background runs to the dialog's right and bottom edges
+ * and its corners follow the dialog's own radius (Gus #2369, #2370). */
+.theme :is([data-slot="dialog-content"]):has([data-testid="community-settings-shell"]),
+.theme:is([data-slot="dialog-content"]):has([data-testid="community-settings-shell"]) {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.theme [data-slot="dialog-title"],
+.theme:is([data-slot="dialog-content"]) [data-slot="dialog-title"] {
+  font-size: 22px;
+}
+
+.theme [data-slot="dialog-footer"],
+.theme:is([data-slot="dialog-content"]) [data-slot="dialog-footer"] {
+  margin: 4px -28px -28px;
+  padding: 14px 28px;
+  border-top: var(--tn-stroke) solid var(--tn-line);
+  border-radius: 0 0 18px 18px;
+  background: var(--tn-tray);
+}
+
+.theme [data-slot="card-title"],
+.theme [data-slot="dialog-title"],
+.theme:is([data-slot="dialog-content"]) [data-slot="dialog-title"] {
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.theme [data-slot="separator"] {
+  background: #d9cdb7;
+}
+
+/* Tabs: a plastic tray with a paper key for the active tab */
+.theme [data-slot="tabs-list"] {
+  width: fit-content;
+  height: auto !important;
+  padding: 4px;
+  border: var(--tn-stroke) solid var(--tn-line);
+  border-radius: 999px;
+  background: var(--tn-tray);
+}
+
+.theme [data-slot="tabs-trigger"] {
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-weight: 650;
+}
+
+.theme [data-slot="tabs-trigger"][data-active] {
+  background: var(--tn-surface);
+  color: var(--tn-text);
+  box-shadow: 0 1px 2px rgb(40 30 15 / 12%);
+}
+
+/* Badges are die-cut stickers */
+.theme [data-slot="badge"] {
+  height: auto;
+  padding: 3px 10px;
+  border: 1px solid var(--tn-line);
+  font-weight: 700;
+
+}
+
+.theme [data-slot="badge"][data-variant="secondary"] {
+  background: var(--tn-plastic);
+}
+
+.theme [data-slot="badge"][data-variant="outline"] {
+  background: var(--tn-paper-raised);
+}
+
+.theme [data-slot="avatar"] {
+  outline: 1px solid color-mix(in oklab, var(--tn-line) 35%, transparent);
+  outline-offset: -1px;
+}
+
+/* Reading surfaces stay quiet: no outline on avatars inside the message list */
+.theme [data-slot="community-conversation-surface"] [data-slot="avatar"] {
+  outline: 0;
+}
+
+.theme [data-slot="avatar-fallback"] {
+  background: var(--tn-chip);
+  color: var(--tn-chip-text);
+  font-weight: 700;
+}
+
+.theme [data-slot="kbd"] {
+  border: 1.5px solid var(--tn-line);
+  border-radius: 6px;
+  background: var(--tn-plastic-top);
+  box-shadow: 0 2px 0 var(--tn-plastic-side);
+}
+
+.theme [data-slot="skeleton"] {
+  border: 0;
+  background: color-mix(in oklab, var(--tn-text) 6%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme :is(button, a)[data-variant] {
+    transition: none;
+  }
+}
+
+/* App-level components, matched by their existing data-slot / test hooks */
+/* Frameless like the original app: a soft recessed fill, no outline */
+.theme [data-slot="community-user-bar-base"]:not([class~="rounded-b-xl"]) {
+  border-color: transparent !important;
+}
+.theme [data-slot="community-user-bar-base"] {
+  background: color-mix(in oklab, var(--tn-text) 4.5%, var(--tn-paper));
+}
+
+.theme [data-slot="community-composer-base"]:not([class~="bg-transparent"]) {
+  border: 0;
+  background: color-mix(in oklab, var(--tn-text) 4.5%, var(--tn-paper));
+  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--tn-text) 7%, transparent);
+  --tw-ring-color: transparent;
+}
+
+.theme [data-slot="community-composer-base"]:not([class~="bg-transparent"]):focus-within {
+  --tw-ring-color: color-mix(in oklab, var(--tn-blue) 45%, transparent);
+}
+
+.theme [data-testid^="community-channel-row-"] {
+  border-radius: 10px;
+}
+
+.theme [data-testid^="community-channel-row-"][aria-current="page"],
+.theme [data-testid^="community-channel-row-"][data-active="true"] {
+  background: var(--tn-blue);
+  color: #f8f6f1;
+}
+
+/* Full-page host for an embedded themed workspace (/demo?tn=...) */
+.page {
+  display: block;
+  min-height: 100%;
+  background: var(--tn-paper);
+}
+
+:global(html):has(.page[data-tn-mode="light"]),
+:global(body):has(.page[data-tn-mode="light"]) {
+  background: #faf6ee;
+}
+
+:global(html):has(.page[data-tn-mode="dark"]),
+:global(body):has(.page[data-tn-mode="dark"]) {
+  background: #000;
+}
+
+
+
+/* ───────── Interaction feedback (Stageshow motion rules) ─────────
+ * Feedback starts on the input and stays as quick as a real product;
+ * a small press response comes before the result; nothing pops. */
+
+/* Switch: the thumb is a small key. It squishes on press, then travels. */
+.theme [data-slot="switch"] {
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 10%);
+  transition: background-color 160ms ease-out;
+}
+
+.theme [data-slot="switch-thumb"] {
+  background: #fffdf8 !important;
+  box-shadow:
+    0 1px 2px rgb(40 30 15 / 25%),
+    inset 0 -1px 0 rgb(60 45 20 / 12%);
+  transition:
+    translate 220ms cubic-bezier(0.45, 0, 0.1, 1),
+    width 120ms ease-out,
+    box-shadow 90ms ease-out;
+}
+
+.theme [data-slot="switch"]:active [data-slot="switch-thumb"] {
+  width: 22px !important;
+  box-shadow:
+    0 0 1px rgb(40 30 15 / 25%),
+    inset 0 -1px 0 rgb(60 45 20 / 10%);
+}
+
+.theme [data-slot="switch"][data-checked]:active [data-slot="switch-thumb"] {
+  translate: 16px 0 !important;
+}
+
+/* Radio: the ring dips on press; the dot grows in after the press lands. */
+.theme [data-slot="radio-group-item"] {
+  transition: transform 90ms ease-out;
+}
+
+.theme [data-slot="radio-group-item"]:active {
+  transform: scale(0.88);
+}
+
+.theme [data-slot="radio-group-indicator"] span {
+  animation: tn-dot-in 200ms cubic-bezier(0.25, 0.8, 0.25, 1.3) both;
+}
+
+@keyframes tn-dot-in {
+  from {
+    opacity: 0;
+    scale: 0.3;
+  }
+}
+
+/* Tabs: the active key moves rather than swapping */
+.theme [data-slot="tabs-trigger"] {
+  transition:
+    background-color 160ms ease-out,
+    box-shadow 160ms ease-out,
+    transform 90ms ease-out;
+}
+
+.theme [data-slot="tabs-trigger"]:active {
+  transform: translateY(1px);
+}
+
+/* Avatars press like a sticker under a finger */
+.theme :is(button, a, [role="button"]):has(> [data-slot="avatar"]),
+.theme [data-slot="avatar"][role="button"] {
+  transition: transform 110ms ease-out;
+}
+
+.theme :is(button, a, [role="button"]):has(> [data-slot="avatar"]):active {
+  transform: scale(0.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme :is([data-slot="switch-thumb"], [data-slot="radio-group-item"], [data-slot="tabs-trigger"]) {
+    transition: none;
+  }
+
+  .theme [data-slot="radio-group-indicator"] span {
+    animation: none;
+  }
+}
+
+.theme [data-testid="community-profile-card"] {
+  border: var(--tn-stroke) solid var(--tn-line) !important;
+  border-radius: 20px !important;
+  background: var(--tn-surface) !important;
+  box-shadow: none !important;
+}
+
+.theme [data-testid="community-profile-card"] [class*="ring-popover"] {
+  box-shadow: 0 0 0 5px var(--tn-surface);
+}
+
+.theme [data-testid="community-status-pill"],
+.theme [data-testid="community-profile-card"] button[title] {
+  border: var(--tn-stroke) solid var(--tn-line) !important;
+  background: var(--tn-surface) !important;
+  box-shadow: none !important;
+  font-weight: 650;
+  rotate: -2deg;
+}
+
+/* Badges as storybook paper cut-outs: hand-cut uneven corners, paper grain,
+ * a slight tilt and the soft lift of paper laid on paper. No outline. */
+.theme [data-slot="badge"],
+.theme [data-testid="community-status-pill"],
+.theme [data-testid="community-profile-card"] button[title] {
+  border: 0 !important;
+  border-radius: 11px 15px 10px 14px / 13px 10px 14px 11px !important;
+  background-image: var(--tn-grain-strong);
+  background-size: 120px 120px;
+  box-shadow:
+    0 1px 0 rgb(40 30 15 / 10%),
+    0 3px 6px -2px rgb(40 30 15 / 22%) !important;
+  rotate: -2.5deg;
+}
+
+.theme [data-slot="badge"]:nth-of-type(2n) {
+  border-radius: 14px 10px 15px 11px / 10px 14px 11px 13px !important;
+  rotate: 2deg;
+}
+
+.theme [data-slot="badge"]:nth-of-type(3n) {
+  rotate: -1deg;
+}
+
+.theme [data-slot="badge"][data-variant="secondary"] {
+  background-color: var(--tn-plastic);
+}
+
+.theme [data-slot="badge"][data-variant="outline"],
+.theme [data-testid="community-status-pill"],
+.theme [data-testid="community-profile-card"] button[title] {
+  background-color: #fffaf0 !important;
+}
+
+.theme[data-tn-mode="dark"] :is([data-slot="badge"], [data-testid="community-status-pill"]),
+[data-tn-mode="dark"] .theme :is([data-slot="badge"], [data-testid="community-status-pill"]) {
+  background-image: none;
+  box-shadow: 0 0 12px rgb(91 124 255 / 18%) !important;
+}
+
+/* Dark status pill: dark paper, light text */
+.theme[data-tn-mode="dark"] :is([data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title], [data-slot="badge"][data-variant="outline"]),
+[data-tn-mode="dark"] .theme :is([data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title], [data-slot="badge"][data-variant="outline"]) {
+  background-color: var(--tn-surface-2) !important;
+  color: var(--tn-text) !important;
+}
+
+/* ═════════ Style lock (#2150): light = plastic glass / flat, dark = quiet + neon ═════════
+ * Keys protrude; fields and trays are recessed into the case. */
+
+/* Fields: a recessed well. Focus lifts it to paper with a soft blue halo. */
+.theme :is([data-slot="input"], [data-slot="textarea"]):not([class~="border-0"]) {
+  border: 0 !important;
+  border-radius: 12px !important;
+  background: #f3ecdf !important;
+  box-shadow: inset 0 1.5px 2px rgb(60 45 20 / 14%), inset 0 0 0 1px rgb(60 45 20 / 6%) !important;
+  caret-color: var(--tn-blue);
+  transition: background-color 160ms ease-out, box-shadow 160ms ease-out;
+}
+
+.theme :is([data-slot="input"], [data-slot="textarea"]):not([class~="border-0"]):hover {
+  background: #f6f0e5 !important;
+}
+
+.theme :is([data-slot="input"], [data-slot="textarea"]):not([class~="border-0"]):focus-visible,
+.theme :is([data-slot="input"], [data-slot="textarea"]):not([class~="border-0"]):focus {
+  outline: none;
+  background: #fffdf8 !important;
+  box-shadow: inset 0 1px 1px rgb(60 45 20 / 8%), 0 0 0 3px rgb(95 139 207 / 22%), 0 0 0 1px rgb(95 139 207 / 55%) !important;
+}
+
+.theme :is([data-slot="input"], [data-slot="textarea"]):not([class~="border-0"])[aria-invalid="true"] {
+  background: #fbefea !important;
+  box-shadow: inset 0 1.5px 2px rgb(150 60 40 / 12%), 0 0 0 1px rgb(201 95 76 / 45%) !important;
+}
+
+.theme [data-slot="input-otp-slot"] {
+  border: 0 !important;
+  background: #f3ecdf !important;
+  box-shadow: inset 0 1.5px 2px rgb(60 45 20 / 14%) !important;
+  margin-inline: 2px;
+  border-radius: 10px !important;
+  transition: box-shadow 160ms ease-out, background-color 160ms ease-out;
+}
+
+.theme [data-slot="input-otp-slot"][data-active="true"] {
+  background: #fffdf8 !important;
+  box-shadow: 0 0 0 3px rgb(95 139 207 / 22%), 0 0 0 1px rgb(95 139 207 / 55%) !important;
+}
+
+.theme[data-tn-mode="dark"] :is([data-slot="input"]:not([class~="border-0"]), [data-slot="textarea"]:not([class~="border-0"]), [data-slot="input-otp-slot"]),
+[data-tn-mode="dark"] .theme :is([data-slot="input"]:not([class~="border-0"]), [data-slot="textarea"]:not([class~="border-0"]), [data-slot="input-otp-slot"]) {
+  background: #070707 !important;
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 80%), inset 0 0 0 1px rgb(255 255 255 / 6%) !important;
+}
+
+.theme[data-tn-mode="dark"] :is([data-slot="input"], [data-slot="textarea"]):not([class~="border-0"]):focus,
+[data-tn-mode="dark"] .theme :is([data-slot="input"], [data-slot="textarea"]):not([class~="border-0"]):focus,
+.theme[data-tn-mode="dark"] [data-slot="input-otp-slot"][data-active="true"],
+[data-tn-mode="dark"] .theme [data-slot="input-otp-slot"][data-active="true"] {
+  background: #0b0b0f !important;
+  box-shadow: inset 0 0 0 1px rgb(120 150 255 / 55%), 0 0 16px rgb(91 124 255 / 30%) !important;
+}
+
+/* Tabs: a recessed tray; the active tab is a raised plastic key. */
+.theme [data-slot="tabs-list"] {
+  border: 0 !important;
+  background: #efe7d8 !important;
+  box-shadow: inset 0 1.5px 2px rgb(60 45 20 / 14%);
+}
+
+.theme [data-slot="tabs-trigger"] {
+  border: 0 !important;
+  outline: none !important;
+  color: var(--tn-muted);
+}
+
+.theme [data-slot="tabs-trigger"]:hover {
+  color: var(--tn-text);
+}
+
+.theme [data-slot="tabs-trigger"][data-active] {
+  background: var(--tn-spec-soft, none), linear-gradient(#fffdf8, #f1ebdf) !important;
+  color: var(--tn-text);
+  box-shadow: inset 0 1px 0 #fff, 0 1.5px 0 #d4c7ad, 0 2px 4px rgb(60 45 20 / 12%) !important;
+}
+
+.theme [data-slot="tabs-trigger"]:focus-visible {
+  box-shadow: 0 0 0 3px rgb(95 139 207 / 30%) !important;
+}
+
+.theme[data-tn-mode="dark"] [data-slot="tabs-list"],
+[data-tn-mode="dark"] .theme [data-slot="tabs-list"] {
+  background: #070707 !important;
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 80%), inset 0 0 0 1px rgb(255 255 255 / 6%);
+}
+
+.theme[data-tn-mode="dark"] [data-slot="tabs-trigger"][data-active],
+[data-tn-mode="dark"] .theme [data-slot="tabs-trigger"][data-active] {
+  background: radial-gradient(120% 140% at 50% 120%, rgb(91 124 255 / 35%), transparent 65%), #141414 !important;
+  color: #f2f5ff;
+  box-shadow: inset 0 0 0 1px rgb(120 150 255 / 45%), 0 0 14px rgb(91 124 255 / 30%) !important;
+  text-shadow: 0 0 8px rgb(91 124 255 / 60%);
+}
+
+/* Badges: small flat plastic chips. No tilt, no cut-paper, no outline. */
+.theme [data-slot="badge"],
+.theme [data-testid="community-status-pill"],
+.theme [data-testid="community-profile-card"] button[title] {
+  rotate: 0deg !important;
+  border-radius: 999px !important;
+  background-image: none !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 55%), inset 0 -1px 0 rgb(60 45 20 / 10%) !important;
+  font-weight: 650;
+}
+
+.theme [data-slot="badge"][data-variant="secondary"] {
+  background-color: #e9dfcb !important;
+  color: #4a3f2c !important;
+}
+
+.theme [data-slot="badge"][data-variant="default"] {
+  background-color: #dbe6f6 !important;
+  color: #2f5591 !important;
+}
+
+.theme [data-slot="badge"][data-variant="outline"],
+.theme [data-testid="community-status-pill"],
+.theme [data-testid="community-profile-card"] button[title] {
+  background-color: #f3ecdf !important;
+  color: var(--tn-text) !important;
+}
+
+.theme[data-tn-mode="dark"] :is([data-slot="badge"], [data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title]),
+[data-tn-mode="dark"] .theme :is([data-slot="badge"], [data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title]) {
+  background-color: #222 !important;
+  color: #e8eaf0 !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 10%), inset 0 0 0 1px rgb(255 255 255 / 12%) !important;
+}
+
+.theme[data-tn-mode="dark"] [data-slot="badge"][data-variant="default"][data-variant],
+[data-tn-mode="dark"] .theme [data-slot="badge"][data-variant="default"][data-variant] {
+  background-color: #17204a !important;
+  color: #c9d4ff !important;
+  box-shadow: inset 0 0 0 1px rgb(120 150 255 / 40%), 0 0 10px rgb(91 124 255 / 25%) !important;
+}
+
+/* ═════════ Round #2153–#2163 ═════════ */
+
+/* Avatar: no inner ring. shadcn draws a circular ::after border, which shows
+ * as a stray circle inside square or dark avatars. */
+.theme [data-slot="avatar"]::after {
+  display: none;
+}
+
+.theme[data-tn-mode="dark"] [data-slot="avatar"],
+[data-tn-mode="dark"] .theme [data-slot="avatar"] {
+  outline: 0;
+}
+
+/* Fallback avatars stay readable in both modes */
+.theme [data-slot="avatar-fallback"] {
+  background: #e7dcc7;
+  color: #3b3226;
+}
+
+.theme[data-tn-mode="dark"] [data-slot="avatar-fallback"],
+[data-tn-mode="dark"] .theme [data-slot="avatar-fallback"] {
+  background: #2a2d36;
+  color: #f1f3f8;
+}
+
+/* Dark keys: no visible border, same as light. The neon lives in the glow. */
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"]),
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"]) {
+  border-width: 0 !important;
+}
+
+/* Tabs: no underline indicator anywhere (also the inbox's line tabs), and a
+ * lower, denser tray. */
+.theme [data-slot="tabs-trigger"]::after {
+  display: none !important;
+}
+
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) > [data-slot="tabs-list"], .theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"] {
+  height: auto !important;
+  padding: 3px !important;
+  gap: 2px;
+  border-bottom: 0 !important;
+}
+
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-trigger"] {
+  height: auto !important;
+  min-height: 0;
+  padding: 3px 12px !important;
+  border-radius: 999px !important;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* Line tabs (inbox) span their container, inset from its edges */
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] {
+  width: auto !important;
+  max-width: calc(100% - 24px);
+  margin-inline: 12px !important;
+  padding-inline: 3px !important;
+  border-radius: 999px;
+}
+
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] [data-slot="tabs-trigger"] {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-inline: 8px !important;
+}
+
+/* Badges and status: keep the storybook cut-paper character of the original
+ * profile card, polished: hand-cut corners, faint paper tooth, a slight
+ * tilt and paper-on-paper lift. Never an outline. */
+.theme [data-slot="badge"],
+.theme [data-testid="community-status-pill"],
+.theme [data-testid="community-profile-card"] button[title] {
+  border: 0 !important;
+  border-radius: 10px 14px 11px 13px / 12px 10px 13px 11px !important;
+  background-image: var(--tn-grain) !important;
+  background-size: 120px 120px !important;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 55%),
+    0 1px 0 rgb(60 45 20 / 8%),
+    0 3px 6px -3px rgb(60 45 20 / 30%) !important;
+  rotate: -1.5deg !important;
+}
+
+.theme [data-slot="badge"]:nth-of-type(2n) {
+  border-radius: 13px 10px 14px 11px / 10px 13px 11px 12px !important;
+  rotate: 1.5deg !important;
+}
+
+.theme[data-tn-mode="dark"] :is([data-slot="badge"], [data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title]),
+[data-tn-mode="dark"] .theme :is([data-slot="badge"], [data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title]) {
+  background-image: none !important;
+  background-color: #23252c !important;
+  color: #eceef4 !important;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 10%),
+    0 0 0 1px rgb(255 255 255 / 6%),
+    0 4px 10px -4px rgb(91 124 255 / 35%) !important;
+}
+
+.theme[data-tn-mode="dark"] [data-slot="badge"][data-variant="default"][data-variant],
+[data-tn-mode="dark"] .theme [data-slot="badge"][data-variant="default"][data-variant] {
+  background-color: #1b2552 !important;
+  color: #d3dcff !important;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 12%),
+    0 0 12px rgb(91 124 255 / 35%) !important;
+}
+
+
+
+/* ═════════ Frameless pass (#2173): fewer inline lines ═════════
+ * Components carry their own contrast now, so structural divider lines go. */
+.theme header[role="banner"] {
+  border-bottom-color: transparent !important;
+}
+
+.theme [data-slot="separator"] {
+  background: color-mix(in oklab, var(--tn-line) 60%, transparent) !important;
+}
+
+.theme :is([data-slot="community-sidebar-panel-content"], [data-slot="community-shell-root"]) header {
+  border-bottom-color: transparent !important;
+}
+
+.theme [data-testid="community-typing-indicator"] {
+  border: 0 !important;
+  background: color-mix(in oklab, var(--tn-surface) 92%, transparent) !important;
+  box-shadow: 0 1px 2px rgb(40 30 15 / 10%), 0 4px 12px -6px rgb(40 30 15 / 22%) !important;
+}
+
+.theme[data-tn-mode="dark"] [data-testid="community-typing-indicator"],
+[data-tn-mode="dark"] .theme [data-testid="community-typing-indicator"] {
+  background: rgb(20 20 24 / 92%) !important;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 7%), 0 0 14px rgb(91 124 255 / 18%) !important;
+}
+
+.theme [data-slot="popover-content"],
+.theme:is([data-slot="popover-content"]) {
+  border-color: var(--tn-line) !important;
+}
+
+/* Frameless edit inputs (border-0 bg-transparent, e.g. bot name, channel
+ * name, profile fields) keep their frameless layout. They only take the new
+ * caret and a placeholder that fades while you type. */
+.theme :is(input, textarea)[class~="border-0"] {
+  caret-color: var(--tn-blue);
+}
+
+.theme :is(input, textarea)[class~="border-0"]::placeholder {
+  transition: opacity 160ms ease-out;
+}
+
+.theme :is(input, textarea)[class~="border-0"]:focus::placeholder {
+  opacity: 0.45;
+}
+
+/* Running bots card: no divider lines between rows; rows read by spacing and
+ * a hover tint. */
+.theme [data-testid="community-profile-running-bots-card"] [class*="divide-y"] > * {
+  border-color: transparent !important;
+}
+
+.theme [data-testid="community-profile-running-bots-card"] [class*="border-t"] {
+  border-top-color: transparent !important;
+}
+
+.theme [data-testid^="community-profile-running-bot-"] {
+  border-radius: 12px;
+  padding-inline: 8px !important;
+}
+
+/* A profile card shown inside another surface (UserBar extension) drops its
+ * own frame instead of nesting a card inside a card. */
+.theme :is([data-slot="community-user-bar-overlay"], [data-slot="popover-content"]) [data-testid="community-profile-card"] {
+  border: 0 !important;
+}
+
+/* User bar extension: one hairline shell, no double outline from the popover
+ * wrapper. The wrapper is a frameless anchor (border-0 in the app), so drop the
+ * surface border width too; a transparent 1px border would still shrink the
+ * 320px extension to 318px. */
+.theme [data-slot="popover-content"]:has(> * > [data-testid="community-user-bar-extension"]),
+.theme [data-slot="popover-content"]:has([data-testid="community-user-bar-extension"]),
+.theme:is([data-slot="popover-content"]):has([data-testid="community-user-bar-extension"]) {
+  border-width: 0 !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+/* Desktop pop-up only. On mobile the extension joins the user bar into one
+ * object, so both keep the app's shared border/40 hairline. */
+.theme [data-testid="community-user-bar-extension"][data-presentation="popup"] {
+  border-color: var(--tn-line) !important;
+}
+.theme :is([data-testid="community-user-bar-extension"][data-presentation="popup"], [data-testid="community-profile-running-bots-card"]) {
+  border-color: var(--tn-line) !important;
+  box-shadow: 0 12px 28px -14px color-mix(in oklab, var(--tn-text) 22%, transparent) !important;
+}
+
+/* Message hover: a neutral paper shade, not a blue tint (keeps the list calm) */
+.theme [class~="hover:bg-accent/40"]:hover {
+  background-color: color-mix(in oklab, var(--tn-text) 3.5%, transparent) !important;
+}
+
+/* Hover toolbar: one hairline pill; icon keys press */
+.theme [data-page-swipe-reply-row] > [class*="shadow-(--e1)"][class*="absolute"] {
+  border-color: var(--tn-line) !important;
+  border-radius: 12px;
+  box-shadow: 0 6px 16px -10px color-mix(in oklab, var(--tn-text) 30%, transparent) !important;
+}
+.theme [data-page-swipe-reply-row] > [class*="shadow-(--e1)"][class*="absolute"] button {
+  transition: transform 90ms ease-out, background-color 140ms ease-out;
+}
+.theme [data-page-swipe-reply-row] > [class*="shadow-(--e1)"][class*="absolute"] button:active {
+  transform: scale(0.88);
+}
+
+/* Reaction chips: small paper chips that press; mine gets the blue tint */
+.theme [data-testid^="community-reaction-chip-"] {
+  border: 1px solid var(--tn-line) !important;
+  background: var(--tn-chip) !important;
+  border-radius: 999px !important;
+  transition: transform 90ms ease-out, background-color 160ms ease-out;
+}
+.theme [data-testid^="community-reaction-chip-"][aria-pressed="true"] {
+  border-color: color-mix(in oklab, var(--tn-blue) 55%, transparent) !important;
+  background: var(--tn-blue-tint) !important;
+}
+.theme [data-testid^="community-reaction-chip-"]:active {
+  transform: scale(0.92);
+}
+.theme[data-tn-mode="dark"] [data-testid^="community-reaction-chip-"],
+[data-tn-mode="dark"] .theme [data-testid^="community-reaction-chip-"] {
+  background: #1a1a1a !important;
+}
+.theme[data-tn-mode="dark"] [data-testid^="community-reaction-chip-"][aria-pressed="true"],
+[data-tn-mode="dark"] .theme [data-testid^="community-reaction-chip-"][aria-pressed="true"] {
+  background: color-mix(in oklab, var(--tn-blue) 22%, #000) !important;
+  box-shadow: 0 0 12px -4px color-mix(in oklab, var(--tn-blue) 70%, transparent);
+}
+
+/* Frameless dialogs: the footer is a quiet shelf, no divider line */
+.theme [data-slot="dialog-footer"] {
+  border-top-color: transparent !important;
+  background: color-mix(in oklab, var(--tn-text) 3%, transparent) !important;
+}
+
+/* Frameless inputs: a readable placeholder (>= 3:1 on paper) */
+.theme :is(input, textarea)[class~="border-0"]::placeholder {
+  color: color-mix(in oklab, var(--tn-muted) 75%, transparent) !important;
+}
+
+/* Forum: frameless rows and filter bar; neutral hover */
+.theme [data-testid^="community-forum-post-"],
+.theme [data-testid="community-forum-tag-scroller"],
+.theme [data-testid="community-forum-filter-bar"] {
+  border-bottom-color: transparent !important;
+}
+.theme [class~="hover:bg-accent/45"]:hover {
+  background-color: color-mix(in oklab, var(--tn-text) 3.5%, transparent) !important;
+}
+.theme [data-testid^="community-forum-post-"] {
+  border-radius: 14px;
+}
+
+/* Dark tag chips: deep tinted paper, bright ink (quiet neon, not muddy pastel) */
+.theme {
+  --forum-tag-text-l: 0.46;
+  --forum-tag-text-c: 0.13;
+  --forum-tag-bg-l: 0.95;
+  --forum-tag-bg-c: 0.035;
+}
+.theme[data-tn-mode="dark"],
+[data-tn-mode="dark"] .theme {
+  --forum-tag-bg-l: 0.25;
+  --forum-tag-bg-c: 0.045;
+  --forum-tag-text-l: 0.84;
+  --forum-tag-text-c: 0.11;
+}
+
+/* Sheets: the panel edge and the header divider are the same hairline token
+ * (Gus #2184: removing lines is not the style). */
+.theme [data-slot="sheet-content"] {
+  border-color: var(--tn-line) !important;
+}
+
+/* ═════════ Machine shell (#2189–2192): the app is one object of the era ═════════
+ * Plastic body (rail + frame), a screen set into it (the app surface), keycap
+ * servers, LED indicators, label-maker tape for names, cut-paper chips.
+ * The message list itself stays plain for reading. */
+.theme {
+  --tn-body-top: #ebe3d3;
+  --tn-body: #e0d5c0;
+  --tn-led-on: #5f8bcf;
+  --tn-led-glow: rgb(95 139 207 / 55%);
+  --tn-led-ok: #6f9a72;
+  --tn-tape: #2f4f86;
+  --tn-tape-ink: #f5f1e6;
+  --tn-tape-muted: #d6c9b0;
+  --tn-tape-muted-ink: #4a4033;
+  --tn-cut: 10px 14px 11px 13px / 12px 10px 13px 11px;
+  --tn-paper-lift: inset 0 1px 0 rgb(255 255 255 / 60%), 0 1px 0 rgb(60 45 20 / 8%), 0 3px 6px -3px rgb(60 45 20 / 30%);
+}
+.theme[data-tn-mode="dark"],
+[data-tn-mode="dark"] .theme {
+  --tn-body-top: #0b0b0c;
+  --tn-body: #050505;
+  --tn-led-on: #7d97ff;
+  --tn-led-glow: rgb(110 135 255 / 75%);
+  --tn-led-ok: #5fe0a0;
+  --tn-tape: #121a3d;
+  --tn-tape-ink: #c4cfff;
+  --tn-tape-muted: #18181b;
+  --tn-tape-muted-ink: #a9adb8;
+  --tn-paper-lift: inset 0 1px 0 rgb(255 255 255 / 9%), 0 0 0 1px rgb(255 255 255 / 6%), 0 4px 10px -4px rgb(91 124 255 / 35%);
+}
+
+/* Body: smooth plastic, no grain */
+.theme [data-slot="community-shell-root"] {
+  --app-bg: var(--sidebar);
+  background: linear-gradient(180deg, var(--tn-body-top), var(--tn-body)) !important;
+}
+
+/* Screen: one plain, faint hairline around the app surface — not recessed,
+ * so the channel + message area doesn't look sunk in (Gus #2403). */
+.theme [data-slot="community-app-surface"] {
+  --tn-shell-edge-width: 0.5px;
+  --tn-shell-edge-color: rgb(60 45 20 / 14%);
+  --tw-ring-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: 0 0 0 var(--tn-shell-edge-width) var(--tn-shell-edge-color) !important;
+}
+.theme[data-tn-mode="dark"] [data-slot="community-app-surface"],
+[data-tn-mode="dark"] .theme [data-slot="community-app-surface"] {
+  --tn-shell-edge-color: rgb(255 255 255 / 12%);
+}
+.theme [data-slot="community-app-surface"] [data-slot="resizable-handle"][aria-orientation="vertical"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  width: var(--tn-shell-edge-width);
+  translate: -50% 0;
+  background: var(--tn-shell-edge-color);
+  pointer-events: none;
+}
+
+/* Rail servers are keycaps; the current one is pressed */
+.theme [data-testid^="community-server-icon-"] > div {
+  border-radius: 12px !important;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 45%),
+    inset 0 -2px 0 rgb(0 0 0 / 14%),
+    0 var(--tn-key-depth) 0 rgb(60 45 20 / 28%),
+    0 5px 8px -4px rgb(60 45 20 / 35%);
+  transition: transform 90ms ease-out, box-shadow 90ms ease-out;
+}
+.theme [data-testid^="community-server-icon-"]:hover > div {
+  transform: translateY(-1px);
+}
+.theme [data-testid^="community-server-icon-"]:active > div,
+.theme [data-testid^="community-server-icon-"][aria-current="page"] > div {
+  transform: translateY(1.5px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 30%),
+    inset 0 -1px 0 rgb(0 0 0 / 14%),
+    0 1px 0 rgb(60 45 20 / 28%),
+    0 2px 4px -2px rgb(60 45 20 / 30%);
+}
+
+/* Category headers: handwritten labels, the brand's Caveat accent */
+.theme [data-testid^="community-category-header-"] {
+  color: var(--tn-blue) !important;
+  font-family: var(--font-caveat), cursive;
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0;
+}
+.theme [data-testid^="community-category-header-"] svg { color: var(--tn-muted); }
+
+/* Channel rows: '/' set in mono; the open channel is a raised paper key */
+.theme [data-testid^="community-channel-row-"] {
+  border-radius: 10px !important;
+  transition: background-color 140ms ease-out, box-shadow 140ms ease-out, transform 90ms ease-out;
+}
+.theme [data-testid^="community-channel-row-"]:active { transform: translateY(1px); }
+.theme [data-testid^="community-channel-row-"][class~="bg-sidebar-accent"] {
+  background: var(--tn-paper-raised) !important;
+  color: var(--tn-text) !important;
+  box-shadow: var(--tn-paper-lift);
+}
+.theme[data-tn-mode="dark"] [data-testid^="community-channel-row-"][class~="bg-sidebar-accent"],
+[data-tn-mode="dark"] .theme [data-testid^="community-channel-row-"][class~="bg-sidebar-accent"] {
+  background: #141414 !important;
+}
+
+/* Header: the name stays plain type; the channel glyph sits in a small keycap */
+.theme [data-channel-header-icon] {
+  border-radius: 7px !important;
+  background: linear-gradient(var(--tn-plastic-top), var(--tn-plastic)) !important;
+  color: var(--tn-chip-text) !important;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 50%),
+    inset 0 -1px 0 rgb(0 0 0 / 10%),
+    0 1.5px 0 rgb(60 45 20 / 25%);
+}
+.theme[data-tn-mode="dark"] [data-channel-header-icon],
+[data-tn-mode="dark"] .theme [data-channel-header-icon] {
+  background: linear-gradient(#1c1c1f, #111113) !important;
+  color: #c4cfff !important;
+  box-shadow: inset 0 0 6px rgb(110 135 255 / 25%), 0 1.5px 0 rgb(110 135 255 / 35%);
+}
+.theme [data-slot="message-header-identity"] > span[title] {
+  font-size: 15px !important;
+  letter-spacing: -0.01em;
+}
+
+/* Unread count: a round sticker, never a blob */
+.theme [class*="inbox-unread-indicator-module"][class*="circle"] {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 45%), 0 1px 2px rgb(60 45 20 / 25%);
+}
+
+/* Date divider label: muted tape */
+.theme [class~="my-2"]:has(> [data-slot="separator"]) > span {
+  padding: 1px 8px 2px;
+  border-radius: 3px;
+  background: var(--tn-tape-muted);
+  color: var(--tn-tape-muted-ink) !important;
+  font-family: var(--font-dm-mono), monospace;
+  font-size: 11px !important;
+  letter-spacing: 0.04em;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 25%), 0 1px 1px rgb(0 0 0 / 12%);
+}
+
+/* Cut-paper chips: one recipe for New, unread counts, forum tags, runtimes */
+.theme :is(
+  [data-testid="community-new-divider"] > span,
+  [data-testid^="community-forum-tag-chip-"],
+  [data-testid="community-forum-tag-all"],
+  [class~="max-w-[160px]"][class~="rounded-md"]
+) {
+  border: 0 !important;
+  border-radius: var(--tn-cut) !important;
+  box-shadow: var(--tn-paper-lift) !important;
+}
+.theme [data-testid="community-new-divider"] > span {
+  rotate: -3deg;
+  background: var(--tn-rose) !important;
+}
+.theme [data-testid="community-forum-tag-scroller"] { padding-block: 4px; }
+.theme [data-testid^="community-forum-tag-chip-"] { transition: transform 90ms ease-out, opacity 140ms ease-out; }
+.theme [data-testid^="community-forum-tag-chip-"]:active { transform: scale(0.94); }
+.theme [class~="max-w-[160px]"][class~="rounded-md"] { background: var(--tn-chip) !important; }
+.theme[data-tn-mode="dark"] [class~="max-w-[160px]"][class~="rounded-md"],
+[data-tn-mode="dark"] .theme [class~="max-w-[160px]"][class~="rounded-md"] { background: #1a1a1a !important; }
+
+/* Status pills become an LED with a mono label */
+.theme [data-slot="card"] span[class~="rounded-full"][class~="text-[11px]"]:not([data-slot="badge"]) {
+  padding: 0 !important;
+  background: transparent !important;
+  color: var(--tn-muted) !important;
+  font-family: var(--font-dm-mono), monospace;
+  letter-spacing: 0.02em;
+}
+.theme [data-slot="card"] span[class~="rounded-full"][class~="text-[11px]"]:not([data-slot="badge"]) > span[class~="rounded-full"] {
+  width: 7px !important;
+  height: 7px !important;
+  background: color-mix(in oklab, var(--tn-text) 25%, transparent) !important;
+}
+.theme [data-slot="card"] span[class~="rounded-full"][class~="text-[11px]"]:not([data-slot="badge"]) > span[class~="bg-status-online"] {
+  background: var(--tn-led-ok) !important;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--tn-led-ok) 20%, transparent), 0 0 8px color-mix(in oklab, var(--tn-led-ok) 70%, transparent);
+}
+
+/* Object icons sit in beige plastic keycaps (machines, empty states) */
+.theme :is([class~="size-10"][class~="rounded-xl"][class~="bg-secondary"], [class~="size-14"][class~="rounded-full"][class~="bg-muted"]) {
+  border-radius: 12px !important;
+  background: linear-gradient(var(--tn-plastic-top), var(--tn-plastic)) !important;
+  color: var(--tn-chip-text) !important;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 50%),
+    inset 0 -2px 0 rgb(0 0 0 / 10%),
+    0 var(--tn-key-depth) 0 rgb(60 45 20 / 25%);
+}
+.theme[data-tn-mode="dark"] :is([class~="size-10"][class~="rounded-xl"][class~="bg-secondary"], [class~="size-14"][class~="rounded-full"][class~="bg-muted"]),
+[data-tn-mode="dark"] .theme :is([class~="size-10"][class~="rounded-xl"][class~="bg-secondary"], [class~="size-14"][class~="rounded-full"][class~="bg-muted"]) {
+  background: linear-gradient(#1c1c1f, #111113) !important;
+  color: #c4cfff !important;
+  box-shadow: inset 0 0 10px rgb(110 135 255 / 22%), 0 var(--tn-key-depth) 0 rgb(110 135 255 / 35%);
+}
+
+/* Paper cards: machine cards, toasts, running bots get a halftone strip */
+.theme [data-testid="community-profile-running-bots-card"] {
+  position: relative;
+  border: 1px solid var(--tn-line) !important;
+  --tw-ring-color: transparent !important;
+  background-color: var(--tn-paper-raised) !important;
+  background-image:
+    radial-gradient(circle, color-mix(in oklab, var(--tn-blue) 30%, transparent) 1px, transparent 1.3px) !important;
+  background-size: 7px 7px !important;
+  background-repeat: repeat-y !important;
+  background-position: right -2px top 0 !important;
+  border-radius: 16px !important;
+}
+.theme[data-tn-mode="dark"] [data-testid="community-profile-running-bots-card"],
+[data-tn-mode="dark"] .theme [data-testid="community-profile-running-bots-card"] {
+  background-color: #0d0d0d !important;
+  background-image: radial-gradient(circle, rgb(110 135 255 / 35%) 1px, transparent 1.3px) !important;
+}
+.theme [data-slot="message-notification-icon"] {
+  border-radius: var(--tn-cut) !important;
+  box-shadow: var(--tn-paper-lift);
+}
+
+/* Running bots: rows are keys on hover; each status carries a live LED */
+.theme [data-testid^="community-profile-running-bot-"]:hover {
+  background: var(--tn-paper) !important;
+  box-shadow: var(--tn-paper-lift);
+}
+.theme [data-testid^="community-profile-running-bot-"] [class~="mt-0.5"]::before {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tn-led-ok);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--tn-led-ok) 80%, transparent);
+  content: "";
+  animation: tn-led 1.8s ease-in-out infinite;
+}
+.theme [data-testid="community-profile-running-bots-card"] h2 {
+  font-family: var(--font-caveat), cursive;
+  color: var(--tn-blue) !important;
+  font-size: 19px !important;
+}
+@keyframes tn-led {
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme [data-testid^="community-profile-running-bot-"] [class~="mt-0.5"]::before { animation: none; }
+}
+
+
+
+/* Member list section labels: the same handwritten label as categories */
+.theme h3[class~="mb-2"][class~="px-1"][class~="text-xs"] {
+  color: var(--tn-blue) !important;
+  font-family: var(--font-caveat), cursive;
+  font-size: 17px !important;
+  font-weight: 700 !important;
+}
+
+.theme[data-tn-mode="dark"] :is([data-slot="community-user-bar-base"], [data-slot="community-composer-base"]:not([class~="bg-transparent"])),
+[data-tn-mode="dark"] .theme :is([data-slot="community-user-bar-base"], [data-slot="community-composer-base"]:not([class~="bg-transparent"])) {
+  background: #121212 !important;
+}
+
+
+/* Rail: keys need air so the lip reads; they sit in a shallow groove in the body */
+.theme [data-community-rail] nav [class~="gap-2"] {
+  gap: 12px !important;
+}
+.theme [data-community-rail] > nav {
+  position: relative;
+  isolation: isolate;
+}
+.theme [data-community-rail] > nav::before {
+  position: absolute;
+  z-index: -1;
+  inset: 4px 6px 8px 3px;
+  border-radius: 16px;
+  background: linear-gradient(90deg, rgb(60 45 20 / 6%), rgb(60 45 20 / 3%) 60%, transparent);
+  box-shadow: inset 0 2px 3px -1px rgb(60 45 20 / 18%);
+  content: "";
+  pointer-events: none;
+}
+.theme[data-tn-mode="dark"] [data-community-rail] > nav::before,
+[data-tn-mode="dark"] .theme [data-community-rail] > nav::before {
+  background: linear-gradient(90deg, rgb(255 255 255 / 3%), transparent);
+  box-shadow: inset 0 2px 3px -1px rgb(0 0 0 / 90%);
+}
+
+/* Channel intro glyph: the same plastic keycap as the header glyph, larger */
+.theme [class~="size-12"][class~="rounded-full"][class~="bg-muted/60"] {
+  border-radius: 14px !important;
+  background: linear-gradient(var(--tn-plastic-top), var(--tn-plastic)) !important;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 50%),
+    inset 0 -2px 0 rgb(0 0 0 / 10%),
+    0 var(--tn-key-depth) 0 rgb(60 45 20 / 25%);
+}
+.theme [class~="size-12"][class~="rounded-full"][class~="bg-muted/60"] > * { color: var(--tn-chip-text) !important; }
+.theme[data-tn-mode="dark"] [class~="size-12"][class~="rounded-full"][class~="bg-muted/60"],
+[data-tn-mode="dark"] .theme [class~="size-12"][class~="rounded-full"][class~="bg-muted/60"] {
+  background: linear-gradient(#1c1c1f, #111113) !important;
+  box-shadow: inset 0 0 10px rgb(110 135 255 / 22%), 0 var(--tn-key-depth) 0 rgb(110 135 255 / 35%);
+}
+.theme[data-tn-mode="dark"] [class~="size-12"][class~="rounded-full"][class~="bg-muted/60"] > *,
+[data-tn-mode="dark"] .theme [class~="size-12"][class~="rounded-full"][class~="bg-muted/60"] > * { color: #c4cfff !important; }
+
+/* User bar avatar: one ring only (the running-bots signal); no glow halo, no avatar outline */
+.theme [data-slot="community-user-bar-base"] .user-bar-running-bots-glow,
+.theme [data-slot="community-user-bar-base"] [class~="user-bar-running-bots-glow"] {
+  display: none !important;
+}
+.theme [data-slot="community-user-bar-base"] [data-slot="avatar"] {
+  outline: 0 !important;
+}
+
+/* Dark rail keys: a brown lip vanishes on black, so the lip and press read as
+ * neon, like the dark buttons: a lit edge under the key, gone when pressed. */
+.theme[data-tn-mode="dark"] [data-testid^="community-server-icon-"] > div,
+[data-tn-mode="dark"] .theme [data-testid^="community-server-icon-"] > div {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    inset 0 -2px 0 rgb(0 0 0 / 30%),
+    0 var(--tn-key-depth) 0 rgb(140 160 220 / 55%),
+    0 6px 14px -4px rgb(91 124 255 / 45%);
+}
+.theme[data-tn-mode="dark"] [data-testid^="community-server-icon-"]:is(:active, [aria-current="page"]) > div,
+[data-tn-mode="dark"] .theme [data-testid^="community-server-icon-"]:is(:active, [aria-current="page"]) > div {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 20%),
+    inset 0 2px 6px rgb(0 0 0 / 45%),
+    0 0.5px 0 rgb(140 160 220 / 55%),
+    0 0 0 1px rgb(125 151 255 / 45%),
+    0 0 14px rgb(91 124 255 / 45%);
+  filter: brightness(0.86);
+}
+.theme [data-testid^="community-server-icon-"]:is(:active, [aria-current="page"]) > div {
+  filter: brightness(0.94);
+}
+
+/* Open channel: pressed in, like the open server key, not raised (#2222) */
+.theme [data-testid^="community-channel-row-"][class~="bg-sidebar-accent"] {
+  background: color-mix(in oklab, var(--tn-text) 6%, var(--sidebar)) !important;
+  box-shadow:
+    inset 0 1.5px 2px rgb(60 45 20 / 16%),
+    inset 0 -1px 0 rgb(255 255 255 / 55%) !important;
+}
+.theme[data-tn-mode="dark"] [data-testid^="community-channel-row-"][class~="bg-sidebar-accent"],
+[data-tn-mode="dark"] .theme [data-testid^="community-channel-row-"][class~="bg-sidebar-accent"] {
+  background: var(--tn-recessed-background) !important;
+  box-shadow: var(--tn-recessed-shadow) !important;
+}
+
+/* Tabs follow Stageshow (#2213): press, then the selection travels.
+ * The raised key is the shared indicator; the active label only changes ink. */
+.theme [data-slot="tabs-list"] {
+  position: relative;
+  isolation: isolate;
+}
+.theme [data-slot="tabs-indicator"] {
+  position: absolute;
+  z-index: 0;
+  display: block !important;
+  top: var(--active-tab-top);
+  left: var(--active-tab-left);
+  width: var(--active-tab-width);
+  height: var(--active-tab-height);
+  border-radius: 999px;
+  background: linear-gradient(#fffdf8, #f1ebdf);
+  box-shadow: inset 0 1px 0 #fff, 0 1.5px 0 #d4c7ad, 0 2px 4px rgb(60 45 20 / 12%);
+  transition:
+    left 280ms cubic-bezier(0.25, 0.8, 0.25, 1),
+    width 280ms cubic-bezier(0.25, 0.8, 0.25, 1),
+    top 280ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.theme[data-tn-mode="dark"] [data-slot="tabs-indicator"],
+[data-tn-mode="dark"] .theme [data-slot="tabs-indicator"] {
+  background: radial-gradient(120% 140% at 50% 120%, rgb(91 124 255 / 35%), transparent 65%), #141414;
+  box-shadow: inset 0 0 0 1px rgb(120 150 255 / 45%), 0 0 14px rgb(91 124 255 / 30%);
+}
+.theme [data-slot="tabs-trigger"] {
+  z-index: 1;
+  transition: color 160ms ease-out, transform 90ms ease-out !important;
+}
+.theme [data-slot="tabs-trigger"][data-active],
+.theme[data-tn-mode="dark"] [data-slot="tabs-trigger"][data-active],
+[data-tn-mode="dark"] .theme [data-slot="tabs-trigger"][data-active] {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.theme [data-slot="tabs-trigger"]:active {
+  transform: scale(0.95);
+}
+/* Panels arrive instead of popping: 200ms crossfade with an 8px rise */
+.theme [data-slot="tabs-content"]:not([hidden]) {
+  animation: tn-panel-in 200ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
+}
+@keyframes tn-panel-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme [data-slot="tabs-indicator"] { transition: none; }
+  .theme [data-slot="tabs-content"]:not([hidden]) { animation: none; }
+}
+
+/* Every popup option behaves like a button: hover tint, press, release */
+.theme :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-sub-trigger"],
+  [data-slot="context-menu-item"], [data-slot="context-menu-checkbox-item"], [data-slot="context-menu-radio-item"], [data-slot="context-menu-sub-trigger"],
+  [data-slot="select-item"]) {
+  border-radius: 9px !important;
+  transition: background-color 120ms ease-out, transform 90ms ease-out, box-shadow 120ms ease-out;
+}
+.theme :is([data-slot$="menu-item"], [data-slot$="menu-checkbox-item"], [data-slot$="menu-radio-item"], [data-slot$="menu-sub-trigger"], [data-slot="select-item"]):is([data-highlighted], :hover) {
+  background: linear-gradient(#fffdf8, #f3ede2) !important;
+  color: var(--tn-text) !important;
+  box-shadow: inset 0 1px 0 #fff, 0 1px 0 #d9ccb3;
+}
+.theme :is([data-slot$="menu-item"], [data-slot$="menu-checkbox-item"], [data-slot$="menu-radio-item"], [data-slot="select-item"]):active {
+  transform: scale(0.97) translateY(0.5px);
+  box-shadow: inset 0 1px 2px rgb(60 45 20 / 16%);
+}
+.theme[data-tn-mode="dark"] :is([data-slot$="menu-item"], [data-slot$="menu-checkbox-item"], [data-slot$="menu-radio-item"], [data-slot$="menu-sub-trigger"], [data-slot="select-item"]):is([data-highlighted], :hover),
+[data-tn-mode="dark"] .theme :is([data-slot$="menu-item"], [data-slot$="menu-checkbox-item"], [data-slot$="menu-radio-item"], [data-slot$="menu-sub-trigger"], [data-slot="select-item"]):is([data-highlighted], :hover) {
+  background: radial-gradient(120% 140% at 50% 120%, rgb(91 124 255 / 28%), transparent 65%), #151515 !important;
+  color: #f2f5ff !important;
+  box-shadow: inset 0 0 0 1px rgb(120 150 255 / 35%);
+}
+.theme :is([data-slot$="menu-item"], [data-slot="select-item"])[data-variant="destructive"]:is([data-highlighted], :hover) {
+  color: var(--tn-rose) !important;
+}
+
+/* Home shortcuts: the travelling selection is pressed in, like the open channel */
+.theme [data-slot="dm-sidebar-shortcut-indicator"] {
+  background: color-mix(in oklab, var(--tn-text) 6%, var(--sidebar)) !important;
+  box-shadow: inset 0 1.5px 2px rgb(60 45 20 / 16%), inset 0 -1px 0 rgb(255 255 255 / 55%);
+}
+.theme[data-tn-mode="dark"] [data-slot="dm-sidebar-shortcut-indicator"],
+[data-tn-mode="dark"] .theme [data-slot="dm-sidebar-shortcut-indicator"] {
+  background: var(--tn-recessed-background) !important;
+  box-shadow: var(--tn-recessed-shadow);
+}
+
+/* Empty states: the faint dot grid, in the area's own colour, fading at the edges (#2174, #2215) */
+.theme [data-slot="empty-state"] {
+  position: relative;
+  isolation: isolate;
+}
+.theme [data-slot="empty-state"]::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-image: radial-gradient(circle, color-mix(in oklab, var(--tn-text) 12%, transparent) 1px, transparent 1.4px);
+  background-size: 14px 14px;
+  background-position: center;
+  -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, #000 35%, transparent 100%);
+  mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, #000 35%, transparent 100%);
+  content: "";
+  pointer-events: none;
+}
+
+/* Bot and machine cards: the original card, without its border (#2233–2234) */
+.theme [data-shell] {
+  --tw-ring-color: transparent !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: linear-gradient(#fffdf8, #f2ece0) !important;
+  box-shadow:
+    inset 0 1px 0 #fff,
+    inset 0 -1px 0 rgb(60 45 20 / 6%),
+    0 var(--tn-key-depth) 0 #d8ccb4,
+    0 7px 14px -8px rgb(60 45 20 / 30%) !important;
+}
+.theme[data-tn-mode="dark"] [data-shell],
+[data-tn-mode="dark"] .theme [data-shell] {
+  background:
+    radial-gradient(120% 90% at 50% 130%, rgb(91 124 255 / 16%), transparent 60%),
+    linear-gradient(#151517, #0e0e10) !important;
+  box-shadow:
+    inset 0 0 0 1px rgb(140 160 220 / 14%),
+    inset 0 1px 0 rgb(255 255 255 / 8%),
+    0 var(--tn-key-depth) 0 rgb(140 160 220 / 32%),
+    0 8px 20px -8px rgb(91 124 255 / 30%) !important;
+}
+
+/* Running bots (#2235): no halftone band; same card surface and edges as the profile card beside it */
+.theme [data-testid="community-profile-running-bots-card"] {
+  background-image: none !important;
+  background-color: var(--tn-paper-raised) !important;
+}
+.theme[data-tn-mode="dark"] [data-testid="community-profile-running-bots-card"],
+[data-tn-mode="dark"] .theme [data-testid="community-profile-running-bots-card"] {
+  background-color: #0d0d0d !important;
+}
+
+/* Key cards respond like keys (#2237): hover rises, press sinks. They are not
+ * links, so nothing else changes and inner buttons work as before. */
+.theme [data-shell] {
+  transition: transform 110ms ease-out, box-shadow 110ms ease-out;
+}
+.theme [data-shell]:hover {
+  transform: translateY(-1px);
+}
+.theme [data-shell]:active:not(:has(button:active, a:active, [role="menuitem"]:active)) {
+  transform: translateY(1.5px);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    inset 0 1px 3px rgb(60 45 20 / 10%),
+    0 1px 0 #d8ccb4,
+    0 3px 6px -4px rgb(60 45 20 / 25%) !important;
+}
+.theme[data-tn-mode="dark"] [data-shell]:active:not(:has(button:active, a:active, [role="menuitem"]:active)),
+[data-tn-mode="dark"] .theme [data-shell]:active:not(:has(button:active, a:active, [role="menuitem"]:active)) {
+  box-shadow:
+    inset 0 0 0 1px rgb(140 160 220 / 22%),
+    inset 0 2px 6px rgb(0 0 0 / 50%),
+    0 1px 0 rgb(140 160 220 / 32%),
+    0 0 14px -4px rgb(91 124 255 / 35%) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme [data-shell] { transition: none; }
+  .theme [data-shell]:hover { transform: none; }
+}
+/* Running bots sits level with the profile card */
+.theme [data-testid="community-profile-running-bots-card"] { translate: 0 2px; }
+
+/* Vertical tabs (settings): a column of keys; the indicator slides vertically */
+.theme [data-slot="tabs"][data-orientation="vertical"] [data-slot="tabs-list"] [data-slot="tabs-trigger"] {
+  border-radius: 10px !important;
+}
+.theme [data-slot="tabs"][data-orientation="vertical"] [data-slot="tabs-list"] [data-slot="tabs-indicator"] {
+  border-radius: 10px;
+}
+.theme [data-slot="tabs"][data-orientation="vertical"] [data-slot="tabs-list"] {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Destructive text keeps its red on keys and ghost buttons */
+.theme :is(button, a)[class~="text-destructive"],
+.theme :is(button, a)[data-variant="destructive"] {
+  color: var(--tn-rose) !important;
+}
+.theme[data-tn-mode="dark"] :is(button, a)[class~="text-destructive"],
+[data-tn-mode="dark"] .theme :is(button, a)[class~="text-destructive"] {
+  color: #ff8f80 !important;
+}
+
+/* Disabled keys are flat and quiet: no lip, no glow */
+.theme :is(button, a)[data-variant]:is(:disabled, [aria-disabled="true"], [data-disabled]) {
+  opacity: 0.45 !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  filter: saturate(0.6);
+}
+
+/* Dialog footer: same surface as the body, no band */
+.theme [data-slot="dialog-footer"] {
+  background: transparent !important;
+}
+
+/* Key cards: a smaller lip so stacked cards read calm (#2239) */
+.theme [data-shell] {
+  box-shadow:
+    inset 0 1px 0 #fff,
+    inset 0 -1px 0 rgb(60 45 20 / 6%),
+    0 1.5px 0 #d8ccb4,
+    0 4px 8px -6px rgb(60 45 20 / 25%) !important;
+}
+.theme[data-tn-mode="dark"] [data-shell],
+[data-tn-mode="dark"] .theme [data-shell] {
+  box-shadow:
+    inset 0 0 0 1px rgb(140 160 220 / 14%),
+    inset 0 1px 0 rgb(255 255 255 / 8%),
+    0 1.5px 0 rgb(140 160 220 / 30%),
+    0 6px 14px -8px rgb(91 124 255 / 26%) !important;
+}
+
+/* Sheet footer: same surface as the sheet, no band or divider */
+.theme [data-slot="sheet-footer"] {
+  border-top-color: transparent !important;
+  background: transparent !important;
+}
+
+/* Unavailable options stay readable */
+.theme label:has(> input[type="radio"]:disabled)[class~="opacity-40"] { opacity: 0.6 !important; }
+
+/* The indicator only travels after the user changes tab. On first paint (or
+ * while a dialog zooms in) it snaps into place instead of morphing from an
+ * unmeasured box, which read as an ellipse mask (#2247). */
+.theme [data-slot="tabs-list"][data-activation-direction="none"] [data-slot="tabs-indicator"] {
+  transition: none !important;
+}
+.theme [data-slot="tabs-indicator"]:not([style*="--active-tab-width"]) {
+  opacity: 0;
+}
+.theme [data-slot="tabs"][data-orientation="vertical"] [data-slot="tabs-list"] {
+  border-radius: 0 !important;
+  overflow: visible !important;
+}
+
+/* DM rows: the open conversation is pressed in, same as the open channel (#2250) */
+.theme [data-testid^="community-dm-row-"] {
+  border-radius: 10px !important;
+  transition: background-color 140ms ease-out, box-shadow 140ms ease-out, transform 90ms ease-out;
+}
+.theme [data-testid^="community-dm-row-"]:active { transform: translateY(1px); }
+.theme [data-testid^="community-dm-row-"][class~="bg-sidebar-accent"] {
+  background: color-mix(in oklab, var(--tn-text) 6%, var(--sidebar)) !important;
+  box-shadow: inset 0 1.5px 2px rgb(60 45 20 / 16%), inset 0 -1px 0 rgb(255 255 255 / 55%) !important;
+}
+.theme[data-tn-mode="dark"] [data-testid^="community-dm-row-"][class~="bg-sidebar-accent"],
+[data-tn-mode="dark"] .theme [data-testid^="community-dm-row-"][class~="bg-sidebar-accent"] {
+  background: var(--tn-recessed-background) !important;
+  box-shadow: var(--tn-recessed-shadow) !important;
+}
+
+/* Footers that opt out of the dialog bleed (m-0) keep their own box */
+.theme [data-slot="dialog-footer"][class~="m-0"] {
+  margin: 0 !important;
+  padding: 16px 24px !important;
+  border-radius: 0 !important;
+}
+/* Step progress uses the brand blues, not three unrelated hues */
+.theme {
+  --te: var(--tn-blue);
+  --ti: var(--tn-blue-top);
+  --tc: var(--tn-blue-side);
+}
+
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"]),
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"]) {
+  box-shadow:
+    inset 0 0 10px rgb(var(--neon) / var(--tn-neon-inner, 20%)),
+    0 var(--tn-key-depth) 0 rgb(var(--neon) / var(--tn-neon-edge, 38%)),
+    0 calc(var(--tn-key-depth) + 2px) 10px rgb(var(--neon) / var(--tn-neon-spill, 22%)) !important;
+}
+
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"], :disabled, [aria-disabled="true"], [data-disabled]):active,
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant]:not([data-variant="ghost"], [data-variant="link"], :disabled, [aria-disabled="true"], [data-disabled]):active {
+  box-shadow: inset 0 2px 5px rgb(0 0 0 / 65%), inset 0 1px 0 rgb(var(--neon) / 20%) !important;
+  text-shadow: none !important;
+}
+
+/* ═════════ Gus checklist (#2238 #2249 #2252 #2257 #2262 #2264 #2265) ═════════ */
+
+/* #2265 / #2264: line tabs are as wide as their labels, never full width */
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] {
+  width: fit-content !important;
+  max-width: calc(100% - 24px);
+}
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] [data-slot="tabs-trigger"] {
+  flex: 0 0 auto !important;
+  padding-inline: 12px !important;
+}
+
+/* #2249: badges all lean the same way, no left/right alternation */
+.theme [data-slot="badge"]:nth-of-type(2n),
+.theme [data-slot="badge"]:nth-of-type(3n) {
+  rotate: -1.5deg !important;
+}
+
+/* #2238 / #2252: the channel and DM header icons answer hover and press like keys */
+.theme [data-channel-header-icon],
+.theme [data-slot="message-header-identity"] > [data-slot="avatar"],
+.theme [data-slot="message-header-identity"] > span:has(> [data-slot="avatar"]),
+.theme [class~="size-12"][class~="rounded-full"][class~="bg-muted/60"] {
+  transition: transform 90ms ease-out, box-shadow 90ms ease-out, filter 120ms ease-out;
+}
+.theme :is([data-channel-header-icon], [class~="size-12"][class~="rounded-full"][class~="bg-muted/60"]):hover {
+  transform: translateY(-1px);
+}
+.theme :is([data-channel-header-icon], [class~="size-12"][class~="rounded-full"][class~="bg-muted/60"]):active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 2px rgb(60 45 20 / 22%) !important;
+}
+.theme [data-slot="message-header-identity"] :is([data-slot="avatar"], span:has(> [data-slot="avatar"])):hover {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+}
+.theme [data-slot="message-header-identity"] :is([data-slot="avatar"], span:has(> [data-slot="avatar"])):active {
+  transform: scale(0.92);
+}
+
+/* #2257: a message row presses in place on click (no movement, so selecting text stays steady) */
+.theme [data-page-swipe-reply-row]:active:not(:has(button:active, a:active, [role="button"]:active, input:active, textarea:active)) {
+  background-color: color-mix(in oklab, var(--tn-text) 6%, transparent) !important;
+  box-shadow: inset 0 1.5px 2px rgb(60 45 20 / 14%), inset 0 -1px 0 rgb(255 255 255 / 45%);
+}
+.theme[data-tn-mode="dark"] [data-page-swipe-reply-row]:active:not(:has(button:active, a:active, [role="button"]:active, input:active, textarea:active)),
+[data-tn-mode="dark"] .theme [data-page-swipe-reply-row]:active:not(:has(button:active, a:active, [role="button"]:active, input:active, textarea:active)) {
+  background-color: rgb(255 255 255 / 3%) !important;
+  box-shadow: inset 0 1.5px 3px rgb(0 0 0 / 80%), inset 0 0 0 1px rgb(125 151 255 / 14%);
+}
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] [data-slot="tabs-trigger"] {
+  padding-inline: 10px !important;
+}
+/* Badge rows: room for the paper lift and two lines, nothing clipped */
+.theme [class~="max-h-12"]:has(> [data-slot="badge"]) {
+  max-height: 3.75rem !important;
+  padding-block: 2px 4px;
+}
+
+/* A tab list with one tab is not a switch: no tray, no key, just its label (#2273) */
+.theme [data-slot="tabs-list"]:has(> button[data-slot="tabs-trigger"]:only-of-type),
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"]:has(> button[data-slot="tabs-trigger"]:only-of-type) {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin-inline: 0 !important;
+}
+.theme [data-slot="tabs-list"]:has(> button[data-slot="tabs-trigger"]:only-of-type) > [data-slot="tabs-indicator"] {
+  display: none !important;
+}
+/* Its label starts on the page's text edge, under the page title (Gus #2364). */
+.theme [data-slot="tabs-list"]:has(> button[data-slot="tabs-trigger"]:only-of-type) > [data-slot="tabs-trigger"],
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"]:has(> button[data-slot="tabs-trigger"]:only-of-type) > [data-slot="tabs-trigger"] {
+  padding-inline: 0 !important;
+  color: var(--tn-text) !important;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* Rail merges with the body: no groove, no edge (#2275) */
+.theme [data-community-rail] > nav::before {
+  display: none !important;
+}
+
+/* #2278: the typing pill is a key. It does nothing, but it answers hover and press. */
+.theme [data-testid="community-typing-indicator"] {
+  pointer-events: auto !important;
+  cursor: default;
+  border: 0 !important;
+  background: linear-gradient(#fffdf8, #f2ece0) !important;
+  backdrop-filter: none !important;
+  box-shadow: inset 0 1px 0 #fff, 0 var(--tn-key-depth) 0 #d8ccb4, 0 4px 8px -6px rgb(60 45 20 / 28%) !important;
+  transition: transform 90ms ease-out, box-shadow 90ms ease-out;
+  animation: tn-key-in 220ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
+}
+.theme [data-testid="community-typing-indicator"]:hover { transform: translateY(-1px); }
+.theme [data-testid="community-typing-indicator"]:active {
+  transform: translateY(1.5px);
+  box-shadow: inset 0 1px 2px rgb(60 45 20 / 16%), 0 0.5px 0 #d8ccb4 !important;
+}
+.theme[data-tn-mode="dark"] [data-testid="community-typing-indicator"],
+[data-tn-mode="dark"] .theme [data-testid="community-typing-indicator"] {
+  background: radial-gradient(120% 140% at 50% 120%, rgb(140 160 200 / 22%), transparent 60%), linear-gradient(#1a1a1a, #0e0e0e) !important;
+  box-shadow: inset 0 0 10px rgb(140 160 200 / 18%), 0 var(--tn-key-depth) 0 rgb(140 160 200 / 36%), 0 calc(var(--tn-key-depth) + 2px) 10px rgb(140 160 200 / 18%) !important;
+}
+.theme[data-tn-mode="dark"] [data-testid="community-typing-indicator"]:active,
+[data-tn-mode="dark"] .theme [data-testid="community-typing-indicator"]:active {
+  box-shadow: inset 0 1px 4px rgb(0 0 0 / 70%), 0 0.5px 0 rgb(140 160 200 / 36%) !important;
+}
+
+/* #2279: jump-to-present arrives as a key rising into place, never pops */
+.theme [data-testid="community-scroll-to-present"] {
+  animation: tn-key-in 220ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
+}
+/* Fade only: the rail measures these keys while they arrive, so the entry must
+ * not change their box (no scale or translate). */
+@keyframes tn-key-in {
+  from { opacity: 0; }
+}
+
+/* Baseline (Stageshow): anything clickable that has no press of its own still
+ * sinks a pixel when pressed, so no control feels dead. Use transform, not
+ * translate: many controls are centred with Tailwind translate (-50% -50%),
+ * and replacing it moved them out from under the pointer mid-press. */
+.theme :is(button, [role="button"], a[href], summary, label:has(> input)):not([data-variant], [data-slot="tabs-trigger"], [data-slot$="menu-item"], [data-slot="select-item"], [data-page-swipe-reply-row], [data-shell], [data-testid^="community-channel-row-"], [data-testid^="community-dm-row-"], [data-testid^="community-server-icon-"], :disabled):active {
+  transform: translateY(1px);
+}
+.theme :is(button, [role="button"], a[href], summary):not([data-variant]) {
+  transition-property: color, background-color, border-color, box-shadow, opacity, translate, transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme [data-testid="community-typing-indicator"],
+  .theme [data-testid="community-scroll-to-present"] { animation: none; }
+}
+
+/* ═════════ Step guides (#2283): a printed manual, not a SaaS checklist ═════════ */
+
+/* Step numbers are keycaps; the current step is the lit blue key, done is sage */
+.theme [data-slot="step-number"] {
+  width: 26px !important;
+  height: 26px !important;
+  border-radius: 7px !important;
+  font-family: var(--font-dm-mono), ui-monospace, monospace;
+  font-size: 12px !important;
+  background: linear-gradient(var(--tn-plastic-top), var(--tn-plastic)) !important;
+  color: var(--tn-chip-text) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 50%), 0 2px 0 rgb(60 45 20 / 25%);
+}
+.theme [data-slot="step-number"][data-state="active"] {
+  background: linear-gradient(var(--tn-blue-top), var(--tn-blue)) !important;
+  color: #f4f7fc !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%), 0 2px 0 var(--tn-blue-side), 0 0 10px -2px rgb(95 139 207 / 45%);
+}
+.theme [data-slot="step-number"][data-state="done"] {
+  background: linear-gradient(#8ab48c, var(--tn-sage)) !important;
+  color: #fff !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%), 0 2px 0 #4f7553;
+}
+.theme [data-slot="step-number"][data-state="pending"] {
+  opacity: 0.75;
+}
+.theme [data-slot="step-number"] > span[class~="animate-spin"] {
+  inset: -4px !important;
+  border-radius: 10px !important;
+  border-color: color-mix(in oklab, var(--tn-blue) 25%, transparent) !important;
+  border-top-color: var(--tn-blue) !important;
+}
+.theme[data-tn-mode="dark"] [data-slot="step-number"],
+[data-tn-mode="dark"] .theme [data-slot="step-number"] {
+  background: linear-gradient(#1c1c1f, #111113) !important;
+  color: #c4cfff !important;
+  box-shadow: inset 0 0 8px rgb(110 135 255 / 22%), 0 2px 0 rgb(110 135 255 / 35%);
+}
+.theme[data-tn-mode="dark"] [data-slot="step-number"][data-state="active"],
+[data-tn-mode="dark"] .theme [data-slot="step-number"][data-state="active"] {
+  background: radial-gradient(110% 130% at 50% 110%, rgb(91 124 255 / 75%), transparent 70%), linear-gradient(#2a3a8a, #18215a) !important;
+  color: #f2f5ff !important;
+  box-shadow: inset 0 0 10px rgb(160 180 255 / 40%), 0 2px 0 #3349c4, 0 0 14px -2px rgb(91 124 255 / 60%);
+}
+.theme[data-tn-mode="dark"] [data-slot="step-number"][data-state="done"],
+[data-tn-mode="dark"] .theme [data-slot="step-number"][data-state="done"] {
+  background: radial-gradient(110% 130% at 50% 110%, rgb(95 224 160 / 55%), transparent 70%), #0f2a1e !important;
+  color: #c9ffe4 !important;
+  box-shadow: inset 0 0 8px rgb(95 224 160 / 35%), 0 2px 0 rgb(95 224 160 / 45%);
+}
+
+/* The command lives on a little terminal screen with a prompt */
+.theme [data-slot="command-block"] {
+  position: relative;
+  border: 0 !important;
+  border-radius: 12px !important;
+  padding: 14px 12px 14px 30px !important;
+  background: #1f1c18 !important;
+  color: #f1e3c2 !important;
+  box-shadow:
+    inset 0 2px 6px rgb(0 0 0 / 45%),
+    inset 0 0 0 1px rgb(255 255 255 / 4%),
+    0 0 0 4px var(--tn-plastic-top),
+    0 0 0 5px color-mix(in oklab, var(--tn-text) 10%, transparent);
+  margin: 5px;
+  text-shadow: 0 0 6px rgb(241 227 194 / 25%);
+}
+.theme [data-slot="command-block"]::before {
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+  line-height: 1.625;
+  left: 13px;
+  color: #8fd19a;
+  content: "$";
+}
+.theme [data-slot="command-block"] [data-variant] {
+  color: #f1e3c2 !important;
+}
+.theme[data-tn-mode="dark"] [data-slot="command-block"],
+[data-tn-mode="dark"] .theme [data-slot="command-block"] {
+  background: #050506 !important;
+  color: #c4cfff !important;
+  box-shadow:
+    inset 0 2px 6px rgb(0 0 0 / 80%),
+    inset 0 0 0 1px rgb(125 151 255 / 18%),
+    0 0 0 4px #141416,
+    0 0 0 5px rgb(255 255 255 / 6%),
+    0 0 18px -6px rgb(91 124 255 / 35%);
+  text-shadow: 0 0 8px rgb(125 151 255 / 45%);
+}
+.theme[data-tn-mode="dark"] [data-slot="command-block"]::before,
+[data-tn-mode="dark"] .theme [data-slot="command-block"]::before { color: #5fe0a0; }
+/* Waiting step: the key breathes like a busy LED instead of a spinning square */
+.theme [data-slot="step-number"] > span[class~="animate-spin"] { display: none !important; }
+.theme [data-slot="step-number"]:has(> span[class~="animate-spin"]) {
+  animation: tn-step-wait 1.6s ease-in-out infinite;
+}
+@keyframes tn-step-wait {
+  50% { filter: brightness(1.18); box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%), 0 2px 0 var(--tn-blue-side), 0 0 16px 0 rgb(95 139 207 / 60%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme [data-slot="step-number"]:has(> span[class~="animate-spin"]) { animation: none; }
+}
+
+/* #2292: step keys are round (they spin); keep the original spinner ring */
+.theme [data-slot="step-number"] { border-radius: 999px !important; animation: none !important; }
+.theme [data-slot="step-number"] > span[class~="animate-spin"] {
+  display: block !important;
+  inset: -4px !important;
+  border-radius: 999px !important;
+}
+.theme [data-slot="command-block"] { padding-block: 10px !important; }
+
+/* ═════════ Landing (A1, #2288): palette + type swap on the existing layout ═════════
+ * Beige computer plastic + CD blue on cream grid paper (ref-01/02/05); dark is
+ * the pure-black night scene (ref-06). Bold sans headlines with a Caveat accent,
+ * no pixel font, no all caps. The typewriter art is untouched (#2289). */
+:global(html):has(.theme :global(.landing)),
+:global(body):has(:global(.landing)) {
+  background-color: var(--tn-paper) !important;
+}
+.theme :global(.landing)[class] {
+  --landing-bg: #faf6ee;
+  --landing-bg-translucent: rgb(250 246 238 / 90%);
+  --landing-section-bg: #efe7d8;
+  --landing-surface: #e3d8c4;
+  --landing-text: #1f1a15;
+  --landing-text-muted: #6d6250;
+  --landing-accent: #4f7fc7;
+  --landing-accent-dim: #34588f;
+  --landing-border: oklch(0.86 0.012 80);
+  --landing-crt-bg: #1f1c18;
+  --landing-phosphor: #f1e3c2;
+  --tw-blob-theme: #e9dfcb;
+  --font-crt: var(--font-sans);
+  background-color: var(--landing-bg) !important;
+  background-image: var(--tn-paper-grid-image) !important;
+  background-size: var(--tn-paper-grid-size) !important;
+  background-attachment: fixed;
+}
+:global(.dark) .theme :global(.landing),
+[data-tn-mode="dark"] .theme :global(.landing) {
+  --landing-bg: #000;
+  --landing-bg-translucent: rgb(0 0 0 / 88%);
+  --landing-section-bg: #0d0d0d;
+  --landing-surface: #141414;
+  --landing-text: #eceef4;
+  --landing-text-muted: #9aa0ad;
+  --landing-accent: #7d97ff;
+  --landing-accent-dim: #5b7cff;
+  --landing-border: rgb(255 255 255 / 9%);
+  --landing-crt-bg: #050506;
+  --landing-phosphor: #c4cfff;
+  --tw-blob-theme: #0f1222;
+  background-image: var(--tn-paper-grid-image) !important;
+}
+/* Headlines: bold sans, tight; the emphasis line becomes the handwritten accent */
+.theme :global(.landing) :is(h1, h2, h3) {
+  font-family: var(--font-sans) !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.035em !important;
+}
+/* Brand reinforcement (Gus #2355): the lead stays in bold ink; one key phrase
+ * of each title is the hand accent (HandAccent). */
+/* No all caps on the marketing surface (#2052) */
+.theme :global(.landing) :is([class~="uppercase"], button, a) {
+  text-transform: none !important;
+  letter-spacing: normal;
+}
+/* Body copy back to the sans, not the terminal face */
+.theme :global(.landing) :is(p, li) {
+  font-family: var(--font-sans);
+}
+
+/* Sign-in (#2288): the card sits on the same grid paper as the landing */
+.theme [data-slot="auth-page"] {
+  background-color: var(--tn-paper) !important;
+  background-image: var(--tn-paper-grid-image) !important;
+  background-size: var(--tn-paper-grid-size) !important;
+}
+:global(.dark) .theme [data-slot="auth-page"] > [aria-hidden][class~="fixed"],
+[data-tn-mode="dark"] .theme [data-slot="auth-page"] {
+  background-color: #000 !important;
+  background-image: var(--tn-paper-grid-image) !important;
+}
+.theme [data-slot="auth-page"] [data-slot="card"] {
+  --tw-ring-color: var(--tn-line) !important;
+  box-shadow: 0 0 0 1px var(--tn-line), 0 24px 48px -28px rgb(60 45 20 / 35%) !important;
+}
+/* Phone: sign-in is one flat page on the paper grid — no sheet, no rounded
+ * top, no edge, and exactly one screen tall (Gus #2393). */
+@media (max-width: 39.99rem) {
+  .theme [data-slot="auth-page"] {
+    height: 100svh;
+    min-height: 0 !important;
+    overflow: hidden;
+  }
+  .theme [data-slot="auth-page"] [data-slot="card"] {
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+}
+
+/* PresenceStatus (one component now): an LED with a mono label, everywhere */
+.theme [data-slot="presence-status"] {
+  padding: 0 !important;
+  background: transparent !important;
+  color: var(--tn-muted) !important;
+  font-family: var(--font-dm-mono), monospace;
+  letter-spacing: 0.02em;
+}
+.theme [data-slot="presence-status"] > span {
+  width: 7px !important;
+  height: 7px !important;
+  background: color-mix(in oklab, var(--tn-text) 25%, transparent) !important;
+}
+.theme [data-slot="presence-status"][data-online] > span {
+  background: var(--tn-led-ok) !important;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--tn-led-ok) 20%, transparent), 0 0 8px color-mix(in oklab, var(--tn-led-ok) 70%, transparent);
+}
+/* Landing closing card: a sheet of the cream paper (oklch mix with transparent drifted pink) */
+/* Closing card styling lives in landing-page.module.css (brand-visual card). */
+/* #2299: step markers are flat true circles, no key lip or offset */
+.theme [data-slot="step-number"],
+.theme [data-slot="step-number"][data-state],
+.theme[data-tn-mode="dark"] [data-slot="step-number"],
+.theme[data-tn-mode="dark"] [data-slot="step-number"][data-state],
+[data-tn-mode="dark"] .theme [data-slot="step-number"],
+[data-tn-mode="dark"] .theme [data-slot="step-number"][data-state] {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%) !important;
+  translate: none !important;
+  transform: none !important;
+}
+.theme [data-slot="step-number"] { width: 24px !important; height: 24px !important; }
+.theme [data-slot="step-number"] > span[class~="animate-spin"] { inset: -3px !important; }
+
+/* Backdrops behind dialogs/setup: a warm paper dim, not grey (#2301) */
+.theme [class~="isolate"][class~="bg-black/10"] {
+  background-color: rgb(120 96 60 / 14%) !important;
+}
+.theme[data-tn-mode="dark"] [class~="isolate"][class~="bg-black/10"],
+[data-tn-mode="dark"] .theme [class~="isolate"][class~="bg-black/10"] {
+  background-color: rgb(0 0 0 / 55%) !important;
+}
+
+/* ═════════ Onboarding card (#2303): a paper card with key options ═════════ */
+/* The popup itself is the one card: header (mode switch, close) and steps
+ * share it, so nothing floats on the backdrop (QA #4). */
+.theme [data-testid="onboarding-surface"] {
+  border-radius: 20px !important;
+  background: var(--tn-paper-raised) !important;
+  box-shadow: 0 0 0 1px var(--tn-line), 0 28px 56px -30px rgb(60 45 20 / 40%) !important;
+}
+/* The step bar reads as one segmented tape */
+.theme [data-testid="onboarding-surface"] [class~="h-1"][class~="flex-1"] {
+  height: 6px !important;
+  border-radius: 999px !important;
+}
+/* Title: bold sans, the brand voice */
+.theme [data-testid="onboarding-surface"] [data-slot="dialog-title"] {
+  font-weight: 800 !important;
+  letter-spacing: -0.03em !important;
+}
+
+/* ═════════ QA pass fixes (outputs/qa-20261103) ═════════ */
+
+/* #1 mobile hero: the new bold sans + Caveat headline is taller than the pixel
+ * face it replaced; size it so the subline clears the typewriter again */
+@media (max-width: 639px) {
+  .theme :global(.landing) [class*="landingHeroHeadline"] {
+    font-size: clamp(30px, 8.6vw, 38px) !important;
+    line-height: 1.02 !important;
+  }
+}
+
+/* #2 mobile send key: brand blue like every other primary key */
+.theme { --composer-send-active: var(--tn-blue); --composer-send-active-foreground: #f4f7fc; }
+
+/* #5 the skeleton's intro mark has the same keycap shape as the real one */
+.theme [data-slot="skeleton"][class~="size-12"][class~="rounded-full"] { border-radius: 14px !important; }
+
+/* #7 small pill keys: labels keep clear of the rounded ends */
+.theme :is(button, a)[data-variant]:is([data-size="sm"], :not([data-size])):not([data-variant="ghost"], [data-variant="link"], [class~="px-0"], [class*="w-11"]) {
+  padding-inline: max(12px, 0.75rem) !important;
+}
+.theme :is(button, a)[data-variant][data-size^="icon"] { padding-inline: 0 !important; }
+
+/* #10 dark running-bots card: no leftover dot screen */
+.theme[data-tn-mode="dark"] [data-testid="community-profile-running-bots-card"],
+[data-tn-mode="dark"] .theme [data-testid="community-profile-running-bots-card"] {
+  background-image: none !important;
+}
+
+/* Independent QA batch 2 (#2320) */
+/* Typing pill: keep the key look but never take pointer hits from the message under it */
+.theme [data-testid="community-typing-indicator"] {
+  pointer-events: none !important;
+}
+/* Landing section and closing titles on phones: the bold sans is wider than the
+ * pixel face the clamp was tuned for */
+@media (max-width: 639px) {
+  .theme :global(.landing) :is([class*="sectionIntro"], [class*="closingCta"]) h2 {
+    font-size: clamp(2rem, 10.5vw, 3rem) !important;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* #2321: horizontal line tabs never get wider than the container gave them, and
+ * stay scrollable (mobile settings). Only the inbox keeps its inset tray. */
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] {
+  margin-inline: 0 !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  scrollbar-width: none;
+}
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"]::-webkit-scrollbar { display: none; }
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] [data-slot="tabs-trigger"] {
+  padding-inline: 8px !important;
+}
+/* The Inbox tray is centred in its card (Gus #2357, #2386). The list itself
+ * carries the inbox test id, so match it directly. */
+.theme :is([data-testid^="community-inbox"], [data-slot="community-inbox"]) [data-slot="tabs-list"][data-variant="line"],
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"][data-testid="community-inbox-tab-list"] {
+  margin-inline: auto !important;
+  max-width: calc(100% - 24px) !important;
+}
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"] { padding: 2px !important; gap: 0 !important; }
+.theme [data-testid="community-settings-shell"][data-orientation="horizontal"] [data-slot="tabs-list"][data-variant="line"] {
+  width: 100% !important;
+}
+.theme [data-testid="community-settings-shell"][data-orientation="horizontal"] [data-slot="tabs-list"][data-variant="line"] [data-slot="tabs-trigger"] {
+  flex: 1 1 0% !important;
+  width: auto !important;
+  min-width: 0 !important;
+}
+/* typing pill feedback comes from data flags (pointer stays pass-through) */
+.theme [data-testid="community-typing-indicator"][data-hover] { transform: translateY(-1px); }
+.theme [data-testid="community-typing-indicator"][data-pressed] {
+  transform: translateY(1.5px);
+  box-shadow: inset 0 1px 2px rgb(60 45 20 / 16%), 0 0.5px 0 #d8ccb4 !important;
+}
+.theme[data-tn-mode="dark"] [data-testid="community-typing-indicator"][data-pressed],
+[data-tn-mode="dark"] .theme [data-testid="community-typing-indicator"][data-pressed] {
+  box-shadow: inset 0 1px 4px rgb(0 0 0 / 70%), 0 0.5px 0 rgb(140 160 200 / 36%) !important;
+}
+
+/* CI #2330: a caller that opts its dialog close out of transitions
+ * (**:data-[slot=dialog-close]:transition-none) keeps that over the key look. */
+.theme [data-slot="dialog-content"][class*="dialog-close]:transition-none"] [data-slot="dialog-close"] {
+  transition: none !important;
+}
+
+/* Page headers with a tab tray (Friends): the tray's top and height match the
+ * sidebar's first row (top 16px into the frame, 36px tall), so both columns
+ * start on one line (Gus #2362). */
+.theme header:has(> [data-slot="tabs-list"][data-variant="line"]) {
+  height: auto !important;
+  min-height: 3rem;
+  align-items: flex-start !important;
+  padding-top: 16px !important;
+  padding-bottom: 8px !important;
+}
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) header > [data-slot="tabs-list"][data-variant="line"] {
+  height: 36px !important;
+  padding: 3px !important;
+}
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) header > [data-slot="tabs-list"][data-variant="line"] > [data-slot="tabs-trigger"] {
+  height: 100% !important;
+  padding-inline: 14px !important;
+}
+
+/* Empty-state keycaps answer hover and press like every other key (Gus #2365,
+ * Stageshow): lift on hover, sink to the floor on press, with the same spring. */
+.theme [data-slot="empty-state-icon"] {
+  cursor: default;
+  transition: transform 90ms ease-out, box-shadow 90ms ease-out, filter 120ms ease-out;
+}
+.theme [data-slot="empty-state-icon"]:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+}
+.theme [data-slot="empty-state"] [data-slot="empty-state-icon"]:active {
+  transform: translateY(var(--tn-key-depth));
+  box-shadow: inset 0 1.5px 2px rgb(60 45 20 / 22%), 0 0 0 rgb(60 45 20 / 25%) !important;
+}
+.theme[data-tn-mode="dark"] [data-slot="empty-state"] [data-slot="empty-state-icon"]:active,
+[data-tn-mode="dark"] .theme [data-slot="empty-state"] [data-slot="empty-state-icon"]:active {
+  box-shadow: inset 0 1.5px 4px rgb(0 0 0 / 70%), 0 0 0 rgb(110 135 255 / 35%) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme [data-slot="empty-state-icon"] { transition: none; }
+}
+
+/* Frameless fields (profile name/about, bot name/description, channel and
+ * server titles): never a box or focus ring. The field owns a well that is
+ * invisible at rest, shows faintly on hover and sinks in while editing — the
+ * same recessed language as the composer. Negative margin + equal padding keep
+ * the text exactly where it was (Gus #2372, #2373). */
+.theme :is(input, textarea)[class~="border-0"][class~="bg-transparent"]:is([class~="px-0"], [class~="p-0"]) {
+  margin-inline: -10px;
+  padding-inline: 10px !important;
+  width: calc(100% + 20px) !important;
+  border-radius: 10px !important;
+  outline: none !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+  box-shadow: none !important;
+  transition: background-color 160ms ease-out, box-shadow 160ms ease-out;
+}
+.theme :is(input, textarea)[class~="border-0"][class~="bg-transparent"]:is([class~="px-0"], [class~="p-0"]):hover:not(:focus, :disabled) {
+  background-color: color-mix(in oklab, var(--tn-text) 3%, transparent) !important;
+}
+.theme :is(input, textarea)[class~="border-0"][class~="bg-transparent"]:is([class~="px-0"], [class~="p-0"]):focus {
+  background-color: color-mix(in oklab, var(--tn-text) 5%, var(--tn-paper)) !important;
+  box-shadow: inset 0 2px 4px -1px rgb(60 45 20 / 18%) !important;
+}
+.theme[data-tn-mode="dark"] :is(input, textarea)[class~="border-0"][class~="bg-transparent"]:is([class~="px-0"], [class~="p-0"]):focus,
+[data-tn-mode="dark"] .theme :is(input, textarea)[class~="border-0"][class~="bg-transparent"]:is([class~="px-0"], [class~="p-0"]):focus {
+  background-color: #0f0f11 !important;
+  box-shadow: inset 0 2px 5px -1px rgb(0 0 0 / 85%) !important;
+}
+
+/* Mobile settings tabs: the tray spans the row, so its keys share it evenly
+ * instead of leaving an empty tail of tray on the right (Gus #2371). */
+@media (max-width: 39.99rem) {
+  .theme [data-testid="community-settings-nav"] [data-slot="tabs-list"] > [data-slot="tabs-trigger"] {
+    flex: 1 1 0 !important;
+    width: auto !important;
+    min-width: 0;
+  }
+}
+
+/* ═════════ QA pass 2 (no-context review, 2026-11-03) ═════════ */
+
+/* #17 Disabled keys: flat and clearly off, but readable — a quiet tray fill
+ * with muted ink, no lip, no glow, no gloss (light and dark). */
+.theme :is(button, a)[data-variant]:is(:disabled, [aria-disabled="true"], [data-disabled]),
+.theme :is(button, a)[data-variant][data-variant="default"]:is(:disabled, [aria-disabled="true"], [data-disabled]) {
+  opacity: 1 !important;
+  filter: none !important;
+  border-color: transparent !important;
+  background: #e6dece !important;
+  color: #7d705b !important;
+  box-shadow: inset 0 1px 2px rgb(60 45 20 / 10%) !important;
+  text-shadow: none !important;
+  cursor: not-allowed;
+}
+.theme :is(button, a)[data-variant]:is([data-variant="ghost"], [data-variant="link"]):is(:disabled, [aria-disabled="true"], [data-disabled]) {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant]:is(:disabled, [aria-disabled="true"], [data-disabled]),
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant]:is(:disabled, [aria-disabled="true"], [data-disabled]),
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant][data-variant="default"]:is(:disabled, [aria-disabled="true"], [data-disabled]),
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant][data-variant="default"]:is(:disabled, [aria-disabled="true"], [data-disabled]) {
+  border-color: rgb(255 255 255 / 6%) !important;
+  background: #18181b !important;
+  color: #7c8090 !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant]:is([data-variant="ghost"], [data-variant="link"]):is(:disabled, [aria-disabled="true"], [data-disabled]),
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant]:is([data-variant="ghost"], [data-variant="link"]):is(:disabled, [aria-disabled="true"], [data-disabled]) {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+/* Every badge answers like a paper sticker, even with no action (Gus #2440):
+ * it lifts a pixel on hover and presses flat in place. Tilt and cut-paper
+ * corners stay; translate composes with their rotate. */
+.theme [data-slot="badge"] {
+  transition: translate 90ms ease-out, box-shadow 90ms ease-out, filter 120ms ease-out;
+}
+.theme [data-slot="badge"]:hover {
+  translate: 0 -1px;
+  filter: brightness(1.03);
+}
+.theme [data-slot="badge"]:active {
+  translate: 0 1px;
+  filter: brightness(0.98);
+  box-shadow: inset 0 1px 2px rgb(60 45 20 / 18%) !important;
+}
+.theme[data-tn-mode="dark"] [data-slot="badge"]:active,
+[data-tn-mode="dark"] .theme [data-slot="badge"]:active {
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 70%) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme [data-slot="badge"] { transition: none; }
+}
+
+/* #24/#26 One dialog/sheet title style everywhere: same size, weight and ink. */
+.theme :is([data-slot="dialog-title"], [data-slot="sheet-title"]),
+.theme:is([data-slot="dialog-content"]) [data-slot="dialog-title"] {
+  color: var(--tn-text) !important;
+  font-size: 22px !important;
+  font-weight: 750 !important;
+  letter-spacing: -0.02em !important;
+  line-height: 1.2 !important;
+}
+@media (max-width: 39.99rem) {
+  .theme :is([data-slot="dialog-title"], [data-slot="sheet-title"]) {
+    font-size: 20px !important;
+  }
+}
+/* The close key keeps clear of the dialog's rounded corner. */
+.theme [data-slot="dialog-content"] > [data-slot="dialog-close"] {
+  top: 14px !important;
+  right: 14px !important;
+}
+
+/* #24 Dialogs that pad their own rows (the create/edit shell, px-5) don't also
+ * take the theme's 28px, so left and right edges match. */
+.theme [data-slot="dialog-content"][data-own-padding],
+.theme:is([data-slot="dialog-content"])[data-own-padding] {
+  padding: 0;
+}
+.theme [data-slot="dialog-content"][data-own-padding] > [data-slot="dialog-footer"],
+.theme:is([data-slot="dialog-content"])[data-own-padding] > [data-slot="dialog-footer"] {
+  margin: 0;
+  padding: 0 20px 20px;
+}
+
+/* #32 Sidebar hover is a faint beige of the same family as the pressed-in
+ * selection, not the blue tint. Covers channel and DM rows and the sidebar's
+ * shortcut links. */
+.theme :is([data-testid^="community-channel-row-"], [data-testid^="community-dm-row-"], [class~="hover:bg-sidebar-accent/60"], [class~="hover:bg-sidebar-accent"]):not([class~="bg-sidebar-accent"]):hover {
+  background-color: color-mix(in oklab, var(--tn-text) 4.5%, transparent) !important;
+}
+.theme[data-tn-mode="dark"] :is([data-testid^="community-channel-row-"], [data-testid^="community-dm-row-"], [class~="hover:bg-sidebar-accent/60"], [class~="hover:bg-sidebar-accent"]):not([class~="bg-sidebar-accent"]):hover,
+[data-tn-mode="dark"] .theme :is([data-testid^="community-channel-row-"], [data-testid^="community-dm-row-"], [class~="hover:bg-sidebar-accent/60"], [class~="hover:bg-sidebar-accent"]):not([class~="bg-sidebar-accent"]):hover {
+  background-color: rgb(255 255 255 / 5%) !important;
+}
+
+/* #35 Touch screens: a tap is not a hover, so tooltips never stick open over
+ * the content after a tap. Phones only: from 640px a touch-first device may
+ * still hover with a mouse or trackpad (tablets, hybrids), and wide layouts
+ * such as the My Bots heatmap rely on hover tooltips for their detail. */
+@media (hover: none) and (max-width: 39.99rem) {
+  .theme [data-slot="tooltip-content"],
+  .theme:is([data-slot="tooltip-content"]) {
+    display: none !important;
+  }
+}
+
+
+.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has([data-slot="radio-group-item"])) {
+  border-color: transparent !important;
+  border-radius: 12px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transition: transform 90ms ease-out, box-shadow 120ms ease-out, background-color 120ms ease-out !important;
+}
+.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has([data-slot="radio-group-item"])):hover {
+  background: color-mix(in oklab, var(--tn-text) 4%, transparent) !important;
+}
+.theme :is(label:has(> input[type="radio"]:checked)[class~="rounded-lg"][class~="border"], [data-slot="field-label"][data-selected]),
+.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has([data-slot="radio-group-item"])):active {
+  background: color-mix(in oklab, var(--tn-text) 5%, var(--tn-paper)) !important;
+  box-shadow: inset 0 2px 4px -1px rgb(60 45 20 / 18%) !important;
+}
+.theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has([data-slot="radio-group-item"])):active {
+  transform: translateY(1px);
+}
+:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) :is(label:has(> input[type="radio"]:checked)[class~="rounded-lg"][class~="border"], [data-slot="field-label"][data-selected]),
+:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has([data-slot="radio-group-item"])):active {
+  background: var(--tn-recessed-background) !important;
+  box-shadow: var(--tn-recessed-shadow) !important;
+}
+.theme [data-slot="badge"][data-machine-runtime][data-variant],
+:is(.theme[data-tn-mode="dark"], [data-tn-mode="dark"] .theme) [data-slot="badge"][data-machine-runtime][data-variant] {
+  rotate: var(--runtime-badge-tilt, 0deg) !important;
+  background: color-mix(in oklab, var(--tn-text) 3%, var(--card)) !important;
+  color: var(--tn-text) !important;
+  border: 1px solid color-mix(in oklab, var(--tn-text) 14%, transparent) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%) !important;
+}
+.theme [data-slot="badge"][data-machine-runtime]:hover {
+  background: color-mix(in oklab, var(--tn-text) 4%, transparent) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has([data-slot="radio-group-item"])) { transition: none !important; }
+}
+
+/* The composer send keeps its own disabled look: a quiet icon with no key
+ * face (the disabled-key tray fill above would paint its whole 44px touch
+ * target). Placed last so it also wins over the dark disabled-key rule. */
+.theme button[class~="community-composer-send"][data-variant][data-slot="button"]:is(:disabled, [data-disabled]) {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--muted-foreground) !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+.theme button[class~="community-composer-send"][data-variant][data-slot="button"]:is(:disabled, [data-disabled])::before {
+  display: none;
+}
+
+/* Brand Visual's paper stock also surrounds onboarding; the form itself stays a flat reading surface. */
+.theme [data-slot="onboarding-backdrop"] {
+  background-color: var(--tn-paper) !important;
+  background-image: var(--tn-paper-grid-image) !important;
+  background-size: var(--tn-paper-grid-size) !important;
+}
+
+/* App functional colors need text/icon contrast on their actual surfaces.
+ * The route marker also scopes portal content through body inheritance;
+ * marketing materials keep their accepted palette. */
+:global(body).theme:has([data-community-shell]) {
+  --primary: var(--link);
+  --primary-foreground: var(--tn-paper-raised);
+  --status-online: #315e3b;
+  --destructive: #973f32;
+}
+
+:global(.dark) :global(body).theme:has([data-community-shell]),
+:global(body).theme[data-tn-mode="dark"]:has([data-community-shell]) {
+  --primary: var(--tn-blue);
+  --primary-foreground: #0d0d0d;
+  --status-online: var(--tn-sage);
+  --destructive: var(--tn-rose);
+}
+
+:global(body).theme:has([data-community-shell]) :is([data-testid^="community-category-header-"], h3[class~="mb-2"][class~="px-1"][class~="text-xs"]) {
+  color: var(--primary) !important;
+}
+
+:global(body).theme:has([data-community-shell]) :is(input, textarea)::placeholder,
+:global(body).theme:has([data-community-shell]) :is(input, textarea):focus::placeholder {
+  color: var(--muted-foreground) !important;
+  opacity: 1;
+}
+
+:global(body).theme:has([data-community-shell]) :global(.tiptap) p[class~="is-editor-empty"]:first-child::before,
+:global(body).theme:has([data-community-shell]) :global(.chat-placeholder-overlay) {
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+
+:global(body).theme:has([data-community-shell]) [data-testid^="community-channel-row-"] [class~="opacity-70"] {
+  opacity: 0.85;
+}
+
+
+:global(body).theme:has([data-community-shell]) :is(button, a):is([class~="text-destructive"], [data-variant="destructive"]) {
+  color: var(--destructive) !important;
+}
+
+/* White labels must remain readable through the primary key's reflection. */
+:global(html:not(.dark)) :global(body).theme:not([data-tn-mode="dark"]):has([data-community-shell]) :is(button, a)[data-variant="default"] {
+  --tn-blue-side: #1d365d;
+  background:
+    linear-gradient(rgb(255 255 255 / 8%), transparent 45%),
+    linear-gradient(#284d80, #254776 55%, #203f6b);
+}
+
+:global(html:not(.dark)) :global(body).theme:not([data-tn-mode="dark"]):has([data-community-shell]) :is(button, a)[data-variant="default"]::before {
+  background: linear-gradient(rgb(255 255 255 / 12%), rgb(255 255 255 / 2%));
+}
+
+/* Muted channels remain available navigation, with a quiet but legible label. */
+:global(body).theme:has([data-community-shell]) :is([data-testid^="community-channel-row-"], [data-testid^="community-forum-sidebar-thread-"])[class~="text-muted-foreground/50"] {
+  color: color-mix(in srgb, var(--muted-foreground) 94%, transparent);
+}
+
+:global(body).theme:has([data-community-shell]) :is([data-testid^="community-channel-row-"], [data-testid^="community-forum-sidebar-thread-"])[class~="text-muted-foreground/50"]:is(:hover, :focus-visible) {
+  color: var(--muted-foreground);
+}
+
+:global(body).theme:has([data-community-shell]) [data-code-preview-line-numbers] {
+  color: var(--muted-foreground);
+}
+
+/* Keep the dark primary label clear of the internal light, as well as its base. */
+:global(.dark) :global(body).theme:has([data-community-shell]) :is(button, a)[data-variant="default"],
+:global(body).theme[data-tn-mode="dark"]:has([data-community-shell]) :is(button, a)[data-variant="default"] {
+  --tn-neon-inner: 18%;
+  --tn-key-reflection: rgb(131 160 255 / 6%);
+  background:
+    radial-gradient(ellipse at 50% 50%, rgb(129 159 255 / 8%), transparent 80%),
+    linear-gradient(#263ba2, #324ac0 50%, #263994);
+}
+
+:global(body).theme:has([data-community-shell]) :is([data-testid^="community-forum-tag-chip-"], [data-testid^="community-forum-tag-dialog-chip-"]):not(:disabled):not([aria-disabled="true"]) {
+  opacity: 1;
+}
+
+:global(body).theme:has([data-community-shell]) :is([data-testid^="community-forum-tag-chip-"], [data-testid^="community-forum-tag-dialog-chip-"])[class~="ring-current/20"] {
+  --tw-ring-color: currentColor;
+}
+
+/* Compose the filter's selection/focus ring with its paper lift. */
+:global(body).theme:has([data-community-shell]) :is([data-testid^="community-forum-tag-chip-"], [data-testid="community-forum-tag-all"]) {
+  box-shadow: var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tn-paper-lift) !important;
+}
+
+/* These metadata fields remain necessary reading, rather than decoration. */
+:global(body).theme:has([data-community-shell]) :is([data-testid="bot-activity-row"], [data-testid="community-bot-audit-preview"]) [class~="text-muted-foreground/70"],
+:global(body).theme:has([data-community-shell]) [data-testid="bot-card-model"][class~="text-muted-foreground/70"],
+:global(body).theme:has([data-community-shell]) [data-slot="inbox-mention-context"],
+:global(body).theme:has([data-community-shell]) [data-slot="empty-state"] [class~="text-muted-foreground/80"] {
+  color: var(--muted-foreground);
+}
+
+:global(body).theme:has([data-community-shell]) [data-testid="community-bot-audit-preview"] [class~="text-primary/70"] {
+  color: var(--primary);
+}
+
+:global(body).theme:has([data-community-shell]) [aria-label="Randomize name"]:not(:hover) {
+  color: var(--muted-foreground);
+}
+
+:global(body).theme:has([data-community-shell]) [data-testid="community-settings-channels"] [class~="text-muted-foreground/80"]:not(:hover) {
+  color: var(--muted-foreground);
+}
+
+:global(body).theme:has([data-community-shell]) [data-testid="community-settings-channels"] [class~="opacity-70"] {
+  opacity: 0.85;
+}

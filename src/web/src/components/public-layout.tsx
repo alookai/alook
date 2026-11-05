@@ -28,16 +28,15 @@ export function ZoneLink({
   zone,
   className,
   children,
-}: {
+  ...props
+}: React.ComponentPropsWithoutRef<"a"> & {
   href: string;
   zone: PublicZone;
-  className?: string;
-  children: React.ReactNode;
 }) {
   return isCrossZoneNavigation(href, zone) ? (
-    <a href={href} className={className}>{children}</a>
+    <a {...props} href={href} className={className}>{children}</a>
   ) : (
-    <Link href={href} className={className}>{children}</Link>
+    <Link {...props} href={href} className={className}>{children}</Link>
   );
 }
 

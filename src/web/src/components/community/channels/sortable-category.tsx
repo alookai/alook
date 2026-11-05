@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import type React from "react"
@@ -57,7 +58,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
       {isPrivate ? <MessageSquareLock className="pointer-events-none size-3 shrink-0" aria-hidden="true" /> : <MessagesSquare className="pointer-events-none size-3 shrink-0" aria-hidden="true" />}
       <span className="pointer-events-none flex-1 truncate text-left">{name}</span>
       {onSettings && (
-      <button
+      <Button variant="ghost" size="icon"
         onPointerDown={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}
         onDragStart={(e) => { e.preventDefault(); e.stopPropagation() }}
@@ -66,10 +67,10 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
         aria-label={`Category settings for ${name}`}
       >
         <Settings className="size-3" />
-      </button>
+      </Button>
       )}
       {onAddChannel && (
-      <button
+      <Button variant="ghost" size="icon"
         onPointerDown={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}
         onDragStart={(e) => { e.preventDefault(); e.stopPropagation() }}
@@ -78,7 +79,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
         aria-label={`Create channel in ${name}`}
       >
         <Plus className="size-3" />
-      </button>
+      </Button>
       )}
       {hasChannels && <ChevronDown className={`pointer-events-none size-3 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`} />}
     </>

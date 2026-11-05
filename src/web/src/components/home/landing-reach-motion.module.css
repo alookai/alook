@@ -7,6 +7,16 @@
   aspect-ratio: 1120 / 760;
 }
 
+.canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1120px;
+  height: 760px;
+  transform: scale(var(--reach-scale)) translate(-69.68px, -22.8px);
+  transform-origin: top left;
+}
+
 .desktopShell {
   position: absolute;
   top: 3%;
@@ -36,13 +46,13 @@
 .laptopScreen {
   overflow: hidden;
   border-radius: 4px 4px 0 0;
-  background: #111216;
+  background: var(--background);
 }
 
 .laptopBase {
   position: relative;
   width: 100%;
-  height: clamp(10px, 1.1vw, 14px);
+  height: 14px;
   border-radius: 0 0 12px 12px;
   background: linear-gradient(to bottom, #f0e6d4, #dcd0b8);
   box-shadow: 0 20px 36px rgb(20 32 25 / 22%);
@@ -60,7 +70,7 @@
 }
 
 .phone {
-  --phone-corner-radius: clamp(18px, 2.6vw, 30px);
+  --phone-corner-radius: 30px;
 
   position: absolute;
   z-index: 5;
@@ -164,30 +174,6 @@
   border-radius: 999px;
   background: rgb(5 5 5 / 28%);
   transform: translateX(-50%);
-}
-
-@media (max-width: 639px) {
-  .stage {
-    display: flex;
-    height: auto;
-    aspect-ratio: auto;
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .desktopShell {
-    position: relative;
-    left: 0;
-    width: 100%;
-  }
-
-  .phone {
-    position: relative;
-    right: auto;
-    bottom: auto;
-    width: clamp(146px, 42%, 190px);
-    margin: clamp(-210px, -40vw, -150px) clamp(14px, 4vw, 24px) 0 auto;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

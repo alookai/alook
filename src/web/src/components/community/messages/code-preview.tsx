@@ -169,6 +169,7 @@ export function CodePreview({
           <div className={cn("grid min-h-full grid-cols-[auto_minmax(0,1fr)] py-3", !wrap && "w-max min-w-full")}>
             <pre
               aria-hidden="true"
+              data-code-preview-line-numbers
               className="select-none border-r border-border/60 px-3 text-right text-muted-foreground/60"
             >
               {lineNumbers(fallbackLines.length)}
@@ -186,7 +187,7 @@ export function CodePreview({
           <div className={cn("min-w-max py-3", wrap && "min-w-0")}>
             {lines.map((line, index) => (
               <div key={index} className="grid min-h-6 grid-cols-[3.5rem_minmax(0,1fr)]">
-                <span aria-hidden="true" className="select-none border-r border-border/60 pr-3 text-right text-muted-foreground/60">
+                <span aria-hidden="true" data-code-preview-line-numbers className="select-none border-r border-border/60 pr-3 text-right text-muted-foreground/60">
                   {index + 1}
                 </span>
                 <code className={cn("block min-w-0 px-4", wrap ? "whitespace-pre-wrap wrap-break-word" : "whitespace-pre")}>

@@ -29,6 +29,7 @@
 }
 
 .stage {
+  background: var(--background);
   position: relative;
   width: 100%;
   aspect-ratio: 1120 / 660;
@@ -41,6 +42,7 @@
 }
 
 .mobileStage {
+  background: var(--background);
   position: relative;
   width: 100%;
   aspect-ratio: 390 / 788;
@@ -426,20 +428,4 @@
   .gallerySwitcher {
     align-self: flex-end;
   }
-}
-
-.compactStage {
-  --motion-sheet-width: calc(100% - 16px);
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  min-width: 0;
-  overflow: hidden;
-  pointer-events: none;
-  background: var(--background);
-  color: var(--foreground);
-}
-.compactStage > div {
-  flex: 0 0 auto;
 }

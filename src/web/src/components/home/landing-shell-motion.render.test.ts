@@ -39,14 +39,12 @@ describe("landing community preview rendering", () => {
     expect(markup).not.toContain('data-testid="community-bot-card')
   })
 
-  it.each(ALL_SCENES)("keeps the actual %s UserBar only in full-shell scenes", (scene) => {
+  it.each(ALL_SCENES)("keeps one actual %s UserBar in the full-shell scene", (scene) => {
     const full = renderToStaticMarkup(createElement(LandingShellMotion, { scene, beat: SCENE_MAX_BEAT[scene] }))
-    const compact = renderToStaticMarkup(createElement(LandingShellMotion, { scene, compact: true, beat: SCENE_MAX_BEAT[scene] }))
     expect(full.match(new RegExp(`data-testid="${tid.userBar}"`, "g"))).toHaveLength(1)
     expect(full).toContain(`data-testid="${tid.userSettingsOpen}"`)
     expect(full.includes(`data-testid="${tid.inboxTrigger}"`)).toBe(["server", "machine", "continuity"].includes(scene))
     expect(full).not.toContain(`data-testid="${tid.daemonUpdateBadge}"`)
-    expect(compact).not.toContain(`data-testid="${tid.userBar}"`)
   })
 
   it("uses explicit identities for every Channel Tree fixture dataset", () => {
@@ -84,11 +82,10 @@ describe("landing community preview rendering", () => {
     ["machine", "Machines"],
     ["identity", "Maya"],
     ["continuity", "Saturday at six works"],
-  ] as const)("renders readable compact %s content without the desktop camera", (scene, content) => {
-    const markup = renderToStaticMarkup(createElement(LandingShellMotion, { scene, compact: true, beat: SCENE_MAX_BEAT[scene] }))
+  ] as const)("renders the complete %s scene with its original camera", (scene, content) => {
+    const markup = renderToStaticMarkup(createElement(LandingShellMotion, { scene, beat: SCENE_MAX_BEAT[scene] }))
     expect(markup).toContain(content)
-    expect(markup).toContain('class="compactStage"')
-    expect(markup).not.toContain("data-camera-scale")
+    expect(markup).toContain("data-camera-scale")
     expect(markup).not.toContain("Unknown")
   })
 

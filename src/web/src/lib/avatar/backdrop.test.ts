@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { renderSeededBackdropSvg } from "./backdrop"
+import { renderSeededBackdropSvg, seededStripeAngle } from "./backdrop"
 
 describe("renderSeededBackdropSvg", () => {
   it.each([
@@ -49,5 +49,25 @@ describe("renderSeededBackdropSvg", () => {
     expect(normalizeIds(renderSeededBackdropSvg("server-a"))).not.toBe(
       normalizeIds(renderSeededBackdropSvg("server-b")),
     )
+  })
+})
+
+describe("seededStripeAngle", () => {
+  const seeds = ["Alice", "Milo", "Nova", "李明", "🌻", ...Array.from({ length: 100 }, (_, i) => `person-${i}`)]
+
+  it("keeps diverse seeds stable and within the signed 22.5–45 degree range", () => {
+    for (const seed of seeds) {
+      const angle = seededStripeAngle(seed)
+      expect(seededStripeAngle(seed)).toBe(angle)
+      expect(Math.abs(angle)).toBeGreaterThanOrEqual(22.5)
+      expect(Math.abs(angle)).toBeLessThanOrEqual(45)
+    }
+  })
+
+  it("varies both the direction and tilt across people", () => {
+    const angles = seeds.map(seededStripeAngle)
+    expect(angles.some(angle => angle < 0)).toBe(true)
+    expect(angles.some(angle => angle > 0)).toBe(true)
+    expect(new Set(angles.map(Math.abs)).size).toBeGreaterThan(1)
   })
 })

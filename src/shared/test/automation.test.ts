@@ -11,6 +11,7 @@ const databases: ReturnType<typeof communityWriteDb>[] = []
 function fixture() {
   const value = communityWriteDb()
   value.sqlite.exec(readFileSync(new URL("../../web/migrations/0110_automation_access_code.sql", import.meta.url), "utf8"))
+  value.sqlite.exec(readFileSync(new URL("../../web/migrations/0111_onboarding_access_code_purpose.sql", import.meta.url), "utf8"))
   databases.push(value)
   return value
 }
@@ -27,6 +28,46 @@ describe("Automation access codes", () => {
     expect(automationExpiresAt("7d", 0)).toBe("1970-01-08T00:00:00.000Z")
   })
 
+  it("replaces only the owner's marked onboarding code, revoking its secret and policies", async () => {
+    const { db, sqlite } = fixture()
+    const onboard = { ...input(), purpose: "onboarding" as const }
+    const manual = await queries.createAccessCode(db, "author", { ...input(), name: "onboard" }, "manual")
+    const peer = await queries.createAccessCode(db, "peer", onboard, "peer")
+    const old = await queries.createAccessCode(db, "author", onboard, "old")
+    await queries.updateAccessCode(db, "author", old.id, { name: "Renamed" })
+    const next = await queries.createAccessCode(db, "author", onboard, "next")
+    expect(next.purpose).toBe("onboarding")
+    expect(await queries.getAccessCode(db, "author", old.id)).toBeNull()
+    expect(await queries.authenticateAccessCode(db, "old", "bot.create")).toBeNull()
+    expect(await queries.authenticateAccessCode(db, "next", "bot.create")).toMatchObject({ codeId: next.id })
+    expect(sqlite.prepare("SELECT code_id FROM automation_access_permission WHERE code_id = ?").all(old.id)).toEqual([])
+    expect(await queries.getAccessCode(db, "author", manual.id)).toEqual(manual)
+    expect(await queries.getAccessCode(db, "peer", peer.id)).toEqual(peer)
+    expect((await queries.listAccessCodes(db, "author")).filter(code => code.purpose === "onboarding")).toEqual([next])
+    expect(AutomationAccessCodeCreateSchema.safeParse({ ...input(), purpose: "manual" }).success).toBe(false)
+    expect(AutomationAccessCodeUpdateSchema.safeParse({ purpose: "onboarding" }).success).toBe(false)
+  })
+
+  it("rolls back deletion and policies if inserting the replacement fails", async () => {
+    const { db } = fixture()
+    const onboard = { ...input(), purpose: "onboarding" as const }
+    const old = await queries.createAccessCode(db, "author", onboard, "old")
+    await queries.createAccessCode(db, "peer", input(), "duplicate")
+    await expect(queries.createAccessCode(db, "author", onboard, "duplicate")).rejects.toThrow()
+    expect(await queries.getAccessCode(db, "author", old.id)).toEqual(old)
+    expect(await queries.authenticateAccessCode(db, "old", "bot.create")).toMatchObject({ codeId: old.id })
+  })
+
+  it("enforces a single onboarding slot while allowing multiple ordinary codes", async () => {
+    const { db, sqlite } = fixture()
+    const onboard = { ...input(), purpose: "onboarding" as const }
+    await Promise.all(["one", "two", "three"].map(secret => queries.createAccessCode(db, "author", onboard, secret)))
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM automation_access_code WHERE owner_id = ? AND purpose = ?").get("author", "onboarding")).toEqual({ count: 1 })
+    await queries.createAccessCode(db, "author", input(), "manual-one")
+    await queries.createAccessCode(db, "author", input(), "manual-two")
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM automation_access_code WHERE purpose IS NULL").get()).toEqual({ count: 2 })
+  })
+
   it("persists a hash and independent policies, while omitting private fields from management results", async () => {
     const { db, sqlite, batchSizes } = fixture()
     const code = await queries.createAccessCode(db, "author", input(), "digest")
@@ -38,7 +79,7 @@ describe("Automation access codes", () => {
     expect(list[0]).not.toHaveProperty("ownerId")
     expect(list[0]).not.toHaveProperty("prefix")
     expect(sqlite.prepare("PRAGMA table_info(automation_access_code)").all()).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: "prefix" })]))
-    expect(batchSizes).toEqual([[6, 8]])
+    expect(batchSizes).toEqual([[7, 8]])
     expect(sqlite.prepare("SELECT secret_hash FROM automation_access_code").get()).toEqual({ secret_hash: "digest" })
     expect(await queries.authenticateAccessCode(db, "digest", "server.create")).toMatchObject({ ownerId: "author", limit: 100, period: "day" })
     expect(await queries.authenticateAccessCode(db, "wrong", "bot.create")).toBeNull()
@@ -153,7 +194,7 @@ describe("Automation access codes", () => {
       expect(migrated).toEqual(declared)
     }
     expect(codeConfig.indexes.map(({ config }) => ({ name: config.name, columns: config.columns })))
-      .toEqual([{ name: "idx_automation_code_owner", columns: [automationAccessCode.ownerId] }])
+      .toEqual([{ name: "idx_automation_code_owner", columns: [automationAccessCode.ownerId] }, { name: "idx_automation_code_owner_purpose", columns: [automationAccessCode.ownerId, automationAccessCode.purpose] }])
     expect(sqlite.pragma("index_info(idx_automation_code_owner)"))
       .toEqual([expect.objectContaining({ name: "owner_id" })])
     expect(policyConfig.primaryKeys[0].columns.map((column) => column.name)).toEqual(["code_id", "permission"])

@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MousePointer2 } from "lucide-react";
-import { LandingShellMotion, PrototypeComposer, PrototypeInviteSurface } from "@/components/home/landing-shell-motion";
+import { LandingShellMotion, PrototypeInviteSurface } from "@/components/home/landing-shell-motion";
 import { sceneSnapshot } from "@/components/home/landing-shell-motion-timeline";
 import { CommunityPreviewNavigation } from "@/components/community/shell/community-preview-navigation";
 import { CreateServerDialog } from "@/components/community/settings/create-server-dialog";
@@ -13,6 +13,7 @@ import type { Server } from "@/lib/community/models/navigation";
 import type { DM } from "@/lib/community/models/people";
 import { defaultTutorialPair, type TutorialPair } from "@/lib/step-guides";
 import { BotListContent } from "./mock-scenes";
+import { ComposerPreview } from "@/components/community/messages/composer-preview";
 import { DeferredDemo } from "./deferred-demo";
 import styles from "./guide.module.css";
 
@@ -42,7 +43,7 @@ function CreateServer({ agents }: { agents: TutorialPair }) {
 function ServerContent({ joined = false }: { joined?: boolean }) {
   return <><ChannelHeader channel="general" kind="text" rightPanel={joined ? "members" : null} onToggle={ignore} />
     <div className="flex min-h-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col"><div className="flex-1" /><PrototypeComposer snapshot={base} target="server-composer" placeholder="Message /general" /></div>
+      <div className="flex min-w-0 flex-1 flex-col"><div className="flex-1" /><ComposerPreview /></div>
       {joined && <aside className="w-60 shrink-0 border-l border-border/50 p-4"><div data-members-result><div className="mb-4 text-xs font-medium text-muted-foreground">Online — 3</div><div className="flex flex-col gap-5"><MemberIdentityRow name="Gus" avatarLabel="Gus" avatarSeed="gus" presence="online" />{dms.map(dm => <MemberIdentityRow key={dm.id} name={dm.name} discriminator={dm.discriminator} avatarLabel={dm.name} avatarSeed={dm.userId} avatarSrc={dm.avatar} presence="online" />)}</div></div></aside>}
     </div></>;
 }

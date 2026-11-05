@@ -45,10 +45,8 @@ describe("landing testimonials", () => {
     }
     expect(screen.getAllByRole("listitem")).toHaveLength(20)
     expect(container.querySelector("button, details, iframe, script")).toBeNull()
-    expect(container.querySelectorAll("blockquote")).toHaveLength(40)
-    const copies = container.querySelectorAll('[aria-hidden="true"] a')
-    expect(copies).toHaveLength(20)
-    expect([...copies].every((link) => link.getAttribute("tabindex") === "-1")).toBe(true)
-    expect(container.querySelectorAll("[data-message-author-line]")).toHaveLength(40)
+    expect(container.querySelectorAll("blockquote")).toHaveLength(20)
+    expect(container.querySelectorAll('[aria-hidden="true"] a')).toHaveLength(0)
+    expect(container.querySelectorAll("[data-message-author-line]")).toHaveLength(20)
   })
 })

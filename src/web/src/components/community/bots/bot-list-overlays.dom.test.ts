@@ -102,6 +102,18 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
 describe("renderBotListOverlaySlots", () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it("keeps independent overlay identities distinct when their counters and bot ID match", () => {
+    const bot = { id: "2", name: "Blake" }
+    const state = controller({ membershipBot: bot, membershipsGeneration: 2, activityGeneration: 2, bugReportBot: bot })
+    const slots = renderBotListOverlaySlots(state)
+    const keys = [slots.memberships!.key, slots.activity.key, slots.bug!.key]
+    expect(new Set(keys).size).toBe(3)
+    const reopened = renderBotListOverlaySlots({ ...state, activityGeneration: 3 })
+    expect(reopened.activity.key).not.toBe(slots.activity.key)
+    expect(reopened.memberships!.key).toBe(slots.memberships!.key)
+    expect(reopened.bug!.key).toBe(slots.bug!.key)
+  })
+
   it("passes chat creation to the sheet only when bots exist", () => {
     const state = controller({ bots: [{ id: "b1" }] as BotListController["bots"], startingBotChat: true })
     expect(renderBotListOverlaySlots(state).create.props).toMatchObject({ onAskBotToCreate: state.askBotToCreate, askingBotToCreate: true })
@@ -180,7 +192,7 @@ describe("renderBotListOverlaySlots", () => {
       askingBotToCreate: false,
     })
     expect(slots.edit.props).toEqual({ bot, open: true, onOpenChange: setEditOpen })
-    expect(slots.activity.key).toBe("7")
+    expect(slots.activity.key).toBe("activity:7")
     expect(slots.activity.props).toMatchObject({
       bot,
       open: true,
@@ -191,7 +203,7 @@ describe("renderBotListOverlaySlots", () => {
       open: true,
       onOpenChange: state.setHelpOpen,
     })
-    expect(slots.bug?.key).toBe("b1")
+    expect(slots.bug?.key).toBe("bug:b1")
     expect(slots.bug?.props).toEqual({ bot, open: true, onOpenChange: setBugReportOpen })
 
     slots.edit.props.onOpenChange(false)

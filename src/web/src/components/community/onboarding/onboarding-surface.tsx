@@ -18,7 +18,7 @@ export function DialogContent(props: ComponentProps<typeof Modal.DialogContent>)
 }
 export function DialogTitle(props: ComponentProps<typeof Modal.DialogTitle>) {
   const inline = useContext(InlineOnboarding)
-  return inline ? <h2 className={cn("text-lg font-semibold text-foreground", props.className)}>{props.children}</h2> : <Modal.DialogTitle {...props} />
+  return inline ? <h2 data-slot="dialog-title" className={cn("text-lg font-semibold text-foreground", props.className)}>{props.children}</h2> : <Modal.DialogTitle {...props} />
 }
 export function DialogDescription(props: ComponentProps<typeof Modal.DialogDescription>) {
   const inline = useContext(InlineOnboarding)
@@ -26,3 +26,18 @@ export function DialogDescription(props: ComponentProps<typeof Modal.DialogDescr
 }
 export const DialogHeader = Modal.DialogHeader
 export const DialogFooter = Modal.DialogFooter
+
+/** One setup progress bar for every onboarding step (QA #4): steps already
+ * done are full, the current step is a half-lit segment, later steps are
+ * empty — so nothing reads as finished before the user acts. */
+export function OnboardingProgress({ current, total, done = false }: { current: number; total: number; done?: boolean }) {
+  return (
+    <div data-slot="onboarding-progress" className="flex gap-1.5 pr-8" role="progressbar" aria-label={`Step ${current} of ${total}`}
+      aria-valuemin={0} aria-valuemax={total} aria-valuenow={done ? total : current - 1}>
+      {Array.from({ length: total }, (_, index) => (
+        <span key={index} className={cn("h-1.5 flex-1 rounded-full transition-colors",
+          index < current - 1 || done ? "bg-primary" : index === current - 1 ? "bg-primary/40" : "bg-muted")} />
+      ))}
+    </div>
+  )
+}

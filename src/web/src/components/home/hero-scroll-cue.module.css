@@ -7,12 +7,17 @@
   place-items: center;
   width: 44px;
   height: 44px;
-  transform: translateX(-50%);
+  /* the `translate` property, so the shared a:active press transform stacks instead of dropping the centring */
+  translate: -50% 0;
   color: var(--landing-text-muted);
 }
 
 .cue:hover {
   color: var(--landing-text);
+}
+
+:global([data-tn-mode="light"]) .cue {
+  color: var(--foreground);
 }
 
 .cue:focus-visible {

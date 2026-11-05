@@ -35,6 +35,14 @@ describe("Automation access-code management routes", () => {
     expect(mocks.create).toHaveBeenCalledWith({ primary: true }, "owner", { name: "Task", expiresIn: "24h", permissions: code.permissions }, await hashAutomationSecret(body.secret))
     expect(await (await GET(request("GET"))).json()).toEqual({ accessCodes: [code] })
   })
+  it("accepts only the onboarding purpose marker and passes it to persistence", async () => {
+    const payload = { name: "onboard", purpose: "onboarding", expiresIn: "1h", permissions: code.permissions }
+    const response = await POST(request("POST", payload))
+    expect(response.status).toBe(201)
+    expect(mocks.create.mock.calls[0][2]).toEqual(payload)
+    expect((await POST(request("POST", { ...payload, purpose: "other" }))).status).toBe(400)
+    expect((await PATCH(request("PATCH", { purpose: "onboarding" }), { params: Promise.resolve({ codeId: "code" }) })).status).toBe(400)
+  })
   it("validates requests and applies owner-scoped edits without implicit expiry renewal", async () => {
     expect((await POST(request("POST", { name: "Task", permissions: [{ permission: "unknown", limit: 1, period: "day" }] }))).status).toBe(400)
     const params = { params: Promise.resolve({ codeId: "code" }) }

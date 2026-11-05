@@ -1,7 +1,7 @@
 import { createElement } from "react"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
-import { render, screen } from "@/test/react-dom-harness"
+import { act, mockElementGeometry, render, screen } from "@/test/react-dom-harness"
 import { TypingIndicator } from "./typing-indicator"
 
 describe("TypingIndicator", () => {
@@ -35,5 +35,44 @@ describe("TypingIndicator", () => {
     const status = screen.getByTestId(tid.typingIndicator)
     expect(status).toHaveClass("h-8", "rounded-full", "shadow-(--e1)")
     expect(status.querySelector(".min-w-0.truncate")).not.toHaveClass("hidden")
+  })
+
+  it("binds passive hover/press feedback across none -> typing -> none -> typing, and cleans up", () => {
+    const pointer = (type: string, x: number, y: number) => {
+      act(() => { window.dispatchEvent(new MouseEvent(type, { clientX: x, clientY: y })) })
+    }
+    const pill = () => {
+      const el = screen.getByTestId(tid.typingIndicator)
+      mockElementGeometry(el, { left: 0, top: 0, width: 100, height: 32 })
+      return el
+    }
+    const removeSpy = vi.spyOn(window, "removeEventListener")
+    const view = render(createElement(TypingIndicator, { names: [] }))
+    expect(screen.queryByTestId(tid.typingIndicator)).toBeNull()
+
+    for (let round = 0; round < 2; round += 1) {
+      view.rerender(createElement(TypingIndicator, { names: ["Alice"] }))
+      const el = pill()
+      pointer("pointermove", 10, 10)
+      expect(el).toHaveAttribute("data-hover")
+      pointer("pointerdown", 10, 10)
+      expect(el).toHaveAttribute("data-pressed")
+      pointer("pointerup", 10, 10)
+      expect(el).not.toHaveAttribute("data-pressed")
+      pointer("pointermove", 300, 300)
+      expect(el).not.toHaveAttribute("data-hover")
+
+      const before = removeSpy.mock.calls.length
+      view.rerender(createElement(TypingIndicator, { names: [] }))
+      const removed = removeSpy.mock.calls.slice(before).map(([type]) => type)
+      expect(removed).toEqual(expect.arrayContaining(["pointermove", "pointerdown", "pointerup", "pointercancel"]))
+    }
+
+    view.rerender(createElement(TypingIndicator, { names: ["Bob"] }))
+    const before = removeSpy.mock.calls.length
+    view.unmount()
+    const removed = removeSpy.mock.calls.slice(before).map(([type]) => type)
+    expect(removed).toEqual(expect.arrayContaining(["pointermove", "pointerdown", "pointerup", "pointercancel"]))
+    removeSpy.mockRestore()
   })
 })

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { useIsRestoring, type QueryClient } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
+import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import { createQueryClient } from "@/lib/query-client"
 import { isAbortError } from "@/lib/errors"
 import {
@@ -163,7 +164,8 @@ function ScopedQueryProvider({
     window.location.reload()
   }, [communityDb])
   usePersistedAccountLifecycle(persister, onRetired)
-  const isDev = process.env.NODE_ENV !== "production"
+  const hydrated = useHydratedClient()
+  const showDevtools = process.env.NODE_ENV !== "production" && hydrated && new URLSearchParams(window.location.search).get("query-devtools") === "1"
   const settleRestoredAccount = async (input: CommunityRestoredCollections) => {
     try {
       if (!communityDb.runtime.lifecycle.get().active) { queryClient.clear(); return }
@@ -203,7 +205,7 @@ function ScopedQueryProvider({
         registry={communityDb}
       >
         {children}
-        {isDev ? <ReactQueryDevtools initialIsOpen={false} /> : null}
+        {showDevtools ? <ReactQueryDevtools initialIsOpen={false} /> : null}
       </CommunityDbRuntime> : null}
     </PersistQueryClientProvider>
   )

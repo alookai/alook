@@ -304,6 +304,13 @@ describe("ForumView post delete button", () => {
   })
 })
 
+function buttonMarkup(html: string, testId: string) {
+  const button = html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g)
+    ?.find((markup) => markup.includes(`data-testid="${testId}"`))
+  expect(button).toBeDefined()
+  return button!
+}
+
 describe("ForumView platform post actions", () => {
   it("orders tag, archive, and delete actions with desktop group reveal and stable geometry", () => {
     platformState.hydrated = true
@@ -312,9 +319,9 @@ describe("ForumView platform post actions", () => {
     const tagIndex = html.indexOf(tid.forumThreadTagBtn("p1"))
     const archiveIndex = html.indexOf(tid.forumThreadArchiveBtn("p1"))
     const deleteIndex = html.indexOf(tid.forumThreadDeleteBtn("p1"))
-    const tagButton = html.slice(Math.max(0, tagIndex - 500), tagIndex + 500)
-    const archiveButton = html.slice(Math.max(0, archiveIndex - 500), archiveIndex + 500)
-    const deleteButton = html.slice(Math.max(0, deleteIndex - 500), deleteIndex + 500)
+    const tagButton = buttonMarkup(html, tid.forumThreadTagBtn("p1"))
+    const archiveButton = buttonMarkup(html, tid.forumThreadArchiveBtn("p1"))
+    const deleteButton = buttonMarkup(html, tid.forumThreadDeleteBtn("p1"))
 
     expect(tagIndex).toBeLessThan(archiveIndex)
     expect(archiveIndex).toBeLessThan(deleteIndex)
@@ -344,7 +351,7 @@ describe("ForumView platform post actions", () => {
       savingTagsFor: "p1",
     })
     const archiveIndex = html.indexOf(tid.forumThreadArchiveBtn("p1"))
-    const archiveButton = html.slice(Math.max(0, archiveIndex - 300), archiveIndex + 450)
+    const archiveButton = buttonMarkup(html, tid.forumThreadArchiveBtn("p1"))
 
     expect(archiveButton).toContain('aria-label="Unarchive post"')
     expect(archiveButton).toContain('aria-pressed="true"')
@@ -491,7 +498,7 @@ describe("ForumView filter bar / composer swap", () => {
     expect(archivedIndex).toBeGreaterThan(helpIndex)
     expect(archivedIndex).toBeLessThan(scrollerCloseIndex)
     expect(archivedIndex).toBeLessThan(newPostIndex)
-    const archivedMarkup = html.slice(Math.max(0, archivedIndex - 500), archivedIndex + 500)
+    const archivedMarkup = buttonMarkup(html, tid.forumTagChip("archived"))
     expect(archivedMarkup).toContain("Archived")
     expect(archivedMarkup).toContain("opacity-100 ring-1")
   })
@@ -517,10 +524,11 @@ describe("ForumView filter bar / composer swap", () => {
     const html = renderWithAvailableTags([makePost()], ["bug"], "bug")
     const chip = html.match(new RegExp(`<button[^>]*data-testid="${tid.forumTagChip("bug")}"[^>]*>`))?.[0]
     expect(chip).toContain("ring-1 ring-inset ring-current/20")
-    expect(chip).not.toContain("h-")
+    expect(chip).toContain("h-7")
     const all = renderWithAvailableTags([makePost()], ["bug"])
       .match(new RegExp(`<button[^>]*data-testid="${tid.forumTagAll}"[^>]*>`))?.[0]
     expect(all).toContain("bg-accent text-foreground")
+    expect(all).toContain("h-7")
     expect(all).not.toContain("ring-inset")
   })
 })

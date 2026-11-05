@@ -1,20 +1,15 @@
 import { Network, Activity, ChevronDown, Monitor, MoreVertical, RotateCcw } from "lucide-react"
-import { formatModelLabel, isPresenceOnline } from "@alook/shared"
-import { AgentAvatar } from "@/components/avatar"
-import { ProviderLogo } from "@/components/provider-logo"
+import { isPresenceOnline } from "@alook/shared"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { formatAwakeDuration } from "@/lib/community/format-time"
 import { tid } from "@/lib/community/testids"
-import { runtimeLabel } from "@/lib/community/runtime-label"
+import { BotCardView } from "./bot-card-view"
 import { MachineQuotaSummary } from "./bot-quota-summary"
-import { BotTokenUsageHeatmap } from "./bot-token-usage-chart"
 import type { BotListController, BotMachineGroup } from "./bot-list-types"
 
 export function renderBotMachineGroup(
@@ -86,97 +81,42 @@ export function renderBotMachineGroup(
           const activePending = controller.pendingActiveBotIds.has(bot.id)
           const statusKnown = bot.isActive === false || bot.isActive !== undefined && controller.profilesByUserId.get(bot.id)?.presence !== undefined
           return (
-            <Card key={bot.id} className="flex flex-col gap-3 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={40} />
-                <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5">
-                  <div className="flex min-w-0 basis-55 grow flex-col gap-1">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span title={bot.name} className="min-w-0 max-w-full truncate text-[15px] font-medium text-foreground">
-                        {bot.name}
-                      </span>
-                      <span
-                        className={[
-                          "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium",
-                          online
-                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                            : "bg-muted text-muted-foreground",
-                        ].join(" ")}
-                      >
-                        <span
-                          className={[
-                            "inline-block size-1.5 rounded-full",
-                            online ? "bg-status-online" : "bg-muted-foreground",
-                          ].join(" ")}
-                        />
-                        {!statusKnown ? "Status unknown" : online ? "Online" : "Offline"}
-                      </span>
-                      {statusKnown && (!bot.isActive || (!online && machine?.status !== undefined)) && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 shrink-0 px-2 text-xs"
-                          disabled={!bot.isActive && activePending}
-                          aria-busy={!bot.isActive && activePending || undefined}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            if (!bot.isActive) {
-                              void controller.setBotActive(bot, true)
-                            } else if (machine) {
-                              controller.bringMachineOnline(machine.id)
-                            }
-                          }}
-                        >
-                          {bot.isActive ? "Bring online" : "Activate"}
-                        </Button>
-                      )}
-                    </div>
-                    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
-                      <span className="flex min-w-0 max-w-full items-center gap-1.5">
-                        <ProviderLogo provider={bot.runtime} className="size-3.5 shrink-0" />
-                        <span className="truncate" title={runtimeLabel(bot.runtime)}>{runtimeLabel(bot.runtime)}</span>
-                      </span>
-                      <span aria-hidden className="shrink-0">·</span>
-                      {formatModelLabel(bot.runtime, bot.modelName) ? (
-                        <span data-testid={tid.botCardModel} title={bot.modelName ?? undefined} className="min-w-0 max-w-full truncate font-mono">
-                          {formatModelLabel(bot.runtime, bot.modelName)}
-                        </span>
-                      ) : (
-                        <span
-                          data-testid={tid.botCardModel}
-                          className="font-mono text-muted-foreground/70"
-                          title="No model set — uses the machine's local default"
-                        >
-                          local default
-                        </span>
-                      )}
-                      {bot.lastRefreshContextAt && (
-                        <>
-                          <span aria-hidden className="shrink-0">·</span>
-                          <span className="shrink-0">
-                            {formatAwakeDuration(bot.lastRefreshContextAt)}
-                          </span>
-                        </>
-                      )}
-                    </span>
-                  </div>
-                  {bot.usage?.capability === "supported" && (
-                    <BotTokenUsageHeatmap
-                      botId={bot.id}
-                      usage={bot.usage}
-                      className="self-center"
-                    />
-                  )}
-                </div>
+            <BotCardView
+              key={bot.id}
+              bot={bot}
+              online={online === true}
+              statusKnown={statusKnown}
+              statusAction={statusKnown && (!bot.isActive || (!online && machine?.status !== undefined)) && (
+                <Button
+                  size="sm"
+                  variant={bot.isActive ? "default" : "outline"}
+                  className="h-6 shrink-0 px-2 text-xs"
+                  disabled={!bot.isActive && activePending}
+                  aria-busy={!bot.isActive && activePending || undefined}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    if (!bot.isActive) {
+                      void controller.setBotActive(bot, true)
+                    } else if (machine) {
+                      controller.bringMachineOnline(machine.id)
+                    }
+                  }}
+                >
+                  {bot.isActive ? "Bring online" : "Activate"}
+                </Button>
+              )}
+              actions={(
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         aria-label="Bot actions"
                         className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                       >
                         <MoreVertical className="size-4" />
-                      </button>
+                      </Button>
                     }
                   />
                   <DropdownMenuContent align="end" className="w-auto min-w-36 max-w-56">
@@ -230,8 +170,8 @@ export function renderBotMachineGroup(
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-              </div>
-            </Card>
+              )}
+            />
           )
         })}
       </div>

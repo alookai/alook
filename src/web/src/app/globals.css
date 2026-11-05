@@ -133,12 +133,13 @@ body.driver-active .community-ws-reconnect-overlay * {
   isolation: isolate;
 }
 
+/* The avatar travels the button's own outline (a pill just outside it), so it
+ * circles the label instead of crossing it. */
 .community-guide-me-orbit {
   position: absolute;
-  inset: -17px -22px;
+  inset: -6px;
   z-index: 1;
   pointer-events: none;
-  animation: community-guide-me-orbit 4.8s linear infinite;
 }
 
 .community-guide-me-orbit-holder {
@@ -162,11 +163,14 @@ body.driver-active .community-ws-reconnect-overlay * {
 
 .community-guide-me-avatar {
   position: absolute;
-  top: -3px;
-  left: 50%;
+  top: 0;
+  left: 0;
   display: inline-flex;
-  transform: translateX(-50%);
-  animation: community-guide-me-counter-orbit 4.8s linear infinite;
+  offset-path: inset(0 round 999px);
+  offset-anchor: center;
+  offset-rotate: 0deg;
+  offset-distance: 12%;
+  animation: community-guide-me-trace 6s linear infinite;
 }
 
 .community-guide-me > button {
@@ -174,15 +178,12 @@ body.driver-active .community-ws-reconnect-overlay * {
   z-index: 0;
 }
 
-@keyframes community-guide-me-orbit {
-  to {
-    transform: rotate(360deg);
+@keyframes community-guide-me-trace {
+  from {
+    offset-distance: 12%;
   }
-}
-
-@keyframes community-guide-me-counter-orbit {
   to {
-    transform: translateX(-50%) rotate(-360deg);
+    offset-distance: 112%;
   }
 }
 
@@ -649,7 +650,6 @@ body.driver-active .community-ws-reconnect-overlay * {
   --tw-chrome-hi: oklch(0.82 0.005 80);
   --tw-paper: oklch(0.97 0.008 80);
   --tw-blob: oklch(0.88 0.025 82);
-  --tw-roller: oklch(0.15 0.01 55);
 }
 
 /* ─── CRT panel reusable styles ─── */
@@ -932,7 +932,8 @@ body.driver-active .community-ws-reconnect-overlay * {
 
 /* ── Paper — slides up inside the track ── */
 .tw-paper.tw-paper-city {
-  padding: 8px 8px 24px;
+  /* A slightly deeper bottom margin lifts the city clear of the platen (Gus #2771). */
+  padding: 8px 8px 36px;
 }
 
 .tw-paper {
@@ -952,6 +953,19 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 /* ── 3D Body — 6-face box (420w × 260h × 160d, half-d=80) ── */
+/* Contact shadow on the desk: a soft ellipse lying flat under the base (y = 260). */
+.tw-floor-shadow {
+  position: absolute;
+  top: 140px;
+  left: -40px;
+  width: 500px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, oklch(0.2 0.02 60 / 34%), oklch(0.2 0.02 60 / 12%) 62%, transparent);
+  transform: rotateX(90deg);
+  pointer-events: none;
+}
+
 .tw-body {
   position: relative;
   width: 100%;
@@ -962,13 +976,17 @@ body.driver-active .community-ws-reconnect-overlay * {
 /* Front face — main visible surface */
 .tw-body-front {
   position: absolute;
-  inset: 0;
   background: linear-gradient(180deg,
       var(--tw-body-hi) 0%,
       var(--tw-body) 30%,
       var(--tw-body-lo) 100%);
   border-radius: 24px;
-  transform: translateZ(80px);
+  /* The keyboard face leans back ~13° from its bottom edge, so the body is a wedge: 160px deep at the base,
+     100px at the top deck. Height is the slanted length sqrt(260² + 60²) so the top edge still lands at y=0. */
+  inset: auto 0 0 0;
+  height: 266.83px;
+  transform-origin: 50% 100%;
+  transform: translateZ(80px) rotateX(12.995deg);
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 6%),
     inset -5px -5px 15px oklch(0 0 0 / 10%),
@@ -977,8 +995,10 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 .tw-body > .tw-paper-track {
-  transform: translateX(-50%) translateZ(79px);
+  /* The sheet goes into the top deck behind the platen and stands parallel to the back panel (Gus #2778). */
+  transform: translateX(-50%) translateZ(-40px);
 }
+
 
 /* Back face */
 .tw-body-back {
@@ -990,90 +1010,112 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 /* Left face — chamfered corners simulate the front/back border-radius */
-.tw-body-left {
+/* Side faces are only drawn while they face the viewer; a back-facing side otherwise sorts in front of the
+   front plane and covers its first key column. */
+.tw-body-back,
+.tw-body-left,
+.tw-body-right,
+.tw-body-top,
+.tw-body-bottom {
+  backface-visibility: hidden;
+}
+
+/* Side, top and bottom planes stop where the front's 24px corner radius starts; rounded edge strips close the
+   depth edges between them, so the box has no see-through gaps at any tilt. */
+.tw-body-left,
+.tw-body-right {
   position: absolute;
+  top: 24px;
   width: 160px;
-  height: 260px;
+  height: 212px;
+}
+
+/* Side wedges: the front edge follows the keyboard slope, z = 20 + 60·y/260 (y measured on the body), pushed
+   2px past it so the seam hides behind the keyboard face instead of anti-aliasing to the page. */
+.tw-body-left {
+  clip-path: polygon(0 0, 107.54px 0, 156.46px 100%, 0 100%);
   background: oklch(0.22 0.01 58);
-  border-radius: 24px;
   transform: rotateY(-90deg) translateZ(80px);
   box-shadow: inset 10px 0 30px oklch(0 0 0 / 6%);
 }
 
-/* Right face */
 .tw-body-right {
-  position: absolute;
-  width: 160px;
-  height: 260px;
+  clip-path: polygon(52.46px 0, 100% 0, 100% 100%, 3.54px 100%);
   background: var(--tw-body-lo);
-  border-radius: 24px;
   transform: rotateY(90deg) translateZ(340px);
 }
 
-/* Top face */
-.tw-body-top {
-  position: absolute;
-  width: 420px;
-  height: 160px;
-  background: oklch(0.30 0.01 60);
-  border-radius: 24px;
-  transform: rotateX(90deg) translateZ(80px);
-}
-
-/* Bottom face */
+.tw-body-top,
 .tw-body-bottom {
   position: absolute;
-  width: 420px;
+  left: 24px;
+  width: 372px;
   height: 160px;
+}
+
+.tw-body-top {
+  height: 102px;
+  background: var(--tw-body-top);
+  /* Top deck spans z −80…22: 2px under the keyboard face's top edge so their seam never shows the page. */
+  transform: translateZ(-29px) rotateX(90deg) translateZ(51px);
+}
+
+.tw-body-bottom {
+  /* 2px wider each side, tucked under the rounded edge strips, so the underside never shows a light seam
+     from the default up-left view (Gus #2783). */
+  left: 22px;
+  width: 376px;
   background: oklch(0.14 0.01 55);
-  border-radius: 24px;
   transform: rotateX(-90deg) translateZ(180px);
   box-shadow: 0 60px 100px oklch(0 0 0 / 20%);
 }
 
-/* ── Roller assembly — at the top of body, wider than body ── */
+/* Rounded depth edges; size, shade and placement of each strip come from EDGE_STRIPS in typewriter-visual.tsx. */
+.tw-body-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  backface-visibility: hidden;
+}
+
+/* ── Platen and knobs — 3D cylinders resting on the top deck, just in front of the sheet ──
+   Strip geometry comes from ROLLER_STRIPS / KNOB_CAPS in typewriter-visual.tsx; the container is the axis origin. */
 .tw-roller-assembly {
   position: absolute;
-  top: -6px;
-  left: -24px;
-  right: -24px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  z-index: 6;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform: translate3d(0, -8px, -19px);
+  pointer-events: none;
 }
 
-.tw-roller {
-  flex: 1;
-  height: 22px;
-  background: var(--tw-roller);
-  border-radius: 11px;
-  box-shadow:
-    inset 0 -5px 10px rgba(0, 0, 0, 0.5),
-    inset 0 4px 6px rgba(255, 255, 255, 0.05),
-    0 2px 8px rgba(0, 0, 0, 0.3);
+/* The dark guide spans the knob overhang (x -14…434), closing the background gap above the rounded case corners. */
+.tw-paper-guide {
+  position: absolute;
+  top: -16px;
+  left: -14px;
+  width: 448px;
+  height: 42px;
+  background: var(--tw-body-lo);
+  transform: translateZ(-35px);
+  pointer-events: none;
 }
 
-/* Roller knobs */
-.tw-knob {
-  width: 20px;
-  height: 32px;
-  background: oklch(0.20 0.01 55);
-  border-radius: 4px;
-  box-shadow:
-    inset 0 -3px 5px rgba(0, 0, 0, 0.4),
-    inset 0 1px 2px rgba(255, 255, 255, 0.06),
-    0 2px 4px rgba(0, 0, 0, 0.3);
-  flex-shrink: 0;
-  border: 1px solid oklch(0.30 0.01 55);
+.tw-roller-strip,
+.tw-knob-cap {
+  position: absolute;
+  backface-visibility: hidden;
 }
 
-.tw-knob-left {
-  margin-right: -3px;
-}
-
-.tw-knob-right {
-  margin-left: -3px;
+/* Bakelite knob face: soft top-left highlight, a turned ring, and a centre boss. */
+.tw-knob-cap {
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, oklch(0.30 0.008 60) 0 4px, transparent 4.5px),
+    radial-gradient(circle at 50% 50%, transparent 0 11px, oklch(0.12 0.008 60 / 70%) 11.5px 12.5px, transparent 13px),
+    radial-gradient(circle at 35% 30%, oklch(0.34 0.008 60), oklch(0.16 0.008 60) 70%);
 }
 
 /* ── Type-bar fan — below roller ── */

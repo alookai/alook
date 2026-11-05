@@ -31,6 +31,7 @@ import { BillingContent } from "../billing/billing-sheet"
 import { useBilling, type BillingReturn } from "@/hooks/community/use-billing"
 import { AutomationSettings } from "./automation-settings"
 import { AccountDeletionFlow } from "./account-deletion-flow"
+import { Input } from "@/components/ui/input"
 
 const THEME_OPTIONS = [
   { value: "light", label: "Light", icon: Sun },
@@ -42,12 +43,12 @@ type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy" | "term
 
 const USER_SETTINGS_TABS: SettingsShellTab<UserSettingsTab>[] = [
   { value: "profile", label: "My Profile", icon: User },
-  { value: "billing", label: "Subscription & billing", icon: CreditCard, hideIconOnDesktop: true },
+  { value: "billing", label: "Subscription & billing", icon: CreditCard },
   { value: "appearance", label: "Appearance", icon: Palette },
-  { value: "automation", label: "Automation", icon: KeyRound, hideIconOnDesktop: true },
-  { value: "advanced", label: "Advanced", icon: Database, hideIconOnDesktop: true },
-  { value: "privacy", label: "Privacy", icon: Shield, hideIconOnDesktop: true },
-  { value: "terms", label: "Terms", icon: FileText, hideIconOnDesktop: true },
+  { value: "automation", label: "Automation", icon: KeyRound },
+  { value: "advanced", label: "Advanced", icon: Database },
+  { value: "privacy", label: "Privacy", icon: Shield },
+  { value: "terms", label: "Terms", icon: FileText },
 ]
 
 function AppearanceSettings() {
@@ -57,26 +58,22 @@ function AppearanceSettings() {
   const active = mounted ? theme ?? "system" : undefined
 
   return (
-    <div className="mx-auto w-full max-w-md space-y-4">
+    <div className="w-full space-y-4">
       <Field label="Theme">
         <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted/60 p-1">
           {THEME_OPTIONS.map(({ value, label, icon: Icon }) => {
             const selected = active === value
             return (
-              <button
+              <Button
                 key={value}
+                variant={selected ? "secondary" : "ghost"}
                 onClick={() => setTheme(value)}
                 aria-pressed={selected}
-                className={[
-                  "flex min-h-16 flex-col items-center justify-center gap-2 rounded-lg px-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                  selected
-                    ? "bg-background text-foreground shadow-(--e1)"
-                    : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
-                ].join(" ")}
+                className="h-auto min-h-16 flex-col gap-2 px-2 text-sm"
               >
                 <Icon className="size-5" />
                 {label}
-              </button>
+              </Button>
             )
           })}
         </div>
@@ -138,7 +135,7 @@ export function AdvancedSettings() {
           }
         }}
       />
-      <div className="mx-auto flex min-h-full w-full max-w-md flex-col">
+      <div className="flex min-h-full w-full flex-col">
         <section className="space-y-2">
           <h2 className="text-base font-medium tracking-tight">Clear local cache</h2>
           {clearError && <p role="alert" className="text-sm text-destructive">{clearError}</p>}
@@ -182,7 +179,8 @@ export function AdvancedSettings() {
   )
 }
 
-export function UserSettings({ initialTab = "profile", billingReturn = null, onClose, userId, userName, userEmail, aboutMe, avatar, statusEmoji, statusText, onSave, onLogout, onAccountDeleted, onUploadAvatar }: {
+export function UserSettings({ titleId, initialTab = "profile", billingReturn = null, onClose, userId, userName, userEmail, aboutMe, avatar, statusEmoji, statusText, onSave, onLogout, onAccountDeleted, onUploadAvatar }: {
+  titleId?: string
   initialTab?: UserSettingsTab
   billingReturn?: BillingReturn
   onClose: () => void
@@ -245,6 +243,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
 
   return (
     <SettingsShell
+      titleId={titleId}
       value={tab}
       onValueChange={setTab}
       label="User Settings"
@@ -254,7 +253,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
       disabled={deletionOpen}
       navFooter={
         <Button variant="ghost" className={SETTINGS_LOGOUT_CLASS} size="sm" onClick={onLogout} aria-label="Log out" disabled={deletionOpen}>
-          <LogOut className="size-4 sm:invisible" /> <span className="sr-only sm:not-sr-only">Log Out</span>
+          <LogOut className="size-4" /> <span className="sr-only sm:not-sr-only">Log Out</span>
         </Button>
       }
     >
@@ -266,27 +265,25 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
         />
       ) : (
         <>
-          <SettingsShellPanel value="billing"><div className="mx-auto w-full max-w-xl"><BillingContent billing={billing} /></div></SettingsShellPanel>
+          <SettingsShellPanel value="billing"><div className="w-full"><BillingContent billing={billing} /></div></SettingsShellPanel>
           <SettingsShellPanel value="profile">
-            <div className="mx-auto w-full max-w-md space-y-8">
-              {/* Avatar — centered in a soft rounded frame, with a hand-rolled
-                  pill button beneath (matches the bot create/edit sheet; a stock
-                  secondary Button reads as the old square style). */}
+            <div className="w-full space-y-8">
+              {/* Avatar and the shared change-photo action. */}
               <div className="flex flex-col items-center gap-2">
                 <span className="block size-24 overflow-hidden rounded-full ring-1 ring-border/50">
                   <Avatar label={avatar} seed={userId ?? undefined} size={96} />
                 </span>
-                <button
+                <Button variant="ghost" size="sm"
                   type="button"
                   onClick={onUploadAvatar}
                   className="flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8"
                 >
                   <Camera className="size-3.5" /> Change photo
-                </button>
+                </Button>
               </div>
               {/* Display name — inline title input, borderless (name-as-heading,
                   like the agent name on the bot page). */}
-              <input
+              <Input variant="frameless"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Your name"
@@ -308,16 +305,25 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
               <div className="space-y-2">
                 <div className="text-xs text-muted-foreground">Status</div>
                 <StatusEditor emoji={status.emoji} text={status.text} onChange={(emoji, text) => setStatus({ emoji, text })}>
-                  <button className="inline-flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-sm transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8">
+                  <Button variant="ghost" size="sm" className="inline-flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-sm transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8">
                     {hasStatus(status.emoji, status.text) ? (
                       <span>{status.emoji} {status.text}</span>
                     ) : (
                       <span className="text-muted-foreground">Set a status</span>
                     )}
-                  </button>
+                  </Button>
                 </StatusEditor>
               </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <div className="flex items-center justify-end gap-2">
+                <Button variant="ghost" size="sm" className="h-11 sm:h-8" onClick={handleCancel} disabled={!dirty}>Cancel</Button>
+                <Button size="sm" className="h-11 sm:h-8" onClick={handleSave} disabled={!dirty}>Save changes</Button>
+              </div>
+              {/* Danger zone: kept apart from the profile's primary actions (QA #21). */}
+              <div data-slot="settings-danger-zone" className="flex items-center justify-between gap-4 border-t border-border/40 pt-6">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Delete account</div>
+                  <p className="text-xs text-muted-foreground">Permanently remove your account and its data.</p>
+                </div>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -328,10 +334,6 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
                 >
                   Delete account
                 </Button>
-                <div className="ml-auto flex shrink-0 items-center gap-2">
-                  <Button variant="ghost" size="sm" className="h-11 sm:h-8" onClick={handleCancel} disabled={!dirty}>Cancel</Button>
-                  <Button size="sm" className="h-11 sm:h-8" onClick={handleSave} disabled={!dirty}>Save changes</Button>
-                </div>
               </div>
             </div>
           </SettingsShellPanel>
@@ -345,12 +347,12 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
             <AdvancedSettings />
           </SettingsShellPanel>
           <SettingsShellPanel value="privacy">
-            <div className="mx-auto w-full max-w-2xl pb-8">
+            <div className="w-full pb-8">
               <PrivacyPolicyContent />
             </div>
           </SettingsShellPanel>
           <SettingsShellPanel value="terms">
-            <div className="mx-auto w-full max-w-2xl pb-8">
+            <div className="w-full pb-8">
               <TermsContent />
             </div>
           </SettingsShellPanel>

@@ -1,0 +1,19 @@
+.section { scroll-margin-top: 32px; margin-block: 64px; }
+.heading { margin-bottom: 28px; }
+.heading h2 { font-size: 24px; font-weight: 650; }
+.heading p { margin-top: 8px; color: var(--muted-foreground); font-size: 14px; }
+.case {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 720px;
+  min-height: 400px;
+  padding: 56px 32px;
+  border-radius: 24px;
+  background: linear-gradient(165deg, var(--tn-plastic), var(--tn-plastic-side));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%);
+}
+.case > a { width: min(100%, 360px); height: auto; }
+@media (max-width: 639px) {
+  .case { min-height: 360px; padding: 40px 20px; }
+}

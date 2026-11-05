@@ -155,6 +155,39 @@ describe("animation lifecycle changes", () => {
     await waitFor(() => expect(scene.create).toHaveBeenCalledTimes(2));
   });
 
+  it("shows the opening frame after rebuilding a paused demo without resuming", async () => {
+    let width = 720;
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => width);
+    const rebuiltProgress = vi.fn();
+    let creations = 0;
+    scene.create.mockImplementation((root: HTMLElement) => {
+      const frame = root.querySelector<HTMLElement>("[data-demo-frame]")!;
+      frame.style.opacity = "0";
+      const rebuilt = ++creations > 1;
+      return {
+        ...scene,
+        play: () => { scene.play(); frame.style.opacity = "1"; },
+        progress: (value?: number) => {
+          if (value === undefined) return 0.42;
+          if (rebuilt) rebuiltProgress(value);
+          frame.style.opacity = value > 0 ? "1" : "0";
+        },
+      };
+    });
+    const user = setupUser();
+    render(<DeferredDemo scene="message" label="Message"><p data-demo-frame>Paused message frame</p></DeferredDemo>);
+    await act(async () => intersect([{ isIntersecting: true, intersectionRatio: 1 }]));
+    await waitFor(() => expect(screen.getByText("Paused message frame")).toBeVisible());
+    await user.click(screen.getByRole("button", { name: "Pause Message" }));
+    scene.play.mockClear();
+    await act(async () => { width = 393; window.dispatchEvent(new Event("resize")); });
+    await waitFor(() => expect(scene.create).toHaveBeenCalledTimes(2));
+    expect(rebuiltProgress).toHaveBeenCalledWith(0.001);
+    expect(screen.getByText("Paused message frame")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Play Message" })).toBeEnabled();
+    expect(scene.play).not.toHaveBeenCalled();
+  });
+
   it("rebuilds only on width changes and pauses in a hidden tab", async () => {
     let width = 390;
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => width);

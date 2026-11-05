@@ -44,6 +44,18 @@
   will-change: transform;
 }
 
+/* A tap counts as hover on phones. The desktop hover rule rebuilds the blob's
+ * transform without --tw-scale, so the blob jumped to full size behind the
+ * page (Gus #2399). Keep the scaled transform under hover. */
+.typewriter:global(.typewriter-visual):hover :global(.typewriter-blob) {
+  transform: translate3d(
+      calc(-50% + var(--tw-tx) * -0.55),
+      calc(-50% + 16px * var(--tw-scale) + var(--tw-ty) * -0.55),
+      0
+    )
+    scale(calc(var(--tw-scale) * var(--blob-scale, 0.95)));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .typewriter:global(.typewriter-visual),
   .typewriter :global(.typewriter-blob),

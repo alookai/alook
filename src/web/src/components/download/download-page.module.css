@@ -4,14 +4,8 @@
 .heroCopy { min-width: 0; }
 .eyebrow { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; color: var(--landing-text-muted); font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }
 .hero h1 { font-family: var(--font-crt); font-size: clamp(56px, 6.6vw, 96px); font-weight: 400; line-height: 0.98; letter-spacing: -0.025em; }
-.hero h1 span { color: var(--landing-accent); }
 .intro { max-width: 38ch; margin-top: 24px; font-size: 19px; line-height: 1.6; color: var(--landing-text-muted); }
 .heroActions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-block: 32px 24px; }
-.primary, .secondary { display: inline-flex; min-height: 48px; align-items: center; justify-content: center; gap: 8px; padding: 12px 16px; font-size: 14px; font-weight: 600; text-decoration: none; }
-.primary { color: var(--landing-bg); background: var(--landing-text); border: 1px solid var(--landing-text); }
-.secondary { color: var(--landing-text); border: 1px solid var(--landing-border); }
-.primary:hover { background: var(--landing-accent-dim); }
-.secondary:hover { background: var(--landing-section-bg); }
 .textLink { display: inline-flex; min-height: 44px; align-items: center; gap: 8px; color: var(--landing-text-muted); font-size: 13px; text-underline-offset: 4px; }
 .textLink:hover { color: var(--landing-text); text-decoration: underline; }
 .heroMedia { position: relative; isolation: isolate; min-width: 0; padding-block: 48px 24px; }
@@ -31,9 +25,7 @@
 .platform h3 { margin: 0; font-size: 19px; font-weight: 600; }
 .platform summary > span { font-family: var(--font-mono); font-size: 11px; color: var(--landing-text-muted); }
 .installers { display: grid; gap: 8px; margin-top: 8px; list-style: none; padding: 0; }
-.installer, .unavailable { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 16px; border: 1px solid var(--landing-border); }
-.installer { background: var(--landing-bg); color: var(--landing-text); }
-.installer:hover { border-color: var(--landing-text-muted); }
+.unavailable { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 16px; border: 1px solid var(--landing-border); }
 .installer strong, .unavailable strong { display: block; font-size: 14px; font-weight: 500; }
 .installer small, .unavailable small { display: block; margin-top: 4px; font-size: 11px; font-family: var(--font-mono); color: var(--landing-text-muted); }
 .unavailable { display: block; color: var(--landing-text-muted); }
@@ -50,7 +42,7 @@
 .browser { padding-block: 64px; text-align: center; background: var(--landing-section-bg); }
 .browser .eyebrow { justify-content: center; }
 .browser p:not(.eyebrow) { margin-inline: auto; }
-.browser .primary { margin-top: 24px; }
+.browser [data-variant] { margin-top: 24px; }
 .browser .textLink { display: flex; width: fit-content; margin: 16px auto 0; }
 @media (min-width: 640px) and (max-width: 1023px) {
   .hero { grid-template-columns: 1fr; gap: 24px; }
@@ -84,3 +76,67 @@
 .characters img:nth-child(3) { right: 0; top: 0; transform: rotate(14deg); }
 .characters img:nth-child(4) { left: 42%; bottom: 0; transform: rotate(8deg); }
 @media (max-width: 639px) { .characters img:nth-child(4) { left: 26%; } }
+
+/* ═════ Technostalgia (Gus #2395): the subpage speaks the landing's language ═════ */
+
+/* Kickers read as printed machine labels. */
+.eyebrow { font-family: var(--font-dm-mono), var(--font-mono), monospace; font-size: 11px; letter-spacing: 0.16em; }
+
+/* Platform rows: hairline-divided like the brand FAQ, with a keycap +/− */
+.platform summary::after {
+  content: "+";
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(var(--tn-plastic-top, #fffdf8), var(--tn-plastic, #ece3d2));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 55%), 0 1.5px 0 rgb(60 45 20 / 22%);
+  color: var(--landing-text);
+  font-size: 18px;
+  line-height: 1;
+  transition: transform 160ms ease-out, box-shadow 120ms ease-out;
+}
+.platform summary:hover::after { transform: translateY(-1px); }
+.platform summary:active::after { transform: translateY(1px); box-shadow: inset 0 1px 2px rgb(60 45 20 / 22%); }
+.platform[open] summary::after { content: "−"; }
+
+/* Installers and store chips: rounded paper cards on hairlines — no square boxes */
+.unavailable, .store {
+  border: 0;
+  border-radius: 14px;
+  background: var(--tn-paper-raised, var(--landing-bg));
+  box-shadow: 0 0 0 1px var(--tn-line, var(--landing-border)), 0 1.5px 0 rgb(60 45 20 / 10%);
+  transition: transform 120ms ease-out, box-shadow 120ms ease-out, background-color 120ms ease-out;
+}
+.installer > svg { flex: none; color: var(--tn-blue, var(--landing-accent)); }
+.unavailable { background: transparent; box-shadow: 0 0 0 1px var(--tn-line, var(--landing-border)); }
+.store { border-radius: 16px 12px 15px 13px / 13px 15px 12px 16px; rotate: -0.6deg; }
+.store:nth-child(2) { rotate: 0.6deg; }
+
+/* The desktop scene sits in a paper frame with the dialog radius */
+.desktopMedia { border: 0; border-radius: 18px; box-shadow: 0 0 0 1px var(--tn-line, var(--landing-border)), 0 24px 48px -30px rgb(60 45 20 / 35%); }
+
+/* Halftone screentone on the alternating bands */
+.desktop, .browser {
+  background-color: var(--landing-section-bg);
+  background-image: radial-gradient(circle, color-mix(in oklab, var(--landing-text) 9%, transparent) 1px, transparent 1.3px);
+  background-size: 8px 8px;
+}
+
+/* Dark: neon-on-black like the app */
+:global(.dark) .store, [data-tn-mode="dark"] .store {
+  background: #111113;
+  box-shadow: 0 0 0 1px rgb(140 160 200 / 18%);
+}
+:global(.dark) .platform summary::after, [data-tn-mode="dark"] .platform summary::after {
+  background: linear-gradient(#1c1c1f, #111113);
+  box-shadow: inset 0 0 8px rgb(110 135 255 / 22%), 0 1.5px 0 rgb(110 135 255 / 35%);
+}
+:global(.dark) .desktop, :global(.dark) .browser, [data-tn-mode="dark"] .desktop, [data-tn-mode="dark"] .browser {
+  background-image: radial-gradient(circle, rgb(140 160 200 / 10%) 1px, transparent 1.3px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .platform summary::after { transition: none; }
+}

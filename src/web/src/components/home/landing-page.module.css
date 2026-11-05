@@ -5,6 +5,8 @@
 
 .page:global(.landing) {
   --landing-content-max: 1320px;
+  --landing-section-space: clamp(128px, 12vw, 192px);
+  --landing-section-fade: var(--landing-section-space);
   --landing-page-gutter: clamp(24px, 5vw, 72px);
   --landing-bg: #f4f9e9;
   --landing-bg-translucent: rgb(244 249 233 / 90%);
@@ -37,25 +39,72 @@
   font-size: 72px !important;
 }
 
-.landingHeroEmphasis {
-  color: var(--landing-accent);
+.landingHeroLead {
+  color: var(--landing-text);
+}
+
+.landingHeroAccent {
+  font-size: 1.16em;
 }
 
 .landingHeroTail {
   color: var(--landing-text);
+  /* "for" never sits alone: the tail breaks as one unit. */
+  white-space: nowrap;
 }
 
 .landingHeroTypewriter {
-  transform: translateY(-7%);
+  transform: none;
 }
 
 @media (min-width: 1024px) {
+  /* The intro column stops at 592px, so the size stops where
+   * "for Team and Friends" still fits one line (QA #10). */
   .landingHeroHeadline {
-    font-size: clamp(36px, 5vw, 72px) !important;
+    font-size: clamp(36px, 5vw, 64px) !important;
   }
 
   .landingHeroTypewriter {
     transform: none;
+  }
+
+  /* The first screen is one composition: copy and typewriter are centred
+   * together in the viewport under the brand row (Gus #2398). */
+  .page :global(.hero-section-split .hero-content) {
+    height: 100%;
+    max-height: none;
+    padding-block: 24px 40px;
+  }
+
+  .page :global(.hero-section-split .hero-brand) {
+    margin-bottom: 0;
+  }
+
+  .page :global(.hero-section-split .typewriter-wrapper) {
+    flex: 1 1 auto;
+    min-height: 0;
+    justify-content: center;
+  }
+
+  .page :global(.hero-section-split .hero-scalable) {
+    flex: 0 1 auto;
+    align-content: center;
+    grid-template-rows: auto auto;
+    row-gap: 32px;
+  }
+
+  .page :global(.hero-section-split .hero-intro) {
+    align-self: end;
+  }
+
+  .page :global(.hero-section-split .hero-ctas) {
+    grid-row: 2;
+    margin-top: 0;
+  }
+
+  .page :global(.hero-section-split .hero-artwork) {
+    grid-row: 1 / 3;
+    height: min(clamp(320px, 42vw, 560px), calc(100svh - 180px));
   }
 }
 
@@ -298,7 +347,7 @@
 .reachSection,
 .faqSection,
 .closingSection {
-  padding: clamp(96px, 12vw, 168px) var(--landing-page-gutter);
+  padding: var(--landing-section-space) var(--landing-page-gutter);
 }
 
 .closingSection {
@@ -952,7 +1001,9 @@
 }
 
 .faqSection {
-  background: var(--landing-bg);
+  background:
+    radial-gradient(ellipse 100% 100% at 50% 100%, var(--landing-section-bg) 0%, var(--landing-section-bg) 46%, color-mix(in oklab, var(--landing-section-bg) 99.1%, transparent) 51.4%, color-mix(in oklab, var(--landing-section-bg) 94.2%, transparent) 56.8%, color-mix(in oklab, var(--landing-section-bg) 83.7%, transparent) 62.2%, color-mix(in oklab, var(--landing-section-bg) 68.3%, transparent) 67.6%, color-mix(in oklab, var(--landing-section-bg) 50.0%, transparent) 73.0%, color-mix(in oklab, var(--landing-section-bg) 31.7%, transparent) 78.4%, color-mix(in oklab, var(--landing-section-bg) 16.3%, transparent) 83.8%, color-mix(in oklab, var(--landing-section-bg) 5.8%, transparent) 89.2%, color-mix(in oklab, var(--landing-section-bg) 0.9%, transparent) 94.6%, transparent 100.0%) bottom / 100% var(--landing-section-fade, 128px) no-repeat,
+    var(--landing-bg);
   scroll-margin-top: 72px;
 }
 
@@ -988,12 +1039,20 @@
   line-height: 1.7;
 }
 
+/* The questions sit in one shared machine-case Card; rows are split by hairlines inside it. */
 .faqList {
+  gap: 0;
+  padding: 0 24px;
+}
+
+.faqItem + .faqItem {
   border-top: 1px solid var(--landing-border);
 }
 
-.faqItem {
-  border-bottom: 1px solid var(--landing-border);
+/* The theme resets landing <p> to the sans; the kicker is a label, so it keeps the mono face. */
+.faqKicker {
+  font-family: var(--font-mono) !important;
+  font-size: 0.85rem;
 }
 
 .faqItem summary {
@@ -1221,6 +1280,10 @@
   background: var(--landing-section-bg);
 }
 
+main.page > .footer {
+  padding-top: 64px;
+}
+
 .footerLayout {
   display: grid;
   gap: 12px;
@@ -1240,11 +1303,17 @@
 }
 
 .footerSlogan {
-  color: var(--landing-text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  letter-spacing: 0.08em;
+  /* Bold sans that scales with its space; links stay light (Gus #2411, #2413). */
+  color: var(--landing-text);
+  font-family: var(--font-sans);
+  font-size: clamp(0.8rem, 0.5rem + 0.8vw, 1.25rem);
+  font-weight: 800;
+  letter-spacing: -0.015em;
   text-align: center;
+}
+
+.footerSlogan [data-slot="hand-accent"] {
+  font-size: 1.32em;
 }
 
 .footerNavigation {
@@ -1255,13 +1324,22 @@
   align-items: center;
   justify-content: center;
   justify-self: center;
-  gap: 24px;
+  /* Wrapped rows stay one tight group (Gus #2421). */
+  gap: 0 20px;
 }
 
 .footerNavigation a {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
+  color: var(--landing-text-muted) !important;
+  font-family: var(--font-sans) !important;
+  font-size: 15px;
+  font-weight: 400 !important;
+}
+
+.footerNavigation a:hover {
+  color: var(--landing-text);
 }
 
 .footerSocialGroup {
@@ -1389,6 +1467,11 @@
 }
 
 @media (max-width: 639px) {
+  .page:global(.landing) {
+    --landing-section-space: 96px;
+
+  }
+
   .identityProfileCardSensor {
     display: none;
   }
@@ -1495,7 +1578,7 @@
   .reachSection,
   .faqSection,
   .closingSection {
-    padding: 88px 24px;
+    padding: var(--landing-section-space) 24px;
   }
 
   .faqLayout {
@@ -1756,4 +1839,350 @@
 
 .paperBody > p + p {
   margin-top: 0.75em;
+}
+
+/* FAQ in the brand-visual style (Gus #2354): hairline rows, and the marker is
+ * a round keycap whose plus turns into a cross when the answer opens. */
+.faqMarker {
+  width: 32px;
+  height: 32px;
+  justify-self: end;
+  border: 1px solid var(--tn-line, var(--landing-border));
+  border-radius: 50%;
+  background: linear-gradient(#fffdf8, #f1ebdf);
+  color: var(--landing-text);
+  font-family: var(--font-sans);
+  font-size: 1.05rem;
+  line-height: 1;
+  box-shadow: inset 0 1px 0 #fff, 0 2px 0 rgb(60 45 20 / 18%);
+  transition: transform 160ms ease-out, box-shadow 90ms ease-out, translate 90ms ease-out;
+}
+
+.faqItem[open] .faqMarker::before {
+  content: "+";
+}
+
+.faqItem[open] .faqMarker {
+  transform: rotate(45deg);
+}
+
+.faqItem summary:hover .faqMarker {
+  translate: 0 -1px;
+}
+
+.faqItem summary:active .faqMarker {
+  translate: 0 2px;
+  box-shadow: inset 0 1px 2px rgb(60 45 20 / 22%);
+}
+
+:global(.dark) .faqMarker,
+[data-tn-mode="dark"] .faqMarker {
+  background: linear-gradient(#1c1c1f, #111113);
+  box-shadow: inset 0 0 8px rgb(110 135 255 / 18%), 0 2px 0 rgb(110 135 255 / 30%);
+}
+
+/* Closing CTA: the brand-visual closing card (Gus #2354) — a halftone tray of
+ * cut paper on the section ground, title with its hand accent. */
+/* Closing CTA (Gus #2412): the card is paper grid + the call to action,
+ * centred. The retro objects are cut-paper pieces stuck over its edges. */
+.closingCta {
+  position: relative;
+  overflow: visible;
+  min-height: 480px;
+  border: 1px solid var(--tn-line, var(--landing-border));
+  border-radius: 28px;
+  background-color: var(--tn-paper, var(--landing-bg));
+  background-image:
+    linear-gradient(var(--tn-grid, #bcd6e6) 1px, transparent 1px),
+    linear-gradient(90deg, var(--tn-grid, #bcd6e6) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: center;
+  box-shadow: 0 24px 48px -32px rgb(60 45 20 / 35%);
+}
+
+.closingCta::before {
+  display: none;
+}
+
+:global(.dark) .closingCta,
+[data-tn-mode="dark"] .closingCta {
+  background-color: #050505;
+  background-image:
+    linear-gradient(#141414 1px, transparent 1px),
+    linear-gradient(90deg, #141414 1px, transparent 1px);
+}
+
+.closingCopy {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.closingCopy > p:not(.kicker) {
+  max-width: 620px;
+  margin-top: 24px;
+  color: var(--landing-text-muted);
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+/* The cut-paper pieces sit on top of everything on the page (Gus #2442):
+ * above the card copy, the avatars and the neighbouring sections. */
+.closingCollage {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.closingSection {
+  position: relative;
+  z-index: 5;
+}
+
+.collagePiece {
+  position: absolute;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  translate: var(--drag-x) var(--drag-y);
+  transition: scale 160ms ease-out, filter 160ms ease-out;
+}
+
+.collagePiece:hover {
+  scale: 1.03;
+}
+
+/* Held: the paper lifts off the desk with a deeper shadow and a small tilt. */
+.collagePiece[data-dragging="true"] {
+  z-index: 3;
+  cursor: grabbing;
+  scale: 1.08;
+  filter: drop-shadow(0 18px 18px rgb(60 45 20 / 25%));
+}
+
+.collagePiece[data-dragging="true"] .collageItem {
+  animation-play-state: paused;
+}
+
+.collageItem {
+  position: relative;
+  display: block;
+  width: 100%;
+  /* Each piece's own bob timing (set on the piece) carries to its drawing. */
+  animation-delay: inherit !important;
+  animation-duration: inherit !important;
+  /* Cut paper: a white trim and a soft lift off the grid. */
+  filter: drop-shadow(0 0 0 #fffdf8) drop-shadow(2px 0 0 #fffdf8) drop-shadow(-2px 0 0 #fffdf8) drop-shadow(0 2px 0 #fffdf8) drop-shadow(0 -2px 0 #fffdf8) drop-shadow(0 10px 12px rgb(60 45 20 / 22%));
+  animation: collageBob 6s ease-in-out infinite;
+}
+
+.collageMac { left: -3%; bottom: -10%; width: clamp(130px, 17vw, 220px); rotate: -6deg; }
+.collageCd { right: 4%; bottom: -12%; width: clamp(110px, 13vw, 170px); rotate: 9deg; animation-delay: -1.8s; animation-duration: 7s; }
+.collageCassette { right: -3%; top: -9%; width: clamp(110px, 13vw, 160px); rotate: 8deg; animation-delay: -3.1s; animation-duration: 6.5s; }
+.collagePhone { left: 6%; top: -12%; width: clamp(40px, 5vw, 64px); rotate: -12deg; animation-delay: -4.4s; animation-duration: 5.5s; }
+
+@keyframes collageBob {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -5px; }
+}
+
+:global(.dark) .collageItem,
+[data-tn-mode="dark"] .collageItem {
+  filter: drop-shadow(0 10px 14px rgb(0 0 0 / 60%)) drop-shadow(0 0 10px rgb(110 135 255 / 18%));
+}
+
+@media (max-width: 639px) {
+  .closingCta { min-height: 520px; }
+  .collageMac { left: -6%; bottom: -6%; width: 120px; }
+  .collageCd { right: -2%; bottom: -8%; width: 100px; }
+  .collageCassette { right: -4%; top: -6%; width: 96px; }
+  .collagePhone { left: 2%; top: -8%; width: 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collageItem { animation: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .faqMarker { transition: none; }
+}
+
+/* Footer signature: a mono maker's plate and the wordmark, cropped by the page
+ * bottom like lettering moulded into a case. */
+.footer {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.footerSignature {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  margin-top: clamp(24px, 4vw, 48px);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* The maker's plate is the shared Badge (Gus #2438); only its type is set here. */
+.footerPlate {
+  /* The signature row ignores the pointer (the wordmark is decoration); the
+   * plate itself must still answer hover and press. */
+  pointer-events: auto;
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  cursor: default;
+  transition: translate 90ms ease-out, box-shadow 90ms ease-out;
+}
+
+/* No action, but it still answers like paper: lifts on hover, presses flat. */
+.footerPlate:hover {
+  translate: 0 -1px;
+}
+
+.footerPlate:active {
+  translate: 0 1px;
+  box-shadow: inset 0 1px 2px rgb(60 45 20 / 18%) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .footerPlate { transition: none; }
+}
+
+.footerWordmark {
+  display: block;
+  translate: -0.055em 0;
+  margin-top: 8px;
+  /* About two thirds shows above the page bottom (Gus #2420). */
+  margin-bottom: -0.24em;
+  /* Caveat's k overhangs its advance; padding lets the clipped fill cover it. */
+  padding-inline: 0.12em;
+  color: transparent;
+  font-family: var(--font-brand), cursive;
+  font-size: clamp(7rem, 26vw, 22rem);
+  font-weight: 700;
+  line-height: 0.9;
+  /* Embossed: a faint fill with a lit top edge and a shadowed lower edge. */
+  background: linear-gradient(180deg, color-mix(in oklab, var(--tn-blue, var(--landing-accent)) 30%, transparent), color-mix(in oklab, var(--landing-text) 8%, transparent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 1px 0 rgb(255 255 255 / 55%), 0 -1px 0 rgb(60 45 20 / 10%);
+}
+
+:global(.dark) .footerWordmark,
+[data-tn-mode="dark"] .footerWordmark {
+  background: linear-gradient(180deg, rgb(196 207 255 / 20%), rgb(196 207 255 / 6%));
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 0 24px rgb(110 135 255 / 18%);
+}
+
+@media (max-width: 639px) {
+  .footerNavigation a {
+    min-height: 40px;
+    font-size: 14px;
+  }
+
+  /* On phones the slogan leads the footer; it is not the smallest text. */
+  .footerSlogan {
+    font-size: 15px;
+  }
+}
+
+/* Below the split layout the intro used to float over the typewriter, so a
+ * long subline ran into the machine (Gus #2422). Stack them: the intro takes
+ * its own height and the typewriter fills the rest of the first screen. */
+@media (max-width: 1023px) {
+  .page :global(.hero-stage) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .page :global(.hero-intro) {
+    position: relative !important;
+    inset: auto !important;
+    flex: 0 0 auto;
+  }
+
+  .page :global(.hero-artwork) {
+    position: relative !important;
+    inset: auto !important;
+    flex: 1 1 auto;
+    min-height: 220px;
+  }
+}
+
+@media (max-width: 639px) {
+  .page :global(.hero-section[data-testid="landing-hero"] .typewriter-visual) {
+    top: auto !important;
+    bottom: 0 !important;
+    height: auto;
+  }
+
+  .page :global(.hero-section[data-testid="landing-hero"] .typewriter-scene) {
+    transform-origin: center bottom;
+  }
+
+  .page :global(.hero-section[data-testid="landing-hero"] .hero-ctas) {
+    margin-top: 24px;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .landingHeroHeadline {
+    font-size: clamp(40px, 6.6vw, 60px) !important;
+  }
+}
+
+/* Closing kicker: readable size and ink, as a small label-maker tag (QA #42). */
+.closingCopy > .kicker {
+  display: inline-flex;
+  padding: 4px 12px;
+  border: 1px solid var(--tn-line, var(--landing-border));
+  border-radius: 999px;
+  background: var(--tn-paper-raised, var(--landing-bg));
+  color: var(--landing-text);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+}
+
+/* ── Hero on grid paper (Gus #2709, #2727): the landing grid runs through the hero; ink copy, no sky. ── */
+.page :global(.hero-section[data-testid="landing-hero"]) {
+  height: 100svh;
+  min-height: 100svh;
+  background-color: transparent !important;
+}
+
+/* The flurry rises from the artwork's paper slot. */
+.page :global(.hero-section[data-testid="landing-hero"] .hero-artwork) {
+  overflow: visible;
+}
+
+/* The hero grid melts into the testimonials ground below (Gus #2511): a long, soft
+ * fade into that section's own background, light and dark. Section fades use
+ * concave radial arcs with a smootherstep falloff, not straight linear bands (Gus DM #134). */
+.page :global(.hero-section[data-testid="landing-hero"])::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 1;
+  height: 96px;
+  /* concave arc: the ground below rises in from the bottom edge, centre first, with a smootherstep falloff */
+  background: radial-gradient(ellipse 100% 100% at 50% 100%, var(--landing-section-bg, var(--landing-surface)) 0%, var(--landing-section-bg, var(--landing-surface)) 46%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 99.1%, transparent) 51.4%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 94.2%, transparent) 56.8%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 83.7%, transparent) 62.2%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 68.3%, transparent) 67.6%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 50.0%, transparent) 73.0%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 31.7%, transparent) 78.4%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 16.3%, transparent) 83.8%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 5.8%, transparent) 89.2%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 0.9%, transparent) 94.6%, transparent 100.0%);
+  pointer-events: none;
+}
+
+/* Hero theme switch: top-right of the first screen, on the page gutter. */
+.page:global(.landing) {
+  position: relative;
+}
+
+.heroThemeToggle {
+  position: absolute;
+  z-index: 30;
+  /* Top-right of the first screen (Gus #2745), level with the hero brand. */
+  top: 30px;
+  right: var(--landing-page-gutter);
 }

@@ -1,6 +1,8 @@
 .section {
-  padding-block: clamp(72px, 9vw, 128px);
-  background: var(--landing-section-bg, var(--landing-surface));
+  padding-block: var(--landing-section-space, clamp(72px, 9vw, 128px));
+  background:
+    radial-gradient(ellipse 100% 100% at 50% 100%, var(--landing-bg) 0%, var(--landing-bg) 46%, color-mix(in oklab, var(--landing-bg) 99.1%, transparent) 51.4%, color-mix(in oklab, var(--landing-bg) 94.2%, transparent) 56.8%, color-mix(in oklab, var(--landing-bg) 83.7%, transparent) 62.2%, color-mix(in oklab, var(--landing-bg) 68.3%, transparent) 67.6%, color-mix(in oklab, var(--landing-bg) 50.0%, transparent) 73.0%, color-mix(in oklab, var(--landing-bg) 31.7%, transparent) 78.4%, color-mix(in oklab, var(--landing-bg) 16.3%, transparent) 83.8%, color-mix(in oklab, var(--landing-bg) 5.8%, transparent) 89.2%, color-mix(in oklab, var(--landing-bg) 0.9%, transparent) 94.6%, transparent 100.0%) bottom / 100% var(--landing-section-fade, 128px) no-repeat,
+    var(--landing-section-bg, var(--landing-surface));
   color: var(--landing-text);
   scroll-margin-top: 72px;
 }
@@ -31,56 +33,60 @@
   line-height: 1.6;
 }
 
+/* Posts and grain travel together as one wall; there is no movement between the rows. */
 .wall {
-  display: grid;
+  container-type: inline-size;
+  width: 100%;
+  max-width: none;
+  margin-inline: auto;
   min-width: 0;
-  gap: 32px;
-  overflow: hidden;
+  border-radius: 0;
+  overflow: clip;
   contain: paint;
 }
 
-.lane {
-  overflow-x: hidden;
-}
-
-.track {
-  display: flex;
+.wallSurface {
+  display: grid;
   width: max-content;
-  animation: drift 100s linear infinite;
-}
-
-.lane:nth-child(2) .track {
-  animation-direction: reverse;
-  animation-duration: 110s;
+  min-width: 100%;
+  gap: 20px;
+  padding-block: 36px;
+  border-radius: 0;
+  animation: wallPan 180s linear infinite alternate;
 }
 
 .messages {
   display: flex;
+  align-items: flex-start;
+  width: max-content;
   gap: 40px;
   margin: 0;
-  padding: 8px 40px 8px 8px;
+  padding: 34px 40px;
   list-style: none;
 }
+
+.messages:nth-child(2) { padding-left: 200px; }
 
 .messages > li {
   width: 360px;
   flex-shrink: 0;
+  /* Hand-placed: each sticker sits a few pixels higher or lower (from the author's name). */
+  margin-top: var(--sticker-jitter, 0px);
 }
 
+/* The link is only the hit area; the PaperSticker carries the look and the hover/press response. */
 .message {
-  display: flex;
-  gap: 8px;
-  min-height: 44px;
-  margin: -8px;
-  padding: 8px;
-  border-radius: 4px;
-  color: var(--landing-text);
+  display: block;
+  height: 100%;
+  border-radius: 19px;
+  color: inherit;
   text-decoration: none;
 }
 
-.message:hover,
-.message:focus-visible {
-  background: var(--landing-surface);
+.sticker {
+  display: block;
+  height: auto;
+  padding: 30px 22px 24px;
 }
 
 .message:focus-visible {
@@ -117,58 +123,67 @@
 
 .sourceIcon {
   flex-shrink: 0;
-  color: var(--landing-text-muted);
+  color: rgb(42 35 27 / 55%);
 }
 
 .handle {
-  color: var(--landing-text-muted);
+  color: rgb(42 35 27 / 62%);
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
 .body blockquote {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-  margin-top: 8px;
-  font-size: 15px;
-  line-height: 1.375;
+  display: block;
+  overflow: visible;
+  margin-top: 22px;
+  font-size: 17px;
+  line-height: 1.42;
   overflow-wrap: anywhere;
   white-space: pre-line;
 }
 
-@keyframes drift {
-  to { transform: translateX(-50%); }
+@keyframes wallPan {
+  to { transform: translateX(min(0px, calc(100cqw - 100%))); }
 }
 
-.wall:hover .track,
-.wall:active .track {
+.wall:hover .wallSurface,
+.wall:active .wallSurface {
   animation-play-state: paused;
 }
 
-.wall:has(:focus-visible) .track {
+.wall:has(:focus-visible) .wallSurface {
   animation: none;
 }
 
-.wall:has(:focus-visible) .lane {
-  overflow-x: auto;
+.wall:has(:focus-visible) { overflow-x: auto; }
+
+/* The portrait, author and full quote share the contour in the wall and the design specimen. */
+.sticker > [data-slot="avatar"] {
+  position: absolute;
+  top: 44px;
+  left: calc(4.2% + 2px);
+  width: calc(16% - 4px);
+  height: auto;
+  aspect-ratio: 1;
+  transform: translateY(-50%);
 }
 
-.wall:has(:focus-visible) .duplicate {
-  display: none;
-}
+.sticker .author,
+.sticker .handle { margin-left: 64px; }
 
 @media (max-width: 639px) {
   .intro { margin-bottom: 32px; }
-  .wall { gap: 24px; }
-  .messages { gap: 24px; padding-right: 24px; }
-  .messages > li { width: min(360px, calc(100vw - 48px)); }
+  .messages { gap: 24px; padding-inline: 32px; }
+  .messages:nth-child(2) { padding-left: 176px; }
+  .messages > li { width: min(360px, calc(100vw - 80px)); }
+  .sticker { padding-inline: 20px; }
+  .sticker .author,
+  .sticker .handle { margin-left: 54px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .track { animation: none; }
-  .lane { overflow-x: auto; }
-  .duplicate { display: none; }
+  .wallSurface { animation: none; }
+  .wall { overflow-x: auto; }
 }

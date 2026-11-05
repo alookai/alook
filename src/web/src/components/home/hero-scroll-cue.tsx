@@ -2,6 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef } from "react";
+import { landingScrollTop } from "./use-landing-scroll-snap";
 import styles from "./hero-scroll-cue.module.css";
 
 export function HeroScrollCue({ targetId }: { targetId: string }) {
@@ -35,11 +36,10 @@ export function HeroScrollCue({ targetId }: { targetId: string }) {
         const target = document.getElementById(targetId);
         if (!target) return;
         event.preventDefault();
-        target.scrollIntoView({
-          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
-          block: "start",
-        });
+        // Focus first: Safari cancels a smooth scroll when focus() runs right after it, even with preventScroll.
         target.focus({ preventScroll: true });
+        const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth";
+        window.scrollTo({ top: landingScrollTop(target), behavior });
       }}
     >
       <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ animationPlayState: active ? "running" : "paused" }}>

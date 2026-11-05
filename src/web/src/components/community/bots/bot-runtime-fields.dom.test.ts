@@ -1,14 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 import React from "react"
-import { fireEvent, render, screen } from "@/test/react-dom-harness"
+import { fireEvent, render, screen, act, waitFor } from "@/test/react-dom-harness"
 
 vi.mock("@/components/provider-logo", () => ({
   ProviderLogo: () => React.createElement("span", { "data-mock": "provider-logo" }),
-}))
-
-vi.mock("@/components/ui/label", () => ({
-  Label: ({ children }: { children?: React.ReactNode }) =>
-    React.createElement("label", null, children),
 }))
 
 vi.mock("@/lib/utils", () => ({
@@ -90,7 +85,7 @@ describe("BotRuntimeFields", () => {
     expect(onRuntimeChange).toHaveBeenCalledWith("agy")
     expect(onModelChange).toHaveBeenCalledWith(null)
     expect(onReasoningEffortChange).toHaveBeenCalledWith(null)
-    expect(renderer.getByRole("radio", { name: "antigravity", exact: true })).toHaveAttribute("value", "antigravity")
+    expect(radio(renderer, "antigravity")).toHaveAttribute("value", "antigravity")
   })
 
   it("exposes optional motion targets without changing the form contract", () => {
@@ -105,6 +100,18 @@ describe("BotRuntimeFields", () => {
       renderer.container.querySelector('[data-motion-target="model"]'),
     ).toBeInTheDocument()
     expect(radio(renderer, "codex")).toHaveAttribute("name", "edit-bot-runtime")
+  })
+
+  it("supports keyboard selection and skips unavailable runtimes", async () => {
+    const { renderer, onRuntimeChange, onModelChange, onReasoningEffortChange } = renderFields()
+    const selected = renderer.getByRole("radio", { name: /claude/ })
+    act(() => selected.focus())
+    fireEvent.keyDown(selected, { key: "ArrowDown" })
+    await waitFor(() => expect(renderer.getByRole("radio", { name: "codex" })).toHaveFocus())
+    expect(renderer.getByRole("radio", { name: "codex" })).toHaveFocus()
+    expect(onRuntimeChange).toHaveBeenCalledWith("codex")
+    expect(onModelChange).toHaveBeenCalledWith(null)
+    expect(onReasoningEffortChange).toHaveBeenCalledWith(null)
   })
 
   it("forwards only the selected daemon version to reasoning effort", () => {

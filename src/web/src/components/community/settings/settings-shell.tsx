@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { tid } from "@/lib/community/testids"
-import { cn } from "@/lib/utils"
 import {
   SETTINGS_NAV_CLASS,
   SETTINGS_NAV_FOOTER_CLASS,
@@ -21,13 +20,15 @@ export type SettingsShellTab<Value extends string> = {
   value: Value
   label: string
   icon: LucideIcon
-  hideIconOnDesktop?: boolean
 }
 
 export function SettingsShellPanel(
   props: Omit<ComponentProps<typeof TabsContent>, "keepMounted">,
 ) {
-  return <TabsContent {...props} keepMounted />
+  const { children, ...rest } = props
+  // One content column for every settings tab, so the left edge and width
+  // never move when you switch tabs (QA #20).
+  return <TabsContent {...rest} keepMounted><div data-slot="settings-panel-column" className="mx-auto h-full w-full max-w-xl">{children}</div></TabsContent>
 }
 
 export function SettingsShell<Value extends string>({
@@ -35,6 +36,7 @@ export function SettingsShell<Value extends string>({
   onValueChange,
   label,
   title,
+  titleId,
   tabs,
   onClose,
   navFooter,
@@ -44,6 +46,7 @@ export function SettingsShell<Value extends string>({
   value: Value
   onValueChange: (value: Value) => void
   label: string
+  titleId?: string
   title: ReactNode
   tabs: SettingsShellTab<Value>[]
   onClose: () => void
@@ -62,7 +65,8 @@ export function SettingsShell<Value extends string>({
       data-testid={tid.settingsShell}
     >
       <header className="col-start-1 row-start-1 flex h-16 min-w-0 items-center px-4 sm:col-start-2 sm:px-8">
-        <h1 className="min-w-0 flex-1 truncate text-lg font-medium tracking-tight">{title}</h1>
+        {/* The title sits on the same column edge as the panel content (QA #20). */}
+        <div className="min-w-0 flex-1"><h1 id={titleId} className="mx-auto w-full max-w-xl truncate text-lg font-medium tracking-tight">{title}</h1></div>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -83,7 +87,7 @@ export function SettingsShell<Value extends string>({
       >
         <div className={SETTINGS_NAV_LABEL_CLASS} data-testid={tid.settingsLabel}>{label}</div>
         <TabsList variant="line" className={SETTINGS_TABS_LIST_CLASS}>
-          {tabs.map(({ value: tabValue, label: tabLabel, icon: Icon, hideIconOnDesktop }) => (
+          {tabs.map(({ value: tabValue, label: tabLabel, icon: Icon }) => (
             <TabsTrigger
               key={tabValue}
               value={tabValue}
@@ -91,7 +95,7 @@ export function SettingsShell<Value extends string>({
               className={SETTINGS_TAB_CLASS}
               data-testid={tid.settingsTab(tabValue)}
             >
-              <Icon className={cn("size-4", hideIconOnDesktop && "sm:invisible")} />
+              <Icon className="size-4" />
               <span className="sr-only whitespace-nowrap sm:not-sr-only">{tabLabel}</span>
             </TabsTrigger>
           ))}

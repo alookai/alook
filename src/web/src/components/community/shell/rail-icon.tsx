@@ -20,6 +20,7 @@ export function RailIcon({ label, round, accent, active, onClick, tooltip, testI
       <RailIndicator active={active} />
       <button
         data-testid={testId}
+        aria-label={tooltip}
         onClick={onClick}
         className={[
           "grid size-10 shrink-0 place-items-center transition-all duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",

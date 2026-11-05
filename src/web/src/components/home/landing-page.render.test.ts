@@ -8,7 +8,6 @@ vi.mock("./landing-page.module.css", () => ({
   default: new Proxy({}, { get: (_target, key) => String(key) }),
 }))
 vi.mock("./hero-section", () => ({ HeroSection: () => null }))
-vi.mock("./hero-avatar-swarm", () => ({ HeroAvatarSwarm: () => null }))
 vi.mock("./homepage-faq", () => ({ HomepageFaq: () => null }))
 vi.mock("./landing-reach-motion", () => ({ LandingReachMotion: () => null }))
 vi.mock("./marketing-nav", () => ({ MarketingNav: () => null }))
@@ -50,22 +49,29 @@ describe("landing identity profile preview", () => {
     expect(footer).toContain('href="https://github.com/alookai/alook"')
     expect(footer).toContain('href="https://discord.com/invite/24PHyEHU3M"')
     expect(footer).toContain('href="https://x.com/alook_ai"')
-    expect(footer).toContain("Multi-Agent Collaboration for Team and Friends")
+    expect(footer.replace(/<[^>]+>/g, "")).toContain("Multi-Agent Collaboration for Team and Friends")
   })
 })
 
 const LANDING_PROFILE_ABOUT =
   "I keep the same account, identity, and relationships across every room."
 
-describe("landing section calls to action", () => {
-  it.each([false, true])("routes the selected feature CTA for signed-in=%s", (isLoggedIn) => {
+describe("landing feature navigation", () => {
+  it.each([false, true])("renders feature labels and the correct CTA route for signed-in=%s", (isLoggedIn) => {
     const markup = renderToStaticMarkup(createElement(LandingPage, { isLoggedIn }))
+    expect(markup).toContain("landing-section-cta-product")
+    // Visible title text, with the hand-accent span stripped.
+    expect(markup.replace(/<[^>]+>/g, "")).toContain("Chat with shared agents")
+    for (const label of ["Collaboration", "Agent identity", "Persistent Memory", "Remote control", "Free and local"]) {
+      expect(markup).toContain(label)
+    }
     const links = [...markup.matchAll(/<a\b[^>]*data-testid="landing-section-cta-([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)]
     expect(links.map((match) => match[1])).toEqual(["product"])
     for (const link of links) {
       expect(link[0]).toContain(`href="${isLoggedIn ? "/c/me" : "/sign-in"}"`)
-      expect(link[2].trim().split(/\s+/).length).toBeLessThanOrEqual(3)
+      expect(link[2].replace(/<[^>]+>/g, " ").trim().split(/\s+/).length).toBeLessThanOrEqual(3)
     }
+    expect(markup).toContain(`href="${isLoggedIn ? "/c/me" : "/sign-in"}"`)
   })
 })
 

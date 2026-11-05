@@ -12,8 +12,11 @@
 .visual { width: 28px; height: 28px; }
 .name { height: 44px; }
 
-.squareButton { isolation: isolate; }
-
+/* The shared Button owns interaction; the compact face stays separate from its 44px touch target. */
+.squareButton {
+  isolation: isolate;
+  background: transparent !important;
+}
 .squareButton::before {
   position: absolute;
   z-index: -1;
@@ -25,11 +28,8 @@
   pointer-events: none;
   content: "";
 }
-
 .update::before { background: var(--secondary); }
-
-.update:hover::before,
-.hoverBackground:hover::before,
+.squareButton:hover::before,
 .inbox[aria-expanded="true"]::before { background: var(--accent); }
 
 @media (min-width: 640px) {

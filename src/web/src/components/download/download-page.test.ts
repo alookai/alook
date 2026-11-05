@@ -58,14 +58,17 @@ describe("complete server-rendered download page", () => {
     expect(html).toContain('href="/c/me"')
   })
 
-  it.each(["/contact", "/download"])("shares the Contact-style public header and real navigation: %s", currentPath => {
+  // Subpages now share the home page's bar (QA #14): no separate "Back to home"
+  // link; the logo goes home and Get started leads to sign-in.
+  it.each(["/contact", "/download"])("shares the home page's marketing bar and real navigation: %s", currentPath => {
     const html = renderToStaticMarkup(createElement(PublicSiteHeader, { currentPath }))
     expect(html).toContain('aria-label="Alook home"')
     expect(html).toContain('aria-label="Site navigation"')
     expect(html).toContain('href="/download"')
     expect(html).toContain('href="/contact"')
     expect(html).toContain('aria-current="page"')
-    expect(html).toContain("Back to home")
+    expect(html).toContain('class="marketing-nav')
+    expect(html).toContain('href="/sign-in"')
   })
 })
 

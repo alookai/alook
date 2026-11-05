@@ -1,3 +1,6 @@
+import { cn } from "@/lib/utils";
+import { buttonVariants } from "@/components/ui/button";
+import technostalgia from "@/components/brand/technostalgia.module.css";
 import { requiresExplicitModel } from "@alook/shared";
 import Image from "next/image";
 import { ProviderLogo } from "@/components/provider-logo";
@@ -107,8 +110,8 @@ export default async function StepGuidePage({ params }: { params: Promise<{ slug
           <p>For example: “Agree on roles, then wait for my task.”</p>
           <MessageDemo />
         </section>
-        <section className={styles.close} aria-label="Continue in Alook">
-          <div className={styles.actions}><ZoneLink href="/c" zone="blog" className={styles.cta}>Open Alook<ArrowRight size={16} /></ZoneLink><ZoneLink href="/tutorials" zone="blog">Back to Tutorials</ZoneLink></div>
+        <section className={`${technostalgia.theme} ${styles.close}`} aria-label="Continue in Alook">
+          <div className={styles.actions}><ZoneLink href="/c" zone="blog" data-variant="default" data-size="lg" className={cn(buttonVariants({ size: "lg" }), "h-11 gap-4 px-6")}>Open Alook<ArrowRight size={16} /></ZoneLink><ZoneLink href="/tutorials" zone="blog">Back to Tutorials</ZoneLink></div>
         </section>
       </article>
       <nav className={styles.contents} aria-label="On this page"><p>On this page</p><Contents steps={steps} /></nav>

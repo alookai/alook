@@ -7,6 +7,7 @@ import { PublicSiteHeader } from "@/components/home/public-site-header"
 import { LandingFooter } from "@/components/home/landing-footer"
 import landing from "@/components/home/landing-page.module.css"
 import styles from "./contact.module.css"
+import { HandAccent } from "@/components/brand/hand-accent"
 
 export const metadata = buildPublicPageMetadata({
   title: "Contact — Alook",
@@ -26,7 +27,8 @@ export default function ContactPage() {
       <PublicSiteHeader currentPath="/contact" />
       <main className={styles.main}>
         <section className={`${landing.closingCta} ${styles.sheet}`} aria-labelledby="contact-heading">
-          <h1 id="contact-heading">Let’s talk.</h1>
+          <p className={styles.kicker}>Contact</p>
+          <h1 id="contact-heading">Let’s <HandAccent>talk.</HandAccent></h1>
           <div className={styles.groups}>
             <section aria-labelledby="gus-heading">
               <div className={styles.identity}>

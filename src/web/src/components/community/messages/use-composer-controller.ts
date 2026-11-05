@@ -143,6 +143,7 @@ export function useComposerController(
     editorProps: {
       attributes: {
         class: "outline-none",
+        "aria-label": resolvedPlaceholder,
         enterkeyhint:
           isForumThreadBody || !hoverCapable ? "enter" : "send",
       },
@@ -238,6 +239,9 @@ export function useComposerController(
     return () => { if (editorRef.current === editor) editorRef.current = null }
   }, [editor])
   const enterKeyHint = isForumThreadBody || !hoverCapable ? "enter" : "send"
+  useLayoutEffect(() => {
+    editor?.view?.dom?.setAttribute("aria-label", resolvedPlaceholder)
+  }, [editor, resolvedPlaceholder])
   useLayoutEffect(() => {
     editor?.view?.dom?.setAttribute("enterkeyhint", enterKeyHint)
   }, [editor, enterKeyHint])

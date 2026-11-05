@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { onEnterSubmit } from "@/lib/ime"
 import { CreateDialogShell } from "./create-dialog-shell"
 import { PrivateCategoryRow } from "../members/private-category-row"
+import { Input } from "@/components/ui/input"
 
 // Category settings dialog — rename only. Privacy (public/private) is fixed at
 // creation and can't be changed here: flipping it would silently widen/tighten
@@ -37,7 +38,7 @@ export function CategorySettingsDialog({ name, isPrivate, onClose, onSave }: {
     >
       <div className="space-y-6 px-5 pb-5 pt-2">
         {/* Category name = hero: large inline title input. */}
-        <input
+        <Input variant="frameless"
           value={nameDraft}
           onChange={(e) => setNameDraft(e.target.value)}
           onKeyDown={onEnterSubmit(save)}

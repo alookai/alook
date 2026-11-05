@@ -258,7 +258,7 @@ export function InviteDialog({
               </div>
             )}
             errorMessage="Couldn't load friends."
-            emptyMessage="No friends to invite — everyone you know is already here."
+            emptyMessage={friendsQuery.totalFriends === 0 ? "You don't have any friends to invite yet." : "No friends to invite — everyone you know is already here."}
             retrying={friendsQuery.data === undefined && friendsQuery.isFetching}
             onRetry={() => { void friendsQuery.refetch() }}
           >

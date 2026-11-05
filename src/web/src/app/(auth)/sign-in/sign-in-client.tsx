@@ -427,7 +427,7 @@ function SignInForm({
                     lastUsedMethod={lastUsedMethod}
                   />
 
-                  <FieldSeparator className="*:data-[slot=field-separator-content]:bg-background *:data-[slot=field-separator-content]:text-xs sm:*:data-[slot=field-separator-content]:bg-card">
+                  <FieldSeparator className="*:data-[slot=field-separator-content]:text-xs">
                     or
                   </FieldSeparator>
 
@@ -448,11 +448,11 @@ function SignInForm({
             data-testid="sign-in-email-pane"
             aria-hidden={isExitingEmail || undefined}
             inert={isTransitioning || undefined}
-            className="flex min-h-svh w-full shrink-0 flex-col px-4 pt-[max(3rem,var(--app-safe-area-top))] pb-[max(1.5rem,var(--app-safe-area-bottom))] sm:min-h-0 sm:justify-center sm:p-8"
+            className="flex min-h-svh w-full shrink-0 flex-col justify-center px-4 pt-[max(1.5rem,var(--app-safe-area-top))] pb-[max(1.5rem,var(--app-safe-area-bottom))] sm:min-h-0 sm:p-8"
           >
             <div className="mx-auto w-full max-w-80 sm:max-w-88">
               <FieldGroup className="gap-4">
-                <Button variant="ghost" type="button" className="h-11 w-fit gap-2 px-0" disabled={loading || isTransitioning} onClick={() => switchMethodsStep("methods")}>
+                <Button variant="ghost" type="button" className="h-11 w-fit gap-2" disabled={loading || isTransitioning} onClick={() => switchMethodsStep("methods")}>
                   <ArrowLeft className="size-4" aria-hidden />
                   Back
                 </Button>
@@ -494,7 +494,7 @@ function SignInForm({
             data-testid="sign-in-code-pane"
             aria-hidden={isExitingCode || undefined}
             inert={isTransitioning || undefined}
-            className="flex min-h-svh w-full shrink-0 flex-col px-4 pt-[max(3rem,var(--app-safe-area-top))] pb-[max(1.5rem,var(--app-safe-area-bottom))] sm:min-h-0 sm:justify-center sm:p-8"
+            className="flex min-h-svh w-full shrink-0 flex-col justify-center px-4 pt-[max(1.5rem,var(--app-safe-area-top))] pb-[max(1.5rem,var(--app-safe-area-bottom))] sm:min-h-0 sm:p-8"
           >
             <div className="mx-auto w-full max-w-80 sm:max-w-88">
               <FieldGroup className="gap-4">
@@ -614,7 +614,7 @@ function ProductGallery() {
         </div>
         <div className={galleryStyles.gallerySwitcher} aria-label="Product stories">
           {galleryScenes.map((item, i) => (
-            <button
+            <Button variant="ghost" size="icon"
               key={item.scene}
               onClick={() => setActive(i)}
               className="grid size-8 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -631,7 +631,7 @@ function ProductGallery() {
                   opacity: i === active ? 1 : 0.3,
                 }}
               />
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -655,6 +655,7 @@ export default function SignInPageClient({
 
   return (
     <div
+      data-slot="auth-page"
       className="relative flex min-h-svh flex-col p-0 sm:items-center sm:justify-center sm:p-8"
     >
       <GradientBackground />

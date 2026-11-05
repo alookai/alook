@@ -11,9 +11,18 @@ vi.mock("next/image", () => ({
   default: ({ src, alt }: { src: string; alt: string }) => <img src={src} alt={alt} />,
 }))
 
-import { isCrossZoneNavigation, PublicLayout } from "./public-layout"
+import { isCrossZoneNavigation, PublicLayout, ZoneLink } from "./public-layout"
 
 describe("PublicLayout zone navigation", () => {
+  it.each(["/c", "/tutorials"])("forwards control and accessibility attributes for %s", (href) => {
+    const { getByRole } = render(<ZoneLink href={href} zone="blog" data-variant="default" data-size="lg" aria-label="Open destination">Open</ZoneLink>)
+    const link = getByRole("link", { name: "Open destination" })
+    expect(link).toHaveAttribute("href", href)
+    expect(link).toHaveAttribute("data-variant", "default")
+    expect(link).toHaveAttribute("data-size", "lg")
+    expect(link.hasAttribute("data-next-link")).toBe(href === "/tutorials")
+  })
+
   it("classifies only document transitions across Worker ownership", () => {
     expect(isCrossZoneNavigation("/guides#coding-agents", "main")).toBe(true)
     expect(isCrossZoneNavigation("/guides/", "blog")).toBe(false)

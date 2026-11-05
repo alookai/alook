@@ -13,9 +13,10 @@ describe("Blog footer", () => {
     expect(doc.querySelectorAll("footer")).toHaveLength(1);
     expect(doc.querySelector("main footer")).toBeNull();
     expect(doc.querySelector("main")?.nextElementSibling?.tagName).toBe("FOOTER");
-    expect([...doc.querySelectorAll("footer nav a")].map((a) => a.getAttribute("href"))).toEqual(["/templates", "/blog", "/guides", "/tutorials", "/llms.txt", "/privacy"]);
+    expect([...doc.querySelectorAll("footer nav a")].map((a) => a.getAttribute("href"))).toEqual(["/download", "/pricing", "/blog", "/contact", "/tutorials"]);
+    expect(doc.querySelector("footer")?.textContent).toContain("MEMODB PTE. LTD.");
     expect(doc.querySelector("a[aria-label=Discord]")?.getAttribute("href")).toBe("https://discord.com/invite/24PHyEHU3M");
-    expect(doc.querySelectorAll(".blog-footer-socials a")).toHaveLength(3);
-    expect(doc.querySelector(".blog-footer-slogan")?.textContent).toContain("Multi-Agent Collaboration for Team and Friends");
+    expect(doc.querySelectorAll('[aria-label="Alook social links"] a')).toHaveLength(3);
+    expect(doc.querySelector('[data-testid="landing-footer-slogan"]')?.textContent).toContain("Multi-Agent Collaboration for Team and Friends");
   });
 });

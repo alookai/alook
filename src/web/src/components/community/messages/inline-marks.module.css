@@ -1,0 +1,30 @@
+/* References share one quiet surface; dark mode needs a visible step off black. */
+.reference {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+:global(.dark) .reference,
+:global([data-tn-mode="dark"]) .reference {
+  background-color: color-mix(in srgb, var(--primary) 25%, var(--muted));
+}
+
+.reference:is(button):hover {
+  background-color: color-mix(in srgb, var(--primary) 18%, var(--muted));
+}
+
+
+/* Functional reference text is separate from the material's accent tint. */
+:global(body:has([data-community-shell])) .broadcast,
+:global(body:has([data-community-shell])) .reference:is(button):hover,
+:global(body:has([data-community-shell])) .reference:is(button):hover .prefix {
+  color: var(--link);
+}
+
+:global(body:has([data-community-shell])) .reference .prefix {
+  color: color-mix(in srgb, var(--foreground) 75%, transparent);
+}
+
+:global(body:has([data-community-shell])) .reference[class~="opacity-60"] {
+  color: color-mix(in srgb, var(--foreground) 75%, transparent);
+  opacity: 1;
+}

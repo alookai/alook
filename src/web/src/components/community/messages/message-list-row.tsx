@@ -9,11 +9,11 @@ import type { ResolvedMessageListProps } from "./message-list-types"
 export function renderMessageListHero(props: ResolvedMessageListProps) {
   return props.hero ?? (
     <>
-      <div className="grid size-12 place-items-center rounded-full bg-muted/60">
+      <div data-slot="message-list-hero-icon" className="mt-4 mb-2 grid size-12 place-items-center rounded-full bg-muted/60">
         <ChannelIcon className="text-xl text-muted-foreground" />
       </div>
-      <h2 className="text-xl font-semibold leading-tight">{props.channel}</h2>
-      <p className="text-sm text-muted-foreground">
+      <h2 className="text-2xl font-semibold leading-tight">{props.channel}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
         Beginning of the channel. Say hello, share what you&apos;re working on, or drop a link.
       </p>
     </>

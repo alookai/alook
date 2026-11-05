@@ -65,6 +65,8 @@ export function BotMarkStickerView({
   isError: boolean
 }) {
   const [view, setView] = useAtom(useCreateAtom<StickerView>("thoughts"))
+  const tabsId = useId()
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const activityScrollRef = useRef<HTMLDivElement>(null)
   const latestEventIdRef = useRef<string | undefined>(undefined)
   const didInitialTailScrollRef = useRef(false)
@@ -137,7 +139,18 @@ export function BotMarkStickerView({
       <div role="tablist" aria-label="Bot log view" className={styles.tabs}>
         {(["thoughts", "marks"] as const).map((tab) => (
           <button key={tab} type="button" role="tab" aria-label={tab === "thoughts" ? "Thoughts" : "Marked messages"}
-            aria-selected={view === tab} onClick={() => setView(tab)} className={styles.tab}>
+            id={`${tabsId}-${tab}-tab`} aria-controls={`${tabsId}-${tab}-panel`}
+            ref={(node) => { tabRefs.current[tab === "thoughts" ? 0 : 1] = node }}
+            tabIndex={view === tab ? 0 : -1} aria-selected={view === tab}
+            onKeyDown={(event) => {
+              const index = tab === "thoughts" ? 0 : 1
+              const next = event.key === "Home" ? 0 : event.key === "End" ? 1
+                : event.key === "ArrowRight" || event.key === "ArrowLeft" ? 1 - index : undefined
+              if (next === undefined) return
+              event.preventDefault()
+              tabRefs.current[next]?.focus()
+            }}
+            onClick={() => setView(tab)} className={styles.tab}>
             <span className={styles.tabLabel}>{tab === "thoughts" ? "Thoughts" : "Marks"}</span>
             {tab === "marks" && marks.length > 0 && (
               <span data-testid={hasOverflow ? tid.botMarkStickerOverflow : undefined} role={hasOverflow ? "status" : undefined} className="text-[10px] tabular-nums">
@@ -148,7 +161,7 @@ export function BotMarkStickerView({
         ))}
       </div>
       {view === "thoughts" ? (
-        <div role="tabpanel" aria-label="Recent thoughts" className="flex min-h-0 flex-1 flex-col pt-2">
+        <div id={`${tabsId}-thoughts-panel`} role="tabpanel" aria-label="Recent thoughts" className="flex min-h-0 flex-1 flex-col pt-2">
           <div ref={activityScrollRef} data-testid={tid.botAuditPreviewScroll}
             onScroll={({ currentTarget }) => {
               nearTailRef.current = currentTarget.scrollHeight - (currentTarget.scrollTop + currentTarget.clientHeight) < 80
@@ -176,7 +189,7 @@ export function BotMarkStickerView({
           </div>
         </div>
       ) : (
-        <div role="tabpanel" className={`thin-scrollbar ${styles.scrollbar} mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1`}>
+        <div id={`${tabsId}-marks-panel`} role="tabpanel" aria-label="Marked messages" className={`thin-scrollbar ${styles.scrollbar} mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1`}>
           {isLoading ? (
             <StickerState label="Loading marked messages" />
           ) : isError ? (

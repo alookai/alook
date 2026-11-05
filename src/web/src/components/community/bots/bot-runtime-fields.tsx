@@ -4,6 +4,8 @@ import type { ComponentProps } from "react"
 import { useRuntimeModels } from "@/hooks/community/use-runtime-models"
 import { ProviderLogo } from "@/components/provider-logo"
 import { Label } from "@/components/ui/label"
+import { FieldLabel } from "@/components/ui/field"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { cn } from "@/lib/utils"
 import { runtimeLabel } from "@/lib/community/runtime-label"
 import { ModelField } from "./model-field"
@@ -76,9 +78,11 @@ export function BotRuntimeFields({
             This machine has no runtimes installed.
           </p>
         ) : (
-          <div
+          <RadioGroup
+            value={runtime}
+            name={radioName}
+            onValueChange={(value) => selectRuntime(value as string)}
             className="flex flex-col gap-2"
-            role="radiogroup"
             aria-label="Runtime"
             data-testid="bot-provider-picker"
           >
@@ -86,13 +90,14 @@ export function BotRuntimeFields({
               const selected = runtime === option.id
               const disabled = option.unhealthy && (disableUnhealthyOptions || !selected)
               return (
-                <label
+                <FieldLabel
                   key={option.id}
+                  data-selected={selected || undefined}
                   data-motion-target={
                     motionTargetPrefix ? `${motionTargetPrefix}-${option.id}` : undefined
                   }
                   className={cn(
-                    "flex items-center gap-2 rounded-lg border p-2 cursor-pointer transition-colors",
+                    "flex w-full items-center gap-2 rounded-lg border p-2 cursor-pointer transition-colors",
                     selected
                       ? "border-primary bg-primary/5"
                       : "border-border/50 hover:border-foreground/20",
@@ -100,24 +105,20 @@ export function BotRuntimeFields({
                     runtimeOptionClassName?.(option.id),
                   )}
                 >
-                  <input
-                    type="radio"
-                    name={radioName}
+                  <RadioGroupItem
                     value={option.id}
-                    checked={selected}
                     disabled={disabled}
-                    onChange={() => selectRuntime(option.id)}
-                    className="accent-primary size-3.5"
+                    className="size-3.5"
                   />
                   <ProviderLogo provider={option.id} className="size-4 shrink-0" />
                   <span className="text-sm">{runtimeLabel(option.id)}</span>
                   {option.unhealthy && (
                     <span className="ml-auto text-xs text-muted-foreground">unavailable</span>
                   )}
-                </label>
+                </FieldLabel>
               )
             })}
-          </div>
+          </RadioGroup>
         )}
         {runtimeError ? <p className="text-xs text-destructive">{runtimeError}</p> : null}
       </div>

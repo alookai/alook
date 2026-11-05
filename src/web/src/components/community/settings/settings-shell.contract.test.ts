@@ -27,7 +27,9 @@ describe("shared settings shell", () => {
     expect(source).toContain('className="size-11 sm:size-8"')
     expect(source).toContain("sm:p-8 sm:pt-4")
     expect(source).not.toContain("items-center border-b border-border")
-    expect(source).toContain("<TabsContent {...props} keepMounted />")
+    // Panels stay mounted and share one content column (QA #20).
+    expect(source).toContain("<TabsContent {...rest} keepMounted>")
+    expect(source).toContain('data-slot="settings-panel-column"')
   })
 
   it("is the only settings layout used by both user and server settings", () => {
@@ -56,13 +58,13 @@ describe("shared settings shell", () => {
     expect(privacyTab).toBeGreaterThan(advancedTab)
     expect(navFooter).toContain('aria-label="Log out"')
     expect(navFooter).not.toContain('aria-label="Delete account"')
-    expect(accountDeletion).toBeGreaterThan(-1)
-    expect(cancel).toBeGreaterThan(accountDeletion)
+    // Delete account moved to its own danger-zone row after Cancel/Save (QA #21).
+    expect(accountDeletion).toBeGreaterThan(save)
     expect(save).toBeGreaterThan(cancel)
     expect(source).toContain("<PrivacyPolicyContent />")
     expect(source).not.toContain("Trash2")
-    expect(profile).toContain('className="flex flex-wrap items-center gap-x-4 gap-y-2"')
-    expect(profile).toContain('className="ml-auto flex shrink-0 items-center gap-2"')
+    expect(profile).toContain('className="flex items-center justify-end gap-2"')
+    expect(profile).toContain('data-slot="settings-danger-zone"')
     expect(profile).toContain('className="h-11 shrink-0 px-3 text-destructive hover:text-destructive sm:h-8"')
     expect(profile).toMatch(/data-testid=\{tid\.accountDeletionOpen\}[\s\S]*?>\s*Delete account\s*<\/Button>/u)
   })

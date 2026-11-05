@@ -7,9 +7,7 @@
   --house-ink: color-mix(in oklab, var(--background) 18%, white);
   --house-muted: color-mix(in oklab, var(--house-ink) 62%, transparent);
   min-height: 100svh;
-  color-scheme: dark;
   overflow: hidden;
-  background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
 }
@@ -17,48 +15,6 @@
 .page ::selection {
   background: var(--foreground);
   color: var(--background);
-}
-
-.header {
-  display: flex;
-  width: min(100% - 64px, 1280px);
-  height: 80px;
-  margin-inline: auto;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
-}
-
-.brand,
-.backLink {
-  color: inherit;
-  text-decoration: none;
-}
-
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-brand);
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.backLink {
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  padding-inline: 8px;
-  color: var(--muted-foreground);
-  font-size: 14px;
-  text-underline-offset: 4px;
-  transition: color 150ms ease;
-}
-
-.backLink:hover {
-  color: var(--foreground);
-  text-decoration: underline;
 }
 
 .main {
@@ -179,7 +135,8 @@
   width: 240px;
   height: 240px;
   filter: grayscale(1);
-  opacity: 0.035;
+  /* Visible enough to read as the Free plan's mark (Gus #2416). */
+  opacity: 0.09;
   transform: rotate(-8deg);
   transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out);
 }
@@ -204,7 +161,7 @@
 
 .freePlan:hover .ghostMark,
 .freePlan:focus-within .ghostMark {
-  opacity: 0.075;
+  opacity: 0.14;
   transform: rotate(-4deg) translateY(-4px);
 }
 
@@ -219,32 +176,14 @@
   opacity: 1;
 }
 
+/* Plan actions are the shared keycap Button (ui/Button); only placement here. */
 .ghostButton,
 .studioButton,
 .houseButton {
   min-height: 44px;
   margin-top: 32px;
-  border: 0;
-  border-radius: var(--radius-md);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease, transform 150ms ease;
 }
 
-.ghostButton {
-  padding: 0;
-  background: transparent;
-  color: var(--foreground);
-  text-decoration: underline;
-  text-decoration-color: color-mix(in oklab, var(--foreground) 28%, transparent);
-  text-underline-offset: 6px;
-}
-
-.ghostButton:hover {
-  text-decoration-color: var(--foreground);
-}
 
 .studioPlan {
   display: flex;
@@ -449,13 +388,6 @@
 
 .studioButton {
   width: 100%;
-  padding-inline: 16px;
-  background: var(--tag-ink);
-  color: #fff8e8;
-}
-
-.studioButton:hover {
-  background: color-mix(in oklab, var(--tag-ink) 88%, var(--tag-paper));
 }
 
 .tagFooter {
@@ -573,13 +505,6 @@
 .houseButton {
   width: 100%;
   margin-top: 24px;
-  padding-inline: 16px;
-  background: var(--house-ink);
-  color: var(--house-stock);
-}
-
-.houseButton:hover {
-  background: color-mix(in oklab, var(--house-ink) 90%, var(--house-stock));
 }
 
 .ticketSerial {
@@ -878,17 +803,11 @@
 .ghostButton:focus-visible,
 .studioButton:focus-visible,
 .houseButton:focus-visible,
-.brand:focus-visible,
-.backLink:focus-visible {
+.page a:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 4px;
 }
 
-.ghostButton:active,
-.studioButton:active,
-.houseButton:active {
-  transform: translateY(1px);
-}
 
 @media (max-width: 1100px) {
   .plans {
@@ -1098,3 +1017,36 @@
 .status:empty { display: none; }
 .status button { text-decoration: underline; min-height: 44px; padding: 0 8px; }
 .plans button:disabled { opacity: .55; cursor: default; }
+
+/* ═════ Technostalgia (Gus #2395): pricing joins the site's paper ground ═════ */
+
+/* Plan names keep their hand-lettered brand face over the landing's sans titles. */
+.page.page .plan h2 {
+  font-family: var(--font-brand) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+}
+
+/* Machine-label kicker */
+.eyebrow { font-family: var(--font-dm-mono), var(--font-mono), monospace; font-size: 11px; letter-spacing: 0.16em; }
+
+/* The ghost mark is printed on the grid, not pasted over it. */
+.ghostMark { mix-blend-mode: multiply; }
+:global(.dark) .ghostMark, [data-tn-mode="dark"] .ghostMark { mix-blend-mode: screen; }
+
+/* FAQ reads like the brand FAQ: hairline rows on paper */
+.faqItem { border-top-color: var(--tn-line, var(--border)) !important; }
+
+/* FAQ sits on a paper card, not straight on the grid, so it reads (Gus #2415). */
+.faq {
+  padding: clamp(24px, 4vw, 48px);
+  border: 1px solid var(--tn-line, var(--landing-border));
+  border-radius: 24px;
+  background: var(--tn-paper-raised, var(--landing-bg));
+  box-shadow: 0 18px 40px -30px rgb(60 45 20 / 35%);
+}
+
+:global(.dark) .faq,
+[data-tn-mode="dark"] .faq {
+  background: #0b0b0c;
+}

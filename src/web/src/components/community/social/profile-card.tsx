@@ -1,14 +1,16 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useEffect, type ComponentProps, type ReactNode } from "react"
+import { useEffect, type ComponentProps, type CSSProperties, type ReactNode } from "react"
 import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
 import { BOT_ACTIVITY_PRESETS } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { Avatar } from "../avatar"
-import { SeededBackdrop } from "@/components/avatar"
+import { seededStripeAngle, seededStripeColors } from "@/lib/avatar/backdrop"
 import { resolveAvatar } from "@/lib/avatar/resolve"
 import { StatusEditor, hasStatus } from "./status-editor"
 import type {
@@ -187,9 +189,11 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
   }
   const card = (
     <>
-      <div className="relative -m-2 mb-0 h-16 overflow-hidden rounded-t-lg">
-        <SeededBackdrop seed={backdropSeed} />
-      </div>
+      <div
+        data-profile-banner=""
+        className="relative -m-2 mb-0 h-16 overflow-hidden rounded-t-lg"
+        style={profileBannerStyle(backdropSeed)}
+      />
       <div className="px-2 pb-2">
         {/* `pl-4` — the card body below has its own `p-4`, so its text sits
             16px in from this row's container; without matching padding here
@@ -246,7 +250,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
                     render={children}` (which clones this exact element) or
                     nesting an interactive `Tooltip.Trigger` inside a
                     `<button>` that's already a trigger for something else. */}
-                <button title={statusText || undefined} className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                <Button variant="ghost" size="sm" title={statusText || undefined} style={{ translate: "0 -50%" }} className="h-auto absolute left-full top-[68.5px] ml-2 flex max-w-32 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
                   {hasStatus(statusEmoji, statusText) ? (
                     <>
                       {statusEmoji && <span>{statusEmoji}</span>}
@@ -255,11 +259,11 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
                   ) : (
                     <span className="text-muted-foreground">Set a status</span>
                   )}
-                </button>
+                </Button>
               </StatusEditor>
             ) : (
               hasStatus(statusEmoji, statusText) && (
-                <div data-testid={tid.statusPill} title={statusText || undefined} className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1)">
+                <div data-testid={tid.statusPill} title={statusText || undefined} className="h-auto absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1)">
                   {statusEmoji && <span>{statusEmoji}</span>}
                   {statusText && <span className="min-w-0 truncate">{statusText}</span>}
                 </div>
@@ -322,24 +326,24 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
             </div>
           )}
           {canSendMessage && (
-            <div className="mt-4 flex h-9 items-center gap-2 rounded-md bg-secondary px-2">
-              <input
+            <div className="relative mt-4">
+              <Input
                 value={msg}
                 onChange={(e) => setMsg(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key !== "Enter" || e.nativeEvent.isComposing) return
                   send()
                 }}
-                className="flex-1 bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
+                className="h-9 pr-10 text-[15px]"
                 placeholder={`Message @${name}`}
               />
-              <button
+              <Button variant="ghost" size="icon-sm"
                 onClick={send}
-                className="grid size-7 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                className="absolute inset-y-0 right-1 my-auto grid size-7 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 aria-label="Send message"
               >
                 <MessagesSquare className="size-4" />
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -409,6 +413,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
       />
       <PopoverContent
         ref={popoverRef}
+        aria-label={`${name} profile`}
         side="right"
         align="start"
         sideOffset={8}
@@ -439,4 +444,28 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
       </PopoverContent>
     </Popover>
   )
+}
+
+/** Hue of a #rrggbb colour in degrees. */
+function hueOf(hex: string): number {
+  const n = Number.parseInt(hex.replace("#", "").slice(0, 6), 16)
+  const r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
+  if (d === 0) return 0
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4
+  return (h * 60 + 360) % 360
+}
+
+function profileBannerStyle(seed: string): CSSProperties {
+  const base = hueOf(seededStripeColors(seed)[0])
+  const band = 26, line = 4, feather = 0.5, count = 7
+  const period = count * (band + line)
+  const stops = [`#1f1a15 0px ${line / 2 - feather}px`]
+  for (let i = 0; i < count; i++) {
+    const color = `oklch(0.8 0.15 ${((base + i * 30) % 360).toFixed(0)})`
+    const start = i * (band + line) + line / 2
+    stops.push(`${color} ${start + feather}px ${start + band - feather}px`,
+      `#1f1a15 ${start + band + feather}px ${Math.min(start + band + line - feather, period)}px`)
+  }
+  return { backgroundImage: `repeating-linear-gradient(${seededStripeAngle(seed)}deg, ${stops.join(", ")})` }
 }

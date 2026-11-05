@@ -2,13 +2,14 @@
 
 import { MousePointer2, Terminal } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { LandingShellMotion, PrototypeSheet, BotCard } from "@/components/home/landing-shell-motion";
+import { LandingShellMotion, PrototypeSheet } from "@/components/home/landing-shell-motion";
 import { CommunityPreviewNavigation } from "@/components/community/shell/community-preview-navigation";
 import { PairMachineSteps } from "@/components/community/machines/pair-machine-sheet";
 import { MachineCard } from "@/components/community/machines/machine-card";
 import { BotFormFields } from "@/components/community/bots/bot-form-fields";
 import { BotRuntimeFields } from "@/components/community/bots/bot-runtime-fields";
 import { BotMachineField } from "@/components/community/bots/bot-machine-field";
+import { BotCardView } from "@/components/community/bots/bot-card-view";
 import { Button } from "@/components/ui/button";
 import { SheetHeader, SheetBody, SheetFooter } from "@/components/ui/sheet";
 import { requiresExplicitModel } from "@alook/shared";
@@ -87,7 +88,7 @@ function BotForm({ runtime, count, agents }: { runtime: TutorialRuntime; count: 
 
 export function BotListContent({ count, agents = defaultTutorialPair }: { count: number; agents?: TutorialPair }) {
   return <div className="flex flex-1 flex-col gap-6 p-6"><header className="flex items-center justify-between"><div className="text-xl font-medium">My Bots</div><Button data-bot-entry>Create a bot</Button></header>
-    {count > 0 && <BotCard name="Milo" runtime={agents[0]} model={requiresExplicitModel(agents[0]) ? tutorialModel : null} status="Online" />}{count > 1 && <BotCard name="Nova" runtime={agents[1]} model={requiresExplicitModel(agents[1]) ? tutorialModel : null} status="Online" />}
+    {count > 0 && <BotCardView bot={{ id: "tutorial-milo", name: "Milo", image: "avatar:beam:milo", runtime: agents[0], modelName: requiresExplicitModel(agents[0]) ? tutorialModel : null }} online statusKnown />}{count > 1 && <BotCardView bot={{ id: "tutorial-nova", name: "Nova", image: "avatar:beam:nova", runtime: agents[1], modelName: requiresExplicitModel(agents[1]) ? tutorialModel : null }} online statusKnown />}
   </div>;
 }
 

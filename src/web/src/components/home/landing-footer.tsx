@@ -1,18 +1,23 @@
 import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
 import Image from "next/image"
-import Link from "next/link"
+import { ZoneLink, type PublicZone } from "@/components/public-layout"
+import technostalgia from "@/components/brand/technostalgia.module.css"
 import { GithubOutboundLink } from "@/components/github-outbound-link"
 import { BRAND_SLOGAN } from "@/lib/brand-copy"
+import { HandAccent } from "@/components/brand/hand-accent"
+import { Badge } from "@/components/ui/badge"
 import { tid } from "@/lib/community/testids"
 import { MARKETING_SITE_LINK_CLASS_NAME, MARKETING_SITE_LINK_STYLE, MARKETING_SITE_LINKS } from "./marketing-site-links"
 import styles from "./landing-page.module.css"
 
-function Brand() {
+const FOOTER_ACCENT = "Team and Friends"
+
+function Brand({ zone }: { zone: PublicZone }) {
   return (
-    <Link href="/" className={styles.brand} aria-label="Alook home">
+    <ZoneLink href="/" zone={zone} className={styles.brand} aria-label="Alook home">
       <Image src="/alook.svg" alt="" width={28} height={28} priority />
       <span>Alook</span>
-    </Link>
+    </ZoneLink>
   )
 }
 
@@ -38,27 +43,33 @@ function FooterSocialLinks() {
   )
 }
 
-export function LandingFooter() {
+export function LandingFooter({ zone = "main" }: { zone?: PublicZone }) {
   return (
-      <footer className={styles.footer}>
+      <footer className={`${technostalgia.theme} ${styles.footer}`}>
         <div className={`${styles.siteContainer} ${styles.footerLayout}`} data-testid={tid.landingFooterContainer}>
           <div className={styles.footerPrimary}>
             <div className={styles.footerBrand} data-testid={tid.landingFooterBrand}>
-              <Brand />
+              <Brand zone={zone} />
             </div>
-            <p className={styles.footerSlogan} data-testid={tid.landingFooterSlogan}>{BRAND_SLOGAN}</p>
+            <p className={styles.footerSlogan} data-testid={tid.landingFooterSlogan}>
+              {BRAND_SLOGAN.replace(FOOTER_ACCENT, "")}<HandAccent>{FOOTER_ACCENT}</HandAccent>
+            </p>
             <div className={styles.footerSocialGroup} data-testid={tid.landingFooterSocial}>
               <FooterSocialLinks />
             </div>
           </div>
           <nav className={styles.footerNavigation} aria-label="Footer navigation" data-testid={tid.landingFooterNavigation}>
-            {MARKETING_SITE_LINKS.map((link) => link.usesDocumentNavigation ? (
-              <a key={link.href} href={link.href} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>{link.label}</a>
-            ) : (
-              <Link key={link.href} href={link.href} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
+            {MARKETING_SITE_LINKS.map((link) => (
+              <ZoneLink key={link.href} href={link.href} zone={zone} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>{link.label}</ZoneLink>
             ))}
-            <a href="/tutorials" className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>Tutorials</a>
+            <ZoneLink href="/tutorials" zone={zone} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>Tutorials</ZoneLink>
           </nav>
+        </div>
+        {/* The footer's memory point (Gus #2419): the wordmark set huge, like
+            the maker's name moulded into the bottom of an old machine. */}
+        <div className={styles.footerSignature} aria-hidden="true">
+          <Badge variant="outline" className={styles.footerPlate}>© {new Date().getFullYear()} MEMODB PTE. LTD.</Badge>
+          <span className={styles.footerWordmark}>Alook</span>
         </div>
       </footer>
   )

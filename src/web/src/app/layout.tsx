@@ -1,3 +1,4 @@
+import technostalgia from "@/components/brand/technostalgia.module.css";
 import { ObservedRouteCommit } from "@/lib/observability/regions";
 import type { Metadata, Viewport } from "next";
 import { AnalyticsConsent } from "@/components/analytics-consent";
@@ -40,17 +41,20 @@ export default function RootLayout({
         `}} />
       </head>
       <body
-        className="min-h-full flex flex-col"
+        className={`${technostalgia.theme} min-h-full flex flex-col`}
       >
         <MockNetworkBanner />
         <ServiceWorkerRegistration />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify(siteStructuredData),
-          }}
-        />
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        {siteStructuredData.map((schema) => (
+          <script
+            key={schema["@type"]}
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{
+              __html: JSON.stringify(schema),
+            }}
+          />
+        ))}
+        <ThemeProvider attribute={["class", "data-tn-mode"]} defaultTheme="system" enableSystem>
           <ThemeColorSync />
           <TauriThemeSync />
           <MessageNotificationToaster />

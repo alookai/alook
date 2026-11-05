@@ -1,5 +1,9 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
+import { EmptyState } from "../empty-state"
+import { Activity } from "lucide-react"
+
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useVirtualizer } from "@tanstack/react-virtual"
@@ -157,14 +161,14 @@ export function BotActivityModal({
       desktopWidth={672}
       resizable
       footer={isFetchNextPageError ? (
-        <button
+        <Button variant="ghost" size="sm"
           type="button"
           onClick={loadOlder}
           disabled={isFetching}
           className="min-h-11 rounded-md px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8"
         >
           Retry older
-        </button>
+        </Button>
       ) : undefined}
       contentTestId={tid.botActivityModal}
       bodyRef={setLogBody}
@@ -173,7 +177,9 @@ export function BotActivityModal({
       {isLoading && chronological.length === 0 ? (
         <SkeletonRows />
       ) : chronological.length === 0 ? (
-        <EmptyState />
+        <div className="flex h-full flex-col">
+          <EmptyState icon={Activity} label="No activity yet" description="This bot hasn&apos;t run since audit logging was enabled. New runs will stream in here as they happen." />
+        </div>
       ) : (
         <VirtualRows
           items={chronological}
@@ -222,20 +228,6 @@ function SkeletonRows() {
           <div className="h-3 flex-1 animate-pulse rounded bg-muted/40" />
         </div>
       ))}
-    </div>
-  )
-}
-
-function EmptyState() {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-      <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/60">
-        No activity yet
-      </div>
-      <p className="max-w-xs text-xs text-muted-foreground">
-        This bot hasn&apos;t run since audit logging was enabled. New runs
-        will stream in here as they happen.
-      </p>
     </div>
   )
 }

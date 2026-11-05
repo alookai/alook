@@ -94,7 +94,8 @@ function InboxScrollBody({
     <div
       ref={ref}
       data-testid={tid.inboxTabScroll(tab)}
-      className="h-full overflow-y-auto thin-scrollbar p-3"
+      // Column so an empty state (Caught up, No mentions) centres in the body (QA #36).
+      className="flex h-full flex-col overflow-y-auto thin-scrollbar p-3"
       onScroll={onScroll}
       onWheel={() => { transientScrollRef.current = true }}
       onKeyDown={onKeyDown}
@@ -102,7 +103,7 @@ function InboxScrollBody({
       onPointerUp={() => { pointerScrollRef.current = false }}
       onPointerCancel={() => { pointerScrollRef.current = false }}
     >
-      <div ref={contentRef}>{children}</div>
+      <div ref={contentRef} className="flex flex-1 flex-col">{children}</div>
     </div>
   )
 }
@@ -212,11 +213,11 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onO
                       disabled={pending}
                       onClick={() => onAcceptFriendRequest?.(item)}
                       aria-label={`Accept ${profile.name}'s friend request`}
-                      className="size-11 rounded-full text-status-online sm:size-8"
+                      className="size-11 rounded-full sm:size-8"
                     >
                       {pending && item.action === "accept"
                         ? <LoaderCircle className="size-4 animate-spin" />
-                        : <Check className="size-4" />}
+                        : <Check className={pending ? "size-4" : "size-4 text-status-online"} />}
                     </Button>
                     <Button
                       data-testid={tid.inboxFriendRequestReject(request.id)}
@@ -236,7 +237,7 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onO
                 {item.error && (
                   <div role="status" aria-live="polite" className="mt-1 flex items-center justify-end gap-2 text-xs text-destructive">
                     <span>{item.error}</span>
-                    <button className="min-h-11 min-w-11 font-medium underline sm:min-h-0 sm:min-w-0" onClick={() => onRetryFriendRequest?.(item)}>Retry</button>
+                    <Button variant="ghost" size="sm" className="min-h-11 min-w-11 font-medium underline sm:min-h-0 sm:min-w-0" onClick={() => onRetryFriendRequest?.(item)}>Retry</Button>
                   </div>
                 )}
               </div>
@@ -351,15 +352,15 @@ function MentionsTab({ mentions, loading, error, onRetry, onOpenMention, onDelet
               <div className="flex h-5 items-center pr-7 text-sm font-medium leading-5">
                 <span className="truncate">{author.discriminator ? formatHandle(author.name, author.discriminator) : author.name}</span>
               </div>
-              <div className="truncate text-[11px] leading-4 text-muted-foreground/75">
+              <div data-slot="inbox-mention-context" className="truncate text-[11px] leading-4 text-muted-foreground/75">
                 {mn.server} · <ChannelIcon className="inline h-[1em] w-auto align-[-0.1em]" />{mn.channel}
               </div>
               <div className="truncate text-sm text-muted-foreground">{messagePreviewText(mn.m)}</div>
             </div>
           </button>
           {onDeleteMention && (
-            <Button variant="secondary" size="icon" onClick={() => onDeleteMention(mn.id)} aria-label="Mark mention as read" className="z-10 col-start-2 row-start-1 size-5 text-muted-foreground">
-              <Check className="size-3.5" />
+            <Button variant="secondary" size="icon" onClick={() => onDeleteMention(mn.id)} aria-label="Mark mention as read" className="z-10 col-start-2 row-start-1 size-5">
+              <Check className="size-3.5 text-muted-foreground" />
             </Button>
           )}
         </div>
@@ -407,7 +408,7 @@ function MarkedTab({ marked, loading, onOpenMarked, onUnmark, profilesByUserId, 
           </button>
           {onUnmark && (
             <DropdownMenu>
-              <DropdownMenuTrigger render={<button className="mt-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100" aria-label="More" />}>
+              <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="mt-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100" aria-label="More" />}>
                 <MoreHorizontal className="size-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" sideOffset={4} className="w-36">
@@ -526,24 +527,24 @@ export function InboxPopover({
         <Inbox className="size-5" />
         <h2 className="flex-1 text-lg font-semibold">Inbox</h2>
         {onMarkAllRead && (
-          <button
+          <Button variant="ghost" size="sm"
             onClick={onMarkAllRead}
             disabled={!hasMessageUnread}
-            className="text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+            className="h-auto p-0 text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
           >
             Mark all read
-          </button>
+          </Button>
         )}
       </div>
       <TabsList data-testid={tid.inboxTabList} variant="line" className="mt-3 w-full border-b border-border px-3">
         <TabsTrigger value="unreads">
-          <span className="inline-flex items-center gap-2">
+          <span className="inline-flex items-center gap-1">
             Unreads
             {showUnreadDot && <span className="size-1.5 rounded-full bg-primary" />}
           </span>
         </TabsTrigger>
         <TabsTrigger value="mentions">
-          <span className="inline-flex items-center gap-2">
+          <span className="inline-flex items-center gap-1">
             Mentions
             {showMentionDot && <span className="size-1.5 rounded-full bg-primary" />}
           </span>

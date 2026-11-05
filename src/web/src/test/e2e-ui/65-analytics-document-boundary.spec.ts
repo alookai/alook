@@ -147,7 +147,7 @@ for (const signedIn of [false, true]) {
         await page.locator(".hero-section").evaluate(hero => window.scrollTo(0, hero.getBoundingClientRect().bottom + window.scrollY + 1))
         link = page.locator(`.marketing-nav a[href="${destination}"]`)
       } else {
-        const featureTabs: Record<string, string> = { product: "Collaborate", identity: "Your agent", continuity: "Keep context", reach: "On your phone", ownership: "Your setup" }
+        const featureTabs: Record<string, string> = { product: "Collaboration", identity: "Agent identity", continuity: "Persistent Memory", reach: "Remote control", ownership: "Free and local" }
         if (featureTabs[section]) await page.getByRole("tab", { name: featureTabs[section], exact: true }).click()
         link = page.getByTestId(section === "closing" ? "landing-closing-open" : `landing-section-cta-${section}`)
       }

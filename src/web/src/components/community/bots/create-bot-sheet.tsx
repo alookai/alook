@@ -237,7 +237,7 @@ export function CreateBotSheet({
       onOpenChange={handleOpenChange}
       title="Create a bot"
       description={onAskBotToCreate ? (
-        <button type="button" onClick={() => void onAskBotToCreate()} disabled={askingBotToCreate} aria-busy={askingBotToCreate} className="w-fit max-w-full rounded-sm text-left text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50"><span aria-hidden="true">👉 </span>Ask your bot to create more bots.</button>
+        <Button variant="ghost" size="sm" type="button" onClick={() => void onAskBotToCreate()} disabled={askingBotToCreate} aria-busy={askingBotToCreate} className="h-auto w-fit max-w-full whitespace-normal justify-start rounded-sm text-left text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50"><span aria-hidden="true">👉 </span>Ask your bot to create more bots.</Button>
       ) : undefined}
       bodyClassName="flex flex-col gap-6"
       footer={(requestClose) => (

@@ -147,7 +147,7 @@ describe("CommunityOnboardingForm room navigation", () => {
     fireEvent.click(screen.getByTestId("select-harness"))
     expect(screen.getByText("Agent Setup")).toBeInTheDocument()
     expect(mocks.initialize).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole("button", { name: "Manual" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Manual" }))
     expect(screen.getByRole("button", { name: "Machine connected" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Exit manual" }))
     expect(owner.runtime.ui.get().onboardingState).toBeNull()
@@ -259,7 +259,9 @@ describe("CommunityOnboardingForm room navigation", () => {
     fireEvent.click(screen.getByTestId("select-harness"))
     const sdkOnly = harness === "cursor-sdk" || harness === "pi-durable"
     expect(owner.runtime.ui.get().onboardingState?.setupMode).toBe(sdkOnly ? "manual" : "agent")
-    expect(screen.getByTestId("onboarding-mode-agent").hasAttribute("disabled")).toBe(sdkOnly)
+    // the mode switch is the shared Tabs component, which marks a disabled tab with data-disabled / aria-disabled
+    const agentTab = screen.getByTestId("onboarding-mode-agent")
+    expect(agentTab.hasAttribute("disabled") || agentTab.hasAttribute("data-disabled") || agentTab.getAttribute("aria-disabled") === "true").toBe(sdkOnly)
     if (sdkOnly) expect(screen.getByRole("button", { name: "Machine connected" })).toBeInTheDocument()
     else expect(screen.getByText("Agent Setup")).toBeInTheDocument()
     mocks.selectedHarness = "codex"

@@ -423,7 +423,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {backBar}
-        <div ref={emptyStageRef} className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
+        <div ref={emptyStageRef} data-slot="empty-state" className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
           <div className="w-full max-w-70 overflow-hidden rounded-xl">
             <div className="aspect-200/130 w-full">
               <ConnectTile />
@@ -436,7 +436,10 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
               your phone or anywhere, wherever you sign in.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          {/* Room for the Guide me orbit: its avatar circles just outside the
+              button, so the row keeps clear of the copy above and the Connect
+              key beside it (QA #2). */}
+          <div className="mt-3 flex items-center gap-6">
             <Button
               data-onboarding-target="connect-machine"
               data-testid={tid.machinePairOpen}

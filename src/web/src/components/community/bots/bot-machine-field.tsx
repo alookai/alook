@@ -3,6 +3,8 @@
 import type { MachineSummary } from "@/hooks/community/use-machines"
 import { isPresenceOnline } from "@alook/shared"
 import { Label } from "@/components/ui/label"
+import { FieldLabel } from "@/components/ui/field"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { machineName } from "@/lib/community/machine-name"
 import { cn } from "@/lib/utils"
 
@@ -21,9 +23,11 @@ export function BotMachineField({ machines, machineId, onChange, error, radioNam
                 No paired machines — pair one first.
               </p>
             ) : (
-              <div
+              <RadioGroup
+                value={machineId}
+                name={radioName}
+                onValueChange={(value) => onChange(value as string)}
                 className="flex flex-col gap-2"
-                role="radiogroup"
                 aria-label="Machine"
                 data-testid="bot-machine-picker"
               >
@@ -31,22 +35,19 @@ export function BotMachineField({ machines, machineId, onChange, error, radioNam
                   const online = isPresenceOnline(m.status)
                   const selected = machineId === m.id
                   return (
-                    <label
+                    <FieldLabel
                       key={m.id}
+                      data-selected={selected || undefined}
                       className={cn(
-                        "flex items-center gap-2 rounded-lg border p-2 cursor-pointer transition-colors",
+                        "flex w-full items-center gap-2 rounded-lg border p-2 cursor-pointer transition-colors",
                         selected ? "border-primary bg-primary/5" : "border-border/50 hover:border-foreground/20",
                         !online && "opacity-40 pointer-events-none",
                       )}
                     >
-                      <input
-                        type="radio"
-                        name={radioName}
+                      <RadioGroupItem
                         value={m.id}
-                        checked={selected}
                         disabled={!online}
-                        onChange={() => onChange(m.id)}
-                        className="accent-primary size-3.5"
+                        className="size-3.5"
                       />
                       <span className="text-sm">{machineName(m)}</span>
                       <span
@@ -63,10 +64,10 @@ export function BotMachineField({ machines, machineId, onChange, error, radioNam
                         />
                         {online ? "Online" : "Offline"}
                       </span>
-                    </label>
+                    </FieldLabel>
                   )
                 })}
-              </div>
+              </RadioGroup>
             )}
             {error && (
               <p className="text-xs text-destructive">{error}</p>

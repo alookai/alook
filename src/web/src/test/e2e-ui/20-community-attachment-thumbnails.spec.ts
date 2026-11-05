@@ -1022,8 +1022,9 @@ test("HTML attachment markers render once with interactive isolated content acro
     const names = ["background", "foreground", "card", "secondary", "primary", "primary-foreground", "border"]
     await expect.poll(async () => {
       const host = await iframe.evaluate((element, tokens) => {
-        const root = getComputedStyle(document.documentElement), painted = getComputedStyle(element)
-        return { dark: document.documentElement.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color }
+        // Host tokens are the ones in effect at the iframe, which inherits the app theme.
+        const painted = getComputedStyle(element)
+        return { dark: document.documentElement.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, painted.getPropertyValue(`--${name}`).trim()])), foreground: painted.color }
       }, names)
       const embedded = await content.locator("html").evaluate((element, tokens) => {
         const root = getComputedStyle(element), painted = getComputedStyle(document.body)
@@ -1142,7 +1143,17 @@ test("HTML attachment markers render once with interactive isolated content acro
     await expect(transparentFrame).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
     const carrier = await transparentFrame.evaluate(async (element) => {
       const ancestors: Element[] = []
-      for (let node = element.parentElement; node; node = node.parentElement) ancestors.push(node)
+      // Composite only down to the nearest opaque, untextured backing: layers
+      // below it (e.g. the themed machine-shell body) cannot show through.
+      for (let node = element.parentElement; node; node = node.parentElement) {
+        ancestors.push(node)
+        const style = getComputedStyle(node)
+        if (style.backgroundImage === "none" && style.opacity === "1" && /^rgb\(/.test(style.backgroundColor)) break
+      }
+      // Opacity still applies through every outer layer.
+      for (let node = ancestors.at(-1)?.parentElement; node; node = node.parentElement) {
+        if (getComputedStyle(node).opacity !== "1") throw new Error("Preview carrier has a background image or element opacity")
+      }
       await Promise.all(ancestors.flatMap((node) => node.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity).map((animation) => animation.finished)))
       const canvas = document.createElement("canvas")
       canvas.width = canvas.height = 1
@@ -1162,7 +1173,9 @@ test("HTML attachment markers render once with interactive isolated content acro
     const screenshot = await transparentFrame.screenshot({ scale: "css" })
     await testInfo.attach(name, { body: screenshot, contentType: "image/png" })
     const canvas = [...await sharp(screenshot).extract({ left: 2, top: 2, width: 1, height: 1 }).removeAlpha().raw().toBuffer()]
-    expect(canvas).toEqual(carrier.rgb)
+    // A translucent carrier layer (the 3.5% message hover) is blended by the
+    // compositor and by Canvas2D with different rounding: allow 1/255.
+    for (const [index, channel] of canvas.entries()) expect(Math.abs(channel - carrier.rgb[index]!)).toBeLessThanOrEqual(1)
     return { screenshot, canvas, carrier }
   }
   async function transparentPixels(name: string) {

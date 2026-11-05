@@ -1,0 +1,12 @@
+.accent {
+  display: inline-block;
+  color: var(--tn-blue, #4f7fc7);
+  font-family: var(--font-caveat), cursive;
+  font-size: 1.14em;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 0.9;
+  /* A hand-drawn word sits a touch off the baseline, like a margin note. */
+  transform: rotate(-1.5deg) translateY(0.02em);
+  transform-origin: 0 70%;
+}

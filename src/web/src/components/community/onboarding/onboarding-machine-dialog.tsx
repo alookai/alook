@@ -22,6 +22,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  OnboardingProgress,
 } from "./onboarding-surface"
 import { useJoinServer } from "@/hooks/community/mutations/servers"
 import { useMachines } from "@/hooks/community/use-machines"
@@ -179,14 +180,7 @@ export function OnboardingMachineDialog({
         className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 thin-scrollbar sm:max-w-lg"
       >
         <DialogHeader className="gap-4 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 sm:pb-6">
-          <div className="flex gap-1 pr-8" aria-label={`Step 2 of ${totalSteps}`}>
-            {Array.from({ length: totalSteps }, (_, index) => index + 1).map((step) => (
-              <span
-                key={step}
-                className={step <= 2 ? "h-1 flex-1 rounded-full bg-primary" : "h-1 flex-1 rounded-full bg-muted"}
-              />
-            ))}
-          </div>
+          <OnboardingProgress current={2} total={totalSteps} />
           <div className="flex flex-col gap-2">
             <DialogTitle className="flex flex-wrap items-center gap-x-2 text-2xl leading-tight font-semibold tracking-tight">
               {unavailableMachine ? (
@@ -297,6 +291,8 @@ export function OnboardingMachineDialog({
                   target="_blank"
                   rel="noopener noreferrer"
                   data-testid={tid.onboardingOpenSupport}
+                  data-variant="default"
+                  data-size="default"
                   className={buttonVariants({ className: "h-11 w-full sm:h-9 sm:w-auto" })}
                 >
                   Open Alook Support

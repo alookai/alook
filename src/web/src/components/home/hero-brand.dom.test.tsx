@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from "@/test/react-dom-harness";
 
 vi.mock("@gsap/react", () => ({ useGSAP: vi.fn() }));
 vi.mock("gsap", () => ({ default: { registerPlugin: vi.fn() } }));
-vi.mock("@/components/typewriter-visual", () => ({ TypewriterVisual: ({ onPaperSettled }: { onPaperSettled?: () => void }) => <button onClick={onPaperSettled}>Finish paper</button> }));
+vi.mock("@/components/typewriter-visual", () => ({ TypewriterVisual: ({ onPaperSettled, frontFacing }: { onPaperSettled?: () => void; frontFacing?: boolean }) => <button data-front-facing={frontFacing} onClick={onPaperSettled}>Finish paper</button> }));
 
 import { HeroSection } from "./hero-section";
 
@@ -66,4 +66,16 @@ it("releases the scheduler on a failed hero image and removes pending handlers o
   view.unmount();
   fireEvent.load(image);
   expect(ready).toHaveBeenCalledTimes(1);
+});
+
+
+it.each([false, true])("turns the homepage machine toward a hovered primary CTA with logged-in=%s", (isLoggedIn) => {
+  render(<HeroSection isLoggedIn={isLoggedIn} typewriterInteraction="hover" showCommunityLinks={false} />);
+  const machine = screen.getByRole("button", { name: "Finish paper" });
+  const primary = screen.getByRole("link", { name: isLoggedIn ? "Open app" : "Get started" });
+  expect(machine).toHaveAttribute("data-front-facing", "false");
+  fireEvent.mouseEnter(primary);
+  expect(machine).toHaveAttribute("data-front-facing", "true");
+  fireEvent.mouseLeave(primary);
+  expect(machine).toHaveAttribute("data-front-facing", "false");
 });

@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import technostalgia from "@/components/brand/technostalgia.module.css";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { TypewriterVisual } from "@/components/typewriter-visual";
 
 export function ErrorContent({
@@ -10,17 +12,12 @@ export function ErrorContent({
 	reset: () => void;
 	hardHomeNavigation?: boolean;
 }) {
-	const homeClassName = "inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70";
-	const homeStyle = {
-		fontFamily: "var(--font-mono)",
-		color: "var(--landing-text)",
-		border: "1px solid var(--landing-border)",
-	};
+	const homeClassName = buttonVariants({ variant: "secondary", size: "lg", className: "h-11 px-5" });
 
 	return (
 		<div
-			className="landing flex flex-1 flex-col items-center justify-center px-6"
-			style={{ backgroundColor: "var(--landing-bg)" }}
+			className={`${technostalgia.theme} landing flex flex-1 flex-col items-center justify-center px-6`}
+			style={{ backgroundColor: "var(--background)" }}
 		>
 			<div className="w-full max-w-md">
 				<TypewriterVisual
@@ -30,24 +27,24 @@ export function ErrorContent({
 							<div
 								className="tw-email-headers"
 								style={{
-									fontFamily: "var(--font-crt)",
+									fontFamily: "var(--font-sans)",
 									fontSize: "15px",
-									color: "var(--landing-text-muted)",
+									color: "var(--tn-ink, #1f1a15)",
 									lineHeight: 1.7,
 									borderBottom: "1px solid oklch(0.15 0.01 55 / 10%)",
 									paddingBottom: "10px",
 									marginBottom: "12px",
 								}}
 							>
-								<div className="tw-email-line"><span style={{ color: "var(--landing-text)" }}>From:</span>{" "}system@alook.ai</div>
-								<div className="tw-email-line"><span style={{ color: "var(--landing-text)" }}>To:</span>{" "}you</div>
-								<div className="tw-email-line"><span style={{ color: "var(--landing-text)" }}>Subject:</span>{" "}Something went wrong</div>
+								<div className="tw-email-line"><span style={{ color: "var(--tn-ink, #1f1a15)" }}>From:</span>{" "}system@alook.ai</div>
+								<div className="tw-email-line"><span style={{ color: "var(--tn-ink, #1f1a15)" }}>To:</span>{" "}you</div>
+								<div className="tw-email-line"><span style={{ color: "var(--tn-ink, #1f1a15)" }}>Subject:</span>{" "}Something went wrong</div>
 							</div>
 							<div
 								className="tw-email-body"
 								style={{
-									fontFamily: "var(--font-crt)",
-									color: "var(--landing-text)",
+									fontFamily: "var(--font-sans)",
+									color: "var(--tn-ink, #1f1a15)",
 									fontSize: "17px",
 									lineHeight: 1.6,
 								}}
@@ -59,23 +56,15 @@ export function ErrorContent({
 				/>
 			</div>
 			<div className="mt-8 flex items-center gap-4">
-				<button
-					onClick={reset}
-					className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
-					style={{
-						fontFamily: "var(--font-mono)",
-						color: "var(--landing-bg)",
-						backgroundColor: "var(--landing-text)",
-					}}
-				>
+				<Button onClick={reset} size="lg" className="h-11 px-5">
 					Try again
-				</button>
+				</Button>
 				{hardHomeNavigation ? (
 					// This component also renders inside the independently routed Blog Worker.
 					// eslint-disable-next-line @next/next/no-html-link-for-pages
-					<a href="/" className={homeClassName} style={homeStyle}>Go home</a>
+					<a href="/" data-variant="secondary" data-size="lg" className={homeClassName}>Go home</a>
 				) : (
-					<Link href="/" className={homeClassName} style={homeStyle}>Go home</Link>
+					<Link href="/" data-variant="secondary" data-size="lg" className={homeClassName}>Go home</Link>
 				)}
 			</div>
 		</div>

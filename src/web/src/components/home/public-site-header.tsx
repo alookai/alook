@@ -1,20 +1,19 @@
-import Image from "next/image"
-import Link from "next/link"
-import { MARKETING_SITE_LINKS } from "./marketing-site-links"
+import { MarketingNav } from "./marketing-nav"
 import landing from "./landing-page.module.css"
-import styles from "./public-site-header.module.css"
 
+/** Download, Pricing and Contact use the home page's bar: same logo
+ * position, links, socials and Get started key (QA #14). It is sticky and
+ * always shown, since these pages have no hero to reveal it after. */
 export function PublicSiteHeader({ currentPath }: { currentPath: string }) {
-  return <header className={styles.header}>
-    <Link href="/" className={landing.brand} aria-label="Alook home">
-      <Image src="/alook.svg" alt="" width={28} height={28} />
-      <span>Alook</span>
-    </Link>
-    <nav className={styles.links} aria-label="Site navigation">
-      {MARKETING_SITE_LINKS.map(link => link.usesDocumentNavigation
-        ? <a key={link.href} href={link.href} aria-current={currentPath === link.href ? "page" : undefined}>{link.label}</a>
-        : <Link key={link.href} href={link.href} aria-current={currentPath === link.href ? "page" : undefined}>{link.label}</Link>)}
-    </nav>
-    <Link href="/" className={styles.back}>Back to home</Link>
-  </header>
+  return (
+    <MarketingNav
+      isLoggedIn={false}
+      showTemplates={false}
+      sticky
+      highlightActions
+      ariaLabel="Site navigation"
+      currentPath={currentPath}
+      containerClassName={landing.siteContainer}
+    />
+  )
 }
