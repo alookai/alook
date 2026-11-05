@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   inspect-testflight45:
-    name: Inspect TestFlight45 (GET only)
+    name: Inspect TestFlight45 preflight (GET only)
     if: github.event_name == 'workflow_dispatch' && inputs.ios == false && inputs.android == false && inputs.upload == false && inputs.play_upload == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -46,19 +46,19 @@ jobs:
         with:
           node-version: 22
       - name: Test read-only request and redaction contracts
-        run: node --test scripts/ci/inspect-testflight-build.test.mjs
-      - name: Read processing and associated TestFlight groups
+        run: node --test scripts/ci/inspect-testflight-preflight.test.mjs
+      - name: Read TestFlight45 distribution prerequisites
         env:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-        run: node scripts/ci/inspect-testflight-build.mjs .ci/testflight45-status.json
+        run: node scripts/ci/inspect-testflight-preflight.mjs .ci/testflight45-preflight.json
       - name: Upload sanitized read-only receipt
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: testflight45-status-${{ github.run_id }}
-          path: .ci/testflight45-status.json
+          name: testflight45-preflight-${{ github.run_id }}
+          path: .ci/testflight45-preflight.json
           if-no-files-found: error
           retention-days: 14
 
