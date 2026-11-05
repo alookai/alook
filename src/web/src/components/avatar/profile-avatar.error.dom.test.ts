@@ -41,8 +41,7 @@ describe("ProfileAvatar photo errors", () => {
     await act(async () => { await Promise.resolve() })
     rendered.rerender(element("/second.png"))
     expect(original.isConnected).toBe(true)
-    expect(original).toHaveClass("opacity-100")
-    expect(placeholder(rendered.container)).not.toHaveClass("animate-pulse")
+
     rendered.rerender(element("/second.png", "user_2"))
     expect(original.isConnected).toBe(false)
     expect(photo(rendered.container)).toHaveAttribute("src", "/second.png")
@@ -95,7 +94,7 @@ describe("ProfileAvatar photo errors", () => {
     expect(rendered.container.querySelector("svg")).toBeInTheDocument()
   })
 
-  it("reveals a cached photo whose load event completed before hydration", async () => {
+  it("settles a photo cached before hydration", async () => {
     mockImageReadiness(true, 40, 40)
     const rendered = render(createElement(ProfileAvatar, {
       label: "Ada",
@@ -106,10 +105,10 @@ describe("ProfileAvatar photo errors", () => {
     await waitFor(() => expect(photo(rendered.container))
       .toHaveAttribute("data-avatar-photo-state", "ready"))
     expect(placeholder(rendered.container)).not.toHaveAttribute("data-avatar-photo-placeholder")
-    expect(placeholder(rendered.container)).not.toHaveClass("animate-pulse")
+
   })
 
-  it("shows a static neutral placeholder when a cached photo failed before hydration", () => {
+  it("reports a cached photo error without a letter or SVG fallback", () => {
     mockImageReadiness(true, 0, 0)
     const rendered = render(createElement(ProfileAvatar, {
       label: "Ada",
@@ -119,13 +118,13 @@ describe("ProfileAvatar photo errors", () => {
 
     expect(photo(rendered.container)).toHaveAttribute("data-avatar-photo-state", "failed")
     expect(placeholder(rendered.container)).toHaveAttribute("data-avatar-photo-placeholder", "failed")
-    expect(placeholder(rendered.container)).not.toHaveClass("animate-pulse")
+
     expect(rendered.container.querySelector('[data-slot="avatar-fallback"]')).not.toBeInTheDocument()
     expect(rendered.container.querySelector("svg")).not.toBeInTheDocument()
     expect(rendered.container).not.toHaveTextContent("A")
   })
 
-  it("stops the neutral skeleton after the photo reports an error", () => {
+  it("reports a native photo error without changing identity fallback", () => {
     const rendered = render(createElement(ProfileAvatar, {
       label: "Ada",
       src: "https://cdn.example.com/missing.png",
@@ -138,11 +137,11 @@ describe("ProfileAvatar photo errors", () => {
 
     expect(photo(rendered.container)).toHaveAttribute("data-avatar-photo-state", "failed")
     expect(placeholder(rendered.container)).toHaveAttribute("data-avatar-photo-placeholder", "failed")
-    expect(placeholder(rendered.container)).not.toHaveClass("animate-pulse")
+
     expect(rendered.container.querySelector('[data-slot="avatar-fallback"]')).not.toBeInTheDocument()
   })
 
-  it("reveals a loaded photo over its retained neutral placeholder", async () => {
+  it("retains the loaded photo ready state after timer advancement", async () => {
     vi.useFakeTimers()
     const rendered = render(createElement(ProfileAvatar, {
       label: "Ada",
@@ -156,13 +155,12 @@ describe("ProfileAvatar photo errors", () => {
 
     expect(photo(rendered.container)).toHaveAttribute("data-avatar-photo-state", "ready")
     expect(placeholder(rendered.container)).not.toHaveAttribute("data-avatar-photo-placeholder")
-    expect(placeholder(rendered.container)).not.toHaveClass("animate-pulse")
 
     await act(async () => vi.advanceTimersByTime(5_000))
     expect(photo(rendered.container)).toHaveAttribute("data-avatar-photo-state", "ready")
   })
 
-  it("keeps a slow photo pending and reveals its late success", async () => {
+  it("keeps a slow photo pending until its late success", async () => {
     vi.useFakeTimers()
     const rendered = render(createElement(ProfileAvatar, {
       label: "Ada",
@@ -175,17 +173,16 @@ describe("ProfileAvatar photo errors", () => {
     const image = photo(rendered.container)
     expect(image).toHaveAttribute("data-avatar-photo-state", "pending")
     expect(placeholder(rendered.container)).toHaveAttribute("data-avatar-photo-placeholder", "pending")
-    expect(placeholder(rendered.container)).toHaveClass("animate-pulse")
 
     setLoadedImageMetrics(image)
     fireEvent.load(image)
     await act(async () => { await Promise.resolve() })
     expect(photo(rendered.container)).toHaveAttribute("data-avatar-photo-state", "ready")
     expect(placeholder(rendered.container)).not.toHaveAttribute("data-avatar-photo-placeholder")
-    expect(placeholder(rendered.container)).not.toHaveClass("animate-pulse")
+
   })
 
-  it("retries from a neutral skeleton when the photo source changes", () => {
+  it("resets a failed photo to pending for the new source", () => {
     const props = { label: "Ada", seed: "user_1" }
     const rendered = render(createElement(ProfileAvatar, {
       ...props,
@@ -201,7 +198,7 @@ describe("ProfileAvatar photo errors", () => {
     expect(photo(rendered.container)).toHaveAttribute("src", "https://cdn.example.com/second.png")
     expect(photo(rendered.container)).toHaveAttribute("data-avatar-photo-state", "pending")
     expect(placeholder(rendered.container)).toHaveAttribute("data-avatar-photo-placeholder", "pending")
-    expect(placeholder(rendered.container)).toHaveClass("animate-pulse")
+
     expect(rendered.container.querySelector('[data-slot="avatar-fallback"]')).not.toBeInTheDocument()
   })
 })

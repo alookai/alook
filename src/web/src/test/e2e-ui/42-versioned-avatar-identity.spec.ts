@@ -1,5 +1,6 @@
 import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
-import type { Page } from "@playwright/test"
+import sharp from "sharp"
+import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 
@@ -69,9 +70,23 @@ async function uploadSolidAvatar(page: Page, color: string): Promise<AvatarUploa
 async function expectPhoto(locator: ReturnType<Page["locator"]>, url: string) {
   const photo = locator.locator(`img[src="${url}"]`).first()
   await expect(photo).toBeVisible({ timeout: 20_000 })
-  await expect.poll(() => photo.evaluate((image: HTMLImageElement) => (
-    image.complete && image.naturalWidth > 0
-  )), { timeout: 20_000 }).toBe(true)
+  await expect.poll(() => photo.evaluate((image: HTMLImageElement) => {
+    let opacity = 1
+    for (let current: Element | null = image; current; current = current.parentElement) {
+      opacity *= Number(getComputedStyle(current).opacity)
+    }
+    return image.complete && image.naturalWidth > 0 && image.naturalHeight > 0
+      && Number(getComputedStyle(image).opacity) === 1 && opacity > 0
+  }), { timeout: 20_000 }).toBe(true)
+}
+
+async function paintedPixel(photo: Locator): Promise<number[]> {
+  const screenshot = await photo.screenshot({ animations: "allow", scale: "css" })
+  const { data, info } = await sharp(screenshot).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  expect(info.width).toBeGreaterThan(0)
+  expect(info.height).toBeGreaterThan(0)
+  const offset = (Math.floor(info.height * 0.3) * info.width + Math.floor(info.width * 0.3)) * info.channels
+  return [...data.subarray(offset, offset + 3)]
 }
 
 test("versioned avatars converge across live, stale, reconnect, cold, and concurrent clients", async ({ caseActors, caseResources }, testInfo) => {
@@ -132,6 +147,9 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
   await expectPhoto(message, warm.url)
   const warmImage = await message.locator(`img[src="${warm.url}"]`).first().elementHandle()
   if (!warmImage) throw new Error("Warm identity image is missing")
+  const warmPixel = await paintedPixel(message.locator(`img[src="${warm.url}"]`).first())
+  expect(warmPixel[0]! - warmPixel[1]!).toBeGreaterThan(60)
+  expect(warmPixel[0]! - warmPixel[2]!).toBeGreaterThan(60)
 
   const profileGate = deferred(caseResources)
   const profileStarted = deferred(caseResources)
@@ -173,30 +191,35 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
       (event) => event.avatarVersion === second.avatarVersion,
     ), { timeout: 20_000 }).toBe(true)
     await avatarStarted.promise
-    const { current, pixels, naturalWidth, naturalHeight, ...pendingImage } = await warmImage.evaluate((image: HTMLImageElement) => ({
+    const { current, pixels, naturalWidth, naturalHeight, transition, ...pendingImage } = await warmImage.evaluate((image: HTMLImageElement) => ({
       connected: image.isConnected,
       source: image.getAttribute("src"),
       current: image.currentSrc,
-      opacity: getComputedStyle(image).opacity,
+      opacity: Number(getComputedStyle(image).opacity),
       transition: getComputedStyle(image).transitionProperty,
       pixels: image.naturalWidth > 0 && image.naturalHeight > 0,
       naturalWidth: image.naturalWidth,
       naturalHeight: image.naturalHeight,
     }))
     await testInfo.attach("pending-avatar-image", {
-      body: JSON.stringify({ ...pendingImage, current, pixels, naturalWidth, naturalHeight }),
+      body: JSON.stringify({ ...pendingImage, current, pixels, naturalWidth, naturalHeight, transition }),
       contentType: "application/json",
     })
     expect(pendingImage).toEqual({
       connected: true,
       source: second.url,
-      opacity: "1",
-      transition: "none",
+      opacity: 1,
     })
     await expect(message.locator(`img[src="${second.url}"]`)).toBeVisible()
-    await expect(message.locator('[data-remote-image-placeholder="identity"].animate-pulse')).toHaveCount(0)
+    const pendingPixel = await paintedPixel(message.locator(`img[src="${second.url}"]`).first())
+    for (let channel = 0; channel < 3; channel++) {
+      expect(Math.abs(pendingPixel[channel]! - warmPixel[channel]!)).toBeLessThanOrEqual(8)
+    }
     avatarGate.resolve()
     await expectPhoto(message, second.url)
+    const readyPixel = await paintedPixel(message.locator(`img[src="${second.url}"]`).first())
+    expect(readyPixel[2]! - readyPixel[0]!).toBeGreaterThan(60)
+    expect(readyPixel[2]! - readyPixel[1]!).toBeGreaterThan(60)
     expect(await warmImage.evaluate((image: HTMLImageElement) => ({
       connected: image.isConnected,
       source: image.getAttribute("src"),
