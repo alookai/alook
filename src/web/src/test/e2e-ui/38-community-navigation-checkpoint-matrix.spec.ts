@@ -10,12 +10,15 @@ function channelHeader(page: Page, name: string) {
 
 type SurfaceAnimationRecord = {
   surface: string | null
+  transforms: string[]
+  duration: number
 }
 
 type SurfaceFrameRecord = {
   pathname: string
   surface: string | null
   transform: string
+  translateX: number
   opacity: string
   rows: string[]
   pendingMain: string | null
@@ -26,9 +29,7 @@ async function installSurfaceAnimationProbe(page: Page) {
   const channelRowPrefix = tid.channelRow("")
   await page.addInitScript(({ channelRowPrefix }) => {
     const state = window as typeof window & {
-      __communitySurfaceAnimations?: Array<{
-        surface: string | null
-      }>
+      __communitySurfaceAnimations?: SurfaceAnimationRecord[]
       __communitySurfaceFrames?: SurfaceFrameRecord[]
       __communitySurfaceFrameStop?: () => void
     }
@@ -36,17 +37,20 @@ async function installSurfaceAnimationProbe(page: Page) {
     state.__communitySurfaceFrames = []
     const nativeAnimate = Element.prototype.animate
     Element.prototype.animate = function (keyframes, options) {
+      const animation = nativeAnimate.call(this, keyframes, options)
       if (this.hasAttribute("data-community-mobile-surface")) {
         state.__communitySurfaceAnimations!.push({
           surface: this.getAttribute("data-community-mobile-surface"),
+          transforms: (animation.effect as KeyframeEffect).getKeyframes().map(frame => String(frame.transform ?? "none")),
+          duration: Number(animation.effect!.getTiming().duration),
         })
       }
-      return nativeAnimate.call(this, keyframes, options)
+      return animation
     }
 
     let raf = 0
     const sample = () => {
-      for (const surface of document.querySelectorAll<HTMLElement>("[data-community-mobile-surface]")) {
+      for (const surface of document.querySelectorAll<HTMLElement>('[data-slot="community-sidebar-panel-content"], [data-slot="community-main-panel-content"]')) {
         const style = getComputedStyle(surface)
         if (style.display === "none" || surface.getClientRects().length === 0) continue
         const rows = Array.from(surface.querySelectorAll<HTMLElement>(
@@ -57,8 +61,9 @@ async function installSurfaceAnimationProbe(page: Page) {
         }).map((row) => row.dataset.testid!.replace(channelRowPrefix, ""))
         state.__communitySurfaceFrames!.push({
           pathname: location.pathname,
-          surface: surface.getAttribute("data-community-mobile-surface"),
+          surface: surface.dataset.slot === "community-sidebar-panel-content" ? "list" : "detail",
           transform: style.transform,
+          translateX: style.transform === "none" ? 0 : new DOMMatrixReadOnly(style.transform).m41,
           opacity: style.opacity,
           rows,
           pendingMain: surface.querySelector<HTMLElement>("[data-community-main-kind]")
@@ -101,6 +106,27 @@ function expectStationaryFrames(frames: SurfaceFrameRecord[]) {
   expect(frames.length).toBeGreaterThan(0)
   for (const frame of frames) {
     expect(["none", "matrix(1, 0, 0, 1, 0, 0)"]).toContain(frame.transform)
+    expect(frame.opacity).toBe("1")
+  }
+}
+
+async function expectDetailEntry(page: Page) {
+  const detail = page.locator('[data-community-mobile-surface="detail"]')
+  await expect.poll(() => detail.evaluate(element => getComputedStyle(element).transform)).toBe("none")
+  const animations = await surfaceAnimations(page)
+  expect(animations).toHaveLength(1)
+  expect(animations[0].surface).toBe("detail")
+  expect(animations[0].duration).toBe(280)
+  expect(animations[0].transforms[0]).toMatch(/translate3d\(100%,/)
+  expect(animations[0].transforms.at(-1)).toMatch(/translate3d\(0(?:px)?,/)
+  const frames = await surfaceFrames(page)
+  expectStationaryFrames(frames.filter(frame => frame.surface === "list"))
+  const detailFrames = frames.filter(frame => frame.surface === "detail")
+  expect(detailFrames.some(frame => frame.translateX > 0)).toBe(true)
+  const width = page.viewportSize()!.width
+  for (const frame of detailFrames) {
+    expect(frame.translateX).toBeGreaterThanOrEqual(-0.5)
+    expect(frame.translateX).toBeLessThanOrEqual(width + 0.5)
     expect(frame.opacity).toBe("1")
   }
 }
@@ -208,7 +234,7 @@ test("community checkpoint shows target pending for detail and keeps list surfac
   expect(mutations).toEqual([])
 })
 
-test("mobile route commits stay stationary while sidebar identity survives same-server history", async ({ caseActors, caseResources }) => {
+test("mobile detail enters once while sidebar identity survives pending and same-server history", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
 
   const actors = await caseActors(["alice"])
@@ -241,8 +267,7 @@ test("mobile route commits stay stationary while sidebar identity survives same-
   await expect.poll(() => new URL(page.url()).pathname)
     .toBe(`/c/channels/${serverId}/${fastChannel}`)
   await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-  expect(await surfaceAnimations(page)).toEqual([])
-  expectStationaryFrames(await surfaceFrames(page))
+  await expectDetailEntry(page)
   expect(await sidebarScroll.evaluate((element) => (
     element as typeof element & { __e2eIdentity?: string }
   ).__e2eIdentity)).toBe("stable")
@@ -253,8 +278,8 @@ test("mobile route commits stay stationary while sidebar identity survives same-
   await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
   await expect(fastRow).toBeVisible()
-  expect(await surfaceAnimations(page)).toEqual([])
-  expectStationaryFrames(await surfaceFrames(page))
+  expect(await surfaceAnimations(page)).toHaveLength(1)
+  expectStationaryFrames((await surfaceFrames(page)).filter(frame => frame.surface === "list"))
   expect(await sidebarScroll.evaluate((element) => (
     element as typeof element & { __e2eIdentity?: string }
   ).__e2eIdentity)).toBe("stable")
@@ -290,8 +315,7 @@ test("mobile route commits stay stationary while sidebar identity survives same-
   await expect.poll(() => new URL(page.url()).pathname).toBe(pendingPath)
   await expect(page.getByTestId(tid.composerInput)).toBeVisible({ timeout: 30_000 })
   await expect(targetReady).toBeVisible()
-  expect(await surfaceAnimations(page)).toEqual([])
-  expectStationaryFrames(await surfaceFrames(page))
+  await expectDetailEntry(page)
   expect(await sidebarScroll.evaluate((element) => (
     element as typeof element & { __e2eIdentity?: string }
   ).__e2eIdentity)).toBe("stable")
@@ -299,15 +323,16 @@ test("mobile route commits stay stationary while sidebar identity survives same-
     element as typeof element & { __e2eDndOwner?: string }
   ).__e2eDndOwner)).toBe("stable")
 
+  await clearSurfaceAnimations(page)
   await page.goBack()
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
   await expect(fastRow).toBeVisible()
   await page.goForward()
   await expect.poll(() => new URL(page.url()).pathname).toBe(pendingPath)
   await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-  expect(await surfaceAnimations(page)).toEqual([])
-  expectStationaryFrames(await surfaceFrames(page))
+  await expectDetailEntry(page)
 
+  await clearSurfaceAnimations(page)
   await page.goBack()
   await expect(fastRow).toBeVisible()
   await page.getByTestId(tid.homeButton).click()
@@ -321,4 +346,15 @@ test("mobile route commits stay stationary while sidebar identity survives same-
   const targetFrames = finalFrames.filter((frame) => frame.rows.includes(fastChannel))
   expect(targetFrames.length).toBeGreaterThan(0)
   expect(targetFrames.every((frame) => frame.treeScope === `server:${serverId}`)).toBe(true)
+
+  await page.setViewportSize({ width: 640, height: 844 })
+  await clearSurfaceAnimations(page)
+  await fastRow.click()
+  await expect(channelHeader(page, fastName)).toBeVisible()
+  await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+  expect(await surfaceAnimations(page)).toEqual([])
+  expectStationaryFrames(await surfaceFrames(page))
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+  expect(await surfaceAnimations(page)).toEqual([])
 })

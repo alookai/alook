@@ -1165,13 +1165,21 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await alice.page.emulateMedia({ reducedMotion: "reduce" })
   await alice.page.evaluate(() => {
     const original = Element.prototype.animate
-    ;(window as typeof window & { __mobileSurfaceAnimations?: number }).__mobileSurfaceAnimations = 0
+    type SurfaceMotion = { surface: string; transforms: string[]; opacities: string[]; duration: number }
+    const state = window as typeof window & { __mobileSurfaceAnimations?: SurfaceMotion[] }
+    state.__mobileSurfaceAnimations = []
     Element.prototype.animate = function (...args) {
+      const animation = original.apply(this, args)
       if ((this as HTMLElement).dataset.communityMobileSurface) {
-        const state = window as typeof window & { __mobileSurfaceAnimations?: number }
-        state.__mobileSurfaceAnimations = (state.__mobileSurfaceAnimations ?? 0) + 1
+        const frames = (animation.effect as KeyframeEffect).getKeyframes()
+        state.__mobileSurfaceAnimations!.push({
+          surface: (this as HTMLElement).dataset.communityMobileSurface!,
+          transforms: frames.map(frame => String(frame.transform ?? "none")),
+          opacities: frames.map(frame => String(frame.opacity)),
+          duration: Number(animation.effect!.getTiming().duration),
+        })
       }
-      return original.apply(this, args)
+      return animation
     }
   })
   await alice.page.getByRole("button", { name: "Back" }).click()
@@ -1182,8 +1190,15 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
   await expect(composerEditable(alice.page)).toBeVisible()
   expect(await alice.page.evaluate(() => (
-    window as typeof window & { __mobileSurfaceAnimations?: number }
-  ).__mobileSurfaceAnimations)).toBe(0)
+    window as typeof window & { __mobileSurfaceAnimations?: unknown[] }
+  ).__mobileSurfaceAnimations)).toEqual([{
+    surface: "detail",
+    transforms: ["none", "none"],
+    opacities: ["0", "1"],
+    duration: 100,
+  }])
+  await expect.poll(() => alice.page.locator('[data-community-mobile-surface="detail"]')
+    .evaluate(element => getComputedStyle(element).transform)).toBe("none")
 
   const navigationDraft = `navigation draft ${stamp}`
   const navigationEditable = composerEditable(alice.page)
