@@ -265,7 +265,7 @@ test.describe("mobile layout", () => {
     await page.getByRole("menuitem", { name: "Pinned messages", exact: true }).click()
     const publishedPins = page.getByRole("dialog")
     await expect(publishedPins.getByRole("button").filter({ hasText: "mobile seq command target" })).toBeVisible()
-    await expect(page.getByTestId("business-schema-update")).toHaveCount(0)
+    await expect(page.getByTestId(tid.businessSchemaUpdate)).toHaveCount(0)
     await publishedPins.getByRole("button", { name: "Close", exact: true }).click()
     await expect(publishedPins).toBeHidden()
 
@@ -285,7 +285,7 @@ test.describe("mobile layout", () => {
     expect(thread.resources.messages.map((message: { id: string }) => message.id).sort()).toEqual([childMessageId, childReplyTo].sort())
     await expect.poll(() => new URL(page.url()).searchParams.has("seq")).toBe(false)
     await expect(page.getByRole("dialog").getByText("mobile child seq target")).toBeVisible()
-    await expect(page.getByTestId("business-schema-update")).toHaveCount(0)
+    await expect(page.getByTestId(tid.businessSchemaUpdate)).toHaveCount(0)
   })
 
   test("rejects the removed nested route and clears nested last-channel memory", async ({ caseActors }) => {

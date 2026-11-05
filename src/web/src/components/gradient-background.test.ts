@@ -5,13 +5,13 @@ import { describe, expect, it } from "vitest";
 import { GradientBackground } from "./gradient-background";
 
 describe("GradientBackground", () => {
-  it("renders the shared app background token", () => {
+  it("renders the shared app frame token", () => {
     const markup = renderToStaticMarkup(createElement(GradientBackground));
 
-    expect(markup).toContain("bg-(--app-bg)");
+    expect(markup).toContain("bg-(--app-frame)");
   });
 
-  it("keeps the app rail and document on the chat background in both themes", () => {
+  it("keeps the default reading surface and document fallback in both themes", () => {
     const css = rawContractInput0;
 
     expect(css).toMatch(/:root\s*\{[^}]*--app-bg:\s*var\(--background\);/s);

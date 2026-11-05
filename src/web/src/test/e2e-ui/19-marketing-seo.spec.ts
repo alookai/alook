@@ -30,6 +30,7 @@ test("homepage header, body, and footer share responsive content edges", async (
     { width: 640, height: 900, stacked: false },
     { width: 768, height: 900, stacked: false },
     { width: 390, height: 844, stacked: true },
+    { width: 320, height: 844, stacked: true },
   ]) {
     await page.setViewportSize(viewport)
     await page.evaluate(() => new Promise<void>((resolveValue) => {
@@ -64,6 +65,12 @@ test("homepage header, body, and footer share responsive content edges", async (
       social: await rect(tid.landingFooterSocial),
       socialTargets,
       documentWidth: await page.evaluate(() => document.documentElement.scrollWidth),
+      sloganContent: await page.getByTestId(tid.landingFooterSlogan).evaluate((element) => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+      })),
       sloganWhiteSpace: await page
         .getByTestId(tid.landingFooterSlogan)
         .evaluate((element) => getComputedStyle(element).whiteSpace),
@@ -87,7 +94,9 @@ test("homepage header, body, and footer share responsive content edges", async (
       expect(geometry.brand.bottom).toBeLessThanOrEqual(geometry.slogan.top)
       expect(geometry.slogan.bottom).toBeLessThanOrEqual(geometry.social.top)
       expect(geometry.social.bottom).toBeLessThanOrEqual(geometry.navigation.top)
-      expect(geometry.sloganWhiteSpace).toBe("nowrap")
+      expect(geometry.sloganWhiteSpace).toBe("normal")
+      expect(geometry.sloganContent.scrollWidth).toBeLessThanOrEqual(geometry.sloganContent.clientWidth)
+      expect(geometry.sloganContent.scrollHeight).toBeLessThanOrEqual(geometry.sloganContent.clientHeight)
       for (const group of [geometry.brand, geometry.slogan, geometry.social]) {
         expect(Math.abs((group.left + group.right) / 2 - footerCenter)).toBeLessThanOrEqual(1)
       }

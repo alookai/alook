@@ -16,7 +16,7 @@ it("installs the public delegate only on the verified Tauri root and retains its
   expect(start).toBeGreaterThan(0)
   expect(end).toBeGreaterThan(start)
   const layout = runtime.split("- (void)alook_viewDidLayoutSubviews {")[1]?.split("\n}\n")[0] ?? ""
-  expect(layout).toMatch(/WKWebView \*webView = \(WKWebView \*\)subview;\s+if \(isTauriRoot\) \{\s+alookInstallCommunityRootScrollLock\(self.view, webView\);/)
+  expect(layout.replace(/\/\/[^\n]*/g, "")).toMatch(/WKWebView \*webView = \(WKWebView \*\)subview;\s+if \(isTauriRoot\) \{\s+webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;\s+alookInstallCommunityRootScrollLock\(self.view, webView\);/)
   const install = runtime.slice(end).split("\n}\n")[0]
   expect(install).toContain("webView.superview != host")
   expect(install).toContain("if (observing) return")

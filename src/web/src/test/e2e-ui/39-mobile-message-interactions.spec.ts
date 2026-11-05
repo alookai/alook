@@ -41,10 +41,10 @@ function frameHasMessage(
 
 type ScrollerGeometry = {
   top: number
-  bottom: number
-  height: number
-  clientHeight: number
-  scrollHeight: number
+  readableBottom: number
+  readableHeight: number
+  readableClientHeight: number
+  contentHeight: number
   scrollTop: number
   firstVisibleId: string | null
   firstVisibleOffset: number | null
@@ -57,14 +57,15 @@ async function settledScrollerGeometry(page: Page): Promise<ScrollerGeometry> {
   await expect.poll(async () => {
     const current = await scroller.evaluate((element) => {
       const rect = element.getBoundingClientRect()
+      const occlusion = Number((element as HTMLElement).dataset.composerOcclusion ?? 0)
       const firstVisible = Array.from(element.querySelectorAll<HTMLElement>("[data-msg-id]"))
         .find((row) => row.getBoundingClientRect().bottom > rect.top)
       return {
         top: rect.top,
-        bottom: rect.bottom,
-        height: rect.height,
-        clientHeight: element.clientHeight,
-        scrollHeight: element.scrollHeight,
+        readableBottom: rect.bottom - occlusion,
+        readableHeight: rect.height - occlusion,
+        readableClientHeight: element.clientHeight - occlusion,
+        contentHeight: element.scrollHeight - occlusion,
         scrollTop: element.scrollTop,
         firstVisibleId: firstVisible?.dataset.msgId ?? null,
         firstVisibleOffset: firstVisible
@@ -82,7 +83,7 @@ async function settledScrollerGeometry(page: Page): Promise<ScrollerGeometry> {
 }
 
 function expectStableScroller(before: ScrollerGeometry, after: ScrollerGeometry): void {
-  for (const key of ["top", "bottom", "height", "clientHeight", "scrollHeight", "scrollTop"] as const) {
+  for (const key of ["top", "readableBottom", "readableHeight", "readableClientHeight", "contentHeight", "scrollTop"] as const) {
     expect(Math.abs(after[key] - before[key]), `${key}: ${JSON.stringify({ before, after })}`)
       .toBeLessThanOrEqual(1)
   }
@@ -837,6 +838,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     const rect = (element: Element | null) => element?.getBoundingClientRect() ?? null
     return {
       scroller: rect(document.querySelector(`[data-testid="${scrollerId}"]`)),
+      occlusion: Number(document.querySelector<HTMLElement>(`[data-testid="${scrollerId}"]`)!.dataset.composerOcclusion ?? 0),
       rail: rect(document.querySelector(`[data-testid="${railId}"]`)),
       indicator: rect(document.querySelector(`[data-testid="${indicatorId}"]`)),
       composer: rect(document.querySelector(`[data-testid="${composerId}"]`)),
@@ -854,13 +856,16 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     replyMessageTestId: tid.message(typingWsReadyId),
   })
   expect(geometry.contentPaddingBottom).toBe(0)
-  expect(geometry.scroller!.bottom).toBeLessThanOrEqual(geometry.composer!.top + 1)
-  expect(geometry.rail!.bottom).toBeLessThanOrEqual(geometry.scroller!.bottom + 1)
+  const readableBottom = geometry.scroller!.bottom - geometry.occlusion
+  expect(geometry.occlusion).toBeGreaterThan(0)
+  expect(Math.abs(geometry.scroller!.bottom - geometry.composer!.bottom)).toBeLessThanOrEqual(1)
+  expect(Math.abs(readableBottom - geometry.composer!.top)).toBeLessThanOrEqual(1)
+  expect(geometry.rail!.bottom).toBeLessThanOrEqual(readableBottom + 1)
   expect(geometry.indicator!.height).toBe(32)
-  expect(Math.abs(geometry.scroller!.bottom - geometry.indicator!.bottom - 4)).toBeLessThanOrEqual(1)
-  expect(geometry.scroller!.bottom - geometry.finalMessage!.bottom).toBeGreaterThanOrEqual(39)
-  expect(geometry.scroller!.bottom - geometry.finalMessage!.bottom).toBeLessThanOrEqual(41)
-  expect(geometry.finalMessage!.bottom).toBeLessThanOrEqual(geometry.scroller!.bottom + 1)
+  expect(Math.abs(readableBottom - geometry.indicator!.bottom - 4)).toBeLessThanOrEqual(1)
+  expect(readableBottom - geometry.finalMessage!.bottom).toBeGreaterThanOrEqual(39)
+  expect(readableBottom - geometry.finalMessage!.bottom).toBeLessThanOrEqual(41)
+  expect(geometry.finalMessage!.bottom).toBeLessThanOrEqual(readableBottom + 1)
   expect(geometry.horizontalOverflow).toBeLessThanOrEqual(0)
 
   const scroller = alice.page.getByTestId(tid.messageScroller)
@@ -873,6 +878,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     const rect = (element: Element | null) => element?.getBoundingClientRect() ?? null
     return {
       scroller: rect(document.querySelector(`[data-testid="${ids.scroller}"]`)),
+      occlusion: Number(document.querySelector<HTMLElement>(`[data-testid="${ids.scroller}"]`)!.dataset.composerOcclusion ?? 0),
       rail: rect(document.querySelector(`[data-testid="${ids.rail}"]`)),
       scroll: rect(document.querySelector(`[data-testid="${ids.scroll}"]`)),
       indicator: rect(document.querySelector(`[data-testid="${ids.indicator}"]`)),
@@ -883,9 +889,10 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     scroll: tid.scrollToPresent,
     indicator: tid.typingIndicator,
   })
-  expect(scrollTypingGeometry.rail!.bottom).toBeLessThanOrEqual(scrollTypingGeometry.scroller!.bottom + 1)
-  expect(scrollTypingGeometry.scroll!.bottom).toBeLessThanOrEqual(scrollTypingGeometry.scroller!.bottom + 1)
-  expect(Math.abs(scrollTypingGeometry.scroller!.bottom - scrollTypingGeometry.indicator!.bottom - 4))
+  const scrollReadableBottom = scrollTypingGeometry.scroller!.bottom - scrollTypingGeometry.occlusion
+  expect(scrollTypingGeometry.rail!.bottom).toBeLessThanOrEqual(scrollReadableBottom + 1)
+  expect(scrollTypingGeometry.scroll!.bottom).toBeLessThanOrEqual(scrollReadableBottom + 1)
+  expect(Math.abs(scrollReadableBottom - scrollTypingGeometry.indicator!.bottom - 4))
     .toBeLessThanOrEqual(1)
 
   await alice.page.getByTestId(tid.scrollToPresent).click()
@@ -910,6 +917,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     return {
       finalMessage: rect(document.querySelector(`[data-testid="${ids.finalMessage}"]`)),
       scroller: rect(document.querySelector(`[data-testid="${ids.scroller}"]`)),
+      occlusion: Number(document.querySelector<HTMLElement>(`[data-testid="${ids.scroller}"]`)!.dataset.composerOcclusion ?? 0),
       rail: rect(document.querySelector(`[data-testid="${ids.rail}"]`)),
       selection: rect(document.querySelector(`[data-testid="${ids.selection}"]`)),
       indicator: rect(typingIndicator),
@@ -1052,6 +1060,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     const rect = (element: Element | null) => element?.getBoundingClientRect() ?? null
     return {
       scroller: rect(document.querySelector(`[data-testid="${scrollerId}"]`)),
+      occlusion: Number(document.querySelector<HTMLElement>(`[data-testid="${scrollerId}"]`)!.dataset.composerOcclusion ?? 0),
       rail: rect(document.querySelector(`[data-testid="${railId}"]`)),
       indicator: rect(document.querySelector(`[data-testid="${indicatorId}"]`)),
       composer: rect(document.querySelector('[data-onboarding-target="dm-composer"]')),
@@ -1066,10 +1075,13 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     indicatorId: tid.typingIndicator,
   })
   expect(dmGeometry.contentPaddingBottom).toBe(0)
-  expect(dmGeometry.scroller!.bottom).toBeLessThanOrEqual(dmGeometry.composer!.top + 1)
-  expect(dmGeometry.rail!.bottom).toBeLessThanOrEqual(dmGeometry.scroller!.bottom + 1)
+  const dmReadableBottom = dmGeometry.scroller!.bottom - dmGeometry.occlusion
+  expect(dmGeometry.occlusion).toBeGreaterThan(0)
+  expect(Math.abs(dmGeometry.scroller!.bottom - dmGeometry.composer!.bottom)).toBeLessThanOrEqual(1)
+  expect(Math.abs(dmReadableBottom - dmGeometry.composer!.top)).toBeLessThanOrEqual(1)
+  expect(dmGeometry.rail!.bottom).toBeLessThanOrEqual(dmReadableBottom + 1)
   expect(dmGeometry.indicator!.height).toBe(32)
-  expect(Math.abs(dmGeometry.scroller!.bottom - dmGeometry.indicator!.bottom - 4)).toBeLessThanOrEqual(1)
+  expect(Math.abs(dmReadableBottom - dmGeometry.indicator!.bottom - 4)).toBeLessThanOrEqual(1)
   expect(dmGeometry.horizontalOverflow).toBeLessThanOrEqual(0)
   await bobDmEditable.fill("")
   await expect(alice.page.getByTestId(tid.typingIndicator)).toBeHidden({ timeout: 15_000 })

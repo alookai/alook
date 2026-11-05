@@ -175,3 +175,33 @@ it("uses pushed native animation frames without bridge round trips or a React co
   act(() => push(0, false))
   expect(view.result.current).toEqual(snapshot(0, 400))
 })
+
+
+it("accepts animation before the initial snapshot and ignores its late reply", async () => {
+  let release!: (value: ReturnType<typeof snapshot>) => void
+  const post = vi.fn(() => new Promise<ReturnType<typeof snapshot>>(resolve => { release = resolve }))
+  install(post)
+  const view = renderHook(useNativeKeyboard)
+  expect(view.result.current).toBeNull()
+  const push = (bottomInset: number, isAnimating: boolean) => window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+    detail: { ...snapshot(bottomInset, 400), isAnimating },
+  }))
+
+  act(() => push(40, true))
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("10vw")
+  expect(view.result.current).toEqual(snapshot(0, 400))
+  const initialFrame = view.result.current
+  act(() => { push(160, true); window.dispatchEvent(new Event("resize")) })
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("40vw")
+  expect(view.result.current).toBe(initialFrame)
+  expect(post).toHaveBeenCalledExactlyOnceWith("snapshot")
+
+  act(() => push(300, false))
+  expect(view.result.current).toEqual(snapshot(300, 400))
+  const finalFrame = view.result.current
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("75vw")
+  await act(async () => release(snapshot(0, 800)))
+  expect(view.result.current).toBe(finalFrame)
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("75vw")
+  expect(post).toHaveBeenCalledTimes(1)
+})
