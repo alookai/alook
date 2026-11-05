@@ -91,7 +91,7 @@ export async function submitTestflight45({ get, post, enabled = false, confirmTa
     const m = read.metadata
     const b = read.build
     const g = read.publicGroup
-    if (!m?.reviewContactComplete || !m.reviewLoginComplete || !m.primaryLocaleTestInfoComplete
+    if (!m?.reviewContactComplete || !m.reviewLoginComplete || !m.primaryLocaleTestInfoComplete || m.appLocalizationsInspectionComplete !== true || m.allLocaleDescriptionsPresent !== true
       || b?.processingState !== "VALID" || b.expired !== false || b.audience !== "APP_STORE_ELIGIBLE" || !b.encryptionDeclarationPresent
       || b.notesInspectionComplete !== true || b.groupAssociationComplete !== true || b.autoNotifyEnabled !== true
       || g?.matchingExternalGroupCount !== 1 || g.enabled !== true || typeof g.targetAssociated !== "boolean") throw new SubmitError("PREREQUISITE_OR_NOTIFICATION_DRIFT")

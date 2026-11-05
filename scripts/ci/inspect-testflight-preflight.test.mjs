@@ -109,6 +109,33 @@ test("missing contact, reviewer login, localized test info or notes never counts
   assert.equal(invalid.submissionPrerequisitesComplete, false)
 })
 
+test("non-primary beta localization with empty description blocks submission despite complete primary locale", async () => {
+  const secondary = changed(apps, x => {
+    x.data[0].relationships.betaAppLocalizations.data.push({ type: "betaAppLocalizations", id: "local-2" })
+    x.included.push({ type: "betaAppLocalizations", id: "local-2", attributes: { locale: "zh-Hans", description: "  ", feedbackEmail: privateText } })
+  })
+  const receipt = await inspectPreflight(fixtures({ appMetadata: secondary }).get)
+  assert.equal(receipt.metadata.primaryLocaleTestInfoComplete, true)
+  assert.equal(receipt.metadata.appLocalizationsInspectionComplete, true)
+  assert.equal(receipt.metadata.allLocaleDescriptionsPresent, false)
+  assert.equal(receipt.submissionPrerequisitesComplete, false)
+  assert.equal(JSON.stringify(receipt).includes(privateText), false)
+})
+
+test("truncated or missing included beta localizations cannot claim all-language completeness", async () => {
+  for (const incomplete of [
+    changed(apps, x => { x.data[0].relationships.betaAppLocalizations.links = { next: "private-next" } }),
+    changed(apps, x => { x.data[0].relationships.betaAppLocalizations.meta = { paging: { total: 2 } } }),
+    changed(apps, x => { x.data[0].relationships.betaAppLocalizations.data.push({ type: "betaAppLocalizations", id: "missing-included" }) }),
+  ]) {
+    const receipt = await inspectPreflight(fixtures({ appMetadata: incomplete }).get)
+    assert.equal(receipt.metadata.primaryLocaleTestInfoComplete, true)
+    assert.equal(receipt.metadata.appLocalizationsInspectionComplete, false)
+    assert.equal(receipt.metadata.allLocaleDescriptionsPresent, false)
+    assert.equal(receipt.submissionPrerequisitesComplete, false)
+  }
+})
+
 test("partial group/notes relationships stay unknown; group duplicates and disabled links do not count as ready", async () => {
   const truncated = changed(builds, x => { x.data[0].relationships.betaGroups = { data: [], meta: { paging: { total: 1 } } }; x.data[0].relationships.betaBuildLocalizations = { data: [], links: { next: "private-next" } } })
   const partial = await inspectPreflight(fixtures({ targetBuild: truncated }).get)

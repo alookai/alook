@@ -18,12 +18,20 @@ function fixture(initial = {}) {
   const reads = []
   const get = async stage => {
     reads.push(stage)
-    if (stage === "appMetadata") return { data: [{ type: "apps", id: server.appId, attributes: { bundleId: "ai.alook.ios", primaryLocale: "en-US" }, relationships: {
-      betaAppReviewDetail: { data: { id: "contact-1" } }, betaAppLocalizations: { data: [{ type: "betaAppLocalizations", id: "locale-1" }] },
-    } }], included: [
-      { type: "betaAppReviewDetails", id: "contact-1", attributes: { contactFirstName: privateText, contactLastName: privateText, contactEmail: privateText, contactPhone: server.contact ? privateText : "", demoAccountRequired: false } },
-      { type: "betaAppLocalizations", id: "locale-1", attributes: { locale: "en-US", description: "private-description", feedbackEmail: privateText } },
-    ] }
+    if (stage === "appMetadata") {
+      const response = { data: [{ type: "apps", id: server.appId, attributes: { bundleId: "ai.alook.ios", primaryLocale: "en-US" }, relationships: {
+        betaAppReviewDetail: { data: { id: "contact-1" } }, betaAppLocalizations: { data: [{ type: "betaAppLocalizations", id: "locale-1" }] },
+      } }], included: [
+        { type: "betaAppReviewDetails", id: "contact-1", attributes: { contactFirstName: privateText, contactLastName: privateText, contactEmail: privateText, contactPhone: server.contact ? privateText : "", demoAccountRequired: false } },
+        { type: "betaAppLocalizations", id: "locale-1", attributes: { locale: "en-US", description: "private-description", feedbackEmail: privateText } },
+      ] }
+      if (server.secondaryDescriptionEmpty) {
+        response.data[0].relationships.betaAppLocalizations.data.push({ type: "betaAppLocalizations", id: "locale-2" })
+        response.included.push({ type: "betaAppLocalizations", id: "locale-2", attributes: { locale: "zh-Hans", description: "", feedbackEmail: privateText } })
+      }
+      if (server.localizationsTruncated) response.data[0].relationships.betaAppLocalizations.meta = { paging: { total: 2 } }
+      return response
+    }
     if (stage === "existingPublicGroup") return { data: [{ type: "betaGroups", id: "group-1", attributes: { isInternalGroup: false, publicLinkId: "4fHgVBVF", publicLinkEnabled: true } }] }
     const pending = stage === "activeVersionReviews"
     if (pending && !server.review && !server.otherReview) return { data: [] }
@@ -147,6 +155,18 @@ test("missing metadata or changed notification policy refuses all writes", async
   for (const initial of [{ contact: false }, { autoNotify: false }]) {
     const f = fixture(initial)
     assert.equal((await submitTestflight45(enabled(f))).error.code, "PREREQUISITE_OR_NOTIFICATION_DRIFT")
+    assert.deepEqual(f.writes, [])
+  }
+})
+
+test("empty secondary-language description or incomplete localization collection blocks before any POST", async () => {
+  for (const initial of [{ secondaryDescriptionEmpty: true }, { localizationsTruncated: true }]) {
+    const f = fixture(initial)
+    const receipt = await submitTestflight45(enabled(f))
+    assert.equal(receipt.status, "blocked")
+    assert.equal(receipt.error.code, "PREREQUISITE_OR_NOTIFICATION_DRIFT")
+    assert.equal(receipt.lastRead.metadata.primaryLocaleTestInfoComplete, true)
+    assert.equal(receipt.lastRead.metadata.allLocaleDescriptionsPresent, false)
     assert.deepEqual(f.writes, [])
   }
 })

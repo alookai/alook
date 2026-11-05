@@ -140,10 +140,18 @@ export async function inspectPreflight(get) {
     const locale = app.attributes?.primaryLocale
     const primaryLocale = typeof locale === "string" && /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/.test(locale) ? locale : null
     const details = relation(apps, app, "betaAppReviewDetail", "betaAppReviewDetails")?.attributes
-    const testInfo = relatedRows(apps, app, "betaAppLocalizations", "betaAppLocalizations").find(row => row.attributes?.locale === primaryLocale)?.attributes
+    const appLocalizations = relatedRows(apps, app, "betaAppLocalizations", "betaAppLocalizations")
+    const appLocalizationRelation = app.relationships?.betaAppLocalizations
+    const localizationIds = Array.isArray(appLocalizationRelation?.data) ? appLocalizationRelation.data.filter(row => row.type === "betaAppLocalizations" && typeof row.id === "string").map(row => row.id) : null
+    const localizationsComplete = localizationIds !== null && localizationIds.length === appLocalizationRelation.data.length && new Set(localizationIds).size === localizationIds.length
+      && appLocalizations.length === localizationIds.length && !appLocalizationRelation.links?.next && localizationIds.length < 50
+      && !(appLocalizationRelation.meta?.paging?.total > localizationIds.length)
+    const testInfo = appLocalizations.find(row => row.attributes?.locale === primaryLocale)?.attributes
     result.metadata = { primaryLocale, reviewContactComplete: ["contactFirstName", "contactLastName", "contactEmail", "contactPhone"].every(key => present(details?.[key])),
       reviewLoginComplete: details?.demoAccountRequired === false || (details?.demoAccountRequired === true && present(details.demoAccountName) && present(details.demoAccountPassword)),
-      primaryLocaleTestInfoComplete: primaryLocale !== null && present(testInfo?.description) && present(testInfo?.feedbackEmail) }
+      primaryLocaleTestInfoComplete: primaryLocale !== null && present(testInfo?.description) && present(testInfo?.feedbackEmail),
+      appLocalizationsInspectionComplete: localizationsComplete,
+      allLocaleDescriptionsPresent: localizationsComplete && appLocalizations.length > 0 && appLocalizations.every(row => present(row.attributes?.description)) }
 
     stage = "targetBuild"
     const builds = await get(stage, app.id)
@@ -215,6 +223,7 @@ export async function inspectPreflight(get) {
     if (cursor) throw new PreflightError("PAGINATION_LIMIT", stage)
     result.activeVersionReviews = { count: reviews.size, targetBuildIncluded: [...reviews.values()].some(Boolean) }
     result.submissionPrerequisitesComplete = result.metadata.reviewContactComplete && result.metadata.reviewLoginComplete && result.metadata.primaryLocaleTestInfoComplete
+      && result.metadata.appLocalizationsInspectionComplete && result.metadata.allLocaleDescriptionsPresent
       && result.build.processingState === "VALID" && result.build.expired === false && result.build.audience === "APP_STORE_ELIGIBLE" && result.build.encryptionDeclarationPresent
       && result.build.primaryLocaleNotesPresent && result.publicGroup.matchingExternalGroupCount === 1 && result.publicGroup.enabled === true && result.publicGroup.targetAssociated === true
       && result.activeVersionReviews.count === 0 && result.build.externalBuildState === "READY_FOR_BETA_SUBMISSION"
