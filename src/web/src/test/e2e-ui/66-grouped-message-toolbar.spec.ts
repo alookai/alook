@@ -230,6 +230,49 @@ test("grouped message toolbar stays above text and remains reachable", async ({ 
   await mobile.page.evaluate(() => navigator.clipboard.writeText("point-menu-sentinel"))
   await menu.getByRole("menuitem", { name: "Copy Text", exact: true }).click()
   await expect.poll(() => mobile.page.evaluate(() => navigator.clipboard.readText())).toBe(body)
+  await expect(menu).toBeHidden()
+  const linkHref = "https://example.com/second?from=message-menu"
+  const linkMessageId = await actors.seed.seedMessage("alice", channelId,
+    "First link: https://example.com/first\n\n" + "A long link message keeps its top above the tapped link. ".repeat(24) + `\n\nSecond link: ${linkHref}`)
+  await gotoAfterUserWsAuth(mobile.page, `/c/channels/${serverId}/${channelId}`)
+  const mobileLink = mobile.page.getByTestId(tid.message(linkMessageId)).getByRole("link", { name: `Link: ${linkHref}`, exact: true })
+  await mobileLink.scrollIntoViewIfNeeded()
+  const linkPoint = await mobileLink.evaluate((element) => {
+    const box = Array.from(element.getClientRects()).find(rect => rect.width > 0 && rect.height > 0)!
+    const x = box.right - Math.min(4, box.width / 2), y = box.top + box.height / 2
+    return { x, y, width: box.width, height: box.height, owned: element.contains(document.elementFromPoint(x, y)) }
+  })
+  expect(linkPoint.width).toBeGreaterThan(0)
+  expect(linkPoint.height).toBeGreaterThan(0)
+  expect(linkPoint.owned).toBe(true)
+  const beforeLinkUrl = mobile.page.url()
+  const beforeLinkPageCount = mobile.page.context().pages().length
+  let linkPopups = 0
+  const onLinkPopup = () => { linkPopups += 1 }
+  mobile.page.on("popup", onLinkPopup)
+  let linkMenuBox: Awaited<ReturnType<Locator["boundingBox"]>> = null
+  try {
+    await mobile.page.touchscreen.tap(linkPoint.x, linkPoint.y)
+    await expect(menu.getByRole("menuitem", { name: "Copy Link", exact: true })).toBeVisible()
+    linkMenuBox = await menu.boundingBox()
+    expect(linkMenuBox).not.toBeNull()
+    expect(linkMenuBox!.x).toBeGreaterThanOrEqual(0)
+    expect(linkMenuBox!.y).toBeGreaterThanOrEqual(0)
+    expect(linkMenuBox!.x + linkMenuBox!.width).toBeLessThanOrEqual(390)
+    expect(linkMenuBox!.y + linkMenuBox!.height).toBeLessThanOrEqual(844)
+    expect(linkPoint.x).toBeGreaterThanOrEqual(linkMenuBox!.x - 1)
+    expect(linkPoint.x).toBeLessThanOrEqual(linkMenuBox!.x + linkMenuBox!.width + 1)
+    expect(Math.min(Math.abs(linkMenuBox!.y - linkPoint.y), Math.abs(linkMenuBox!.y + linkMenuBox!.height - linkPoint.y))).toBeLessThanOrEqual(8)
+    await mobile.page.evaluate(() => navigator.clipboard.writeText("link-menu-sentinel"))
+    await menu.getByRole("menuitem", { name: "Copy Link", exact: true }).click()
+    await expect.poll(() => mobile.page.evaluate(() => navigator.clipboard.readText())).toBe(linkHref)
+    expect(mobile.page.url()).toBe(beforeLinkUrl)
+    expect(mobile.page.context().pages()).toHaveLength(beforeLinkPageCount)
+    expect(linkPopups).toBe(0)
+  } finally {
+    mobile.page.off("popup", onLinkPopup)
+  }
+  await testInfo.attach("mobile-link-menu-consequences", { body: JSON.stringify({ linkHref, linkPoint, linkMenuBox, beforeLinkUrl, linkPopups }), contentType: "application/json" })
   expect(messageWrites).toEqual([])
   await testInfo.attach("mobile-message-consequences", { body: JSON.stringify({ reactionHeight, point, menuBox }), contentType: "application/json" })
 })

@@ -408,14 +408,33 @@ describe("Message ordinary-link gesture ownership", () => {
     replaceProperty(navigator, "clipboard", { writeText })
     const view = mount({ m: baseMsg({ content: `first https://example.com/first second ${secondHref}` }), hoverCapable: true, onCopy: vi.fn(), onShareSingle: vi.fn() })
     const link = await view.findByRole("link", { name: `Link: ${secondHref}` })
-    await touchMenu(view, link)
+    const tapLink = async () => {
+      fireEvent.pointerDown(link, { pointerType: "touch", pointerId: 17, button: 0, clientX: 271, clientY: 603 })
+      fireEvent.touchStart(link)
+      fireEvent.touchEnd(link)
+      const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, clientX: 271, clientY: 603 })
+      expect(click.defaultPrevented).toBe(false)
+      const outerClick = vi.fn()
+      view.container.addEventListener("click", outerClick)
+      try {
+        let dispatched = true
+        act(() => { dispatched = link.dispatchEvent(click) })
+        expect(click.defaultPrevented).toBe(true)
+        expect(dispatched).toBe(false)
+        expect(outerClick).not.toHaveBeenCalled()
+      } finally {
+        view.container.removeEventListener("click", outerClick)
+      }
+      await waitFor(() => expect(screen.getByRole("menu")).toBeVisible())
+    }
+    await tapLink()
     expect(screen.getAllByRole("menuitem").map(item => item.textContent?.trim()).slice(-3)).toEqual(["Share as Image", "Copy Link", "Open Link"])
     expect(screen.getAllByRole("separator")).toHaveLength(1)
     fireEvent.click(screen.getByRole("menuitem", { name: "Copy Link", exact: true }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(secondHref))
     expect(openWindow).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
-    await touchMenu(view, link)
+    await tapLink()
     fireEvent.click(screen.getByRole("menuitem", { name: "Open Link", exact: true }))
     expect(openWindow).toHaveBeenCalledOnce()
     expect(openWindow).toHaveBeenCalledWith(secondHref, "_blank", "noopener,noreferrer")
