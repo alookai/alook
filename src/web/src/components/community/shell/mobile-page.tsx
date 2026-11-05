@@ -2,6 +2,7 @@
 
 import { useCallback, useContext, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { useCommunityRouteFrame } from "./community-route-context"
+import { MobilePageMotionContext } from "@/contexts/community/mobile-page-motion"
 import { MobilePageBackContext } from "@/contexts/community/mobile-page-back"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useCommunityRuntime } from "@/stores/community/runtime"
@@ -19,29 +20,33 @@ export function MobilePage({ children, parentPath, active = true, backgroundVisi
   const registry = useContext(MobilePageBackContext)
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const runtime = useCommunityRuntime()
-  const [open, setOpen] = useState(breakpoint !== "mobile")
+  const motion = useContext(MobilePageMotionContext)
+  const entryHandled = motion?.entryHandled ?? false
+  const [open, setOpen] = useState(breakpoint !== "mobile" || entryHandled)
   const pending = useRef<{ parentPath: string; isCurrent: () => boolean } | null>(null)
   const departed = useRef(false)
   const mobile = breakpoint === "mobile"
   const parentReturnPending = hasPendingParentReturn(navigation)
   const request = useCallback((target: string) => {
     if (!active || !mobile || target !== parentPath) return false
-    if (pending.current) return true
+    if (pending.current || motion?.isExiting()) return true
     if (requestNativeBack(document) !== "none") return false
-    const current = navigation.captureIntent(parentReturnPending && navigation.pendingHref
+    const current = navigation.captureIntent(navigation.pendingHref
       ? { pendingCommitHref: navigation.pendingHref } : undefined)
     pending.current = { parentPath, isCurrent: () => runtime.lifecycle.get().active && runtime.ws.get().accessEpoch === accessEpoch
       && window.matchMedia("(max-width: 639px)").matches && current() }
+    motion?.pauseEntry()
     setOpen(false)
     return true
-  }, [accessEpoch, active, mobile, navigation, parentPath, parentReturnPending, runtime])
+  }, [accessEpoch, active, mobile, navigation, parentPath, runtime, motion])
   useLayoutEffect(() => {
     if (mobile && departed.current && (navigation.pendingHref === parentPath || navigation.publishedHref === parentPath)) return
     if (mobile && active && pending.current?.parentPath === parentPath && pending.current.isCurrent()) return
     departed.current = false
     pending.current = null
+    motion?.resumeEntry()
     setOpen(true)
-  }, [mobile, active, frame.revision, navigation.entryIntent, navigation.pendingHref, navigation.publishedHref, accessEpoch, parentPath])
+  }, [mobile, active, frame.revision, navigation.entryIntent, navigation.pendingHref, navigation.publishedHref, accessEpoch, parentPath, motion])
   useLayoutEffect(() => () => { pending.current = null }, [])
   useLayoutEffect(() => {
     if (!mobile || !active) return
@@ -65,7 +70,7 @@ export function MobilePage({ children, parentPath, active = true, backgroundVisi
       }}>
       <SwipePortal inline keepMounted>
         <SwipeViewport className="flex min-h-0 flex-1 max-sm:fixed max-sm:inset-0 max-sm:z-20">
-          <SwipePopup data-slot="mobile-page" data-background={!active || undefined}
+          <SwipePopup data-slot="mobile-page" data-entry-handled={entryHandled || undefined} data-background={!active || undefined}
             className="flex h-full w-full min-w-0 flex-col bg-background outline-none">
             {children}
           </SwipePopup>

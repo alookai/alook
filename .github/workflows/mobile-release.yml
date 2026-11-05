@@ -338,12 +338,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version=$(tr -d '\n' < src/desktop/.deploy-version-mobile)
+          version=$(node -p "require('./src/desktop/package.json').version")
           tauri_version=$(node -p "require('./src/desktop/src-tauri/tauri.conf.json').version")
-          package_version=$(node -p "require('./src/desktop/package.json').version")
           test -n "$version"
           test "$version" = "$tauri_version"
-          test "$version" = "$package_version"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            requested_version=$(tr -d '\n' < src/desktop/.deploy-version-mobile)
+            test "$requested_version" = "$version"
+          fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
       - name: Prepare Android release signing

@@ -856,7 +856,7 @@ describe("ShellFrameView", () => {
       .not.toHaveAttribute("data-mobile-back-phase")
   })
 
-  it.each([false, true])("keeps every mobile route commit stationary when reduced motion is %s", async (reducedMotion) => {
+  it.each([false, true])("animates one mobile list-to-detail handoff without replaying resolved content (reduced=%s)", async (reducedMotion) => {
     const animate = vi.fn(() => ({ cancel: vi.fn() }))
     Object.defineProperty(HTMLElement.prototype, "animate", {
       configurable: true,
@@ -925,7 +925,10 @@ describe("ShellFrameView", () => {
       },
       createElement("main-content"),
     ))
-    expect(animate).not.toHaveBeenCalled()
+    expect(animate).toHaveBeenCalledTimes(1)
+    expect(animate.mock.calls[0][0]).toEqual(reducedMotion
+      ? [{ opacity: 0 }, { opacity: 1 }]
+      : [{ transform: "translate3d(100%, 0, 0)" }, { transform: "translate3d(0, 0, 0)" }])
     expect(renderer.container.querySelector("[data-channel-loading-frame]")).not.toBeNull()
     expect(mocks.pendingProps).toHaveBeenLastCalledWith(expect.objectContaining({
       href: "/c/channels/s1/c2",
@@ -937,7 +940,7 @@ describe("ShellFrameView", () => {
       { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c2", "detail") },
       createElement("main-content", { "data-href": "/c/channels/s1/c2" }),
     ))
-    expect(animate).not.toHaveBeenCalled()
+    expect(animate).toHaveBeenCalledTimes(1)
 
     renderer.rerender(createElement(
       ShellFrameView,
@@ -975,14 +978,14 @@ describe("ShellFrameView", () => {
       },
       createElement("main-content"),
     ))
-    expect(animate).not.toHaveBeenCalled()
+    expect(animate).toHaveBeenCalledTimes(1)
 
     renderer.rerender(createElement(
       ShellFrameView,
       { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c2", "detail") },
       createElement("main-content"),
     ))
-    expect(animate).not.toHaveBeenCalled()
+    expect(animate).toHaveBeenCalledTimes(1)
     expect(renderer.container.querySelector('[data-testid="sidebar"]')).toBe(sidebarPanel)
     expect(renderer.container.querySelector('[data-testid="main"]')).toBe(mainPanel)
     expect(renderer.container.querySelector('[data-testid="community-channel-sidebar-scroll"]'))

@@ -57,6 +57,22 @@
     transform: translate3d(0, -100%, 0);
   }
 
+  .popup[data-slot="mobile-page"] {
+    transition-duration: 280ms;
+  }
+
+  .popup[data-slot="mobile-page"][data-ending-style] {
+    transition-duration: calc(var(--drawer-swipe-strength, 1) * 240ms);
+  }
+
+  .popup[data-slot="mobile-page"][data-swiping] {
+    transition-duration: 0ms;
+  }
+
+  .popup[data-slot="mobile-page"][data-entry-handled][data-starting-style] {
+    transform: none;
+  }
+
   .popup[data-slot="user-bar-swipe"][data-starting-style],
   .popup[data-slot="user-bar-swipe"][data-ending-style] {
     transform: translate3d(0, 100%, 0);
