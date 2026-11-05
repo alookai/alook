@@ -175,12 +175,17 @@
 
 @media (max-width: 639px) {
   .intro { margin-bottom: 32px; }
-  .messages { gap: 24px; padding-inline: 32px; }
-  .messages:nth-child(2) { padding-left: 176px; }
-  .messages > li { width: min(360px, calc(100vw - 80px)); }
-  .sticker { padding-inline: 20px; }
+  .wallSurface { gap: 12px; padding-block: 24px; }
+  .messages { gap: 20px; padding: 22px 24px; }
+  .messages:nth-child(2) { padding-left: 120px; }
+  .messages > li { width: clamp(224px, 66cqw, 280px); }
+  .sticker { padding: 24px 16px 18px; }
+  .sticker > [data-slot="avatar"] { top: 36px; }
   .sticker .author,
-  .sticker .handle { margin-left: 54px; }
+  .sticker .handle { margin-left: 44px; }
+  .author { gap: 4px; }
+  .author [data-message-author-line] > span { font-size: 14px; }
+  .body blockquote { margin-top: 14px; font-size: 16px; line-height: 1.35; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -286,12 +286,16 @@ describe("Message memo comparator", () => {
 describe("Message visible reply body", () => {
 
   it("keeps the reply header and renders the full visible Markdown body", () => {
-    const view = mount({ m: baseMsg({ content: "@Bob Smith\n**visible** body", replyTo: { id: "prior", authorName: "Bob Smith", text: "original" } }) })
+    const onJumpReply = vi.fn()
+    const view = mount({ onJumpReply, m: baseMsg({ content: "@Bob Smith\n**visible** body", replyTo: { id: "prior", authorName: "Bob Smith", text: "original" } }) })
     expect(body(view)).toHaveTextContent("@Bob Smith")
     expect(within(body(view)).getByText("visible", { exact: true })).toBeVisible()
     expect(body(view)).toHaveTextContent("body")
     expect(body(view)).not.toHaveTextContent("**visible**")
-    expect(view.getByRole("button", { name: "Show original message", exact: true })).toHaveTextContent("@Bob Smithoriginal")
+    const replyPreview = view.getByRole("button", { name: "Show original message", exact: true })
+    expect(replyPreview).toHaveTextContent("@Bob Smithoriginal")
+    fireEvent.click(replyPreview)
+    expect(onJumpReply).toHaveBeenCalledTimes(1)
   })
 
 

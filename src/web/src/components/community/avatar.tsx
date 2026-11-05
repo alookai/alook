@@ -5,14 +5,7 @@ import type { Presence } from "@/lib/community/models/people"
 
 const STATUS_COLOR: Record<Presence, string> = {
   online: "var(--status-online)",
-  // Not the reserved `--status-offline` red — DESIGN.md reserves that token
-  // for the workspace agent-runtime disconnect badge (an alert-worthy
-  // signal). A friend/bot simply being offline is a neutral state, so it
-  // gets the same de-emphasized `muted-foreground` treatment the community
-  // bot/machine lists use for their own offline dots — solid, not
-  // translucent, so it stays a crisp dot rather than fading into whatever
-  // sits behind the avatar.
-  offline: "var(--muted-foreground)",
+  offline: "var(--status-offline)",
 }
 
 export function Avatar({ label, seed, src, size = 40, dim = false, presence, ringColor = "var(--background)" }: {

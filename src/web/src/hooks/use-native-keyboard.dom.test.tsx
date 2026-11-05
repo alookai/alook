@@ -5,6 +5,7 @@ import { useNativeKeyboard } from "./use-native-keyboard"
 const original = Object.getOwnPropertyDescriptor(window, "webkit")
 const originalTauri = Object.getOwnPropertyDescriptor(window, "__TAURI__")
 afterEach(() => {
+  document.documentElement.style.removeProperty("--alook-keyboard-progress")
   if (original) Object.defineProperty(window, "webkit", original)
   else Reflect.deleteProperty(window, "webkit")
   if (originalTauri) Object.defineProperty(window, "__TAURI__", originalTauri)
@@ -154,3 +155,23 @@ it.each([true, false, { bottomInset: -10, viewportWidth: 390 }, { bottomInset: 1
     expect(view.result.current).toBeNull()
   },
 )
+
+it("uses pushed native animation frames without bridge round trips or a React commit per frame", async () => {
+  const post = vi.fn(async () => snapshot())
+  install(post)
+  const view = renderHook(useNativeKeyboard)
+  await waitFor(() => expect(view.result.current).toEqual(snapshot()))
+  const push = (bottomInset: number, isAnimating: boolean) => window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+    detail: { ...snapshot(bottomInset, 400), isAnimating },
+  }))
+  act(() => push(10, true))
+  const frame = view.result.current
+  act(() => { push(120, true); window.dispatchEvent(new Event("resize")) })
+  expect(view.result.current).toBe(frame)
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("30vw")
+  expect(post).toHaveBeenCalledTimes(1)
+  act(() => push(300, false))
+  expect(view.result.current).toEqual(snapshot(300, 400))
+  act(() => push(0, false))
+  expect(view.result.current).toEqual(snapshot(0, 400))
+})

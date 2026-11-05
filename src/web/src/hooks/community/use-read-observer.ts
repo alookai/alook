@@ -231,7 +231,11 @@ export function useTimelineReadObserver({
             promoteInboxReadReservation(reservationLease, generation)
           }
         }
-      }, { root: scrollRootEl, threshold: READ_VISIBILITY_THRESHOLD })
+      }, {
+        root: scrollRootEl,
+        rootMargin: `0px 0px -${Number(scrollRootEl.dataset.composerOcclusion) || 0}px 0px`,
+        threshold: READ_VISIBILITY_THRESHOLD,
+      })
     }
     observer = createObserver()
 
@@ -255,7 +259,8 @@ export function useTimelineReadObserver({
           const presentationRevealed = !presentationReadable && nextPresentationReadable
           const presentationChanged = presentationReadable !== nextPresentationReadable
             || records.some((record) => record.type === "attributes"
-              && record.attributeName === "data-read-position-ready" && record.oldValue === "false")
+              && (record.attributeName === "data-read-position-ready" && record.oldValue === "false"
+                || record.attributeName === "data-composer-occlusion"))
           if (presentationChanged) {
             retireObserver()
           }
@@ -281,7 +286,7 @@ export function useTimelineReadObserver({
         })
     mutations?.observe(scrollRootEl, {
       attributes: true,
-      attributeFilter: ["aria-hidden", "inert", "data-read-position-ready", "data-msg-id"],
+      attributeFilter: ["aria-hidden", "inert", "data-read-position-ready", "data-msg-id", "data-composer-occlusion"],
       attributeOldValue: true,
       childList: true,
       subtree: true,

@@ -28,6 +28,19 @@ it("enters at the real bottom and keeps late New metadata from taking scroll own
   } finally { h.view.unmount() }
 })
 
+it("keeps New below the readable viewport while its divider is covered by the composer", () => {
+  const h = mount({ items: items(), newDividerBefore: "m5", viewportInsetEnd: 100 })
+  try {
+    h.move(100)
+    const divider = h.root.querySelector<HTMLElement>('[data-message-divider-for="m5"] [data-new-divider]')!
+    h.move(h.root.scrollTop + divider.getBoundingClientRect().top - 450)
+    expect(divider.getBoundingClientRect().top).toBe(450)
+    expect(scrollFixture.latest.newDividerVisibility).toBe("below")
+    h.update({ viewportInsetEnd: 0 })
+    expect(scrollFixture.latest.newDividerVisibility).toBe("visible")
+  } finally { h.view.unmount() }
+})
+
 it.each([5, 49])("finishes at the measured New boundary within natural content bounds, target index=%s", async target => {
   const id = `m${target}`
   const rows = items().map((item, index) => ({ ...item, newDivider: index === target }))
@@ -254,6 +267,34 @@ it("handles late image-size growth during a bounded New load without extra tail 
     expect(divider.getBoundingClientRect().top).toBeGreaterThanOrEqual(0)
     expect(divider.getBoundingClientRect().bottom).toBeLessThanOrEqual(h.root.clientHeight)
     expect(scrollFixture.latest.virtualizer.options.paddingEnd).toBe(MESSAGE_RAIL_TAIL_PADDING_END_PX)
+    expect(scrollFixture.latest.followingTail).toBe(false)
+  } finally { h.view.unmount() }
+})
+
+it("accepts a resize clamp while New's native scroll settles before the reader moves and a peer appends", async () => {
+  const rows = items().map((item, index) => ({ ...item, newDivider: index === 45 }))
+  const h = mount({ items: rows, newDividerBefore: "m45", tailPaddingEnd: 92, viewportInsetEnd: 52 })
+  try {
+    const request = start("m45")
+    let outcome: NewPositionResult | undefined
+    void request.completed.then(result => { outcome = result })
+    resize(3)
+    await act(async () => {})
+    expect(outcome).toBe("success")
+    expect(scrollFixture.latest.virtualizer.isScrolling).toBe(true)
+    scrollFixture.height = 900
+    resize(1)
+    const max = h.root.scrollHeight - h.root.clientHeight
+    expect(h.root.scrollTop).toBe(max)
+    act(() => {
+      h.root.scrollTop = max - 20
+      h.root.dispatchEvent(new Event("scroll"))
+    })
+    const divider = h.root.querySelector<HTMLElement>('[data-message-divider-for="m45"] [data-new-divider]')!
+    const before = divider.getBoundingClientRect().top
+    h.update({ items: [...rows, message("peer-after-resize")] })
+    expect(Math.abs(divider.getBoundingClientRect().top - before)).toBeLessThanOrEqual(1)
+    expect(h.root.scrollTop).toBe(max - 20)
     expect(scrollFixture.latest.followingTail).toBe(false)
   } finally { h.view.unmount() }
 })

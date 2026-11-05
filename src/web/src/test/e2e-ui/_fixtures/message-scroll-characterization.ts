@@ -265,6 +265,9 @@ type MessageViewportGeometry = {
   scrollTop: number
   scrollHeight: number
   clientHeight: number
+  readableHeight: number
+  composerOcclusion: number
+  composerGutterReachesScroller: boolean
   distanceToEnd: number
   firstVisibleId: string | null
   firstVisibleOffset: number | null
@@ -285,15 +288,18 @@ async function readMessageViewportGeometry(scroller: Locator): Promise<MessageVi
     const root = element as HTMLElement
     const rootRect = root.getBoundingClientRect()
     const surface = root.closest<HTMLElement>('[data-slot="community-conversation-surface"]')
+    const composerOcclusion = Number(root.dataset.composerOcclusion ?? 0)
     const firstVisible = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
       .find((row) => {
         const rect = row.getBoundingClientRect()
-        return rect.bottom > rootRect.top + 1 && rect.top < rootRect.bottom - 1
+        return rect.bottom > rootRect.top + 1 && rect.top < rootRect.bottom - composerOcclusion - 1
       }) ?? null
     const firstRect = firstVisible?.getBoundingClientRect() ?? null
     const content = root.querySelector<HTMLElement>("[data-message-list-content]")
     const composer = surface?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
     const composerRect = composer?.getBoundingClientRect() ?? null
+    const baseRect = composer?.querySelector<HTMLElement>('[data-slot="community-composer-base"]')?.getBoundingClientRect()
+    const gutterTarget = baseRect ? document.elementFromPoint(baseRect.left - 2, baseRect.top + 10) : null
     const accessory = composer?.querySelector<HTMLElement>('[data-slot="community-composer-accessory-slot"]')
     const accessoryRect = accessory?.getBoundingClientRect() ?? null
     const rail = accessory?.querySelector<HTMLElement>(`[data-testid="${accessoryRailTestId}"]`)
@@ -302,6 +308,9 @@ async function readMessageViewportGeometry(scroller: Locator): Promise<MessageVi
       scrollTop: root.scrollTop,
       scrollHeight: root.scrollHeight,
       clientHeight: root.clientHeight,
+      readableHeight: root.clientHeight - composerOcclusion,
+      composerOcclusion,
+      composerGutterReachesScroller: !!gutterTarget && root.contains(gutterTarget),
       distanceToEnd: Math.max(0, root.scrollHeight - root.clientHeight - root.scrollTop),
       firstVisibleId: firstVisible?.dataset.msgId ?? null,
       firstVisibleOffset: firstRect ? firstRect.top - rootRect.top : null,
@@ -347,7 +356,13 @@ export async function expectSkeletonTailGeometry(
       ?.closest<HTMLElement>(`[data-testid="${scrollerTestId}"]`)
     const scrollerRect = scroller?.getBoundingClientRect()
     const content = tail.closest<HTMLElement>("[data-message-list-content]")
+    const footer = scroller?.closest('[data-slot="community-conversation-surface"]')
+      ?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
+    const footerRect = footer?.getBoundingClientRect()
+    const overlayHeight = footerRect && scrollerRect && footer?.dataset.selectionActive !== "true"
+      && Math.abs(footerRect.bottom - scrollerRect.bottom) <= 1 ? footerRect.height : 0
     return {
+      overlayHeight,
       tailHeight: tailRect.height,
       tailBottom: tailRect.bottom,
       scrollerBottom: scrollerRect?.bottom ?? null,
@@ -356,7 +371,7 @@ export async function expectSkeletonTailGeometry(
         : null,
     }
   }, tid.messageScroller)
-  const expectedTail = 40
+  const expectedTail = 40 + geometry.overlayHeight
   expect(geometry.contentPaddingBottom, `${label}: outer padding`).toBe(0)
   expect(geometry.tailHeight, `${label}: placeholder height`).toBe(expectedTail)
   expect(geometry.scrollerBottom, `${label}: scroller boundary`).not.toBeNull()
@@ -454,9 +469,13 @@ export function expectContinuousResizeAnchorPreserved(
   }
 }
 
-export function expectInFlowMessageGeometry(geometry: MessageViewportGeometry, label: string): void {
+export function expectComposerOverlayGeometry(geometry: MessageViewportGeometry, label: string): void {
   expect(geometry.contentPaddingBottom, `${label}: outer tail padding removed`).toBe(0)
   expect(geometry.composerRect, `${label}: scoped composer`).not.toBeNull()
+  expect(geometry.composerOcclusion, `${label}: positive overlay reservation`).toBeGreaterThan(0)
+  expect(Math.abs(geometry.scrollerRect.bottom - geometry.composerRect!.bottom), `${label}: scroller extends behind composer`).toBeLessThanOrEqual(1)
+  expect(Math.abs(geometry.composerRect!.bottom - geometry.composerRect!.top - geometry.composerOcclusion), `${label}: reserved composer height`).toBeLessThanOrEqual(1)
+  expect(geometry.composerGutterReachesScroller, `${label}: transparent gutter hit target`).toBe(true)
   if (geometry.railRect) {
     expect(geometry.railPosition, `${label}: rail position`).toBe("static")
     expect(geometry.railInFooter, `${label}: Footer owns rail`).toBe(true)

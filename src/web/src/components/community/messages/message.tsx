@@ -671,7 +671,7 @@ function MessageImpl({
 
       {m.replyTo && (
         <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-2">
-          <Button variant="ghost" size="sm" aria-label="Show original message" onClick={onJumpReply} className="h-auto whitespace-normal p-0 col-start-2 flex min-w-0 items-center justify-start gap-2 text-left text-[13px] font-normal text-muted-foreground hover:text-foreground hover:bg-transparent!">
+          <Button variant="link" size="sm" aria-label="Show original message" onClick={onJumpReply} className="h-auto whitespace-normal p-0 col-start-2 flex min-w-0 items-center justify-start gap-2 text-left text-[13px] font-normal text-muted-foreground hover:text-foreground hover:no-underline">
             <div className="h-2 w-4 shrink-0 rounded-tl-md border-l-2 border-t-2 border-border" />
             {m.replyTo.deleted ? (
               <span className="italic text-muted-foreground">Original message was deleted</span>

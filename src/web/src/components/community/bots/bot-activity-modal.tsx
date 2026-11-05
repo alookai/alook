@@ -149,7 +149,7 @@ export function BotActivityModal({
           <span
             className={[
               "inline-block size-1.5 rounded-full",
-              online ? "bg-status-online" : "bg-muted-foreground/60",
+              online ? "bg-status-online" : "bg-status-offline",
             ].join(" ")}
             aria-hidden
           />

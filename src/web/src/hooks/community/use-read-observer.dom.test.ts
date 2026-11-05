@@ -65,6 +65,7 @@ type ObserverRecord = {
   queued: IntersectionObserverEntry[]
   actions: string[]
   disconnected: boolean
+  options?: IntersectionObserverInit
 }
 
 let observers: ObserverRecord[]
@@ -78,9 +79,10 @@ let mutationObservedTarget: Node | undefined
 class FakeIntersectionObserver {
   private readonly record: ObserverRecord
 
-  constructor(callback: IntersectionObserverCallback) {
+  constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
     this.record = {
       callback,
+      options,
       observed: new Set(),
       queued: [],
       actions: [],
@@ -686,6 +688,47 @@ describe("useTimelineReadObserver", () => {
     expect(observers[0]!.observed.has(nested)).toBe(true)
   })
 
+  it("excludes the composer from read visibility and retires stale intersections when it grows", () => {
+    const { row, root } = useTestRender()
+    const original = observers.at(-1)!
+    root.dataset.composerOcclusion = "132"
+    act(() => mutationCallback!([{
+      type: "attributes", target: root, attributeName: "data-composer-occlusion",
+    } as MutationRecord], {} as MutationObserver))
+    const current = observers.at(-1)!
+    expect(current.options?.rootMargin).toBe("0px 0px -132px 0px")
+    expect(original.disconnected).toBe(true)
+    trigger(original, row)
+    expect(coordinator.submit).not.toHaveBeenCalled()
+    trigger(current, row)
+    expect(coordinator.submit).toHaveBeenCalledOnce()
+  })
+
+  it("retires queued reads when hiding and composer collapse arrive in the same mutation batch", () => {
+    const row = makeRow("message-4")
+    const boundary = makeContentBoundary(true)
+    const root = makeRoot([row], boundary)
+    useTestRender({ scrollRootEl: root })
+    const original = observers.at(-1)!
+    queueEntry(original, row)
+    boundary.setReadable(false)
+    root.dataset.composerOcclusion = "0"
+    act(() => mutationCallback!([
+      presentationAttributeRecord(boundary, "aria-hidden"),
+      presentationAttributeRecord(boundary, "inert"),
+      { type: "attributes", target: root, attributeName: "data-composer-occlusion", addedNodes: [] as unknown as NodeList } as MutationRecord,
+    ], {} as MutationObserver))
+    boundary.setReadable(true)
+    act(() => mutationCallback!([
+      presentationAttributeRecord(boundary, "aria-hidden"),
+      presentationAttributeRecord(boundary, "inert"),
+    ], {} as MutationObserver))
+    deliverQueued(original)
+    expect(coordinator.submit).not.toHaveBeenCalled()
+    trigger(observers.at(-1)!, row)
+    expect(coordinator.submit).toHaveBeenCalledOnce()
+  })
+
   it("drains a hidden queued entry before rebinding the same node for reveal", () => {
     const row = makeRow("message-4")
     const boundary = makeContentBoundary(false)
@@ -696,7 +739,7 @@ describe("useTimelineReadObserver", () => {
     expect(mutationObservedTarget).toBe(root)
     expect(mutationObserveOptions).toEqual({
       attributes: true,
-      attributeFilter: ["aria-hidden", "inert", "data-read-position-ready", "data-msg-id"],
+      attributeFilter: ["aria-hidden", "inert", "data-read-position-ready", "data-msg-id", "data-composer-occlusion"],
       attributeOldValue: true,
       childList: true,
       subtree: true,
