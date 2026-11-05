@@ -19,22 +19,22 @@ export class SubmitError extends Error {
   }
 }
 
-export function postFor(operation, ids) {
-  if (![ids?.appId, ids?.buildId, ids?.groupId].every(validId) || ids?.locale !== "en-US") throw new SubmitError("INVALID_VERIFIED_IDENTITIES")
+export function writeFor(operation, ids) {
+  if (![ids?.appId, ids?.buildId, ids?.groupId, ids?.noteId].every(validId) || ids?.locale !== "en-US") throw new SubmitError("INVALID_VERIFIED_IDENTITIES")
   const build = { type: "builds", id: ids.buildId }
-  if (operation === "createNativeNotes") return { url: new URL("/v1/betaBuildLocalizations", ORIGIN), body: {
-    data: { type: "betaBuildLocalizations", attributes: { locale: "en-US", whatsNew: NATIVE_TEST_NOTES }, relationships: { build: { data: build } } },
+  if (operation === "updateExistingNativeNotes") return { url: new URL(`/v1/betaBuildLocalizations/${ids.noteId}`, ORIGIN), method: "PATCH", body: {
+    data: { type: "betaBuildLocalizations", id: ids.noteId, attributes: { whatsNew: NATIVE_TEST_NOTES } },
   } }
-  if (operation === "associateExistingGroup") return { url: new URL(`/v1/builds/${ids.buildId}/relationships/betaGroups`, ORIGIN), body: { data: [{ type: "betaGroups", id: ids.groupId }] } }
-  if (operation === "submitBetaReview") return { url: new URL("/v1/betaAppReviewSubmissions", ORIGIN), body: {
+  if (operation === "associateExistingGroup") return { url: new URL(`/v1/builds/${ids.buildId}/relationships/betaGroups`, ORIGIN), method: "POST", body: { data: [{ type: "betaGroups", id: ids.groupId }] } }
+  if (operation === "submitBetaReview") return { url: new URL("/v1/betaAppReviewSubmissions", ORIGIN), method: "POST", body: {
     data: { type: "betaAppReviewSubmissions", relationships: { build: { data: build } } },
   } }
   throw new SubmitError("UNSAFE_OPERATION")
 }
 
-export function createPostClient(credentials, fetchImpl = fetch) {
+export function createWriteClient(credentials, fetchImpl = fetch) {
   return async (operation, ids) => {
-    const { url, body } = postFor(operation, ids)
+    const { url, method, body } = writeFor(operation, ids)
     if (![credentials.issuer, credentials.keyId, credentials.privateKey].every(value => typeof value === "string" && value.length)) throw new SubmitError("MISSING_CREDENTIALS")
     const encode = value => Buffer.from(JSON.stringify(value)).toString("base64url")
     const now = Math.floor(Date.now() / 1000)
@@ -46,9 +46,9 @@ export function createPostClient(credentials, fetchImpl = fetch) {
     } catch { throw new SubmitError("SIGNING_FAILED") }
     let response
     try {
-      response = await fetchImpl(url, { method: "POST", redirect: "error", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) })
+      response = await fetchImpl(url, { method, redirect: "error", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) })
     } catch { throw new SubmitError("WRITE_RESPONSE_UNKNOWN") }
-    const expectedStatus = operation === "associateExistingGroup" ? 204 : 201
+    const expectedStatus = operation === "updateExistingNativeNotes" ? 200 : operation === "associateExistingGroup" ? 204 : 201
     if (response.status !== expectedStatus) {
       let codes = []
       try { const errors = (await response.json())?.errors; codes = Array.isArray(errors) ? errors.slice(0, 5).map(row => row?.code) : [] } catch {}
@@ -58,7 +58,7 @@ export function createPostClient(credentials, fetchImpl = fetch) {
   }
 }
 
-export async function submitTestflight45({ get, post, enabled = false, confirmTarget = null, acknowledgeAutoNotify = false, onProgress = async () => {} }) {
+export async function submitTestflight45({ get, write, enabled = false, confirmTarget = null, acknowledgeAutoNotify = false, onProgress = async () => {} }) {
   const result = { status: "blocked", target: { bundleId: TARGET.bundleId, version: TARGET.version, build: TARGET.build }, actions: [], lastRead: null,
     notificationPolicy: "preserve-existing-true-on-approval", physicalDeviceAcceptance: "unverified" }
   let verifiedIds = null
@@ -67,10 +67,18 @@ export async function submitTestflight45({ get, post, enabled = false, confirmTa
     let appId = null
     let buildId = null
     let groupId = null
+    let noteId = null
     const receipt = await inspectPreflight(async (...args) => {
       const response = await get(...args)
       if (args[0] === "appMetadata") appId = response.data?.length === 1 ? response.data[0].id : null
-      if (args[0] === "targetBuild") buildId = response.data?.length === 1 ? response.data[0].id : null
+      if (args[0] === "targetBuild" && response.data?.length === 1) {
+        const build = response.data[0]
+        buildId = build.id
+        const relation = build.relationships?.betaBuildLocalizations?.data
+        const notes = Array.isArray(relation) && Array.isArray(response.included)
+          ? response.included.filter(row => row.type === "betaBuildLocalizations" && row.attributes?.locale === "en-US" && relation.some(id => id?.type === "betaBuildLocalizations" && id.id === row.id)) : []
+        if (notes.length === 1) noteId = notes[0].id
+      }
       if (args[0] === "existingPublicGroup") {
         const groups = Array.isArray(response.data) ? response.data : []
         const match = groups.find(row => row.attributes?.isInternalGroup === false && row.attributes?.publicLinkId === TARGET.invite)
@@ -81,8 +89,10 @@ export async function submitTestflight45({ get, post, enabled = false, confirmTa
     result.lastRead = receipt
     await checkpoint()
     if (receipt.status !== "observed") throw new SubmitError("PREFLIGHT_UNAVAILABLE")
-    const ids = { appId, buildId, groupId, locale: receipt.metadata?.primaryLocale }
+    const ids = { appId, buildId, groupId, noteId, locale: receipt.metadata?.primaryLocale }
     if (![appId, buildId, groupId].every(validId) || ids.locale !== "en-US") throw new SubmitError("INVALID_VERIFIED_IDENTITIES")
+    if (receipt.build?.notesInspectionComplete !== true || receipt.build.primaryLocaleNoteRecordCount !== 1
+      || receipt.build.primaryLocaleNoteRecordUnique !== true || receipt.build.primaryLocaleNoteRecordExists !== true || !validId(noteId)) throw new SubmitError("PRIMARY_NOTE_RECORD_NOT_UNIQUE")
     if (verifiedIds && Object.keys(ids).some(key => ids[key] !== verifiedIds[key])) throw new SubmitError("VERIFIED_IDENTITIES_CHANGED")
     verifiedIds = ids
     return receipt
@@ -93,7 +103,8 @@ export async function submitTestflight45({ get, post, enabled = false, confirmTa
     const g = read.publicGroup
     if (!m?.reviewContactComplete || !m.reviewLoginComplete || !m.primaryLocaleTestInfoComplete || m.appLocalizationsInspectionComplete !== true || m.allLocaleDescriptionsPresent !== true
       || b?.processingState !== "VALID" || b.expired !== false || b.audience !== "APP_STORE_ELIGIBLE" || !b.encryptionDeclarationPresent
-      || b.notesInspectionComplete !== true || b.groupAssociationComplete !== true || b.autoNotifyEnabled !== true
+      || b.notesInspectionComplete !== true || typeof b.primaryLocaleNoteRecordBlank !== "boolean"
+      || b.primaryLocaleNotesPresent !== !b.primaryLocaleNoteRecordBlank || b.groupAssociationComplete !== true || b.autoNotifyEnabled !== true
       || g?.matchingExternalGroupCount !== 1 || g.enabled !== true || typeof g.targetAssociated !== "boolean") throw new SubmitError("PREREQUISITE_OR_NOTIFICATION_DRIFT")
   }
   function reviewAlreadyStarted(read) {
@@ -113,8 +124,8 @@ export async function submitTestflight45({ get, post, enabled = false, confirmTa
     const action = { operation, state: "unconfirmed", httpStatus: null }
     result.actions.push(action)
     await checkpoint()
-    const response = await post(operation, verifiedIds)
-    const expected = operation === "associateExistingGroup" ? 204 : 201
+    const response = await write(operation, verifiedIds)
+    const expected = operation === "updateExistingNativeNotes" ? 200 : operation === "associateExistingGroup" ? 204 : 201
     if (response?.httpStatus !== expected) throw new SubmitError("WRITE_RESPONSE_UNKNOWN")
     action.state = "accepted"
     action.httpStatus = expected
@@ -127,8 +138,8 @@ export async function submitTestflight45({ get, post, enabled = false, confirmTa
     let read = await refresh()
     assertBase(read)
     if (reviewAlreadyStarted(read)) return result
-    if (read.build.primaryLocaleNotesPresent !== true) {
-      await mutate("createNativeNotes")
+    if (read.build.primaryLocaleNoteRecordBlank === true) {
+      await mutate("updateExistingNativeNotes")
       read = await refresh()
       assertBase(read)
       if (read.build.primaryLocaleNotesPresent !== true) throw new SubmitError("NOTES_READBACK_UNCONFIRMED")
@@ -165,7 +176,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     await writeFile(`${output}.next`, JSON.stringify(receipt, null, 2), { mode: 0o600 })
     await rename(`${output}.next`, output)
   }
-  const receipt = await submitTestflight45({ get: createPreflightClient(credentials), post: createPostClient(credentials),
+  const receipt = await submitTestflight45({ get: createPreflightClient(credentials), write: createWriteClient(credentials),
     enabled: process.env.TESTFLIGHT45_SUBMIT_ALLOWED === "reviewed" && exactArgs, confirmTarget: args[1], acknowledgeAutoNotify: exactArgs,
     onProgress: async value => { await save(value); console.log(JSON.stringify({ checkpoint: value })) } })
   await save(receipt)

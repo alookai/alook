@@ -5,15 +5,15 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { CONFIRM_TARGET, NATIVE_TEST_NOTES, createPostClient, postFor, SubmitError, submitTestflight45 } from "./submit-testflight45.mjs"
+import { CONFIRM_TARGET, NATIVE_TEST_NOTES, createWriteClient, writeFor, SubmitError, submitTestflight45 } from "./submit-testflight45.mjs"
 import { createPreflightClient } from "./inspect-testflight-preflight.mjs"
 
 const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" })
 const credentials = { issuer: "synthetic-issuer", keyId: "synthetic-key", privateKey: keys.privateKey.export({ type: "pkcs8", format: "pem" }) }
-const identities = { appId: "app-1", buildId: "build-45", groupId: "group-1", locale: "en-US" }
+const identities = { appId: "app-1", buildId: "build-45", groupId: "group-1", noteId: "note-1", locale: "en-US" }
 const privateText = "private-user@example.com"
 function fixture(initial = {}) {
-  const server = { notes: false, associated: false, review: false, otherReview: false, autoNotify: true, appId: "app-1", contact: true, ...initial }
+  const server = { notes: false, noteExists: true, noteId: "note-1", associated: false, review: false, otherReview: false, autoNotify: true, appId: "app-1", contact: true, ...initial }
   const writes = []
   const reads = []
   const get = async stage => {
@@ -40,26 +40,26 @@ function fixture(initial = {}) {
     return { data: [{ type: "builds", id: buildId, attributes: { version: "45", processingState: "VALID", expired: false, buildAudienceType: "APP_STORE_ELIGIBLE", usesNonExemptEncryption: false }, relationships: {
       preReleaseVersion: { data: { id: "version-1" } }, buildBetaDetail: { data: { id: "beta-1" } },
       betaGroups: { data: server.associated ? [{ type: "betaGroups", id: "group-1" }] : [] },
-      betaBuildLocalizations: { data: server.notes ? [{ type: "betaBuildLocalizations", id: "note-1" }] : [] },
+      betaBuildLocalizations: { data: server.noteExists ? [{ type: "betaBuildLocalizations", id: server.noteId }] : [] },
       ...(reviewing ? { betaAppReviewSubmission: { data: { id: "review-1" } } } : {}),
     } }], included: [
       { type: "preReleaseVersions", id: "version-1", attributes: { version: "0.1.64", platform: "IOS" } },
       { type: "buildBetaDetails", id: "beta-1", attributes: { internalBuildState: "READY_FOR_BETA_TESTING", externalBuildState: server.external ?? (server.review ? "WAITING_FOR_BETA_REVIEW" : "READY_FOR_BETA_SUBMISSION"), autoNotifyEnabled: server.autoNotify } },
-      ...(server.notes ? [{ type: "betaBuildLocalizations", id: "note-1", attributes: { locale: "en-US", whatsNew: "private-existing-notes" } }] : []),
+      ...(server.noteExists ? [{ type: "betaBuildLocalizations", id: server.noteId, attributes: { locale: "en-US", whatsNew: server.notes ? "private-existing-notes" : "" } }] : []),
       ...(reviewing ? [{ type: "betaAppReviewSubmissions", id: "review-1", attributes: { betaReviewState: "WAITING_FOR_REVIEW" } }] : []),
     ] }
   }
-  const post = async (operation, ids) => {
+  const write = async (operation, ids) => {
     assert.deepEqual(ids, identities)
     writes.push(operation)
-    if (operation === "createNativeNotes") server.notes = true
+    if (operation === "updateExistingNativeNotes") server.notes = true
     if (operation === "associateExistingGroup") server.associated = true
     if (operation === "submitBetaReview") server.review = true
-    return { httpStatus: operation === "associateExistingGroup" ? 204 : 201 }
+    return { httpStatus: operation === "updateExistingNativeNotes" ? 200 : operation === "associateExistingGroup" ? 204 : 201 }
   }
-  return { get, post, reads, writes, server }
+  return { get, write, reads, writes, server }
 }
-const enabled = f => ({ get: f.get, post: f.post, enabled: true, confirmTarget: CONFIRM_TARGET, acknowledgeAutoNotify: true })
+const enabled = f => ({ get: f.get, write: f.write, enabled: true, confirmTarget: CONFIRM_TARGET, acknowledgeAutoNotify: true })
 
 export function registerSubmitContracts(test) {
 test("write requires explicit enable, exact target and existing-notification acknowledgement before any read or POST", async () => {
@@ -72,11 +72,11 @@ test("write requires explicit enable, exact target and existing-notification ack
   }
 })
 
-test("three allowlisted POSTs have exact fixed native-only notes, target relation and valid short ES256 token", async () => {
+test("allowlisted PATCH and two POSTs have exact methods, fixed native-only text and valid short ES256 tokens", async () => {
   const calls = []
-  const post = createPostClient(credentials, async (url, options) => {
-    calls.push({ url, body: JSON.parse(options.body) })
-    assert.equal(options.method, "POST")
+  const write = createWriteClient(credentials, async (url, options) => {
+    calls.push({ url, method: options.method, body: JSON.parse(options.body) })
+    assert.equal(options.method, url.pathname.includes("betaBuildLocalizations/") ? "PATCH" : "POST")
     assert.equal(options.redirect, "error")
     assert.equal(url.origin, "https://api.appstoreconnect.apple.com")
     const [header, payload, signature] = options.headers.Authorization.slice(7).split(".")
@@ -85,55 +85,118 @@ test("three allowlisted POSTs have exact fixed native-only notes, target relatio
     assert.equal(claims.aud, "appstoreconnect-v1")
     assert.equal("scope" in claims, false)
     assert.equal(verify("sha256", Buffer.from(`${header}.${payload}`), { key: keys.publicKey, dsaEncoding: "ieee-p1363" }, Buffer.from(signature, "base64url")), true)
-    return { status: url.pathname.includes("relationships") ? 204 : 201 }
+    return { status: options.method === "PATCH" ? 200 : url.pathname.includes("relationships") ? 204 : 201 }
   })
-  for (const op of ["createNativeNotes", "associateExistingGroup", "submitBetaReview"]) await post(op, identities)
-  assert.equal(calls[0].url.pathname, "/v1/betaBuildLocalizations")
-  assert.equal(calls[0].body.data.attributes.locale, "en-US")
-  assert.equal(calls[0].body.data.attributes.whatsNew, NATIVE_TEST_NOTES)
+  for (const op of ["updateExistingNativeNotes", "associateExistingGroup", "submitBetaReview"]) await write(op, identities)
+  assert.equal(calls[0].url.pathname, "/v1/betaBuildLocalizations/note-1")
+  assert.deepEqual(calls[0].body, { data: { type: "betaBuildLocalizations", id: "note-1", attributes: { whatsNew: NATIVE_TEST_NOTES } } })
+  assert.equal(calls[0].method, "PATCH")
   assert.match(NATIVE_TEST_NOTES, /iPhone/)
   assert.doesNotMatch(NATIVE_TEST_NOTES, /sticker|Inbox|Mark|fixed|passed/i)
-  assert.deepEqual(calls[0].body.data.relationships.build.data, { type: "builds", id: "build-45" })
   assert.equal(calls[1].url.pathname, "/v1/builds/build-45/relationships/betaGroups")
   assert.deepEqual(calls[1].body, { data: [{ type: "betaGroups", id: "group-1" }] })
   assert.equal(calls[2].url.pathname, "/v1/betaAppReviewSubmissions")
   assert.deepEqual(calls[2].body, { data: { type: "betaAppReviewSubmissions", relationships: { build: { data: { type: "builds", id: "build-45" } } } } })
 })
 
-test("unknown operations, malformed identities and non-en-US locale fail before POST", async () => {
+test("unknown operations including create, malformed identities and non-en-US locale fail before network", async () => {
   let calls = 0
-  const post = createPostClient(credentials, async () => { calls++ })
-  await assert.rejects(post("deleteGroup", identities), /UNSAFE_OPERATION/)
-  for (const ids of [{ ...identities, buildId: "../../other" }, { ...identities, groupId: null }, { ...identities, locale: "zh-CN" }]) await assert.rejects(post("submitBetaReview", ids), /INVALID_VERIFIED_IDENTITIES/)
+  const write = createWriteClient(credentials, async () => { calls++ })
+  await assert.rejects(write("deleteGroup", identities), /UNSAFE_OPERATION/)
+  await assert.rejects(write("createNativeNotes", identities), /UNSAFE_OPERATION/)
+  for (const ids of [{ ...identities, buildId: "../../other" }, { ...identities, groupId: null }, { ...identities, locale: "zh-CN" }, { ...identities, noteId: "../foreign" }, { ...identities, noteId: null }]) await assert.rejects(write("submitBetaReview", ids), /INVALID_VERIFIED_IDENTITIES/)
   assert.equal(calls, 0)
-  assert.throws(() => postFor("arbitrary", identities), SubmitError)
-  await assert.rejects(createPostClient({}, async () => { calls++ })("submitBetaReview", identities), /MISSING_CREDENTIALS/)
-  await assert.rejects(createPostClient({ ...credentials, privateKey: privateText }, async () => { calls++ })("submitBetaReview", identities), /SIGNING_FAILED/)
+  assert.throws(() => writeFor("arbitrary", identities), SubmitError)
+  await assert.rejects(createWriteClient({}, async () => { calls++ })("submitBetaReview", identities), /MISSING_CREDENTIALS/)
+  await assert.rejects(createWriteClient({ ...credentials, privateKey: privateText }, async () => { calls++ })("submitBetaReview", identities), /SIGNING_FAILED/)
   assert.equal(calls, 0)
 })
 
-test("successful sequence re-reads server state between writes and saves pending receipts before each POST", async () => {
+test("successful sequence re-reads server state between writes and saves pending receipts before each write", async () => {
   const f = fixture()
   let saved = null
-  const receipt = await submitTestflight45({ ...enabled(f), onProgress: async value => { saved = value }, post: async (op, ids) => {
+  const receipt = await submitTestflight45({ ...enabled(f), onProgress: async value => { saved = value }, write: async (op, ids) => {
     assert.equal(saved.actions.at(-1).operation, op)
     assert.equal(saved.actions.at(-1).state, "unconfirmed")
     assert.equal(f.reads.length, (f.writes.length + 1) * 4)
-    return f.post(op, ids)
+    return f.write(op, ids)
   } })
   assert.equal(receipt.status, "submitted")
-  assert.deepEqual(f.writes, ["createNativeNotes", "associateExistingGroup", "submitBetaReview"])
+  assert.deepEqual(f.writes, ["updateExistingNativeNotes", "associateExistingGroup", "submitBetaReview"])
   assert.equal(f.reads.length, 16)
   assert.equal(receipt.lastRead.activeVersionReviews.targetBuildIncluded, true)
   assert.equal(receipt.actions.every(row => row.state === "accepted"), true)
   assert.equal(receipt.lastRead.build.autoNotifyEnabled, true)
-  for (const value of [privateText, "private-description", "private-existing-notes", "app-1", "build-45", "group-1"]) assert.equal(JSON.stringify(receipt).includes(value), false)
+  for (const value of [privateText, "private-description", "private-existing-notes", "app-1", "build-45", "group-1", "note-1"]) assert.equal(JSON.stringify(receipt).includes(value), false)
 })
 
 test("already present notes and association are preserved rather than rewritten", async () => {
   const f = fixture({ notes: true, associated: true })
   assert.equal((await submitTestflight45(enabled(f))).status, "submitted")
   assert.deepEqual(f.writes, ["submitBetaReview"])
+})
+
+test("absent, duplicate, unknown or incomplete note records block all writes rather than create or overwrite", async () => {
+  const variants = [
+    { initial: { noteExists: false } },
+    { initial: { noteId: "../invalid" } },
+    { change: response => { response.included.find(row => row.type === "betaBuildLocalizations").attributes.whatsNew = undefined } },
+    { change: response => { response.data[0].relationships.betaBuildLocalizations.links = { next: "private-next" } } },
+    { change: response => {
+      response.data[0].relationships.betaBuildLocalizations.data.push({ type: "betaBuildLocalizations", id: "note-2" })
+      response.included.push({ type: "betaBuildLocalizations", id: "note-2", attributes: { locale: "en-US", whatsNew: "" } })
+    } },
+  ]
+  for (const variant of variants) {
+    const f = fixture(variant.initial)
+    const receipt = await submitTestflight45({ ...enabled(f), get: async (...args) => {
+      const response = await f.get(...args)
+      if (args[0] === "targetBuild" && variant.change) variant.change(response)
+      return response
+    } })
+    assert.equal(receipt.status, "blocked")
+    assert.deepEqual(f.writes, [])
+    assert.deepEqual(receipt.actions, [])
+  }
+})
+
+test("unrelated included primary-locale notes cannot steer PATCH away from the exact build relationship", async () => {
+  const f = fixture()
+  const receipt = await submitTestflight45({ ...enabled(f), get: async (...args) => {
+    const response = await f.get(...args)
+    if (args[0] === "targetBuild") response.included.unshift({ type: "betaBuildLocalizations", id: "foreign-note", attributes: { locale: "en-US", whatsNew: "" } })
+    return response
+  } })
+  assert.equal(receipt.status, "submitted")
+  assert.deepEqual(f.writes, ["updateExistingNativeNotes", "associateExistingGroup", "submitBetaReview"])
+  assert.equal(JSON.stringify(receipt).includes("foreign-note"), false)
+})
+
+test("verified note ID changing after accepted PATCH stops before group or review writes", async () => {
+  const f = fixture()
+  const receipt = await submitTestflight45({ ...enabled(f), write: async (...args) => {
+    const response = await f.write(...args)
+    f.server.noteId = "note-2"
+    return response
+  } })
+  assert.equal(receipt.status, "partialOrUnconfirmed")
+  assert.equal(receipt.error.code, "VERIFIED_IDENTITIES_CHANGED")
+  assert.deepEqual(f.writes, ["updateExistingNativeNotes"])
+  assert.equal(receipt.actions[0].httpStatus, 200)
+  assert.equal(JSON.stringify(receipt).includes("note-2"), false)
+})
+
+test("applied PATCH with an ambiguous response stays one unconfirmed action and is never replayed", async () => {
+  const f = fixture()
+  const receipt = await submitTestflight45({ ...enabled(f), write: async (...args) => {
+    await f.write(...args)
+    throw new SubmitError("WRITE_RESPONSE_UNKNOWN")
+  } })
+  assert.equal(f.server.notes, true)
+  assert.equal(receipt.status, "partialOrUnconfirmed")
+  assert.deepEqual(f.writes, ["updateExistingNativeNotes"])
+  assert.deepEqual(receipt.actions, [{ operation: "updateExistingNativeNotes", state: "unconfirmed", httpStatus: null }])
+  assert.equal(receipt.lastRead.build.primaryLocaleNoteRecordBlank, true)
 })
 
 test("same-build pending review skips every mutation, other same-version review blocks every mutation", async () => {
@@ -174,7 +237,7 @@ test("empty secondary-language description or incomplete localization collection
 test("completed403 preflight failure returns blocked with zero POSTs instead of a running terminal state", async () => {
   let writes = 0
   const get = createPreflightClient(credentials, async () => ({ ok: false, status: 403, json: async () => ({ errors: [{ code: "FORBIDDEN_ERROR", detail: privateText }] }) }))
-  const receipt = await submitTestflight45({ enabled: true, confirmTarget: CONFIRM_TARGET, acknowledgeAutoNotify: true, get, post: async () => { writes++ } })
+  const receipt = await submitTestflight45({ enabled: true, confirmTarget: CONFIRM_TARGET, acknowledgeAutoNotify: true, get, write: async () => { writes++ } })
   assert.equal(receipt.status, "blocked")
   assert.equal(receipt.error.code, "PREFLIGHT_UNAVAILABLE")
   assert.equal(receipt.lastRead.error.httpStatus, 403)
@@ -186,9 +249,9 @@ test("completed403 preflight failure returns blocked with zero POSTs instead of 
 test("unconfirmed readback, identity drift and concurrent review stop after the accepted first action", async () => {
   for (const change of [f => { f.server.notes = false }, f => { f.server.appId = "app-2" }, f => { f.server.otherReview = true }, f => { f.server.autoNotify = false }]) {
     const f = fixture()
-    const receipt = await submitTestflight45({ ...enabled(f), post: async (...args) => { const r = await f.post(...args); change(f); return r } })
+    const receipt = await submitTestflight45({ ...enabled(f), write: async (...args) => { const r = await f.write(...args); change(f); return r } })
     assert.equal(receipt.status, "partialOrUnconfirmed")
-    assert.deepEqual(f.writes, ["createNativeNotes"])
+    assert.deepEqual(f.writes, ["updateExistingNativeNotes"])
     assert.equal(receipt.actions[0].state, "accepted")
     assert.equal(receipt.error.code.length > 0, true)
   }
@@ -196,13 +259,13 @@ test("unconfirmed readback, identity drift and concurrent review stop after the 
 
 test("ambiguous applied submission is never retried and stays unconfirmed in the receipt", async () => {
   const f = fixture()
-  const receipt = await submitTestflight45({ ...enabled(f), post: async (...args) => {
-    const r = await f.post(...args)
+  const receipt = await submitTestflight45({ ...enabled(f), write: async (...args) => {
+    const r = await f.write(...args)
     if (args[0] === "submitBetaReview") throw new SubmitError("WRITE_RESPONSE_UNKNOWN")
     return r
   } })
   assert.equal(f.server.review, true)
-  assert.deepEqual(f.writes, ["createNativeNotes", "associateExistingGroup", "submitBetaReview"])
+  assert.deepEqual(f.writes, ["updateExistingNativeNotes", "associateExistingGroup", "submitBetaReview"])
   assert.equal(receipt.status, "partialOrUnconfirmed")
   assert.equal(receipt.actions.at(-1).state, "unconfirmed")
   assert.equal(receipt.lastRead.activeVersionReviews.count, 0)
@@ -210,8 +273,8 @@ test("ambiguous applied submission is never retried and stays unconfirmed in the
 
 test("accepted submission with stale readback stays unconfirmed without a second POST", async () => {
   const f = fixture({ notes: true, associated: true })
-  const receipt = await submitTestflight45({ ...enabled(f), post: async (...args) => {
-    const response = await f.post(...args)
+  const receipt = await submitTestflight45({ ...enabled(f), write: async (...args) => {
+    const response = await f.write(...args)
     f.server.review = false
     return response
   } })
@@ -221,11 +284,11 @@ test("accepted submission with stale readback stays unconfirmed without a second
   assert.equal(receipt.lastRead.build.externalBuildState, "READY_FOR_BETA_SUBMISSION")
 })
 
-test("HTTP and network errors retain only safe status/codes and do not retry", async () => {
-  for (const status of [302, 403, 409, 500]) {
+test("HTTP and network errors on PATCH and POST retain safe status/codes and do not retry", async () => {
+  for (const operation of ["updateExistingNativeNotes", "submitBetaReview"]) for (const status of [...(operation === "updateExistingNativeNotes" ? [201, 204] : [200, 204]), 302, 403, 409, 500]) {
     let calls = 0
-    const post = createPostClient(credentials, async () => { calls++; return { status, json: async () => ({ errors: [{ code: "ENTITY_ERROR", detail: credentials.privateKey, source: { parameter: privateText } }, { code: privateText }] }) } })
-    await assert.rejects(post("submitBetaReview", identities), error => {
+    const write = createWriteClient(credentials, async () => { calls++; return { status, json: async () => ({ errors: [{ code: "ENTITY_ERROR", detail: credentials.privateKey, source: { parameter: privateText } }, { code: privateText }] }) } })
+    await assert.rejects(write(operation, identities), error => {
       assert.equal(error.httpStatus, status)
       assert.deepEqual(error.errorCodes, ["ENTITY_ERROR"])
       assert.equal(error.message.includes(privateText), false)
@@ -234,8 +297,8 @@ test("HTTP and network errors retain only safe status/codes and do not retry", a
     assert.equal(calls, 1)
   }
   let calls = 0
-  const post = createPostClient(credentials, async () => { calls++; throw new Error(credentials.privateKey) })
-  await assert.rejects(post("submitBetaReview", identities), /WRITE_RESPONSE_UNKNOWN/)
+  const write = createWriteClient(credentials, async () => { calls++; throw new Error(credentials.privateKey) })
+  await assert.rejects(write("submitBetaReview", identities), /WRITE_RESPONSE_UNKNOWN/)
   assert.equal(calls, 1)
 })
 
