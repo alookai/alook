@@ -55,7 +55,7 @@ test("client only sends GET, blocks redirect and omits raw failed response bodie
     return { ok: false, status: 403, json() { throw new Error("raw tester or credential data must not be read") } }
   })
   await assert.rejects(get(new URL("https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=ai.alook.ios")), error => {
-    assert.deepEqual(failureReceipt(error), { status: "unavailable", target: { bundleId: TARGET.bundleId, version: TARGET.version, build: "45" }, code: "HTTP_FAILED", httpStatus: 403 })
+    assert.deepEqual(failureReceipt(error), { status: "unavailable", target: { bundleId: TARGET.bundleId, version: TARGET.version, build: "45" }, code: "HTTP_FAILED", httpStatus: 403, requestStage: "apps", errorCodes: [] })
     return true
   })
   assert.equal(calls, 1)
@@ -154,6 +154,46 @@ test("pagination is bounded and never converts a truncated collection into no gr
 
 test("unexpected error text is never included in the failure receipt", () => {
   assert.equal(JSON.stringify(failureReceipt(new Error(credentials.privateKey))).includes("PRIVATE KEY"), false)
+})
+
+test("HTTP failure records only fixed stage and bounded validated Apple error codes", async () => {
+  const secret = "private-user@example.com"
+  const get = createReadClient(credentials, async () => ({ ok: false, status: 400, json: async () => ({
+    id: secret, detail: credentials.privateKey,
+    errors: [
+      { code: "PARAMETER_ERROR.INVALID", title: secret, detail: credentials.privateKey, source: { parameter: secret }, id: "private-id" },
+      { code: "INVALID\nPRIVATE" }, { code: "x" }, { code: "A".repeat(81) }, { code: "ENTITY_ERROR" }, { code: "MUST_NOT_APPEAR" },
+    ],
+  }) }))
+  await assert.rejects(get(new URL("https://api.appstoreconnect.apple.com/v1/builds?filter[app]=private-app&filter[version]=45")), error => {
+    const receipt = failureReceipt(error)
+    assert.equal(receipt.requestStage, "builds")
+    assert.deepEqual(receipt.errorCodes, ["PARAMETER_ERROR.INVALID", "ENTITY_ERROR"])
+    const text = JSON.stringify(receipt)
+    for (const value of [secret, credentials.privateKey, "private-app", "private-id", "source", "detail", "MUST_NOT_APPEAR", "INVALID\\nPRIVATE"]) assert.equal(text.includes(value), false)
+    return true
+  })
+})
+
+test("invalid error schema, unreadable body and transport failure keep safe status and stage", async () => {
+  const url = new URL("https://api.appstoreconnect.apple.com/v1/betaGroups?filter[app]=private-app&filter[builds]=private-build")
+  for (const body of [null, { errors: "private-user@example.com" }, { errors: [null, { code: 12 }] }]) {
+    const get = createReadClient(credentials, async () => ({ ok: false, status: 400, json: async () => body }))
+    await assert.rejects(get(url), error => {
+      assert.deepEqual(failureReceipt(error).errorCodes, [])
+      assert.equal(failureReceipt(error).requestStage, "groups")
+      assert.equal(failureReceipt(error).httpStatus, 400)
+      return true
+    })
+  }
+  const get = createReadClient(credentials, async () => { throw new Error(credentials.privateKey) })
+  await assert.rejects(get(url), error => {
+    assert.equal(error.code, "TRANSPORT_FAILED")
+    assert.equal(failureReceipt(error).requestStage, "groups")
+    assert.deepEqual(failureReceipt(error).errorCodes, [])
+    assert.equal(JSON.stringify(failureReceipt(error)).includes("PRIVATE KEY"), false)
+    return true
+  })
 })
 
 }

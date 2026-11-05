@@ -5,12 +5,16 @@ import { pathToFileURL } from "node:url"
 
 export const TARGET = Object.freeze({ bundleId: "ai.alook.ios", version: "0.1.64", build: "45", invite: "4fHgVBVF" })
 const ORIGIN = "https://api.appstoreconnect.apple.com"
+const STAGES = Object.freeze({ "/v1/apps": "apps", "/v1/builds": "builds", "/v1/betaGroups": "groups" })
+const safeErrorCodes = values => Array.isArray(values) ? values.slice(0, 5).filter(value => typeof value === "string" && /^[A-Z][A-Z0-9_.]{0,79}$/.test(value)) : []
 
 export class InspectionError extends Error {
-  constructor(code, httpStatus = null) {
+  constructor(code, httpStatus = null, requestStage = null, errorCodes = []) {
     super(code)
     this.code = code
     this.httpStatus = httpStatus
+    this.requestStage = requestStage
+    this.errorCodes = safeErrorCodes(errorCodes)
   }
 }
 
@@ -63,9 +67,16 @@ export function createReadClient(credentials, fetchImpl = fetch) {
         signal: AbortSignal.timeout(30_000),
       })
     } catch {
-      throw new InspectionError("TRANSPORT_FAILED")
+      throw new InspectionError("TRANSPORT_FAILED", null, STAGES[url.pathname])
     }
-    if (!response.ok) throw new InspectionError("HTTP_FAILED", response.status)
+    if (!response.ok) {
+      let errorCodes = []
+      try {
+        const body = await response.json()
+        errorCodes = safeErrorCodes(Array.isArray(body?.errors) ? body.errors.slice(0, 5).map(error => error?.code) : [])
+      } catch {}
+      throw new InspectionError("HTTP_FAILED", response.status, STAGES[url.pathname], errorCodes)
+    }
     try { return await response.json() } catch { throw new InspectionError("INVALID_JSON") }
   }
 }
@@ -141,7 +152,10 @@ export async function inspectBuild(get) {
 }
 
 export function failureReceipt(error) {
-  return { status: "unavailable", target: { bundleId: TARGET.bundleId, version: TARGET.version, build: TARGET.build }, code: error instanceof InspectionError ? error.code : "UNEXPECTED_ERROR", httpStatus: error instanceof InspectionError ? error.httpStatus : null }
+  return { status: "unavailable", target: { bundleId: TARGET.bundleId, version: TARGET.version, build: TARGET.build }, code: error instanceof InspectionError ? error.code : "UNEXPECTED_ERROR", httpStatus: error instanceof InspectionError ? error.httpStatus : null,
+    requestStage: error instanceof InspectionError && Object.values(STAGES).includes(error.requestStage) ? error.requestStage : null,
+    errorCodes: error instanceof InspectionError ? safeErrorCodes(error.errorCodes) : [],
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
