@@ -187,7 +187,7 @@ describe("renderBotMachineGroup", () => {
       controller({ profilesByUserId: new Map([["b1", { id: "b1", presence: "offline" }]]), setConfirmResetMachine }),
     ))
     expect(withExactClass(renderer.container,
-      "inline-block size-1.5 shrink-0 rounded-full bg-muted-foreground"))
+      "inline-block size-1.5 shrink-0 rounded-full bg-status-offline"))
       .toHaveLength(1)
   })
 

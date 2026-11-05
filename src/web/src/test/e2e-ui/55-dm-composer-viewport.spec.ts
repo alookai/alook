@@ -3,7 +3,7 @@ import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { beginScrollTraceAnalysis, endScrollTraceAnalysis, installScrollTrace, markScrollTrace, startScrollTrace, summarizeScrollTrace } from "./_fixtures/scroll-trace"
 import { tid } from "./_fixtures/testids"
-import { VIEWPORT, seedDmProfile, identity, finishAndAttach, establishScrollDistancePrecondition, establishExactPinnedPrecondition, waitForCommittedGeometry, waitForStableTail, advanceScrollTraceFrame, expectResizeAnchorPreserved, expectContinuousResizeAnchorPreserved, expectInFlowMessageGeometry, messageCreateCount, type PostedMessageIdentity, expectMessageCreateIdentity, tracedAsUser } from "./_fixtures/message-scroll-characterization"
+import { VIEWPORT, seedDmProfile, identity, finishAndAttach, establishScrollDistancePrecondition, establishExactPinnedPrecondition, waitForCommittedGeometry, waitForStableTail, advanceScrollTraceFrame, expectResizeAnchorPreserved, expectContinuousResizeAnchorPreserved, expectComposerOverlayGeometry, messageCreateCount, type PostedMessageIdentity, expectMessageCreateIdentity, tracedAsUser } from "./_fixtures/message-scroll-characterization"
 
 test.describe("message scroll characterization", () => {
 test("DM composer clear preserves pinned and away viewport geometry", async ({ caseActors }, testInfo) => {
@@ -44,9 +44,10 @@ test("DM composer clear preserves pinned and away viewport geometry", async ({ c
       const composer = document.querySelector<HTMLElement>('[data-onboarding-target="dm-composer"]')!
       return {
         paddingBottom: Number.parseFloat(getComputedStyle(content).paddingBottom),
-        tailGap: scrollerElement.getBoundingClientRect().bottom
+        tailGap: composer.getBoundingClientRect().top
           - finalMessage.getBoundingClientRect().bottom,
         scrollerBottom: scrollerElement.getBoundingClientRect().bottom,
+        composerBottom: composer.getBoundingClientRect().bottom,
         composerTop: composer.getBoundingClientRect().top,
       }
     }, {
@@ -56,7 +57,7 @@ test("DM composer clear preserves pinned and away viewport geometry", async ({ c
     expect(tailGeometry.paddingBottom).toBe(0)
     expect(tailGeometry.tailGap).toBeGreaterThanOrEqual(39)
     expect(tailGeometry.tailGap).toBeLessThanOrEqual(41)
-    expect(tailGeometry.scrollerBottom).toBeLessThanOrEqual(tailGeometry.composerTop + 1)
+    expect(Math.abs(tailGeometry.scrollerBottom - tailGeometry.composerBottom)).toBeLessThanOrEqual(1)
     await startScrollTrace(alice.page, {
       scenario: "dm-composer-clear-viewport",
       identity: identity(composerDmId),
@@ -77,7 +78,7 @@ test("DM composer clear preserves pinned and away viewport geometry", async ({ c
         detail: precondition,
       })
       const before = await waitForCommittedGeometry(scroller)
-      expectInFlowMessageGeometry(before, `dm-${distance}-before`)
+      expectComposerOverlayGeometry(before, `dm-${distance}-before`)
       expect(before.surfaceChannelId).toBe(composerDmId)
 
       await beginScrollTraceAnalysis(alice.page, `dm-composer-shrink-${distance}`)
@@ -85,10 +86,10 @@ test("DM composer clear preserves pinned and away viewport geometry", async ({ c
       await alice.page.keyboard.press("ControlOrMeta+A")
       await alice.page.keyboard.press("Backspace")
       await expect(editable).toHaveText("")
-      await expect.poll(() => scroller.evaluate((element) => element.clientHeight))
-        .toBeGreaterThan(before.clientHeight)
+      await expect.poll(() => scroller.evaluate((element) => element.clientHeight - Number((element as HTMLElement).dataset.composerOcclusion ?? 0)))
+        .toBeGreaterThan(before.readableHeight)
       const after = await waitForCommittedGeometry(scroller)
-      expectInFlowMessageGeometry(after, `dm-${distance}-after`)
+      expectComposerOverlayGeometry(after, `dm-${distance}-after`)
       expectResizeAnchorPreserved(before, after, distance, `dm-${distance}-after`)
       await endScrollTraceAnalysis(alice.page, `dm-composer-shrink-${distance}`)
       await advanceScrollTraceFrame(scroller)

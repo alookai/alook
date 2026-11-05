@@ -2010,8 +2010,7 @@ main.page > .footer {
   .faqMarker { transition: none; }
 }
 
-/* Footer signature: a mono maker's plate and the wordmark, cropped by the page
- * bottom like lettering moulded into a case. */
+/* Desktop crops the moulded signature; mobile preserves the complete wordmark. */
 .footer {
   overflow: hidden;
   padding-bottom: 0;
@@ -2087,7 +2086,10 @@ main.page > .footer {
 
   /* On phones the slogan leads the footer; it is not the smallest text. */
   .footerSlogan {
+    max-width: 100%;
     font-size: 15px;
+    white-space: normal;
+    text-wrap: balance;
   }
 }
 
@@ -2185,4 +2187,17 @@ main.page > .footer {
   /* Top-right of the first screen (Gus #2745), level with the hero brand. */
   top: 30px;
   right: var(--landing-page-gutter);
+}
+
+@media (max-width: 639px) {
+  .footer {
+    background: var(--landing-bg);
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .footerWordmark {
+    margin-bottom: 0;
+    padding-block: 0.05em 0.1em;
+    line-height: 1.15;
+  }
 }

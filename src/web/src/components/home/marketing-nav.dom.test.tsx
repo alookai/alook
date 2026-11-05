@@ -38,3 +38,31 @@ it("preserves default prefetch outside the homepage reveal behavior", () => {
   expect(screen.getByRole("link", { name: /^Pricing$/ })).toHaveAttribute("href", "/pricing");
   for (const link of prefetchLinks(container)) expect(link).toHaveAttribute("data-prefetch", "auto");
 });
+
+it.each(["touch", "mouse"])("dismisses mobile navigation on an outside %s pointer without swallowing inside interaction", (pointerType) => {
+  const { container } = render(<><button>Outside</button><MarketingNav isLoggedIn={false} collapseLinksOnMobile /></>);
+  const summary = screen.getByLabelText("Open navigation menu");
+  const menu = container.querySelector("details")!;
+  fireEvent.click(summary);
+  expect(menu.open).toBe(true);
+  fireEvent.pointerDown(menu.querySelector("a")!, { pointerType });
+  expect(menu.open).toBe(true);
+  fireEvent.pointerDown(screen.getByRole("button", { name: "Outside" }), { pointerType });
+  expect(menu.open).toBe(false);
+  fireEvent.click(summary);
+  expect(menu.open).toBe(true);
+  fireEvent.pointerDown(document.body, { pointerType });
+  expect(menu.open).toBe(false);
+});
+
+it("closes mobile navigation with Escape and restores its disclosure focus", () => {
+  const { container } = render(<MarketingNav isLoggedIn={false} collapseLinksOnMobile />);
+  const summary = screen.getByLabelText("Open navigation menu");
+  const menu = container.querySelector("details")!;
+  fireEvent.click(summary);
+  expect(menu.open).toBe(true);
+  menu.querySelector("a")!.focus();
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(menu.open).toBe(false);
+  expect(summary).toHaveFocus();
+});

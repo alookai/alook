@@ -59,7 +59,7 @@ export function MachineCard({
               <span className="truncate text-[15px] font-medium text-foreground">
                 {machineName(machine)}
               </span>
-              <PresenceStatus online={isOnline} label={machine.status === undefined ? "Status unknown" : isOnline ? "Online" : "Offline"} />
+              <PresenceStatus online={isOnline} known={machine.status !== undefined} label={machine.status === undefined ? "Status unknown" : isOnline ? "Online" : "Offline"} />
             </div>
             <span className="truncate text-xs text-muted-foreground">
               {[machine.platform, machine.arch].filter(Boolean).join(" · ")}

@@ -52,9 +52,10 @@ function driveAndroidThemeObserver(initial: Array<"light" | "dark"> = []) {
     observe() {}
   }
   runInNewContext(androidThemeObserver ?? "", {
-    document: { documentElement },
+    document: { documentElement, body: {}, querySelector: () => null, addEventListener() {}, createElement: () => ({ getContext: () => ({ fillRect() {}, getImageData: () => ({ data: [0, 0, 0, 0] }) }) }) },
+    getComputedStyle: () => ({ backgroundColor: "transparent" }),
     MutationObserver,
-    window: { AlookNative: { setWindowTheme: (dark: boolean) => updates.push(dark) } },
+    window: { addEventListener() {}, AlookNative: { setWindowTheme: (dark: boolean) => updates.push(dark) } },
   })
   return {
     updates,
@@ -78,12 +79,14 @@ function driveIosThemeObserver(initial: Array<"light" | "dark"> = []) {
     observe() {}
   }
   runInNewContext(iosThemeObserver ?? "", {
-    document: { documentElement },
+    document: { documentElement, body: {}, querySelector: () => null, addEventListener() {}, createElement: () => ({ getContext: () => ({ fillRect() {}, getImageData: () => ({ data: [0, 0, 0, 0] }) }) }) },
+    getComputedStyle: () => ({ backgroundColor: "transparent" }),
     MutationObserver,
     window: {
+      addEventListener() {},
       webkit: {
         messageHandlers: {
-          alookTheme: { postMessage: (theme: string) => updates.push(theme) },
+          alookTheme: { postMessage: (payload: { theme: string }) => updates.push(payload.theme) },
         },
       },
     },
@@ -99,18 +102,70 @@ function driveIosThemeObserver(initial: Array<"light" | "dark"> = []) {
 }
 
 describe("native shell theme color contract", () => {
+  it.each(["ios", "android"])("%s reports the painted surface after load and navigation", (platform) => {
+    const updates: Array<{ theme: string; background: string | null }> = []
+    const listeners = new Map<string, () => void>()
+    let publishedColor: string | null = null
+    let drawnColor = ""
+    const colors: Record<string, number[]> = {
+      body: [224, 213, 192, 255],
+      list: [250, 246, 238, 255],
+      chat: [255, 253, 248, 255],
+      darkChat: [0, 0, 0, 255],
+      darkList: [13, 13, 13, 255],
+      transparent: [0, 0, 0, 0],
+    }
+    let dark = false
+    const documentElement = { classList: { contains: (name: string) => name === (dark ? "dark" : "light") } }
+    const context = {
+      document: {
+        documentElement, body: {}, querySelector: () => publishedColor === null ? null : { content: publishedColor }, addEventListener: (name: string, listener: () => void) => listeners.set(name, listener),
+        createElement: () => ({ getContext: () => ({
+          set fillStyle(value: string) { drawnColor = value },
+          fillRect() {}, getImageData: () => ({ data: colors[drawnColor] }),
+        }) }),
+      },
+      getComputedStyle: () => ({ backgroundColor: "body" }),
+      MutationObserver: class { observe() {} },
+      window: {
+        addEventListener: (name: string, listener: () => void) => listeners.set(name, listener),
+        webkit: { messageHandlers: { alookTheme: { postMessage: (payload: typeof updates[number]) => updates.push(payload) } } },
+        AlookNative: {
+          setWindowBackground: (isDark: boolean, background: string) => updates.push({ theme: isDark ? "dark" : "light", background }),
+          setWindowTheme: (isDark: boolean) => updates.push({ theme: isDark ? "dark" : "light", background: null }),
+        },
+      },
+    }
+    runInNewContext((platform === "ios" ? iosThemeObserver : androidThemeObserver) ?? "", context)
+    expect(updates.at(-1)).toEqual({ theme: "light", background: "#e0d5c0" })
+    for (const [color, expected] of [["list", "#faf6ee"], ["chat", "#fffdf8"], ["list", "#faf6ee"]]) {
+      publishedColor = color
+      listeners.get("alook:theme-color-change")!()
+      expect(updates.at(-1)).toEqual({ theme: "light", background: expected })
+    }
+    dark = true
+    publishedColor = "darkChat"
+    listeners.get("load")!()
+    expect(updates.at(-1)).toEqual({ theme: "dark", background: "#000000" })
+    publishedColor = "darkList"
+    listeners.get("alook:theme-color-change")!()
+    expect(updates.at(-1)).toEqual({ theme: "dark", background: "#0d0d0d" })
+    publishedColor = "transparent"
+    listeners.get("alook:theme-color-change")!()
+    expect(updates.at(-1)).toEqual({ theme: "dark", background: null })
+  })
   it("separates full native framing from the current root's keyboard overlap", () => {
     const layout = iosRuntime.split("- (void)alook_viewDidLayoutSubviews {")[1]?.split("\n}\n")[0] ?? ""
     const install = iosRuntime.split("static void alookInstallKeyboardLayout(")[1]?.split("\n}\n")[0] ?? ""
     expect(layout.indexOf("alookInstallKeyboardLayout(self)")).toBeGreaterThanOrEqual(0)
-    expect(layout.indexOf("alookInstallKeyboardLayout(self)")).toBeLessThan(layout.indexOf("alookPublishKeyboardSnapshots(self)"))
+    expect(layout.indexOf("alookInstallKeyboardLayout(self)")).toBeLessThan(layout.indexOf("alookPublishKeyboardSnapshots(self, NO)"))
     expect(install).toContain("previous.superview == host")
     expect(install).toContain("removeFromSuperview")
     expect(install).toContain("host.keyboardLayoutGuide.topAnchor")
     expect(install).toContain("translatesAutoresizingMaskIntoConstraints = NO")
     expect(layout).not.toContain("contentFrame = guide.layoutFrame")
     expect(layout).toContain("webView.frame = contentFrame")
-    expect(layout.indexOf("webView.frame = contentFrame")).toBeLessThan(layout.indexOf("alookPublishKeyboardSnapshots(self)"))
+    expect(layout.indexOf("webView.frame = contentFrame")).toBeLessThan(layout.indexOf("alookPublishKeyboardSnapshots(self, NO)"))
   })
 
   it("measures snapshot requests live and publishes after the guide-constrained native view lays out", () => {
@@ -118,14 +173,14 @@ describe("native shell theme color contract", () => {
     const observer = iosRuntime.split("@implementation AlookKeyboardLayoutView")[1]?.split("@end")[0] ?? ""
     const handler = iosRuntime.split("@implementation AlookKeyboardHandler")[1]?.split("@end")[0] ?? ""
     const publish = iosRuntime.split("static void alookPublishKeyboardSnapshots(")[1]?.split("\n}\n")[0] ?? ""
-    expect(measure).toContain("convertRect:host.keyboardLayoutGuide.layoutFrame fromView:host")
+    expect(measure).toContain("convertRect:guideFrame fromView:host")
     expect(measure).toContain("alookKeyboardBottomInset(bounds, keyboardFrame,")
-    expect(measure).toContain("host.keyboardLayoutGuide.layoutFrame, host.safeAreaLayoutGuide.layoutFrame")
+    expect(measure).toContain("guideFrame, host.safeAreaLayoutGuide.layoutFrame")
     expect(measure).toContain("@\"bottomInset\"")
     expect(measure).toContain("@\"viewportWidth\"")
     expect(observer).toContain("[super layoutSubviews]")
-    expect(observer).toContain("alookPublishKeyboardSnapshots(controller)")
-    expect(observer.indexOf("[super layoutSubviews]")).toBeLessThan(observer.indexOf("alookPublishKeyboardSnapshots(controller)"))
+    expect(observer).toContain("alookPublishKeyboardSnapshots(controller, NO)")
+    expect(observer.indexOf("[super layoutSubviews]")).toBeLessThan(observer.indexOf("alookPublishKeyboardSnapshots(controller, NO)"))
     expect(handler).toContain("replyHandler(alookMeasureKeyboardSnapshot(controller, webView), nil)")
     expect(handler).toContain('if (![message.body isEqual:@"snapshot"])')
     expect(handler).not.toContain('isEqual:@"dismiss"')
@@ -149,16 +204,16 @@ describe("native shell theme color contract", () => {
     expect(macosRuntime).toContain("setBackgroundColor: color")
   })
 
-  it("uses white light chrome and preserves dark chrome at iOS launch and runtime", () => {
-    expect(iosRuntime).toContain("colorWithRed:1.0 green:1.0 blue:1.0 alpha:1.0")
-    expect(iosRuntime).toContain("colorWithRed:0.063 green:0.051 blue:0.039 alpha:1.0")
+  it("matches the current paper surfaces at iOS launch and runtime", () => {
+    expect(iosRuntime).toContain("colorWithRed:0.980392 green:0.964706 blue:0.933333 alpha:1.0")
+    expect(iosRuntime).toContain("colorWithRed:0.0 green:0.0 blue:0.0 alpha:1.0")
 
     const light = iosSplash.colors.find((entry) => !entry.appearances)
     const dark = iosSplash.colors.find((entry) =>
       entry.appearances?.some(({ appearance, value }) => appearance === "luminosity" && value === "dark"),
     )
-    expect(light?.color.components).toMatchObject({ red: "1.000", green: "1.000", blue: "1.000" })
-    expect(dark?.color.components).toMatchObject({ red: "0.063", green: "0.051", blue: "0.039" })
+    expect(light?.color.components).toMatchObject({ red: "0.980392", green: "0.964706", blue: "0.933333" })
+    expect(dark?.color.components).toMatchObject({ red: "0.000", green: "0.000", blue: "0.000" })
   })
 
   it("synchronizes iOS safe-area chrome and status-bar contrast from system and Web themes", () => {
@@ -196,17 +251,17 @@ describe("native shell theme color contract", () => {
     expect(driveIosThemeObserver(["light"]).updates).toEqual(["light"])
   })
 
-  it("uses white light chrome and preserves dark chrome at Android launch and runtime", () => {
-    expect(androidRuntime).toContain('const val COLOR_LIGHT = "#FFFFFF"')
-    expect(androidRuntime).toContain('const val COLOR_DARK = "#100D0A"')
-    expect(androidLightSplash).toContain("<item name=\"windowSplashScreenBackground\">#FFFFFF</item>")
-    expect(androidDarkSplash).toContain("<item name=\"windowSplashScreenBackground\">#100D0A</item>")
-    expect(androidLightSplash).toContain("<item name=\"android:statusBarColor\">#FFFFFF</item>")
-    expect(androidLightSplash).toContain("<item name=\"android:navigationBarColor\">#FFFFFF</item>")
+  it("matches the current paper surfaces at Android launch and runtime", () => {
+    expect(androidRuntime).toContain('const val COLOR_LIGHT = "#FAF6EE"')
+    expect(androidRuntime).toContain('const val COLOR_DARK = "#000000"')
+    expect(androidLightSplash).toContain("<item name=\"windowSplashScreenBackground\">#FAF6EE</item>")
+    expect(androidDarkSplash).toContain("<item name=\"windowSplashScreenBackground\">#000000</item>")
+    expect(androidLightSplash).toContain("<item name=\"android:statusBarColor\">#FAF6EE</item>")
+    expect(androidLightSplash).toContain("<item name=\"android:navigationBarColor\">#FAF6EE</item>")
     expect(androidLightSplash).toContain("<item name=\"android:windowLightStatusBar\">true</item>")
     expect(androidLightSplash).toContain("<item name=\"android:windowLightNavigationBar\">true</item>")
-    expect(androidDarkSplash).toContain("<item name=\"android:statusBarColor\">#100D0A</item>")
-    expect(androidDarkSplash).toContain("<item name=\"android:navigationBarColor\">#100D0A</item>")
+    expect(androidDarkSplash).toContain("<item name=\"android:statusBarColor\">#000000</item>")
+    expect(androidDarkSplash).toContain("<item name=\"android:navigationBarColor\">#000000</item>")
     expect(androidDarkSplash).toContain("<item name=\"android:windowLightStatusBar\">false</item>")
     expect(androidDarkSplash).toContain("<item name=\"android:windowLightNavigationBar\">false</item>")
   })
@@ -241,25 +296,15 @@ describe("native shell theme color contract", () => {
     expect(androidRuntime).toContain(
       "WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()",
     )
-    expect(androidRuntime).toContain(
-      "val chromeInsets = insets.getInsets(chromeTypes)",
-    )
-    expect(androidRuntime).toContain(
-      "val imeInsets = insets.getInsets(imeType)",
-    )
-    expect(androidRuntime).toContain(
-      "val imeVisible = insets.isVisible(imeType)",
-    )
-    expect(androidRuntime).toContain(
-      "if (imeVisible) imeInsets.bottom else chromeInsets.bottom",
-    )
-    expect(androidRuntime).toContain(
-      "v.setPadding(chromeInsets.left, chromeInsets.top, chromeInsets.right, bottomPadding)",
-    )
+    expect(androidRuntime).toContain("rootView.setPadding(chrome.left, chrome.top, chrome.right, bottom)")
+    const rootInsets = androidRuntime.split("ViewCompat.setOnApplyWindowInsetsListener(rootView)")[1]?.split("ViewCompat.setWindowInsetsAnimationCallback")[0] ?? ""
+    expect(rootInsets).not.toContain("WindowInsetsCompat.Builder")
+    const leafInsets = androidRuntime.split("ViewCompat.setOnApplyWindowInsetsListener(webView)")[1]?.split("ViewCompat.requestApplyInsets(webView)")[0] ?? ""
+    expect(leafInsets).toContain("WindowInsetsCompat.Builder(insets)")
     expect(androidRuntime).toContain("WindowInsetsCompat.Builder(insets)")
     expect(androidRuntime).toContain(".setInsets(chromeTypes, Insets.NONE)")
     expect(androidRuntime).toContain(
-      ".setInsets(imeType, Insets.of(imeInsets.left, imeInsets.top, imeInsets.right, 0))",
+      ".setInsets(imeType, Insets.of(ime.left, ime.top, ime.right, 0))",
     )
     expect(androidRuntime).not.toContain("WindowInsetsCompat.CONSUMED")
   })

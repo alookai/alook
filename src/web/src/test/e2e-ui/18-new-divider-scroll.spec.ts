@@ -126,7 +126,7 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
           const rect = body.getBoundingClientRect()
           const id = body.dataset.msgId
           return id && rect.height > 0 && rect.width > 0
-            && rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1
+            && rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - Number(root.dataset.composerOcclusion ?? 0) - 1
             ? [{ id, top: rect.top - viewport.top, bottom: rect.bottom - viewport.top, height: rect.height }]
             : []
         })
@@ -230,8 +230,8 @@ test("New reading near the tail survives peer and remote-self messages until the
   await expect(page.getByTestId(tid.scrollToNew)).toBeHidden()
   await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
   await expect.poll(() => page.getByTestId(tid.message(lastUnreadId)).evaluate((body, scrollerTestId) => {
-    const root = body.closest(`[data-testid="${scrollerTestId}"]`)!
-    return Math.abs(root.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom - 40)
+    const root = body.closest<HTMLElement>(`[data-testid="${scrollerTestId}"]`)!
+    return Math.abs(root.getBoundingClientRect().bottom - Number(root.dataset.composerOcclusion ?? 0) - body.getBoundingClientRect().bottom - 40)
   }, tid.messageScroller)).toBeLessThanOrEqual(1)
   await scroller.evaluate(element => {
     element.scrollTop = element.scrollHeight - element.clientHeight - 20
