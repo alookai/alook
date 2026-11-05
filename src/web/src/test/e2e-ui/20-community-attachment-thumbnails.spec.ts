@@ -1318,3 +1318,226 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 
       serverId, channelId, tableId, htmlMessageId, attachmentId, point, frame, target, hits, before, open, closed: await rowState(), messageWrites }), contentType: "application/json" })
   })
 }
+
+test("media attachments play, stop, recover and download through reachable mobile controls", async ({ caseActors, caseResources }, testInfo) => {
+  const actors = await caseActors(["alice"])
+  const serverId = await actors.seed.seedServer("alice", `Media playback ${Date.now()}`)
+  const channelId = await actors.seed.seedChannel("alice", serverId, "media-playback")
+  const { page } = await actors.asUser("alice", { viewport: { width: 390, height: 844 }, hasTouch: true })
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+
+  const wav = Buffer.alloc(44 + 4 * 8000 * 2)
+  wav.write("RIFF", 0); wav.writeUInt32LE(wav.length - 8, 4); wav.write("WAVEfmt ", 8)
+  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22)
+  wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28)
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34)
+  wav.write("data", 36); wav.writeUInt32LE(wav.length - 44, 40)
+  const webm = Buffer.from(await page.evaluate(async () => {
+    const canvas = document.createElement("canvas")
+    canvas.width = 320; canvas.height = 180
+    const context = canvas.getContext("2d")!
+    const paint = () => { context.fillStyle = "rgb(30, 170, 80)"; context.fillRect(0, 0, 320, 180) }
+    paint()
+    const stream = canvas.captureStream(25)
+    let timer: ReturnType<typeof setInterval> | undefined
+    let stop: ReturnType<typeof setTimeout> | undefined
+    let recorder: MediaRecorder | undefined
+    try {
+      recorder = new MediaRecorder(stream, { mimeType: "video/webm" })
+      const chunks: Blob[] = []
+      const finished = new Promise<void>((resolve, reject) => {
+        recorder!.ondataavailable = event => { if (event.data.size > 0) chunks.push(event.data) }
+        recorder!.onstop = () => resolve()
+        recorder!.onerror = () => reject(new Error("Canvas video recording failed"))
+      })
+      recorder.start()
+      timer = setInterval(paint, 40)
+      stop = setTimeout(() => recorder!.stop(), 4000)
+      await finished
+      return Array.from(new Uint8Array(await new Blob(chunks, { type: "video/webm" }).arrayBuffer()))
+    } finally {
+      clearInterval(timer); clearTimeout(stop)
+      if (recorder && recorder.state !== "inactive") recorder.stop()
+      for (const track of stream.getTracks()) track.stop()
+    }
+  }))
+  expect(webm.length).toBeGreaterThan(0)
+
+  const upload = async (name: string, mimeType: string, buffer: Buffer) => {
+    const attachmentResponse = page.waitForResponse(response => response.request().method() === "POST"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/attachments`)
+    const messageResponse = page.waitForResponse(response => response.request().method() === "POST"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`)
+    const editable = composerEditable(page)
+    await editable.tap()
+    await editable.fill(`Playback ${name}`)
+    await page.getByTestId(tid.composerFileInput).setInputFiles({ name, mimeType, buffer })
+    await expect(page.getByText(name, { exact: true })).toBeVisible()
+    const [uploaded, posted] = await Promise.all([
+      attachmentResponse, messageResponse, page.getByTestId(tid.composerSend).tap(),
+    ])
+    expect(uploaded.status()).toBe(200)
+    const { id } = await uploaded.json() as { id: string }
+    expect(id).toBeTruthy()
+    expect(posted.status()).toBe(201)
+    expect((posted.request().postDataJSON() as { attachments: string[] }).attachments).toEqual([id])
+    const { message } = await posted.json() as { message: { id: string } }
+    const row = page.getByTestId(tid.message(message.id))
+    const block = row.getByTestId(tid.mediaBlock(name))
+    await expect(block).toBeVisible()
+    return { row, block, path: `/api/community/channels/${channelId}/attachments/${id}` }
+  }
+  const state = (player: Locator) => player.evaluate((element: HTMLMediaElement) => ({
+    paused: element.paused, time: element.currentTime, ready: element.readyState,
+    ended: element.ended, error: element.error?.code ?? null,
+  }))
+  const reachable = async (control: Locator, block: Locator, expectedState: "enabled" | "disabled" = "enabled") => {
+    await control.scrollIntoViewIfNeeded()
+    const rect = await boundingRect(control)
+    expect(rect.width).toBeGreaterThanOrEqual(44)
+    expect(rect.height).toBeGreaterThanOrEqual(44)
+    expectWithinRect(rect, await boundingRect(block))
+    expectWithinRect(rect, { x: 0, y: 0, width: 390, height: 844 })
+    if (expectedState === "disabled") {
+      await expect(control).toBeDisabled()
+      await expect(control).toBeVisible()
+      return
+    }
+    await expect(control).toBeEnabled()
+    await expect.poll(() => control.evaluate(element => {
+      const box = element.getBoundingClientRect()
+      return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
+    })).toBe(true)
+  }
+
+  const audioName = "playback.wav"
+  const audio = await upload(audioName, "audio/wav", wav)
+  const audioPlay = audio.block.getByTestId(tid.mediaPlay(audioName))
+  const audioStop = audio.block.getByTestId(tid.mediaCollapse(audioName))
+  const audioDownload = audio.block.getByTestId(tid.mediaDownload(audioName))
+  await expect(audio.block.locator("audio, video")).toHaveCount(0)
+  for (const control of [audioPlay, audioDownload]) await reachable(control, audio.block)
+  await reachable(audioStop, audio.block, "disabled")
+  await expect(audioStop).toBeDisabled()
+  const idleRect = await boundingRect(audio.block)
+  const heldAudio = await holdRoute(page, url => url.pathname === audio.path, caseResources)
+  await audioPlay.tap()
+  await expect.poll(heldAudio.held).toBeGreaterThan(0)
+  const audioPlayer = audio.block.locator("audio")
+  await expect(audioPlay).toHaveAttribute("aria-busy", "true")
+  await expect(audioPlay).toBeDisabled()
+  await expect(audioStop).toBeEnabled()
+  expect((await state(audioPlayer)).ready).toBe(0)
+  expect((await boundingRect(audio.block)).height).toBeCloseTo(idleRect.height, 1)
+  expect(await audioPlayer.boundingBox()).toBeNull()
+  await reachable(audioStop, audio.block)
+  await audioStop.tap()
+  await heldAudio.release()
+  await expect.poll(async () => (await state(audioPlayer)).ready).toBeGreaterThan(0)
+  await expect(audioPlay).toHaveAttribute("aria-label", `Play ${audioName}`)
+  await expect(audioStop).toBeDisabled()
+  expect(await state(audioPlayer)).toMatchObject({ paused: true, time: 0, error: null })
+
+  await audioPlay.tap()
+  await expect.poll(async () => (await state(audioPlayer)).time).toBeGreaterThan(0.1)
+  await expect(audioPlay).toHaveAttribute("aria-label", `Pause ${audioName}`)
+  await audioPlay.tap()
+  expect((await state(audioPlayer)).paused).toBe(true)
+  const pausedAt = (await state(audioPlayer)).time
+  await audioPlay.tap()
+  await expect.poll(async () => (await state(audioPlayer)).time).toBeGreaterThan(pausedAt)
+  await audioStop.tap()
+  expect(await state(audioPlayer)).toMatchObject({ paused: true, time: 0 })
+  await expect(audioStop).toBeDisabled()
+  await audioPlayer.evaluate(element => {
+    const probe = element as HTMLMediaElement & { completion?: { trusted: boolean; time: number } }
+    element.addEventListener("ended", event => {
+      probe.completion = { trusted: event.isTrusted, time: probe.currentTime }
+    }, { once: true, capture: true })
+  })
+  await audioPlay.tap()
+  await expect.poll(async () => (await state(audioPlayer)).time).toBeGreaterThan(0)
+  await expect(audioStop).toBeDisabled()
+  const completion = await audioPlayer.evaluate(element => (element as HTMLMediaElement & {
+    completion?: { trusted: boolean; time: number }
+  }).completion)
+  expect(completion?.trusted).toBe(true)
+  expect(completion?.time).toBeGreaterThanOrEqual(3.9)
+  expect(await state(audioPlayer)).toMatchObject({ paused: true, time: 0, error: null })
+  await expect(audioPlay).toHaveAttribute("aria-label", `Play ${audioName}`)
+  const downloaded = page.waitForEvent("download")
+  await audioDownload.tap()
+  const download = await downloaded
+  expect(download.suggestedFilename()).toBe(audioName)
+  expect(await download.failure()).toBeNull()
+  const downloadPath = await download.path()
+  expect(downloadPath).not.toBeNull()
+  expect(readFileSync(downloadPath!)).toEqual(wav)
+  expect((await state(audioPlayer)).paused).toBe(true)
+  await expect(page.getByRole("menu")).toHaveCount(0)
+
+  const videoName = "playback.webm"
+  const video = await upload(videoName, "video/webm", webm)
+  const videoPlay = video.block.getByTestId(tid.mediaPlay(videoName))
+  const videoStop = video.block.getByTestId(tid.mediaCollapse(videoName))
+  const videoDownload = video.block.getByTestId(tid.mediaDownload(videoName))
+  for (const control of [videoPlay, videoDownload]) await reachable(control, video.block)
+  await reachable(videoStop, video.block, "disabled")
+  let corrupt = true
+  let badResponses = 0
+  const videoPattern = (url: URL) => url.pathname === video.path
+  const corruptVideo = async (route: import("@playwright/test").Route) => {
+    if (corrupt) {
+      badResponses += 1
+      await route.fulfill({ status: 200, contentType: "video/webm", body: Buffer.from("invalid media bytes") })
+    } else await route.continue()
+  }
+  await page.route(videoPattern, corruptVideo)
+  const ownedRoute = caseResources.own(corruptVideo, async handler => { await page.unroute(videoPattern, handler) })
+  await videoPlay.tap()
+  const retry = video.block.getByRole("button", { name: `Retry ${videoName}`, exact: true })
+  await expect(retry).toBeVisible()
+  expect(badResponses).toBeGreaterThan(0)
+  await expect(video.block.getByRole("alert")).toHaveText("Couldn’t play this file")
+  await expect(videoStop).toBeDisabled()
+  await reachable(retry, video.block)
+  await retry.tap()
+  await expect.poll(() => badResponses).toBeGreaterThan(1)
+  await expect(retry).toBeVisible()
+  corrupt = false
+  await retry.tap()
+  const videoPlayer = video.block.locator("video")
+  await expect.poll(async () => (await state(videoPlayer)).time).toBeGreaterThan(0.1)
+  expect(await videoPlayer.evaluate((element: HTMLVideoElement) => ({ width: element.videoWidth, height: element.videoHeight })))
+    .toEqual({ width: 320, height: 180 })
+  await expect(videoPlay).toHaveAttribute("aria-label", `Pause ${videoName}`)
+  await videoPlay.tap()
+  expect((await state(videoPlayer)).paused).toBe(true)
+  for (const control of [videoPlay, videoStop, videoDownload]) {
+    await reachable(control, video.block)
+    const frame = await boundingRect(videoPlayer)
+    expect((await boundingRect(control)).y).toBeGreaterThanOrEqual(frame.y + frame.height)
+  }
+  await videoPlayer.scrollIntoViewIfNeeded()
+  const videoRect = await boundingRect(videoPlayer)
+  const painted = await sharp(await page.screenshot({ clip: {
+    x: videoRect.x + videoRect.width / 2 - 2, y: videoRect.y + videoRect.height / 2 - 2,
+    width: 4, height: 4,
+  } })).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+  for (let index = 0; index < painted.data.length; index += painted.info.channels) {
+    expect(Math.abs(painted.data[index]! - 30)).toBeLessThan(30)
+    expect(Math.abs(painted.data[index + 1]! - 170)).toBeLessThan(30)
+    expect(Math.abs(painted.data[index + 2]! - 80)).toBeLessThan(30)
+  }
+  await videoStop.tap()
+  expect(await state(videoPlayer)).toMatchObject({ paused: true, time: 0, error: null })
+  await expect(videoStop).toBeDisabled()
+  await expect(videoPlay).toHaveAttribute("aria-label", `Play ${videoName}`)
+  await ownedRoute.close()
+  await testInfo.attach("media-playback.json", { body: JSON.stringify({ serverId, channelId,
+    wavBytes: wav.length, webmBytes: webm.length, badResponses,
+    audio: await state(audioPlayer), completion, video: await state(videoPlayer),
+    idleAudioHeight: idleRect.height, finalVideoRect: videoRect,
+    input: "native touchscreen taps; browser download; no device capture or native OS save",
+  }), contentType: "application/json" })
+})
