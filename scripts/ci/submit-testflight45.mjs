@@ -150,7 +150,7 @@ export async function submitTestflight45({ get, post, enabled = false, confirmTa
   } catch (error) {
     const safe = error instanceof SubmitError ? error : new SubmitError("UNEXPECTED_ERROR")
     result.error = { code: safe.code, httpStatus: safe.httpStatus, errorCodes: safe.errorCodes }
-    if (result.actions.length) result.status = "partialOrUnconfirmed"
+    result.status = result.actions.length ? "partialOrUnconfirmed" : "blocked"
   }
   return result
 }

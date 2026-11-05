@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { CONFIRM_TARGET, NATIVE_TEST_NOTES, createPostClient, postFor, SubmitError, submitTestflight45 } from "./submit-testflight45.mjs"
+import { createPreflightClient } from "./inspect-testflight-preflight.mjs"
 
 const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" })
 const credentials = { issuer: "synthetic-issuer", keyId: "synthetic-key", privateKey: keys.privateKey.export({ type: "pkcs8", format: "pem" }) }
@@ -150,6 +151,18 @@ test("missing metadata or changed notification policy refuses all writes", async
   }
 })
 
+test("completed403 preflight failure returns blocked with zero POSTs instead of a running terminal state", async () => {
+  let writes = 0
+  const get = createPreflightClient(credentials, async () => ({ ok: false, status: 403, json: async () => ({ errors: [{ code: "FORBIDDEN_ERROR", detail: privateText }] }) }))
+  const receipt = await submitTestflight45({ enabled: true, confirmTarget: CONFIRM_TARGET, acknowledgeAutoNotify: true, get, post: async () => { writes++ } })
+  assert.equal(receipt.status, "blocked")
+  assert.equal(receipt.error.code, "PREFLIGHT_UNAVAILABLE")
+  assert.equal(receipt.lastRead.error.httpStatus, 403)
+  assert.deepEqual(receipt.actions, [])
+  assert.equal(writes, 0)
+  assert.equal(JSON.stringify(receipt).includes(privateText), false)
+})
+
 test("unconfirmed readback, identity drift and concurrent review stop after the accepted first action", async () => {
   for (const change of [f => { f.server.notes = false }, f => { f.server.appId = "app-2" }, f => { f.server.otherReview = true }, f => { f.server.autoNotify = false }]) {
     const f = fixture()
@@ -229,6 +242,7 @@ test("real CLI default-off and reviewed-but-missing-credential paths write safe 
     assert.equal(run.status, 1)
     assert.equal(run.stderr, "")
     const receipt = JSON.parse(readFileSync(out, "utf8"))
+    assert.equal(receipt.status, "blocked")
     assert.equal(receipt.error.code, "PREFLIGHT_UNAVAILABLE")
     assert.equal(receipt.lastRead.error.code, "MISSING_CREDENTIALS")
     assert.deepEqual(receipt.actions, [])
