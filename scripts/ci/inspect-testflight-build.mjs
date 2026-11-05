@@ -7,14 +7,22 @@ export const TARGET = Object.freeze({ bundleId: "ai.alook.ios", version: "0.1.64
 const ORIGIN = "https://api.appstoreconnect.apple.com"
 const STAGES = Object.freeze({ "/v1/apps": "apps", "/v1/builds": "builds", "/v1/betaGroups": "groups" })
 const safeErrorCodes = values => Array.isArray(values) ? values.slice(0, 5).filter(value => typeof value === "string" && /^[A-Z][A-Z0-9_.]{0,79}$/.test(value)) : []
+const PARAMETERS = Object.freeze({
+  "filter[bundleId]": "appBundleFilter", "fields[apps]": "appFields", "filter[app]": "appFilter",
+  "filter[version]": "buildVersionFilter", include: "includedRelationships", "fields[builds]": "buildFields",
+  "fields[preReleaseVersions]": "prereleaseFields", "fields[buildBetaDetails]": "betaDetailFields",
+  "filter[builds]": "buildFilter", "fields[betaGroups]": "groupFields", limit: "pageLimit", cursor: "pageCursor",
+})
+const safeParameters = values => Array.isArray(values) ? [...new Set(values.slice(0, 5).filter(value => Object.values(PARAMETERS).includes(value)))] : []
 
 export class InspectionError extends Error {
-  constructor(code, httpStatus = null, requestStage = null, errorCodes = []) {
+  constructor(code, httpStatus = null, requestStage = null, errorCodes = [], errorParameters = []) {
     super(code)
     this.code = code
     this.httpStatus = httpStatus
     this.requestStage = requestStage
     this.errorCodes = safeErrorCodes(errorCodes)
+    this.errorParameters = safeParameters(errorParameters)
   }
 }
 
@@ -71,11 +79,17 @@ export function createReadClient(credentials, fetchImpl = fetch) {
     }
     if (!response.ok) {
       let errorCodes = []
+      let errorParameters = []
       try {
         const body = await response.json()
-        errorCodes = safeErrorCodes(Array.isArray(body?.errors) ? body.errors.slice(0, 5).map(error => error?.code) : [])
+        const errors = Array.isArray(body?.errors) ? body.errors.slice(0, 5) : []
+        errorCodes = safeErrorCodes(errors.map(error => error?.code))
+        errorParameters = safeParameters(errors.map(error => {
+          const parameter = error?.source?.parameter
+          return typeof parameter === "string" && Object.hasOwn(PARAMETERS, parameter) ? PARAMETERS[parameter] : null
+        }))
       } catch {}
-      throw new InspectionError("HTTP_FAILED", response.status, STAGES[url.pathname], errorCodes)
+      throw new InspectionError("HTTP_FAILED", response.status, STAGES[url.pathname], errorCodes, errorParameters)
     }
     try { return await response.json() } catch { throw new InspectionError("INVALID_JSON") }
   }
@@ -88,6 +102,14 @@ function onlyOne(rows, code) {
 
 function state(value) {
   return typeof value === "string" && /^[A-Z_]{1,80}$/.test(value) ? value : "UNKNOWN"
+}
+
+function buildObservation(attributes, beta) {
+  return {
+    processingState: state(attributes?.processingState),
+    expired: typeof attributes?.expired === "boolean" ? attributes.expired : null,
+    internalBuildState: state(beta?.internalBuildState), externalBuildState: state(beta?.externalBuildState),
+  }
 }
 
 export async function inspectBuild(get) {
@@ -107,36 +129,41 @@ export async function inspectBuild(get) {
   const version = related("preReleaseVersion", "preReleaseVersions")
   if (version?.attributes?.version !== TARGET.version || version?.attributes?.platform !== "IOS") throw new InspectionError("WRONG_PRERELEASE_VERSION")
   const beta = related("buildBetaDetail", "buildBetaDetails")?.attributes
+  const observation = buildObservation(build.attributes, beta)
   const groups = new Map()
   let url = endpoint("/v1/betaGroups", {
     "filter[app]": app.id, "filter[builds]": build.id,
     "fields[betaGroups]": "isInternalGroup,publicLinkEnabled,publicLinkId", limit: "200",
   })
-  for (let page = 0; url && page < 5; page++) {
-    const result = await get(url)
-    if (!Array.isArray(result.data)) throw new InspectionError("INVALID_GROUPS")
-    for (const group of result.data) {
-      if (group.type !== "betaGroups" || !group.id) throw new InspectionError("INVALID_GROUPS")
-      groups.set(group.id, group.attributes ?? {})
+  try {
+    for (let page = 0; url && page < 5; page++) {
+      const result = await get(url)
+      if (!Array.isArray(result.data)) throw new InspectionError("INVALID_GROUPS")
+      for (const group of result.data) {
+        if (group.type !== "betaGroups" || !group.id) throw new InspectionError("INVALID_GROUPS")
+        groups.set(group.id, group.attributes ?? {})
+      }
+      if (!result.links?.next) { url = null; break }
+      const next = new URL(result.links.next, ORIGIN)
+      validateUrl(next)
+      const keys = [...next.searchParams.keys()]
+      if (next.pathname !== "/v1/betaGroups" || next.searchParams.get("filter[app]") !== app.id || next.searchParams.get("filter[builds]") !== build.id
+        || next.searchParams.get("fields[betaGroups]") !== "isInternalGroup,publicLinkEnabled,publicLinkId"
+        || new Set(keys).size !== keys.length || keys.some(key => !["filter[app]", "filter[builds]", "fields[betaGroups]", "limit", "cursor"].includes(key))) {
+        throw new InspectionError("UNSAFE_PAGINATION")
+      }
+      url = next
     }
-    if (!result.links?.next) { url = null; break }
-    const next = new URL(result.links.next, ORIGIN)
-    validateUrl(next)
-    const keys = [...next.searchParams.keys()]
-    if (next.pathname !== "/v1/betaGroups" || next.searchParams.get("filter[app]") !== app.id || next.searchParams.get("filter[builds]") !== build.id
-      || next.searchParams.get("fields[betaGroups]") !== "isInternalGroup,publicLinkEnabled,publicLinkId"
-      || new Set(keys).size !== keys.length || keys.some(key => !["filter[app]", "filter[builds]", "fields[betaGroups]", "limit", "cursor"].includes(key))) {
-      throw new InspectionError("UNSAFE_PAGINATION")
-    }
-    url = next
+    if (url) throw new InspectionError("GROUP_PAGINATION_LIMIT")
+  } catch (error) {
+    const failure = error instanceof InspectionError ? error : new InspectionError("GROUP_INSPECTION_FAILED")
+    failure.requestStage ??= "groups"
+    failure.buildObservation = observation
+    throw failure
   }
-  if (url) throw new InspectionError("GROUP_PAGINATION_LIMIT")
   const rows = [...groups.values()]
   const publicGroups = rows.filter(group => group.publicLinkId === TARGET.invite)
-  const processingState = state(build.attributes.processingState)
-  const internalBuildState = state(beta?.internalBuildState)
-  const externalBuildState = state(beta?.externalBuildState)
-  const expired = typeof build.attributes.expired === "boolean" ? build.attributes.expired : null
+  const { processingState, internalBuildState, externalBuildState, expired } = observation
   return {
     status: "observed", target: { bundleId: TARGET.bundleId, version: TARGET.version, build: TARGET.build },
     processingState, expired, internalBuildState, externalBuildState,
@@ -155,6 +182,9 @@ export function failureReceipt(error) {
   return { status: "unavailable", target: { bundleId: TARGET.bundleId, version: TARGET.version, build: TARGET.build }, code: error instanceof InspectionError ? error.code : "UNEXPECTED_ERROR", httpStatus: error instanceof InspectionError ? error.httpStatus : null,
     requestStage: error instanceof InspectionError && Object.values(STAGES).includes(error.requestStage) ? error.requestStage : null,
     errorCodes: error instanceof InspectionError ? safeErrorCodes(error.errorCodes) : [],
+    errorParameters: error instanceof InspectionError ? safeParameters(error.errorParameters) : [],
+    buildObservation: error instanceof InspectionError && error.buildObservation
+      ? buildObservation(error.buildObservation, error.buildObservation) : null,
   }
 }
 

@@ -55,7 +55,7 @@ test("client only sends GET, blocks redirect and omits raw failed response bodie
     return { ok: false, status: 403, json() { throw new Error("raw tester or credential data must not be read") } }
   })
   await assert.rejects(get(new URL("https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=ai.alook.ios")), error => {
-    assert.deepEqual(failureReceipt(error), { status: "unavailable", target: { bundleId: TARGET.bundleId, version: TARGET.version, build: "45" }, code: "HTTP_FAILED", httpStatus: 403, requestStage: "apps", errorCodes: [] })
+    assert.deepEqual(failureReceipt(error), { status: "unavailable", target: { bundleId: TARGET.bundleId, version: TARGET.version, build: "45" }, code: "HTTP_FAILED", httpStatus: 403, requestStage: "apps", errorCodes: [], errorParameters: [], buildObservation: null })
     return true
   })
   assert.equal(calls, 1)
@@ -177,10 +177,11 @@ test("HTTP failure records only fixed stage and bounded validated Apple error co
 
 test("invalid error schema, unreadable body and transport failure keep safe status and stage", async () => {
   const url = new URL("https://api.appstoreconnect.apple.com/v1/betaGroups?filter[app]=private-app&filter[builds]=private-build")
-  for (const body of [null, { errors: "private-user@example.com" }, { errors: [null, { code: 12 }] }]) {
+  for (const body of [null, { errors: "private-user@example.com" }, { errors: [null, { code: 12 }] }, { errors: [{ source: { parameter: ["filter[builds]"] } }] }]) {
     const get = createReadClient(credentials, async () => ({ ok: false, status: 400, json: async () => body }))
     await assert.rejects(get(url), error => {
       assert.deepEqual(failureReceipt(error).errorCodes, [])
+      assert.deepEqual(failureReceipt(error).errorParameters, [])
       assert.equal(failureReceipt(error).requestStage, "groups")
       assert.equal(failureReceipt(error).httpStatus, 400)
       return true
@@ -192,6 +193,55 @@ test("invalid error schema, unreadable body and transport failure keep safe stat
     assert.equal(failureReceipt(error).requestStage, "groups")
     assert.deepEqual(failureReceipt(error).errorCodes, [])
     assert.equal(JSON.stringify(failureReceipt(error)).includes("PRIVATE KEY"), false)
+    return true
+  })
+})
+
+test("group HTTP failure retains verified build states and maps only known parameter keys", async () => {
+  const { get: fixtureGet } = fixtures()
+  const get = createReadClient(credentials, async url => url.pathname === "/v1/betaGroups" ? {
+    ok: false, status: 400, json: async () => ({ errors: [
+      { code: "PARAMETER_ERROR.INVALID", source: { parameter: "filter[builds]", pointer: "private-id" }, detail: credentials.privateKey },
+      { source: { parameter: "private-user@example.com" } }, { source: { parameter: "__proto__" } },
+      { source: { parameter: "fields[betaGroups]" } }, { source: { parameter: "filter[builds]" } },
+      { source: { parameter: "cursor" } },
+    ] }),
+  } : { ok: true, json: () => fixtureGet(url) })
+  await assert.rejects(inspectBuild(get), error => {
+    const receipt = failureReceipt(error)
+    assert.equal(receipt.status, "unavailable")
+    assert.equal(receipt.requestStage, "groups")
+    assert.deepEqual(receipt.errorParameters, ["buildFilter", "groupFields"])
+    assert.deepEqual(receipt.buildObservation, { processingState: "VALID", expired: false, internalBuildState: "IN_BETA_TESTING", externalBuildState: "IN_BETA_TESTING" })
+    const text = JSON.stringify(receipt)
+    for (const value of ["private-id", "private-user", credentials.privateKey, "source", "filter[builds]", "app-1", "build-45"]) assert.equal(text.includes(value), false)
+    assert.equal("publicBuildListedAsTesting" in receipt, false)
+    return true
+  })
+})
+
+test("partial receipt remains absent before exact target match and output rechecks parameter enums", async () => {
+  const wrongVersion = structuredClone(builds)
+  wrongVersion.included[0].attributes.version = "0.1.63"
+  await assert.rejects(inspectBuild(fixtures({ builds: wrongVersion }).get), error => {
+    assert.equal(failureReceipt(error).buildObservation, null)
+    return true
+  })
+  const error = new InspectionError("HTTP_FAILED", 400, "groups")
+  error.errorParameters = ["appFilter", "private-user@example.com", "filter[builds]", "appFilter"]
+  error.buildObservation = { processingState: "VALID", expired: false, internalBuildState: "private-user@example.com", externalBuildState: "READY_FOR_BETA_TESTING", privateId: credentials.privateKey }
+  const receipt = failureReceipt(error)
+  assert.deepEqual(receipt.errorParameters, ["appFilter"])
+  assert.equal(receipt.buildObservation.internalBuildState, "UNKNOWN")
+  assert.equal("privateId" in receipt.buildObservation, false)
+  const { get: fixtureGet } = fixtures()
+  await assert.rejects(inspectBuild(async url => {
+    if (url.pathname === "/v1/betaGroups") throw new Error(credentials.privateKey)
+    return fixtureGet(url)
+  }), failure => {
+    assert.equal(failureReceipt(failure).code, "GROUP_INSPECTION_FAILED")
+    assert.equal(failureReceipt(failure).buildObservation.processingState, "VALID")
+    assert.equal(JSON.stringify(failureReceipt(failure)).includes("PRIVATE KEY"), false)
     return true
   })
 })
