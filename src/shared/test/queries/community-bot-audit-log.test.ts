@@ -11,15 +11,6 @@ import {
   HostBotAuditEventFrameSchema,
 } from "../../src/schemas"
 
-describe("community/bot-audit-log exports", () => {
-  it("exposes writers", () => {
-    expect(typeof q.insertBotActivityEventStatement).toBe("function")
-    expect(typeof q.pruneBotActivityEventsStatement).toBe("function")
-    expect(typeof q.insertBotAuditWakeTrigger).toBe("function")
-    expect(typeof q.insertBotAuditError).toBe("function")
-  })
-})
-
 describe("listOwnedBotActivityEvents", () => {
   let sqlite: Sqlite.Database
   let db: Database
@@ -532,8 +523,15 @@ describe("HostBotAuditEventFrameSchema", () => {
       agentId: "bot_1",
       event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
     })
+    const withTimeWithoutId = HostBotAuditEventFrameSchema.safeParse({
+      type: "bot_audit_event",
+      occurredAt: "2026-08-25T14:00:00.000Z",
+      agentId: "bot_1",
+      event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+    })
     expect(withoutId.success).toBe(false)
     expect(withoutOccurredAt.success).toBe(false)
+    expect(withTimeWithoutId.success).toBe(false)
     expect(withId.success).toBe(true)
   })
   it("accepts only a strict audit acknowledgement with an eventId", () => {
@@ -544,6 +542,11 @@ describe("HostBotAuditEventFrameSchema", () => {
     expect(BotAuditEventAckFrameSchema.safeParse({
       type: "bot_audit_event_ack",
       eventId: "",
+    }).success).toBe(false)
+    expect(BotAuditEventAckFrameSchema.safeParse({
+      type: "bot_audit_event_ack",
+      eventId: "bae_reset_1",
+      unexpected: true,
     }).success).toBe(false)
   })
 })

@@ -1095,15 +1095,25 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect.poll(() => dmScroller.evaluate((element) => (
     element.scrollHeight - element.clientHeight
   ))).toBeGreaterThan(1600)
-  const departedDmScrollTop = await dmScroller.evaluate((element) => {
-    element.scrollTop = 900
+  const dmDeparture = await dmScroller.evaluate((element, messageId) => {
+    const message = Array.from(element.querySelectorAll<HTMLElement>("[data-msg-id]"))
+      .find(row => row.dataset.msgId === messageId)
+    const body = message?.querySelector<HTMLElement>("[data-community-message-body]")
+    if (!body) throw new Error(`Missing departure fixture body: ${messageId}`)
+    const rect = body.getBoundingClientRect()
+    const requested = Math.round(element.scrollTop + rect.top - element.getBoundingClientRect().top
+      + Math.min(900, rect.height / 2))
+    element.scrollTop = requested
     element.dispatchEvent(new Event("scroll"))
-    return element.scrollTop
-  })
-  expect(departedDmScrollTop).toBe(900)
+    return { requested, actual: element.scrollTop }
+  }, dmScrollMessageId)
+  expect(dmDeparture.actual).toBe(dmDeparture.requested)
   const dmReadState = await settledReadState(alice.page, dmId)
   const dmReadingPosition = await settledReadingPosition(dmScroller)
-  expect(Math.abs(dmReadingPosition.scrollTop - departedDmScrollTop)).toBeLessThanOrEqual(1)
+  const departedDmFixture = dmReadingPosition.rows.find(row => row.id === dmScrollMessageId)
+  expect(departedDmFixture, `visible departure fixture ${dmScrollMessageId}`).toBeDefined()
+  expect(departedDmFixture?.paragraphs).toEqual(dmScrollLines)
+  expect(Math.abs(dmReadingPosition.scrollTop - dmDeparture.actual)).toBeLessThanOrEqual(1)
   expect(dmReadingPosition.scrollHeight - dmReadingPosition.clientHeight - dmReadingPosition.scrollTop).toBeGreaterThan(1)
   const departedDmRoot = await readingRoot(dmScroller)
   const dmReturnGets = trackSurfaceGets(alice.page, dmId)

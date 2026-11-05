@@ -14,6 +14,7 @@ type ConversationEntryInput = {
   target: DoorTarget
   window: ReturnType<typeof parseCommunityMessageWindow>
   preferTail: boolean
+  newAfterSeq?: number
   tag?: string
 }
 
@@ -43,14 +44,14 @@ export async function readCommunityConversationEntry(db: Database, input: Conver
     ...communityMessagesReadFromPage(channelId, read.page), profiles, viewerId, channel, peer,
     ...(opener ? { opener: opener.message, relatedMessages: [...new Map([...(read.page.relatedMessages ?? []), ...opener.relatedMessages].filter(message => !read.page.messages.some(root => (root as { id: string }).id === message.id) && message.id !== opener.message.id).map(message => [message.id, message])).values()] } : {}),
     ...(parent ? { parent } : {}),
-    readState: read.readState, readStateRevision: read.revision, selection: read.selection,
+    readState: read.readState, readStateRevision: read.revision, newBoundary: read.newBoundary, selection: read.selection,
     ...("forumFeed" in read ? { forumFeed: read.forumFeed } : {}),
     access: { channelId, canRead: true, canSend,
       canCreateDiscussion: !channel.parentChannelId && (channel.type === "text" || channel.type === "forum") },
   }) }
 }
 
-async function readEntryWindow(db: Database, { viewerId, target, window, preferTail, tag }: ConversationEntryInput, readProfiles: CommunityResourceProfileReader) {
+async function readEntryWindow(db: Database, { viewerId, target, window, preferTail, newAfterSeq, tag }: ConversationEntryInput, readProfiles: CommunityResourceProfileReader) {
   const channelId = target.target.channelId
   const { readState: row, revision } = await withD1Retry(() => queries.communityReadState.getChannelReadStateSnapshot(db, { userId: viewerId, channelId }), {
     route: "community/messages:entry-read-state",
@@ -59,12 +60,17 @@ async function readEntryWindow(db: Database, { viewerId, target, window, preferT
     channelId, lastReadMessageId: row?.lastReadMessageId ?? null,
     lastReadAt: row?.lastReadAt ?? null, lastReadSeq: row?.lastReadSeq ?? 0,
   }
+  if (newAfterSeq !== undefined && (!Number.isSafeInteger(newAfterSeq) || newAfterSeq < 0)) {
+    return { ok: false as const, status: 400 as const, error: "invalid New snapshot" }
+  }
+  const boundarySeq = newAfterSeq ?? readState.lastReadSeq
   if (target.access.channel.type === "forum" && !window.anchorId) {
+    if (boundarySeq > readState.lastReadSeq) return { ok: false as const, status: 400 as const, error: "New snapshot exceeds the conversation receipt" }
     const page = await readCommunityForumRows(db, channelId, { tag, pageSize: window.pageSize, includes: new Set(["parentMessage", "firstMessage", "tags", "participants"]) })
     const forumFeed = CommunityThreadsReadSchema.parse(await readCommunityThreadsResource(db, viewerId, target.access.channel, page.threads,
       { messages: [...page.parentMessages, ...page.firstMessages], tags: page.tags, participants: page.participants }, { hasMore: page.hasMore, nextCursor: page.nextCursor ?? null }, COMMUNITY_RESOURCE_CONTRACT_VERSION))
     return { ok: true as const, page: { messages: [], relatedMessages: [], profiles: [], latestSeq: readState.lastReadSeq, hasMoreOlder: false, hasMoreNewer: false, surfaceReceipt: { channelId, surfaceKind: "forum" as const } },
-      readState, revision, selection: { reason: "tail" as const, anchorMessageId: null }, forumFeed }
+      readState, revision, newBoundary: { afterSeq: boundarySeq, target: null }, selection: { reason: "tail" as const, anchorMessageId: null }, forumFeed }
   }
   const anchorId = window.anchorId ?? (preferTail ? undefined : readState.lastReadMessageId ?? undefined)
   let selection: CommunityConversationEntryRead["selection"] = {
@@ -80,7 +86,11 @@ async function readEntryWindow(db: Database, { viewerId, target, window, preferT
     })
   }
   if (!result.ok) return { ...result, ...(window.anchorId ? { details: [COMMUNITY_CONVERSATION_ANCHOR_MISSING] } : {}) }
-  return { ok: true as const, page: result.page, readState, revision, selection }
+  if (boundarySeq > Math.max(readState.lastReadSeq, result.page.latestSeq)) return { ok: false as const, status: 400 as const, error: "New snapshot exceeds the conversation receipt" }
+  const newTarget = target.access.channel.type === "forum" ? null : await withD1Retry(() => queries.communityMessage.getFirstPeerMessageAfterSeq(db, {
+    channelId, viewerId, afterSeq: boundarySeq, throughSeq: result.page.latestSeq,
+  }), { route: "community/messages:entry-new-target" })
+  return { ok: true as const, page: result.page, readState, revision, newBoundary: { afterSeq: boundarySeq, target: newTarget }, selection }
 }
 
 async function readPeer(db: Database, peerId: string, readProfiles: CommunityResourceProfileReader) {

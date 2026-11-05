@@ -17,21 +17,6 @@ const POST = { id: "p1", serverId: "s1", parentChannelId: "c1" };
 // has serverId null and parentChannelId null).
 const DM = { id: "dm1", serverId: null as unknown as string, parentChannelId: null };
 
-describe("community/notification-setting exports", () => {
-
-
-  it("keeps the CRUD helpers", () => {
-    expect(typeof notif.getSettings).toBe("function");
-    expect(typeof notif.setServerLevel).toBe("function");
-    expect(typeof notif.setChannelLevel).toBe("function");
-    expect(typeof notif.removeChannelOverride).toBe("function");
-  });
-
-  it("no longer exports the dead getMutedUserIds", () => {
-    expect((notif as Record<string, unknown>).getMutedUserIds).toBeUndefined();
-  });
-});
-
 describe("computeEffectiveLevel — 3-tier climb", () => {
   it("no setting rows at all → global default 'all'", () => {
     expect(notif.computeEffectiveLevel([], TEXT_CHANNEL)).toBe("all");

@@ -8,11 +8,10 @@ describe("computeDiscriminator", () => {
     expect(computeDiscriminator(id, 6)).toBe(computeDiscriminator(id, 6));
   });
 
-  it("defaults to exactly 4 digits, zero-padded (pre-widening value unchanged)", () => {
+  it("defaults to exactly 4 decimal digits", () => {
     for (const id of ["a", "ab", "user_1", "x".repeat(50)]) {
       const out = computeDiscriminator(id);
       expect(out).toMatch(/^\d{4}$/);
-      expect(out.length).toBe(4);
     }
   });
 
@@ -20,7 +19,6 @@ describe("computeDiscriminator", () => {
     for (let width = 4; width <= 9; width++) {
       const out = computeDiscriminator("some_seed", width);
       expect(out).toMatch(new RegExp(`^\\d{${width}}$`));
-      expect(out.length).toBe(width);
     }
   });
 

@@ -137,7 +137,7 @@ describe("qualified canonical channel identity", () => {
     const hook = renderHook(() => useChannelMetadata("s1", "c1", { anchorMessageId: "gone" }), { wrapper })
     await waitFor(() => expect(hook.result.current.canRead).toBe(true))
     expect(hook.result.current.denied).toBe(false)
-    expect(load.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/c1/messages?entry=1&anchor=gone", "/api/community/channels/c1/messages?entry=1"])
+    expect(load.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/c1/messages?entry=1&anchor=gone", "/api/community/channels/c1/messages?entry=1&window=tail"])
     hook.unmount()
   })
 

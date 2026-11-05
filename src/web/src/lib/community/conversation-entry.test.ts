@@ -233,7 +233,7 @@ describe("conversation entry canonical publication", () => {
     for (const forum of [false, true]) {
       const { client } = await createCommunityQueryOwner()
       const value = forum ? forumConversationEntryFixture() : entry()
-      const key = forum ? communityKeys.forumFeed("c1", null) : communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" })
+      const key = forum ? communityKeys.forumFeed("c1", null) : communityKeys.channelMessagesWindow("c1", { mode: "newest" })
       client.getQueryCache().build(client, { queryKey: key })
       if (state === "failed-query") await expect(client.query({ queryKey: key, queryFn: () => Promise.reject(new Error("first read failed")), retry: false, select: undefined })).rejects.toThrow("first read failed")
       if (state === "empty-pages") client.setQueryData(key, { pages: [], pageParams: [] })
@@ -300,7 +300,7 @@ describe("conversation entry canonical publication", () => {
     load.mockResolvedValue(entry())
     const resource = await client.query({ ...conversationEntryOptions(client, target), select: undefined })
     expect(load).toHaveBeenCalledOnce()
-    expect(load).toHaveBeenCalledWith("/api/community/channels/c1/messages?entry=1", expect.objectContaining({
+    expect(load).toHaveBeenCalledWith("/api/community/channels/c1/messages?entry=1&window=tail", expect.objectContaining({
       authenticationAccount: "viewer", signal: expect.any(AbortSignal), headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
     }))
     expect(registry.collections.channels.get("c1")).toMatchObject({ name: "Channel" })
@@ -308,7 +308,7 @@ describe("conversation entry canonical publication", () => {
     expect(registry.collections.readStates.get("c1")).toMatchObject({ lastReadSeq: 1, observedRevision: 4 })
     expect(registry.collections.readStateClock.get("account")).toBeUndefined()
     const window = client.getQueryData<MessageWindowData>(resource.windowKey)!
-    expect(window.pageParams).toEqual([{ mode: "anchor", anchor: "m1" }])
+    expect(window.pageParams).toEqual([{ mode: "newest" }])
     expect(window.pages[0].messages).toEqual([{ id: "m1", seq: 1 }])
     expect(JSON.stringify(window)).not.toContain("Body")
     await client.query({ ...conversationEntryOptions(client, target), select: undefined })
@@ -417,10 +417,11 @@ describe("conversation entry canonical publication", () => {
     const { client } = await createCommunityQueryOwner()
     const value = entry()
     value.readState = { channelId: "c1", lastReadMessageId: "missing", lastReadAt: "at", lastReadSeq: 10 }
-    value.selection = { reason: "read_pointer_missing", anchorMessageId: null }
+    value.selection = { reason: "tail", anchorMessageId: null }
+    value.newBoundary = { afterSeq: 10, target: null }
     const resource = await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
     expect(findConversationEntryWindow(client, target, resource, value.readState)?.initial).toEqual({ mode: "newest" })
-    expect(findConversationEntryWindow(client, target, resource, { ...value.readState, lastReadMessageId: "newer" })).toBeUndefined()
+    expect(findConversationEntryWindow(client, target, resource, { ...value.readState, lastReadMessageId: "newer", lastReadSeq: 11 })).toBeUndefined()
     expect(findConversationEntryWindow(client, { ...target, anchorMessageId: "explicit" }, resource, value.readState)).toBeUndefined()
     const data = client.getQueryData<MessageWindowData>(resource.windowKey)!
     client.setQueryData(resource.windowKey, { ...data, pages: data.pages.map(page => ({ ...page, hasMoreNewer: true })) })

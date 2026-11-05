@@ -512,15 +512,17 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
   const channelId = await seedChannel("alice", serverId, `visible-sync-${stamp}`)
   const siblingId = await seedChannel("alice", serverId, `visible-sibling-${stamp}`)
   await seedJoinServer("alice", "bob", serverId)
+  let firstBaselineId = ""
   for (let index = 0; index < 28; index += 1) {
-    await seedMessage("alice", channelId, `visible baseline ${index} ${stamp}`)
+    const id = await seedMessage("alice", channelId, `visible baseline ${index} ${stamp}`)
+    if (index === 0) firstBaselineId = id
   }
 
   const deviceA = await asUser("bob")
   const deviceB = await asUser("bob")
   const proxyA = await proxyCommunityWebSockets(deviceA.context)
   const proxyB = await proxyCommunityWebSockets(deviceB.context)
-  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${channelId}`)
+  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${channelId}?msg=${firstBaselineId}`)
   await gotoAfterUserWsAuth(deviceB.page, `/c/channels/${serverId}/${siblingId}`)
   await deviceB.page.getByRole("button", { name: "Inbox" }).click()
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()

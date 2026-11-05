@@ -594,15 +594,20 @@ it.each(["older", "newer", "jump"] as const)("rejects %s admission from a retain
   value.channel = { ...value.channel, id: "post-1", serverId: "server-1" }
   value.messages = value.messages.map(message => ({ ...message, channelId: "post-1" }))
   value.access.channelId = value.readState.channelId = value.surfaceReceipt.channelId = "post-1"
+  const latest = { ...value.messages[0], id: "m2", seq: 2 }
+  await seedConversationEntry(queryClient, { ...value, messages: [latest], page: { ...value.page, latestSeq: 2 },
+    newBoundary: { afterSeq: 1, target: { id: "m2", channelId: "post-1", seq: 2, authorId: latest.authorId } } })
+  value.page.latestSeq = 2
+  value.selection = { reason: "explicit_anchor", anchorMessageId: "m1" }
   value.page.newerCursor = "newer"
   value.page.hasMoreNewer = true
-  await seedConversationEntry(queryClient, value)
+  await seedConversationEntry(queryClient, value, { channelId: "post-1", serverId: "server-1", anchorMessageId: "m1" })
   mocks.useRealMetadata = true
   mocks.load.mockResolvedValue({ messages: value.messages, profiles: value.profiles, ...value.page })
   const registry = getCommunityDbRegistry(queryClient)!
   let feed!: ReturnType<typeof useMessages>
   function Surface() {
-    const current = useMessages("post-1", { serverId: "server-1" })
+    const current = useMessages("post-1", { serverId: "server-1", anchorMessageId: "m1" })
     React.useLayoutEffect(() => { feed = current }, [current])
     return React.createElement("span", { "data-testid": "retained-action-window" }, current.positionDataState)
   }

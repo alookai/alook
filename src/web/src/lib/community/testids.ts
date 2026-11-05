@@ -85,6 +85,7 @@ export const tid = {
   settingsChannels: "community-settings-channels",
   settingsChannel: (id: string) => `community-settings-channel-${id}`,
   newDivider: "community-new-divider",
+  scrollToNew: "community-scroll-to-new",
   typingIndicator: "community-typing-indicator",
   dmBlockedNotice: "community-dm-blocked-notice",
   dmHeader: "community-dm-header",

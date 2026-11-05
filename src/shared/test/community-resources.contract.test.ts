@@ -8,7 +8,7 @@ describe("current community resources", () => {
   it("accepts only the exact current read contract", () => {
     const body = { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "channel", changed: true, targetSeq: 7, revision: 9 }
     expect(communityReadSchemas().readAdvance.parse(body)).toEqual(body)
-    for (const version of [undefined, 1, 2, 3, BUSINESS_SCHEMA_VERSION + 1]) {
+    for (const version of [undefined, 1, 2, 3, BUSINESS_SCHEMA_VERSION - 1, BUSINESS_SCHEMA_VERSION + 1]) {
       expect(() => communityReadSchemas(version === undefined ? 0 : version)).toThrow("protocol mismatch")
       expect(communityReadSchemas().readAdvance.safeParse({ ...body, contractVersion: version }).success).toBe(false)
     }
@@ -62,7 +62,7 @@ describe("conversation entry resource", () => {
     messages: [], profiles: [],
     page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 },
     surfaceReceipt: { channelId: communityResourceChannelFixture.id, surfaceKind: "channel" },
-    readStateRevision: 0, selection: { reason: "tail", anchorMessageId: null },
+    readStateRevision: 0, newBoundary: { afterSeq: 0, target: null }, selection: { reason: "tail", anchorMessageId: null },
   })
 
 
@@ -107,6 +107,29 @@ describe("conversation entry resource", () => {
     const value = entry()
     expect(CommunityConversationEntryReadSchema.parse(value)).toEqual(value)
     expect(communityReadSchemas().messages.safeParse(value).success).toBe(false)
+  })
+
+  it("qualifies the exact New boundary independently of a later read ACK", () => {
+    const target = { id: "unloaded", channelId: communityResourceChannelFixture.id, seq: 9, authorId: communityResourceMessageFixture.message.authorId }
+    const value = { ...entry(), readState: { ...entry().readState, lastReadSeq: 20 },
+      page: { ...entry().page, latestSeq: 30 }, newBoundary: { afterSeq: 5, target } }
+    expect(CommunityConversationEntryReadSchema.parse(value).newBoundary).toEqual(value.newBoundary)
+    expect(CommunityConversationEntryReadSchema.parse({ ...value, newBoundary: { afterSeq: 5, target: null } }).newBoundary.target).toBeNull()
+    for (const newBoundary of [undefined, { afterSeq: 31, target: null },
+      { afterSeq: 5, target: undefined },
+      ...[{ ...target, channelId: "foreign" }, { ...target, authorId: "viewer" },
+        { ...target, seq: 5 }, { ...target, seq: 31 }, { ...target, authorId: undefined }]
+        .map(target => ({ afterSeq: 5, target })),
+    ]) expect(CommunityConversationEntryReadSchema.safeParse({ ...value, newBoundary }).success).toBe(false)
+    const message = { ...communityResourceMessageFixture.message, id: target.id, channelId: value.channelId,
+      seq: target.seq, authorId: target.authorId }
+    const loaded = { ...value, messages: [message], profiles: communityResourceMessageFixture.profiles }
+    expect(CommunityConversationEntryReadSchema.parse(loaded).newBoundary).toEqual(value.newBoundary)
+    const mismatch = CommunityConversationEntryReadSchema.safeParse({ ...loaded, messages: [{ ...message, seq: 10 }] })
+    expect(mismatch.success).toBe(false)
+    if (!mismatch.success) expect(mismatch.error.issues.some(issue => issue.path[0] === "newBoundary")).toBe(true)
+    const forum = forumEntry()
+    expect(CommunityConversationEntryReadSchema.safeParse({ ...forum, page: value.page, newBoundary: { afterSeq: 0, target } }).success).toBe(false)
   })
 
   it.each(["channel", "access", "readState", "surfaceReceipt"] as const)("rejects a foreign %s in the entry", (field) => {
@@ -236,7 +259,7 @@ describe("complete message author dependency graphs", () => {
       access: { channelId: channel.id, canRead: true, canSend: true, canCreateDiscussion: false },
       readState: { channelId: channel.id, lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 },
       messages: [], profiles: [author], page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 },
-      surfaceReceipt: { channelId: channel.id, surfaceKind: "thread" }, readStateRevision: 0, selection: { reason: "tail", anchorMessageId: null } }
+      surfaceReceipt: { channelId: channel.id, surfaceKind: "thread" }, readStateRevision: 0, newBoundary: { afterSeq: 0, target: null }, selection: { reason: "tail", anchorMessageId: null } }
     expect(CommunityConversationEntryReadSchema.parse(value)).toEqual(value)
     const result = CommunityConversationEntryReadSchema.safeParse({ ...value, profiles: [] })
     expect(result.success).toBe(false)

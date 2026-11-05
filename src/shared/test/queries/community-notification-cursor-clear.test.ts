@@ -218,6 +218,8 @@ describe("notification setting read-state isolation contract", () => {
     });
 
     expect(result.readStateRevision).toBeNull();
+    expect(sqlite.prepare("SELECT level FROM community_notification_setting WHERE user_id='u' AND channel_id='parent'").get())
+      .toEqual({ level: "nothing" });
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_read_state_revision").get())
       .toEqual({ count: 0 });
   });

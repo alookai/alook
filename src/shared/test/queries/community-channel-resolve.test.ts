@@ -1,133 +1,84 @@
-import { describe, it, expect, vi } from "vitest";
-import * as channelQueries from "../../src/db/queries/community/channel";
+import Sqlite from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { afterEach, beforeEach, describe, it, expect } from "vitest";
+import type { Database } from "../../src/db";
+import { resolveChannelByNameForMember } from "../../src/db/queries/community/channel";
 
-// Captures the SQL expression handed to `.where()` so we can prove the
-// resolver's invariants without a live D1 instance. The Drizzle query
-// builder is fluent — `.select(...).from(...).innerJoin(...).where(expr)` —
-// and each stage returns the same chain object; `where` resolves with the
-// stubbed rows.
-function createSelectChain(rows: unknown[]) {
-  const chain: Record<string, unknown> = {};
-  chain.select = vi.fn(() => chain);
-  chain.from = vi.fn(() => chain);
-  chain.innerJoin = vi.fn(() => chain);
-  chain.where = vi.fn((_expr: unknown) => Promise.resolve(rows));
-  return chain as unknown as { where: ReturnType<typeof vi.fn> };
-}
+describe("resolveChannelByNameForMember — native SQLite scope", () => {
+  let sqlite: Sqlite.Database;
+  let db: Database;
 
-// Render a single Drizzle chunk to a stable token we can pattern-match.
-// Column instances → `col:<name>`; StringChunk-like (`.value: string[]`) →
-// their inline SQL fragment(s); bind Param instances (`.encoder` present)
-// → `?`; anything else → `?` too. Bare-string `.value` chunks fall through
-// to their raw value — used by StringChunk in some drizzle versions.
-function renderChunk(c: unknown): string {
-  if (typeof c === "string") return c;
-  if (c && typeof c === "object") {
-    const rec = c as Record<string, unknown>;
-    if (rec.name && typeof rec.name === "string" && "table" in rec) return `col:${rec.name}`;
-    if ("encoder" in rec) return "?";
-    if (Array.isArray(rec.value)) {
-      return rec.value.filter((v) => typeof v === "string").map((v) => (v as string).trim()).join(" ").trim();
-    }
-    if (typeof rec.value === "string") return (rec.value as string).trim();
-  }
-  return "?";
-}
+  beforeEach(() => {
+    sqlite = new Sqlite(":memory:");
+    sqlite.exec(`
+      CREATE TABLE user (id TEXT PRIMARY KEY);
+      CREATE TABLE community_server (id TEXT PRIMARY KEY);
+      CREATE TABLE community_server_member (
+        id TEXT PRIMARY KEY, server_id TEXT NOT NULL, user_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member', joined_at TEXT NOT NULL,
+        UNIQUE(server_id, user_id)
+      );
+      CREATE TABLE community_channel (
+        id TEXT PRIMARY KEY, server_id TEXT NOT NULL, category_id TEXT,
+        name TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'text',
+        topic TEXT NOT NULL DEFAULT '', position INTEGER NOT NULL DEFAULT 0,
+        parent_channel_id TEXT, creator_id TEXT NOT NULL DEFAULT 'u_1',
+        message_count INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0,
+        parent_message_id TEXT, last_message_at TEXT,
+        created_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00.000Z'
+      );
+      CREATE TABLE community_message (id TEXT PRIMARY KEY, channel_id TEXT NOT NULL);
+      INSERT INTO user VALUES ('u_1'), ('u_2'), ('u_peer'), ('u_none');
+      INSERT INTO community_server VALUES ('srv_1'), ('srv_2');
+      INSERT INTO community_server_member (id, server_id, user_id, joined_at) VALUES
+        ('m_1a', 'srv_1', 'u_1', '2025-01-01T00:00:00.000Z'),
+        ('m_1b', 'srv_2', 'u_1', '2025-01-01T00:00:00.000Z'),
+        ('m_2', 'srv_2', 'u_2', '2025-01-01T00:00:00.000Z'),
+        ('m_peer', 'srv_1', 'u_peer', '2025-01-01T00:00:00.000Z');
+      INSERT INTO community_channel (id, server_id, name) VALUES
+        ('ch_top', 'srv_1', 'general'),
+        ('ch_foreign', 'srv_2', 'general'),
+        ('ch_random', 'srv_1', 'random'),
+        ('mFUplbfFL7PIzeiaP3Ysg', 'srv_1', 'opaque-name');
+      INSERT INTO community_message VALUES ('opener', 'ch_top');
+      INSERT INTO community_channel (id, server_id, name, type, parent_channel_id, parent_message_id)
+        VALUES ('ch_child', 'srv_1', 'general', 'thread', 'ch_top', 'opener');
+    `);
+    db = drizzle(sqlite) as unknown as Database;
+  });
 
-// Flatten a Drizzle `SQL(...)` node into an ordered list of rendered tokens.
-// Each leaf keeps its position, so downstream assertions can match a
-// contiguous phrase like `[col:X, "is null"]` rather than checking two
-// unrelated substrings in one big string.
-function flattenTokens(expr: unknown, out: string[] = []): string[] {
-  if (expr == null || typeof expr !== "object") return out;
-  const e = expr as Record<string, unknown>;
-  if (Array.isArray(e.queryChunks)) {
-    for (const chunk of e.queryChunks) flattenTokens(chunk, out);
-    return out;
-  }
-  out.push(renderChunk(expr));
-  return out;
-}
+  afterEach(() => sqlite.close());
 
-// True iff the ordered token list contains a contiguous `[col:X, tail]`
-// phrase — i.e. `is null` is applied to X specifically, not to some other
-// column that happens to sit elsewhere in the predicate.
-function tokensContainPhrase(tokens: string[], colName: string, tail: string): boolean {
-  const wantCol = `col:${colName}`;
-  const wantTail = tail.toLowerCase();
-  for (let i = 0; i < tokens.length - 1; i++) {
-    if (tokens[i] === wantCol && tokens[i + 1]!.toLowerCase().startsWith(wantTail)) return true;
-  }
-  return false;
-}
-
-describe("resolveChannelByNameForMember — SQL invariants", () => {
   it("filters by name AND parent_channel_id IS NULL (top-level only)", async () => {
-    const db = createSelectChain([]);
-    await channelQueries.resolveChannelByNameForMember(db as never, "srv_1", "u_1", "general");
-
-    expect(db.where).toHaveBeenCalledOnce();
-    const [whereExpr] = db.where.mock.calls[0]!;
-    const tokens = flattenTokens(whereExpr);
-
-    // The name predicate compares against the name column, not the id column.
-    expect(tokens).toContain("col:name");
-    expect(tokens).not.toContain("col:id");
-
-    // `IS NULL` must be applied to `parent_channel_id` specifically — a
-    // future refactor that swapped in `isNull(categoryId)` while still
-    // referencing `parentChannelId` elsewhere in the predicate would not
-    // reproduce the invariant. This is the whole point of the fix.
-    expect(tokensContainPhrase(tokens, "parent_channel_id", "is null")).toBe(true);
+    const rows = await resolveChannelByNameForMember(db, "srv_1", "u_1", "general");
+    expect(rows.map(({ id, name, parentChannelId }) => ({ id, name, parentChannelId })))
+      .toEqual([{ id: "ch_top", name: "general", parentChannelId: null }]);
   });
 
   it("does NOT fall back to matching by id (agent surfaces reject raw ids)", async () => {
-    const db = createSelectChain([]);
-    await channelQueries.resolveChannelByNameForMember(
-      db as never,
-      "srv_1",
-      "u_1",
-      "mFUplbfFL7PIzeiaP3Ysg",
-    );
-
-    // Exactly one SELECT — the deleted id-fallback would have made a second
-    // roundtrip if the first missed. `.where` fires once per SELECT.
-    expect(db.where).toHaveBeenCalledOnce();
-
-    const [whereExpr] = db.where.mock.calls[0]!;
-    const tokens = flattenTokens(whereExpr);
-    // The id column of communityChannel must NOT be part of the predicate —
-    // that's the "no id back-door" guarantee the plan locks in.
-    expect(tokens).not.toContain("col:id");
+    expect(await resolveChannelByNameForMember(db, "srv_1", "u_1", "mFUplbfFL7PIzeiaP3Ysg"))
+      .toEqual([]);
+    expect((await resolveChannelByNameForMember(db, "srv_1", "u_1", "opaque-name")).map((row) => row.id))
+      .toEqual(["mFUplbfFL7PIzeiaP3Ysg"]);
   });
 
   it("scopes lookup to server AND caller's membership (no cross-server leak)", async () => {
-    const db = createSelectChain([]);
-    await channelQueries.resolveChannelByNameForMember(db as never, "srv_1", "u_1", "general");
-
-    // innerJoin is what enforces membership-scoping; dropping it would let a
-    // caller resolve channels on servers they don't belong to.
-    const chain = db as unknown as { innerJoin: ReturnType<typeof vi.fn> };
-    expect(chain.innerJoin).toHaveBeenCalledOnce();
-
-    const [whereExpr] = db.where.mock.calls[0]!;
-    const tokens = flattenTokens(whereExpr);
-    expect(tokens).toContain("col:server_id");
+    expect((await resolveChannelByNameForMember(db, "srv_1", "u_1", "general")).map((row) => row.id))
+      .toEqual(["ch_top"]);
+    expect((await resolveChannelByNameForMember(db, "srv_2", "u_1", "general")).map((row) => row.id))
+      .toEqual(["ch_foreign"]);
+    expect(await resolveChannelByNameForMember(db, "srv_1", "u_2", "general")).toEqual([]);
+    expect((await resolveChannelByNameForMember(db, "srv_2", "u_2", "general")).map((row) => row.id))
+      .toEqual(["ch_foreign"]);
+    expect(await resolveChannelByNameForMember(db, "srv_1", "u_none", "general")).toEqual([]);
   });
 
-  it("returns [] when no top-level row matches — the DB partial-unique guarantees ≤1", async () => {
-    const db = createSelectChain([]);
-    const rows = await channelQueries.resolveChannelByNameForMember(
-      db as never,
-      "srv_1",
-      "u_1",
-      "general",
-    );
-    expect(rows).toEqual([]);
+  it("returns [] when no top-level row matches", async () => {
+    expect(await resolveChannelByNameForMember(db, "srv_1", "u_1", "missing")).toEqual([]);
   });
 
   it("returns the single matched row", async () => {
-    const dbRow = {
+    expect(await resolveChannelByNameForMember(db, "srv_1", "u_1", "general")).toEqual([{
       id: "ch_top",
       serverId: "srv_1",
       categoryId: null,
@@ -142,16 +93,6 @@ describe("resolveChannelByNameForMember — SQL invariants", () => {
       parentMessageId: null,
       lastMessageAt: null,
       createdAt: "2026-01-01T00:00:00.000Z",
-    };
-    const db = createSelectChain([dbRow]);
-    const rows = await channelQueries.resolveChannelByNameForMember(
-      db as never,
-      "srv_1",
-      "u_1",
-      "general",
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.id).toBe("ch_top");
-    expect(rows[0]!.parentChannelId).toBeNull();
+    }]);
   });
 });

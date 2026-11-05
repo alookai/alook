@@ -103,13 +103,15 @@ describe("getReactionDetailsActors against real SQLite", () => {
     user("bot-live", { bot: true, owner: "owner-live" })
     user("bot-orphan", { bot: true, owner: "owner-gone" })
     user("outsider")
+    user("foreign-0001")
     for (const id of ["active", "deleted", "bot-live", "bot-orphan"]) member("server-1", id)
     member("server-2", "outsider")
+    member("server-1", "foreign-0001")
     for (const id of ["active", "departed", "deleted", "bot-live", "bot-orphan", "outsider"]) {
       reaction("message-1", id, "👍")
     }
     reaction("message-1", "active", "🔥")
-    reaction("message-2", "outsider", "🎉")
+    reaction("message-2", "foreign-0001", "🎉")
 
     const actors = await getReactionDetailsActors(db, "message-1", {
       kind: "server",
@@ -137,6 +139,9 @@ describe("getReactionDetailsActors against real SQLite", () => {
       user(id, { deleted: id === "deleted-dm" })
       reaction("message-dm", id, "👍")
     }
+    user("foreign-dm-0002")
+    participant("dm-1", "foreign-dm-0002")
+    reaction("message-other", "foreign-dm-0002", "🎉")
     participant("dm-1", "access")
     participant("dm-1", "notify", "notify")
     participant("dm-2", "other-dm")

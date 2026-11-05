@@ -120,9 +120,6 @@ vi.mock("@/hooks/community/use-messages", () => ({
   }),
 }))
 
-vi.mock("@/lib/community/message-read-projection", () => ({
-  resolveMessageReadProjection: () => ({ newDividerBefore: undefined, anchorFound: false }),
-}))
 vi.mock("@/hooks/community/use-dm-watermark", () => ({ useDmWatermark: vi.fn() }))
 vi.mock("@/hooks/community/use-channel-ref-directory", () => ({
   useChannelRefDirectory: () => ({

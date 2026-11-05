@@ -54,7 +54,7 @@ describe("DM route uses the shared Channel metadata owner", () => {
     await expect(first).resolves.toBe("present")
     await expect(second).resolves.toBe("present")
     await waitFor(() => expect(route.result.current.status).toBe("readable"))
-    expect(apiFetch).toHaveBeenCalledWith(`/api/community/channels/${dm.id}/messages?entry=1`, expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
+    expect(apiFetch).toHaveBeenCalledWith(`/api/community/channels/${dm.id}/messages?entry=1&window=tail`, expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
     expect(client.getQueryData(channelMetadataOptions(client, null, dm.id).queryKey)).toMatchObject({ channelId: metadata.channelId })
     expect(client.getQueryData(communityKeys.dms())).toEqual({ conversations: [] })
     expect(registry.runtime.ws.get().channelAccessScopes.get(dm.id)).toMatchObject({ serverId: null, generation: 0, revoked: false })

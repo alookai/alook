@@ -33,6 +33,7 @@ describe("verified bundle to Google Play internal draft", () => {
   it("uploads the bound bytes, preserves active releases and reads the committed draft/hash back", async () => {
     const { calls, request } = fixture()
     const progress: Record<string, unknown> = {}
+    const expectedBytes = Buffer.from(bytes)
     const result = await uploadDraft(receipt, bytes, "offline-token", request, progress)
     expect(result).toEqual({ package: "ai.alook.android", track: "internal", status: "draft", versionCode: 10,
       sha256: hash, editId: "write-edit", committed: true, readback: true })
@@ -49,7 +50,7 @@ describe("verified bundle to Google Play internal draft", () => {
       ["GET", "/androidpublisher/v3/applications/ai.alook.android/edits/read-edit/bundles"],
       ["DELETE", "/androidpublisher/v3/applications/ai.alook.android/edits/read-edit"],
     ])
-    expect(calls[3].options.body).toBe(bytes)
+    expect(calls[3].options.body).toEqual(expectedBytes)
     expect(new URL(calls[3].url).searchParams.get("uploadType")).toBe("media")
     expect(JSON.parse(calls[5].options.body as string)).toEqual({ track: "internal", releases: [previous, publishedDraft] })
     expect(calls[6].options.body).toBeUndefined()
@@ -75,8 +76,8 @@ describe("verified bundle to Google Play internal draft", () => {
     expect(calls).toHaveLength(0)
   })
 
-  it.each([10, 11])("refuses reused or lower version code when Play already has %s", async versionCode => {
-    const { request, calls } = fixture({ 1: { bundles: [{ versionCode }] } })
+  it.each([["bundles", 10], ["bundles", 11], ["apks", 10], ["apks", 11]] as const)("refuses reused or lower version code when Play %s already has %s", async (kind, versionCode) => {
+    const { request, calls } = fixture({ [kind === "bundles" ? 1 : 2]: { [kind]: [{ versionCode }] } })
     await expect(uploadDraft(receipt, bytes, "offline-token", request)).rejects.toThrow("start a new workflow run")
     expect(calls.filter(call => call.options.method === "POST")).toHaveLength(1)
     expect(calls.at(-1)?.options.method).toBe("DELETE")

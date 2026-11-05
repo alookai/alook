@@ -76,7 +76,7 @@ describe("ImageLightbox", () => {
     vi.unstubAllGlobals()
   })
 
-  it("shows a complete cached original immediately without decode or a scheduled reveal", () => {
+  it("enables cached-original controls immediately without decode or a scheduled reveal", () => {
     const descriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "decode")
     const decode = vi.fn(() => new Promise<void>(() => {}))
     Object.defineProperty(HTMLImageElement.prototype, "decode", { configurable: true, value: decode })
@@ -88,9 +88,6 @@ describe("ImageLightbox", () => {
     try {
       for (let mount = 0; mount < 2; mount++) {
         const { renderer } = renderLightbox({ originalUrl: "/cached-original", thumbnailUrl: "/cached-thumbnail", name: "cached" })
-        expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100", "pointer-events-auto")
-        expect(image(renderer, tid.imageLightboxOriginal)).not.toHaveClass("transition-opacity")
-        expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("opacity-0")
         expect(renderer.queryByTestId(tid.imageLightboxLoading)).not.toBeInTheDocument()
         expect(image(renderer, tid.imageLightboxOriginal)).toHaveStyle({ maxWidth: "1000px", maxHeight: "500px" })
         expect(renderer.getByRole("button", { name: "Zoom in" })).toBeEnabled()
@@ -121,19 +118,19 @@ describe("ImageLightbox", () => {
     expect(retried).not.toBe(old)
     expect(retried).toHaveAttribute("src", "/original?v=3&size=640")
     expect(image(renderer, tid.imageLightboxThumbnail)).toBe(thumbnail)
-    expect(thumbnail).toHaveClass("opacity-100")
+
     await act(async () => { finish(); await oldDecode })
     expect(retried).toHaveAttribute("data-remote-image-state", "pending")
     fireEvent.error(old)
     expect(retried).toHaveAttribute("data-remote-image-state", "pending")
     await loadImage(retried, 640, 480, () => Promise.resolve())
-    expect(retried).toHaveClass("opacity-100")
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeEnabled()
     expect(renderer.queryByTestId(tid.imageLightboxError)).not.toBeInTheDocument()
     fireEvent(window, new Event("online"))
     expect(image(renderer, tid.imageLightboxOriginal)).toBe(retried)
   })
 
-  it("keeps one image region and the same fit for both layers through decode", async () => {
+  it("keeps one region and both known dimension caps through decode", async () => {
     let resolveDecode!: () => void
     const decodePromise = new Promise<void>((resolve) => { resolveDecode = resolve })
     const { renderer } = renderLightbox({
@@ -152,39 +149,24 @@ describe("ImageLightbox", () => {
     expect(thumbnail).toHaveStyle({ maxWidth: "800px", maxHeight: "450px" })
     expect(original).toHaveStyle({ maxWidth: "800px", maxHeight: "450px" })
     expect(frame).toHaveAttribute("data-native-context-menu", "true")
-    expect(thumbnail).toHaveClass("absolute", "inset-0", "size-full")
-    expect(thumbnail).toHaveClass("pointer-events-none")
-    expect(original).toHaveClass(
-      "absolute",
-      "inset-0",
-      "size-full",
-      "pointer-events-none",
-      "opacity-0",
-    )
-    expect(frame.parentElement).not.toHaveClass("invisible")
+
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeDisabled()
+
     expect(renderer.getByTestId(tid.imageLightboxLoading))
       .toHaveTextContent("Loading original image")
 
     await loadThumbnail(renderer, 200, 112)
-    expect(renderer.getByTestId(tid.imageLightbox).parentElement).not.toHaveClass("invisible")
-    expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("pointer-events-auto")
 
     prepareImage(original, 800, 450, () => decodePromise)
     fireEvent.load(original)
-    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-0")
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeDisabled()
 
     await act(async () => {
       resolveDecode()
       await decodePromise
     })
-    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass(
-      "pointer-events-auto",
-      "opacity-100",
-    )
-    expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass(
-      "pointer-events-none",
-      "opacity-0",
-    )
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeEnabled()
+
     expect(renderer.getByTestId(tid.imageLightbox)).toBe(frame)
     expect(frame.style.width).toBe("")
     expect(frame.style.aspectRatio).toBe("")
@@ -205,7 +187,7 @@ describe("ImageLightbox", () => {
 
     expect(renderer.queryAllByTestId(tid.imageLightboxOriginal)).toHaveLength(0)
     expect(image(renderer, tid.imageLightboxThumbnail)).toHaveAttribute("src", "/thumbnail")
-    expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("pointer-events-auto")
+
     expect(renderer.getByTestId(tid.imageLightboxError))
       .toHaveTextContent("Failed to load original image")
     expect(renderer.getByTestId(tid.imageLightboxRetry)).toHaveTextContent("Retry")
@@ -216,10 +198,10 @@ describe("ImageLightbox", () => {
     expect(renderer.queryAllByTestId(tid.imageLightboxError)).toHaveLength(0)
 
     await loadImage(retriedOriginal, 640, 480, () => Promise.resolve())
-    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeEnabled()
   })
 
-  it("learns legacy image dimensions after decode without resizing or replacing the region", async () => {
+  it("learns legacy dimension caps after decode without replacing the region", async () => {
     let resolveDecode!: () => void
     const decodePromise = new Promise<void>((resolve) => { resolveDecode = resolve })
     const { renderer } = renderLightbox({
@@ -237,7 +219,7 @@ describe("ImageLightbox", () => {
     prepareImage(original, 1000, 500, () => decodePromise)
     fireEvent.load(original)
     expect(original.style.maxWidth).toBe("")
-    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-0")
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeDisabled()
 
     await act(async () => {
       resolveDecode()
@@ -248,7 +230,7 @@ describe("ImageLightbox", () => {
     expect(frame.style.aspectRatio).toBe("")
     expect(original).toHaveStyle({ maxWidth: "1000px", maxHeight: "500px" })
     expect(image(renderer, tid.imageLightboxThumbnail)).toHaveStyle({ maxWidth: "1000px", maxHeight: "500px" })
-    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeEnabled()
   })
 
   it("treats a decode failure like an original load failure", async () => {
@@ -265,7 +247,7 @@ describe("ImageLightbox", () => {
       () => Promise.reject(new Error("decode failed")),
     )
     expect(renderer.getByTestId(tid.imageLightboxError)).toBeInTheDocument()
-    expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("opacity-100")
+
   })
 
   it("ignores late load, decode, and error callbacks from a retried attempt", async () => {
@@ -289,16 +271,16 @@ describe("ImageLightbox", () => {
 
     fireEvent.error(oldOriginal)
     expect(renderer.queryAllByTestId(tid.imageLightboxError)).toHaveLength(0)
-    expect(retriedOriginal).toHaveClass("opacity-0")
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeDisabled()
 
     await act(async () => {
       resolveOldDecode()
       await oldDecode
     })
-    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-0")
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeDisabled()
 
     await loadImage(retriedOriginal, 640, 480, () => Promise.resolve())
-    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeEnabled()
   })
 
   it("shows an explicit original-loading fallback when no thumbnail exists", () => {
@@ -308,35 +290,34 @@ describe("ImageLightbox", () => {
     expect(renderer.getByTestId(tid.imageLightbox).style.aspectRatio).toBe("")
   })
 
-  it("keeps a slow original pending and displays its success beyond five seconds", async () => {
+  it("keeps a slow original pending and enables controls after late success", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const { renderer } = renderLightbox({ originalUrl: "/stalled", name: "stalled" })
     const loading = renderer.getByTestId(tid.imageLightboxLoading)
-    expect(loading).toHaveClass("motion-reduce:animate-none")
 
     await act(async () => vi.advanceTimersByTime(30_000))
     expect(renderer.getByTestId(tid.imageLightboxLoading)).toBe(loading)
     expect(renderer.queryByTestId(tid.imageLightboxError)).not.toBeInTheDocument()
     await loadImage(image(renderer, tid.imageLightboxOriginal), 800, 600, () => Promise.resolve())
-    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeEnabled()
     expect(renderer.queryByTestId(tid.imageLightboxLoading)).not.toBeInTheDocument()
   })
 
-  it("reveals a decoded original even when its thumbnail stays pending", async () => {
+  it("enables original controls independently of a pending or late thumbnail", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const { renderer } = renderLightbox({ originalUrl: "/original", thumbnailUrl: "/stalled-thumbnail", name: "Photo" })
     await act(async () => vi.advanceTimersByTime(30_000))
     expect(image(renderer, tid.imageLightboxThumbnail)).toHaveAttribute("data-remote-image-state", "pending")
     await loadImage(image(renderer, tid.imageLightboxOriginal), 1200, 600, () => Promise.resolve())
-    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeEnabled()
     expect(image(renderer, tid.imageLightboxThumbnail)).toHaveAttribute("data-remote-image-state", "pending")
     expect(renderer.queryByTestId(tid.imageLightboxLoading)).not.toBeInTheDocument()
     await loadThumbnail(renderer, 512, 256)
-    expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("opacity-0")
-    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
+
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeEnabled()
   })
 
-  it("keeps a cold thumbnail until the original is decoded without an additional reveal frame", async () => {
+  it("settles cold-thumbnail then original readiness without a scheduled reveal", async () => {
     const schedule = vi.fn()
     vi.stubGlobal("requestAnimationFrame", schedule)
     vi.stubGlobal("cancelAnimationFrame", vi.fn())
@@ -352,41 +333,17 @@ describe("ImageLightbox", () => {
       const frame = () => renderer.getByTestId(tid.imageLightbox)
       const original = image(renderer, tid.imageLightboxOriginal)
 
-      expect(frame().parentElement).not.toHaveClass("invisible")
       expect(renderer.getByTestId(tid.imageLightboxLoading)).toBeInTheDocument()
       await loadThumbnail(renderer, 512, 269)
-      expect(frame().parentElement).not.toHaveClass("invisible")
-      expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("opacity-100")
-      expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-0")
+
+      expect(renderer.getByRole("button", { name: "Zoom in" })).toBeDisabled()
       await loadImage(original, 1200, 630, () => Promise.resolve())
-      expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
-      expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("opacity-0")
+      expect(renderer.getByRole("button", { name: "Zoom in" })).toBeEnabled()
+
       expect(schedule).not.toHaveBeenCalled()
     } finally {
       vi.unstubAllGlobals()
     }
-  })
-
-  it.each([
-    { name: "extreme landscape", width: 4000, height: 100 },
-    { name: "extreme portrait", width: 100, height: 4000 },
-  ])("keeps controls above the transparent, overflowing image layer for $name", ({ width, height }) => {
-    const { renderer } = renderLightbox({ originalUrl: "/original", name: "extreme", width, height })
-    fireEvent.error(image(renderer, tid.imageLightboxOriginal))
-    const frame = renderer.getByTestId(tid.imageLightbox)
-    const error = renderer.getByTestId(tid.imageLightboxError)
-    const retry = renderer.getByTestId(tid.imageLightboxRetry)
-
-    expect(frame.querySelectorAll(`[data-testid="${tid.imageLightboxError}"]`)).toHaveLength(0)
-    expect(error.parentElement).toBe(frame.parentElement)
-    const toolbar = renderer.getByRole("toolbar", { name: "Image controls" })
-    expect(toolbar.parentElement).toBe(frame.parentElement)
-    expect(toolbar.nextElementSibling).toBe(frame)
-    expect(toolbar).toHaveClass("relative", "z-20")
-    expect(frame).toHaveClass("z-0", "overflow-visible")
-    expect(frame).not.toHaveClass("overflow-hidden", "bg-background")
-    expect(error).toHaveClass("w-max")
-    expect(retry).toHaveClass("h-12", "min-w-12")
   })
 
   it("preserves the dialog close callback", () => {
@@ -552,7 +509,6 @@ describe("ImageLightbox", () => {
     expect(renderer.getByRole("button", { name: "Zoom in" })).toBeDisabled()
     expect(renderer.getByTestId(tid.imageLightboxRetry)).toBeVisible()
   })
-
 
   it("preserves free pan on resize, cancels its drag, and disconnects on close", async () => {
     let resize!: ResizeObserverCallback

@@ -100,7 +100,7 @@ describe("entry failure and explicit recovery", () => {
     expect(hook.result.current.messages.map(message => message.id)).toEqual(["m1"])
     expect(hook.result.current.readSnapshotFetching).toBe(true)
     expect(registry.collections.channels.has("c1")).toBe(true)
-    expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&anchor=gone", "/api/community/channels/c1/messages?entry=1"])
+    expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&anchor=gone", "/api/community/channels/c1/messages?entry=1&window=tail"])
     hook.unmount()
   })
 })

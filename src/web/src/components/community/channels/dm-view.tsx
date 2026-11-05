@@ -34,7 +34,6 @@ import { makeUserNameResolver } from "@/lib/community/display-name"
 import { useDms } from "@/hooks/community/use-dms"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useDmMessages } from "@/hooks/community/use-messages"
-import { resolveMessageReadProjection } from "@/lib/community/message-read-projection"
 import { useMessageUnreadCount } from "@/hooks/community/use-message-unread-count"
 import { useDmWatermark } from "@/hooks/community/use-dm-watermark"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
@@ -154,15 +153,14 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     fetchOlder: fetchOlderMessages,
     fetchNewer: fetchNewerMessages,
     jumpToPresent,
-    presentVersion, presentRequest,
+    presentVersion, presentRequest, newBoundary, retiredNewTargetId, loadNewTarget, readNewBoundary,
     latestSeq,
     isPending: messagesPending,
     isError: messagesError,
     isFetching: messagesFetching,
     refetch: refetchMessages,
     navigationBlocked,
-    anchorReconciled,
-    readSnapshot, readSnapshotFetching, initialDisplayReady, preserveInitialPresentation, onUserTakeover,
+    readSnapshot, readSnapshotFetching, initialScrollReady, preserveInitialPresentation, onUserTakeover,
     initialLoadError, targetLoadError, retryInitialLoad, retryingInitialLoad, observation, positionEntry, positionScope, positionDataState, targetPositionDataState, messageWindow,
   } = useDmMessages(dmId, {
     enabled: !dmBlocked && !metadata.revoked && !metadata.denied,
@@ -216,26 +214,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     }
     if (channelRefDirectoryError) void refetchChannelRefDirectory()
   }, [channelRefDirectoryEnabled, channelRefDirectoryError, refetchChannelRefDirectory, setChannelRefDirectoryEnabled])
-  // Anchor of the "New" divider: the first non-self message after
-  // `lastReadMessageId` inside the currently-loaded window. Mirrors the
-  // channel-view logic exactly — see channel page for why we skip past
-  // runs of viewer-authored messages (the server advances the sender's
-  // own watermark on POST, so anchoring above the viewer's own row would
-  // never be "unread" from the sender's perspective).
-  // `anchorFound` and `newDividerBefore` MUST be computed inside the same
-  // memo — mirrors the channel page's identical fix exactly (see its doc
-  // comment for the Playwright-verified repro of the mount-vs-Fix-3 race
-  // this closes: two independently-evaluated expressions reading the same
-  // inputs aren't guaranteed to agree on every commit).
-  const { newDividerBefore } = useMemo(() => {
-    if (!readSnapshot) return { newDividerBefore: undefined, anchorFound: false }
-    return resolveMessageReadProjection({
-      messages,
-      lastReadMessageId: readSnapshot.lastReadMessageId,
-      viewerUserId: currentUser.id,
-      anchorReconciled,
-    })
-  }, [anchorReconciled, messages, readSnapshot, currentUser.id])
+  const newDividerBefore = newBoundary?.target?.id
 
   // Scroll root of the message list — needed so `useDmWatermark`'s
   // IntersectionObserver measures against the correct viewport rather
@@ -474,6 +453,11 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             retryingInitialLoad={retryingInitialLoad || messagesFetching}
             onRetryInitialLoad={retryInitialLoad}
             newDividerBefore={newDividerBefore}
+            newBoundary={newBoundary}
+            latestSeq={latestSeq}
+            retiredNewTargetId={retiredNewTargetId}
+            onLoadNewTarget={loadNewTarget}
+            onReadNewBoundary={readNewBoundary}
             onOpenThread={() => { }}
             onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
             onReact={dmBlocked ? undefined : messageActions.onReact}
@@ -488,7 +472,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             resolveUserName={resolveUserName}
             onScrollRoot={setScrollRootEl}
             viewerUserId={currentUser.id}
-            initialScrollReady={initialDisplayReady}
+            initialScrollReady={initialScrollReady}
             preserveInitialPresentation={preserveInitialPresentation}
             onUserTakeover={onUserTakeover}
             hasMore={hasMoreMessages}

@@ -31,7 +31,9 @@ it.each([null, false, true].flatMap(blockMode => (["accepted", "incoming"] as co
   const fresh = dmConversationEntryFixture()
   fresh.messages = [{ ...fresh.messages[0], id: "m2", seq: 2, content: "Fresh authorized entry" }]
   fresh.readState = { ...fresh.readState, lastReadMessageId: "m2", lastReadSeq: 2 }
-  fresh.selection = { reason: "read_pointer", anchorMessageId: "m2" }
+  fresh.selection = { reason: "tail", anchorMessageId: null }
+  fresh.page = { ...fresh.page, latestSeq: 2 }
+  fresh.newBoundary = { afterSeq: 2, target: null }
   const original = IDBObjectStore.prototype.get
   let reads = 0, held = 0
   let release: (() => void) | undefined

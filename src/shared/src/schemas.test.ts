@@ -10,7 +10,6 @@ import {
   CreateWorkspaceRequestSchema,
   UpdateWorkspaceRequestSchema,
   BotAuditEventSchema,
-  BotAuditEventKindSchema,
   HostBotAuditEventFrameSchema,
   CommunityAgentNapRequestSchema,
   CommunityMachineRuntimeSchema,
@@ -78,6 +77,7 @@ describe("CommunityServerOnboardRequestSchema", () => {
         { id: "bot-a", wakePrompt: "Do" },
       ],
       leadBotId: "bot-a",
+      action: { type: "finalize" },
     }).success).toBe(false)
     expect(CommunityServerOnboardRequestSchema.safeParse({
       bots: [],
@@ -305,9 +305,9 @@ describe("UpdateWorkspaceRequestSchema slug sanitization", () => {
     expect(res.name).toBe("x")
   })
 
-  it("accepts and truncates a very long messy slug (no max rejection)", () => {
+  it("retains the normalized prefix when truncating a very long messy slug", () => {
     const res = UpdateWorkspaceRequestSchema.parse({ slug: "A very long name ".repeat(20) })
-    expect(res.slug!.length).toBeLessThanOrEqual(60)
+    expect(res.slug).toBe("a-very-long-name-a-very-long-name-a-very-long-name-a-very-lo")
   })
 })
 
@@ -350,9 +350,6 @@ describe("BotAuditEventSchema — model_changed", () => {
       BotAuditEventSchema.safeParse({ kind: "model_changed", payload: { from: "a" } }).success,
     ).toBe(false)
   })
-  it("BotAuditEventKindSchema includes model_changed", () => {
-    expect(BotAuditEventKindSchema.safeParse("model_changed").success).toBe(true)
-  })
 })
 
 describe("BotAuditEventSchema — error", () => {
@@ -386,9 +383,6 @@ describe("BotAuditEventSchema — error", () => {
       }).success,
     ).toBe(false)
   })
-  it("BotAuditEventKindSchema includes error", () => {
-    expect(BotAuditEventKindSchema.safeParse("error").success).toBe(true)
-  })
 })
 
 it("accepts the four supported provider quotas in a ready snapshot and bounds extra entries", () => {
@@ -413,8 +407,7 @@ describe("completed text audit payload", () => {
     expect(HostBotAuditEventFrameSchema.safeParse(frame(text)).success).toBe(false);
   });
 
-  it("registers text while preserving legacy thinking rows", () => {
-    expect(BotAuditEventKindSchema.safeParse("text").success).toBe(true);
+  it("preserves legacy thinking rows", () => {
     expect(BotAuditEventSchema.safeParse({ kind: "thinking", payload: { text: "legacy", truncated: false, chars: 6 } }).success).toBe(true);
   });
 });

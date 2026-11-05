@@ -28,7 +28,17 @@ export const captures = [
   filename: `${device}-${width}x${height}/${String(index + 1).padStart(2, "0")}-${name}.jpg`,
 })))
 
-export function selectCaptures({ device, story } = {}) {
+const playCaptures = [
+  ...["conversation", "dm", "profile", "rooms"].map((action, index) => ({ device: "phone", story: index + 1, action, width: 1080, height: 1920, format: "png", url: `/?kind=play-phone&story=${index + 1}`, filename: `phone-1080x1920/0${index + 1}-${action}.png` })),
+  { device: "feature", width: 1024, height: 500, format: "png", url: "/?kind=play-feature", filename: "feature-1024x500.png" },
+]
+
+export function selectCaptures({ store = "app-store", device, story } = {}) {
+  if (!["app-store", "google-play"].includes(store)) throw new Error("Invalid store: use app-store or google-play")
+  if (store === "google-play") {
+    if (device !== undefined || story !== undefined) throw new Error("Google Play requires the complete fixed set; omit device and story")
+    return playCaptures
+  }
   if (device !== undefined && !["phone", "tablet", "duo"].includes(device)) throw new Error("Invalid device: use phone, tablet or duo")
   if (story !== undefined && (!Number.isInteger(story) || story < 1 || story > stories.length)) throw new Error("Invalid story: use 1 through 6")
   return captures.filter(capture => (!device || capture.device === device) && (story === undefined || capture.story === story))
@@ -45,7 +55,7 @@ export async function captureInputHashes() {
   }
   await walk(path.join(captureRoot, "app"))
   await walk(path.join(captureRoot, "captures"))
-  files.push(path.join(webRoot, "src/app/globals.css"), path.join(webRoot, "src/app/fonts.ts"), path.join(webRoot, "src/app/favicon.ico"), path.join(webRoot, "public/alook.svg"))
+  files.push(path.join(webRoot, "src/app/globals.css"), path.join(webRoot, "src/app/fonts.ts"), path.join(webRoot, "src/app/favicon.ico"), path.join(webRoot, "public/alook.svg"), path.join(webRoot, "public/icon-512.png"))
   for (const name of ["landing-interactive-shell.tsx", "landing-interactive-shell-data.ts", "landing-interactive-shell.module.css", "landing-shell-motion.tsx", "landing-shell-motion-timeline.ts", "landing-shell-motion.module.css", "landing-profile-content.tsx", "landing-human-avatars.ts", "landing-demo-copy.ts"]) files.push(path.join(webRoot, "src/components/home", name))
   for (const name of ["caveat-latin", "dm-sans-latin", "dm-mono-latin-400", "instrument-serif-latin-400", "instrument-serif-latin-400-italic", "literata-latin", "vt323-latin-400"]) files.push(path.join(webRoot, "src/app/fonts", `${name}.woff2`))
   for (const color of ["red", "purple", "teal", "blue", "orange"]) files.push(path.join(captureRoot, "assets", `face-${color}.svg`))
@@ -134,15 +144,25 @@ async function render(browser, origin, capture) {
       await frame.locator('[data-capture-ready="true"]').waitFor({ timeout: 120000 })
       const scene = await frame.locator("[data-capture-surface]").getAttribute("data-capture-surface")
       if (scene === "workspace" && await frame.evaluate(() => innerWidth < 640)) {
-        await frame.getByTestId("community-channel-row-demo-general").click()
-        await frame.locator('[data-community-mobile-surface="detail"]').waitFor({ state: "visible" })
+        if (capture.action === "dm") {
+          await frame.getByTestId("community-home-button").click()
+          await frame.getByTestId("community-dm-row-demo-dm-alli").click()
+        } else if (capture.action !== "rooms") {
+          await frame.getByTestId("community-channel-row-demo-general").click()
+        }
+        await frame.locator(`[data-community-mobile-surface="${capture.action === "rooms" ? "list" : "detail"}"]`).waitFor({ state: "visible" })
+        if (capture.action === "rooms") await frame.getByTestId("community-channel-row-demo-general").waitFor({ state: "visible" })
       }
-      if (scene === "workspace") {
+      if (scene === "workspace" && capture.action !== "rooms") {
         await frame.locator('[data-message-list-content][data-initial-position-phase="revealed"][aria-hidden="false"]').waitFor({ state: "visible" })
         await frame.locator('[data-message-list-skeleton]').waitFor({ state: "hidden" })
         await frame.getByTestId("community-message-scroller").evaluate(element => element.scrollTo({ top: 0, behavior: "instant" }))
         await frame.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
         await frame.locator('[data-message-row-key]').first().waitFor({ state: "visible" })
+        if (capture.action === "profile") {
+          await frame.locator('[data-message-author-line]').getByRole("button", { name: "Alli", exact: true }).first().click()
+          await frame.getByTestId("community-profile-card").waitFor({ state: "visible" })
+        }
       }
       const measured = await frame.evaluate(async () => {
         await document.fonts.ready
@@ -151,18 +171,25 @@ async function render(browser, origin, capture) {
       })
       if (measured.rootFontSize !== "16px") throw new Error(`Unexpected App root type: ${measured.rootFontSize}`)
       if (scene === "workspace" && !measured.sharedShell) throw new Error("Shared Web shell did not render")
-      surfaces.push({ scene, ...measured })
+      surfaces.push({ scene, ...(capture.action ? { interaction: capture.action } : {}), ...measured })
     }
-    if (!surfaces.length) throw new Error("No real component surface rendered")
+    if (!surfaces.length && capture.device !== "feature") throw new Error("No real component surface rendered")
     await page.evaluate(async () => { await document.fonts.ready; await Promise.all([...document.images].map(image => image.decode())) })
-    const bytes = await page.locator("#capture-poster").screenshot({ type: "jpeg", quality: 80, scale: "css", animations: "disabled" })
+    const composition = await page.evaluate(() => {
+      const marketing = document.querySelector('[data-play-marketing]')?.getBoundingClientRect()
+      const surface = document.querySelector('.play-app')?.getBoundingClientRect()
+      const rect = value => value ? { x: value.x, y: value.y, width: value.width, height: value.height } : null
+      return { marketing: rect(marketing), surface: rect(surface) }
+    })
+    if (capture.action && (!composition.marketing || composition.marketing.y + composition.marketing.height > capture.height * .2 || !composition.surface || composition.surface.y < composition.marketing.y + composition.marketing.height || composition.surface.x < 0 || composition.surface.x + composition.surface.width > capture.width || composition.surface.y + composition.surface.height > capture.height)) throw new Error("Google Play marketing/surface bounds exceeded")
+    const bytes = await page.locator("#capture-poster").screenshot({ type: capture.format ?? "jpeg", ...(capture.format === "png" ? {} : { quality: 80 }), scale: "css", animations: "disabled" })
     if (errors.length) throw new Error(errors.join("\n"))
-    return { bytes, surfaces }
+    return { bytes, surfaces, ...(capture.format ? { composition } : {}) }
   } finally { await context.close() }
 }
 
-export async function captureArtwork({ output = path.join(repositoryRoot, "assets/app-store"), overview = false, device, story, signal } = {}) {
-  const selected = selectCaptures({ device, story })
+export async function captureArtwork({ store = "app-store", output = path.join(repositoryRoot, store === "google-play" ? "assets/google-play" : "assets/app-store"), overview = false, device, story, signal } = {}) {
+  const selected = selectCaptures({ store, device, story })
   signal?.throwIfAborted()
   const app = await startCaptureApp({ signal })
   let browser
@@ -174,13 +201,20 @@ export async function captureArtwork({ output = path.join(repositoryRoot, "asset
     const outputs = []
     for (const capture of selected) {
       signal?.throwIfAborted()
-      const { bytes, surfaces } = await render(browser, app.origin, capture)
+      const { bytes, surfaces, composition } = await render(browser, app.origin, capture)
       const metadata = await sharp(bytes).metadata()
-      if (metadata.format !== "jpeg" || metadata.width !== capture.width || metadata.height !== capture.height || metadata.channels !== 3 || metadata.hasAlpha || metadata.space !== "srgb") throw new Error(`Invalid RGB JPEG: ${capture.filename}`)
+      if (metadata.format !== (capture.format ?? "jpeg") || metadata.width !== capture.width || metadata.height !== capture.height || metadata.channels !== 3 || metadata.hasAlpha || metadata.space !== "srgb") throw new Error(`Invalid RGB artwork: ${capture.filename}`)
       const filename = path.join(output, capture.filename)
       await mkdir(path.dirname(filename), { recursive: true })
       await writeFile(filename, bytes)
-      outputs.push({ path: capture.filename, width: metadata.width, height: metadata.height, sha256: createHash("sha256").update(bytes).digest("hex"), surfaces })
+      outputs.push({ path: capture.filename, width: metadata.width, height: metadata.height, sha256: createHash("sha256").update(bytes).digest("hex"), surfaces, ...(composition ? { composition, encoding: "24-bit RGB PNG" } : {}) })
+    }
+    if (store === "google-play") {
+      const bytes = await sharp(path.join(webRoot, "public/icon-512.png")).flatten({ background: "#fff8ec" }).ensureAlpha().toColourspace("srgb").png().toBuffer()
+      const metadata = await sharp(bytes).metadata()
+      if (metadata.width !== 512 || metadata.height !== 512 || metadata.channels !== 4 || !metadata.hasAlpha || metadata.space !== "srgb" || bytes.length > 1024 * 1024) throw new Error("Invalid Google Play icon")
+      await writeFile(path.join(output, "icon-512.png"), bytes)
+      outputs.push({ path: "icon-512.png", width: 512, height: 512, sha256: createHash("sha256").update(bytes).digest("hex"), encoding: "32-bit RGBA PNG", source: "src/web/public/icon-512.png", transform: "Original geometry/colors, alpha composited on #fff8ec; opaque full square with alpha channel", surfaces: [] })
     }
     if (overview) {
       const first = outputs.slice(0, 6)
@@ -193,7 +227,7 @@ export async function captureArtwork({ output = path.join(repositoryRoot, "asset
       outputs.push({ path: "overview.jpg", width, height, sha256: createHash("sha256").update(bytes).digest("hex"), surfaces: [] })
     }
     const { stdout } = await promisify(execFile)("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot })
-    const manifest = { renderer: browser.version(), encoding: "RGB JPEG quality 80", clock: "2026-10-25T00:00:00Z", locale: "en-US", timezone: "UTC", repositoryHead: stdout.trim(), inputs: await captureInputHashes(), outputs }
+    const manifest = { renderer: browser.version(), encoding: store === "google-play" ? "RGB PNG artwork; RGBA PNG icon; optional JPEG overview" : "RGB JPEG quality 80", ...(store === "google-play" ? { store } : {}), clock: "2026-10-25T00:00:00Z", locale: "en-US", timezone: "UTC", repositoryHead: stdout.trim(), inputs: await captureInputHashes(), outputs }
     await writeFile(path.join(output, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`)
     return manifest
   } finally {
@@ -206,10 +240,11 @@ export async function main(args = process.argv.slice(2)) {
   const options = {}
   for (let index = 0; index < args.length; index++) {
     if (args[index] === "--overview") options.overview = true
+    else if (args[index] === "--store" && args[index + 1] && !args[index + 1].startsWith("--")) options.store = args[++index]
     else if (args[index] === "--device" && args[index + 1] && !args[index + 1].startsWith("--")) options.device = args[++index]
     else if (args[index] === "--story" && args[index + 1] && /^[1-6]$/.test(args[index + 1])) options.story = Number(args[++index])
     else if (args[index] === "--output" && args[index + 1] && !args[index + 1].startsWith("--")) options.output = path.resolve(args[++index])
-    else throw new Error("Usage: pnpm app-store:capture [--output directory] [--overview] [--device phone|tablet|duo] [--story 1..6]")
+    else throw new Error("Usage: pnpm app-store:capture [--store app-store|google-play] [--output directory] [--overview] [--device phone|tablet|duo] [--story 1..6]")
   }
   const controller = new AbortController()
   const interrupt = () => {

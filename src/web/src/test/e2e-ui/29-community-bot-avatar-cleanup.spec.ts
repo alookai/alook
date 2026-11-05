@@ -136,6 +136,7 @@ test("real bot avatars become unreadable after single delete and authenticated m
     }
     await route.continue()
   })
+  await alice.page.emulateMedia({ reducedMotion: "no-preference" })
   await alice.page.reload({ waitUntil: "commit" })
   await expect(alice.page.getByText(botName, { exact: true })).toHaveCount(1)
   await expect(alice.page.getByText(botName, { exact: true })).toBeVisible()
@@ -146,10 +147,18 @@ test("real bot avatars become unreadable after single delete and authenticated m
   expect(pendingFrame).not.toBeNull()
   await expect(avatarFrame.locator('[data-remote-image-placeholder="identity"][data-remote-image-state="pending"]'))
     .toBeVisible()
+  await expect.poll(() => avatar.evaluate((image) => Number(getComputedStyle(image).opacity))).toBe(0)
+  await expect.poll(() => avatarFrame.locator('[data-remote-image-placeholder="identity"]').evaluate((placeholder) => (
+    placeholder.getAnimations().some((animation) => animation.playState === "running")
+  ))).toBe(true)
   releaseAvatar()
   await expect(avatar).toHaveAttribute("data-remote-image-state", "error")
   await expect(avatarFrame.locator('[data-remote-image-placeholder="identity"][data-remote-image-state="error"]'))
     .toBeVisible()
+  await expect.poll(() => avatarFrame.locator('[data-remote-image-placeholder="identity"]').evaluate((placeholder) => (
+    placeholder.getAnimations().filter((animation) => animation.playState === "running").length
+  ))).toBe(0)
+  await expect.poll(() => avatar.evaluate((image) => Number(getComputedStyle(image).opacity))).toBe(0)
   await expect(avatarFrame.locator("svg")).toHaveCount(0)
   expect(await avatarFrame.boundingBox()).toEqual(pendingFrame)
 
@@ -161,6 +170,7 @@ test("real bot avatars become unreadable after single delete and authenticated m
   await expect.poll(() => avatarRequests).toBeGreaterThan(requestsBeforeReload)
   await expect(avatar).toHaveCount(1)
   await expect(avatar).toHaveAttribute("data-remote-image-state", "ready")
+  await expect.poll(() => avatar.evaluate((image) => Number(getComputedStyle(image).opacity))).toBe(1)
   const readyFrame = await avatarFrame.boundingBox()
   expect(readyFrame).toEqual(pendingFrame)
   await alice.page.unroute(`**${avatarPath}*`)

@@ -63,6 +63,7 @@ describe("forum opener message pagination against real SQLite", () => {
   afterEach(() => sqlite.close())
 
   it("preserves each reader's exact columns while sharing body and parsed embeds", async () => {
+    sqlite.prepare("UPDATE user SET avatarVersion = 9 WHERE id = 'u1'").run()
     sqlite.prepare("UPDATE community_message SET embeds = ?, client_nonce = ?, friendship_id = ? WHERE id = ?")
       .run('[{"title":"Native"}]', "nonce", "friendship", "m1")
     const reads = [
@@ -78,7 +79,7 @@ describe("forum opener message pagination against real SQLite", () => {
     for (const { row, extra } of reads) {
       if (!row) throw new Error("Expected native fixture message")
       expect(Object.keys(row).sort()).toEqual([...common, ...extra].sort())
-      expect(row).toMatchObject({ id: "m1", channelId: "c1", content: "message 1", authorName: "Alice", authorImage: null, authorAvatarVersion: 0, embeds: [{ title: "Native" }] })
+      expect(row).toMatchObject({ id: "m1", channelId: "c1", content: "message 1", authorName: "Alice", authorImage: null, authorAvatarVersion: 9, embeds: [{ title: "Native" }] })
     }
     expect(await messageQueries.getMessageInScope(db as never, "m1", { channelId: "c2" })).toBeNull()
     expect(await messageQueries.getMessagesByIdsInChannels(db as never, ["m1"], ["c2"])).toEqual([])
@@ -90,6 +91,10 @@ describe("forum opener message pagination against real SQLite", () => {
   })
 
   it("pages the tagged tuple cursor without overlap or omission", async () => {
+    sqlite.prepare("UPDATE community_message SET created_at = ? WHERE id = ?")
+      .run("2026-01-01T00:00:04.000Z", "m5")
+    sqlite.prepare("INSERT INTO community_message_tag (id, message_id, tag) VALUES (?, ?, ?)")
+      .run("tag-m5-bug", "m5", "bug")
     const first = await messageQueries.listMessages(db as never, { channelId: "c1", tag: "bug", limit: 2 })
     const second = await messageQueries.listMessages(db as never, {
       channelId: "c1",
@@ -97,9 +102,8 @@ describe("forum opener message pagination against real SQLite", () => {
       limit: 2,
       cursor: { createdAt: first[1]!.createdAt, id: first[1]!.id },
     })
-    expect(first.map((row) => row.id)).toEqual(["m6", "m4"])
-    expect(second.map((row) => row.id)).toEqual(["m2"])
-    expect(new Set([...first, ...second].map((row) => row.id)).size).toBe(3)
+    expect(first.map((row) => row.id)).toEqual(["m6", "m5"])
+    expect(second.map((row) => row.id)).toEqual(["m4", "m2"])
   })
 
   it("applies the same tagged set to anchor and since windows", async () => {

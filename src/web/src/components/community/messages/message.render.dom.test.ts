@@ -1991,7 +1991,7 @@ describe("Message file attachment", () => {
     expect(onPreviewAttachment).toHaveBeenCalledWith(file)
   })
 
-  it("renders media through the shared progressive-disclosure block", () => {
+  it("renders media through the shared progressive-disclosure block", async () => {
     const media = {
       kind: "file" as const,
       name: "voice.ogg",
@@ -2000,17 +2000,25 @@ describe("Message file attachment", () => {
       sizeBytes: 256,
       size: "256 B",
     }
-    let renderer: DomRenderer
-    act(() => {
-      renderer = render(makeTree({
-        m: baseMsg({ attachments: [media] }),
-        onOpenThread: vi.fn(),
-      }), { createNodeMock: () => genericMock })
-    })
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined)
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined)
+    const view = rtlRender(makeTree({
+      m: baseMsg({ attachments: [media] }),
+      onOpenThread: vi.fn(),
+    }))
 
-    expect(renderer!.root.findByProps({ "data-testid": "community-media-block-voice.ogg" }).props["data-media-kind"])
-      .toBe("audio")
-    expect(renderer!.root.findAllByType("audio")).toHaveLength(0)
+    expect(view.container.querySelectorAll("audio, video")).toHaveLength(0)
+    fireEvent.click(view.getByRole("button", { name: "Play voice.ogg", exact: true }))
+    await act(async () => { await Promise.resolve() })
+    const player = view.container.querySelector("audio")
+    expect(player).not.toBeNull()
+    expect(player).toHaveAttribute("src", "/voice")
+    expect(play).toHaveBeenCalledOnce()
+    expect(play.mock.contexts[0]).toBe(player)
+    fireEvent.click(view.getByRole("button", { name: "Pause voice.ogg", exact: true }))
+    expect(pause).toHaveBeenCalledOnce()
+    expect(pause.mock.contexts[0]).toBe(player)
+    expect(view.getByRole("button", { name: "Play voice.ogg", exact: true })).toBeEnabled()
   })
 })
 

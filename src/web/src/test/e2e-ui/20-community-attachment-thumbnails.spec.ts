@@ -25,6 +25,22 @@ type NativeImageContextMenuProbe = {
   targetTestId: string | null
 }
 
+async function expectImageLayer(image: Locator, painted: boolean) {
+  await expect.poll(() => image.evaluateAll((elements) => elements.map((element) => {
+    const image = element as HTMLImageElement
+    const rect = image.getBoundingClientRect()
+    let opacity = 1
+    for (let current: Element | null = image; current; current = current.parentElement) {
+      opacity *= Number(getComputedStyle(current).opacity)
+    }
+    return {
+      opacity,
+      centerHit: document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === image,
+      ...(opacity > 0 ? { nativePixels: image.complete && image.naturalWidth > 0 && image.naturalHeight > 0 && rect.width > 0 && rect.height > 0 } : {}),
+    }
+  }))).toEqual([painted ? { opacity: 1, centerHit: true, nativePixels: true } : { opacity: 0, centerHit: false }])
+}
+
 async function boundingRect(locator: Locator): Promise<Rect> {
   const rect = await locator.boundingBox()
   expect(rect).not.toBeNull()
@@ -447,7 +463,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   const landscapeButton = page.getByRole("button", { name: "landscape.webp" })
   await landscapeButton.hover()
   await landscapeButton.click()
-  await expect(page.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-0/)
+  await expectImageLayer(page.getByTestId(tid.imageLightboxOriginal), false)
   await expect.poll(() => observedGetPaths.filter((path) => path === landscape.originalPath).length).toBe(1)
   await expect.poll(() => coldThumbnailRequests).toBeGreaterThan(0)
   await expect(page.getByTestId(tid.imageLightbox)).toBeVisible()
@@ -466,7 +482,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   expectSameRect(await boundingRect(landscapeListFrame), pendingListRect)
   await expect(page.getByTestId(tid.imageLightbox)).toBeVisible()
   expectSameRect(await previewRects(page, { width: 800, height: 450 }).then((rects) => rects.container), coldPendingRect.container)
-  await expect(page.getByTestId(tid.imageLightboxThumbnail)).toHaveClass(/opacity-100/)
+  await expectImageLayer(page.getByTestId(tid.imageLightboxThumbnail), true)
   const coldThumbnailReady = await page.getByTestId(tid.imageLightboxThumbnail).evaluate((element: HTMLImageElement) => ({
     complete: element.complete,
     naturalWidth: element.naturalWidth,
@@ -492,7 +508,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
 
   releaseLandscape()
   const landscapeOriginal = page.getByTestId(tid.imageLightboxOriginal)
-  await expect(landscapeOriginal).toHaveClass(/pointer-events-auto opacity-100/)
+  await expectImageLayer(landscapeOriginal, true)
   await expectNativeImageContextMenu(page, landscapeOriginal, {
     src: landscape.originalPath,
     testId: tid.imageLightboxOriginal,
@@ -569,11 +585,11 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expect(desktopZoomFrame).toHaveCount(0)
   await landscapeButton.click()
   await expect(desktopZoomFrame).toHaveAttribute("data-zoom-scale", "1")
-  await expect(landscapeOriginal).toHaveClass(/opacity-100/)
+  await expectImageLayer(landscapeOriginal, true)
   await page.keyboard.press("Escape")
   await expect(page.getByTestId(tid.imageLightbox)).toHaveCount(0)
   await landscapeButton.click()
-  await expect(landscapeOriginal).toHaveClass(/opacity-100/)
+  await expectImageLayer(landscapeOriginal, true)
   await waitForDialogEntrance(page)
   await page.mouse.click(1, 1)
   await expect(desktopZoomFrame).toHaveCount(0)
@@ -614,7 +630,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await portraitButton.hover()
   await portraitButton.click()
   await expect.poll(() => portraitOriginalRequests.length).toBe(1)
-  await expect(page.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-0/)
+  await expectImageLayer(page.getByTestId(tid.imageLightboxOriginal), false)
   await waitForDialogEntrance(page)
   const desktopPortraitLoading = await previewRects(page, { width: 450, height: 800 })
   await attachScreenshot(testInfo, "desktop-portrait-loading", page)
@@ -622,7 +638,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expect(page.getByTestId(tid.imageLightboxError)).toContainText("Failed to load original image")
   const portraitThumbnail = page.getByTestId(tid.imageLightboxThumbnail)
   await expect(portraitThumbnail).toBeVisible()
-  await expect(portraitThumbnail).toHaveClass(/pointer-events-auto/)
+  await expectImageLayer(portraitThumbnail, true)
   await expectNativeImageContextMenu(page, portraitThumbnail, {
     src: portrait.thumbnailPath,
     testId: tid.imageLightboxThumbnail,
@@ -640,7 +656,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
 
   await page.getByTestId(tid.imageLightboxRetry).click()
   await expect.poll(() => portraitOriginalRequests.length).toBe(2)
-  await expect(page.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-100/)
+  await expectImageLayer(page.getByTestId(tid.imageLightboxOriginal), true)
   const desktopPortraitRetried = await previewRects(page, { width: 450, height: 800 })
   expectSameRect(desktopPortraitRetried.container, desktopPortraitFailed.container)
   await attachScreenshot(testInfo, "desktop-portrait-retried", page)
@@ -674,6 +690,20 @@ test("image previews keep one frame through loading, decode, failure, retry, and
       mobilePortraitGetPaths.push(pathname)
     }
   })
+  let releaseMobileThumbnail!: () => void
+  const mobileThumbnailGate = new Promise<void>((resolve) => { releaseMobileThumbnail = resolve })
+  caseResources.own(releaseMobileThumbnail, async (captured) => { captured() })
+  let mobileThumbnailRequests = 0
+  await mobilePage.route(`**${landscape.thumbnailPath}`, async (route) => {
+    if (route.request().method() === "GET" && new URL(route.request().url()).pathname === landscape.thumbnailPath) {
+      mobileThumbnailRequests++
+      const response = await route.fetch()
+      await mobileThumbnailGate
+      await route.fulfill({ response })
+      return
+    }
+    await route.continue()
+  })
   await mobilePage.setViewportSize({ width: 390, height: 844 })
   await mobilePage.goto(channelUrl)
   await mobilePage.waitForURL(new RegExp(`/c/channels/[^/]+/${channelId}$`), { waitUntil: "commit" })
@@ -698,12 +728,22 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   })
   await mobilePage.getByRole("button", { name: "landscape.webp" }).click()
   await expect.poll(() => mobileLandscapeRequests).toBe(1)
-  await expect(mobilePage.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-0/)
+  await expectImageLayer(mobilePage.getByTestId(tid.imageLightboxOriginal), false)
   await waitForDialogEntrance(mobilePage)
   const mobileLandscapeLoading = await previewRects(mobilePage, { width: 800, height: 450 })
   await attachScreenshot(testInfo, "mobile-landscape-loading", mobilePage)
+  await expect.poll(() => mobileThumbnailRequests).toBeGreaterThan(0)
+  const lateThumbnail = mobilePage.getByTestId(tid.imageLightboxThumbnail)
+  expect(await lateThumbnail.evaluate((image: HTMLImageElement) => ({ complete: image.complete, width: image.naturalWidth })))
+    .toEqual({ complete: false, width: 0 })
   releaseMobileLandscape()
-  await expect(mobilePage.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-100/)
+  await expectImageLayer(mobilePage.getByTestId(tid.imageLightboxOriginal), true)
+  await expectImageLayer(lateThumbnail, false)
+  releaseMobileThumbnail()
+  await expect.poll(() => lateThumbnail.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0 && image.naturalHeight > 0)).toBe(true)
+  await expectImageLayer(lateThumbnail, false)
+  await expectImageLayer(mobilePage.getByTestId(tid.imageLightboxOriginal), true)
+  await mobilePage.unroute(`**${landscape.thumbnailPath}`)
   const mobileLandscapeLoaded = await previewRects(mobilePage, { width: 800, height: 450 })
   expectSameRect(mobileLandscapeLoaded.container, mobileLandscapeLoading.container)
   await attachScreenshot(testInfo, "mobile-landscape-loaded", mobilePage)
@@ -755,10 +795,10 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   })
   await mobilePage.getByRole("button", { name: "portrait.webp" }).click()
   await expect.poll(() => mobilePortraitRequests).toBe(1)
-  await expect(mobilePage.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-0/)
+  await expectImageLayer(mobilePage.getByTestId(tid.imageLightboxOriginal), false)
   await waitForDialogEntrance(mobilePage)
   const mobilePortraitLoading = await previewRects(mobilePage, { width: 450, height: 800 })
-  await expect(mobilePage.getByTestId(tid.imageLightboxThumbnail)).toHaveClass(/opacity-100/)
+  await expectImageLayer(mobilePage.getByTestId(tid.imageLightboxThumbnail), true)
   const mobileNodes = await previewNodes(mobilePage)
   caseResources.own(mobileNodes, async (captured) => { await Promise.all(captured.map(({ node }) => node?.dispose())) })
   const pendingMobileGets = [...mobilePortraitGetPaths]
@@ -777,7 +817,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   expect(mobilePortraitGetPaths).toEqual(pendingMobileGets)
 
   releaseMobilePortrait()
-  await expect(mobilePage.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-100/)
+  await expectImageLayer(mobilePage.getByTestId(tid.imageLightboxOriginal), true)
   const mobilePortraitLoaded = await previewRects(mobilePage, { width: 450, height: 800 })
   expectSameRect(mobilePortraitLoaded.container, mobilePortraitRestored.container)
   const loadedMobileGets = [...mobilePortraitGetPaths]
@@ -830,7 +870,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expectToolbarAboveImage(mobilePage, mobilePortraitZoomedRestored.painted)
   expectSameRect(mobilePortraitZoomedRestored.container, mobilePortraitLoaded.container)
   await expectSamePreviewNodes(mobilePage, mobileNodes)
-  await expect(mobileOriginal).toHaveClass(/opacity-100/)
+  await expectImageLayer(mobileOriginal, true)
   expect(mobilePortraitGetPaths).toEqual(loadedMobileGets)
   await attachScreenshot(testInfo, "mobile-original-pinched", mobilePage)
   for (const name of ["Zoom out", "Fit image", "Zoom in", "Close image preview"]) {
@@ -876,6 +916,14 @@ test("image previews keep one frame through loading, decode, failure, retry, and
     expect(error.y).toBeGreaterThanOrEqual(0)
     expect(error.x + error.width).toBeLessThanOrEqual(390)
     expect(error.y + error.height).toBeLessThanOrEqual(844)
+    expect(await mobilePage.getByTestId(tid.imageLightboxRetry).evaluate((button) => {
+      const rect = button.getBoundingClientRect()
+      return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+    })).toBe(true)
+    await mobilePage.getByTestId(tid.imageLightboxRetry).click()
+    await expect.poll(() => requests).toBe(2)
+    await expect(mobilePage.getByTestId(tid.imageLightboxError)).toBeVisible()
+    await expect(mobilePage.getByTestId(tid.imageLightboxOriginal)).toHaveCount(0)
     await attachScreenshot(testInfo, screenshotName, mobilePage)
     await mobilePage.keyboard.press("Escape")
     await mobilePage.unroute(`**${attachment.originalPath}`)
@@ -1283,3 +1331,226 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 
       serverId, channelId, tableId, htmlMessageId, attachmentId, point, frame, target, hits, before, open, closed: await rowState(), messageWrites }), contentType: "application/json" })
   })
 }
+
+test("media attachments play, stop, recover and download through reachable mobile controls", async ({ caseActors, caseResources }, testInfo) => {
+  const actors = await caseActors(["alice"])
+  const serverId = await actors.seed.seedServer("alice", `Media playback ${Date.now()}`)
+  const channelId = await actors.seed.seedChannel("alice", serverId, "media-playback")
+  const { page } = await actors.asUser("alice", { viewport: { width: 390, height: 844 }, hasTouch: true })
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+
+  const wav = Buffer.alloc(44 + 4 * 8000 * 2)
+  wav.write("RIFF", 0); wav.writeUInt32LE(wav.length - 8, 4); wav.write("WAVEfmt ", 8)
+  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22)
+  wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28)
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34)
+  wav.write("data", 36); wav.writeUInt32LE(wav.length - 44, 40)
+  const webm = Buffer.from(await page.evaluate(async () => {
+    const canvas = document.createElement("canvas")
+    canvas.width = 320; canvas.height = 180
+    const context = canvas.getContext("2d")!
+    const paint = () => { context.fillStyle = "rgb(30, 170, 80)"; context.fillRect(0, 0, 320, 180) }
+    paint()
+    const stream = canvas.captureStream(25)
+    let timer: ReturnType<typeof setInterval> | undefined
+    let stop: ReturnType<typeof setTimeout> | undefined
+    let recorder: MediaRecorder | undefined
+    try {
+      recorder = new MediaRecorder(stream, { mimeType: "video/webm" })
+      const chunks: Blob[] = []
+      const finished = new Promise<void>((resolve, reject) => {
+        recorder!.ondataavailable = event => { if (event.data.size > 0) chunks.push(event.data) }
+        recorder!.onstop = () => resolve()
+        recorder!.onerror = () => reject(new Error("Canvas video recording failed"))
+      })
+      recorder.start()
+      timer = setInterval(paint, 40)
+      stop = setTimeout(() => recorder!.stop(), 4000)
+      await finished
+      return Array.from(new Uint8Array(await new Blob(chunks, { type: "video/webm" }).arrayBuffer()))
+    } finally {
+      clearInterval(timer); clearTimeout(stop)
+      if (recorder && recorder.state !== "inactive") recorder.stop()
+      for (const track of stream.getTracks()) track.stop()
+    }
+  }))
+  expect(webm.length).toBeGreaterThan(0)
+
+  const upload = async (name: string, mimeType: string, buffer: Buffer) => {
+    const attachmentResponse = page.waitForResponse(response => response.request().method() === "POST"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/attachments`)
+    const messageResponse = page.waitForResponse(response => response.request().method() === "POST"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`)
+    const editable = composerEditable(page)
+    await editable.tap()
+    await editable.fill(`Playback ${name}`)
+    await page.getByTestId(tid.composerFileInput).setInputFiles({ name, mimeType, buffer })
+    await expect(page.getByText(name, { exact: true })).toBeVisible()
+    const [uploaded, posted] = await Promise.all([
+      attachmentResponse, messageResponse, page.getByTestId(tid.composerSend).tap(),
+    ])
+    expect(uploaded.status()).toBe(200)
+    const { id } = await uploaded.json() as { id: string }
+    expect(id).toBeTruthy()
+    expect(posted.status()).toBe(201)
+    expect((posted.request().postDataJSON() as { attachments: string[] }).attachments).toEqual([id])
+    const { message } = await posted.json() as { message: { id: string } }
+    const row = page.getByTestId(tid.message(message.id))
+    const block = row.getByTestId(tid.mediaBlock(name))
+    await expect(block).toBeVisible()
+    return { row, block, path: `/api/community/channels/${channelId}/attachments/${id}` }
+  }
+  const state = (player: Locator) => player.evaluate((element: HTMLMediaElement) => ({
+    paused: element.paused, time: element.currentTime, ready: element.readyState,
+    ended: element.ended, error: element.error?.code ?? null,
+  }))
+  const reachable = async (control: Locator, block: Locator, expectedState: "enabled" | "disabled" = "enabled") => {
+    await control.scrollIntoViewIfNeeded()
+    const rect = await boundingRect(control)
+    expect(rect.width).toBeGreaterThanOrEqual(44)
+    expect(rect.height).toBeGreaterThanOrEqual(44)
+    expectWithinRect(rect, await boundingRect(block))
+    expectWithinRect(rect, { x: 0, y: 0, width: 390, height: 844 })
+    if (expectedState === "disabled") {
+      await expect(control).toBeDisabled()
+      await expect(control).toBeVisible()
+      return
+    }
+    await expect(control).toBeEnabled()
+    await expect.poll(() => control.evaluate(element => {
+      const box = element.getBoundingClientRect()
+      return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
+    })).toBe(true)
+  }
+
+  const audioName = "playback.wav"
+  const audio = await upload(audioName, "audio/wav", wav)
+  const audioPlay = audio.block.getByTestId(tid.mediaPlay(audioName))
+  const audioStop = audio.block.getByTestId(tid.mediaCollapse(audioName))
+  const audioDownload = audio.block.getByTestId(tid.mediaDownload(audioName))
+  await expect(audio.block.locator("audio, video")).toHaveCount(0)
+  for (const control of [audioPlay, audioDownload]) await reachable(control, audio.block)
+  await reachable(audioStop, audio.block, "disabled")
+  await expect(audioStop).toBeDisabled()
+  const idleRect = await boundingRect(audio.block)
+  const heldAudio = await holdRoute(page, url => url.pathname === audio.path, caseResources)
+  await audioPlay.tap()
+  await expect.poll(heldAudio.held).toBeGreaterThan(0)
+  const audioPlayer = audio.block.locator("audio")
+  await expect(audioPlay).toHaveAttribute("aria-busy", "true")
+  await expect(audioPlay).toBeDisabled()
+  await expect(audioStop).toBeEnabled()
+  expect((await state(audioPlayer)).ready).toBe(0)
+  expect((await boundingRect(audio.block)).height).toBeCloseTo(idleRect.height, 1)
+  expect(await audioPlayer.boundingBox()).toBeNull()
+  await reachable(audioStop, audio.block)
+  await audioStop.tap()
+  await heldAudio.release()
+  await expect.poll(async () => (await state(audioPlayer)).ready).toBeGreaterThan(0)
+  await expect(audioPlay).toHaveAttribute("aria-label", `Play ${audioName}`)
+  await expect(audioStop).toBeDisabled()
+  expect(await state(audioPlayer)).toMatchObject({ paused: true, time: 0, error: null })
+
+  await audioPlay.tap()
+  await expect.poll(async () => (await state(audioPlayer)).time).toBeGreaterThan(0.1)
+  await expect(audioPlay).toHaveAttribute("aria-label", `Pause ${audioName}`)
+  await audioPlay.tap()
+  expect((await state(audioPlayer)).paused).toBe(true)
+  const pausedAt = (await state(audioPlayer)).time
+  await audioPlay.tap()
+  await expect.poll(async () => (await state(audioPlayer)).time).toBeGreaterThan(pausedAt)
+  await audioStop.tap()
+  expect(await state(audioPlayer)).toMatchObject({ paused: true, time: 0 })
+  await expect(audioStop).toBeDisabled()
+  await audioPlayer.evaluate(element => {
+    const probe = element as HTMLMediaElement & { completion?: { trusted: boolean; time: number } }
+    element.addEventListener("ended", event => {
+      probe.completion = { trusted: event.isTrusted, time: probe.currentTime }
+    }, { once: true, capture: true })
+  })
+  await audioPlay.tap()
+  await expect.poll(async () => (await state(audioPlayer)).time).toBeGreaterThan(0)
+  await expect(audioStop).toBeDisabled()
+  const completion = await audioPlayer.evaluate(element => (element as HTMLMediaElement & {
+    completion?: { trusted: boolean; time: number }
+  }).completion)
+  expect(completion?.trusted).toBe(true)
+  expect(completion?.time).toBeGreaterThanOrEqual(3.9)
+  expect(await state(audioPlayer)).toMatchObject({ paused: true, time: 0, error: null })
+  await expect(audioPlay).toHaveAttribute("aria-label", `Play ${audioName}`)
+  const downloaded = page.waitForEvent("download")
+  await audioDownload.tap()
+  const download = await downloaded
+  expect(download.suggestedFilename()).toBe(audioName)
+  expect(await download.failure()).toBeNull()
+  const downloadPath = await download.path()
+  expect(downloadPath).not.toBeNull()
+  expect(readFileSync(downloadPath!)).toEqual(wav)
+  expect((await state(audioPlayer)).paused).toBe(true)
+  await expect(page.getByRole("menu")).toHaveCount(0)
+
+  const videoName = "playback.webm"
+  const video = await upload(videoName, "video/webm", webm)
+  const videoPlay = video.block.getByTestId(tid.mediaPlay(videoName))
+  const videoStop = video.block.getByTestId(tid.mediaCollapse(videoName))
+  const videoDownload = video.block.getByTestId(tid.mediaDownload(videoName))
+  for (const control of [videoPlay, videoDownload]) await reachable(control, video.block)
+  await reachable(videoStop, video.block, "disabled")
+  let corrupt = true
+  let badResponses = 0
+  const videoPattern = (url: URL) => url.pathname === video.path
+  const corruptVideo = async (route: import("@playwright/test").Route) => {
+    if (corrupt) {
+      badResponses += 1
+      await route.fulfill({ status: 200, contentType: "video/webm", body: Buffer.from("invalid media bytes") })
+    } else await route.continue()
+  }
+  await page.route(videoPattern, corruptVideo)
+  const ownedRoute = caseResources.own(corruptVideo, async handler => { await page.unroute(videoPattern, handler) })
+  await videoPlay.tap()
+  const retry = video.block.getByRole("button", { name: `Retry ${videoName}`, exact: true })
+  await expect(retry).toBeVisible()
+  expect(badResponses).toBeGreaterThan(0)
+  await expect(video.block.getByRole("alert")).toHaveText("Couldn’t play this file")
+  await expect(videoStop).toBeDisabled()
+  await reachable(retry, video.block)
+  await retry.tap()
+  await expect.poll(() => badResponses).toBeGreaterThan(1)
+  await expect(retry).toBeVisible()
+  corrupt = false
+  await retry.tap()
+  const videoPlayer = video.block.locator("video")
+  await expect.poll(async () => (await state(videoPlayer)).time).toBeGreaterThan(0.1)
+  expect(await videoPlayer.evaluate((element: HTMLVideoElement) => ({ width: element.videoWidth, height: element.videoHeight })))
+    .toEqual({ width: 320, height: 180 })
+  await expect(videoPlay).toHaveAttribute("aria-label", `Pause ${videoName}`)
+  await videoPlay.tap()
+  expect((await state(videoPlayer)).paused).toBe(true)
+  for (const control of [videoPlay, videoStop, videoDownload]) {
+    await reachable(control, video.block)
+    const frame = await boundingRect(videoPlayer)
+    expect((await boundingRect(control)).y).toBeGreaterThanOrEqual(frame.y + frame.height)
+  }
+  await videoPlayer.scrollIntoViewIfNeeded()
+  const videoRect = await boundingRect(videoPlayer)
+  const painted = await sharp(await page.screenshot({ clip: {
+    x: videoRect.x + videoRect.width / 2 - 2, y: videoRect.y + videoRect.height / 2 - 2,
+    width: 4, height: 4,
+  } })).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+  for (let index = 0; index < painted.data.length; index += painted.info.channels) {
+    expect(Math.abs(painted.data[index]! - 30)).toBeLessThan(30)
+    expect(Math.abs(painted.data[index + 1]! - 170)).toBeLessThan(30)
+    expect(Math.abs(painted.data[index + 2]! - 80)).toBeLessThan(30)
+  }
+  await videoStop.tap()
+  expect(await state(videoPlayer)).toMatchObject({ paused: true, time: 0, error: null })
+  await expect(videoStop).toBeDisabled()
+  await expect(videoPlay).toHaveAttribute("aria-label", `Play ${videoName}`)
+  await ownedRoute.close()
+  await testInfo.attach("media-playback.json", { body: JSON.stringify({ serverId, channelId,
+    wavBytes: wav.length, webmBytes: webm.length, badResponses,
+    audio: await state(audioPlayer), completion, video: await state(videoPlayer),
+    idleAudioHeight: idleRect.height, finalVideoRect: videoRect,
+    input: "native touchscreen taps; browser download; no device capture or native OS save",
+  }), contentType: "application/json" })
+})
