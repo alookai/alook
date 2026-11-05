@@ -1,6 +1,7 @@
 "use client"
 
 import { requestNativeBack } from "@/components/ui/native-back-layer"
+import type { MobileEntryMotion } from "@/contexts/community/mobile-page-motion"
 import { MobilePageBackContext, type MobilePageBack } from "@/contexts/community/mobile-page-back"
 import { commitNavigation } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
@@ -308,6 +309,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     dismissUserBarExtension()
     return true
   }, [breakpoint, checkpoint.surface, committedFrame.href, dismissUserBarExtension, navigation.navigationPending, parentReturnPending, replacePath, userBarExtension.active])
+  const mobileMotionRef = useRef<MobileEntryMotion | null>(null)
   const pageBack = useRef<MobilePageBack | null>(null)
   const pageBackRegistry = useMemo(() => ({ register: (request: MobilePageBack) => {
     pageBack.current = request
@@ -320,9 +322,22 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
       if (parentReturnPending && navigation.pendingHref
         && normalizeCommunityHref(target).href === normalizeCommunityHref(navigation.pendingHref).href) return
       if (pageBack.current?.(target)) return
+      const motion = mobileMotionRef.current
+      if (motion) {
+        if (motion.isExiting()) return
+        const runtime = getCommunityRuntime(queryClient)
+        const current = navigation.captureIntent(navigation.pendingHref
+          ? { pendingCommitHref: navigation.pendingHref } : undefined)
+        void motion.exitEntry().then((finished) => {
+          if (finished && runtime.lifecycle.get().active && runtime.ws.get().accessEpoch === accessEpoch
+            && window.matchMedia("(max-width: 639px)").matches && current()) navigation.replace(target, { resume: true })
+          else if (finished) motion.resetExit()
+        })
+        return
+      }
       navigation.replace(target, { resume: true })
     } else navigation.replace(target)
-  }, [breakpoint, dismissNativeBackShellOverlay, mobileParentPath, navigation, parentReturnPending])
+  }, [breakpoint, dismissNativeBackShellOverlay, mobileParentPath, navigation, parentReturnPending, queryClient, accessEpoch])
 
   useNativeMobileBack({
     dismissShellOverlay: dismissNativeBackShellOverlay,
@@ -370,6 +385,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     <CommunityRouteContext value={{ breakpoint, frame: committedFrame, navigation, ownerDeleteRouteScope, openInbox, notificationConsumer }}>
     <MobilePageBackContext value={pageBackRegistry}>
     <ShellFrameView
+      mobileMotionRef={mobileMotionRef}
       breakpoint={breakpoint}
       checkpoint={checkpoint}
       routeCommitted={isPublishedNonStructuralCommit(committedFrame, navigation.publishedHref, navigation.pendingHref ?? navigation.publishedHref)}
