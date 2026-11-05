@@ -3,6 +3,8 @@ import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { expectPublicCommunityDocument } from "./_fixtures/community-ssr-frame"
 import { tid } from "./_fixtures/testids"
+import { communityFixtureFetch } from "./_fixtures/business-contract"
+import { WEB_URL } from "./_setup/paths"
 
 import type { CaseActors } from "./_fixtures/case-fixture"
 
@@ -48,17 +50,19 @@ async function expectNoWrongMeConversationLoading(page: Page): Promise<void> {
 }
 
 test.describe("mobile layout", () => {
-  async function prepareCase1(actors: CaseActors) {
+  async function prepareCase1(actors: CaseActors, repliesOutsideRoots = false) {
     const { userId } = actors
     const { seedServer, seedChannel, seedDm, seedMark, seedMessage, seedThread } = actors.seed
     const serverId: string = await seedServer("alice", `Mobile ${Date.now()}`)
     const channelId: string = await seedChannel("alice", serverId, "mobile-chan")
-    const parentMessageId = await seedMessage("alice", channelId, "mobile seq command target")
+    const parentReplyTo = repliesOutsideRoots ? await seedMessage("alice", channelId, "mobile unpinned original") : undefined
+    const parentMessageId = await seedMessage("alice", channelId, "mobile seq command target", parentReplyTo ? { replyToId: parentReplyTo } : undefined)
     const childChannelId: string = await seedThread("alice", parentMessageId, "mobile-child")
-    const childMessageId = await seedMessage("alice", childChannelId, "mobile child seq target")
+    const childReplyTo = repliesOutsideRoots ? await seedMessage("alice", childChannelId, "mobile unmarked original") : undefined
+    const childMessageId = await seedMessage("alice", childChannelId, "mobile child seq target", childReplyTo ? { replyToId: childReplyTo } : undefined)
     await seedMark("alice", childChannelId, childMessageId)
     const dmId: string = await seedDm("alice", userId("bob"))
-    return { serverId, channelId, childChannelId, dmId }
+    return { serverId, channelId, childChannelId, dmId, parentMessageId, childMessageId, parentReplyTo, childReplyTo }
   }
 
   test("whole-page panels fill mobile routes and keep detail identity across 640px", async ({ caseActors }) => {
@@ -242,19 +246,46 @@ test.describe("mobile layout", () => {
   test("Marked opens a child message on its canonical route without losing context", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob"])
     const { asUser } = actors
-    const { serverId, childChannelId } = await prepareCase1(actors)
-
+    const { serverId, channelId, childChannelId, parentMessageId, childMessageId, parentReplyTo, childReplyTo } = await prepareCase1(actors, true)
+    for (const [channel, messageId] of [[channelId, parentMessageId], [childChannelId, childMessageId]]) {
+      const pin = await communityFixtureFetch(WEB_URL + "/api/community/channels/" + channel + "/pins", {
+        method: "POST", headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL, "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId }),
+      })
+      expect(pin.status).toBe(201)
+    }
     const { page } = await asUser("alice")
+    const textPins = page.waitForResponse(response => response.url().endsWith("/api/community/channels/" + channelId + "/pins") && response.request().method() === "GET")
+    await page.goto("/c/channels/" + serverId + "/" + channelId)
+    const text = await (await textPins).json()
+    expect(text.pins).toEqual([{ id: parentMessageId }])
+    expect(text.resources.messages.map((message: { id: string }) => message.id).sort()).toEqual([parentMessageId, parentReplyTo].sort())
+    await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+    await page.getByRole("button", { name: "More channel options", exact: true }).click()
+    await page.getByRole("menuitem", { name: "Pinned messages", exact: true }).click()
+    const publishedPins = page.getByRole("dialog")
+    await expect(publishedPins.getByRole("button").filter({ hasText: "mobile seq command target" })).toBeVisible()
+    await expect(page.getByTestId("business-schema-update")).toHaveCount(0)
+    await publishedPins.getByRole("button", { name: "Close", exact: true }).click()
+    await expect(publishedPins).toBeHidden()
+
     await page.goto("/c/me")
     await page.getByRole("button", { name: "Inbox" }).click()
+    const marks = page.waitForResponse(response => response.url().includes("/api/community/users/me/marks") && response.request().method() === "GET")
     await page.getByRole("tab", { name: "Marked" }).click()
+    const marked = await (await marks).json()
+    expect(marked.marked.map((row: { m: { id: string } }) => row.m.id)).toEqual([childMessageId])
+    expect(marked.resources.messages.map((message: { id: string }) => message.id).sort()).toEqual([childMessageId, childReplyTo].sort())
+    const threadPins = page.waitForResponse(response => response.url().endsWith("/api/community/channels/" + childChannelId + "/pins") && response.request().method() === "GET")
     await page.getByText("mobile child seq target", { exact: true }).click()
 
-    await expect.poll(() => new URL(page.url()).pathname).toBe(
-      `/c/channels/${serverId}/${childChannelId}`,
-    )
+    await expect.poll(() => new URL(page.url()).pathname).toBe("/c/channels/" + serverId + "/" + childChannelId)
+    const thread = await (await threadPins).json()
+    expect(thread.pins).toEqual([{ id: childMessageId }])
+    expect(thread.resources.messages.map((message: { id: string }) => message.id).sort()).toEqual([childMessageId, childReplyTo].sort())
     await expect.poll(() => new URL(page.url()).searchParams.has("seq")).toBe(false)
     await expect(page.getByRole("dialog").getByText("mobile child seq target")).toBeVisible()
+    await expect(page.getByTestId("business-schema-update")).toHaveCount(0)
   })
 
   test("rejects the removed nested route and clears nested last-channel memory", async ({ caseActors }) => {

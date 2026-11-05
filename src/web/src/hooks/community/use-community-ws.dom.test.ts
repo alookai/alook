@@ -29,8 +29,9 @@ import {
 import {
   COMMUNITY_WS_FAILED_AFTER_MS,
 } from "./community-ws/connection-status"
-import { communityBrowserEventBatchType, deriveCommunityDeliveryOperationId, encodeCommunityBrowserEventBatch, prepareCommunityDeliveryEvents } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, communityBrowserEventBatchType, deriveCommunityDeliveryOperationId, encodeCommunityBrowserEventBatch, prepareCommunityDeliveryEvents } from "@alook/shared"
 import * as analytics from "@/lib/analytics"
+import * as schemaLifecycle from "@/lib/business-schema-lifecycle"
 import { currentCommunityEventFixture, machineResourceFixture } from "@/test/community-resource-fixtures"
 import type { CommunityMachineUpdated } from "@alook/shared"
 
@@ -57,6 +58,16 @@ describe("useCommunityWs — non-community events bail", () => {
     await vi.waitFor(() => expect(getCapturedRuntime().ws.get().presenceByUserId.get("peer")).toBe("online"))
     expect(dropped).toHaveBeenCalledOnce()
     dropped.mockRestore()
+  })
+  it("drops malformed current resources without requesting a document upgrade", async () => {
+    await mountHook()
+    const upgrade = vi.spyOn(schemaLifecycle, "requestBusinessSchemaUpdate")
+    const dropped = vi.spyOn(analytics, "trackCommunityWsFrameDropped")
+    await capturedOnMessage!({ type: "community:message.create", schemaVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", message: { id: "partial" } })
+    await capturedOnMessage!({ type: communityBrowserEventBatchType(), schemaVersion: BUSINESS_SCHEMA_VERSION, events: [] })
+    expect(dropped).toHaveBeenCalledTimes(2)
+    expect(upgrade).not.toHaveBeenCalled()
+    upgrade.mockRestore(); dropped.mockRestore()
   })
   it("rejects non-community and unknown community-prefixed events", async () => {
     await mountHook()

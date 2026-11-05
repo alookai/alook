@@ -120,6 +120,20 @@ describe("usePins / pinsQueryFn", () => {
       ...rich, content: "summary", replyToId: "reply",
     })
   })
+  it("publishes a pin reply whose original is not itself pinned", async () => {
+    const reply = messageResourceFixture({ id: "reply-pin", channelId: "ch_1", authorId: "u1", replyToId: "original",
+      replyTo: { id: "original", authorId: "original-author", authorName: "Original" } })
+    const original = messageResourceFixture({ id: "original", channelId: "ch_1", authorId: "original-author", content: "Unpinned original" })
+    const response = pins(reply)
+    response.resources = fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "s1" })], [channelResourceFixture({ id: "ch_1" })], [reply, original])
+    apiFetchMock.mockResolvedValueOnce(response)
+    const { pinsQueryFn } = await import("./use-channel-panels")
+    const result = await pinsQueryFn("ch_1", qc)()
+    expect(result).toEqual({ pins: [{ id: reply.id }] })
+    expect(getCommunityDbRegistry(qc)!.collections.messages.get(original.id)?.content).toBe("Unpinned original")
+    expect(getCommunityDbRegistry(qc)!.collections.messages.get(reply.id)?.replyTo?.authorId).toBe(original.authorId)
+  })
+
   it("rejects an incomplete raw pin resource without inventing a canonical body", async () => {
     const raw = pins()
     raw.resources.messages[0] = { id: "m_1", channelId: "ch_1", content: "partial" } as never

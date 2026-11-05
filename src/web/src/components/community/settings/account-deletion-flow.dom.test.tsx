@@ -6,6 +6,7 @@ import { act, fireEvent, render as renderDom, screen, setupUser, waitFor } from 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
 import { AccountDeletionFlow } from "./account-deletion-flow"
+import * as schemaLifecycle from "@/lib/business-schema-lifecycle"
 
 function currentResponse(body: unknown, init?: ResponseInit) {
   return Response.json(body, { ...init, headers: { ...init?.headers, [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
@@ -77,6 +78,22 @@ describe("AccountDeletionFlow", () => {
       "/api/community/users/me/account-deletion",
       expect.objectContaining({ body: JSON.stringify({ otp: "123456" }), headers: { "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } }),
     )
+  })
+
+  it.each(["same-version-header", "missing-header", "incomplete-body"] as const)("keeps a current %s code receipt as a local error without retiring the page", async kind => {
+    const headers = new Headers()
+    if (kind !== "missing-header") headers.set(COMMUNITY_CONTRACT_HEADER, String(BUSINESS_SCHEMA_VERSION) + (kind === "same-version-header" ? ".0" : ""))
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(kind === "incomplete-body" ? {} : { ok: true, expires_in: 300, resend_after: 60 }, { headers })))
+    const upgrade = vi.spyOn(schemaLifecycle, "requestBusinessSchemaUpdate")
+    const onDeleted = vi.fn()
+    try {
+      render(<AccountDeletionFlow email="owner@example.com" onCancel={vi.fn()} onDeleted={onDeleted} />)
+      fireEvent.click(screen.getByTestId(tid.accountDeletionSendCode))
+      await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Check your connection"))
+      expect(upgrade).not.toHaveBeenCalled()
+      expect(onDeleted).not.toHaveBeenCalled()
+      expect(screen.queryByTestId(tid.accountDeletionOtp)).not.toBeInTheDocument()
+    } finally { upgrade.mockRestore() }
   })
 
   it("clears an invalid code, returns focus to the OTP, and preserves the resend cooldown after Back", async () => {

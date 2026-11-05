@@ -2,6 +2,7 @@ import {
   COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION, communityReadSchemas,
   CommunityMessagePostedSchema, CommunityMessageReadSchema, CommunityConversationEntryReadSchema,
 } from "@alook/shared"
+import { BusinessSchemaMismatch } from "@/lib/business-schema-lifecycle"
 
 export function communityReadTarget(path: string, method = "GET") {
   if (method.toUpperCase() === "POST") {
@@ -26,6 +27,7 @@ export function decodeCommunityReadResponse(path: string, method: string | undef
   if (!target) return value
   if (target.resource === "entry" && new URL(path, "https://alook.invalid").searchParams.get("entry") !== "1") throw new Error("Community entry protocol confirmation mismatch")
   const bodyVersion = typeof value === "object" && value !== null && "contractVersion" in value ? value.contractVersion : undefined
+  if (Number.isSafeInteger(bodyVersion) && Number(bodyVersion) > 0 && bodyVersion !== BUSINESS_SCHEMA_VERSION) throw new BusinessSchemaMismatch(Number(bodyVersion), "Community read protocol confirmation mismatch")
   if (requestedContract !== BUSINESS_SCHEMA_VERSION || response.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION) || bodyVersion !== BUSINESS_SCHEMA_VERSION) throw new Error("Community read protocol confirmation mismatch")
   const schemas = communityReadSchemas(requestedContract)
   const assertScope = (channelId: string) => {

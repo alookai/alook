@@ -16,7 +16,7 @@ import { apiFetch } from "@/lib/api/client"
 import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION, CommunityReadErrorSchema, CommunityInviteJoinTargetSchema } from "@alook/shared"
 import { requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
 import { isAbortError } from "@/lib/errors"
-import { ApiError } from "@/lib/errors"
+import { CommunityResourceError, ApiError } from "@/lib/errors"
 import { ServerIcon } from "@/components/community/server-icon"
 import { Avatar } from "@/components/community/avatar"
 import { captureProductAnalytics } from "@/lib/product-analytics"
@@ -75,7 +75,9 @@ function InviteAcceptInner({ token }: { token: string }) {
         original.assert()
         if (res.status === 401) return { kind: "sign-in" as const }
         if (res.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION)) {
-          throw requestBusinessSchemaUpdate(Number(res.headers.get(COMMUNITY_CONTRACT_HEADER)))
+          const version = Number(res.headers.get(COMMUNITY_CONTRACT_HEADER))
+          if (Number.isSafeInteger(version) && version > 0 && version !== BUSINESS_SCHEMA_VERSION) throw requestBusinessSchemaUpdate(version)
+          throw new CommunityResourceError(new Error("Community response protocol confirmation missing"), res.status)
         }
         let body: unknown
         try {
@@ -90,7 +92,7 @@ function InviteAcceptInner({ token }: { token: string }) {
         } catch (error) {
           original.assert()
           if (isAbortError(error) || error instanceof ApiError) throw error
-          throw requestBusinessSchemaUpdate()
+          throw new CommunityResourceError(error, res.status)
         }
       } catch (error) { original.assert(); throw error }
     },
