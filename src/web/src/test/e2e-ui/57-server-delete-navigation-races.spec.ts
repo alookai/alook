@@ -8,6 +8,7 @@ import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
 import type { UserKey } from "./_setup/users"
 import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
+import { lastChannelKey } from "@/lib/community/last-channel"
 
 async function prepareCase(actors: CaseActors) {
   const { sessionCookie } = actors
@@ -289,15 +290,34 @@ test("a held target entry survives delete/list/WS convergence on its remembered 
   )
   const targetServerId = (await serverIds("carol")).find((id) => id !== deleted.serverId)
   expect(targetServerId).toBeTruthy()
+  const targetChannelId = await firstTextChannelId(page, targetServerId!)
+  const readyTargetEntry = page.waitForResponse((candidate) => {
+    const url = new URL(candidate.url())
+    return candidate.request().method() === "GET"
+      && url.pathname === `/api/community/channels/${targetChannelId}/messages`
+      && url.searchParams.get("entry") === "1"
+  })
   await openChannelRoute(
     page,
     targetServerId!,
-    await firstTextChannelId(page, targetServerId!),
+    targetChannelId,
   )
+  const targetResponse = await readyTargetEntry
+  expect(targetResponse.status()).toBe(200)
+  expect(await targetResponse.finished()).toBeNull()
   const targetPathname = await expectServerLeaf(page, targetServerId!)
-  await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+  const targetSurface = page.locator('[data-slot="community-conversation-surface"]').filter({ visible: true })
+  await expect(targetSurface).toHaveAttribute("data-channel-id", targetChannelId)
+  await expect(targetSurface.getByTestId(tid.composerInput)).toBeVisible()
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key),
+    lastChannelKey(targetServerId!))).toBe(targetChannelId)
   await openServer(page, deleted.serverId)
-  const targetChannelId = targetPathname.split("/").at(-1)!
+  await expectServerLeaf(page, deleted.serverId)
+  await openServer(page, targetServerId!)
+  expect(await expectServerLeaf(page, targetServerId!)).toBe(targetPathname)
+  await expect(targetSurface).toHaveAttribute("data-channel-id", targetChannelId)
+  await expect(targetSurface.getByTestId(tid.composerInput)).toBeVisible()
+  await openServer(page, deleted.serverId)
   await page.reload()
   await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   const targetEntry = await delayServerEntry(page, targetChannelId, caseResources)
