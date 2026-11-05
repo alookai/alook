@@ -8,5 +8,15 @@
     "source": "/blog/human-ai-collaboration-small-teams",
     "destination": "/blog/introducing-alook",
     "statusCode": 301
+  },
+  {
+    "source": "/blog/humans-and-ai-agents-in-one-room",
+    "destination": "/blog/introducing-alook",
+    "statusCode": 301
+  },
+  {
+    "source": "/blog/what-makes-a-shared-ai-workspace-usable",
+    "destination": "/blog/introducing-alook",
+    "statusCode": 301
   }
 ]

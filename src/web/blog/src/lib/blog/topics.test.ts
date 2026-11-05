@@ -47,14 +47,14 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 39 published slugs exactly once", () => {
+  it("covers all 37 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(39);
-    expect(new Set(slugs).size).toBe(39);
+    expect(slugs).toHaveLength(37);
+    expect(new Set(slugs).size).toBe(37);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -89,10 +89,8 @@ describe("blogTopics", () => {
         "ai-agent-communication",
         "introducing-alook",
         "shared-context-between-agents",
-        "what-makes-a-shared-ai-workspace-usable",
         "alook-vs-buzz",
         "alook-vs-grok-bot",
-        "humans-and-ai-agents-in-one-room",
         "ask-coworker-codex-claude-code",
         "why-we-built-alook",
         "ai-agent-identity",
@@ -169,14 +167,10 @@ describe("blogTopics", () => {
         "See how people and AI agents talk directly in shared rooms",
       "shared-context-between-agents":
         "Understand why agents drift without shared context",
-      "what-makes-a-shared-ai-workspace-usable":
-        "Judge whether a shared workspace actually works",
       "alook-vs-buzz":
         "Choose between Alook and Buzz by Block for shared agent work",
       "alook-vs-grok-bot":
         "Compare Alook and Grok Bot by setup, always-on work, and Bot sharing.",
-      "humans-and-ai-agents-in-one-room":
-        "Bring multiple people's agents into one shared room",
       "why-we-built-alook": "Understand why Alook exists (founder narrative)",
       "ai-agent-identity":
         "Evaluate whether an agent stays addressable across rooms and servers",

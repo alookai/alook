@@ -90,7 +90,7 @@ export const blogTopics = [
     label: "Shared context & human-agent workspace",
     description:
       "Build a workspace where people and agents share context, remain addressable, and coordinate in the same rooms.",
-    pillarSlug: "humans-and-ai-agents-in-one-room",
+    pillarSlug: "introducing-alook",
     entries: [
       {
         slug: "ai-agent-communication",
@@ -102,20 +102,12 @@ export const blogTopics = [
       },
       { slug: "shared-context-between-agents", userJob: "Understand why agents drift without shared context" },
       {
-        slug: "what-makes-a-shared-ai-workspace-usable",
-        userJob: "Judge whether a shared workspace actually works",
-      },
-      {
         slug: "alook-vs-buzz",
         userJob: "Choose between Alook and Buzz by Block for shared agent work",
       },
       {
         slug: "alook-vs-grok-bot",
         userJob: "Compare Alook and Grok Bot by setup, always-on work, and Bot sharing.",
-      },
-      {
-        slug: "humans-and-ai-agents-in-one-room",
-        userJob: "Bring multiple people's agents into one shared room",
       },
       { slug: "ask-coworker-codex-claude-code", userJob: "Let coworkers talk to the coding agents that did the work" },
       { slug: "why-we-built-alook", userJob: "Understand why Alook exists (founder narrative)" },
