@@ -45,3 +45,10 @@ export class CommunityApiError extends ApiError {
 export class UnauthorizedError extends ApiError {
   constructor() { super("Unauthorized", 401) }
 }
+
+export class CommunityResourceError extends Error {
+  constructor(cause: unknown, public readonly status?: number) {
+    super("Couldn't load this content. Try again.", { cause })
+    this.name = "CommunityResourceError"
+  }
+}

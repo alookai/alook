@@ -778,7 +778,12 @@ export function useUserWs(
         return
       }
       const msg = parsed as Record<string, unknown>
-      if (msg.type === "auth.error") { protocolRejected = true; requestBusinessSchemaUpdate(Number(msg.communityContract)); ws.close(1008, "Community contract mismatch"); return }
+      if (msg.type === "auth.error") {
+        protocolRejected = true
+        if (Number.isSafeInteger(msg.communityContract) && Number(msg.communityContract) > 0 && msg.communityContract !== requestedCommunityContract) requestBusinessSchemaUpdate(Number(msg.communityContract))
+        ws.close(1008, "Community contract mismatch")
+        return
+      }
       if (typeof msg.type !== "string" || msg.type.length === 0) {
         reportDroppedFrame("missing-type", msg)
         return
@@ -819,7 +824,7 @@ export function useUserWs(
         const confirmed = msg.communityContract
         if (confirmed !== COMMUNITY_CONTRACT_VERSION || confirmed !== requestedCommunityContract) {
           protocolRejected = true
-          requestBusinessSchemaUpdate(Number(confirmed))
+          if (Number.isSafeInteger(confirmed) && Number(confirmed) > 0) requestBusinessSchemaUpdate(Number(confirmed))
           reportDroppedFrame("invalid-payload", msg)
           ws.close(1008, "Community contract confirmation mismatch")
           return
@@ -870,7 +875,7 @@ export function useUserWs(
       if ((isCommunityBatch && msg.type !== communityBrowserEventBatchType(communityContract))
         || (isCommunityEventCandidate(msg) && !isCommunityBatch && msg.schemaVersion !== communityContract)) {
         protocolRejected = true
-        requestBusinessSchemaUpdate()
+        if (Number.isSafeInteger(msg.schemaVersion) && Number(msg.schemaVersion) > 0 && msg.schemaVersion !== communityContract) requestBusinessSchemaUpdate(Number(msg.schemaVersion))
         reportDroppedFrame("invalid-payload", msg)
         ws.close(1008, "Community contract mismatch")
         return

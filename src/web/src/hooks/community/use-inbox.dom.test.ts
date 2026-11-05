@@ -653,7 +653,11 @@ describe("useInboxAttention", () => {
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
     apiFetchMock.mockResolvedValueOnce({
-      resources: fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "server" })], [channelResourceFixture({ id: "channel", serverId: "server" })], [messageResourceFixture({ id: "message", channelId: "channel", seq: 5, authorId: "peer", createdAt: "2026-09-28T00:00:05.000Z", content: "keep" })]),
+      resources: fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "server" })], [channelResourceFixture({ id: "channel", serverId: "server" })], [
+        messageResourceFixture({ id: "message", channelId: "channel", seq: 5, authorId: "peer", createdAt: "2026-09-28T00:00:05.000Z", content: "keep",
+          replyToId: "outside-page", replyTo: { id: "outside-page", authorId: "original", authorName: "Original" } }),
+        messageResourceFixture({ id: "outside-page", channelId: "channel", seq: 1, authorId: "original", content: "Marked elsewhere, outside this page" }),
+      ]),
       marked: [{
         id: "mark",
         server: "Server",
@@ -680,11 +684,15 @@ describe("useInboxAttention", () => {
       await waitFor(() => expect(rendered.result.current.marked).toEqual([expect.objectContaining({
         id: "mark",
         channelId: "channel",
-        m: expect.objectContaining({ id: "message", content: "keep" }),
+        m: expect.objectContaining({ id: "message", content: "keep", replyTo: expect.objectContaining({ id: "outside-page", text: "Marked elsewhere, outside this page" }) }),
       })]))
+      expect(rendered.result.current.data?.marked.map(row => row.m.id)).toEqual(["message"])
+      expect(registry.collections.messages.get("outside-page")?.content).toBe("Marked elsewhere, outside this page")
     } finally {
       rendered.unmount()
       unregister()
+      await registry.cleanup()
+      queryClient.clear()
     }
   })
 

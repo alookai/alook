@@ -2,7 +2,7 @@ import { BusinessSchemaMismatch, requestBusinessSchemaUpdate } from "@/lib/busin
 import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, CommunityReadErrorSchema } from "@alook/shared"
 import { decodeCommunityReadResponse } from "@/lib/community/read-response"
 import { createStore } from "@tanstack/store";
-import { ApiError, CommunityApiError, type CommunityApiErrorPayload, UnauthorizedError, isAbortError } from "@/lib/errors";
+import { ApiError, CommunityApiError, CommunityResourceError, type CommunityApiErrorPayload, UnauthorizedError, isAbortError } from "@/lib/errors";
 import { startRequest, requestHeaders, requestRejected, finishRequest, readObservedResponse, runObservedFetch, type RequestObservation } from "@/lib/observability/requests";
 
 const API_BASE = "";
@@ -148,7 +148,9 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
   const contentType = res.headers.get("Content-Type") ?? "";
   if (path.startsWith("/api/community/") && (contentType.includes("json") || res.status === 204)
     && res.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(COMMUNITY_CONTRACT_VERSION)) {
-    throw requestBusinessSchemaUpdate(Number(res.headers.get(COMMUNITY_CONTRACT_HEADER)));
+    const version = Number(res.headers.get(COMMUNITY_CONTRACT_HEADER));
+    if (Number.isSafeInteger(version) && version > 0 && version !== COMMUNITY_CONTRACT_VERSION) throw requestBusinessSchemaUpdate(version);
+    throw new CommunityResourceError(new Error("Community response protocol confirmation missing"), res.status);
   }
 
   if (!res.ok) {
@@ -167,6 +169,10 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
       const body: unknown = JSON.parse(text);
       assertEligible();
       if (currentCommunityError) {
+        if (typeof body === "object" && body !== null && "contractVersion" in body
+          && Number.isSafeInteger(body.contractVersion) && Number(body.contractVersion) > 0 && body.contractVersion !== COMMUNITY_CONTRACT_VERSION) {
+          throw new BusinessSchemaMismatch(Number(body.contractVersion));
+        }
         const parsed = CommunityReadErrorSchema.safeParse(body);
         if (!parsed.success) throw parsed.error;
         communityError = parsed.data.error;
@@ -179,7 +185,10 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
     } catch (error) {
       assertEligible();
       if (isAbortError(error)) throw error;
-      if (currentCommunityError) throw error instanceof BusinessSchemaMismatch ? error : requestBusinessSchemaUpdate();
+      if (currentCommunityError) {
+        if (error instanceof BusinessSchemaMismatch) throw requestBusinessSchemaUpdate(error.expectedVersion);
+        throw new CommunityResourceError(error, res.status);
+      }
     }
 
     assertEligible();
@@ -222,7 +231,10 @@ export async function apiFetch<T>(path: string, options?: ApiRequestOptions): Pr
     } catch (error) {
       qualify();
       if (isAbortError(error)) throw error;
-      if (path.startsWith("/api/community/")) throw requestBusinessSchemaUpdate();
+      if (path.startsWith("/api/community/")) {
+        if (error instanceof BusinessSchemaMismatch) throw requestBusinessSchemaUpdate(error.expectedVersion);
+        throw new CommunityResourceError(error, res.status);
+      }
       throw error;
     }
   }, qualify);

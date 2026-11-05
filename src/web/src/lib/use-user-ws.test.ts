@@ -15,6 +15,7 @@ import {
   type WsMessage,
 } from "@alook/shared"
 import type { UseUserWsOptions } from "./use-user-ws"
+import * as schemaLifecycle from "./business-schema-lifecycle"
 
 type TestSdkSession = {
   data: { user: { id: string }; session?: { id: string; userId: string; token: string; expiresAt: Date } } | null
@@ -535,6 +536,7 @@ describe("useUserWs", () => {
 
   it.each([undefined, 1, 2, 3, 6, BUSINESS_SCHEMA_VERSION + 1])("retires missing or unsupported business confirmation %s before application admission", async contract => {
     setupTokenFetch()
+    const upgrade = vi.spyOn(schemaLifecycle, "requestBusinessSchemaUpdate")
     const callback = vi.fn(), authenticated = vi.fn()
     await mountHook(callback, { onAuthenticated: authenticated })
     const ws = MockWebSocket.instances[0]!
@@ -546,6 +548,9 @@ describe("useUserWs", () => {
     expect(ws.closed).toBe(true)
     expect(authenticated).not.toHaveBeenCalled()
     expect(callback).not.toHaveBeenCalled()
+    if (contract === undefined) expect(upgrade).not.toHaveBeenCalled()
+    else expect(upgrade).toHaveBeenCalledExactlyOnceWith(contract)
+    upgrade.mockRestore()
   })
 
   it("admits only the current encoded membership single and batch after current confirmation", async () => {

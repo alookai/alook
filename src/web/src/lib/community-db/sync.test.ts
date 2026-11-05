@@ -3244,6 +3244,45 @@ describe("current message reference windows", () => {
     await publishCommunityResourceBundle(db.queryClient, fullResourceBundleFixture("viewer", [], [channel], [message]), { token: captureCommunityLiveSnapshotToken(db.queryClient), signal: undefined }, [{ id: message.id, channelId: channel.id }])
     expect(db.collections.messages.get(message.id)).toMatchObject(message)
   })
+  it.each(["outside-page", "shared-target", "target-is-root"] as const)("publishes only the root window and its direct same-channel reply dependencies: %s", async mode => {
+    const db = await registry()
+    const channel = channelResourceFixture({ id: "dm", type: "dm", serverId: null })
+    const target = messageResourceFixture({ id: "target", channelId: channel.id, authorId: "original", content: "Original outside the marked page" })
+    const root = messageResourceFixture({ id: "root", channelId: channel.id, authorId: "reply-author", replyToId: target.id,
+      replyTo: { id: target.id, authorId: target.authorId, authorName: "Original" } })
+    const roots = mode === "shared-target" ? [root, { ...root, id: "second-root" }] : mode === "target-is-root" ? [root, target] : [root]
+    const resources = fullResourceBundleFixture("viewer", [], [channel], [...roots, ...(mode === "target-is-root" ? [] : [target])])
+    await publishCommunityResourceBundle(db.queryClient, resources, { token: captureCommunityLiveSnapshotToken(db.queryClient) },
+      roots.map(message => ({ id: message.id, channelId: channel.id })))
+    expect([...db.collections.messages.keys()].sort()).toEqual([...new Set([...roots.map(row => row.id), target.id])].sort())
+    expect(db.collections.messages.get("target")?.content).toBe("Original outside the marked page")
+    expect(db.collections.messages.get("root")?.replyTo).toMatchObject({ id: target.id, authorId: target.authorId })
+  })
+
+  it.each(["cross-channel", "transitive", "profile", "access", "viewer", "duplicate-message"] as const)("rejects an invalid reply bundle before any canonical write: %s", async mode => {
+    const db = await registry()
+    const channel = channelResourceFixture({ id: "dm", type: "dm", serverId: null })
+    const target = messageResourceFixture({ id: "target", channelId: channel.id, authorId: "original", replyToId: "ancestor" })
+    const root = messageResourceFixture({ id: "root", channelId: channel.id, replyToId: target.id })
+    const resources = fullResourceBundleFixture("viewer", [], [channel], [root, target])
+    if (mode === "cross-channel") {
+      const other = channelResourceFixture({ id: "other", type: "dm", serverId: null })
+      const validOther = fullResourceBundleFixture("viewer", [], [other])
+      resources.channels.push(other); resources.memberships.push(...validOther.memberships)
+      resources.messages[1] = { ...target, channelId: other.id }
+    }
+    if (mode === "transitive") resources.messages.push({ ...target, id: "ancestor", replyToId: null })
+    if (mode === "profile") resources.profiles = resources.profiles.filter(profile => profile.id !== target.authorId)
+    if (mode === "access") resources.memberships = []
+    if (mode === "viewer") Object.assign(resources, fullResourceBundleFixture("another-account", [], [channel], [root, target]))
+    if (mode === "duplicate-message") resources.messages.push({ ...target })
+    await expect(async () => publishCommunityResourceBundle(db.queryClient, resources, { token: captureCommunityLiveSnapshotToken(db.queryClient) },
+      [{ id: root.id, channelId: channel.id }])).rejects.toThrow()
+    expect(db.collections.messages.size).toBe(0)
+    expect(db.collections.channels.size).toBe(0)
+    expect(db.collections.profiles.size).toBe(0)
+  })
+
 })
 
 it.each(["warm", "cold", "normal"])("retains newer profile and status domains when an older complete message create is delivered later (%s)", async order => {

@@ -24,7 +24,8 @@ function install(version: number, initiallyAvailable: boolean) {
   const registration = Object.assign(new EventTarget(), { update: vi.fn(async () => undefined), active: worker, waiting: null, installing: null })
   let available = initiallyAvailable, header = version
   const getRegistration = vi.fn(async () => available ? registration : undefined)
-  const serviceWorker = Object.assign(new EventTarget(), { getRegistration, controller: worker })
+  const serviceWorker = Object.assign(new EventTarget(), { getRegistration, controller: worker,
+    register: vi.fn(async () => { throw new Error("Worker registration unavailable") }) })
   const storage = new Map<string, string>()
   const replace = vi.fn()
   vi.stubGlobal("MessageChannel", Channel)

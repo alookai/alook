@@ -1,5 +1,5 @@
 import { queryOptions, type QueryClient } from "@tanstack/react-query"
-import { requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
+import { CommunityResourceError } from "@/lib/errors"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import {
@@ -45,7 +45,7 @@ export const machinesOptions = () => queryOptions<MachinesResponse>({
   queryKey: communityKeys.machines(),
   queryFn: async ({ client, signal }) => {
     const parsed = CommunityMachineListReadSchema.safeParse(await apiFetch<unknown>("/api/community/machines?view=list", communityRequestOptions(client, signal)))
-    if (!parsed.success) throw requestBusinessSchemaUpdate()
+    if (!parsed.success) throw new CommunityResourceError(parsed.error)
     return { ...parsed.data, observed: true, source: "network" as const }
   },
   staleTime: (query) => query.state.data?.complete !== true || query.state.data?.observed !== true ? 0 : 5_000,

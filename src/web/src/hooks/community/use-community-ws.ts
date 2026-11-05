@@ -1,5 +1,4 @@
 "use client"
-import { requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { withCommunityCollectionWrites } from "@/lib/community-db/write"
@@ -240,7 +239,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         try { assertAdmissionCurrent?.(); assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined) } catch { return }
         if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active) return
         if (!decoded.ok) {
-          requestBusinessSchemaUpdate()
           const reason = decoded.reason === "oversized" ? "oversized" : "invalid-payload"
           const metadata = {
             reason,
@@ -307,7 +305,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
 
       const decoded = decodeCommunityBrowserEvent(msg, contract)
       if (!decoded.ok) {
-        requestBusinessSchemaUpdate()
         const metadata = {
           reason: decoded.reason,
           type: isCommunityEventType(msg.type) ? msg.type : "unknown",

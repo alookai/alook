@@ -10,6 +10,7 @@
  * returns a runtime lane backed directly by the vendor session.
  */
 import { EventEmitter } from "events";
+import { StringDecoder } from "node:string_decoder";
 import type {
   BackendConfig,
   AdapterLaunchContext,
@@ -68,7 +69,8 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
   private readonly events = new EventEmitter();
   private process: SpawnedProcessHandle | null = null;
   private started = false;
-  private stdoutBuffer = "";
+  private readonly stdoutDecoder = new StringDecoder("utf8");
+  private stdoutFragments: string[] = [];
   private requestedStopReason?: string;
   private admissionSequence = 0;
   private activeTerminalReceipt?: string;
@@ -291,11 +293,17 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
   /** Wire stdout line-buffering → normalizeLine → runtime_event, plus lifecycle. */
   private attachProcess(proc: SpawnedProcessHandle): void {
     proc.stdout?.on("data", (chunk) => {
-      const chunkText = chunk.toString();
-      this.events.emit("stdout", chunkText);
-      this.stdoutBuffer += chunkText;
-      const lines = this.stdoutBuffer.split("\n");
-      this.stdoutBuffer = lines.pop() || "";
+      this.events.emit("stdout", chunk.toString());
+      const chunkText = Buffer.isBuffer(chunk) ? this.stdoutDecoder.write(chunk) : chunk.toString();
+      const lines: string[] = [];
+      let offset = 0;
+      for (let newline = chunkText.indexOf("\n"); newline !== -1; newline = chunkText.indexOf("\n", offset)) {
+        this.stdoutFragments.push(chunkText.slice(offset, newline));
+        lines.push(this.stdoutFragments.join(""));
+        this.stdoutFragments = [];
+        offset = newline + 1;
+      }
+      if (offset < chunkText.length) this.stdoutFragments.push(chunkText.slice(offset));
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
