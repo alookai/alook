@@ -1036,6 +1036,30 @@ describe("ShellFrame orchestration", () => {
     })
   })
 
+it.each(["header", "native"].flatMap(mode => ["/c/channels/s2/c2", "/c/messages/unavailable"].map(href => ({ mode, href }))))("exits visible pending $href before cancelling through $mode Back", async ({ mode, href }) => {
+  const matchMedia = window.matchMedia.bind(window)
+  vi.spyOn(window, "matchMedia").mockImplementation(media => Object.defineProperty(matchMedia(media), "matches", { value: media === "(max-width: 639px)" }))
+  mocks.breakpoint.current = "mobile"
+  mocks.currentHref.current = "/c/channels/s1"
+  mocks.pendingHref.current = href
+  mocks.navigationPending.current = true
+  const view = render(createElement(ShellFrame, { ...baseProps, frameHref: mocks.currentHref.current }))
+  let settle!: (finished: boolean) => void
+  const exitEntry = vi.fn(() => new Promise<boolean>(resolve => { settle = resolve }))
+  const ref = mocks.viewProps.current.mobileMotionRef as { current: unknown }
+  ref.current = { exitEntry, resetExit: vi.fn(), isExiting: () => false }
+  expect(checkpoint()).toMatchObject({ surface: "detail", targetHref: href })
+  act(() => {
+    if (mode === "native") window.dispatchEvent(new Event("alook:native-back", { cancelable: true }))
+    else mocks.registerUiHandlers.mock.calls.at(-1)![0].goBackMobile()
+  })
+  expect(exitEntry).toHaveBeenCalledOnce()
+  expect(mocks.replace).not.toHaveBeenCalled()
+  await act(async () => settle(true))
+  expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/s1", { resume: true })
+  view.unmount()
+})
+
 it.each(["header", "native"])("cancels an ordinary pending cross-scope target through the same %s Back handler", mode => {
   mocks.breakpoint.current = "mobile"
   mocks.currentHref.current = "/c/channels/s1/c1"
