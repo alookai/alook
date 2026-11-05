@@ -633,18 +633,21 @@ describe("locked native adapter and existing message scroll owner", () => {
     resize()
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     if (intent === "target") expect(positioned).toHaveBeenCalledWith("m0")
-    expect(h.root.scrollTop).toBe(intent === "unread" ? scrollFixture.firstPrefix : 0)
+    expect(h.root.scrollHeight).toBe(h.root.clientHeight)
+    expect(h.root.scrollTop).toBe(0)
     scrollFixture.width = 639
     resize(0)
-    expect(h.root.scrollTop).toBe(intent === "unread" ? scrollFixture.firstPrefix : 0)
+    expect(h.root.scrollHeight).toBe(h.root.clientHeight)
+    expect(h.root.scrollTop).toBe(0)
     scrollFixture.width = 265
     scrollFixture.height = 727
     scrollFixture.bodyHeights.set("m2", 900)
     resize()
     expect(h.root.scrollHeight).toBeGreaterThan(h.root.clientHeight)
-    expect(h.root.scrollTop).toBe(intent === "unread" ? scrollFixture.firstPrefix : 0)
+    expect(h.root.scrollTop).toBe(0)
     expect(bodyTop(h.root, "m0")).toBeGreaterThanOrEqual(0)
     expect(bodyTop(h.root, "m0")).toBeLessThan(h.root.clientHeight)
+    expect(scrollFixture.latest.followingTail).toBe(false)
   })
   it("unifies native total and DOM max with the shared 40px rail clearance", () => {
     const h = mount()
