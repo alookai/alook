@@ -1,10 +1,9 @@
-import { afterEach, describe, expect, it, onTestFailed, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import { performance } from "node:perf_hooks";
 import { parseShellEnvironment, readShellEnvironment, shellEnvironmentCommand } from "./shellEnvironment";
 
 const directories: string[] = [];
@@ -70,7 +69,12 @@ describe("fresh local shell environment", () => {
 
   it.each([
     { script: "process.stdout.write('PRIVATE_BAD_FRAME')", cause: "parse" },
-    { script: "process.exit(7)", cause: "exit" },
+    {
+      script: `process.stdout.write(${JSON.stringify(process.platform === "win32"
+        ? '__ALOOK_ENV_V1__{"Path":"C:\\\\Windows","UserProfile":"C:\\\\Users\\\\fixture"}'
+        : "__ALOOK_ENV_V1__\0PATH=/bin\0HOME=/fixture\0")}); process.exitCode=7`,
+      cause: "exit",
+    },
   ])("rejects malformed or unsuccessful child capture without exposing its contents: $cause", async ({ script, cause }) => {
     const spawnProcess = (() => spawn(process.execPath, ["-e", script],
       { stdio: ["ignore", "pipe", "ignore"] })) as typeof spawn;
@@ -153,58 +157,28 @@ describe("fresh local shell environment", () => {
     let failure = "unavailable";
     let termination = "not closed";
     const started = Date.now();
-    const prefix = "alook:shell-profile:";
-    let completedStages: ReturnType<typeof performance.getEntriesByType> | undefined;
-    onTestFailed(() => {
-      const stages = completedStages ?? performance.getEntriesByType("mark").filter((entry) => entry.name.startsWith(prefix));
-      console.info("ALOOK_QA_STAGES", JSON.stringify({
-        snapshot: completedStages ? "callback_finally" : "failure_hook_after_fixture_cleanup",
-        observedAtMs: performance.now(),
-        stages: stages.map((entry) => ({ stage: entry.name, startTimeMs: entry.startTime })),
-      }));
-    });
-    performance.mark(`${prefix}start`);
     const spawnProcess = ((file, args, options) => {
       const configured = [...args];
       configured[configured.length - 1] = "$PROFILE=[pscustomobject]@{AllUsersAllHosts=" + quotedMissing + ";AllUsersCurrentHost=" + quotedMissing + ";CurrentUserAllHosts=" + quotedProfile + ";CurrentUserCurrentHost=" + quotedMissing + "}; " + configured.at(-1);
       configured[configured.length - 1] = "try { " + configured.at(-1) + " } catch { [Console]::Error.Write('ALOOK_QA_FAILURE='+$_.Exception.GetType().Name+':'+$_.CategoryInfo.Category+':'+$_.InvocationInfo.OffsetInLine); exit 1 }";
       const child = spawn(file, configured, { ...options, stdio: ["ignore", "pipe", "pipe"] });
-      child.once("spawn", () => performance.mark(`${prefix}child.${child.pid}.spawn`));
-      child.once("error", () => performance.mark(`${prefix}spawn.error`));
-      child.once("close", (code, signal) => {
-        termination = `exit=${code}, signal=${signal}, elapsedMs=${Date.now() - started}`;
-        performance.mark(`${prefix}child.${child.pid}.close`);
-      });
+      child.once("close", (code, signal) => { termination = `exit=${code}, signal=${signal}, elapsedMs=${Date.now() - started}`; });
       child.stderr.on("data", (chunk: Buffer) => {
         const match = chunk.toString("utf8").match(/ALOOK_QA_FAILURE=([A-Za-z]+:[A-Za-z]+:\d+)/);
         if (match) failure = match[1];
       });
       return child;
     }) as typeof spawn;
-    const capture = () => readShellEnvironment({ env: { ...process.env, ALOOK_REFRESH_OLD_FIXTURE: "old" }, spawnProcess, timeoutMs: 10000 });
-    try {
-      const fresh = await capture().catch((error: unknown) => {
-        const cause = error instanceof Error && typeof error.cause === "string"
-          && ["child_error", "timeout", "output_limit", "exit", "parse"].includes(error.cause)
-          ? error.cause : "unknown";
-        performance.mark(`${prefix}capture.failed.${cause}`);
-        throw new Error(`PowerShell fixture failed (cause=${cause}; ${termination}; diagnostic=${failure})`);
-      });
-      performance.mark(`${prefix}capture.complete`);
-      performance.mark(`${prefix}unicode.before`);
-      expect(fresh.ALOOK_REFRESH_UNICODE).toBe("你好\nline=$literal");
-      performance.mark(`${prefix}unicode.after`);
-      expect(fresh.ALOOK_REFRESH_OLD_FIXTURE).toBeUndefined();
-      performance.mark(`${prefix}removed-export.after`);
-      expect(fresh.USERNAME).toBe(process.env.USERNAME);
-      performance.mark(`${prefix}username.after`);
-      expect(fresh.USERPROFILE).toBe(process.env.USERPROFILE);
-      performance.mark(`${prefix}userprofile.after`);
-      expect(fresh.PATH).not.toMatch(/;$/);
-      performance.mark(`${prefix}path.after`);
-    } finally {
-      completedStages = performance.getEntriesByType("mark").filter((entry) => entry.name.startsWith(prefix));
-      for (const entry of completedStages) performance.clearMarks(entry.name);
-    }
+    const fresh = await readShellEnvironment({ env: { ...process.env, ALOOK_REFRESH_OLD_FIXTURE: "old" }, spawnProcess, timeoutMs: 10000 }).catch((error: unknown) => {
+      const cause = error instanceof Error && typeof error.cause === "string"
+        && ["child_error", "timeout", "output_limit", "exit", "parse"].includes(error.cause)
+        ? error.cause : "unknown";
+      throw new Error(`PowerShell fixture failed (cause=${cause}; ${termination}; diagnostic=${failure})`);
+    });
+    expect(fresh.ALOOK_REFRESH_UNICODE).toBe("你好\nline=$literal");
+    expect(fresh.ALOOK_REFRESH_OLD_FIXTURE).toBeUndefined();
+    expect(fresh.USERNAME).toBe(process.env.USERNAME);
+    expect(fresh.USERPROFILE).toBe(process.env.USERPROFILE);
+    expect(fresh.PATH).not.toMatch(/;$/);
   }, 25000);
 });

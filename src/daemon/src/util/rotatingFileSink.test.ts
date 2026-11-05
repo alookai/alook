@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, onTestFailed, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { chmodSync, mkdtempSync, mkdirSync, readSync, rmSync, existsSync, statSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { performance } from "node:perf_hooks";
 import { join } from "node:path";
 import { createRotatingFileSink } from "./rotatingFileSink";
 
@@ -34,47 +33,19 @@ describe("createRotatingFileSink (batch E1 — bounded default trace backing)", 
   });
 
   it("caps total on-disk bytes across many writes (~2×maxBytes, active + one rotated)", () => {
-    const prefix = "alook:rotating-cap:";
-    let completedStages: ReturnType<typeof performance.getEntriesByType> | undefined;
-    onTestFailed(() => {
-      const stages = completedStages ?? performance.getEntriesByType("mark").filter((entry) => entry.name.startsWith(prefix));
-      console.info("ALOOK_QA_STAGES", JSON.stringify({
-        snapshot: completedStages ? "callback_finally" : "failure_hook_after_fixture_cleanup",
-        observedAtMs: performance.now(),
-        stages: stages.map((entry) => ({ stage: entry.name, startTimeMs: entry.startTime })),
-      }));
-    });
-    performance.mark(`${prefix}start`);
-    try {
-      const path = join(dir, "trace.jsonl");
-      const maxBytes = 1000;
-      const sink = createRotatingFileSink(path, maxBytes);
-      const line = "x".repeat(499);
-      for (let i = 0; i < 20; i++) {
-        performance.mark(`${prefix}write.${i}.before`);
-        sink.write(line);
-        performance.mark(`${prefix}write.${i}.after`);
-      }
+    const path = join(dir, "trace.jsonl");
+    const maxBytes = 1000;
+    const sink = createRotatingFileSink(path, maxBytes);
+    const line = "x".repeat(499);
+    for (let i = 0; i < 20; i++) sink.write(line);
 
-      performance.mark(`${prefix}measure.active.before`);
-      const active = existsSync(path) ? statSync(path).size : 0;
-      performance.mark(`${prefix}measure.active.after`);
-      performance.mark(`${prefix}measure.rotated.before`);
-      const rotated = existsSync(`${path}.1`) ? statSync(`${path}.1`).size : 0;
-      performance.mark(`${prefix}measure.rotated.after`);
-      // Total bounded by ~2×maxBytes + one line's slack (a write can push the
-      // active file slightly past maxBytes before the NEXT write rotates it).
-      performance.mark(`${prefix}assert.cap.before`);
-      expect(active + rotated).toBeLessThanOrEqual(2 * maxBytes + line.length + 1);
-      performance.mark(`${prefix}assert.cap.after`);
-      // And it kept SOMETHING (didn't just delete everything).
-      performance.mark(`${prefix}assert.positive.before`);
-      expect(active + rotated).toBeGreaterThan(0);
-      performance.mark(`${prefix}assert.positive.after`);
-    } finally {
-      completedStages = performance.getEntriesByType("mark").filter((entry) => entry.name.startsWith(prefix));
-      for (const entry of completedStages) performance.clearMarks(entry.name);
-    }
+    const active = existsSync(path) ? statSync(path).size : 0;
+    const rotated = existsSync(`${path}.1`) ? statSync(`${path}.1`).size : 0;
+    // Total bounded by ~2×maxBytes + one line's slack (a write can push the
+    // active file slightly past maxBytes before the NEXT write rotates it).
+    expect(active + rotated).toBeLessThanOrEqual(2 * maxBytes + line.length + 1);
+    // And it kept SOMETHING (didn't just delete everything).
+    expect(active + rotated).toBeGreaterThan(0);
   });
 
   it("retains the most-recent lines after rotation (last wedge stays readable)", () => {

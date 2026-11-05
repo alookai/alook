@@ -8,9 +8,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { performance } from "node:perf_hooks";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, onTestFailed } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { DailyTokenUsageStore } from "./dailyTokenUsage.js";
 
 const roots: string[] = [];
@@ -193,139 +192,61 @@ describe("DailyTokenUsageStore", () => {
   });
 
   it("follows a live computer-timezone change without deleting the prior day's totals", async () => {
-    const prefix = "alook:daily-usage:live-zone:";
-    let completedStages: ReturnType<typeof performance.getEntriesByType> | undefined;
-    onTestFailed(() => {
-      const stages = completedStages ?? performance.getEntriesByType("mark").filter((entry) => entry.name.startsWith(prefix));
-      console.info("ALOOK_QA_STAGES", JSON.stringify({
-        snapshot: completedStages ? "callback_finally" : "failure_hook_after_fixture_cleanup",
-        observedAtMs: performance.now(),
-        stages: stages.map((entry) => ({ stage: entry.name, startTimeMs: entry.startTime })),
-      }));
-    });
-    performance.mark(`${prefix}start`);
-    try {
-      const root = mkdtempSync(join(tmpdir(), "alook-token-timezone-change-"));
-      roots.push(root);
-      performance.mark(`${prefix}root.created`);
-      let now = new Date("2026-07-31T16:00:01Z");
-      let timeZone = "Asia/Shanghai";
-      const store = new DailyTokenUsageStore(root, () => now, () => timeZone);
-      for (let day = 1; day <= 30; day += 1) {
-        now = new Date(new Date("2026-07-31T16:00:01Z").getTime() + (day - 1) * 86_400_000);
-        performance.mark(`${prefix}record.day.${day}.before`);
-        await store.record("bot", delta(day, 2, 3));
-        performance.mark(`${prefix}record.day.${day}.after`);
-      }
-
-      now = new Date("2026-08-29T16:00:01Z");
-      timeZone = "America/Los_Angeles";
-      performance.mark(`${prefix}record.changed-zone.before`);
-      await store.record("bot", delta(5, 1, 4));
-      performance.mark(`${prefix}record.changed-zone.after`);
-
-      performance.mark(`${prefix}window.before`);
-      const window = await store.usageWindow("bot");
-      performance.mark(`${prefix}window.after`);
-      performance.mark(`${prefix}assert.1.before`);
-      expect(window.usageDay).toBe("2026-08-29");
-      performance.mark(`${prefix}assert.1.after`);
-      performance.mark(`${prefix}assert.2.before`);
-      expect(window.usageTimeZone).toBe("America/Los_Angeles");
-      performance.mark(`${prefix}assert.2.after`);
-      performance.mark(`${prefix}assert.3.before`);
-      expect(window.snapshots).toHaveLength(29);
-      performance.mark(`${prefix}assert.3.after`);
-      performance.mark(`${prefix}assert.4.before`);
-      expect(window.snapshots.at(0)?.day).toBe("2026-08-01");
-      performance.mark(`${prefix}assert.4.after`);
-      performance.mark(`${prefix}assert.5.before`);
-      expect(window.snapshots.at(-1)?.day).toBe("2026-08-29");
-      performance.mark(`${prefix}assert.5.after`);
-      performance.mark(`${prefix}assert.6.before`);
-      expect(window.snapshots.at(-1)?.metrics).toEqual({ input: 34, output: 3, cache: 7 });
-      performance.mark(`${prefix}assert.6.after`);
-      performance.mark(`${prefix}persisted.before`);
-      const persisted = JSON.parse(readFileSync(
-        join(root, ".telemetry", "daily-token-usage.json"),
-        "utf8",
-      )) as { bots: Record<string, Array<{ day: string }>> };
-      performance.mark(`${prefix}persisted.after`);
-      performance.mark(`${prefix}assert.7.before`);
-      expect(persisted.bots.bot?.map((snapshot) => snapshot.day)).toContain("2026-08-30");
-      performance.mark(`${prefix}assert.7.after`);
-    } finally {
-      completedStages = performance.getEntriesByType("mark").filter((entry) => entry.name.startsWith(prefix));
-      for (const entry of completedStages) performance.clearMarks(entry.name);
+    const root = mkdtempSync(join(tmpdir(), "alook-token-timezone-change-"));
+    roots.push(root);
+    let now = new Date("2026-07-31T16:00:01Z");
+    let timeZone = "Asia/Shanghai";
+    const store = new DailyTokenUsageStore(root, () => now, () => timeZone);
+    for (let day = 1; day <= 30; day += 1) {
+      now = new Date(new Date("2026-07-31T16:00:01Z").getTime() + (day - 1) * 86_400_000);
+      await store.record("bot", delta(day, 2, 3));
     }
+
+    now = new Date("2026-08-29T16:00:01Z");
+    timeZone = "America/Los_Angeles";
+    await store.record("bot", delta(5, 1, 4));
+
+    const window = await store.usageWindow("bot");
+    expect(window.usageDay).toBe("2026-08-29");
+    expect(window.usageTimeZone).toBe("America/Los_Angeles");
+    expect(window.snapshots).toHaveLength(29);
+    expect(window.snapshots.at(0)?.day).toBe("2026-08-01");
+    expect(window.snapshots.at(-1)?.day).toBe("2026-08-29");
+    expect(window.snapshots.at(-1)?.metrics).toEqual({ input: 34, output: 3, cache: 7 });
+    const persisted = JSON.parse(readFileSync(
+      join(root, ".telemetry", "daily-token-usage.json"),
+      "utf8",
+    )) as { bots: Record<string, Array<{ day: string }>> };
+    expect(persisted.bots.bot?.map((snapshot) => snapshot.day)).toContain("2026-08-30");
   });
 
   it("retains two recovery days across an exact UTC+14 to UTC-12 switch", async () => {
-    const prefix = "alook:daily-usage:extreme-zone:";
-    let completedStages: ReturnType<typeof performance.getEntriesByType> | undefined;
-    onTestFailed(() => {
-      const stages = completedStages ?? performance.getEntriesByType("mark").filter((entry) => entry.name.startsWith(prefix));
-      console.info("ALOOK_QA_STAGES", JSON.stringify({
-        snapshot: completedStages ? "callback_finally" : "failure_hook_after_fixture_cleanup",
-        observedAtMs: performance.now(),
-        stages: stages.map((entry) => ({ stage: entry.name, startTimeMs: entry.startTime })),
-      }));
-    });
-    performance.mark(`${prefix}start`);
-    try {
-      const root = mkdtempSync(join(tmpdir(), "alook-token-extreme-timezone-change-"));
-      roots.push(root);
-      performance.mark(`${prefix}root.created`);
-      let now = new Date("2026-07-29T10:30:00Z");
-      let timeZone = "Pacific/Kiritimati";
-      const store = new DailyTokenUsageStore(root, () => now, () => timeZone);
-      for (let offset = 0; offset < 32; offset += 1) {
-        now = new Date(new Date("2026-07-29T10:30:00Z").getTime() + offset * 86_400_000);
-        performance.mark(`${prefix}record.offset.${offset}.before`);
-        await store.record("bot", delta(offset, 2, 3));
-        performance.mark(`${prefix}record.offset.${offset}.after`);
-      }
-
-      now = new Date("2026-08-29T10:30:00Z");
-      timeZone = "Etc/GMT+12";
-
-      performance.mark(`${prefix}window.before`);
-      const window = await store.usageWindow("bot");
-      performance.mark(`${prefix}window.after`);
-      performance.mark(`${prefix}assert.1.before`);
-      expect(window.usageDay).toBe("2026-08-28");
-      performance.mark(`${prefix}assert.1.after`);
-      performance.mark(`${prefix}assert.2.before`);
-      expect(window.usageTimeZone).toBe("Etc/GMT+12");
-      performance.mark(`${prefix}assert.2.after`);
-      performance.mark(`${prefix}assert.3.before`);
-      expect(window.snapshots).toHaveLength(30);
-      performance.mark(`${prefix}assert.3.after`);
-      performance.mark(`${prefix}assert.4.before`);
-      expect(window.snapshots.at(0)?.day).toBe("2026-07-30");
-      performance.mark(`${prefix}assert.4.after`);
-      performance.mark(`${prefix}assert.5.before`);
-      expect(window.snapshots.at(-1)?.day).toBe("2026-08-28");
-      performance.mark(`${prefix}assert.5.after`);
-      performance.mark(`${prefix}persisted.before`);
-      const persisted = JSON.parse(readFileSync(
-        join(root, ".telemetry", "daily-token-usage.json"),
-        "utf8",
-      )) as { bots: Record<string, Array<{ day: string }>> };
-      performance.mark(`${prefix}persisted.after`);
-      performance.mark(`${prefix}assert.6.before`);
-      expect(persisted.bots.bot).toHaveLength(32);
-      performance.mark(`${prefix}assert.6.after`);
-      performance.mark(`${prefix}assert.7.before`);
-      expect(persisted.bots.bot?.at(0)?.day).toBe("2026-07-30");
-      performance.mark(`${prefix}assert.7.after`);
-      performance.mark(`${prefix}assert.8.before`);
-      expect(persisted.bots.bot?.at(-1)?.day).toBe("2026-08-30");
-      performance.mark(`${prefix}assert.8.after`);
-    } finally {
-      completedStages = performance.getEntriesByType("mark").filter((entry) => entry.name.startsWith(prefix));
-      for (const entry of completedStages) performance.clearMarks(entry.name);
+    const root = mkdtempSync(join(tmpdir(), "alook-token-extreme-timezone-change-"));
+    roots.push(root);
+    let now = new Date("2026-07-29T10:30:00Z");
+    let timeZone = "Pacific/Kiritimati";
+    const store = new DailyTokenUsageStore(root, () => now, () => timeZone);
+    for (let offset = 0; offset < 32; offset += 1) {
+      now = new Date(new Date("2026-07-29T10:30:00Z").getTime() + offset * 86_400_000);
+      await store.record("bot", delta(offset, 2, 3));
     }
+
+    now = new Date("2026-08-29T10:30:00Z");
+    timeZone = "Etc/GMT+12";
+
+    const window = await store.usageWindow("bot");
+    expect(window.usageDay).toBe("2026-08-28");
+    expect(window.usageTimeZone).toBe("Etc/GMT+12");
+    expect(window.snapshots).toHaveLength(30);
+    expect(window.snapshots.at(0)?.day).toBe("2026-07-30");
+    expect(window.snapshots.at(-1)?.day).toBe("2026-08-28");
+    const persisted = JSON.parse(readFileSync(
+      join(root, ".telemetry", "daily-token-usage.json"),
+      "utf8",
+    )) as { bots: Record<string, Array<{ day: string }>> };
+    expect(persisted.bots.bot).toHaveLength(32);
+    expect(persisted.bots.bot?.at(0)?.day).toBe("2026-07-30");
+    expect(persisted.bots.bot?.at(-1)?.day).toBe("2026-08-30");
   });
 });
 
