@@ -352,7 +352,7 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
       const stage = page.getByRole("tabpanel").locator(":scope > div").last()
       await stage.scrollIntoViewIfNeeded()
-      await expect(stage.locator(":scope > figure, :scope > div[aria-label], :scope > div:has([role=img]), :scope > div[data-testid='landing-identity-proof']").first()).toBeVisible()
+      await expect(stage.locator(`:scope > figure, :scope > div[aria-label], :scope > div:has([role=img]), :scope > div[data-testid='${tid.landingIdentityProof}']`).first()).toBeVisible()
       const motion = stage.getByTestId(tid.landingMotionStage).first()
       if (await tab.textContent() === "Agent identity") {
         await expect(stage.getByTestId(tid.landingIdentityCardTilt)).toBeVisible()
@@ -383,7 +383,7 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
       }
       if (width === 390) {
         await page.locator("#product").evaluate(element => element.scrollIntoView({ block: "start" }))
-        for (const element of [page.getByRole("tablist", { name: "Features" }), page.getByRole("tabpanel").getByRole("heading"), page.locator('[data-testid^="landing-section-cta-"]'), stage]) {
+        for (const element of [page.getByRole("tablist", { name: "Features" }), page.getByRole("tabpanel").getByRole("heading"), page.locator(`[data-testid^="${tid.landingSectionCta("")}"]`), stage]) {
           const rect = await element.boundingBox()
           expect(rect!.y).toBeGreaterThanOrEqual(0)
           expect(rect!.y + rect!.height).toBeLessThanOrEqual(844)
@@ -461,7 +461,7 @@ test("landing gallery slides between features and settles the latest selection",
   await page.goto("/")
   const tabs = page.getByRole("tablist", { name: "Features" })
   await tabs.scrollIntoViewIfNeeded()
-  const slide = page.getByTestId("landing-feature-transition")
+  const slide = page.getByTestId(tid.landingFeatureTransition)
   await slide.evaluate(element => {
     const animate = Element.prototype.animate
     Element.prototype.animate = function (...args: Parameters<Element["animate"]>) {

@@ -2,6 +2,7 @@
 
 import { lazy, useRef, type PointerEvent as ReactPointerEvent } from "react"
 import { ProviderLogo } from "@/components/provider-logo"
+import { tid } from "@/lib/community/testids"
 import { LandingReachMotion } from "./landing-reach-motion"
 const LandingShellMotion = lazy(() => import("./landing-shell-motion").then(module => ({ default: module.LandingShellMotion })))
 const ProfileCard = lazy(() => import("./landing-profile-content"))
@@ -105,7 +106,7 @@ function InteractiveIdentityProfileCard() {
 }
 
 export default function LandingFeatureScene({ feature }: { feature: string }) {
-  if (feature === "identity") return <div className={galleryStyles.identityMedia} data-testid="landing-identity-proof"><InteractiveIdentityProfileCard /></div>
+  if (feature === "identity") return <div className={galleryStyles.identityMedia} data-testid={tid.landingIdentityProof}><InteractiveIdentityProfileCard /></div>
   if (feature === "continuity") return <ContinuityTimeline />
   if (feature === "reach") return <LandingReachMotion />
   if (feature === "ownership") return <><ProductScene scene="machine" /><RuntimeBadges /></>

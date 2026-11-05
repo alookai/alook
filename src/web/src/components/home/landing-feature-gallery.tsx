@@ -149,13 +149,13 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
         </TabsList>
         </Tabs>
       </div>
-      <StepSlide testId="landing-feature-transition" step={current.id} order={selected} className={styles.slide}>
+      <StepSlide testId={tid.landingFeatureTransition} step={current.id} order={selected} className={styles.slide}>
       <div id="feature-panel" role="tabpanel" aria-labelledby={`feature-tab-${current.id}`} className={styles.panel}>
         <div className={styles.copy}>
           <h2>{current.title.slice(0, current.title.lastIndexOf(current.accent))}<HandAccent>{current.accent}</HandAccent>{current.title.slice(current.title.lastIndexOf(current.accent) + current.accent.length)}</h2>
           <p>{current.description}</p>
           <DocumentNavigationLink href={isLoggedIn ? "/c/me" : "/sign-in"} data-variant="default" className={cn(buttonVariants({ size: "lg" }), "mt-6")}
-            data-testid={`landing-section-cta-${current.id}`}
+            data-testid={tid.landingSectionCta(current.id)}
             onClick={() => trackLandingCtaClicked({ cta_name: `${current.id}_${isLoggedIn ? "open_app" : "get_started"}` })}>{current.cta}</DocumentNavigationLink>
         </div>
         <div ref={section} className={styles.stage}>
