@@ -78,12 +78,15 @@ describe("actual public invite join caller", () => {
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)) })
     expect(fetchMock.mock.calls.filter(([path]) => path.endsWith("/join"))).toHaveLength(1)
   })
-  it.each(["bad-json", "bad-target"])("only an active %s body may request an update", async kind => {
-    const bad = () => kind === "bad-json" ? new Response("{", { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } }) : current({ serverId: null })
+  it.each(["bad-json", "bad-target", "same-version-header"])("keeps an active %s body as a local resource error and cancels its late successor", async kind => {
+    const bad = () => kind === "bad-json" ? new Response("{", { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
+      : kind === "same-version-header" ? Response.json({ serverId: "s1" }, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) + ".0" } })
+      : current({ serverId: null })
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(info()).mockResolvedValueOnce(bad()))
     const mounted = render(<InviteAcceptClient token="invite" />)
     await join()
-    await waitFor(() => expect(mocks.update).toHaveBeenCalledOnce())
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Couldn't load this content. Try again."))
+    expect(mocks.update).not.toHaveBeenCalled()
     mounted.unmount(); mocks.update.mockClear(); mocks.toast.mockClear()
     let release!: (value: Response) => void
     const pending = new Promise<Response>(resolve => { release = resolve })

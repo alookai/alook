@@ -4,7 +4,7 @@ import { channelResourceFixture } from "@/test/community-resource-fixtures"
 import { createApplicationOwner, captureApplicationOwner, assertApplicationOwner, retireApplicationOwner } from "@/lib/application-owner"
 import * as lifecycle from "@/lib/business-schema-lifecycle"
 import { apiFetch } from "./client"
-import { ApiError, CommunityApiError } from "@/lib/errors"
+import { ApiError, CommunityApiError, CommunityResourceError } from "@/lib/errors"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { conversationEntryOptions } from "@/lib/community/conversation-entry"
@@ -49,12 +49,13 @@ async function bodyCase(kind: typeof kinds[number] | "valid" | "error-valid", mo
       controller.enqueue(new TextEncoder().encode(body)); controller.close()
     }
     const completed = await result
-    const shouldUpgrade = mode === "active" && !kind.endsWith("abort") && kind !== "valid"
-    if (shouldUpgrade) {
-      await vi.waitFor(() => expect(lifecycle.businessSchemaLifecycle.get().phase).toBe("failed"))
-      expect(upgrade).toHaveBeenCalledOnce()
-      expect(completed.error?.name).toBe("BusinessSchemaMismatch")
-      expect(protectedOwner.lifecycle.get().active).toBe(false)
+    const resourceFailure = mode === "active" && !kind.endsWith("abort") && kind !== "valid"
+    if (resourceFailure) {
+      expect(completed.error).toBeInstanceOf(CommunityResourceError)
+      expect(completed.error?.cause).toBeInstanceOf(Error)
+      expect(upgrade).not.toHaveBeenCalled()
+      expect(lifecycle.businessSchemaLifecycle.get().phase).toBe("current")
+      expect(protectedOwner.lifecycle.get().active).toBe(true)
     } else {
       expect(completed.error?.name).toBe("AbortError")
       expect(upgrade).not.toHaveBeenCalled()
@@ -64,10 +65,10 @@ async function bodyCase(kind: typeof kinds[number] | "valid" | "error-valid", mo
   } finally { unregister(); original.queryClient.clear(); next.queryClient.clear() }
 }
 
-describe("actual API body eligibility before global update", () => {
+describe("actual API body eligibility before resource admission", () => {
   it.each(kinds)("keeps a retired owner's late %s body cancelled without retiring its successor", kind => bodyCase(kind, "retired"))
   it.each(kinds)("keeps a signalled late %s body cancelled without retiring its successor", kind => bodyCase(kind, "aborted"))
-  it.each(kinds)("calibrates an active owner's %s body against cancellation and protocol failure", kind => bodyCase(kind, "active"))
+  it.each(kinds)("calibrates an active owner's %s body against cancellation and current resource failure", kind => bodyCase(kind, "active"))
   it("keeps the existing late valid-body retirement protection", () => bodyCase("valid", "retired"))
 })
 
@@ -147,4 +148,25 @@ describe("HTTP body transport failure before complete JSON qualification", () =>
     expect(upgrade).not.toHaveBeenCalled()
     expect(lifecycle.businessSchemaLifecycle.get().phase).toBe("current")
   })
+})
+
+it.each(["header", "body", "error-body"] as const)("keeps a confirmed different %s protocol in the upgrade path", async source => {
+  const version = BUSINESS_SCHEMA_VERSION + 1
+  const body = source === "error-body" ? { contractVersion: version, error: { code: "blocked", message: "blocked", retryable: false } }
+    : { ...resource(), contractVersion: source === "body" ? version : BUSINESS_SCHEMA_VERSION }
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(body, { status: source === "error-body" ? 403 : 200,
+    headers: { [COMMUNITY_CONTRACT_HEADER]: String(source === "header" ? version : BUSINESS_SCHEMA_VERSION) } })))
+  const upgrade = vi.spyOn(lifecycle, "requestBusinessSchemaUpdate")
+  await expect(apiFetch("/api/community/channels/channel")).rejects.toMatchObject({ name: "BusinessSchemaMismatch", expectedVersion: version })
+  expect(upgrade).toHaveBeenCalledExactlyOnceWith(version)
+})
+
+it.each([undefined, "", "unknown", "0", "-1", String(BUSINESS_SCHEMA_VERSION) + ".0", "0" + BUSINESS_SCHEMA_VERSION] as const)("rejects an absent or invalid confirmation %s without retiring the page", async version => {
+  const headers = new Headers({ "Content-Type": "application/json" })
+  if (version !== undefined) headers.set(COMMUNITY_CONTRACT_HEADER, version)
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(resource(), { headers })))
+  const upgrade = vi.spyOn(lifecycle, "requestBusinessSchemaUpdate")
+  await expect(apiFetch("/api/community/channels/channel")).rejects.toBeInstanceOf(CommunityResourceError)
+  expect(upgrade).not.toHaveBeenCalled()
+  expect(lifecycle.businessSchemaLifecycle.get().phase).toBe("current")
 })

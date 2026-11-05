@@ -1,7 +1,7 @@
 import type { CommunityApiError } from "@/lib/errors"
 import { readForumSidebarWindowResult } from "@/lib/community/forum-sidebar-window"
 import { ZodError } from "zod"
-import { requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
+import { CommunityResourceError } from "@/lib/errors"
 import type { DM } from "@/lib/community/models/people"
 import { parseCommunityDmsRead, CommunityResourceBundleSchema, type CommunityResourceBundle } from "@alook/shared"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
@@ -1044,10 +1044,18 @@ export function publishCommunityResourceBundle(queryClient: QueryClient, resourc
   messageReferences?: readonly { id: string; channelId: string }[]) {
   return withCommunityQueryProof(queryClient, proof, registry => {
     const bundle = CommunityResourceBundleSchema.parse(resources)
-    if (messageReferences && (new Set(messageReferences.map(row => row.id)).size !== messageReferences.length
-      || bundle.messages.length !== messageReferences.length
-      || messageReferences.some(ref => !bundle.messages.some(message => message.id === ref.id && message.channelId === ref.channelId)))) {
-      throw new ZodError([{ code: "custom", path: ["messages"], message: "Message window resource closure mismatch" }])
+    if (messageReferences) {
+      const messages = new Map(bundle.messages.map(message => [message.id, message]))
+      const roots = messageReferences.flatMap(ref => {
+        const message = messages.get(ref.id)
+        return message?.channelId === ref.channelId ? [message] : []
+      })
+      const rootIds = new Set(messageReferences.map(ref => ref.id))
+      if (rootIds.size !== messageReferences.length || roots.length !== messageReferences.length
+        || bundle.messages.some(message => !rootIds.has(message.id)
+          && !roots.some(root => root.channelId === message.channelId && root.replyToId === message.id))) {
+        throw new ZodError([{ code: "custom", path: ["messages"], message: "Message window resource closure mismatch" }])
+      }
     }
     return ingestCommunityResources(registry, bundle)
   })
@@ -1615,10 +1623,10 @@ function withCommunityQueryProof<T>(queryClient: QueryClient, proof: CommunityFr
   const result = withCommunityCollectionWrites(proof.token.registry!, () => withCanonicalWriteContext(queryClient, { kind: "query", requestRevision: proof.token.canonicalRevision, profileSnapshot: proof.token.profileSnapshot }, () => publish(proof.token.registry!)), assertOwner)
   return result instanceof Promise ? result.catch((error: unknown) => {
     assertOwner()
-    if (error instanceof ZodError) throw requestBusinessSchemaUpdate()
+    if (error instanceof ZodError) throw new CommunityResourceError(error)
     throw error
   }) : result
-  } catch (error) { if (error instanceof ZodError) throw requestBusinessSchemaUpdate(); throw error }
+  } catch (error) { assertOwner(); if (error instanceof ZodError) throw new CommunityResourceError(error); throw error }
 }
 
 function ingestResourceProfiles(registry: CommunityDbRegistry, profiles: readonly CommunityResourceProfile[], proof: CommunityFreshQueryProof) {

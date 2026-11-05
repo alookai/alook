@@ -10,7 +10,7 @@ import { publishConversationEntry, conversationEntryOptions } from "@/lib/commun
 import { dmConversationEntryFixture } from "@/test/conversation-entry-fixtures"
 import { profileResourceFixture, messageResourceFixture, channelResourceFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
 import { communityKeys } from "@/lib/query-keys"
-import { BusinessSchemaMismatch } from "@/lib/business-schema-lifecycle"
+import { CommunityResourceError } from "@/lib/errors"
 
 const owners: CommunityDbRegistry[] = []
 const releases: Array<() => void> = []
@@ -184,7 +184,8 @@ it.each(["schema", "write"] as const)("preserves the public query publication fa
   held.reject(error)
   const failure = await operation.then(() => null, cause => cause)
   if (kind === "schema") {
-    expect(failure).toBeInstanceOf(BusinessSchemaMismatch)
+    expect(failure).toBeInstanceOf(CommunityResourceError)
+    expect(failure.cause).toBe(error)
     expect(failure).not.toBe(error)
   } else expect(failure).toBe(error)
   expect(db.collections.profiles.get("peer")?.name).toBe("Peer")

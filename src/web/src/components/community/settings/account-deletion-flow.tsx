@@ -19,7 +19,7 @@ import { clearPersistedCache } from "@/lib/query-persister"
 import { z } from "zod"
 import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION, CommunityReadErrorSchema } from "@alook/shared"
 import { BusinessSchemaMismatch, requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
-import { isAbortError } from "@/lib/errors"
+import { CommunityResourceError, isAbortError } from "@/lib/errors"
 import { parseRetryAfterSeconds } from "@/lib/retry-after"
 import { tid } from "@/lib/community/testids"
 
@@ -34,7 +34,11 @@ type Props = {
 const AccountDeletionCodeReceiptSchema = z.strictObject({ ok: z.literal(true), expires_in: z.number().int().nonnegative(), resend_after: z.number().int().nonnegative() })
 
 function confirmResponse(response: Response) {
-  if (response.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION)) throw requestBusinessSchemaUpdate(Number(response.headers.get(COMMUNITY_CONTRACT_HEADER)))
+  if (response.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION)) {
+    const version = Number(response.headers.get(COMMUNITY_CONTRACT_HEADER))
+    if (Number.isSafeInteger(version) && version > 0 && version !== BUSINESS_SCHEMA_VERSION) throw requestBusinessSchemaUpdate(version)
+    throw new CommunityResourceError(new Error("Community response protocol confirmation missing"), response.status)
+  }
 }
 
 async function responseError(response: Response, assertActive: () => void): Promise<string> {
@@ -54,7 +58,7 @@ async function responseError(response: Response, assertActive: () => void): Prom
   } catch (error) {
     assertActive()
     if (isAbortError(error) || error instanceof BusinessSchemaMismatch) throw error
-    throw requestBusinessSchemaUpdate()
+    throw new CommunityResourceError(error)
   }
   return "Something went wrong. Try again."
 }
@@ -137,9 +141,9 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
       confirmResponse(response)
       let raw: unknown
       try { raw = await response.json(); source.assertActive() }
-      catch (error) { source.assertActive(); if (isAbortError(error)) throw error; throw requestBusinessSchemaUpdate() }
+      catch (error) { source.assertActive(); if (isAbortError(error)) throw error; throw new CommunityResourceError(error) }
       const parsed = AccountDeletionCodeReceiptSchema.safeParse(raw)
-      if (!parsed.success) throw requestBusinessSchemaUpdate()
+      if (!parsed.success) throw new CommunityResourceError(parsed.error)
       const body = parsed.data
       setOtp(""); setResendAfter(body.resend_after); setStep("code")
     } catch (error) {
