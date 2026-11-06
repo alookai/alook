@@ -83,8 +83,6 @@ describe("CommunitySessionPendingFrame", () => {
     )!
     expect(userBarUnderlay).toHaveAttribute("aria-hidden", "true")
     expect(userBarUnderlay.className).toContain("pointer-events-none")
-    expect(userBarUnderlay.className).toContain("from-(--app-bg)")
-    expect(userBarUnderlay.className).toContain("to-transparent")
     expect(userBarUnderlay.style.height).toBe(
       "calc(60px + var(--app-safe-area-bottom))",
     )

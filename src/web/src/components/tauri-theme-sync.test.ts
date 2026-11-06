@@ -32,6 +32,20 @@ describe("syncTauriWindowTheme", () => {
     ]);
   });
 
+  it("forwards the published surface independently of the light/dark choice", async () => {
+    mocks.invoke.mockResolvedValue(undefined);
+
+    await syncTauriWindowTheme(false, [224, 213, 192]);
+    await syncTauriWindowTheme(true, [13, 13, 13]);
+
+    expect(mocks.invoke.mock.calls).toEqual([
+      ["set_window_theme", { dark: false, background: [224, 213, 192] }],
+      ["close_splashscreen"],
+      ["set_window_theme", { dark: true, background: [13, 13, 13] }],
+      ["close_splashscreen"],
+    ]);
+  });
+
   it("still sends the legacy startup notification when the native theme rejects", async () => {
     mocks.invoke
       .mockRejectedValueOnce(new Error("theme unavailable"))

@@ -12,19 +12,19 @@ export function AppEdgeFade({ className, ...props }: React.ComponentProps<"div">
     >
       <div
         data-app-edge="top"
-        className="absolute inset-x-0 top-0 h-(--app-edge-fade-size) bg-linear-to-b from-(--app-bg) to-transparent"
+        className="absolute inset-x-0 top-0 h-(--app-edge-fade-size) bg-linear-to-b from-(--app-edge-fade-color,var(--app-bg)) to-transparent"
       />
       <div
         data-app-edge="bottom"
-        className="absolute inset-x-0 bottom-0 h-(--app-edge-fade-size) bg-linear-to-b from-transparent to-(--app-bg)"
+        className="absolute inset-x-0 bottom-0 h-(--app-edge-fade-size) bg-linear-to-b from-transparent to-(--app-edge-fade-color,var(--app-bg))"
       />
       <div
         data-app-edge="left"
-        className="absolute inset-y-0 left-0 w-(--app-edge-fade-size) bg-linear-to-r from-(--app-bg) to-transparent"
+        className="absolute inset-y-0 left-0 w-(--app-edge-fade-size) bg-linear-to-r from-(--app-edge-fade-color,var(--app-bg)) to-transparent"
       />
       <div
         data-app-edge="right"
-        className="absolute inset-y-0 right-0 w-(--app-edge-fade-size) bg-linear-to-r from-transparent to-(--app-bg)"
+        className="absolute inset-y-0 right-0 w-(--app-edge-fade-size) bg-linear-to-r from-transparent to-(--app-edge-fade-color,var(--app-bg))"
       />
     </div>
   )

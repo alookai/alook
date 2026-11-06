@@ -77,6 +77,12 @@ Inspired by vintage Macintosh product photography — a warm cream object on a d
 
 The application frame, navigation, and reading canvas are separate semantic surfaces. Keep their assignments in the theme, not in individual channel, DM, Me, or message-row fixes. AppSurface uses the reading canvas; AppBackground uses the outer frame. On mobile community pages, native chrome follows the active list or detail surface after navigation and theme changes, including while the keyboard is open. Desktop and non-community pages follow the painted document surface. Landing and authentication keep their own paper backgrounds; their embedded application uses the same application surface tokens.
 
+Desktop native frames consume that published document paint. Before Web publication, cold native backdrops and bootstrap/recovery documents use Light `#faf6ee` and Dark `#000`. Preserve native startup completion, safe-area and keyboard ownership.
+
+Fullscreen dialog, alert and sheet edge fades consume the same visible-surface publication, with the current app canvas as the pre-publication fallback. Onboarding locally overrides the edge color with its own paper background. The UserBar lower fade preserves separate frame and navigation regions at the existing rail boundary. Keep edge dimensions, transparency curves and input/layout ownership unchanged; clipping-mask colors and landing section palettes retain their separate roles.
+
+Message date and New dividers remain 1px. Date lines use a dedicated token with white at 36% in Dark; New retains its destructive color. Default separator styling must preserve explicitly selected semantic paint.
+
 Rules:
 - **Pick tokens by intent, not by lightness.** Don't reach for `muted` because it "looks the right gray" — reach for it because the content is genuinely secondary.
 - **Don't signal state by color alone.** Pair color with an icon, label, or weight change so colorblind users and high-contrast modes still read the state.

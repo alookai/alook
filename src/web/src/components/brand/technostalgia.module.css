@@ -51,6 +51,7 @@
   --status-offline: #666666;
   --radius: 0.75rem;
   --tn-line: oklch(0.86 0.012 80);
+  --message-date-divider: color-mix(in oklab, var(--tn-line) 60%, transparent);
   --tn-text: var(--tn-ink);
   --tn-hair: #d9cdb7;
   --tn-surface: var(--tn-paper-raised);
@@ -95,6 +96,7 @@
   --tn-grid: #121212;
   --tn-muted: #8c8c8c;
   --tn-line: oklch(1 0 0 / 9%);
+  --message-date-divider: rgb(255 255 255 / 36%);
   --tn-text: #ededed;
   --tn-hair: #1c1c1c;
   --tn-grain: none;
@@ -468,7 +470,7 @@
 }
 
 .theme [data-slot="separator"] {
-  background: #d9cdb7;
+  --border: #d9cdb7;
 }
 
 /* Tabs: a plastic tray with a paper key for the active tab */
@@ -1012,7 +1014,7 @@
 }
 
 .theme [data-slot="separator"] {
-  background: color-mix(in oklab, var(--tn-line) 60%, transparent) !important;
+  --border: color-mix(in oklab, var(--tn-line) 60%, transparent);
 }
 
 .theme :is([data-slot="community-sidebar-panel-content"], [data-slot="community-shell-root"]) header {
@@ -2499,6 +2501,7 @@
 
 /* Brand Visual's paper stock also surrounds onboarding; the form itself stays a flat reading surface. */
 .theme [data-slot="onboarding-backdrop"] {
+  --app-edge-fade-color: var(--tn-paper);
   background-color: var(--tn-paper) !important;
   background-image: var(--tn-paper-grid-image) !important;
   background-size: var(--tn-paper-grid-size) !important;

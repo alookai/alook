@@ -97,15 +97,20 @@ async function expectUpdateActionGeometry(
     paddingLeft: expected.horizontalPadding,
     paddingRight: expected.horizontalPadding,
   })
-  const [noticeBox, actionBox] = await Promise.all([
-    notice.boundingBox(),
-    action.boundingBox(),
-  ])
-  expect(noticeBox).not.toBeNull()
-  expect(actionBox).not.toBeNull()
-  expect(Math.abs(noticeBox!.x + noticeBox!.width - actionBox!.x - actionBox!.width - 20))
+  const insets = await notice.evaluate((element, actionTestId) => {
+    const action = element.querySelector<HTMLElement>(`[data-testid="${CSS.escape(actionTestId)}"]`)
+    if (!action) return null
+    const noticeBox = element.getBoundingClientRect()
+    const actionBox = action.getBoundingClientRect()
+    return {
+      right: noticeBox.right - actionBox.right,
+      bottom: noticeBox.bottom - actionBox.bottom,
+    }
+  }, tid.daemonUpdateAction)
+  expect(insets).not.toBeNull()
+  expect(Math.abs(insets!.right - 20))
     .toBeLessThanOrEqual(1)
-  expect(Math.abs(noticeBox!.y + noticeBox!.height - actionBox!.y - actionBox!.height - 20))
+  expect(Math.abs(insets!.bottom - 20))
     .toBeLessThanOrEqual(1)
 }
 

@@ -605,8 +605,14 @@ export function CommunityShellLayout({
             <div
               data-slot="community-user-bar-underlay"
               aria-hidden
-              className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 bg-linear-to-t from-(--app-bg) to-transparent"
-              style={{ height: COMMUNITY_USER_BAR_HEIGHT_CSS }}
+              className="pointer-events-none absolute inset-x-0 bottom-0 -z-10"
+              style={{
+                height: COMMUNITY_USER_BAR_HEIGHT_CSS,
+                backgroundImage: "linear-gradient(to top, var(--app-frame), transparent), linear-gradient(to top, var(--sidebar), transparent)",
+                backgroundSize: `${COMMUNITY_RAIL_WIDTH}px 100%, calc(100% - ${COMMUNITY_RAIL_WIDTH}px) 100%`,
+                backgroundPosition: "left bottom, right bottom",
+                backgroundRepeat: "no-repeat",
+              }}
             />
             {userBar}
           </div>

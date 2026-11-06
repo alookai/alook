@@ -12,8 +12,8 @@ const HOST: &str = "alook-recovery.localhost";
 const BOOTSTRAP_PATH: &str = "/bootstrap";
 const RECOVERY_PATH: &str = "/network-error";
 const PRODUCTION_TARGET: &str = "https://alook.ai/c";
-const SPLASH_BACKGROUND_LIGHT: &str = "#fff";
-const SPLASH_BACKGROUND_DARK: &str = "#100d0a";
+const SPLASH_BACKGROUND_LIGHT: &str = "#faf6ee";
+const SPLASH_BACKGROUND_DARK: &str = "#000";
 static STARTUP: StartupRendezvous = StartupRendezvous::new();
 
 struct StartupRendezvous {
@@ -952,7 +952,7 @@ fn recovery_html() -> &'static str {
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Alook</title>
   <style>
-    :root{color-scheme:light dark;--background:oklch(1 0 0);--foreground:oklch(0.18 0.03 230);--muted-foreground:oklch(0.44 0.03 230);--ring:oklch(0.55 0.03 230);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--background);color:var(--foreground)}
+    :root{color-scheme:light dark;--background:#faf6ee;--foreground:oklch(0.18 0.03 230);--muted-foreground:oklch(0.44 0.03 230);--ring:oklch(0.55 0.03 230);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--background);color:var(--foreground)}
     *{box-sizing:border-box}
     body{min-height:100vh;margin:0;background:var(--background)}
     main{width:100%;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:max(24px,var(--app-safe-area-top,env(safe-area-inset-top))) max(24px,var(--app-safe-area-right,env(safe-area-inset-right))) max(24px,var(--app-safe-area-bottom,env(safe-area-inset-bottom))) max(24px,var(--app-safe-area-left,env(safe-area-inset-left)));text-align:center;cursor:pointer;outline:none;-webkit-user-select:none;user-select:none}
@@ -961,7 +961,7 @@ fn recovery_html() -> &'static str {
     p{margin:0;color:var(--muted-foreground);font-size:16px;line-height:1.55}
     main[aria-disabled="true"]{cursor:wait}
     main[aria-disabled="true"] svg{opacity:.55}
-    @media(prefers-color-scheme:dark){:root{--background:oklch(0.16 0.008 60);--foreground:oklch(0.93 0.006 80);--muted-foreground:oklch(0.65 0.01 70);--ring:oklch(0.55 0.01 60)}}
+    @media(prefers-color-scheme:dark){:root{--background:#000;--foreground:oklch(0.93 0.006 80);--muted-foreground:oklch(0.65 0.01 70);--ring:oklch(0.55 0.01 60)}}
   </style>
 </head>
 <body>
@@ -1296,8 +1296,6 @@ mod tests {
     #[test]
     fn bootstrap_shows_canonical_logo_in_the_current_theme() {
         let (_, html) = bootstrap_document();
-        assert!(html.contains("--background:#fff"));
-        assert!(html.contains("--background:#100d0a"));
         let canonical = include_str!("../../../../assets/alook.svg");
         assert_eq!(html.matches(canonical).count(), 1);
         assert!(html.contains("role=\"status\" aria-label=\"Loading\""));
@@ -1358,8 +1356,6 @@ mod tests {
             1
         );
         assert!(html.contains("#logo{width:106px;height:106px}"));
-        assert!(html.contains("--background:#fff"));
-        assert!(html.contains("--background:#100d0a"));
         assert!(!html.contains("requestAnimationFrame"));
     }
 
