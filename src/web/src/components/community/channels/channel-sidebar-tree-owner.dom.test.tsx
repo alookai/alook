@@ -1,7 +1,7 @@
 import { createElement } from "react"
 import { renderToString } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen, setupUser } from "@/test/react-dom-harness"
+import { fireEvent, render, screen, setupUser, within } from "@/test/react-dom-harness"
 import type { Category } from "@/lib/community/models/navigation"
 import { tid } from "@/lib/community/testids"
 import {
@@ -76,9 +76,14 @@ describe("ChannelSidebarScope", () => {
         "target-one": [{ id: "thread-one", parentChannelId: "target-one", parentMessageId: "opener-one", title: "Cached post", activityAt: "2026-09-25T00:00:00.000Z", expiresAt: "2026-09-28T00:00:00.000Z", unread: false }],
       },
     }))
-    expect(html).toContain(tid.channelRow("target-one"))
-    expect(html).toContain(tid.forumSidebarThread("thread-one"))
-    expect(html).not.toContain(tid.channelSidebarPending("target"))
+    const initial = document.createElement("div")
+    initial.innerHTML = html
+    const initialTree = within(initial)
+    expect(initialTree.getByRole("link", { name: "target-one" }))
+      .toHaveAttribute("href", "/c/channels/target/target-one")
+    expect(initialTree.getByRole("link", { name: "Cached post" }))
+      .toHaveAttribute("href", "/c/channels/target/thread-one")
+    expect(initialTree.queryByTestId(tid.channelSidebarPending("target"))).toBeNull()
   })
 
   it("keeps restored primary rows hidden while forum projection is pending", () => {
@@ -173,22 +178,32 @@ describe("ChannelSidebarScope", () => {
 
     expect(screen.queryByTestId(tid.channelSidebarPending("target"))).not.toBeInTheDocument()
     expect(rendered.container.querySelector("[data-community-channel-tree-scope]"))
-      .toHaveAttribute("data-community-channel-tree-scope", "server:target")
-    expect(screen.getByTestId(tid.channelRow("target-one"))).toBeInTheDocument()
-    expect(rendered.container.textContent).not.toContain("source-one")
+      .toBeInTheDocument()
+    const target = screen.getByRole("link", { name: "target-one" })
+    expect(target).toBe(screen.getByTestId(tid.channelRow("target-one")))
+    expect(target).toHaveAttribute("href", "/c/channels/target/target-one")
   })
 
   it("keeps ordinary-member category actions and collapsed state while forum children reconcile", async () => {
     const rendered = render(createElement(ChannelSidebarScope, scopeProps(targetCategories)))
     const owner = rendered.container.querySelector("[data-community-channel-tree-scope]")!
     const header = screen.getByRole("button", { name: "Target category" })
-    expect(header.tagName).toBe("DIV")
     expect(header).toHaveAttribute("tabindex", "0")
     expect(header).not.toHaveAttribute("aria-disabled", "true")
     expect(header).not.toHaveAttribute("aria-roledescription")
     expect(header).not.toHaveAttribute("aria-describedby")
 
     const user = setupUser()
+    header.focus()
+    expect(header).toHaveFocus()
+    expect(header).toHaveAttribute("aria-expanded", "true")
+    await user.keyboard("{Enter}")
+    expect(header).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByTestId(tid.channelRow("target-one"))).not.toBeInTheDocument()
+    await user.keyboard(" ")
+    expect(header).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByTestId(tid.channelRow("target-one")))
+      .not.toHaveAttribute("aria-disabled", "true")
     await user.click(header)
     expect(screen.queryByTestId(tid.channelRow("target-one"))).not.toBeInTheDocument()
 
