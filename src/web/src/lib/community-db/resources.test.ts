@@ -1,12 +1,53 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { createCommunityDbRegistry } from "./collections"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { messageResourceFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
 import { getCanonicalCommunityMessageResources, getCanonicalCommunityMessages } from "./sync"
-import { messageSchema, profileSchema } from "./schema"
 import { writeCommunityCollectionRows } from "./write"
+
+function observePayload(field: "content" | "name") {
+  type Observation = { descriptor: PropertyDescriptor; reads: number; getter: () => unknown }
+  const observed = new Map<object, Observation>()
+  return {
+    add(rows: Iterable<unknown>) {
+      for (const row of rows) {
+        if (!row || typeof row !== "object") throw new Error("Payload observation requires an actual row")
+        if (observed.has(row)) continue
+        const descriptor = Object.getOwnPropertyDescriptor(row, field)
+        if (!descriptor?.configurable || !("value" in descriptor)) throw new Error("Payload is not an ordinary configurable field")
+        const keys = Object.keys(row)
+        const observation: Observation = { descriptor, reads: 0, getter: () => { observation.reads += 1; return descriptor.value as unknown } }
+        observed.set(row, observation)
+        Object.defineProperty(row, field, { configurable: descriptor.configurable, enumerable: descriptor.enumerable, get: observation.getter })
+        expect(Object.keys(row)).toEqual(keys)
+      }
+    },
+    reset() { for (const observation of observed.values()) observation.reads = 0 },
+    counts(target: object) {
+      const targetObservation = observed.get(target)
+      if (!targetObservation) throw new Error("Target payload was not observed")
+      let total = 0
+      for (const [row, observation] of observed) {
+        if (Object.getOwnPropertyDescriptor(row, field)?.get !== observation.getter) throw new Error("Payload observation was replaced")
+        total += observation.reads
+      }
+      return { target: targetObservation.reads, unrelated: total - targetObservation.reads }
+    },
+    restore() {
+      const errors: unknown[] = []
+      for (const [row, observation] of observed) {
+        try {
+          Object.defineProperty(row, field, observation.descriptor)
+          expect(Object.getOwnPropertyDescriptor(row, field)).toEqual(observation.descriptor)
+        } catch (error) { errors.push(error) }
+      }
+      if (errors.length === 1) throw errors[0]
+      if (errors.length > 1) throw new AggregateError(errors, "Payload descriptor restoration failed")
+    },
+  }
+}
 
 describe("canonical message resource reads", () => {
   it("validates the canonical schema before admitting profiles from a pre-ready snapshot", async () => {
@@ -19,7 +60,13 @@ describe("canonical message resource reads", () => {
       expect(getCanonicalCommunityMessageResources(client, [messageResourceFixture()])).toBeUndefined()
       client.setQueryData(key, [profile])
       expect(getCanonicalCommunityMessageResources(client, [messageResourceFixture()])?.profiles).toEqual([profile])
-    } finally { await registry.cleanup(); client.clear() }
+    } finally {
+      const errors: unknown[] = []
+      try { await registry.cleanup() } catch (error) { errors.push(error) }
+      try { client.clear() } catch (error) { errors.push(error) }
+      if (errors.length === 1) throw errors[0]
+      if (errors.length > 1) throw new AggregateError(errors, "Resource owner cleanup failed")
+    }
   })
 
   it("reads and validates only the requested channel across accepted snapshot changes", async () => {
@@ -27,17 +74,31 @@ describe("canonical message resource reads", () => {
     const messages = Array.from({ length: 1000 }, (_, index) => messageResourceFixture({ id: `outside-${index}`, channelId: "other" }))
     messages.push(messageResourceFixture())
     await writeCommunityCollectionRows(registry, "messages", messages, row => row.id)
-    const parse = vi.spyOn(messageSchema, "safeParse")
+    const key = communityKeys.communityDbCollection("viewer", "messages")
+    const accepted = client.getQueryData<ReturnType<typeof messageResourceFixture>[]>(key)!
+    const target = accepted.find(row => row.id === "m1")!
+    const payload = observePayload("content")
     try {
+      payload.add(accepted)
       const first = getCanonicalCommunityMessages(client, "c1")
-      expect(parse).toHaveBeenCalledTimes(1)
-      expect(first.map(row => row.id)).toEqual(["m1"])
-      parse.mockClear()
-      expect(getCanonicalCommunityMessages(client, "c1")).toEqual(first)
+      const firstReads = payload.counts(target)
+      expect(firstReads).toEqual({ target: 1, unrelated: 0 })
+      expect(first).toEqual([messageResourceFixture()])
+      payload.reset()
+      const same = getCanonicalCommunityMessages(client, "c1")
+      const sameReads = payload.counts(target)
+      expect(sameReads).toEqual({ target: 0, unrelated: 0 })
+      expect(same).toEqual(first)
       await writeCommunityCollectionRows(registry, "messages", [...messages, messageResourceFixture({ id: "another", channelId: "other" })], row => row.id)
-      expect(getCanonicalCommunityMessages(client, "c1")).toEqual(first)
-      expect(parse).not.toHaveBeenCalled()
-    } finally { parse.mockRestore() }
+      const grown = client.getQueryData<ReturnType<typeof messageResourceFixture>[]>(key)!
+      payload.add(grown)
+      expect(grown.find(row => row.id === "m1")).toBe(target)
+      payload.reset()
+      const afterGrowth = getCanonicalCommunityMessages(client, "c1")
+      const growthReads = payload.counts(target)
+      expect(growthReads).toEqual({ target: 0, unrelated: 0 })
+      expect(afterGrowth).toEqual([messageResourceFixture()])
+    } finally { payload.restore() }
   })
 
   it("keeps coverage on accepted rows while a real optimistic message transaction is pending", async () => {
@@ -65,11 +126,26 @@ describe("canonical message resource reads", () => {
     profiles.push(profileResourceFixture({ id: "author" }))
     await writeCommunityCollectionRows(registry, "profiles", profiles, row => row.id)
     await writeCommunityCollectionRows(registry, "messages", [messageResourceFixture({ authorId: "author" })], row => row.id)
-    const parse = vi.spyOn(profileSchema, "safeParse")
+    const author = registry.collections.profiles.get("author")!
+    const payload = observePayload("name")
     try {
-      expect(getCanonicalCommunityMessageResources(client, [registry.collections.messages.get("m1")], {})?.profiles).toHaveLength(1)
-      expect(parse).not.toHaveBeenCalled()
-    } finally { parse.mockRestore() }
+      const actualProfiles = [...registry.collections.profiles.values()]
+      expect(actualProfiles.find(row => row.id === "author")).toBe(author)
+      payload.add(actualProfiles)
+      const first = getCanonicalCommunityMessageResources(client, [registry.collections.messages.get("m1")], {})
+      const firstReads = payload.counts(author)
+      expect(firstReads).toEqual({ target: 1, unrelated: 0 })
+      expect(first).toEqual({ messages: [messageResourceFixture({ authorId: "author" })], profiles: [profileResourceFixture({ id: "author" })] })
+      await writeCommunityCollectionRows(registry, "profiles", [...profiles, profileResourceFixture({ id: "another-unrelated" })], row => row.id)
+      const grownProfiles = [...registry.collections.profiles.values()]
+      payload.add(grownProfiles)
+      expect(registry.collections.profiles.get("author")).toBe(author)
+      payload.reset()
+      const afterGrowth = getCanonicalCommunityMessageResources(client, [registry.collections.messages.get("m1")], {})
+      const growthReads = payload.counts(author)
+      expect(growthReads).toEqual({ target: 0, unrelated: 0 })
+      expect(afterGrowth).toEqual({ messages: [messageResourceFixture({ authorId: "author" })], profiles: [profileResourceFixture({ id: "author" })] })
+    } finally { payload.restore() }
   })
 
   it("reuses one window graph and does not parse unrelated account profiles", async () => {
@@ -80,15 +156,30 @@ describe("canonical message resource reads", () => {
     await writeCommunityCollectionRows(registry, "messages", [messageResourceFixture({ authorId: "author" })], row => row.id)
     const window = {}
     const rows = () => [registry.collections.messages.get("m1")]
-    const parse = vi.spyOn(profileSchema, "safeParse")
+    const author = registry.collections.profiles.get("author")!
+    const payload = observePayload("name")
     try {
+      const actualProfiles = [...registry.collections.profiles.values()]
+      expect(actualProfiles.find(row => row.id === "author")).toBe(author)
+      payload.add(actualProfiles)
       const first = getCanonicalCommunityMessageResources(client, rows(), window)
-      expect(first?.profiles.map(row => row.id)).toEqual(["author"])
-      expect(getCanonicalCommunityMessageResources(client, rows(), window)).toBe(first)
+      const firstReads = payload.counts(author)
+      expect(firstReads).toEqual({ target: 1, unrelated: 0 })
+      expect(first).toEqual({ messages: [messageResourceFixture({ authorId: "author" })], profiles: [profileResourceFixture({ id: "author" })] })
+      payload.reset()
+      const same = getCanonicalCommunityMessageResources(client, rows(), window)
+      const sameReads = payload.counts(author)
+      expect(sameReads).toEqual({ target: 0, unrelated: 0 })
+      expect(same).toBe(first)
       await writeCommunityCollectionRows(registry, "profiles", [...profiles, profileResourceFixture({ id: "another-unrelated" })], row => row.id)
-      expect(getCanonicalCommunityMessageResources(client, rows(), window)).toBe(first)
-      expect(parse).not.toHaveBeenCalled()
-    } finally { parse.mockRestore() }
+      payload.add(registry.collections.profiles.values())
+      expect(registry.collections.profiles.get("author")).toBe(author)
+      payload.reset()
+      const afterGrowth = getCanonicalCommunityMessageResources(client, rows(), window)
+      const growthReads = payload.counts(author)
+      expect(growthReads).toEqual({ target: 0, unrelated: 0 })
+      expect(afterGrowth).toBe(first)
+    } finally { payload.restore() }
   })
 
   it("rechecks the actual message and profile dependencies, including deletion", async () => {
@@ -122,6 +213,8 @@ describe("canonical message resource reads", () => {
     const profile = profileResourceFixture({ id: "missing" })
     await writeCommunityCollectionRows(registry, "profiles", [profile], row => row.id)
     expect(getCanonicalCommunityMessageResources(client, [message], {})?.profiles).toEqual([profile])
+    expect(getCanonicalCommunityMessageResources(client, [message], {})).toEqual({ messages: [messageResourceFixture({ authorId: "missing" })], profiles: [profileResourceFixture({ id: "missing" })] })
+    expect(getCanonicalCommunityMessageResources(client, [{ ...message, content: { invalid: true } }], {})).toBeUndefined()
     registry.runtime.lifecycle.setState(state => ({ active: false, generation: state.generation + 1 }))
     expect(getCanonicalCommunityMessageResources(client, [message], {})).toBeUndefined()
   })
