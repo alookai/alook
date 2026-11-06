@@ -8,6 +8,11 @@ import { useMessageListController, type MessageListController } from "./message-
 import type { ResolvedMessageListProps } from "./message-list-types"
 import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 
+type ScrollInput = Parameters<typeof import("@/hooks/community/use-scroll-anchor").useScrollAnchor>[0]
+function notifyReached(input: ScrollInput, id: string) {
+  input.onNewBoundaryReached?.({ id, entry: input.positionEntry, owner: input.newBoundaryOwner, epoch: 1 })
+}
+
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
 const contractSources: Record<string, string> = {
   "src/components/community/messages/message-list-controller.ts": contractText0,
@@ -243,6 +248,79 @@ describe("useMessageListController", () => {
     const view = rtlRender(React.createElement(Probe, { value }))
     expect(latest.newJumpVisible).toBe(visibility === "above")
     view.unmount()
+  })
+
+  it("consumes only the reached New capsule and retains its divider and later batch discovery", async () => {
+    mocks.readPositionReady = true
+    visibleMessageIds = []
+    const read = vi.fn().mockResolvedValue({ boundary: boundary(4, 3), latestSeq: 4 })
+    const load = vi.fn()
+    const value = props({ messages: [peer(1), peer(2), peer(3)], newBoundary: boundary(1), positionEntry: {}, viewerUserId: "viewer",
+      onReadNewBoundary: read, onLoadNewTarget: load })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    try {
+      expect(latest.newJumpVisible).toBe(true)
+      mocks.newDividerVisibility = "visible"
+      view.rerender(React.createElement(Probe, { value: { ...value } }))
+      act(() => notifyReached(mocks.scrollInputs.at(-1) as ScrollInput, "m1"))
+      mocks.newDividerVisibility = "above"
+      view.rerender(React.createElement(Probe, { value: { ...value } }))
+      expect(latest.newJumpVisible).toBe(false)
+      expect(latest.items.some(item => item.kind === "divider" && item.messageId === "m1" && item.newDivider)).toBe(true)
+      expect(load).not.toHaveBeenCalled()
+      expect(mocks.requestNewPosition).not.toHaveBeenCalled()
+      expect(read).not.toHaveBeenCalled()
+      view.rerender(React.createElement(Probe, { value: { ...value, messages: [...value.messages, peer(4)] } }))
+      await act(async () => {})
+      expect(read).toHaveBeenCalledExactlyOnceWith(3)
+      expect(latest.newJumpVisible).toBe(true)
+      expect(latest.items.some(item => item.kind === "divider" && item.messageId === "m4" && item.newDivider)).toBe(true)
+    } finally { view.unmount() }
+  })
+
+  it("rejects a stale entry recipient and an arrival for another target", () => {
+    mocks.readPositionReady = true
+    const value = props({ messages: [peer(1), peer(2)], newBoundary: boundary(1), positionEntry: {} })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    try {
+      const old = mocks.scrollInputs.at(-1) as ScrollInput
+      view.rerender(React.createElement(Probe, { value: { ...value, newBoundary: boundary(2), positionEntry: {} } }))
+      const current = mocks.scrollInputs.at(-1) as ScrollInput
+      act(() => { notifyReached(old, "m1"); notifyReached(current, "m1") })
+      expect(latest.newJumpVisible).toBe(true)
+      expect(latest.items.some(item => item.kind === "divider" && item.messageId === "m2" && item.newDivider)).toBe(true)
+    } finally { view.unmount() }
+  })
+
+  it.each(["inactive", "position pending"] as const)("does not consume a reached capsule while %s", state => {
+    mocks.readPositionReady = state !== "position pending"
+    const value = props({ messages: [peer(1)], newBoundary: boundary(1), active: state !== "inactive" })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    try {
+      act(() => notifyReached(mocks.scrollInputs.at(-1) as ScrollInput, "m1"))
+      expect(latest.newJumpVisible).toBe(true)
+    } finally { view.unmount() }
+  })
+
+  it("keeps a manual arrival consumed when the interrupted click later reports cancellation", async () => {
+    mocks.readPositionReady = true
+    let finish!: (result: "cancelled") => void
+    mocks.requestNewPosition.mockReturnValue({ accepted: true, completed: new Promise(resolve => { finish = resolve }) })
+    const value = props({ messages: [peer(1)], newBoundary: boundary(1), positionEntry: {} })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    try {
+      act(() => latest.jumpToNew())
+      expect(latest.newJumpPending).toBe(true)
+      mocks.newDividerVisibility = "visible"
+      view.rerender(React.createElement(Probe, { value: { ...value } }))
+      act(() => notifyReached(mocks.scrollInputs.at(-1) as ScrollInput, "m1"))
+      await act(async () => finish("cancelled"))
+      mocks.newDividerVisibility = "above"
+      view.rerender(React.createElement(Probe, { value: { ...value } }))
+      expect(latest.newJumpPending).toBe(false)
+      expect(latest.newJumpVisible).toBe(false)
+      expect(latest.items.some(item => item.kind === "divider" && item.messageId === "m1" && item.newDivider)).toBe(true)
+    } finally { view.unmount() }
   })
 
   it("retires an exact deleted target and hides any partly visible divider", () => {

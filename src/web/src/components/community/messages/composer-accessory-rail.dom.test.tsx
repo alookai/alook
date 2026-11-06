@@ -11,6 +11,30 @@ vi.mock("@/components/ui/number-ticker", () => ({
 }))
 
 describe("ComposerAccessoryRail geometry", () => {
+  it("retains the typing status and independent actions while the center joins and leaves New", () => {
+    const onNew = vi.fn(), onScroll = vi.fn()
+    const view = (count: number, pending = false) => <ComposerAccessoryRail typingNames={["Alice"]} scrollCount={count}
+      scrollMode="scroll" onScroll={onScroll} newVisible newPending={pending} onNew={onNew} />
+    const renderer = render(view(0))
+    const typing = renderer.getByRole("status")
+    expect(typing).toHaveTextContent("Alice is typing")
+    expect(renderer.queryByTestId(tid.scrollToPresent)).toBeNull()
+    fireEvent.click(renderer.getByRole("button", { name: "Jump to New" }))
+    expect(onNew).toHaveBeenCalledOnce()
+    expect(onScroll).not.toHaveBeenCalled()
+    renderer.rerender(view(4))
+    expect(renderer.getByRole("status")).toBe(typing)
+    fireEvent.click(renderer.getByRole("button", { name: "Scroll to bottom, 4 more below" }))
+    expect(onScroll).toHaveBeenCalledOnce()
+    renderer.rerender(view(0))
+    expect(renderer.getByRole("status")).toBe(typing)
+    expect(renderer.getByRole("button", { name: "Jump to New" })).toBeDefined()
+    renderer.rerender(view(0, true))
+    expect(renderer.getByRole("status")).toBe(typing)
+    expect(renderer.queryByTestId(tid.scrollToNew)).toBeNull()
+    expect(onNew).toHaveBeenCalledOnce()
+  })
+
   it("shows New by itself, keeps the present action independent and hides an accepted pending jump", () => {
     const onNew = vi.fn(), onScroll = vi.fn()
     const view = (pending: boolean, count = 0) => <ComposerAccessoryRail typingNames={[]} scrollCount={count} scrollMode="scroll"

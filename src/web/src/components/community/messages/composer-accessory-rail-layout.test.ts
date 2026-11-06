@@ -16,4 +16,9 @@ describe("allocateComposerAccessoryRail", () => {
       expect(allocateComposerAccessoryRail({ mode: "normal", left, center })).toBe(expected)
     },
   )
+
+  it.each([false, true])("uses the remaining left space beside New, typing=%s", left => {
+    expect(allocateComposerAccessoryRail({ mode: "normal", left, center: false, right: true })).toBe("edges")
+    expect(allocateComposerAccessoryRail({ mode: "normal", left, center: true, right: true })).toBe("centered")
+  })
 })

@@ -11,6 +11,74 @@ type BodySample = {
   bodies: Array<{ id: string; top: number; bottom: number; height: number }>
 }
 
+test("manual New arrival consumes its capsule without reading the unseen batch tail", async ({ caseActors }) => {
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser, sessionCookie } = actors
+  const { seedServer, seedChannel, seedJoinServer, seedMessage } = actors.seed
+  const serverId = await seedServer("alice", `Manual New ${Date.now()}`)
+  const channelId = await seedChannel("alice", serverId, "manual-new")
+  await seedJoinServer("alice", "bob", serverId)
+  const history: string[] = []
+  for (let index = 0; index < 6; index++) history.push(await seedMessage("alice", channelId,
+    `read history ${index}\n${Array.from({ length: 10 }, (_, line) => `history line ${line}`).join("\n\n")}`))
+  const initialRead = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
+    method: "PUT", headers: { Cookie: sessionCookie("alice"), "Content-Type": "application/json", Origin: WEB_URL },
+    body: JSON.stringify({ lastReadMessageId: history.at(-1) }),
+  })
+  expect(initialRead.status).toBe(200)
+  const initialState = await initialRead.json() as { targetSeq: number }
+  const unread: string[] = []
+  for (let index = 0; index < 10; index++) unread.push(await seedMessage("bob", channelId,
+    `unread batch ${index}\n${Array.from({ length: 8 }, (_, line) => `peer line ${line}`).join("\n\n")}`))
+  const entryResponse = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/messages?entry=1&anchor=${history[0]}`, {
+    headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL },
+  })
+  expect(entryResponse.status).toBe(200)
+  const entry = await entryResponse.json() as { page: { latestSeq: number }; newBoundary: { target: { id: string } | null } }
+  expect(entry.newBoundary.target?.id).toBe(unread[0])
+  expect(entry.page.latestSeq).toBeGreaterThan(initialState.targetSeq)
+  const { page } = await asUser("alice")
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}?msg=${history[0]}`)
+  const scroller = page.getByTestId(tid.messageScroller)
+  await expect(page.getByTestId(tid.message(history[0]!))).toBeInViewport()
+  await expect(page.getByTestId(tid.message(unread.at(-1)!))).not.toBeInViewport()
+  const readResponse = page.waitForResponse(response => response.request().method() === "PUT"
+    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`)
+  void readResponse.catch(() => undefined)
+  const firstPeerIsReadable = () => page.evaluate(({ rootId, id }) => {
+    const root = document.querySelector<HTMLElement>(`[data-testid="${rootId}"]`)
+    const body = root?.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)
+    if (!root || !body) return false
+    const viewport = root.getBoundingClientRect(), rect = body.getBoundingClientRect()
+    return rect.height > 0 && rect.top >= viewport.top && rect.bottom <= viewport.bottom - Number(root.dataset.composerOcclusion ?? 0)
+  }, { rootId: tid.messageScroller, id: unread[0]! })
+  await scroller.hover()
+  for (let step = 0; step < 24 && !await firstPeerIsReadable(); step++) {
+    const before = await scroller.evaluate(element => element.scrollTop)
+    await page.mouse.wheel(0, 160)
+    await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBeGreaterThan(before)
+  }
+  expect(await firstPeerIsReadable()).toBe(true)
+  await expect(page.getByTestId(tid.newDivider)).toBeInViewport()
+  const confirmed = await readResponse
+  expect(confirmed.status()).toBe(200)
+  expect(confirmed.request().postDataJSON().lastReadMessageId).not.toBe(unread.at(-1))
+  const advanced = await confirmed.json() as { targetSeq: number }
+  expect(advanced.targetSeq).toBeGreaterThan(initialState.targetSeq)
+  expect(advanced.targetSeq).toBeLessThan(entry.page.latestSeq)
+  const before = await scroller.evaluate(element => element.scrollTop)
+  await page.mouse.wheel(0, 600)
+  await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBeGreaterThan(before)
+  await expect.poll(() => page.getByTestId(tid.newDivider).evaluate((element, rootId) => {
+    const root = element.closest<HTMLElement>(`[data-testid="${rootId}"]`)!
+    return element.getBoundingClientRect().bottom <= root.getBoundingClientRect().top
+  }, tid.messageScroller)).toBe(true)
+  await expect(page.getByTestId(tid.scrollToNew)).toHaveCount(0)
+  await page.mouse.wheel(0, -600)
+  await expect(page.getByTestId(tid.newDivider)).toBeInViewport()
+  await expect(page.getByTestId(tid.scrollToNew)).toHaveCount(0)
+})
+
 test("NEW divider does not fight upward scrolling while a peer message arrives", async ({ caseActors }) => {
   test.setTimeout(120_000)
 
@@ -85,11 +153,10 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
   await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
   const jumpToNew = page.getByTestId(tid.scrollToNew)
   await expect(jumpToNew).toBeVisible({ timeout: 30_000 })
-  await scroller.hover()
-  await page.mouse.wheel(0, -100_000)
+  await scroller.evaluate(element => element.scrollTo({ top: 0, behavior: "auto" }))
   await expect(page.getByTestId(tid.message(beforeNewId))).toBeInViewport()
   await expect(jumpToNew).toBeHidden()
-  await page.mouse.wheel(0, 100_000)
+  await scroller.evaluate(element => element.scrollTo({ top: element.scrollHeight, behavior: "auto" }))
   await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
   await expect(jumpToNew).toBeVisible()
   await jumpToNew.click()
