@@ -29,8 +29,13 @@ function MessageListEntry({
     || initialScrollReady && (props.messages.length > 0 || !props.loading && !props.initialLoadError)
     || !!props.scrollToMessageId && (props.targetPositionDataState ?? props.positionDataState) === "ready" && props.messages.length > 0
   if (ready && !admitted) setAdmitted(true)
-  if (props.positionScope && !admitted && !ready && !props.initialLoadError) return <MessageListSkeleton variant={variant} />
+  if (props.positionScope && !admitted && !ready && !props.initialLoadError) return <PendingMessageListSkeleton variant={variant} />
   return <MessageListOwner {...props} variant={variant} initialScrollReady={initialScrollReady} />
+}
+
+function PendingMessageListSkeleton({ variant }: { variant: "channel" | "dm" }) {
+  const footerSlot = useConversationFooterSlot()
+  return <MessageListSkeleton variant={variant} overlayHeight={footerSlot?.overlayHeight ?? 0} />
 }
 
 function MessageListOwner({ variant, initialScrollReady, ...props }: MessageListProps & {
@@ -49,10 +54,11 @@ function MessageListOwner({ variant, initialScrollReady, ...props }: MessageList
     active: conversationActive && props.active !== false,
     positioningActive: conversationPresented && (props.positioningActive ?? props.active) !== false,
   }
-  const controller = useMessageListController(resolvedProps)
+  const footerSlot = useConversationFooterSlot()
+  const overlayHeight = footerSlot?.overlayHeight ?? 0
+  const controller = useMessageListController(resolvedProps, overlayHeight)
   const visible = visibleVirtualItems(controller.virtualizer).flatMap(item => { const row = controller.items[item.index]; return row?.kind === "message" ? [row.m] : [] })
   useObservedRegion("messages", controller.initialPosition.contentVisible && controller.initialPosition.contentInteractive && !resolvedProps.initialLoadError && (!props.messages.length || visible.length > 0), visible.length, { ...props.observation, wait_reason: props.observation?.wait_reason === "none" && !(controller.initialPosition.contentVisible && controller.initialPosition.contentInteractive) ? "position" : props.observation?.wait_reason })
-  const footerSlot = useConversationFooterSlot()
   const setSelectionActive = footerSlot?.setSelectionActive
   useLayoutEffect(() => {
     setSelectionActive?.(controller.selectMode)
@@ -66,5 +72,5 @@ function MessageListOwner({ variant, initialScrollReady, ...props }: MessageList
       onLayoutCommit={controller.onRowsLayoutCommit}
       renderItem={(item, index) => renderMessageListRow(item, resolvedProps, controller, index)}
     />
-  ), footerSlot?.target ?? null, footerSlot?.accessoryTarget ?? null)
+  ), footerSlot?.target ?? null, footerSlot?.accessoryTarget ?? null, overlayHeight)
 }

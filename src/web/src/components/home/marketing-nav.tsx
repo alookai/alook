@@ -13,7 +13,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { GithubOutboundLink } from "@/components/github-outbound-link";
 import {
   MARKETING_SITE_LINK_CLASS_NAME,
@@ -52,6 +52,28 @@ export function MarketingNav({
 }) {
   const [revealed, setRevealed] = useAtom(useCreateAtom(false));
   const prefetch = revealAfterHero && !revealed ? false : undefined;
+  const mobileMenuRef = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    if (!collapseLinksOnMobile || sticky) return;
+    const dismissOutside = (event: PointerEvent) => {
+      const menu = mobileMenuRef.current;
+      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) menu.open = false;
+    };
+    const dismissEscape = (event: KeyboardEvent) => {
+      const menu = mobileMenuRef.current;
+      if (event.key !== "Escape" || !menu?.open) return;
+      event.preventDefault();
+      menu.open = false;
+      menu.querySelector("summary")?.focus();
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    document.addEventListener("keydown", dismissEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside, true);
+      document.removeEventListener("keydown", dismissEscape);
+    };
+  }, [collapseLinksOnMobile, sticky]);
 
   useEffect(() => {
     if (!revealAfterHero) return;
@@ -156,7 +178,7 @@ export function MarketingNav({
           </a>
           <ThemeToggle />
           {collapseLinksOnMobile && !sticky && (
-            <details className="group relative sm:hidden">
+            <details ref={mobileMenuRef} className="group relative sm:hidden">
               <summary
                 data-variant="outline"
                 className={cn(buttonVariants({ variant: "outline", size: "icon" }), "cursor-pointer list-none [&::-webkit-details-marker]:hidden")}

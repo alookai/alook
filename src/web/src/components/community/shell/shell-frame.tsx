@@ -1,6 +1,7 @@
 "use client"
 
 import { requestNativeBack } from "@/components/ui/native-back-layer"
+import type { MobileEntryMotion } from "@/contexts/community/mobile-page-motion"
 import { MobilePageBackContext, type MobilePageBack } from "@/contexts/community/mobile-page-back"
 import { commitNavigation } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
@@ -297,9 +298,13 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     if (breakpoint !== "mobile" || checkpoint.surface !== "detail" || userBarExtension.active === "none") return
     dismissUserBarExtension()
   }, [breakpoint, checkpoint.surface, dismissUserBarExtension, userBarExtension.active])
+  const mobileMotionRef = useRef<MobileEntryMotion | null>(null)
   const parentReturnPending = hasPendingParentReturn(navigation)
+  const mobileBackTarget = navigation.navigationPending && !parentReturnPending
+    ? committedFrame.href : mobileParentPath
   const dismissNativeBackShellOverlay = useCallback(() => {
-    if (navigation.navigationPending && !parentReturnPending) {
+    if (navigation.navigationPending && !parentReturnPending
+      && !(breakpoint === "mobile" && checkpoint.surface === "detail" && mobileMotionRef.current)) {
       replacePath(committedFrame.href)
       return true
     }
@@ -313,20 +318,35 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     pageBack.current = request
     return () => { if (pageBack.current === request) pageBack.current = null }
   } }), [])
-  const goBackMobile = useCallback((target = mobileParentPath) => {
+  const goBackMobile = useCallback((target = mobileBackTarget) => {
     if (!target) return
     if (breakpoint === "mobile") {
       if (requestNativeBack(document) !== "none" || dismissNativeBackShellOverlay()) return
       if (parentReturnPending && navigation.pendingHref
         && normalizeCommunityHref(target).href === normalizeCommunityHref(navigation.pendingHref).href) return
-      if (pageBack.current?.(target)) return
+      const cancellingEntry = navigation.navigationPending && !parentReturnPending
+      if (!cancellingEntry && pageBack.current?.(target)) return
+      const returnTarget = cancellingEntry ? committedFrame.href : target
+      const motion = mobileMotionRef.current
+      if (motion) {
+        if (motion.isExiting()) return
+        const runtime = getCommunityRuntime(queryClient)
+        const current = navigation.captureIntent(navigation.pendingHref
+          ? { pendingCommitHref: navigation.pendingHref } : undefined)
+        void motion.exitEntry().then((finished) => {
+          if (finished && runtime.lifecycle.get().active && runtime.ws.get().accessEpoch === accessEpoch
+            && window.matchMedia("(max-width: 639px)").matches && current()) navigation.replace(returnTarget, { resume: true })
+          else if (finished) motion.resetExit()
+        })
+        return
+      }
       navigation.replace(target, { resume: true })
     } else navigation.replace(target)
-  }, [breakpoint, dismissNativeBackShellOverlay, mobileParentPath, navigation, parentReturnPending])
+  }, [breakpoint, dismissNativeBackShellOverlay, mobileBackTarget, navigation, parentReturnPending, queryClient, accessEpoch, committedFrame.href])
 
   useNativeMobileBack({
     dismissShellOverlay: dismissNativeBackShellOverlay,
-    parentPath: mobileParentPath,
+    parentPath: mobileBackTarget,
     replacePath: goBackMobile,
   })
 
@@ -370,6 +390,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     <CommunityRouteContext value={{ breakpoint, frame: committedFrame, navigation, ownerDeleteRouteScope, openInbox, notificationConsumer }}>
     <MobilePageBackContext value={pageBackRegistry}>
     <ShellFrameView
+      mobileMotionRef={mobileMotionRef}
       breakpoint={breakpoint}
       checkpoint={checkpoint}
       routeCommitted={isPublishedNonStructuralCommit(committedFrame, navigation.publishedHref, navigation.pendingHref ?? navigation.publishedHref)}

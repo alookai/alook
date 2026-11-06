@@ -28,7 +28,7 @@
   --tn-stroke: 1px;
   --tn-key-depth: 2.5px;
 
-  --background: var(--tn-paper);
+  --background: var(--tn-paper-raised);
   --foreground: var(--tn-ink);
   --card: var(--tn-paper-raised);
   --card-foreground: var(--tn-ink);
@@ -47,7 +47,8 @@
   --input: oklch(0.86 0.012 80);
   --ring: var(--tn-blue);
   --link: var(--tn-blue-side);
-  --status-online: var(--tn-sage);
+  --status-online: #16a34a;
+  --status-offline: #666666;
   --radius: 0.75rem;
   --tn-line: oklch(0.86 0.012 80);
   --tn-text: var(--tn-ink);
@@ -65,7 +66,8 @@
   --sidebar-accent-foreground: var(--tn-ink);
   --sidebar-border: var(--tn-ink);
   --sidebar-ring: var(--tn-blue);
-  --app-bg: var(--tn-paper-raised);
+  --app-bg: var(--background);
+  --app-frame: var(--tn-body);
 
   color: var(--tn-text);
   color-scheme: light;
@@ -87,6 +89,8 @@
   --tn-screen: #1a1f24;
   --tn-orange: #ff8a73;
   --tn-sage: #6fe0a6;
+  --status-online: #22c55e;
+  --status-offline: #6b6b6b;
   --tn-rose: #ff7d6e;
   --tn-grid: #121212;
   --tn-muted: #8c8c8c;
@@ -121,13 +125,14 @@
   --input: var(--tn-line);
   --ring: var(--tn-blue-top);
   --link: var(--tn-blue-top);
-  --sidebar: var(--tn-paper);
+  --sidebar: var(--tn-paper-raised);
   --sidebar-foreground: var(--tn-text);
   --sidebar-primary: var(--tn-blue);
   --sidebar-accent: var(--tn-blue-tint);
   --sidebar-accent-foreground: var(--tn-text);
   --sidebar-border: var(--tn-line);
-  --app-bg: var(--tn-paper-raised);
+  --app-bg: var(--background);
+  --app-frame: var(--tn-body);
 
   color: var(--tn-text);
   color-scheme: dark;
@@ -489,7 +494,7 @@
 }
 
 /* Badges are die-cut stickers */
-.theme [data-slot="badge"] {
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]) {
   height: auto;
   padding: 3px 10px;
   border: 1px solid var(--tn-line);
@@ -497,11 +502,11 @@
 
 }
 
-.theme [data-slot="badge"][data-variant="secondary"] {
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])[data-variant="secondary"] {
   background: var(--tn-plastic);
 }
 
-.theme [data-slot="badge"][data-variant="outline"] {
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])[data-variant="outline"] {
   background: var(--tn-paper-raised);
 }
 
@@ -553,6 +558,15 @@
   background: color-mix(in oklab, var(--tn-text) 4.5%, var(--tn-paper));
   box-shadow: inset 0 1px 2px color-mix(in oklab, var(--tn-text) 7%, transparent);
   --tw-ring-color: transparent;
+}
+
+@media (max-width: 639px) {
+  .theme [data-slot="community-composer-base"]:not([class~="bg-transparent"]) {
+    box-shadow:
+      inset 0 1px 2px color-mix(in oklab, var(--tn-text) 7%, transparent),
+      0 2px 8px rgb(0 0 0 / 16%),
+      0 0 1px color-mix(in oklab, var(--tn-text) 22%, transparent);
+  }
 }
 
 .theme [data-slot="community-composer-base"]:not([class~="bg-transparent"]):focus-within {
@@ -694,7 +708,7 @@
 
 /* Badges as storybook paper cut-outs: hand-cut uneven corners, paper grain,
  * a slight tilt and the soft lift of paper laid on paper. No outline. */
-.theme [data-slot="badge"],
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]),
 .theme [data-testid="community-status-pill"],
 .theme [data-testid="community-profile-card"] button[title] {
   border: 0 !important;
@@ -707,34 +721,34 @@
   rotate: -2.5deg;
 }
 
-.theme [data-slot="badge"]:nth-of-type(2n) {
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]):nth-of-type(2n) {
   border-radius: 14px 10px 15px 11px / 10px 14px 11px 13px !important;
   rotate: 2deg;
 }
 
-.theme [data-slot="badge"]:nth-of-type(3n) {
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]):nth-of-type(3n) {
   rotate: -1deg;
 }
 
-.theme [data-slot="badge"][data-variant="secondary"] {
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])[data-variant="secondary"] {
   background-color: var(--tn-plastic);
 }
 
-.theme [data-slot="badge"][data-variant="outline"],
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])[data-variant="outline"],
 .theme [data-testid="community-status-pill"],
 .theme [data-testid="community-profile-card"] button[title] {
   background-color: #fffaf0 !important;
 }
 
-.theme[data-tn-mode="dark"] :is([data-slot="badge"], [data-testid="community-status-pill"]),
-[data-tn-mode="dark"] .theme :is([data-slot="badge"], [data-testid="community-status-pill"]) {
+.theme[data-tn-mode="dark"] :is([data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]), [data-testid="community-status-pill"]),
+[data-tn-mode="dark"] .theme :is([data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]), [data-testid="community-status-pill"]) {
   background-image: none;
   box-shadow: 0 0 12px rgb(91 124 255 / 18%) !important;
 }
 
 /* Dark status pill: dark paper, light text */
-.theme[data-tn-mode="dark"] :is([data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title], [data-slot="badge"][data-variant="outline"]),
-[data-tn-mode="dark"] .theme :is([data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title], [data-slot="badge"][data-variant="outline"]) {
+.theme[data-tn-mode="dark"] :is([data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title], [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])[data-variant="outline"]),
+[data-tn-mode="dark"] .theme :is([data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title], [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])[data-variant="outline"]) {
   background-color: var(--tn-surface-2) !important;
   color: var(--tn-text) !important;
 }
@@ -838,7 +852,7 @@
 }
 
 /* Badges: small flat plastic chips. No tilt, no cut-paper, no outline. */
-.theme [data-slot="badge"],
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]),
 .theme [data-testid="community-status-pill"],
 .theme [data-testid="community-profile-card"] button[title] {
   rotate: 0deg !important;
@@ -848,32 +862,32 @@
   font-weight: 650;
 }
 
-.theme [data-slot="badge"][data-variant="secondary"] {
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])[data-variant="secondary"] {
   background-color: #e9dfcb !important;
   color: #4a3f2c !important;
 }
 
-.theme [data-slot="badge"][data-variant="default"] {
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])[data-variant="default"] {
   background-color: #dbe6f6 !important;
   color: #2f5591 !important;
 }
 
-.theme [data-slot="badge"][data-variant="outline"],
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])[data-variant="outline"],
 .theme [data-testid="community-status-pill"],
 .theme [data-testid="community-profile-card"] button[title] {
   background-color: #f3ecdf !important;
   color: var(--tn-text) !important;
 }
 
-.theme[data-tn-mode="dark"] :is([data-slot="badge"], [data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title]),
-[data-tn-mode="dark"] .theme :is([data-slot="badge"], [data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title]) {
+.theme[data-tn-mode="dark"] :is([data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]), [data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title]),
+[data-tn-mode="dark"] .theme :is([data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]), [data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title]) {
   background-color: #222 !important;
   color: #e8eaf0 !important;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 10%), inset 0 0 0 1px rgb(255 255 255 / 12%) !important;
 }
 
-.theme[data-tn-mode="dark"] [data-slot="badge"][data-variant="default"][data-variant],
-[data-tn-mode="dark"] .theme [data-slot="badge"][data-variant="default"][data-variant] {
+.theme[data-tn-mode="dark"] [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])[data-variant="default"][data-variant],
+[data-tn-mode="dark"] .theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])[data-variant="default"][data-variant] {
   background-color: #17204a !important;
   color: #c9d4ff !important;
   box-shadow: inset 0 0 0 1px rgb(120 150 255 / 40%), 0 0 10px rgb(91 124 255 / 25%) !important;
@@ -950,7 +964,7 @@
 /* Badges and status: keep the storybook cut-paper character of the original
  * profile card, polished: hand-cut corners, faint paper tooth, a slight
  * tilt and paper-on-paper lift. Never an outline. */
-.theme [data-slot="badge"],
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]),
 .theme [data-testid="community-status-pill"],
 .theme [data-testid="community-profile-card"] button[title] {
   border: 0 !important;
@@ -964,13 +978,13 @@
   rotate: -1.5deg !important;
 }
 
-.theme [data-slot="badge"]:nth-of-type(2n) {
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]):nth-of-type(2n) {
   border-radius: 13px 10px 14px 11px / 10px 13px 11px 12px !important;
   rotate: 1.5deg !important;
 }
 
-.theme[data-tn-mode="dark"] :is([data-slot="badge"], [data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title]),
-[data-tn-mode="dark"] .theme :is([data-slot="badge"], [data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title]) {
+.theme[data-tn-mode="dark"] :is([data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]), [data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title]),
+[data-tn-mode="dark"] .theme :is([data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]), [data-testid="community-status-pill"], [data-testid="community-profile-card"] button[title]) {
   background-image: none !important;
   background-color: #23252c !important;
   color: #eceef4 !important;
@@ -980,8 +994,8 @@
     0 4px 10px -4px rgb(91 124 255 / 35%) !important;
 }
 
-.theme[data-tn-mode="dark"] [data-slot="badge"][data-variant="default"][data-variant],
-[data-tn-mode="dark"] .theme [data-slot="badge"][data-variant="default"][data-variant] {
+.theme[data-tn-mode="dark"] [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])[data-variant="default"][data-variant],
+[data-tn-mode="dark"] .theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])[data-variant="default"][data-variant] {
   background-color: #1b2552 !important;
   color: #d3dcff !important;
   box-shadow:
@@ -1003,18 +1017,6 @@
 
 .theme :is([data-slot="community-sidebar-panel-content"], [data-slot="community-shell-root"]) header {
   border-bottom-color: transparent !important;
-}
-
-.theme [data-testid="community-typing-indicator"] {
-  border: 0 !important;
-  background: color-mix(in oklab, var(--tn-surface) 92%, transparent) !important;
-  box-shadow: 0 1px 2px rgb(40 30 15 / 10%), 0 4px 12px -6px rgb(40 30 15 / 22%) !important;
-}
-
-.theme[data-tn-mode="dark"] [data-testid="community-typing-indicator"],
-[data-tn-mode="dark"] .theme [data-testid="community-typing-indicator"] {
-  background: rgb(20 20 24 / 92%) !important;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 7%), 0 0 14px rgb(91 124 255 / 18%) !important;
 }
 
 .theme [data-slot="popover-content"],
@@ -1081,8 +1083,10 @@
 }
 
 /* Message hover: a neutral paper shade, not a blue tint (keeps the list calm) */
-.theme [class~="hover:bg-accent/40"]:hover {
-  background-color: color-mix(in oklab, var(--tn-text) 3.5%, transparent) !important;
+@media (hover: hover) and (pointer: fine) {
+  .theme [class~="hover:bg-accent/40"]:hover {
+    background-color: color-mix(in oklab, var(--tn-text) 3.5%, transparent) !important;
+  }
 }
 
 /* Hover toolbar: one hairline pill; icon keys press */
@@ -1200,8 +1204,7 @@
 
 /* Body: smooth plastic, no grain */
 .theme [data-slot="community-shell-root"] {
-  --app-bg: var(--sidebar);
-  background: linear-gradient(180deg, var(--tn-body-top), var(--tn-body)) !important;
+  background: var(--app-frame) !important;
 }
 
 /* Screen: one plain, faint hairline around the app surface — not recessed,
@@ -1336,24 +1339,6 @@
 .theme [class~="max-w-[160px]"][class~="rounded-md"] { background: var(--tn-chip) !important; }
 .theme[data-tn-mode="dark"] [class~="max-w-[160px]"][class~="rounded-md"],
 [data-tn-mode="dark"] .theme [class~="max-w-[160px]"][class~="rounded-md"] { background: #1a1a1a !important; }
-
-/* Status pills become an LED with a mono label */
-.theme [data-slot="card"] span[class~="rounded-full"][class~="text-[11px]"]:not([data-slot="badge"]) {
-  padding: 0 !important;
-  background: transparent !important;
-  color: var(--tn-muted) !important;
-  font-family: var(--font-dm-mono), monospace;
-  letter-spacing: 0.02em;
-}
-.theme [data-slot="card"] span[class~="rounded-full"][class~="text-[11px]"]:not([data-slot="badge"]) > span[class~="rounded-full"] {
-  width: 7px !important;
-  height: 7px !important;
-  background: color-mix(in oklab, var(--tn-text) 25%, transparent) !important;
-}
-.theme [data-slot="card"] span[class~="rounded-full"][class~="text-[11px]"]:not([data-slot="badge"]) > span[class~="bg-status-online"] {
-  background: var(--tn-led-ok) !important;
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--tn-led-ok) 20%, transparent), 0 0 8px color-mix(in oklab, var(--tn-led-ok) 70%, transparent);
-}
 
 /* Object icons sit in beige plastic keycaps (machines, empty states) */
 .theme :is([class~="size-10"][class~="rounded-xl"][class~="bg-secondary"], [class~="size-14"][class~="rounded-full"][class~="bg-muted"]) {
@@ -1829,8 +1814,8 @@
 }
 
 /* #2249: badges all lean the same way, no left/right alternation */
-.theme [data-slot="badge"]:nth-of-type(2n),
-.theme [data-slot="badge"]:nth-of-type(3n) {
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]):nth-of-type(2n),
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]):nth-of-type(3n) {
   rotate: -1.5deg !important;
 }
 
@@ -1870,7 +1855,7 @@
   padding-inline: 10px !important;
 }
 /* Badge rows: room for the paper lift and two lines, nothing clipped */
-.theme [class~="max-h-12"]:has(> [data-slot="badge"]) {
+.theme [class~="max-h-12"]:has(> [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime])) {
   max-height: 3.75rem !important;
   padding-block: 2px 4px;
 }
@@ -1900,32 +1885,6 @@
   display: none !important;
 }
 
-/* #2278: the typing pill is a key. It does nothing, but it answers hover and press. */
-.theme [data-testid="community-typing-indicator"] {
-  pointer-events: auto !important;
-  cursor: default;
-  border: 0 !important;
-  background: linear-gradient(#fffdf8, #f2ece0) !important;
-  backdrop-filter: none !important;
-  box-shadow: inset 0 1px 0 #fff, 0 var(--tn-key-depth) 0 #d8ccb4, 0 4px 8px -6px rgb(60 45 20 / 28%) !important;
-  transition: transform 90ms ease-out, box-shadow 90ms ease-out;
-  animation: tn-key-in 220ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
-}
-.theme [data-testid="community-typing-indicator"]:hover { transform: translateY(-1px); }
-.theme [data-testid="community-typing-indicator"]:active {
-  transform: translateY(1.5px);
-  box-shadow: inset 0 1px 2px rgb(60 45 20 / 16%), 0 0.5px 0 #d8ccb4 !important;
-}
-.theme[data-tn-mode="dark"] [data-testid="community-typing-indicator"],
-[data-tn-mode="dark"] .theme [data-testid="community-typing-indicator"] {
-  background: radial-gradient(120% 140% at 50% 120%, rgb(140 160 200 / 22%), transparent 60%), linear-gradient(#1a1a1a, #0e0e0e) !important;
-  box-shadow: inset 0 0 10px rgb(140 160 200 / 18%), 0 var(--tn-key-depth) 0 rgb(140 160 200 / 36%), 0 calc(var(--tn-key-depth) + 2px) 10px rgb(140 160 200 / 18%) !important;
-}
-.theme[data-tn-mode="dark"] [data-testid="community-typing-indicator"]:active,
-[data-tn-mode="dark"] .theme [data-testid="community-typing-indicator"]:active {
-  box-shadow: inset 0 1px 4px rgb(0 0 0 / 70%), 0 0.5px 0 rgb(140 160 200 / 36%) !important;
-}
-
 /* #2279: jump-to-present arrives as a key rising into place, never pops */
 .theme [data-testid="community-scroll-to-present"] {
   animation: tn-key-in 220ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
@@ -1947,7 +1906,6 @@
   transition-property: color, background-color, border-color, box-shadow, opacity, translate, transform;
 }
 @media (prefers-reduced-motion: reduce) {
-  .theme [data-testid="community-typing-indicator"],
   .theme [data-testid="community-scroll-to-present"] { animation: none; }
 }
 
@@ -2168,11 +2126,14 @@
 .theme [data-slot="presence-status"] > span {
   width: 7px !important;
   height: 7px !important;
-  background: color-mix(in oklab, var(--tn-text) 25%, transparent) !important;
+  background: var(--muted-foreground) !important;
 }
 .theme [data-slot="presence-status"][data-online] > span {
-  background: var(--tn-led-ok) !important;
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--tn-led-ok) 20%, transparent), 0 0 8px color-mix(in oklab, var(--tn-led-ok) 70%, transparent);
+  background: var(--status-online) !important;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--status-online) 20%, transparent), 0 0 8px color-mix(in oklab, var(--status-online) 70%, transparent);
+}
+.theme [data-slot="presence-status"][data-presence="offline"] > span {
+  background: var(--status-offline) !important;
 }
 /* Landing closing card: a sheet of the cream paper (oklch mix with transparent drifted pink) */
 /* Closing card styling lives in landing-page.module.css (brand-visual card). */
@@ -2248,10 +2209,6 @@
 }
 
 /* Independent QA batch 2 (#2320) */
-/* Typing pill: keep the key look but never take pointer hits from the message under it */
-.theme [data-testid="community-typing-indicator"] {
-  pointer-events: none !important;
-}
 /* Landing section and closing titles on phones: the bold sans is wider than the
  * pixel face the clamp was tuned for */
 @media (max-width: 639px) {
@@ -2289,17 +2246,6 @@
   width: auto !important;
   min-width: 0 !important;
 }
-/* typing pill feedback comes from data flags (pointer stays pass-through) */
-.theme [data-testid="community-typing-indicator"][data-hover] { transform: translateY(-1px); }
-.theme [data-testid="community-typing-indicator"][data-pressed] {
-  transform: translateY(1.5px);
-  box-shadow: inset 0 1px 2px rgb(60 45 20 / 16%), 0 0.5px 0 #d8ccb4 !important;
-}
-.theme[data-tn-mode="dark"] [data-testid="community-typing-indicator"][data-pressed],
-[data-tn-mode="dark"] .theme [data-testid="community-typing-indicator"][data-pressed] {
-  box-shadow: inset 0 1px 4px rgb(0 0 0 / 70%), 0 0.5px 0 rgb(140 160 200 / 36%) !important;
-}
-
 /* CI #2330: a caller that opts its dialog close out of transitions
  * (**:data-[slot=dialog-close]:transition-none) keeps that over the key look. */
 .theme [data-slot="dialog-content"][class*="dialog-close]:transition-none"] [data-slot="dialog-close"] {
@@ -2424,24 +2370,24 @@
 /* Every badge answers like a paper sticker, even with no action (Gus #2440):
  * it lifts a pixel on hover and presses flat in place. Tilt and cut-paper
  * corners stay; translate composes with their rotate. */
-.theme [data-slot="badge"] {
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]) {
   transition: translate 90ms ease-out, box-shadow 90ms ease-out, filter 120ms ease-out;
 }
-.theme [data-slot="badge"]:hover {
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]):hover {
   translate: 0 -1px;
   filter: brightness(1.03);
 }
-.theme [data-slot="badge"]:active {
+.theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]):active {
   translate: 0 1px;
   filter: brightness(0.98);
   box-shadow: inset 0 1px 2px rgb(60 45 20 / 18%) !important;
 }
-.theme[data-tn-mode="dark"] [data-slot="badge"]:active,
-[data-tn-mode="dark"] .theme [data-slot="badge"]:active {
+.theme[data-tn-mode="dark"] [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]):active,
+[data-tn-mode="dark"] .theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]):active {
   box-shadow: inset 0 1px 3px rgb(0 0 0 / 70%) !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  .theme [data-slot="badge"] { transition: none; }
+  .theme [data-slot="badge"]:where(:not([data-variant="ghost"]), [data-machine-runtime]) { transition: none; }
 }
 
 /* #24/#26 One dialog/sheet title style everywhere: same size, weight and ink. */
@@ -2562,9 +2508,11 @@
  * The route marker also scopes portal content through body inheritance;
  * marketing materials keep their accepted palette. */
 :global(body).theme:has([data-community-shell]) {
+  background-color: var(--app-frame);
   --primary: var(--link);
   --primary-foreground: var(--tn-paper-raised);
-  --status-online: #315e3b;
+  --status-online: #16a34a;
+  --status-offline: #666666;
   --destructive: #973f32;
 }
 
@@ -2572,7 +2520,8 @@
 :global(body).theme[data-tn-mode="dark"]:has([data-community-shell]) {
   --primary: var(--tn-blue);
   --primary-foreground: #0d0d0d;
-  --status-online: var(--tn-sage);
+  --status-online: #22c55e;
+  --status-offline: #6b6b6b;
   --destructive: var(--tn-rose);
 }
 

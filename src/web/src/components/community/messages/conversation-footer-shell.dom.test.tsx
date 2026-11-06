@@ -1,7 +1,7 @@
 import React from "react"
 import { createPortal } from "react-dom"
 import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { ConversationPresentationContext } from "@/contexts/community/conversation-activity"
 import {
   ConversationFooterShell,
@@ -12,6 +12,7 @@ import {
 const originalWebkit = Object.getOwnPropertyDescriptor(window, "webkit")
 const originalTauri = Object.getOwnPropertyDescriptor(window, "__TAURI__")
 afterEach(() => {
+  document.documentElement.style.removeProperty("--alook-keyboard-progress")
   if (originalWebkit) Object.defineProperty(window, "webkit", originalWebkit)
   else Reflect.deleteProperty(window, "webkit")
   if (originalTauri) Object.defineProperty(window, "__TAURI__", originalTauri)
@@ -19,6 +20,50 @@ afterEach(() => {
 })
 
 describe("ConversationFooterShell", () => {
+  it("tracks a growing composer, restores selection flow, and retains the draft", () => {
+    let resize: ResizeObserverCallback | undefined
+    const disconnect = vi.fn()
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) { resize = callback }
+      observe() {}
+      disconnect = disconnect
+    })
+    let height = 60
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return { height: this.dataset.slot === "community-conversation-footer" ? height : 0 } as DOMRect
+    })
+    let slot: NonNullable<ReturnType<typeof useConversationFooterSlot>>
+    function Controls() {
+      slot = useConversationFooterSlot()!
+      return <button onClick={() => slot.setSelectionActive(!slot.selectionActive)}>toggle</button>
+    }
+    const view = render(<ConversationFooterSlotProvider>
+      <Controls />
+      <ConversationFooterShell data-testid="overlay"><input defaultValue="Keep draft" /></ConversationFooterShell>
+    </ConversationFooterSlotProvider>)
+    try {
+      const footer = view.getByTestId("overlay")
+      const draft = view.getByRole("textbox")
+      expect(footer).toHaveStyle({ marginTop: "-60px" })
+      expect(slot!.overlayHeight).toBe(60)
+      height = 132
+      act(() => resize!([], {} as ResizeObserver))
+      expect(footer).toHaveStyle({ marginTop: "-132px" })
+      expect(slot!.overlayHeight).toBe(132)
+      fireEvent.click(view.getByRole("button"))
+      expect(slot!.overlayHeight).toBe(0)
+      expect(footer.style.marginTop).toBe("")
+      fireEvent.click(view.getByRole("button"))
+      expect(footer).toHaveStyle({ marginTop: "-132px" })
+      expect(view.getByRole("textbox")).toBe(draft)
+      expect(draft).toHaveValue("Keep draft")
+    } finally {
+      view.unmount()
+      rect.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("keeps one retained footer and draft while native keyboard geometry changes from cover to expanded", async () => {
     const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth")
     Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
@@ -33,17 +78,19 @@ describe("ConversationFooterShell", () => {
     try {
       const footer = view.getByTestId("fold-footer")
       const draft = view.getByRole("textbox", { name: "Fold draft" })
-      await waitFor(() => expect(footer).toHaveStyle({ marginBottom: `${100 * 285 / 382}vw` }))
+      await waitFor(() => expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe(`${100 * 285 / 382}vw`))
+      expect(footer).toHaveStyle({ marginBottom: "var(--alook-keyboard-progress, 6px)" })
       native = { bottomInset: 244, viewportWidth: 867 }
       Object.defineProperty(window, "innerWidth", { configurable: true, value: 867 })
       act(() => window.dispatchEvent(new Event("resize")))
-      await waitFor(() => expect(footer).toHaveStyle({ marginBottom: `${100 * 244 / 867}vw` }))
+      await waitFor(() => expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe(`${100 * 244 / 867}vw`))
       expect(view.getByTestId("fold-footer")).toBe(footer)
       expect(view.getByRole("textbox", { name: "Fold draft" })).toBe(draft)
       expect(draft).toHaveValue("Keep this unsent")
       native = { bottomInset: 0, viewportWidth: 867 }
       act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
-      await waitFor(() => expect(footer).toHaveStyle({ marginBottom: "6px" }))
+      await waitFor(() => expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe(""))
+      expect(footer).toHaveStyle({ marginBottom: "var(--alook-keyboard-progress, 6px)" })
     } finally {
       view.unmount()
       if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth)
@@ -73,13 +120,15 @@ describe("ConversationFooterShell", () => {
       .map(id => ({ node: renderer.getByTestId(id), style: renderer.getByTestId(id).getAttribute("style") }))
     bottomInset = 300
     act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
-    await waitFor(() => expect(footer).toHaveStyle({ marginBottom: `${100 * 300 / window.innerWidth}vw`, borderRadius: "8px" }))
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe(`${100 * 300 / window.innerWidth}vw`))
+    expect(footer).toHaveStyle({ marginBottom: "var(--alook-keyboard-progress, 6px)", borderRadius: "8px" })
     for (const entry of stable) expect(entry.node.getAttribute("style")).toBe(entry.style)
     expect(renderer.getByRole("textbox", { name: "Native draft" })).toBe(draft)
     expect(draft).toHaveValue("Unsent draft")
     bottomInset = 0
     act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
-    await waitFor(() => expect(footer).toHaveStyle({ marginBottom: "6px", borderRadius: "8px" }))
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe(""))
+    expect(footer).toHaveStyle({ marginBottom: "var(--alook-keyboard-progress, 6px)", borderRadius: "8px" })
     expect(renderer.getByRole("textbox", { name: "Native draft" })).toBe(draft)
   })
 
@@ -98,7 +147,8 @@ describe("ConversationFooterShell", () => {
     await act(async () => {})
     expect(renderer.getByTestId("footer").style.marginBottom).toBe("")
     renderer.rerender(<Page presented />)
-    await waitFor(() => expect(renderer.getByTestId("footer")).toHaveStyle({ marginBottom: `${100 * 200 / window.innerWidth}vw` }))
+    await waitFor(() => expect(renderer.getByTestId("footer")).toHaveStyle({ marginBottom: "var(--alook-keyboard-progress, 0px)" }))
+    expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe(`${100 * 200 / window.innerWidth}vw`)
     renderer.rerender(<Page presented={false} />)
     expect(renderer.getByTestId("footer").style.marginBottom).toBe("")
     expect(renderer.getByRole("textbox", { name: "Retained draft" })).toBe(draft)

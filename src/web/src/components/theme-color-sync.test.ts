@@ -1,19 +1,31 @@
 import { describe, expect, it, vi } from "vitest";
-import { syncThemeColorToRailBackground } from "./theme-color-sync";
+import { syncThemeColorToVisibleBackground } from "./theme-color-sync";
 
 function fakeStyle(backgroundColor: string) {
   return { backgroundColor } as CSSStyleDeclaration;
 }
 
-describe("syncThemeColorToRailBackground", () => {
-  it("updates every theme-color meta to the computed rail backdrop", () => {
+describe("syncThemeColorToVisibleBackground", () => {
+  it("notifies native chrome once when the painted surface changes", () => {
+    const dispatchEvent = vi.fn()
+    const meta = { content: "previous" }
+    const doc = { body: {}, defaultView: { dispatchEvent }, querySelectorAll: () => [meta] } as unknown as Document
+    syncThemeColorToVisibleBackground(doc, () => fakeStyle("rgb(224, 213, 192)"))
+    syncThemeColorToVisibleBackground(doc, () => fakeStyle("rgb(224, 213, 192)"))
+    expect(dispatchEvent).toHaveBeenCalledOnce()
+    expect(dispatchEvent.mock.calls[0][0].type).toBe("alook:theme-color-change")
+    syncThemeColorToVisibleBackground(doc, () => fakeStyle("rgb(5, 5, 5)"))
+    expect(dispatchEvent).toHaveBeenCalledTimes(2)
+    expect(meta.content).toBe("rgb(5, 5, 5)")
+  })
+  it("updates every theme-color meta to the computed document backdrop", () => {
     const metas = [{ content: "light" }, { content: "dark" }];
     const doc = {
       body: {},
       querySelectorAll: vi.fn(() => metas),
     } as unknown as Document;
 
-    syncThemeColorToRailBackground(
+    syncThemeColorToVisibleBackground(
       doc,
       () => fakeStyle("rgb(245, 242, 236)"),
     );
@@ -39,7 +51,7 @@ describe("syncThemeColorToRailBackground", () => {
       querySelectorAll: vi.fn(() => [meta]),
     } as unknown as Document;
 
-    syncThemeColorToRailBackground(
+    syncThemeColorToVisibleBackground(
       doc,
       () => fakeStyle("rgb(245, 242, 236)"),
     );
@@ -57,7 +69,7 @@ describe("syncThemeColorToRailBackground", () => {
       createElement: vi.fn(() => createdMeta),
     } as unknown as Document;
 
-    syncThemeColorToRailBackground(
+    syncThemeColorToVisibleBackground(
       doc,
       () => fakeStyle("rgb(40, 39, 37)"),
     );
@@ -78,7 +90,7 @@ describe("syncThemeColorToRailBackground", () => {
         querySelectorAll: vi.fn(() => [meta]),
       } as unknown as Document;
 
-      syncThemeColorToRailBackground(doc, () => fakeStyle(backgroundColor));
+      syncThemeColorToVisibleBackground(doc, () => fakeStyle(backgroundColor));
 
       expect(meta.content).toBe("fallback");
     },

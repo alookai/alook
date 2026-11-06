@@ -4,10 +4,10 @@ import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/comm
 import { beginScrollTraceAnalysis, endScrollTraceAnalysis, installScrollTrace, markScrollTrace, startScrollTrace, summarizeScrollTrace } from "./_fixtures/scroll-trace"
 import { tid } from "./_fixtures/testids"
 import { expectUniqueSsrCommunityFrame } from "./_fixtures/community-ssr-frame"
-import { VIEWPORT, seedProfile, identity, finishAndAttach, establishScrollDistancePrecondition, establishExactPinnedPrecondition, establishTailMessageBelowViewportPrecondition, waitForCommittedGeometry, waitForStableTail, advanceScrollTraceFrame, expectViewportAnchorPreserved, expectResizeAnchorPreserved, expectContinuousResizeAnchorPreserved, expectInFlowMessageGeometry, messageCreateCount, type PostedMessageIdentity, expectMessageCreateIdentity, seedScrollCase, tracedAsUser } from "./_fixtures/message-scroll-characterization"
+import { VIEWPORT, seedProfile, identity, finishAndAttach, establishScrollDistancePrecondition, establishExactPinnedPrecondition, establishTailMessageBelowViewportPrecondition, waitForCommittedGeometry, waitForStableTail, advanceScrollTraceFrame, expectViewportAnchorPreserved, expectResizeAnchorPreserved, expectContinuousResizeAnchorPreserved, expectComposerOverlayGeometry, messageCreateCount, type PostedMessageIdentity, expectMessageCreateIdentity, seedScrollCase, tracedAsUser } from "./_fixtures/message-scroll-characterization"
 
 test.describe("message scroll characterization", () => {
-test("normal-flow composer resizes preserve semantic anchors and interaction boundaries", async ({ caseActors }, testInfo) => {
+test("overlay composer resizes preserve semantic anchors and interaction boundaries", async ({ caseActors }, testInfo) => {
     test.setTimeout(180_000)
     const actors = await caseActors(["alice", "bob", "carol"])
     const asUser = tracedAsUser(actors)
@@ -66,7 +66,7 @@ test("normal-flow composer resizes preserve semantic anchors and interaction bou
         detail: precondition,
       })
       const before = await waitForCommittedGeometry(scroller)
-      expectInFlowMessageGeometry(before, `resize-${distance}-before`)
+      expectComposerOverlayGeometry(before, `resize-${distance}-before`)
 
       // Match the user journey that exposed the regression: grow the composer,
       // establish the reading position, then delete the draft. Positioning the
@@ -76,20 +76,20 @@ test("normal-flow composer resizes preserve semantic anchors and interaction bou
       await alice.page.keyboard.press("ControlOrMeta+A")
       await alice.page.keyboard.press("Backspace")
       await expect(editable).toHaveText("")
-      await expect.poll(() => scroller.evaluate((element) => element.clientHeight))
-        .toBeGreaterThan(before.clientHeight)
+      await expect.poll(() => scroller.evaluate((element) => element.clientHeight - Number((element as HTMLElement).dataset.composerOcclusion ?? 0)))
+        .toBeGreaterThan(before.readableHeight)
       const shrunk = await waitForCommittedGeometry(scroller)
-      expectInFlowMessageGeometry(shrunk, `resize-${distance}-shrunk`)
+      expectComposerOverlayGeometry(shrunk, `resize-${distance}-shrunk`)
       expectResizeAnchorPreserved(before, shrunk, distance, `resize-${distance}-shrunk`)
       await endScrollTraceAnalysis(alice.page, `composer-shrink-${distance}`)
       await advanceScrollTraceFrame(scroller)
 
       await beginScrollTraceAnalysis(alice.page, `composer-grow-${distance}`)
       await editable.fill(composerLines(`boundary-${distance}`, 8))
-      await expect.poll(() => scroller.evaluate((element) => element.clientHeight))
-        .toBe(before.clientHeight)
+      await expect.poll(() => scroller.evaluate((element) => element.clientHeight - Number((element as HTMLElement).dataset.composerOcclusion ?? 0)))
+        .toBe(before.readableHeight)
       const grown = await waitForCommittedGeometry(scroller)
-      expectInFlowMessageGeometry(grown, `resize-${distance}-grown`)
+      expectComposerOverlayGeometry(grown, `resize-${distance}-grown`)
       expectResizeAnchorPreserved(before, grown, distance, `resize-${distance}-grown`)
       await endScrollTraceAnalysis(alice.page, `composer-grow-${distance}`)
       await advanceScrollTraceFrame(scroller)
@@ -118,8 +118,9 @@ test("normal-flow composer resizes preserve semantic anchors and interaction bou
     await expect(conversationFooter).toHaveAttribute("data-selection-active", "true")
     await expect(editable).toBeHidden()
     const selectionOpen = await waitForCommittedGeometry(scroller)
-    expect(selectionOpen.clientHeight).toBeGreaterThan(selectionBase.clientHeight)
-    expect(selectionOpen.scrollHeight).toBe(selectionBase.scrollHeight)
+    expect(selectionOpen.readableHeight).toBeGreaterThan(selectionBase.readableHeight)
+    expect(selectionOpen.composerOcclusion).toBe(0)
+    expect(Math.abs(selectionBase.scrollHeight - selectionOpen.scrollHeight - selectionBase.composerOcclusion)).toBeLessThanOrEqual(1)
     expectViewportAnchorPreserved(selectionBase, selectionOpen, "selection-open-away")
     await expect(editable).toContainText("selection-draft line 0")
     await alice.page.getByRole("button", { name: "Cancel message selection" }).click()
@@ -152,14 +153,14 @@ test("normal-flow composer resizes preserve semantic anchors and interaction bou
     await replyButton.evaluate((button) => (button as HTMLButtonElement).click())
     await expect(alice.page.locator('[data-slot="composer-reply-preview"]')).toBeVisible()
     const replyOpen = await waitForCommittedGeometry(scroller)
-    expect(replyOpen.clientHeight).toBeLessThan(replyBase.clientHeight)
+    expect(replyOpen.readableHeight).toBeLessThan(replyBase.readableHeight)
     expect(replyOpen.distanceToEnd).toBeLessThanOrEqual(1)
     expectResizeAnchorPreserved(replyBase, replyOpen, 0, "reply-open")
-    expectInFlowMessageGeometry(replyOpen, "reply-open")
+    expectComposerOverlayGeometry(replyOpen, "reply-open")
     await alice.page.getByRole("button", { name: "Cancel reply" }).click()
     await expect(alice.page.locator('[data-slot="composer-reply-preview"]')).toHaveCount(0)
     const replyClosed = await waitForCommittedGeometry(scroller)
-    expect(replyClosed.clientHeight).toBe(replyBase.clientHeight)
+    expect(replyClosed.readableHeight).toBe(replyBase.readableHeight)
     expect(replyClosed.distanceToEnd).toBeLessThanOrEqual(1)
     expectResizeAnchorPreserved(replyBase, replyClosed, 0, "reply-closed")
     await endScrollTraceAnalysis(alice.page, "reply-banner-pinned")
@@ -179,13 +180,13 @@ test("normal-flow composer resizes preserve semantic anchors and interaction bou
     })
     await expect(alice.page.getByText("geometry-only.txt", { exact: true })).toBeVisible()
     const attachmentOpen = await waitForCommittedGeometry(scroller)
-    expect(attachmentOpen.clientHeight).toBeLessThan(attachmentBase.clientHeight)
+    expect(attachmentOpen.readableHeight).toBeLessThan(attachmentBase.readableHeight)
     expectViewportAnchorPreserved(attachmentBase, attachmentOpen, "attachment-open-away")
-    expectInFlowMessageGeometry(attachmentOpen, "attachment-open-away")
+    expectComposerOverlayGeometry(attachmentOpen, "attachment-open-away")
     await alice.page.getByRole("button", { name: "Remove file" }).click()
     await expect(alice.page.getByText("geometry-only.txt", { exact: true })).toHaveCount(0)
     const attachmentClosed = await waitForCommittedGeometry(scroller)
-    expect(attachmentClosed.clientHeight).toBe(attachmentBase.clientHeight)
+    expect(attachmentClosed.readableHeight).toBe(attachmentBase.readableHeight)
     expectViewportAnchorPreserved(attachmentBase, attachmentClosed, "attachment-closed-away")
     await endScrollTraceAnalysis(alice.page, "attachment-chip-away")
     await advanceScrollTraceFrame(scroller)
@@ -199,7 +200,7 @@ test("normal-flow composer resizes preserve semantic anchors and interaction bou
     expect(typingOpen.clientHeight).toBe(typingBase.clientHeight)
     expectViewportAnchorPreserved(typingBase, typingOpen, "typing-rail-away")
     expect(typingOpen.railRect, "typing-rail-away: scoped Footer rail exists").not.toBeNull()
-    expectInFlowMessageGeometry(typingOpen, "typing-rail-away")
+    expectComposerOverlayGeometry(typingOpen, "typing-rail-away")
     await bobEditable.fill("")
     await endScrollTraceAnalysis(alice.page, "typing-rail-away")
     await advanceScrollTraceFrame(scroller)
@@ -267,8 +268,8 @@ test("normal-flow composer resizes preserve semantic anchors and interaction bou
     expect(Math.abs(parentGeometry.composerRect!.top - parentComposerBox!.y)).toBeLessThanOrEqual(1)
     expect(Math.abs(threadGeometry.composerRect!.top - threadComposerBox!.y)).toBeLessThanOrEqual(1)
     expect(threadGeometry.composerRect!.top).not.toBe(parentGeometry.composerRect!.top)
-    expectInFlowMessageGeometry(parentGeometry, "split-parent")
-    expectInFlowMessageGeometry(threadGeometry, "split-thread")
+    expectComposerOverlayGeometry(parentGeometry, "split-parent")
+    expectComposerOverlayGeometry(threadGeometry, "split-thread")
     expect(mutationPosts).toBe(0)
 
     await parentEditable.fill("")
