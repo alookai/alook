@@ -52,9 +52,25 @@ test("Typing uses the remaining width beside New while the present control stays
   await composerEditable(bob.page).click()
   await bob.page.keyboard.type("typing beside New")
   await expect(alice.page.getByTestId(tid.typingIndicator)).toContainText(LONG_TYPING_NAME)
+  const presentButton = alice.page.getByTestId(tid.scrollToPresent)
+  const lastRow = alice.page.getByTestId(tid.message(lastMessage))
+  await expect(lastRow).toBeInViewport()
+  const scrollSamples: Array<{ before: number; after: number | null }> = []
   await scroller.hover()
-  await alice.page.mouse.wheel(0, -180)
-  await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeVisible()
+  for (let step = 0; step < 8 && !await presentButton.isVisible(); step++) {
+    const sample = { before: await scroller.evaluate(element => element.scrollTop), after: null as number | null }
+    scrollSamples.push(sample)
+    await alice.page.mouse.wheel(0, -180)
+    await expect.poll(async () => {
+      sample.after = await scroller.evaluate(element => element.scrollTop)
+      return sample.after
+    }).toBeLessThan(sample.before)
+  }
+  await testInfo.attach("typing-new-scroll-admission.json", {
+    body: JSON.stringify(scrollSamples), contentType: "application/json",
+  })
+  await expect(presentButton).toBeVisible()
+  await expect(presentButton).toHaveAccessibleName(/^Scroll to bottom, [1-9]\d* more below$/)
   await expect(newButton).toBeVisible()
   const centered = await settledRailMetrics(alice.page, lastMessage)
   expect(Math.abs(centered.center!.center - centered.composer.center)).toBeLessThanOrEqual(1)
