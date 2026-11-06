@@ -4,6 +4,8 @@ import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/
 
 import { tid } from "./_fixtures/testids"
 import type { CaseActors } from "./_fixtures/case-fixture"
+import { communityFixtureFetch } from "./_fixtures/business-contract"
+import { WEB_URL } from "./_setup/paths"
 
 async function prepareCase(actors: CaseActors) {
   const { userName } = actors
@@ -19,6 +21,106 @@ async function prepareCase(actors: CaseActors) {
 
 const VIEWPORT_WIDTHS = [320, 390, 639, 640, 1280] as const
 const LONG_TYPING_NAME = `Typing ${"occupancy ".repeat(8)}edge`
+
+test("Typing uses the remaining width beside New while the present control stays independent", async ({ caseActors }, testInfo) => {
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser, sessionCookie, userName } = actors
+  const { renameUser, seedServer, seedChannel, seedJoinServer, seedMessage } = actors.seed
+  actors.onCleanup(async () => { await renameUser("bob", userName("bob")) })
+  await renameUser("bob", LONG_TYPING_NAME)
+  const serverId = await seedServer("alice", `Typing beside New ${Date.now()}`)
+  const channelId = await seedChannel("alice", serverId, "typing-new")
+  await seedJoinServer("alice", "bob", serverId)
+  const readThrough = await seedMessage("alice", channelId, "already read")
+  const read = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
+    method: "PUT", headers: { Cookie: sessionCookie("alice"), "Content-Type": "application/json", Origin: WEB_URL },
+    body: JSON.stringify({ lastReadMessageId: readThrough }),
+  })
+  expect(read.status).toBe(200)
+  let lastMessage = ""
+  for (let index = 0; index < 12; index++) lastMessage = await seedMessage("bob", channelId,
+    `unread ${index}\n${Array.from({ length: 8 }, (_, line) => `typing layout line ${line}`).join("\n\n")}`)
+  const alice = await asUser("alice"), bob = await asUser("bob")
+  await alice.page.setViewportSize({ width: 1280, height: 900 })
+  const route = `/c/channels/${serverId}/${channelId}`
+  await gotoAfterUserWsAuth(alice.page, route)
+  await gotoAfterUserWsAuth(bob.page, route)
+  const newButton = alice.page.getByTestId(tid.scrollToNew)
+  const scroller = alice.page.getByTestId(tid.messageScroller)
+  await expect(newButton).toBeVisible()
+  await expect(alice.page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
+  await composerEditable(bob.page).click()
+  await bob.page.keyboard.type("typing beside New")
+  await expect(alice.page.getByTestId(tid.typingIndicator)).toContainText(LONG_TYPING_NAME)
+  const presentButton = alice.page.getByTestId(tid.scrollToPresent)
+  const lastRow = alice.page.getByTestId(tid.message(lastMessage))
+  await expect(lastRow).toBeInViewport()
+  const scrollSamples: Array<{ before: number; after: number | null }> = []
+  await scroller.hover()
+  for (let step = 0; step < 8 && !await presentButton.isVisible(); step++) {
+    const sample = { before: await scroller.evaluate(element => element.scrollTop), after: null as number | null }
+    scrollSamples.push(sample)
+    await alice.page.mouse.wheel(0, -180)
+    await expect.poll(async () => {
+      sample.after = await scroller.evaluate(element => element.scrollTop)
+      return sample.after
+    }).toBeLessThan(sample.before)
+  }
+  await testInfo.attach("typing-new-scroll-admission.json", {
+    body: JSON.stringify(scrollSamples), contentType: "application/json",
+  })
+  await expect(presentButton).toBeVisible()
+  await expect(presentButton).toHaveAccessibleName(/^Scroll to bottom, [1-9]\d* more below$/)
+  await expect(newButton).toBeVisible()
+  const centered = await settledRailMetrics(alice.page, lastMessage)
+  expect(Math.abs(centered.center!.center - centered.composer.center)).toBeLessThanOrEqual(1)
+  await alice.page.getByTestId(tid.scrollToPresent).click()
+  await expect(alice.page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
+  await expect(newButton).toBeVisible()
+
+  for (const width of [1280, 390, 639, 640]) {
+    await alice.page.setViewportSize({ width, height: 900 })
+    await composerEditable(bob.page).click()
+    await bob.page.keyboard.type("x")
+    await expect(alice.page.getByTestId(tid.typingIndicator)).toContainText(LONG_TYPING_NAME)
+    await expect(newButton).toBeVisible()
+    await expect(alice.page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
+    const geometry = await alice.page.evaluate(({ railId, typingId, newId, labelText }) => {
+      const rail = document.querySelector<HTMLElement>(`[data-testid="${railId}"]`)!
+      const typing = document.querySelector<HTMLElement>(`[data-testid="${typingId}"]`)!
+      const control = document.querySelector<HTMLElement>(`[data-testid="${newId}"]`)!
+      const text = Array.from(typing.children).find(element => element.textContent === labelText) as HTMLElement | undefined
+      if (!text) throw new Error("The expected typing label is missing")
+      const row = rail.firstElementChild!
+      const gap = Number.parseFloat(getComputedStyle(row).columnGap)
+      const r = rail.getBoundingClientRect(), t = typing.getBoundingClientRect(), n = control.getBoundingClientRect()
+      return { railLeft: r.left, railRight: r.right, typingLeft: t.left, typingRight: t.right, typingHeight: t.height,
+        newLeft: n.left, newRight: n.right, gap, available: n.left - r.left - gap,
+        natural: text.scrollWidth + t.width - text.clientWidth, clientWidth: text.clientWidth, scrollWidth: text.scrollWidth,
+        documentWidth: document.documentElement.clientWidth, documentScrollWidth: document.documentElement.scrollWidth }
+    }, { railId: tid.composerAccessoryRail, typingId: tid.typingIndicator, newId: tid.scrollToNew, labelText: `${LONG_TYPING_NAME} is typing…` })
+    expect(geometry.documentScrollWidth).toBe(geometry.documentWidth)
+    expect(geometry.typingLeft).toBeGreaterThanOrEqual(geometry.railLeft)
+    expect(geometry.newRight).toBeLessThanOrEqual(geometry.railRight)
+    expect(geometry.typingRight).toBeLessThanOrEqual(geometry.newLeft - geometry.gap)
+    expect(geometry.typingHeight).toBe(32)
+    if (width === 1280) {
+      expect(geometry.natural).toBeLessThanOrEqual(geometry.available)
+      expect(geometry.clientWidth).toBeGreaterThanOrEqual(geometry.scrollWidth)
+    } else if (width === 390) {
+      expect(geometry.natural).toBeGreaterThan(geometry.available)
+      expect(geometry.scrollWidth).toBeGreaterThan(geometry.clientWidth)
+    }
+    await testInfo.attach(`typing-new-${width}.json`, { body: JSON.stringify(geometry), contentType: "application/json" })
+    if (width === 1280 || width === 390) await testInfo.attach(`typing-new-${width}.png`, {
+      body: await alice.page.screenshot(), contentType: "image/png",
+    })
+  }
+  await bob.page.keyboard.press("ControlOrMeta+A")
+  await bob.page.keyboard.press("Backspace")
+  await expect(alice.page.getByTestId(tid.typingIndicator)).toHaveCount(0)
+  await expect(newButton).toBeVisible()
+})
 
 async function sendExactMessage(sender: Page, receiver: Page, text: string) {
   const editable = composerEditable(sender)

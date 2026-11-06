@@ -4,6 +4,9 @@ import { installMessageScrollFixture, restoreMessageScrollFixture, message, moun
 import type { MessageRequest, MessageRequestResult, NewPositionRequest, NewPositionResult } from "@/lib/community/message-position"
 import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 import { CONVERSATION_READ_TIMEOUT_MS } from "@/lib/community/conversation-read"
+import type { useScrollAnchor } from "./use-scroll-anchor"
+
+type BoundaryReached = NonNullable<Parameters<typeof useScrollAnchor>[0]["onNewBoundaryReached"]>
 
 beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
@@ -15,6 +18,93 @@ function start(id: string, load?: () => MessageRequest) {
   return request
 }
 const items = () => Array.from({ length: 50 }, (_, index) => ({ ...message(`m${index}`), newDivider: index === 5 }))
+
+it.each(["explicit", "present"] as const)("revokes manual arrival qualification when %s takes positioning and settles", action => {
+  const reached = vi.fn<BoundaryReached>(), entry = {}, owner = {}
+  const rows = items().map((item, index) => ({ ...item, newDivider: index === 49 }))
+  const h = mount({ items: rows, newDividerBefore: "m49", initialPositionMessageId: "m0", positionEntry: entry,
+    newBoundaryOwner: owner, onNewBoundaryReached: reached })
+  try {
+    expect(scrollFixture.latest.newDividerVisibility).toBe("below")
+    h.move(100)
+    expect(reached).not.toHaveBeenCalled()
+    act(() => { if (action === "explicit") scrollFixture.latest.jumpTo("m49", "auto"); else scrollFixture.latest.scrollToBottom() })
+    resize()
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(scrollFixture.latest.newDividerVisibility).toBe("visible")
+    expect(reached).not.toHaveBeenCalled()
+    h.move(h.root.scrollTop - 1)
+    expect(reached.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({ id: "m49", entry, owner }))
+    expect(reached.mock.calls.at(-1)?.[0].entry).toBe(entry)
+    expect(reached.mock.calls.at(-1)?.[0].owner).toBe(owner)
+  } finally { h.view.unmount() }
+})
+
+it("keeps manual arrival eligible through same-owner image and composer measurements", () => {
+  const reached = vi.fn<BoundaryReached>(), entry = {}, owner = {}
+  const h = mount({ items: items(), newDividerBefore: "m5", initialPositionMessageId: "m0", positionEntry: entry,
+    newBoundaryOwner: owner, onNewBoundaryReached: reached })
+  try {
+    h.move(100)
+    const divider = h.root.querySelector<HTMLElement>('[data-message-divider-for="m5"] [data-new-divider]')!
+    h.move(h.root.scrollTop + divider.getBoundingClientRect().top - 100)
+    const first = reached.mock.calls.at(-1)?.[0]
+    expect(first).toEqual(expect.objectContaining({ id: "m5", entry, owner }))
+    expect(first?.entry).toBe(entry)
+    expect(first?.owner).toBe(owner)
+    reached.mockClear()
+    scrollFixture.bodyHeights.set("m4", 250)
+    resize()
+    expect(scrollFixture.latest.newDividerVisibility).toBe("visible")
+    expect(reached.mock.calls.at(-1)?.[0]).toEqual(first)
+    h.update({ viewportInsetEnd: 450 })
+    expect(scrollFixture.latest.newDividerVisibility).toBe("below")
+    reached.mockClear()
+    h.update({ viewportInsetEnd: 0 })
+    expect(reached.mock.calls.at(-1)?.[0]).toEqual(first)
+  } finally { h.view.unmount() }
+})
+
+it("does not inherit a manual qualification after inactivity or a recipient change", () => {
+  const reached = vi.fn<BoundaryReached>()
+  const h = mount({ items: items(), newDividerBefore: "m5", initialPositionMessageId: "m0", positionEntry: {},
+    newBoundaryOwner: {}, onNewBoundaryReached: reached })
+  try {
+    h.move(1)
+    expect(scrollFixture.latest.newDividerVisibility).toBe("below")
+    expect(reached).not.toHaveBeenCalled()
+    h.update({ active: false, positioningActive: true })
+    const divider = h.root.querySelector<HTMLElement>('[data-message-divider-for="m5"] [data-new-divider]')!
+    act(() => h.root.scrollTo({ top: h.root.scrollTop + divider.getBoundingClientRect().top - 100 }))
+    resize()
+    h.update({ active: true })
+    expect(scrollFixture.latest.newDividerVisibility).toBe("visible")
+    expect(reached).not.toHaveBeenCalled()
+    h.move(h.root.scrollTop + 1)
+    expect(reached).toHaveBeenCalled()
+    reached.mockClear()
+    h.update({ newBoundaryOwner: {} })
+    expect(reached).not.toHaveBeenCalled()
+    h.move(h.root.scrollTop + 1)
+    expect(reached).toHaveBeenCalled()
+  } finally { h.view.unmount() }
+})
+
+it.each(["pending", "error"] as const)("does not notify from a child row commit after data becomes %s", state => {
+  const reached = vi.fn<BoundaryReached>()
+  const h = mount({ items: items(), newDividerBefore: "m5", initialPositionMessageId: "m0", positionEntry: {},
+    newBoundaryOwner: {}, onNewBoundaryReached: reached })
+  try {
+    h.move(1)
+    expect(scrollFixture.latest.newDividerVisibility).toBe("below")
+    const divider = h.root.querySelector<HTMLElement>('[data-message-divider-for="m5"] [data-new-divider]')!
+    h.move(h.root.scrollTop + divider.getBoundingClientRect().top - 100)
+    expect(reached).toHaveBeenCalled()
+    reached.mockClear()
+    h.update({ positionDataState: state })
+    expect(reached).not.toHaveBeenCalled()
+  } finally { h.view.unmount() }
+})
 
 it("enters at the real bottom and keeps late New metadata from taking scroll ownership", () => {
   const h = mount({ items: items(), newDividerBefore: "m5" })

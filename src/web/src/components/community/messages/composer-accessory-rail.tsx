@@ -51,6 +51,7 @@ export function ComposerAccessoryRail({
           "grid h-full w-full items-center gap-1 sm:gap-2",
           layout === "centered" && "grid-cols-[minmax(0,1fr)_minmax(0,max-content)_minmax(0,1fr)]",
           layout === "left-only" && "grid-cols-[minmax(0,1fr)]",
+          layout === "edges" && "grid-cols-[minmax(0,1fr)_max-content]",
         )}
       >
         {hasTyping && (
@@ -71,7 +72,10 @@ export function ComposerAccessoryRail({
             data-testid={tid.scrollToNew}
             aria-label="Jump to New"
             onClick={onNew}
-            className="pointer-events-auto col-start-3 h-full min-w-11 max-w-full gap-1.5 justify-self-end rounded-full border-destructive px-2 text-xs font-medium text-destructive hover:text-destructive"
+            className={cn(
+              "pointer-events-auto h-full min-w-11 max-w-full gap-1.5 justify-self-end rounded-full border-destructive px-2 text-xs font-medium text-destructive hover:text-destructive",
+              layout === "centered" ? "col-start-3" : "col-start-2",
+            )}
           >
             <ArrowUp className="size-3.5 shrink-0" />
             <span>New</span>

@@ -158,12 +158,20 @@ export function useMessageListController({
     hasMoreOlder: hasMore,
     tailPaddingEnd: MESSAGE_RAIL_TAIL_PADDING_END_PX + overlayHeight,
     viewportInsetEnd: overlayHeight,
+    newBoundaryOwner: lookback.owner,
+    onNewBoundaryReached: consumeReachedNew,
   })
   const initialPosition = useInitialPositionTransition({
     firstWindowReady: !isLoading && (messages.length > 0 || !initialLoadError),
     authoritativeEmpty,
     positionSettled: positionOutcome !== "pending",
   })
+  function consumeReachedNew(boundary: { id: string; entry: object | null | undefined; owner: object | undefined }): void {
+    if (lookback.used || active === false || !readPositionReady || typeof document === "undefined" || document.visibilityState !== "visible"
+      || boundary.owner !== lookback.owner || boundary.entry !== positionEntry) return
+    setLookback(current => current.owner === lookback.owner && current.target === boundary.id && !current.used
+      ? { ...current, used: true, error: null } : current)
+  }
   const readVisiblePeerSeq = useCallback(() => {
     const root = scrollRef.current
     if (!root || active === false || !readPositionReady) return 0
