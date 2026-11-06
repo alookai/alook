@@ -2,9 +2,10 @@ export const metadata = {
   slug: "ai-agent-collaboration-platforms",
   title: "AI Agent Collaboration Platforms Compared",
   date: "2026-10-21",
+  dateModified: "2026-11-06",
   author: "Alook Team",
   excerpt: "Compare 10 AI agent collaboration platforms, from frameworks to workflows and shared workspaces. Find the tools that fit your team.",
-  readingTime: "11 min read",
+  readingTime: "13 min read",
   image: "/blog/ai-agent-collaboration-platforms/hero.png",
 };
 
@@ -18,7 +19,7 @@ export const jsonLd = [
         "name": "Do you need multiple agents for every workflow?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "No. Use multiple agents when their separate responsibilities justify the coordination work. One agent may already handle the task, and a predictable step may be better implemented as an ordinary function. Microsoft's framework documentation explicitly advises using a function when one can do the job. Keep the simpler implementation until another agent has a clear job and a useful output to pass on."
+          "text": "No. Use multiple agents when their separate responsibilities justify the coordination work. One agent may already handle the task, and a predictable step may be better implemented as an ordinary function. Keep the simpler implementation until another agent has a clear job and a useful output to pass on."
         }
       },
       {
@@ -26,16 +27,16 @@ export const jsonLd = [
         "name": "What costs sit outside the platform subscription?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Budget for model usage and tool services as well as the infrastructure you run. Hosting or local machines and storage can sit outside the platform subscription. Determine which are included and which are billed separately for the deployment you choose. Also account for maintaining credentials, reviewing failures, and updating integrations. A useful cost comparison follows the same workload through each candidate, rather than comparing entry-plan prices alone."
+          "text": "Budget for model usage and tool services as well as the infrastructure you run. Hosting or local machines and storage can sit outside the platform subscription. Determine which are included and which are billed separately for the deployment you choose. Someone must keep the connections working when credentials expire or an integration changes. Include that maintenance time and the time spent investigating failed runs. A useful cost comparison follows the same workload through each candidate, rather than comparing entry-plan prices alone."
         }
       }
     ]
   }
 ];
 
-**AI agent collaboration platforms coordinate work between agents, through application code, business workflows, or a shared workspace.** This guide compares 10 options and the work required to use them.
+When agents pass work to one another, someone must make sure the right input reaches the next agent. **AI agent collaboration platforms give you ways to organize that work.** Choosing one starts with deciding how much of the coordination you want to build.
 
-The first decision is what you need to deliver. An application developer needs control over execution; a workflow owner may need to connect business tools and approve actions. A team using existing agents also needs a place to assign work or discuss results. The comparison below uses official documentation, with no shared performance benchmark.
+You might need execution paths in application code, or a workflow that connects your business tools and waits for approval. If colleagues already have agents, a shared place to assign work and discuss results may be enough. We compare ten options using official documentation; we have not run a shared performance benchmark.
 
 ![LangGraph, n8n and Paperclip logos in separate framework, workflow and workspace columns, with the Alook logo in the bottom-right corner.](/blog/ai-agent-collaboration-platforms/hero.png)
 
@@ -45,13 +46,16 @@ AI agent collaboration means agents work toward a common task and use one anothe
 
 Three unrelated chats leave that coordination to you. Someone still has to combine the answers and decide what happens next.
 
-Collaboration can involve ordered tasks, parallel work, or repeated review, as described in [IBM’s overview of multi-agent collaboration](https://www.ibm.com/think/topics/multi-agent-collaboration). The platform choice depends on where those relationships belong: inside application code, in a business process, or between people and bots. For the underlying control patterns, see [AI agent orchestration](/blog/ai-agent-orchestration).
+The platform choice depends on where that coordination belongs: inside application code, in a business process, or between people and bots. For the underlying control patterns, see [AI agent orchestration](/blog/ai-agent-orchestration).
 
 ## What platforms support multi-agent collaboration?
 
-**LangGraph, OpenAI Agents SDK, Google ADK, CrewAI, Microsoft Agent Framework, n8n, Relevance AI, OpenAgents, Alook, and Paperclip support different forms of multi-agent collaboration.** The table separates their main approaches so you can narrow the list before comparing individual products.
+LangGraph and the other application frameworks below give developers control over how agents run. n8n and Relevance AI organize business workflows, while OpenAgents, Alook, and Paperclip provide different ways for a team to coordinate existing agents.
 
 Start with the work you need to organize:
+
+<div className="overflow-x-auto thin-scrollbar">
+<div style={{ minWidth: "640px" }}>
 
 | Your requirement | Options to examine | What you still need to define |
 |---|---|---|
@@ -59,7 +63,10 @@ Start with the work you need to organize:
 | Connect agents to business processes | n8n, Relevance AI | Connections, credentials, routing, and review points |
 | Work with colleagues and existing bots | OpenAgents, Alook, Paperclip | Conversation or task model, agent connections, and execution permissions |
 
-These 10 products are a selected comparison. The numbering helps you find each product; it does not indicate a rank.
+</div>
+</div>
+
+The numbers identify the ten products in this comparison, not their rank.
 
 ## Multi-agent frameworks compared
 
@@ -67,67 +74,82 @@ For an application you will build and maintain, compare how each framework repre
 
 ### 1. LangGraph: control over state and execution paths
 
-[LangGraph](https://docs.langchain.com/oss/python/langgraph/overview) is a low-level orchestration framework and runtime. It combines explicit execution paths with model-driven decisions.
+A report may need another research pass after a reviewer finds a missing source. With [LangGraph](https://docs.langchain.com/oss/python/langgraph/overview), you can represent that return path in the application and keep the state needed for the next step. You decide which transitions are fixed and where an agent makes a choice.
 
-With LangGraph, you design the graph and its integrations. Use it when your application needs explicit state transitions and defined pause points. Keep the runtime decision separate from buying LangSmith services for tracing or deployment; those are related products with different responsibilities.
+That control comes with work: your team builds the graph and its integrations. It matters most when a prompt telling agents to “review, then revise” is too loose for the application you need to maintain. Keep the runtime decision separate from buying LangSmith services for tracing or deployment.
 
 ### 2. OpenAI Agents SDK: specialists as tools or handoffs
 
-The [OpenAI Agents SDK](https://developers.openai.com/api/docs/guides/agents/sdk) runs in your application. Your application owns deployment, tool implementations, storage choices, and approval decisions.
+The [OpenAI Agents SDK](https://developers.openai.com/api/docs/guides/agents/sdk) makes you answer a useful ownership question: should one agent remain responsible for the reply, or should a specialist take over?
 
-Its [orchestration patterns](https://developers.openai.com/api/docs/guides/agents/orchestration) give you two ways to delegate: a manager can call specialists as tools and remain responsible for the answer, or hand control to a specialist. Choose the pattern according to which agent should own the response. OpenAI's managed Agents API is a separate option.
+In the SDK's [orchestration patterns](https://developers.openai.com/api/docs/guides/agents/orchestration), a manager can call specialists as tools and assemble their contributions into its answer. A handoff transfers control to another agent instead. A research assistant that needs a specialist's findings may keep the manager in charge; a conversation that should continue with the specialist may call for a handoff. Choose the pattern according to which agent should own the response. You run the SDK inside your application. OpenAI's managed Agents API is a separate hosting choice.
 
 ### 3. Google ADK: agents and workflow nodes
 
-[Google ADK workflows](https://adk.dev/workflows/) combine agents with executable nodes. Current documentation includes graph-based, dynamic, collaborative, and template workflows.
+Some steps need a model's judgment; others should just run code. [Google ADK's graph workflows](https://adk.dev/graphs/) let you place both in the same process. A function can process one agent's output before the next agent receives it, with the route defined in code. That is useful when you want an agent to interpret an input but ordinary application logic to determine the next operation.
 
-For an application that mixes agent decisions with executable workflow nodes, ADK lets you choose between several workflow models. Check the language and version behind each feature: graph and dynamic workflows are marked ADK 2.0 and higher, while individual guides specify their supported SDKs. Confirm support in the SDK version you plan to deploy.
+ADK also offers [prebuilt workflow structures](https://adk.dev/workflows/) for common execution patterns. The graph and dynamic workflow options require ADK 2.0 or higher, and support differs by language. Compare the workflow available in the SDK you will actually deploy, rather than treating every ADK example as interchangeable.
 
 ### 4. CrewAI: roles, tasks, and crew processes
 
-[CrewAI crews](https://docs.crewai.com/en/concepts/crews) organize agents around tasks and a process, including sequential and hierarchical execution. The documentation's research-and-analysis example makes the relationship concrete: the analysis task takes the research task as context and produces a report.
+[CrewAI crews](https://docs.crewai.com/en/concepts/crews) start with the jobs you want agents to do. Its documented research-and-analysis example gives the analysis task the research task's output as context. That is a concrete way to express a dependency without leaving the analyst to guess where its input should come from.
 
-CrewAI suits work you can describe through roles and task outputs. Define the inputs and tools for each role, then give its output an acceptance criterion. A reviewer, for example, needs a specific instruction to check citations against the source material.
+This role-and-task structure gives a team a place to state the expected output for each job. It does not make the instructions complete: a reviewer, for example, needs a specific instruction to check citations against the source material. CrewAI supports sequential and hierarchical processes. Compare those processes with LangGraph's explicit paths when deciding how much execution logic your application needs to express.
 
 ### 5. Microsoft Agent Framework: workflows in the Microsoft ecosystem
 
-[Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/overview/) combines agent abstractions with graph-based workflows. Microsoft describes it as the direct successor to AutoGen and Semantic Kernel.
+A .NET team can build a [Microsoft Agent Framework workflow](https://learn.microsoft.com/en-us/agent-framework/concepts/workflows/) from typed executors, connecting them through edges and conditions. Each executor receives input and emits output. The graph can send work down parallel branches and bring the results together, with events showing what ran.
 
-For a new Microsoft-stack project, check the supported languages and required integrations alongside the workflow model. For an existing implementation, begin with the migration guidance below. Hosting remains a separate choice.
+That gives an existing .NET application a concrete workflow API to assess, beyond the general promise of “agents working together.” Python also has an experimental functional workflow API, so the language choice affects how you express the process. Teams moving from AutoGen or Semantic Kernel should begin with the migration guidance below. Adopting this framework does not by itself decide where the application will be hosted.
 
 ## Multi-agent workflow platforms compared
 
-If the deliverable is a business process that reads from one system and updates another, examine workflow tools before committing to an application framework. Use the same requirements to compare both candidates: a handoff, a human decision, and recovery after failure.
+Cross-team business tasks often need both a working connection between applications and a clear handoff to the next specialist. n8n and Relevance AI approach that work differently.
 
 ### 6. n8n: agents inside business workflows
 
-n8n's [AI Agent Tool](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.toolaiagent/) lets a root agent call other agents as tools, including nested arrangements. Multi-agent behavior can therefore sit inside a broader workflow.
-
-Its [human review feature](https://docs.n8n.io/build/integrate-ai/ai-examples/human-in-the-loop-for-tools) can pause selected tool calls for approval or denial. n8n fits work that connects agent decisions to business actions. You still need to configure credentials, tool inputs, and which actions require review.
+n8n can connect the business applications involved in a task. Its main agent delegates work to specialists through the [AI Agent Tool](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.toolaiagent/), and you decide which tool calls must wait for a person to approve them using [human review](https://docs.n8n.io/build/integrate-ai/ai-examples/human-in-the-loop-for-tools). The workflow still needs your credentials and tool inputs.
 
 ### 7. Relevance AI: agent teams on a visual canvas
 
-[Relevance AI Workforces](https://relevanceai.com/docs/get-started/core-concepts/workforces) provides a canvas for connecting specialist agents and tools. Connections can let an agent decide whether to hand off, require a next step, or follow conditions.
+[Relevance AI Workforces](https://relevanceai.com/docs/get-started/core-concepts/workforces) puts specialist handoffs on a canvas you can edit and inspect. A required next step always passes work onward when an agent finishes. An AI connection leaves the handoff decision to the agent, while conditional routing follows rules you set.
 
-The canvas makes the connections visible, but you still decide how each transition works. Use a mandatory next step for a required handoff; reserve AI-driven connections for decisions that may depend on context.
+A required review should sit on a required path, rather than depend on the drafting agent deciding it needs help. In n8n, you place agent calls inside a broader application workflow. In Relevance, you connect the specialists directly on the Workforce canvas. Its execution view lets you inspect what each agent received and passed on when a handoff goes wrong.
 
-| Requirement | n8n: evidence checked | Relevance AI: evidence checked |
-|---|---|---|
-| Pass work to another agent | A root agent calls another agent as a tool | AI connections, mandatory next steps, and conditional routing |
-| Wait for a person before a tool action | Selected tools can require approval or denial | The exact approval configuration for this Workforce needs verification |
-| Continue after an execution failure | Resume point and repeated actions need verification for the configured workflow | Resume point and repeated actions need verification for the configured Workforce |
+For concrete processes to try, see [multi-agent workflow patterns](/blog/multi-agent-workflow-patterns). The examples can help you define the input and expected output before choosing a tool.
 
-**“Needs verification” means this comparison has not established the behavior for that configuration.** It does not mean the product lacks the feature. Before choosing, demonstrate all three requirements in each candidate using the same input and proposed business action.
+## Collaboration platforms for people and existing bots
 
-For examples of the processes these tools might support, see [multi-agent workflow patterns](/blog/multi-agent-workflow-patterns). Use those patterns to describe a trial that your workflow owner could maintain.
+Colleagues may already have agents they want to work with. The choice then turns on how people participate and how the team passes work to its next owner.
 
-## Which multi-agent workflow platform is best for your needs?
+### 8. OpenAgents: cloud and local agents in a workspace
 
-**The best multi-agent workflow platform depends on who will build it and how the work must run.** Start with n8n and Relevance AI for connected business processes; compare application frameworks when you need to own the execution logic in code. Existing-agent teams should also compare workspace options.
+[OpenAgents](https://openagents.org/docs/en/getting-started/overview) puts the conversation and the work in one browser workspace. A colleague can discuss a result in a thread and refer to files the agents have produced, rather than receive only the final answer from someone else's private chat.
+
+Teams can begin with hosted agents without connecting a local machine. The Launcher or CLI connects local agents when the work needs their environment. Those choices change where the agent runs, while the shared workspace remains the place teammates follow the work. This is a different starting point from building an agent application in an SDK.
+
+### 9. Alook: people and bots with connected runtimes
+
+[Alook](https://alook.ai/), which publishes this guide, lets colleagues bring their existing bots into the same channel. Someone reviewing a result can ask the bot that produced it a follow-up there, with the other participants able to see the exchange. The bot has its own identity and visible owner.
+
+Each bot still runs on its owner's connected machine. Joining the discussion does not give a colleague access to that machine or expand the bot's tool permissions. Colleagues can work with one another's agents while keeping their existing setups, but the connected machine and runtime must be available. The [collaboration without code guide](/blog/multi-agent-collaboration-without-code) explains the workflow.
+
+### 10. Paperclip: goals and assigned work for an agent team
+
+[Paperclip](https://paperclip.ing/) makes a task the place where agent work is assigned and followed up. The task stays tied to a goal, with its owner and discussion available to the person supervising it. That helps when the question is “what should this agent work on next?” rather than “which specialist should answer this message?”
+
+Agents can wake on a schedule or a task notification, so the board can organize ongoing work beyond a single conversation. For recurring work, the budget dashboard helps you follow spending alongside the tasks you have assigned. These controls manage the work your agents are assigned; the connected runtimes still need their own tool permissions. The handoff example below shows what changing a task's owner actually does.
+
+## Which AI agent collaboration platform fits your team?
+
+Building an application means maintaining its execution logic. Connecting business tools or coordinating existing agents puts different demands on your team. Choose a shortlist around the work you can take on.
 
 ### Shortlists for application and business teams
 
 Use these documentation-based shortlists to plan a trial:
+
+<div className="overflow-x-auto thin-scrollbar">
+<div style={{ minWidth: "640px" }}>
 
 | Your constraint | Start by comparing | What should decide the choice |
 |---|---|---|
@@ -137,9 +159,40 @@ Use these documentation-based shortlists to plan a trial:
 | The work connects business tools and needs review points | n8n, Relevance AI | Which connections and control choices can your workflow owner maintain? |
 | You need a workspace for existing agents | OpenAgents, Alook, Paperclip | Do shared discussions or assigned tasks better fit how your team coordinates work? |
 
+</div>
+</div>
+
 For an existing Microsoft-stack application, start by inventorying the implementation and reviewing the official [AutoGen migration guide](https://learn.microsoft.com/en-us/agent-framework/migration-guide/from-autogen/) or [Semantic Kernel migration guide](https://learn.microsoft.com/en-us/agent-framework/migration-guide/from-semantic-kernel/). Compare another SDK only if you have a reason to rebuild and can assess that work; the table does not imply a direct replacement.
 
-For a report-producing application, for example, compare LangGraph's state and paths with the SDK's specialist ownership and ADK's workflow composition. If the report is one step in an existing business process, try n8n and Relevance AI first instead. The report may be the same, but its place in the larger process changes which tools are worth testing first.
+### Which platforms handle shared business tasks?
+
+A report that must collect data from business applications points toward n8n. Relevance AI makes the specialist handoffs visible when the report passes through several agents. Ongoing work also needs someone to follow up: Paperclip keeps that work on a task board, where you can check progress and reassign a task.
+
+### Which platforms make task handoffs and progress clear?
+
+[Paperclip’s task handoffs](https://docs.paperclip.ing/guides/day-to-day/issues/) give you a direct answer to “who has this now?”: look at the task's assignee. Assign it to another agent and Paperclip queues work for that agent. Hand it to a person and the task waits on that person. A name in a comment alone is not a handoff.
+
+In a Relevance AI research-to-review workflow, a required review should be visible in the path between the two specialists. In Alook, colleagues can discuss the result with their own bots before deciding what happens next. The exchange stays in a shared channel or thread, and each bot still works within its owner's tool and file permissions. OpenAgents also keeps people and agents in shared threads, with a Tasks board alongside the conversation.
+
+### How do hosted platforms compare for cross-company projects?
+
+Partners can join an [OpenAgents workspace](https://openagents.org/docs/en/workspace/getting-started) by email invitation. Hosted agents let them begin without connecting a local machine. They can discuss a task alongside its files, and a Viewer can follow the work without editing it. Everyone invited sees the workspace's shared material, so put only the joint project's material there.
+
+[Relevance AI’s Enterprise Chat role](https://relevanceai.com/docs/enterprise/rbac) lets partners run agents they have permission to use without opening the main builder app. Enterprise RBAC and the Chat role are still being rolled out, and a user running a Workforce also needs permission to run its agents. There is a further catch if each partner must connect their own service account through dynamic OAuth in MCP: Chat does not support that setup. That setup requires a Member role in a dedicated project instead. In both products, the partners join a shared space managed by a host organization. Their separate company accounts do not automatically share access.
+
+### Can a team review an agent's plan before it runs?
+
+Paperclip has a [built-in approval step for its CEO’s strategic plan](https://docs.paperclip.ing/guides/day-to-day/approvals/). You can ask for changes before the CEO assigns work based on it. This is not a general gate for every agent plan. A development team can build its own plan-review flow with [LangGraph](https://docs.langchain.com/oss/python/langgraph/interrupts), showing the plan to a reviewer and pausing the application until they respond. The application needs a durable record of the paused work so a restart does not lose it.
+
+Code changes need a repository review path too. On GitHub, a [CODEOWNERS file](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners) identifies the responsible reviewers, but requiring their approval means enabling [Require review from Code Owners](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) on the target branch. On a repository plan that supports the rule, it can block merging until the code owners approve. Anyone with permission to bypass it may still merge without that approval.
+
+### Where can teams share configuration and context?
+
+[n8n workflow sharing](https://docs.n8n.io/workflows/sharing/) lets colleagues on the same instance work on a shared workflow, including its agent setup. The available sharing options depend on the plan. Editors can use credentials already attached to that workflow, so sharing is also an execution-access decision.
+
+A team can keep shared files and knowledge beside its discussion in OpenAgents. Alook keeps a channel and thread record that participants can use to pass on the current task. Each Alook bot retains its own runtime context, so a visible conversation does not give every bot the same memory.
+
+With [LangGraph Store](https://docs.langchain.com/oss/python/langgraph/add-memory), an application can save a goal or task for another agent to retrieve in a later session. The application writes to the store and selects what to retrieve for the next model call, using access rules your team implements. This works within an application you control. It does not synchronize the private context of unrelated agents.
 
 ### History and execution recovery require different checks
 
@@ -153,38 +206,22 @@ Can the next agent obtain the required input, identify its version, and see the 
 
 Which saved execution state allows work to continue? What can run again?
 
-LangGraph's [persistence documentation](https://docs.langchain.com/oss/python/langgraph/persistence) distinguishes graph checkpoints from cross-thread stores. It also warns that in-memory checkpoints disappear when the process restarts. The OpenAI SDK's [results and state guide](https://developers.openai.com/api/docs/guides/agents/results) separates conversation history from the snapshot used to resume a run awaiting approval. ADK's [resume guide](https://adk.dev/runtime/resume/) requires configuration and warns that tools may execute more than once during recovery.
+If a LangGraph process restarts, an [in-memory checkpointer](https://docs.langchain.com/oss/python/langgraph/persistence) loses the saved execution state. Use durable checkpoints for work that must survive that restart; a cross-thread store serves a different purpose.
 
-A “memory supported” checkbox hides these differences. Record the persistence mechanism and its limits for each candidate; leave unverified behavior unresolved.
+In the OpenAI SDK, retaining the conversation history does not preserve everything needed to resume a run waiting for approval. Save the [run-state snapshot](https://developers.openai.com/api/docs/guides/agents/results) with its pending approvals.
 
-Use a small trial: supply one requirements document, request a reviewable output, and pause before a business action. Interrupt the run once. Inspect the input version, saved state, repeated tool calls, and approval result. This is a proposed evaluation, not a test performed for this guide.
+With ADK's [resume feature](https://adk.dev/runtime/resume/), a tool interrupted before its result was saved can run again. A purchase tool, for example, needs its own duplicate prevention before you rely on recovery.
 
-## Collaboration platforms for people and existing bots
+A “memory supported” checkbox hides these differences. Record how each candidate saves execution state and where recovery stops being reliable.
 
-If colleagues already have agents, compare the workspace around their work. Shared discussions may suit open-ended review, while assigned tickets can make ownership and the next step explicit. Connection setup and access boundaries matter in either case.
-
-### 8. OpenAgents: cloud and local agents in a workspace
-
-[OpenAgents](https://openagents.org/docs/en/getting-started/overview) provides shared threads, files, and tasks. Its documentation describes both cloud agents and local agents connected through its Launcher or CLI. You can start with a cloud agent without installing the local Launcher. Check the connection mode and what material participants can access.
-
-### 9. Alook: people and bots with connected runtimes
-
-[Alook](https://alook.ai/), which publishes this guide, lets people and bots participate with separate identities while connected machines run the agents. It suits colleagues who want to bring existing bots into shared discussions. Plan for an available machine and runtime; channel membership does not grant additional local tool permissions. Compare it with OpenAgents on connection setup, participation, and access boundaries. Neither a readable conversation nor a saved file proves an interrupted task will resume. The [collaboration without code guide](/blog/multi-agent-collaboration-without-code) covers that workspace-oriented path in more detail.
-
-### 10. Paperclip: goals and assigned work for an agent team
-
-[Paperclip](https://paperclip.ing/) organizes existing agents through goals, reporting roles, and tickets. Each ticket has an owner, status, and discussion thread. Agents can wake on schedules or task notifications, while a dashboard tracks their work and budgets.
-
-For teams assigning ongoing agent work, Paperclip makes the ticket the unit of coordination. During a trial, check whether the person supervising the work can find its owner, review the result, and assign the next step.
-
-Paperclip's governance covers actions such as approving agent hires, and people can pause agents or reassign tasks. Its official FAQ separates those controls from securing the agents themselves. Check the connected runtime's permissions independently. A task log also does not establish where an interrupted tool execution will resume; verify that behavior in your setup.
+Try one task that produces a reviewable output from a requirements document. Pause it before a business action, then interrupt the run. On recovery, check whether it uses the right input version and still waits for approval. Look for any tool calls that ran twice. This is a proposed evaluation, not a test performed for this guide.
 
 ## Multi-agent platform FAQs
 
 ### Do you need multiple agents for every workflow?
 
-**No. Use multiple agents when their separate responsibilities justify the coordination work.** One agent may already handle the task, and a predictable step may be better implemented as an ordinary function. Microsoft's framework documentation explicitly advises using a function when one can do the job. Keep the simpler implementation until another agent has a clear job and a useful output to pass on.
+**No. Use multiple agents when their separate responsibilities justify the coordination work.** One agent may already handle the task, and a predictable step may be better implemented as an ordinary function. Keep the simpler implementation until another agent has a clear job and a useful output to pass on.
 
 ### What costs sit outside the platform subscription?
 
-**Budget for model usage and tool services as well as the infrastructure you run.** Hosting or local machines and storage can sit outside the platform subscription. Determine which are included and which are billed separately for the deployment you choose. Also account for maintaining credentials, reviewing failures, and updating integrations. A useful cost comparison follows the same workload through each candidate, rather than comparing entry-plan prices alone.
+**Budget for model usage and tool services as well as the infrastructure you run.** Hosting or local machines and storage can sit outside the platform subscription. Determine which are included and which are billed separately for the deployment you choose. Someone must keep the connections working when credentials expire or an integration changes. Include that maintenance time and the time spent investigating failed runs. A useful cost comparison follows the same workload through each candidate, rather than comparing entry-plan prices alone.
