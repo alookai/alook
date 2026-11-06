@@ -25,14 +25,27 @@ describe("server rail normalized reducer", () => {
     for (const open of [false, true]) {
       const before = fixture()
       if (open) before.expanded.push("two")
+      const snapshot = structuredClone(before)
+      const expectedExpanded = open ? ["one", "two"] : ["one"]
       const source = { kind: "server", id: "a" } as const
       const result = commitRailInstruction(before, operation === "append"
         ? { operation, source, target: { kind: "folder-content", id: "two" } }
         : { operation, source, target: operation === "combine" ? { kind: "folder", id: "two" } : { kind: "server", id: "e" } })
       expect(result.applied).toBe(true)
+      expect(before).toEqual(snapshot)
       if (result.applied) {
-        expect(result.state.expanded).toEqual(before.expanded)
-        expect(result.state.folders.two).toEqual(["e", "a"])
+        expect(result.state).toEqual({
+          serverIds: ["a", "b", "c", "d", "e", "f"],
+          folderIds: ["one", "two"],
+          folders: { one: ["c", "d"], two: ["e", "a"] },
+          expanded: expectedExpanded,
+          topOrder: [
+            { kind: "server", id: "b" },
+            { kind: "server", id: "f" },
+            { kind: "folder", id: "one" },
+            { kind: "folder", id: "two" },
+          ],
+        })
       }
     }
   })
@@ -79,17 +92,33 @@ describe("server rail normalized reducer", () => {
   })
 
   it("reorders top-level servers with one complete command", () => {
-    const result = commitRailInstruction(fixture(), {
+    const before = fixture()
+    const snapshot = structuredClone(before)
+    const expectedTopOrder = [
+      { kind: "server", id: "b" },
+      { kind: "server", id: "a" },
+      { kind: "server", id: "f" },
+      { kind: "folder", id: "one" },
+      { kind: "folder", id: "two" },
+    ]
+    const result = commitRailInstruction(before, {
       operation: "reorder-after",
       source: { kind: "server", id: "a" },
       target: { kind: "server", id: "b" },
     })
     expect(result).toMatchObject({ applied: true })
+    expect(before).toEqual(snapshot)
     if (!result.applied) return
-    expect(result.state.serverIds).toEqual(fixture().serverIds)
+    expect(result.state).toEqual({
+      serverIds: ["a", "b", "c", "d", "e", "f"],
+      folderIds: ["one", "two"],
+      folders: { one: ["c", "d"], two: ["e"] },
+      expanded: ["one"],
+      topOrder: expectedTopOrder,
+    })
     expect(railTopLevel(result.state).map((entry) => entry.id)).toEqual(["b", "a", "f", "one", "two"])
     expect(result.commands).toEqual([
-      { kind: "reorder-top-level", entries: railTopLevel(result.state) },
+      { kind: "reorder-top-level", entries: expectedTopOrder },
     ])
   })
 
@@ -109,45 +138,87 @@ describe("server rail normalized reducer", () => {
   })
 
   it("deletes an emptied folder and preserves the complete membership order", () => {
-    const result = commitRailInstruction(fixture(), {
+    const before = fixture()
+    const snapshot = structuredClone(before)
+    const expectedTopOrder = [
+      { kind: "server", id: "a" },
+      { kind: "server", id: "b" },
+      { kind: "server", id: "e" },
+      { kind: "server", id: "f" },
+      { kind: "folder", id: "one" },
+    ]
+    const result = commitRailInstruction(before, {
       operation: "reorder-before",
       source: { kind: "server", id: "e" },
       target: { kind: "server", id: "f" },
     })
     expect(result).toMatchObject({ applied: true })
+    expect(before).toEqual(snapshot)
     if (!result.applied) return
-    expect(result.state.folderIds).toEqual(["one"])
-    expect(result.commands).toEqual([{ kind: "delete-folder", folderId: "two" }, { kind: "reorder-top-level", entries: railTopLevel(result.state) }])
+    expect(result.state).toEqual({
+      serverIds: ["a", "b", "c", "d", "e", "f"],
+      folderIds: ["one"],
+      folders: { one: ["c", "d"] },
+      expanded: ["one"],
+      topOrder: expectedTopOrder,
+    })
+    expect(result.commands).toEqual([{ kind: "delete-folder", folderId: "two" }, { kind: "reorder-top-level", entries: expectedTopOrder }])
   })
 
   it("creates one temporary folder command from two top-level servers", () => {
-    const result = commitRailInstruction(fixture(), {
+    const before = fixture()
+    const snapshot = structuredClone(before)
+    const expectedTopOrder = [
+      { kind: "folder", id: "temp_one" },
+      { kind: "server", id: "f" },
+      { kind: "folder", id: "one" },
+      { kind: "folder", id: "two" },
+    ]
+    const result = commitRailInstruction(before, {
       operation: "combine",
       source: { kind: "server", id: "a" },
       target: { kind: "server", id: "b" },
       newFolderId: "temp_one",
     })
     expect(result).toMatchObject({ applied: true })
+    expect(before).toEqual(snapshot)
     if (!result.applied) return
+    expect(result.state).toEqual({
+      serverIds: ["a", "b", "c", "d", "e", "f"],
+      folderIds: ["one", "two", "temp_one"],
+      folders: { one: ["c", "d"], two: ["e"], temp_one: ["b", "a"] },
+      expanded: ["one", "temp_one"],
+      topOrder: expectedTopOrder,
+    })
     expect(result.commands).toEqual([{
       kind: "create-folder",
       clientId: "temp_one",
       name: "Group",
       serverIds: ["b", "a"],
-    }, { kind: "reorder-top-level", entries: railTopLevel(result.state) }])
+    }, { kind: "reorder-top-level", entries: expectedTopOrder }])
   })
 
   it("plans folder reorder separately and treats no-op as zero-write", () => {
     const before = fixture()
     const after = { ...fixture(), folderIds: ["two", "one"] }
+    const beforeSnapshot = structuredClone(before)
+    const afterSnapshot = structuredClone(after)
     expect(planRailPersistence(before, after)).toEqual([
-      { kind: "reorder-top-level", entries: railTopLevel(after) },
+      { kind: "reorder-top-level", entries: [
+        { kind: "server", id: "a" },
+        { kind: "server", id: "b" },
+        { kind: "server", id: "f" },
+        { kind: "folder", id: "two" },
+        { kind: "folder", id: "one" },
+      ] },
     ])
     expect(commitRailInstruction(before, {
       operation: "reorder-before",
       source: { kind: "server", id: "a" },
       target: { kind: "server", id: "a" },
     })).toMatchObject({ applied: false })
+    expect(before).toEqual(beforeSnapshot)
+    expect(after).toEqual(afterSnapshot)
   })
 
   it("allows mixed reorder and rejects duplicate-folder membership", () => {
