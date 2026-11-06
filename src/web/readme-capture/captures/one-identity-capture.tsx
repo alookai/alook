@@ -3,7 +3,10 @@
 import { ChannelHeader } from "@/components/community/channels/channel-header"
 import { Message } from "@/components/community/messages/message"
 import { ProfileCard } from "@/components/community/social/profile-card"
+import { LANDING_PREVIEW_PROFILES } from "@/components/home/landing-shell-motion"
 import type { RenderMsg } from "@/lib/community/models/message"
+import type { CommunityProfile } from "@/lib/community/models/people"
+import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
 
 const PROFILE = {
   name: "Alli",
@@ -14,6 +17,19 @@ const PROFILE = {
   mutual: 0,
   presence: "online" as const,
 }
+
+const IDENTITY_PROFILES = new Map<string, CommunityProfile>([
+  ...LANDING_PREVIEW_PROFILES,
+  [PROFILE.userId, {
+    ...LANDING_PREVIEW_PROFILES.get(PROFILE.userId),
+    id: PROFILE.userId,
+    name: PROFILE.name,
+    avatar: PROFILE.avatar,
+    aboutMe: PROFILE.about,
+    presence: PROFILE.presence,
+    statusText: "Free for dinner",
+  }],
+])
 
 type IdentityFrameData = {
   serverId: string
@@ -103,26 +119,28 @@ function IdentityFrame({ frame }: { frame: IdentityFrameData }) {
 export function OneIdentityCapture() {
   return (
     <>
-      <section id="capture-identity" className="feature-canvas identity-canvas capture-static">
-        <div className="identity-profile">
-          <ProfileCard
-            embedded
-            data={PROFILE}
-            x={0}
-            y={0}
-            bp="desktop"
-            onClose={() => undefined}
-            initialStatusText="Free for dinner"
-          />
-        </div>
-        <div className="identity-stack">
-          {IDENTITY_FRAMES.map((frame) => (
-            <div key={frame.serverId} className="shell-card identity-frame">
-              <IdentityFrame frame={frame} />
-            </div>
-          ))}
-        </div>
-      </section>
+      <CommunityPreviewProfileOwner profiles={IDENTITY_PROFILES}>
+        <section id="capture-identity" className="feature-canvas identity-canvas capture-static">
+          <div className="identity-profile">
+            <ProfileCard
+              embedded
+              data={PROFILE}
+              x={0}
+              y={0}
+              bp="desktop"
+              onClose={() => undefined}
+              initialStatusText="Free for dinner"
+            />
+          </div>
+          <div className="identity-stack">
+            {IDENTITY_FRAMES.map((frame) => (
+              <div key={frame.serverId} className="shell-card identity-frame">
+                <IdentityFrame frame={frame} />
+              </div>
+            ))}
+          </div>
+        </section>
+      </CommunityPreviewProfileOwner>
 
       <style jsx global>{`
         .identity-profile {
