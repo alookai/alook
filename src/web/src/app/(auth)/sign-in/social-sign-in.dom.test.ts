@@ -1,17 +1,8 @@
-import resolvedRawInput0 from "./social-sign-in.tsx?raw"
-import resolvedRawInput1 from "./apple-sign-in-artwork.ts?raw"
 import staticContractInput0 from "../../globals.css?raw"
 import { createElement } from "react"
-import { createHash } from "node:crypto"
-import { existsSync, readFileSync } from "node:fs"
-import { resolve } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { NativeOauthView } from "@/lib/native-oauth-client"
 import { act, render, screen, setupUser } from "@/test/react-dom-harness"
-
-const webRoot = existsSync(resolve(process.cwd(), "next.config.ts"))
-  ? process.cwd()
-  : resolve(process.cwd(), "src/web")
 
 const mocks = vi.hoisted(() => ({
   capture: vi.fn(),
@@ -150,6 +141,9 @@ describe("social sign-in stack and native boundary", () => {
     expect(github).toHaveAccessibleName("Continue with GitHub")
     expect(google).toHaveAccessibleName("Continue with Google")
     expect(apple).toHaveAccessibleName("Continue with Apple")
+    for (const provider of [github, google, apple]) {
+      expect(provider.querySelector("svg")).toHaveAttribute("aria-hidden", "true")
+    }
 
     for (const provider of [github, google, apple]) {
       expect(provider).toHaveClass(
@@ -194,49 +188,6 @@ describe("social sign-in stack and native boundary", () => {
       /\.dark\s*\{[^}]*--apple-signin:\s*oklch\(1 0 0\);[^}]*--apple-signin-foreground:\s*oklch\(0 0 0\);/s,
     )
     expect(globalsCss).not.toContain("apple-signin-hover")
-  })
-
-  it("embeds Apple's official left-aligned logo-with-text artwork", () => {
-    render(
-      createElement(SocialSignIn, {
-        postLoginUrl: "/c/me",
-        appleEnabled: true,
-      }),
-    )
-
-    const source = resolvedRawInput0
-    const artwork = resolvedRawInput1
-    expect(source).not.toContain("SiApple")
-    expect(source).not.toContain("appleid.cdn-apple.com/appleid/button/logo")
-    expect(artwork).not.toContain("appleid.cdn-apple.com/appleid/button/logo")
-    expect(artwork).toContain("Logo-Sign-in-with-Apple.dmg")
-    expect(artwork).toContain("Sign in with Apple - Left Aligned")
-    const white = screen.getByTestId("apple-official-left-aligned-logo-white")
-    const black = screen.getByTestId("apple-official-left-aligned-logo-black")
-    expect(white).toHaveAttribute(
-      "src",
-      expect.stringMatching(/^data:image\/svg\+xml;base64,/),
-    )
-    expect(white).toHaveAttribute("width", "31")
-    expect(white).toHaveAttribute("height", "44")
-    expect(white).toHaveClass("col-start-1", "row-start-1", "h-9", "w-auto", "dark:hidden")
-    expect(black).toHaveAttribute(
-      "src",
-      expect.stringMatching(/^data:image\/svg\+xml;base64,/),
-    )
-    expect(black).toHaveAttribute("width", "31")
-    expect(black).toHaveAttribute("height", "44")
-    expect(black).toHaveClass("col-start-1", "row-start-1", "h-9", "w-auto", "dark:block")
-    expect(
-      [white, black].map((image) =>
-        createHash("sha256")
-          .update(Buffer.from(image.getAttribute("src")!.split(",")[1], "base64"))
-          .digest("hex"),
-      ),
-    ).toEqual([
-      "f43d1ed5be59bcffdf4c20b5e29f8de041858678f549515377d0ba4f5ebd115e",
-      "0f56330a7a4fe2db06ec79fdbfed1eec1d434557f052add6d848daa31877f380",
-    ])
   })
 
   it("does not expose Apple or an Apple Last used badge when server configuration is absent", () => {
