@@ -12,32 +12,93 @@ function target() {
       if (!listeners.has(type)) listeners.set(type, new Set())
       listeners.get(type)!.add(callback)
     },
-    fire(type: string, event: Record<string, unknown> = {}) { for (const callback of listeners.get(type) ?? []) callback(event) },
+    removeEventListener(type: string, callback: (event: Record<string, unknown>) => void) { listeners.get(type)?.delete(callback) },
+    fire(type: string, event: Record<string, unknown> = {}) { for (const callback of [...listeners.get(type) ?? []]) callback(event) },
+    dispatchEvent(event: { type: string }) { for (const callback of [...listeners.get(event.type) ?? []]) callback(event); return true },
   }
 }
-function documentOwner(query: () => unknown = () => packet(), options: { android?: boolean; otherFrame?: boolean; noRoot?: boolean; desktop?: boolean; noBridge?: boolean; otherLabel?: boolean } = {}) {
+function documentOwner(query: () => unknown = () => packet(), options: { android?: boolean; otherFrame?: boolean; noRoot?: boolean; desktop?: boolean; noBridge?: boolean; otherLabel?: boolean; publicApiLate?: boolean } = {}) {
   const values = new Map<string, string>([["color-scheme", "dark"]])
   const root = { dataset: {} as Record<string, string>, style: {
     setProperty: (name: string, value: string) => values.set(name, value), removeProperty: (name: string) => values.delete(name),
   } }
   const document = { ...target(), documentElement: options.noRoot ? null : root }
   const calls: string[] = []
+  const timers = new Map<number, () => void>()
+  let nextTimer = 0
   const postMessage = vi.fn(() => { calls.push('query'); return query() })
   const window = { ...target(), top: null as unknown, __TAURI__: { webview: { getCurrentWebview: () => ({ label: options.otherLabel ? 'splash' : 'main' }) }, core: { invoke: vi.fn((command: string) => { calls.push(command); return query() }) } },
     webkit: options.noBridge ? undefined : { messageHandlers: { alookGeometry: { postMessage } } },
     AlookNative: options.android ? { getGeometrySnapshot: () => JSON.stringify(query()) } : undefined,
     __alookNativeGeometry: undefined as undefined | { getSnapshot: () => { status: string; insets: ReturnType<typeof packet> | null }; subscribe: (callback: () => void) => () => void },
+    setTimeout: (callback: () => void) => { const id = ++nextTimer; timers.set(id, callback); return id },
+    clearTimeout: (id: number) => { timers.delete(id) },
   }
+  const publicApi = window.__TAURI__
+  if (options.publicApiLate) Reflect.deleteProperty(window, '__TAURI__')
   window.top = options.otherFrame ? {} : window
   const originalAdd = window.addEventListener
   window.addEventListener = (type, callback) => { calls.push(type); originalAdd(type, callback) }
   let observer: (() => void) | undefined
-  runInNewContext(`(${script})(${options.desktop === true})`, { window, document, MutationObserver: class { constructor(callback: () => void) { observer = callback } observe() {} disconnect() {} } })
-  return { window, document, root, values, calls, postMessage, attachRoot: () => { document.documentElement = root; observer?.() } }
+  runInNewContext(`(${script})(${options.desktop === true})`, { window, document, Event: class { constructor(readonly type: string) {} }, MutationObserver: class { constructor(callback: () => void) { observer = callback } observe() {} disconnect() {} } })
+  return { window, document, root, values, calls, postMessage, attachRoot: () => { document.documentElement = root; observer?.() },
+    attachPublicApi: () => { window.__TAURI__ = publicApi },
+    flushTimers: () => { for (const [id, callback] of [...timers]) { if (timers.delete(id)) callback() } },
+  }
 }
 const settle = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() }
 
 describe('native document geometry publication', () => {
+  it('initializes after the public API arrives later than plugin injection', async () => {
+    const owner = documentOwner(() => packet({ top: 32, right: 0, bottom: 0, left: 0, viewportWidth: 1200, caption: true }), { desktop: true, noBridge: true, publicApiLate: true })
+    expect(owner.window.__alookNativeGeometry).toBeUndefined()
+    expect(owner.calls).not.toContain('native_geometry_snapshot')
+    const ready = vi.fn()
+    owner.window.addEventListener('alook:geometry-ready', ready)
+    owner.attachPublicApi()
+    owner.flushTimers()
+    await settle()
+    expect(owner.window.__alookNativeGeometry!.getSnapshot().insets?.top).toBe(32)
+    expect(owner.values.get('--app-safe-area-top')).toBe(`${32 / 1200 * 100}vw`)
+    expect(owner.root.dataset.alookNativeCaption).toBe('true')
+    expect(ready).toHaveBeenCalledOnce()
+    const api = owner.window.__alookNativeGeometry
+    owner.document.fire('DOMContentLoaded')
+    await settle()
+    expect(owner.window.__alookNativeGeometry).toBe(api)
+    expect(ready).toHaveBeenCalledOnce()
+  })
+
+  it('uses document readiness if the first timer precedes public API setup and excludes a late non-main label', async () => {
+    const owner = documentOwner(() => packet(), { publicApiLate: true })
+    owner.flushTimers()
+    expect(owner.window.__alookNativeGeometry).toBeUndefined()
+    owner.attachPublicApi()
+    owner.document.fire('DOMContentLoaded')
+    await settle()
+    expect(owner.window.__alookNativeGeometry!.getSnapshot().status).toBe('ready')
+    const other = documentOwner(() => packet(), { publicApiLate: true, otherLabel: true })
+    other.attachPublicApi()
+    other.flushTimers()
+    other.document.fire('DOMContentLoaded')
+    expect(other.window.__alookNativeGeometry).toBeUndefined()
+    expect(other.postMessage).not.toHaveBeenCalled()
+  })
+
+  it('keeps an uninitialized retired document idle and initializes on BFCache return', async () => {
+    const owner = documentOwner(() => packet(), { publicApiLate: true })
+    owner.window.fire('pagehide')
+    owner.attachPublicApi()
+    owner.flushTimers()
+    owner.document.fire('DOMContentLoaded')
+    expect(owner.window.__alookNativeGeometry).toBeUndefined()
+    expect(owner.postMessage).not.toHaveBeenCalled()
+    owner.window.fire('pageshow', { persisted: true })
+    await settle()
+    expect(owner.window.__alookNativeGeometry!.getSnapshot().status).toBe('ready')
+    expect(owner.postMessage).toHaveBeenCalledOnce()
+  })
+
   it('subscribes before querying and atomically projects the original four edges', async () => {
     const owner = documentOwner()
     await settle()

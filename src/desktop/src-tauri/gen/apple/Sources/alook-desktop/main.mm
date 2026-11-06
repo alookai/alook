@@ -37,16 +37,22 @@ static CGRect alookNativeContentFrame(CGRect bounds, UIEdgeInsets systemInsets, 
         bounds.size.height - systemInsets.top - systemInsets.bottom);
 }
 
+static UIEdgeInsets alookGeometryInsets(CGRect bounds, CGRect safe) {
+    UIEdgeInsets insets;
+    insets.left = MIN(bounds.size.width, MAX(0, CGRectGetMinX(safe) - CGRectGetMinX(bounds)));
+    insets.right = MIN(bounds.size.width - insets.left, MAX(0, CGRectGetMaxX(bounds) - CGRectGetMaxX(safe)));
+    insets.top = MIN(bounds.size.height, MAX(10.0, CGRectGetMinY(safe) - CGRectGetMinY(bounds)));
+    insets.bottom = MIN(bounds.size.height - insets.top, 20.0);
+    return insets;
+}
+
 static NSDictionary *alookMeasureGeometry(UIViewController *controller, WKWebView *webView) {
     if (!alookIsTauriRootController(controller) || webView.superview != controller.view ||
         webView.window == nil || CGRectIsEmpty(webView.bounds)) return nil;
     CGRect bounds = webView.bounds;
     CGRect safe = [webView convertRect:controller.view.safeAreaLayoutGuide.layoutFrame fromView:controller.view];
-    CGFloat left = MIN(bounds.size.width, MAX(0, CGRectGetMinX(safe) - CGRectGetMinX(bounds)));
-    CGFloat right = MIN(bounds.size.width - left, MAX(0, CGRectGetMaxX(bounds) - CGRectGetMaxX(safe)));
-    CGFloat top = MIN(bounds.size.height, MAX(0, CGRectGetMinY(safe) - CGRectGetMinY(bounds)));
-    CGFloat bottom = MIN(bounds.size.height - top, MAX(0, CGRectGetMaxY(bounds) - CGRectGetMaxY(safe)));
-    return @{ @"top": @(top), @"right": @(right), @"bottom": @(bottom), @"left": @(left),
+    UIEdgeInsets insets = alookGeometryInsets(bounds, safe);
+    return @{ @"top": @(insets.top), @"right": @(insets.right), @"bottom": @(insets.bottom), @"left": @(insets.left),
               @"viewportWidth": @(bounds.size.width), @"viewportHeight": @(bounds.size.height), @"caption": @NO };
 }
 

@@ -24,6 +24,10 @@
   html[data-community-shell-layout] [data-slot="community-shell-root"] [data-slot="community-user-bar-overlay"] {
     --community-desktop-user-bar-width: var(--community-shell-prepaint-user-bar-width) !important;
   }
+
+  html[data-community-shell-layout] .community-background-bleed {
+    --community-background-sidebar-width: calc(var(--community-shell-prepaint-user-bar-width) - var(--community-background-userbar-inset)) !important;
+  }
 }
 
 @theme inline {
@@ -3172,6 +3176,72 @@ body {
 
 .app-safe-portal-viewport {
   transform: translateZ(0);
+}
+
+.community-background-bottom {
+  position: fixed;
+  z-index: 0;
+  left: calc(var(--app-safe-area-left) + var(--community-background-rail-width));
+  right: var(--app-safe-area-right);
+  bottom: 0;
+  height: var(--app-safe-area-bottom);
+}
+
+[data-slot="community-background-bottom-sidebar"],
+[data-slot="community-background-bottom-main"] {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+[data-slot="community-background-bottom-sidebar"] {
+  left: var(--community-background-border-width);
+  width: var(--community-background-sidebar-width, var(--community-background-initial-sidebar-width));
+  background: var(--sidebar);
+}
+
+[data-slot="community-background-bottom-main"] {
+  left: calc(var(--community-background-border-width) + var(--community-background-sidebar-width, var(--community-background-initial-sidebar-width)));
+  right: calc(0px - var(--app-safe-area-right));
+  background: var(--background);
+}
+
+[data-slot="community-background-right"] {
+  position: fixed;
+  z-index: 0;
+  top: calc(var(--app-safe-area-top) + 0.5rem);
+  right: 0;
+  bottom: 0;
+  width: var(--app-safe-area-right);
+  background: var(--background);
+}
+
+@media (max-width: 639px) {
+  .community-background-bleed[data-surface="list"] [data-slot="community-background-bottom-sidebar"] {
+    width: auto;
+    right: calc(0px - var(--app-safe-area-right));
+  }
+
+  .community-background-bleed[data-surface="list"] [data-slot="community-background-bottom-main"],
+  .community-background-bleed[data-surface="detail"] [data-slot="community-background-bottom-sidebar"] {
+    display: none;
+  }
+
+  .community-background-bleed[data-surface="list"] [data-slot="community-background-right"] {
+    background: var(--sidebar);
+  }
+
+  .community-background-bleed[data-surface="detail"] .community-background-bottom {
+    left: var(--app-safe-area-left);
+  }
+
+  .community-background-bleed[data-surface="detail"] [data-slot="community-background-bottom-main"] {
+    left: 0;
+  }
+
+  .community-background-bleed[data-surface="detail"] [data-slot="community-background-right"] {
+    top: var(--app-safe-area-top);
+  }
 }
 
 @layer components {

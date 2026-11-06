@@ -616,8 +616,8 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     const compact = await surfaceGeometry(bob.page)
     expectJoinedBorderContract(compact)
     expect(compact.card.top).toBeGreaterThanOrEqual(20)
-    expect(compact.card.left).toBe(18)
-    expect(compact.card.right).toBe(320 - 16)
+    expect(compact.card.left).toBe(18 + 12)
+    expect(compact.card.right).toBe(320 - 16 - 12)
     await inboxTrigger.click()
 
     expect(writes.writes).toEqual([])
@@ -674,8 +674,8 @@ test.describe("mobile Inbox interactive user-bar base", () => {
       expect(Math.abs(userBarBox!.width - composerBox!.width)).toBeLessThanOrEqual(1)
       expect(Math.abs(userBarBox!.height - composerBox!.height)).toBeLessThanOrEqual(1)
       expect(Math.abs(userBarBox!.y - composerBox!.y)).toBeLessThanOrEqual(1)
-      expect(userBarBox!.x).toBe(18)
-      expect(userBarBox!.x + userBarBox!.width).toBe(width - 16)
+      expect(userBarBox!.x).toBe(18 + 12)
+      expect(userBarBox!.x + userBarBox!.width).toBe(width - 16 - 12)
       expect(userBarBox!.height).toBe(48)
       expect(Math.abs(844 - userBarBox!.y - userBarBox!.height)).toBe(34 + 12)
     }

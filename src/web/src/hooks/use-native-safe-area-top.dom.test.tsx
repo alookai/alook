@@ -27,6 +27,33 @@ afterEach(() => {
 })
 
 describe("mobile raw top projection from the canonical document geometry", () => {
+  it("connects a consumer mounted before the document geometry owner is ready", () => {
+    const owner = Object.getOwnPropertyDescriptor(window, "__alookNativeGeometry")!
+    Reflect.deleteProperty(window, "__alookNativeGeometry")
+    const view = renderHook(useNativeSafeAreaTop)
+    expect(view.result.current).toBeNull()
+    act(() => {
+      Object.defineProperty(window, "__alookNativeGeometry", owner)
+      window.dispatchEvent(new Event("alook:geometry-ready"))
+    })
+    expect(view.result.current).toBe(0)
+    expect(subscribers.size).toBe(1)
+    act(() => publish(ready(32)))
+    expect(view.result.current).toBe(32)
+    view.unmount()
+    expect(subscribers.size).toBe(0)
+  })
+  it("removes readiness listeners when a consumer leaves before owner creation", () => {
+    const owner = Object.getOwnPropertyDescriptor(window, "__alookNativeGeometry")!
+    Reflect.deleteProperty(window, "__alookNativeGeometry")
+    const view = renderHook(useNativeSafeAreaTop)
+    view.unmount()
+    act(() => {
+      Object.defineProperty(window, "__alookNativeGeometry", owner)
+      window.dispatchEvent(new Event("alook:geometry-ready"))
+    })
+    expect(subscribers.size).toBe(0)
+  })
   it("uses the original mobile top and unsubscribes when the consumer leaves", () => {
     const view = renderHook(useNativeSafeAreaTop)
     expect(view.result.current).toBe(0)

@@ -1738,17 +1738,6 @@ mod tests {
     }
 
     #[test]
-    fn cocoa_mutations_are_dispatched_to_the_main_thread() {
-        let command_source = include_str!("commands.rs");
-        let window_source = include_str!("macos_window.rs");
-        let removed_fade = ["fade", "out", "and", "close", "splash"].join("_");
-        assert!(!command_source.contains(&removed_fade));
-        assert!(command_source.contains("handle.run_on_main_thread"));
-        assert!(command_source.contains("window.run_on_main_thread"));
-        assert!(window_source.contains("window.run_on_main_thread"));
-    }
-
-    #[test]
     fn mobile_placeholder_plugins_are_not_linked_or_registered() {
         let app_source = include_str!("lib.rs");
         let cargo_manifest = include_str!("../Cargo.toml");

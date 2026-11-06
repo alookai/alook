@@ -21,7 +21,19 @@ type GeometryWindow = Window & {
 const unknown: GeometryState = Object.freeze({ status: "pending", insets: null })
 const serverSnapshot = () => unknown
 const snapshot = () => (window as GeometryWindow).__alookNativeGeometry?.getSnapshot() ?? unknown
-const subscribe = (callback: () => void) => (window as GeometryWindow).__alookNativeGeometry?.subscribe(callback) ?? (() => {})
+const subscribe = (callback: () => void) => {
+  let unsubscribe = (window as GeometryWindow).__alookNativeGeometry?.subscribe(callback)
+  const ready = () => {
+    unsubscribe?.()
+    unsubscribe = (window as GeometryWindow).__alookNativeGeometry?.subscribe(callback)
+    callback()
+  }
+  window.addEventListener("alook:geometry-ready", ready)
+  return () => {
+    window.removeEventListener("alook:geometry-ready", ready)
+    unsubscribe?.()
+  }
+}
 
 export function useNativeGeometry() {
   return useSyncExternalStore(subscribe, snapshot, serverSnapshot)

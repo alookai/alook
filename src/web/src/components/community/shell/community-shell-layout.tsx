@@ -37,6 +37,7 @@ import {
   COMMUNITY_SIDEBAR_MAX_WIDTH,
   COMMUNITY_SIDEBAR_MIN_WIDTH,
   COMMUNITY_SEPARATOR_WIDTH,
+  COMMUNITY_SURFACE_BORDER_WIDTH,
   COMMUNITY_USER_BAR_HEIGHT_CSS,
   desktopSidebarRestoreTarget,
   desktopUserBarInitialOverlayCssWidth,
@@ -204,6 +205,7 @@ export function CommunityShellLayout({
   const sidebarPanelHandleRef = useRef<PanelImperativeHandle | null>(null)
   const resizeHandleRef = useRef<HTMLDivElement>(null)
   const userBarOverlayRef = useRef<HTMLDivElement>(null)
+  const backgroundBleedRef = useRef<HTMLDivElement>(null)
   const committedBreakpointRef = useRef<Breakpoint>(breakpoint)
   const renderedBreakpointRef = useRef<Breakpoint>(breakpoint)
   const desktopSidebarWidthRef = useRef<number | undefined>(undefined)
@@ -235,6 +237,10 @@ export function CommunityShellLayout({
   }, [breakpoint, persistedSidebarPercentage])
 
   const setDesktopUserBarWidth = useCallback((sidebarWidth: number) => {
+    backgroundBleedRef.current?.style.setProperty(
+      "--community-background-sidebar-width",
+      `${sidebarWidth}px`,
+    )
     userBarOverlayRef.current?.style.setProperty(
       "--community-desktop-user-bar-width",
       `${desktopUserBarOverlayWidth(sidebarWidth)}px`,
@@ -465,6 +471,7 @@ export function CommunityShellLayout({
   } as CSSProperties
 
   return (
+    <>
     <Shell
       aria-busy={busy ? "true" : undefined}
       aria-label={label}
@@ -618,5 +625,27 @@ export function CommunityShellLayout({
       </div>
       {overlays}
     </Shell>
+    {!preview && (
+      <div
+        ref={backgroundBleedRef}
+        aria-hidden
+        data-slot="community-background-bleed"
+        data-surface={surface}
+        className="community-background-bleed pointer-events-none"
+        style={{
+          "--community-background-rail-width": `${COMMUNITY_RAIL_WIDTH}px`,
+          "--community-background-border-width": `${COMMUNITY_SURFACE_BORDER_WIDTH}px`,
+          "--community-background-userbar-inset": `${COMMUNITY_RAIL_WIDTH + COMMUNITY_SURFACE_BORDER_WIDTH + COMMUNITY_SEPARATOR_WIDTH}px`,
+          "--community-background-initial-sidebar-width": `calc(${desktopUserBarInitialOverlayCssWidth(persistedSidebarPercentage)} - ${COMMUNITY_RAIL_WIDTH + COMMUNITY_SURFACE_BORDER_WIDTH + COMMUNITY_SEPARATOR_WIDTH}px)`,
+        } as CSSProperties}
+      >
+        <div className="community-background-bottom">
+          <div data-slot="community-background-bottom-sidebar" />
+          <div data-slot="community-background-bottom-main" />
+        </div>
+        <div data-slot="community-background-right" />
+      </div>
+    )}
+    </>
   )
 }

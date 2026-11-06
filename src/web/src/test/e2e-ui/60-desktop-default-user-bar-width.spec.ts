@@ -442,6 +442,62 @@ async function clickTargetEdge(page: Page, target: Locator, edge: "top" | "right
   return point
 }
 
+async function expectSafeContentWithExtendedBackground(page: Page) {
+  const previous = await page.evaluate(() => {
+    const style = document.documentElement.style
+    const values = ["--app-safe-area-right", "--app-safe-area-bottom"]
+      .map((name) => ({ name, value: style.getPropertyValue(name), priority: style.getPropertyPriority(name) }))
+    style.setProperty("--app-safe-area-right", "16px")
+    style.setProperty("--app-safe-area-bottom", "20px")
+    return values
+  })
+  const readPanel = (id: "sidebar" | "main") => shellPanel(page, id).evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return { left: rect.left, right: rect.right, backgroundColor: getComputedStyle(element).backgroundColor }
+  })
+  try {
+    await expect.poll(async () => {
+      const [side, main] = await Promise.all([readPanel("sidebar"), readPanel("main")])
+      return page.evaluate(({ side, main }) => {
+        const root = document.querySelector<HTMLElement>('[data-slot="community-shell-root"]')!
+        const sidePaint = document.querySelector<HTMLElement>('[data-slot="community-background-bottom-sidebar"]')!
+        const mainPaint = document.querySelector<HTMLElement>('[data-slot="community-background-bottom-main"]')!
+        const rightPaint = document.querySelector<HTMLElement>('[data-slot="community-background-right"]')!
+        const sideBand = sidePaint.getBoundingClientRect()
+        const mainBand = mainPaint.getBoundingClientRect()
+        const rightBand = rightPaint.getBoundingClientRect()
+        const near = (a: number, b: number) => Math.abs(a - b) <= 1
+        const hit = document.elementFromPoint(side.left + 4, innerHeight - 5)
+        return {
+          safeContents: near(root.getBoundingClientRect().right, innerWidth - 16)
+            && near(root.getBoundingClientRect().bottom, innerHeight - 20)
+            && near(main.right, innerWidth - 16),
+          sidebarAligned: near(sideBand.left, side.left) && near(sideBand.right, side.right),
+          bottomExtended: near(sideBand.top, innerHeight - 20) && near(sideBand.bottom, innerHeight)
+            && near(mainBand.top, innerHeight - 20) && near(mainBand.bottom, innerHeight),
+          mainExtended: near(mainBand.left, side.right) && near(mainBand.right, innerWidth),
+          rightExtended: near(rightBand.left, innerWidth - 16) && near(rightBand.right, innerWidth)
+            && near(rightBand.bottom, innerHeight),
+          sidebarColor: getComputedStyle(sidePaint).backgroundColor === side.backgroundColor,
+          mainColor: getComputedStyle(mainPaint).backgroundColor === main.backgroundColor,
+          rightColor: getComputedStyle(rightPaint).backgroundColor === main.backgroundColor,
+          paintOwnsHit: Boolean(hit?.closest('[data-slot="community-background-bleed"]')),
+        }
+      }, { side, main })
+    }).toEqual({ safeContents: true, sidebarAligned: true, bottomExtended: true, mainExtended: true,
+      rightExtended: true, sidebarColor: true, mainColor: true, rightColor: true, paintOwnsHit: false })
+  } finally {
+    await page.evaluate((values) => {
+      const style = document.documentElement.style
+      for (const { name, value, priority } of values) {
+        if (value) style.setProperty(name, value, priority)
+        else style.removeProperty(name)
+      }
+    }, previous)
+  }
+}
+
+
 test.describe("desktop default User Bar width", () => {
   async function prepareCase1(actors: CaseActors) {
     const { seedChannel, seedServer } = actors.seed
@@ -610,12 +666,12 @@ test.describe("desktop default User Bar width", () => {
         }
       })
       expect(geometry).toEqual({
-        wrapperWidth: viewport.width,
-        baseWidth: viewport.width - 38,
+        wrapperWidth: viewport.width - 20 - 18,
+        baseWidth: viewport.width - 20 - 18 - 12 - 12,
         baseHeight: 48,
-        paddingLeft: 20,
-        paddingRight: 18,
-        paddingBottom: 28,
+        paddingLeft: 12,
+        paddingRight: 12,
+        paddingBottom: 12,
       })
       expect(await mobile.page.evaluate(
         (key) => localStorage.getItem(key),
@@ -686,6 +742,7 @@ test.describe("desktop default User Bar width", () => {
     })
     await interaction.page.reload({ waitUntil: "commit" })
     await expectDesktopGeometry(interaction.page, resizedWidth, { coldEntry: true })
+    await expectSafeContentWithExtendedBackground(interaction.page)
     const resetHandle = interaction.page.locator('[data-slot="resizable-handle"]')
     await resetHandle.dblclick({ force: true })
     await expectDesktopGeometry(interaction.page, expectedDefaultSidebarWidth)
@@ -699,6 +756,7 @@ test.describe("desktop default User Bar width", () => {
     )) as Record<string, unknown>
     await interaction.page.reload({ waitUntil: "commit" })
     await expectDesktopGeometry(interaction.page, expectedDefaultSidebarWidth, { coldEntry: true })
+    await expectSafeContentWithExtendedBackground(interaction.page)
     await attachJson(testInfo, "desktop-width-layout-evidence", {
       hydrationSamples,
       mobileGeometry,
