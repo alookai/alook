@@ -446,8 +446,7 @@ async function expectSafeContentWithExtendedBackground(page: Page) {
   const mobileList = await page.locator('[data-community-mobile-surface="list"]').isVisible()
   const previous = await page.evaluate(() => {
     const style = document.documentElement.style
-    const insets = { top: 24, right: 16, bottom: 20, left: 18 }
-    return Object.entries(insets).map(([edge, value]) => {
+    return Object.entries({ top: 24, right: 16, bottom: 20, left: 18 }).map(([edge, value]) => {
       const name = `--app-safe-area-${edge}`
       const previous = { name, value: style.getPropertyValue(name), priority: style.getPropertyPriority(name) }
       style.setProperty(name, `${value}px`)
@@ -458,7 +457,7 @@ async function expectSafeContentWithExtendedBackground(page: Page) {
     const rect = element.getBoundingClientRect()
     const visual = element.firstElementChild
     if (!(visual instanceof HTMLElement)) throw new Error("panel visual surface not found")
-    return { left: rect.left, right: rect.right, backgroundColor: getComputedStyle(visual).backgroundColor }
+    return { top: rect.top, left: rect.left, right: rect.right, backgroundColor: getComputedStyle(visual).backgroundColor }
   })
   try {
     await expect.poll(async () => {
@@ -467,42 +466,35 @@ async function expectSafeContentWithExtendedBackground(page: Page) {
       return page.evaluate(({ side, main }) => {
         const root = document.querySelector<HTMLElement>('[data-slot="community-shell-root"]')!
         const frame = root.querySelector<HTMLElement>('[data-slot="community-frame-paint"]')!
-        const surface = document.querySelector<HTMLElement>('[data-slot="community-app-surface"]')!
-        const base = document.querySelector<HTMLElement>('[data-slot="community-background-bleed"] > [data-slot="community-safe-edge-paint"]')!
-        const sidePaint = document.querySelector<HTMLElement>('[data-slot="community-background-bottom-sidebar"]')!
-        const mainPaint = document.querySelector<HTMLElement>('[data-slot="community-background-bottom-main"]')!
-        const rightPaint = document.querySelector<HTMLElement>('[data-slot="community-background-right"]')!
+        const sidePaint = root.querySelector<HTMLElement>('[data-slot="community-sidebar-background"]')!
+        const mainPaint = root.querySelector<HTMLElement>('[data-slot="community-main-background"]')!
         const rootBounds = root.getBoundingClientRect()
-        const baseBounds = base.getBoundingClientRect()
-        const sideBand = sidePaint.getBoundingClientRect()
-        const mainBand = mainPaint.getBoundingClientRect()
-        const rightBand = rightPaint.getBoundingClientRect()
+        const frameBounds = frame.getBoundingClientRect()
+        const sideBounds = sidePaint.getBoundingClientRect()
+        const mainBounds = mainPaint.getBoundingClientRect()
         const near = (a: number, b: number) => Math.abs(a - b) <= 1
         const hitPoints = [[4, 4], [4, innerHeight / 2], [22, innerHeight - 5], [side.left + 4, innerHeight - 5], [innerWidth - 4, innerHeight / 2]]
         return {
           safeContents: near(rootBounds.top, 24) && near(rootBounds.left, 18)
             && near(rootBounds.right, innerWidth - 16) && near(rootBounds.bottom, innerHeight - 20)
             && near(main ? main.right : side.right, innerWidth - 16),
-          baseFillsViewport: near(baseBounds.top, 0) && near(baseBounds.left, 0)
-            && near(baseBounds.right, innerWidth) && near(baseBounds.bottom, innerHeight),
-          frameColor: getComputedStyle(base).backgroundColor === getComputedStyle(frame).backgroundColor,
-          sidebarAligned: near(sideBand.left, side.left) && near(sideBand.right, main ? side.right : innerWidth),
-          bottomExtended: near(sideBand.top, innerHeight - 20) && near(sideBand.bottom, innerHeight),
-          rightExtended: near(rightBand.top, surface.getBoundingClientRect().top)
-            && near(rightBand.left, innerWidth - 16) && near(rightBand.right, innerWidth)
-            && near(rightBand.bottom, innerHeight),
+          frameFillsViewport: near(frameBounds.top, 0) && near(frameBounds.left, 0)
+            && near(frameBounds.right, innerWidth) && near(frameBounds.bottom, innerHeight),
+          frameOpaque: !["transparent", "rgba(0, 0, 0, 0)"].includes(getComputedStyle(frame).backgroundColor),
+          sidebarAligned: near(sideBounds.top, side.top) && near(sideBounds.left, side.left)
+            && near(sideBounds.right, main ? side.right : innerWidth),
+          bottomExtended: near(sideBounds.bottom, innerHeight),
           sidebarColor: getComputedStyle(sidePaint).backgroundColor === side.backgroundColor,
-          rightColor: getComputedStyle(rightPaint).backgroundColor === (main ?? side).backgroundColor,
-          paintOwnsHit: hitPoints.some(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('[data-slot="community-background-bleed"]'))),
+          paintOwnsHit: hitPoints.some(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('[data-slot="community-frame-paint"], [data-slot="community-sidebar-background"], [data-slot="community-main-background"]'))),
           ...(main ? {
-            mainExtended: near(mainBand.left, side.right) && near(mainBand.right, innerWidth)
-              && near(mainBand.top, innerHeight - 20) && near(mainBand.bottom, innerHeight),
+            mainExtended: near(mainBounds.top, main.top) && near(mainBounds.left, main.left)
+              && near(mainBounds.right, innerWidth) && near(mainBounds.bottom, innerHeight),
             mainColor: getComputedStyle(mainPaint).backgroundColor === main.backgroundColor,
           } : {}),
         }
       }, { side, main })
-    }).toEqual({ safeContents: true, baseFillsViewport: true, frameColor: true, sidebarAligned: true,
-      bottomExtended: true, rightExtended: true, sidebarColor: true, rightColor: true, paintOwnsHit: false,
+    }).toEqual({ safeContents: true, frameFillsViewport: true, frameOpaque: true, sidebarAligned: true,
+      bottomExtended: true, sidebarColor: true, paintOwnsHit: false,
       ...(mobileList ? {} : { mainExtended: true, mainColor: true }) })
   } finally {
     await page.evaluate((values) => {
@@ -515,6 +507,89 @@ async function expectSafeContentWithExtendedBackground(page: Page) {
   }
 }
 
+
+type ReturnPaintRect = { top: number; right: number; bottom: number; left: number }
+type ReturnPaintFrame = {
+  width: number
+  height: number
+  popup: ReturnPaintRect | null
+  content: ReturnPaintRect | null
+  frame: ReturnPaintRect
+  sidebar: ReturnPaintRect
+  frameColor: string
+  sidebarColor: string
+  popupColor: string | null
+}
+
+async function expectPageOwnedReturn(page: Page, back: Locator, testInfo: TestInfo, action: () => Promise<void>) {
+  const previous = await page.evaluate(() => Object.entries({ top: 24, right: 16, bottom: 20, left: 18 }).map(([edge, value]) => {
+    const style = document.documentElement.style
+    const name = `--app-safe-area-${edge}`
+    const previous = { name, value: style.getPropertyValue(name), priority: style.getPropertyPriority(name) }
+    style.setProperty(name, `${value}px`)
+    return previous
+  }))
+  let frames: ReturnPaintFrame[] = []
+  try {
+    await page.emulateMedia({ reducedMotion: "no-preference" })
+    await back.evaluate(button => {
+      const popup = button.closest<HTMLElement>('[data-slot="mobile-page"]')!
+      const content = popup.querySelector<HTMLElement>('[data-slot="mobile-page-content"]')!
+      const frames: ReturnPaintFrame[] = []
+      const rect = (element: HTMLElement): ReturnPaintRect => {
+        const { top, right, bottom, left } = element.getBoundingClientRect()
+        return { top, right, bottom, left }
+      }
+      let request = 0
+      const sample = () => {
+        const frame = document.querySelector<HTMLElement>('[data-slot="community-frame-paint"]')!
+        const sidebar = document.querySelector<HTMLElement>('[data-slot="community-sidebar-background"]')!
+        const visible = popup.isConnected && popup.getBoundingClientRect().width > 0
+        frames.push({ width: innerWidth, height: innerHeight, popup: visible ? rect(popup) : null,
+          content: visible ? rect(content) : null, frame: rect(frame), sidebar: rect(sidebar),
+          frameColor: getComputedStyle(frame).backgroundColor, sidebarColor: getComputedStyle(sidebar).backgroundColor,
+          popupColor: visible ? getComputedStyle(popup).backgroundColor : null })
+        request = requestAnimationFrame(sample)
+      }
+      Reflect.set(window, "__communityReturnPaintFrames", { frames, stop: () => cancelAnimationFrame(request) })
+      sample()
+    })
+    await action()
+  } finally {
+    frames = await page.evaluate((values) => {
+      const record = Reflect.get(window, "__communityReturnPaintFrames") as { frames: ReturnPaintFrame[]; stop: () => void } | undefined
+      record?.stop()
+      Reflect.deleteProperty(window, "__communityReturnPaintFrames")
+      const style = document.documentElement.style
+      for (const { name, value, priority } of values) {
+        if (value) style.setProperty(name, value, priority)
+        else style.removeProperty(name)
+      }
+      return record?.frames ?? []
+    }, previous)
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await attachJson(testInfo, "page-owned-return-paint-frames", frames)
+  }
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1
+  const first = frames[0]
+  expect(first).toBeDefined()
+  expect(frames.every(sample => near(sample.frame.top, 0) && near(sample.frame.left, 0)
+    && near(sample.frame.right, sample.width) && near(sample.frame.bottom, sample.height)
+    && sample.frameColor === first.frameColor && sample.sidebarColor === first.sidebarColor
+    && Object.entries(sample.sidebar).every(([edge, value]) => near(value, first.sidebar[edge as keyof ReturnPaintRect])))).toBe(true)
+  const painted = frames.filter(sample => sample.popup && sample.content)
+  expect(painted.length).toBeGreaterThan(0)
+  expect(painted.some(sample => sample.popup!.left > 1 && sample.popup!.left < sample.width - 1)).toBe(true)
+  expect(painted.every(sample => {
+    const popup = sample.popup!
+    const content = sample.content!
+    return near(popup.right - popup.left, sample.width) && near(popup.bottom - popup.top, sample.height)
+      && near(content.top - popup.top, 24) && near(content.left - popup.left, 18)
+      && near(popup.right - content.right, 16) && near(popup.bottom - content.bottom, 20)
+      && sample.popupColor === painted[0].popupColor
+      && ![null, "transparent", "rgba(0, 0, 0, 0)"].includes(sample.popupColor)
+  })).toBe(true)
+}
 
 test.describe("desktop default User Bar width", () => {
   async function prepareCase1(actors: CaseActors) {
@@ -1268,9 +1343,11 @@ test.describe("desktop default User Bar width", () => {
       .getByRole("button", { name: "Back", exact: true })
     await expect(back).toHaveCount(1)
     await expect(back).toBeVisible()
-    await back.click()
-    await expect(page).toHaveURL(/\/c\/me$/)
-    await expect(page.locator('[data-community-mobile-surface="list"]')).toBeVisible()
+    await expectPageOwnedReturn(page, back, testInfo, async () => {
+      await back.click()
+      await expect(page).toHaveURL(/\/c\/me$/)
+      await expect(page.locator('[data-community-mobile-surface="list"]')).toBeVisible()
+    })
     await attachJson(testInfo, "user-bar-mobile-list-return", { from: detailPath, to: new URL(page.url()).pathname })
     await expectUserBarTargets(page, 44)
     const bar = page.getByTestId(tid.userBar)

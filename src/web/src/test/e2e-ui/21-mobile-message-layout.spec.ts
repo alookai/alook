@@ -103,32 +103,19 @@ test("long Markdown rows stay measured and separated at iPhone width", async ({ 
   expect(composerBounds).not.toBeNull()
   expect(composerBounds!.y + composerBounds!.height).toBeLessThanOrEqual(810)
   await expect.poll(() => page.evaluate((targetHref) => {
-    const base = document.querySelector<HTMLElement>('[data-slot="community-background-bleed"] > [data-slot="community-safe-edge-paint"]')!
-    const bottom = document.querySelector<HTMLElement>('[data-slot="community-background-bottom-main"]')!
-    const right = document.querySelector<HTMLElement>('[data-slot="community-background-right"]')!
     const content = document.querySelector<HTMLElement>(`[data-community-target-href="${targetHref}"]`)!
-    const bounds = (element: HTMLElement) => {
-      const rect = element.getBoundingClientRect()
-      return [rect.top, rect.right, rect.bottom, rect.left]
-    }
-    const hit = document.elementFromPoint(30, 834)
+    const paint = content.closest<HTMLElement>('[data-slot="mobile-page"]')!
+    const rect = paint.getBoundingClientRect()
+    const hits = [[4, 400], [386, 400], [200, 4], [200, 840]]
     return {
-      base: bounds(base),
-      matchingBaseColor: getComputedStyle(base).backgroundColor === getComputedStyle(content).backgroundColor,
-      bottom: bounds(bottom),
-      right: bounds(right),
-      matchingColor: getComputedStyle(bottom).backgroundColor === getComputedStyle(content).backgroundColor,
-      matchingRightColor: getComputedStyle(right).backgroundColor === getComputedStyle(content).backgroundColor,
-      paintOwnsHit: Boolean(hit?.closest('[data-slot="community-background-bleed"]')),
+      background: [rect.top, rect.right, rect.bottom, rect.left],
+      matchingColor: getComputedStyle(paint).backgroundColor === getComputedStyle(content).backgroundColor,
+      outsideContentOwnsHit: hits.some(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('[data-slot="mobile-page"]'))),
     }
   }, `/c/channels/${serverId}/${channelId}`)).toEqual({
-    base: [0, 390, 844, 0],
-    matchingBaseColor: true,
-    bottom: [810, 390, 844, 18],
-    right: [20, 390, 844, 374],
+    background: [0, 390, 844, 0],
     matchingColor: true,
-    matchingRightColor: true,
-    paintOwnsHit: false,
+    outsideContentOwnsHit: false,
   })
 
   const firstMeasurement = await messageRowRect(page, longId)

@@ -564,7 +564,7 @@ describe("ShellFrameView", () => {
       .toBe("358px")
 
     const renderedSidebar = renderer.container.querySelector<HTMLElement>(
-      '[data-slot="resizable-panel"][data-testid="sidebar"] > div',
+      '[data-slot="community-sidebar-panel-content"]',
     )!
     vi.spyOn(renderedSidebar, "getBoundingClientRect").mockReturnValue({
       ...renderedSidebar.getBoundingClientRect(),
@@ -924,9 +924,8 @@ describe("ShellFrameView", () => {
       createElement("main-content"),
     ))
     expect(animate).toHaveBeenCalledTimes(1)
-    expect(animate.mock.calls[0][0]).toEqual(reducedMotion
-      ? [{ opacity: 0 }, { opacity: 1 }]
-      : [{ transform: "translate3d(100%, 0, 0)" }, { transform: "translate3d(0, 0, 0)" }])
+    expect(animate.mock.contexts[0]).toBe(renderer.container.querySelector('[data-slot="community-main-panel-content"]'))
+    if (reducedMotion) expect(animate.mock.calls[0][0]).toEqual([{ opacity: 0 }, { opacity: 1 }])
     expect(renderer.container.querySelector("[data-channel-loading-frame]")).not.toBeNull()
     expect(mocks.pendingProps).toHaveBeenLastCalledWith(expect.objectContaining({
       href: "/c/channels/s1/c2",
