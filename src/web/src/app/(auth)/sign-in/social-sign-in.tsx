@@ -6,8 +6,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useEffect, useRef } from "react"
 import { safeRedirectPath } from "@/lib/safe-redirect"
 import { isTauri, type NativeOauthProvider } from "@alook/shared"
-import { SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
-import Image from "next/image"
+import { SiApple, SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
 import { Button } from "@/components/ui/button"
 import { Field } from "@/components/ui/field"
 import { signIn } from "@/lib/auth-client"
@@ -17,10 +16,6 @@ import {
   nativeOauthBrowserDeps,
   type NativeOauthView,
 } from "@/lib/native-oauth-client"
-import {
-  APPLE_LEFT_ALIGNED_LOGO_BLACK,
-  APPLE_LEFT_ALIGNED_LOGO_WHITE,
-} from "./apple-sign-in-artwork"
 
 const messages = {
   start_failed: "Couldn't open sign-in. Try again.",
@@ -137,28 +132,7 @@ export function SocialSignIn({
             id: "apple" as const,
             label: "Continue with Apple",
             disabled: busy || unsupported || appleUpdateRequired,
-            icon: (
-              <>
-                <Image
-                  src={APPLE_LEFT_ALIGNED_LOGO_WHITE}
-                  alt=""
-                  width={31}
-                  height={44}
-                  unoptimized
-                  className="col-start-1 row-start-1 h-9 w-auto dark:hidden"
-                  data-testid="apple-official-left-aligned-logo-white"
-                />
-                <Image
-                  src={APPLE_LEFT_ALIGNED_LOGO_BLACK}
-                  alt=""
-                  width={31}
-                  height={44}
-                  unoptimized
-                  className="col-start-1 row-start-1 hidden h-9 w-auto dark:block"
-                  data-testid="apple-official-left-aligned-logo-black"
-                />
-              </>
-            ),
+            icon: <SiApple className="size-4" aria-hidden />,
           },
         ]
       : []),
