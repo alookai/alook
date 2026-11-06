@@ -1,207 +1,155 @@
+import { CompanyJobBrief } from "../components/company-job-brief";
+import { CompanyIntroductions } from "../components/company-introductions";
+import { CompanyRoles } from "../components/company-roles";
+
 export const metadata = {
   slug: "personal-ai-company",
-  title: "How to Build a One-Person Company With AI Agents",
+  title: "How to Build a One-Person Company With an AI Agent Team",
   date: "2026-06-10",
-  dateModified: "2026-08-12",
+  dateModified: "2026-11-05",
   author: "Alook Team",
-  excerpt:
-    "A personal AI company, or 0-person company, runs with AI agents, scoped workflows, and founder approval instead of a full headcount.",
-  readingTime: "8 min read",
-  image: "/blog/personal-ai-company/hero.webp",
+  excerpt: "Set up four AI agent roles, direct handoffs, reporting lines and owner decisions to run a one-person business. Includes a website-service example.",
+  readingTime: "10 min read",
+  image: "/blog/personal-ai-company/company-team.webp",
 };
 
-export const jsonLd = [
-  {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: [
-      {
-        "@type": "Question",
-        name: "What is a personal AI company?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "A personal AI company is a one-person company, sometimes called a 0-person company or agent company, where the founder uses AI agents for defined workflows while keeping responsibility for goals, approvals, and important decisions.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "What is a 0-person company?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "A 0-person company is a one-person business that uses AI agents for scoped work instead of hiring a traditional team. The founder still sets direction and approves high-impact actions. Agents do not replace accountability.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "What is an agent company?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "An agent company is a business operated through AI agents with roles, handoffs, and review boundaries. In Alook's framing, it is still a one-person or small-team company: local agents run the work, and the founder stays responsible for outcomes.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "How is an AI agent team different from a one-person company?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "A one-person company is the business shape: one founder stays accountable. An AI agent team is the operating pattern inside it, with scoped roles, handoff artifacts, and approval gates. A solo founder can run a small agent team without hiring a traditional department roster.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "Which AI agents does Alook support?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Alook currently supports Claude Code, Codex, Cursor, OpenCode, and Pi. It gives local coding agents roles, a persistent inbox, and a shared workspace for collaboration.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "Can AI agents run a one-person business without human oversight?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "No. Whether you call it a one-person company or a one-person business, agents can handle scoped, repeatable work, but the founder should approve customer commitments, financial actions, legal decisions, pricing changes, and other high-impact work.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "Is Alook free to use?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "You can currently get started with Alook for free. Alook is also open source and can be self-hosted.",
-        },
-      },
-    ],
-  },
-];
 
-A personal AI company is a one-person business, also called a 0-person company or agent company, where AI agents run scoped workflows while the founder keeps goals, access, and high-impact approvals. You do not need an AI version of every department. A few reliable workflows that keep moving when you are heads-down elsewhere are enough.
+![One owner and four Alook agent roles form a company team](/blog/personal-ai-company/company-team.webp)
 
-Agents take ownership of defined work, use only the tools you allow, and return results for review. When more than one agent is involved, an orchestration layer keeps roles, tasks, schedules, and communication connected.
+Running a company on your own means doing work you haven't had to do before, often with nobody to ask. Even if you know your trade, there are only so many hours to learn everything else. Hiring a full team may be out of reach.
 
-![Founder at the center of a personal AI company with scoped agent roles and an approval gate](/blog/personal-ai-company/hero.webp)
+A few AI agents seem like a way to get help. Then you find yourself explaining the same background in different chats, copying one agent's answer to another, and checking whether anyone picked up the next step. You still have several jobs on your desk, including managing the agents.
 
-*Conceptual role map: the founder stays human. Agents own scoped workflows and stop at approval boundaries.*
+For your own agent company, the practical goal is a team that picks up each other's work and shows you what still needs a decision. The roles and customer job in this guide give you a starting point, including setup in a [multi agent collaboration workspace](https://alook.ai).
 
-## What is a personal AI company?
+## What Should Your Team Know About Your Business?
 
-Bingran You’s [2026 working definition](https://bingran.ai/one-person-company) puts it plainly: a one-person company is not “a founder with a chatbot.” It is a founder running several agentic surfaces, each with a specific job, glued together by orchestration and rails. **0-person company** and **agent company** point at the same shape. Those labels still describe a founder-led business, not a company with zero accountability.
+Suppose you run a website-maintenance service for local shops, helping customers change opening hours and fix broken links on existing sites.
 
-In practice the setup has a few moving parts:
+A shop asking for a new website may sound like a promising lead, but that's a different service. If Sales treats maintenance and a redesign alike, you could end up discussing work you haven't priced or planned to deliver.
 
-- **A founder who sets direction.** You choose priorities, define boundaries, and approve decisions with financial, legal, or reputational impact.
-- **Agents with narrow roles.** Each agent gets a clear responsibility, the context needed to do the work, and access only to relevant tools.
-- **An orchestration layer.** This coordinates assignments, handoffs, recurring work, and records so the operation does not depend on you forwarding every message.
-- **A review habit.** Someone human still checks the outputs that can hurt customers or production.
+The **company brief** gives Sales a place to check what you offer and when a request needs your attention. It also explains which customers the service is for. A **job brief** then holds one customer's agreed work, such as the pages to change, the correct hours, and the booking URL. You can reuse the company brief with a new agent. The customer's hours and booking URL stay with that customer's job.
 
-The point is narrower than “AI employees.” Make repeatable work easier to delegate and inspect. Useful starting workflows include a morning brief, turning a bug report into a draft pull request, organizing release notes, researching a lead, or drafting a follow-up for approval: tasks with visible inputs and outputs you can check before they reach a customer or change production.
+## How Many Agents Do You Need to Start?
 
-## Start from the workflow, not the job title
+For this example, our starting recommendation is four: Sales, Delivery, Review, and Customer Ops. Finding new work and following up on an existing job pull attention in different directions. A website change also needs someone to check it.
 
-A “marketing agent” is too broad to evaluate.
+Review is the role we're most reluctant to fold into Delivery. If Review relies on Delivery's summary, it may accept the very mistake it was meant to catch. A separate reviewer compares the customer's request with the actual preview.
 
-“Draft a weekly product update from merged pull requests” gives the agent a source, an output, and a review point. That is the kind of brief you can actually judge.
+Four isn't a minimum for every business. Early on, Sales and Customer Ops might share one agent. Prospect research holding up replies to existing customers is a reason to split them. Adding another agent just to make the company look bigger isn't.
 
-A good first workflow usually has these properties:
+## How to Structure AI Agents Into Departments and Roles
 
-- It happens repeatedly.
-- The expected output is easy to describe.
-- The required information is available to the agent.
-- A mistake can be caught before it causes harm.
-- Success can be checked without relying on vague judgments.
+### Give Each Role Something You Can Check
 
-What should you skip? Constant exceptions, sensitive customer decisions, unrestricted system access, or a process that needs a brand-new brief every run.
+“Sales” might mean researching prospects or promising a price. Asking what the agent will bring back gives you a chance to catch that misunderstanding before a customer is involved.
 
-If you are running a one-person business today, start from a scoped workflow with a clear review point, not from a stack of job titles.
+<CompanyRoles avatars={[
+  <img key="role-0" src="/blog/personal-ai-company/sales.webp" width={104} height={104} alt="" />,
+  <img key="role-1" src="/blog/personal-ai-company/delivery.webp" width={104} height={104} alt="" />,
+  <img key="role-2" src="/blog/personal-ai-company/review.webp" width={104} height={104} alt="" />,
+  <img key="role-3" src="/blog/personal-ai-company/customer-ops.webp" width={104} height={104} alt="" />
+]} />
 
-## How to build a one-person company with AI agents
+Sales starts with prospect research and incoming inquiries. If research delays replies to people who already want to buy, we'd separate Prospecting from Intake. Prospecting's lead notes give Intake the background for handling inquiries and preparing job briefs. Both still report to you. One summarizes their sales work for Customer Ops, so you don't end up with another pair of chats to check each morning.
 
-### 1. Write Friday’s newsletter as a contract
+### Reporting Lines and Direct Handoffs
 
-Name the trigger, inputs, steps, output, and approval point. “Handle content” fails that test. “Prepare a draft newsletter from these approved sources every Friday” is specific enough to run and reject.
+All four agents report to you, but their work doesn't need to pass through your hands at every step:
 
-### 2. Give one agent a narrow inbox and tool set
+**Sales → Delivery → Review → Customer Ops**
 
-Assign a role and only the tools that workflow needs. A research brief may need approved sources and a document destination, not billing or production access.
+When Review finds a broken link, Delivery needs that finding without waiting for you to copy it across. Customer Ops brings progress and questions together, saving you four separate requests for updates.
 
-### 3. Say where the draft goes next
+Promises to customers and requests for more work need particular care. Customer Ops can pass a correction to Delivery, but a new page goes back to Sales for a proposal. You decide the price and any change in scope. A passing review also doesn't mean the site goes live: publishing, invoices, and payment decisions still wait for you.
 
-Decide whether the result returns to you, creates a task for another agent, or waits in a draft state. Incomplete workflows leave nobody sure what happens after the first output.
+A vague “continue” can leave two agents waiting for each other. Naming the next agent and the work to pick up settles that question. More complex [agent orchestration](/blog/ai-agent-orchestration) still depends on that basic clarity.
 
-### 4. Break the Friday run on purpose
+### Set Each Agent's Tool Access
 
-Use representative inputs first. Then test missing data, tool errors, ambiguous requests, and drafts that should be rejected. Keep the work supervised until failure behavior is predictable.
+Delivery needs a place to prepare changes, with a preview Review can open. Neither needs permission to publish just to do those jobs. A broad permission could let an agent change the live site while you're still checking its work.
 
-### 5. Put it on the calendar only after review
+For Sales and Customer Ops, drafting a customer reply doesn't require sending it. Their instructions need to say which accounts they may use and whether you're reviewing messages first. The accounts and tools need to enforce those permissions. Writing “don't publish” in a role description won't remove access to the publish button.
 
-Once the unscheduled version produces useful results, add a schedule or trigger. Review history when the underlying business process changes. Add another agent only when the next handoff is clear. Team size is a poor measure of progress.
+## Run a Customer Job Through the Team
 
-![Workflow maturity for a personal AI company: one founder, first workflow, handoffs, then scheduled routines](/blog/personal-ai-company/timeline.webp)
+### Sales Hands Over the Job Brief
 
-*Illustrative maturity path. Grow by tested workflows and handoffs, not by inventing department titles.*
+A shop asks for new opening hours and a repaired booking link, but hasn't sent the replacement URL. That's worth catching in Sales's proposed job brief. Otherwise, Delivery may spend time guessing which booking page is right.
 
-## Where human approval belongs
+Sales passes your approved brief to Delivery. A quick reply from Delivery tells the others it's on the job. If the customer changes the hours later, the team needs the new version of the job brief, not another loose instruction buried in chat.
 
-Some decisions should stay with the founder even when an agent prepares the work:
+We've run into this version problem in our own article workflow. We send the draft and its version to a reviewing agent, but we've still had feedback refer to text we'd already changed. We had to check which draft the comments referred to before deciding what still needed fixing. The same problem arises when a customer's latest request differs from the one Delivery first saw.
 
-- Sending customer-facing commitments
-- Moving money or changing prices
-- Accepting legal terms
-- Publishing sensitive claims
-- Deploying high-risk production changes
+### Send the Website Preview for Review
 
-On [scalable.dk](https://scalable.dk/posts/agentic-sdlc-in-production/), a solo founder describes agent pipelines that open draft pull requests and stop there: the routines never merge. That pattern matches the boundary here. Agents can gather context, draft options, and carry out approved steps. You remain accountable for the decision.
+![Six handoff requirements: scope, input, output, completion criteria, failure path, and approval boundary](/blog/personal-ai-company/handoff-contract.webp)
 
-## Chat sessions vs a working personal AI company
+For Delivery, the shop's job brief makes the work and expected return specific:
 
-Isolated agents lose context between tasks and force you to relay information manually. Coordinated agents can work from recorded decisions, send work to a specific teammate, and leave a trace of what happened. That helps. Oversight still matters.
+<CompanyJobBrief>
 
-Vendor tooling inside one product can help peers coordinate. Anthropic’s [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) document lead/teammate sessions with a shared task list and messaging, and note that the mode is experimental. A personal AI company still sits one layer up: which workflows you own, which artifacts move between stages, and where you approve.
+| Field | This customer's job |
+|---|---|
+| Scope | Change the hours and booking link; keep the existing design |
+| Input | Affected pages, correct hours, and confirmed booking URL |
+| Output | Preview link, change list, and results of checking the hours and booking link |
+| Completion | Each requested change is ready to check, or the team has said exactly what's missing |
+| Failure | Ask Customer Ops for missing details or help with access; keep the work already done and bring scope questions to you |
+| Approval | Prepare and revise the preview; publish only after you agree |
 
-![Chat pile of disconnected agents versus a coordinated personal AI company with roles, handoffs, and founder approval](/blog/personal-ai-company/comparison.webp)
+</CompanyJobBrief>
 
-*Conceptual contrast only: routing burden and ownership, not salaries, headcount, or pricing.*
+Review has to open that preview. The booking link needs to open the URL in the job brief. A summary saying “link fixed” isn't enough to establish that.
 
-## Keep coordination off your calendar
+“Looks wrong” leaves Delivery with another guessing job. A useful reply is: “The booking link still opens the old destination. Use the URL in job brief v2, then return the updated preview and link-check result.” The next review can check that same link again.
 
-[AI orchestration](/blog/ai-agent-orchestration) is the shared requirement across solopreneur stacks. Consultants, open-source maintainers, and retailers use different tools, yet they still need roles, assignments, context, and handoffs that do not collapse into manual copy-paste.
+### When the Job Gets Stuck
 
-A **one-person company** is the shape of the business: one founder stays accountable. An **AI agent team** is how that company runs day to day: scoped roles, handoff artifacts, and approval gates so work moves without you re-explaining context between every step. You do not need a large headcount of agents to have a team; two roles with a clear contract already count.
+A missing booking URL doesn't make the hours change impossible. Delivery prepares that part and tells Customer Ops: “Hours ready in preview; booking link waiting for the confirmed destination.” Customer Ops has a specific question for the customer. If it isn't allowed to send customer messages yet, the question waits for you to send it.
 
-For roles, persistent communication, and failure modes in detail, read **[How to Build an AI Agent Team](/blog/ai-agent-team)**. Current **[supported agents](/blog/ai-agent-team#supported-agents)** are listed there. For proof of work and always-on operating rules, see [how to run an AI agent team that stays on track](/blog/run-ai-agent-team-that-stays-on-track).
+With the URL confirmed and the change reviewed, Customer Ops brings you the preview and findings for approval. The customer might still spot a wrong hour afterward; that correction needs another check. A new page is a different conversation about price and scope.
 
-## Building this with Alook
+## Keep Customer Jobs Moving
 
-[Alook](https://alook.ai) is an open-source communication platform for local AI coding agents, available hosted or self-hosted. It gives agents an operating structure: roles and memberships, a persistent inbox and DMs, persistent context, traceability, and local execution on your machine. You can currently get started with Alook for free under Apache 2.0, including self-hosting.
+With two shops waiting, a reply or booking URL could get used for the wrong customer. Each job needs its own brief and conversation, and the agent picking it up needs to read that customer's history.
 
-That describes Alook’s current availability. It is not a claim about the total cost of running a business or using third-party models and services.
+The daily view we want from Customer Ops is short: inquiries waiting for a price, previews ready for approval, jobs waiting for information, and overdue follow-ups. You can choose what needs attention without reading every exchange. Delivery and Review can keep working on agreed tasks while a separate pricing question waits.
 
-## Personal AI company FAQ
+Sometimes work waits for you. Customer Ops needs to keep a preview awaiting your approval visible, so a quiet conversation doesn't look like a finished job.
 
-**What is a personal AI company?** It is a one-person company, sometimes called a 0-person company or agent company, where AI agents handle defined workflows while the founder controls goals, access, and important approvals.
+## Run Your AI Agent Team in Alook
 
-**What is a 0-person company?** It is a one-person business that uses AI agents for scoped work instead of hiring a traditional team. The founder still sets direction and approves high-impact actions.
+In [Alook](https://alook.ai), you can see the shop's work without hunting through four chats for the latest result. The company has a server, with a **website-team** channel for the agents and a thread for each customer job.
 
-**What is an agent company?** It is a business operated through AI agents with roles, handoffs, and review boundaries. In this guide, that still means a founder-led company, not a fully unsupervised machine.
+<span id="supported-agents"></span>
 
-**How is an AI agent team different from a one-person company?** The company is the business shape. The agent team is the operating pattern inside it: roles, handoffs, and approval gates. A solo founder can run a small agent team without pretending they hired a C-suite.
+The agents can run in Codex, Claude Code, or Cursor CLI; Alook's setup guides also cover OpenCode and Grok Build. For this example, Delivery uses Codex, Review uses Claude Code, and Sales and Customer Ops use Cursor CLI. The mix shows you can bring tools you already use. A separate agent checking the original request and actual preview provides the independent review; changing tools alone doesn't.
 
-**Which AI agents does Alook support?** See the current [supported agents](/blog/ai-agent-team#supported-agents) list.
+Alook's connection prompt goes into the agent tool you're connecting, which then handles setup. Once the computer is connected, **My Bots** is where you create Sales, Delivery, Review, and Customer Ops, selecting their computer and tool. The computer stays online while they work. Each bot gets the company brief and its role from the table, including what it brings back and what waits for you.
 
-**Can AI agents run a one-person business without human oversight?** No. Keep human approval around customer promises, financial actions, legal decisions, pricing changes, and other high-impact work. That gate stays even when the agents look reliable.
+Adding the four bots to your server and the **website-team** channel gives them a place to introduce themselves. Their replies make it easier to spot a role they've misunderstood before you send the shop's request.
 
-**Is Alook free to use?** You can currently get started with Alook for free under the Apache 2.0 license, including self-hosting.
+<CompanyIntroductions />
 
-## Run one Friday loop before you hire titles
+The booking-link inquiry now has a team to receive it. Its job thread is where you give Sales the request and later find the preview and review when you're deciding whether to publish. For Review to inspect Delivery's work, it needs the files attached there or a preview link it can open. Delivery's local workspace isn't automatically shared.
 
-Pick a recurring job you already do alone: the Friday newsletter, the morning brief, or the bug-to-draft-PR path.
+If you're [bringing other people and their agents into the same workspace](/blog/introducing-alook), the setup goes beyond this one-owner example.
 
-Write the artifact you expect, the tools the agent may touch, and the moment you must approve before anything reaches a customer. When that loop is boring in a good way, add the next handoff. Until then, one reliable workflow beats a pretend org chart.
+## Is the Team Saving You Time?
 
-To connect local coding agents under Alook, register at [alook.ai](https://alook.ai) and pair your machine. Self-hosting is also available from [GitHub](https://github.com/alookai/alook) (email/password login required; OAuth and email sending unavailable in self-host mode).
+The first signal we look for is how often the work comes back to you for an explanation you've already given. If Delivery still needs you to reconstruct the customer's request, adding more agents won't solve that handoff.
 
-## Related
+Time spent checking, correcting, and following up counts alongside time doing the website work. A few completed jobs tell you more than a fast first draft. Model and tool costs count too. Without earlier records, the next few jobs give you a baseline before you decide the team saves time.
 
-- [How to Build an AI Agent Team](/blog/ai-agent-team)
-- [How to Run an AI Agent Team That Stays on Track](/blog/run-ai-agent-team-that-stays-on-track)
-- [AI Orchestration: How Multiple Agents Work Together](/blog/ai-agent-orchestration)
+An agent that repeatedly returns work you can't use may need a [narrower task](/blog/how-to-delegate-tasks-to-ai-agents). Adding a role before that is clear gives you another agent to supervise.
+
+## Frequently Asked Questions
+
+### What Does “Zero-Person Company” Mean Here?
+
+We're talking about one human owner running a business with agents. “Zero-person company” or “0-person company” can overstate how much you can leave to them. In this example, you still approve prices, changes in scope, and publishing.
+
+### How Is This Different From Claude Code Agent Teams?
+
+Claude Code agent teams is a specific feature for coordinating several Claude Code sessions, with a lead, shared tasks, and messaging. For the company in this guide, you choose business roles and tools; the agents don't all have to use Claude Code.

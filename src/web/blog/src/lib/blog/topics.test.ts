@@ -47,14 +47,14 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 37 published slugs exactly once", () => {
+  it("covers all 36 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(37);
-    expect(new Set(slugs).size).toBe(37);
+    expect(slugs).toHaveLength(36);
+    expect(new Set(slugs).size).toBe(36);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -62,7 +62,7 @@ describe("blogTopics", () => {
         "personal-agents-vs-coding-agents",
         "local-ai-agents",
         "how-to-delegate-tasks-to-ai-agents",
-        "ai-agent-team",
+
         "ai-agent-orchestration",
         "ai-agent-collaboration-platforms",
         "multi-agent-workflow-patterns",
@@ -134,7 +134,6 @@ describe("blogTopics", () => {
         "Choose which parts of an AI agent should run locally",
       "how-to-delegate-tasks-to-ai-agents":
         "Package a task so an agent can run it reliably",
-      "ai-agent-team": "Design a multi-agent team with roles and handoffs",
       "ai-agent-orchestration":
         "Understand the coordination layer between agents",
       "ai-agent-collaboration-platforms":
@@ -207,7 +206,7 @@ describe("topic discovery", () => {
 
   it("recommends support articles in order from a pillar", () => {
     expect(
-      getRelatedPosts("ai-agent-team", allPosts).map(
+      getRelatedPosts("ai-agent-orchestration", allPosts).map(
         (candidate) => candidate.slug
       )
     ).toEqual([
@@ -219,19 +218,19 @@ describe("topic discovery", () => {
 
   it("prioritizes the pillar, then nearby support articles", () => {
     expect(
-      getRelatedPosts("ai-agent-orchestration", allPosts).map(
+      getRelatedPosts("ai-agent-collaboration-platforms", allPosts).map(
         (candidate) => candidate.slug
       )
     ).toEqual([
-      "ai-agent-team",
-      "ai-agent-collaboration-platforms",
+      "ai-agent-orchestration",
+      "multi-agent-workflow-patterns",
       "how-to-delegate-tasks-to-ai-agents",
     ]);
   });
 
   it("never returns the current article or missing metadata", () => {
     const available = allPosts.filter(
-      (candidate) => candidate.slug !== "ai-agent-team"
+      (candidate) => candidate.slug !== "ai-agent-orchestration"
     );
     const related = getRelatedPosts("ai-agent-vs-chatbot", available);
 
@@ -239,16 +238,16 @@ describe("topic discovery", () => {
       "ai-agent-vs-chatbot"
     );
     expect(related.map((candidate) => candidate.slug)).not.toContain(
-      "ai-agent-team"
+      "ai-agent-orchestration"
     );
   });
 
   it("bridges to the next topic pillar and wraps to the first topic", () => {
-    expect(getNextTopicBridge("ai-agent-team", allPosts)?.post.slug).toBe(
+    expect(getNextTopicBridge("ai-agent-orchestration", allPosts)?.post.slug).toBe(
       "claude-code-and-codex-same-team"
     );
     expect(getNextTopicBridge("personal-ai-company", allPosts)?.post.slug).toBe(
-      "ai-agent-team"
+      "ai-agent-orchestration"
     );
   });
 });

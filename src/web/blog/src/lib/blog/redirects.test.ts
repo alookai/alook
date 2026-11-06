@@ -8,7 +8,12 @@ describe("blogRedirects", () => {
 		expect(blogRedirects()).toEqual([
 			{
 				source: "/blog/building-your-first-agent-team",
-				destination: "/blog/ai-agent-team",
+				destination: "/blog/personal-ai-company",
+				statusCode: 301,
+			},
+			{
+				source: "/blog/ai-agent-team",
+				destination: "/blog/personal-ai-company",
 				statusCode: 301,
 			},
 			{
