@@ -918,9 +918,14 @@ test.describe("desktop default User Bar width", () => {
       const bob = await asUser("bob")
       await bob.page.setViewportSize({ width: 1280, height: 900 })
       await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
+      await expect(bob.page.getByPlaceholder("Search friends")).toBeVisible()
+      await expect(bob.page.getByTestId(tid.initialFrame)).toHaveCount(0)
       const sidebarPanel = shellPanel(bob.page, "sidebar")
       const handle = bob.page.locator('[data-slot="resizable-handle"]')
+      await expect(handle).toHaveAttribute("aria-controls", "sidebar")
+      await expect(handle).not.toHaveAttribute("aria-disabled", "true")
       await handle.focus()
+      await expect(handle).toBeFocused()
       await bob.page.keyboard.press("Home")
       await expect.poll(async () => (
         (await sidebarPanel.boundingBox())?.width ?? 0
