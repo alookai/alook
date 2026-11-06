@@ -66,13 +66,18 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
-  for (const view of mounted) view.unmount()
-  for (const { registry } of observed.owners) {
-    await registry.cleanup()
-    registry.queryClient.clear()
+  const errors: unknown[] = []
+  for (const view of mounted) {
+    try { view.unmount() } catch (error) { errors.push(error) }
   }
-  vi.unstubAllGlobals()
-  vi.restoreAllMocks()
+  for (const { registry } of observed.owners) {
+    try { await registry.cleanup() } catch (error) { errors.push(error) }
+    try { registry.queryClient.clear() } catch (error) { errors.push(error) }
+  }
+  try { vi.unstubAllGlobals() } catch (error) { errors.push(error) }
+  try { vi.restoreAllMocks() } catch (error) { errors.push(error) }
+  if (errors.length === 1) throw errors[0]
+  if (errors.length > 1) throw new AggregateError(errors, "Failed to clean up landing preview resources")
 })
 
 describe("landing preview Collection lifetime", () => {
