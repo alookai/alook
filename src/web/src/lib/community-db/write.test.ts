@@ -13,9 +13,21 @@ import { ingestMessages, projectCommunityWsEventToDb } from "./sync"
 
 const owners: CommunityDbRegistry[] = []
 
+async function cleanupResources(operations: Array<() => unknown>) {
+  const errors: unknown[] = []
+  for (const operation of operations) {
+    try { await operation() }
+    catch (error) { errors.push(error) }
+  }
+  if (errors.length === 1) throw errors[0]
+  if (errors.length > 1) throw new AggregateError(errors, "Canonical publication cleanup failed")
+}
+
 afterEach(async () => {
-  await Promise.all(owners.splice(0).map((owner) => owner.cleanup()))
-  vi.useRealTimers()
+  await cleanupResources([
+    ...owners.splice(0).flatMap((owner) => [() => owner.cleanup(), () => owner.queryClient.clear()]),
+    () => vi.useRealTimers(),
+  ])
 })
 
 function owner() {
@@ -74,13 +86,16 @@ describe("canonical collection publication", () => {
   it.each([false, true])("rejects incomplete rows before canonical publication with ready=%s", async ready => {
     const registry = owner()
     if (ready) await registry.preload()
-    const row = profileSchema.parse({ id: "complete", name: "Complete", discriminator: "0042", avatar: null, avatarVersion: 0 })
+    const expected = { id: "complete", name: "Complete", discriminator: "0042", avatar: null, avatarVersion: 0 }
+    const row = profileSchema.parse({ ...expected })
     await writeCommunityCollectionRows(registry, "profiles", [row], item => item.id)
     const key = communityKeys.communityDbCollection(registry.scopeId, "profiles")
     const before = registry.queryClient.getQueryData(key)
     await expect(async () => writeCommunityCollectionRows(registry, "profiles", [{ ...row, avatar: undefined }], item => item.id)).rejects.toThrow()
     expect(registry.queryClient.getQueryData(key)).toBe(before)
-    expect(registry.collections.profiles.get("partial")).toBeUndefined()
+    expect(registry.queryClient.getQueryData(key)).toEqual([expected])
+    await registry.preload()
+    expect(registry.collections.profiles.get("complete")).toMatchObject(expected)
   })
 
   it.each([false, true])("requires full WS messages before ready=%s and honors explicit empty", async (ready) => {
@@ -139,8 +154,7 @@ describe("canonical collection publication", () => {
       await collection.preload()
       expect(collection.get("alice")).toBeUndefined()
     } finally {
-      await collection.cleanup()
-      queryClient.clear()
+      await cleanupResources([() => collection.cleanup(), () => queryClient.clear()])
     }
   })
 
@@ -164,26 +178,32 @@ describe("canonical collection publication", () => {
   it("publishes one changed profile once and leaves unrelated rows untouched", async () => {
     const registry = owner()
     await registry.preload()
-    writeCommunityProfilePatches([
+    await writeCommunityProfilePatches([
       { id: "alice", identityAbout: { name: "Alice", discriminator: "0042" }, avatar: { avatar: null, avatarVersion: 0 } },
       { id: "bob", identityAbout: { name: "Bob", discriminator: "0042" }, avatar: { avatar: null, avatarVersion: 0 } },
     ], registry)
     const bob = registry.collections.profiles.get("bob")
-    const upsert = vi.spyOn(registry.collections.profiles.utils, "writeUpsert")
+    expect(bob).toMatchObject({ id: "bob", name: "Bob", discriminator: "0042", avatar: null, avatarVersion: 0 })
+    const changes: Array<{ key: string; type: string; id: string; name: string }> = []
+    let subscription: ReturnType<typeof registry.collections.profiles.subscribeChanges> | undefined
     const { publish, unsubscribe } = observeProfilePublications(registry)
     try {
-      writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alicia" } }], registry)
+      subscription = registry.collections.profiles.subscribeChanges((batch) => {
+        for (const { key, type, value } of batch) changes.push({ key, type, id: value.id, name: value.name })
+      }, { includeInitialState: false })
+      await writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alicia" } }], registry)
 
-      expect(upsert).toHaveBeenCalledOnce()
-      expect(upsert.mock.calls[0]?.[0]).toMatchObject([{ id: "alice", name: "Alicia" }])
+      expect(registry.collections.profiles.get("alice")).toMatchObject({ id: "alice", name: "Alicia", discriminator: "0042", avatar: null, avatarVersion: 0 })
+      expect(changes).toEqual([{ key: "alice", type: "update", id: "alice", name: "Alicia" }])
       expect(publish).toHaveBeenCalledOnce()
       expect(publish.mock.calls[0]?.[0]).toMatchObject([{ id: "alice", name: "Alicia" }, { id: "bob", name: "Bob" }])
       expect(registry.collections.profiles.get("bob")).toBe(bob)
+      expect(registry.collections.profiles.get("bob")).toMatchObject({ id: "bob", name: "Bob", discriminator: "0042", avatar: null, avatarVersion: 0 })
       expect(registry.queryClient.getQueryData(
         communityKeys.communityDbCollection("viewer", "profiles"),
       )).toMatchObject([{ id: "alice", name: "Alicia" }, { id: "bob", name: "Bob" }])
     } finally {
-      unsubscribe()
+      await cleanupResources([() => subscription?.unsubscribe(), unsubscribe])
     }
   })
 
