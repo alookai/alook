@@ -4,16 +4,12 @@ import { createCommunityDbRegistry, registerCommunityDbRegistry, type CommunityD
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { beforeEach } from "vitest"
 import { act } from "./react-dom-harness"
+import { retireCommunityQueryOwners } from "./community-owner-cleanup"
 
 const owners = new Set<CommunityDbRegistry>()
 const pendingRetirements = new Set<ReturnType<typeof setTimeout>>()
-beforeEach(() => async () => {
-  await act(async () => {
-    for (const timer of pendingRetirements) clearTimeout(timer)
-    pendingRetirements.clear()
-    for (const registry of owners) { await registry.cleanup(); registry.queryClient.clear() }
-    owners.clear()
-  })
+beforeEach(({ onTestFinished }) => {
+  onTestFinished(() => retireCommunityQueryOwners(owners, { act, timers: pendingRetirements }))
 })
 
 export function CommunityTestProvider({ client, children, userId = "viewer", registry: prepared, retainOwner = false }: { client: QueryClient; children?: ReactNode; userId?: string; registry?: CommunityDbRegistry; retainOwner?: boolean }) {

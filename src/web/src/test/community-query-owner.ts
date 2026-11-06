@@ -2,6 +2,7 @@ import { messageSeedFixture, resourceBundleFixture } from "./community-resource-
 import { AttentionScopeSchema, AttentionItemSchema } from "@alook/shared"
 import { beforeEach } from "vitest"
 import { act } from "react"
+import { retireCommunityQueryOwners } from "./community-owner-cleanup"
 import { QueryClient, type InfiniteData, type QueryKey, type SetDataOptions, type QueryClientConfig } from "@tanstack/react-query"
 import { createCommunityDbRegistry, getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { ingestMessages, ingestAttentionSnapshot } from "@/lib/community-db/sync"
@@ -46,13 +47,8 @@ export function seedCommunityReadState(client: QueryClient, channelId: string, r
     { channelId, lastReadMessageId: null, lastReadAt: null, ...row },
   ])
 }
-beforeEach(() => async () => {
-  const retire = async () => {
-    for (const registry of owners) { await registry.cleanup(); registry.queryClient.clear() }
-    owners.clear()
-  }
-  if (typeof document === "undefined") await retire()
-  else await act(retire)
+beforeEach(({ onTestFinished }) => {
+  onTestFinished(() => retireCommunityQueryOwners(owners, typeof document === "undefined" ? undefined : { act }))
 })
 
 export function seedCommunityAttentionScope(client: QueryClient, input: { channelId: string; serverId?: string | null; parentChannelId?: string | null; seq?: number; ordinaryUnread?: boolean; attentionCount?: number }) {
