@@ -2,6 +2,8 @@
 
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
 
+import { useSafeAreaBoundary } from "@/hooks/use-safe-area-boundary"
+
 import { cn } from "@/lib/utils"
 
 function TooltipProvider({
@@ -38,9 +40,10 @@ function TooltipContent({
     TooltipPrimitive.Positioner.Props,
     "align" | "alignOffset" | "side" | "sideOffset"
   >) {
+  const safeBoundary = useSafeAreaBoundary()
   return (
     <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Positioner
+      <TooltipPrimitive.Positioner collisionBoundary={safeBoundary}
         align={align}
         alignOffset={alignOffset}
         side={side}

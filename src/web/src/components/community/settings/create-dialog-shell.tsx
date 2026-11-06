@@ -44,6 +44,6 @@ export function CreateDialogShell({
   </>
   if (preview) return <div inert data-slot="dialog-content" data-own-padding="" className="absolute left-1/2 top-1/2 z-20 grid w-(--motion-sheet-width,420px) -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-0 text-sm text-popover-foreground ring-1 ring-foreground/10">{content}</div>
   return <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-    <DialogContent data-own-padding="" className="w-105 max-w-[calc(100vw-2rem)] p-0">{content}</DialogContent>
+    <DialogContent data-own-padding="" className="w-105 max-w-[calc(var(--app-safe-width)-2rem)] p-0">{content}</DialogContent>
   </Dialog>
 }

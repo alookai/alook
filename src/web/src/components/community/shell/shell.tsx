@@ -12,9 +12,10 @@ export function Shell({
   return (
     <div
       {...props}
-      className={cn("fixed inset-0 flex overflow-hidden font-sans text-sm text-foreground", className)}
+      className={cn("app-safe-viewport fixed flex overflow-hidden font-sans text-sm text-foreground", className)}
     >
-      <AppBackground />
+      <div aria-hidden data-slot="community-safe-edge-paint" className="pointer-events-none fixed inset-0 -z-20 bg-(--app-edge-fade-color,var(--app-bg))" />
+      <AppBackground className="app-safe-viewport" />
       {children}
     </div>
   )

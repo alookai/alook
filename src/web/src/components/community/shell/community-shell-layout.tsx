@@ -499,9 +499,7 @@ export function CommunityShellLayout({
               [
                 "max-sm:*:data-[mobile-layer=true]:fixed!",
                 "max-sm:*:data-[mobile-layer=true]:z-20!",
-                "max-sm:*:data-[mobile-layer=true]:inset-0!",
                 "max-sm:*:data-[mobile-layer=true]:flex-none!",
-                "max-sm:*:data-[mobile-layer=true]:w-screen!",
                 "max-sm:*:data-[mobile-layer=true]:min-w-0!",
                 "max-sm:*:data-[mobile-layer=true]:max-w-none!",
                 "max-sm:*:data-[mobile-layer=true]:overflow-visible!",
@@ -530,7 +528,7 @@ export function CommunityShellLayout({
               data-mobile-hidden={sidebarMobileHidden || undefined}
               className={cn(
                 "flex flex-col bg-sidebar",
-                (isDesktop || breakpoint === "mobile" || isInitial) && "pb-[calc(3.75rem+var(--app-safe-area-bottom))] sm:pb-15",
+                (isDesktop || breakpoint === "mobile" || isInitial) && "pb-15",
               )}
             >
               <div

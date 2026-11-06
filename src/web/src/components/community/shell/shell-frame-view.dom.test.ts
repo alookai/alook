@@ -550,9 +550,7 @@ describe("ShellFrameView", () => {
       "bottom-0",
       "-z-10",
     ]))
-    expect(userBarUnderlay.style.height).toBe(
-      "calc(60px + var(--app-safe-area-bottom))",
-    )
+    expect(userBarUnderlay.style.height).toBe("60px")
     expect(userBarOverlay.style.getPropertyValue("--community-desktop-user-bar-width")).toBe(
       "375px",
     )

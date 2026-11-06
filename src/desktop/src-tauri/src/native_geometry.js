@@ -1,0 +1,69 @@
+desktop => {
+  if (window.top !== window || window.__TAURI__?.webview?.getCurrentWebview?.()?.label !== 'main') return
+  if (window.__alookNativeGeometry) return
+  const edges = ['top', 'right', 'bottom', 'left']
+  const subscribers = new Set()
+  let state = Object.freeze({ status: 'pending', insets: null })
+  let revision = 0
+  let active = true
+  const valid = value => value && typeof value.caption === 'boolean'
+    && ['viewportWidth', 'viewportHeight'].every(key => Number.isFinite(value[key]) && value[key] > 0)
+    && edges.every(key => Number.isFinite(value[key]) && value[key] >= 0 && Number.isFinite(value[key] / value.viewportWidth * 100))
+    && value.left + value.right <= value.viewportWidth
+    && value.top + value.bottom <= value.viewportHeight
+  const project = () => {
+    const root = document.documentElement
+    if (!root) return
+    root.dataset.alookNativeGeometry = state.status
+    for (const edge of edges) {
+      if (state.insets) root.style.setProperty('--app-safe-area-' + edge, `${state.insets[edge] / state.insets.viewportWidth * 100}vw`)
+      else root.style.removeProperty('--app-safe-area-' + edge)
+    }
+    root.dataset.alookNativeCaption = String(state.insets?.caption === true)
+  }
+  const publish = (status, insets = null) => {
+    if (state.status === status && state.insets === insets) return
+    state = Object.freeze({ status, insets })
+    project()
+    for (const subscriber of subscribers) subscriber()
+  }
+  const accept = value => {
+    if (!valid(value)) { publish('error'); return }
+    const keys = [...edges, 'viewportWidth', 'viewportHeight', 'caption']
+    if (state.status === 'ready' && keys.every(key => state.insets[key] === value[key])) return
+    const insets = Object.freeze(Object.fromEntries(keys.map(key => [key, value[key]])))
+    publish('ready', insets)
+  }
+  const sync = async () => {
+    if (!active) return
+    const request = ++revision
+    try {
+      let value
+      if (window.AlookNative?.getGeometrySnapshot) value = JSON.parse(window.AlookNative.getGeometrySnapshot())
+      else if (window.webkit?.messageHandlers?.alookGeometry) value = await window.webkit.messageHandlers.alookGeometry.postMessage('snapshot')
+      else if (desktop && window.__TAURI__?.core?.invoke) value = await window.__TAURI__.core.invoke('native_geometry_snapshot')
+      else return
+      if (active && request === revision) accept(value)
+    } catch {
+      if (active && request === revision) publish('error')
+    }
+  }
+  window.__alookNativeGeometry = Object.freeze({
+    getSnapshot: () => state,
+    subscribe: callback => { subscribers.add(callback); return () => subscribers.delete(callback) },
+  })
+  const change = () => { void sync() }
+  window.addEventListener('alook:geometry-change', change)
+  window.addEventListener('resize', sync)
+  window.addEventListener('pagehide', () => { active = false; revision++; publish('pending') })
+  window.addEventListener('pageshow', event => { if (event.persisted) { active = true; void sync() } })
+  document.addEventListener('DOMContentLoaded', () => { project(); void sync() }, { once: true })
+  if (!document.documentElement) {
+    const observer = new MutationObserver(() => {
+      if (document.documentElement) { project(); observer.disconnect() }
+    })
+    observer.observe(document, { childList: true })
+  }
+  project()
+  void sync()
+}

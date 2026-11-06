@@ -94,7 +94,7 @@ export function MessageSelectionFooter({
   return (
     <div
       data-selection="active"
-      className="pointer-events-auto absolute inset-0 flex items-center justify-center bg-(--app-bg) px-2 pb-(--app-safe-area-bottom) sm:px-4 sm:pb-0"
+      className="pointer-events-auto absolute inset-0 flex items-center justify-center bg-(--app-bg) px-2 sm:px-4"
     >
       <SelectionToolbar selectedCount={selectedCount} onCancel={onCancel} onShare={onShare} />
     </div>

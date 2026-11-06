@@ -15,6 +15,7 @@ mod mobile_system_notification;
 #[cfg(mobile)]
 mod mobile_system_notification_runtime;
 mod native_command_guard;
+mod native_geometry;
 mod native_oauth;
 mod native_oauth_runtime;
 #[cfg(desktop)]
@@ -42,7 +43,8 @@ pub fn run() {
         .manage(file_save_runtime::FileSaveState::default())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .plugin(native_geometry::init());
 
     // Desktop-only plugins
     #[cfg(desktop)]
@@ -158,6 +160,7 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         commands::daemon_runtime_capability,
         commands::daemon_pair,
         commands::set_window_theme,
+        native_geometry::native_geometry_snapshot,
         commands::close_splashscreen,
         zoom::desktop_zoom_shortcut,
         native_oauth_runtime::native_oauth_snapshot,
@@ -206,8 +209,6 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
                 }
                 Err(error) => eprintln!("startup window theme unavailable: {error}"),
             }
-            #[cfg(target_os = "macos")]
-            macos_window::setup_inset_webview(&window);
         }
         let main = app.get_webview_window("main");
         #[cfg(all(target_os = "macos", debug_assertions))]
@@ -241,15 +242,16 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
             file_save_runtime::retire(window.app_handle());
             system_notifications::retire_listener(window.app_handle());
         }
-        #[cfg(target_os = "macos")]
         if window.label() == "main"
             && matches!(
                 event,
-                tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
+                tauri::WindowEvent::Resized(_)
+                    | tauri::WindowEvent::ScaleFactorChanged { .. }
+                    | tauri::WindowEvent::Focused(true)
             )
         {
             if let Some(webview) = window.app_handle().get_webview_window("main") {
-                macos_window::update_inset_webview(&webview);
+                native_geometry::changed(&webview);
             }
         }
         if commands::should_hide_on_close(window.label()) {

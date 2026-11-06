@@ -1,22 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { act, renderHook } from "@/test/react-dom-harness"
 import { useNativeSafeAreaTop } from "./use-native-safe-area-top"
 
-const originals = new Map(
-  ["AlookNative", "webkit", "__TAURI__"].map((key) => [key, Object.getOwnPropertyDescriptor(window, key)]),
-)
-
-function setBridge(key: string, value: unknown) {
-  Object.defineProperty(window, key, { configurable: true, value })
-}
-
+const keys = ["__TAURI__", "__alookNativeGeometry"]
+const originals = new Map(keys.map(key => [key, Object.getOwnPropertyDescriptor(window, key)]))
+const subscribers = new Set<() => void>()
+const ready = (top: number) => ({ status: "ready", insets: { top, right: 0, bottom: 0, left: 0, viewportWidth: 1000, viewportHeight: 800, caption: false } })
+let state: ReturnType<typeof ready> | { status: "pending" | "error"; insets: null }
+const publish = (next: typeof state) => { state = next; for (const subscriber of subscribers) subscriber() }
 beforeEach(() => {
+  subscribers.clear()
+  state = ready(0)
   vi.spyOn(navigator, "userAgent", "get").mockReturnValue("iPhone")
-  setBridge("__TAURI__", {})
-  setBridge("AlookNative", undefined)
-  setBridge("webkit", undefined)
+  Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+  Object.defineProperty(window, "__alookNativeGeometry", { configurable: true, value: {
+    getSnapshot: () => state,
+    subscribe: (callback: () => void) => { subscribers.add(callback); return () => subscribers.delete(callback) },
+  } })
 })
-
 afterEach(() => {
   vi.restoreAllMocks()
   for (const [key, descriptor] of originals) {
@@ -25,64 +26,29 @@ afterEach(() => {
   }
 })
 
-describe("native top safe-area input", () => {
-  it("reads Android's original inset on mount and follows native changes", () => {
-    let top = 0
-    setBridge("AlookNative", { getSafeAreaTop: () => top })
+describe("mobile raw top projection from the canonical document geometry", () => {
+  it("uses the original mobile top and unsubscribes when the consumer leaves", () => {
     const view = renderHook(useNativeSafeAreaTop)
     expect(view.result.current).toBe(0)
-
-    top = 62
-    act(() => window.dispatchEvent(new Event("alook:safe-area-change")))
+    act(() => publish(ready(62)))
     expect(view.result.current).toBe(62)
-    top = 0
-    act(() => window.dispatchEvent(new Event("alook:safe-area-change")))
+    act(() => publish(ready(0)))
     expect(view.result.current).toBe(0)
-  })
-
-  it("reads iOS on mount and ignores an older reply after a newer layout update", async () => {
-    const replies: Array<(value: number) => void> = []
-    const postMessage = vi.fn(() => new Promise<number>((resolve) => replies.push(resolve)))
-    setBridge("webkit", { messageHandlers: { alookSafeArea: { postMessage } } })
-    const view = renderHook(useNativeSafeAreaTop)
-    expect(postMessage).toHaveBeenCalledWith(null)
-    expect(view.result.current).toBeNull()
-    act(() => window.dispatchEvent(new Event("alook:safe-area-change")))
-    await act(async () => { replies[1](62) })
-    expect(view.result.current).toBe(62)
-    await act(async () => { replies[0](0) })
-    expect(view.result.current).toBe(62)
-
     view.unmount()
-    act(() => window.dispatchEvent(new Event("alook:safe-area-change")))
-    expect(postMessage).toHaveBeenCalledTimes(2)
+    expect(subscribers.size).toBe(0)
   })
-
-  it("keeps missing, rejected or unavailable insets distinct from zero", async () => {
-    const postMessage = vi.fn().mockRejectedValue(new Error("unavailable"))
-    setBridge("webkit", { messageHandlers: { alookSafeArea: { postMessage } } })
-    const ios = renderHook(useNativeSafeAreaTop)
-    await waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
-    expect(ios.result.current).toBeNull()
-    ios.unmount()
-
-    setBridge("webkit", undefined)
-    setBridge("AlookNative", { getSafeAreaTop: () => -1 })
-    const android = renderHook(useNativeSafeAreaTop)
-    expect(android.result.current).toBeNull()
-    android.unmount()
-
-    setBridge("AlookNative", undefined)
-    expect(renderHook(useNativeSafeAreaTop).result.current).toBeNull()
+  it("keeps unknown/error distinct from a real measured zero", () => {
+    const view = renderHook(useNativeSafeAreaTop)
+    for (const status of ["pending", "error"] as const) {
+      act(() => publish({ status, insets: null }))
+      expect(view.result.current).toBeNull()
+    }
+    act(() => publish(ready(0)))
+    expect(view.result.current).toBe(0)
   })
-
-  it.each(["browser", "desktop"])("does not activate for a %s window", (mode) => {
-    const getSafeAreaTop = vi.fn(() => 0)
-    setBridge("AlookNative", { getSafeAreaTop })
+  it.each(["browser", "desktop"])("preserves the mobile-only business rule in a %s", mode => {
     if (mode === "browser") Reflect.deleteProperty(window, "__TAURI__")
     else vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Macintosh")
-
     expect(renderHook(useNativeSafeAreaTop).result.current).toBeNull()
-    expect(getSafeAreaTop).not.toHaveBeenCalled()
   })
 })

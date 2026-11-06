@@ -48,11 +48,9 @@ describe("UserBarExtensionSlot", () => {
 
     const slot = renderer.getByTestId(tid.userBarExtension)
     const scroller = renderer.getByTestId("profile-content").parentElement?.parentElement
-    expect(slot.style.maxHeight).toContain("100dvh")
     expect(slot.className).not.toMatch(/bg-|shadow-|border|rounded|overflow-|clip-path|text-popover-foreground/)
     expect(scroller?.className).toContain("min-h-0")
     expect(scroller?.className).not.toContain("overflow-y-auto")
-    expect(scroller?.style.maxHeight).toContain("100dvh")
     expect(renderer.getByTestId("profile-content").parentElement?.className).toBe("shrink-0")
     const companionSurface = renderer.getByTestId("profile-companion").parentElement
     expect(companionSurface?.className).toContain("min-h-0")
@@ -112,7 +110,6 @@ describe("UserBarExtensionSlot", () => {
     expect(classes).not.toContain("border-b")
     expect(classes).not.toContain("border-b-0")
     expect(classes).not.toContain("shadow-none")
-    expect(slot.style.height).toContain("100dvh")
     expect(renderer.getByTestId("inbox-content")).toBeInTheDocument()
     expect(renderer.queryByTestId("profile-content")).not.toBeInTheDocument()
     expect(renderer.queryByTestId(tid.daemonUpdateNotice)).not.toBeInTheDocument()

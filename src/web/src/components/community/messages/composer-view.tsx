@@ -35,7 +35,7 @@ import { SendStrokeRoundedIcon } from "./send-stroke-rounded-icon"
 import { useHydratedClient } from "@/components/community/shell/use-hydrated-client"
 
 const COMPOSER_OUTER_CLASS =
-  "relative pl-[var(--community-composer-inline-start)] pr-[var(--community-composer-inline-end)] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:pb-3"
+  "relative pl-[var(--community-composer-inline-start)] pr-[var(--community-composer-inline-end)] pb-3 pt-0"
 
 export type ComposerViewProps = {
   isForumThreadBody: boolean

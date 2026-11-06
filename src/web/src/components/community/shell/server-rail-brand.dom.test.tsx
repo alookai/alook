@@ -29,21 +29,26 @@ vi.mock("@/components/ui/tooltip", () => ({
 }))
 vi.mock("next/link", async () => ({ default: (await import("@/test/community-link-mock")).CommunityLinkMock }))
 
-const nativeKeys = ["__TAURI__", "AlookNative"] as const
+const nativeKeys = ["__TAURI__", "__alookNativeGeometry"] as const
 const originalNative = new Map(nativeKeys.map((key) => [key, Object.getOwnPropertyDescriptor(window, key)]))
 const queries = new Set<MediaQueryList>()
 let width = 640
-let safeAreaTop: number | null = 0
+let geometryState = { status: "ready", insets: { top: 0 } as { top: number } | null }
+const geometrySubscribers = new Set<() => void>()
 
 beforeEach(() => {
   width = 640
-  safeAreaTop = 0
+  geometryState = { status: "ready", insets: { top: 0 } }
+  geometrySubscribers.clear()
   queries.clear()
   vi.spyOn(navigator, "userAgent", "get").mockReturnValue("iPhone")
   Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
-  Object.defineProperty(window, "AlookNative", {
+  Object.defineProperty(window, "__alookNativeGeometry", {
     configurable: true,
-    value: { getSafeAreaTop: () => safeAreaTop },
+    value: {
+      getSnapshot: () => geometryState,
+      subscribe: (callback: () => void) => { geometrySubscribers.add(callback); return () => geometrySubscribers.delete(callback) },
+    },
   })
   vi.spyOn(window, "matchMedia").mockImplementation((media) => {
     const query = Object.assign(new EventTarget(), {
@@ -87,7 +92,7 @@ describe("Home Logo width and native inset", () => {
     [640, null, false],
   ] as const)("renders width %s with safe area %s", (nextWidth, nextTop, expected) => {
     width = nextWidth
-    safeAreaTop = nextTop
+    geometryState = { status: nextTop === null ? "error" : "ready", insets: nextTop === null ? null : { top: nextTop } }
     const view = renderRail()
     const logo = view.getByTestId(tid.homeButton).querySelector("svg")!
     expectCharacterOnly(logo, expected)
@@ -134,8 +139,8 @@ describe("Home Logo width and native inset", () => {
 
     for (const nextTop of [47, 0, null]) {
       act(() => {
-        safeAreaTop = nextTop
-        window.dispatchEvent(new Event("alook:safe-area-change"))
+        geometryState = { status: nextTop === null ? "error" : "ready", insets: nextTop === null ? null : { top: nextTop } }
+        for (const subscriber of geometrySubscribers) subscriber()
       })
       expectCharacterOnly(home, nextTop === 0)
       expectCharacterOnly(other, false)

@@ -163,7 +163,7 @@ export function OnboardingSelectDialog({
       <DialogContent
         data-testid={testId}
         showCloseButton={dismissible}
-        className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 thin-scrollbar sm:max-w-xl"
+        className="max-h-[calc(var(--app-overlay-safe-height)-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 thin-scrollbar sm:max-w-xl"
         initialFocus={false}
         aria-busy={busy}
       >

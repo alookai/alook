@@ -66,7 +66,7 @@ function SheetContent({
   return (
     <SheetPortal>
       {showOverlay && <SheetOverlay forceRender />}
-      <SwipeViewport className="fixed inset-0 z-50">
+      <SwipeViewport className="app-safe-viewport app-safe-overlay-viewport app-safe-portal-viewport fixed z-50">
       <SwipePopup
         data-slot="sheet-content"
         data-side={side}

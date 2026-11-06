@@ -359,7 +359,7 @@ function SignInForm({
   }
 
   return (
-    <div className="relative flex min-h-0 w-full flex-1 overflow-x-clip sm:min-h-124">
+    <div className="app-auth-form-viewport thin-scrollbar relative flex min-h-0 w-full flex-1 overflow-x-clip">
       <ObservedStaticContent />
       <div
         ref={trackRef}
@@ -374,7 +374,7 @@ function SignInForm({
         )}
       >
         {showMethodsPane ? (
-          <div aria-hidden={isTransitioning || undefined} inert={isTransitioning || undefined} className="flex min-h-svh w-full shrink-0 flex-col justify-center gap-4 pt-[max(0.5rem,var(--app-safe-area-top))] pb-[max(1rem,var(--app-safe-area-bottom))] sm:min-h-0 sm:p-8">
+          <div aria-hidden={isTransitioning || undefined} inert={isTransitioning || undefined} className="flex min-h-(--app-auth-available-height) w-full shrink-0 flex-col justify-center gap-4 pt-2 pb-4 sm:min-h-0 sm:p-8">
             <SignInMobileTypewriter collapsed={false} />
             <div className="mx-auto w-full max-w-88 px-4 sm:px-0">
               <FieldGroup className="gap-4">
@@ -448,7 +448,7 @@ function SignInForm({
             data-testid="sign-in-email-pane"
             aria-hidden={isExitingEmail || undefined}
             inert={isTransitioning || undefined}
-            className="flex min-h-svh w-full shrink-0 flex-col justify-center px-4 pt-[max(1.5rem,var(--app-safe-area-top))] pb-[max(1.5rem,var(--app-safe-area-bottom))] sm:min-h-0 sm:p-8"
+            className="flex min-h-(--app-auth-available-height) w-full shrink-0 flex-col justify-center px-4 py-6 sm:min-h-0 sm:p-8"
           >
             <div className="mx-auto w-full max-w-80 sm:max-w-88">
               <FieldGroup className="gap-4">
@@ -494,7 +494,7 @@ function SignInForm({
             data-testid="sign-in-code-pane"
             aria-hidden={isExitingCode || undefined}
             inert={isTransitioning || undefined}
-            className="flex min-h-svh w-full shrink-0 flex-col justify-center px-4 pt-[max(1.5rem,var(--app-safe-area-top))] pb-[max(1.5rem,var(--app-safe-area-bottom))] sm:min-h-0 sm:p-8"
+            className="flex min-h-(--app-auth-available-height) w-full shrink-0 flex-col justify-center px-4 py-6 sm:min-h-0 sm:p-8"
           >
             <div className="mx-auto w-full max-w-80 sm:max-w-88">
               <FieldGroup className="gap-4">
@@ -656,7 +656,7 @@ export default function SignInPageClient({
   return (
     <div
       data-slot="auth-page"
-      className="relative flex min-h-svh flex-col p-0 sm:items-center sm:justify-center sm:p-8"
+      className="app-safe-auth-page relative flex min-h-svh flex-col sm:items-center sm:justify-center"
     >
       <GradientBackground />
       <div className="flex min-h-0 w-full flex-1 flex-col sm:max-w-5xl sm:flex-none">

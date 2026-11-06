@@ -4,6 +4,8 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import * as React from "react"
 import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
 
+import { useSafeAreaBoundary } from "@/hooks/use-safe-area-boundary"
+
 import { cn } from "@/lib/utils"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 import { useAuthenticatedContextMenuPolicy } from "@/components/authenticated-context-menu-boundary"
@@ -199,9 +201,10 @@ function ContextMenuContent({
     "align" | "alignOffset" | "side" | "sideOffset"
   >) {
   const renderPopup = useNativeBackPopupRender<ContextMenuPrimitive.Popup.State>(render)
+  const safeBoundary = useSafeAreaBoundary()
   return (
     <ContextMenuPrimitive.Portal>
-      <ContextMenuPrimitive.Positioner
+      <ContextMenuPrimitive.Positioner collisionBoundary={safeBoundary}
         className="isolate z-50 outline-none"
         align={align}
         alignOffset={alignOffset}

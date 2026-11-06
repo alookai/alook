@@ -276,7 +276,7 @@ export function MachineQuotaSummary({
       />
       <PopoverContent
         align="start"
-        className="max-h-[min(32rem,calc(100vh-2rem))] w-80 max-w-[calc(100vw-1rem)] overflow-y-auto p-4 thin-scrollbar"
+        className="max-h-[min(32rem,calc(var(--app-overlay-safe-height)-2rem))] w-80 max-w-[calc(var(--app-safe-width)-1rem)] overflow-y-auto p-4 thin-scrollbar"
         data-testid={tid.machineQuotaDetail(machineId)}
       >
         <div className="flex flex-col gap-4">

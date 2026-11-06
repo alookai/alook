@@ -1,0 +1,21 @@
+{
+  "identifier": "native-geometry-dev",
+  "description": "Read-only native geometry for the trusted development main document",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
+  ],
+  "local": false,
+  "remote": {
+    "urls": [
+      "http://localhost:3000"
+    ]
+  },
+  "permissions": [
+    "allow-native-geometry-snapshot"
+  ]
+}

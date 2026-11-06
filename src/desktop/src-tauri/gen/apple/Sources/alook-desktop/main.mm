@@ -15,7 +15,7 @@ static UIColor *alookDarkColor(void) {
 static const void *kAlookResolvedDarkThemeKey = &kAlookResolvedDarkThemeKey;
 static const void *kAlookWebBackgroundKey = &kAlookWebBackgroundKey;
 static const void *kAlookWebDarkThemeKey = &kAlookWebDarkThemeKey;
-static const void *kAlookSafeAreaTopKey = &kAlookSafeAreaTopKey;
+static const void *kAlookGeometryKey = &kAlookGeometryKey;
 static const void *kAlookKeyboardLayoutViewKey = &kAlookKeyboardLayoutViewKey;
 static const void *kAlookCommunityRootScrollDelegateKey = &kAlookCommunityRootScrollDelegateKey;
 static const void *kAlookCommunityRootURLObserversKey = &kAlookCommunityRootURLObserversKey;
@@ -28,19 +28,26 @@ static UIView *gAlookStartupOverlay = nil;
 static BOOL gAlookStartupCompleted = NO;
 static BOOL gAlookStartupFailed = NO;
 
-static NSString *const kAlookConsumedSafeAreaScript =
-    @"for (const edge of ['top', 'right', 'bottom', 'left']) {"
-     "document.documentElement.style.setProperty('--app-safe-area-' + edge, '0px');"
-     "}";
+static BOOL alookIsTauriRootController(UIViewController *viewController);
 
 static CGRect alookNativeContentFrame(CGRect bounds, UIEdgeInsets systemInsets, BOOL isTauriRoot) {
-    CGFloat top = isTauriRoot ? MAX(systemInsets.top, 10.0) : systemInsets.top;
-    CGFloat bottom = isTauriRoot ? 20.0 : systemInsets.bottom;
-    CGFloat width = bounds.size.width - systemInsets.left - systemInsets.right;
-    CGFloat height = bounds.size.height - top - bottom;
-    return CGRectMake(systemInsets.left, top,
-        isTauriRoot ? MAX(0.0, width) : width,
-        isTauriRoot ? MAX(0.0, height) : height);
+    if (isTauriRoot) return bounds;
+    return CGRectMake(systemInsets.left, systemInsets.top,
+        bounds.size.width - systemInsets.left - systemInsets.right,
+        bounds.size.height - systemInsets.top - systemInsets.bottom);
+}
+
+static NSDictionary *alookMeasureGeometry(UIViewController *controller, WKWebView *webView) {
+    if (!alookIsTauriRootController(controller) || webView.superview != controller.view ||
+        webView.window == nil || CGRectIsEmpty(webView.bounds)) return nil;
+    CGRect bounds = webView.bounds;
+    CGRect safe = [webView convertRect:controller.view.safeAreaLayoutGuide.layoutFrame fromView:controller.view];
+    CGFloat left = MIN(bounds.size.width, MAX(0, CGRectGetMinX(safe) - CGRectGetMinX(bounds)));
+    CGFloat right = MIN(bounds.size.width - left, MAX(0, CGRectGetMaxX(bounds) - CGRectGetMaxX(safe)));
+    CGFloat top = MIN(bounds.size.height, MAX(0, CGRectGetMinY(safe) - CGRectGetMinY(bounds)));
+    CGFloat bottom = MIN(bounds.size.height - top, MAX(0, CGRectGetMaxY(bounds) - CGRectGetMaxY(safe)));
+    return @{ @"top": @(top), @"right": @(right), @"bottom": @(bottom), @"left": @(left),
+              @"viewportWidth": @(bounds.size.width), @"viewportHeight": @(bounds.size.height), @"caption": @NO };
 }
 
 static CGFloat alookKeyboardBottomInset(CGRect bounds, CGRect keyboardFrame,
@@ -491,19 +498,23 @@ static NSString *const kThemeObserverScript =
 
 @end
 
-@interface AlookSafeAreaHandler : NSObject <WKScriptMessageHandlerWithReply>
+@interface AlookGeometryHandler : NSObject <WKScriptMessageHandlerWithReply>
 @property (nonatomic, weak) UIViewController *viewController;
+@property (nonatomic, weak) WKWebView *webView;
 @end
 
-@implementation AlookSafeAreaHandler
-
+@implementation AlookGeometryHandler
 - (void)userContentController:(WKUserContentController *)userContentController
       didReceiveScriptMessage:(WKScriptMessage *)message
                  replyHandler:(void (^)(id, NSString *))replyHandler {
-    UIViewController *controller = self.viewController;
-    replyHandler(controller == nil ? NSNull.null : @(controller.view.safeAreaInsets.top), nil);
+    WKWebView *webView = self.webView;
+    if (webView == nil || message.webView != webView || !message.frameInfo.isMainFrame ||
+        ![message.body isEqual:@"snapshot"]) {
+        replyHandler(nil, @"Geometry view unavailable");
+        return;
+    }
+    replyHandler(alookMeasureGeometry(self.viewController, webView) ?: NSNull.null, nil);
 }
-
 @end
 
 @interface AlookKeyboardHandler : NSObject <WKScriptMessageHandlerWithReply>
@@ -621,23 +632,17 @@ static NSString *const kThemeObserverScript =
 
             WKWebView *webView = (WKWebView *)subview;
             if (isTauriRoot) {
-                // The native frame already consumes safe areas. Do not inset the scroll view a second time.
                 webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
                 alookInstallCommunityRootScrollLock(self.view, webView);
-                NSNumber *previousTop = objc_getAssociatedObject(webView, kAlookSafeAreaTopKey);
-                if (previousTop == nil) {
-                    WKUserScript *safeAreaScript = [[WKUserScript alloc]
-                        initWithSource:kAlookConsumedSafeAreaScript
-                        injectionTime:WKUserScriptInjectionTimeAtDocumentStart
-                        forMainFrameOnly:YES];
-                    [webView.configuration.userContentController addUserScript:safeAreaScript];
-                    [webView evaluateJavaScript:kAlookConsumedSafeAreaScript completionHandler:nil];
-                    AlookSafeAreaHandler *handler = [[AlookSafeAreaHandler alloc] init];
+                NSDictionary *previousGeometry = objc_getAssociatedObject(webView, kAlookGeometryKey);
+                if (previousGeometry == nil) {
+                    AlookGeometryHandler *handler = [[AlookGeometryHandler alloc] init];
                     handler.viewController = self;
+                    handler.webView = webView;
                     [webView.configuration.userContentController
                         addScriptMessageHandlerWithReply:handler
                         contentWorld:WKContentWorld.pageWorld
-                        name:@"alookSafeArea"];
+                        name:@"alookGeometry"];
                     AlookKeyboardHandler *keyboard = [[AlookKeyboardHandler alloc] init];
                     keyboard.webView = webView;
                     keyboard.viewController = self;
@@ -645,13 +650,18 @@ static NSString *const kThemeObserverScript =
                         addScriptMessageHandlerWithReply:keyboard
                         contentWorld:WKContentWorld.pageWorld
                         name:@"alookKeyboard"];
-                }
-                if (previousTop == nil || previousTop.doubleValue != insets.top) {
-                    objc_setAssociatedObject(webView, kAlookSafeAreaTopKey, @(insets.top), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                    [webView evaluateJavaScript:@"window.dispatchEvent(new Event('alook:safe-area-change'))" completionHandler:nil];
+                    objc_setAssociatedObject(webView, kAlookGeometryKey, @{}, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                 }
             }
             if (!CGRectEqualToRect(webView.frame, contentFrame)) webView.frame = contentFrame;
+            if (isTauriRoot) {
+                NSDictionary *geometry = alookMeasureGeometry(self, webView);
+                NSDictionary *previousGeometry = objc_getAssociatedObject(webView, kAlookGeometryKey);
+                if (geometry != nil && ![geometry isEqualToDictionary:previousGeometry]) {
+                    objc_setAssociatedObject(webView, kAlookGeometryKey, geometry, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                    [webView evaluateJavaScript:@"window.dispatchEvent(new Event('alook:geometry-change'))" completionHandler:nil];
+                }
+            }
             static dispatch_once_t scriptToken;
             dispatch_once(&scriptToken, ^{
                 AlookThemeHandler *handler = [[AlookThemeHandler alloc] init];

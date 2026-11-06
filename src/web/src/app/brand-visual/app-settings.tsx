@@ -24,7 +24,7 @@ const MEMBERS: Member[] = [...DEMO_PROFILES.values()].map((p) => ({
 }))
 
 /** Same frame the app uses for both settings modals (shell-frame-overlays / server-sidebar-slot). */
-const SETTINGS_DIALOG_CLASS = "flex h-dvh max-h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[calc(100vh-4rem)] sm:max-h-180 sm:w-[calc(100vw-4rem)] sm:max-w-4xl sm:rounded-xl"
+const SETTINGS_DIALOG_CLASS = "flex h-full max-h-full w-full max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[calc(100%-4rem)] sm:max-h-180 sm:w-[calc(100%-4rem)] sm:max-w-4xl sm:rounded-xl"
 /** Inline frame for the board: the dialog box size, without the portal. */
 const INLINE_FRAME: CSSProperties = { display: "flex", flexDirection: "column", height: 640, overflow: "hidden", borderRadius: "var(--radius)", border: "1px solid var(--border)", background: "var(--background)" }
 

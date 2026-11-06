@@ -168,8 +168,8 @@ function CommunitySheetContent({
         maxWidth: "none",
       } as React.CSSProperties}
       className={cn(
-        "data-[side=right]:h-dvh data-[side=right]:w-screen data-[side=right]:max-w-none data-[side=right]:overflow-hidden",
-        "data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:w-[clamp(20rem,var(--community-sheet-width),min(var(--community-sheet-max-width),calc(100vw-1rem)))] data-[side=right]:sm:rounded-xl data-[side=right]:sm:border",
+        "data-[side=right]:h-full data-[side=right]:w-full data-[side=right]:max-w-none data-[side=right]:overflow-hidden",
+        "data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:w-[clamp(20rem,var(--community-sheet-width),min(var(--community-sheet-max-width),calc(var(--app-safe-width)-1rem)))] data-[side=right]:sm:rounded-xl data-[side=right]:sm:border",
       )}
     >
       {resize && <SheetResizeHandle {...resize} />}

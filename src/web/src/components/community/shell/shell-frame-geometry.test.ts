@@ -67,9 +67,7 @@ describe("desktop community shell geometry", () => {
 describe("mobile Inbox shell geometry", () => {
   it("uses the same 60px visual-plus-margin footprint as the mobile Composer", () => {
     expect(COMMUNITY_USER_BAR_BASE_HEIGHT).toBe(60)
-    expect(COMMUNITY_USER_BAR_HEIGHT_CSS).toBe(
-      "calc(60px + var(--app-safe-area-bottom))",
-    )
+    expect(COMMUNITY_USER_BAR_HEIGHT_CSS).toBe("60px")
   })
 
   it("defaults both safe areas to zero", () => {

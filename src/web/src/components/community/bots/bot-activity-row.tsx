@@ -256,7 +256,7 @@ function TruncatedAuditLog({
       <DialogTrigger render={trigger} />
       <DialogContent>
         <DialogTitle className="pr-11">Activity details</DialogTitle>
-        <div data-testid={tid.botActivityDetail} className="thin-scrollbar max-h-[calc(100dvh-8rem)] overflow-y-auto whitespace-pre-wrap wrap-break-word font-mono text-xs leading-relaxed">
+        <div data-testid={tid.botActivityDetail} className="thin-scrollbar max-h-[calc(var(--app-overlay-safe-height)-8rem)] overflow-y-auto whitespace-pre-wrap wrap-break-word font-mono text-xs leading-relaxed">
           {fullText}
         </div>
       </DialogContent>
@@ -269,7 +269,7 @@ function TruncatedAuditLog({
         role="tooltip"
         side="bottom"
         align="start"
-        className="thin-scrollbar max-h-[min(24rem,calc(100dvh-2rem))] max-w-[min(32rem,calc(100vw-2rem))] overflow-y-auto whitespace-pre-wrap wrap-break-word font-mono text-[12px] leading-relaxed"
+        className="thin-scrollbar max-h-[min(24rem,calc(var(--app-overlay-safe-height)-2rem))] max-w-[min(32rem,calc(var(--app-safe-width)-2rem))] overflow-y-auto whitespace-pre-wrap wrap-break-word font-mono text-[12px] leading-relaxed"
       >
         {fullText}
       </TooltipContent>

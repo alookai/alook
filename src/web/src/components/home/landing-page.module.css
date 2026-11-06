@@ -22,6 +22,7 @@
   --tw-blob-theme: var(--landing-section-bg);
 
   min-width: 0;
+  padding: var(--app-safe-area-top) var(--app-safe-area-right) var(--app-safe-area-bottom) var(--app-safe-area-left);
   overflow-x: clip;
   background: var(--landing-bg);
   color: var(--landing-text);
@@ -123,7 +124,7 @@
 .nav {
   position: sticky;
   z-index: 50;
-  top: 0;
+  top: var(--app-safe-area-top);
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   min-height: 72px;

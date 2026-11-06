@@ -38,7 +38,7 @@ export function UserBarPopover({ anchor, children, companion, onDismiss, onEscap
           <PopoverPopup
             ref={popoverRef}
             role="presentation"
-            className={`relative w-80 max-w-[calc(100vw-1rem)] border-0 bg-transparent p-0 shadow-none ${companion && !ready ? "overflow-hidden" : "overflow-visible"}`}
+            className={`relative w-80 max-w-[calc(var(--app-safe-width)-1rem)] border-0 bg-transparent p-0 shadow-none ${companion && !ready ? "overflow-hidden" : "overflow-visible"}`}
             initialFocus={() => document.getElementById("community-user-bar-extension")}
             finalFocus={false}
           >

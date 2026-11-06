@@ -8,7 +8,7 @@ export const COMMUNITY_SIDEBAR_MIN_WIDTH = 100
 export const COMMUNITY_SIDEBAR_MAX_WIDTH = 360
 export const COMMUNITY_USER_BAR_BASE_HEIGHT = 60
 export const COMMUNITY_USER_BAR_HEIGHT_CSS =
-  `calc(${COMMUNITY_USER_BAR_BASE_HEIGHT}px + var(--app-safe-area-bottom))`
+  `${COMMUNITY_USER_BAR_BASE_HEIGHT}px`
 export const COMMUNITY_LAYOUT_STORAGE_KEY = "react-resizable-panels:community-shell"
 export const COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE = "data-community-shell-layout"
 export const COMMUNITY_LAYOUT_PREPAINT_SIDEBAR_WIDTH = "--community-shell-prepaint-sidebar-width"
@@ -44,7 +44,7 @@ try {
       const root = document.documentElement;
       root.style.setProperty(
         ${JSON.stringify(COMMUNITY_LAYOUT_PREPAINT_SIDEBAR_WIDTH)},
-        "clamp(${COMMUNITY_SIDEBAR_MIN_WIDTH}px, calc(" + sidebar + "vw - " + viewportTrackCorrection + "px), ${COMMUNITY_SIDEBAR_MAX_WIDTH}px)",
+        "clamp(${COMMUNITY_SIDEBAR_MIN_WIDTH}px, calc((100vw - var(--app-safe-area-left) - var(--app-safe-area-right)) * " + sidebar / 100 + " - " + viewportTrackCorrection + "px), ${COMMUNITY_SIDEBAR_MAX_WIDTH}px)",
       );
       root.style.setProperty(
         ${JSON.stringify(COMMUNITY_LAYOUT_PREPAINT_USER_BAR_WIDTH)},

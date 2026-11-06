@@ -10,6 +10,7 @@ fn main() {
             "set_window_theme",
             "close_splashscreen",
             "desktop_zoom_shortcut",
+            "native_geometry_snapshot",
             "desktop_system_notification_show",
             "desktop_system_notification_listen",
             "desktop_system_notification_take_activation",

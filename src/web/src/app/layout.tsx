@@ -7,6 +7,7 @@ import { ToasterProvider } from "@/components/toaster-provider";
 import { MessageNotificationToaster } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { MockNetworkBanner } from "@/components/mock-network-banner";
+import { NativeKeyboardSync } from "@/hooks/use-native-keyboard";
 import { TauriThemeSync } from "@/components/tauri-theme-sync";
 import { ThemeColorSync } from "@/components/theme-color-sync";
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
@@ -43,6 +44,8 @@ export default function RootLayout({
       <body
         className={`${technostalgia.theme} min-h-full flex flex-col`}
       >
+        <div data-slot="app-safe-bounds" aria-hidden className="app-safe-viewport app-safe-overlay-viewport pointer-events-none invisible fixed" />
+        <div data-alook-native-caption="" data-tauri-drag-region="" aria-hidden className="app-native-caption" />
         <MockNetworkBanner />
         <ServiceWorkerRegistration />
         {siteStructuredData.map((schema) => (
@@ -57,6 +60,7 @@ export default function RootLayout({
         <ThemeProvider attribute={["class", "data-tn-mode"]} defaultTheme="system" enableSystem>
           <ThemeColorSync />
           <TauriThemeSync />
+          <NativeKeyboardSync />
           <MessageNotificationToaster />
           <TooltipProvider>
             {children}

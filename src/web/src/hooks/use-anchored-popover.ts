@@ -2,6 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, type CSSProperties } from "react"
+import { useSafeAreaBoundary } from "./use-safe-area-boundary"
 
 export interface AnchorRect {
   top: number
@@ -47,10 +48,24 @@ export function readVisualViewport(): VisualViewportRect | null {
 
 function readAnchoredPopoverGeometry(
   getRect: AnchorRectResolver,
+  boundary?: DOMRect,
 ): AnchoredPopoverGeometry | null {
   const rect = getRect()
   const viewport = readVisualViewport()
-  return rect && viewport ? { rect, viewport } : null
+  return rect && viewport ? constrainAnchoredPopoverGeometry(rect, viewport, boundary) : null
+}
+
+export function constrainAnchoredPopoverGeometry(rect: AnchorRect, viewport: VisualViewportRect, boundary?: Pick<DOMRect, "top" | "right" | "bottom" | "left">): AnchoredPopoverGeometry {
+  if (!boundary) return { rect, viewport }
+  const left = Math.max(viewport.left, boundary.left)
+  const top = Math.max(viewport.top, boundary.top)
+  const right = Math.min(viewport.left + viewport.width, boundary.right)
+  const bottom = Math.min(viewport.top + viewport.height, boundary.bottom)
+  return {
+    rect: { left: rect.left + viewport.left - left, right: rect.right + viewport.left - left,
+      top: rect.top + viewport.top - top, bottom: rect.bottom + viewport.top - top },
+    viewport: { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) },
+  }
 }
 
 function geometryEqual(
@@ -114,6 +129,7 @@ export function useAnchoredPopover(
   getRect: AnchorRectResolver | null,
   active: boolean,
 ): AnchoredPopoverGeometry | null {
+  const boundary = useSafeAreaBoundary()
   const [snapshot, setSnapshot] = useAtom(useCreateAtom<{
     getRect: AnchorRectResolver
     geometry: AnchoredPopoverGeometry | null
@@ -122,7 +138,7 @@ export function useAnchoredPopover(
   useEffect(() => {
     if (!active || !getRect) return
     const refresh = () => {
-      const next = readAnchoredPopoverGeometry(getRect)
+      const next = readAnchoredPopoverGeometry(getRect, boundary)
       setSnapshot((current) => current?.getRect === getRect
         && geometryEqual(current.geometry, next)
         ? current
@@ -130,7 +146,7 @@ export function useAnchoredPopover(
     }
     refresh()
     return subscribeAnchoredPopoverChanges(refresh)
-  }, [active, getRect, setSnapshot])
+  }, [active, boundary, getRect, setSnapshot])
 
   return active && snapshot?.getRect === getRect ? snapshot.geometry : null
 }
