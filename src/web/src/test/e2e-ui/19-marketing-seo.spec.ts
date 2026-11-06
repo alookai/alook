@@ -1,6 +1,21 @@
 import { expect, test } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
 
+function motionCanvasGeometry(element: Element) {
+  const canvas = element.firstElementChild
+  if (!(canvas instanceof HTMLElement)) return null
+  const stage = element.getBoundingClientRect()
+  const painted = canvas.getBoundingClientRect()
+  const transform = new DOMMatrix(getComputedStyle(canvas).transform)
+  return {
+    width: stage.width, height: stage.height, layoutWidth: (element as HTMLElement).clientWidth,
+    canvasWidth: canvas.offsetWidth, canvasHeight: canvas.offsetHeight,
+    scaleX: transform.a, scaleY: transform.d, skewX: transform.c, skewY: transform.b,
+    paintedWidth: painted.width, paintedHeight: painted.height,
+    left: painted.left - stage.left, top: painted.top - stage.top,
+  }
+}
+
 test("homepage SSR keeps product demos out of the heading tree", async ({ page, request }) => {
   const response = await request.get("/")
 
@@ -48,9 +63,22 @@ test("homepage header, body, and footer share responsive content edges", async (
         height: box.height,
       }
     })
-    const socialTargets = await page
-      .getByTestId(tid.landingFooterSocial)
-      .locator("a")
+    const social = page.getByTestId(tid.landingFooterSocial)
+    const socialAnchors = social.locator("a")
+    await expect(socialAnchors).toHaveCount(3)
+    const expectedSocial = [
+      { name: "GitHub", href: "https://github.com/alookai/alook" },
+      { name: "Discord", href: "https://discord.com/invite/24PHyEHU3M" },
+      { name: "Follow us on X", href: "https://x.com/alook_ai" },
+    ]
+    const actualSocial = []
+    for (const expected of expectedSocial) {
+      const link = social.getByRole("link", { name: expected.name, exact: true })
+      await expect(link).toHaveCount(1)
+      actualSocial.push({ name: expected.name, href: await link.getAttribute("href") })
+    }
+    expect(actualSocial).toEqual(expectedSocial)
+    const socialTargets = await socialAnchors
       .evaluateAll((elements) => elements.map((element) => {
         const box = element.getBoundingClientRect()
         return { width: box.width, height: box.height }
@@ -114,16 +142,18 @@ test("homepage keeps Tutorials in the footer and collapses mobile header links",
   await page.goto("/")
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
 
-  const header = page.locator("nav.marketing-nav")
+  const header = page.getByRole("navigation", { includeHidden: true }).filter({ has: page.getByTestId(tid.landingHeaderContainer) })
   await expect.poll(() => header.evaluate((element) => getComputedStyle(element).visibility)).toBe("visible")
 
-  const inlineLinks = header.locator(".marketing-site-link")
+  const siteAnchors = 'a:not([href="/"]):not([href="/sign-in"]):not([href="/c/me"]):not([href="https://github.com/alookai/alook"]):not([href="https://discord.com/invite/24PHyEHU3M"]):not([href="https://x.com/alook_ai"])'
+  const inlineLinks = header.locator(`${siteAnchors}:not(details a)`)
+  await expect(header.getByRole("link", { name: "Tutorials", exact: true, includeHidden: true })).toHaveCount(0)
   await expect(inlineLinks).toHaveCount(4)
   for (const link of await inlineLinks.all()) await expect(link).toBeHidden()
 
   const mobileMenu = header.locator("details")
   await mobileMenu.locator("summary").click()
-  const mobileLinks = mobileMenu.locator(".marketing-mobile-site-link")
+  const mobileLinks = mobileMenu.locator(siteAnchors)
   await expect(mobileLinks).toHaveCount(4)
   const expectedLinks = [
     { href: "/download", label: "Download" },
@@ -167,9 +197,11 @@ test("homepage keeps Tutorials in the footer and collapses mobile header links",
     const probe = document.createElement("span")
     probe.style.color = `var(${name})`
     element.parentElement!.appendChild(probe)
-    const expected = getComputedStyle(probe).color
-    probe.remove()
-    return { actual: getComputedStyle(element).color, expected }
+    try {
+      return { actual: getComputedStyle(element).color, expected: getComputedStyle(probe).color }
+    } finally {
+      probe.remove()
+    }
   }, token)
   const expectLinkTiers = async (headerLink: typeof footerLinks) => {
     expect(await sharedContract(headerLink)).toEqual(await sharedContract(footerLinks.first()))
@@ -180,6 +212,8 @@ test("homepage keeps Tutorials in the footer and collapses mobile header links",
     expect(footer.actual).not.toBe(header.actual)
   }
   await expectLinkTiers(mobileLinks.first())
+  await mobileMenu.locator("summary").click()
+  await expect(mobileMenu).toHaveJSProperty("open", false)
 
   await page.setViewportSize({ width: 768, height: 900 })
   for (const link of await inlineLinks.all()) await expect(link).toBeVisible()
@@ -268,8 +302,8 @@ for (const width of [1440, 390]) {
     // Subpages share the home bar (QA #14); its logo is the way home.
     await page.getByRole("navigation", { name: "Site navigation" }).getByRole("link", { name: "Alook home", exact: true }).click()
     await expect(page).toHaveURL(/\/$/)
-    await page.locator(".hero-section").evaluate((hero) => window.scrollTo(0, hero.getBoundingClientRect().bottom + window.scrollY + 1))
-    const nav = page.locator("nav.marketing-nav")
+    await page.getByRole("heading", { level: 1 }).locator("xpath=ancestor::section").evaluate((hero) => window.scrollTo(0, hero.getBoundingClientRect().bottom + window.scrollY + 1))
+    const nav = page.getByRole("navigation", { includeHidden: true }).filter({ has: page.getByTestId(tid.landingHeaderContainer) })
     await expect(nav).toBeVisible()
     if (width < 640) await nav.locator("summary").click()
     await nav.getByRole("link", { name: "Contact", exact: true }).filter({ visible: true }).click()
@@ -361,14 +395,28 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
       const stage = page.getByRole("tabpanel").locator(":scope > div").last()
       await stage.scrollIntoViewIfNeeded()
-      await expect(stage.locator(`:scope > figure, :scope > div[aria-label], :scope > div:has([role=img]), :scope > div[data-testid='${tid.landingIdentityProof}']`).first()).toBeVisible()
+      await expect(stage.locator(`:scope > figure, :scope > div[aria-label], :scope > div:has([role=img]), :scope > div:has([data-testid='${tid.profileCard}'])`).first()).toBeVisible()
       const motion = stage.getByTestId(tid.landingMotionStage).first()
       if (await tab.textContent() === "Agent identity") {
-        await expect(stage.getByTestId(tid.landingIdentityCardTilt)).toBeVisible()
+        await expect(stage.getByTestId(tid.profileCard)).toBeVisible()
         await expect(motion).toHaveCount(0)
       } else {
-        await expect(motion.locator("[data-camera-scale]")).toHaveCount(1)
-        await expect(motion).not.toHaveAttribute("data-layout", "compact")
+        await expect(async () => {
+          const geometry = await motion.evaluate(motionCanvasGeometry)
+          expect(geometry).not.toBeNull()
+          expect(geometry!.width).toBeGreaterThan(0)
+          expect(geometry!.height).toBeGreaterThan(0)
+          expect(geometry!.canvasWidth).toBe(1120)
+          expect(geometry!.canvasHeight).toBeGreaterThan(0)
+          expect(geometry!.scaleX).toBeCloseTo(geometry!.layoutWidth / 1120, 3)
+          expect(geometry!.scaleY).toBeCloseTo(geometry!.scaleX, 3)
+          expect(geometry!.skewX).toBe(0)
+          expect(geometry!.skewY).toBe(0)
+          expect(geometry!.paintedWidth).toBeCloseTo(geometry!.width, 0)
+          expect(geometry!.paintedHeight).toBeCloseTo(geometry!.height, 0)
+          expect(geometry!.left).toBeCloseTo(0, 0)
+          expect(geometry!.top).toBeCloseTo(0, 0)
+        }).toPass({ timeout: 10_000 })
         // every deferred media slot of a motion tab must hold live media (main #1168)
         const liveMedia = `[data-testid="${tid.landingMotionStage}"]:visible, [data-testid="${tid.landingMobileMotionStage}"]:visible`
         await expect.poll(async () => {
@@ -392,7 +440,7 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
       }
       if (width === 390) {
         await page.locator("#product").evaluate(element => element.scrollIntoView({ block: "start" }))
-        for (const element of [page.getByRole("tablist", { name: "Features" }), page.getByRole("tabpanel").getByRole("heading"), page.locator(`[data-testid^="${tid.landingSectionCta("")}"]`), stage]) {
+        for (const element of [page.getByRole("tablist", { name: "Features" }), page.getByRole("tabpanel").getByRole("heading"), page.getByRole("tabpanel").getByRole("link"), stage]) {
           const rect = await element.boundingBox()
           expect(rect!.y).toBeGreaterThanOrEqual(0)
           expect(rect!.y + rect!.height).toBeLessThanOrEqual(844)
@@ -426,15 +474,20 @@ test("landing gallery mobile playback scales the complete original scene", async
   const motion = stage.getByTestId(tid.landingMotionStage)
   await motion.scrollIntoViewIfNeeded()
   await expect.poll(async () => Number(await motion.getAttribute("data-beat"))).toBeGreaterThanOrEqual(3)
-  const geometry = await motion.evaluate(element => {
-    const canvas = element.firstElementChild!
-    const transform = new DOMMatrix(getComputedStyle(canvas).transform)
-    return { width: element.getBoundingClientRect().width, canvasWidth: canvas.clientWidth, scaleX: transform.a, scaleY: transform.d }
-  })
-  expect(geometry.canvasWidth).toBe(1120)
-  expect(geometry.scaleX).toBeCloseTo(geometry.width / 1120, 3)
-  expect(geometry.scaleY).toBeCloseTo(geometry.scaleX, 3)
-  await expect(motion.locator("[data-camera-scale]")).toHaveCount(1)
+  const geometry = await motion.evaluate(motionCanvasGeometry)
+  expect(geometry).not.toBeNull()
+  expect(geometry!.width).toBeGreaterThan(0)
+  expect(geometry!.height).toBeGreaterThan(0)
+  expect(geometry!.canvasWidth).toBe(1120)
+  expect(geometry!.canvasHeight).toBeGreaterThan(0)
+  expect(geometry!.scaleX).toBeCloseTo(geometry!.layoutWidth / 1120, 3)
+  expect(geometry!.scaleY).toBeCloseTo(geometry!.scaleX, 3)
+  expect(geometry!.skewX).toBe(0)
+  expect(geometry!.skewY).toBe(0)
+  expect(geometry!.paintedWidth).toBeCloseTo(geometry!.width, 0)
+  expect(geometry!.paintedHeight).toBeCloseTo(geometry!.height, 0)
+  expect(geometry!.left).toBeCloseTo(0, 0)
+  expect(geometry!.top).toBeCloseTo(0, 0)
   await expect.poll(async () => Number(await motion.getAttribute("data-beat"))).toBeGreaterThanOrEqual(6)
 })
 
@@ -471,29 +524,72 @@ test("landing gallery slides between features and settles the latest selection",
   const tabs = page.getByRole("tablist", { name: "Features" })
   await tabs.scrollIntoViewIfNeeded()
   const slide = page.getByTestId(tid.landingFeatureTransition)
-  await slide.evaluate(element => {
-    const animate = Element.prototype.animate
-    Element.prototype.animate = function (...args: Parameters<Element["animate"]>) {
-      const animation = animate.apply(this, args)
+  const observation = await slide.evaluateHandle(element => {
+    const original = Element.prototype.animate
+    const incoming: Animation[] = []
+    const observer = function (this: Element, ...args: Parameters<Element["animate"]>) {
+      const animation = original.apply(this, args)
       if (this === element.firstElementChild) {
-        const transform = (animation.effect as KeyframeEffect)?.getKeyframes()[0]?.transform
-        if (transform) element.setAttribute("data-observed-transform", String(transform))
+        animation.pause()
+        incoming.push(animation)
       }
       return animation
     }
+    Element.prototype.animate = observer
+    const release = () => {
+      for (const animation of incoming) {
+        if (animation.playState !== "idle" && animation.playState !== "finished") animation.play()
+      }
+    }
+    return {
+      async startGeometry() {
+        const animation = incoming.at(-1)
+        if (!animation) throw new Error("No incoming slide animation was observed")
+        await animation.ready
+        if (animation.playState !== "paused") throw new Error("Incoming slide is not paused")
+        const content = element.firstElementChild
+        if (!(content instanceof HTMLElement) || (animation.effect as KeyframeEffect).target !== content) {
+          throw new Error("Incoming slide does not own the current content")
+        }
+        animation.currentTime = 0
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+        const frame = element.getBoundingClientRect()
+        const current = content.getBoundingClientRect()
+        const border = parseFloat(getComputedStyle(element).borderLeftWidth) || 0
+        return { width: current.width, height: current.height, displacement: current.left - frame.left - border - content.offsetLeft }
+      },
+      release,
+      restore() {
+        if (Element.prototype.animate === observer) Element.prototype.animate = original
+        release()
+      },
+    }
   })
-  await tabs.getByRole("tab", { name: "Remote control", exact: true }).click()
-  const forward = await slide.getAttribute("data-observed-transform")
-  expect(forward).toBe("translateX(100%)")
-  await expect(slide).not.toHaveAttribute("data-transitioning", "true")
-  await tabs.getByRole("tab", { name: "Collaboration", exact: true }).click()
-  const backward = await slide.getAttribute("data-observed-transform")
-  expect(backward).toBe("translateX(-100%)")
-  await tabs.getByRole("tab", { name: "Agent identity", exact: true }).click()
-  await tabs.getByRole("tab", { name: "Persistent Memory", exact: true }).click()
-  await expect(slide).not.toHaveAttribute("data-transitioning", "true")
-  await expect(page.getByRole("tabpanel")).toHaveCount(1)
-  await expect(tabs.getByRole("tab", { selected: true })).toHaveText("Persistent Memory")
-  expect(await slide.evaluate(element => ({ count: element.children.length, inert: (element.firstElementChild as HTMLElement).inert }))).toEqual({ count: 1, inert: false })
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
+  try {
+    await tabs.getByRole("tab", { name: "Remote control", exact: true }).click()
+    const forward = await observation.evaluate(observer => observer.startGeometry())
+    expect(forward.width).toBeGreaterThan(0)
+    expect(forward.height).toBeGreaterThan(0)
+    expect(forward.displacement).toBeCloseTo(forward.width, 0)
+    await observation.evaluate(observer => observer.release())
+    await expect.poll(() => slide.evaluate(element => ({ count: element.children.length, inert: (element.firstElementChild as HTMLElement).inert })))
+      .toEqual({ count: 1, inert: false })
+    await tabs.getByRole("tab", { name: "Collaboration", exact: true }).click()
+    const backward = await observation.evaluate(observer => observer.startGeometry())
+    expect(backward.width).toBeGreaterThan(0)
+    expect(backward.height).toBeGreaterThan(0)
+    expect(backward.displacement).toBeCloseTo(-backward.width, 0)
+    await tabs.getByRole("tab", { name: "Agent identity", exact: true }).click()
+    await tabs.getByRole("tab", { name: "Persistent Memory", exact: true }).click()
+    await observation.evaluate(observer => observer.release())
+    await expect.poll(() => slide.evaluate(element => ({ count: element.children.length, inert: (element.firstElementChild as HTMLElement).inert })))
+      .toEqual({ count: 1, inert: false })
+    await expect(page.getByRole("tabpanel")).toHaveCount(1)
+    await expect(tabs.getByRole("tab", { selected: true })).toHaveText("Persistent Memory")
+    expect(await slide.evaluate(element => ({ count: element.children.length, inert: (element.firstElementChild as HTMLElement).inert }))).toEqual({ count: 1, inert: false })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
+  } finally {
+    try { await observation.evaluate(observer => observer.restore()) }
+    finally { await observation.dispose() }
+  }
 })
