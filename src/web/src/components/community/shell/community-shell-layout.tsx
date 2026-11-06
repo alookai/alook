@@ -472,7 +472,31 @@ export function CommunityShellLayout({
 
   return (
     <>
+    {!preview && (
+      <div
+        ref={backgroundBleedRef}
+        aria-hidden
+        data-slot="community-background-bleed"
+        data-surface={surface}
+        className="community-background-bleed pointer-events-none"
+        style={{
+          "--community-background-rail-width": `${COMMUNITY_RAIL_WIDTH}px`,
+          "--community-background-border-width": `${COMMUNITY_SURFACE_BORDER_WIDTH}px`,
+          "--community-background-userbar-inset": `${COMMUNITY_RAIL_WIDTH + COMMUNITY_SURFACE_BORDER_WIDTH + COMMUNITY_SEPARATOR_WIDTH}px`,
+          "--community-background-initial-sidebar-width": `calc(${desktopUserBarInitialOverlayCssWidth(persistedSidebarPercentage)} - ${COMMUNITY_RAIL_WIDTH + COMMUNITY_SURFACE_BORDER_WIDTH + COMMUNITY_SEPARATOR_WIDTH}px)`,
+        } as CSSProperties}
+      >
+        <div data-slot="community-safe-edge-paint" />
+        <div className="community-background-bottom">
+          <div data-slot="community-background-bottom-sidebar" />
+          <div data-slot="community-background-bottom-main" />
+        </div>
+        <div data-slot="community-background-right" />
+      </div>
+    )}
     <Shell
+      edgePaint={Boolean(preview)}
+      className={!preview ? "community-content-layer" : undefined}
       aria-busy={busy ? "true" : undefined}
       aria-label={label}
       data-community-route-kind={routeKind}
@@ -625,27 +649,6 @@ export function CommunityShellLayout({
       </div>
       {overlays}
     </Shell>
-    {!preview && (
-      <div
-        ref={backgroundBleedRef}
-        aria-hidden
-        data-slot="community-background-bleed"
-        data-surface={surface}
-        className="community-background-bleed pointer-events-none"
-        style={{
-          "--community-background-rail-width": `${COMMUNITY_RAIL_WIDTH}px`,
-          "--community-background-border-width": `${COMMUNITY_SURFACE_BORDER_WIDTH}px`,
-          "--community-background-userbar-inset": `${COMMUNITY_RAIL_WIDTH + COMMUNITY_SURFACE_BORDER_WIDTH + COMMUNITY_SEPARATOR_WIDTH}px`,
-          "--community-background-initial-sidebar-width": `calc(${desktopUserBarInitialOverlayCssWidth(persistedSidebarPercentage)} - ${COMMUNITY_RAIL_WIDTH + COMMUNITY_SURFACE_BORDER_WIDTH + COMMUNITY_SEPARATOR_WIDTH}px)`,
-        } as CSSProperties}
-      >
-        <div className="community-background-bottom">
-          <div data-slot="community-background-bottom-sidebar" />
-          <div data-slot="community-background-bottom-main" />
-        </div>
-        <div data-slot="community-background-right" />
-      </div>
-    )}
     </>
   )
 }

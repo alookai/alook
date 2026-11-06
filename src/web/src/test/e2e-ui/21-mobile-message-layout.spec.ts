@@ -103,6 +103,7 @@ test("long Markdown rows stay measured and separated at iPhone width", async ({ 
   expect(composerBounds).not.toBeNull()
   expect(composerBounds!.y + composerBounds!.height).toBeLessThanOrEqual(810)
   await expect.poll(() => page.evaluate((targetHref) => {
+    const base = document.querySelector<HTMLElement>('[data-slot="community-background-bleed"] > [data-slot="community-safe-edge-paint"]')!
     const bottom = document.querySelector<HTMLElement>('[data-slot="community-background-bottom-main"]')!
     const right = document.querySelector<HTMLElement>('[data-slot="community-background-right"]')!
     const content = document.querySelector<HTMLElement>(`[data-community-target-href="${targetHref}"]`)!
@@ -112,6 +113,8 @@ test("long Markdown rows stay measured and separated at iPhone width", async ({ 
     }
     const hit = document.elementFromPoint(30, 834)
     return {
+      base: bounds(base),
+      matchingBaseColor: getComputedStyle(base).backgroundColor === getComputedStyle(content).backgroundColor,
       bottom: bounds(bottom),
       right: bounds(right),
       matchingColor: getComputedStyle(bottom).backgroundColor === getComputedStyle(content).backgroundColor,
@@ -119,6 +122,8 @@ test("long Markdown rows stay measured and separated at iPhone width", async ({ 
       paintOwnsHit: Boolean(hit?.closest('[data-slot="community-background-bleed"]')),
     }
   }, `/c/channels/${serverId}/${channelId}`)).toEqual({
+    base: [0, 390, 844, 0],
+    matchingBaseColor: true,
     bottom: [810, 390, 844, 18],
     right: [20, 390, 844, 374],
     matchingColor: true,

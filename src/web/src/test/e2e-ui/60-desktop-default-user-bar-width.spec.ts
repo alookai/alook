@@ -443,49 +443,67 @@ async function clickTargetEdge(page: Page, target: Locator, edge: "top" | "right
 }
 
 async function expectSafeContentWithExtendedBackground(page: Page) {
+  const mobileList = await page.locator('[data-community-mobile-surface="list"]').isVisible()
   const previous = await page.evaluate(() => {
     const style = document.documentElement.style
-    const values = ["--app-safe-area-right", "--app-safe-area-bottom"]
-      .map((name) => ({ name, value: style.getPropertyValue(name), priority: style.getPropertyPriority(name) }))
-    style.setProperty("--app-safe-area-right", "16px")
-    style.setProperty("--app-safe-area-bottom", "20px")
-    return values
+    const insets = { top: 24, right: 16, bottom: 20, left: 18 }
+    return Object.entries(insets).map(([edge, value]) => {
+      const name = `--app-safe-area-${edge}`
+      const previous = { name, value: style.getPropertyValue(name), priority: style.getPropertyPriority(name) }
+      style.setProperty(name, `${value}px`)
+      return previous
+    })
   })
   const readPanel = (id: "sidebar" | "main") => shellPanel(page, id).evaluate((element) => {
     const rect = element.getBoundingClientRect()
-    return { left: rect.left, right: rect.right, backgroundColor: getComputedStyle(element).backgroundColor }
+    const visual = element.firstElementChild
+    if (!(visual instanceof HTMLElement)) throw new Error("panel visual surface not found")
+    return { left: rect.left, right: rect.right, backgroundColor: getComputedStyle(visual).backgroundColor }
   })
   try {
     await expect.poll(async () => {
-      const [side, main] = await Promise.all([readPanel("sidebar"), readPanel("main")])
+      const side = await readPanel("sidebar")
+      const main = mobileList ? null : await readPanel("main")
       return page.evaluate(({ side, main }) => {
         const root = document.querySelector<HTMLElement>('[data-slot="community-shell-root"]')!
+        const frame = root.querySelector<HTMLElement>('[data-slot="community-frame-paint"]')!
+        const surface = document.querySelector<HTMLElement>('[data-slot="community-app-surface"]')!
+        const base = document.querySelector<HTMLElement>('[data-slot="community-background-bleed"] > [data-slot="community-safe-edge-paint"]')!
         const sidePaint = document.querySelector<HTMLElement>('[data-slot="community-background-bottom-sidebar"]')!
         const mainPaint = document.querySelector<HTMLElement>('[data-slot="community-background-bottom-main"]')!
         const rightPaint = document.querySelector<HTMLElement>('[data-slot="community-background-right"]')!
+        const rootBounds = root.getBoundingClientRect()
+        const baseBounds = base.getBoundingClientRect()
         const sideBand = sidePaint.getBoundingClientRect()
         const mainBand = mainPaint.getBoundingClientRect()
         const rightBand = rightPaint.getBoundingClientRect()
         const near = (a: number, b: number) => Math.abs(a - b) <= 1
-        const hit = document.elementFromPoint(side.left + 4, innerHeight - 5)
+        const hitPoints = [[4, 4], [4, innerHeight / 2], [22, innerHeight - 5], [side.left + 4, innerHeight - 5], [innerWidth - 4, innerHeight / 2]]
         return {
-          safeContents: near(root.getBoundingClientRect().right, innerWidth - 16)
-            && near(root.getBoundingClientRect().bottom, innerHeight - 20)
-            && near(main.right, innerWidth - 16),
-          sidebarAligned: near(sideBand.left, side.left) && near(sideBand.right, side.right),
-          bottomExtended: near(sideBand.top, innerHeight - 20) && near(sideBand.bottom, innerHeight)
-            && near(mainBand.top, innerHeight - 20) && near(mainBand.bottom, innerHeight),
-          mainExtended: near(mainBand.left, side.right) && near(mainBand.right, innerWidth),
-          rightExtended: near(rightBand.left, innerWidth - 16) && near(rightBand.right, innerWidth)
+          safeContents: near(rootBounds.top, 24) && near(rootBounds.left, 18)
+            && near(rootBounds.right, innerWidth - 16) && near(rootBounds.bottom, innerHeight - 20)
+            && near(main ? main.right : side.right, innerWidth - 16),
+          baseFillsViewport: near(baseBounds.top, 0) && near(baseBounds.left, 0)
+            && near(baseBounds.right, innerWidth) && near(baseBounds.bottom, innerHeight),
+          frameColor: getComputedStyle(base).backgroundColor === getComputedStyle(frame).backgroundColor,
+          sidebarAligned: near(sideBand.left, side.left) && near(sideBand.right, main ? side.right : innerWidth),
+          bottomExtended: near(sideBand.top, innerHeight - 20) && near(sideBand.bottom, innerHeight),
+          rightExtended: near(rightBand.top, surface.getBoundingClientRect().top)
+            && near(rightBand.left, innerWidth - 16) && near(rightBand.right, innerWidth)
             && near(rightBand.bottom, innerHeight),
           sidebarColor: getComputedStyle(sidePaint).backgroundColor === side.backgroundColor,
-          mainColor: getComputedStyle(mainPaint).backgroundColor === main.backgroundColor,
-          rightColor: getComputedStyle(rightPaint).backgroundColor === main.backgroundColor,
-          paintOwnsHit: Boolean(hit?.closest('[data-slot="community-background-bleed"]')),
+          rightColor: getComputedStyle(rightPaint).backgroundColor === (main ?? side).backgroundColor,
+          paintOwnsHit: hitPoints.some(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('[data-slot="community-background-bleed"]'))),
+          ...(main ? {
+            mainExtended: near(mainBand.left, side.right) && near(mainBand.right, innerWidth)
+              && near(mainBand.top, innerHeight - 20) && near(mainBand.bottom, innerHeight),
+            mainColor: getComputedStyle(mainPaint).backgroundColor === main.backgroundColor,
+          } : {}),
         }
       }, { side, main })
-    }).toEqual({ safeContents: true, sidebarAligned: true, bottomExtended: true, mainExtended: true,
-      rightExtended: true, sidebarColor: true, mainColor: true, rightColor: true, paintOwnsHit: false })
+    }).toEqual({ safeContents: true, baseFillsViewport: true, frameColor: true, sidebarAligned: true,
+      bottomExtended: true, rightExtended: true, sidebarColor: true, rightColor: true, paintOwnsHit: false,
+      ...(mobileList ? {} : { mainExtended: true, mainColor: true }) })
   } finally {
     await page.evaluate((values) => {
       const style = document.documentElement.style
@@ -678,6 +696,7 @@ test.describe("desktop default User Bar width", () => {
         layoutStorageKey,
       )).toBeNull()
       mobileGeometry.push({ viewport, ...geometry })
+      await expectSafeContentWithExtendedBackground(mobile.page)
       await caseResources.closeContext(mobile.context)
     }
 

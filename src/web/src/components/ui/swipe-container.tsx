@@ -50,35 +50,129 @@ const SwipeViewportElement = React.forwardRef<HTMLDivElement, React.ComponentPro
   onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onClick, onContextMenu, ...props
 }, ref) {
   const { enabled, kind, cancelledRef } = React.useContext(SwipeContext)
-  const isolate = kind === "overlay" || enabled
+  const sequence = React.useRef({ started: false, owned: false, touch: false, retired: false })
+  const begin = (admitted: boolean, touch: boolean) => {
+    sequence.current = { started: true, owned: admitted, touch, retired: false }
+    cancelledRef.current = !admitted
+  }
+  const finish = () => {
+    sequence.current = { started: false, owned: false, touch: false, retired: false }
+  }
+  const cancelTouch = (event: React.TouchEvent<HTMLDivElement>) => {
+    cancelledRef.current = true
+    if (!sequence.current.retired) {
+      sequence.current.retired = true
+      onTouchCancel?.(event)
+    }
+  }
   return <div {...props} ref={ref} data-swipe-viewport={kind}
     onPointerDown={(event) => {
-      cancelledRef.current = !canStartSwipe({ target: event.target, x: event.clientX, y: event.clientY, root: event.currentTarget,
+      if (kind === "page" && sequence.current.started && sequence.current.touch && event.isPrimary === false) {
+        if (sequence.current.owned) {
+          cancelledRef.current = true
+          event.stopPropagation()
+        }
+        return
+      }
+      const admitted = canStartSwipe({ target: event.target, x: event.clientX, y: event.clientY, root: event.currentTarget,
         enabled, kind, pointerType: event.pointerType })
-      if (!cancelledRef.current) onPointerDown?.(event)
-      if (isolate) event.stopPropagation()
+      if (kind === "page") begin(admitted, event.pointerType === "touch")
+      else cancelledRef.current = !admitted
+      if (admitted) onPointerDown?.(event)
+      if (kind === "overlay" || sequence.current.owned) event.stopPropagation()
     }}
     onTouchStart={(event) => {
       const touch = event.touches[0]
-      cancelledRef.current = !touch || !canStartSwipe({ target: event.target, x: touch.clientX, y: touch.clientY, root: event.currentTarget,
+      const admitted = !!touch && canStartSwipe({ target: event.target, x: touch.clientX, y: touch.clientY, root: event.currentTarget,
         enabled, kind, pointerType: "touch", touches: event.touches.length })
-      if (cancelledRef.current) onTouchCancel?.(event)
+      if (kind === "overlay") {
+        cancelledRef.current = !admitted
+        if (cancelledRef.current) onTouchCancel?.(event)
+        else onTouchStart?.(event)
+        event.stopPropagation()
+        return
+      }
+      if (!sequence.current.started) begin(admitted, true)
+      sequence.current.touch = true
+      if (!sequence.current.owned) return
+      if (!admitted || cancelledRef.current) cancelTouch(event)
       else onTouchStart?.(event)
-      if (isolate) event.stopPropagation()
+      event.stopPropagation()
     }}
-    onPointerMove={(event) => { onPointerMove?.(event); if (isolate) event.stopPropagation() }}
-    onPointerUp={(event) => { onPointerUp?.(event); if (isolate) event.stopPropagation() }}
-    onPointerCancel={(event) => { onPointerCancel?.(event); if (isolate) event.stopPropagation() }}
+    onPointerMove={(event) => {
+      if (kind === "overlay") {
+        onPointerMove?.(event)
+        event.stopPropagation()
+      } else if (sequence.current.owned) {
+        if (!cancelledRef.current && !sequence.current.retired) onPointerMove?.(event)
+        event.stopPropagation()
+      }
+    }}
+    onPointerUp={(event) => {
+      if (kind === "overlay") {
+        onPointerUp?.(event)
+        event.stopPropagation()
+      } else {
+        if (sequence.current.owned) {
+          if (!cancelledRef.current && !sequence.current.retired) onPointerUp?.(event)
+          event.stopPropagation()
+        }
+        if (!sequence.current.touch) finish()
+      }
+    }}
+    onPointerCancel={(event) => {
+      if (kind === "overlay") {
+        onPointerCancel?.(event)
+        event.stopPropagation()
+      } else {
+        if (sequence.current.owned) {
+          cancelledRef.current = true
+          if (!sequence.current.retired) onPointerCancel?.(event)
+          event.stopPropagation()
+        }
+        if (!sequence.current.touch) finish()
+      }
+    }}
     onTouchMove={(event) => {
+      if (kind === "page" && !sequence.current.owned) return
       const selection = event.currentTarget.ownerDocument.getSelection()
       if ((event.touches.length > 1 || selection && !selection.isCollapsed) && !cancelledRef.current) {
-        cancelledRef.current = true
-        onTouchCancel?.(event)
+        if (kind === "page") cancelTouch(event)
+        else {
+          cancelledRef.current = true
+          onTouchCancel?.(event)
+        }
       } else if (!cancelledRef.current) onTouchMove?.(event)
-      if (isolate) event.stopPropagation()
+      event.stopPropagation()
     }}
-    onTouchEnd={(event) => { onTouchEnd?.(event); if (isolate) event.stopPropagation() }}
-    onTouchCancel={(event) => { onTouchCancel?.(event); if (isolate) event.stopPropagation() }}
+    onTouchEnd={(event) => {
+      if (kind === "overlay") {
+        onTouchEnd?.(event)
+        event.stopPropagation()
+      } else {
+        if (sequence.current.owned) {
+          if (cancelledRef.current) cancelTouch(event)
+          else if (!sequence.current.retired) {
+            sequence.current.retired = true
+            onTouchEnd?.(event)
+          }
+          event.stopPropagation()
+        }
+        if (event.touches.length === 0) finish()
+      }
+    }}
+    onTouchCancel={(event) => {
+      if (kind === "overlay") {
+        onTouchCancel?.(event)
+        event.stopPropagation()
+      } else {
+        if (sequence.current.owned) {
+          cancelTouch(event)
+          event.stopPropagation()
+        }
+        if (event.touches.length === 0) finish()
+      }
+    }}
     onClick={(event) => { onClick?.(event); if (kind === "overlay") event.stopPropagation() }}
     onContextMenu={(event) => { onContextMenu?.(event); if (kind === "overlay") event.stopPropagation() }} />
 })
