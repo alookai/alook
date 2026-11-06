@@ -512,7 +512,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             {dmBlocked ? (
               <div
                 data-testid={tid.dmBlockedNotice}
-                className="flex min-h-[calc(3.75rem+var(--app-safe-area-bottom))] items-center justify-center border-t border-border/40 px-4 pb-(--app-safe-area-bottom) text-sm text-muted-foreground sm:min-h-15 sm:pb-0"
+                className="flex min-h-15 items-center justify-center border-t border-border/40 px-4 text-sm text-muted-foreground"
               >
                 You have blocked this user. Unblock to send messages.
               </div>

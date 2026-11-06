@@ -328,7 +328,7 @@ function HeaderRename({ label, onRename, className = "" }: {
       </Button>
       {open && (
         <Dialog open onOpenChange={(o) => { if (!o) setOpen(false) }}>
-          <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
+          <DialogContent className="w-105 max-w-[calc(var(--app-safe-width)-2rem)] p-0">
             <DialogHeader className="border-b border-border px-4 py-4">
               <DialogTitle>Rename Thread</DialogTitle>
             </DialogHeader>

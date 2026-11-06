@@ -47,6 +47,8 @@
     "security": {
       "capabilities": [
         "desktop-capability",
+        "native-geometry",
+        "native-caption",
         "external-links",
         "native-oauth",
         "native-oauth-mobile",

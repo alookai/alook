@@ -122,7 +122,7 @@ export function ConversationFooterShell({
         ref={bindFooterTarget}
         data-slot="community-selection-footer-slot"
         className={selectionActive
-          ? "relative h-[calc(3.75rem+var(--app-safe-area-bottom))] sm:h-15"
+          ? "relative h-15"
           : "hidden"}
       />
     </div>

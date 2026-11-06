@@ -1,0 +1,21 @@
+{
+  "identifier": "native-caption",
+  "description": "Native caption drag and double-click actions in the trusted main document",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "macOS"
+  ],
+  "local": true,
+  "remote": {
+    "urls": [
+      "https://alook.ai",
+      "http://alook-recovery.localhost"
+    ]
+  },
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize"
+  ]
+}

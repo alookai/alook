@@ -264,7 +264,7 @@ export function MessageShareDialog({ m, open, onClose }: {
           generated CSS and would silently cap the dialog at 384px — the reason a
           wider `w-*` "doesn't take effect". Override it with a matching `sm:`
           max-width so the width below can actually apply. */}
-      <DialogContent className="w-180 max-w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)] gap-0 p-0">
+      <DialogContent className="w-180 max-w-[calc(var(--app-safe-width)-2rem)] sm:max-w-[calc(var(--app-safe-width)-2rem)] gap-0 p-0">
         <DialogHeader className="px-5 pt-5 pb-3">
           <DialogTitle>{messages.length > 1 ? `Share ${messages.length} messages` : "Share message"}</DialogTitle>
         </DialogHeader>
@@ -299,7 +299,7 @@ export function MessageShareDialog({ m, open, onClose }: {
           {open && session.status !== "ready" && (
             <div
               aria-hidden
-              className="pointer-events-none fixed left-[-10000px] top-0 w-[calc(100vw-5rem)] max-w-2xl opacity-0"
+              className="pointer-events-none fixed left-[-10000px] top-0 w-[calc(var(--app-safe-width)-5rem)] max-w-2xl opacity-0"
             >
               <div
                 ref={setPreparationNode}

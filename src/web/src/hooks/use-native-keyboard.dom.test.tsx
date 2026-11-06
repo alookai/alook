@@ -2,10 +2,13 @@ import { afterEach, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { useNativeKeyboard } from "./use-native-keyboard"
 
+const originalAndroid = Object.getOwnPropertyDescriptor(window, "AlookNative")
 const original = Object.getOwnPropertyDescriptor(window, "webkit")
 const originalTauri = Object.getOwnPropertyDescriptor(window, "__TAURI__")
 afterEach(() => {
   document.documentElement.style.removeProperty("--alook-keyboard-progress")
+  if (originalAndroid) Object.defineProperty(window, "AlookNative", originalAndroid)
+  else Reflect.deleteProperty(window, "AlookNative")
   if (original) Object.defineProperty(window, "webkit", original)
   else Reflect.deleteProperty(window, "webkit")
   if (originalTauri) Object.defineProperty(window, "__TAURI__", originalTauri)
@@ -168,7 +171,7 @@ it("uses pushed native animation frames without bridge round trips or a React co
   const frame = view.result.current
   act(() => { push(120, true); window.dispatchEvent(new Event("resize")) })
   expect(view.result.current).toBe(frame)
-  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("30vw")
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe(`max(0px, calc(30vw - var(--app-safe-area-bottom)))`)
   expect(post).toHaveBeenCalledTimes(1)
   act(() => push(300, false))
   expect(view.result.current).toEqual(snapshot(300, 400))
@@ -188,20 +191,49 @@ it("accepts animation before the initial snapshot and ignores its late reply", a
   }))
 
   act(() => push(40, true))
-  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("10vw")
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe(`max(0px, calc(10vw - var(--app-safe-area-bottom)))`)
   expect(view.result.current).toEqual(snapshot(0, 400))
   const initialFrame = view.result.current
   act(() => { push(160, true); window.dispatchEvent(new Event("resize")) })
-  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("40vw")
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe(`max(0px, calc(40vw - var(--app-safe-area-bottom)))`)
   expect(view.result.current).toBe(initialFrame)
   expect(post).toHaveBeenCalledExactlyOnceWith("snapshot")
 
   act(() => push(300, false))
   expect(view.result.current).toEqual(snapshot(300, 400))
   const finalFrame = view.result.current
-  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("75vw")
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe(`max(0px, calc(75vw - var(--app-safe-area-bottom)))`)
   await act(async () => release(snapshot(0, 800)))
   expect(view.result.current).toBe(finalFrame)
-  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("75vw")
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe(`max(0px, calc(75vw - var(--app-safe-area-bottom)))`)
   expect(post).toHaveBeenCalledTimes(1)
+})
+
+it("reads Android's current atomic keyboard packet and applies the same overlap owner", async () => {
+  Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+  let next = snapshot(300, 1000)
+  const query = vi.fn(() => JSON.stringify(next))
+  Object.defineProperty(window, "AlookNative", { configurable: true, value: { getKeyboardSnapshot: query } })
+  const view = renderHook(useNativeKeyboard)
+  await waitFor(() => expect(view.result.current).toEqual(snapshot(300, 1000)))
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress"))
+    .toBe("max(0px, calc(30vw - var(--app-safe-area-bottom)))")
+  next = snapshot(0, 1000)
+  act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
+  await waitFor(() => expect(view.result.current).toEqual(snapshot(0, 1000)))
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("")
+})
+
+it("shares one document listener/query owner and keeps projection alive for the remaining consumer", async () => {
+  const post = vi.fn(async () => snapshot(300, 1000))
+  install(post)
+  const root = renderHook(useNativeKeyboard)
+  const footer = renderHook(useNativeKeyboard)
+  await waitFor(() => expect(footer.result.current).toEqual(snapshot(300, 1000)))
+  expect(post).toHaveBeenCalledOnce()
+  root.unmount()
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-bottom")).toBe("30vw")
+  expect(footer.result.current).toEqual(snapshot(300, 1000))
+  footer.unmount()
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-bottom")).toBe("")
 })

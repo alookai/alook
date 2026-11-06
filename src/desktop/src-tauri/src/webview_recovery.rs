@@ -71,7 +71,7 @@ pub fn register_protocol(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<
         )
 }
 
-fn navigation_allowed(url: &Url, development: bool) -> bool {
+pub(crate) fn navigation_allowed(url: &Url, development: bool) -> bool {
     if !url.username().is_empty() || url.password().is_some() {
         return false;
     }
@@ -477,7 +477,7 @@ fn bootstrap_document() -> (String, String) {
         let hash = STANDARD.encode(Sha256::digest(logo.script.as_bytes()));
         let csp = format!("default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-{hash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
         let html = format!(
-            r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{display:grid;place-items:center}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}{styles}</style></head><body>{markup}<script type="module">{script}</script></body></html>"#,
+            r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{box-sizing:border-box;display:grid;place-items:center;padding:var(--app-safe-area-top,env(safe-area-inset-top)) var(--app-safe-area-right,env(safe-area-inset-right)) var(--app-safe-area-bottom,env(safe-area-inset-bottom)) var(--app-safe-area-left,env(safe-area-inset-left))}}[data-alook-native-caption]{{display:none;position:fixed;top:0;left:0;right:0;height:var(--app-safe-area-top);z-index:1000;user-select:none}}html[data-alook-native-caption="true"] [data-alook-native-caption]{{display:block}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}{styles}</style></head><body><div data-alook-native-caption data-tauri-drag-region aria-hidden="true"></div>{markup}<script type="module">{script}</script></body></html>"#,
             light = SPLASH_BACKGROUND_LIGHT,
             dark = SPLASH_BACKGROUND_DARK,
             styles = logo.styles,
@@ -496,7 +496,7 @@ fn bootstrap_document() -> (String, String) {
 fn mobile_bootstrap_document() -> (String, String) {
     let logo = include_str!("../../../../assets/alook.svg");
     let html = format!(
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{display:grid;place-items:center}}#logo{{width:106px;height:106px}}#logo svg{{display:block;width:100%;height:100%}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}</style></head><body><div role="status" aria-label="Loading"><div id="logo" aria-hidden="true">{logo}</div></div></body></html>"#,
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{box-sizing:border-box;display:grid;place-items:center;padding:var(--app-safe-area-top,env(safe-area-inset-top)) var(--app-safe-area-right,env(safe-area-inset-right)) var(--app-safe-area-bottom,env(safe-area-inset-bottom)) var(--app-safe-area-left,env(safe-area-inset-left))}}[data-alook-native-caption]{{display:none;position:fixed;top:0;left:0;right:0;height:var(--app-safe-area-top);z-index:1000;user-select:none}}html[data-alook-native-caption="true"] [data-alook-native-caption]{{display:block}}#logo{{width:106px;height:106px}}#logo svg{{display:block;width:100%;height:100%}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}</style></head><body><div data-alook-native-caption data-tauri-drag-region aria-hidden="true"></div><div role="status" aria-label="Loading"><div id="logo" aria-hidden="true">{logo}</div></div></body></html>"#,
         light = SPLASH_BACKGROUND_LIGHT,
         dark = SPLASH_BACKGROUND_DARK,
     );
@@ -956,6 +956,8 @@ fn recovery_html() -> &'static str {
     *{box-sizing:border-box}
     body{min-height:100vh;margin:0;background:var(--background)}
     main{width:100%;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:max(24px,var(--app-safe-area-top,env(safe-area-inset-top))) max(24px,var(--app-safe-area-right,env(safe-area-inset-right))) max(24px,var(--app-safe-area-bottom,env(safe-area-inset-bottom))) max(24px,var(--app-safe-area-left,env(safe-area-inset-left)));text-align:center;cursor:pointer;outline:none;-webkit-user-select:none;user-select:none}
+    [data-alook-native-caption]{display:none;position:fixed;top:0;left:0;right:0;height:var(--app-safe-area-top);z-index:1000;user-select:none}
+    html[data-alook-native-caption="true"] [data-alook-native-caption]{display:block}
     main:focus-visible svg{outline:3px solid var(--ring);outline-offset:4px;border-radius:50%}
     svg{width:48px;height:48px;color:var(--foreground)}
     p{margin:0;color:var(--muted-foreground);font-size:16px;line-height:1.55}
@@ -965,6 +967,7 @@ fn recovery_html() -> &'static str {
   </style>
 </head>
 <body>
+  <div data-alook-native-caption data-tauri-drag-region aria-hidden="true"></div>
   <main data-testid="webview-recovery" role="button" tabindex="0" aria-label="Refresh">
     <svg data-testid="recovery-refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
     <p data-testid="recovery-message" role="status" aria-live="polite">Network connection failed. Click to refresh</p>

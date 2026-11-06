@@ -107,15 +107,8 @@ describe("CommunitySheet contracts", () => {
     expect((clamped.style as Record<string, string>)["--community-sheet-width"]).toBe("320px")
   })
 
-  it("uses one CSS-only 640px geometry checkpoint and a 44px mobile close", () => {
+  it("keeps its 44px mobile close available", () => {
     const { renderer } = renderSheet()
-    const content = sheetProps.get("sheet-content")!
-    expect(content.className).toContain("data-[side=right]:h-dvh")
-    expect(content.className).toContain("data-[side=right]:w-screen")
-    expect(content.className).toContain("data-[side=right]:sm:inset-y-2")
-    expect(content.className).toContain(
-      "data-[side=right]:sm:w-[clamp(20rem,var(--community-sheet-width),min(var(--community-sheet-max-width),calc(100vw-1rem)))]",
-    )
     expect(renderer.getByRole("button", { name: "Close" }).className).toContain("size-11")
   })
 

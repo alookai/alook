@@ -91,6 +91,26 @@ test.describe("auth & first screen", () => {
     await page.goto("/c/channels/does-not-matter/whatever")
     await page.waitForURL(/\/sign-in/, { timeout: 20_000 , waitUntil: "commit" })
     expect(page.url()).toContain("redirect=")
+    await page.getByRole("button", { name: "Continue with email", exact: true }).click()
+    const email = page.getByRole("textbox", { name: "Email" })
+    for (const [width, height] of [[390, 844], [1024, 768]] as const) {
+      await page.setViewportSize({ width, height })
+      await page.evaluate(() => {
+        for (const [edge, value] of [["top", 20], ["right", 16], ["bottom", 34], ["left", 18]] as const) {
+          document.documentElement.style.setProperty(`--app-safe-area-${edge}`, `${value}px`)
+        }
+        document.documentElement.style.setProperty("--alook-keyboard-bottom", "300px")
+      })
+      await email.fill("geometry@example.com")
+      await email.focus()
+      await expect(email).toBeFocused()
+      await expect.poll(() => page.getByTestId(tid.signInStepTrack).locator("..").evaluate((element, viewport) => {
+        const bounds = element.getBoundingClientRect()
+        return bounds.top >= 19 && bounds.bottom <= viewport.height - 299
+          && bounds.left >= 17 && bounds.right <= viewport.width - 15
+      }, { width, height })).toBe(true)
+      await expect(email).toHaveValue("geometry@example.com")
+    }
     await caseResources.closeContext(context)
   })
 

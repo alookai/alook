@@ -58,7 +58,7 @@ export function UserBarExtensionSlot({
   presentation = "slot",
 }: Props) {
   const ref = useRef<HTMLDivElement>(null)
-  const boundedHeight = `min(28rem, max(0px, calc(100dvh - ${COMMUNITY_USER_BAR_HEIGHT_CSS} - var(--app-safe-area-top))))`
+  const boundedHeight = `min(28rem, max(0px, calc(var(--app-overlay-safe-height) - ${COMMUNITY_USER_BAR_HEIGHT_CSS})))`
   const unframedMobileProfile = presentation === "slot" && active === "profile"
 
   useEffect(() => {

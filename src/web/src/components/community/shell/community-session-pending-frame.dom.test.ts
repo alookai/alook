@@ -83,9 +83,7 @@ describe("CommunitySessionPendingFrame", () => {
     )!
     expect(userBarUnderlay).toHaveAttribute("aria-hidden", "true")
     expect(userBarUnderlay.className).toContain("pointer-events-none")
-    expect(userBarUnderlay.style.height).toBe(
-      "calc(60px + var(--app-safe-area-bottom))",
-    )
+    expect(userBarUnderlay.style.height).toBe("60px")
     expect(renderer.container.querySelectorAll('[data-testid="skeleton"]').length)
       .toBeGreaterThanOrEqual(2)
     expect(renderer.container.querySelectorAll("button, a")).toHaveLength(0)

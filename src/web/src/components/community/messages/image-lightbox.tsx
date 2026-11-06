@@ -229,7 +229,7 @@ export function ImageLightbox({ image, onClose }: { image: ImagePreview | null; 
       onOpenChangeComplete={(open) => { if (!open) setRetained(null) }}>
       <DialogContent
         aria-label={displayed.name}
-        className="top-[max(1rem,var(--app-safe-area-top))] right-[max(1rem,var(--app-safe-area-right))] left-[max(1rem,var(--app-safe-area-left))] flex h-[calc(100dvh-max(1rem,var(--app-safe-area-top))-max(1rem,var(--app-safe-area-bottom)))] w-auto max-w-none translate-x-0 translate-y-0 overflow-visible border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-none"
+        className="top-4 right-4 left-4 flex h-[calc(100%-2rem)] w-auto max-w-none translate-x-0 translate-y-0 overflow-visible border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-none"
         showCloseButton={false}
       >
         <PreviewFrame

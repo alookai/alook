@@ -77,6 +77,14 @@ afterEach(() => {
 })
 
 describe("resolveAuditPreviewPlacement", () => {
+  it("uses the safe rectangle origin when a system edge removes otherwise available room", () => {
+    expect(resolveAuditPreviewPlacement({
+      card: { top: 100, bottom: 300, left: 50, right: 350, width: 300, height: 200 },
+      preview: { width: 200, height: 100 },
+      viewportLeft: 50, viewportTop: 80, viewportWidth: 500, viewportHeight: 500,
+    })).toBe("bottom")
+  })
+
   it("uses the side with the most room when no placement fits", () => {
     expect(resolveAuditPreviewPlacement({
       card: {

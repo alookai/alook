@@ -4,6 +4,10 @@
     "security": {
       "capabilities": [
         "desktop-capability",
+        "native-geometry",
+        "native-caption",
+        "native-geometry-dev",
+        "native-caption-dev",
         "external-links",
         {
           "identifier": "window-lifecycle-dev",

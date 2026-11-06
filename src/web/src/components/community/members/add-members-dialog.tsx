@@ -159,7 +159,7 @@ export function AddMembersDialog({
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) { source.retire(); onClose() } }}>
-      <DialogContent className="flex max-h-[80vh] w-full flex-col gap-0 p-0 sm:max-w-md">
+      <DialogContent className="flex max-h-[min(80vh,calc(100%-2rem))] w-full flex-col gap-0 p-0 sm:max-w-md">
         <PeoplePickerHeader title={title} subtitle={subtitle} />
 
         <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 py-2">

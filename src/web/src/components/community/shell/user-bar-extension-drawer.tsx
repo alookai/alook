@@ -4,6 +4,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { cloneElement, useLayoutEffect, useRef, useState, type ReactElement } from "react"
 import { SwipeRoot, SwipePortal, SwipeViewport, SwipePopup } from "@/components/ui/swipe-container"
+import { useNativeKeyboard } from "@/hooks/use-native-keyboard"
 import { tid } from "@/lib/community/testids"
 import type { UserBarExtensionKind } from "./user-bar-extension-state"
 
@@ -17,6 +18,7 @@ function focusPanel(host: HTMLDivElement | null, content: Content) {
 }
 
 export function UserBarExtensionDrawer({ children, onDismiss }: { children: Content | null; onDismiss: () => void }) {
+  useNativeKeyboard()
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const [retained, setRetained] = useAtom(useCreateAtom(children))
   const committedActive = useRef(children?.props.active)
@@ -44,7 +46,7 @@ export function UserBarExtensionDrawer({ children, onDismiss }: { children: Cont
               if (children?.props.focusOnOpen) focusPanel(host, children)
               return false
             }} finalFocus={false}
-              data-slot="user-bar-swipe" className="community-user-bar-drawer" inert={!open}>
+              data-slot="user-bar-swipe" className="community-user-bar-drawer" style={{ marginBottom: "var(--alook-keyboard-progress, 0px)" }} inert={!open}>
               {content && cloneElement(content, { interactive: open, animate: false, focusOnOpen: false })}
             </SwipePopup>
           </SwipeViewport>

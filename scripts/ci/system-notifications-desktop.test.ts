@@ -31,7 +31,7 @@ function quotedValues(source: string) {
 }
 
 describe("desktop system notification contract", () => {
-  it("keeps the build manifest and desktop ACL at the exact old-five plus notification command set", () => {
+  it("keeps notification authority separate from the read-only geometry command", () => {
     const manifestCommands = quotedValues(read("build.rs"))
       .filter((command) => !command.startsWith("native_oauth_")
         && !command.startsWith("mobile_share_image_")
@@ -40,7 +40,7 @@ describe("desktop system notification contract", () => {
     const permissionCommands = quotedValues(
       read("permissions/desktop-commands.toml").match(/commands\.allow\s*=\s*\[[^\]]*\]/s)?.[0] ?? "",
     )
-    expect(manifestCommands).toEqual(desktopCommands)
+    expect(manifestCommands.toSorted()).toEqual([...desktopCommands, "native_geometry_snapshot"].toSorted())
     expect(permissionCommands).toEqual(desktopCommands)
   })
 

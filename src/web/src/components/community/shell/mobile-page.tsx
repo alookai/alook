@@ -69,10 +69,12 @@ export function MobilePage({ children, parentPath, active = true, backgroundVisi
         }
       }}>
       <SwipePortal inline keepMounted>
-        <SwipeViewport className="flex min-h-0 flex-1 max-sm:fixed max-sm:inset-0 max-sm:z-20">
+        <SwipeViewport className="community-mobile-page-viewport flex min-h-0 flex-1 max-sm:fixed max-sm:z-20">
           <SwipePopup data-slot="mobile-page" data-entry-handled={entryHandled || undefined} data-background={!active || undefined}
-            className="flex h-full w-full min-w-0 flex-col bg-background outline-none">
-            {children}
+            className="flex h-full w-full min-w-0 flex-col bg-background outline-none max-sm:pointer-events-none!">
+            <div data-slot="mobile-page-content" className="app-safe-viewport community-mobile-page-content flex min-h-0 min-w-0 flex-1 flex-col max-sm:absolute max-sm:pointer-events-auto">
+              {children}
+            </div>
           </SwipePopup>
         </SwipeViewport>
       </SwipePortal>

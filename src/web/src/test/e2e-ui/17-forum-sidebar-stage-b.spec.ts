@@ -278,7 +278,7 @@ test.describe("forum sidebar Stage B request shape", () => {
   test("a non-participant warm forum-card click settles one negative retained request", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser, userId } = actors
-    const { participantUserIds, serverId, forumId, threadId } = await prepareCase1(actors)
+    const { participantUserIds, serverId, forumId, threadId, forumTitle } = await prepareCase1(actors)
 
     const { page } = await asUser("carol")
     await installRouteStabilityProbe(page)
@@ -295,6 +295,9 @@ test.describe("forum sidebar Stage B request shape", () => {
     await page.goto(`/c/channels/${serverId}/${forumId}`)
     const card = page.getByTestId(tid.forumThreadCard(threadId))
     await expect(card).toBeVisible({ timeout: 20_000 })
+    await expect(card).toHaveAttribute("role", "button")
+    await expect(card).not.toHaveAttribute("aria-busy", "true")
+    await expect(card.getByText(forumTitle, { exact: true })).toBeVisible()
     await page.waitForTimeout(300)
     sidebarResponses.length = 0
     successfulResponses.length = 0

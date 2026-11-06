@@ -458,7 +458,7 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     await waitForElementMotion(mobileSurface)
     const geometry = await surfaceGeometry(bob.page)
     expectJoinedBorderContract(geometry)
-    expect(geometry.userBar.bottom).toBe(844)
+    expect(geometry.userBar.bottom).toBe(844 - 34)
     expect(geometry.userBar.surfaceBottom).toBe(844 - 34 - 12)
     expect(geometry.userBarOwnsCenter).toBe(true)
     expect(geometry.card.height).toBeLessThanOrEqual(448 + GEOMETRY_EPSILON)
@@ -472,6 +472,41 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     expect(geometry.seam.userBarBottomLeft).not.toBe("0px")
     expect(geometry.seam.userBarBottomRight).not.toBe("0px")
     expect(geometry.rootScrollTop).toBe(0)
+    const shell = bob.page.locator('[data-slot="community-shell-root"]')
+    await expect.poll(() => shell.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      return [rect.top, rect.right, rect.bottom, rect.left]
+    })).toEqual([20, 374, 810, 18])
+    for (const [edge, value, expected] of [
+      ["right", 26, [20, 364, 810, 18]],
+      ["bottom", 44, [20, 364, 800, 18]],
+      ["left", 28, [20, 364, 800, 28]],
+    ] as const) {
+      await bob.page.evaluate(([edge, value]) => document.documentElement.style.setProperty(`--app-safe-area-${edge}`, `${value}px`), [edge, value] as const)
+      await expect.poll(() => shell.evaluate(element => {
+        const rect = element.getBoundingClientRect()
+        return [rect.top, rect.right, rect.bottom, rect.left]
+      })).toEqual([...expected])
+    }
+    await bob.page.evaluate(() => {
+      for (const [edge, value] of [["right", 16], ["bottom", 34], ["left", 18]] as const) {
+        document.documentElement.style.setProperty(`--app-safe-area-${edge}`, `${value}px`)
+      }
+    })
+    await bob.page.evaluate(() => {
+      document.documentElement.style.setProperty("--alook-keyboard-bottom", "300px")
+      document.documentElement.style.setProperty("--alook-keyboard-progress", "max(0px, calc(300px - var(--app-safe-area-bottom)))")
+    })
+    await expect.poll(async () => {
+      const current = await surfaceGeometry(bob.page)
+      return current.card.bottom <= 544 + GEOMETRY_EPSILON && current.card.top >= 20 - GEOMETRY_EPSILON
+        && Math.abs(current.userBar.top - geometry.userBar.top) <= GEOMETRY_EPSILON
+        && Math.abs(current.userBar.bottom - 810) <= GEOMETRY_EPSILON
+    }).toBe(true)
+    await bob.page.evaluate(() => {
+      document.documentElement.style.removeProperty("--alook-keyboard-bottom")
+      document.documentElement.style.removeProperty("--alook-keyboard-progress")
+    })
     await testInfo.attach("user-bar-extension-mobile-390x844", {
       body: await bob.page.screenshot(),
       contentType: "image/png",
@@ -548,7 +583,21 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     await bob.page.getByTestId(tid.userSettingsOpen).click()
     await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
     await expect(bob.page.getByTestId(tid.settingsShell)).toHaveCount(1)
+    await expect.poll(() => bob.page.getByTestId(tid.settingsShell).evaluate(element => {
+      const bounds = element.closest('[data-slot="dialog-content"]')!.getBoundingClientRect()
+      return [bounds.top, bounds.right, bounds.bottom, bounds.left]
+    })).toEqual([20, 374, 810, 18])
     await expect(inboxTrigger).not.toBeFocused()
+    await bob.page.evaluate(() => document.documentElement.style.setProperty("--alook-keyboard-bottom", "300px"))
+    await expect.poll(() => bob.page.getByTestId(tid.settingsShell).evaluate(element => {
+      const bounds = element.closest('[data-slot="dialog-content"]')!.getBoundingClientRect()
+      return [bounds.top, bounds.right, bounds.bottom, bounds.left]
+    })).toEqual([20, 374, 544, 18])
+    await expect.poll(() => shell.evaluate(element => {
+      const bounds = element.getBoundingClientRect()
+      return [bounds.top, bounds.right, bounds.bottom, bounds.left]
+    })).toEqual([20, 374, 810, 18])
+    await bob.page.evaluate(() => document.documentElement.style.removeProperty("--alook-keyboard-bottom"))
     await bob.page.getByTestId(tid.settingsClose).click()
 
     await inboxTrigger.click()
@@ -567,8 +616,8 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     const compact = await surfaceGeometry(bob.page)
     expectJoinedBorderContract(compact)
     expect(compact.card.top).toBeGreaterThanOrEqual(20)
-    expect(compact.card.left).toBe(18)
-    expect(compact.card.right).toBe(320 - 16)
+    expect(compact.card.left).toBe(18 + 12)
+    expect(compact.card.right).toBe(320 - 16 - 12)
     await inboxTrigger.click()
 
     expect(writes.writes).toEqual([])
@@ -625,8 +674,8 @@ test.describe("mobile Inbox interactive user-bar base", () => {
       expect(Math.abs(userBarBox!.width - composerBox!.width)).toBeLessThanOrEqual(1)
       expect(Math.abs(userBarBox!.height - composerBox!.height)).toBeLessThanOrEqual(1)
       expect(Math.abs(userBarBox!.y - composerBox!.y)).toBeLessThanOrEqual(1)
-      expect(userBarBox!.x).toBe(18)
-      expect(userBarBox!.x + userBarBox!.width).toBe(width - 16)
+      expect(userBarBox!.x).toBe(18 + 12)
+      expect(userBarBox!.x + userBarBox!.width).toBe(width - 16 - 12)
       expect(userBarBox!.height).toBe(48)
       expect(Math.abs(844 - userBarBox!.y - userBarBox!.height)).toBe(34 + 12)
     }

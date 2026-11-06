@@ -177,7 +177,7 @@ export function OnboardingMachineDialog({
       <DialogContent
         data-testid={tid.onboardingMachineDialog}
         showCloseButton={Boolean(onExit)}
-        className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 thin-scrollbar sm:max-w-lg"
+        className="max-h-[calc(var(--app-overlay-safe-height)-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 thin-scrollbar sm:max-w-lg"
       >
         <DialogHeader className="gap-4 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 sm:pb-6">
           <OnboardingProgress current={2} total={totalSteps} />

@@ -3,6 +3,8 @@
 import * as React from "react"
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 
+import { useSafeAreaBoundary } from "@/hooks/use-safe-area-boundary"
+
 import { cn } from "@/lib/utils"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
@@ -45,9 +47,10 @@ function DropdownMenuContent({
     | "collisionAvoidance"
   >) {
   const renderPopup = useNativeBackPopupRender<MenuPrimitive.Popup.State>(render)
+  const safeBoundary = useSafeAreaBoundary()
   return (
     <MenuPrimitive.Portal>
-      <MenuPrimitive.Positioner
+      <MenuPrimitive.Positioner collisionBoundary={safeBoundary}
         className="isolate z-70 outline-none"
         align={align}
         alignOffset={alignOffset}

@@ -1233,6 +1233,10 @@ describe("Desktop image clipboard", () => {
     })
     expect(desktopDevConfig.app.security.capabilities).toEqual([
       "desktop-capability",
+      "native-geometry",
+      "native-caption",
+      "native-geometry-dev",
+      "native-caption-dev",
       "external-links",
       expect.objectContaining({
         identifier: "window-lifecycle-dev",

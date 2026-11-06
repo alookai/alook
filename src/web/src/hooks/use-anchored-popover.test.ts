@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   anchoredPopoverStyle,
+  constrainAnchoredPopoverGeometry,
   readVisualViewport,
   subscribeAnchoredPopoverChanges,
   type AnchorRect,
@@ -196,4 +197,20 @@ describe("visual viewport refresh signals", () => {
     flushFrame()
     expect(onChange).toHaveBeenCalledTimes(3)
   })
+})
+
+it("keeps caret positions stable while constraining the popup to all four safe edges", () => {
+  const geometry = constrainAnchoredPopoverGeometry(
+    { top: 400, bottom: 416, left: 280, right: 284 },
+    { top: 100, left: 20, width: 320, height: 500 },
+    { top: 120, right: 320, bottom: 570, left: 38 },
+  )
+  expect(geometry).toEqual({
+    rect: { top: 380, bottom: 396, left: 262, right: 266 },
+    viewport: { top: 120, left: 38, width: 282, height: 450 },
+  })
+  const style = anchoredPopoverStyle(geometry.rect, geometry.viewport, 256, 240)
+  expect(style.left).toBe(56)
+  expect(style.top).toBe(496)
+  expect(Number(style.left) + 256).toBeLessThanOrEqual(312)
 })

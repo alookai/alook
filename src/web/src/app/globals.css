@@ -457,8 +457,11 @@ body.driver-active .community-ws-reconnect-overlay * {
   --app-safe-area-right: env(safe-area-inset-right, 0px);
   --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --app-safe-area-left: env(safe-area-inset-left, 0px);
-  --community-composer-inline-start: max(0.75rem, var(--app-safe-area-left));
-  --community-composer-inline-end: max(0.75rem, var(--app-safe-area-right));
+  --app-safe-width: calc(100vw - var(--app-safe-area-left) - var(--app-safe-area-right));
+  --app-safe-height: calc(100dvh - var(--app-safe-area-top) - var(--app-safe-area-bottom));
+  --app-overlay-safe-height: max(0px, calc(100dvh - var(--app-safe-area-top) - max(var(--app-safe-area-bottom), var(--alook-keyboard-bottom, 0px))));
+  --community-composer-inline-start: 0.75rem;
+  --community-composer-inline-end: 0.75rem;
   --community-composer-top-radius: 1.5rem;
   --guide-flight-ease: cubic-bezier(0.45, 0, 0.2, 1);
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -3154,4 +3157,121 @@ body {
 /* Virtual message rows must measure code content, not Streamdown's offscreen placeholder. */
 [data-message-list-content] [data-streamdown="code-block"] {
   content-visibility: visible !important;
+}
+
+.app-safe-viewport {
+  top: var(--app-safe-area-top);
+  right: var(--app-safe-area-right);
+  bottom: var(--app-safe-area-bottom);
+  left: var(--app-safe-area-left);
+}
+
+.app-safe-overlay-viewport {
+  bottom: max(var(--app-safe-area-bottom), var(--alook-keyboard-bottom, 0px));
+}
+
+.app-safe-portal-viewport {
+  transform: translateZ(0);
+}
+
+.community-shell-extended {
+  overflow: visible;
+  z-index: 1;
+}
+
+.community-shell-extended > [data-slot="community-frame-paint"] {
+  inset: 0;
+}
+
+.community-app-surface-extended {
+  margin-right: calc(0px - var(--app-safe-area-right));
+  margin-bottom: calc(0px - var(--app-safe-area-bottom));
+  padding-right: var(--app-safe-area-right);
+  padding-bottom: var(--app-safe-area-bottom);
+}
+
+.community-pane-background {
+  position: absolute;
+  inset: 0;
+  bottom: calc(0px - var(--app-safe-area-bottom));
+  z-index: -1;
+  background: inherit;
+  pointer-events: none;
+}
+
+.community-main-background {
+  right: calc(0px - var(--app-safe-area-right));
+}
+
+@media (max-width: 639px) {
+  .community-sidebar-background {
+    right: calc(0px - var(--app-safe-area-right));
+  }
+
+  .community-main-background {
+    display: none;
+  }
+
+  .community-mobile-page-viewport {
+    top: calc(0px - var(--app-safe-area-top));
+    right: calc(0px - var(--app-safe-area-right));
+    bottom: calc(0px - var(--app-safe-area-bottom));
+    left: calc(0px - var(--app-safe-area-left));
+  }
+
+  .community-mobile-page-content {
+    transform: translateZ(0);
+  }
+}
+
+@layer components {
+  .app-safe-popup {
+    max-height: calc(100% - 2rem);
+    max-width: calc(100% - 2rem);
+    overflow-y: auto;
+  }
+}
+
+.app-safe-auth-page {
+  --app-auth-available-height: var(--app-overlay-safe-height);
+  padding: var(--app-safe-area-top) var(--app-safe-area-right) max(var(--app-safe-area-bottom), var(--alook-keyboard-bottom, 0px)) var(--app-safe-area-left);
+}
+
+@media (min-width: 640px) {
+  .app-safe-auth-page {
+    --app-auth-available-height: max(0px, calc(100dvh - max(2rem, var(--app-safe-area-top)) - max(2rem, var(--app-safe-area-bottom), var(--alook-keyboard-bottom, 0px))));
+    padding: max(2rem, var(--app-safe-area-top)) max(2rem, var(--app-safe-area-right)) max(2rem, var(--app-safe-area-bottom), var(--alook-keyboard-bottom, 0px)) max(2rem, var(--app-safe-area-left));
+  }
+}
+
+@media (max-width: 639px) {
+  [data-slot="community-shell-root"] [data-mobile-layer="true"] {
+    top: var(--app-safe-area-top) !important;
+    right: var(--app-safe-area-right) !important;
+    bottom: var(--app-safe-area-bottom) !important;
+    left: var(--app-safe-area-left) !important;
+    width: auto !important;
+    transform: translateZ(0);
+  }
+}
+
+.app-native-caption {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--app-safe-area-top);
+  z-index: 1000;
+  user-select: none;
+}
+
+[data-alook-native-caption="true"] .app-native-caption {
+  display: block;
+}
+
+.app-auth-form-viewport {
+  min-height: 0;
+  max-height: var(--app-auth-available-height);
+  overflow-y: auto;
 }

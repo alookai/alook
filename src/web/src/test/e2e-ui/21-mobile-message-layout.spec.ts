@@ -84,9 +84,39 @@ test("long Markdown rows stay measured and separated at iPhone width", async ({ 
 
   const { page } = await asUser("alice")
   await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => {
+      for (const [edge, value] of [["top", 20], ["right", 16], ["bottom", 34], ["left", 18]] as const) {
+        document.documentElement.style.setProperty(`--app-safe-area-${edge}`, `${value}px`)
+      }
+    }, { once: true })
+  })
   await page.goto(`/c/channels/${serverId}/${channelId}`)
   await page.waitForURL(new RegExp(channelId), { timeout: 20_000, waitUntil: "commit" })
   await expect(page.locator(`[data-msg-id="${sentinelId}"]`)).toBeVisible({ timeout: 30_000 })
+
+  await expect.poll(() => page.locator(`[data-community-target-href="/c/channels/${serverId}/${channelId}"]`).evaluate(element => {
+    const bounds = element.getBoundingClientRect()
+    return [bounds.top, bounds.right, bounds.bottom, bounds.left]
+  })).toEqual([20, 374, 810, 18])
+  const composerBounds = await page.getByTestId(tid.channelComposerShell).boundingBox()
+  expect(composerBounds).not.toBeNull()
+  expect(composerBounds!.y + composerBounds!.height).toBeLessThanOrEqual(810)
+  await expect.poll(() => page.evaluate((targetHref) => {
+    const content = document.querySelector<HTMLElement>(`[data-community-target-href="${targetHref}"]`)!
+    const paint = content.closest<HTMLElement>('[data-slot="mobile-page"]')!
+    const rect = paint.getBoundingClientRect()
+    const hits = [[4, 400], [386, 400], [200, 4], [200, 840]]
+    return {
+      background: [rect.top, rect.right, rect.bottom, rect.left],
+      matchingColor: getComputedStyle(paint).backgroundColor === getComputedStyle(content).backgroundColor,
+      outsideContentOwnsHit: hits.some(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('[data-slot="mobile-page"]'))),
+    }
+  }, `/c/channels/${serverId}/${channelId}`)).toEqual({
+    background: [0, 390, 844, 0],
+    matchingColor: true,
+    outsideContentOwnsHit: false,
+  })
 
   const firstMeasurement = await messageRowRect(page, longId)
   expect(firstMeasurement.height).toBeGreaterThan(400)

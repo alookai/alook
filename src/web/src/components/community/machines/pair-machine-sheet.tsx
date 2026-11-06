@@ -333,7 +333,7 @@ function Step1({
             data-testid={tid.machinePairHelpContent}
             side="bottom"
             align="end"
-            className="flex w-104 max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] flex-col gap-4 overflow-y-auto thin-scrollbar p-4 sm:p-6"
+            className="flex w-104 max-w-[calc(var(--app-safe-width)-2rem)] max-h-[calc(var(--app-overlay-safe-height)-2rem)] flex-col gap-4 overflow-y-auto thin-scrollbar p-4 sm:p-6"
           >
             <div className="flex flex-col gap-2">
               <PopoverTitle className="text-lg leading-tight tracking-[-0.015em]">Why run a terminal command?</PopoverTitle>

@@ -8,10 +8,17 @@ function channelHeader(page: Page, name: string) {
   return page.getByRole("banner").getByText(name, { exact: true })
 }
 
+type SurfaceBounds = { left: number; top: number; width: number; height: number }
+
+const mobileEntryInsets = { top: 24, right: 16, bottom: 20, left: 18 }
+
 type SurfaceAnimationRecord = {
   surface: string | null
-  transforms: string[]
   duration: number
+  viewportWidth: number
+  viewportHeight: number
+  before: SurfaceBounds
+  start: SurfaceBounds
 }
 
 type SurfaceFrameRecord = {
@@ -19,6 +26,7 @@ type SurfaceFrameRecord = {
   surface: string | null
   transform: string
   translateX: number
+  bounds: SurfaceBounds
   opacity: string
   rows: string[]
   pendingMain: string | null
@@ -35,18 +43,27 @@ async function installSurfaceAnimationProbe(page: Page) {
     }
     state.__communitySurfaceAnimations = []
     state.__communitySurfaceFrames = []
+    const bounds = (element: Element): SurfaceBounds => {
+      const { left, top, width, height } = element.getBoundingClientRect()
+      return { left, top, width, height }
+    }
     const nativeAnimate = Element.prototype.animate
     Element.prototype.animate = function (keyframes, options) {
+      const before = this.hasAttribute("data-community-mobile-surface") ? bounds(this) : null
       const animation = nativeAnimate.call(this, keyframes, options)
-      if (this.hasAttribute("data-community-mobile-surface")) {
+      if (before) {
         state.__communitySurfaceAnimations!.push({
           surface: this.getAttribute("data-community-mobile-surface"),
-          transforms: (animation.effect as KeyframeEffect).getKeyframes().map(frame => String(frame.transform ?? "none")),
           duration: Number(animation.effect!.getTiming().duration),
+          viewportWidth: innerWidth,
+          viewportHeight: innerHeight,
+          before,
+          start: bounds(this),
         })
       }
       return animation
     }
+    const probeAnimate = Element.prototype.animate
 
     let raf = 0
     const sample = () => {
@@ -64,6 +81,7 @@ async function installSurfaceAnimationProbe(page: Page) {
           surface: surface.dataset.slot === "community-sidebar-panel-content" ? "list" : "detail",
           transform: style.transform,
           translateX: style.transform === "none" ? 0 : new DOMMatrixReadOnly(style.transform).m41,
+          bounds: bounds(surface),
           opacity: style.opacity,
           rows,
           pendingMain: surface.querySelector<HTMLElement>("[data-community-main-kind]")
@@ -75,7 +93,10 @@ async function installSurfaceAnimationProbe(page: Page) {
       raf = requestAnimationFrame(sample)
     }
     raf = requestAnimationFrame(sample)
-    state.__communitySurfaceFrameStop = () => cancelAnimationFrame(raf)
+    state.__communitySurfaceFrameStop = () => {
+      cancelAnimationFrame(raf)
+      if (Element.prototype.animate === probeAnimate) Element.prototype.animate = nativeAnimate
+    }
   }, { channelRowPrefix })
 }
 
@@ -115,19 +136,45 @@ async function expectDetailEntry(page: Page) {
   await expect.poll(() => detail.evaluate(element => getComputedStyle(element).transform)).toBe("none")
   const animations = await surfaceAnimations(page)
   expect(animations).toHaveLength(1)
-  expect(animations[0].surface).toBe("detail")
-  expect(animations[0].duration).toBe(280)
-  expect(animations[0].transforms[0]).toMatch(/translate3d\(100%,/)
-  expect(animations[0].transforms.at(-1)).toMatch(/translate3d\(0(?:px)?,/)
+  const entry = animations[0]
+  expect(entry.surface).toBe("detail")
+  expect(entry.duration).toBe(280)
+  const { width, height } = page.viewportSize()!
+  expect(entry.viewportWidth).toBe(width)
+  expect(entry.viewportHeight).toBe(height)
+  const expected = {
+    left: mobileEntryInsets.left,
+    top: mobileEntryInsets.top,
+    width: width - mobileEntryInsets.left - mobileEntryInsets.right,
+    height: height - mobileEntryInsets.top - mobileEntryInsets.bottom,
+  }
+  const settled = await detail.evaluate(element => {
+    const { left, top, width, height } = element.getBoundingClientRect()
+    return { left, top, width, height }
+  })
+  for (const edge of ["left", "top", "width", "height"] as const) {
+    expect(entry.before[edge]).toBeCloseTo(expected[edge], 0)
+    expect(settled[edge]).toBeCloseTo(expected[edge], 0)
+    expect(entry.start[edge]).toBeCloseTo(expected[edge] + (edge === "left" ? width : 0), 0)
+  }
   const frames = await surfaceFrames(page)
-  expectStationaryFrames(frames.filter(frame => frame.surface === "list"))
+  const listFrames = frames.filter(frame => frame.surface === "list")
+  expectStationaryFrames(listFrames)
+  for (const frame of listFrames) {
+    for (const edge of ["left", "top", "width", "height"] as const) {
+      expect(frame.bounds[edge]).toBeCloseTo(listFrames[0].bounds[edge], 0)
+    }
+  }
   const detailFrames = frames.filter(frame => frame.surface === "detail")
   expect(detailFrames.some(frame => frame.translateX > 0)).toBe(true)
-  const width = page.viewportSize()!.width
   for (const frame of detailFrames) {
     expect(frame.translateX).toBeGreaterThanOrEqual(-0.5)
     expect(frame.translateX).toBeLessThanOrEqual(width + 0.5)
     expect(frame.opacity).toBe("1")
+    expect(frame.bounds.left).toBeCloseTo(expected.left + frame.translateX, 0)
+    expect(frame.bounds.top).toBeCloseTo(expected.top, 0)
+    expect(frame.bounds.width).toBeCloseTo(expected.width, 0)
+    expect(frame.bounds.height).toBeCloseTo(expected.height, 0)
   }
 }
 
@@ -255,6 +302,32 @@ test("mobile detail enters once while sidebar identity survives pending and same
   const fastRow = page.getByTestId(tid.channelRow(fastChannel))
   const sidebarScroll = page.getByTestId(tid.channelSidebarScroll)
   await expect(fastRow).toBeVisible({ timeout: 30_000 })
+  const previousInsets = await page.evaluate(insets => Object.entries(insets).map(([edge, value]) => {
+    const style = document.documentElement.style
+    const name = `--app-safe-area-${edge}`
+    const previous = { name, value: style.getPropertyValue(name), priority: style.getPropertyPriority(name) }
+    style.setProperty(name, `${value}px`)
+    return previous
+  }), mobileEntryInsets)
+  caseResources.own(previousInsets, async values => {
+    if (page.isClosed()) return
+    await page.evaluate(previous => {
+      const state = window as typeof window & {
+        __communitySurfaceAnimations?: SurfaceAnimationRecord[]
+        __communitySurfaceFrames?: SurfaceFrameRecord[]
+        __communitySurfaceFrameStop?: () => void
+      }
+      state.__communitySurfaceFrameStop?.()
+      delete state.__communitySurfaceAnimations
+      delete state.__communitySurfaceFrames
+      delete state.__communitySurfaceFrameStop
+      const style = document.documentElement.style
+      for (const { name, value, priority } of previous) {
+        if (value) style.setProperty(name, value, priority)
+        else style.removeProperty(name)
+      }
+    }, values)
+  })
   await sidebarScroll.evaluate((element) => {
     ;(element as typeof element & { __e2eIdentity?: string }).__e2eIdentity = "stable"
   })

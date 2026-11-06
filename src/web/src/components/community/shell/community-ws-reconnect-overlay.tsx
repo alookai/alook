@@ -26,7 +26,7 @@ export function CommunityWsReconnectBoundary({ children }: { children: ReactNode
           aria-live="polite"
           aria-atomic="true"
           data-testid={tid.messageRepairStatus}
-          className="fixed bottom-4 right-4 z-50 flex max-w-xs items-center gap-3 rounded-lg border bg-popover p-3 text-popover-foreground shadow-(--e2)"
+          className="fixed bottom-[calc(var(--app-safe-area-bottom)+1rem)] right-[calc(var(--app-safe-area-right)+1rem)] z-50 flex max-w-[min(20rem,calc(var(--app-safe-width)-2rem))] items-center gap-3 rounded-lg border bg-popover p-3 text-popover-foreground shadow-(--e2)"
         >
           <div className="min-w-0 flex-1">
             <p className="font-heading text-sm font-medium">Messages could not refresh</p>
@@ -50,7 +50,7 @@ export function CommunityWsReconnectBoundary({ children }: { children: ReactNode
           aria-atomic="true"
           data-testid={tid.wsReconnectOverlay}
           data-ws-status={connectionStatus}
-          className="fixed bottom-4 right-4 z-50 flex max-w-xs items-center gap-3 rounded-lg border bg-popover p-3 text-popover-foreground shadow-(--e2)"
+          className="fixed bottom-[calc(var(--app-safe-area-bottom)+1rem)] right-[calc(var(--app-safe-area-right)+1rem)] z-50 flex max-w-[min(20rem,calc(var(--app-safe-width)-2rem))] items-center gap-3 rounded-lg border bg-popover p-3 text-popover-foreground shadow-(--e2)"
         >
           <div aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-md bg-warning/10 text-warning">
             <WifiOff className="size-4" />

@@ -3,6 +3,8 @@
 import * as React from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 
+import { useSafeAreaBoundary } from "@/hooks/use-safe-area-boundary"
+
 import { cn } from "@/lib/utils"
 import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
 
@@ -47,8 +49,9 @@ function PopoverPositioner({
   style,
   ...props
 }: PopoverPrimitive.Positioner.Props) {
+  const safeBoundary = useSafeAreaBoundary()
   return (
-    <PopoverPrimitive.Positioner
+    <PopoverPrimitive.Positioner collisionBoundary={safeBoundary}
       data-slot="popover-positioner"
       style={{ zIndex: 60, ...style }}
       {...props}
@@ -114,9 +117,10 @@ function PopoverContent({
   // and causes the popover to render inline inside the Sheet.
   const container =
     typeof document !== "undefined" ? document.body : null
+  const safeBoundary = useSafeAreaBoundary()
   return (
     <PopoverPrimitive.Portal container={container}>
-      <PopoverPrimitive.Positioner
+      <PopoverPrimitive.Positioner collisionBoundary={safeBoundary}
         side={side}
         sideOffset={sideOffset}
         align={align}

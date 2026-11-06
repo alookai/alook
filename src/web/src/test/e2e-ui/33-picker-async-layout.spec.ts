@@ -25,6 +25,44 @@ async function expectTitleClearOfClose(dialog: Locator, width: 390 | 1280) {
     .toBeLessThanOrEqual(close!.x)
 }
 
+async function expectPickerAboveKeyboard(page: Page, dialog: Locator, placeholder: string) {
+  const previous = await page.evaluate(() => {
+    const style = document.documentElement.style
+    const values = ["--app-safe-area-top", "--app-safe-area-right", "--app-safe-area-bottom", "--app-safe-area-left", "--alook-keyboard-bottom"]
+      .map((name) => ({ name, value: style.getPropertyValue(name), priority: style.getPropertyPriority(name) }))
+    style.setProperty("--app-safe-area-top", "40px")
+    style.setProperty("--app-safe-area-right", "10px")
+    style.setProperty("--app-safe-area-bottom", "20px")
+    style.setProperty("--app-safe-area-left", "12px")
+    style.setProperty("--alook-keyboard-bottom", `${window.innerHeight - 300}px`)
+    return values
+  })
+  try {
+    const input = dialog.getByPlaceholder(placeholder)
+    const value = await input.inputValue()
+    await input.focus()
+    await expect(input).toBeFocused()
+    await expect(input).toHaveValue(value)
+    await expect.poll(async () => (await dialog.boundingBox())?.height ?? Infinity).toBeLessThanOrEqual(228)
+    const popup = await dialog.boundingBox()
+    const field = await input.boundingBox()
+    expect(popup).not.toBeNull()
+    expect(field).not.toBeNull()
+    expect(popup!.y).toBeGreaterThanOrEqual(56)
+    expect(popup!.y + popup!.height).toBeLessThanOrEqual(284)
+    expect(field!.y).toBeGreaterThanOrEqual(popup!.y)
+    expect(field!.y + field!.height).toBeLessThanOrEqual(popup!.y + popup!.height)
+  } finally {
+    await page.evaluate((values) => {
+      const style = document.documentElement.style
+      for (const { name, value, priority } of values) {
+        if (value) style.setProperty(name, value, priority)
+        else style.removeProperty(name)
+      }
+    }, previous)
+  }
+}
+
 async function openDesktopThreadMemberList(page: Page) {
   const shell = page.getByTestId(tid.threadSplit)
   const threadPanel = page.getByTestId(tid.threadSplitPanel)
@@ -117,6 +155,7 @@ test.setTimeout(180_000)
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(inviteUrl)
     await expect.poll(async () => (await copy.boundingBox())!.y).toBe(copyBeforeLoad!.y)
     await expectTitleClearOfClose(dialog, 1280)
+    await expectPickerAboveKeyboard(page, dialog, "Search for friends")
 
     const beforeSearch = { acceptedGets, memberGets }
     await dialog.getByPlaceholder("Search for friends").fill("no-user-matches-this-query")
@@ -234,6 +273,7 @@ test.setTimeout(180_000)
     await expect(dialog.getByText(bobName, { exact: true })).toHaveCount(0)
     expect(participantGets).toBeGreaterThan(failedParticipantGets)
     expect(parentGets).toBe(resolvedParentGets)
+    await expectPickerAboveKeyboard(page, dialog, "Search members")
 
     const beforeSearch = { participantGets, parentGets }
     await dialog.getByPlaceholder("Search members").fill("no-participant-matches-this")

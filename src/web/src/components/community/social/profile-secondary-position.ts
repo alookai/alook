@@ -2,6 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useLayoutEffect, useRef } from "react"
+import { useSafeAreaBoundary } from "@/hooks/use-safe-area-boundary"
 
 export type AuditPreviewPlacement = "right" | "left" | "top" | "bottom"
 
@@ -12,19 +13,23 @@ export function resolveAuditPreviewPlacement({
   preview,
   viewportWidth,
   viewportHeight,
+  viewportLeft = 0,
+  viewportTop = 0,
   gap = 8,
 }: {
   card: RectLike
   preview: Pick<RectLike, "width" | "height">
   viewportWidth: number
   viewportHeight: number
+  viewportLeft?: number
+  viewportTop?: number
   gap?: number
 }): AuditPreviewPlacement {
   const room = {
-    right: viewportWidth - card.right,
-    left: card.left,
-    top: card.top,
-    bottom: viewportHeight - card.bottom,
+    right: viewportLeft + viewportWidth - card.right,
+    left: card.left - viewportLeft,
+    top: card.top - viewportTop,
+    bottom: viewportTop + viewportHeight - card.bottom,
   }
   const sideCrossAxisFits = preview.height <= viewportHeight - gap * 2
   const verticalCrossAxisFits = preview.width <= viewportWidth - gap * 2
@@ -60,6 +65,7 @@ export function useProfileSecondaryPosition(
   x: number,
   y: number,
 ) {
+  const boundary = useSafeAreaBoundary()
   const popoverRef = useRef<HTMLDivElement | null>(null)
   const cardRef = useRef<HTMLDivElement | null>(null)
   const previewRef = useRef<HTMLDivElement | null>(null)
@@ -92,23 +98,26 @@ export function useProfileSecondaryPosition(
       }
       const gap = 8
       const margin = 8
+      const viewportLeft = boundary?.left ?? 0
+      const viewportTop = boundary?.top ?? 0
+      const viewportWidth = boundary?.width ?? window.innerWidth
+      const viewportHeight = boundary?.height ?? window.innerHeight
       const placement = resolveAuditPreviewPlacement({
         card,
         preview,
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
+        viewportLeft, viewportTop, viewportWidth, viewportHeight,
         gap,
       })
 
       const verticalOffset = clamp(
         0,
-        margin - card.top,
-        window.innerHeight - margin - preview.height - card.top,
+        viewportTop + margin - card.top,
+        viewportTop + viewportHeight - margin - preview.height - card.top,
       )
       const horizontalOffset = clamp(
         card.width - preview.width,
-        margin - card.left,
-        window.innerWidth - margin - preview.width - card.left,
+        viewportLeft + margin - card.left,
+        viewportLeft + viewportWidth - margin - preview.width - card.left,
       )
       const next: MeasuredAuditPreviewPosition = placement === "right"
         ? { measurementKey, placement, left: card.width + gap, top: verticalOffset, height: card.height }
@@ -145,7 +154,7 @@ export function useProfileSecondaryPosition(
       popoverElement?.removeEventListener("animationcancel", update)
       observer?.disconnect()
     }
-  }, [measurementKey, setMeasuredPosition])
+  }, [boundary, measurementKey, setMeasuredPosition])
 
   const ready = measurementKey !== null
     && measuredPosition?.measurementKey === measurementKey

@@ -114,7 +114,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
     <div
       data-testid={tid.userBar}
       style={nativeMobile ? { paddingBottom: "0.25rem" } : undefined}
-      className="@container/user-bar w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-2 sm:pb-3"
+      className="@container/user-bar w-full min-w-0 max-w-full shrink-0 overflow-hidden px-3 pb-3 pt-0 sm:px-2 sm:pb-3"
     >
       {mobile
         ? <UserBarExtensionDrawer onDismiss={dismissExtensionWithFocus}>{extensionContent}</UserBarExtensionDrawer>
@@ -172,7 +172,7 @@ export function UserBarSkeleton() {
       data-testid={tid.initialUserBarPending}
       style={nativeMobile ? { paddingBottom: "0.25rem" } : undefined}
       aria-hidden
-      className="@container/user-bar w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-2 sm:pb-3"
+      className="@container/user-bar w-full min-w-0 max-w-full shrink-0 overflow-hidden px-3 pb-3 pt-0 sm:px-2 sm:pb-3"
     >
       <div className={cn(styles.base, "flex items-center gap-3 rounded-xl border border-border/40 bg-muted px-2")}>
         <div className="flex min-w-0 flex-1 items-center justify-between gap-2 sm:@max-[224px]/user-bar:gap-1">

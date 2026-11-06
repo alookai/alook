@@ -491,9 +491,6 @@ describe("ComposerView", () => {
       "absolute right-2 bottom-2 size-8 rounded-full",
     ])
     expect(renderer.container.firstElementChild?.tagName).toBe("DIV")
-    expect(renderer.container.firstElementChild?.className).toBe(
-      "relative pl-[var(--community-composer-inline-start)] pr-[var(--community-composer-inline-end)] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:pb-3",
-    )
     expect(renderer.container.innerHTML).toContain(
       "relative rounded-(--community-composer-top-radius) bg-muted py-3 px-12 shadow-(--e1) ring-1 ring-border/40",
     )

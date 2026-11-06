@@ -333,7 +333,7 @@ export function PostTagDialog({
           showCloseButton={false}
           data-testid={tid.forumTagDialog}
           aria-label={`Edit tags for ${postName}`}
-          className="flex max-h-[calc(100dvh-2rem-var(--app-safe-area-top)-var(--app-safe-area-bottom))] w-[calc(100%-2rem)] max-w-sm flex-col gap-0 rounded-2xl p-0"
+          className="flex max-h-[calc(100%-2rem)] w-[calc(100%-2rem)] max-w-sm flex-col gap-0 rounded-2xl p-0"
           onClick={(event) => event.stopPropagation()}
         >
           <div className="flex min-w-0 shrink-0 items-center gap-1 px-2 py-2">

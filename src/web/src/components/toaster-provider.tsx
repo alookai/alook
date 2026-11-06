@@ -14,8 +14,8 @@ export function ToasterProvider() {
       richColors
       closeButton
       position={isMobile ? "top-center" : "bottom-right"}
-      offset={isMobile ? { top: "calc(var(--app-safe-area-top) + 16px)" } : undefined}
-      mobileOffset={{ top: "calc(var(--app-safe-area-top) + 16px)" }}
+      offset={{ top: "calc(var(--app-safe-area-top) + 32px)", right: "calc(var(--app-safe-area-right) + 32px)", bottom: "calc(var(--app-safe-area-bottom) + 32px)", left: "calc(var(--app-safe-area-left) + 32px)" }}
+      mobileOffset={{ top: "calc(var(--app-safe-area-top) + 16px)", right: "calc(var(--app-safe-area-right) + 16px)", bottom: "calc(var(--app-safe-area-bottom) + 16px)", left: "calc(var(--app-safe-area-left) + 16px)" }}
     />
   );
 }

@@ -3,6 +3,8 @@
 import * as React from "react"
 import { Select as SelectPrimitive } from "@base-ui/react/select"
 
+import { useSafeAreaBoundary } from "@/hooks/use-safe-area-boundary"
+
 import { cn } from "@/lib/utils"
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
 import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
@@ -77,9 +79,10 @@ function SelectContent({
     "align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
   >) {
   const renderPopup = useNativeBackPopupRender<SelectPrimitive.Popup.State>(render)
+  const safeBoundary = useSafeAreaBoundary()
   return (
     <SelectPrimitive.Portal container={portalContainer}>
-      <SelectPrimitive.Positioner
+      <SelectPrimitive.Positioner collisionBoundary={safeBoundary}
         side={side}
         sideOffset={sideOffset}
         align={align}

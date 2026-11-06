@@ -147,7 +147,7 @@ export function CommunityShellLayout({
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
       const animation = element.animate(reduced
         ? [{ opacity: 1 }, { opacity: 0 }]
-        : [{ transform }, { transform: "translate3d(100%, 0, 0)" }], {
+        : [{ transform }, { transform: "translate3d(100vw, 0, 0)" }], {
         duration: reduced ? 100 : 240,
         easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
         fill: "forwards",
@@ -185,7 +185,7 @@ export function CommunityShellLayout({
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)")
     const animation = element.animate(preference.matches
       ? [{ opacity: 0 }, { opacity: 1 }]
-      : [{ transform: "translate3d(100%, 0, 0)" }, { transform: "translate3d(0, 0, 0)" }], {
+      : [{ transform: "translate3d(100vw, 0, 0)" }, { transform: "translate3d(0, 0, 0)" }], {
       duration: preference.matches ? 100 : 280,
       easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
     })
@@ -465,7 +465,10 @@ export function CommunityShellLayout({
   } as CSSProperties
 
   return (
+    <>
     <Shell
+      edgePaint={Boolean(preview)}
+      className={!preview ? "community-shell-extended" : undefined}
       aria-busy={busy ? "true" : undefined}
       aria-label={label}
       data-community-route-kind={routeKind}
@@ -487,21 +490,20 @@ export function CommunityShellLayout({
       >
         <AppSurface
           data-slot="community-app-surface"
-          className={SHELL_SURFACE_CLASS}
+          className={cn(SHELL_SURFACE_CLASS, !preview && "community-app-surface-extended")}
         >
           <ResizablePanelGroup
             id="community-shell"
             groupRef={panelGroupHandleRef}
             orientation="horizontal"
             disabled={!isDesktop}
+            style={!preview ? { overflow: "visible" } : undefined}
             className={cn(
               "min-h-0 flex-1",
               [
                 "max-sm:*:data-[mobile-layer=true]:fixed!",
                 "max-sm:*:data-[mobile-layer=true]:z-20!",
-                "max-sm:*:data-[mobile-layer=true]:inset-0!",
                 "max-sm:*:data-[mobile-layer=true]:flex-none!",
-                "max-sm:*:data-[mobile-layer=true]:w-screen!",
                 "max-sm:*:data-[mobile-layer=true]:min-w-0!",
                 "max-sm:*:data-[mobile-layer=true]:max-w-none!",
                 "max-sm:*:data-[mobile-layer=true]:overflow-visible!",
@@ -528,11 +530,13 @@ export function CommunityShellLayout({
               disabled={!isDesktop}
               data-mobile-active={sidebarMobileActive || undefined}
               data-mobile-hidden={sidebarMobileHidden || undefined}
+              style={!preview ? { overflow: "visible", isolation: "isolate" } : undefined}
               className={cn(
-                "flex flex-col bg-sidebar",
-                (isDesktop || breakpoint === "mobile" || isInitial) && "pb-[calc(3.75rem+var(--app-safe-area-bottom))] sm:pb-15",
+                "relative flex flex-col bg-sidebar",
+                (isDesktop || breakpoint === "mobile" || isInitial) && "pb-15",
               )}
             >
+              {!preview && <div aria-hidden data-slot="community-sidebar-background" className="community-pane-background community-sidebar-background" />}
               <div
                 ref={sidebarPanelRef}
                 data-slot="community-sidebar-panel-content"
@@ -563,8 +567,10 @@ export function CommunityShellLayout({
               data-mobile-active={mainMobileActive || undefined}
               data-mobile-hidden={mainMobileHidden || undefined}
               data-mobile-layer={surface === "detail" || undefined}
-              className={cn("flex min-w-0 flex-col sm:bg-background max-sm:absolute max-sm:inset-0 max-sm:pointer-events-none", isInitialDetail && "max-sm:bg-background", mainMobileHidden && "max-sm:hidden")}
+              style={!preview ? { overflow: "visible", isolation: "isolate" } : undefined}
+              className={cn("relative flex min-w-0 flex-col sm:bg-background max-sm:absolute max-sm:inset-0 max-sm:pointer-events-none", isInitialDetail && "max-sm:bg-background", mainMobileHidden && "max-sm:hidden")}
             >
+              {!preview && <div aria-hidden data-slot="community-main-background" className="community-pane-background community-main-background" />}
               <div
                 ref={mainContentRef}
                 data-slot="community-main-panel-content"
@@ -620,5 +626,6 @@ export function CommunityShellLayout({
       </div>
       {overlays}
     </Shell>
+    </>
   )
 }

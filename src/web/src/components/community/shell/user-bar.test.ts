@@ -58,9 +58,6 @@ describe("UserBar", () => {
     }))
 
     expect(html).toContain(`data-testid="${tid.userBar}"`)
-    expect(html).toContain("pl-[max(0.75rem,var(--app-safe-area-left))]")
-    expect(html).toContain("pr-[max(0.75rem,var(--app-safe-area-right))]")
-    expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
     expect(html).toContain("sm:px-2 sm:pb-3")
     expect(html).toContain(`${styles.base} flex items-center gap-3 border border-border/40 bg-muted px-2`)
     expect(html).not.toContain("ring-1 ring-border/40")
@@ -96,9 +93,6 @@ describe("UserBar", () => {
     const html = renderToStaticMarkup(createElement(UserBarSkeleton))
     expect(html).toContain(`data-testid="${tid.initialUserBarPending}"`)
     expect(html).toContain("aria-hidden=\"true\"")
-    expect(html).toContain("pl-[max(0.75rem,var(--app-safe-area-left))]")
-    expect(html).toContain("pr-[max(0.75rem,var(--app-safe-area-right))]")
-    expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
     expect(html).toContain("sm:px-2 sm:pb-3")
     expect(html).toContain(
       `${styles.base} flex items-center gap-3 rounded-xl border border-border/40 bg-muted px-2`,

@@ -22,9 +22,9 @@ afterEach(() => {
   else Reflect.deleteProperty(document, "elementFromPoint")
 })
 
-function Fixture({ changed, accept = true, direction = "right" }: { changed: (open: boolean) => void; accept?: boolean; direction?: "right" | "down" }) {
+function Fixture({ changed, accept = true, direction = "right", kind = "page" }: { changed: (open: boolean) => void; accept?: boolean; direction?: "right" | "down"; kind?: "page" | "overlay" }) {
   const [open, setOpen] = useState(true)
-  return <SwipeRoot kind="page" open={open} swipeDirection={direction} onOpenChange={(next) => { changed(next); if (accept) setOpen(next) }}>
+  return <SwipeRoot kind={kind} open={open} swipeDirection={direction} onOpenChange={(next) => { changed(next); if (accept) setOpen(next) }}>
     <SwipePortal><SwipeViewport><SwipePopup data-testid="swipe-popup">
       <SwipeTitle>Detail</SwipeTitle>
       <div data-testid="swipe-start">Drag here</div>
@@ -45,7 +45,86 @@ function touch(target: Element, type: "touchStart" | "touchMove" | "touchEnd" | 
   fireEvent(target, event)
 }
 
+function pointer(target: Element, type: "pointerdown" | "pointerup" | "pointercancel", x: number, y = 100, primary = true) {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperties(event, {
+    pointerType: { value: "touch" }, pointerId: { value: primary ? 1 : 2 }, isPrimary: { value: primary },
+    clientX: { value: x }, clientY: { value: y }, button: { value: 0 }, buttons: { value: type === "pointerdown" ? 1 : 0 },
+  })
+  fireEvent(target, event)
+}
+
 describe("shared Drawer interaction", () => {
+  it.each(["page", "overlay"] as const)("preserves rejected-control touch propagation for %s ownership", (kind) => {
+    const types = ["pointerdown", "touchstart", "pointerup", "touchend"]
+    const events: Event[] = []
+    const observed = (event: Event) => { events.push(event) }
+    for (const type of types) window.addEventListener(type, observed)
+    try {
+      const changed = vi.fn()
+      render(<Fixture changed={changed} kind={kind} />)
+      for (const target of [screen.getByRole("button"), screen.getByRole("textbox"), screen.getByTestId("reply-row")]) {
+        events.length = 0
+        pointer(target, "pointerdown", 35, 33)
+        touch(target, "touchStart", 35, 33)
+        pointer(target, "pointerup", 35, 33)
+        touch(target, "touchEnd", 35, 33)
+        expect(events.map(event => event.type)).toEqual(kind === "page" ? types : [])
+        expect(events.every(event => !event.defaultPrevented)).toBe(true)
+        expect(screen.getByTestId("swipe-popup")).toHaveAttribute("data-open")
+        expect(screen.getByTestId("swipe-popup")).not.toHaveAttribute("data-swiping")
+      }
+      expect(changed).not.toHaveBeenCalled()
+    } finally {
+      for (const type of types) window.removeEventListener(type, observed)
+    }
+  })
+
+  it.each(["second touch", "native cancel"] as const)("retains admitted page ownership through the %s tail", async (reason) => {
+    const types = ["pointerdown", "touchstart", "touchmove", "pointerup", "touchend", "pointercancel", "touchcancel"]
+    const observed = vi.fn()
+    for (const type of types) window.addEventListener(type, observed)
+    const changed = vi.fn()
+    render(<Fixture changed={changed} />)
+    const area = screen.getByTestId("swipe-start"), popup = screen.getByTestId("swipe-popup")
+    const restore = mockElementGeometry(popup, { width: 390, height: 600, offsetWidth: 390, offsetHeight: 600, clientWidth: 390, clientHeight: 600 })
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => area })
+    try {
+      pointer(area, "pointerdown", 35)
+      touch(area, "touchStart", 35)
+      touch(area, "touchMove", 80)
+      touch(area, "touchMove", 160)
+      await waitFor(() => expect(popup).toHaveAttribute("data-swiping"))
+      if (reason === "second touch") {
+        const first = { clientX: 160, clientY: 100, identifier: 0, target: area }
+        const second = { clientX: 170, clientY: 100, identifier: 1, target: area }
+        pointer(area, "pointerdown", 170, 100, false)
+        fireEvent.touchStart(area, { touches: [first, second], changedTouches: [second] })
+        pointer(area, "pointerup", 160)
+        fireEvent.touchEnd(area, { touches: [second], changedTouches: [first] })
+        pointer(area, "pointerup", 170, 100, false)
+        touch(area, "touchEnd", 170)
+      } else {
+        pointer(area, "pointercancel", 160)
+        touch(area, "touchCancel", 160)
+      }
+      await waitFor(() => expect(popup).not.toHaveAttribute("data-swiping"))
+      expect(popup).toHaveAttribute("data-open")
+      expect(changed).not.toHaveBeenCalled()
+      expect(observed).not.toHaveBeenCalled()
+      const button = screen.getByRole("button", { name: "Keep button" })
+      pointer(button, "pointerdown", 35, 33)
+      touch(button, "touchStart", 35, 33)
+      pointer(button, "pointerup", 35, 33)
+      touch(button, "touchEnd", 35, 33)
+      expect(observed.mock.calls.map(([event]) => event.type)).toEqual(["pointerdown", "touchstart", "pointerup", "touchend"])
+      expect(observed.mock.calls.every(([event]) => !event.defaultPrevented)).toBe(true)
+    } finally {
+      restore()
+      for (const type of types) window.removeEventListener(type, observed)
+    }
+  })
+
   it("preserves click and context-menu propagation to their existing owners", () => {
     const click = vi.fn(), context = vi.fn()
     document.addEventListener("click", click)

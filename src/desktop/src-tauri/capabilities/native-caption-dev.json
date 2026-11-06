@@ -1,0 +1,20 @@
+{
+  "identifier": "native-caption-dev",
+  "description": "Native caption drag and double-click actions in the trusted development main document",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "macOS"
+  ],
+  "local": false,
+  "remote": {
+    "urls": [
+      "http://localhost:3000"
+    ]
+  },
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize"
+  ]
+}

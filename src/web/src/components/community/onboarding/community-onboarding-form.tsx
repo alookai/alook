@@ -294,7 +294,8 @@ export function CommunityOnboardingForm() {
   return <SetupDialog.Root open onOpenChange={(_open, details) => details.cancel()}>
     <SetupDialog.Portal>
     <SetupDialog.Backdrop data-slot="onboarding-backdrop" className={`fixed inset-0 z-50 ${appBackdropClassName}`}><AppEdgeFade /></SetupDialog.Backdrop>
-    <SetupDialog.Popup aria-label="Set up Alook" data-testid="onboarding-surface" className="fixed top-[max(1rem,12dvh)] left-1/2 z-50 flex max-h-[calc(100dvh-max(1rem,12dvh)-1rem)] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 flex-col overflow-hidden rounded-xl bg-popover text-foreground text-popover-foreground shadow-(--e2) outline-none">
+    <div className="app-safe-viewport app-safe-overlay-viewport app-safe-portal-viewport pointer-events-none fixed z-50">
+    <SetupDialog.Popup aria-label="Set up Alook" data-testid="onboarding-surface" className="pointer-events-auto fixed top-[max(1rem,12%)] left-1/2 z-50 flex max-h-[calc(100%-max(1rem,12%)-1rem)] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 flex-col overflow-hidden rounded-xl bg-popover text-foreground text-popover-foreground shadow-(--e2) outline-none">
     <OnboardingSurface>
       {/* Title, mode switch and close live inside the card, on its top edge (QA #4). */}
       <header data-slot="onboarding-card-header" className="flex shrink-0 items-center justify-between gap-4 px-4 pt-2 sm:px-6">
@@ -314,6 +315,7 @@ export function CommunityOnboardingForm() {
       </div>
     </OnboardingSurface>
     </SetupDialog.Popup>
+    </div>
     </SetupDialog.Portal>
   </SetupDialog.Root>
 }

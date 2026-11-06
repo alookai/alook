@@ -13,14 +13,16 @@ const fixture = buildSync({
       import { tid } from ${JSON.stringify(resolve(webRoot, "src/lib/community/testids.ts"))};
       window.__TAURI__ = {};
       window.keyboardFixture = { calls: 0, commits: 0, hold: false };
-      window.webkit = { messageHandlers: { alookKeyboard: { postMessage() {
+      const query = () => {
         window.keyboardFixture.calls++;
         if (window.keyboardFixture.hold) return new Promise(() => {});
         return Promise.resolve({ bottomInset: 244, viewportWidth: 867 });
-      } } } };
+      };
+      if (window.nativeKeyboardPlatform === "android") window.AlookNative = { getKeyboardSnapshot() { window.keyboardFixture.calls++; return JSON.stringify({ bottomInset: 244, viewportWidth: 867 }); } };
+      else window.webkit = { messageHandlers: { alookKeyboard: { postMessage: query } } };
       createRoot(document.getElementById("root")).render(
         <Profiler id="keyboard" onRender={() => window.keyboardFixture.commits++}>
-          <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+          <div style={{ height: "calc(100vh - var(--app-safe-area-bottom))", display: "flex", flexDirection: "column" }}>
             <div style={{ flex: 1, minHeight: 0 }}>Messages</div>
             <ConversationFooterShell {...{ "data-testid": tid.channelComposerShell }} style={{ height: 52, flexShrink: 0, position: "relative" }}>
               <input aria-label="Retained draft" defaultValue="QA295 fold keep" />
@@ -45,17 +47,19 @@ const fixture = buildSync({
   },
 }).outputFiles[0].text
 
-test("native keyboard margin follows viewport changes without another reply or React commit", async ({ page }, testInfo) => {
+for (const platform of ["ios", "android"] as const) test(`${platform} keyboard margin combines static safe bottom once across viewport changes without a React commit`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 382, height: 639 })
   await page.setContent(`<style>
+    :root { --app-safe-area-bottom: 34px }
     body { margin: 0 }
     [data-slot="community-composer-accessory-slot"] { position: absolute }
     [data-slot="community-selection-footer-slot"] { display: none }
   </style><div id="root"></div>`)
+  await page.evaluate(platform => { (window as unknown as { nativeKeyboardPlatform: string }).nativeKeyboardPlatform = platform }, platform)
   await page.addScriptTag({ content: fixture })
   const footer = page.getByTestId(tid.channelComposerShell)
   await expect.poll(() => footer.evaluate(node => Number.parseFloat(getComputedStyle(node).marginBottom)))
-    .toBeCloseTo(244 * 382 / 867, 1)
+    .toBeCloseTo(244 * 382 / 867 - 34, 1)
   const before = await page.evaluate(() => {
     const fixture = (window as unknown as { keyboardFixture: { calls: number; commits: number; hold: boolean } }).keyboardFixture
     fixture.hold = true
@@ -69,11 +73,19 @@ test("native keyboard margin follows viewport changes without another reply or R
   })
   await testInfo.attach("viewport-projection", { body: JSON.stringify({ before, after }), contentType: "application/json" })
   expect(after.width).toBe(867)
-  expect(after.margin).toBeCloseTo(244, 1)
+  expect(after.margin).toBeCloseTo(210, 1)
   expect(after.bottom).toBeCloseTo(395, 1)
   expect(after.commits).toBe(before.commits)
+  for (const staticBottom of [0, 34, 300]) {
+    await page.evaluate(value => document.documentElement.style.setProperty("--app-safe-area-bottom", `${value}px`), staticBottom)
+    expect(await footer.evaluate(node => Number.parseFloat(getComputedStyle(node).marginBottom)))
+      .toBeCloseTo(Math.max(0, 244 - staticBottom), 1)
+    expect(await footer.evaluate(node => node.getBoundingClientRect().bottom))
+      .toBeCloseTo(639 - Math.max(244, staticBottom), 1)
+  }
+  await page.evaluate(() => document.documentElement.style.setProperty("--app-safe-area-bottom", "34px"))
   await expect(page.getByRole("textbox", { name: "Retained draft" })).toHaveValue("QA295 fold keep")
   await page.setViewportSize({ width: 382, height: 639 })
   expect(await footer.evaluate(node => Number.parseFloat(getComputedStyle(node).marginBottom)))
-    .toBeCloseTo(244 * 382 / 867, 1)
+    .toBeCloseTo(244 * 382 / 867 - 34, 1)
 })

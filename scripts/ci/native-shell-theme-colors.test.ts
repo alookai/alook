@@ -286,28 +286,11 @@ describe("native shell theme color contract", () => {
     expect(driveAndroidThemeObserver(["light"]).updates).toEqual([false])
   })
 
-  it("keeps Android inset ownership native and zeroes handled edges for WebView", () => {
-    expect(androidRuntime).toContain(
-      "WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()",
-    )
-    expect(androidRuntime).toContain("rootView.setPadding(chrome.left, chrome.top, chrome.right, bottom)")
-    const rootInsets = androidRuntime.split("ViewCompat.setOnApplyWindowInsetsListener(rootView)")[1]?.split("ViewCompat.setWindowInsetsAnimationCallback")[0] ?? ""
-    expect(rootInsets).not.toContain("WindowInsetsCompat.Builder")
-    const leafInsets = androidRuntime.split("ViewCompat.setOnApplyWindowInsetsListener(webView)")[1]?.split("ViewCompat.requestApplyInsets(webView)")[0] ?? ""
-    expect(leafInsets).toContain("WindowInsetsCompat.Builder(insets)")
-    expect(androidRuntime).toContain("WindowInsetsCompat.Builder(insets)")
-    expect(androidRuntime).toContain(".setInsets(chromeTypes, Insets.NONE)")
-    expect(androidRuntime).toContain(
-      ".setInsets(imeType, Insets.of(ime.left, ime.top, ime.right, 0))",
-    )
-    expect(androidRuntime).not.toContain("WindowInsetsCompat.CONSUMED")
-  })
 
   it("retains runtime theme bridges and removes the legacy light color from native owners", () => {
     expect(iosRuntime).toContain("new MutationObserver(sync)")
     expect(iosRuntime).toContain('addScriptMessageHandler:handler name:@"alookTheme"')
     expect(androidRuntime).toContain("WebViewCompat.addDocumentStartJavaScript")
-    expect(androidRuntime).toContain('webView.addJavascriptInterface(ThemeBridge(this), "AlookNative")')
 
     const nativeOwners = [macosRuntime, iosRuntime, JSON.stringify(iosSplash), androidRuntime, androidLightSplash]
     for (const source of nativeOwners) {
