@@ -22,4 +22,8 @@ The command finds an unused local port, starts this app, captures the elements b
 
 The generator must launch the installed Chrome browser with `channel: "chrome"`. Do not switch it to Playwright’s bundled Chromium: that renderer can flatten the banner’s nested 3D typewriter layers and hide the paper.
 
+The capture layout uses the production Technostalgia theme in fixed light mode. Inherit its live semantic tokens instead of copying a separate palette into the capture page.
+
+The standalone app's `public` link serves the existing Web assets, including homepage human avatars. Identity captures supply canonical profiles through the same preview owner as the homepage; display props alone do not populate live profile consumers.
+
 Keep capture copy sourced from production components or existing project fixtures. Preserve each selector, aspect ratio, transparent rounded corners, light color scheme, and the element-level screenshot method. Update the capture contract test whenever a capture component or output mapping changes.

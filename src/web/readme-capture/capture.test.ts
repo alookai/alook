@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, realpathSync } from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -52,6 +52,12 @@ describe("standalone README capture app contract", () => {
   it("stays outside the production App Router", () => {
     expect(existsSync(path.join(root, "src/app/readme-capture/page.tsx"))).toBe(false)
     expect(existsSync(path.join(captureRoot, "app/page.tsx"))).toBe(true)
+  })
+
+  it("serves the canonical Web public assets from the standalone app", () => {
+    expect(realpathSync(path.join(captureRoot, "public"))).toBe(
+      realpathSync(path.join(root, "public")),
+    )
   })
 
   it("writes every output into the grouped README asset directory", () => {
@@ -124,7 +130,6 @@ describe("standalone README capture app contract", () => {
     expect(motionSource).toContain('scene === "continuity"')
     expect(motionSource).toContain('const OVERVIEW_SERVERS: Server[]')
     expect(motionSource).toContain('rootChannels={overviewDetails && scene === "server" ? SPACE_CHANNELS.work : CHANNELS}')
-    expect(motionSource).toContain('<TypingIndicator names={[DMS[0].name]} />')
     expect(motionSource).toContain('SPACE_SERVERS.map((server) => ({ ...server, active: server.id === room }))')
     expect(memorySource).not.toContain("highlightAuthorId")
     expect(localSource).toContain('id="capture-local"')

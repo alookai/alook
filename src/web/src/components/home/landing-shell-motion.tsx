@@ -11,6 +11,7 @@ import {
   type RefObject,
 } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { createPortal } from "react-dom"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import {
@@ -38,7 +39,8 @@ import { DmHeader } from "@/components/community/channels/dm-header"
 import { ChannelHeader } from "@/components/community/channels/channel-header"
 import { Avatar } from "@/components/community/avatar"
 import { Message } from "@/components/community/messages/message"
-import { TypingIndicator } from "@/components/community/messages/typing-indicator"
+import { ComposerAccessoryRail } from "@/components/community/messages/composer-accessory-rail"
+import { ConversationFooterShell, ConversationFooterSlotProvider, useConversationFooterSlot } from "@/components/community/messages/conversation-footer-shell"
 import { InboxPopover } from "@/components/community/shell/community-inbox-popover"
 import { MachineCard } from "@/components/community/machines/machine-card"
 import { PairMachineSteps } from "@/components/community/machines/pair-machine-sheet"
@@ -1266,16 +1268,41 @@ function ServerScene({
               </div>
             </div>
           ))}
-          {showTypingPill && <TypingIndicator names={[DMS[0].name]} />}
         </div>
-        <PrototypeComposer
-          snapshot={snapshot}
-          target="composer"
-          placeholder="Message /general"
-        />
+        {showTypingPill ? <OverviewComposer snapshot={snapshot} /> : (
+          <PrototypeComposer
+            snapshot={snapshot}
+            target="composer"
+            placeholder="Message /general"
+          />
+        )}
       </div>
     </>
   )
+}
+
+function OverviewComposer({ snapshot }: { snapshot: SceneSnapshot }) {
+  return (
+    <ConversationFooterSlotProvider>
+      <OverviewTypingAccessory />
+      <ConversationFooterShell>
+        <PrototypeComposer snapshot={snapshot} target="composer" placeholder="Message /general" />
+      </ConversationFooterShell>
+    </ConversationFooterSlotProvider>
+  )
+}
+
+function OverviewTypingAccessory() {
+  const target = useConversationFooterSlot()?.accessoryTarget
+  return target ? createPortal(
+    <ComposerAccessoryRail
+      typingNames={[DMS[0].name]}
+      scrollCount={0}
+      scrollMode="scroll"
+      onScroll={() => {}}
+    />,
+    target,
+  ) : null
 }
 
 function SpacesScene({ snapshot }: { snapshot: SceneSnapshot }) {
