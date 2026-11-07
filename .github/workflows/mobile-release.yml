@@ -27,6 +27,14 @@ on:
         required: true
         default: false
         type: boolean
+      testflight_read_target:
+        description: Exact uploaded build to inspect with GET only (does not change distribution target)
+        required: true
+        default: ai.alook.ios:0.1.64:45
+        type: choice
+        options:
+          - ai.alook.ios:0.1.64:45
+          - ai.alook.ios:0.1.65:56
       testflight45_submit:
         description: Apply the independently reviewed build45-only TestFlight notes, existing-group association and Beta Review submission
         required: true
@@ -44,7 +52,7 @@ concurrency:
 
 jobs:
   inspect-testflight45:
-    name: Inspect TestFlight45 preflight (GET only)
+    name: Inspect fixed TestFlight build (GET only)
     if: github.event_name == 'workflow_dispatch' && inputs.ios == false && inputs.android == false && inputs.upload == false && inputs.play_upload == false && inputs.testflight45_submit != true
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -57,24 +65,25 @@ jobs:
           node-version: 22
       - name: Test read-only request and redaction contracts
         run: node --test scripts/ci/inspect-testflight-preflight.test.mjs
-      - name: Read TestFlight45 distribution prerequisites
+      - name: Read selected fixed build distribution prerequisites
         env:
+          TESTFLIGHT_READ_TARGET: ${{ inputs.testflight_read_target || 'ai.alook.ios:0.1.64:45' }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-        run: node scripts/ci/inspect-testflight-preflight.mjs .ci/testflight45-preflight.json
+        run: node scripts/ci/inspect-testflight-preflight.mjs .ci/testflight-read-preflight.json "$TESTFLIGHT_READ_TARGET"
       - name: Upload sanitized read-only receipt
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: testflight45-preflight-${{ github.run_id }}
-          path: .ci/testflight45-preflight.json
+          name: testflight-read-preflight-${{ github.run_id }}
+          path: .ci/testflight-read-preflight.json
           if-no-files-found: error
           retention-days: 14
 
   submit-testflight45:
     name: Distribute existing TestFlight45 (reviewed intent only)
-    if: github.event_name == 'workflow_dispatch' && inputs.ios == false && inputs.android == false && inputs.upload == false && inputs.play_upload == false && inputs.testflight45_submit == true && inputs.testflight45_ack_existing_notifications == true
+    if: github.event_name == 'workflow_dispatch' && inputs.ios == false && inputs.android == false && inputs.upload == false && inputs.play_upload == false && inputs.testflight45_submit == true && inputs.testflight45_ack_existing_notifications == true && (inputs.testflight_read_target == '' || inputs.testflight_read_target == null || inputs.testflight_read_target == 'ai.alook.ios:0.1.64:45')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

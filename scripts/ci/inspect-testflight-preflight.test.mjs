@@ -5,7 +5,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { createPreflightClient, inspectPreflight, nextCursor, PreflightError, queryFor } from "./inspect-testflight-preflight.mjs"
+import { createPreflightClient, inspectPreflight, nextCursor, PreflightError, queryFor, READ_TARGET_56, selectReadTarget } from "./inspect-testflight-preflight.mjs"
+
+import { TARGET } from "./inspect-testflight-build.mjs"
+import { CONFIRM_TARGET, submitTestflight45 } from "./submit-testflight45.mjs"
 
 const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" })
 const credentials = { issuer: "synthetic-issuer", keyId: "synthetic-key", privateKey: keys.privateKey.export({ type: "pkcs8", format: "pem" }) }
@@ -277,19 +280,84 @@ test("network, invalid JSON, signing and unexpected failures cannot echo private
   assert.equal(unknown.error.code, "UNEXPECTED_ERROR")
 })
 
-test("real CLI without credentials exits1, writes0600 safe partial JSON and empty stderr", () => {
+test("fixed56 signs exact GET scopes and validates56 without changing default45 or exposing metadata", async () => {
+  const newBuild = changed(builds, x => { x.data[0].id = "private-build56"; x.data[0].attributes.version = "56"; x.included[0].attributes.version = "0.1.65" })
+  const calls = []
+  const get = createPreflightClient(credentials, async (url, options) => {
+    calls.push(url)
+    assert.equal(options.method, "GET")
+    assert.equal(options.redirect, "error")
+    const [header, payload, signature] = options.headers.Authorization.slice(7).split(".")
+    const claims = JSON.parse(Buffer.from(payload, "base64url"))
+    assert.deepEqual(claims.scope, [`GET ${url.pathname}${url.search}`])
+    assert.equal(claims.exp - claims.iat, 120)
+    assert.equal(verify("sha256", Buffer.from(`${header}.${payload}`), { key: keys.publicKey, dsaEncoding: "ieee-p1363" }, Buffer.from(signature, "base64url")), true)
+    const data = url.pathname === "/v1/apps" ? apps : url.pathname === "/v1/betaGroups" ? groups : url.searchParams.has("filter[version]") ? newBuild : { data: [] }
+    if (url.pathname === "/v1/builds") {
+      assert.equal(url.searchParams.get("filter[preReleaseVersion.version]"), "0.1.65")
+      assert.equal(url.searchParams.get("filter[preReleaseVersion.platform]"), "IOS")
+      if (url.searchParams.has("filter[version]")) assert.equal(url.searchParams.get("filter[version]"), "56")
+    }
+    return { ok: true, json: async () => structuredClone(data) }
+  }, READ_TARGET_56)
+  const receipt = await inspectPreflight(get, READ_TARGET_56)
+  assert.equal(calls.length, 4)
+  assert.equal(receipt.status, "observed")
+  assert.deepEqual(receipt.target, { bundleId: "ai.alook.ios", version: "0.1.65", build: "56" })
+  assert.equal(receipt.publicGroup.targetAssociated, true)
+  assert.equal(receipt.physicalDeviceAcceptance, "unverified")
+  for (const secret of [privateText, "private-password", "private-notes", "private-build56", "app-1", "group-1", credentials.privateKey]) assert.equal(JSON.stringify(receipt).includes(secret), false)
+  assert.equal(queryFor("targetBuild", "app-1").searchParams.get("filter[version]"), "45")
+  assert.deepEqual(TARGET, { bundleId: "ai.alook.ios", version: "0.1.64", build: "45", invite: "4fHgVBVF" })
+})
+
+test("only two complete read tuples are accepted and56 never changes the45 writer confirmation", async () => {
+  assert.equal(selectReadTarget(), TARGET)
+  assert.equal(selectReadTarget("ai.alook.ios:0.1.65:56"), READ_TARGET_56)
+  for (const bad of ["ai.alook.ios:0.1.65:45", "ai.alook.ios:0.1.64:56", "other:0.1.65:56", "", privateText]) assert.throws(() => selectReadTarget(bad), /INVALID_READ_TARGET/)
+  assert.throws(() => queryFor("targetBuild", "app-1", null, { ...READ_TARGET_56 }), /INVALID_READ_TARGET/)
+  assert.throws(() => createPreflightClient(credentials, fetch, { ...READ_TARGET_56 }), /INVALID_READ_TARGET/)
+  await assert.rejects(inspectPreflight(async () => { throw new Error("must not read") }, {}), /INVALID_READ_TARGET/)
+  assert.equal(CONFIRM_TARGET, "ai.alook.ios:0.1.64:45")
+  const writeReceipt = await submitTestflight45({ enabled: true, confirmTarget: "ai.alook.ios:0.1.65:56", acknowledgeAutoNotify: true, get: async () => assert.fail("must not read"), write: async () => assert.fail("must not write") })
+  assert.equal(writeReceipt.status, "blocked")
+  assert.equal(writeReceipt.target.build, "45")
+})
+
+test("56 rejects old45, mixed short versions and version drift in review pagination", async () => {
+  const right = changed(builds, x => { x.data[0].attributes.version = "56"; x.included[0].attributes.version = "0.1.65" })
+  for (const [data, code] of [[builds, "WRONG_BUILD"], [changed(right, x => { x.included[0].attributes.version = "0.1.64" }), "WRONG_PRERELEASE_VERSION"]]) {
+    const receipt = await inspectPreflight(fixtures({ targetBuild: data }).get, READ_TARGET_56)
+    assert.equal(receipt.error.code, code)
+    assert.equal(receipt.build, null)
+  }
+  const old = await inspectPreflight(fixtures({ targetBuild: right }).get)
+  assert.equal(old.error.code, "WRONG_BUILD")
+  const next = queryFor("activeVersionReviews", "app-1", "next", READ_TARGET_56)
+  assert.equal(nextCursor(String(next), "activeVersionReviews", "app-1", READ_TARGET_56), "next")
+  next.searchParams.set("filter[preReleaseVersion.version]", "0.1.64")
+  assert.throws(() => nextCursor(String(next), "activeVersionReviews", "app-1", READ_TARGET_56), /UNSAFE_PAGINATION/)
+  const wrongReview = { data: [right.data[0]], included: changed(right.included, x => { x[0].attributes.version = "0.1.64" }) }
+  const receipt = await inspectPreflight(fixtures({ targetBuild: right, activeVersionReviews: wrongReview }).get, READ_TARGET_56)
+  assert.equal(receipt.error.code, "WRONG_PRERELEASE_VERSION")
+})
+
+test("real CLI both fixed targets without credentials exit1, write0600 safe JSON and empty stderr", () => {
   const dir = mkdtempSync(join(tmpdir(), "alook-tf-preflight-"))
   try {
     const env = { ...process.env }
     for (const name of ["APPLE_API_ISSUER", "APPLE_API_KEY", "APPLE_API_PRIVATE_KEY"]) delete env[name]
-    const out = join(dir, "receipt.json")
-    const run = spawnSync(process.execPath, [fileURLToPath(new URL("./inspect-testflight-preflight.mjs", import.meta.url)), out], { env, encoding: "utf8" })
-    assert.equal(run.status, 1)
-    assert.equal(run.stderr, "")
-    const receipt = JSON.parse(readFileSync(out, "utf8"))
-    assert.equal(receipt.error.code, "MISSING_CREDENTIALS")
-    assert.equal(receipt.build, null)
-    if (process.platform !== "win32") assert.equal(statSync(out).mode & 0o777, 0o600)
+    for (const selector of [undefined, "ai.alook.ios:0.1.65:56"]) {
+      const out = join(dir, "receipt.json")
+      const run = spawnSync(process.execPath, [fileURLToPath(new URL("./inspect-testflight-preflight.mjs", import.meta.url)), out, ...(selector ? [selector] : [])], { env, encoding: "utf8" })
+      assert.equal(run.status, 1)
+      assert.equal(run.stderr, "")
+      const receipt = JSON.parse(readFileSync(out, "utf8"))
+      assert.equal(receipt.error.code, "MISSING_CREDENTIALS")
+      assert.equal(receipt.target.build, selector ? "56" : "45")
+      assert.equal(receipt.build, null)
+      if (process.platform !== "win32") assert.equal(statSync(out).mode & 0o777, 0o600)
+    }
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 }

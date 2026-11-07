@@ -4,6 +4,16 @@ import { dirname } from "node:path"
 import { pathToFileURL } from "node:url"
 import { TARGET } from "./inspect-testflight-build.mjs"
 
+export const READ_TARGET_56 = Object.freeze({ ...TARGET, version: "0.1.65", build: "56" })
+export function selectReadTarget(value = "ai.alook.ios:0.1.64:45") {
+  if (value === "ai.alook.ios:0.1.64:45") return TARGET
+  if (value === "ai.alook.ios:0.1.65:56") return READ_TARGET_56
+  throw new PreflightError("INVALID_READ_TARGET")
+}
+function assertReadTarget(target) {
+  if (target !== TARGET && target !== READ_TARGET_56) throw new PreflightError("INVALID_READ_TARGET")
+}
+
 const ORIGIN = "https://api.appstoreconnect.apple.com"
 const STAGES = ["appMetadata", "targetBuild", "existingPublicGroup", "activeVersionReviews"]
 const GROUP_FIELDS = "isInternalGroup,publicLinkEnabled,publicLinkId"
@@ -33,17 +43,18 @@ export class PreflightError extends Error {
   }
 }
 
-export function queryFor(stage, appId = null, cursor = null) {
+export function queryFor(stage, appId = null, cursor = null, target = TARGET) {
+  assertReadTarget(target)
   if (!STAGES.includes(stage)) throw new PreflightError("UNSAFE_STAGE")
   if (stage !== "appMetadata" && (typeof appId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(appId))) throw new PreflightError("INVALID_APP_ID", stage)
   const query = stage === "appMetadata" ? {
-    "filter[bundleId]": TARGET.bundleId, include: "betaAppReviewDetail,betaAppLocalizations",
+    "filter[bundleId]": target.bundleId, include: "betaAppReviewDetail,betaAppLocalizations",
     "fields[apps]": "bundleId,primaryLocale,betaAppReviewDetail,betaAppLocalizations",
     "fields[betaAppReviewDetails]": "contactFirstName,contactLastName,contactEmail,contactPhone,demoAccountRequired,demoAccountName,demoAccountPassword",
     "fields[betaAppLocalizations]": "locale,description,feedbackEmail", limit: "2",
   } : stage === "targetBuild" ? {
-    "filter[app]": appId, "filter[version]": TARGET.build,
-    "filter[preReleaseVersion.version]": TARGET.version, "filter[preReleaseVersion.platform]": "IOS",
+    "filter[app]": appId, "filter[version]": target.build,
+    "filter[preReleaseVersion.version]": target.version, "filter[preReleaseVersion.platform]": "IOS",
     include: "preReleaseVersion,buildBetaDetail,betaAppReviewSubmission,betaBuildLocalizations,betaGroups",
     "fields[builds]": "version,processingState,expired,buildAudienceType,usesNonExemptEncryption,preReleaseVersion,buildBetaDetail,betaAppReviewSubmission,betaBuildLocalizations,betaGroups",
     "fields[preReleaseVersions]": "version,platform", "fields[buildBetaDetails]": "internalBuildState,externalBuildState,autoNotifyEnabled",
@@ -52,7 +63,7 @@ export function queryFor(stage, appId = null, cursor = null) {
   } : stage === "existingPublicGroup" ? {
     "filter[app]": appId, "fields[betaGroups]": GROUP_FIELDS, limit: "200",
   } : {
-    "filter[app]": appId, "filter[preReleaseVersion.version]": TARGET.version, "filter[preReleaseVersion.platform]": "IOS",
+    "filter[app]": appId, "filter[preReleaseVersion.version]": target.version, "filter[preReleaseVersion.platform]": "IOS",
     "filter[betaAppReviewSubmission.betaReviewState]": "WAITING_FOR_REVIEW,IN_REVIEW",
     include: "preReleaseVersion,betaAppReviewSubmission", "fields[builds]": "version,preReleaseVersion,betaAppReviewSubmission",
     "fields[preReleaseVersions]": "version,platform", "fields[betaAppReviewSubmissions]": "betaReviewState", limit: "200",
@@ -67,22 +78,23 @@ export function queryFor(stage, appId = null, cursor = null) {
   return url
 }
 
-export function nextCursor(value, stage, appId) {
+export function nextCursor(value, stage, appId, target = TARGET) {
   const next = new URL(value, ORIGIN)
-  const base = queryFor(stage, appId)
+  const base = queryFor(stage, appId, null, target)
   const keys = [...next.searchParams.keys()]
   if (next.origin !== ORIGIN || next.username || next.password || next.hash || next.pathname !== base.pathname
     || keys.length !== new Set(keys).size || keys.some(key => key !== "cursor" && !base.searchParams.has(key))
     || [...base.searchParams].some(([key, val]) => next.searchParams.get(key) !== val)) throw new PreflightError("UNSAFE_PAGINATION", stage)
   const cursor = next.searchParams.get("cursor")
-  queryFor(stage, appId, cursor)
+  queryFor(stage, appId, cursor, target)
   if (!cursor) throw new PreflightError("UNSAFE_PAGINATION", stage)
   return cursor
 }
 
-export function createPreflightClient(credentials, fetchImpl = fetch) {
+export function createPreflightClient(credentials, fetchImpl = fetch, target = TARGET) {
+  assertReadTarget(target)
   return async (stage, appId = null, cursor = null) => {
-    const url = queryFor(stage, appId, cursor)
+    const url = queryFor(stage, appId, cursor, target)
     if (![credentials.issuer, credentials.keyId, credentials.privateKey].every(value => typeof value === "string" && value.length)) throw new PreflightError("MISSING_CREDENTIALS", stage)
     const encode = value => Buffer.from(JSON.stringify(value)).toString("base64url")
     const now = Math.floor(Date.now() / 1000)
@@ -119,24 +131,25 @@ function one(response, type, stage) {
   return response.data[0]
 }
 
-function assertVersion(response, build, stage) {
+function assertVersion(response, build, stage, target) {
   const version = relation(response, build, "preReleaseVersion", "preReleaseVersions")
-  if (version?.attributes?.version !== TARGET.version || version?.attributes?.platform !== "IOS") throw new PreflightError("WRONG_PRERELEASE_VERSION", stage)
+  if (version?.attributes?.version !== target.version || version?.attributes?.platform !== "IOS") throw new PreflightError("WRONG_PRERELEASE_VERSION", stage)
 }
 
-function baseReceipt() {
-  return { status: "unavailable", target: { bundleId: TARGET.bundleId, version: TARGET.version, build: TARGET.build },
+function baseReceipt(target) {
+  return { status: "unavailable", target: { bundleId: target.bundleId, version: target.version, build: target.build },
     metadata: null, build: null, publicGroup: null, activeVersionReviews: null, submissionPrerequisitesComplete: null,
     physicalDeviceAcceptance: "unverified" }
 }
 
-export async function inspectPreflight(get) {
-  const result = baseReceipt()
+export async function inspectPreflight(get, target = TARGET) {
+  assertReadTarget(target)
+  const result = baseReceipt(target)
   let stage = "appMetadata"
   try {
     const apps = await get(stage)
     const app = one(apps, "apps", stage)
-    if (app.attributes?.bundleId !== TARGET.bundleId || !/^[A-Za-z0-9_-]{1,100}$/.test(app.id)) throw new PreflightError("WRONG_APP", stage)
+    if (app.attributes?.bundleId !== target.bundleId || !/^[A-Za-z0-9_-]{1,100}$/.test(app.id)) throw new PreflightError("WRONG_APP", stage)
     const locale = app.attributes?.primaryLocale
     const primaryLocale = typeof locale === "string" && /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/.test(locale) ? locale : null
     const details = relation(apps, app, "betaAppReviewDetail", "betaAppReviewDetails")?.attributes
@@ -156,8 +169,8 @@ export async function inspectPreflight(get) {
     stage = "targetBuild"
     const builds = await get(stage, app.id)
     const build = one(builds, "builds", stage)
-    if (build.attributes?.version !== TARGET.build) throw new PreflightError("WRONG_BUILD", stage)
-    assertVersion(builds, build, stage)
+    if (build.attributes?.version !== target.build) throw new PreflightError("WRONG_BUILD", stage)
+    assertVersion(builds, build, stage, target)
     const beta = relation(builds, build, "buildBetaDetail", "buildBetaDetails")?.attributes
     const review = relation(builds, build, "betaAppReviewSubmission", "betaAppReviewSubmissions")?.attributes
     const notes = relatedRows(builds, build, "betaBuildLocalizations", "betaBuildLocalizations")
@@ -206,10 +219,10 @@ export async function inspectPreflight(get) {
         if (response.meta?.paging?.total > groups.size || (!response.meta?.paging && response.data.length >= 200)) throw new PreflightError("INCOMPLETE_COLLECTION", stage)
         cursor = null; break
       }
-      cursor = nextCursor(response.links.next, stage, app.id)
+      cursor = nextCursor(response.links.next, stage, app.id, target)
     }
     if (cursor) throw new PreflightError("PAGINATION_LIMIT", stage)
-    const matches = [...groups].filter(([, group]) => group.publicLinkId === TARGET.invite && group.isInternalGroup === false)
+    const matches = [...groups].filter(([, group]) => group.publicLinkId === target.invite && group.isInternalGroup === false)
     const selected = matches.length === 1 ? matches[0] : null
     result.publicGroup = { matchingExternalGroupCount: matches.length, enabled: selected ? (typeof selected[1].publicLinkEnabled === "boolean" ? selected[1].publicLinkEnabled : null) : null,
       targetAssociated: selected ? (associatedIds?.includes(selected[0]) ? true : associationsComplete ? false : null) : null }
@@ -222,7 +235,7 @@ export async function inspectPreflight(get) {
       if (!Array.isArray(response.data)) throw new PreflightError("INVALID_REVIEWS", stage)
       for (const row of response.data) {
         if (row.type !== "builds" || typeof row.id !== "string" || !row.id.length || row.id.length > 100) throw new PreflightError("INVALID_REVIEWS", stage)
-        assertVersion(response, row, stage)
+        assertVersion(response, row, stage, target)
         const reviewState = relation(response, row, "betaAppReviewSubmission", "betaAppReviewSubmissions")?.attributes?.betaReviewState
         if (!["WAITING_FOR_REVIEW", "IN_REVIEW"].includes(reviewState)) throw new PreflightError("INVALID_REVIEW_STATE", stage)
         reviews.set(row.id, row.id === build.id)
@@ -231,7 +244,7 @@ export async function inspectPreflight(get) {
         if (response.meta?.paging?.total > reviews.size || (!response.meta?.paging && response.data.length >= 200)) throw new PreflightError("INCOMPLETE_COLLECTION", stage)
         cursor = null; break
       }
-      cursor = nextCursor(response.links.next, stage, app.id)
+      cursor = nextCursor(response.links.next, stage, app.id, target)
     }
     if (cursor) throw new PreflightError("PAGINATION_LIMIT", stage)
     result.activeVersionReviews = { count: reviews.size, targetBuildIncluded: [...reviews.values()].some(Boolean) }
@@ -249,7 +262,8 @@ export async function inspectPreflight(get) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const receipt = await inspectPreflight(createPreflightClient({ issuer: process.env.APPLE_API_ISSUER, keyId: process.env.APPLE_API_KEY, privateKey: process.env.APPLE_API_PRIVATE_KEY }))
+  const target = selectReadTarget(process.argv[3])
+  const receipt = await inspectPreflight(createPreflightClient({ issuer: process.env.APPLE_API_ISSUER, keyId: process.env.APPLE_API_KEY, privateKey: process.env.APPLE_API_PRIVATE_KEY }, fetch, target), target)
   const output = process.argv[2] ?? ".ci/testflight45-preflight.json"
   await mkdir(dirname(output), { recursive: true })
   await writeFile(output, JSON.stringify(receipt, null, 2), { mode: 0o600 })

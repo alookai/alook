@@ -1279,6 +1279,23 @@ describe("Desktop image clipboard", () => {
 })
 
 describe("Mobile release availability", () => {
+  it("selects only fixed GET targets and never routes56 to the45 distribution job", () => {
+    const read = ciJob("inspect-testflight45", mobileReleaseWorkflow)
+    const write = ciJob("submit-testflight45", mobileReleaseWorkflow)
+    const readGuard = read.match(/^    if: (.+)$/m)![1]
+    const writeGuard = write.match(/^    if: (.+)$/m)![1]
+    expect(read).toContain('"$TESTFLIGHT_READ_TARGET"')
+    expect(read).toContain("inputs.testflight_read_target || 'ai.alook.ios:0.1.64:45'")
+    expect(write).not.toContain("TESTFLIGHT_READ_TARGET:")
+    expect(write).toContain("--confirm-target ai.alook.ios:0.1.64:45")
+    for (const target of [undefined, "ai.alook.ios:0.1.64:45", "ai.alook.ios:0.1.65:56"]) for (const submit of [false, true]) {
+      const context = { github: { event_name: "workflow_dispatch" }, inputs: { ios: false, android: false, upload: false, play_upload: false, testflight_read_target: target, testflight45_submit: submit, testflight45_ack_existing_notifications: true } }
+      expect(runInNewContext(readGuard, context)).toBe(!submit)
+      expect(runInNewContext(writeGuard, context)).toBe(submit && target !== "ai.alook.ios:0.1.65:56")
+      for (const job of ["build-ios", "build-android"]) expect(runInNewContext(ciJob(job, mobileReleaseWorkflow).match(/^    if: (.+)$/m)![1], context)).toBe(false)
+    }
+  })
+
   it("preserves push/manual native selection and blocks rebuilds for TestFlight-only intent", () => {
     const iosGuard = ciJob("build-ios", mobileReleaseWorkflow).match(/^    if: (.+)$/m)?.[1]
     const androidGuard = ciJob("build-android", mobileReleaseWorkflow).match(/^    if: (.+)$/m)?.[1]
