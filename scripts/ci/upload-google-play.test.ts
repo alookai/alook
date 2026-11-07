@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto"
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
-import { describe, expect, it } from "vitest"
-import { uploadDraft } from "./upload-google-play.mjs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
+import { describe, expect, it, vi } from "vitest"
+import { main, uploadDraft } from "./upload-google-play.mjs"
 
 const bytes = Buffer.from("independent signed bundle bytes")
 const hash = createHash("sha256").update(bytes).digest("hex")
@@ -11,7 +12,7 @@ const previous = { name: "active", versionCodes: ["9"], status: "completed" }
 const oldDraft = { name: "old", versionCodes: ["8"], status: "draft" }
 const publishedDraft = { name: "0.1.63 (10)", versionCodes: ["10"], status: "draft" }
 
-function fixture(overrides: Record<number, unknown> = {}, failedAt = -1) {
+function fixture(overrides: Record<number, unknown> = {}, failedAt = -1, failureResponse?: Response) {
   const payloads = [
     { id: "write-edit" }, { bundles: [{ versionCode: 9 }] }, { apks: [{ versionCode: 8 }] },
     { versionCode: 10, sha256: hash }, { track: "internal", releases: [previous, oldDraft] },
@@ -23,7 +24,7 @@ function fixture(overrides: Record<number, unknown> = {}, failedAt = -1) {
     const index = calls.length
     calls.push({ url, options })
     if (options.method === "DELETE") return new Response(null, { status: 204 })
-    if (index === failedAt) return new Response("untrusted server error", { status: 403 })
+    if (index === failedAt) return failureResponse ?? new Response("untrusted server error", { status: 403 })
     return Response.json(Object.hasOwn(overrides, index) ? overrides[index] : payloads[index])
   }
   return { calls, request }
@@ -109,6 +110,108 @@ describe("verified bundle to Google Play internal draft", () => {
     }
   })
 
+  it("preserves Google's review reason without retrying or changing an unknown edit", async () => {
+    const { request, calls } = fixture({}, 6, Response.json({ error: {
+      code: 400, status: "FAILED_PRECONDITION", message: "Provider prose is not a receipt field",
+      details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "CHANGES_ALREADY_IN_REVIEW", metadata: { private: "excluded-metadata" } }],
+    } }, { status: 400 }))
+    const progress: Record<string, unknown> = {}
+    await expect(uploadDraft(receipt, bytes, "offline-token", request, progress)).rejects.toThrow("FAILED_PRECONDITION, CHANGES_ALREADY_IN_REVIEW")
+    expect(progress).toMatchObject({ stage: "commit-draft", commitState: "unknown", httpErrors: [{
+      method: "POST", stage: "commit-draft", httpStatus: 400, responseJson: "parsed",
+      googleCode: 400, googleStatus: "FAILED_PRECONDITION", reasons: ["CHANGES_ALREADY_IN_REVIEW"],
+    }] })
+    expect(calls).toHaveLength(7)
+    expect(calls.filter(call => call.url.includes(":commit"))).toHaveLength(1)
+    expect(calls.some(call => call.options.method === "DELETE")).toBe(false)
+    expect(JSON.stringify(progress)).not.toContain("excluded-metadata")
+    expect(JSON.stringify(progress)).not.toContain("Provider prose")
+  })
+
+  it.each([
+    [{ code: 400, status: "INVALID_ARGUMENT", details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "INVALID_RELEASE" }] }, { googleCode: 400, googleStatus: "INVALID_ARGUMENT", reasons: ["INVALID_RELEASE"] }],
+    [{ code: 400, errors: [{ reason: "badRequest", message: "excluded legacy prose" }] }, { googleCode: 400, reasons: ["badRequest"] }],
+  ])("retains the actual Google error fields for a different 400: %j", async (error, expected) => {
+    const { request } = fixture({}, 6, Response.json({ error }, { status: 400 }))
+    const progress: Record<string, unknown> = {}
+    await expect(uploadDraft(receipt, bytes, "offline-token", request, progress)).rejects.toThrow("HTTP 400")
+    expect(progress.httpErrors).toEqual([{ method: "POST", stage: "commit-draft", httpStatus: 400, responseJson: "parsed", ...expected }])
+    expect(JSON.stringify(progress)).not.toContain("CHANGES_ALREADY_IN_REVIEW")
+    expect(JSON.stringify(progress)).not.toContain("excluded legacy prose")
+  })
+
+  it.each(["non-JSON", "body-read failure"])("keeps the HTTP error when its body has %s", async kind => {
+    const response = new Response("excluded raw body", { status: 502 })
+    if (kind === "body-read failure") Object.defineProperty(response, "json", { value: async () => { throw new Error("excluded read failure") } })
+    const { request, calls } = fixture({}, 6, response)
+    const progress: Record<string, unknown> = {}
+    await expect(uploadDraft(receipt, bytes, "offline-token", request, progress)).rejects.toThrow("HTTP 502 at commit-draft")
+    expect(progress.httpErrors).toEqual([{ method: "POST", stage: "commit-draft", httpStatus: 502, responseJson: "unavailable" }])
+    expect(calls).toHaveLength(7)
+    expect(JSON.stringify(progress)).not.toContain("excluded")
+  })
+
+  it.each(["status", "reason"] as const)("excludes credentials in %s and arbitrary fields while retaining valid reasons", async field => {
+    const token = "SECRET_TOKEN_54"
+    const { request } = fixture({}, 6, Response.json({ error: {
+      code: 400, status: field === "status" ? token : "FAILED_PRECONDITION", message: `Bearer ${token}`,
+      details: [
+        { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: field === "reason" ? token : "CHANGES_ALREADY_IN_REVIEW", metadata: { Authorization: `Bearer ${token}` } },
+        { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "CHANGES_ALREADY_IN_REVIEW" },
+        { "@type": "untrusted-type", reason: "EXCLUDED_WRONG_TYPE" },
+      ],
+      errors: [{ reason: "CHANGES_ALREADY_IN_REVIEW" }, { reason: "Bearer OTHER_SECRET" }, { reason: "X".repeat(129) }],
+    } }, { status: 400 }))
+    const progress: Record<string, unknown> = {}
+    const error = await uploadDraft(receipt, bytes, token, request, progress).catch(value => value)
+    expect(error).toBeInstanceOf(Error)
+    expect(progress.httpErrors).toEqual([{ method: "POST", stage: "commit-draft", httpStatus: 400, responseJson: "parsed", googleCode: 400,
+      ...(field === "status" ? {} : { googleStatus: "FAILED_PRECONDITION" }), reasons: ["CHANGES_ALREADY_IN_REVIEW"] }])
+    for (const excluded of [token, "Bearer", "Authorization", "metadata", "EXCLUDED_WRONG_TYPE", "X".repeat(129)]) {
+      expect(JSON.stringify(progress) + error.message).not.toContain(excluded)
+    }
+  })
+
+  it("retains HTTP errors in order when the original operation and cleanup both fail", async () => {
+    const { request, calls } = fixture({}, 3, Response.json({ error: { code: 403, status: "PERMISSION_DENIED" } }, { status: 403 }))
+    const failingCleanup = async (url: string, options: RequestInit) => {
+      if (options.method !== "DELETE") return request(url, options)
+      calls.push({ url, options })
+      return new Response(null, { status: 503 })
+    }
+    const progress: Record<string, unknown> = {}
+    const error = await uploadDraft(receipt, bytes, "offline-token", failingCleanup, progress).catch(value => value)
+    expect(error).toBeInstanceOf(AggregateError)
+    expect(error.errors[0].message).toContain("HTTP 403")
+    expect(error.errors[1].message).toContain("HTTP 503")
+    expect(progress).toMatchObject({ cleanupFailed: true, httpErrors: [
+      { method: "POST", stage: "upload-bundle", httpStatus: 403, responseJson: "parsed", googleCode: 403, googleStatus: "PERMISSION_DENIED" },
+      { method: "DELETE", stage: "upload-bundle", httpStatus: 503, responseJson: "unavailable" },
+    ] })
+  })
+
+  it("writes the HTTP diagnosis into the real main failure receipt", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "alook-play-http-error-"))
+    const bundle = join(dir, "bundle.aab"), input = join(dir, "bundle.json"), output = join(dir, "result.json")
+    const { request, calls } = fixture({}, 6, Response.json({ error: { code: 400, status: "FAILED_PRECONDITION",
+      details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "CHANGES_ALREADY_IN_REVIEW" }] } }, { status: 400 }))
+    try {
+      writeFileSync(bundle, bytes)
+      writeFileSync(input, JSON.stringify({ ...receipt, path: bundle }))
+      vi.stubGlobal("fetch", request)
+      vi.stubEnv("GOOGLE_PLAY_ACCESS_TOKEN", "offline-token")
+      await expect(main([input, output])).rejects.toThrow("HTTP 400")
+      expect(JSON.parse(readFileSync(output, "utf8"))).toEqual({ stage: "commit-draft", committed: false, commitState: "unknown",
+        readback: false, editId: "write-edit", success: false, httpErrors: [{ method: "POST", stage: "commit-draft", httpStatus: 400,
+          responseJson: "parsed", googleCode: 400, googleStatus: "FAILED_PRECONDITION", reasons: ["CHANGES_ALREADY_IN_REVIEW"] }] })
+      expect(calls).toHaveLength(7)
+    } finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("preserves confirmed business state when read-edit cleanup fails", async () => {
     const { request } = fixture()
     const progress: Record<string, unknown> = {}
@@ -116,6 +219,7 @@ describe("verified bundle to Google Play internal draft", () => {
       ? new Response(null, { status: 503 }) : request(url, options)
     await expect(uploadDraft(receipt, bytes, "offline-token", failingCleanup, progress)).rejects.toThrow("cleanup failed")
     expect(progress).toMatchObject({ committed: true, readback: true, cleanupFailed: true })
+    expect(progress.httpErrors).toEqual([{ method: "DELETE", stage: "confirmed", httpStatus: 503, responseJson: "unavailable" }])
   })
 })
 

@@ -19,7 +19,25 @@ export async function uploadDraft(receipt, bytes, token, request = fetch, progre
       body: body === undefined ? undefined : media ? body : JSON.stringify(body),
       signal: AbortSignal.timeout(media ? 300_000 : 60_000),
     })
-    if (!response.ok) throw new Error(`Google Play ${method} failed with HTTP ${response.status} at ${progress.stage}`)
+    if (!response.ok) {
+      const failure = { method, stage: progress.stage, httpStatus: response.status }
+      let payload
+      try { payload = await response.json(); failure.responseJson = "parsed" } catch { failure.responseJson = "unavailable" }
+      const error = payload?.error
+      const identifier = (value, pattern) => typeof value === "string" && pattern.test(value) && !value.includes(String(token)) ? value : undefined
+      if (Number.isInteger(error?.code) && error.code >= 100 && error.code <= 599) failure.googleCode = error.code
+      const status = identifier(error?.status, /^[A-Z][A-Z0-9_]{0,127}$/)
+      if (status) failure.googleStatus = status
+      const reasons = [
+        ...(Array.isArray(error?.details) ? error.details.filter(row => row?.["@type"] === "type.googleapis.com/google.rpc.ErrorInfo").map(row => row.reason) : []),
+        ...(Array.isArray(error?.errors) ? error.errors.map(row => row?.reason) : []),
+      ].map(value => identifier(value, /^[A-Za-z][A-Za-z0-9_]{0,127}$/)).filter(Boolean)
+      if (reasons.length) failure.reasons = [...new Set(reasons)]
+      progress.httpErrors ??= []
+      progress.httpErrors.push(failure)
+      const detail = [failure.googleStatus, ...(failure.reasons ?? [])].filter(Boolean).join(", ")
+      throw new Error(`Google Play ${method} failed with HTTP ${response.status} at ${progress.stage}${detail ? ` (${detail})` : ""}`)
+    }
     return response.status === 204 ? {} : response.json()
   }
   const edit = async () => {
