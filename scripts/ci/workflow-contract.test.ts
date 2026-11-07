@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { resolve } from "node:path"
+import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
 
 const workflowRoot = resolve(import.meta.dirname, "../../.github/workflows")
@@ -242,11 +243,11 @@ const packedArtifactVerifier = readFileSync(
   "utf8",
 )
 
-function ciJob(name: string): string {
-  const start = ciWorkflow.indexOf(`\n  ${name}:\n`)
+function ciJob(name: string, text = ciWorkflow): string {
+  const start = text.indexOf(`\n  ${name}:\n`)
   if (start < 0) throw new Error(`missing CI job: ${name}`)
-  const next = ciWorkflow.slice(start + 1).search(/\n  [a-z][a-z0-9-]*:\n/)
-  return next < 0 ? ciWorkflow.slice(start) : ciWorkflow.slice(start, start + 1 + next)
+  const next = text.slice(start + 1).search(/\n  [a-z][a-z0-9-]*:\n/)
+  return next < 0 ? text.slice(start) : text.slice(start, start + 1 + next)
 }
 
 describe("E2E UI workflow", () => {
@@ -1282,6 +1283,37 @@ describe("Desktop image clipboard", () => {
 })
 
 describe("Mobile release availability", () => {
+  it("selects only fixed GET targets and never routes56 to the45 distribution job", () => {
+    const read = ciJob("inspect-testflight45", mobileReleaseWorkflow)
+    const write = ciJob("submit-testflight45", mobileReleaseWorkflow)
+    const readGuard = read.match(/^    if: (.+)$/m)![1]
+    const writeGuard = write.match(/^    if: (.+)$/m)![1]
+    expect(read).toContain('"$TESTFLIGHT_READ_TARGET"')
+    expect(read).toContain("inputs.testflight_read_target || 'ai.alook.ios:0.1.64:45'")
+    expect(write).not.toContain("TESTFLIGHT_READ_TARGET:")
+    expect(write).toContain("--confirm-target ai.alook.ios:0.1.64:45")
+    for (const target of [undefined, "ai.alook.ios:0.1.64:45", "ai.alook.ios:0.1.65:56"]) for (const submit of [false, true]) {
+      const context = { github: { event_name: "workflow_dispatch" }, inputs: { ios: false, android: false, upload: false, play_upload: false, testflight_read_target: target, testflight45_submit: submit, testflight45_ack_existing_notifications: true } }
+      expect(runInNewContext(readGuard, context)).toBe(!submit)
+      expect(runInNewContext(writeGuard, context)).toBe(submit && target !== "ai.alook.ios:0.1.65:56")
+      for (const job of ["build-ios", "build-android"]) expect(runInNewContext(ciJob(job, mobileReleaseWorkflow).match(/^    if: (.+)$/m)![1], context)).toBe(false)
+    }
+  })
+
+  it("preserves push/manual native selection and blocks rebuilds for TestFlight-only intent", () => {
+    const iosGuard = ciJob("build-ios", mobileReleaseWorkflow).match(/^    if: (.+)$/m)?.[1]
+    const androidGuard = ciJob("build-android", mobileReleaseWorkflow).match(/^    if: (.+)$/m)?.[1]
+    expect(iosGuard).toBeTypeOf("string")
+    expect(androidGuard).toBeTypeOf("string")
+    for (const event of ["push", "workflow_dispatch"]) for (const ios of [false, true]) for (const android of [false, true]) for (const play_upload of [false, true]) for (const testflight45_submit of [false, true]) {
+      const inputs = { ios, android, play_upload, testflight45_submit }
+      const context = { github: { event_name: event }, inputs }
+      expect(runInNewContext(iosGuard!, context, { timeout: 100 }), JSON.stringify({ event, inputs, platform: "ios" }))
+        .toBe(!testflight45_submit && (event === "push" || ios))
+      expect(runInNewContext(androidGuard!, context, { timeout: 100 }), JSON.stringify({ event, inputs, platform: "android" }))
+        .toBe(!testflight45_submit && (event === "push" || android || play_upload))
+    }
+  })
   it("publishes --mobile bumps to TestFlight and keeps manual uploads opt-in", () => {
     expect(existsSync(mobileReleaseWorkflowPath)).toBe(true)
     expect(desktopIosConfig.identifier).toBe("ai.alook.ios")
@@ -1360,9 +1392,6 @@ describe("Mobile release availability", () => {
     expect(androidGradle).toContain('signingConfig = signingConfigs.getByName("release")')
     expect(androidMainActivity).toContain("package ai.alook.android")
     expect(mobileReleaseWorkflow).toContain("build-android:")
-    expect(mobileReleaseWorkflow).toContain(
-      "if: github.event_name == 'push' || inputs.android == true",
-    )
     expect(mobileReleaseWorkflow).toContain(
       'yes | "$sdkmanager" --licenses >/dev/null || [[ ${PIPESTATUS[1]} -eq 0 ]]',
     )
