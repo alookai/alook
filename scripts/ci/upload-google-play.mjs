@@ -25,11 +25,11 @@ export async function uploadDraft(receipt, bytes, token, request = fetch, progre
       try { payload = await response.json(); failure.responseJson = "parsed" } catch { failure.responseJson = "unavailable" }
       const error = payload?.error
       const instructions = [
-        ["The query parameter changesNotSentForReview must not be set", "Google requires omitting changesNotSentForReview for this edit."],
-        ["Please set the query parameter changesNotSentForReview to true", "Google requires changesNotSentForReview=true for this edit."],
+        ["The query parameter changesNotSentForReview must not be set", "Google requires omitting changesNotSentForReview for this edit.", "Changes are sent for review automatically. "],
+        ["Please set the query parameter changesNotSentForReview to true", "Google requires changesNotSentForReview=true for this edit.", "Changes cannot be sent for review automatically. "],
       ].filter(([instruction]) => typeof error?.message === "string" && error.message.includes(instruction))
-      if (instructions.length === 1 && error.message.startsWith(instructions[0][0]) &&
-          /^[.:\s]?$/.test(error.message.slice(instructions[0][0].length, instructions[0][0].length + 1))) {
+      if (instructions.length === 1 && [instructions[0][0], instructions[0][2] + instructions[0][0]].some(instruction =>
+        error.message.startsWith(instruction) && /^[.:\s]?$/.test(error.message.slice(instruction.length, instruction.length + 1)))) {
         failure.messageHint = instructions[0][1]
       }
       const identifier = (value, pattern) => typeof value === "string" && pattern.test(value) && !value.includes(String(token)) ? value : undefined

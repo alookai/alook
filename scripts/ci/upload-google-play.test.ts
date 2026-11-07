@@ -141,12 +141,14 @@ describe("verified bundle to Google Play internal draft", () => {
   })
 
   it.each([
-    ["The query parameter changesNotSentForReview must not be set", "Google requires omitting changesNotSentForReview for this edit."],
-    ["Please set the query parameter changesNotSentForReview to true", "Google requires changesNotSentForReview=true for this edit."],
-  ])("explains the Google parameter instruction without retrying: %s", async (instruction, hint) => {
+    ["The query parameter changesNotSentForReview must not be set", "Google requires omitting changesNotSentForReview for this edit.", true],
+    ["Please set the query parameter changesNotSentForReview to true", "Google requires changesNotSentForReview=true for this edit.", true],
+    ["Changes are sent for review automatically. The query parameter changesNotSentForReview must not be set.", "Google requires omitting changesNotSentForReview for this edit.", false],
+    ["Changes cannot be sent for review automatically. Please set the query parameter changesNotSentForReview to true", "Google requires changesNotSentForReview=true for this edit.", false],
+  ])("explains the Google parameter instruction without retrying: %s", async (instruction, hint, sensitiveSuffix) => {
     const token = "SECRET_HINT_TOKEN_54"
     const { request, calls } = fixture({}, 6, Response.json({ error: { code: 400, status: "INVALID_ARGUMENT",
-      message: `${instruction}. Bearer ${token} private@example.test https://private.test/?token=hidden /private/context` } }, { status: 400 }))
+      message: sensitiveSuffix ? `${instruction}. Bearer ${token} private@example.test https://private.test/?token=hidden /private/context` : instruction } }, { status: 400 }))
     const progress: Record<string, unknown> = {}
     const error = await uploadDraft(receipt, bytes, token, request, progress).catch(value => value)
     expect(error).toBeInstanceOf(Error)
@@ -171,6 +173,10 @@ describe("verified bundle to Google Play internal draft", () => {
     ["embedded", "Private context: The query parameter changesNotSentForReview must not be set. PRIVATE_HINT_CONTEXT"],
     ["word boundary", "The query parameter changesNotSentForReview must not be setValue PRIVATE_HINT_CONTEXT"],
     ["conflicting", "The query parameter changesNotSentForReview must not be set. Please set the query parameter changesNotSentForReview to true. PRIVATE_HINT_CONTEXT"],
+    ["mismatched automatic introduction", "Changes are sent for review automatically. Please set the query parameter changesNotSentForReview to true. PRIVATE_HINT_CONTEXT"],
+    ["mismatched manual introduction", "Changes cannot be sent for review automatically. The query parameter changesNotSentForReview must not be set. PRIVATE_HINT_CONTEXT"],
+    ["dynamic complete prefix", "PRIVATE_HINT_CONTEXT Changes are sent for review automatically. The query parameter changesNotSentForReview must not be set."],
+    ["conflicting complete formats", "Changes are sent for review automatically. The query parameter changesNotSentForReview must not be set. Changes cannot be sent for review automatically. Please set the query parameter changesNotSentForReview to true. PRIVATE_HINT_CONTEXT"],
   ])("leaves a %s Google message unrecognized without copying or guessing", async (_kind, message) => {
     const { request, calls } = fixture({}, 6, Response.json({ error: { code: 400, status: "INVALID_ARGUMENT", message } }, { status: 400 }))
     const progress: Record<string, unknown> = {}
@@ -238,7 +244,7 @@ describe("verified bundle to Google Play internal draft", () => {
   it.each([
     [{ code: 400, status: "FAILED_PRECONDITION", details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "CHANGES_ALREADY_IN_REVIEW" }] },
       { googleStatus: "FAILED_PRECONDITION", reasons: ["CHANGES_ALREADY_IN_REVIEW"], messageHint: "Unrecognized Google error message" }],
-    [{ code: 400, status: "INVALID_ARGUMENT", message: "The query parameter changesNotSentForReview must not be set. SECRET_DYNAMIC_CONTEXT" },
+    [{ code: 400, status: "INVALID_ARGUMENT", message: "Changes are sent for review automatically. The query parameter changesNotSentForReview must not be set. SECRET_DYNAMIC_CONTEXT" },
       { googleStatus: "INVALID_ARGUMENT", messageHint: "Google requires omitting changesNotSentForReview for this edit." }],
   ])("writes the HTTP diagnosis into the real main failure receipt: %j", async (providerError, expected) => {
     const dir = mkdtempSync(join(tmpdir(), "alook-play-http-error-"))
