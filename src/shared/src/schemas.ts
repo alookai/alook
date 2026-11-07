@@ -7,6 +7,7 @@ import { AGENT_EVENT_PROMPT_MAX_LENGTH, BOT_AUDIT_TEXT_MAX_BYTES } from "./commu
 import {
   DAILY_TOKEN_USAGE_WINDOW_DAYS,
   DailyUsageSnapshotSchema,
+  ProviderQuotaSnapshotListSchema,
   ProviderQuotaSnapshotSchema,
 } from "./provider-telemetry";
 import {
@@ -983,7 +984,7 @@ export const HostReadyMessageSchema = z.object({
   osRelease: z.string().optional(),
   daemonVersion: z.string().optional(),
   timeZone: z.string().min(1).max(128).optional(),
-  providerQuotas: z.array(ProviderQuotaSnapshotSchema).max(4).optional().default([]),
+  providerQuotas: ProviderQuotaSnapshotListSchema.optional().default([]),
 });
 export type HostReadyMessage = z.infer<typeof HostReadyMessageSchema>;
 

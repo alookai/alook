@@ -6,7 +6,7 @@ import {
   RUNTIME_MODEL_DISCOVERY_CAPABILITY,
   createDb,
   HostReadyMessageSchema,
-  ProviderQuotaSnapshotSchema,
+  ProviderQuotaSnapshotListSchema,
   dayKeyInTimeZone,
   queries,
   WS_EVENTS,
@@ -77,16 +77,8 @@ export async function handleReadyFrame(
   if (!readyParse.success) return false
   const ready = readyParse.data
   const raw = parsed as Record<string, unknown>
-  const quotaParse = raw.providerQuotas === undefined
-    ? null
-    : ProviderQuotaSnapshotSchema.array().max(3).safeParse(raw.providerQuotas)
-  const quotaBackends = quotaParse?.success
-    ? new Set(quotaParse.data.map((snapshot) => snapshot.agentBackendId))
-    : null
-  const providerQuotas = quotaParse?.success
-    && quotaBackends?.size === quotaParse.data.length
-      ? quotaParse.data
-      : []
+  const quotaParse = ProviderQuotaSnapshotListSchema.safeParse(raw.providerQuotas)
+  const providerQuotas = quotaParse.success ? quotaParse.data : []
   const controlHeartbeat = ready.capabilities.includes(CONTROL_HEARTBEAT_CAPABILITY)
   const state = ws.deserializeAttachment() as import("./internal").ConnectionState
   if (

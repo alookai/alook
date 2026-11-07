@@ -1,4 +1,5 @@
-import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, type ProviderQuotaSnapshot } from "@alook/shared"
+import { DatabaseSync } from "node:sqlite"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createMockWebSocket } from "../__mocks__/cf"
 import {
@@ -50,6 +51,78 @@ import {
   mockUpsertMachineByMachineId,
   resetHarness
 } from "./test-harness"
+
+function quotaSqlite() {
+  const sqlite = new DatabaseSync(":memory:")
+  sqlite.exec(`
+    CREATE TABLE community_machine (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL);
+    CREATE TABLE community_machine_backend_quota (
+      machine_id TEXT NOT NULL,
+      agent_backend_id TEXT NOT NULL,
+      source_epoch TEXT NOT NULL,
+      status TEXT NOT NULL,
+      plan_name TEXT,
+      fresh_for_seconds INTEGER,
+      limits TEXT,
+      error_code TEXT,
+      retryable INTEGER,
+      observed_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (machine_id, agent_backend_id)
+    );
+    INSERT INTO community_machine (id, user_id) VALUES ('cm_1', 'u_1');
+  `)
+  mockD1Batch.mockImplementation(async (statements) => {
+    sqlite.exec("BEGIN")
+    try {
+      const results = statements.map((statement) => {
+        if (typeof statement !== "object" || statement === null
+          || !("sql" in statement) || typeof statement.sql !== "string"
+          || !("values" in statement) || !Array.isArray(statement.values)) {
+          throw new TypeError("Expected a prepared quota statement")
+        }
+        const values = statement.values.map((value: unknown) => {
+          if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "bigint") return value
+          throw new TypeError("Unsupported SQLite quota binding")
+        })
+        const { changes } = sqlite.prepare(statement.sql).run(...values)
+        return { success: true, meta: { changes: Number(changes) } }
+      })
+      sqlite.exec("COMMIT")
+      return results
+    } catch (error) {
+      sqlite.exec("ROLLBACK")
+      throw error
+    }
+  })
+  return sqlite
+}
+
+function quotaRows(sqlite: DatabaseSync) {
+  return sqlite.prepare("SELECT * FROM community_machine_backend_quota WHERE machine_id = 'cm_1' ORDER BY agent_backend_id")
+    .all().map(({ limits, ...row }) => ({ ...row, limits: typeof limits === "string" ? JSON.parse(limits) : limits }))
+}
+
+function availableQuota(agentBackendId: ProviderQuotaSnapshot["agentBackendId"], sourceEpoch: string, usedPercent: number) {
+  return {
+    agentBackendId,
+    observation: {
+      status: "available",
+      sourceEpoch,
+      planName: `${agentBackendId} plan`,
+      freshForSeconds: 300 + usedPercent,
+      limits: [{
+        bucket: {
+          limitId: `${agentBackendId}-limit`,
+          product: { kind: "reported", id: agentBackendId, displayName: agentBackendId },
+          model: { kind: "not_applicable" },
+          window: { kind: "rolling", durationSeconds: 18_000, displayName: "5 hours" },
+        },
+        usedPercent,
+      }],
+    },
+  } satisfies ProviderQuotaSnapshot
+}
 
 describe("WebSocketDurableObject", () => {
   beforeEach(() => resetHarness())
@@ -296,116 +369,154 @@ describe("WebSocketDurableObject", () => {
       })
 
       it("persists only valid quotas for backends present in the accepted runtime report", async () => {
-        const { durable, store } = createDO()
-        store.set("community-machine-identity", {
-          userId: "u_1",
-          machineId: "cm_1",
-          credentialHash: "0".repeat(64),
-        })
-        mockUpsertMachineByMachineId.mockResolvedValue({
-          machine: {
-            id: "cm_1",
-            hostname: "host",
-            availableRuntimes: [{ id: "codex" }],
-            status: "online",
-            lastSeenAt: "2026-07-06T00:00:00.000Z",
-          },
-          priorLastSeenAt: "2026-07-05T00:00:00.000Z",
-          priorAvailableRuntimes: [{ id: "codex" }],
-          priorDaemonVersion: "0.1.0",
-          priorStatus: "online",
-        })
-        const ws = createMockWebSocket()
-        ws.serializeAttachment({
-          type: "community-machine",
-          machineId: "cm_1",
-          userId: "u_1",
-          authenticated: true,
-        })
+        const sqlite = quotaSqlite()
+        try {
+          const { durable, store, storage } = createDO()
+          store.set("community-machine-identity", {
+            userId: "u_1", machineId: "cm_1", credentialHash: "0".repeat(64),
+          })
+          mockUpsertMachineByMachineId.mockResolvedValue({
+            machine: { id: "cm_1", availableRuntimes: [{ id: "codex" }], status: "online" },
+            priorAvailableRuntimes: [{ id: "codex" }], priorStatus: "online",
+          })
+          const ws = createMockWebSocket()
+          ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
 
-        await durable.webSocketMessage(ws as any, JSON.stringify({
-          type: "ready",
-          runtimeReport: [{ id: "codex" }],
-          capabilities: ["control-heartbeat-v1"],
-          runningAgents: [],
-          providerQuotas: [{
-            agentBackendId: "codex",
-            observation: {
-              status: "error",
-              sourceEpoch: "Q".repeat(22),
-              code: "network",
-              retryable: true,
-            },
-          }],
-        }))
+          await durable.webSocketMessage(ws as WebSocket, JSON.stringify({
+            type: "ready",
+            runtimeReport: [{ id: "codex" }],
+            capabilities: ["control-heartbeat-v1"],
+            runningAgents: [],
+            providerQuotas: [{
+              agentBackendId: "codex",
+              observation: { status: "error", sourceEpoch: "Q".repeat(22), code: "network", retryable: true },
+            }, availableQuota("antigravity", "A".repeat(22), 40)],
+          }))
 
-        expect(mockUpsertMachineByMachineId).toHaveBeenCalledOnce()
-        expect(mockD1Batch).toHaveBeenCalledOnce()
-        const statements = mockD1Batch.mock.calls[0]![0] as Array<{ sql: string; values: unknown[] }>
-        expect(statements).toHaveLength(1)
-        expect(statements[0]!.sql).toContain("community_machine_backend_quota")
-        expect(statements[0]!.values.slice(0, 4)).toEqual(["cm_1", "codex", "Q".repeat(22), "error"])
-
-        mockD1Batch.mockClear()
-        await durable.webSocketMessage(ws as any, JSON.stringify({
-          type: "ready",
-          runtimeReport: [{ id: "codex" }],
-          capabilities: ["control-heartbeat-v1"],
-          runningAgents: [],
-          providerQuotas: [{ agentBackendId: "codex", observation: { status: "error" } }],
-        }))
-        expect(mockUpsertMachineByMachineId).toHaveBeenCalledTimes(2)
-        expect(mockD1Batch).not.toHaveBeenCalled()
+          expect(mockUpsertMachineByMachineId).toHaveBeenCalledOnce()
+          expect(quotaRows(sqlite)).toEqual([{
+            machine_id: "cm_1", agent_backend_id: "codex", source_epoch: "Q".repeat(22),
+            status: "error", plan_name: null, fresh_for_seconds: null, limits: null,
+            error_code: "network", retryable: 1, observed_at: expect.any(String), updated_at: expect.any(String),
+          }])
+          const before = quotaRows(sqlite)
+          await storage.deleteAlarm()
+          storage.put.mockClear()
+          storage.setAlarm.mockClear()
+          mockReconcileBotActivityFromRunningAgents.mockClear()
+          mockD1Batch.mockClear()
+          await durable.webSocketMessage(ws as WebSocket, JSON.stringify({
+            type: "ready",
+            runtimeReport: [{ id: "codex" }],
+            capabilities: ["control-heartbeat-v1"],
+            runningAgents: [],
+            providerQuotas: [availableQuota("codex", "B".repeat(22), 50), {
+              agentBackendId: "antigravity", observation: { status: "error" },
+            }],
+          }))
+          expect(mockUpsertMachineByMachineId).toHaveBeenCalledTimes(2)
+          expect(mockD1Batch).not.toHaveBeenCalled()
+          expect(quotaRows(sqlite)).toEqual(before)
+          expect(mockReconcileBotActivityFromRunningAgents).toHaveBeenCalledWith(expect.anything(), "cm_1", [])
+          expect(storage.put).toHaveBeenCalledWith("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+          expect(storage.setAlarm).toHaveBeenCalled()
+          expect(ws.close).not.toHaveBeenCalled()
+        } finally {
+          sqlite.close()
+        }
       })
 
-      it("persists Claude, Codex, and Grok quotas from one ready frame", async () => {
-        const { durable, store } = createDO()
-        store.set("community-machine-identity", {
-          userId: "u_1",
-          machineId: "cm_1",
-          credentialHash: "0".repeat(64),
-        })
-        mockUpsertMachineByMachineId.mockResolvedValue({
-          machine: {
-            id: "cm_1",
-            availableRuntimes: [{ id: "claude" }, { id: "codex" }, { id: "grok" }],
-            status: "online",
-          },
-          priorAvailableRuntimes: [],
-          priorStatus: "offline",
-        })
-        const ws = createMockWebSocket()
-        ws.serializeAttachment({
-          type: "community-machine",
-          machineId: "cm_1",
-          userId: "u_1",
-          authenticated: true,
-        })
+      it("persists all four backend quotas through ready into final rows", async () => {
+        const sqlite = quotaSqlite()
+        try {
+          const { durable, store, storage } = createDO()
+          store.set("community-machine-identity", {
+            userId: "u_1", machineId: "cm_1", credentialHash: "0".repeat(64),
+          })
+          mockUpsertMachineByMachineId.mockResolvedValue({
+            machine: { id: "cm_1", status: "online" },
+            priorAvailableRuntimes: [], priorStatus: "offline",
+          })
+          const ws = createMockWebSocket()
+          ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+          const providerQuotas = [
+            availableQuota("claude", "C".repeat(22), 10),
+            availableQuota("codex", "D".repeat(22), 20),
+            availableQuota("grok", "G".repeat(22), 30),
+            availableQuota("antigravity", "A".repeat(22), 40),
+          ]
+          const expectedRows = structuredClone(providerQuotas).toSorted((a, b) => a.agentBackendId.localeCompare(b.agentBackendId))
+            .map(({ agentBackendId, observation }) => ({
+              machine_id: "cm_1", agent_backend_id: agentBackendId, source_epoch: observation.sourceEpoch,
+              status: "available", plan_name: observation.planName, fresh_for_seconds: observation.freshForSeconds,
+              limits: observation.limits, error_code: null, retryable: null,
+              observed_at: expect.any(String), updated_at: expect.any(String),
+            }))
 
-        await durable.webSocketMessage(ws as any, JSON.stringify({
-          type: "ready",
-          runtimeReport: [{ id: "claude" }, { id: "codex" }, { id: "grok" }],
-          capabilities: ["control-heartbeat-v1"],
-          runningAgents: [],
-          providerQuotas: ["claude", "codex", "grok"].map((agentBackendId) => ({
-            agentBackendId,
-            observation: {
-              status: "error",
-              sourceEpoch: agentBackendId[0]!.toUpperCase().repeat(22),
-              code: "network",
-              retryable: true,
-            },
-          })),
-        }))
+          await durable.webSocketMessage(ws as WebSocket, JSON.stringify({
+            type: "ready",
+            runtimeReport: [{ id: "claude" }, { id: "codex" }, { id: "grok" }, { id: "antigravity" }],
+            capabilities: ["control-heartbeat-v1"], runningAgents: [], providerQuotas,
+          }))
 
-        expect(mockD1Batch).toHaveBeenCalledOnce()
-        const statements = mockD1Batch.mock.calls[0]![0] as Array<{ values: unknown[] }>
-        expect(statements).toHaveLength(3)
-        expect(statements.map((statement) => statement.values[1])).toEqual([
-          "claude",
-          "codex",
-          "grok",
-        ])
+          expect(mockUpsertMachineByMachineId).toHaveBeenCalledOnce()
+          expect(mockReconcileBotActivityFromRunningAgents).toHaveBeenCalledWith(expect.anything(), "cm_1", [])
+          expect(storage.put).toHaveBeenCalledWith("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+          expect(storage.setAlarm).toHaveBeenCalled()
+          expect(ws.close).not.toHaveBeenCalled()
+          expect(quotaRows(sqlite)).toEqual(expectedRows)
+        } finally {
+          sqlite.close()
+        }
+      })
+
+      it.each([
+        ["missing", undefined],
+        ["empty", []],
+        ["null", null],
+        ["duplicate backend", [availableQuota("codex", "D".repeat(22), 50), availableQuota("codex", "E".repeat(22), 60)]],
+        ["unknown backend", [availableQuota("codex", "D".repeat(22), 50), {
+          agentBackendId: "unknown", observation: availableQuota("claude", "E".repeat(22), 60).observation,
+        }]],
+      ])("preserves saved quotas and completes core ready for a %s optional quota list", async (_name, providerQuotas) => {
+        const sqlite = quotaSqlite()
+        try {
+          const { durable, store, storage } = createDO()
+          store.set("community-machine-identity", {
+            userId: "u_1", machineId: "cm_1", credentialHash: "0".repeat(64),
+          })
+          mockUpsertMachineByMachineId.mockResolvedValue({
+            machine: { id: "cm_1", availableRuntimes: [{ id: "codex" }], status: "online" },
+            priorAvailableRuntimes: [{ id: "codex" }], priorStatus: "online",
+          })
+          const ws = createMockWebSocket()
+          ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+          const ready = { type: "ready", runtimeReport: [{ id: "codex" }], capabilities: ["control-heartbeat-v1"], runningAgents: [] }
+          await durable.webSocketMessage(ws as WebSocket, JSON.stringify({
+            ...ready, providerQuotas: [availableQuota("codex", "C".repeat(22), 10)],
+          }))
+          const before = quotaRows(sqlite)
+          expect(before).toHaveLength(1)
+          await storage.deleteAlarm()
+          storage.put.mockClear()
+          storage.setAlarm.mockClear()
+          mockReconcileBotActivityFromRunningAgents.mockClear()
+          mockD1Batch.mockClear()
+
+          await durable.webSocketMessage(ws as WebSocket, JSON.stringify({
+            ...ready, ...(providerQuotas === undefined ? {} : { providerQuotas }),
+          }))
+
+          expect(mockUpsertMachineByMachineId).toHaveBeenCalledTimes(2)
+          expect(mockD1Batch).not.toHaveBeenCalled()
+          expect(quotaRows(sqlite)).toEqual(before)
+          expect(mockReconcileBotActivityFromRunningAgents).toHaveBeenCalledWith(expect.anything(), "cm_1", [])
+          expect(storage.put).toHaveBeenCalledWith("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+          expect(storage.setAlarm).toHaveBeenCalled()
+          expect(ws.close).not.toHaveBeenCalled()
+        } finally {
+          sqlite.close()
+        }
       })
 
       it("continues core ready reconciliation when optional quota persistence fails", async () => {
