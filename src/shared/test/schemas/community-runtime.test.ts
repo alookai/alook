@@ -285,12 +285,13 @@ describe("HostReadyMessageSchema", () => {
     expect(parsed.capabilities).toEqual([]);
   });
 
-  it("defaults runningAgents to an empty array", () => {
+  it("defaults runningAgents and providerQuotas to empty arrays", () => {
     const parsed = HostReadyMessageSchema.parse({
       type: "ready",
       runtimeReport: [],
     });
     expect(parsed.runningAgents).toEqual([]);
+    expect(parsed.providerQuotas).toEqual([]);
     expect(parsed.capabilities).toEqual([]);
   });
 
@@ -350,10 +351,21 @@ describe("HostReadyMessageSchema", () => {
       runtimeReport: [],
       providerQuotas,
     }).providerQuotas).toEqual(providerQuotas);
+    expect(HostReadyMessageSchema.parse({
+      type: "ready",
+      runtimeReport: [],
+      providerQuotas: [],
+    }).providerQuotas).toEqual([]);
+  });
+
+  it("rejects two individually valid snapshots for the same quota backend", () => {
     expect(HostReadyMessageSchema.safeParse({
       type: "ready",
       runtimeReport: [],
-      providerQuotas: [...providerQuotas, providerQuotas[0]],
+      providerQuotas: [
+        { agentBackendId: "codex", observation: { status: "error", sourceEpoch: "A".repeat(22), code: "unavailable", retryable: false } },
+        { agentBackendId: "codex", observation: { status: "error", sourceEpoch: "B".repeat(22), code: "network", retryable: true } },
+      ],
     }).success).toBe(false);
   });
 

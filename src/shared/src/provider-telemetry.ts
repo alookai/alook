@@ -112,3 +112,8 @@ export const ProviderQuotaSnapshotSchema = z.object({
   observation: ProviderQuotaObservationSchema,
 }).strict();
 export type ProviderQuotaSnapshot = z.infer<typeof ProviderQuotaSnapshotSchema>;
+
+export const ProviderQuotaSnapshotListSchema = z.array(ProviderQuotaSnapshotSchema).refine(
+  (snapshots) => new Set(snapshots.map((snapshot) => snapshot.agentBackendId)).size === snapshots.length,
+  { message: "duplicate provider quota backend" },
+);
