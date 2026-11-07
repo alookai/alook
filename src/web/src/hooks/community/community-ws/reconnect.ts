@@ -8,18 +8,15 @@ import {
   isCommunityServerIdSegment,
 } from "@/lib/query-keys"
 
-
 import { reconcileForumSidebarNotifyMemberships } from "@/hooks/community/use-forum-sidebar-threads"
-import { clearAllTypingIndicators } from "@/hooks/community/community-ws/typing"
+import { clearAllTypingIndicators } from "@/lib/community/typing"
 import { communityWsReconnectPolicies } from "@/hooks/community/community-ws/registry"
 import { userProfileQueryFn } from "@/hooks/community/use-user-profile"
-import { reconcileFocusedMessageQueries } from "@/hooks/community/community-ws/reconnect-messages"
+import { reconcileFocusedMessageQueries } from "@/lib/community/message-reconcile"
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 import {
-  trackCommunityWsReconcileComplete,
-  trackCommunityWsReconcileFailure,
   type CommunityWsReconcilePolicy,
-} from "@/lib/analytics"
+} from "@/lib/community/ws-connection-types"
 
 const RESET_POLICIES = new Set<CommunityWsReconcilePolicy>([
   "status-overlay",
@@ -286,21 +283,20 @@ function policyExecutors(
 }
 
 async function executePolicy(
-  policy: CommunityWsReconcilePolicy,
   executor: () => void | Promise<void>,
 ) {
   let result: void | Promise<void>
   try {
     result = executor()
   } catch {
-    trackCommunityWsReconcileFailure({ policy, reason: "sync-throw" })
+
     return false
   }
   try {
     await result
     return true
   } catch {
-    trackCommunityWsReconcileFailure({ policy, reason: "async-rejection" })
+
     return false
   }
 }
@@ -317,7 +313,7 @@ async function executePoliciesBounded(
       const index = nextIndex
       nextIndex += 1
       const policy = policies[index]!
-      results[index] = await executePolicy(policy, executors[policy])
+      results[index] = await executePolicy(executors[policy])
     }
   }
   await Promise.all(
@@ -361,13 +357,13 @@ export async function reconcileCommunityWsReconnect(
   )
 
   const resetResults = await Promise.all(
-    resetPolicies.map((policy) => executePolicy(policy, executors[policy])),
+    resetPolicies.map((policy) => executePolicy(executors[policy])),
   )
   const focusedMessageResults = await Promise.all(
-    focusedMessagePolicies.map((policy) => executePolicy(policy, executors[policy])),
+    focusedMessagePolicies.map((policy) => executePolicy(executors[policy])),
   )
   const focusedRouteResults = await Promise.all(
-    focusedRoutePolicies.map((policy) => executePolicy(policy, executors[policy])),
+    focusedRoutePolicies.map((policy) => executePolicy(executors[policy])),
   )
   const backgroundResults = await executePoliciesBounded(
     backgroundPolicies,
@@ -388,6 +384,6 @@ export async function reconcileCommunityWsReconnect(
     durationMs: Math.max(0, Date.now() - startedAt),
     reconnectDurationMs,
   }
-  trackCommunityWsReconcileComplete(summary)
+
   return summary
 }

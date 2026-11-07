@@ -126,15 +126,8 @@ type SuggestionProps = Omit<SuggestionCaretAnchorProps, "editor"> & {
 }
 
 /**
- * Mention extension wired to the community Composer's popup state.
- *
- * Refs are read inside suggestion callbacks (which fire at runtime, not at
- * extension-build time), so we can build the extension once via useState and
- * still see live `members` and `context`. Mirrors agent-chat/chat-composer.tsx.
- *
- * Keyboard contract: ArrowUp/Down wrap, Enter and Tab pick, Escape closes.
- * IME composition bails — Enter during composition must confirm the IME, not
- * the mention.
+ * ArrowUp/Down wrap; Enter and Tab pick; Escape closes.
+ * During IME composition, Enter must confirm the composition, not the mention.
  */
 export function buildCommunityMentionExtension(opts: {
   editorRef: { current: Editor | null }

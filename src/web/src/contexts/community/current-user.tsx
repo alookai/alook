@@ -11,19 +11,8 @@ import {
   useCanonicalCommunityProfile,
 } from "@/lib/community-db/projections"
 
-/**
- * Thin context that carries the viewer's identity down the community tree.
- *
- * The community layout server-loads the session and drops the initial user
- * into this provider. Consumers read the current user (and can patch the
- * cached `aboutMe` after a profile mutation) without touching the giant
- * community context that used to own everything.
- *
- * NOTE: This exists because the identity isn't a fetched resource — it's a
- * prop that arrives from the layout's `useSession()` call. Moving it into a
- * TanStack Query would either duplicate the auth session hook or force every
- * consumer to gate on a loading flag that never actually flips in practice.
- */
+// Keep layout identity separate from the canonical profile so profile updates
+// cannot leave a second cached copy in context.
 export type CurrentUser = {
   id: string
   name: string

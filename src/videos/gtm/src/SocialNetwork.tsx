@@ -1,7 +1,7 @@
 import React from 'react';
 import {AbsoluteFill,Img,staticFile} from 'remotion';
 import {GeneratedAvatar,seed} from './Product';
-import {AlookLogoAnimation} from './official-logo-animation';
+import {AlookLogoAnimation} from './generated/official-logo-animation';
 import {socialPeople,socialLinks,socialEase,networkMotion,botPosition,clamp01,networkCenter} from './social-network';
 
 function regionBoundary(index:number){

@@ -3,9 +3,7 @@
  * useful HISTORY WINDOW instead of being flushed by routine noise.
  *
  * WHY: the default trace is capped at 32 MiB per generation (64 MiB for active
- * + `.1`, rotatingFileSink). At the executable N=8 operational envelope, the
- * sampler retains 8,168 rows / 4,010,728 serialized JSONL bytes per hour
- * (3.825 MiB/h), so the two generations preserve approximately 16.73 hours.
+ * + `.1`, rotatingFileSink).
  * Unchanged-state heartbeats carry no new information and would otherwise flush
  * information-rich transitions far sooner; write rate still scales with agent
  * count, so a much larger fleet needs the byte budget revisited.
@@ -39,7 +37,6 @@
  * `root_work` stream is fully folded.
  */
 
-/** Sampler-visible subset of the manager's explicitly allowlisted trace rows. */
 interface TraceRec {
   recordKind: "fsm" | "turn_span";
   agentId: string;
@@ -55,11 +52,10 @@ interface TraceRec {
 }
 
 export interface TraceSampler {
-  /** Offer one record; the sampler emits it (and any tail-flush) or folds it. */
+
   offer(rec: TraceRec): void;
 }
 
-/** Streams that are throttled rather than always-emitted. */
 const SAMPLEABLE_EVENTS = new Set(["tick", "root_work", "runtime_signal"]);
 const SACRED_TURN_SPAN_EVENTS = new Set(["turn_begin", "turn_end", "turn_abort"]);
 
@@ -69,15 +65,15 @@ export const DEFAULT_TRACE_SAMPLE_MS = 30_000;
 export const DEFAULT_TRACE_FILE_MAX_BYTES = 32 * 1024 * 1024;
 
 interface AgentSamplerState {
-  /** Last emitted tick's reconstruct-key (state fingerprint); null before first. */
+
   lastTickKey: string | null;
-  /** nowMs of the last emitted `tick` for this agent (for the throttle window). */
+
   lastTickEmitAt: number;
-  /** The most recent throttled (folded) unchanged tick, held for tail-flush. */
+
   pendingTick: TraceRec | null;
-  /** Last emitted `root_work` nowMs. */
+
   lastProgressEmitAt: number;
-  /** Last emitted `runtime_signal` deliveryPhase (edge detection) + nowMs. */
+
   lastSignalPhase: string | null;
   lastSignalEmitAt: number;
 }
@@ -132,7 +128,6 @@ export function createTraceSampler(
     return s;
   };
 
-  /** Emit the held tail tick (if any) so an unchanged run's LAST row survives. */
   const flushPending = (s: AgentSamplerState): void => {
     if (s.pendingTick) {
       const p = s.pendingTick;
@@ -145,7 +140,7 @@ export function createTraceSampler(
   return {
     offer(rec: TraceRec): void {
       const agentId = typeof rec.agentId === "string" ? rec.agentId : null;
-      // No agent id (shouldn't happen for emitted rows) → pass through untouched.
+
       if (!agentId) {
         emit(rec);
         return;
@@ -167,7 +162,7 @@ export function createTraceSampler(
       // last unchanged tick are preserved ahead of the terminating frame.
       if (!SAMPLEABLE_EVENTS.has(event as string) || hasEffects(rec)) {
         flushPending(s);
-        // A sacrosanct tick still updates the tick anchors (it IS an emitted tick).
+
         if (event === "tick") {
           s.lastTickKey = tickKey(rec);
           s.lastTickEmitAt = nowOf(rec);
@@ -176,12 +171,10 @@ export function createTraceSampler(
         return;
       }
 
-      // ---- Sampleable heartbeat streams ----
       if (event === "tick") {
         const key = tickKey(rec);
         const now = nowOf(rec);
-        // State-change EDGE → always emit (the run boundary; carries the fresh
-        // state). Flush the prior run's tail first.
+
         if (key !== s.lastTickKey) {
           flushPending(s);
           s.lastTickKey = key;
@@ -189,10 +182,9 @@ export function createTraceSampler(
           emit(rec);
           return;
         }
-        // Unchanged state: emit at most one per throttle window; otherwise HOLD
-        // as the run's tail (overwrite — we only need the latest folded one).
+
         if (now - s.lastTickEmitAt >= throttleMs) {
-          s.pendingTick = null; // this row supersedes any earlier held tail
+          s.pendingTick = null;
           s.lastTickEmitAt = now;
           emit(rec);
         } else {
@@ -212,7 +204,6 @@ export function createTraceSampler(
         return;
       }
 
-      // runtime_signal: keep phase-change EDGES, throttle same-phase runs.
       if (event === "runtime_signal") {
         const phase = typeof rec.deliveryPhase === "string" ? rec.deliveryPhase : "";
         const now = nowOf(rec);
@@ -224,7 +215,6 @@ export function createTraceSampler(
         return;
       }
 
-      // Unreachable (SAMPLEABLE_EVENTS covered above), but fail-open: emit.
       emit(rec);
     },
   };

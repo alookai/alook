@@ -13,7 +13,7 @@ import { getCapturedRuntime, seedCanonicalStream, mountCanonicalHook } from "./t
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryObserver } from "@tanstack/react-query"
 import { ApiError } from "@/lib/errors"
-import { channelMetadataOptions, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
+import { channelMetadataOptions, isChannelMetadataTokenCurrent } from "@/lib/community/channel-metadata"
 import type { CommunityMemberJoin, CommunityMemberLeave, CommunityMemberUpdate } from "@alook/shared"
 import { deriveCommunityDeliveryOperationId, encodeCommunityBrowserEventBatch, prepareCommunityDeliveryEvents } from "@alook/shared"
 import { getMessageStreamState } from "@/test/community-query-owner"
@@ -163,6 +163,38 @@ describe("useCommunityWs — member events", () => {
     unsubscribe()
   })
 
+  it.each([false, true])("keeps member window boundaries and totals with tail hasMore=%s", async (tailHasMore) => {
+    await mountHook()
+    const join = (id: string): CommunityMemberJoin => ({ type: "community:member.join", serverId: "srv_1", member: { id: `mem_${id}`, userId: id, name: id, discriminator: "0001", avatar: null, avatarVersion: 0, role: "member", joinedAt: "2026-07-03T00:00:00.000Z" } })
+    for (const id of tailHasMore ? ["a", "b", "g"] : ["a", "b"]) await capturedOnMessage!(currentCommunityEventFixture(join(id)))
+    if (tailHasMore) expect([...getCommunityDbRegistry(capturedQueryClient)!.collections.serverMemberships.values()].some(row => row.serverId === "srv_1" && row.userId === "g")).toBe(true)
+    const key = communityKeys.members("srv_1")
+    const total = tailHasMore ? 3 : 2
+    capturedQueryClient.setQueryData(key, { pages: [
+      { members: [{ id: "mem_a", userId: "a" }], hasMore: true, cursor: "next", limit: 50, total, liveRevision: 0 },
+      { members: [{ id: "mem_b", userId: "b" }], hasMore: tailHasMore, ...(tailHasMore ? { cursor: "unloaded" } : {}), limit: 50, total, liveRevision: 0 },
+    ], pageParams: [null, "next"] })
+    const otherKey = communityKeys.members("srv_2")
+    const other = { pages: [{ members: [], hasMore: false, limit: 50, total: 0, liveRevision: 0 }], pageParams: [null] }
+    capturedQueryClient.setQueryData(otherKey, other)
+    const members = await mountCanonicalHook(() => useServerMembers("srv_1"))
+    const read = () => capturedQueryClient.getQueryData<import("../use-server-members").MembersWindowCache>(key)!
+    await capturedOnMessage!(currentCommunityEventFixture(join("c")))
+    expect(read().pages.map(page => page.total)).toEqual([total + 1, total + 1])
+    expect(read().pages.map(page => page.members.map(member => member.userId))).toEqual(tailHasMore ? [["a"], ["b"]] : [["a"], ["b", "c"]])
+    const beforeDuplicate = read()
+    await capturedOnMessage!(currentCommunityEventFixture(join("a")))
+    expect(read()).toBe(beforeDuplicate)
+    if (tailHasMore) {
+      await capturedOnMessage!(currentCommunityEventFixture({ type: "community:member.leave", serverId: "srv_1", userId: "g" }))
+      expect(read().pages.map(page => page.total)).toEqual([3, 3])
+      expect(read().pages.flatMap(page => page.members.map(member => member.userId))).toEqual(["a", "b"])
+      expect([...getCommunityDbRegistry(capturedQueryClient)!.collections.serverMemberships.values()].some(row => row.serverId === "srv_1" && row.userId === "g")).toBe(false)
+      await vi.waitFor(() => expect(members.result.current.total).toBe(3))
+    }
+    expect(capturedQueryClient.getQueryData(otherKey)).toBe(other)
+  })
+
   it("patches the members cache with a join event", async () => {
     await mountHook()
     capturedQueryClient.setQueryData(communityKeys.members("srv_1"), {
@@ -306,7 +338,7 @@ describe("useCommunityWs — member events", () => {
     expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.servers(), exact: true })
   })
 
-  it("forwards WS membership changes onto the server-scoped search overlay bus", async () => {
+  it("projects WS membership changes into the server-scoped member window", async () => {
     await mountHook()
     const server = (id: string) => {
       capturedOnMessage!(currentCommunityEventFixture({ type: "community:member.join", serverId: id, member: { avatar: null, id: `${id}-gone`, userId: "u_gone", name: "Gone", discriminator: "0001", avatarVersion: 0, role: "member", joinedAt: "2026-07-03T00:00:00.000Z" } }))

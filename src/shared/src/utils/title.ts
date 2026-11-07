@@ -1,12 +1,5 @@
 import { messagePreviewText, type MessagePreviewInput } from "../lib/message-preview";
 
-/**
- * Derive a conversation title from the first message body: collapse whitespace,
- * trim, and cap length at a word boundary when possible.
- *
- * Lifted from the user-send route so the agent-DM route can reuse the exact
- * same auto-title behaviour (both set a conversation's title on first message).
- */
 export function truncateTitle(text: string, maxLen = 50): string {
   const trimmed = text.replace(/\s+/g, " ").trim();
   if (trimmed.length <= maxLen) return trimmed;
@@ -20,11 +13,6 @@ export function stripInlineMarkup(raw: string): string {
   return messagePreviewText({ content: raw })
 }
 
-/**
- * Derive a clean thread name from a message body: strip markup, collapse
- * whitespace, keep the first `maxWords` words, cap at `maxChars`. Falls back to
- * `fallback` when the message yields no readable text.
- */
 export function deriveThreadName(
   raw: string | MessagePreviewInput | null | undefined,
   fallback: string,

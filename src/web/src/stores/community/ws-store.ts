@@ -301,15 +301,8 @@ export function createCommunityWsStore(viewerId: string | null, publishPresence?
     setState((state) => ({ ...state, ...{ revokedServerIds } }))
   },
 
-  isChannelAccessRevoked: (channelId, serverId, parentChannelId) => {
-    const state = get()
-    const scope = state.channelAccessScopes.get(channelId)
-    const server = serverId ?? scope?.serverId
-    const parent = parentChannelId ?? scope?.parentChannelId
-    return Boolean(scope?.revoked
-      || (server && state.revokedServerIds.has(server))
-      || (parent && state.channelAccessScopes.get(parent)?.revoked))
-  },
+  isChannelAccessRevoked: (channelId, serverId, parentChannelId) =>
+    !communityScopeAllowsAccess(get(), { channelId, serverId, parentChannelId }),
 
   markAccessDisconnected: () => {
     const state = get()

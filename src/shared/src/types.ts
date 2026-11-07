@@ -282,7 +282,6 @@ export interface MeetingSession {
   updated_at: string;
 }
 
-/** WebSocket event types — single source of truth for the WS protocol. */
 export type WsMessage =
   | { type: "runtime.registered"; daemonId: string; hostname: string; workspaceId: string }
   | { type: "runtime.status"; daemonId: string; workspaceId?: string; status: string }

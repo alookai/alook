@@ -60,7 +60,6 @@ import { useNotificationSettings } from "@/hooks/community/use-notification-sett
 import { useSetChannelNotif } from "@/hooks/community/mutations"
 import { toastApiError } from "@/lib/api/client"
 import {
-  useCanonicalProfilesByUserId,
   useCanonicalCommunityProfile, useChannelRosterRows,
 } from "@/lib/community-db/projections"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
@@ -98,7 +97,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
   const dmsQuery = useDms(false, true)
   const dms = dmsQuery.dms
   const dmsLoading = dmsQuery.isLoading
-  const { friends: rawFriends, blocked } = useFriends({ enabled: false })
+  const { friends, blocked } = useFriends({ enabled: false })
   const access = useChannelRosterRows(dmId, "access")
   const peers = [...new Set(access.filter(row => row.userId !== currentUser.id).map(row => row.userId))]
   const directoryDm = dms.find(candidate => candidate.id === dmId)
@@ -117,30 +116,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
   const dmBlocked = !!peerId && blocked.some((b) => (b.userId ?? b.id) === peerId)
   const readDenied = metadata.denied || metadata.denialCode === "blocked"
   const historyAllowed = !dmBlocked && metadata.canRead
-  const profilesByUserId = useCanonicalProfilesByUserId()
-  // Enrich with presence — the Composer @-picker uses `f.status` to render
-  // the avatar presence dot; without this enrichment every avatar shows offline.
-  const friends = useMemo(
-    () =>
-      rawFriends.map((f) => {
-        const userId = f.userId ?? f.id
-        const canonical = profilesByUserId.get(userId)
-        const profile = canonical
-          ? readCommunityProfile(canonical, userId)
-          : { ...f, presence: f.status }
-        return {
-          ...f,
-          name: profile.name,
-          discriminator: profile.discriminator,
-          avatar: profile.avatar,
-          avatarVersion: profile.avatarVersion,
-          status: profile.presence,
-          statusEmoji: profile.statusEmoji,
-          statusText: profile.statusText,
-        }
-      }),
-    [profilesByUserId, rawFriends],
-  )
+
   const {
     messages: fetchedMessages,
     isLoading: messagesLoading,

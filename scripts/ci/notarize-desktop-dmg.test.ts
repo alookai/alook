@@ -26,7 +26,7 @@ function fixture(target = "macos-aarch64") {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "alook-final-dmg-")))
   directories.push(root)
   mkdirSync(join(root, "scripts/ci"), { recursive: true })
-  for (const file of ["notarize-desktop-dmg.mjs", "desktop-release-artifacts.mjs", "verify-minisign.mjs"]) {
+  for (const file of ["notarize-desktop-dmg.mjs", "desktop-release-artifacts.mjs", "verify-minisign.mjs", "cli-args.mjs"]) {
     cpSync(join(repository, "scripts/ci", file), join(root, "scripts/ci", file))
   }
   const bin = join(root, "bin")

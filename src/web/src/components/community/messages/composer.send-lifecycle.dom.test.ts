@@ -60,8 +60,8 @@ vi.mock("./composer-ordered-list", () => ({
   serializeComposerDocument: (...args: unknown[]) =>
     mocks.serializeDocument(...args),
 }))
-vi.mock("@/hooks/community/mutations/messages", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/hooks/community/mutations/messages")>(),
+vi.mock("@/lib/community/message-send-input", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community/message-send-input")>(),
   sendNonce: () => "nonce_collision",
 }))
 

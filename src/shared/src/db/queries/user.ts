@@ -7,9 +7,8 @@ import { computeDiscriminator } from "../../lib/discriminator";
 import { isUniqueConstraintError } from "../../utils/db-errors";
 import { chunk, maxInParams } from "./_chunk";
 
-/** Per-width salt-retry budget before widening the discriminator by one digit. */
 const MAX_DISCRIMINATOR_ATTEMPTS = 5;
-/** Default (narrowest) discriminator width — the pre-widening `name#0042` size. */
+
 const MIN_DISCRIMINATOR_WIDTH = 4;
 /**
  * Absurd-width deadloop catcher. A width this large means 10^18 same-name
@@ -356,8 +355,7 @@ export async function withUniqueDiscriminator<T>(
       }
     }
   }
-  // Reached only at 10^MAX_DISCRIMINATOR_WIDTH same-name entities = impossible =
-  // bug. Loud, never a silent cap.
+
   throw new Error(
     `discriminator allocation exceeded width ${MAX_DISCRIMINATOR_WIDTH} for name "${input.name}" — not a real collision`
   );
@@ -397,8 +395,7 @@ export async function probeAvailableDiscriminator(
       if (!existing) return discriminator;
     }
   }
-  // Reached only at 10^MAX_DISCRIMINATOR_WIDTH same-name entities = impossible =
-  // bug. Loud, never a silent cap (mirrors withUniqueDiscriminator).
+
   throw new Error(
     `discriminator probe exceeded width ${MAX_DISCRIMINATOR_WIDTH} for name "${input.name}" — not a real collision`
   );
@@ -409,8 +406,7 @@ export async function createUser(
   data: { name: string; email: string }
 ): Promise<PublicUser> {
   if (!data.name.trim()) throw new Error("user.name cannot be empty");
-  // Generate the id up-front so the discriminator (an FNV-1a hash of the id)
-  // can be written in the same INSERT — no separate UPDATE round-trip.
+
   const id = nanoid();
   return withUniqueDiscriminator(db, { id, name: data.name }, async (discriminator) => {
     const rows = await db

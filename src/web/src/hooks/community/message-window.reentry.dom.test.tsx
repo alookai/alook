@@ -10,7 +10,7 @@ import { communityKeys } from "@/lib/query-keys"
 import type { MessageWindowData } from "@/lib/community/message-window"
 import { currentConversationReadState } from "@/lib/community/conversation-entry"
 import { useDmMessages } from "./use-messages"
-import { reconcileWindow } from "./community-ws/reconnect-messages"
+import { reconcileWindow } from "@/lib/community/message-reconcile"
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 

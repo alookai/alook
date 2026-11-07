@@ -40,14 +40,6 @@ type CommunitySheetProps = {
   bodyTestId?: string
 }
 
-/**
- * Controlled modal shell for every community right-hand surface.
- *
- * The shell owns structure, dismissal, width, and the CSS-only 640px
- * checkpoint. Callers supply business content through the title, body, and
- * optional footer slots. Callers may opt into the fixed internal resize
- * policy when their content benefits from more horizontal space.
- */
 export function CommunitySheet({
   open,
   onOpenChange,

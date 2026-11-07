@@ -12,19 +12,13 @@ import { communityKeys } from "@/lib/query-keys"
 export type CreateOrGetDmArgs = { userId: string; assertActive?: (() => void) & { signal: AbortSignal } }
 export type CreateOrGetDmResult = { conversation: { id: string } }
 
-/**
- * Open (or create) a DM conversation with a specific user. Returns the
- * conversation id. On success, invalidate the DM sidebar so a newly-created
- * DM appears there without a manual refetch.
- */
 export function useCreateOrGetDm() {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
   type Intent = CreateOrGetDmArgs & { original: ReturnType<typeof origin.begin>["token"] }
   const native = useMutation<CreateOrGetDmResult, Error, Intent>({ meta: { observabilityAction: "dm.open" },
     mutationFn: async ({ userId, original, assertActive }) => {
-      // Unified create door (route/disc create-door step): POST /channels with
-      // {type:"dm", userId} → get-or-create DM by peer identity.
+
       origin.assert(original); assertActive?.()
       const resources = queryClient.getQueryCache().findAll({ queryKey: communityKeys.dms() })
       const result = await origin.request<CreateOrGetDmResult>(original, "/api/community/channels", {

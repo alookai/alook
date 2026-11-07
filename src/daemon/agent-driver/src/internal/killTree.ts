@@ -680,7 +680,6 @@ function posixTargetsAreAlive(targets: PosixTreeTargets): boolean {
   return targets.processGroups.some(isProcessGroupAlive) || targets.pids.some(isAlive);
 }
 
-/** Best-effort group signals followed by direct signals to every captured PID. */
 function signalPosixTargets(targets: PosixTreeTargets, signal: NodeJS.Signals): void {
   for (const pgid of targets.processGroups) {
     try {
@@ -694,14 +693,12 @@ function signalPosixTargets(targets: PosixTreeTargets, signal: NodeJS.Signals): 
     try {
       process.kill(pid, signal);
     } catch {
-      // already dead
     }
   }
 }
 
 class WindowsTreeExitError extends Error {}
 
-/** Stop the live Windows job supervisor and await its forced tree walk. */
 function taskkillTree(pid: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const killer = spawn("taskkill.exe", ["/pid", String(pid), "/t", "/f"], {

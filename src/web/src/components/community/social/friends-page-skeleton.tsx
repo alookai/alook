@@ -36,9 +36,6 @@ export function FriendsPageSkeleton({
   )
 }
 
-// Skeleton rows for the friends/pending/blocked sections. `withActions` reserves
-// the trailing action-button slot so pending/blocked rows don't reflow into
-// the friend-row footprint and back.
 export function FriendRowsSkeleton({ withActions = false }: { withActions?: boolean }) {
   return (
     <div className="flex flex-col gap-1">

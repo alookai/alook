@@ -1,4 +1,4 @@
-import type { ChannelType, CommunityRole } from "@alook/shared"
+import type { ChannelType, CommunityRole, ServerRailEntry } from "@alook/shared"
 
 export type EntityKind = "text" | "forum" | "thread"
 
@@ -60,3 +60,31 @@ export type Category = {
   // Optimistic placeholder category — reconciled when the create resolves.
   pending?: boolean
 }
+
+export type ServersResponse = { servers: Server[] }
+export type FoldersResponse = { folders: CommunityFolder[]; topOrder?: ServerRailEntry[] | null }
+
+export type ServerDetail = {
+  id: string
+  name: string
+  discriminator: string
+  description: string
+  icon: string | null
+  official?: boolean
+  ownerId: string
+  categories: Category[]
+  /** Canonical unread ownership for participating children of forum channels. */
+  forumUnreadState?: ForumUnreadState
+  unreadSources?: Array<{
+    channelId: string
+    lastUnreadSeq: number
+    lastAttentionSeq: number | null
+  }>
+}
+
+type ForumUnreadState = Record<string, {
+  /** The forum channel's own unread contribution, excluding child posts. */
+  baseUnread: boolean
+  /** Every canonically unread participating child, loaded in the sidebar or not. */
+  childIds: string[]
+}>

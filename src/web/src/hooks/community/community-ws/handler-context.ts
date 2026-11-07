@@ -4,9 +4,9 @@ import type { CommunityWsProjectionTransaction } from "@/hooks/community/communi
 import type { CommunityWsEvent, CommunityContract } from "@alook/shared"
 
 export type Subscription = {
-  // The focused regular channel/thread.
+
   channelId?: string
-  // The parent channel/forum that remains mounted beside a focused thread.
+
   secondaryChannelId?: string
   // The focused DM's channel id. A DM is a channel now; this slot keeps its
   // name only to mark "the focused channel is a DM" so the handler routes its
@@ -14,11 +14,6 @@ export type Subscription = {
   dmConversationId?: string
 }
 
-/**
- * Optional args — the community feature needs to know the viewer's userId so
- * reactions from that user light up the "me" flag. Passing null keeps the
- * hook usable in places where the viewer identity isn't yet loaded.
- */
 export type UseCommunityWsOptions = {
   communityContract?: CommunityContract
   viewerUserId?: string | null

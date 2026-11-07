@@ -20,7 +20,6 @@ import { dispatchCommittedMessage } from "./message-dispatcher"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 import { broadcastToUserSafe, fanOutToChannel } from "./fanout"
 
-
 import { extractChatMentionedUserIds } from "./chat-markdown"
 
 const log = createLogger({ service: "community-message-handler" })
@@ -145,16 +144,6 @@ type CreateMessageOk = {
 
 export type CreateMessageResult = CreateMessageOk | CreateMessageError
 
-/**
- * Unified message-create pipeline for channel, thread, and DM POSTs.
- *
- * Handles request-body validation, message + attachment inserts, reply
- * resolution, mention extraction (channel/thread only — DMs only flag the
- * reply target), participant writes, and one committed dispatcher call that
- * derives message, notification, wake, and parent projections from D1.
- *
- * Each route resolves permission/target first, then delegates here.
- */
 export async function createCommunityMessage(params: {
   db: Database
   authorId: string
@@ -268,8 +257,6 @@ export async function createCommunityMessage(params: {
     }
   }
 
-  // Reserve-by-id is the SINGLE attachment path (route/disc step 2b unified the
-  // human composer onto the bot flow): every caller — human web AND bot — passes
   const attachmentIdCount = Array.isArray(attachmentIds) ? attachmentIds.length : 0
   if (attachmentIdCount > MAX_ATTACHMENTS_PER_MESSAGE) {
     return {
@@ -313,9 +300,7 @@ export async function createCommunityMessage(params: {
   const rawReplyToId =
     typeof body.replyToId === "string" ? body.replyToId : undefined
   let replyToId = rawReplyToId
-  // Resolved reply target, in-scope — carried to the preview block below so it
-  // reuses this lookup instead of re-fetching (net: no extra query for the
-  // common in-scope reply; the validation replaces the preview's fetch).
+
   let resolvedReplyMsg:
     | Awaited<ReturnType<typeof queries.communityMessage.getMessageInScope>>
     | null = null
@@ -344,11 +329,7 @@ export async function createCommunityMessage(params: {
   // from a different DM/channel by passing its id. The payload-side reply
   // preview is rebuilt from this same persisted relation by the dispatcher.
   const replyTargets = new Set<string>()
-  // Reuse the in-scope reply target resolved at the write-validation step above
-  // (`resolvedReplyMsg`) — it was fetched with the identical `getMessageInScope`
-  // scope, so re-querying here would be redundant. `replyToId` is already
-  // null when the id was out-of-scope (dropped above), so this block only runs
-  // for a genuinely in-scope reply.
+
   if (!skipMentions && replyToId && resolvedReplyMsg) {
     // single-id path — see `dm/[id]/messages/route.ts` / `channels/[id]/messages/route.ts` for the batched N-id path
     if (resolvedReplyMsg.authorId && resolvedReplyMsg.authorId !== authorId) {
@@ -374,11 +355,7 @@ export async function createCommunityMessage(params: {
   // the notification dimension). See the thread-participation block below.
   const explicitMentionTargets = new Set<string>()
   if (!skipMentions && !isDmTarget(target)) {
-    // Resolve the audience up front when private; `null` = public (no clamp).
-    // PERF (accepted): `isChannelPrivate` and `getPrivateChannelAudienceUserIds`
-    // each climb `parentChannelId` for a thread — two parent lookups per message
-    // on the send path. Cheap (indexed id lookups) and not merged to keep both
-    // helpers single-purpose; revisit only if the send path shows up hot.
+
     const isPrivate = await withD1Retry(
       () => queries.communityChannel.isChannelPrivate(db, target.channelId),
       { route: "message-handler:is-private" },
@@ -398,7 +375,7 @@ export async function createCommunityMessage(params: {
         () => queries.communityMember.listMembers(db, target.serverId),
         { route: "message-handler:list-members" },
       )
-      // Scope candidates to the audience when private.
+
       const members = audienceIds
         ? allMembers.filter((m) => audienceIds.has(m.userId))
         : allMembers
@@ -478,7 +455,7 @@ export async function createCommunityMessage(params: {
     for (const id of new Set([...explicitMentionTargets, ...replyParticipants])) {
       if (id !== authorId) rows.push({ userId: id, source: PARTICIPANT_SOURCE.MENTION })
     }
-    // One bulk insert (author + mentioned) instead of N+1 sequential inserts.
+
     participants = rows
   }
 

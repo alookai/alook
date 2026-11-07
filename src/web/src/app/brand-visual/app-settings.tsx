@@ -23,9 +23,8 @@ const MEMBERS: Member[] = [...DEMO_PROFILES.values()].map((p) => ({
   status: p.presence ?? "online", sub: p.aboutMe ?? "", role: p.id === "demo-gus" ? "owner" : "member",
 }))
 
-/** Same frame the app uses for both settings modals (shell-frame-overlays / server-sidebar-slot). */
 const SETTINGS_DIALOG_CLASS = "flex h-full max-h-full w-full max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[calc(100%-4rem)] sm:max-h-180 sm:w-[calc(100%-4rem)] sm:max-w-4xl sm:rounded-xl"
-/** Inline frame for the board: the dialog box size, without the portal. */
+
 const INLINE_FRAME: CSSProperties = { display: "flex", flexDirection: "column", height: 640, overflow: "hidden", borderRadius: "var(--radius)", border: "1px solid var(--border)", background: "var(--background)" }
 
 function UserSettingsDemo({ onClose }: { onClose: () => void }) {
@@ -89,7 +88,6 @@ function SettingsDialog({ open, onOpenChange, title, children }: { open: boolean
 
 type Open = null | "user" | "server" | "category" | "newCategory" | "newServer"
 
-/** /brand-visual: Settings specimens (real components on demo fixtures). */
 export function AppSettingsSpecimens(_props: { mode: "light" | "dark" }) {
   const [open, setOpen] = useState<Open>(null)
   const close = () => setOpen(null)

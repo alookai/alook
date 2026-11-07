@@ -6,10 +6,12 @@ import {
   PiDriver,
   PI_IGNORED_EVENT_TYPES,
   mapPiSdkEvent,
+} from "./index.js";
+import {
   resolvePiSdkVersionFromPath,
   resolvePiSdkPackageDir,
   findPiSessionFile,
-} from "./index.js";
+} from "./paths.js";
 import { CANONICAL_FILE } from "../../internal/agentFile.js";
 import { capabilitiesFor, createAgentDriverRegistry } from "../../registry.js";
 import { createAgentDriverSdkWithRegistry } from "../../sdk.js";

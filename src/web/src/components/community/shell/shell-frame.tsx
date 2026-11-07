@@ -7,7 +7,6 @@ import { commitNavigation } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
-
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useBreakpoint } from "@/hooks/use-mobile"
@@ -50,7 +49,6 @@ import {
   useServerTreeProjection,
 } from "@/lib/community-db/projections"
 
-/** Shared community shell orchestration for the server and DM layouts. */
 export function ShellFrame(props: ShellFrameProps) {
   const {
     view,

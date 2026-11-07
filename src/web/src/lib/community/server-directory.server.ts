@@ -1,5 +1,5 @@
 import { queries, UNCATEGORIZED_CATEGORY_ID, type Database } from "@alook/shared"
-import type { ServerDetail } from "@/hooks/community/use-servers"
+import type { ServerDetail } from "@/lib/community/models/navigation"
 import { requireServerMember } from "./permissions"
 import { serverIconUrl } from "./storage"
 

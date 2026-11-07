@@ -1,14 +1,4 @@
-/**
- * Seq-based queries powering the canonical community REST agent doors plus
- * `toAgentMessages`, the
- * DB-row → wire-`Message` projector every route that returns message bodies
- * uses.
- *
- * Kept in its own module (rather than folded into `message.ts`) because
- * every function here is agent-CLI-specific (seq-ordered, ref-formatted,
- * self-message-excluding) — a different shape from `message.ts`'s
- * `createdAt`-ordered, DB-shaped human-UI queries.
- */
+
 import { eq, and, inArray, gt, lt, ne, asc, desc, sql } from "drizzle-orm";
 import {
   communityMessage,
@@ -62,7 +52,6 @@ const AGENT_MESSAGE_COLUMNS = {
   replyToId: communityMessage.replyToId,
 } as const;
 
-/** One entry per distinct channel needing a `ChannelRef`. */
 type ScopeInfo = {
   ref: string;
   isThread: boolean;
@@ -191,11 +180,7 @@ async function resolveScopeRefs(
 
   const out = new Map<string, ScopeInfo>();
   for (const ch of channels) {
-    // Ref SHAPE is chosen by the single canonical-ref emitter, keyed on the
-    // channel type's addressing trait (B1, red-line ①) — this loop only gathers
-    // the resolved context each addressing value may need (server/parent names,
-    // DM peer segment, thread root seq). The `isThread`/`isDm` flags are a
-    // separate presentation concern (inbox-row flags) and stay type-derived.
+
     const storedType = (ch.type ?? "text") as StoredChannelType;
     const isDm = storedType === "dm";
     let peerSegment: string | undefined;
@@ -320,7 +305,7 @@ async function resolveReplyRefs(
   db: Database,
   rows: RawAgentMessage[]
 ): Promise<Map<string, ReplyRef>> {
-  // Group each row's replyToId by the row's OWN channel scope.
+
   const idsByScope = new Map<string, { scope: MessageScope; ids: Set<string> }>();
   for (const r of rows) {
     if (!r.replyToId) continue;
@@ -445,7 +430,6 @@ async function getServerHandle(db: Database, serverId: string): Promise<string |
   return rows[0] ? formatHandle(rows[0].name, rows[0].discriminator) : null;
 }
 
-/** Single-row convenience wrapper around `toAgentMessages`. */
 export async function toAgentMessage(
   db: Database,
   row: RawAgentMessage,
@@ -698,11 +682,7 @@ export async function hasDeliverableUnreadForAgentScope(
     .where(eq(communityChannel.id, channelId))
     .limit(1);
   const type = typeRows[0]?.type;
-  // Same reach `participant-set` narrowing as `listAgentAllowedChannelIds` — via
-  // the SAME reachIsParticipantSet source (B2). This gate and the pull's allowed
-  // set MUST agree on which channels need a notify row to be deliverable, or the
-  // gate counts backlog the pull never delivers (the send-alignment deadlock).
-  // Reading one shared reach value is what makes that agreement structural.
+
   if (reachIsParticipantSet(type)) {
     const participating = await listParticipatingThreadIds(db, [channelId], botUserId);
     if (participating.length === 0) return false;
@@ -870,13 +850,6 @@ export async function getInboxSnapshotForAgent(
   });
 }
 
-/**
- * Hydrate `getInboxSnapshotForAgent`'s DB-shaped rows into wire `InboxRow`s
- * (`channel: ChannelRef`, `flags`) for the `inboxSnapshot` route. Separate
- * from the DB query itself so the aggregation and the ref/flag projection
- * (which needs `resolveScopeRefs`' extra round trip) stay independently
- * testable, mirroring `toAgentMessage(s)`'s split for message rows.
- */
 export async function toInboxRows(
   db: Database,
   rows: InboxSnapshotRow[],
@@ -1076,7 +1049,7 @@ export async function listMessagesBySeq(
 
   const hasMore = items.length > limit;
   if (hasMore) {
-    // Trim the extra probe row from whichever end we over-fetched from.
+
     if (opts.after !== undefined) items = items.slice(0, limit);
     else items = items.slice(items.length - limit);
   }

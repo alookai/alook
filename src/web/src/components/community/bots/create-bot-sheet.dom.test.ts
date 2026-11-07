@@ -8,8 +8,8 @@ import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
 import {
   normalizeRuntimes,
   firstHealthyRuntimeId,
-  firstOnlineMachineId,
-} from "./create-bot-sheet"
+} from "@/lib/community/machines"
+import { CreateBotSheet, firstOnlineMachineId } from "./create-bot-sheet"
 import type { CommunityMachineSummary, RuntimeReasoningCatalog } from "@alook/shared"
 import { hasBotCreateFieldErrors, validateBotCreateFields } from "./bot-form-validation"
 
@@ -109,8 +109,7 @@ describe("firstHealthyRuntimeId", () => {
 // --- Component auto-select tests --------------------------------------------
 //
 // Mock the sheet shell and heavy children to render passthrough, and mock the data/mutation
-// hooks. What we assert is the *initial `checked` state* of the machine and
-// runtime radios, which is all this change touches.
+// hooks.
 
 const useMachinesMock = vi.fn()
 const createMutateAsync = vi.fn()
@@ -176,8 +175,6 @@ vi.mock("./reasoning-effort-field", () => ({
 vi.mock("@/components/provider-logo", () => ({
   ProviderLogo: () => React.createElement("span", { "data-mock": "provider-logo" }),
 }))
-
-import { CreateBotSheet } from "./create-bot-sheet"
 
 type Radio = { name: string; value: string; checked: boolean }
 
@@ -341,7 +338,7 @@ describe("CreateBotSheet — auto-select defaults", () => {
           id: "mac",
           status: "online",
           availableRuntimes: [
-            { id: "claude", status: "healthy" },
+            { id: "claude", status: "healthy", reasoning: { updateMode: "unsupported", defaultModelId: "claude-model", models: [{ id: "claude-model", supportedReasoningEfforts: [] }] } },
           ] as unknown as CommunityMachineSummary["availableRuntimes"],
         }),
         machine({
@@ -355,12 +352,16 @@ describe("CreateBotSheet — auto-select defaults", () => {
     })
     modelFieldRenders.length = 0
     const renderer = render()
-    // Switching machine (which re-defaults the runtime) hands ModelField a
-    // fresh runtime with value null.
+    expect(checkedValue(renderer, "bot-machine")).toBe("mac")
+    expect(checkedValue(renderer, "bot-runtime")).toBe("claude")
+    fireEvent.click(renderer.getByTestId("set-model"))
+    expect(modelFieldRenders.at(-1)?.value).toBe("claude-model")
     const serverRadio = renderer.container.querySelector<HTMLInputElement>(
       'input[name="bot-machine"][value="server"]',
     )!
     fireEvent.click(serverRadio)
+    expect(checkedValue(renderer, "bot-machine")).toBe("server")
+    expect(checkedValue(renderer, "bot-runtime")).toBe("codex")
     const last = modelFieldRenders.at(-1)!
     expect(last.runtime?.id).toBe("codex")
     expect(last.value).toBeNull()
@@ -469,38 +470,6 @@ describe("CreateBotSheet — auto-select defaults", () => {
     expect(createMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: "mac", runtime: "codex", reasoningEffort: "xhigh" }),
     )
-  })
-
-  it("re-defaults the runtime when the user switches to another machine", () => {
-    useMachinesMock.mockReturnValue({
-      machines: [
-        machine({
-          id: "mac",
-          status: "online",
-          availableRuntimes: [
-            { id: "claude", status: "healthy" },
-          ] as unknown as CommunityMachineSummary["availableRuntimes"],
-        }),
-        machine({
-          id: "server",
-          status: "online",
-          availableRuntimes: [
-            { id: "codex", status: "healthy" },
-          ] as unknown as CommunityMachineSummary["availableRuntimes"],
-        }),
-      ],
-    })
-    const renderer = render()
-    expect(checkedValue(renderer, "bot-machine")).toBe("mac")
-    expect(checkedValue(renderer, "bot-runtime")).toBe("claude")
-
-    // Click the second machine's radio.
-    const serverRadio = renderer.container.querySelector<HTMLInputElement>(
-      'input[name="bot-machine"][value="server"]',
-    )!
-    fireEvent.click(serverRadio)
-    expect(checkedValue(renderer, "bot-machine")).toBe("server")
-    expect(checkedValue(renderer, "bot-runtime")).toBe("codex")
   })
 
   it("does not overwrite a chosen machine when a presence refetch changes the array", () => {

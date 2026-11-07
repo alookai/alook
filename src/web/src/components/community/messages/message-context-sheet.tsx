@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button"
 import { messagePreviewText } from "@alook/shared"
 import { useAtom, useCreateAtom, useSelector } from "@tanstack/react-store"
 
-
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { getQualifiedConversationScope } from "@/lib/community/conversation-entry"
 import { isChannelMetadataTokenCurrent, conversationListScopeKey } from "@/lib/community/conversation-qualification"
@@ -54,7 +53,6 @@ import {
   assertCommunityLiveSnapshotTokenCurrent,
   publishCommunityEmbeddedMessages,
 } from "@/lib/community-db/sync"
-
 
 // Preview window sizing — small on purpose. The sheet is a read-only
 // excerpt with just enough surrounding context to make the target message
@@ -152,8 +150,6 @@ export function messageContextQueryFn(
     return { notFound: false, proof: publicationToken, anchorId: targetId, messages: messages.map(({ id }) => ({ id })) }
   })
 }
-
-
 
 /**
  * Sidecar preview shown when the user clicks a `#NUMBER` ref pointing at a
@@ -279,14 +275,10 @@ function MessageContextSheetContent({
     if (open && cached && !cached.notFound && !graph && query.isSuccess && !query.isFetching) void refetch({ cancelRefetch: false })
   }, [open, cached, graph, query.isSuccess, query.isFetching, refetch])
 
-
   const renderRows = useMemo<RenderMsg[]>(() => {
     if (cached?.notFound) return []
     const src = materializeCanonicalMessages(references, canonicalMessages)
-    // Same grouping heuristic the main list uses (adjacent same-author within
-    // ~5 min → collapse header). Inlined here rather than sharing the util
-    // because the excerpt is small enough that the extra dep isn't worth the
-    // module coupling.
+
     return src.map((m, i) => {
       const prev = i > 0 ? src[i - 1] : null
       const grouped =
@@ -311,7 +303,6 @@ function MessageContextSheetContent({
     else { setLocalAnchorId(null); setNestedId(id) }
   }, [references, setLocalAnchorId, setNestedId])
 
-  // ── Sheet-local actions ──────────────────────────────────────────────────
   const findMessage = useCallback(
     (id: string): Msg | undefined => {
       const transport = references.find((message) => message.id === id)
@@ -407,7 +398,6 @@ function MessageContextSheetContent({
       if (!isAbortError(e)) toastApiError(e, "Failed to create thread")
     }
   }, [type, serverId, channelId, findMessage, createThreadMut])
-
 
   const onOpenThreadId = useCallback((threadId: string) => {
     // Sheet's Reply-style handoff: navigate the main window to the thread and

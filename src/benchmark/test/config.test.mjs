@@ -9,19 +9,19 @@ import { loadConfig, publicConfig } from '../src/config.mjs'
 test('config rejects ambiguous targets/identities and public output excludes fixture secrets', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'benchmark-config-'))
   const path = join(dir, 'config.json')
-  const base = { baseUrl: 'http://localhost:3000', targetKind: 'local', targetVersion: 'sha', environment: 'test', fixtureFile: 'fixture.json' }
+  const base = { communityContractVersion: 10, baseUrl: 'http://localhost:3000', targetKind: 'local', targetVersion: 'sha', environment: 'test', fixtureFile: 'fixture.json' }
   const accounts = [{ cookie: 'secret-1', userId: 'one' }, { cookie: 'secret-2', userId: 'two' }]
   try {
     await writeFile(join(dir, 'fixture.json'), JSON.stringify({ accounts }))
     await writeFile(path, JSON.stringify(base))
     const config = await loadConfig(path)
     await assert.rejects(prepareFixture({ ...config, receivers: 2 }), /sender plus/ )
-    await writeFile(path, JSON.stringify({ ...base, case: 'counter-control', fixtureFile: undefined }))
+    await writeFile(path, JSON.stringify({ ...base, case: 'http-counter-control', communityContractVersion: undefined, fixtureFile: undefined }))
     assert.deepEqual((await loadConfig(path)).fixture, {})
     assert.equal(config.expectedMembers, 100)
     assert.equal(config.intervalMs, 400)
     assert.ok(!JSON.stringify(publicConfig(config)).includes('secret'))
-    for (const override of [{ baseUrl: 'https://user:password@example.com' }, { wsUrl: 'ws://localhost/api/ws?token=secret' }, { phases: [{ name: 'obsolete', phase: 'response', delayMs: 1000 }] }, { samples: 0 }, { targetKind: 'production' }]) {
+    for (const override of [{ communityContractVersion: undefined }, { communityContractVersion: 9 }, { communityContractVersion: '10' },{ baseUrl: 'https://user:password@example.com' }, { wsUrl: 'ws://localhost/api/ws?token=secret' }, { phases: [{ name: 'obsolete', phase: 'response', delayMs: 1000 }] }, { samples: 0 }, { targetKind: 'production' }]) {
       await writeFile(path, JSON.stringify({ ...base, ...override }))
       await assert.rejects(loadConfig(path))
     }

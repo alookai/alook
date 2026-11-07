@@ -49,13 +49,13 @@ export function openSnapshotJsonLineStream(args: {
     snapshot = args.source.openSnapshot();
   } catch {
     warnings.push("source_unavailable");
-    return { rows: { async *[Symbol.asyncIterator]() { /* empty */ } }, warnings, stats, close: () => {} };
+    return { rows: { async *[Symbol.asyncIterator]() {  } }, warnings, stats, close: () => {} };
   }
   let closed = false;
   const close = (): void => {
     if (closed) return;
     closed = true;
-    try { snapshot.close(); } catch { /* best effort */ }
+    try { snapshot.close(); } catch {  }
   };
   if (snapshot.files.length === 0) {
     warnings.push("source_unavailable");
@@ -174,7 +174,7 @@ export async function* mergeChronologicalSnapshotStreams(
       heads[selected] = await iterators[selected]!.next();
     }
   } finally {
-    await Promise.all(iterators.map(async (iterator) => { try { await iterator.return?.(); } catch { /* best effort */ } }));
+    await Promise.all(iterators.map(async (iterator) => { try { await iterator.return?.(); } catch {  } }));
   }
 }
 
@@ -205,7 +205,7 @@ export async function readPinnedJsonFile(args: {
     return { value: null, warnings: ["source_unavailable"] };
   } finally {
     if (fd !== null) {
-      try { closeSync(fd); } catch { /* best effort */ }
+      try { closeSync(fd); } catch {  }
     }
   }
 }

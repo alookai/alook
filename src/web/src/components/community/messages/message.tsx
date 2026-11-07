@@ -241,11 +241,10 @@ function MessageImpl({
     : (m.replyTo?.authorName ?? "Deleted user")
   const visibleContent = m.content ?? ""
   const htmlPreviews = selectHtmlPreviews(m.approval || m.botCreation ? "" : visibleContent, m.attachments)
-  // keep the hover toolbar pinned open while its ⋯ dropdown is open
+
   const pageSwipe = usePageSwipeStart()
   const [toolbarOpen, setToolbarOpen] = useAtom(useCreateAtom(false))
-  // Right-click context-menu open state — tracked so the Mark/Unmark label's
-  // lazy read fires for the context menu too, not just the ⋯ dropdown.
+
   const [contextOpen, setContextOpen] = useAtom(useCreateAtom(false))
   const contextRowRef = useRef<HTMLDivElement | null>(null)
   const [contextSelectedText, setContextSelectedText] = useAtom(useCreateAtom<string | null>(null))
@@ -291,9 +290,6 @@ function MessageImpl({
     )
   }
 
-  // Share is only meaningful for a message with rendered text content (the card
-  // mirrors avatar/name/content — an approval/attachment-only row has nothing to
-  // put on it).
   const canShare = messageCanShare(m, compact)
   const menuHandlers = {
     onAddReaction: onReact ? () => onReact("👍") : undefined,
@@ -301,8 +297,7 @@ function MessageImpl({
     onMark, marked: markedData?.marked ?? false,
     onCreateThread: m.thread ? undefined : onCreateThread,
     onCopy: onCopy ? () => onCopy() : undefined,
-    // Share: enter multi-select (main list) if wired, else direct single-share
-    // (context-sheet). Undefined only when the surface wired NEITHER.
+
     onShare: canShare ? (onEnterSelect ?? onShareSingle) : undefined,
   }
   const linkMenuHandlers = {
@@ -377,9 +372,7 @@ function MessageImpl({
         activateLinkOrOverlays?.(event)
       }
     : undefined
-  // In select mode (multi-share), the whole row is a big toggle target and gets
-  // a name-row checkbox overlay + a tint when picked. `canShare` rows only —
-  // approval/attachment-only rows aren't selectable (nothing to put on the card).
+
   const selectable = selectMode && canShare
   const reactionAddButton = (
     <Button type="button" variant="secondary" size="icon-xs" className="h-6 w-7 rounded-md text-muted-foreground hover:text-foreground" aria-label="Add reaction">
@@ -1049,6 +1042,7 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
       a.grouped !== b.grouped ||
       a.failed !== b.failed ||
       a.botCreation !== b.botCreation ||
+      a.approval !== b.approval ||
       a.authorId !== b.authorId ||
       a.color !== b.color ||
       a.createdAt !== b.createdAt ||

@@ -40,7 +40,7 @@ import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useChannelMetadata } from "./use-channel-metadata"
 import { projectForumSidebar } from "@/lib/community/forum-sidebar"
 import { useForumOpenerHint } from "./use-forum-opener-hint"
-import { isChannelMetadataTokenCurrent } from "./channel-metadata"
+import { isChannelMetadataTokenCurrent } from "@/lib/community/channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
 import {
   getForumSidebarBase,

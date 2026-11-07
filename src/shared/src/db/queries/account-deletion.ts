@@ -1,3 +1,4 @@
+import { advanceReadStateRevisionsForUsersBuilder } from "./community/read-state-revision";
 import { and, eq, inArray, isNull, isNotNull, notExists, or, sql } from "drizzle-orm"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 import {
@@ -33,7 +34,6 @@ import {
   communityMachineCredential,
 } from "../community-machine-schema"
 import type { Database } from "../index"
-import { advanceReadStateRevisionsForUsersBuilder } from "./community/read-state"
 
 const deviceCode = sqliteTable("deviceCode", {
   id: text("id").primaryKey(),

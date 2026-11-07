@@ -23,5 +23,4 @@ export function sanitizeSlug(input: string): string {
     .replace(/-+$/g, "");
 }
 
-/** Lowercase-alnum id for slug conflict-retry suffixes. */
 export const slugSuffix = slugId;

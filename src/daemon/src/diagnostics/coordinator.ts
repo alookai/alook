@@ -399,7 +399,7 @@ export function createDiagnosticReportCoordinator(args: {
   const shutdown = async (): Promise<void> => {
     if (stopped) return;
     stopped = true;
-    for (const cancel of retryCancels) { try { cancel(); } catch { /* best effort */ } }
+    for (const cancel of retryCancels) { try { cancel(); } catch {  } }
     retryCancels.clear();
   };
 

@@ -15,7 +15,7 @@ import {
   getRelatedPosts,
 } from "@blog/lib/blog/topics";
 import { BlogPostByline, buildBlogPostMetadata } from "./article-meta";
-import { getBlogOgImage } from "./og-image";
+import { getBlogOgImage } from "@blog/lib/blog/metadata";
 
 // The ASSETS-only Worker intentionally has no incremental-cache binding, so a
 // prerender cache miss must be allowed to render the canonical slug at runtime.

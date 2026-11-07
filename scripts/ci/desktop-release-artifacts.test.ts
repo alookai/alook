@@ -1,3 +1,4 @@
+import { parseArgs as parseDesktopReleaseArgs } from "./cli-args.mjs"
 import { spawnSync } from "node:child_process"
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
@@ -14,7 +15,6 @@ import {
   assertPublishableRelease,
   collectTarget,
   main as runDesktopReleaseCli,
-  parseArgs as parseDesktopReleaseArgs,
   resolveSourcePath,
   runIfMain as runDesktopReleaseIfMain,
   targetSpec,

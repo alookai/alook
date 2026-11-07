@@ -133,7 +133,6 @@ function fitResponsesToRow(entry: ContextTimelineEntry, responses: readonly stri
   return fitted;
 }
 
-/** Manager/daemon-facing recorder interface (structural, avoids a cyclic import). */
 export interface TimelineRecorderLike {
   /** Current in-memory barrier epoch captured by pull-start owner snapshots. */
   barrierGeneration(agentId: string): number;
@@ -187,7 +186,7 @@ export interface TimelineRecorderOptions {
   timelineDirFor: (agentId: string) => string;
   /** Provider stamped on new entries (resume can be constrained to it). */
   providerFor?: (agentId: string) => string | null;
-  /** Injectable clock (tests). */
+
   now?: () => Date;
   /** Bounded fail-closed diagnostics; never receives response/reasoning content. */
   onDiagnostic?: (event: { agentId: string; code: string; reason?: string }) => void;

@@ -7,7 +7,7 @@ import { bindCommunityTransport, useCommunityRuntime, type CommunityRuntime } fr
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { cancelMessageRepairs } from "@/hooks/community/community-ws/reconnect-messages"
+import { cancelMessageRepairs } from "@/lib/community/message-reconcile"
 import {
   useUserWs,
   type UserWsConnectionPhase,
@@ -39,7 +39,6 @@ import {
   type CommunityWsEvent,
   type CommunityContract,
 } from "@alook/shared"
-import { trackCommunityWsFrameDropped } from "@/lib/analytics"
 import {
   createCommunityWsConnectionStatusController,
   type CommunityWsConnectionStatusController,
@@ -52,43 +51,12 @@ export type {
   UseCommunityWsOptions,
 } from "@/hooks/community/community-ws/handler-context"
 
-/**
- * Community WebSocket handler.
- *
- * Every event either patches the TanStack Query cache directly (fast — no
- * refetch) or invalidates a query key (slow — triggers refetch). The choice
- * is driven by the reconciliation table in `the community reconciliation table`.
- *
- * State this hook owns *outside* the query cache:
- * - `useCommunityWsStore.seenMessageIds` — dedup for `message.create`.
- * - `useCommunityStore.typingByScope` + `typingTimers` — typing indicator,
- *   keyed by conversation scope with per-(scope, user) auto-expire timers.
- * - `useCommunityStore.lastTypingSent` — outbound typing.start rate limit.
- *
- * The subscription (which channel/DM is focused) is read from
- * `useCommunityStore.subscription`, not from local component state — that
- * way any consumer can call `runtime.ui.actions.subscribe(...)`
- * and the WS handler picks it up on the next event.
- */
-
-// ── Constants ─────────────────────────────────────────────────────────────
-
 function hasCommunityFunnelTrigger(events: readonly CommunityWsEvent[]) {
   return events.some((event) => event.type === "community:machine.status"
     || event.type === "community:message.create"
     || event.type === "community:member.join")
 }
 
-// ── Public hook ────────────────────────────────────────────────────────────
-
-// Module-level slot for the currently-active WS `send`. The root-mounted
-// `useCommunityWs` writes into this on connect so free helpers below can
-// dispatch typing events without needing to re-mount the hook (which would
-// open a second WebSocket per consumer). Cleared on unmount.
-/**
- * Subscribe to a channel/thread/DM. Free helper so any component can update
- * the focused subscription without holding a reference to `useCommunityWs`.
- */
 export function communityWsSubscribe(
   runtime: CommunityRuntime,
   target: Pick<Subscription, "channelId" | "dmConversationId">,
@@ -189,12 +157,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       const sub = communityStore.get().subscription
       const wsStore = runtime.ws
       let machineBecameOnline = false
-      // A DM is a channel now — every message/typing/reaction event carries a
-      // single `channelId`. The subscription still tracks two slots so the
-      // handler can route a DM channel's events into the `dmMessages` cache vs
-      // a regular channel's into `channelMessages` (`sub.dmConversationId`
-      // holds the focused DM's channel id). An event is "focused" if its
-      // channelId matches either slot.
       const matchesFocus = (e: { channelId?: string }): boolean => {
         if (!e.channelId) return false
         return e.channelId === sub.channelId
@@ -230,7 +192,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
 
       if (isCommunityBrowserEventBatchCandidate(msg)) {
         if (msg.type !== communityBrowserEventBatchType(contract)) {
-          trackCommunityWsFrameDropped({ reason: "invalid-payload", type: msg.type })
+
           return
         }
         const token = captureCommunityLiveSnapshotToken(queryClient)
@@ -249,7 +211,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
             event: "community_ws_frame_dropped",
             ...metadata,
           })
-          trackCommunityWsFrameDropped(metadata)
+
           return
         }
         const operationStatus = runtime.ws.actions.observeDeliveryOperation(
@@ -288,7 +250,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         // conflicting digest fails closed even while this operation remains
         // observed but incomplete/retryable after a projection failure.
         // Browser projections are not rollback-capable: a later child can
-        // throw after an earlier child updated a Zustand/query-cache overlay.
+        // throw after an earlier child updated a canonical collection or overlay.
         // Keeping the failed operation locked but incomplete lets the
         // identical bundle retry, so idempotent child projections can finish
         // converging even when authoritative reconnect reconciliation fails.
@@ -313,7 +275,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
           event: "community_ws_frame_dropped",
           ...metadata,
         })
-        trackCommunityWsFrameDropped(metadata)
+
         return
       }
       await dispatchCommunityWsEvent(decoded.event, context("single"))

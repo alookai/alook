@@ -15,8 +15,7 @@ function fnv1a32(input: string): number {
   const bytes = new TextEncoder().encode(input);
   for (let i = 0; i < bytes.length; i++) {
     hash ^= bytes[i]!;
-    // 32-bit unsigned multiply — `Math.imul` handles overflow correctly,
-    // `>>> 0` coerces the result back to Uint32.
+
     hash = Math.imul(hash, FNV_PRIME_32) >>> 0;
   }
   return hash;

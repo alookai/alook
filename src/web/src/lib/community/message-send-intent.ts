@@ -1,5 +1,5 @@
-import { sendNonce, tempMessageId, toAttachmentVm, type SendMessageArgs } from "@/hooks/community/mutations/messages"
-import { zipUploadResultsWithDimensions, type UploadFileArgs, type UploadFileResult } from "@/hooks/community/mutations/uploads"
+import { sendNonce, tempMessageId, toAttachmentVm, type SendMessageArgs } from "@/lib/community/message-send-input"
+import { zipUploadResultsWithDimensions, type UploadFileArgs, type UploadFileResult } from "@/lib/community/attachment-upload"
 import { toastApiError } from "@/lib/api/client"
 import type { CommunityRuntime } from "@/stores/community/runtime"
 import type { MessageScope } from "./message-stream"

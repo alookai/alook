@@ -4,12 +4,6 @@ import { loadApiMessageContext, mapMessageForApi, readCommunityMessageProfiles }
 import { canonicalUserImage } from "@/lib/community/storage"
 import type { CommunityResourceProfileReader } from "./resource-profiles.server"
 
-// Message enrichment shared by the channel messages route, the channel
-// bootstrap route, and the DM messages route (previously three near-identical
-// copies). Attaches
-// attachments, reactions, reply-target previews, `latestSeq`, and — for
-// non-DM channel scope only — child-channel thread indicators.
-//
 // `items` is expected in chronological ASC (the wire order). Every scope is a
 // channel now (a DM is a type=dm channel); `isDm` toggles the DM-only
 // approval-card hydration and skips child-channel threads.

@@ -30,21 +30,10 @@ export function splitPlainTextToBlocks(text: string): string[] {
   return normalized.split(PARAGRAPH_SPLIT)
 }
 
-/**
- * Pure structural view of pasted text: an array of blocks (paragraphs), each
- * block an array of lines (hard breaks between them). No DOM — the unit-
- * testable core of the paste transform.
- *   "a\nb\n\nc" → [["a", "b"], ["c"]]
- */
 export function planPastedBlocks(text: string): string[][] {
   return splitPlainTextToBlocks(text).map((block) => block.split("\n"))
 }
 
-/**
- * Build a `<div>` of `<p>` blocks (single `\n` → `<br>`) from pasted plain
- * text, using the provided `doc`. Returns a DIV whose children ProseMirror's
- * `DOMParser.parseSlice` can consume.
- */
 export function buildPasteDom(text: string, doc: Document): HTMLDivElement {
   const wrap = doc.createElement("div")
   for (const lines of planPastedBlocks(text)) {

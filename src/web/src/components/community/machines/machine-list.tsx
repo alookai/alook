@@ -39,7 +39,8 @@ import { MachineRefreshDialog } from "./machine-refresh-dialog"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
 import { ConnectTile } from "@/components/community/onboarding-tiles/connect-tile"
 import { useObservedRegion } from "@/lib/observability/regions"
-import { useMachines, machinesQueryFn, replaceMachines } from "@/hooks/community/use-machines"
+import { replaceMachines } from "@/lib/community/machines"
+import { useMachines, machinesQueryFn } from "@/hooks/community/use-machines"
 import { captureMachinesPublication, publishMachines } from "@/lib/community/machines"
 import { useBots } from "@/hooks/community/use-bots"
 import { usePendingMachineTokenId } from "@/stores/community"
@@ -156,19 +157,6 @@ export function canUpdateMachine(
     releaseVersionGte(latestVersion, currentVersion) &&
     !releaseVersionGte(currentVersion, latestVersion)
   )
-}
-
-export async function requestMachineUpdate(machineId: string): Promise<boolean> {
-  try {
-    await apiFetch<{ dispatched: true }>(`/api/community/machines/${machineId}/update`, {
-      method: "POST",
-    })
-    toast.success("Update requested — the machine will restart and reconnect")
-    return true
-  } catch (error) {
-    toast.error(getErrorMessage(error, "Couldn't request the daemon update"))
-    return false
-  }
 }
 
 export function MachineUpdateDialog({

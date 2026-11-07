@@ -5,19 +5,8 @@ import { isPresenceOnline } from "@alook/shared"
 import { machinesOptions, machineObservationsOptions, type MachinesResponse, type MachineSummary } from "@/lib/community/machines"
 export type { MachineBackendQuota, MachineSummary, MachinesResponse } from "@/lib/community/machines"
 
-export function replaceMachines(data: MachinesResponse, machines: MachineSummary[]): MachinesResponse {
-  return {
-    ...data,
-    machines,
-    ...(data.machineCapacity ? { machineCapacity: {
-      ...data.machineCapacity,
-      ownedCount: machines.length,
-      onlineCount: machines.filter(machine => isPresenceOnline(machine.status)).length,
-    } } : {}),
-  }
-}
+export { replaceMachines } from "@/lib/community/machines"
 
-// Frozen empty fallback — see `use-servers.ts` for the rationale.
 const EMPTY_MACHINES: readonly MachineSummary[] = Object.freeze([])
 
 export const machinesQueryFn = machinesOptions().queryFn!

@@ -44,8 +44,6 @@ function makeChannel(overrides: Partial<ConstructorParameters<typeof WsControlCh
       sockets.push(s);
       return s;
     },
-    // No real timers needed; reconnect uses setTimeout(unref) — we drive openSocket
-    // indirectly by emitting close then letting the scheduled reconnect fire.
     reconnect: { baseMs: 1, maxMs: 1 },
     ...overrides,
   });
@@ -246,6 +244,100 @@ describe("WsControlChannel — resync on (re)connect", () => {
     sockets[1].emit("open");
     // Fresh snapshot (empty), not the stale ["a1"].
     expect(sockets[1].frames()[0]).toMatchObject({ type: "ready", runningAgents: [] });
+  });
+});
+
+describe("WsControlChannel — reconnect ownership", () => {
+  it.each([false, true])("keeps the replacement when an old socket closes late (opened=%s)", async (opened) => {
+    vi.useFakeTimers();
+    const onAuthRejected = vi.fn();
+    const { ch, sockets } = makeChannel({ onAuthRejected, reconnect: { baseMs: 50, maxMs: 50 } });
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
+    try {
+      ch.connect();
+      const old = sockets[0];
+      old.emit("open");
+      old.close = () => {};
+      ch.close();
+      ch.connect();
+      const current = sockets[1];
+      if (opened) current.emit("open");
+      old.emit("close", 1006);
+      old.emit("open");
+      old.emit("message", JSON.stringify({ type: "error", code: "AUTH_REJECTED" }));
+      old.emit("message", JSON.stringify({ type: "machine:heartbeat", nonce: "old-heartbeat" }));
+      expect(ch.status).toBe(opened ? "open" : "connecting");
+      if (!opened) current.emit("open");
+      await ch.reportReady({ runtimeReport: [], runningAgents: [] });
+      expect(current.frames().map(frame => frame.type)).toEqual(["ready", "ready"]);
+      expect(onAuthRejected).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(sockets).toHaveLength(2);
+    } finally { ch.close(); vi.useRealTimers(); }
+  });
+
+  it("does not let an old pong extend the current heartbeat deadline", async () => {
+    vi.useFakeTimers();
+    const { ch, sockets } = makeChannel({ heartbeat: { pingIntervalMs: 10, pongTimeoutMs: 15 }, reconnect: { baseMs: 50, maxMs: 50 } });
+    try {
+      ch.connect();
+      const old = sockets[0];
+      old.emit("open");
+      old.close = () => {};
+      ch.close();
+      ch.connect();
+      const current = sockets[1];
+      current.emit("open");
+      await vi.advanceTimersByTimeAsync(10);
+      old.emit("pong");
+      await vi.advanceTimersByTimeAsync(10);
+      expect(current.terminated).toBe(true);
+    } finally { ch.close(); vi.useRealTimers(); }
+  });
+
+  it("finishes an accepted wake after reconnect while rejecting new frames from its old socket", async () => {
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const started: number[] = [], finished: number[] = [];
+    const { ch, sockets } = makeChannel();
+    const command = (seq: number) => ({ type: "agent:wake", agentId: "bot_1", config: { runtime: "codex" }, launchId: `launch_${seq}`, unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: seq } });
+    ch.onCommand(async command => {
+      if (command.type !== "agent:wake") return;
+      started.push(command.unreadNotice.latestSeq);
+      await held;
+      finished.push(command.unreadNotice.latestSeq);
+    });
+    try {
+      ch.connect();
+      const old = sockets[0];
+      old.emit("open");
+      old.emit("message", JSON.stringify(command(1)));
+      expect(started).toEqual([1]);
+      old.close = () => {};
+      ch.close();
+      ch.connect();
+      sockets[1].emit("open");
+      old.emit("message", JSON.stringify(command(2)));
+      release();
+      await held;
+      expect(started).toEqual([1]);
+      expect(finished).toEqual([1]);
+    } finally { release(); ch.close(); }
+  });
+
+  it.each([false, true])("retires a queued retry when explicitly closing or reconnecting (%s)", async (reconnect) => {
+    vi.useFakeTimers();
+    const { ch, sockets } = makeChannel({ reconnect: { baseMs: 50, maxMs: 50 } });
+    try {
+      ch.connect();
+      sockets[0].emit("close");
+      expect(ch.status).toBe("reconnecting");
+      if (reconnect) ch.connect();
+      else ch.close();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(sockets).toHaveLength(reconnect ? 2 : 1);
+      if (!reconnect) expect(ch.status).toBe("closed");
+    } finally { ch.close(); vi.useRealTimers(); }
   });
 });
 
@@ -571,51 +663,22 @@ describe("WsControlChannel — HTTP 401s are non-terminal", () => {
 });
 
 describe("WsControlChannel — reconnect timer keeps the event loop alive", () => {
-  it("does NOT unref the reconnect setTimeout (regression against silent daemon exit)", async () => {
+  it("schedules a real refed reconnect timer", () => {
     const originalSetTimeout = globalThis.setTimeout;
-    const timers: Array<{ unrefCalled: boolean; hasRef: () => boolean }> = [];
-    // Wrap setTimeout so we can inspect whether the reconnect scheduling
-    // ever calls .unref() on its return value.
-    (globalThis as any).setTimeout = ((fn: () => void, ms: number) => {
-      const handle = originalSetTimeout(fn, ms) as unknown as {
-        unref: () => void;
-        hasRef?: () => boolean;
-      };
-      const record = { unrefCalled: false, hasRef: () => true };
-      const origUnref = handle.unref?.bind(handle);
-      handle.unref = () => {
-        record.unrefCalled = true;
-        origUnref?.();
-      };
-      timers.push(record);
-      return handle;
-    }) as unknown as typeof setTimeout;
-
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((...args: Parameters<typeof setTimeout>) => {
+      const timer = originalSetTimeout(...args);
+      if (args[1] === 50) timers.push(timer);
+      return timer;
+    }) as typeof setTimeout);
+    const { ch, sockets } = makeChannel({ reconnect: { baseMs: 50, maxMs: 50 } });
     try {
-      const sockets: FakeSocket[] = [];
-      const ch = new WsControlChannel({
-        url: "ws://test",
-        webSocketFactory: () => {
-          const s = new FakeSocket();
-          sockets.push(s);
-          return s;
-        },
-        reconnect: { baseMs: 50, maxMs: 50 },
-      });
-      ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));
-
       ch.connect();
       sockets[0].emit("open");
       sockets[0].emit("close");
-      await new Promise((r) => originalSetTimeout(r, 10));
-
-      // A reconnect setTimeout was scheduled. It MUST NOT have been unrefed —
-      // otherwise the process would silently exit when the WS drops.
-      const reconnectTimers = timers.filter((t) => t.unrefCalled);
-      expect(reconnectTimers.length).toBe(0);
-    } finally {
-      globalThis.setTimeout = originalSetTimeout;
-    }
+      expect(timers).toHaveLength(1);
+      expect(timers[0].hasRef()).toBe(true);
+    } finally { ch.close(); spy.mockRestore(); }
   });
 });
 

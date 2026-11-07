@@ -1,3 +1,5 @@
+import type { DevPortProfile } from "@alook/shared";
+import { SELF_HOSTED_SERVICES } from "./service-topology.js";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { SELF_HOSTED_DIR } from "./constants.js";
@@ -75,7 +77,7 @@ export function removeServiceBinding(content: string, binding: string): string {
     .join("");
 }
 
-export function patchWranglerConfigs(ports: { web: number; emailWorker: number; wsDo: number; queueWorker: number }): void {
+export function patchWranglerConfigs(ports: DevPortProfile): void {
   const webToml = join(SELF_HOSTED_DIR, "web", "wrangler.toml");
   let webContent = deduplicateDevSection(readFileSync(webToml, "utf-8"));
 
@@ -90,20 +92,17 @@ export function patchWranglerConfigs(ports: { web: number; emailWorker: number; 
     }
   }
 
-  webContent = setVar(webContent, "DEV_WS_DO_URL", `http://localhost:${ports.wsDo}`);
-  webContent = setVar(webContent, "DEV_EMAIL_WORKER_URL", `http://localhost:${ports.emailWorker}`);
-  webContent = setVar(webContent, "DEV_QUEUE_WORKER_URL", `http://localhost:${ports.queueWorker}`);
+  for (const service of SELF_HOSTED_SERVICES) {
+    if ("urlVariable" in service) webContent = setVar(webContent, service.urlVariable, `http://localhost:${ports[service.key]}`);
+  }
   webContent = setVar(webContent, "NODE_ENV", "development");
   webContent = setVar(webContent, "BLOG_DISCOVERY_REQUIRED", "false");
   webContent = removeServiceBinding(webContent, "BLOG_WORKER");
   writeFileSync(webToml, webContent);
 
-  setDevPort(join(SELF_HOSTED_DIR, "email-worker", "wrangler.toml"), ports.emailWorker);
-  setDevPort(join(SELF_HOSTED_DIR, "ws-do", "wrangler.toml"), ports.wsDo);
-  setDevPort(join(SELF_HOSTED_DIR, "queue-worker", "wrangler.toml"), ports.queueWorker);
-
-  setInspectorPort(join(SELF_HOSTED_DIR, "web", "wrangler.toml"), 19229);
-  setInspectorPort(join(SELF_HOSTED_DIR, "ws-do", "wrangler.toml"), 19230);
-  setInspectorPort(join(SELF_HOSTED_DIR, "email-worker", "wrangler.toml"), 19231);
-  setInspectorPort(join(SELF_HOSTED_DIR, "queue-worker", "wrangler.toml"), 19232);
+  for (const service of SELF_HOSTED_SERVICES) {
+    const config = join(SELF_HOSTED_DIR, service.directory, "wrangler.toml");
+    if (service.key !== "web") setDevPort(config, ports[service.key]);
+    setInspectorPort(config, service.inspectorPort);
+  }
 }

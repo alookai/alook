@@ -1,11 +1,22 @@
 import { z } from "zod";
-import {
-  DIAGNOSTIC_REPORT_FAILURE_CODES,
-  type DiagnosticReportFailureCode,
-} from "./db/community-machine-schema";
+export const DIAGNOSTIC_REPORT_FAILURE_CODES = [
+  "offline",
+  "timeout",
+  "upload_conflict",
+  "invalid_upload",
+  "diagnostics_unavailable",
+  "collector_busy",
+  "bot_not_bound",
+  "collection_failed",
+  "local_artifact_invalid",
+  "bundle_too_large",
+  "upload_failed",
+  "internal_error",
+] as const;
 
-export { DIAGNOSTIC_REPORT_FAILURE_CODES };
-export type { DiagnosticReportFailureCode };
+export type DiagnosticReportFailureCode =
+  (typeof DIAGNOSTIC_REPORT_FAILURE_CODES)[number];
+
 
 export const DIAGNOSTIC_REPORT_COLLECTION_WINDOW_MS = 86_400_000;
 export const DIAGNOSTIC_REPORT_DEADLINE_WINDOW_MS = 600_000;

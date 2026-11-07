@@ -17,9 +17,7 @@ import * as categoryQueries from "../../src/db/queries/community/category";
 import * as memberQueries from "../../src/db/queries/community/member";
 import * as reactionQueries from "../../src/db/queries/community/reaction";
 import * as dmQueries from "../../src/db/queries/community/dm";
-import * as taskQueries from "../../src/db/queries/task";
 import * as agentQueries from "../../src/db/queries/agent";
-import * as conversationQueries from "../../src/db/queries/conversation";
 import * as meetingQueries from "../../src/db/queries/meeting-session";
 import * as userQueries from "../../src/db/queries/user";
 import * as userProfileQueries from "../../src/db/queries/community/user-profile";
@@ -425,11 +423,6 @@ describe("high-cardinality query bind matrix", () => {
       (db) => memberQueries.getMemberships(db as never, "user_1", ids),
       (db) => categoryQueries.getCategoriesByIds(db as never, ids),
       (db) => agentQueries.getAgentsByIds(db as never, ids, "workspace_1"),
-      (db) => conversationQueries.getConversationsByIds(db as never, ids, "workspace_1"),
-      (db) => taskQueries.listPendingTasksByRuntimes(db as never, ids, "workspace_1"),
-      (db) => taskQueries.listActiveTaskCountsByWorkspace(db as never, "workspace_1", ids, "user_1"),
-      (db) => taskQueries.listActiveTasksByWorkspace(db as never, "workspace_1", ids, "user_1"),
-      (db) => taskQueries.getTraceAgentsByTaskIds(db as never, ids, "workspace_1"),
       (db) => meetingQueries.claimMeetingSessions(db as never, ids, "workspace_1", "2026-01-01T00:00:00.000Z"),
       (db) => dmQueries.listDMs(db as never, "user_1"),
       (db) => dmQueries.getDMBetween(db as never, "user_1", "user_2"),

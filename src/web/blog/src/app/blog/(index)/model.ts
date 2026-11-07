@@ -1,6 +1,6 @@
 import type { BlogPost } from "@blog/lib/blog/posts";
 import { getBlogTopicBySlug } from "@blog/lib/blog/topics";
-import { getBlogOgImage } from "../[slug]/og-image";
+import { getBlogOgImage } from "@blog/lib/blog/metadata";
 
 export type BlogIndexPost = BlogPost & {
   imageUrl: string;

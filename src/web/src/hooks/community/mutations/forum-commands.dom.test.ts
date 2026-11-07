@@ -15,7 +15,7 @@ import { useCanonicalChannelsById, useCanonicalMessagesById, useCanonicalProfile
 import { captureCommunityLiveSnapshotToken, projectCommunityWsEventToDb, publishCommunityForumSidebar, publishCommunityForumFeed, publishCommunityForumTags, getCanonicalCommunityChannelMemberships, removeCanonicalCommunityChannelMembership } from "@/lib/community-db/sync"
 import { mapForumFeedPages } from "../use-forum-feed"
 import { useForumTags } from "../use-channel-panels"
-import { normalizeThreadResources, forumFeedWindow, forumFeedMatchesTags, type ForumFeedPage, type ForumFeedTransportPage } from "../forum-feed-window"
+import { normalizeThreadResources, forumFeedWindow, forumFeedMatchesTags, type ForumFeedPage, type ForumFeedTransportPage } from "@/lib/community/forum-feed-window"
 import { getForumSidebarBase } from "../use-forum-sidebar-threads"
 import { applyForumPostUnitClientEffects } from "../community-ws/channel-scope-projection"
 import { useCreateForumThread, useUpdatePostTags, useDeleteForumThread } from "./forum"

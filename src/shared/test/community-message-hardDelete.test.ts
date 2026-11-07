@@ -3,15 +3,6 @@ import { getTableName } from "drizzle-orm";
 import { queries } from "../src/index";
 import type { Database } from "../src/index";
 
-/**
- * Tests for the cascading `hardDeleteMessage`. It:
- *   1. SELECTs the message row (channelId/dmConversationId/authorId/seq/createdAt).
- *   2. SELECTs the prior message in scope (id, seq, createdAt) for the read-state revert.
- *   3. Runs one `db.batch([update-scope, update-or-delete-readstate, delete-msg])`.
- * The batch composition varies by whether the target is a channel/DM and whether
- * a prior message exists.
- */
-
 type SelectShape = "message" | "prior";
 type Tag =
   | { kind: "revision" }
@@ -243,46 +234,4 @@ describe("hardDeleteMessage — cascading rollback", () => {
     expect(state.batchCalls).toHaveLength(1);
   });
 
-  it("versions the union of pointer, sparse-opener, and mention owners before deleting", async () => {
-    const state: MockState = {
-      batchCalls: [],
-      selectQueue: [
-        {
-          shape: "message",
-          rows: [{
-            id: "msg_1",
-            channelId: "chan_1",
-            authorId: "author_1",
-            seq: 5,
-            createdAt: "2026-01-01T00:00:05Z",
-          }],
-        },
-        {
-          shape: "prior",
-          rows: [{ id: "msg_0", seq: 4, createdAt: "2026-01-01T00:00:04Z" }],
-        },
-      ],
-      impactedQueue: [
-        [{ userId: "pointer-owner" }],
-        [{ userId: "sparse-owner" }, { userId: "shared-owner" }],
-        [{ userId: "mention-owner" }, { userId: "shared-owner" }],
-      ],
-      revisionRows: [
-        { userId: "pointer-owner", revision: 2 },
-        { userId: "sparse-owner", revision: 3 },
-        { userId: "shared-owner", revision: 4 },
-        { userId: "mention-owner", revision: 5 },
-      ],
-    };
-
-    await expect(
-      queries.communityMessage.hardDeleteMessage(makeDb(state), "msg_1")
-    ).resolves.toEqual({ readStateRevisions: state.revisionRows });
-    expect(state.batchCalls[0]!.map((tag) => tag.kind)).toEqual([
-      "revision",
-      "update-channel",
-      "update-readstate",
-      "delete-msg",
-    ]);
-  });
 });

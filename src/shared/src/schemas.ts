@@ -18,10 +18,6 @@ import {
   MAX_SERVER_ICON_SIZE_BYTES,
 } from "./constants/community";
 
-// ---------------------------------------------------------------------------
-// Task status
-// ---------------------------------------------------------------------------
-
 export const TaskStatusSchema = z.enum([
   "queued",
   "dispatched",
@@ -31,10 +27,6 @@ export const TaskStatusSchema = z.enum([
   "cancelled",
   "superseded",
 ]);
-
-// ---------------------------------------------------------------------------
-// Raw SQL row from agent_task_queue (boundary: DB -> App)
-// ---------------------------------------------------------------------------
 
 export const ClaimedTaskRowSchema = z.object({
   id: z.string(),
@@ -60,10 +52,6 @@ export const ClaimedTaskRowSchema = z.object({
 });
 export type ClaimedTaskRow = z.infer<typeof ClaimedTaskRowSchema>;
 
-// ---------------------------------------------------------------------------
-// API wire format — task agent data (embedded in claim response)
-// ---------------------------------------------------------------------------
-
 export const ColleagueDataApiSchema = z.object({
   name: z.string(),
   email: z.string(),
@@ -82,10 +70,6 @@ export const TaskAgentDataApiSchema = z.object({
   colleagues: z.array(ColleagueDataApiSchema).default([]),
 });
 export type TaskAgentDataApi = z.infer<typeof TaskAgentDataApiSchema>;
-
-// ---------------------------------------------------------------------------
-// API wire format — base task (output of taskToResponse)
-// ---------------------------------------------------------------------------
 
 export const TaskApiBaseSchema = z.object({
   id: z.string(),
@@ -111,10 +95,6 @@ export const TaskApiBaseSchema = z.object({
 });
 export type TaskApiBase = z.infer<typeof TaskApiBaseSchema>;
 
-// ---------------------------------------------------------------------------
-// API wire format — full task (claim response includes agent + prior session)
-// ---------------------------------------------------------------------------
-
 export const TaskSenderApiSchema = z.object({
   name: z.string(),
   email: z.string(),
@@ -128,19 +108,10 @@ export const TaskApiSchema = TaskApiBaseSchema.extend({
 });
 export type TaskApi = z.infer<typeof TaskApiSchema>;
 
-// ---------------------------------------------------------------------------
-// Heartbeat (lightweight liveness ping, independent of poll)
-// ---------------------------------------------------------------------------
-
 export const HeartbeatRequestSchema = z.object({
   daemon_id: z.string().min(1),
 });
 export type HeartbeatRequest = z.infer<typeof HeartbeatRequestSchema>;
-
-
-// ---------------------------------------------------------------------------
-// Poll request/response (replaces heartbeat + per-runtime claim)
-// ---------------------------------------------------------------------------
 
 export const MAX_POLL_TASKS = 50;
 
@@ -180,18 +151,10 @@ export const PollResponseSchema = z.object({
 });
 export type PollResponse = z.infer<typeof PollResponseSchema>;
 
-// ---------------------------------------------------------------------------
-// Register response
-// ---------------------------------------------------------------------------
-
 export const RegisterResponseSchema = z.object({
   runtimes: z.array(z.object({ id: z.string() })),
 });
 export type RegisterResponse = z.infer<typeof RegisterResponseSchema>;
-
-// ---------------------------------------------------------------------------
-// Daemon API request schemas
-// ---------------------------------------------------------------------------
 
 export const DaemonRuntimeItemSchema = z.object({
   type: z.string().optional(),
@@ -230,12 +193,10 @@ export const RegisterDaemonRequestSchema = z.object({
 });
 export type RegisterDaemonRequest = z.infer<typeof RegisterDaemonRequestSchema>;
 
-
 export const DeregisterRequestSchema = z.object({
   daemon_id: z.string().min(1),
 });
 export type DeregisterRequest = z.infer<typeof DeregisterRequestSchema>;
-
 
 export const CompleteTaskRequestSchema = z.object({
   output: z.string().optional(),
@@ -264,10 +225,6 @@ export const ReportMessagesRequestSchema = z.object({
   messages: z.array(MessageItemSchema),
 });
 export type ReportMessagesRequest = z.infer<typeof ReportMessagesRequestSchema>;
-
-// ---------------------------------------------------------------------------
-// Calendar event schemas
-// ---------------------------------------------------------------------------
 
 export const RepeatIntervalSchema = z
   .string()
@@ -379,10 +336,6 @@ export const CalendarEventApiSchema = z.object({
 });
 export type CalendarEventApi = z.infer<typeof CalendarEventApiSchema>;
 
-// ---------------------------------------------------------------------------
-// Issue schemas
-// ---------------------------------------------------------------------------
-
 export const IssueStatusSchema = z.enum([
   IssueStatus.TODO,
   IssueStatus.IN_PROGRESS,
@@ -422,7 +375,6 @@ export const CreateIssueCommentBodySchema = z.object({
 });
 export type CreateIssueCommentBody = z.infer<typeof CreateIssueCommentBodySchema>;
 
-
 export const IssueCommentApiSchema = z.object({
   id: z.string(),
   issue_id: z.string(),
@@ -450,10 +402,6 @@ export const IssueApiSchema = z.object({
 });
 export type IssueApi = z.infer<typeof IssueApiSchema>;
 
-// ---------------------------------------------------------------------------
-// Agent link schemas
-// ---------------------------------------------------------------------------
-
 export const CreateAgentLinkRequestSchema = z.object({
   source_agent_id: z.string().min(1, "source_agent_id is required"),
   target_agent_id: z.string().min(1, "target_agent_id is required"),
@@ -472,18 +420,10 @@ export const UpsertAgentLinkRequestSchema = z.object({
 });
 export type UpsertAgentLinkRequestInput = z.infer<typeof UpsertAgentLinkRequestSchema>;
 
-// ---------------------------------------------------------------------------
-// Whitelist request schema
-// ---------------------------------------------------------------------------
-
 export const AddWhitelistRequestSchema = z.object({
   email: z.string().email(),
 });
 export type AddWhitelistRequest = z.infer<typeof AddWhitelistRequestSchema>;
-
-// ---------------------------------------------------------------------------
-// Agent request schemas
-// ---------------------------------------------------------------------------
 
 const RuntimeConfigSchema = z
   .object({ model: z.string().max(100).optional() })
@@ -525,10 +465,6 @@ export const UpdateAgentRequestSchema = z
   );
 export type UpdateAgentRequest = z.infer<typeof UpdateAgentRequestSchema>;
 
-// ---------------------------------------------------------------------------
-// Conversation request schemas
-// ---------------------------------------------------------------------------
-
 export const CreateConversationRequestSchema = z.object({
   agent_id: z.string().min(1, "agent_id is required"),
   channel: z.string().optional(),
@@ -537,19 +473,11 @@ export type CreateConversationRequest = z.infer<
   typeof CreateConversationRequestSchema
 >;
 
-// ---------------------------------------------------------------------------
-// Message request schema (JSON body only — FormData path is separate)
-// ---------------------------------------------------------------------------
-
 export const CreateMessageRequestSchema = z.object({
   content: z.string().min(1, "content is required"),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export type CreateMessageRequest = z.infer<typeof CreateMessageRequestSchema>;
-
-// ---------------------------------------------------------------------------
-// Email request schemas
-// ---------------------------------------------------------------------------
 
 export const EmailAttachmentSchema = z.object({
   key: z.string().min(1),
@@ -615,10 +543,6 @@ export const EmailNotifyRequestSchema = z.object({
 });
 export type EmailNotifyRequest = z.infer<typeof EmailNotifyRequestSchema>;
 
-// ---------------------------------------------------------------------------
-// Custom Email Account schemas
-// ---------------------------------------------------------------------------
-
 export const CreateEmailAccountSchema = z.object({
   emailAddress: z.string().email("valid email required"),
   displayName: z.string().default(""),
@@ -667,18 +591,10 @@ export const TestEmailConnectionSchema = z.object({
 });
 export type TestEmailConnectionRequest = z.infer<typeof TestEmailConnectionSchema>;
 
-// ---------------------------------------------------------------------------
-// Member request schemas
-// ---------------------------------------------------------------------------
-
 export const UpdateMemberRequestSchema = z.object({
   global_instruction: z.string().max(50000).trim(),
 });
 export type UpdateMemberRequest = z.infer<typeof UpdateMemberRequestSchema>;
-
-// ---------------------------------------------------------------------------
-// Workspace request schemas
-// ---------------------------------------------------------------------------
 
 export const CreateWorkspaceRequestSchema = z.object({
   name: z.string().min(1, "name is required"),
@@ -703,10 +619,6 @@ export const GrantAgentAccessRequestSchema = z.object({
   user_id: z.string().min(1, "user_id is required"),
 });
 export type GrantAgentAccessRequest = z.infer<typeof GrantAgentAccessRequestSchema>;
-
-// ---------------------------------------------------------------------------
-// Workspace file browsing
-// ---------------------------------------------------------------------------
 
 export const WorkspaceFileBrowseRequestSchema = z.object({
   request_type: z.enum(["tree", "read"]),
@@ -733,10 +645,6 @@ export const WorkspaceFileReportSchema = z.object({
 });
 export type WorkspaceFileReport = z.infer<typeof WorkspaceFileReportSchema>;
 
-// ---------------------------------------------------------------------------
-// Workspace skill browsing (V2 — D1 cache)
-// ---------------------------------------------------------------------------
-
 export const SkillEntrySchema = z.object({
   name: z.string(),
   description: z.string(),
@@ -757,10 +665,6 @@ export const SkillSyncRequestSchema = z.object({
   skills: z.array(SkillItemSchema),
 });
 export type SkillSyncRequest = z.infer<typeof SkillSyncRequestSchema>;
-
-// ---------------------------------------------------------------------------
-// Studio onboarding
-// ---------------------------------------------------------------------------
 
 export const StudioMemberSchema = z.object({
   name: z.string().optional(),
@@ -784,10 +688,6 @@ export const CreateStudioRequestSchema = z.object({
 );
 export type CreateStudioRequest = z.infer<typeof CreateStudioRequestSchema>;
 
-// ---------------------------------------------------------------------------
-// Agent recruit schema
-// ---------------------------------------------------------------------------
-
 export const RecruitAgentRequestSchema = z.object({
   instructions: z.string().min(1, "instructions is required"),
   relationship: z.string().min(1, "relationship is required"),
@@ -804,10 +704,6 @@ export const CreateThreadRequestSchema = z.object({
   attachment_ids: z.array(z.string()).optional(),
 });
 export type CreateThreadRequest = z.infer<typeof CreateThreadRequestSchema>;
-
-// ---------------------------------------------------------------------------
-// Community machines
-// ---------------------------------------------------------------------------
 
 // Runtime id charset: alnum + `._@/-`. Length capped at 64 to match the
 // on-wire, on-disk, and DB expectations. Version optional, length-capped.
@@ -897,10 +793,6 @@ export const CommunityMachineRuntimeSchema = z.object({
 });
 export type CommunityMachineRuntime = z.infer<typeof CommunityMachineRuntimeSchema>;
 
-/**
- * List of runtimes, capped and deduped-by-id (first-wins). Callers should
- * pass this through the transform to canonicalize wire input.
- */
 export const CommunityMachineRuntimeListSchema = z
   .array(CommunityMachineRuntimeSchema)
   .max(COMMUNITY_RUNTIME_LIST_MAX)
@@ -1097,7 +989,6 @@ export const DiagnosticCommandAckMessageSchema = z.strictObject({
 });
 export type DiagnosticCommandAckMessage = z.infer<typeof DiagnosticCommandAckMessageSchema>;
 
-
 export const CommunityPairTokenResponseSchema = z.object({
   tokenId: z.string(),
   expiresAt: z.string(),
@@ -1145,10 +1036,6 @@ export const CommunityDaemonEnrollAgentResponseSchema = z.object({
   expiresAt: z.string().nullable(),
 });
 export type CommunityDaemonEnrollAgentResponse = z.infer<typeof CommunityDaemonEnrollAgentResponseSchema>;
-
-// ---------------------------------------------------------------------------
-// Community bots are first-class community identities owned by users.
-// ---------------------------------------------------------------------------
 
 import {
   COMMUNITY_BOT_REQUEST_MAX_ITEMS,
@@ -1461,9 +1348,6 @@ export type CommunityAgentListFriends = z.infer<
   typeof CommunityAgentListFriendsSchema
 >;
 
-// ---------------------------------------------------------------------------
-// Bot activity audit log — event payload
-// ---------------------------------------------------------------------------
 //
 // Shared between the daemon (producer), ws-do (persistence), and web
 // (route reader). The `payload` column stores JSON matching one of these

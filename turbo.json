@@ -18,7 +18,8 @@
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs"
+        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs",
+        "$TURBO_ROOT$/scripts/ci/repository-git.mjs"
       ]
     },
     "test": {
@@ -517,6 +518,7 @@
         "$TURBO_ROOT$/src/daemon/package.json",
         "cloudflare-env.d.ts",
         "$TURBO_ROOT$/scripts/ci/run-turbo.mjs",
+        "$TURBO_ROOT$/scripts/ci/repository-git.mjs",
         ".dev.vars*",
         "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
         "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
@@ -586,6 +588,7 @@
         "src/contexts/**",
         "src/*.d.ts",
         "$TURBO_ROOT$/scripts/ci/run-turbo.mjs",
+        "$TURBO_ROOT$/scripts/ci/repository-git.mjs",
         ".dev.vars*",
         "blog/.dev.vars*",
         "src/app/favicon.ico",
@@ -646,6 +649,7 @@
         "src/lib/avatar/**",
         "cloudflare-env.d.ts",
         "$TURBO_ROOT$/scripts/ci/run-turbo.mjs",
+        "$TURBO_ROOT$/scripts/ci/repository-git.mjs",
         "auth/.dev.vars*",
         "!**/{node_modules,.next,.open-next,.wrangler,.turbo,dist,coverage}/**",
         "!**/{test-results,blob-report,e2e-service-logs,e2e-shard-manifest,.auth}/**",
@@ -721,7 +725,8 @@
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs"
+        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs",
+        "$TURBO_ROOT$/scripts/ci/repository-git.mjs"
       ]
     },
     "@alook/ws-do#test:runtime": {
@@ -843,7 +848,8 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/LICENSE",
-        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs"
+        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs",
+        "$TURBO_ROOT$/scripts/ci/repository-git.mjs"
       ],
       "outputs": [
         "dist/**",
@@ -857,7 +863,8 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/LICENSE",
-        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs"
+        "$TURBO_ROOT$/scripts/ci/run-turbo.mjs",
+        "$TURBO_ROOT$/scripts/ci/repository-git.mjs"
       ],
       "outputs": [
         "dist/**",

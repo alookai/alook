@@ -104,10 +104,6 @@ export async function createServer(
   const server = serverRows[0]!;
   const memberRow = memberRows[0]!;
 
-  // Fetch the owner's display name + avatar directly instead of re-listing
-  // members — a freshly-created server has exactly one member row, so a
-  // scoped select is honest about intent and avoids `.find` disambiguation
-  // in the caller.
   const [userRow] = await db
     .select({
       name: user.name,
@@ -124,12 +120,11 @@ export async function createServer(
       id: memberRow!.id,
       userId: memberRow!.userId,
       joinedAt: memberRow!.joinedAt,
-      // user.name is kept non-empty by the Better-Auth create.before hook
-      // and the createUser/updateUser guards — the `?? ""` is defensive.
+
       userName: userRow?.name ?? "",
       userImage: userRow?.image ?? null,
       userAvatarVersion: userRow?.avatarVersion ?? 0,
-      // NOT NULL column; `?? "0000"` mirrors the schema default defensively.
+
       userDiscriminator: userRow?.discriminator ?? "0000",
     },
   };
@@ -189,8 +184,8 @@ export async function listUserServers(db: Database, userId: string) {
   // Subquery: unread mention count for this viewer, grouped by server.
   // Only kind='mention' counts toward the rail badge — replies live in the
   // For You feed but do not warrant a red number on the server icon.
-  // The inner joins on message → channel drop DM mentions (channelId IS NULL)
-  // and orphan rows, so the count only reflects server-scoped mentions.
+  // Inner joins drop orphan rows. DM channels have no serverId, so their
+  // mentions do not join an outer server rail row.
   const mentionCounts = db
     .select({
       serverId: communityChannel.serverId,

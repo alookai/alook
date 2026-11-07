@@ -6,7 +6,6 @@ import { readCommunityServerRailServers } from "@/lib/community-db/server-rail"
 import { useAtom, useCreateAtom, useSelector } from "@tanstack/react-store";
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
-
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
@@ -206,7 +205,6 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
     return pickServerLandingHref(id, channelIds, lastChannel)
   }, [communityDb, queryClient])
 
-  // Mutations
   const createChannelMut = useCreateChannel()
   const renameChannelMut = useRenameChannel()
   const deleteChannelMut = useDeleteChannel()
@@ -403,7 +401,6 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
     setServerSettingsOpen(true)
   }, [setServerSettingsOpen, setSettingsSection])
 
-
   const onBlockedCreate = useCallback(() => {
     toast("Only admins can create channels in a private category")
   }, [])
@@ -480,7 +477,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
   }), [reorderCategoriesMut.isPending, reorderChannelsMut.isPending, currentServer?.name, currentServer?.icon, currentServer?.official, currentChannelMeta?.parentChannelId, currentChannelId, isAdmin, currentUser.id, setActiveChannel, forumThreadsByParent, activeForumThreadId, setActiveForumThread, sidebarHintOnly, onSidebarOpenSettings, onBlockedCreate, mutedChannels, onCreateChannelInSidebar, onCreateCategoryInSidebar, onRenameChannel, onDeleteChannelInSidebar, onDeleteCategoryInSidebar, onUpdateCategoryInSidebar, onReorderCategoriesInSidebar, onReorderChannelsInSidebar, serverId, invitePopoverOpen, setInvitePopoverOpen])
 
   const openProfile = (name: string, e: React.MouseEvent, discriminator?: string, userId?: string) => {
-    // Delegate to the shell's registered openProfile via the community store.
+
     getCommunityRuntime(queryClient).ui.get().uiHandlers.openProfile?.(name, e, discriminator, userId)
   }
 

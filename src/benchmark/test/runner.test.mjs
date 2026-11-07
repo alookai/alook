@@ -19,11 +19,13 @@ test('real HTTP/WS control keeps pre-ACK delivery, nonce correlation, late dupli
   const server = http.createServer(async (request, response) => {
     response.setHeader('Content-Type', 'application/json')
     const url = new URL(request.url, 'http://local')
+    if (url.pathname.startsWith('/api/community/')) { assert.equal(request.headers['x-alook-community-contract'], '10'); response.setHeader('X-Alook-Community-Contract', '10') }
+    else assert.equal(request.headers['x-alook-community-contract'], undefined)
     let result
     if (url.pathname === '/api/ws/token') result = { userId: 'receiver', token: 'secret-token' }
     else if (url.pathname.endsWith('/servers/s/members')) result = { members: [{ userId: 'sender' }, { userId: 'receiver' }], hasMore: false }
-    else if (url.pathname.endsWith('/channels/c/members')) result = { members: [{ userId: 'sender' }, { userId: 'receiver' }] }
-    else if (url.pathname.endsWith('/channels/c')) result = { id: 'c', serverId: 's', type: 'text', parentChannelId: null, categoryId: null }
+    else if (url.pathname.endsWith('/channels/c/members')) { assert.equal(url.searchParams.get('relation'), 'access'); result = { contractVersion: 10, channelId: 'c', relation: 'access', members: [{ userId: 'sender' }, { userId: 'receiver' }] } }
+    else if (url.pathname.endsWith('/channels/c')) result = { contractVersion: 10, channelId: 'c', channel: { id: 'c', serverId: 's', type: 'text', parentChannelId: null, categoryId: null }, access: { channelId: 'c', canRead: true, canSend: true, canCreateDiscussion: false } }
     else if (request.method === 'POST') {
       let body = ''
       for await (const part of request) body += part
@@ -49,7 +51,7 @@ test('real HTTP/WS control keeps pre-ACK delivery, nonce correlation, late dupli
   const outDir = await mkdtemp(join(os.tmpdir(), 'benchmark-control-'))
   const baseUrl = `http://127.0.0.1:${server.address().port}`
   try {
-    const report = await runBenchmark({ baseUrl, wsUrl: baseUrl.replace('http', 'ws') + '/api/ws/user', targetKind: 'local', targetVersion: 'control', environment: 'controlled HTTP/WS', outDir,
+    const report = await runBenchmark({ communityContractVersion: 10, baseUrl, wsUrl: baseUrl.replace('http', 'ws') + '/api/ws/user', targetKind: 'local', targetVersion: 'control', environment: 'controlled HTTP/WS', outDir,
       samples: 2, warmup: 0, concurrency: 1, timeoutMs: 2000, intervalMs: 60, receivers: 1, expectedMembers: 2, historyLimit: 20, observeDB: false,
       payloadBytes: [64], phases: [{ name: 'baseline', delayMs: 0 }],
       fixture: { serverId: 's', channelId: 'c', accounts: [{ userId: 'sender', cookie: 'session=secret-cookie' }, { userId: 'receiver', cookie: 'session=secret-cookie' }] } })

@@ -34,7 +34,7 @@ vi.mock("@/lib/community/last-community-route", () => ({
 }))
 
 import { useChannelRouteModel } from "./use-channel-route-model"
-import { channelMetadataOptions } from "./channel-metadata"
+import { channelMetadataOptions } from "@/lib/community/channel-metadata"
 import { retireCommunityChannelReading } from "@/lib/community-db/sync"
 import { reconcileCommunityWsReconnect } from "./community-ws/reconnect"
 

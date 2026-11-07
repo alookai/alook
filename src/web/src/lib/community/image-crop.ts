@@ -21,19 +21,12 @@ export function validateIconSourceFile(file: File): { ok: true } | { ok: false; 
   return { ok: true }
 }
 
-/** Strips the original extension and appends `.webp` — the crop export is always WebP. */
 export function deriveCroppedFileName(originalName: string): string {
   const dot = originalName.lastIndexOf(".")
   const base = dot > 0 ? originalName.slice(0, dot) : originalName
   return `${base}.webp`
 }
 
-/**
- * Browser-only canvas export: draws the cropped source rect into a fresh
- * `outputSize × outputSize` canvas and encodes as WebP. Mirrors the pattern
- * in `lib/image-thumbnail.ts`. Not unit-tested — no jsdom/canvas in this
- * repo's vitest env (same precedent as `image-thumbnail.ts`).
- */
 export async function getCroppedIconBlob(
   imageSrc: string,
   cropPixels: CropPixels,

@@ -1,3 +1,4 @@
+import { withTransientMutationRetry } from "./transientMutationRetry.js";
 import { type PlatformMachineRequest, type PlatformBotRequest } from "@alook/shared";
 /**
  * Proxy-routed `ServerApi` client — the agent's REAL data-plane path.
@@ -79,7 +80,6 @@ export function proxyServerApiFromEnv(prefix = "ALOOK", env: NodeJS.ProcessEnv =
   return createProxyServerApi({ proxyUrl, voucher });
 }
 
-/** Build a proxy-routed ServerApi from an explicit config (used by tests / hosts). */
 export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   const fetchImpl = config.fetchImpl ?? fetch;
   const base = config.proxyUrl.replace(/\/+$/, "");
@@ -134,36 +134,6 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       throw e;
     }
     return json as T;
-  }
-
-  function isTransientProfileStepError(err: unknown): boolean {
-    const message = err instanceof Error ? err.message : String(err);
-    const status = typeof err === "object" && err !== null && "status" in err
-      ? (err as { status?: unknown }).status
-      : undefined;
-    return (
-      (typeof status === "number" && status >= 500 && status <= 599) ||
-      /upstream returned 5\d\d/.test(message) ||
-      message.includes("upstream body read failed") ||
-      message.includes("fetch failed") ||
-      message.includes("ECONNRESET") ||
-      message.includes("ETIMEDOUT") ||
-      message.includes("socket hang up") ||
-      message.includes("network")
-    );
-  }
-
-  async function withProfileStepRetry<T>(step: () => Promise<T>): Promise<T> {
-    const maxAttempts = 4;
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      try {
-        return await step();
-      } catch (err) {
-        if (!isTransientProfileStepError(err) || attempt === maxAttempts - 1) throw err;
-        await new Promise((resolve) => setTimeout(resolve, Math.min(2000, 150 * 2 ** attempt)));
-      }
-    }
-    throw new Error("profile step retry exhausted");
   }
 
   async function callUpload(req: AttachmentUploadRequest): Promise<AgentAttachmentUploadResult> {
@@ -498,11 +468,10 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     const updated: Array<"avatar" | "bio"> = [];
     let avatarUrl: string | undefined;
     if (req.avatar) {
-      const body = await withProfileStepRetry(async () => {
-        // Rebuild FormData per attempt: fetch implementations are allowed to
-        // consume request bodies, so reusing one would make the retry unsafe.
-        // The avatar door overwrites one stable R2 key, making this step
-        // idempotent even when the first response is lost after commit.
+      const body = await withTransientMutationRetry(async () => {
+        // Fetch can consume request bodies; each attempt needs fresh FormData.
+        // A lost response may hide a published avatar; retries can create
+        // another candidate/version.
         const form = new FormData();
         const blob = new Blob([new Uint8Array(req.avatar!.data)], { type: req.avatar!.contentType });
         form.append("file", blob, req.avatar!.filename);
@@ -520,7 +489,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     let bio: string | undefined;
     if (req.bio !== undefined) {
       try {
-        const body = await withProfileStepRetry(async () => {
+        const body = await withTransientMutationRetry(async () => {
           const res = await fetchImpl(`${base}/api/community/users/me/profile`, {
             method: "PATCH",
             headers: {
@@ -596,7 +565,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       fs.writeFileSync(tmp, buf);
       fs.renameSync(tmp, req.destPath);
     } catch (err) {
-      try { fs.rmSync(tmp, { force: true }); } catch { /* best-effort */ }
+      try { fs.rmSync(tmp, { force: true }); } catch {  }
       throw err;
     }
     return { path: req.destPath, filename, contentType, size: size || buf.byteLength };
@@ -611,7 +580,6 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   // unchanged. Mirrors the existing callUpload/callDownload
   // custom-path pattern.
 
-  /** Project a server row to its sole agent-facing identity: name#discriminator. */
   function projectServer(row: { name: string; discriminator: string }): Server {
     return { handle: formatHandle(row.name, row.discriminator) };
   }
@@ -625,7 +593,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       res,
       "listServers",
     );
-    // Superset in → lean out: emit only the canonical handle.
+
     return { servers: body.servers.map(projectServer) };
   }
 
@@ -645,7 +613,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       },
     );
     const body = await parseJsonResponse<{ server?: { name: string; discriminator: string } }>(res, "joinServer");
-    // Superset {member,serverId,server} in → canonical agent-facing handle.
+
     if (!body.server) {
       throw new Error("joinServer: upstream response missing server");
     }

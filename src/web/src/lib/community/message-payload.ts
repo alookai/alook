@@ -1,19 +1,4 @@
-/**
- * Single source of truth for turning a message row into an on-the-wire
- * payload. Two variants:
- *
- * - `mapMessageForApi` — response shape for GET /messages endpoints
- *   (channels, DMs, threads). Attachments are already grouped into the UI
- *   shape ({ kind: "image" | "file", name, url, size? }) upstream.
- *
- * - `mapMessageForWs` — payload shape for WS MESSAGE_CREATE broadcasts.
- *   Attachments are raw ({ id, filename, url, contentType, size }) — the
- *   client re-shapes on receipt (see `contexts/community/context.tsx`).
- *
- * Both variants share reply-preview resolution, author-avatar derivation,
- * embeds pass-through, and mentionType projection so adding/removing a
- * field on the wire is one edit, not four.
- */
+
 import { BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, queries, type CommunityContract, type Database, type MentionType, type CommunityMessageResource, type CommunityMessageAttachment } from "@alook/shared"
 import type { BotCreationPayload, FriendApprovalPayload } from "@alook/shared"
 
@@ -32,7 +17,6 @@ type UiReaction = NonNullable<CommunityMessageResource["reactions"]>[number]
 type ReplyPreview = NonNullable<CommunityMessageResource["replyTo"]>
 type ThreadPreview = NonNullable<CommunityMessageResource["thread"]>
 
-/** Common fields shared by both API and WS variants — derived exactly once. */
 function coreFields(row: MessageRow, replyMap: ReadonlyMap<string, ReplyIdentity>) {
   return {
     ...projectMessageWireType(row.type),
@@ -175,7 +159,6 @@ export function mapMessageForWs(row: MessageRow, ctx: WsMessageContext, contract
     botCreationByMessageId: ctx.botCreation ? new Map([[row.id, ctx.botCreation]]) : undefined,
   }, channelId, ctx.clientNonce ?? row.clientNonce ?? null)
 }
-
 
 export async function readCommunityMessageProfiles(db: Database, messages: readonly CommunityMessageResource[], readProfiles: CommunityResourceProfileReader = ids => readCommunityResourceProfiles(db, ids)) {
   const profiles = await readProfiles(communityMessageProfileIds(messages))

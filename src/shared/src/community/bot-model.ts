@@ -1,34 +1,15 @@
-/**
- * The single owner of every model-name ↔ `ModelConfig` ↔ Select translation.
- *
- * Storage (`community_bot_binding.model_name`), the wire request body, and the
- * UI all speak `string | null`. `ModelConfig` (the structured shape the daemon
- * consumes) is constructed in exactly ONE place — `resolveModelConfig` — so the
- * two wake sites, two write routes, and the picker cannot drift on how a stored
- * name maps to `{ kind }`.
- *
- * Stored model names are advisory picker values, not a catalog gate. Every
- * non-empty name is launchable as `named`; the UI's `Custom…` state only
- * describes how an absent suggestion is edited.
- */
-
+// Stored model names are not a catalog gate: non-empty names remain launchable.
 import type { ModelConfig } from "../runtime-config";
 
 export function requiresExplicitModel(runtime: string | null | undefined): boolean {
   return runtime === "opencode" || runtime === "pi-durable" || runtime === "cursor-sdk";
 }
 
-/** Select sentinel for "Default (the runtime's own default)". */
 export const MODEL_SELECT_DEFAULT = "__default__";
-/** Select sentinel for "Custom…" (reveals a free-text input). */
+
 export const MODEL_SELECT_CUSTOM = "__custom__";
 
-/**
- * The ONLY place a `ModelConfig` is constructed from stored model-name state
- * (outside `makeRuntimeConfig`'s own default). `null`, `""`, and
- * whitespace-only all mean the runtime's default. Every other value resolves
- * to `named`; catalog membership is only a picker-display concern.
- */
+// Blank stored names select the runtime default; all other names remain named.
 export function resolveModelConfig(modelName: string | null): ModelConfig {
   const name = (modelName ?? "").trim();
   if (name.length === 0) return { kind: "default" };
@@ -61,12 +42,6 @@ export function formatModelLabel(
   return name;
 }
 
-/**
- * Seed the picker: which Select value is active, plus the text to prefill the
- * custom input with. A stored default → the Default sentinel and empty text; a
- * catalog id → that id as the Select value; anything else → the Custom sentinel
- * with the stored name in the text field.
- */
 export function modelSelectState(
   modelIds: readonly string[],
   modelName: string | null
@@ -78,12 +53,7 @@ export function modelSelectState(
   return { selectValue: MODEL_SELECT_CUSTOM, customName: name };
 }
 
-/**
- * Read the picker back out into a stored model-name. The Default sentinel and a
- * cleared Select (Base UI can emit `null`) both map to `null` ⇒ default. The
- * Custom sentinel maps to the trimmed custom text (empty ⇒ `null`). Any other
- * value is a catalog id, returned verbatim.
- */
+// Base UI can emit null when a Select is cleared; this must mean Default.
 export function modelNameFromSelect(
   selectValue: string | null,
   customName: string

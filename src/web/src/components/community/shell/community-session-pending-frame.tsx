@@ -13,7 +13,6 @@ import { ServerRailPending } from "./server-rail"
 import { Shell } from "./shell"
 import { UserBarSkeleton } from "./user-bar"
 
-/** Stable, inert viewport shown before authenticated community providers exist. */
 export function CommunitySessionPendingFrame({ pathname, children }: { pathname: string; children?: ReactNode }) {
   const breakpoint = useBreakpoint()
   const plan = resolveCommunityModulePlan(pathname)

@@ -35,16 +35,6 @@ function invalidateChannelRefDirectory(queryClient: ReturnType<typeof useQueryCl
   })
 }
 
-/**
- * Channel / category CRUD + reorders. These all invalidate `server(serverId)`
- * so the tree re-renders with fresh category/channel positions. The WS layer
- * mirrors this with its own `invalidateQueries(server(id))` on
- * `channel.*` / `category.*` events, so success paths here still need a
- * same-tab invalidation for the mutating client.
- */
-
-// ── Channels ──────────────────────────────────────────────────────────────
-
 export type CreateChannelArgs = {
   serverId: string
   categoryId: string | null
@@ -190,8 +180,6 @@ export function useDeleteChannel() {
     onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
 }
-
-// ── Categories ────────────────────────────────────────────────────────────
 
 export type CreateCategoryArgs = {
   serverId: string

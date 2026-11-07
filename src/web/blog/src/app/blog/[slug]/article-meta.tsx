@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { BlogPost } from "@blog/lib/blog/posts";
 import { getBlogSearchTitle } from "@blog/lib/blog/metadata";
-import { getBlogOgImage } from "./og-image";
+import { getBlogOgImage } from "@blog/lib/blog/metadata";
 import imageAssets from "@blog/lib/blog/image-assets.json";
 
 export function buildBlogPostMetadata(post: BlogPost): Metadata {

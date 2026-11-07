@@ -12,7 +12,7 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { ServerRailEntry } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
-import type { CommunityFolder } from "@/lib/community/models/navigation"
+import type { CommunityFolder, FoldersResponse } from "@/lib/community/models/navigation"
 import {
   useServerRailProjection,
 } from "@/lib/community-db/projections"
@@ -21,22 +21,14 @@ import {
   publishCommunityLiveSnapshot,
 } from "@/lib/community-db/sync"
 
-/**
- * Fetches the user's server-folder groupings for the rail.
- *
- * The API returns raw folder rows; we materialise the `FolderServer` view
- * shape (with `initial`) here so consumers get render-ready data. The
- * transform is deterministic per row so it's safe inside the query function.
- */
 type RawFolder = {
   id: string
   name: string
   servers: Array<{ id: string; name: string; icon?: string | null }>
 }
 
-export type FoldersResponse = { folders: CommunityFolder[]; topOrder?: ServerRailEntry[] | null }
+export type { FoldersResponse } from "@/lib/community/models/navigation"
 
-// Frozen empty fallback — see `use-servers.ts` for the rationale.
 const EMPTY_FOLDERS: readonly CommunityFolder[] = Object.freeze([])
 
 export const foldersQueryFn = async (

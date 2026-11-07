@@ -5,6 +5,7 @@
  * pre-compiled bundles that can run with `wrangler dev --local` without
  * needing source code or node_modules.
  */
+import { SELF_HOSTED_SERVICES } from "../src/lib/service-topology.js";
 import { execSync } from "child_process";
 import { cpSync, rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
@@ -45,10 +46,8 @@ function rewriteAbsolutePaths(webDest: string): void {
   writeFileSync(handlerPath, handler);
 }
 
-// Clean
 if (existsSync(bundledDir)) rmSync(bundledDir, { recursive: true });
 
-// --- Build Web ---
 console.log("\n=== Building Web (opennextjs-cloudflare) ===\n");
 const webSrc = join(monoRoot, "src", "web");
 run("node ../../scripts/ci/run-turbo.mjs run @alook/web#build @alook/email-worker#build @alook/ws-do#build @alook/queue-worker#build", appRoot);
@@ -71,47 +70,18 @@ for (const runtimeFile of ["worker-runtime.ts", "public-worker-response.ts", "ob
 }
 cpSync(join(webSrc, "migrations"), join(webDest, "migrations"), { recursive: true });
 
-// --- Build Email Worker ---
-console.log("\n=== Building Email Worker ===\n");
-const emailSrc = join(monoRoot, "src", "email-worker");
-const emailDest = join(bundledDir, "email-worker");
-mkdirSync(emailDest, { recursive: true });
-
-cpSync(join(emailSrc, "dist", "index.js"), join(emailDest, "index.js"));
-
-const emailToml = readFileSync(join(emailSrc, "wrangler.toml"), "utf-8");
-writeFileSync(
-  join(emailDest, "wrangler.toml"),
-  emailToml.replace('main = "src/index.ts"', 'main = "index.js"'),
-);
-
-// --- Build WS-DO ---
-console.log("\n=== Building WS-DO ===\n");
-const wsSrc = join(monoRoot, "src", "ws-do");
-const wsDest = join(bundledDir, "ws-do");
-mkdirSync(wsDest, { recursive: true });
-
-cpSync(join(wsSrc, "dist", "index.js"), join(wsDest, "index.js"));
-
-const wsToml = readFileSync(join(wsSrc, "wrangler.toml"), "utf-8");
-writeFileSync(
-  join(wsDest, "wrangler.toml"),
-  wsToml.replace('main = "src/index.ts"', 'main = "index.js"'),
-);
-
-// --- Build Queue Worker ---
-console.log("\n=== Building Queue Worker ===\n");
-const queueSrc = join(monoRoot, "src", "queue-worker");
-const queueDest = join(bundledDir, "queue-worker");
-mkdirSync(queueDest, { recursive: true });
-
-cpSync(join(queueSrc, "dist", "index.js"), join(queueDest, "index.js"));
-
-const queueToml = readFileSync(join(queueSrc, "wrangler.toml"), "utf-8");
-writeFileSync(
-  join(queueDest, "wrangler.toml"),
-  queueToml.replace('main = "src/index.ts"', 'main = "index.js"'),
-);
+for (const service of SELF_HOSTED_SERVICES) {
+  if (service.key === "web") continue;
+  console.log(`\n=== Building ${service.label} ===\n`);
+  const source = join(monoRoot, "src", service.directory);
+  const destination = join(bundledDir, service.directory);
+  mkdirSync(destination, { recursive: true });
+  cpSync(join(source, "dist", "index.js"), join(destination, "index.js"));
+  writeFileSync(
+    join(destination, "wrangler.toml"),
+    readFileSync(join(source, "wrangler.toml"), "utf8").replace('main = "src/index.ts"', 'main = "index.js"'),
+  );
+}
 
 console.log("\n✓ Bundle complete at:", bundledDir);
 console.log("  Contents:", readdirSync(bundledDir).join(", "));

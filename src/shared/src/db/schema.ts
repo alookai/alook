@@ -14,10 +14,6 @@ import { sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { TASK_TYPES } from "../constants";
 
-// ---------------------------------------------------------------------------
-// Better Auth tables
-// ---------------------------------------------------------------------------
-
 // `ownerUserId` is a real, already-applied self-referencing FK — see
 // `src/web/migrations/0050_community_bots.sql` (`ownerUserId TEXT REFERENCES
 // user(id)`, no `ON DELETE` clause, so SQLite/D1 default to `NO ACTION`: the
@@ -254,10 +250,6 @@ export const nativeOauthAttempt = sqliteTable(
     ),
   ],
 );
-
-// ---------------------------------------------------------------------------
-// Application tables
-// ---------------------------------------------------------------------------
 
 export const workspace = sqliteTable("workspace", {
   id: text("id").primaryKey().$defaultFn(() => "sp_" + nanoid()),
@@ -872,10 +864,6 @@ export const messageFlag = sqliteTable(
     index("idx_message_flag_message_user").on(t.messageId, t.userId),
   ]
 );
-
-// ---------------------------------------------------------------------------
-// Workspace file request (ephemeral queue for file browsing)
-// ---------------------------------------------------------------------------
 
 export const conversationMap = sqliteTable(
   "conversation_map",

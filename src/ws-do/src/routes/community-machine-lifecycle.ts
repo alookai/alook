@@ -345,9 +345,7 @@ export async function handleMachineNap({ request, env, url, traceId, log }: Rout
 }
 
 export async function handleMachineForceClose({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
-  // POST /community-machine/<doName>/force-close — disconnect a daemon by
-  // its DO-name suffix (first 32 hex of the credential hash). Callers look
-  // the suffix up from `community_machine_credential.do_name`.
+
   const forceClose = url.pathname.match(/^\/community-machine\/([^/]+)\/force-close$/)
   if (!forceClose || request.method !== "POST") return null
 

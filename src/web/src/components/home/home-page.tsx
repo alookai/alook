@@ -41,7 +41,7 @@ export function HomePage({ isLoggedIn }: { isLoggedIn: boolean }) {
 
   useGSAP(
     () => {
-      // Floating nav fades in when hero section unpins
+
       ScrollTrigger.create({
         trigger: ".hero-section",
         start: "bottom top",

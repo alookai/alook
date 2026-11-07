@@ -41,9 +41,7 @@ async function checkBatchPresenceTarget(env: Env, userId: string): Promise<Batch
 }
 
 export async function handleBatchPresence({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
-  // Bulk presence: fan out one DO fetch per id and return the online subset.
-  // Consolidates web-worker subrequest budget to a single call regardless of
-  // membership size.
+
   if (url.pathname !== "/presence/users" || request.method !== "POST") return null
 
   let body: unknown

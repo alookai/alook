@@ -1,24 +1,5 @@
-/**
- * RuntimeConfig — the structured, versioned agent runtime configuration.
- *
- * This is what the server stores per agent and pushes down in `agent:wake`'s
- * `config`. It captures the FULL config surface — which runtime, which model,
- * which provider/endpoint, mode, reasoning effort — as structured data (not bare
- * strings), mirroring how a production daemon models it.
- *
- * Lifted from `src/daemon/src/runtimeConfig.ts` into `@alook/shared` because
- * `HostCommand`'s `agent:wake.config` field needs this type, and the wake
- * producer/consumer (`src/web` + `src/queue-worker`, both Workers) has no path
- * to import from the CLI/daemon package. `src/daemon` re-exports
- * `RuntimeConfig`/`makeRuntimeConfig` from here; `resolveLaunchFields`/
- * `ResolvedLaunchFields` stay daemon-only (host-side launch resolution, not
- * needed server-side).
- *
- * The host resolves launch fields from this config. Reasoning effort is also a
- * desired live setting: a capable driver may apply it at a safe turn boundary,
- * while other drivers relaunch with the same session context.
- */
-
+// Reasoning effort is a desired live setting. A capable driver applies it at a
+// safe turn boundary; other drivers relaunch with the same session context.
 export const RUNTIME_CONFIG_VERSION = 1;
 
 export const KNOWN_REASONING_EFFORTS = [
@@ -56,27 +37,21 @@ export type RuntimeReasoningCatalog = {
   }[];
 };
 
-/** Model selection — structured, not a bare string. */
 export type ModelConfig =
   | { kind: "default" } // use the runtime's default model
   | { kind: "named"; name: string } // any explicit launchable model name
   | { kind: "custom"; name: string }; // legacy-compatible custom/BYO shape
 
-/**
- * Provider / endpoint selection — distinct from model. Lets a host point a
- * runtime at a custom endpoint or a built-in multi-provider (Pi).
- */
 export type ProviderConfig =
   | { kind: "default" }
   | { kind: "custom"; apiUrl: string; apiKey: string } // e.g. Claude-compatible endpoint
   | { kind: "pi-builtin"; providerId: string; apiKey: string }; // Pi multi-provider
 
-/** Execution mode (e.g. fast lane). */
 export type ModeConfig = { kind: "default" | "fast" };
 
 export interface RuntimeConfig {
   version: number;
-  /** "claude" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "mock" */
+
   runtime: string;
   model: ModelConfig;
   mode: ModeConfig;
@@ -84,9 +59,9 @@ export interface RuntimeConfig {
   /** Server-generated last-write-wins ordering token for desired runtime config. */
   runtimeConfigRevision?: number;
   provider?: ProviderConfig;
-  /** Override the runtime's default executable path. */
+
   command?: string;
-  /** Override the runtime's disallowed-tools list. */
+
   disallowedTools?: string;
   /** Extra host-supplied env vars (controlled keys are stripped on resolve). */
   envVars?: Record<string, string>;
@@ -103,15 +78,10 @@ export interface RuntimeConfig {
    * collide.
    */
   agentHandle?: string;
-  /** The agent's standing instruction / role (becomes the standing prompt). */
+
   instruction?: string;
 }
 
-/* ------------------------------------------------------------------ */
-/* Construction / normalization                                        */
-/* ------------------------------------------------------------------ */
-
-/** Build a fully-defaulted RuntimeConfig from a partial input. */
 export function makeRuntimeConfig(
   input: Partial<RuntimeConfig> & { runtime: string },
 ): RuntimeConfig {

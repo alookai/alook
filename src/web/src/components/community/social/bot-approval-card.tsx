@@ -62,7 +62,6 @@ export function BotApprovalCard({ approval }: { approval: FriendApprovalPayload 
     </div>
   )
 
-  // Chip states — non-actionable.
   const chip = (label: string, dim = false) => (
     <div className={cardBase} data-testid="bot-approval-card" data-approval-status={status}>
       {header}
@@ -77,13 +76,11 @@ export function BotApprovalCard({ approval }: { approval: FriendApprovalPayload 
   if (status === "superseded") return chip("Replaced by a newer request", true)
   if (status === "cancelled") return chip(`${other.name} withdrew the request`, true)
 
-  // status === "pending"
   if (waitingOn === "addressee" || waitingOn === "other-owner") {
     const name = waitingOnProfile ? waiting.name : "them"
     return chip(`Approved — waiting on ${name}`)
   }
 
-  // waitingOn === "you" — actionable.
   return (
     <div className={cardBase} data-testid="bot-approval-card" data-approval-status={status}>
       {header}

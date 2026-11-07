@@ -274,9 +274,6 @@ export async function listDMs(db: Database, userId: string) {
       asc(communityChannel.id)
     );
 
-  // The join above returns EVERY access member (including self). Keep only the
-  // peer rows, then de-dupe defensively by peer (guards the deferred
-  // concurrency edge — two DM channels for one pair).
   const seenPeers = new Set<string>();
   const result: typeof rows = [];
   for (const r of rows) {
@@ -341,7 +338,6 @@ export async function getDMPeer(
   if (!other) return null;
   return { otherUserId: other };
 }
-
 
 export function dmPeerReadableSql(db: Database, userId: string, channelId: SQLWrapper) {
   const peer = alias(communityChannelMember, "message_dm_peer");

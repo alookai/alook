@@ -15,7 +15,7 @@ const fillPath = (template, fixture) => template.replace(/\{(serverId|channelId)
 export function messageSendCase(config) {
   const scenario = { ...defaultScenario, ...config.scenario }
   return {
-    id: 'channel-message-send', version: 1, options: scenario,
+    id: 'channel-message-send', version: 1, options: { ...scenario, communityContractVersion: config.communityContractVersion },
     metrics: {
       senderVisibleMs: { label: 'Sender DOM visible', unit: 'ms', successOnly: true },
       receiverVisibleMs: { label: 'Receiver DOM visible', unit: 'ms', successOnly: true },

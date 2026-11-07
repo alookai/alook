@@ -1,5 +1,4 @@
 import { spawnSync } from "child_process";
-import { existsSync, readdirSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { DAEMON_BASE_DIR, WEB_URL, WS_URL } from "./constants.js";
@@ -48,13 +47,14 @@ export function runEmbeddedDaemon(args: string[], showOutput = true): DaemonProc
 }
 
 export function listSavedDaemonIds(): string[] {
-  const dir = join(DAEMON_BASE_DIR, "daemons");
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((name) => name.endsWith(".credential.json"))
-    .map((name) => name.slice(0, -".credential.json".length))
-    .filter((id) => MACHINE_ID.test(id))
-    .sort();
+  const result = runEmbeddedDaemon(["saved-machines"], false);
+  if (!result.ok) throw new Error(errorEnvelope(result.stdout) ?? "Could not list saved daemons");
+  const parsed = JSON.parse(result.stdout) as { success?: { machineIds?: unknown } };
+  const ids = parsed.success?.machineIds;
+  if (!Array.isArray(ids) || !ids.every((id): id is string => typeof id === "string" && MACHINE_ID.test(id))) {
+    throw new Error("Invalid saved daemon response");
+  }
+  return ids;
 }
 
 export function listRunningDaemonIds(): string[] {

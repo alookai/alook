@@ -22,32 +22,15 @@ import { guardDmOpen } from "@/lib/community/dm-guard"
 import { createCommunityMessage, type IncomingMessageBody } from "@/lib/community/message-handler"
 import { nanoid } from "nanoid"
 
-
-
 /**
- * Single-source creation cores for the `POST /channels` create door (route/disc
- * trunk 接口树统一, create-door step). Each function is the exact body that used
- * to live inline in one legacy create entry — extracted so the door and the
- * (transitionally kept-alive) legacy route call ONE code path, making their
- * equivalence structural rather than a copy that can drift. The door dispatches
- * on the requested type's creation trait; these are the per-type attempt +
- * side-effect shapes those traits parameterize.
- *
- * Boundary (createWithCollisionPolicy doc): text/forum are reject-on-collision
- * (by-name), thread is get-or-create (by root-message anchor); DM is get-or-create
- * by user-pair IDENTITY — a different key space — so it stays on createOrGetDM and
- * is NOT wired through createWithCollisionPolicy (folding it would compress two
- * collision-key axes into one value = false convergence).
+ * Text/forum names reject collisions. Threads get-or-create by root-message
+ * anchor; DMs get-or-create by user-pair identity. Keep those key spaces distinct.
  */
 
 export type CreateChannelResult<T> =
   | { ok: true; value: T }
   | { ok: false; status: number; error: string }
 
-/**
- * Create a top-level text/forum channel under a server (reject-on-collision).
- * Byte-identical to the former servers/[id]/channels POST body.
- */
 export async function createServerChannelForUser(
   db: Database,
   params: {
@@ -137,14 +120,9 @@ export async function createServerChannelForUser(
     await fanOutToServerMembers(serverId, event)
   }
 
-
   return { ok: true, value: channel }
 }
 
-/**
- * Create-or-get a DM channel for a user pair (get-or-create by peer identity).
- * Byte-identical to the former dm/route POST body.
- */
 export async function createDmForUser(
   db: Database,
   params: { actorUserId: string; peerUserId?: unknown },
@@ -250,8 +228,7 @@ export async function createThreadForUser(
     },
     refetchWinner: () => queries.communityChannel.getThreadChannelByParentMessage(db, message.channelId!, messageId),
   })
-  // get-or-create never returns a structured failure — a !ok is unreachable for
-  // this policy (it creates or re-selects, else throws); map to 404 defensively.
+
   if (!threadResult.ok) return { ok: false, status: 404, error: "thread not found" }
   const childChannel = threadResult.value
   if (createdByThisAttempt) {

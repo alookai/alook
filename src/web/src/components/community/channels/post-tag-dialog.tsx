@@ -1,11 +1,6 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-/* Hallmark · component: tag editor · genre: modern-minimal · theme: DESIGN.md
- * states: default · hover · focus · active · disabled · loading · error-retain · success-close
- * contrast: pass (40–41) · responsive: pass (320 / 375 / 414 / 768)
- * pre-emit critique: P5 H5 E4 S5 R5 V4
- */
 
 import {
   useEffect,

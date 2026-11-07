@@ -1,8 +1,6 @@
 import { wsDoFetch } from "@/lib/broadcast"
 import { RATE_LIMITS, type RateLimitName, type RateLimitPolicy, type RateLimitResult } from "@alook/shared"
 
-// Re-export the shared types from this module so route handlers only need
-// one import path (`@/lib/rate-limit`) instead of two.
 export type { RateLimitName, RateLimitPolicy, RateLimitResult }
 
 /**

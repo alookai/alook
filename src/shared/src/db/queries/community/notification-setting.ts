@@ -137,8 +137,6 @@ export async function resolveEffectiveLevel(
   return computeEffectiveLevel(settings, channel);
 }
 
-// Batch resolver: one channel load plus one bounded settings query per D1-safe
-// recipient chunk. This is O(chunks), never N+1.
 export async function resolveEffectiveLevelForUsers(
   db: Database,
   userIds: string[],

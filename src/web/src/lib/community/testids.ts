@@ -281,12 +281,7 @@ export const tid = {
     return "community-thread-split-close" as const
   },
   railUnreadBadge: (serverId: string) => `community-rail-unread-badge-${serverId}`,
-  // Forum post feed (ForumView). `forumThreadCard` is the whole clickable card;
-  // `forumThreadTitle` / `forumThreadTitleText` expose the clamped title cluster
-  // and its visible text; `forumThreadTagBtn` is the responsive tag-edit icon;
-  // `forumThreadArchiveBtn` / `forumThreadDeleteBtn` are the reserved-status
-  // and delete icons; `forumThreadAvatars`
-  // wraps the participant AvatarGroup; `forumTagChip` is a filter-bar tag chip.
+
   forumThreadCard: (id: string) => `community-forum-post-${id}`,
   forumSidebarThread: (id: string) => `community-forum-sidebar-thread-${id}`,
   forumThreadTitle: (id: string) => `community-forum-post-title-${id}`,

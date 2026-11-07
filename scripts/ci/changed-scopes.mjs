@@ -9,7 +9,7 @@ import {
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createE2eMatrix, queryNativeUiFacts, resolvePlaywrightImage, validateNativeUiFacts } from "./e2e-shards.mjs"
-import { isolatedRepositoryGitEnvironment } from "./report-changed-patch-coverage.mjs"
+import { isolatedRepositoryGitEnvironment } from "./repository-git.mjs"
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 const MANIFEST_URL = new URL("./change-scope-manifest.json", import.meta.url)

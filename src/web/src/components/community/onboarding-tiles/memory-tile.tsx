@@ -43,7 +43,6 @@ export function MemoryTile({ idPrefix = "ot-memory" }: { idPrefix?: string }) {
       srcs.forEach((s) => place(s, s.base))
       breathe(scope, ".ot-agent", 1.02, 3.4)
 
-      // step orbit: reveal top label → dwell → hide → rotate 120° → reveal new top
       const orbit = gsap.timeline({ repeat: -1 })
       for (let k = 0; k < 3; k++) {
         const cur = srcs[(((-k % 3) + 3) % 3)]
@@ -59,7 +58,6 @@ export function MemoryTile({ idPrefix = "ot-memory" }: { idPrefix?: string }) {
           })
       }
 
-      // reset/wake on the live self only — the orbit never stops
       const tl = gsap.timeline({ repeat: -1, defaults: { ease: OT_EASE } })
       tl.to({}, { duration: 3 }).to(".ot-agent", { opacity: 0.3, duration: 0.5 })
       goOffline(tl, ".ot-dot", 112, 73, "<")

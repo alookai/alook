@@ -86,7 +86,6 @@ export async function resolveTargetForMember(
     return { kind: "dm", channelId: dm.id, otherUserId: peerId }
   }
 
-  // Channel form: resolve server, then channel, both scoped to membership.
   const servers = await withD1Retry(
     () => queries.communityServer.resolveServerByNameForMember(db, userId, parsed.server),
     { route: "community/resolve-ref:server" }
@@ -117,8 +116,6 @@ export async function resolveTargetForMember(
     return { error: 400, message: "can't start a thread inside a thread or forum post" }
   }
 
-  // Thread form (`/server#disc/channel/#N`) — translate the root seq to the
-  // parent message's id, then find (or create) the thread's own channel row.
   const rootMessage = await withD1Retry(
     () => queries.communityMessage.getMessageByChannelAndSeq(
       db,

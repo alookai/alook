@@ -24,12 +24,10 @@ export interface UnreadChannelRow {
   channelName: string;
   serverId: string;
   serverName: string;
-  // Raw stored channel type (text | forum | thread). Threaded through to the
-  // inbox so it can render the same entity icon as the sidebar.
+
   type: string | null;
   lastMessageAt: string;
-  // null for a top-level channel; set for a child thread. The
-  // inbox route uses this to nest child unreads under their parent channel.
+
   parentChannelId: string | null;
 }
 
@@ -47,8 +45,7 @@ export interface UnreadForumOpenerRow {
   childChannelId: string;
   title: string;
   createdAt: string;
-  // Kept in the read-model row so callers can preserve the query's stable
-  // createdAt → seq → id order through their own merge/cap pass.
+
   openerSeq: number;
 }
 
@@ -97,10 +94,6 @@ export function isChannelUnread(row: {
   return row.lastMessageAt > row.joinedAt;
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Unreads
-// ──────────────────────────────────────────────────────────────────────────────
-
 export async function listUnreadChannels(
   db: Database,
   userId: string,
@@ -131,16 +124,9 @@ export async function listUnreadChannels(
             type: communityChannel.type,
             parentChannelId: communityChannel.parentChannelId,
             lastMessageAt: communityChannel.lastMessageAt,
-            // `hasReadState` distinguishes "read-state row exists" (→ seq
-            // predicate) from "no row" (→ joinedAt timestamp branch). The
-            // read-state row's own id is a cheap non-null marker under the
-            // LEFT JOIN.
+
             hasReadState: sql<number>`(${communityReadState.id} IS NOT NULL)`,
-            // The seq predicate (ref/id seq unification): is there any message
-            // in this channel with seq beyond the viewer's read cursor? SAME
-            // ruler as the agent inbox. COALESCE handles the no-row LEFT JOIN
-            // (lastReadSeq NULL → 0), though the joinedAt branch takes over
-            // there anyway per `isChannelUnread`.
+
             hasUnreadBeyondSeq: sql<number>`EXISTS (SELECT 1 FROM ${communityMessage} m WHERE m.channel_id = ${communityChannel.id} AND m.seq > COALESCE(${communityReadState.lastReadSeq}, 0))`,
             archived: communityChannel.archived,
             // Sidebar / inbox unread badges must ignore messages posted before
@@ -526,10 +512,6 @@ export async function listThreadOpenersByChildIds(
   }));
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// DM unreads
-// ──────────────────────────────────────────────────────────────────────────────
-
 export interface UnreadDmRow {
   channelId: string;
   otherUserId: string;
@@ -572,8 +554,7 @@ export async function listUnreadDms(
   db: Database,
   userId: string
 ): Promise<UnreadDmRow[]> {
-  // DMs are type='dm' channels; the viewer's DM channels are those they hold a
-  // relation='access' member row on. First resolve those channel ids.
+
   const selfRows = await db
     .select({ channelId: communityChannelMember.channelId })
     .from(communityChannelMember)
@@ -588,8 +569,6 @@ export async function listUnreadDms(
   const dmChannelIds = selfRows.map((r) => r.channelId);
   if (dmChannelIds.length === 0) return [];
 
-  // Join each DM channel to the PEER access member → user (name/avatar) and the
-  // viewer's read-state row. Filtering happens in JS via `isDmUnread`.
   const rows = await db
     .select({
       channelId: communityChannel.id,
@@ -652,7 +631,6 @@ export async function listUnreadDms(
     }));
 }
 
-/** DM counterpart of `listEligibleUnreadChannels`. */
 export async function listEligibleUnreadDms(
   db: Database,
   userId: string

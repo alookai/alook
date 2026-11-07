@@ -1,7 +1,6 @@
 "use client"
 
 import { useMountedClock } from "@/hooks/use-mounted-clock"
-/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 */
 
 import { Activity, ChevronRight, Lock } from "lucide-react"
 import { useEffect } from "react"

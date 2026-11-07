@@ -1,5 +1,4 @@
-// Time formatting for community message timestamps.
-// Accepts ISO 8601 strings and formats for display.
+
 
 const TIME_FMT = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" })
 const DATE_FMT = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" })
@@ -16,7 +15,6 @@ function isYesterday(d: Date) {
   return d.getFullYear() === y.getFullYear() && d.getMonth() === y.getMonth() && d.getDate() === y.getDate()
 }
 
-// Format a message timestamp for inline display: "9:31 PM" (today), "Yesterday 9:31 PM", or "Jun 11, 2026 9:31 PM"
 export function formatMessageTime(iso: string | undefined): string {
   if (!iso) return ""
   const d = new Date(iso)
@@ -26,7 +24,6 @@ export function formatMessageTime(iso: string | undefined): string {
   return FULL_FMT.format(d)
 }
 
-// Format a date label for the divider: "May 11, 2026", "Yesterday", "Today"
 export function formatDateLabel(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
@@ -35,7 +32,6 @@ export function formatDateLabel(iso: string): string {
   return DATE_FMT.format(d)
 }
 
-// Format relative time for thread/forum/inbox: "2m ago", "3h ago", "Jun 11"
 export function formatRelativeTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
@@ -67,7 +63,6 @@ export function formatAwakeDuration(iso: string): string {
   return `Awake ${days}d`
 }
 
-// Get just the date key (YYYY-MM-DD) from an ISO string for grouping
 export function dateKey(iso: string | undefined): string {
   if (!iso) return ""
   const d = new Date(iso)

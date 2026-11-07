@@ -31,7 +31,6 @@ import {
 import { MemberIdentityRow } from "./member-identity-row"
 import { VirtualRows } from "../messages/virtual-cursor-list"
 
-// The Leave/Remove confirm flow the row menu opens (private channel/post/thread).
 type ManageConfirm = { kind: "leave" | "remove"; memberId: string }
 
 const SETTABLE_ROLES: Role[] = ["admin", "member"]
@@ -80,9 +79,6 @@ export function computeDuplicateNames(members: Member[]): Set<string> {
   return dupes
 }
 
-// Flatten grouped members into a single (header|row) stream so the virtualizer
-// measures both kinds. Preserves the existing Owner / Admin / Online / Offline
-// grouping — sticky headers become one row of the virtual list.
 function flattenGroups(members: Member[]): FlatItem[] {
   const items: FlatItem[] = []
   for (const group of groupMembers(members)) {
@@ -194,10 +190,6 @@ export function MemberList({
     overscan: 8,
   })
 
-  // Trigger loadMore when the sentinel scrolls into the viewport. Guard on
-  // `loadingMore` inside the callback path (the hook also guards internally,
-  // but the extra check avoids sending an event when we already know one is
-  // in flight).
   useEffect(() => {
     if (!onLoadMore || !hasMore) return
     const el = sentinelRef.current
@@ -439,8 +431,6 @@ function MemberRow({
   )
 }
 
-// Loading placeholder for the right-panel Members list — reserves space for
-// two role groups + a body of online members, matching <MemberList>'s grouping.
 function MemberListSkeleton({
   showSearch,
   showAddMember,

@@ -15,22 +15,8 @@ import { communityKeys } from "@/lib/query-keys"
 import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { ApiError } from "@/lib/errors"
 
-export type AuditKind = "cli_invocation" | "tool_call" | "text" | "thinking" | "turn_interrupt" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "provider_changed" | "error"
-
-export type AuditEvent = {
-  id: string
-  kind: AuditKind
-  payload: unknown
-  sessionId: string | null
-  launchId: string | null
-  createdAt: string
-}
-
-export type AuditLogPage = {
-  events: AuditEvent[]
-  nextCursor: { beforeCreatedAt: string; beforeId: string } | null
-  liveIds?: string[]
-}
+import type { AuditEvent, AuditLogPage } from "@/lib/community/models/audit"
+export type { AuditKind, AuditEvent, AuditLogPage } from "@/lib/community/models/audit"
 
 const PAGE_SIZE = 50
 export const UNOBSERVED_AUDIT_HEAD_LIMIT = 200

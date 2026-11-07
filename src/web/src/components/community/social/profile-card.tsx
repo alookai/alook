@@ -79,8 +79,7 @@ type ProfileCardProps = {
   onMessage?: (userId: string, text: string) => void
   canMessage?: boolean
   isSelf?: boolean
-  // Only used when `isSelf` — the inline status row opens `StatusEditor` and
-  // calls this on a preset pick / free-text commit / emoji override / clear.
+
   onUpdateStatus?: (emoji: string | null, text: string | null) => void
   onOpenOwnerProfile?: (owner: OwnerProfileRef) => void
   onOpenBotAudit?: (botId: string) => void
@@ -402,7 +401,6 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
       </Sheet>
     )
 
-  // desktop: shadcn Popover anchored to an invisible trigger at the click point
   return (
     <Popover open={open} onOpenChange={setOpen} onOpenChangeComplete={(nowOpen) => { if (!nowOpen) onClose() }}>
       <PopoverTrigger
@@ -446,7 +444,6 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
   )
 }
 
-/** Hue of a #rrggbb colour in degrees. */
 function hueOf(hex: string): number {
   const n = Number.parseInt(hex.replace("#", "").slice(0, 6), 16)
   const r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255

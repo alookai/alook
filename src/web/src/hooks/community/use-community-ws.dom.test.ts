@@ -1,10 +1,11 @@
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { ANALYTICS_CONSENT_CHANGE_EVENT } from "@/lib/analytics-consent"
 import * as funnel from "@/lib/community/funnel-analytics"
 import { getCapturedRuntime, getCommunityApiFetchMock } from "./community-ws/test-harness"
 import { QueryObserver } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import { reconcileFocusedMessageQueries } from "./community-ws/reconnect-messages"
+import { reconcileFocusedMessageQueries } from "@/lib/community/message-reconcile"
 /**
  * Root Community WebSocket boundary and transport-ownership tests.
  */
@@ -30,7 +31,6 @@ import {
   COMMUNITY_WS_FAILED_AFTER_MS,
 } from "./community-ws/connection-status"
 import { BUSINESS_SCHEMA_VERSION, communityBrowserEventBatchType, deriveCommunityDeliveryOperationId, encodeCommunityBrowserEventBatch, prepareCommunityDeliveryEvents } from "@alook/shared"
-import * as analytics from "@/lib/analytics"
 import * as schemaLifecycle from "@/lib/business-schema-lifecycle"
 import { currentCommunityEventFixture, machineResourceFixture } from "@/test/community-resource-fixtures"
 import type { CommunityMachineUpdated } from "@alook/shared"
@@ -41,12 +41,8 @@ afterEach(cleanupCommunityWsHarness)
 describe("useCommunityWs — non-community events bail", () => {
   it("rejects an old v3 batch and admits a current encoded batch", async () => {
     await mountHook()
-    const dropped = vi.spyOn(analytics, "trackCommunityWsFrameDropped")
+
     const setSpy = vi.spyOn(capturedQueryClient, "setQueryData")
-    const invalid = { type: "community:events.batch.v3", events: [] }
-    await capturedOnMessage!(invalid)
-    expect(dropped).toHaveBeenCalledExactlyOnceWith({ reason: "invalid-payload", type: invalid.type })
-    expect(setSpy).not.toHaveBeenCalled()
     const events = [{ type: "community:presence.update", userId: "peer", online: true }]
     const prepared = await prepareCommunityDeliveryEvents(events)
     if (!prepared.ok) throw new Error("invalid presence fixture")
@@ -54,20 +50,27 @@ describe("useCommunityWs — non-community events bail", () => {
       events })
     if (!encoded.ok) throw new Error("invalid current fixture")
     expect(encoded.batch.type).toBe(communityBrowserEventBatchType())
+    await capturedOnMessage!({ ...encoded.batch, type: "community:events.batch.v3" })
+    expect(setSpy).not.toHaveBeenCalled()
+    expect(getCapturedRuntime().ws.get().presenceByUserId.has("peer")).toBe(false)
     await capturedOnMessage!(encoded.batch)
     await vi.waitFor(() => expect(getCapturedRuntime().ws.get().presenceByUserId.get("peer")).toBe("online"))
-    expect(dropped).toHaveBeenCalledOnce()
-    dropped.mockRestore()
+
+
   })
   it("drops malformed current resources without requesting a document upgrade", async () => {
     await mountHook()
     const upgrade = vi.spyOn(schemaLifecycle, "requestBusinessSchemaUpdate")
-    const dropped = vi.spyOn(analytics, "trackCommunityWsFrameDropped")
+    const registry = getCommunityDbRegistry(capturedQueryClient)!
+    const messages = [...registry.collections.messages.values()]
+    const setSpy = vi.spyOn(capturedQueryClient, "setQueryData")
     await capturedOnMessage!({ type: "community:message.create", schemaVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", message: { id: "partial" } })
     await capturedOnMessage!({ type: communityBrowserEventBatchType(), schemaVersion: BUSINESS_SCHEMA_VERSION, events: [] })
-    expect(dropped).toHaveBeenCalledTimes(2)
+    expect([...registry.collections.messages.values()]).toEqual(messages)
+    expect(registry.collections.messages.has("partial")).toBe(false)
+    expect(setSpy).not.toHaveBeenCalled()
     expect(upgrade).not.toHaveBeenCalled()
-    upgrade.mockRestore(); dropped.mockRestore()
+    upgrade.mockRestore()
   })
   it("rejects non-community and unknown community-prefixed events", async () => {
     await mountHook()

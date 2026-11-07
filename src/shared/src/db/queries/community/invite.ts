@@ -94,7 +94,7 @@ export async function useInvite(
   token: string,
   userId: string
 ) {
-  // Find invite by token
+
   const invites = await db
     .select()
     .from(communityServerInvite)
@@ -103,13 +103,11 @@ export async function useInvite(
   const invite = invites[0];
   if (!invite) return null;
 
-  // Validate: not expired
   const now = new Date().toISOString();
   if (invite.expiresAt && invite.expiresAt <= now) {
     return null;
   }
 
-  // Validate: uses < maxUses (or maxUses is null = unlimited)
   if (invite.maxUses !== null && (invite.uses ?? 0) >= invite.maxUses) {
     return null;
   }
@@ -196,7 +194,6 @@ export async function useInvite(
   const batchResults = (await db.batch(statements as any)) as any[];
   const insertedMember = (batchResults[0] as Array<typeof communityServerMember.$inferSelect>)[0];
   if (!insertedMember) return null;
-
 
   return {
     invite,

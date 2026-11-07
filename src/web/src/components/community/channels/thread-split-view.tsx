@@ -1,7 +1,4 @@
 "use client"
-/* Hallmark · modern-minimal · focused/utilitarian · inherited neutral palette
- * macrostructure: parallel-conversation-panel · pre-emit: P5 H5 E4 S5 R5 V4 · slop: pass
- */
 
 import { useCallback, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react"
 import { useDefaultLayout, type GroupImperativeHandle, type Layout, type LayoutChangedMeta } from "react-resizable-panels"

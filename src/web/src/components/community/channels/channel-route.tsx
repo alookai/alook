@@ -1,7 +1,6 @@
 "use client"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
-
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ComponentProps } from "react"
 import { useSearchParams } from "next/navigation"
 import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
@@ -399,7 +398,6 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
 
     if (!channelHydrated) return <ConversationResolutionPendingFrame subtype={subtype} />
 
-    // ── Forum view ──────────────────────────────────────────────────────────
     if (isForum) {
       return (
         <ForumChannelSurface
@@ -428,7 +426,6 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
       )
     }
 
-    // ── Standard channel view ───────────────────────────────────────────────
     return (
       <TextChannelSurface
         channelId={channelId}

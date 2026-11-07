@@ -68,7 +68,6 @@ type PlatformLinkBadgeProps = ComponentPropsWithoutRef<"a"> & {
   node?: unknown
 }
 
-/** Streamdown anchor renderer: every link becomes an inline badge. */
 export function PlatformLinkBadge({
   children,
   className,

@@ -19,7 +19,7 @@ import { conversationEntryOptions, knownConversationLatestSeq, type findConversa
 import type { Msg } from "@/lib/community/models/message"
 import type { MessagePositionState, MessageRequest, MessageRequestResult } from "@/lib/community/message-position"
 import { ConversationReadTimeoutError, withConversationReadDeadline } from "@/lib/community/conversation-read"
-import { isFailedMessageRepair, messageReconcileOptions, reconcileWindow } from "./community-ws/reconnect-messages"
+import { isFailedMessageRepair, messageReconcileOptions, reconcileWindow } from "@/lib/community/message-reconcile"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 
 export { channelMessagesQueryFn } from "@/lib/community/message-window"

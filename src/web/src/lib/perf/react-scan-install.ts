@@ -49,8 +49,7 @@ function toRecord(event: LiteEvent): PerfEventRecord {
  * gate is off or when already installed (a shell/layout remount must not
  * double-`instrument()` and double every commit event).
  *
- * Returns the handle when it installed, or null when it no-op'd — the caller
- * (bootstrap component) uses the handle to stop on unmount.
+ * The instrument belongs to the page lifecycle, across shell/layout remounts.
  */
 export async function installReactScan(): Promise<LiteHandle | null> {
   // Build-time exclusion FIRST. Next inlines `process.env.NODE_ENV` to the
@@ -90,17 +89,8 @@ export async function installReactScan(): Promise<LiteHandle | null> {
   return handle
 }
 
-/**
- * The live handle from the most recent install, so a component mounted later
- * in the tree (PerfTraceBootstrap) can stop it on unmount even though the
- * install itself happens pre-hydration in instrumentation-client.
- */
 let activeHandle: LiteHandle | null = null
 
-/**
- * Stop the active instrument (idempotent) and release the install guard so a
- * later flag-on session can re-arm cleanly.
- */
 export function stopReactScan(): void {
   activeHandle?.stop()
   activeHandle = null

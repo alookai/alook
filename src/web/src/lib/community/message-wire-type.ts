@@ -3,7 +3,6 @@ export type MessageWireType = {
   systemKind?: "thread"
 }
 
-/** Normalize the stored message discriminator at every human-client wire boundary. */
 export function projectMessageWireType(
   type: string | null | undefined,
 ): MessageWireType {

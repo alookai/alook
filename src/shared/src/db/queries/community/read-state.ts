@@ -21,20 +21,12 @@ import { listDMs } from "./dm";
  *     lastReadMessageId IS NOT NULL
  *     AND lastReadAt === getMessage(lastReadMessageId).createdAt
  *
- * `lastReadAt` is a denormalized cache of the message's own `createdAt` — it
- * exists only to keep the inbox unread predicate
- * (`channel.lastMessageAt > lastReadAt`) a single-column comparison. It is
- * NEVER the semantic source of truth on its own.
+ * `lastReadAt` and `lastReadSeq` identify the same message as
+ * `lastReadMessageId`. Unread predicates use seq; the timestamp remains the
+ * message timestamp, never the time of the read action.
  *
- * Consequences for callers:
- * - If a channel/DM has no messages yet, there is NO row — mass mark-read is
- *   a no-op. The inbox query already filters `isNotNull(lastMessageAt)` so
- *   this doesn't leak unread noise.
- * - Every write path routes through `markReadToMessageBuilder` (batchable)
- *   or `markReadToMessage` (single-write). Both take a `message: { id,
- *   createdAt }` and enforce alignment by construction.
- * - NEVER write `{ lastReadAt: now, lastReadMessageId: null }`. If a future
- *   path genuinely wants to erase the pointer, delete the row instead.
+ * Mark-read and destructive pointer repair must preserve this alignment.
+ * To erase a pointer, delete the row; do not write a synthetic now/null pair.
  */
 
 function buildTargetFilter(data: { userId: string; channelId: string }) {
@@ -120,7 +112,6 @@ export type CanonicalReadTarget = {
   seq: number;
 };
 
-/** Re-check an exact pre-read target inside the mutation transaction. */
 export function canonicalReadTargetExistsCondition(
   db: Database,
   target: CanonicalReadTarget,
@@ -155,13 +146,7 @@ export function canonicalReadTargetExistsCondition(
  * `channelId` is the only scope; the upsert targets the plain unique
  * `(user_id, channel_id)`.
  */
-// `lastReadSeq` IS maintained here now (ref/id read-model seq unification): the
-// unread predicate switched from `lastMessageAt > lastReadAt` (timestamp) to
-// `EXISTS(message.seq > lastReadSeq)` — the same seq ruler the agent side uses —
-// so every human read write must advance `lastReadSeq` too, else a human's read
-// never registers under the new predicate (permanent phantom-unread). `seq`
-// co-advances with `createdAt` (both from the same message), and the monotone
-// guard uses `lastReadSeq` so same-timestamp messages still order correctly.
+
 export function markReadToMessageBuilder(
   db: Database,
   data: {
@@ -279,37 +264,7 @@ export function advanceReadStateRevisionWhenAnyBuilder(
   return advanceReadStateRevisionWhenBuilder(db, userId, or(...conditions)!);
 }
 
-/**
- * Bulk sibling used by destructive mutations that may replace/remove rows for
- * several human accounts at once. `condition` is evaluated inside the same D1
- * batch immediately before the destructive statement, so a raced loser does
- * not mint revisions for a mutation it did not commit.
- */
-export function advanceReadStateRevisionsForUsersBuilder(
-  db: Database,
-  userIds: string[],
-  condition: SQL<unknown>,
-) {
-  const ids = JSON.stringify([...new Set(userIds)]);
-  const selected = db
-    .select({
-      userId: sql<string>`CAST(value AS TEXT)`.as("user_id"),
-      revision: sql<number>`1`.as("revision"),
-    })
-    .from(sql`json_each(${ids})`)
-    .where(condition);
-  return db
-    .insert(communityReadStateRevision)
-    .select(selected)
-    .onConflictDoUpdate({
-      target: communityReadStateRevision.userId,
-      set: { revision: sql`${communityReadStateRevision.revision} + 1` },
-    })
-    .returning({
-      userId: communityReadStateRevision.userId,
-      revision: communityReadStateRevision.revision,
-    });
-}
+export { advanceReadStateRevisionsForUsersBuilder } from "./read-state-revision";
 
 export function accountReadStateRevisionBuilder(db: Database, userId: string) {
   return db
@@ -395,18 +350,6 @@ async function getCurrentAccountReadStateRevision(
   return rows[0]?.revision ?? 0;
 }
 
-/**
- * Async sibling of `markReadToMessageBuilder` for the non-batch DM / thread
- * routes.
- *
- * INVARIANT: lastReadAt === message.createdAt AND lastReadMessageId = message.id
- *
- * Executes the upsert immediately (no batch composition) and returns void.
- * The routes don't consume the returned row today — see `PUT /dm/:id/read`
- * and `PUT /threads/:id/read` which respond `{ ok: true }`.
- */
-// `lastReadSeq` maintained via the builder — see comment on
-// `markReadToMessageBuilder` above.
 export async function markReadToMessage(
   db: Database,
   data: {

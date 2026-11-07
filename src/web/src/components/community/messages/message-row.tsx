@@ -39,8 +39,7 @@ export interface MessageRowProps {
   onPreviewAttachment?: (attachment: FileAttachment) => void
   resolveUserName?: (userId: string) => string
   onImageLoad?: () => void
-  // Multi-select share. `selectMode`/`selected` are plain booleans (pass-through);
-  // `onToggleSelectId`/`onEnterSelectId` are id-based (stable), bound per-row here.
+
   selectMode?: boolean
   selected?: boolean
   onToggleSelectId?: (id: string) => void

@@ -7,7 +7,7 @@ import {
   clearAllTypingIndicators,
   clearTypingIndicator,
   typingScopeKey,
-} from "./typing"
+} from "@/lib/community/typing"
 
 beforeEach(async () => {
   await resetCommunityWsHarness()

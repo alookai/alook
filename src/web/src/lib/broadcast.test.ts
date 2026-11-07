@@ -275,12 +275,12 @@ describe("broadcastToUser", () => {
     },
   )
 
-  it("emits the sole current membership envelope before transport", async () => {
+  it.each(["server", null])("emits the current membership envelope for server scope %s", async (serverId) => {
     const bindingFetch = vi.fn(async () => Response.json({ sent: 1 }))
     mockGetCloudflareContext.mockReturnValue({ env: makeEnv(bindingFetch), ctx: { waitUntil: mockCtxWaitUntil } })
-    const event = { type: "community:channel.membership.change", channelId: "thread", serverId: "server", userId: "viewer", relation: "notify", present: true } as const
+    const event = { type: "community:channel.membership.change", channelId: "thread", serverId, userId: "viewer", relation: "notify", present: true } as const
     await broadcastToUser("viewer", event)
-    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual(currentCommunityEventFixture(event))
+    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual({ ...event, schemaVersion: BUSINESS_SCHEMA_VERSION })
     expect(bindingFetch.mock.calls[0]?.[1]?.headers).toEqual({ "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) })
     expect(bindingFetch).toHaveBeenCalledTimes(1)
     expect(mockFetch).not.toHaveBeenCalled()

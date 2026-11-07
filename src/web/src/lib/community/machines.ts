@@ -7,7 +7,7 @@ import {
   captureCommunityLiveSnapshotToken,
   communityRequestOptions,
 } from "@/lib/community-db/sync"
-import { CommunityMachineListReadSchema, type CommunityMachineIdentityCache, type CommunityMachineSummary, type MachineCapacitySummary, type ProviderQuotaObservation, type QuotaLimit } from "@alook/shared"
+import { isPresenceOnline, type CommunityMachineRuntime, CommunityMachineListReadSchema, type CommunityMachineIdentityCache, type CommunityMachineSummary, type MachineCapacitySummary, type ProviderQuotaObservation, type QuotaLimit } from "@alook/shared"
 
 type MachineQuotaSnapshot =
   | { status: "pending" }
@@ -88,3 +88,39 @@ export const machineObservationsOptions = () => queryOptions<MachineObservations
   queryFn: ({ client, signal }) => apiFetch("/api/community/machines?view=observations", communityRequestOptions(client, signal)),
   staleTime: 5_000,
 })
+
+export type BotRuntimeOption = Pick<CommunityMachineRuntime, "id" | "reasoning"> & {
+  unhealthy: boolean
+}
+
+// Persisted caches can contain missing runtimes or bare string entries.
+// Keep unhealthy options visible so the picker can explain their disabled state.
+export function normalizeRuntimes(machine: MachineSummary | undefined): BotRuntimeOption[] {
+  const rt = machine?.availableRuntimes ?? []
+  const normalized = rt.map((r) =>
+    typeof r === "string"
+      ? { id: r, unhealthy: false }
+      : {
+          id: r.id,
+          ...(r.reasoning !== undefined ? { reasoning: r.reasoning } : {}),
+          unhealthy: r.status === "unhealthy",
+        },
+  )
+  return normalized.sort((a, b) => Number(a.unhealthy) - Number(b.unhealthy))
+}
+
+export function firstHealthyRuntimeId(options: BotRuntimeOption[]): string {
+  return options.find((o) => !o.unhealthy)?.id ?? ""
+}
+
+export function replaceMachines(data: MachinesResponse, machines: MachineSummary[]): MachinesResponse {
+  return {
+    ...data,
+    machines,
+    ...(data.machineCapacity ? { machineCapacity: {
+      ...data.machineCapacity,
+      ownedCount: machines.length,
+      onlineCount: machines.filter(machine => isPresenceOnline(machine.status)).length,
+    } } : {}),
+  }
+}

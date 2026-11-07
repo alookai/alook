@@ -7,7 +7,6 @@
     ".": "./src/index.ts",
     "./crypto": "./src/utils/crypto.ts",
     "./business-schema-version": "./src/business-schema-version.ts",
-    "./browser": "./src/browser/index.ts",
     "./community-cli-contract": "./src/community-cli-contract.ts",
     "./constants/community": "./src/constants/community.ts",
     "./runtime-config": "./src/runtime-config.ts",
@@ -53,7 +52,6 @@
     "@types/node": "^25.9.4",
     "better-sqlite3": "^12.11.1",
     "knip": "^6.32.2",
-    "playwright-core": "^1.64.1",
     "typescript": "^6.0.3",
     "vitest": "5.1.0",
     "@types/mdast": "^4.0.4"

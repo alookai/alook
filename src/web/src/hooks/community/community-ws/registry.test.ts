@@ -1,3 +1,7 @@
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { registerCommunityDbRegistry } from "@/lib/community-db/collections"
+import { ingestMessages } from "@/lib/community-db/sync"
+import { messageSeedFixture } from "@/test/community-resource-fixtures"
 import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { describe, expect, it, vi } from "vitest"
 import { notifyManager, QueryClient } from "@tanstack/react-query"
@@ -29,7 +33,6 @@ vi.mock("./message-events", () => ({
   handleMessageCreate: handlers.handleMessageCreate,
   handleMessageUpdated: handlers.handleMessageUpdated,
   handlePinEvent: handlers.handlePinEvent,
-  handleReactionEvent: handlers.handleReactionEvent,
 }))
 vi.mock("./typing-events", () => ({
   handleTypingStart: handlers.handleTypingStart,
@@ -66,13 +69,7 @@ vi.mock("./presence-machine-events", () => ({
   handleMachineUpdated: handlers.handleMachineUpdated,
   handlePresenceUpdate: handlers.handlePresenceUpdate,
   handleRuntimeModels: handlers.handleRuntimeModels,
-  handleStatusUpdate: handlers.handleStatusUpdate,
 }))
-vi.mock("./identity-events", () => ({
-  handleIdentityUpdate: handlers.handleIdentityUpdate,
-  handleProfileUpdate: handlers.handleProfileUpdate,
-}))
-
 function dispatchContext(queryClient = new QueryClient()): CommunityWsDispatchContext {
   const runtime = createCommunityDbRegistry(queryClient, "u1").runtime
   return {
@@ -97,9 +94,8 @@ describe("community WebSocket registry", () => {
     expect(registryTypes).toEqual(eventTypes)
   })
 
-  it("assigns a handler and at least one reconnect policy to every event", () => {
+  it("assigns at least one reconnect policy to every event", () => {
     for (const entry of Object.values(communityWsRegistry)) {
-      expect(entry.handler).toBeTypeOf("function")
       expect(entry.reconnectPolicies.length).toBeGreaterThan(0)
     }
   })
@@ -140,7 +136,6 @@ describe("community WebSocket registry", () => {
     ["community:member.join", "handleMemberJoin"],
     ["community:friend.accept", "handleFriendEvent"],
     ["community:presence.update", "handlePresenceUpdate"],
-    ["community:profile.update", "handleProfileUpdate"],
     ["community:machine.created", "handleMachineCreated"],
     ["community:runtime.models", "handleRuntimeModels"],
     ["community:bot.pii", "handleBotPii"],
@@ -149,6 +144,25 @@ describe("community WebSocket registry", () => {
     const context = dispatchContext()
     dispatchCommunityWsEvent(communityWsEventFixtures[type], context)
     expect(handlers[handlerName]).toHaveBeenCalled()
+  })
+
+  it.each(["single", "batch"] as const)("projects canonical-only events through %s dispatch", async (mode) => {
+    const { client, registry, runtime } = await createCommunityQueryOwner("viewer")
+    const unregister = registerCommunityDbRegistry(registry)
+    try {
+      ingestMessages(registry, "channel-1", messageSeedFixture("channel-1", [{ id: "message-1", type: "chat", authorId: "user-1", authorName: "Before", content: "hello", reactions: [] }]))
+      const context: CommunityWsDispatchContext = { queryClient: client, communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: "viewer" }, matchesFocus: () => false, deliveryMode: mode }
+      const dispatch = async (events: typeof communityWsEventFixtures[keyof typeof communityWsEventFixtures][]) => {
+        if (mode === "batch") await dispatchCommunityWsEvents(events, context)
+        else for (const event of events) await dispatchCommunityWsEvent(event, context)
+      }
+      await dispatch([communityWsEventFixtures["community:reaction.add"]])
+      expect(registry.collections.messages.get("message-1")?.reactions).toMatchObject([{ emoji: "👍", count: 1, me: false, userIds: ["user-1"] }])
+      await dispatch([communityWsEventFixtures["community:profile.update"], { ...communityWsEventFixtures["community:status.update"], statusEmoji: "🌱", statusText: "Growing" }, communityWsEventFixtures["community:identity.update"]])
+      expect(registry.collections.profiles.get("user-1")).toMatchObject({ name: "Alice", discriminator: "0042", aboutMe: "Hello", statusEmoji: "🌱", statusText: "Growing", avatar: "/api/community/users/user-1/avatar?v=2", avatarVersion: 2 })
+      await dispatch([communityWsEventFixtures["community:reaction.remove"]])
+      expect(registry.collections.messages.get("message-1")?.reactions).toEqual([])
+    } finally { unregister() }
   })
 
   it("provides projection transactions to context-owning handlers", () => {

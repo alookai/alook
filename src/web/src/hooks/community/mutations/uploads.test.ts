@@ -1,10 +1,6 @@
 import { describe, it, expect } from "vitest"
-import {
-  appendGeneratedThumbnail,
-  buildAttachmentUploadFormData,
-  zipUploadResultsWithDimensions,
-} from "./uploads"
-import type { UploadFileResult } from "./uploads"
+import { appendGeneratedThumbnail, buildAttachmentUploadFormData, zipUploadResultsWithDimensions } from "@/lib/community/attachment-upload"
+import type { UploadFileResult } from "@/lib/community/attachment-upload"
 
 // The zip must happen BEFORE filtering out failed uploads (`null` results),
 // or indices between `results` and the original `attachments` input array

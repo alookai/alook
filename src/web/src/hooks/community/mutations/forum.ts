@@ -20,7 +20,7 @@ import {
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
-import type { UploadFileResult } from "@/hooks/community/mutations/uploads"
+import type { UploadFileResult } from "@/lib/community/attachment-upload"
 import type { MentionType } from "@alook/shared"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 import {
@@ -96,9 +96,9 @@ export function useCreateForumThread() {
 export type UpdatePostTagsArgs = {
   assertActive?: (() => void) & { signal: AbortSignal }
   serverId: string
-  // The parent forum channel — the cache key the post list lives under.
+
   forumChannelId: string
-  // The post/thread card being patched in cache.
+
   threadId: string
   // Tags are a resource of the forum opener message, never of the child thread.
   openerMessageId: string
@@ -165,11 +165,11 @@ export function useUpdatePostTags() {
 export type DeleteForumThreadArgs = {
   assertActive?: (() => void) & { signal: AbortSignal }
   serverId: string
-  // The parent forum channel — the cache key the post list lives under.
+
   forumChannelId: string
-  // The post channel being deleted.
+
   threadId: string
-  // Canonical post identity addressed by the server DELETE route.
+
   openerMessageId: string
 }
 

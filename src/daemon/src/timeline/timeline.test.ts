@@ -5,13 +5,9 @@ import { syncBuiltinESMExports } from "node:module";
 import * as os from "os";
 import * as path from "path";
 import {
-  appendEntry,
   appendTrackedEntry,
-  appendOrMergeEntry,
   updateTrackedEntry,
   refreshTimelineEntryHandle,
-  updateLatestEntry,
-  updateLatestEntryResult,
   readRecentEntries,
   createTimelineEntry,
   createSystemEntry,
@@ -45,6 +41,10 @@ const msg = (text: string): Message => ({
   time: "2026-06-25T12:00:00+00:00",
 });
 
+function appendFixture(...args: Parameters<typeof appendTrackedEntry>) {
+  return appendTrackedEntry(...args).status === "written";
+}
+
 function entryWithPayloadBytes(payloadBytes: number, sessionId: string | null = "s1", provider = "claude") {
   return createTimelineEntry({ messages: [msg("x".repeat(payloadBytes))], sessionId, provider });
 }
@@ -69,8 +69,8 @@ function entryAtExactBytesWithMultibyte(bytes: number) {
 describe("timeline append / read (4-field schema)", () => {
   it("appends entries and reads them back in append (time) order", () => {
     const dir = mkDir();
-    appendEntry(dir, createTimelineEntry({ messages: [msg("a")], provider: "claude" }), NOW);
-    appendEntry(dir, createTimelineEntry({ messages: [msg("b")], provider: "claude" }), NOW);
+    appendFixture(dir, createTimelineEntry({ messages: [msg("a")], provider: "claude" }), NOW);
+    appendFixture(dir, createTimelineEntry({ messages: [msg("b")], provider: "claude" }), NOW);
     const rows = readRecentEntries(dir, { now: NOW });
     expect(rows.map((r) => r.messages[0].content.text)).toEqual(["a", "b"]);
     expect(Object.keys(rows[0]).sort()).toEqual(["agent_responses", "messages", "provider", "session_id"]);
@@ -178,7 +178,7 @@ describe("exact tracked row handles", () => {
     const dir = mkDir();
     const tracked = appendTrackedEntry(dir, createTimelineEntry({ messages: [msg("captured")] }), NOW);
     if (tracked.status !== "written" || !tracked.handle) throw new Error("missing tracked handle");
-    expect(appendEntry(dir, createTimelineEntry({ messages: [msg("external")] }), NOW)).toBe(true);
+    expect(appendFixture(dir, createTimelineEntry({ messages: [msg("external")] }), NOW)).toBe(true);
 
     expect(updateTrackedEntry(dir, tracked.handle, (entry) => entry))
       .toEqual({ status: "rejected", reason: "generation" });
@@ -230,6 +230,24 @@ describe("exact tracked row handles", () => {
     releaseLock(lock);
   });
 
+  it("preserves source bytes when an exact-handle update is oversized or locked", () => {
+    const dir = mkDir();
+    const written = appendTrackedEntry(dir, createTimelineEntry({ messages: [msg("original")] }), NOW);
+    if (written.status !== "written" || !written.handle) throw new Error("missing handle");
+    const file = path.join(dir, filenameForDate(NOW));
+    const bytes = fs.readFileSync(file);
+    expect(updateTrackedEntry(dir, written.handle, entry => ({ ...entry, agent_responses: ["界".repeat(TIMELINE_MAX_BYTES)] })))
+      .toEqual({ status: "rejected", reason: "oversized" });
+    expect(fs.readFileSync(file)).toEqual(bytes);
+    const lock = lockPathFor(dir, filenameForDate(NOW));
+    expect(acquireLock(lock)).toBe(true);
+    try {
+      expect(updateTrackedEntry(dir, written.handle, entry => ({ ...entry, agent_responses: ["blocked"] })))
+        .toEqual({ status: "rejected", reason: "lock" });
+      expect(fs.readFileSync(file)).toEqual(bytes);
+    } finally { releaseLock(lock); }
+  });
+
   it("fences a handle when compaction evicts its row", () => {
     const dir = mkDir();
     const first = appendTrackedEntry(dir, entryWithPayloadBytes(240_000, "old"), NOW);
@@ -259,180 +277,11 @@ describe("exact tracked row handles", () => {
   });
 });
 
-describe("appendOrMergeEntry", () => {
-  it("merges into the latest row when session/provider match and it has no responses", () => {
-    const dir = mkDir();
-    appendOrMergeEntry(dir, createTimelineEntry({ messages: [msg("a")], sessionId: "s1", provider: "claude" }), NOW);
-    appendOrMergeEntry(dir, createTimelineEntry({ messages: [msg("b")], sessionId: "s1", provider: "claude" }), NOW);
-    const rows = readRecentEntries(dir, { now: NOW });
-    expect(rows).toHaveLength(1);
-    expect(rows[0].messages.map((m) => m.content.text)).toEqual(["a", "b"]);
-  });
-
-  it("appends a new row once the latest has a response", () => {
-    const dir = mkDir();
-    appendOrMergeEntry(dir, createTimelineEntry({ messages: [msg("a")], sessionId: "s1", provider: "claude" }), NOW);
-    updateLatestEntry(dir, (e) => e.agent_responses.push("done"), { now: NOW });
-    appendOrMergeEntry(dir, createTimelineEntry({ messages: [msg("b")], sessionId: "s1", provider: "claude" }), NOW);
-    const rows = readRecentEntries(dir, { now: NOW });
-    expect(rows).toHaveLength(2);
-  });
-
-  it("appends a new row when session_id or provider differs", () => {
-    const dir = mkDir();
-    appendOrMergeEntry(dir, createTimelineEntry({ messages: [msg("a")], sessionId: "s1", provider: "claude" }), NOW);
-    appendOrMergeEntry(dir, createTimelineEntry({ messages: [msg("b")], sessionId: "s2", provider: "claude" }), NOW);
-    expect(readRecentEntries(dir, { now: NOW })).toHaveLength(2);
-  });
-
-  it("rejects an over-cap merge and leaves the source bytes unchanged", () => {
-    const dir = mkDir();
-    const original = createTimelineEntry({ messages: [msg("original")], sessionId: "s1", provider: "claude" });
-    expect(appendOrMergeEntry(dir, original, NOW)).toBe(true);
-    const file = path.join(dir, filenameForDate(NOW));
-    const before = fs.readFileSync(file);
-    const oversized = createTimelineEntry({
-      messages: [msg("界".repeat(TIMELINE_MAX_BYTES))],
-      sessionId: "s1",
-      provider: "claude",
-    });
-
-    expect(appendOrMergeEntry(dir, oversized, NOW)).toBe(false);
-    expect(fs.readFileSync(file)).toEqual(before);
-  });
-
-  it("converges an oversized historical file after a successful merge", () => {
-    const dir = mkDir();
-    const file = path.join(dir, filenameForDate(NOW));
-    const rows = Array.from({ length: 5 }, (_, index) =>
-      entryWithPayloadBytes(240_000, index === 4 ? "merge" : `s${index}`));
-    fs.writeFileSync(file, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
-
-    expect(appendOrMergeEntry(
-      dir,
-      createTimelineEntry({ messages: [msg("merged")], sessionId: "merge", provider: "claude" }),
-      NOW,
-    )).toBe(true);
-    expect(fs.statSync(file).size).toBeLessThanOrEqual(TIMELINE_MAX_BYTES);
-    expect(readRecentEntries(dir, { now: NOW }).at(-1)?.messages.at(-1)?.content.text).toBe("merged");
-  });
-});
-
-describe("updateLatestEntry", () => {
-  it("mutates the most-recent row and persists it", () => {
-    const dir = mkDir();
-    appendEntry(dir, createTimelineEntry({ messages: [msg("a")] }), NOW);
-    appendEntry(dir, createTimelineEntry({ messages: [msg("b")] }), NOW);
-    const ok = updateLatestEntry(dir, (e) => e.agent_responses.push("reply"), { now: NOW });
-    expect(ok).toBe(true);
-    const rows = readRecentEntries(dir, { now: NOW });
-    expect(rows[0].agent_responses).toEqual([]); // older row untouched
-    expect(rows[1].agent_responses).toEqual(["reply"]); // latest got the response
-  });
-
-  it("returns false when there is no entry yet", () => {
-    const dir = mkDir();
-    expect(updateLatestEntry(dir, () => {}, { now: NOW })).toBe(false);
-  });
-
-  it("returns false when the newest row is a system barrier (does NOT walk past it into a pre-barrier turn)", () => {
-    const dir = mkDir();
-    appendEntry(dir, createTimelineEntry({ messages: [msg("a")], sessionId: "s1", provider: "claude" }), NOW);
-    appendEntry(dir, createSystemEntry("reset_session", "2026-06-25T12:00:00Z"), NOW);
-    let mutated = false;
-    const ok = updateLatestEntry(dir, () => { mutated = true; }, { now: NOW });
-    expect(ok).toBe(false);
-    expect(mutated).toBe(false);
-    const rows = readRecentEntries(dir, { now: NOW });
-    // Neither row was touched — barrier stays clean, pre-barrier turn stays clean.
-    expect(rows[0].agent_responses).toEqual([]);
-    expect(rows[1].system?.type).toBe("reset_session");
-    expect(rows[1].agent_responses).toEqual([]);
-  });
-
-  it("returns false when the file has only system rows (no turn row to update)", () => {
-    const dir = mkDir();
-    appendEntry(dir, createSystemEntry("reset_session", "2026-06-25T12:00:00Z"), NOW);
-    expect(updateLatestEntry(dir, () => {}, { now: NOW })).toBe(false);
-  });
-
-  it("rejects an over-cap update and leaves the source bytes unchanged", () => {
-    const dir = mkDir();
-    expect(appendEntry(dir, createTimelineEntry({ messages: [msg("original")] }), NOW)).toBe(true);
-    const file = path.join(dir, filenameForDate(NOW));
-    const before = fs.readFileSync(file);
-
-    expect(updateLatestEntry(
-      dir,
-      (entry) => entry.agent_responses.push("界".repeat(TIMELINE_MAX_BYTES)),
-      { now: NOW },
-    )).toBe(false);
-    expect(fs.readFileSync(file)).toEqual(before);
-  });
-
-  it("does not fall back to an older day after the latest-day update is rejected", () => {
-    const dir = mkDir();
-    const yesterday = new Date(NOW);
-    yesterday.setDate(yesterday.getDate() - 1);
-    expect(appendEntry(dir, createTimelineEntry({ messages: [msg("yesterday")] }), yesterday)).toBe(true);
-    expect(appendEntry(dir, createTimelineEntry({ messages: [msg("today")] }), NOW)).toBe(true);
-    const yesterdayFile = path.join(dir, filenameForDate(yesterday));
-    const todayFile = path.join(dir, filenameForDate(NOW));
-    const beforeYesterday = fs.readFileSync(yesterdayFile);
-    const beforeToday = fs.readFileSync(todayFile);
-    let updateCalls = 0;
-
-    expect(updateLatestEntry(dir, (entry) => {
-      updateCalls++;
-      entry.agent_responses.push("界".repeat(TIMELINE_MAX_BYTES));
-    }, { now: NOW })).toBe(false);
-    expect(updateCalls).toBe(1);
-    expect(fs.readFileSync(todayFile)).toEqual(beforeToday);
-    expect(fs.readFileSync(yesterdayFile)).toEqual(beforeYesterday);
-  });
-
-  it("rejects a busy latest-day lock without updating or falling back to yesterday", () => {
-    const dir = mkDir();
-    const yesterday = new Date(NOW);
-    yesterday.setDate(yesterday.getDate() - 1);
-    expect(appendEntry(dir, createTimelineEntry({ messages: [msg("yesterday")] }), yesterday)).toBe(true);
-    expect(appendEntry(dir, createTimelineEntry({ messages: [msg("today")] }), NOW)).toBe(true);
-    const yesterdayFile = path.join(dir, filenameForDate(yesterday));
-    const todayFilename = filenameForDate(NOW);
-    const todayFile = path.join(dir, todayFilename);
-    const beforeYesterday = fs.readFileSync(yesterdayFile);
-    const beforeToday = fs.readFileSync(todayFile);
-    const lock = lockPathFor(dir, todayFilename);
-    let updateCalls = 0;
-    expect(acquireLock(lock)).toBe(true);
-    try {
-      expect(updateLatestEntryResult(dir, () => { updateCalls++; }, { now: NOW })).toBe("rejected");
-    } finally {
-      releaseLock(lock);
-    }
-
-    expect(updateCalls).toBe(0);
-    expect(fs.readFileSync(todayFile)).toEqual(beforeToday);
-    expect(fs.readFileSync(yesterdayFile)).toEqual(beforeYesterday);
-  });
-
-  it("converges an oversized historical file after a successful update", () => {
-    const dir = mkDir();
-    const file = path.join(dir, filenameForDate(NOW));
-    const rows = Array.from({ length: 5 }, (_, index) => entryWithPayloadBytes(240_000, `s${index}`));
-    fs.writeFileSync(file, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
-
-    expect(updateLatestEntry(dir, (entry) => entry.agent_responses.push("updated"), { now: NOW })).toBe(true);
-    expect(fs.statSync(file).size).toBeLessThanOrEqual(TIMELINE_MAX_BYTES);
-    expect(readRecentEntries(dir, { now: NOW }).at(-1)?.agent_responses).toEqual(["updated"]);
-  });
-});
-
 describe("daily timeline hard cap", () => {
   it("evicts oldest complete rows and keeps valid ordered JSONL at or below exactly 1 MiB", () => {
     const dir = mkDir();
     for (let index = 0; index < 6; index++) {
-      expect(appendEntry(dir, entryWithPayloadBytes(240_000, `s${index}`), NOW)).toBe(true);
+      expect(appendFixture(dir, entryWithPayloadBytes(240_000, `s${index}`), NOW)).toBe(true);
     }
     const file = path.join(dir, filenameForDate(NOW));
     expect(fs.statSync(file).size).toBeLessThanOrEqual(TIMELINE_MAX_BYTES);
@@ -444,10 +293,10 @@ describe("daily timeline hard cap", () => {
 
   it("rejects an over-cap prospective row and leaves the original bytes unchanged", () => {
     const dir = mkDir();
-    expect(appendEntry(dir, createTimelineEntry({ messages: [msg("original")] }), NOW)).toBe(true);
+    expect(appendFixture(dir, createTimelineEntry({ messages: [msg("original")] }), NOW)).toBe(true);
     const file = path.join(dir, filenameForDate(NOW));
     const before = fs.readFileSync(file);
-    expect(appendEntry(dir, entryWithPayloadBytes(TIMELINE_MAX_BYTES), NOW)).toBe(false);
+    expect(appendFixture(dir, entryWithPayloadBytes(TIMELINE_MAX_BYTES), NOW)).toBe(false);
     expect(fs.readFileSync(file)).toEqual(before);
   });
 
@@ -455,7 +304,7 @@ describe("daily timeline hard cap", () => {
     const dir = mkDir();
     const exact = entryAtExactBytesWithMultibyte(TIMELINE_MAX_BYTES);
     expect(Buffer.byteLength(JSON.stringify(exact), "utf8") + 1).toBe(TIMELINE_MAX_BYTES);
-    expect(appendEntry(dir, exact, NOW)).toBe(true);
+    expect(appendFixture(dir, exact, NOW)).toBe(true);
     const file = path.join(dir, filenameForDate(NOW));
     expect(fs.statSync(file).size).toBe(TIMELINE_MAX_BYTES);
     const before = fs.readFileSync(file);
@@ -466,19 +315,19 @@ describe("daily timeline hard cap", () => {
     });
 
     expect(Buffer.byteLength(JSON.stringify(overflow), "utf8") + 1).toBe(TIMELINE_MAX_BYTES + 3);
-    expect(appendEntry(dir, overflow, NOW)).toBe(false);
+    expect(appendFixture(dir, overflow, NOW)).toBe(false);
     expect(fs.readFileSync(file)).toEqual(before);
   }, 30_000);
 
   it("rejects a newest row that fits alone but cannot coexist with the required barrier sentinel", () => {
     const dir = mkDir();
     const barrier = createSystemEntry("reset_session", "2026-06-25T12:00:00Z");
-    expect(appendEntry(dir, barrier, NOW)).toBe(true);
+    expect(appendFixture(dir, barrier, NOW)).toBe(true);
     const file = path.join(dir, filenameForDate(NOW));
     const before = fs.readFileSync(file);
     const candidate = entryAtExactBytes(TIMELINE_MAX_BYTES);
     expect(Buffer.byteLength(JSON.stringify(candidate), "utf8") + 1).toBe(TIMELINE_MAX_BYTES);
-    expect(appendEntry(dir, candidate, NOW)).toBe(false);
+    expect(appendFixture(dir, candidate, NOW)).toBe(false);
     expect(fs.readFileSync(file)).toEqual(before);
   });
 
@@ -558,14 +407,14 @@ describe("daily timeline hard cap", () => {
     const dir = mkDir();
     const yesterday = new Date(NOW);
     yesterday.setDate(yesterday.getDate() - 1);
-    expect(appendEntry(dir, createTimelineEntry({ messages: [msg("old")], sessionId: "s-old", provider: "claude" }), yesterday)).toBe(true);
-    expect(appendEntry(dir, createSystemEntry("reset_session", "2026-06-25T10:00:00Z"), NOW)).toBe(true);
+    expect(appendFixture(dir, createTimelineEntry({ messages: [msg("old")], sessionId: "s-old", provider: "claude" }), yesterday)).toBe(true);
+    expect(appendFixture(dir, createSystemEntry("reset_session", "2026-06-25T10:00:00Z"), NOW)).toBe(true);
     for (let index = 0; index < 6; index++) {
-      expect(appendEntry(dir, entryWithPayloadBytes(220_000, null, "codex"), NOW)).toBe(true);
+      expect(appendFixture(dir, entryWithPayloadBytes(220_000, null, "codex"), NOW)).toBe(true);
     }
     expect(findResumableSession(readRecentEntries(dir, { maxDays: 2, now: NOW }), "claude")).toBeNull();
 
-    expect(appendEntry(dir, createTimelineEntry({ messages: [msg("new")], sessionId: "s-new", provider: "codex" }), NOW)).toBe(true);
+    expect(appendFixture(dir, createTimelineEntry({ messages: [msg("new")], sessionId: "s-new", provider: "codex" }), NOW)).toBe(true);
     const rows = readRecentEntries(dir, { maxDays: 2, now: NOW });
     expect(findResumableSession(rows, "codex")).toBe("s-new");
     expect(findResumableSession(rows, "claude")).toBeNull();
@@ -591,7 +440,7 @@ describe("timeline convergence filesystem boundaries", () => {
     const linkedTimeline = path.join(agentLink, ".context_timeline");
 
     expect(readRecentEntries(linkedTimeline, { now: NOW })).toEqual([]);
-    expect(appendEntry(linkedTimeline, createTimelineEntry({ messages: [msg("blocked")] }), NOW)).toBe(false);
+    expect(appendFixture(linkedTimeline, createTimelineEntry({ messages: [msg("blocked")] }), NOW)).toBe(false);
     expect(fs.readFileSync(file)).toEqual(before);
   });
 
@@ -606,7 +455,7 @@ describe("timeline convergence filesystem boundaries", () => {
     fs.symlinkSync(outside, timelineLink);
     const beforeTimelineTarget = fs.readFileSync(outsideTimelineFile);
 
-    expect(appendEntry(timelineLink, createTimelineEntry({ messages: [msg("blocked-dir-link")] }), NOW)).toBe(false);
+    expect(appendFixture(timelineLink, createTimelineEntry({ messages: [msg("blocked-dir-link")] }), NOW)).toBe(false);
     expect(fs.readFileSync(outsideTimelineFile)).toEqual(beforeTimelineTarget);
 
     const realTimeline = path.join(base, "real-timeline");
@@ -616,7 +465,7 @@ describe("timeline convergence filesystem boundaries", () => {
     fs.symlinkSync(outsideDailyTarget, path.join(realTimeline, filename));
     const beforeDailyTarget = fs.readFileSync(outsideDailyTarget);
 
-    expect(appendEntry(realTimeline, createTimelineEntry({ messages: [msg("blocked-file-link")] }), NOW)).toBe(false);
+    expect(appendFixture(realTimeline, createTimelineEntry({ messages: [msg("blocked-file-link")] }), NOW)).toBe(false);
     expect(fs.readFileSync(outsideDailyTarget)).toEqual(beforeDailyTarget);
   });
 
@@ -630,13 +479,13 @@ describe("timeline convergence filesystem boundaries", () => {
     const outsideTarget = path.join(outside, "target.txt");
     fs.writeFileSync(outsideTarget, "outside unchanged\n");
     fs.symlinkSync(outsideTarget, fixedTemp);
-    expect(appendEntry(
+    expect(appendFixture(
       dir,
       createTimelineEntry({ messages: [msg("first")], sessionId: "s1", provider: "claude" }),
       NOW,
     )).toBe(true);
 
-    expect(appendOrMergeEntry(
+    expect(appendFixture(
       dir,
       createTimelineEntry({ messages: [msg("second")], sessionId: "s1", provider: "claude" }),
       NOW,
@@ -683,7 +532,7 @@ describe("timeline convergence filesystem boundaries", () => {
     }
     expect(yielded).toEqual([file]);
 
-    expect(appendEntry(dir, createTimelineEntry({ messages: [msg("latest")], sessionId: "latest" }), NOW)).toBe(true);
+    expect(appendFixture(dir, createTimelineEntry({ messages: [msg("latest")], sessionId: "latest" }), NOW)).toBe(true);
     expect(fs.statSync(file).size).toBeLessThanOrEqual(TIMELINE_MAX_BYTES);
     expect(readRecentEntries(dir, { now: NOW }).at(-1)?.session_id).toBe("latest");
   });

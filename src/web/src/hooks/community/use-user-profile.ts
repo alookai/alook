@@ -61,9 +61,4 @@ export const userProfileQueryFn = (userId: string) => async (context: QueryFunct
   }
 }
 
-// How long a fetched profile card is considered fresh before a re-click
-// triggers a background refetch (`queryClient.query`'s `staleTime`).
-// aboutMe/mutual-server-count change rarely enough that re-fetching on
-// every click (the pre-cache behavior) was pure waste — see
-// shell-frame.tsx's `openProfile`.
 export const PROFILE_STALE_TIME_MS = 5 * 60 * 1000

@@ -50,12 +50,12 @@ export async function runBenchmark(config) {
               try {
                 if (sockets.some(s => s.state().closed)) throw new Error('receiver-disconnected')
                 const sent = await api(proxy.url, config.fixture.accounts[0], `/api/community/channels/${fixture.channelId}/messages`, {
-                  method: 'POST', body: { content: 'x'.repeat(payloadBytes), nonce: requestId }, timeoutMs: config.timeoutMs, requestId: config.observeDB ? requestId : undefined,
+                  communityContractVersion: config.communityContractVersion, method: 'POST', body: { content: 'x'.repeat(payloadBytes), nonce: requestId }, timeoutMs: config.timeoutMs, requestId: config.observeDB ? requestId : undefined,
                 })
                 Object.assign(sample, { status: sent.status, ackMs: sent.wallMs, parseError: sent.parseError,
                   requestBodyBytes: sent.requestBodyBytes, responseBodyBytes: sent.responseBodyBytes,
                   messageId: typeof sent.data?.message?.id === 'string' ? sent.data.message.id : null })
-                if (!sent.ok || !sample.messageId) sample.error = sent.parseError ? 'invalid-json' : 'send-failed'
+                if (!sent.ok || sent.protocolError || !sample.messageId) sample.error = sent.protocolError ? 'send-contract-mismatch' : sent.parseError ? 'invalid-json' : 'send-failed'
               } catch (error) { sample.error = error.name === 'TimeoutError' ? 'send-timeout' : 'send-transport-or-receiver-error' }
               sample.correlation = sample.messageId ? 'http-message-id' : nonceIds.has(requestId) ? 'ws-client-nonce' : 'unresolved'
               sample.messageId ??= nonceIds.get(requestId) ?? null
@@ -75,8 +75,8 @@ export async function runBenchmark(config) {
               if (sample.messageId) {
                 const historyId = `${requestId}-h`
                 try {
-                  const history = await api(proxy.url, config.fixture.accounts[1], `/api/community/channels/${fixture.channelId}/messages?limit=${config.historyLimit}`, { requestId: config.observeDB ? historyId : undefined, timeoutMs: config.timeoutMs })
-                  sample.history = { requestId: historyId, ok: history.ok && !history.parseError && Array.isArray(history.data?.messages),
+                  const history = await api(proxy.url, config.fixture.accounts[1], `/api/community/channels/${fixture.channelId}/messages?limit=${config.historyLimit}`, { communityContractVersion: config.communityContractVersion, requestId: config.observeDB ? historyId : undefined, timeoutMs: config.timeoutMs })
+                  sample.history = { requestId: historyId, ok: history.ok && !history.parseError && !history.protocolError && Array.isArray(history.data?.messages),
                     status: history.status, wallMs: history.wallMs, responseBodyBytes: history.responseBodyBytes,
                     returnedMessages: Array.isArray(history.data?.messages) ? history.data.messages.length : null,
                     containsSentMessage: history.data?.messages?.some(m => m.id === sample.messageId) ?? false, limit: config.historyLimit }

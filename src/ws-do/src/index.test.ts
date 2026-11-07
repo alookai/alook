@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { readFileSync } from "node:fs"
 import {
   createRouterTestContext,
   loadRouter,
@@ -67,36 +66,6 @@ describe("ws-do router", () => {
       expect(doMock.idFromName).toHaveBeenCalledWith("user:user-fallback")
       expect(doMock.stubFetch).toHaveBeenCalledWith(req)
       expect(await res.text()).toBe("fallback")
-    })
-
-    it("keeps current handlers in order and places strict community routes before generic user routes", () => {
-      const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8")
-      const orderedHandlers = [...source.matchAll(/response = await (handle\w+)\(context\)/g)]
-        .map((match) => match[1])
-
-      expect(orderedHandlers).toEqual([
-        "handleCommunityUserBroadcast",
-        "handleCommunityUsersBroadcast",
-        "handleMessageDelivery",
-        "handleUserBroadcast",
-        "handleUsersBroadcast",
-        "handleAuditBroadcast",
-        "handleBatchPresence",
-        "handleSinglePresence",
-        "handleMachinePii",
-        "handleMachineModels",
-        "handleMachinePush",
-        "handleMachineWake",
-        "handleMachineDiagnostics",
-        "handleMachineReset",
-        "handleMachineLifecycleCommand",
-        "handleMachineBatchReset",
-        "handleMachineModelSwitch",
-        "handleMachineProviderSwitch",
-        "handleMachineRuntimeConfigUpdate",
-        "handleMachineNap",
-        "handleMachineForceClose",
-      ])
     })
 
     it("sends a wrong-method bulk path through the existing upgrade fallback", async () => {

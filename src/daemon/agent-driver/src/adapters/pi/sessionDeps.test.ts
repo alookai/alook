@@ -346,24 +346,24 @@ describe("loadPiSdkModule — global-install fallback", () => {
     fs.writeFileSync(path.join(pkgDir, "dist", "index.js"), "export const MARKER = 'loaded-from-global-install';\n");
 
     vi.resetModules();
-    vi.doMock("./index.js", () => ({ resolvePiSdkPackageDir: () => pkgDir }));
+    vi.doMock("./paths.js", () => ({ resolvePiSdkPackageDir: () => pkgDir }));
     const fresh = await import("./sessionDeps.js");
 
     const sdk = (await fresh.loadPiSdkModule()) as unknown as { MARKER: string };
     expect(sdk.MARKER).toBe("loaded-from-global-install");
 
-    vi.doUnmock("./index.js");
+    vi.doUnmock("./paths.js");
     vi.resetModules();
   });
 
   it("throws a clear error when pi isn't found on PATH either", async () => {
     vi.resetModules();
-    vi.doMock("./index.js", () => ({ resolvePiSdkPackageDir: () => undefined }));
+    vi.doMock("./paths.js", () => ({ resolvePiSdkPackageDir: () => undefined }));
     const fresh = await import("./sessionDeps.js");
 
     await expect(fresh.loadPiSdkModule()).rejects.toThrow(/pi-coding-agent/);
 
-    vi.doUnmock("./index.js");
+    vi.doUnmock("./paths.js");
     vi.resetModules();
   });
 
@@ -379,7 +379,7 @@ describe("loadPiSdkModule — global-install fallback", () => {
 
     vi.resetModules();
     let resolvable = false;
-    vi.doMock("./index.js", () => ({ resolvePiSdkPackageDir: () => (resolvable ? pkgDir : undefined) }));
+    vi.doMock("./paths.js", () => ({ resolvePiSdkPackageDir: () => (resolvable ? pkgDir : undefined) }));
     const fresh = await import("./sessionDeps.js");
 
     await expect(fresh.loadPiSdkModule()).rejects.toThrow(/pi-coding-agent/);
@@ -388,7 +388,7 @@ describe("loadPiSdkModule — global-install fallback", () => {
     const sdk = (await fresh.loadPiSdkModule()) as unknown as { MARKER: string };
     expect(sdk.MARKER).toBe("loaded-from-global-install-retry");
 
-    vi.doUnmock("./index.js");
+    vi.doUnmock("./paths.js");
     vi.resetModules();
   });
 });
@@ -426,10 +426,10 @@ describe("loadPiSdkModule — grafting the vendor's getDefaultSessionDir", () =>
 
   async function loadFrom(pkgDir: string) {
     vi.resetModules();
-    vi.doMock("./index.js", () => ({ resolvePiSdkPackageDir: () => pkgDir }));
+    vi.doMock("./paths.js", () => ({ resolvePiSdkPackageDir: () => pkgDir }));
     const fresh = await import("./sessionDeps.js");
     const sdk = await fresh.loadPiSdkModule();
-    vi.doUnmock("./index.js");
+    vi.doUnmock("./paths.js");
     vi.resetModules();
     return sdk;
   }

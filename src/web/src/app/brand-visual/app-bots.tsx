@@ -1,4 +1,5 @@
 "use client"
+import type { BotRuntimeOption } from "@/lib/community/machines"
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
 import { useQueryClient, type QueryClient } from "@tanstack/react-query"
@@ -9,7 +10,7 @@ import { EditBotSheet } from "@/components/community/bots/edit-bot-sheet"
 import { BotAvatarPickerDialog } from "@/components/avatar/bot-avatar-picker-dialog"
 import { ModelField } from "@/components/community/bots/model-field"
 import { ReasoningEffortField } from "@/components/community/bots/reasoning-effort-field"
-import { BotRuntimeFields, type BotRuntimeOption } from "@/components/community/bots/bot-runtime-fields"
+import { BotRuntimeFields } from "@/components/community/bots/bot-runtime-fields"
 import { BotMachineField } from "@/components/community/bots/bot-machine-field"
 import { BotActivityModal } from "@/components/community/bots/bot-activity-modal"
 import { BotActivityHeatmap } from "@/components/community/bots/bot-activity-heatmap"
@@ -30,8 +31,6 @@ import type { AvatarDraft } from "@/lib/avatar/model"
 import { communityKeys } from "@/lib/query-keys"
 import { DEMO_PROFILES } from "@/components/home/landing-interactive-shell-data"
 import { Fixtures, Specimen } from "./app-components"
-
-/* ---------- demo fixtures ---------- */
 
 const DAY = 864e5
 const dayKey = (offset: number) => new Date(Date.now() - offset * DAY).toISOString().slice(0, 10)
@@ -173,15 +172,12 @@ function seedBoardCache(client: QueryClient) {
   client.setQueryData(communityKeys.botAuditLog(BOT.id), { pages: [{ events: [...AUDIT].reverse(), nextCursor: null }], pageParams: [null] }, FRESH)
 }
 
-/* ---------- layout ---------- */
-
 const grid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 1fr))", gap: 16, alignItems: "start" }
 const stack: CSSProperties = { display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }
 const row: CSSProperties = { display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }
 const panel: CSSProperties = { width: "100%", maxWidth: 360, minWidth: 0 }
 const pad: CSSProperties = { padding: 16, minWidth: 0 }
 
-/** Inner breathing room: the board's specimen body clips at its rounded edge. */
 function Pad({ children }: { children: ReactNode }) {
   return <div style={pad}>{children}</div>
 }
@@ -192,8 +188,6 @@ function Seeded({ children }: { children: ReactNode }) {
   useEffect(() => { seedBoardCache(client); setReady(true) }, [client])
   return ready ? <>{children}</> : null
 }
-
-/* ---------- specimens ---------- */
 
 function SheetLaunchers() {
   const client = useQueryClient()
@@ -343,7 +337,6 @@ function PiiSpecimen() {
   )
 }
 
-/** /brand-visual: Bots specimens (real components on demo fixtures). */
 export function AppBotsSpecimens(_props: { mode: "light" | "dark" }) {
   // Heatmaps and relative times depend on the clock; render after mount.
   const [mounted, setMounted] = useState(false)

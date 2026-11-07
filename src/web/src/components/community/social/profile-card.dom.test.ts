@@ -1,8 +1,5 @@
-import staticContractInput0 from "./profile-card.tsx?raw"
-import staticContractInput1 from "./profile-secondary-position.ts?raw"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { resolve } from "node:path"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, describe, it, expect, vi } from "vitest"
@@ -52,10 +49,12 @@ vi.mock("./bot-mark-sticker", () => ({
     showStop,
     stopPending,
     onStop,
+    onOpenActivity,
   }: {
     showStop: boolean
     stopPending: boolean
     onStop: () => void
+    onOpenActivity?: () => void
   }) => {
     mocks.stop = onStop
     return createElement(
@@ -71,6 +70,7 @@ vi.mock("./bot-mark-sticker", () => ({
             : "Stop current agent turn",
         }, stopPending ? "Stopping…" : "Stop")
       : null,
+    createElement("button", { type: "button", onClick: onOpenActivity }, "Activity"),
     )
   },
 }))
@@ -377,57 +377,47 @@ describe("ProfileCard contextual metadata", () => {
     renderer.unmount()
   })
 
-  it("wraps owner metadata and exposes a full accessible label while truncating long handles", () => {
+  it("shows a shortened owner name with the full accessible name and opens that owner", () => {
     const handle = `${"VeryLongOwner".repeat(4)}#0042`
-    const html = renderProfile({
-      identity: {
-        kind: "bot",
-        ownerProfile: { id: "owner_1", handle },
-        ownedByViewer: false,
-      },
-    })
-
-    expect(html).toContain("flex min-w-0 flex-wrap items-center")
-    expect(html).toContain("group/owner flex h-11 min-w-0 max-w-full")
-    expect(html).toContain("sm:h-5")
-    expect(html).toContain("group-hover/owner:bg-accent")
-    expect(html).toContain("group-active/owner:bg-accent/80")
-    expect(html).toContain('<span class="min-w-0 truncate">')
-    expect(html).toContain(`>@${displayOwnerHandle(handle)}</span>`)
-    expect(html).not.toContain(`>@${handle}</span>`)
-    expect(html).toContain(`aria-label="Open owner profile @${handle}"`)
+    const onOpenOwnerProfile = vi.fn()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(createElement(CommunityTestProvider, { client }, createElement(ProfileCard, {
+      embedded: true,
+      data: { name: "Ren", userId: "agent_1", identity: {
+        kind: "bot", ownerProfile: { id: "owner_1", handle }, ownedByViewer: false,
+      } },
+      x: 0, y: 0, bp: "desktop", onClose: vi.fn(), onOpenOwnerProfile,
+    })))
+    const owner = view.getByRole("button", { name: `Open owner profile @${handle}` })
+    expect(owner).toHaveAccessibleName(`Open owner profile @${handle}`)
+    expect(owner).toHaveTextContent(`@${displayOwnerHandle(handle)}`)
+    expect(owner).not.toHaveTextContent(`@${handle}`)
+    fireEvent.click(owner)
+    expect(onOpenOwnerProfile).toHaveBeenCalledExactlyOnceWith({ id: "owner_1", handle })
+    view.unmount()
   })
 
-  it("keeps the desktop main card at the anchor and independently docks the preview", () => {
-    const root = resolve(
-      process.cwd(),
-      process.cwd().endsWith("/src/web") ? "" : "src/web",
-      "src/components/community/social",
-    )
-    const source = staticContractInput0
-    const positionSource = staticContractInput1
-    const desktop = source.slice(source.indexOf("// desktop:"))
-    const mainCard = desktop.indexOf(`data-testid={tid.profileCard}`)
-    const independentPreview = desktop.indexOf(`data-testid={tid.botAuditPreviewDock}`)
-
-    expect(desktop).toContain(
-      'secondaryCards && !previewReady ? "overflow-hidden" : "overflow-visible"',
-    )
-    expect(mainCard).toBeGreaterThan(0)
-    expect(independentPreview).toBeGreaterThan(0)
-    expect(independentPreview).toBeLessThan(mainCard)
-    expect(desktop).toContain("ref={popoverRef}")
-    expect(positionSource).toContain('addEventListener("animationend", update)')
-    expect(positionSource).toContain("cardElement.offsetWidth")
-    expect(positionSource).toContain("previewElement.offsetWidth")
-    expect(positionSource).toContain("measuredPosition?.measurementKey === measurementKey")
-    expect(source).toContain("data-measurement-ready={previewReady ? \"true\" : \"false\"}")
-    expect(source).toContain("visibility: previewReady ? \"visible\" : \"hidden\"")
-    expect(source).toContain("pointerEvents: previewReady ? undefined : \"none\"")
-    expect(source).toContain("<BotMarkSticker")
-    expect(source).toContain("onOpenActivity={() => onOpenBotAudit?.(data.userId!)}")
-    expect(source).toContain("onStop={interruptAgent}")
-    expect(source).toContain("communityWsInterruptAgent(registry.runtime, data.userId)")
+  it("opens the current bot audit from Activity after the profile target changes", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const onOpenBotAudit = vi.fn()
+    mocks.bots.push({ id: "agent_2", runtime: "claude" })
+    const card = (userId: string) => createElement(CommunityTestProvider, { client }, createElement(ProfileCard, {
+      embedded: true,
+      data: { name: "Ren", userId, identity: {
+        kind: "bot", ownerProfile: { id: "owner_1", handle: "Owner#0042" }, ownedByViewer: true,
+      } },
+      x: 0, y: 0, bp: "desktop", onClose: vi.fn(), onOpenBotAudit,
+    }))
+    const view = render(card("agent_1"))
+    expect(onOpenBotAudit).not.toHaveBeenCalled()
+    fireEvent.click(view.getByRole("button", { name: "Activity" }))
+    expect(onOpenBotAudit).toHaveBeenCalledExactlyOnceWith("agent_1")
+    view.rerender(card("agent_2"))
+    expect(onOpenBotAudit).toHaveBeenCalledTimes(1)
+    fireEvent.click(view.getByRole("button", { name: "Activity" }))
+    expect(onOpenBotAudit).toHaveBeenCalledTimes(2)
+    expect(onOpenBotAudit).toHaveBeenLastCalledWith("agent_2")
+    view.unmount()
   })
 })
 

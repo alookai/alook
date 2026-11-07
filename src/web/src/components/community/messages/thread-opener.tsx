@@ -55,8 +55,7 @@ export function ThreadOpener({
   resolveUserName?: (userId: string) => string
   resolveAuthorMentionText?: (authorId: string) => string | null
   onInsertMentionText?: (text: string) => void
-  // Jump to the parent message in its channel. When provided, a hover-revealed
-  // "Jump" button appears in the opener's top-right.
+
   onJump?: () => void
 }) {
   const hoverCapable = useHoverCapable()

@@ -11,7 +11,7 @@ import { communityKeys } from "@/lib/query-keys"
 import type { MessageWindowData } from "@/lib/community/message-window"
 import { ConversationReadTimeoutError } from "@/lib/community/conversation-read"
 import { useMessages } from "./use-messages"
-import { reconcileFocusedMessageQueries } from "./community-ws/reconnect-messages"
+import { reconcileFocusedMessageQueries } from "@/lib/community/message-reconcile"
 
 const load = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => load(...args) }))

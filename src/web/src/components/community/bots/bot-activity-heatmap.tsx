@@ -9,10 +9,7 @@ import {
 } from "@/components/ui/tooltip"
 import type { BotActivityDay } from "@/lib/community/models/people"
 
-// Gus asked for "past 30 days" (Gus /Gus/uiux #608). Responsive layout is set
-// in the grid classes below: mobile = full-width 3×10 ribbon, desktop = a thin
-// 4-row strip on the card's right. Cells flow column-by-column (grid-flow-col),
-// like a GitHub contribution graph. 30 divides both row counts → flush columns.
+// Past 30 days (Gus /Gus/uiux #608).
 const WINDOW_DAYS = 30
 
 // Intensity buckets (0 = no activity, then four filled steps like GitHub).
@@ -62,23 +59,9 @@ function tooltipFor(dayKey: string, day: BotActivityDay | undefined): string[] {
   return [label, `${messages(day.handledCount)} handled`, `${messages(day.sentCount)} sent`]
 }
 
-/**
- * BotActivityHeatmap — compact contribution grid for the bot card.
- *
- * Design (Gus /Gus/uiux #155, refining Alli #154): a compact, variable-size
- * grid — NOT a fixed block forced onto every card, NO Less→More legend, and
- * uniform x/y spacing (equal gap both axes). Each cell's tint encodes total
- * activity (handled + sent) for that day; the tooltip splits the two numbers
- * ("Jul 17 · 12 handled · 4 sent"). Placement is the card's job (desktop: the
- * card's empty right side; mobile: below the meta line) — this component only
- * owns the grid and stays placement-agnostic.
- *
- * Data shape is the locked frontend contract (Claudette /Gus/working #663):
- * `dailyActivity: { day, handledCount, sentCount }[]`, oldest→newest, ONLY days
- * with activity (sparse — backend does NOT pad), new bot = []. We build the full
- * 30-day UTC calendar and fill from the sparse rows by day-key, so gaps and empty
- * bots both render as bucket-0 cells and the grid is always exactly 30.
- */
+// Backend days are sparse, oldest first, with UTC day keys (Claudette /Gus/working #663).
+// Empty bots still show the full 30-day calendar.
+// Gus /Gus/uiux #155: no Less→More legend, equal x/y gaps; the card owns placement.
 // ONE fixed-size layout everywhere (Gus /Gus/working #720): a 3-row × 10-col
 // strip of small fixed cells. Cell size never changes, so moving the strip
 // between the card's right side (wide) and its own row below (narrow) has no

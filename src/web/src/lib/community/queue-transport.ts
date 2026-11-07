@@ -1,30 +1,11 @@
-import { createLogger, DEV_QUEUE_WORKER_URL, parseStrictFailedSubset } from "@alook/shared"
+import { createLogger, DEV_QUEUE_WORKER_URL, parseQueueTask, parseStrictFailedSubset, queueTaskIdentity } from "@alook/shared"
 import type { AlookQueueTask } from "@alook/shared"
 import { fetchViaBindingOrDevFallback } from "../dev-binding-fetch"
 
 const log = createLogger({ service: "queue-transport" })
 
 function isExactFailedCandidate(value: unknown): value is AlookQueueTask {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false
-  const keys = Object.keys(value)
-  const candidate = value as Record<string, unknown>
-  if (
-    candidate.version !== 1
-    || typeof candidate.kind !== "string"
-    || typeof candidate.messageId !== "string"
-    || candidate.messageId.length === 0
-  ) return false
-  if (candidate.kind === "bot-wake") {
-    return keys.length === 4
-      && typeof candidate.botUserId === "string"
-      && candidate.botUserId.length > 0
-  }
-  if (candidate.kind === "mobile-push") {
-    return keys.length === 4
-      && typeof candidate.userId === "string"
-      && candidate.userId.length > 0
-  }
-  return false
+  return parseQueueTask(value).ok
 }
 
 function parsePartialFailure(value: unknown, tasks: AlookQueueTask[]): AlookQueueTask[] | null {
@@ -37,11 +18,7 @@ function parsePartialFailure(value: unknown, tasks: AlookQueueTask[]): AlookQueu
     tasks,
     {
       isTarget: isExactFailedCandidate,
-      key: (item) => JSON.stringify([
-        item.kind,
-        item.messageId,
-        item.kind === "bot-wake" ? item.botUserId : item.userId,
-      ]),
+      key: queueTaskIdentity,
     },
   )
 }

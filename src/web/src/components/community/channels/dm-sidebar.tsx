@@ -193,8 +193,6 @@ export function DmSidebarSkeleton() {
   )
 }
 
-// Loading placeholder for the DM sidebar — mirrors the Friends button + DM
-// row footprint so the column doesn't reflow when conversations arrive.
 function DmRowsSkeleton() {
   return (
     <>

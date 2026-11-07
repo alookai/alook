@@ -139,3 +139,5 @@ The extension control starts its own local HTTP server and uses the normal CLI/c
 The probe control verifies trusted input, replacement of an optimistic node before the next frame, frozen observations, and hidden/offscreen exclusion. `test/d1-control-worker.mjs` is a manual actual-D1 control target for trigger, batch rollback, raw columns and first() behavior. `calibrate CONFIG` retains the API/WS/history runner and 0/1000ms proxy for supporting protocol calibration; its `samples.jsonl` report is never the primary user journey.
 
 References: [Playwright routing/cache](https://playwright.dev/docs/api/class-browsercontext#browser-context-route), [High Resolution Time](https://www.w3.org/TR/hr-time-3/), [D1 metadata](https://developers.cloudflare.com/d1/worker-api/return-object/).
+
+消息场景必须显式设置 `communityContractVersion: 10`，仅支持当前 Community 协议；缺失或其他版本在准备 fixture 前失败。该值记录在配置与场景身份中，不与不同协议结果合并。控制场景不要求此字段。Fixture API 使用当前 channel envelope 和 `relation=access`；真实页面发送继续使用页面自己的协议请求。历史结果不改写。

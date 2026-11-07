@@ -24,8 +24,6 @@ import { communityKeys } from "@/lib/query-keys"
 import { DEMO_DMS, DEMO_PROFILES } from "@/components/home/landing-interactive-shell-data"
 import { Fixtures, Specimen } from "./app-components"
 
-/* ---------- demo fixtures ---------- */
-
 const DAY = 864e5
 const iso = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 6e4).toISOString()
 /** Board-only cache seeds never go stale, so no query ever hits the network. */
@@ -124,17 +122,14 @@ function seedPeopleCache(client: QueryClient) {
   client.setQueryData(communityKeys.botAuditLog(AUDIT_BOT), { pages: [{ events: [...AUDIT].reverse(), nextCursor: null }], pageParams: [null] }, FRESH)
 }
 
-/* ---------- layout ---------- */
-
 const grid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 1fr))", gap: 16, alignItems: "start" }
 const stack: CSSProperties = { display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }
 const row: CSSProperties = { display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }
 const pad: CSSProperties = { padding: 16, minWidth: 0 }
-/** The notebook fills its parent's height at >=640px, like the profile card slot. */
+
 const stickerHost: CSSProperties = { height: 452 }
 const caption: CSSProperties = { fontSize: 11, color: "var(--muted-foreground)" }
 
-/** Inner breathing room: the board's specimen body clips at its rounded edge. */
 function Pad({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return <div style={{ ...pad, ...style }}>{children}</div>
 }
@@ -145,8 +140,6 @@ function Seeded({ children }: { children: ReactNode }) {
   useEffect(() => { seedPeopleCache(client); setReady(true) }, [client])
   return ready ? <>{children}</> : null
 }
-
-/* ---------- specimens ---------- */
 
 function FriendsSpecimens() {
   const [tab, setTab] = useState<"all" | "new">("all")
@@ -349,7 +342,6 @@ function BotLogSpecimens() {
   )
 }
 
-/** /brand-visual: People specimens (real components on demo fixtures). */
 export function AppPeopleSpecimens(_props: { mode: "light" | "dark" }) {
   // Relative times and the running clock depend on Date.now(); render after mount.
   const [mounted, setMounted] = useState(false)

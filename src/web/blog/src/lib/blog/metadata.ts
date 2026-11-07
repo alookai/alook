@@ -5,3 +5,7 @@ export function getBlogSearchTitle(
 ): string {
   return post.seoTitle ?? post.title;
 }
+
+export function getBlogOgImage(post: Pick<BlogPost, "image" | "slug">): string {
+  return post.image ?? `/og/blog/${encodeURIComponent(post.slug)}`;
+}

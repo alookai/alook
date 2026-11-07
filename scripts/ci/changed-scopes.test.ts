@@ -1015,6 +1015,19 @@ describe("compatibility and CLI fail-closed behavior", () => {
     }
   })
 
+  it("invalidates builds when their shared repository Git policy changes", () => {
+    const fixture = gitDiffFixture("src/app/src/policy-input-fixture.ts")
+    const tasks = ["@alook/agent-driver#build", "@alook/web#build"]
+    const dry = () => JSON.parse(execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/run-turbo.mjs")), "run", ...tasks, "--dry=json"], { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" })).tasks
+    try {
+      const before = dry()
+      const path = join(fixture.root, "scripts/ci/repository-git.mjs")
+      writeFileSync(path, readFileSync(path, "utf8") + "\n")
+      const after = dry()
+      for (const id of tasks) expect(after.find(task => task.taskId === id).hash).not.toBe(before.find(task => task.taskId === id).hash)
+    } finally { fixture.cleanup() }
+  })
+
   it("invalidates the driver build for root LICENSE and declares its ignored license output", () => {
     const fixture = gitDiffFixture("src/daemon/agent-driver/src/license-input-fixture.ts")
     const dry = () => JSON.parse(execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/run-turbo.mjs")), "run", "@alook/agent-driver#build", "--dry=json"], { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" })).tasks.find(task => task.taskId === "@alook/agent-driver#build")

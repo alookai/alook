@@ -2,12 +2,9 @@
 
 import { ConversationResolutionErrorFrame } from "@/components/community/channels/conversation-resolution-error-frame"
 import { FriendsPage } from "@/components/community/social/friends-page"
-import { useMemo } from "react"
 import { useCommunityModuleLocation } from "@/contexts/community/module-route"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useUiHandlers } from "@/stores/community"
-import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
-import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   useSendFriendRequest,
   useAcceptFriendRequest,
@@ -24,30 +21,9 @@ import { toastApiError } from "@/lib/api/client"
 export default function MeFriendsPage() {
   const { router, searchParams } = useCommunityModuleLocation()
   const activeTab = searchParams.get("tab") === "new" ? "new" : "all"
-  const { friends: rawFriends, pending, blocked, isPending: isLoading, data, isError, isFetching, refetch } = useFriends({ enabled: false })
+  const { friends, pending, blocked, isPending: isLoading, data, isError, isFetching, refetch } = useFriends({ enabled: false })
   const uiHandlers = useUiHandlers()
-  const profilesByUserId = useCanonicalProfilesByUserId()
-  const friends = useMemo(
-    () =>
-      rawFriends.map((f) => {
-        const userId = f.userId ?? f.id
-        const canonical = profilesByUserId.get(userId)
-        const profile = canonical
-          ? readCommunityProfile(canonical, userId)
-          : { ...f, presence: f.status }
-        return {
-          ...f,
-          name: profile.name,
-          discriminator: profile.discriminator,
-          avatar: profile.avatar,
-          avatarVersion: profile.avatarVersion,
-          status: profile.presence,
-          statusEmoji: profile.statusEmoji,
-          statusText: profile.statusText,
-        }
-      }),
-    [profilesByUserId, rawFriends],
-  )
+
 
   const sendFriendRequest = useSendFriendRequest()
   const acceptFriendRequest = useAcceptFriendRequest()

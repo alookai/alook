@@ -1,7 +1,8 @@
 "use client"
+import { sendNonce, tempMessageId, toAttachmentVm, type OriginalView, type SendMessageArgs, type SendMessageResult, type SendDmMessageArgs } from "@/lib/community/message-send-input"
 import { completeCommunityPublication } from "@/lib/community-db/sync"
 
-import { CommunityChannelResourceSchema, type CommunityChannelResource, type CommunityMessagePosted } from "@alook/shared"
+import { CommunityChannelResourceSchema, type CommunityChannelResource } from "@alook/shared"
 
 import { captureOnboardingFirstMessage } from "@/lib/product-analytics"
 
@@ -12,27 +13,18 @@ import { useCallback } from "react"
 import { useCommunityMutationOrigin } from "../community-origin"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
-
-
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { ApiError, isAbortError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { captureCommunityLiveSnapshotToken, publishCommunityMessages, publishCommunityCreatedChannel } from "@/lib/community-db/sync"
-import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
-import { attachmentThumbnailUrl, attachmentUrl } from "@/lib/community/storage"
 import {
   projectPostedMessage,
   type PostedMessage,
 } from "@/lib/community/message-wire"
 
-
-
 import type { CanonicalMessage, MessageScope } from "@/lib/community/message-stream"
-import type { Attachment, Msg } from "@/lib/community/models/message"
-import type { UploadFileResult } from "./uploads"
-
 
 import {
   getForumSidebarBase,
@@ -41,7 +33,7 @@ import {
   isForumSidebarParent,
   patchForumSidebarActivityExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
-import { isBlocked, type MentionType, type CommunityResourceProfile } from "@alook/shared"
+import { isBlocked } from "@alook/shared"
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { reconcileAccountAttention } from "@/hooks/community/use-account-attention"
 
@@ -56,88 +48,6 @@ import {
   type AttentionDomain,
   type AttentionIntent,
 } from "@/lib/community-db/sync"
-
-
-type OriginalView = (() => void) & { signal: AbortSignal }
-
-/**
- * Materialize the attachment view-model from the API attachment shape.
- * Mirrors the old context's conversion at `postWithOptimisticInsert`.
- * Exported for direct unit testing — see `to-attachment-vm.test.ts`.
- */
-export function toAttachmentVm(
-  channelId: string,
-  a: { id: string; filename: string; contentType: string; size: number; hasThumbnail?: boolean; width?: number; height?: number },
-): Attachment {
-  // Reserve-by-id (route/disc step 2b): the server no longer returns a `url` for
-  // a fresh upload — it returns the attachment `id`. The display URL is
-  // id-addressed (the canonical `channels/{id}/attachments/{attachmentId}` door)
-  // and derived HERE client-side, matching what the server's read path emits via
-  // `attachmentUrl`. This keeps the optimistic row's image src identical to the
-  // reconciled row that arrives over WS.
-  return presentMessageAttachment({
-    name: a.filename, url: attachmentUrl(channelId, a.id), contentType: a.contentType, sizeBytes: a.size,
-    ...(a.hasThumbnail ? { thumbnailUrl: attachmentThumbnailUrl(channelId, a.id) } : {}),
-    width: a.width, height: a.height,
-  })
-}
-
-// Random-ish temp id — collision on the same tick is essentially impossible
-// with the second-tier `Math.random` mixin.
-export function tempMessageId(): string {
-  return `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
-}
-
-// Idempotency nonce (mutation-idempotency plan). Generated ONCE per logical
-// send and REUSED verbatim on every retry-pill resend — the retry caller
-// passes the failed row's `clientNonce` back in via `SendMessageArgs.nonce`,
-// so a 500-after-commit resend matches the already-committed message
-// server-side (returns `deduped: true`) instead of double-posting. A fresh
-// send with no nonce supplied mints a new random one. `crypto.randomUUID` is
-// available in every browser this app targets.
-export function sendNonce(): string {
-  return crypto.randomUUID()
-}
-
-// ── Send message (channel/thread) ──────────────────────────────────────────
-
-export type SendMessageArgs = {
-  assertActive?: OriginalView
-  assertCommand?: () => void
-  serverId: string
-  channelId: string
-  forumParentChannelId?: string
-  content: string
-  replyToId?: string
-  replyTo?: Msg["replyTo"]
-  mentionType?: MentionType
-  // Reserve-by-id: pre-uploaded pending-attachment descriptors. Only `id` is
-  // sent to the server (in an id array); the rest drive the optimistic VM
-  // (whose url is derived client-side from `id`). No `url` field — the upload
-  // no longer returns one.
-  attachments?: UploadFileResult[]
-  author: { [Field in "id" | "name" | "avatar"]: NonNullable<CommunityResourceProfile[Field]> }
-  // Idempotency nonce. Omitted on a fresh send (the hook mints one); the
-  // retry-pill caller passes the failed row's nonce back so the resend reuses
-  // it and dedupes server-side instead of double-posting.
-  nonce?: string
-}
-
-// `deduped: true` means this POST matched an already-committed send carrying
-// the same nonce — `message` is the canonical (original) row, nothing new was
-// inserted. The caller treats it as success (reconcile the optimistic row,
-// clear the failed pill), never as a failure to resend.
-export type SendMessageResult = Pick<CommunityMessagePosted, "message" | "profiles" | "relatedMessages"> & { deduped?: boolean }
-
-/**
- * Channel/thread send. The server infers thread-vs-channel routing from the
- * channel row's `parentChannelId` (per #14), so the client always POSTs to
- * `/channels/:id/messages`.
- */
-export type SendDmMessageArgs = Pick<SendMessageArgs, "assertActive" | "assertCommand" | "content" | "replyToId" | "replyTo" | "attachments"> & {
-  dmId: string
-  nonce: string
-}
 
 function sendMessageScope(input: SendMessageArgs | SendDmMessageArgs): MessageScope {
   return "dmId" in input ? { kind: "dm", id: input.dmId } : { kind: "channel", id: input.channelId, serverId: input.serverId }
@@ -254,17 +164,11 @@ export function useSendDmMessage() {
   return useSendScopedMessage<SendDmMessageArgs>("dm")
 }
 
-// ── Reaction intents ──────────────────────────────────────────────────────
-
 export type { ReactionArgs } from "./message-command-inputs"
 
 export { useToggleReactionApi, useAddReactionApi } from "./message-reactions"
 
-// ── Pin / unpin ────────────────────────────────────────────────────────────
-
 export { usePinMessage, useUnpinMessage, useMarkMessage, useUnmarkMessage, useToggleMark } from "./message-memberships"
-
-// ── Create thread ──────────────────────────────────────────────────────────
 
 export type CreateThreadArgs = {
   assertActive?: OriginalView
@@ -300,8 +204,6 @@ export function useCreateThread() {
   const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assertActive?.() }, [origin])
   return useNativeMutationFacade(native, capture, assertCurrent)
 }
-
-// ── Inbox mutations ────────────────────────────────────────────────────────
 
 export function useMarkAllInboxRead() {
   const origin = useCommunityMutationOrigin()
@@ -458,7 +360,3 @@ export function useDeleteMention() {
     mutateAsync: (input: DeleteMentionArgs, options?: Parameters<typeof mutation.mutateAsync>[1]) => mutation.mutateAsync({ input, original: origin.begin().token }, options),
   }
 }
-
-// ── Load more messages ─────────────────────────────────────────────────────
-// `fetchOlder` is exposed by `useMessages` / `useDmMessages` directly; there
-// is no need for a dedicated mutation hook. Kept as a note here for clarity.

@@ -50,7 +50,7 @@ describe("shared diagnostics contract ownership", () => {
     expect(Shared.DIAGNOSTIC_REPORT_FAILURE_CODES).toBe(DIAGNOSTIC_REPORT_FAILURE_CODES);
   });
 
-  it("re-exports the database-owned failure-code tuple without copying it", () => {
+  it("re-exports the contract-owned failure-code tuple consumed by the database without copying it", () => {
     expect(DIAGNOSTIC_REPORT_FAILURE_CODES).toBe(DB_FAILURE_CODES);
     expect(DiagnosticReportFailureCodeSchema.options).toEqual([...DB_FAILURE_CODES]);
   });

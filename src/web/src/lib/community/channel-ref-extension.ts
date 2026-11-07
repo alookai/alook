@@ -8,18 +8,13 @@ import {
 } from "@/lib/community/suggestion-caret-anchor"
 
 export type ChannelRefCandidate = {
-  id: string // channelId (nanoid)
-  name: string // channel display name, for the popup row + in-editor chip
-  serverId: string // nanoid
-  serverName: string // for the popup row when listing across servers
+  id: string
+  name: string
+  serverId: string
+  serverName: string
   serverDiscriminator: string // required public server identity suffix
 }
 
-// The shape actually passed to tiptap's `command(props)` — NOT
-// `ChannelRefCandidate` (see `buildCommunityChannelRefExtension`'s doc
-// comment on the `name` → `label` mapping). Mirrors
-// `MentionPopupState.command`'s own mapped-shape typing in
-// `mention-extension.ts`.
 export type ChannelRefCommandProps = {
   id: string
   label: string
@@ -41,15 +36,6 @@ export function toChannelRefCandidate(
   }
 }
 
-/**
- * Maps a `ChannelRefCandidate` (the shape the popup lists) to the props
- * tiptap's `command(props)` inserts verbatim as `node.attrs`. Shared by both
- * insertion paths — the keyboard handler below and `composer.tsx`'s
- * mouse-click `onSelect` — so updating one field (e.g. adding `serverName`)
- * can't be forgotten on the other call site, the exact bug pattern the
- * `name` → `label` regression guard in `channel-ref-extension.test.ts`
- * already exists for.
- */
 export function toChannelRefCommandProps(item: ChannelRefCandidate): ChannelRefCommandProps {
   return {
     id: item.id,
@@ -81,15 +67,6 @@ export const EMPTY_CHANNEL_REF_STATE: ChannelRefPopupState = {
 
 const CHANNEL_REF_LIMIT = 8
 
-/**
- * Pure ranker — exported for tests. Prefix-then-substring on `name`,
- * case-insensitive, capped at the same limit convention as
- * `rankMentionItems`. No context/DM-empty-list special case is needed here
- * (unlike mentions) — the CALLER decides what candidates to pass in
- * (single-server list for channel/thread composers, cross-server flattened
- * list for DM composers via `useChannelRefDirectory()`); the ranking logic
- * itself is identical either way.
- */
 export function rankChannelRefItems(
   candidates: ChannelRefCandidate[],
   query: string,
@@ -133,24 +110,9 @@ const ChannelRefNode = Mention.extend({
 })
 
 /**
- * Channel-ref extension wired to the community Composer's popup state.
- * Mirrors `buildCommunityMentionExtension` — see that file's doc comment for
- * the overall ref-based-callback rationale.
- *
- * `suggestion.char = "/"`, `allowedPrefixes` left at the library default
- * (`[' ']`, start-of-line included) — exactly the "must follow a space"
- * rule from the spec.
- *
- * `renderText` inserts by display name, not id — server/channel names are
- * now guaranteed ref-safe at creation/rename time (`slugify()`, applied by
- * every write route), so `serverName`/`label` round-trip through
- * the required discriminator round-trip through `chat-syntax-plugin.ts`'s
- * `CHANNEL_REF_RE` and `resolveChannelRefBase`
- * (exact-string match) and render as something a human can actually read.
- * Falls back to `serverId`/`id` if either name is ever missing
- * (paste-from-HTML, drag-drop, etc.) — defensive, not the primary
- * mechanism. `renderHTML` shows a compact in-editor chip — channel name
- * only, not the full path — keeping the compose box readable.
+ * Suggestions follow a space or start-of-line (Tiptap's default allowedPrefixes).
+ * Serialized refs use ref-safe display names and the required server discriminator
+ * so the canonical chat grammar can resolve them. Missing names use stored IDs.
  */
 export function buildCommunityChannelRefExtension(opts: {
   editorRef: { current: Editor | null }
@@ -268,13 +230,7 @@ export function buildCommunityChannelRefExtension(opts: {
           if (event.key === "Enter" || event.key === "Tab") {
             event.preventDefault()
             const item = cur.items[cur.selectedIndex]
-            // Explicit field-name mapping — tiptap's `command(props)` inserts
-            // a node with `attrs: {...props}` verbatim. `ChannelRefCandidate`
-            // has no `label` field, so passing it through as-is would leave
-            // `node.attrs.label` `null` and the in-editor chip would render
-            // literally as "/null" (the sent message text is unaffected,
-            // since `renderText` doesn't read `label` — this only shows up
-            // visually in the compose box).
+            // The command stores attrs verbatim; map the candidate name to label.
             if (item && cur.command) {
               cur.command(toChannelRefCommandProps(item))
             }

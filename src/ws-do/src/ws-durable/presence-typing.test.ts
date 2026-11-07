@@ -1,6 +1,4 @@
-import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { readFileSync } from "node:fs"
 import { createMockWebSocket } from "../__mocks__/cf"
 import { INTERNAL_USER_TARGET_HEADER } from "../internal-user-broadcast"
 import {
@@ -57,11 +55,22 @@ import {
   mockWithD1Retry,
   resetHarness
 } from "./test-harness"
+import { getPresenceAudience, broadcastPresence, sendPresenceSnapshot } from "./presence-typing"
+import { BUSINESS_SCHEMA_VERSION, createLogger } from "@alook/shared"
+
+function createPresenceDomain() {
+  const { ctx, env } = createDO()
+  return { env, context: {
+    ctx, env, log: createLogger({ service: "presence-test" }),
+    typingDedup: new Map<string, Map<string, number>>(),
+    typingFanoutChains: new Map<string, Promise<void>>(),
+    typingDedupMs: 8_000, subrequestBatchSize: 40,
+  } }
+}
 
 describe("WebSocketDurableObject", () => {
   beforeEach(() => resetHarness())
   afterEach(() => cleanupHarness())
-
 
   describe("fetch — broadcast", () => {
     it("sends message to all authenticated connections", async () => {
@@ -205,8 +214,6 @@ describe("WebSocketDurableObject", () => {
     })
   })
 
-
-
   describe("fetch — /check-user-online (bot-aware, keyed by ?userId=)", () => {
     // This DO instance is keyed by `user:<id>` (idFromName) but can't read
     // its own name back off `ctx` on this worker's pinned compatibility_date,
@@ -304,25 +311,13 @@ describe("WebSocketDurableObject", () => {
     })
   })
 
-
   describe("presence audience — co-members ∪ friends (deduped)", () => {
-    // Presence fan-out must reach friends who share no server, not just
-    // co-members — that's the whole point of a friends list. Exercised
-    // directly against the private helper/methods (bypassing the
-    // fire-and-forget `.catch(() => {})` call sites in the auth flow) so
-    // these assertions aren't racing an un-awaited promise.
-    type PresenceInternals = {
-      getPresenceAudience(userId: string): Promise<string[]>
-      broadcastPresence(userId: string, online: boolean): Promise<void>
-      sendPresenceSnapshot(ws: WebSocket, userId: string): Promise<void>
-    }
-
     it("getPresenceAudience merges co-members and friends without duplicates", async () => {
-      const { durable } = createDO()
+      const { context } = createPresenceDomain()
       mockGetCoMemberUserIds.mockResolvedValue(["member-a", "shared-b"])
       mockGetFriendUserIds.mockResolvedValue(["shared-b", "friend-c"])
 
-      const audience = await (durable as unknown as PresenceInternals).getPresenceAudience("user-1")
+      const audience = await getPresenceAudience(context, "user-1")
 
       expect(new Set(audience)).toEqual(new Set(["member-a", "shared-b", "friend-c"]))
       expect(audience).toHaveLength(3)
@@ -331,22 +326,22 @@ describe("WebSocketDurableObject", () => {
     })
 
     it("getPresenceAudience returns [] when the user has no co-members and no friends", async () => {
-      const { durable } = createDO()
+      const { context } = createPresenceDomain()
       mockGetCoMemberUserIds.mockResolvedValue([])
       mockGetFriendUserIds.mockResolvedValue([])
 
-      const audience = await (durable as unknown as PresenceInternals).getPresenceAudience("user-1")
+      const audience = await getPresenceAudience(context, "user-1")
 
       expect(audience).toEqual([])
     })
 
     it("broadcastPresence fans out to a friend who shares no server", async () => {
-      const { durable, env } = createDO()
+      const { context, env } = createPresenceDomain()
       mockGetCoMemberUserIds.mockResolvedValue([])
       mockGetFriendUserIds.mockResolvedValue(["friend-c"])
       mockStubFetch.mockClear()
 
-      await (durable as unknown as PresenceInternals).broadcastPresence("user-1", true)
+      await broadcastPresence(context, "user-1", true)
 
       expect(env.WS_DO.idFromName).toHaveBeenCalledWith("user:friend-c")
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
@@ -355,18 +350,18 @@ describe("WebSocketDurableObject", () => {
     })
 
     it("broadcastPresence no-ops (no fetches) when co-members and friends are both empty", async () => {
-      const { durable } = createDO()
+      const { context } = createPresenceDomain()
       mockGetCoMemberUserIds.mockResolvedValue([])
       mockGetFriendUserIds.mockResolvedValue([])
       mockStubFetch.mockClear()
 
-      await (durable as unknown as PresenceInternals).broadcastPresence("user-1", true)
+      await broadcastPresence(context, "user-1", true)
 
       expect(mockStubFetch).not.toHaveBeenCalled()
     })
 
     it("sendPresenceSnapshot reports an online friend who shares no server", async () => {
-      const { durable } = createDO()
+      const { context } = createPresenceDomain()
       mockGetCoMemberUserIds.mockResolvedValue([])
       mockGetFriendUserIds.mockResolvedValue(["friend-c"])
       mockStubFetch.mockResolvedValue(
@@ -374,7 +369,7 @@ describe("WebSocketDurableObject", () => {
       )
       const ws = createMockWebSocket()
 
-      await (durable as unknown as PresenceInternals).sendPresenceSnapshot(ws as any, "user-1")
+      await sendPresenceSnapshot(context, ws as any, "user-1")
 
       expect(ws.send).toHaveBeenCalledWith(
         JSON.stringify({ type: "community:presence.update", userId: "friend-c", online: true, schemaVersion: BUSINESS_SCHEMA_VERSION }),
@@ -430,7 +425,6 @@ describe("WebSocketDurableObject", () => {
     // needs no bot-specific branch at all; it just trusts whatever
     // `getFriendUserIds` (mocked as `mockGetFriendUserIds` above) says.
   })
-
 
   describe("notifyUserDO — bot fan-out on community:machine.status (Fix 3)", () => {
     // `notifyUserDO` is private; every `community:machine.status` emission in
@@ -591,7 +585,6 @@ describe("WebSocketDurableObject", () => {
       expect(mockStubFetch.mock.calls.length).toBeGreaterThanOrEqual(2)
     })
   })
-
 
   describe("webSocketMessage — community typing authz and dedup", () => {
     const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -1119,9 +1112,5 @@ describe("WebSocketDurableObject", () => {
       }
     })
 
-    it("contains no local reach classifier after delegating to shared", () => {
-      const source = readFileSync(new URL("./presence-typing.ts", import.meta.url), "utf8")
-      expect(source).not.toMatch(/\bchannelReach\b|\bisStoredChannelType\b|switch\s*\(\s*reach\s*\)/)
-    })
   })
 })

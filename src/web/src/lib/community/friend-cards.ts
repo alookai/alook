@@ -1,7 +1,6 @@
 import type { FriendCard } from "@alook/shared"
 import { wsDoFetch } from "@/lib/broadcast"
 
-/** The peer-row shape the friendship bucket queries project (listAgentFriends). */
 export type FriendPeerRow = {
   peerUserId: string
   name: string
@@ -41,17 +40,11 @@ export async function resolvePresence(
       if (Array.isArray(data.online)) return new Set(data.online)
     }
   } catch {
-    /* presence best-effort — default everyone offline */
+
   }
   return new Set()
 }
 
-/**
- * Project a friendship peer row to the lean bot `FriendCard` (the shape
- * `alook friend list` renders). `presence` is looked up in the pre-resolved
- * online set. Identical mapping to the pre-fold flat verb's `toCard`, lifted so
- * every bucket endpoint's bot arm emits the same card.
- */
 export function toFriendCard(row: FriendPeerRow, onlineSet: Set<string>): FriendCard {
   return {
     userId: row.peerUserId,

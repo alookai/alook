@@ -83,21 +83,6 @@ async function seedCommunity(label: string, count = 125) {
   return { prefix, viewer, sender, other, server, channels };
 }
 
-async function seedWorkspace(label: string) {
-  const prefix = fixturePrefix(label);
-  const viewer = `${prefix}_viewer`;
-  const workspace = `${prefix}_workspace`;
-  const runtime = `${prefix}_runtime`;
-  const agent = `${prefix}_agent`;
-  const conversation = `${prefix}_conversation`;
-  await seedUser(viewer);
-  await run("INSERT INTO workspace (id, name, slug, created_at, updated_at) VALUES (?, 'Workspace', ?, ?, ?)", workspace, prefix, baseline, baseline);
-  await run("INSERT INTO agent_runtime (id, workspace_id, daemon_id, runtime_mode, provider, device_info, created_at, updated_at) VALUES (?, ?, 'sql171', 'local', 'codex', '', ?, ?)", runtime, workspace, baseline, baseline);
-  await run("INSERT INTO agent (id, workspace_id, name, runtime_id, owner_id, created_at, updated_at) VALUES (?, ?, 'Agent', ?, ?, ?, ?)", agent, workspace, runtime, viewer, baseline, baseline);
-  await run("INSERT INTO conversation (id, workspace_id, agent_id, user_id, title, type, channel, created_at) VALUES (?, ?, ?, ?, 'Conversation', 'user_dm_message', 'default', ?)", conversation, workspace, agent, viewer, baseline);
-  return { prefix, viewer, workspace, runtime, agent, conversation };
-}
-
 async function graph(name: string) {
   return rows<{ servers: number; categories: number; channels: number; access: number; members: number }>(`
     SELECT
@@ -126,72 +111,6 @@ afterEach(async () => {
 });
 
 describe("whole-statement SQL correctness on native D1", () => {
-  it("hydrates 98/99/100 roots without cross-workspace or kill-task contamination", async () => {
-    const f = await seedWorkspace("traces");
-    const decoy = await seedWorkspace("trace_decoy");
-    await seedBatch(Array.from({ length: 101 }, (_, i) => runtimeEnv.DB.prepare("INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, type, status, created_at, trace_id) VALUES (?, ?, ?, ?, ?, ?, 'user_dm_message', 'completed', ?, ?)").bind(`${f.prefix}_task_${i}`, f.agent, f.runtime, f.workspace, f.conversation, `root-${i}`, `2026-09-02T00:00:${String(i).padStart(3, "0")}Z`, `${f.prefix}_trace_${i}`)));
-    await run("INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, type, status, trace_id, parent_task_id) VALUES (?, ?, ?, ?, ?, 'kill decoy', 'kill_task', 'running', ?, ?)", `${f.prefix}_kill`, f.agent, f.runtime, f.workspace, f.conversation, `${f.prefix}_trace_100`, `${f.prefix}_task_100`);
-    await run("INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, type, status, trace_id) VALUES (?, ?, ?, ?, ?, 'workspace decoy', 'user_dm_message', 'running', ?)", `${decoy.prefix}_task`, decoy.agent, decoy.runtime, decoy.workspace, decoy.conversation, `${f.prefix}_trace_100`);
-    const helper = `${f.prefix}_helper_agent`;
-    await run("INSERT INTO agent (id, workspace_id, name, runtime_id, owner_id, created_at, updated_at) VALUES (?, ?, 'Helper', ?, ?, ?, ?)", helper, f.workspace, f.runtime, f.viewer, baseline, baseline);
-    await run("INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, type, status, trace_id, parent_task_id) VALUES (?, ?, ?, ?, ?, 'helper', 'user_dm_message', 'failed', ?, ?)", `${f.prefix}_helper_task`, helper, f.runtime, f.workspace, f.conversation, `${f.prefix}_trace_100`, `${f.prefix}_task_100`);
-    const { db, record } = recordedDb("K1");
-    for (const limit of [1, 98, 99, 100]) {
-      const result = await queries.task.listTraces(db, f.workspace, { limit });
-      expect(result.hasMore).toBe(true);
-      expect(result.traces).toHaveLength(limit);
-      expect(result.traces[0]).toMatchObject({ traceId: `${f.prefix}_trace_100`, status: "failed", taskCount: 2, helperAgentIds: [helper] });
-    }
-    expect((await queries.task.listTraces(db, f.workspace, { agentId: f.agent, channel: "default", status: "failed", multiAgent: true })).traces).toMatchObject([{ traceId: `${f.prefix}_trace_100` }]);
-    expect(await queries.task.listTraces(db, f.workspace, { agentId: helper })).toEqual({ traces: [], hasMore: false });
-    expect(await queries.task.listTraces(db, f.workspace, { channel: "absent" })).toEqual({ traces: [], hasMore: false });
-    expect(await queries.task.listTraces(db, f.workspace, { limit: 0 })).toEqual({ traces: [], hasMore: false });
-    expect(await queries.task.listTraces(db, f.workspace, { before: baseline })).toEqual({ traces: [], hasMore: false });
-    statementCount(record, 'json_each', 3);
-  });
-
-  it("preserves task cursor ties, empty filters, unknown filters and chronological output with 125 filter values", async () => {
-    const f = await seedWorkspace("history");
-    await seedBatch(["a", "b", "c", "kill"].map((suffix) => runtimeEnv.DB.prepare("INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, type, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?)").bind(`${f.prefix}_${suffix}`, f.agent, f.runtime, f.workspace, f.conversation, suffix, suffix === "kill" ? "kill_task" : "user_dm_message", later)));
-    const { db, record } = recordedDb("K2");
-    const result = await queries.task.listTaskHistory(db, f.agent, f.workspace, {
-      status: Array(125).fill("completed"), type: Array(125).fill("user_dm_message"), before: later, beforeId: `${f.prefix}_c`, limit: 1,
-    });
-    expect(result).toMatchObject({ hasMore: true, tasks: [{ id: `${f.prefix}_b` }] });
-    statementCount(record, "json_each", 9);
-    expect((await queries.task.listTaskHistory(db, f.agent, f.workspace, { status: [], type: [], limit: 2 })).tasks.map(({ prompt }) => prompt)).toEqual(["b", "c"]);
-    expect((await queries.task.listTaskHistory(db, f.agent, f.workspace, { type: ["unknown"] })).tasks).toEqual([]);
-    expect((await queries.task.listTaskHistory(db, f.agent, f.workspace, { status: ["unknown"] })).tasks).toEqual([]);
-    expect((await queries.task.listTaskHistory(db, f.agent, `${f.prefix}_absent`)).tasks).toEqual([]);
-  });
-
-  it("uses all three inbox types in one raw SQL subquery and keeps defaults, scope and limit+1", async () => {
-    const f = await seedWorkspace("inbox");
-    const peer = `${f.prefix}_peer`;
-    await seedUser(peer, "Peer", "1713");
-    const types = ["user_dm_message", "email_notification", "calendar_event"];
-    await seedBatch(types.flatMap((type, i) => {
-      const conversation = `${f.prefix}_conversation_${i}`;
-      return [
-        runtimeEnv.DB.prepare("INSERT INTO conversation (id, workspace_id, agent_id, user_id, title, type, channel, created_at) VALUES (?, ?, ?, ?, ?, ?, 'default', ?)").bind(conversation, f.workspace, f.agent, f.viewer, type, type, later),
-        runtimeEnv.DB.prepare("INSERT INTO inbox_unread (id, conversation_id, user_id, workspace_id, agent_id, task_id, task_type, task_status, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?)").bind(`${f.prefix}_inbox_${i}`, conversation, f.viewer, f.workspace, f.agent, `${f.prefix}_task_${i}`, type, `2026-09-02T00:00:0${i}.000Z`),
-      ];
-    }));
-    await run("INSERT INTO inbox_unread (id, conversation_id, user_id, workspace_id, agent_id, task_id, task_type, task_status, completed_at) VALUES (?, ?, ?, ?, ?, 'decoy', 'user_dm_message', 'completed', ?)", `${f.prefix}_other_user`, `${f.prefix}_conversation_0`, peer, f.workspace, f.agent, later);
-    await run("INSERT INTO inbox_unread (id, conversation_id, user_id, workspace_id, agent_id, task_id, task_type, task_status, completed_at) VALUES (?, ?, ?, ?, ?, 'decoy', 'calendar_event', 'completed', ?)", `${f.prefix}_other_workspace`, f.conversation, f.viewer, `${f.prefix}_wrong`, f.agent, later);
-    const { db, record } = recordedDb("K3-K4");
-    const filter = Array.from({ length: 126 }, (_, i) => types[i % 3]);
-    const page = await queries.inbox.listUnreadConversations(db, f.viewer, f.workspace, { types: filter, limit: 2 });
-    expect(page.hasMore).toBe(true);
-    expect(page.items.map(({ root_task_type }) => root_task_type)).toEqual(["calendar_event", "email_notification"]);
-    expect(await queries.inbox.getUnreadCount(db, f.viewer, f.workspace, filter)).toBe(3);
-    expect(await queries.inbox.getUnreadCount(db, f.viewer, f.workspace, [])).toBe(1);
-    expect(await queries.inbox.getUnreadCount(db, f.viewer, f.workspace, ["unknown"])).toBe(0);
-    expect((await queries.inbox.listUnreadConversations(db, f.viewer, f.workspace)).items).toHaveLength(1);
-    const before = await queries.inbox.listUnreadConversations(db, f.viewer, f.workspace, { types: filter, before: "2026-09-02T00:00:02.000Z" });
-    expect(before.items.map(({ root_task_type }) => root_task_type)).toEqual(["email_notification", "user_dm_message"]);
-    for (const statement of record.statements) expect(statement.bindings).toHaveLength(statement.sql.includes("COUNT(*)") ? 3 : statement.sql.includes("u.completed_at <") ? 5 : 4);
-  });
 
   it("joins the latest eligible snapshot sender across 87/88/90/125 scopes and preserves read, join, policy and notify gates", async () => {
     const f = await seedCommunity("snapshot");

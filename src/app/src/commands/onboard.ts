@@ -1,3 +1,4 @@
+import { addServicePortOptions, servicePortsFromOptions } from "../lib/service-topology.js";
 import { Command } from "commander";
 import { execSync, spawn as spawnAsync } from "child_process";
 import { createInterface } from "readline";
@@ -22,30 +23,17 @@ import { patchWranglerConfigs } from "../lib/wrangler-config.js";
 import { pairAndStartDaemon } from "../lib/daemon.js";
 
 export function onboardCommand(): Command {
-  return new Command("onboard")
-    .description("Set up and start Alook locally")
-    .option("--port-web <port>", "Web server port", String(DEFAULT_PORTS.web))
-    .option("--port-email <port>", "Email worker port", String(DEFAULT_PORTS.emailWorker))
-    .option("--port-ws <port>", "WebSocket worker port", String(DEFAULT_PORTS.wsDo))
-    .option("--port-wake <port>", "Wake worker port", String(DEFAULT_PORTS.queueWorker))
+  return addServicePortOptions(new Command("onboard").description("Set up and start Alook locally"), DEFAULT_PORTS)
     .option("--skip-register", "Skip account creation (just start services)")
     .action(async (opts) => {
-      const ports = {
-        web: parseInt(opts.portWeb, 10),
-        emailWorker: parseInt(opts.portEmail, 10),
-        wsDo: parseInt(opts.portWs, 10),
-        queueWorker: parseInt(opts.portWake, 10),
-      };
+      const ports = servicePortsFromOptions(opts);
 
       console.log("\n🚀 Alook Local Setup\n");
 
-      // 1. Environment checks
       checkNodeVersion();
 
-      // 2. Check ports
       await checkPorts(ports);
 
-      // 3. Collect user input before heavy install/migrate work
       let email: string | undefined;
       if (!opts.skipRegister) {
         email = await collectEmail();
@@ -54,7 +42,7 @@ export function onboardCommand(): Command {
       const devMode = !!process.env.ALOOK_PROJECT_ROOT;
 
       if (devMode) {
-        // Dev mode: run predev + migrations from monorepo
+
         const root = process.env.ALOOK_PROJECT_ROOT!;
         console.log("Preparing dev environment...");
         try {
@@ -62,7 +50,7 @@ export function onboardCommand(): Command {
         } catch {}
         execSync("pnpm db:migrate", { cwd: root, stdio: ["pipe", "inherit", "inherit"] });
       } else {
-        // Production: install bundled assets
+
         if (!isInstalled()) {
           const missingFiles = getMissingInstallFiles();
           console.log(`Installing missing Alook files (${missingFiles.length} required files missing)...`);
@@ -77,20 +65,17 @@ export function onboardCommand(): Command {
         runMigrations();
       }
 
-      // 8. Start services
       if (isRunning()) {
         console.log("\nServices already running.");
       } else {
         startServices(ports, { foreground: devMode });
       }
 
-      // 9. Wait for web server
       const baseURL = WEB_URL(ports.web);
       console.log("\nWaiting for server to be ready...");
       await waitForServer(baseURL);
       console.log("  ✓ Server ready\n");
 
-      // 10. Register with collected email
       if (email) {
         const { sessionCookie } = await registerUser(baseURL, email);
         const { tokenId } = await createPairingToken(baseURL, sessionCookie);
@@ -101,7 +86,6 @@ export function onboardCommand(): Command {
         }
       }
 
-      // 11. Print summary
       console.log("\n" + "─".repeat(50));
       console.log("\n⚠️  Local mode: email send/receive is not available.");
       console.log("   To enable email, connect to alook.ai cloud.\n");
@@ -115,7 +99,6 @@ export function onboardCommand(): Command {
       console.log(`   Start:  npx @alook/app start`);
       console.log(`   Update: npx @alook/app update\n`);
 
-      // 12. Copy email & open browser on Enter
       const signInURL = `${baseURL}/sign-in`;
       if (email) {
         try {

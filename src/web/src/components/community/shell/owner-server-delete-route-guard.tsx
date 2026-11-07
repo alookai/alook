@@ -16,7 +16,6 @@ import {
 } from "@/lib/community/eject-server"
 import { clearLastChannel } from "@/lib/community/last-channel"
 
-/** Rechecks cached deleted-server history entries from the persistent `/c` tree. */
 export function OwnerServerDeleteRouteGuard() {
   const pathname = usePathname()
   const router = useRouter()

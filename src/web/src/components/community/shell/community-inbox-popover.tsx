@@ -492,8 +492,7 @@ export function InboxPopover({
   onOpenMarked?: (m: Marked) => void
   onDeleteMention?: (id: string) => void
   onUnmark?: (messageId: string) => void
-  // Fired when the Marked tab becomes active — the shell uses this to enable
-  // the (lazy) marked-feed query only once the viewer actually opens the tab.
+
   onMarkedTabSelected?: () => void
   onMarkAllRead?: () => void
   activeTab?: InboxTab
@@ -581,9 +580,6 @@ export function InboxPopover({
   )
 }
 
-// Skeleton rows for Mentions — avatar + two text lines per item. Reserves
-// the same gap as <MentionsTab> rows so the popover doesn't reflow when
-// data lands.
 function InboxRowsSkeleton() {
   return (
     <div className="flex flex-col gap-1">
@@ -601,7 +597,6 @@ function InboxRowsSkeleton() {
   )
 }
 
-// Unreads tab groups channels under server headers; mirror that shape.
 function InboxUnreadsSkeleton() {
   return (
     <div className="flex flex-col gap-3">

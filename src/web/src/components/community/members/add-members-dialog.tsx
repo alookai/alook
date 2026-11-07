@@ -54,35 +54,6 @@ export function AddMemberRow({
 }
 
 /**
- * Drive one add through its in-flight lifecycle: mark the id in flight, await
- * the caller's `onAdd`, and toast on failure. Exported for unit-testing the
- * reject path without React.
- *
- * On SUCCESS the id is intentionally kept in flight: `onAdd`'s mutation resolves
- * before its candidate-pool refetch lands, so clearing here would flash the
- * button back to "Add" for a frame before the row unmounts. Keeping the spinner
- * until the row leaves the list is seamless. On FAILURE the id is cleared so the
- * row reverts to a clickable "Add" for retry.
- */
-export async function runAdd(
-  userId: string,
-  onAdd: (userId: string) => Promise<unknown> | void,
-  setAddingIds: React.Dispatch<React.SetStateAction<Set<string>>>,
-): Promise<void> {
-  setAddingIds((s) => new Set(s).add(userId))
-  try {
-    await onAdd(userId)
-  } catch (err) {
-    toastApiError(err, "Couldn't add member")
-    setAddingIds((s) => {
-      const next = new Set(s)
-      next.delete(userId)
-      return next
-    })
-  }
-}
-
-/**
  * Shared "add members" picker for every private unit — a channel/post roster or
  * a thread participant set. Pure add: the current-member list and its
  * leave/remove controls live in the Members drawer's row right-click menu

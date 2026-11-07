@@ -6,7 +6,7 @@ import {
   type CommunityWsEvent,
 } from "@alook/shared"
 import type { QueryClient } from "@tanstack/react-query"
-import { channelMetadataOptions } from "@/hooks/community/channel-metadata"
+import { channelMetadataOptions } from "@/lib/community/channel-metadata"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import type { ChannelRow } from "@/lib/community-db/schema"

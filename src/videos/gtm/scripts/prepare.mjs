@@ -1,6 +1,8 @@
+import { prepareLogo } from "./prepare-logo.mjs";
 import { createRequire } from "node:module";
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
 import path from "node:path";
+prepareLogo();
 const root = path.resolve(import.meta.dirname, "..");
 const web = path.resolve(root, "../../web");
 const requireWeb = createRequire(path.join(web, "package.json"));

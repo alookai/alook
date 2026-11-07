@@ -16,11 +16,10 @@ import {
   isKnownNonForumSidebarChannel,
 } from "@/hooks/community/use-forum-sidebar-threads"
 
-import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
+import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/lib/community/channel-metadata"
 import { runCommunityWsProjectionTransaction } from "./projection-transaction"
 import type { MembershipEventContext } from "@/hooks/community/community-ws/handler-context"
 import { evictServerChannelScopes } from "./scope-eviction"
-
 
 import { invalidateChannelRefDirectory, invalidateForumSidebar, invalidateInbox, invalidateInvitableFriends, invalidatePresence, invalidateServerDetail, invalidateServersList } from "./invalidation-projections"
 import {
@@ -83,9 +82,7 @@ function finishMemberEvent(
   event: CommunityMemberJoin | CommunityMemberLeave | CommunityMemberUpdate,
   { projection }: MembershipEventContext,
 ) {
-  // Membership just changed → the invite dialog's "friends who aren't
-  // in this server" list is stale. Cheap invalidation because the
-  // query is disabled unless the dialog is actually open.
+
   if (event.type !== "community:member.update") {
     invalidateInvitableFriends(projection, event.serverId)
   }
@@ -120,17 +117,12 @@ export function handleMemberLeave(
 ) {
   const { queryClient, viewerUserIdRef, projection } = context
   patchMemberWindows(queryClient, event)
-  // If the leaver is the viewer (kick from another tab / owner
-  // cascade), the viewer's server rail is stale — invalidate it
-  // so the layout's eject effect can detect the drop and route
-  // the user away from the now-forbidden URL.
+
   if (event.userId === viewerUserIdRef.current) {
     evictServerChannelScopes(queryClient, event.serverId)
     removeServerReactionDetails(queryClient, event.serverId)
     invalidateChannelRefDirectory(projection, { serverId: event.serverId })
-    // Rail LIST only (the layout's eject effect reads it to route the
-    // kicked viewer away). `exact` so a kick doesn't cascade-refetch
-    // every server's nested detail subtree.
+
     invalidateServersList(projection)
   } else {
     refreshServerReactionDetails(queryClient, event.serverId)

@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { buildExecutionPlan, loadScopeManifest, queryNativeTasks } from "./changed-scopes.mjs"
 import { collectLocalChanges, localCheckCommands, runLocalChecks } from "./check-local.mjs"
-import { isolatedRepositoryGitEnvironment } from "./report-changed-patch-coverage.mjs"
+import { isolatedRepositoryGitEnvironment } from "./repository-git.mjs"
 
 function repository(files: Record<string, string> = { "base.ts": "export const base = 1\n" }) {
   const root = mkdtempSync(join(tmpdir(), "alook-local-check-"))

@@ -1466,9 +1466,6 @@ export function formatSeq(seq: Seq): string {
   return `#${seq}`;
 }
 
-// ---------------------------------------------------------------------------
-// Downlink (server → daemon) command validation
-// ---------------------------------------------------------------------------
 //
 // The mirror of the uplink (daemon → server) frame `safeParse`s in `src/ws-do`
 // (`HostReadyMessageSchema`, `SessionErrorFrameSchema`, `AgentActivityMessageSchema`,

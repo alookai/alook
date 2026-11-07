@@ -83,10 +83,6 @@ function isLocalDevelopmentHost(host: string): boolean {
     || /^127(?:\.\d{1,3}){3}$/.test(host)
 }
 
-/**
- * Classifies a fully-qualified HTTP(S) URL using hostname boundaries only.
- * No request, metadata lookup, redirect resolution, or storage is involved.
- */
 export function matchPlatformLink(href: string | undefined): PlatformLinkMatch | null {
   if (!href) return null
 

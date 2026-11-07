@@ -6,7 +6,6 @@ import { useObservedRegion } from "@/lib/observability/regions"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
-
 import { useEffect, useMemo } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
@@ -47,7 +46,6 @@ function FriendSection({ title, count, emptyLabel, children }: {
   )
 }
 
-// Friends page (@me, no DM selected) — All (friends + blocked) / New (add friend + pending).
 export function FriendsPage({
   friends, pending, blocked, loading, onBack, reserveBackSlot = false,
   activeTab, onActiveTabChange, onOpenProfile,
@@ -87,15 +85,11 @@ export function FriendsPage({
   }, [friends, filter])
 
   const [addValue, setAddValue] = useAtom(useCreateAtom(""))
-  // Inline feedback for Add a friend (QA #8): pending, sent, failed.
+
   const [sendState, setSendState] = useAtom(useCreateAtom<{ status: "idle" | "sending" | "sent" | "failed"; name?: string }>({ status: "idle" }))
   const [searchTerm, setSearchTerm] = useAtom(useCreateAtom(""))
   const profilesByUserId = useCanonicalProfilesByUserId()
 
-  // Relationship state by user id, so search results can show Friends/Pending/
-  // Blocked and disable the add action. `Friend`/`BlockedUser` userId is
-  // optional (the Map's string key type forces the skip). Set pending → friend
-  // → blocked so blocked overwrites and wins precedence.
   const relById = useMemo(() => {
     const m = new Map<string, "friend" | "pending" | "blocked">()
     for (const p of pending) if (p.userId) m.set(p.userId, "pending")
@@ -307,7 +301,7 @@ export function FriendsPage({
                   onKeyDown={(e) => {
                     if (e.key !== "Enter" || e.nativeEvent.isComposing) return
                     e.preventDefault()
-                    // Enter sends when the search found exactly one person you can add.
+
                     const only = searchResults.length === 1 ? searchResults[0]! : null
                     if (only && !relById.get(only)) sendRequest(readCommunityProfile(profilesByUserId.get(only), only))
                   }}

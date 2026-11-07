@@ -30,7 +30,6 @@ import type { ForumSidebarThread } from "@/hooks/community/use-forum-sidebar-thr
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { ChannelUnreadIndicator } from "./channel-unread-indicator"
 
-
 type Dialog =
   | { kind: "create-channel"; categoryId: string }
   | { kind: "edit-channel"; id: string; categoryId: string; name: string; type: ChannelType }
@@ -148,7 +147,6 @@ function ChannelSidebarContent({
     )
   }
 
-  // Find the "none" category ID (empty name) — only if one explicitly exists
   const noneCatId = Object.keys(catNames).find((id) => catNames[id] === "") ?? ""
 
   // Who may create a channel where:
@@ -407,8 +405,6 @@ function ForumSidebarThreadRow({
   )
 }
 
-// Loading placeholder for the channel sidebar. Kept colocated so changes to
-// row density or header height stay in sync with the live sidebar above.
 export function ChannelSidebarSkeleton({
   noHeader,
   showInviteAction = false,

@@ -85,7 +85,6 @@ export const MessageRole = {
 
 export type MessageRoleType = (typeof MessageRole)[keyof typeof MessageRole];
 
-// Timing constants
 export const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS) || 3_000;
 export const OFFLINE_THRESHOLD_MS = Number(process.env.OFFLINE_THRESHOLD_MS) || 30_000;
 // Invariant: heartbeat MUST be strictly less than the offline threshold — the
@@ -117,8 +116,6 @@ export const TERMINAL_MEETING_STATUSES: readonly MeetingStatusType[] = [
   MeetingStatus.COMPLETED,
   MeetingStatus.FAILED,
 ] as const;
-
-// ── Community bots ───────────────────────────────────────────────────────────
 
 // Transport/schema safety ceiling for one community bot collection in a
 // request. This is NOT the owner's product-plan limit; business capacity is
@@ -187,7 +184,6 @@ export function isSelfBotFriendship(id: string): boolean {
   return id.startsWith(SELF_BOT_FRIENDSHIP_PREFIX);
 }
 
-// Dev mode auth (shared between web frontend and @alook/app CLI)
 export const DEV_PASSWORD = "dev-password-000";
 
 /**
@@ -216,13 +212,11 @@ export const DEV_PORTS: DevPortProfile = {
   queueWorker: 8790,
 };
 
-// Local dev URLs (used for service-binding fallbacks)
 export const DEV_WEB_URL = process.env.ALOOK_SERVER_URL || `http://localhost:${DEV_PORTS.web}`;
 export const DEV_WS_DO_URL = process.env.DEV_WS_DO_URL || `http://localhost:${DEV_PORTS.wsDo}`;
 export const DEV_EMAIL_WORKER_URL = process.env.DEV_EMAIL_WORKER_URL || `http://localhost:${DEV_PORTS.emailWorker}`;
 export const DEV_QUEUE_WORKER_URL = process.env.DEV_QUEUE_WORKER_URL || `http://localhost:${DEV_PORTS.queueWorker}`;
 
-/** Local ws-do port — derived from `DEV_WS_DO_URL` so env overrides stay in sync. */
 export function devWsDoPort(): number {
   const port = Number(new URL(DEV_WS_DO_URL).port);
   return port || DEV_PORTS.wsDo;

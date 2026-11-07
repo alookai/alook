@@ -1,18 +1,9 @@
-/**
- * Runtime & CLI discovery — auto-detect available runtimes and the agent CLI path.
- *
- * `detectRuntimes()` probes every registered driver and reports which are available.
- * `resolveAlookCliPath()` locates the agent CLI entry the daemon injects into spawned agents.
- */
+
 import * as path from "path";
 import * as fs from "fs";
 import { fileURLToPath } from "url";
 import { getDriver, listRuntimeIds, type RuntimeId } from "./drivers/index.js";
 import type { RuntimeReasoningCatalog } from "@alook/agent-driver";
-
-/* ------------------------------------------------------------------ */
-/* Agent CLI path resolution                                           */
-/* ------------------------------------------------------------------ */
 
 /**
  * Locate the Alook agent CLI entry point.
@@ -51,12 +42,6 @@ export function resolveAlookCliPath(moduleDir?: string): string | null {
   return fs.existsSync(target) ? target : null;
 }
 
-/**
- * Derive fallback candidates when the primary CLI path is missing
- * (e.g. package tree mutated while the daemon is running).
- *
- * Looks for other known package locations in the same node_modules tree.
- */
 export function deriveCliFallbackCandidates(cliPath: string): string[] {
   if (!cliPath) return [];
   const normalized = cliPath.split(path.sep).join("/");
@@ -71,10 +56,6 @@ export function deriveCliFallbackCandidates(cliPath: string): string[] {
   ].filter((candidate) => candidate !== cliPath);
 }
 
-/**
- * Resolve agent CLI path with fallback self-healing.
- * If the primary path doesn't exist, try fallback candidates.
- */
 export function resolveAlookCliPathWithFallback(primary?: string | null): string | null {
   const resolved = primary ?? resolveAlookCliPath();
   if (resolved && fs.existsSync(resolved)) return resolved;
@@ -89,10 +70,6 @@ export function resolveAlookCliPathWithFallback(primary?: string | null): string
   return resolved;
 }
 
-/* ------------------------------------------------------------------ */
-/* Runtime detection                                                    */
-/* ------------------------------------------------------------------ */
-
 export interface RuntimeInfo {
   id: RuntimeId;
   status: "healthy" | "unhealthy";
@@ -104,11 +81,6 @@ export interface RuntimeInfo {
   reasoning?: RuntimeReasoningCatalog;
 }
 
-/**
- * Probe all registered drivers and return which runtimes are available.
- * capabilities to the server. Runtime health after startup is mutated live
- * by `AgentRouter.markRuntimeUnhealthy` / `markRuntimeHealthy`.
- */
 export async function detectRuntimes(): Promise<RuntimeInfo[]> {
   const ids = listRuntimeIds();
   const results: RuntimeInfo[] = [];
@@ -146,9 +118,6 @@ export async function detectRuntimes(): Promise<RuntimeInfo[]> {
   return results;
 }
 
-/**
- * Return just the runtime IDs that are currently available on this machine.
- */
 export async function getAvailableRuntimes(): Promise<RuntimeId[]> {
   const all = await detectRuntimes();
   return all.filter((r) => r.status === "healthy").map((r) => r.id);

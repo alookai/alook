@@ -324,7 +324,7 @@ describe("E2E UI workflow", () => {
     const producer = ciJob("ui-e2e-build")
     const shard = ciJob("e2e-ui")
     const gate = ciJob("ui-e2e-gate")
-    const devVars = "printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\\nBETTER_AUTH_URL=http://localhost:3000\\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\\nDEV_WS_DO_URL=http://localhost:3000\\nNODE_ENV=development\\n' > src/web/.dev.vars"
+    const devVars = "node scripts/ci/write-ui-fixture-env.mjs"
 
     expect(producer).toContain("image: ${{ needs.scope.outputs.worker_build_image }}")
     expect(producer).toContain("options: --init --ipc=host --user 1001")
@@ -785,11 +785,12 @@ describe("Native message external-link opener", () => {
     )
     const dependency = desktopCargoManifest.indexOf('tauri-plugin-opener = "2"')
     const registration = desktopRustEntry.indexOf("plugin(tauri_plugin_opener::init())")
-    const desktopOnlyPlugins = desktopRustEntry.indexOf("// Desktop-only plugins")
+    const desktopOnlyPlugins = desktopRustEntry.indexOf("    #[cfg(desktop)]\n    {", desktopRustEntry.indexOf("pub fn run()"))
 
     expect(dependency).toBeGreaterThan(-1)
     expect(dependency).toBeLessThan(desktopOnlyDependencies)
     expect(registration).toBeGreaterThan(-1)
+    expect(desktopOnlyPlugins).toBeGreaterThan(-1)
     expect(registration).toBeLessThan(desktopOnlyPlugins)
   })
 

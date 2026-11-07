@@ -18,8 +18,6 @@ import { compareAsciiSqliteBinary } from "../../../lib/sqlite-binary";
 // add / leave only. A user may also hold a relation='access' row on the same
 // channel; the two coexist under the (channel_id, user_id, relation) unique.
 
-// Derived from PARTICIPANT_SOURCE (constants/community.ts) so the type and the
-// literal set can never drift.
 const NOTIFY_CONFLICT_TARGET = [
   communityChannelMember.channelId,
   communityChannelMember.userId,
@@ -94,7 +92,6 @@ export async function listThreadParticipantUserIds(
   return rows.map((r) => r.userId);
 }
 
-// Full participant list hydrated for display — the thread's participant panel.
 export async function listThreadParticipants(
   db: Database,
   threadChannelId: string
@@ -119,10 +116,6 @@ export async function listThreadParticipants(
     );
 }
 
-// Batch participant hydration for many channels at once — the forum list's
-// per-card AvatarGroup. One query for N post ids instead of N. Rows carry the
-// channel id so the caller can group them back per post; `addedAt` orders the
-// group. Soft-deleted users drop out via the inner join.
 export async function listParticipantsForChannels(
   db: Database,
   channelIds: string[],
@@ -265,8 +258,6 @@ export async function removeParticipantFromChildChannels(
   return removed.length;
 }
 
-// Of the given thread ids, which the user participates in (notify). Batch form
-// for the inbox unread-threads filter.
 export async function listParticipatingThreadIds(
   db: Database,
   threadChannelIds: string[],

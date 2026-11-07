@@ -6,8 +6,6 @@ import type {
   CommunityMessageUpdated,
   CommunityPinAdd,
   CommunityPinRemove,
-  CommunityReactionAdd,
-  CommunityReactionRemove,
 } from "@alook/shared"
 
 import {
@@ -16,9 +14,9 @@ import {
   isForumSidebarParent,
   patchForumSidebarActivityExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
-import { clearTypingIndicator, typingScopeKey } from "@/hooks/community/community-ws/typing"
+import { clearTypingIndicator, typingScopeKey } from "@/lib/community/typing"
 import type { CommunityWsHandlerContext } from "@/hooks/community/community-ws/handler-context"
-import { scheduleFocusedMessageGapRepair } from "@/hooks/community/community-ws/reconnect-messages"
+import { scheduleFocusedMessageGapRepair } from "@/lib/community/message-reconcile"
 import { armInboxReadReservationCandidate } from "@/hooks/community/inbox-read-reservation"
 import {
   approvalProfilePatches,
@@ -31,7 +29,7 @@ import {
   invalidateFriends,
   invalidatePins,
 } from "@/hooks/community/community-ws/invalidation-projections"
-import { channelMetadataOptions } from "@/hooks/community/channel-metadata"
+import { channelMetadataOptions } from "@/lib/community/channel-metadata"
 import { projectCommunityWsEventToDb } from "@/lib/community-db/sync"
 
 function warmLiveForumChildOwner(
@@ -100,16 +98,11 @@ export function handleMessageCreate(
       { type: "wsMessage", message: projected },
     )
   }
+  // Replayed messages must not clear current typing; only the first delivery does.
   if (hasSeenMessage) return
   wsStore.actions.markSeenMessage(event.message.id)
-  // Sending a message is an implicit typing.stop for its author —
-  // clear once we know this is a fresh message. Clearing before dedup
-  // would also clear on WS-reconnect replays of stale messages,
-  // briefly wiping a still-active heartbeat pill. Derive the scope
-  // from whether this channelId is the focused DM channel (`dm:`) or a
-  // regular channel (`ch:`) so the pill clears in the right bucket.
-  clearTypingIndicator(queryClient, typingScopeKey(event, sub), event.message.authorId)
 
+  clearTypingIndicator(queryClient, typingScopeKey(event, sub), event.message.authorId)
 
   if (
     event.serverId &&
@@ -128,8 +121,6 @@ export function handleMessageCreate(
     )
   }
 
-  // 1) A child channel enrolls its sender and mentioned users in its
-  //    member set server-side, so refresh an open child roster live.
   if (
     (event.channelId === sub.channelId || event.channelId === sub.secondaryChannelId) &&
     (event.parentChannelId || (communityStore.get().currentChannelId === event.channelId && readCurrentCommunityChannelMeta(queryClient)?.parentChannelId))
@@ -153,14 +144,6 @@ export function handleMessageCreate(
 
 }
 
-export function handleReactionEvent(
-  event: CommunityReactionAdd | CommunityReactionRemove,
-  context: CommunityWsHandlerContext,
-) {
-  void event
-  void context
-}
-
 export function handlePinEvent(
   event: CommunityPinAdd | CommunityPinRemove,
   { projection }: CommunityWsHandlerContext,
@@ -174,10 +157,7 @@ export function handleMessageUpdated(
 ) {
   writeCommunityProfilePatches(approvalProfilePatches(event.approval), getCommunityDbRegistry(context.queryClient), { event: true, resourceSeed: true })
   if (event.botCreation?.status === "approved") invalidateBotSurfaces(context.queryClient)
-  // When a card resolves (accepted/denied/superseded), the friend graph
-  // changed — invalidate friends + pending so the owner's lists reflect
-  // it. This is the owner's only signal in the J2 tail (Alice's accept
-  // dead-letters FRIEND_ACCEPT to the bot).
+
   if (event.approval && (event.approval.status !== "pending" || event.approval.waitingOn !== "you")) {
     invalidateFriends(context.projection)
   }

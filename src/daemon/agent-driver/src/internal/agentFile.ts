@@ -72,7 +72,7 @@ export function ensureSymlinks(
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException)?.code;
       if (code === "EEXIST") {
-        // Race between concurrent launches for same agent — first writer wins.
+
       } else if (code === "EPERM" || code === "EACCES") {
         copyFileSync(canonicalPath, aliasPath);
       } else {
@@ -82,11 +82,6 @@ export function ensureSymlinks(
   }
 }
 
-/**
- * Write system prompt to AGENTS.md in the agent's workdir and ensure CLAUDE.md
- * symlinks to it. Only writes if content has changed (avoids unnecessary fs churn).
- * Returns true if the file was actually written.
- */
 export function writeAgentFile(
   workDir: string,
   systemPromptContent: string,

@@ -76,7 +76,6 @@ for (const dir of WORKSPACE_DIRS) {
   console.log(`  ${pkg.name}: ${old} → ${version}`);
 }
 
-// CF Workers deploy triggers (always)
 for (const dir of DEPLOY_TRIGGER_DIRS) {
   const triggerPath = join(ROOT, dir, ".deploy-version");
   writeFileSync(triggerPath, version + "\n");
@@ -84,7 +83,6 @@ for (const dir of DEPLOY_TRIGGER_DIRS) {
 }
 console.log(`  CF deploy triggers updated`);
 
-// Sync tauri.conf.json version (always)
 const tauriConfPath = join(ROOT, "src/desktop/src-tauri/tauri.conf.json");
 const tauriConf = JSON.parse(readFileSync(tauriConfPath, "utf8"));
 const oldTauriVersion = tauriConf.version;
@@ -93,7 +91,6 @@ writeFileSync(tauriConfPath, JSON.stringify(tauriConf, null, 2) + "\n");
 files.push(tauriConfPath);
 console.log(`  tauri.conf.json: ${oldTauriVersion} → ${version}`);
 
-// Sync the generated iOS project's public version (always)
 const iosProjectPath = join(ROOT, "src/desktop/src-tauri/gen/apple/project.yml");
 let iosProject = readFileSync(iosProjectPath, "utf8");
 const oldIosVersionMatch = iosProject.match(/^\s*CFBundleShortVersionString:\s*(\S+)\s*$/m);
@@ -108,7 +105,6 @@ writeFileSync(iosProjectPath, iosProject);
 files.push(iosProjectPath);
 console.log(`  iOS CFBundleShortVersionString: ${oldIosVersionMatch[1]} → ${version}`);
 
-// Sync Cargo.toml version (always)
 const cargoTomlPath = join(ROOT, "src/desktop/src-tauri/Cargo.toml");
 let cargoToml = readFileSync(cargoTomlPath, "utf8");
 const oldCargoMatch = cargoToml.match(/^version = "([^"]+)"/m);
@@ -118,7 +114,6 @@ writeFileSync(cargoTomlPath, cargoToml);
 files.push(cargoTomlPath);
 console.log(`  Cargo.toml: ${oldCargoVersion} → ${version}`);
 
-// Sync Cargo.lock version for alook-desktop (always)
 const cargoLockPath = join(ROOT, "src/desktop/src-tauri/Cargo.lock");
 let cargoLock = readFileSync(cargoLockPath, "utf8");
 cargoLock = cargoLock.replace(
@@ -129,7 +124,6 @@ writeFileSync(cargoLockPath, cargoLock);
 files.push(cargoLockPath);
 console.log(`  Cargo.lock: alook-desktop → ${version}`);
 
-// Desktop deploy trigger (only with --desktop)
 if (includeDesktop) {
   const triggerPath = join(ROOT, "src/desktop/.deploy-version");
   writeFileSync(triggerPath, version + "\n");
@@ -137,7 +131,6 @@ if (includeDesktop) {
   console.log(`  Desktop deploy trigger written`);
 }
 
-// TestFlight deploy trigger (only with --mobile)
 if (includeMobile) {
   const triggerPath = join(ROOT, "src/desktop/.deploy-version-mobile");
   writeFileSync(triggerPath, version + "\n");

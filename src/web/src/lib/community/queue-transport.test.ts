@@ -132,6 +132,15 @@ describe("createDevHttpQueueTransport", () => {
     expect(mockGlobalFetch).not.toHaveBeenCalled()
   })
 
+  it.each(["sent-installation", "another-installation"])("matches failed tasks by installation identity: %s", async (installationId) => {
+    const task = { version: 1 as const, kind: "mobile-push" as const, messageId: "message", userId: "user", installationId: "sent-installation" }
+    const bindingFetch = vi.fn(async () => Response.json({ failed: [{ ...task, installationId }] }, { status: 207 }))
+    const transport = createDevHttpQueueTransport(makeEnv(bindingFetch))
+    await expect(transport.send([task])).rejects.toThrow(installationId === task.installationId ? /partial failure: 1 task/ : /invalid partial response/)
+    expect(bindingFetch).toHaveBeenCalledTimes(1)
+    expect(mockGlobalFetch).not.toHaveBeenCalled()
+  })
+
   it.each([
     { name: "non-JSON body", body: "not json" },
     { name: "invalid common fields", body: JSON.stringify({ failed: [{ version: 2, kind: "bot-wake", messageId: "msg_1", botUserId: "bot1" }] }) },

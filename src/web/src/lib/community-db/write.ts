@@ -94,7 +94,7 @@ export function readCommunityCollectionRow<N extends CommunityCollectionName>(re
   return (verified.get(name) ?? undefined) as CommunityCollectionRows[N] | undefined
 }
 
-function changedRow(previous: unknown, next: object) {
+function changedRow<T extends object>(previous: unknown, next: T): T | undefined {
   if (previous === undefined) return next
   const previousData = communityRowData(previous)
   const entries = previousData !== null && typeof previousData === "object" ? Object.entries(previousData) : []
@@ -119,7 +119,7 @@ export function writeCommunityCollectionChanges<N extends CommunityCollectionNam
     || removed.some(key => keys.includes(key))) throw new Error("Invalid canonical row identity")
   const changed = verified.flatMap(row => {
     const next = changedRow(readCommunityCollectionRow(registry, name, getKey(row)), row)
-    return next ? [next as Row] : []
+    return next ? [next] : []
   })
   const deletes = [...new Set(removed)].filter(key => readCommunityCollectionRow(registry, name, key) !== undefined)
   if (!changed.length && !deletes.length) return
@@ -187,14 +187,8 @@ export function writeCommunityCollectionRows<N extends CommunityCollectionName>(
   const removed = Array.from(previousByKey?.keys() ?? collection.keys()).filter((key) => !nextKeys.has(key))
   const changed = verified.flatMap((row) => {
     const previous = previousByKey === undefined ? collection.get(getKey(row)) : previousByKey.get(getKey(row))
-    if (previous === undefined) return [row]
-    const previousData = communityRowData(previous)
-    const previousEntries = previousData !== null && typeof previousData === "object" ? Object.entries(previousData) : []
-    const previousFields = Object.fromEntries(previousEntries.filter(([, value]) => value !== undefined))
-    const nextFields = Object.fromEntries(Object.entries(row).filter(([, value]) => value !== undefined))
-    if (replaceEqualDeep(previousFields, nextFields) === previousFields) return []
-    const cleared = Object.fromEntries(previousEntries.filter(([key]) => !(key in row)).map(([key]) => [key, undefined]))
-    return [{ ...cleared, ...row }]
+    const changed = changedRow(previous, row)
+    return changed ? [changed] : []
   })
   if (removed.length === 0 && changed.length === 0) {
     return

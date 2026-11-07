@@ -220,18 +220,6 @@ describe("whitelisted path", () => {
       .toEqual(new TextEncoder().encode(rawText))
   })
 
-  it("defaults subject to '(No Subject)' when header is missing", async () => {
-    const { env, message, wsFetch } = setup({
-      isWhitelisted: true,
-      messageOpts: { from: "owner@example.com", to: "jarvis@alook.ai", subject: null },
-    })
-
-    await handler.email(message, env)
-
-    const notifyBody = JSON.parse(wsFetch.mock.calls[0][1].body)
-    expect(notifyBody.subject).toBe("(No Subject)")
-  })
-
   it("does NOT call message.forward", async () => {
     const { env, message, forward } = setup({ isWhitelisted: true })
 

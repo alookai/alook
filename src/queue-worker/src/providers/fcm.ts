@@ -1,5 +1,5 @@
 import type { PushNotificationPayload } from "../notification-payload"
-import type { PushProviderResult } from "./apns"
+import { base64Url, pemToBytes, type PushProviderResult } from "./token-encoding"
 import {
   PushProviderError,
   runPushProviderStage,
@@ -19,24 +19,6 @@ function mobilePushNotificationTag(
   return `alook:v2:${viewerUserId}:${targetId}:${notificationId}`
 }
 
-function base64Url(value: string | ArrayBuffer): string {
-  const bytes = typeof value === "string"
-    ? new TextEncoder().encode(value)
-    : new Uint8Array(value)
-  let binary = ""
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary).replace(/=/gu, "").replace(/\+/gu, "-").replace(/\//gu, "_")
-}
-
-function pemToBytes(value: string): Uint8Array {
-  const normalized = value.replace(/\\n/gu, "\n")
-  const encoded = normalized
-    .replace(/-----BEGIN PRIVATE KEY-----/gu, "")
-    .replace(/-----END PRIVATE KEY-----/gu, "")
-    .replace(/\s+/gu, "")
-  const binary = atob(encoded)
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0))
-}
 
 async function createFcmServiceAccountAssertion(
   config: Pick<FcmConfig, "clientEmail" | "privateKey">,

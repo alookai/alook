@@ -497,7 +497,6 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
     peekTargetsRef.current = peekTargets;
   }, [peekTargets]);
 
-  // --- Inbox walk-to-target integration ---
   const [inboxWalkEnabled, setInboxWalkEnabled] = useAtom(useCreateAtom(false));
   const inboxDebounceRef = useRef<number | null>(null);
 
@@ -551,7 +550,7 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
     setWalkIntensity(1);
     setPetTimer("walkToTargetPeek", () => {
       setIsPeeking(false);
-      // Re-peek periodically while inbox > 0
+
       const schedulePeek = () => {
         setPetTimer("walkToTargetPeek", () => {
           setIsPeeking(true);
@@ -588,7 +587,6 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
     wasWalkingToTargetRef.current = isWalkingToTarget;
   }, [isWalkingToTarget, clearPetTimer, setIsPeeking]);
 
-  // --- Working state: lock activity when agents have running tasks ---
   const activeAgentTaskCountRef = useRef(activeAgentTaskCount);
   const hasRunningTasks = activeAgentTaskCount > 0;
 

@@ -3,7 +3,6 @@ import { useConversationPresentation } from "@/contexts/community/conversation-a
 import { useMemo } from "react"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
-
 import { useMutationState, useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { communityRequestOptions } from "@/lib/community-db/sync"
 import { apiFetch } from "@/lib/api/client"
@@ -22,19 +21,10 @@ import {
   assertCommunityLiveSnapshotTokenCurrent,
 } from "@/lib/community-db/sync"
 import type { CommunityFreshQueryProof } from "@/lib/community-db/sync"
-import { normalizeThreadResources, projectThread } from "./forum-feed-window"
+import { normalizeThreadResources, projectThread } from "@/lib/community/forum-feed-window"
 import { type CommunityThreadsRead, type CommunityChannelResource, type CommunityMessageResource } from "@alook/shared"
 import type { ChannelRow } from "@/lib/community-db/schema"
 
-/**
- * Fetches the thread list rendered in a channel's right rail (`?panel=threads`).
- *
- * The server already resolves parent-message / creator / first-message
- * previews server-side so the payload is render-ready. Query key is nested
- * under `communityKeys.channelMessages`'s sibling grain so an invite from
- * WS (`community:channel.child_create`) can invalidate the thread list only
- * — without touching messages.
- */
 export type ThreadsResponse = {
   threads: Array<Pick<CommunityChannelResource, "id"> & { openerMessageId?: CommunityMessageResource["id"] }>
   serverId: NonNullable<CommunityChannelResource["serverId"]>
@@ -102,10 +92,6 @@ export function useForumTags(channelId: string | null, enabled: boolean) {
   })
 }
 
-/**
- * Fetches the pinned-message list for a channel. Server-side hydrates the
- * author + content so no follow-up fetch is needed.
- */
 export type PinsResponse = { pins: Array<Pick<CommunityMessageResource, "id">>; resources: import("@alook/shared").CommunityResourceBundle }
 export type PinsWindowResponse = { pins: Array<Pick<CommunityMessageResource, "id">> }
 

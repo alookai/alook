@@ -110,13 +110,13 @@ export function createRotatingFileSink(
 
   const rotate = (): boolean => {
     try {
-      // Overwrite any prior `.1` — we only keep one generation back.
+
       renameSync(path, `${path}.1`);
       if (opts.mode !== undefined) chmodSync(`${path}.1`, opts.mode);
       return true;
     } catch (error) {
       report("rotate", error);
-      /* rename can fail (path gone, races) — swallow; next write recreates. */
+
       return false;
     }
   };
@@ -175,7 +175,7 @@ export function createRotatingFileSink(
         }
       } catch (error) {
         for (const file of files) {
-          try { closeSync(file.fd); } catch { /* best effort */ }
+          try { closeSync(file.fd); } catch {  }
         }
         report("snapshot", error);
         return { files: [], close: () => {} };
@@ -187,7 +187,7 @@ export function createRotatingFileSink(
           if (closed) return;
           closed = true;
           for (const file of files) {
-            try { closeSync(file.fd); } catch { /* best effort */ }
+            try { closeSync(file.fd); } catch {  }
           }
         },
       };

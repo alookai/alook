@@ -363,6 +363,25 @@ describe("notification setting read-state isolation contract", () => {
     expect(row).toEqual({ mentioned: 1, plain: 0 });
   });
 
+  it("counts only unread viewer mentions beyond the cursor in server channels", async () => {
+    sqlite.exec(`
+      UPDATE community_channel SET type = 'dm' WHERE id = 'dm';
+      INSERT INTO community_read_state (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq)
+      VALUES ('rs-parent', 'u', 'parent', '2026-01-01T00:00:01Z', 'parent-1', 1);
+      INSERT INTO community_mention (id, message_id, user_id, kind, read) VALUES
+        ('counted', 'parent-2', 'u', 'mention', 0),
+        ('other-viewer', 'parent-2', 'author', 'mention', 0),
+        ('dismissed', 'child-3', 'u', 'mention', 1),
+        ('reply', 'sibling-4', 'u', 'reply', 0),
+        ('covered', 'parent-1', 'u', 'mention', 0),
+        ('dm-mention', 'dm-5', 'u', 'mention', 0);
+    `);
+    const rail = async () => (await listUserServers(db, "u")).map(({ id, mentions }) => ({ id, mentions }));
+    await expect(rail()).resolves.toEqual([{ id: "server", mentions: 1 }]);
+    sqlite.exec("UPDATE community_mention SET read = 1 WHERE id = 'counted'");
+    await expect(rail()).resolves.toEqual([{ id: "server", mentions: 0 }]);
+  });
+
   it("rail mention badge hides and restores old unread without moving the cursor", async () => {
     sqlite.exec(`
       INSERT INTO community_mention (id, message_id, user_id, kind, read)

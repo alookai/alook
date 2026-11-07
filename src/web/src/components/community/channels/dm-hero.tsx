@@ -4,7 +4,6 @@ import type { DM } from "@/lib/community/models/people"
 import type { OpenProfile } from "../social/profile-types"
 import { Avatar } from "../avatar"
 
-/** Top of a DM conversation: the peer's avatar (opens their profile), name and intro line. */
 export function DmHero({ dm, onOpenProfile }: { dm: Pick<DM, "name" | "avatar" | "userId"> & { discriminator?: string | null }; onOpenProfile?: OpenProfile }) {
   return (
     <>

@@ -23,10 +23,10 @@ import { currentPageObservation, navigationForHref } from "@/lib/observability/c
 import { useForumTags } from "./use-channel-panels"
 import { useStoredForumTag } from "./use-stored-forum-tag"
 import { useConversationResource } from "./use-conversation-entry"
-import { forumFeedMatchesTags, forumFeedWindow, normalizeThreadResources, projectThread, type ForumFeedPage } from "./forum-feed-window"
+import { forumFeedMatchesTags, forumFeedWindow, normalizeThreadResources, projectThread, type ForumFeedPage } from "@/lib/community/forum-feed-window"
 
-export { removeForumPostFromFeed } from "./forum-feed-window"
-export type { ForumFeedPage } from "./forum-feed-window"
+export { removeForumPostFromFeed } from "@/lib/community/forum-feed-window"
+export type { ForumFeedPage } from "@/lib/community/forum-feed-window"
 
 type ForumReadProtocol = {
   operation: Promise<unknown> | undefined

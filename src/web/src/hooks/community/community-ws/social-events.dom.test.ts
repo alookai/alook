@@ -17,7 +17,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { act } from "@/test/react-dom-harness"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, ingestDms, publishCommunityMessages } from "@/lib/community-db/sync"
-import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "../channel-metadata"
+import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/lib/community/channel-metadata"
 import {
   capturedOnMessage,
   capturedQueryClient,

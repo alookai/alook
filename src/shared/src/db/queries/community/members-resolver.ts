@@ -143,7 +143,6 @@ export async function resolveScopeMembers(
   if (target.length === 0) return [];
   const serverId = target[0]!.serverId;
 
-  // Server roles for every resolved user — scoped to this server up front.
   const roleRows = await db
     .select({ userId: communityServerMember.userId, role: communityServerMember.role })
     .from(communityServerMember)

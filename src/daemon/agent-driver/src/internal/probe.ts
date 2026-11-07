@@ -1,7 +1,4 @@
-/**
- * CLI/model probing helpers — detect whether a runtime's binary is installed
- * and read its version. Used by each driver's `probe()`.
- */
+
 import { execFileSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
@@ -22,7 +19,6 @@ export interface ProbeDeps {
   which?: (cmd: string) => string | null;
 }
 
-/** Resolve a command to an absolute path on PATH (cross-platform). */
 export function resolveCommandOnPath(command: string, deps: ProbeDeps = {}): string | null {
   if (deps.which) return deps.which(command);
   try {
@@ -202,7 +198,6 @@ export function resolveSpawnSpec(
   return { command: resolved, args, shell: needsWindowsShimShell(resolved, platform) };
 }
 
-/** Detect Claude Code on PATH, then in its platform-native installation. */
 export function resolveClaudeCommand(deps: ProbeDeps = {}): string | null {
   const onPath = resolveCommandOnPath("claude", deps);
   if (onPath) return onPath;
@@ -227,12 +222,6 @@ export function probeClaude(deps: ProbeDeps = {}): ProbeResult {
   return { status: "healthy", version: r.version };
 }
 
-/**
- * Shared probe for CLI-shaped runtimes: resolve on PATH, then spawn `--version`.
- * Every non-Pi driver's `probe()` is a call to this. Kept as a small helper
- * rather than living inline so a future change to probe semantics is one edit,
- * not eight.
- */
 export function probeCliRuntime(binary: string, deps: ProbeDeps = {}, override?: string): ProbeResult {
   const explicit = override?.trim();
   const command = explicit || resolveCommandOnPath(binary, deps);

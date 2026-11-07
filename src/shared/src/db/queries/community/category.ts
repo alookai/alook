@@ -12,11 +12,6 @@ export async function getCategoriesByIds(db: Database, categoryIds: string[]) {
     .where(inArray(communityCategory.id, ids));
 }
 
-/**
- * Category dictionary for a server, ordered by position asc then id asc for
- * stable deterministic ordering. Used by the agent `channel list` route to
- * bucket channels into groups without a per-row join.
- */
 export async function listCategoriesByServer(db: Database, serverId: string) {
   return db
     .select({

@@ -19,7 +19,6 @@ export function parseBeamSeed(url: string | null | undefined): string | null {
   return seed.length > 0 ? seed : null
 }
 
-/** A stored beam value with a fresh random seed — for newly-created entities. */
 export function randomBeamAvatar(): string {
   return serializeBeamSeed(crypto.randomUUID())
 }

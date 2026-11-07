@@ -1,13 +1,13 @@
+from dataclasses import replace
+from audio_tracks import CLEAN_PROFILE, build_opening_sfx, normalize_sfx, load_music
 from pathlib import Path
 import array, math, subprocess
 root=Path(__file__).resolve().parents[1]
-source=(root/'scripts/mix-clean-audio.py').read_text().split('result = array.array')[0]
-source=source.replace('return 3.1 + output_times','return 4.1 + output_times').replace('10.9 + offset','11.9 + offset').replace('15.213,','16.213,')
-ns={'__file__':str(root/'scripts/mix-clean-audio.py')}
-exec(source,ns)
+profile = replace(CLEAN_PROFILE, opening_offset=4.1, join_start=11.9, drop_end=16.213)
+track, cues = build_opening_sfx(root, profile)
+sfx, music = normalize_sfx(track), load_music(root)
 sr=48000
 duration=522/30
-sfx,music=ns['sfx'],ns['music']
 result=array.array('f')
 for i in range(round(duration*sr)):
     t=i/sr

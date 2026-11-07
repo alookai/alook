@@ -132,9 +132,7 @@ export function handleServerDelete(
 ) {
   evictServerChannelScopes(queryClient, event.serverId)
   invalidateChannelRefDirectory(projection, { serverId: event.serverId })
-  // Refresh the rail LIST only (drop the deleted server). `exact`
-  // so this doesn't cascade-refetch every other server's nested
-  // detail subtree.
+
   invalidateServersList(projection)
 }
 
@@ -149,11 +147,7 @@ export function handleChannelEvent(
   { queryClient, projection }: StructureTreeEventContext,
 ) {
   invalidateChannelRefDirectory(projection, { serverId: event.serverId, channelId: event.type === "community:channel.create" ? event.channel.id : "channelId" in event ? event.channelId : undefined })
-  // #3: on channel.delete, evict every channel-scoped cache before
-  // invalidating the server. Without this the messages/pins/threads/
-  // child-thread caches for the dead channel linger forever — a
-  // subsequent same-id revive (rare, but the server can reuse ids)
-  // would surface stale rows.
+
   if (event.type === "community:channel.delete") {
     const channels = getCanonicalCommunityChannels(queryClient)
     const child = channels.find((row) => row.id === event.channelId && row.serverId === event.serverId && row.parentChannelId === event.parentChannelId)
@@ -176,9 +170,7 @@ export function handleChannelEvent(
       const registry = getCommunityDbRegistry(queryClient)
       if (registry) retireCommunityChannelReading(registry, event.channelId, { reason: "resource-deleted", serverId: event.serverId })
     }
-    // When a child thread is deleted, refresh the
-    // PARENT's list so the deleted card disappears from the feed on
-    // every client. Absent on older events / top-level channels.
+
     if (event.parentChannelId && !openerMessageId) {
       invalidateChannelMessages(projection, event.parentChannelId)
       invalidateThreads(projection, event.parentChannelId)

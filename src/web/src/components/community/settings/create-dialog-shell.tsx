@@ -4,15 +4,6 @@ import type React from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 
-// The shared frameless shell for the community create/edit dialogs
-// (create-server / create-channel / create-category / category-settings).
-// Extracted so the four stop copy-pasting the same unframed Dialog scaffold —
-// a single source for the 105-width container, the padding rhythm, the quiet
-// breadcrumb header, and the floating (borderless) footer. Body + footer
-// content are passed in; the shell only owns the frame.
-//
-// `title` is usually the quiet breadcrumb ("New channel in DEV"). Callers can
-// opt into a full-weight heading or a different footer alignment when needed.
 export function CreateDialogShell({
   open = true,
   preview = false,
@@ -24,12 +15,12 @@ export function CreateDialogShell({
   children,
 }: {
   open?: boolean
-  /** Noninteractive, inline rendering for product walkthroughs. */
+
   preview?: boolean
   onClose: () => void
   title: React.ReactNode
   mutedTitle?: boolean
-  // Omit for a footerless dialog.
+
   footer?: React.ReactNode
   footerClassName?: string
   children: React.ReactNode

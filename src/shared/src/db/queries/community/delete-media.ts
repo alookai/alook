@@ -1,3 +1,4 @@
+import { advanceReadStateRevisionsForUsersBuilder } from "./read-state-revision";
 import { and, eq, exists, inArray, or, sql } from "drizzle-orm"
 import {
   communityChannel,
@@ -9,7 +10,6 @@ import {
 import { user } from "../../schema"
 import type { Database } from "../../index"
 import {
-  advanceReadStateRevisionsForUsersBuilder,
   type AccountReadStateRevisionByUser,
 } from "./read-state"
 

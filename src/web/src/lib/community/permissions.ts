@@ -16,7 +16,6 @@ export type Result<T> = Ok<T> | PermissionError
 const ok = <T>(value: T): Ok<T> => ({ ok: true, value })
 const err = (status: 401 | 403 | 404, error: string): PermissionError => ({ ok: false, status, error })
 
-/** Verify the caller is a member of the server. Returns the member row or an error. */
 export async function requireServerMember(
   db: Database,
   serverId: string,
@@ -27,7 +26,6 @@ export async function requireServerMember(
   return ok(member)
 }
 
-/** Verify the caller is owner/admin of the server. */
 export async function requireServerAdmin(
   db: Database,
   serverId: string,
@@ -239,18 +237,10 @@ async function requireMessageSurfaceAccessWithDmGate(
   userId: string,
   dmGate: DMGate,
 ): Promise<Result<MessageSurfaceAccess>> {
-  // One existence probe, reused for the type dispatch AND the channel-arm's
-  // 404 leg — so an unknown id is a single 404 on every surface.
+
   const channel = await queries.communityChannel.getChannel(db, channelId)
   if (!channel) return err(404, "not found")
 
-  // Dispatch on the VISIBILITY trait, not a bare `type === "dm"` literal — the
-  // DM-participant visibility rule lives once in the trait table
-  // (visibilityIsDmParticipant, B3 "instead of each re-testing type==='dm'"),
-  // and this gate consumes it. Keeps who-is-a-dm / how-it-gates single-source
-  // (route dispatch consumes CHANNEL_TRAITS, never re-derives a parallel
-  // type→route judgement) and avoids seeding a literal type-switch the later
-  // forum/thread arms would copy into a parallel type tree.
   if (visibilityIsDmParticipant(channel.type)) {
     const dm = await dmGate(db, channelId, userId)
     if (!dm.ok) {
