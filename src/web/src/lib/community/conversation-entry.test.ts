@@ -139,11 +139,18 @@ describe("conversation entry canonical publication", () => {
     expect(getQualifiedConversationScope(client, target)).toBeUndefined()
   })
 
-  it("keeps a real cached display window distinct from an uncovered target and an isolated canonical entity", async () => {
+  it.each(["history", "newer-pages"] as const)("displays a complete %s cache without granting ordinary tail or explicit target coverage", async kind => {
     const { client, registry } = await createCommunityQueryOwner()
     const value = entry()
-    const resource = await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const initialTarget = kind === "history" ? { ...target, anchorMessageId: "m1" } : target
+    if (kind === "history") value.selection = { reason: "explicit_anchor", anchorMessageId: "m1" }
+    const resource = await publishConversationEntry(client, initialTarget, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    client.setQueryData<MessageWindowData>(resource.windowKey, data => data && ({ ...data,
+      pages: data.pages.map(page => ({ ...page, hasMoreNewer: true })),
+    }))
     const scope = getQualifiedConversationScope(client, target)!
+    expect(findConversationDisplayWindow(client, target, scope)?.key).toEqual(resource.windowKey)
+    expect(findConversationEntryWindow(client, target, scope, value.readState)).toBeUndefined()
     const selected = { ...target, anchorMessageId: "elsewhere" }
     expect(findConversationDisplayWindow(client, selected, scope)?.key).toEqual(resource.windowKey)
     expect(findConversationEntryWindow(client, selected, scope, value.readState)).toBeUndefined()

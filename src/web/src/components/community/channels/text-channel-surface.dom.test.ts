@@ -368,6 +368,22 @@ describe("TextChannelSurface header hierarchy", () => {
     vi.clearAllMocks()
   })
 
+  it("passes complete cache to local placement while reading and actions remain pending", () => {
+    mockedUseChannelMessageFeed.mockReturnValue(feed({
+      messages: [{ id: "cached", type: "chat", seq: 1, authorId: "peer", content: "Cached" }],
+      initialDisplayReady: true, readSnapshotFetching: true, positionDataState: "pending", navigationBlocked: true,
+    }))
+    render(React.createElement(TextChannelSurface, {
+      channelId: "channel_1", serverId: "server_1", serverParam: "server_1", channelName: "general",
+      viewer: { id: "viewer_1", name: "Viewer", avatar: "V" }, canManagePins: false, anchorMessageId: null,
+      notificationLevel: "default", onSetNotificationLevel: vi.fn(), composerMembers: [], channelRefCandidates: [],
+      memberPanelProps: { members: [] }, manageMembersDialog: null, uiHandlers: {}, onOpenThread: vi.fn(),
+      onOpenProfile: vi.fn(), resolveUserName: (id: string) => id,
+    }))
+    expect(mockedMessageList.mock.calls.at(-1)?.[0]).toMatchObject({ initialScrollReady: true, positionDataState: "pending" })
+    expect(mockedConversationFooterShell.mock.calls.at(-1)?.[0].inert).toBe(true)
+  })
+
   it("forwards the explicit mobile parent Back callback", async () => {
     const onNavigateParent = vi.fn()
     mockedUseChannelMessageFeed.mockReturnValue(feed())

@@ -183,7 +183,9 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
       void refetch({ cancelRefetch: false })
     }
   }, [presented, enabled, qualified, rawWindowExists, retainedProfiles.isReady, retainedProfiles.isError, retainedBodiesReady, availableWindow, query.isSuccess, query.isFetching, refetch])
-  const windowReady = qualified && currentPointer !== undefined && cachedWindow !== undefined
+  // Local display must not wait for the read snapshot. Keep read-dependent admission separate.
+  const displayWindowReady = qualified && cachedWindow !== undefined
+  const windowReady = displayWindowReady && currentPointer !== undefined
   const cacheWindow = !cachedWindow ? rawWindowExists ? "incomplete" : "missing" : cachedData?.pages.some(page => (page.messages ?? page.threads ?? []).length > 0) ? "ready" : "empty"
   const targetCoverage = scope && findConversationEntryWindow(client, baseInput, resource ?? scope, currentPointer) ? "covered" : "uncovered"
   const entryStatus = resource ? "current" : client.getQueryCache().findAll({ queryKey: communityKeys.conversationEntries(channelId) }).some(candidate => candidate.state.data !== undefined) ? "stale" : "missing"
@@ -197,7 +199,7 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
     emitTelemetry("conversation.cache", { ...actionAttributes(action), cache_consumer: consumer, cache_reason: assessment.reason,
       cache_window: cacheWindow, entry_status: entryStatus, target_coverage: targetCoverage, eligibility: scopeAvailable ? "eligible" : "rejected" })
   }, [active, assessment.reason, cacheWindow, channelId, consumer, enabled, entryStatus, intent, scopeAvailable, serverId, targetCoverage, telemetryOwner])
-  return { client, cachedResource, scope: readableScope, currentPointer, windowReady, displayWindow: cachedWindow, input, options, query, canonical, resource: qualified ? resource : undefined, canRead: qualified, revoked,
+  return { client, cachedResource, scope: readableScope, currentPointer, displayWindowReady, windowReady, displayWindow: cachedWindow, input, options, query, canonical, resource: qualified ? resource : undefined, canRead: qualified, revoked,
     denied: serverRevoked || revoked && (!verification.needed || generation !== verification.generation) || isConversationAccessError(query.error) && Number((query.error as { status?: unknown } | null)?.status) !== 401, anchorMissing,
     verificationError: (!qualified && anchorMissing ? fallback.error : query.error)?.name === "AbortError" ? null : !qualified && anchorMissing ? fallback.error : query.error,
     verificationPending: !qualified && (anchorMissing ? fallback.isPending : query.isPending),
@@ -222,7 +224,7 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
   const intent = (active && !resuming) || retainedIntent.path !== expectedPath ? incomingIntent : retainedIntent.intent
   const baseTarget = useMemo(() => target ? { ...target, preferTail: true } : null,
     [target?.channelId, target?.serverId, target?.anchorMessageId, target?.tag])
-  const { client, cachedResource, scope, currentPointer, input, options: entryOptions, query, canonical, resource, canRead, windowReady, revoked, denied, anchorMissing } = useConversationResource(baseTarget, intent, "messages")
+  const { client, cachedResource, scope, currentPointer, input, options: entryOptions, query, canonical, resource, canRead, displayWindowReady, windowReady, revoked, denied, anchorMissing } = useConversationResource(baseTarget, intent, "messages")
   const entryIdentity = hashKey([input, scope ? conversationListScopeKey({ proof: scope.proof, tag: input.tag }) : null])
   const createEntry = () => {
     const pointer = scope ? currentConversationReadState(client, input.channelId) : undefined
@@ -286,7 +288,7 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
     ? query.data.newBoundaryAtEntry : undefined
   const retiredNewTargetId = newBoundary?.target && refreshedBoundary?.afterSeq === newBoundary.afterSeq
     && refreshedBoundary.target?.id !== newBoundary.target.id ? newBoundary.target.id : undefined
-  return { ...activeQuery, intent, resource, scope, canonical, canRead, windowReady, window, snapshot, newBoundary: canRead ? newBoundary : undefined, retiredNewTargetId, targetCovered, revoked, denied, anchorMissing,
+  return { ...activeQuery, intent, resource, scope, canonical, canRead, displayWindowReady, windowReady, window, snapshot, newBoundary: canRead ? newBoundary : undefined, retiredNewTargetId, targetCovered, revoked, denied, anchorMissing,
     initialPositionPending: !targetCovered,
     initialPositionMessageId: null,
     isPending: !!target && !window && !denied && !anchorMissing && !activeQuery.isError && activeQuery.errorUpdatedAt === 0,

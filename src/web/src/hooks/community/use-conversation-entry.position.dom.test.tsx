@@ -66,7 +66,7 @@ function Conversation({ channelId, kind, anchorMessageId }: { channelId: string;
     newBoundary: feed.newBoundary, latestSeq: feed.latestSeq, retiredNewTargetId: feed.retiredNewTargetId,
     onLoadNewTarget: feed.loadNewTarget, onReadNewBoundary: feed.readNewBoundary,
     newDividerBefore: feed.newDividerBefore, initialPositionMessageId: feed.initialPositionMessageId,
-    initialScrollReady: feed.initialScrollReady,
+    initialScrollReady: feed.initialDisplayReady,
     preserveInitialPresentation: feed.preserveInitialPresentation,
     positionEntry: feed.positionEntry, positionScope: feed.positionScope,
     positionDataState: feed.positionDataState, messageWindow: feed.messageWindow, presentRequest: feed.presentRequest,
@@ -292,7 +292,7 @@ describe("conversation entry positioning through real reading owners", () => {
     expect(getReadCoordinator(owner.client, viewer.id).state.get().scopes.get("timeline:c1")?.accepted?.intent.seq).toBe(42)
   })
 
-  it.each([{ delayCanonical: false, previousTail: false }, { delayCanonical: true, previousTail: false }, { delayCanonical: false, previousTail: true }])("waits for the latest ordinary native window before revealing, delayed canonical=$delayCanonical, previous tail=$previousTail", async ({ delayCanonical, previousTail }) => {
+  it.each([{ delayCanonical: false, previousTail: false }, { delayCanonical: true, previousTail: false }, { delayCanonical: false, previousTail: true }])("reveals the cached ordinary window before network completion without granting reading, delayed canonical=$delayCanonical, previous tail=$previousTail", async ({ delayCanonical, previousTail }) => {
     const fresh = entry("channel")
     fresh.messages = fresh.messages.slice(0, 13)
     fresh.channel.messageCount = 13
@@ -327,9 +327,13 @@ describe("conversation entry positioning through real reading owners", () => {
     }
     try {
       expect(latest.feed.messages.map(message => message.id)).toEqual(["m1"])
-      expect(view.visible("m1")).toBe(false)
-      expect(view.root().closest("[aria-busy]")).toHaveAttribute("aria-busy", "true")
+      expect(view.visible("m1")).toBe(true)
+      expect(view.root()).toHaveAttribute("aria-busy", "false")
+      expect(view.root().querySelector("[data-message-list-content]")).toHaveAttribute("data-initial-position-phase", "revealed")
       expect(latest.feed.isFetching).toBe(true)
+      expect(latest.feed.readSnapshotFetching).toBe(true)
+      expect(latest.feed.readSnapshot?.lastReadSeq).toBe(1)
+      expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
       const initialReadReady = view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready") ?? "false"
       await act(async () => { finishRefresh(fresh); await vi.advanceTimersByTimeAsync(0) })
       resize()

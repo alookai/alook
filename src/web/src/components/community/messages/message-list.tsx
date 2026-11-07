@@ -25,6 +25,7 @@ function MessageListEntry({
   ...props
 }: MessageListProps) {
   const [admitted, setAdmitted] = useState(false)
+  // Local cache readiness mounts the owner; its first geometry settlement controls the skeleton.
   const ready = props.messages.length > 0 && !!(props.initialLoadError || props.targetLoadError)
     || initialScrollReady && (props.messages.length > 0 || !props.loading && !props.initialLoadError)
     || !!props.scrollToMessageId && (props.targetPositionDataState ?? props.positionDataState) === "ready" && props.messages.length > 0

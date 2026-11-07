@@ -691,7 +691,8 @@ export function useScrollAnchor({
       }
       if (landed) {
         const initial = positionKind.get() === "initial"
-        if (initial && contextRef.current.dataState === "pending") setFollowSuspended(true)
+        // Pending read proof must not detach an ordinary tail landing; local targets keep their viewport.
+        if (initial && intent.type !== "end" && contextRef.current.dataState === "pending") setFollowSuspended(true)
         const geometry = readGeometry()
         if (!geometry) return
         if (intent.type !== "end" && root.scrollTop <= 1) holdNativeOrigin(currentItemsRef.current[0]?.key ?? null)
@@ -1330,6 +1331,7 @@ export function useScrollAnchor({
       return
     }
     if (positionKind.get() === "idle") return
+    // Initial placement can use qualified local rows while snapshot/coverage keeps reading pending.
     if (dataState === "pending" && !initialScrollReady) return
     if (positionKind.get() !== "initial" || initialRetiredRef.current || !hasMessages) return
     if (!entryResolvedRef.current) {

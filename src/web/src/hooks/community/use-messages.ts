@@ -299,6 +299,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     : initialLoadError || targetLoadError || retrySelection.error || entry.denied || !windowAvailable && entry.anchorMissing && !entry.isFetching ? "error"
       : !windowAvailable || loading || missingCanonical || !!anchorMessageId && !entry.targetCovered && !selection.window && !entry.anchorMissing ? "pending"
         : messages.length ? "ready" : "empty"
+  // Snapshot and coverage still qualify reading and pagination, independently of cached display.
   const positionDataState: MessagePositionState = targetPositionDataState === "error"
     && (!targetLoadError || !anchorMessageId && !entry.targetCovered && !entry.retainedWindow && !selection.window) ? "error"
     : !windowAvailable || !entry.snapshot || loading || readSnapshotFetching || retrySelection.pending ? "pending"
@@ -319,8 +320,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     anchorReconciled: entry.targetCovered || !!selection.window,
     navigationBlocked: !selectedWindowReady,
     readSnapshot: entry.snapshot, readSnapshotFetching,
-    initialDisplayReady: windowAvailable && !loading && !missingCanonical && !initialLoadError,
-    initialScrollReady: windowAvailable && !loading && !missingCanonical && !initialLoadError && (!!anchorMessageId || !readSnapshotFetching),
+    initialDisplayReady: entry.displayWindowReady && windowAvailable && !loading && !missingCanonical && !initialLoadError,
     preserveInitialPresentation: !!retrySelection.attempt && windowAvailable && (!!anchorMessageId || entry.targetCovered || entry.retainedWindow),
     initialPositionKnown: windowAvailable && entry.snapshot !== null && !loading && !missingCanonical && !initialLoadError && !retrySelection.pending && !entry.initialPositionPending,
     initialPositionMessageId: entry.initialPositionMessageId, positionEntry, positionScope, positionDataState, targetPositionDataState, messageWindow: query.data,

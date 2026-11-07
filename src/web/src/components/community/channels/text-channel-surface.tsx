@@ -169,7 +169,7 @@ export function TextChannelSurface({
                   scrollToMessageId={controller.scrollTargetId}
                   onScrollRoot={feed.setScrollRootEl}
                   viewerUserId={viewer.id}
-                  initialScrollReady={feed.initialScrollReady}
+                  initialScrollReady={feed.initialDisplayReady}
                   preserveInitialPresentation={feed.preserveInitialPresentation}
                   onUserTakeover={feed.onUserTakeover}
                   onScrollTargetConsumed={controller.consumeScrollTarget}
