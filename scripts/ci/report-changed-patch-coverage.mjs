@@ -3,23 +3,9 @@ import { execFileSync } from "node:child_process"
 import { isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
-const REPOSITORY_ROUTING_GIT_ENV = [
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_COMMON_DIR",
-  "GIT_DIR",
-  "GIT_INDEX_FILE",
-  "GIT_OBJECT_DIRECTORY",
-  "GIT_PREFIX",
-  "GIT_QUARANTINE_PATH",
-  "GIT_WORK_TREE",
-]
+import { isolatedRepositoryGitEnvironment } from "./repository-git.mjs"
 
-export function isolatedRepositoryGitEnvironment(source = process.env) {
-  const env = { ...source }
-  for (const name of REPOSITORY_ROUTING_GIT_ENV) delete env[name]
-  return env
-}
+const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 
 function repositoryGit(root, args) {
   return execFileSync("git", args, {

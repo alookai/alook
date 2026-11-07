@@ -16,22 +16,10 @@ import {
   type WsMessage,
 } from "@alook/shared"
 import {
-  trackCommunityWsAuthFailure,
-  trackCommunityWsFrameDropped,
-  trackCommunityWsLifecycleClose,
-  trackCommunityWsLifecycleRecovery,
-  trackCommunityWsLifecycleStage,
-  trackCommunityWsRetryScheduled,
-  type CommunityWsAuthFailureClass,
-  type CommunityWsCloseInitiator,
-  type CommunityWsCloseReasonBucket,
   type CommunityWsFrameDropReason,
   type CommunityWsLifecycleStageResult,
-  type CommunityWsLifecycleRecoveryStrategy,
   type CommunityWsLifecycleRecoveryTrigger,
-  type CommunityWsSocketReadyState,
-  type CommunityWsSuspensionDurationBucket,
-} from "@/lib/analytics"
+} from "@/lib/community/ws-connection-types"
 import { isLocalServiceEnvironment, WS_DO_PORT_DEFAULT } from "@/lib/utils"
 import { websocketUrl } from "@/lib/websocket-url"
 import { authClient } from "@/lib/auth-client"
@@ -49,7 +37,6 @@ type PendingConnectionValidation = {
   ws: WebSocket
   generation: number
   nonce: string
-  startedAt: number
   timeout: ReturnType<typeof setTimeout>
 }
 
@@ -110,56 +97,6 @@ function normalizedCloseCode(code: number | undefined): number {
   return code
 }
 
-function closeReasonBucket(code: number): CommunityWsCloseReasonBucket {
-  if (code === 1000) return "normal"
-  if (code === 1001) return "going-away"
-  if (code === 1005 || code === 1006) return "abnormal"
-  if (code === 1008) return "policy"
-  if (code === 1011) return "server-error"
-  if (code === 0) return "unknown"
-  return "other"
-}
-
-function tokenFailureClass(status: number): CommunityWsAuthFailureClass {
-  if (status === 401 || status === 403) return "credentials"
-  if (status >= 500) return "server"
-  return "unknown"
-}
-
-function socketReadyState(ws: WebSocket | null): CommunityWsSocketReadyState {
-  if (!ws) return "none"
-  switch (ws.readyState) {
-    case WebSocket.CONNECTING:
-      return "connecting"
-    case WebSocket.OPEN:
-      return "open"
-    case WebSocket.CLOSING:
-      return "closing"
-    default:
-      return "closed"
-  }
-}
-
-function suspensionDurationBucket(
-  suspendedAt: number | null,
-  now: number,
-): CommunityWsSuspensionDurationBucket {
-  if (suspendedAt === null) return "unknown"
-  const durationMs = Math.max(0, now - suspendedAt)
-  if (durationMs < 30_000) return "under-30s"
-  if (durationMs < 120_000) return "30s-2m"
-  return "over-2m"
-}
-
-/**
- * Incoming WS message shape delivered to the `onMessage` handler.
- *
- * This is the intersection of the discriminated `WsMessage` union with an
- * index signature — the union preserves narrowing (`switch (msg.type)` on
- * concrete callers), while the index signature lets consumers that need to
- * inspect fields dynamically (e.g. the community WS router that uses
- * `isCommunityEvent`) accept the same value without an `as any` cast.
- */
 export type WsMessageIncoming = WsMessage & { [key: string]: unknown }
 
 export type UserWsConnectionPhase = "authenticated" | "reconnecting" | "suspended"
@@ -204,7 +141,7 @@ function reportDroppedFrame(
     ...(byteCount === undefined ? {} : { byteCount }),
   }
   console.warn("[ws] frame dropped", { event: "community_ws_frame_dropped", ...metadata })
-  trackCommunityWsFrameDropped(metadata)
+
 }
 
 export function useUserWs(
@@ -245,12 +182,11 @@ export function useUserWs(
   const frozenRef = useRef(false)
   const nativeSuspendedRef = useRef(false)
   const isBackground = useCallback(() => isPageHidden() || nativeSuspendedRef.current, [])
-  const suspendedAtRef = useRef<number | null>(null)
   const sentinelIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastSentinelTickAtRef = useRef(0)
   const offlineRef = useRef(isBrowserOffline())
   const offlineCleanupAppliedRef = useRef(false)
-  const localCloseInitiatorRef = useRef(new WeakMap<WebSocket, CommunityWsCloseInitiator>())
+  const localCloseSocketsRef = useRef(new WeakSet<WebSocket>())
   const reportedCloseSocketsRef = useRef(new WeakSet<WebSocket>())
   const isOffline = useCallback(() => {
     if (offlineRef.current) return true
@@ -306,19 +242,11 @@ export function useUserWs(
     && ws.readyState === WebSocket.OPEN
   ), [ownsConnection])
 
-  const clearConnectionValidation = useCallback((
-    result?: CommunityWsLifecycleStageResult,
-  ) => {
+  const clearConnectionValidation = useCallback(() => {
     const pending = connectionValidationRef.current
     connectionValidationRef.current = null
     if (pending) clearTimeout(pending.timeout)
-    if (pending && result) {
-      trackCommunityWsLifecycleStage({
-        stage: "validation",
-        result,
-        durationMs: boundedDurationMs(pending.startedAt),
-      })
-    }
+
   }, [])
 
   const reportTokenAttempt = useCallback((
@@ -329,11 +257,7 @@ export function useUserWs(
     attempt.reported = true
     finishPageOperation(attempt.operation, result === "success" ? "success" : result === "aborted" ? "cancelled" : result === "timeout" ? "timeout" : "error")
     if (attempt.observationGeneration === telemetryGeneration()) emitTelemetry("ws.connect", { ...pageOperationAttributes(attempt.operation), phase: "token", outcome: result === "success" ? "success" : result === "aborted" ? "cancelled" : result === "timeout" ? "timeout" : "error", duration_ms: attempt.operation ? performance.now() - attempt.operation.start : boundedDurationMs(attempt.startedAt) })
-    trackCommunityWsLifecycleStage({
-      stage: "token",
-      result,
-      durationMs: boundedDurationMs(attempt.startedAt),
-    })
+
   }, [])
 
   const abortPendingToken = useCallback(() => {
@@ -349,13 +273,13 @@ export function useUserWs(
     }
   }, [reportTokenAttempt])
 
-  const closeSocket = useCallback((ws: WebSocket, initiator: CommunityWsCloseInitiator) => {
+  const closeSocket = useCallback((ws: WebSocket) => {
     if (
-      !localCloseInitiatorRef.current.has(ws)
+      !localCloseSocketsRef.current.has(ws)
       && ws.readyState !== WebSocket.CLOSING
       && ws.readyState !== WebSocket.CLOSED
     ) {
-      localCloseInitiatorRef.current.set(ws, initiator)
+      localCloseSocketsRef.current.add(ws)
     }
     ws.close()
   }, [])
@@ -363,27 +287,17 @@ export function useUserWs(
   const reportSocketClose = useCallback((
     ws: WebSocket,
     event?: Pick<CloseEvent, "code" | "wasClean">,
-  ): CommunityWsCloseInitiator => {
-    const localInitiator = localCloseInitiatorRef.current.get(ws)
-    localCloseInitiatorRef.current.delete(ws)
+  ) => {
+    const localInitiator = localCloseSocketsRef.current.has(ws)
+    localCloseSocketsRef.current.delete(ws)
     const code = normalizedCloseCode(event?.code)
-    const initiator = localInitiator
-      ?? (authenticatedGenerationRef.current === null && code === 1008
-        ? "auth-failure"
-        : "remote")
     if (!reportedCloseSocketsRef.current.has(ws)) {
       reportedCloseSocketsRef.current.add(ws)
       const observed = observedSockets.current.get(ws)
       finishPageOperation(observed?.operation, localInitiator ? "cancelled" : "error")
       if (observed?.generation === telemetryGeneration()) emitTelemetry("ws.close", { ...pageOperationAttributes(observed.operation), phase: "transport", outcome: "observed", duration_ms: performance.now() - observed.start, status: code })
-      trackCommunityWsLifecycleClose({
-        initiator,
-        code,
-        wasClean: event?.wasClean === true,
-        reasonBucket: closeReasonBucket(code),
-      })
+
     }
-    return initiator
   }, [])
 
   const stopHeartbeat = useCallback(() => {
@@ -393,27 +307,25 @@ export function useUserWs(
 
   const retireSocket = useCallback((
     reportDisconnect: boolean,
-    initiator: CommunityWsCloseInitiator,
-    validationResult: CommunityWsLifecycleStageResult = "aborted",
   ) => {
     const ws = wsRef.current
     const disconnected = reportDisconnect && authenticatedGenerationRef.current !== null
     wsRef.current = null
-    clearConnectionValidation(validationResult)
+    clearConnectionValidation()
     if (disconnected) {
       authenticatedGenerationRef.current = null
       disconnectedAtRef.current ??= Date.now()
     }
     stopHeartbeat()
     if (connectTimeoutRef.current !== null) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null }
-    if (ws) { finishPageOperation(observedSockets.current.get(ws)?.operation, "cancelled"); closeSocket(ws, initiator) }
+    if (ws) { finishPageOperation(observedSockets.current.get(ws)?.operation, "cancelled"); closeSocket(ws) }
     if (disconnected) runLifecycleCallback("disconnect", onDisconnectRef.current)
   }, [clearConnectionValidation, closeSocket, stopHeartbeat])
 
   const stopCredentialRetry = useCallback(() => {
     const retry = credentialRetryRef.current
     retry.stopped = true
-    retireSocket(true, "auth-failure")
+    retireSocket(true)
     if (viewerUserId === undefined || retry.refetchUsed) return
     retry.refetchUsed = true
     void authClient.$store.atoms.session.get().refetch({ query: { disableCookieCache: true } }).catch(() => {
@@ -431,7 +343,7 @@ export function useUserWs(
     reconnectAttemptRef.current = attempt
     reconnectDelay.current = Math.min(windowMs * 2, WS_RECONNECT_MAX)
     emitTelemetry("ws.reconnect", { phase: "transport", attempt, duration_ms: delayMs, outcome: "observed" })
-    trackCommunityWsRetryScheduled({ attempt, delayMs, windowMs })
+
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null
       if (
@@ -447,11 +359,9 @@ export function useUserWs(
   const recoverTimedOutConnection = useCallback((
     ws: WebSocket,
     generation: number,
-    initiator: CommunityWsCloseInitiator,
-    result: CommunityWsLifecycleStageResult = "timeout",
   ) => {
     if (!ownsConnection(ws, generation)) return
-    retireSocket(true, initiator, result)
+    retireSocket(true)
     if (generation !== connectionGenerationRef.current || !isCurrentWsAccount(viewerUserId)) return
     publishConnectionPhase(isBackground() || frozenRef.current ? "suspended" : "reconnecting")
     scheduleReconnect(generation)
@@ -481,7 +391,7 @@ export function useUserWs(
         && !frozenRef.current
         && ownsAuthenticatedConnection(ws, generation)
         && Date.now() - lastMessageAtRef.current > 30_000
-      ) recoverTimedOutConnection(ws, generation, "heartbeat-timeout")
+      ) recoverTimedOutConnection(ws, generation)
     }, 5_000)
   }, [isBackground, isOffline, ownsAuthenticatedConnection, recoverTimedOutConnection, stopHeartbeat])
 
@@ -489,7 +399,6 @@ export function useUserWs(
     ws: WebSocket,
     generation: number,
     nonce: string,
-    result: "failure" | "timeout",
   ) => {
     const pending = connectionValidationRef.current
     if (
@@ -500,8 +409,7 @@ export function useUserWs(
       || ws !== wsRef.current
       || generation !== connectionGenerationRef.current
     ) return
-    const initiator = result === "timeout" ? "validation-timeout" : "validation-failure"
-    recoverTimedOutConnection(ws, generation, initiator, result)
+    recoverTimedOutConnection(ws, generation)
   }, [recoverTimedOutConnection])
 
   const validateCurrentConnection = useCallback((ws: WebSocket, generation: number) => {
@@ -518,23 +426,22 @@ export function useUserWs(
       && ws === wsRef.current
       && generation === connectionGenerationRef.current
     ) return
-    clearConnectionValidation("aborted")
+    clearConnectionValidation()
     stopHeartbeat()
     const nonce = crypto.randomUUID()
     const pending: PendingConnectionValidation = {
       ws,
       generation,
       nonce,
-      startedAt: Date.now(),
       timeout: setTimeout(() => {
-        failConnectionValidation(ws, generation, nonce, "timeout")
+        failConnectionValidation(ws, generation, nonce)
       }, WS_CONNECTION_VALIDATION_TIMEOUT_MS),
     }
     connectionValidationRef.current = pending
     try {
       ws.send(JSON.stringify({ type: "connection.ping", nonce }))
     } catch {
-      failConnectionValidation(ws, generation, nonce, "failure")
+      failConnectionValidation(ws, generation, nonce)
     }
   }, [
     clearConnectionValidation,
@@ -600,17 +507,15 @@ export function useUserWs(
         pendingTokenRef.current = null
         tokenTimeoutRef.current = null
         reportTokenAttempt(tokenAttempt, "timeout")
-        trackCommunityWsAuthFailure({ failureClass: "timeout" })
+
         tokenController.abort()
         scheduleReconnect(generation)
       }, WS_TOKEN_TIMEOUT_MS)
       const retry = credentialRetryRef.current
       const refresh = Boolean(retry.rejectedSessionId) && !retry.refreshUsed
       if (refresh) retry.refreshUsed = true
-      let tokenResponseReceived = false
       try {
         const res = await runPageOperation(tokenAttempt.operation, () => fetch(refresh ? "/api/ws/token?refresh=1" : "/api/ws/token", { signal: tokenController.signal }))
-        tokenResponseReceived = true
         if (
           pendingTokenRef.current !== tokenAttempt
           || generation !== connectionGenerationRef.current
@@ -619,7 +524,7 @@ export function useUserWs(
         ) return
         if (!res.ok) {
           reportTokenAttempt(tokenAttempt, "failure")
-          trackCommunityWsAuthFailure({ failureClass: tokenFailureClass(res.status) })
+
           console.warn("[ws] token fetch failed:", res.status)
           if (viewerUserId !== undefined && (res.status === 401 || res.status === 403)) stopCredentialRetry()
           else scheduleReconnect(generation)
@@ -634,7 +539,7 @@ export function useUserWs(
         ) return
         if (viewerUserId !== undefined && body.userId !== viewerUserId) {
           reportTokenAttempt(tokenAttempt, "failure")
-          trackCommunityWsAuthFailure({ failureClass: "credentials" })
+
           stopCredentialRetry()
           return
         }
@@ -652,9 +557,7 @@ export function useUserWs(
         ) return
         if (tokenController.signal.aborted || tokenTimedOut) return
         reportTokenAttempt(tokenAttempt, "failure")
-        trackCommunityWsAuthFailure({
-          failureClass: tokenResponseReceived ? "unknown" : "network",
-        })
+
         console.warn("[ws] token fetch error:", err)
         scheduleReconnect(generation)
         return
@@ -676,35 +579,7 @@ export function useUserWs(
       : websocketUrl("user", { local: false, origin: location.origin })
     const url = `${wsBaseUrl}?userId=${userId}`
 
-    const socketStartedAt = Date.now()
-    let openedAt = 0
-    let openStageReported = false
-    let authStageReported = false
-    let authFailureReported = false
     let protocolRejected = false
-    const reportOpenStage = (result: CommunityWsLifecycleStageResult) => {
-      if (openStageReported) return
-      openStageReported = true
-      trackCommunityWsLifecycleStage({
-        stage: "open",
-        result,
-        durationMs: boundedDurationMs(socketStartedAt),
-      })
-    }
-    const reportAuthStage = (result: CommunityWsLifecycleStageResult) => {
-      if (authStageReported || openedAt === 0) return
-      authStageReported = true
-      trackCommunityWsLifecycleStage({
-        stage: "auth",
-        result,
-        durationMs: boundedDurationMs(openedAt),
-      })
-    }
-    const reportAuthFailure = (failureClass: CommunityWsAuthFailureClass) => {
-      if (authFailureReported) return
-      authFailureReported = true
-      trackCommunityWsAuthFailure({ failureClass })
-    }
 
     let communityContract: CommunityContract = COMMUNITY_CONTRACT_VERSION
     const requestedCommunityContract = requestedCommunityContractRef.current
@@ -714,14 +589,14 @@ export function useUserWs(
     let socketObservation: PageOperation | undefined
     try {
       if (generation !== connectionGenerationRef.current || isOffline() || !isCurrentWsAccount(viewerUserId)) return
-      retireSocket(true, "local-retire")
+      retireSocket(true)
       if (generation !== connectionGenerationRef.current || isOffline() || !isCurrentWsAccount(viewerUserId)) return
       socketObservation = startPageOperation("ws.connect", { phase: "transport" }, observationPage)
       ws = new WebSocket(url)
     } catch (err) {
       finishPageOperation(socketObservation, "error")
       if (generation !== connectionGenerationRef.current) return
-      reportOpenStage("failure")
+
       console.warn("[ws] WebSocket creation failed:", err)
       scheduleReconnect(generation)
       return
@@ -732,29 +607,21 @@ export function useUserWs(
     connectStartedAtRef.current = Date.now()
     connectTimeoutRef.current = setTimeout(() => {
       if (!ownsConnection(ws, generation)) return
-      if (openedAt === 0) {
-        reportOpenStage("timeout")
-      } else {
-        reportAuthStage("timeout")
-        reportAuthFailure("timeout")
-      }
-      recoverTimedOutConnection(ws, generation, "connect-timeout")
+      recoverTimedOutConnection(ws, generation)
     }, WS_CONNECTION_VALIDATION_TIMEOUT_MS)
 
     ws.onopen = () => {
       if (!ownsConnection(ws, generation)) return
       if (isOffline()) {
-        closeSocket(ws, "offline")
+        closeSocket(ws)
         return
       }
-      openedAt = Date.now()
-      reportOpenStage("success")
+
       try {
         ws.send(JSON.stringify({ type: "auth", token: authToken, communityContract: requestedCommunityContract }))
       } catch {
-        reportAuthStage("failure")
-        reportAuthFailure("network")
-        closeSocket(ws, "auth-failure")
+
+        closeSocket(ws)
       }
     }
 
@@ -798,7 +665,7 @@ export function useUserWs(
           && authenticatedGenerationRef.current === generation
         ) {
           const disconnectedAt = disconnectedAtRef.current
-          clearConnectionValidation("success")
+          clearConnectionValidation()
           publishConnectionPhase("authenticated")
           if (
             isOffline()
@@ -830,7 +697,7 @@ export function useUserWs(
           return
         }
         communityContract = confirmed
-        reportAuthStage("success")
+
         authenticatedGenerationRef.current = generation
         if (connectTimeoutRef.current !== null) {
           clearTimeout(connectTimeoutRef.current)
@@ -907,23 +774,7 @@ export function useUserWs(
     ws.onerror = () => {}
 
     ws.onclose = (event) => {
-      const initiator = reportSocketClose(ws, event)
-      const timeout = initiator === "connect-timeout"
-      const aborted = initiator === "freeze"
-        || initiator === "local-retire"
-        || initiator === "manual-retry"
-        || initiator === "offline"
-      if (!openStageReported) reportOpenStage(timeout ? "timeout" : aborted ? "aborted" : "failure")
-      if (openedAt !== 0 && !authStageReported) {
-        reportAuthStage(timeout ? "timeout" : aborted ? "aborted" : "failure")
-        if (initiator === "auth-failure") {
-          const code = normalizedCloseCode(event?.code)
-          reportAuthFailure(isWsCredentialRejection(event) && !protocolRejected ? "credentials" : code === 1008 ? "unknown" : "network")
-        } else if (initiator === "remote") {
-          const code = normalizedCloseCode(event?.code)
-          reportAuthFailure(isWsCredentialRejection(event) && !protocolRejected ? "credentials" : code === 1008 ? "unknown" : code === 1011 ? "server" : "network")
-        }
-      }
+      reportSocketClose(ws, event)
       if (!ownsConnection(ws, generation)) return
       const validation = connectionValidationRef.current
       const failedValidation = Boolean(
@@ -931,7 +782,7 @@ export function useUserWs(
         && validation.generation === generation
       )
       if (failedValidation) {
-        clearConnectionValidation("failure")
+        clearConnectionValidation()
       }
       const wasAuthenticated = authenticatedGenerationRef.current === generation
       wsRef.current = null
@@ -983,8 +834,7 @@ export function useUserWs(
 
   const suspendConnection = useCallback((retireAuthenticatedSocket: boolean) => {
     connectionValidationNeededRef.current = true
-    suspendedAtRef.current ??= Date.now()
-    clearConnectionValidation("aborted")
+    clearConnectionValidation()
     stopHeartbeat()
     publishConnectionPhase("suspended")
     if (reconnectTimerRef.current !== null) {
@@ -1001,7 +851,6 @@ export function useUserWs(
     abortPendingToken()
     retireSocket(
       retireAuthenticatedSocket,
-      retireAuthenticatedSocket ? "freeze" : "local-retire",
     )
   }, [abortPendingToken, clearConnectionValidation, publishConnectionPhase, retireSocket, stopHeartbeat])
 
@@ -1010,8 +859,7 @@ export function useUserWs(
     if (offlineCleanupAppliedRef.current) return
     offlineCleanupAppliedRef.current = true
     connectionValidationNeededRef.current = true
-    suspendedAtRef.current ??= Date.now()
-    clearConnectionValidation("aborted")
+    clearConnectionValidation()
     stopHeartbeat()
     if (reconnectTimerRef.current !== null) {
       clearTimeout(reconnectTimerRef.current)
@@ -1028,7 +876,7 @@ export function useUserWs(
       disconnectedAtRef.current ??= Date.now()
     } else {
       connectionGenerationRef.current += 1
-      retireSocket(true, "offline")
+      retireSocket(true)
     }
     const parked = retainAuthenticatedSocket || isBackground() || frozenRef.current
     publishConnectionPhase(parked ? "suspended" : "reconnecting")
@@ -1041,22 +889,6 @@ export function useUserWs(
     retireSocket,
     stopHeartbeat,
   ])
-
-  const trackLifecycleRecovery = useCallback((
-    trigger: CommunityWsLifecycleRecoveryTrigger,
-    strategy: CommunityWsLifecycleRecoveryStrategy,
-    readyState: CommunityWsSocketReadyState,
-    now: number,
-  ) => {
-    if (isBackground() || isOffline() || frozenRef.current) return
-    trackCommunityWsLifecycleRecovery({
-      trigger,
-      strategy,
-      socketReadyState: readyState,
-      suspensionDuration: suspensionDurationBucket(suspendedAtRef.current, now),
-    })
-    suspendedAtRef.current = null
-  }, [isBackground, isOffline])
 
   const requestForegroundRecovery = useCallback((
     trigger: CommunityWsLifecycleRecoveryTrigger,
@@ -1096,7 +928,7 @@ export function useUserWs(
       && Date.now() - connectStartedAtRef.current <= WS_CONNECTION_VALIDATION_TIMEOUT_MS
     if (authenticated && ws?.readyState === WebSocket.OPEN) {
       connectionValidationNeededRef.current = false
-      trackLifecycleRecovery(trigger, "validate", socketReadyState(ws), Date.now())
+
       validateCurrentConnection(ws, generation)
       return
     }
@@ -1107,10 +939,9 @@ export function useUserWs(
       clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
     }
-    const readyState = socketReadyState(ws)
-    retireSocket(true, "local-retire")
+    retireSocket(true)
     if (generation !== connectionGenerationRef.current || isOffline()) return
-    trackLifecycleRecovery(trigger, "replace", readyState, Date.now())
+
     void connectRef.current?.()
   }, [
     isBackground,
@@ -1119,7 +950,6 @@ export function useUserWs(
     publishConnectionPhase,
     retireSocket,
     suspendConnection,
-    trackLifecycleRecovery,
     validateCurrentConnection,
   ])
 
@@ -1152,14 +982,13 @@ export function useUserWs(
         clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null
       }
-      retireSocket(true, "local-retire")
+      retireSocket(true)
       if (sameOwner) void connectRef.current?.()
     })
   }, [abortPendingToken, retireSocket, viewerUserId])
 
   useEffect(() => {
     const mountedAt = Date.now()
-    if (isBackground() || isOffline()) suspendedAtRef.current = mountedAt
     lastSentinelTickAtRef.current = mountedAt
     void connect()
     const onVisibilityChange = () => {
@@ -1240,7 +1069,7 @@ export function useUserWs(
         sentinelIntervalRef.current = null
       }
       connectionGenerationRef.current += 1
-      clearConnectionValidation("aborted")
+      clearConnectionValidation()
       abortPendingToken()
       if (reconnectTimerRef.current !== null) {
         clearTimeout(reconnectTimerRef.current)
@@ -1248,7 +1077,7 @@ export function useUserWs(
       }
       if (connectTimeoutRef.current !== null) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null }
       stopHeartbeat()
-      retireSocket(false, "local-retire")
+      retireSocket(false)
     }
   }, [
     abortPendingToken,
@@ -1275,7 +1104,7 @@ export function useUserWs(
       rejectedSessionId: credentialRetryRef.current.rejectedSessionId,
       refreshUsed: false, stopped: false, refetchUsed: false,
     }
-    clearConnectionValidation("aborted")
+    clearConnectionValidation()
     if (reconnectTimerRef.current !== null) {
       clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
@@ -1291,7 +1120,7 @@ export function useUserWs(
       )
       return
     }
-    retireSocket(true, "manual-retry")
+    retireSocket(true)
     if (isBackground() || frozenRef.current) {
       connectionGenerationRef.current += 1
       publishConnectionPhase("suspended")

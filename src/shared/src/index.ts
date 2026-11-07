@@ -1,4 +1,4 @@
-// Types
+
 export * from "./automation";
 export type {
   User,
@@ -29,7 +29,6 @@ export type {
   WorkspaceFileResult,
 } from "./types";
 
-// API types
 export type {
   ApiResponse,
   ApiListResponse,
@@ -67,8 +66,6 @@ export type {
   CreateMachineTokenResponse,
 } from "./api-types";
 
-// Diagnostic report contract (neutral schemas/constants shared by HTTP, WS,
-// daemon, and the D1 query layer).
 export * from "./diagnostics-contract";
 export * from "./community-attention";
 export { compareAsciiSqliteBinary } from "./lib/sqlite-binary";
@@ -80,7 +77,6 @@ export {
   type UserWsConnectionPong,
 } from "./user-ws-validation";
 
-// Constants
 export {
   AgentStatus,
   RuntimeStatus,
@@ -209,7 +205,6 @@ export type {
   DevPortProfile,
 } from "./constants";
 
-// Schemas
 export {
   TaskStatusSchema,
   ClaimedTaskRowSchema,
@@ -422,10 +417,6 @@ export type {
   BotAuditEventAckFrame,
 } from "./schemas";
 
-// Community agent CLI bridge contract — lifted from `src/daemon/src/server/contract.ts`.
-// `Message`/`Channel` collide with unrelated `./types` exports above, so those two
-// (plus anything else that could collide) are re-exported under `CommunityCli*`
-// aliases; everything else with no existing collision keeps its bare name.
 export type {
   Id as CommunityCliId,
   UserId as CommunityCliUserId,
@@ -558,7 +549,7 @@ export type {
 } from "./community-message-delivery";
 export type { DispatchOneWakeResult } from "./community/wake-dispatch";
 export type { WakePayload, BuildUnreadWakeResult } from "./community/wake-dispatch";
-export { parseQueueTask, parseQueueTaskBatch } from "./community/queue-task";
+export { parseQueueTask, parseQueueTaskBatch, queueTaskIdentity } from "./community/queue-task";
 export type {
   AlookQueueTask,
   BotWakeQueueTaskV1,
@@ -585,7 +576,6 @@ export type {
   CommunityBotHostFrame,
 } from "./community-ws-events";
 
-// Community WS events
 export type {
   CommunityMessageCreate,
   CommunityMessageUpdated,
@@ -694,7 +684,6 @@ export {
   encodeCommunityBrowserEventBatchForContract,
 } from "./community-ws-bundle";
 
-// Database
 export { createDb } from "./db/index";
 export type { Database } from "./db/index";
 export { withD1Retry, readOrStale, isRetryableD1Error } from "./db/resilience";
@@ -729,15 +718,12 @@ export { BotCreationError, resolveBotCreationConfiguration, BotCreationProposalS
 export type { BotCreationProposal, BotCreationSubmit, BotCreationItem, BotCreationPayload } from "./community-bot-creation";
 export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerRail, communityServerFolder, communityServerFolderItem, communityBotActivityEvent, communityBotDailyActivity, communityPushDevice } from "./db/community-schema";
 
-// Logger
 export { Logger, createLogger } from "./logger"
 export type { LogLevel, LoggerOptions } from "./logger"
 
-// Lib
 export { isEmptyHtml } from "./lib/html";
 export { RATE_LIMITS } from "./lib/rate-limits";
 export type { RateLimitName, RateLimitPolicy, RateLimitResult } from "./lib/rate-limits";
-export { extractThreadId, buildEmailMapKey } from "./lib/context-key";
 export { parseIcs } from "./lib/ics-parser";
 export type { MeetingInfo } from "./lib/ics-parser";
 export { buildMimeMessage, extractAttachmentMeta, filterDownloadableAttachments } from "./lib/mime";
@@ -748,11 +734,7 @@ export type { CommunityNameValidation } from "./lib/community-name";
 export { parseInviteToken } from "./lib/invite-link";
 export { slugify } from "./lib/slugify";
 
-
-// Utils
 export { parseEmailHandle, toAlookAddress, isValidHandle, extractDomain, isSensitiveRecipient } from "./utils/email";
-export { parsePromptMentions } from "./utils/prompt-parser";
-export type { PromptAgent, PromptMention, ParseResult } from "./utils/prompt-parser";
 export { MENTION_TOKEN_RE, stripMentionTokens } from "./utils/mention-token";
 export { isValidToken, isValidEmail } from "./utils/validation";
 export { escapeLikePattern } from "./utils/sql-like";
@@ -836,7 +818,6 @@ export type { PlatformMachineRequest, PlatformBotRequest } from "./community-pla
 export * from "./pii-contract";
 
 export * from "./business-schema-version";
-export * from "./task-payload-cache";
 export * from "./community-cache";
 export * from "./community-presence";
 

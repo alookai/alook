@@ -27,7 +27,6 @@ export function hasStatus(emoji: string | null | undefined, text: string | null 
   return Boolean(emoji || text)
 }
 
-/** Does this emoji+text pair match one of the known presets exactly? Used to highlight the selected preset row in `StatusEditor`. */
 export function matchingPreset(
   emoji: string | null | undefined,
   text: string | null | undefined,

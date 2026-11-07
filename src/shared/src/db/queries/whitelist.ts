@@ -72,7 +72,6 @@ export async function isWhitelisted(db: Database, agentId: string, workspaceId: 
   return rows.length > 0;
 }
 
-/** Pre-fetch whitelist + workspace agent handles for O(1) batch lookups. */
 export async function buildWhitelistSet(
   db: Database, agentId: string, workspaceId: string
 ): Promise<{ check: (email: string) => boolean }> {

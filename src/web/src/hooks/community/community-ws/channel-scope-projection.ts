@@ -3,13 +3,12 @@ import { getCommunityRuntime } from "@/stores/community/runtime"
 import type { Query,QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 
-
 import { clearLastChannel } from "@/lib/community/last-channel"
 import { channelHref } from "@/lib/community/community-route"
 import type { PageCache } from "./cache"
 import { removeThreadFromCache } from "./cache"
-import type { ForumFeedPage } from "@/hooks/community/use-forum-feed"
-import { removeForumPostFromFeed } from "@/hooks/community/forum-feed-window"
+import type { ForumFeedPage } from "@/lib/community/forum-feed-window"
+import { removeForumPostFromFeed } from "@/lib/community/forum-feed-window"
 import type { InfiniteData } from "@tanstack/react-query"
 import type { CommunityWsProjectionTransaction } from "./projection-transaction"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -22,7 +21,6 @@ export type ForumPostUnitIdentity = {
   openerMessageId: string
 }
 
-/** Query-only post-unit eviction, shared by optimistic HTTP and WS success. */
 function evictForumPostUnitQueryCaches(
   queryClient: QueryClient,
   unit: ForumPostUnitIdentity,
@@ -48,7 +46,6 @@ function evictForumPostUnitQueryCaches(
   })
 }
 
-/** Canonical WS projection: evict one forum post and eject an active child. */
 export function projectForumPostUnitEviction(
   projection: CommunityWsProjectionTransaction,
   queryClient: QueryClient,

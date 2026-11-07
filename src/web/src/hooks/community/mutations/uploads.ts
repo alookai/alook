@@ -1,4 +1,5 @@
 "use client"
+import { buildAttachmentUploadFormData, type UploadTarget, type UploadFileArgs, type UploadFileResult } from "@/lib/community/attachment-upload"
 
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 
@@ -8,112 +9,9 @@ import { useCommunityMutationOrigin } from "../community-origin"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
-import { MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES } from "@alook/shared"
-
-import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
-
-/**
- * File upload mutations. These POST multipart to the channel/dm/thread upload
- * routes; the response includes a stable attachment id + metadata. Consumers
- * pass the returned attachment payload into `useSendMessage` /
- * `useSendDmMessage` so the message row references the freshly uploaded blob.
- */
-
-export type UploadTarget = {
-  channelId?: string
-  dmId?: string
-  threadId?: string
-}
-
-export type UploadFileArgs = {
-  receiptScope?: string
-  assertActive?: (() => void) & { signal: AbortSignal }
-  assertCommand?: () => void
-  target: UploadTarget
-  file: File
-  thumbnailBlob?: Blob
-  width?: number
-  height?: number
-}
-
-// Reserve-by-id (route/disc step 2b): the upload now creates a PENDING
-// attachment row and returns its stable `id` (mirroring the bot flow). The
-// composer holds the id in-memory and passes it to `send`; the server links it
-// via reserve. The old `url` field is gone — the display URL is id-addressed
-// and derived client-side (see `toAttachmentVm`). Image dimensions ride the
-// UPLOAD request (single source) and echo back here for the optimistic VM.
-export type UploadFileResult = {
-  id: string
-  filename: string
-  contentType: string
-  size: number
-  hasThumbnail?: boolean
-  width?: number
-  height?: number
-}
-
-export function appendGeneratedThumbnail(
-  formData: FormData,
-  originalContentType: string,
-  thumbnailBlob?: Blob,
-): boolean {
-  if (
-    !isInlineAttachmentContentType(originalContentType) ||
-    !thumbnailBlob
-  ) return false
-  if (thumbnailBlob.type !== "image/jpeg") {
-    throw new Error("Generated thumbnail must be image/jpeg")
-  }
-  if (thumbnailBlob.size > MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES) {
-    throw new Error(
-      `Generated thumbnail exceeds ${MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES / 1024} KiB`,
-    )
-  }
-  formData.append("thumbnail", thumbnailBlob, "thumbnail.jpg")
-  return true
-}
-
-export function buildAttachmentUploadFormData({
-  file,
-  thumbnailBlob,
-  width,
-  height,
-}: Pick<UploadFileArgs, "file" | "thumbnailBlob" | "width" | "height">): FormData {
-  const formData = new FormData()
-  formData.append("file", file)
-  appendGeneratedThumbnail(formData, file.type, thumbnailBlob)
-  if (width !== undefined) formData.append("width", String(width))
-  if (height !== undefined) formData.append("height", String(height))
-  return formData
-}
-
-/**
- * Zip each upload result back to its ORIGINAL INDEX in the input attachments
- * array (not by `File` identity — `Promise.all` already preserves input
- * order regardless of completion order, so a plain index is enough and can't
- * collide if two attachments happen to share a `File` reference) to pull
- * width/height in. Dimensions also ride the upload multipart so the pending
- * row can persist them; this zip keeps the optimistic result aligned with the
- * same original input index after the response resolves.
- *
- * The zip MUST happen before dropping failed (`null`) results, or indices
- * between `results` and `attachments` misalign once a failed upload is
- * filtered out.
- */
-export function zipUploadResultsWithDimensions(
-  results: (UploadFileResult | null)[],
-  attachments: { file: File; width?: number; height?: number }[],
-): UploadFileResult[] {
-  const zipped: (UploadFileResult | null)[] = results.map((r, i) =>
-    r ? { ...r, width: attachments[i].width, height: attachments[i].height } : null,
-  )
-  return zipped.filter((x): x is UploadFileResult => x !== null)
-}
 
 function uploadPath(target: UploadTarget): string | null {
-  // Thread / DM / channel are all channel rows in one id-space → one upload
-  // door. Whichever id the target carries, it's a channelId to channels/{id}.
-  // Canonical attachments door (route/disc trunk): POST channels/{id}/attachments
+
   const id = target.threadId ?? target.dmId ?? target.channelId
   return id ? `/api/community/channels/${id}/attachments` : null
 }

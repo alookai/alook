@@ -167,6 +167,7 @@ const RAW_EMAIL_2 = "From: bob@example.com\r\nSubject: Hey\r\nMessage-ID: <msg2>
 beforeEach(() => {
   nanoidCounter = 0
   vi.clearAllMocks()
+  mockConnect.mockResolvedValue(undefined)
   mockGetEmailAccount.mockResolvedValue({ ...ACCOUNT })
   mockUpdateEmailAccount.mockResolvedValue(undefined)
   mockIsWhitelisted.mockReturnValue(true)

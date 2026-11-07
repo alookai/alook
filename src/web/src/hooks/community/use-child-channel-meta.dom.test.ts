@@ -1,6 +1,6 @@
 import { channelResourceFixture } from "@/test/community-resource-fixtures"
 import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
-import { channelMetadataOptions } from "./channel-metadata"
+import { channelMetadataOptions } from "@/lib/community/channel-metadata"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { createCommunityDbRegistry } from "@/lib/community-db/collections"

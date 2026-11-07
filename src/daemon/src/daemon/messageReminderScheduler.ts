@@ -33,7 +33,6 @@ function reminderPrompt(channel: string, sentRef: string, startedAt: number): st
   return `Reminder: At ${localISOString(new Date(startedAt))}, after sending ${sentRef} in ${channel}, you asked to be reminded if no newer message arrived. No newer message has arrived in that conversation.`;
 }
 
-/** Daemon-lifetime, in-memory scheduler for opt-in message follow-up reminders. */
 export class MessageReminderScheduler {
   private readonly reminders = new Map<string, ReminderRecord>();
   private readonly latestObservedSeq = new Map<string, number>();

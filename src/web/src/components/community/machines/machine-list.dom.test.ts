@@ -91,9 +91,10 @@ vi.mock("./guide-me-avatar-motion", () => ({
   },
 }))
 vi.mock("./machine-card", () => ({
-  MachineCard: ({ machine, onStop, stopping, onRefresh, refreshing }: { machine: { id: string; status: string }; onStop?: () => void; stopping?: boolean; onRefresh?: () => void; refreshing?: boolean }) => React.createElement("div", { "data-testid": `machine-row-${machine.id}`, "data-status": machine.status },
+  MachineCard: ({ machine, onStop, stopping, onRefresh, refreshing, onUpdate }: { machine: { id: string; status: string }; onStop?: () => void; stopping?: boolean; onRefresh?: () => void; refreshing?: boolean; onUpdate?: () => void }) => React.createElement("div", { "data-testid": `machine-row-${machine.id}`, "data-status": machine.status },
     onStop ? React.createElement("button", { onClick: onStop, disabled: stopping || refreshing }, "Stop") : null,
-    onRefresh ? React.createElement("button", { onClick: onRefresh, disabled: stopping || refreshing }, "Refresh") : null),
+    onRefresh ? React.createElement("button", { onClick: onRefresh, disabled: stopping || refreshing }, "Refresh") : null,
+    onUpdate ? React.createElement("button", { onClick: onUpdate }, "Update") : null),
   MachineCardFrame: ({ children }: React.PropsWithChildren) =>
     React.createElement("machine-card-frame", {}, children),
 }))
@@ -133,7 +134,6 @@ import {
   MachineList,
   MachineListSkeleton,
   MachineUpdateDialog,
-  requestMachineUpdate,
 } from "./machine-list"
 
 function machine(overrides: Partial<CommunityMachineSummary> = {}): CommunityMachineSummary {
@@ -496,9 +496,7 @@ describe("machine daemon update UI", () => {
   it("cancels without dispatch and confirms exactly once", async () => {
     const onOpenChange = vi.fn()
     mocks.apiFetch.mockResolvedValue({ dispatched: true })
-    const onConfirm = vi.fn((target: CommunityMachineSummary) =>
-      requestMachineUpdate(target.id),
-    )
+    const onConfirm = vi.fn()
     const target = machine()
     const renderer = render(React.createElement(MachineUpdateDialog, {
       machine: target,
@@ -516,30 +514,38 @@ describe("machine daemon update UI", () => {
     fireEvent.click(confirm)
     await waitFor(() => expect(onConfirm).toHaveBeenCalledOnce())
     expect(onConfirm).toHaveBeenCalledWith(target)
-    expect(mocks.apiFetch).toHaveBeenCalledOnce()
+    expect(mocks.apiFetch).not.toHaveBeenCalled()
   })
 
-  it("reports successful dispatch as requested, not completed", async () => {
-    mocks.apiFetch.mockResolvedValue({ dispatched: true })
-
-    await expect(requestMachineUpdate("machine-1")).resolves.toBe(true)
-
-    expect(mocks.apiFetch).toHaveBeenCalledWith(
-      "/api/community/machines/machine-1/update",
-      { method: "POST" },
-    )
-    expect(mocks.toastSuccess).toHaveBeenCalledOnce()
-    const successMessage = String(mocks.toastSuccess.mock.calls[0]?.[0]).toLowerCase()
-    expect(successMessage).not.toContain("completed")
-    expect(successMessage).not.toContain("completion")
-  })
-
-  it("preserves the API error message", async () => {
-    mocks.apiFetch.mockRejectedValue(new Error("Machine is offline"))
-
-    await expect(requestMachineUpdate("machine-1")).resolves.toBe(false)
-
-    expect(mocks.toastError).toHaveBeenCalledWith("Machine is offline")
+  it.each(["success", "error", "retired"] as const)("runs the real update command with a %s receipt", async (outcome) => {
+    mocks.apiFetch.mockReset()
+    mocks.toastSuccess.mockReset()
+    mocks.toastError.mockReset()
+    mocks.machines.current = [machine()]
+    mocks.machinesLoading.current = false
+    mocks.machinesError.current = false
+    mocks.capacityPending.current = false
+    mocks.fetchLatestDaemonVersion.mockResolvedValue({ version: "0.1.8", package: "@alook/daemon" })
+    let finish!: (value: unknown) => void
+    let fail!: (error: Error) => void
+    mocks.apiFetch.mockReturnValue(new Promise((resolve, reject) => { finish = resolve; fail = reject }))
+    const view = render(React.createElement(MachineList))
+    fireEvent.click(await view.findByRole("button", { name: "Update", exact: true }))
+    fireEvent.click(view.getByTestId(tid.machineUpdateConfirm))
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledOnce())
+    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/community/machines/machine-1/update", expect.objectContaining({ method: "POST" }))
     expect(mocks.toastSuccess).not.toHaveBeenCalled()
+    if (outcome === "retired") view.unmount()
+    await act(async () => { if (outcome === "error") fail(new Error("Machine is offline")); else finish({ dispatched: true }) })
+    if (outcome === "success") {
+      await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledExactlyOnceWith("Update requested — the machine will restart and reconnect"))
+      expect(mocks.toastError).not.toHaveBeenCalled()
+    } else if (outcome === "error") {
+      await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("Machine is offline"))
+      expect(mocks.toastSuccess).not.toHaveBeenCalled()
+    } else {
+      expect(mocks.toastSuccess).not.toHaveBeenCalled()
+      expect(mocks.toastError).not.toHaveBeenCalled()
+    }
   })
 })

@@ -49,7 +49,6 @@ export interface InboxBucketSnapshot {
   flags: InboxFlag[];
 }
 
-/** Bucket all pending messages by target and project each into a summary. */
 export function projectAgentInboxSnapshot(messages: InboxMessage[]): InboxBucketSnapshot[] {
   const buckets = new Map<string, InboxMessage[]>();
   for (const message of messages) {
@@ -94,7 +93,6 @@ function compareInboxMessages(a: InboxMessage, b: InboxMessage): number {
   return (messageSeq(a) ?? 0) - (messageSeq(b) ?? 0) || (messageId(a) ?? "").localeCompare(messageId(b) ?? "");
 }
 
-/** Build the canonical target string for a message (channel / dm / thread). */
 export function formatInboxMessageTarget(message: InboxMessage): string | null {
   if (message.channel_type === "thread" && message.parent_channel_name && message.channel_name) {
     const raw = String(message.channel_name);

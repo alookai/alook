@@ -1,4 +1,5 @@
 "use client"
+import type { BotRuntimeOption } from "@/lib/community/machines"
 
 import type { ComponentProps } from "react"
 import { useRuntimeModels } from "@/hooks/community/use-runtime-models"
@@ -11,13 +12,8 @@ import { runtimeLabel } from "@/lib/community/runtime-label"
 import { ModelField } from "./model-field"
 import { ReasoningEffortField } from "./reasoning-effort-field"
 import type {
-  CommunityMachineRuntime,
   ReasoningEffort,
 } from "@alook/shared"
-
-export type BotRuntimeOption = Pick<CommunityMachineRuntime, "id" | "reasoning"> & {
-  unhealthy: boolean
-}
 
 const ignoreReasoningEffortChange = () => {}
 

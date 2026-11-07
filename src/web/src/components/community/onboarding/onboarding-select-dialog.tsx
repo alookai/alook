@@ -1,10 +1,5 @@
 "use client"
 
-/* Hallmark · component: onboarding selection dialog · genre: modern-minimal · theme: Alook locked system
- * states: default · hover · focus · active · disabled · loading · error · success
- * contrast: pass (46–50)
- */
-
 import { useId, type SubmitEvent } from "react"
 import {
   CheckIcon,
@@ -95,7 +90,6 @@ export type OnboardingSelectDialogProps = {
 function optionId(baseId: string, value: string) {
   return `${baseId}-${value.replace(/[^a-zA-Z0-9_-]/g, "-")}`
 }
-
 
 export function OnboardingSelectDialog({
   open,

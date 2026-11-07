@@ -192,7 +192,7 @@ export async function buildDiagnosticBundle(args: {
       destination,
     );
   } catch (error) {
-    if (created) { try { unlinkSync(args.outputPath); } catch { /* best effort */ } }
+    if (created) { try { unlinkSync(args.outputPath); } catch {  } }
     throw error;
   }
   return {

@@ -79,7 +79,6 @@ function Panel({ label, className, children }: { label: string; className?: stri
   )
 }
 
-/** Reuses the real community Avatar; only the "working" ring is board-specific. */
 function Person({ initial, bot, working, online }: { initial: string; bot?: boolean; working?: boolean; online?: boolean }) {
   return (
     <span className={s.person2} data-working={working || undefined} data-bot={bot || undefined}>
@@ -142,7 +141,6 @@ function AvatarStudio() {
   )
 }
 
-
 const AGENTS = [["claude", "Claude Code", "✳"], ["codex", "Codex", "◎"], ["cursor", "Cursor", "▲"], ["opencode", "OpenCode", "□"]] as const
 
 function Sticker({ children, tone = "outline", tilt = -3, style }: { children: ReactNode; tone?: "default" | "secondary" | "outline"; tilt?: number; style?: CSSProperties }) {
@@ -158,7 +156,7 @@ function useBoardWriteGuard() {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
       const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase()
       if (method !== "GET" && method !== "HEAD" && /\/api\//.test(url)) {
-        // Fail like an offline request, which every specimen already handles.
+
         return Promise.reject(new TypeError("Failed to fetch (writes are disabled on /brand-visual)"))
       }
       return original(input, init)

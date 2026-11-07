@@ -63,8 +63,6 @@ export async function listTagsForMessage(
   return rows.map((r) => r.tag);
 }
 
-// Batch variant for a post-list render (avoid N+1) — one row per
-// (messageId, tag) pair; caller groups by messageId.
 export async function listTagsForMessages(
   db: Database,
   messageIds: string[]

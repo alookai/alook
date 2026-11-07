@@ -69,8 +69,6 @@ function DmNotifDropdown({ level, onSetLevel }: { level: NotifLevel; onSetLevel?
   )
 }
 
-// Loading placeholder for <DmHeader> — same h-12 footprint so the body below
-// stays anchored across the route change.
 export function DmHeaderSkeleton({ onBack, onRetryIdentity, retryingIdentity, titleState = "pending" }: { onBack?: () => void; onRetryIdentity?: () => void; retryingIdentity?: boolean; titleState?: Exclude<MessageHeaderTitleState, "ready"> }) {
   return (
     <MessageHeader

@@ -26,10 +26,6 @@ import { scheduleHeartbeatAlarm } from "./machine-lifecycle"
 import { broadcastToAudience, notifyUserDO } from "./presence-typing"
 import { prepareQuotaReplace } from "./provider-telemetry-persistence"
 
-/**
- * Order-normalized runtime JSON includes status and lastError, so a health
- * transition is observable even when id and version remain unchanged.
- */
 function canonicalRuntimes(list: CommunityMachineRuntime[]): string {
   const sorted = [...list].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   return JSON.stringify(
@@ -181,8 +177,7 @@ export async function handleReadyFrame(
     )
 
     const summary = await summaryWithOverlay(context, machine)
-    // Accept writes the handle first; ready refreshes it idempotently in case
-    // the machine metadata or row identity changed during reconciliation.
+
     await context.ctx.storage.put<CommunityMachineHandle>(HANDLE_KEY, {
       userId: identity.userId,
       machineId: machine.id,
@@ -226,7 +221,6 @@ export async function clearRuntimeErrorOverlay(context: WsDurableContext): Promi
   await fanOutMachineUpdated(context, identity.userId, identity.machineId).catch(() => { })
 }
 
-/** Compose a fresh D1 summary with the current DO-local overlay and notify its owner. */
 export async function fanOutMachineUpdated(
   context: WsDurableContext,
   userId: string,

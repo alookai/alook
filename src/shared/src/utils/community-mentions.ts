@@ -25,13 +25,7 @@ export interface MentionCandidate {
   discriminator?: string;
 }
 
-/**
- * The roster-wide mention triggers. `@here` (notify-online) was removed
- * entirely — `@everyone` is the sole broadcast trigger now. Kept as an array
- * (not a bare literal) because `VIRTUAL_ITEMS` and `detectMentionType`
- * (mention-extension.ts) derive from it, and `MentionType` stays a named type
- * used across the send path.
- */
+// @everyone is the only broadcast trigger; @here is literal text.
 export const MENTION_TYPES = ["everyone"] as const;
 export type MentionType = (typeof MENTION_TYPES)[number];
 
@@ -68,12 +62,6 @@ export function extractMentionedUserIds(
 ): string[] {
   if (!content) return [];
 
-  // Only exact `@Name#0042` handles resolve — the bare-name fallback was
-  // removed so the send side agrees with the display parser: a hand-typed bare
-  // `@Alice` is NOT a mention on either surface. Handles are tried longest-first
-  // and built from ALL candidates (a handle is already unambiguous per user;
-  // two same-name "Alex"es both keep their distinct handle). A candidate with
-  // no discriminator can't be mentioned and is dropped here.
   const handled = candidates
     .filter((c): c is MentionCandidate & { discriminator: string } => !!c.name && !!c.discriminator)
     .map((c) => ({ candidate: c, handle: formatHandle(c.name, c.discriminator).toLowerCase() }))
@@ -88,7 +76,7 @@ export function extractMentionedUserIds(
   while (i < content.length) {
     const at = content.indexOf("@", i);
     if (at === -1) break;
-    // The character before "@" must be a boundary (or start of string).
+
     if (!isMentionStartBoundary(content.slice(0, at)) || isEscapedStart(content, at)) {
       i = at + 1;
       continue;

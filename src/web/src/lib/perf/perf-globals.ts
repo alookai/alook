@@ -61,11 +61,6 @@ declare global {
 /** Max events retained; oldest are dropped so a long session can't OOM the tab. */
 export const PERF_RING_MAX = 5000
 
-/**
- * Push an event onto the ring buffer, allocating it on first use and clamping
- * to `PERF_RING_MAX` (drop-oldest). Kept pure/DOM-free so it unit-tests against
- * a plain object standing in for `window`.
- */
 export function pushPerfEvent(
   target: { __ALOOK_PERF__?: PerfEventRecord[] },
   record: PerfEventRecord,

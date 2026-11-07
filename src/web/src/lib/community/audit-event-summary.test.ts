@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { summarizeAuditEvent } from "./audit-event-summary"
-import type { AuditKind } from "@/hooks/community/use-bot-audit-log"
+import type { AuditKind } from "@/lib/community/models/audit"
 
 describe("summarizeAuditEvent", () => {
   it("has bounded copy for every audit kind", () => {

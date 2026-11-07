@@ -1,7 +1,6 @@
 "use client"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
-
 import {
   useQuery,
   useQueryClient,
@@ -14,7 +13,7 @@ import {
   communityUserProfilePatch,
 } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
-import { parseCommunityDmsRead, type CommunityDmsRead } from "@alook/shared"
+import { parseCommunityDmsRead } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import type { DM } from "@/lib/community/models/people"
 import { useMemo } from "react"
@@ -30,17 +29,6 @@ import {
 } from "@/lib/community-db/sync"
 import { sortDmsByActivity } from "@/lib/community/dm-order"
 
-/**
- * Fetches the DM conversation sidebar list.
- *
- * The `Presence` field in each DM is a placeholder "offline" — the actual
- * live badge is layered on later from the WS presence store in the consumer.
- * The WS handler invalidates this key on `community:message.create` events
- * (a DM is a channel now) so previews and unread flags stay live.
- */
-export type DmsResponse = CommunityDmsRead
-
-// Frozen empty fallback — see `use-servers.ts` for the rationale.
 const EMPTY_DMS: readonly DM[] = Object.freeze([])
 
 const loadDms = (context: QueryFunctionContext, token: ReturnType<typeof captureCommunityLiveSnapshotToken>) => {
@@ -87,10 +75,7 @@ export function useDms(enabled = true, subscribed = enabled): UseQueryResult<{ i
     queryFn,
     enabled,
     subscribed,
-    // Inbox navigation projects the destination into this canonical cache
-    // before routing. Reusing that projection across /c/me layout mounts keeps
-    // the transition request-neutral; WS and reconnect invalidations still
-    // refetch this active key explicitly.
+    // Reuse recent projected DMs across layout mounts; WS/reconnect invalidate explicitly.
     staleTime: 30_000,
   })
   const profilesByUserId = useCanonicalProfilesByUserId()

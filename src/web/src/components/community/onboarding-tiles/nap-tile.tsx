@@ -33,7 +33,7 @@ export function NapTile({ idPrefix = "ot-nap" }: { idPrefix?: string }) {
         ringEl.setAttribute("stroke-dashoffset", (C * (1 - ctx.v / 100)).toFixed(1))
       }
       const tl = gsap.timeline({ repeat: -1, defaults: { ease: OT_EASE } })
-      // FILL: ring fills 0→100%, % ticks up, breathe slows
+
       tl.to(ctx, {
         v: 100,
         duration: 3.2,
@@ -44,14 +44,14 @@ export function NapTile({ idPrefix = "ot-nap" }: { idPrefix?: string }) {
         },
       })
         .to({}, { duration: 0.5 })
-        // SLEEP: agent dims, dot offline, moon + zzz rise
+
         .to(".ot-agent", { opacity: 0.32, duration: 0.5 })
         .to(".ot-sleep", { opacity: 0.9, y: -6, duration: 0.9, ease: "power1.out" }, "<0.1")
       goOffline(tl, ".ot-dot", 112, 71, "<")
-      // CLEAR: while asleep the ring empties back to 0% (fresh)
+
       tl.to(ctx, { v: 0, duration: 0.7, ease: "power2.inOut", onUpdate: sync }, "<0.1")
         .to(".ot-sleep", { opacity: 0, duration: 0.4 })
-        // WAKE: clean context, agent brightens, breathe back to normal speed
+
         .to(".ot-agent", { opacity: 1, duration: 0.5, onStart: () => br.timeScale(1) }, "+=0.3")
       comeOnline(tl, ".ot-dot", 112, 71, "<")
       tl.to({}, { duration: 1.0 })

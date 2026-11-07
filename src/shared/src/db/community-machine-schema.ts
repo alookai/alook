@@ -5,23 +5,9 @@ import { user } from "./schema";
 import type { CommunityMachineRuntime } from "../schemas";
 import type { QuotaLimit } from "../provider-telemetry";
 
-export const DIAGNOSTIC_REPORT_FAILURE_CODES = [
-  "offline",
-  "timeout",
-  "upload_conflict",
-  "invalid_upload",
-  "diagnostics_unavailable",
-  "collector_busy",
-  "bot_not_bound",
-  "collection_failed",
-  "local_artifact_invalid",
-  "bundle_too_large",
-  "upload_failed",
-  "internal_error",
-] as const;
+import type { DiagnosticReportFailureCode } from "../diagnostics-contract";
 
-export type DiagnosticReportFailureCode =
-  (typeof DIAGNOSTIC_REPORT_FAILURE_CODES)[number];
+export { DIAGNOSTIC_REPORT_FAILURE_CODES, type DiagnosticReportFailureCode } from "../diagnostics-contract";
 
 export type DiagnosticReportStatus = "pending" | "uploaded" | "failed";
 

@@ -14,11 +14,6 @@ import { nanoid } from "nanoid";
 import type { ServerRailEntry } from "../community-server-rail";
 import { user } from "./schema";
 
-// ---------------------------------------------------------------------------
-// Community tables — servers, channels, messages, DMs
-// ---------------------------------------------------------------------------
-
-// 1. community_server
 export const communityServer = sqliteTable(
   "community_server",
   {
@@ -49,7 +44,6 @@ export const communityServer = sqliteTable(
   ]
 );
 
-// 2. community_category
 export const communityCategory = sqliteTable(
   "community_category",
   {
@@ -142,7 +136,6 @@ export const communityChannelMember = sqliteTable(
   ]
 );
 
-// 5. community_message
 export const communityMessage = sqliteTable(
   "community_message",
   {
@@ -207,7 +200,6 @@ export const communityMessageSeq = sqliteTable("community_message_seq", {
   nextSeq: integer("next_seq").notNull(),
 });
 
-// 7. community_server_member
 export const communityServerMember = sqliteTable(
   "community_server_member",
   {
@@ -224,7 +216,7 @@ export const communityServerMember = sqliteTable(
   (t) => [
     unique("uq_server_member_server_user").on(t.serverId, t.userId),
     index("idx_server_member_user").on(t.userId),
-    // Serves listMembersPaginated's WHERE server_id ORDER BY (joined_at, id).
+
     index("idx_server_member_server_joined").on(t.serverId, t.joinedAt),
   ]
 );
@@ -234,7 +226,6 @@ export const communityServerRail = sqliteTable("community_server_rail", {
   entries: text("entries", { mode: "json" }).$type<ServerRailEntry[]>().notNull(),
 });
 
-// 8. community_server_folder
 export const communityServerFolder = sqliteTable(
   "community_server_folder",
   {
@@ -247,7 +238,6 @@ export const communityServerFolder = sqliteTable(
   (t) => [index("idx_server_folder_user").on(t.userId)]
 );
 
-// 9. community_server_folder_item
 export const communityServerFolderItem = sqliteTable(
   "community_server_folder_item",
   {
@@ -265,7 +255,6 @@ export const communityServerFolderItem = sqliteTable(
   ]
 );
 
-// 10. community_server_invite
 export const communityServerInvite = sqliteTable(
   "community_server_invite",
   {
@@ -283,7 +272,7 @@ export const communityServerInvite = sqliteTable(
     expiresAt: text("expires_at"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
-  // listServerInvites filters WHERE server_id — without this it full-scans.
+
   (t) => [index("idx_server_invite_server").on(t.serverId)]
 );
 
@@ -323,30 +312,9 @@ export const communityFriendship = sqliteTable(
   ]
 );
 
-// 12. community_read_state
-//
-// INVARIANT: every row here satisfies
-//   lastReadMessageId IS NOT NULL
-//   AND lastReadAt === getMessage(lastReadMessageId).createdAt
-//
-// `lastReadAt` is a denormalized cache of the target message's own
-// `createdAt` — it exists only so the inbox unread predicate
-// (`channel.lastMessageAt > lastReadAt`) stays a single-column comparison.
-// It is NEVER the semantic source of truth on its own.
-//
-// Consequences for writers:
-// - If a channel/DM has no messages yet, there is NO row — mass mark-read is
-//   a no-op. Never insert `{ lastReadAt: now, lastReadMessageId: null }`. If
-//   a future path genuinely needs to erase the pointer, delete the row.
-// - Route every write through `markReadToMessageBuilder` /
-//   `markReadToMessage` in `queries/community/read-state.ts`. Both take a
-//   `message: { id, createdAt }` and enforce alignment by construction. To
-//   mark "as of now", fetch the latest message first with
-//   `queries.communityMessage.getLatestMessage`; empty → no-op.
-//
-// Unique (user_id, channel_id) — a plain unique now that channelId is the only
-// scope (was two per-scope partial uniques). The unique index lives in the
-// migration SQL.
+// A read-state row points to one actual message: id, createdAt and seq align.
+// Empty scopes have no row. Erase a pointer by deleting its row, never a now/null pair.
+// (userId, channelId) is unique; the unique index is enforced by migration SQL.
 export const communityReadState = sqliteTable(
   "community_read_state",
   {
@@ -359,20 +327,8 @@ export const communityReadState = sqliteTable(
       .references(() => communityChannel.id, {
         onDelete: "cascade",
       }),
-    // INVARIANT: === getMessage(lastReadMessageId).createdAt (see table comment).
     lastReadAt: text("last_read_at").notNull(),
-    // INVARIANT: non-null whenever the row exists. Route writes through
-    // `markReadToMessageBuilder` — never null out.
     lastReadMessageId: text("last_read_message_id"),
-    // Shared per-user cursor for humans AND bots (bots ARE users invariant) —
-    // and now the SINGLE unread ruler for both (ref/id read-model seq
-    // unification): the inbox unread predicate is `EXISTS(message.seq >
-    // lastReadSeq)`, the same seq compare the agent inbox uses. Maintained by
-    // EVERY read-state writer: `createMessage`'s author watermark, `bumpReadCursor`
-    // (agent ack), AND the human read routes
-    // (`markReadToMessageBuilder`/`markReadToMessage`/`markAllServerChannelsRead`)
-    // — the earlier "humans don't maintain it" gap is closed, or a human's read
-    // would never register under the seq predicate.
     lastReadSeq: integer("last_read_seq").notNull().default(0),
   },
   (t) => [index("idx_read_state_user").on(t.userId)]
@@ -385,7 +341,6 @@ export const communityReadStateRevision = sqliteTable("community_read_state_revi
   revision: integer("revision").notNull().default(0),
 });
 
-// 13. community_reaction
 export const communityReaction = sqliteTable(
   "community_reaction",
   {
@@ -440,7 +395,6 @@ export const communityMessageAttachment = sqliteTable(
   ]
 );
 
-// 15. community_pin
 export const communityPin = sqliteTable(
   "community_pin",
   {
@@ -560,7 +514,6 @@ export const communityPushDevice = sqliteTable(
   ],
 );
 
-// 19. community_bot_approval_request
 export const communityBotApprovalRequest = sqliteTable(
   "community_bot_approval_request",
   {
@@ -585,12 +538,7 @@ export const communityBotApprovalRequest = sqliteTable(
   (t) => [index("idx_community_bot_approval_bot").on(t.botId, t.status)]
 );
 
-// 21. community_bot_activity_event
-// Per-bot audit trail. Rows are one of three kinds — cli_invocation, tool_call,
-// thinking — recorded from the daemon (via the WS control channel) and stamped
-// with `createdAt` server-side by ws-do. `payload` is JSON whose shape depends
-// on `kind` (see AuditLogPayloadSchema in ../schemas.ts). Retention is a rolling
-// last 500 rows per bot, pruned at write time in ws-do.
+// Retain the last 500 audit events per bot.
 export const communityBotActivityEvent = sqliteTable(
   "community_bot_activity_event",
   {
@@ -688,16 +636,7 @@ export const communityMessageMark = sqliteTable(
   ]
 );
 
-// 24. community_message_tag
-// Post tags (phase2 forum≡thread, Gener #768 — locked shape). A post is now
-// just a message (its opener) that opened a thread — tags describe the
-// CONTENT of that message, not the channel/thread it lives in (a thread can
-// be opened by any message, so a channel/thread-level column would leak a
-// tagging capability onto every thread, not just posts — this field's mere
-// presence on a message row IS the "is this a tagged post" signal, no extra
-// branch needed). Supersedes the old `communityChannel.forumTags` (JSON)
-// column, backfilled here by migration 0082 and dropped by 0083 once that
-// backfill was verified zero-loss.
+// Post tags belong to the opener message, not its channel or thread.
 export const communityMessageTag = sqliteTable(
   "community_message_tag",
   {

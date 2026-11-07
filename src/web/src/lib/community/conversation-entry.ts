@@ -1,6 +1,6 @@
 import { completeCommunityPublication } from "@/lib/community-db/sync"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
-import { reconcileConversationLanding } from "@/hooks/community/community-ws/reconnect-messages"
+import { reconcileConversationLanding } from "@/lib/community/message-reconcile"
 import { channelHref } from "./community-route"
 import { actionAttributes, currentPageObservation, navigationForHref } from "@/lib/observability/context"
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
@@ -23,7 +23,7 @@ import {
 import { messageWindowPage, type MessagesPageParam } from "./models/message"
 import { messageWindowIdentity, type InitialMessageWindow, type MessageWindowData } from "./message-window"
 import { isConversationAnchorMissingError, retryConversationRead, withConversationReadDeadline } from "./conversation-read"
-import { forumFeedWindow, normalizeThreadResources, type ForumFeedPage } from "@/hooks/community/forum-feed-window"
+import { forumFeedWindow, normalizeThreadResources, type ForumFeedPage } from "@/lib/community/forum-feed-window"
 
 export type ConversationEntryTarget = {
   channelId: string

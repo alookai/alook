@@ -5,18 +5,6 @@ import { codes } from "micromark-util-symbol"
 import type { Construct, Effects, Event, Extension, State, Token, TokenizeContext } from "micromark-util-types"
 import type { CompileContext, Extension as FromMarkdownExtension, Handle as FromMarkdownHandle } from "mdast-util-from-markdown"
 
-// Discord-style `||spoiler||` — a micromark inline tokenizer extension +
-// mdast-util-from-markdown extension, structurally mirroring
-// micromark-extension-gfm-strikethrough/mdast-util-gfm-strikethrough (`~~text~~`)
-// with `|` (code 124) in place of `~` (code 126). Recognizing the `||`
-// boundary during TOKENIZATION (the same phase that recognizes `**`/`*`/`` ` ``)
-// — rather than as a text-node find-and-replace pass after parsing — is what
-// lets `||I think **this** is neat||` correctly produce a `spoiler` node
-// containing a nested `strong` node. A text-node find-and-replace can't do
-// this: remark-parse would already have split that input into 3 sibling
-// nodes (text, strong, text) before any post-processing plugin runs, so the
-// two `|` markers never co-occur in one text node to match against.
-
 declare module "micromark-util-types" {
   interface TokenTypeMap {
     spoilerSequence: "spoilerSequence"
@@ -35,13 +23,11 @@ declare module "mdast" {
   }
 }
 
-/** mdast node produced by `||...||` — a phrasing-content parent, like `emphasis`/`strong`. */
 export interface SpoilerNode {
   type: "spoiler"
   children: import("mdast").PhrasingContent[]
 }
 
-/** Micromark extension enabling `||...||` spoiler syntax during tokenization. */
 export function spoilerSyntax(): Extension {
   const tokenizer: Construct = {
     name: "spoiler",
@@ -152,7 +138,6 @@ export function spoilerSyntax(): Extension {
   }
 }
 
-/** mdast-util-from-markdown extension: turns the `spoiler` token into a `spoiler` mdast node. */
 export function spoilerFromMarkdown(): FromMarkdownExtension {
   return {
     canContainEols: ["spoiler"],

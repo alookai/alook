@@ -153,6 +153,14 @@ describe("queue-worker development HTTP entrypoint", () => {
     expect(mockExecuteQueueTask).toHaveBeenCalledTimes(3)
   })
 
+  it("keeps separate installation deliveries while deduplicating repeated installation tasks", async () => {
+    const first = { ...mobilePush, installationId: "first-installation" }
+    const second = { ...mobilePush, installationId: "second-installation" }
+    const response = await handler.fetch!(request("POST", [first, second, first]), env)
+    expect(response.status).toBe(202)
+    expect(mockExecuteQueueTask.mock.calls.map((call) => call[2])).toEqual([first, second])
+  })
+
   it.each([
     ["non-array", legacyWake],
     ["unversioned item", [botWake, legacyWake]],

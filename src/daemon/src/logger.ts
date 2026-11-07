@@ -30,21 +30,21 @@ export interface Logger {
   info(message: string, ...data: unknown[]): void;
   warn(message: string, ...data: unknown[]): void;
   error(message: string, ...data: unknown[]): void;
-  /** Derive a logger with a sub-tagged header (e.g. `@alook/daemon:daemon`). */
+
   child(tag: string): Logger;
 }
 
 export interface LoggerOptions {
-  /** Line header. Defaults to `@alook/daemon`. */
+
   header?: string;
-  /** Minimum level emitted. Defaults to `info`. */
+
   level?: LogLevel;
   /** Injectable clock (ISO string). Defaults to the real wall clock. */
   now?: () => string;
-  /** Injectable sinks (tests). Default stdout/stderr. */
+
   out?: (line: string) => void;
   err?: (line: string) => void;
-  /** Structured sink shared by the root logger and every child logger. */
+
   record?: (record: LogRecord) => void;
 }
 

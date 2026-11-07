@@ -153,8 +153,7 @@ export async function handleActivityFrame(
       const priorIsRunning =
         priorEmoji !== null &&
         RUNNING_PRESETS.some((preset) => preset.emoji === priorEmoji && preset.text === priorText)
-      // Reuse an existing running preset instead of rerolling on every
-      // derived turn_end → idle → wake → running transition.
+
       const preset = profileWritable
         ? (
         state === "running" && priorIsRunning
@@ -269,8 +268,7 @@ export async function handleTypingFrame(
     ),
     isMatch: (binding) => binding.isActive && binding.machineId === identity.machineId,
     write: async (binding) => {
-      // Membership is enforced by `fanOutTyping`; the binding already carries
-      // the bot display identity, avoiding another roster query per heartbeat.
+
       const event = {
         type: WS_EVENTS.TYPING_START,
         channelId,

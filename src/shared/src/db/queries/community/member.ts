@@ -209,9 +209,6 @@ export async function listMemberServerIds(db: Database, userId: string) {
   return rows.map((r) => r.serverId);
 }
 
-// Schema has no soft-delete flag on communityServerMember (only cascade FK) —
-// no `deletedAt IS NULL` filter needed. If soft-delete is ever added, add
-// the guard here and in `countMembers` / `listMembersPaginated`.
 export async function listMemberUserIds(db: Database, serverId: string): Promise<string[]> {
   const rows = await db
     .select({ userId: communityServerMember.userId })
@@ -271,7 +268,6 @@ export async function listMembersPaginated(
     );
   }
 
-  // Filter soft-deleted user rows from paginated listings.
   conditions.push(isNull(user.deletedAt) as any);
   const rows = await db
     .select({
@@ -437,11 +433,6 @@ export async function getMemberships(db: Database, userId: string, serverIds: st
     );
 }
 
-/**
- * Owner-leaves-server cascade — SELECT the bot userIds that will be removed
- * from `serverId` because their owner is leaving. Called as step 1 of the
- * leave/kick sequence (see §Owner-leaves-server in plan).
- */
 export async function listOwnerBotsInServer(
   db: Database,
   serverId: string,
@@ -494,7 +485,6 @@ export function removeOwnerBotsFromServerStatement(
     ));
 }
 
-/** Executes `removeOwnerBotsFromServerStatement` — one DELETE for all bots. */
 export async function removeOwnerBotsFromServer(
   db: Database,
   serverId: string,

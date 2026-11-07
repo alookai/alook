@@ -3,6 +3,7 @@ import {
   createDb,
   parseQueueTask,
   parseQueueTaskBatch,
+  queueTaskIdentity,
 } from "@alook/shared"
 import type { AlookQueueTask, Database } from "@alook/shared"
 import { executeQueueTask } from "./task-handler"
@@ -11,15 +12,10 @@ const log = createLogger({ service: "queue-worker" })
 const DEV_HTTP_MAX_ATTEMPTS = 3
 const DEV_HTTP_RETRY_DELAYS_MS = [25, 100] as const
 
-/**
- * Deduplicate one batch by its stable task tuple. Both production Queue and
- * the dev-only HTTP shim execute the same normalized task handler.
- */
 function dedupeQueueTasks(tasks: AlookQueueTask[]): AlookQueueTask[] {
   const seen = new Set<string>()
   return tasks.filter((task) => {
-    const recipientId = task.kind === "bot-wake" ? task.botUserId : task.userId
-    const key = JSON.stringify([task.kind, task.messageId, recipientId, task.kind === "mobile-push" ? task.installationId : null])
+    const key = queueTaskIdentity(task)
     if (seen.has(key)) return false
     seen.add(key)
     return true
@@ -64,16 +60,7 @@ async function resolveDevHttpTask(db: Database, env: Env, task: AlookQueueTask):
 }
 
 export default {
-  /**
-   * `alook-queue-worker` — Cloudflare Queue consumer for `alook-queue`
-   * (minimal-wake-queue-unread-notice plan §3). Owns a `DB` binding to the
-   * same `alook-app` database `src/web` writes to: for every minimal
-   * accepted v1 `bot-wake` queue item, `dispatchOneUnreadWake`
-   * re-reads CURRENT D1 state and only then forwards a freshly built
-   * `agent:wake` `HostCommand`. This is what keeps a stale queue item from
-   * waking an old machine, an already-caught-up bot, or a bot that lost
-   * access to the scope since it was enqueued.
-   */
+
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
     let db: Database | undefined
     for (const msg of batch.messages) {

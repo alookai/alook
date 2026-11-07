@@ -15,6 +15,15 @@ export type MobilePushQueueTaskV1 = {
 
 export type AlookQueueTask = BotWakeQueueTaskV1 | MobilePushQueueTaskV1
 
+export function queueTaskIdentity(task: AlookQueueTask): string {
+  return JSON.stringify([
+    task.kind,
+    task.messageId,
+    task.kind === "bot-wake" ? task.botUserId : task.userId,
+    task.kind === "mobile-push" ? task.installationId : null,
+  ])
+}
+
 export type QueueTaskRejectReason =
   | "malformed"
   | "unsupported_version"

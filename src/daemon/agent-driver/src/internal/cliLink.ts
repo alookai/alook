@@ -37,10 +37,6 @@ export function writeWindowsBashEnv(binDir: string, cliName: string, envPrefix: 
   return envValue;
 }
 
-/**
- * Create the per-launch `bin` dir and the link/shim for `cliName`. Returns the
- * bin dir to prepend to PATH. Idempotent: safe to call again on resume/restart.
- */
 export function writeCliLink(
   stateDir: string,
   cliName: string,
@@ -50,7 +46,6 @@ export function writeCliLink(
   const binDir = path.join(stateDir, "bin");
   fs.mkdirSync(binDir, { recursive: true });
 
-  // Mock (no host CLI): create nothing — cliName intentionally won't resolve.
   if (!hostCliPath) return binDir;
 
   if (platform === "win32") {
@@ -59,7 +54,7 @@ export function writeCliLink(
       ? `"${process.execPath}" "${hostCliPath}"`
       : `"${hostCliPath}"`;
     const body = `@echo off\r\n${executable} %*\r\n`;
-    fs.writeFileSync(cmdFile, body); // overwrite is fine (idempotent)
+    fs.writeFileSync(cmdFile, body);
     const bashExecutable = /\.(?:c|m)?js$/i.test(hostCliPath)
       ? `${shellQuote(process.execPath.replaceAll("\\", "/"))} ${shellQuote(hostCliPath.replaceAll("\\", "/"))}`
       : shellQuote(hostCliPath.replaceAll("\\", "/"));
@@ -67,7 +62,6 @@ export function writeCliLink(
     return binDir;
   }
 
-  // POSIX symlink — unlink-then-link so resume/restart doesn't throw EEXIST.
   const linkPath = path.join(binDir, cliName);
   try {
     fs.unlinkSync(linkPath);
@@ -77,7 +71,7 @@ export function writeCliLink(
   try {
     fs.symlinkSync(hostCliPath, linkPath);
   } catch (err) {
-    // A concurrent launch may have created it between unlink and symlink.
+
     if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
   }
   return binDir;

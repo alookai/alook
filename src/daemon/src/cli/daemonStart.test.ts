@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { credentialFilePathByMachineId, daemonStatus } from "./daemonStart";
+import { credentialFilePathByMachineId, daemonStatus, savedDaemonMachineIds } from "./daemonStart";
 
 describe("daemonStart — credentialFilePath by machineId", () => {
   let baseDir: string;
@@ -15,24 +15,39 @@ describe("daemonStart — credentialFilePath by machineId", () => {
     fs.rmSync(baseDir, { recursive: true, force: true });
   });
 
+  it("enumerates saved machine names without parsing credential contents", () => {
+    expect(savedDaemonMachineIds({ baseDir })).toEqual([]);
+    const directory = path.join(baseDir, "daemons");
+    fs.mkdirSync(directory);
+    for (const name of ["cm_zzzzzzzz.credential.json", "cm_abcdefgh.credential.json", "cm_x.credential.json", "notes.txt"]) {
+      fs.writeFileSync(path.join(directory, name), "not JSON");
+    }
+    expect(savedDaemonMachineIds({ baseDir })).toEqual(["cm_abcdefgh", "cm_zzzzzzzz"]);
+  });
+
+  it("does not hide an unreadable saved-machine directory as an empty list", () => {
+    fs.writeFileSync(path.join(baseDir, "daemons"), "not a directory");
+    expect(() => savedDaemonMachineIds({ baseDir })).toThrow();
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("reports permission failure while traversing the saved-machine directory", () => {
+    const directory = path.join(baseDir, "daemons");
+    fs.mkdirSync(directory);
+    fs.writeFileSync(path.join(directory, "cm_abcdefgh.credential.json"), "not JSON");
+    expect(savedDaemonMachineIds({ baseDir })).toEqual(["cm_abcdefgh"]);
+    const mode = fs.statSync(baseDir).mode & 0o777;
+    try {
+      fs.chmodSync(baseDir, 0);
+      expect(() => savedDaemonMachineIds({ baseDir })).toThrow(expect.objectContaining({ code: "EACCES" }));
+    } finally { fs.chmodSync(baseDir, mode); }
+  });
+
   it("derives path from machineId, not from the CLI arg", () => {
     const machineId = "cm_abc12345";
     const p1 = credentialFilePathByMachineId(baseDir, machineId);
     const p2 = credentialFilePathByMachineId(baseDir, machineId);
     expect(p1).toBe(p2);
     expect(p1).toContain(`${machineId}.credential.json`);
-  });
-
-  it("same machineId produces the same path across two rotates — no orphaned files", () => {
-    const machineId = "cm_abc12345";
-    const p = credentialFilePathByMachineId(baseDir, machineId);
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, JSON.stringify({ credential: "cmk_first", machineId }), { mode: 0o600 });
-    fs.writeFileSync(p, JSON.stringify({ credential: "cmk_second", machineId }), { mode: 0o600 });
-    const files = fs.readdirSync(path.dirname(p)).filter((f) => f.endsWith(".credential.json"));
-    expect(files).toEqual([`${machineId}.credential.json`]);
-    const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
-    expect(parsed).toEqual({ credential: "cmk_second", machineId });
   });
 
   it.each([

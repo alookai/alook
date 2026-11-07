@@ -24,14 +24,14 @@ export function ConnectTile({ idPrefix = "ot-connect" }: { idPrefix?: string }) 
     () => {
       const scope = ref.current
       if (!scope) return
-      // flare pulse at a node: an expanding+fading ring + a brightness blip
+
       const flareAt = (tl: gsap.core.Timeline, nodeSel: string, x: number, y: number) => {
         tl.set(".ot-flare", { attr: { cx: x, cy: y, r: 3 }, opacity: 0.9 })
           .to(".ot-flare", { attr: { r: 12 }, opacity: 0, duration: 0.7, ease: "power2.out" })
           .to(nodeSel, { filter: "brightness(1.7)", duration: 0.14, ease: "power2.out" }, "<")
           .to(nodeSel, { filter: "brightness(1)", duration: 0.6, ease: "power1.out" }, "<0.14")
       }
-      // one leg: dot rides the edge center-to-center, lands, flares
+
       const leg = (tl: gsap.core.Timeline, from: typeof AL, to: typeof AL, nodeSel: string) => {
         tl.set(".ot-packet", { attr: { cx: from.x, cy: from.y, r: 4 }, opacity: 0 })
           .to(".ot-packet", { opacity: 1, duration: 0.2 })

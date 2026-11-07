@@ -37,3 +37,5 @@ Only source, textual provenance, tests, configuration and the npm lockfile are c
 The project imports the real web product components through video-local aliases and Next.js shims. Product code does not import the video project. Dependencies and lockfile are separate from the pnpm workspace.
 
 Earlier compositions, audition scripts and rendering notes are retained for reference in [HISTORY.md](HISTORY.md). Their durations and intermediate filenames are historical; use the commands above for the current complete film.
+
+The official logo animation has one hand-edited source: `../logo/src/Composition.tsx`. `node scripts/prepare-logo.mjs` copies it to the ignored `src/generated/official-logo-animation.tsx` consumed by this film. Asset preparation, typecheck and verification run that generator; edit the official source rather than the generated copy. The projects keep their own React and Remotion dependency resolution.

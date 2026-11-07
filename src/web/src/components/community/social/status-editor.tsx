@@ -14,14 +14,6 @@ import { STATUS_PRESETS, matchingPreset, hasStatus } from "./status-presets"
 
 export { hasStatus } from "./status-presets"
 
-/**
- * Compact status picker in a Popover, following `EmojiPickerPopover`'s
- * children-as-trigger convention — the caller supplies the trigger element
- * (a status row on `ProfileCard`, a Field-wrapped button in `UserSettings`)
- * and this component owns the popover content: 7 preset rows, a free-text
- * input, an emoji-picker trigger to override the emoji independently, and a
- * clear action.
- */
 export function StatusEditor({
   emoji,
   text,

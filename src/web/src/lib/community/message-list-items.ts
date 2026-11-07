@@ -76,10 +76,6 @@ export function flattenMessageItems(
   return items
 }
 
-// ── Row height estimation ────────────────────────────────────────────────
-// Fast, allocation-light guesses for `useVirtualizer`'s `estimateSize` —
-// corrected after paint via `measureElement`, same as `member-list.tsx`
-// already relies on for its own rows. No precision beyond that is required.
 const DATE_DIVIDER_ESTIMATE_PX = 32
 const NEW_DIVIDER_ESTIMATE_PX = 24
 const MESSAGE_BASE_ESTIMATE_PX = 8
@@ -115,7 +111,6 @@ function estimateAttachmentsHeight(m: Msg): number {
   return total
 }
 
-// Exported for direct unit testing (see message-list.test.ts).
 export function estimateRowHeight(item: FlatItem, hasMoreOlder = false): number {
   if (item.kind === "leading") return hasMoreOlder ? 88 : 152
   if (item.kind === "trailing") return 56

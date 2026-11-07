@@ -21,10 +21,6 @@ import type { UseCaseScript } from "./demo-pad/use-case-demo";
 
 gsap.registerPlugin(ScrollTrigger);
 
-/* ─────────────────────────────────────────────
-   Scenario Data
-   ───────────────────────────────────────────── */
-
 interface Scenario {
   id: string;
   title: string;
@@ -77,10 +73,6 @@ const scenarios: Scenario[] = [
     script: fillFormScript,
   },
 ];
-
-/* ─────────────────────────────────────────────
-   Main Section: Left Picker + Right Demo
-   ───────────────────────────────────────────── */
 
 export function UseCasesSection() {
   const sectionRef = useRef<HTMLDivElement>(null);

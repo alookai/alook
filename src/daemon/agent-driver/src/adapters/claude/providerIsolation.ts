@@ -25,7 +25,6 @@ export function buildClaudeProviderIsolationEnv(ctx: AdapterLaunchContext): Node
   const configDir = path.join(home, ".claude");
   fs.mkdirSync(configDir, { recursive: true });
 
-  // Best-effort symlink host skills/commands into the isolated config.
   const hostClaude = path.join(process.env.HOME || ".", ".claude");
   for (const sub of ["skills", "commands"]) {
     const target = path.join(hostClaude, sub);
@@ -33,7 +32,7 @@ export function buildClaudeProviderIsolationEnv(ctx: AdapterLaunchContext): Node
     try {
       if (fs.existsSync(target) && !fs.existsSync(link)) fs.symlinkSync(target, link);
     } catch {
-      /* symlink optional */
+
     }
   }
 

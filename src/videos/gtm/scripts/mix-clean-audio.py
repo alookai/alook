@@ -1,9 +1,10 @@
+from audio_tracks import CLEAN_PROFILE, build_opening_sfx, normalize_sfx, load_music
 from pathlib import Path
 import array, json, math, subprocess
 
 root = Path(__file__).resolve().parents[1]
 sr = 48000
-frames = 3047
+frames = CLEAN_PROFILE.frames
 duration = frames / 30
 base = root / 'out/alook-card-stagger-picture.mp4'
 out = root / 'out/alook-card-stagger-with-audio.mp4'
@@ -11,48 +12,9 @@ out = root / 'out/alook-card-stagger-with-audio.mp4'
 def run(*args):
     return subprocess.check_output(args)
 
-def mapped(frame):
-    return frame + 159 + (76 if frame >= 907 else 0) + (96 if frame >= 1251 else 0) + (96 if frame >= 1771 else 0)
-
-source = (root / 'scripts/mix-sfx.py').read_text()
-source = source.replace('FRAMES = 2590', 'FRAMES = 3047')
-source = source.replace('    at = frame * 1600 - offset', '    if frame < 333:\n        return\n    frame = mapped(frame)\n    at = frame * 1600 - offset')
-source = source[:source.index('peak = max(map(abs, TRACK))')]
-ns = {'__file__': str(root / 'scripts/mix-sfx.py'), 'mapped': mapped}
-exec(source, ns)
-track, cues = ns['TRACK'], ns['CUES']
-
-def add_at(name, time, db, length=None):
-    data = ns['read'](name)
-    if length is not None:
-        data = data[:round(length * sr)]
-    gain = 32767 * 10 ** (db / 20) / max(map(abs, data))
-    at = round(time * sr)
-    for i, value in enumerate(data):
-        envelope = min(1, (i + 1) / 96, (len(data) - i) / 96)
-        track[at + i] += value * gain * envelope
-    cues.append({'sound': name[:2], 'frame': round(time * 30), 'startSample': at, 'samples': len(data), 'peakDb': db})
-
-source_times = [0, .65, .76, 1.5, 1.8, 2, 2.2, 2.45, 2.5, 2.8, 3, 3.3, 3.38, 3.55, 3.6, 3.86, 4.3]
-output_times = [0, .6, 1, 2, 2.5, 3.1, 3.5, 3.85, 4.1, 4.65, 5.25, 5.8, 6.25, 6.6, 7.1, 7.7, 7.8]
-def opening_time(t):
-    i = next(i for i in range(len(source_times)-1) if source_times[i] <= t <= source_times[i+1])
-    return 3.1 + output_times[i] + (t-source_times[i])/(source_times[i+1]-source_times[i])*(output_times[i+1]-output_times[i])
-
-add_at('04-join-drop.wav', opening_time(.75), -19)
-for t in [1.62, 2.45, 3.3, 3.6, 3.85]:
-    add_at('02-click.wav', opening_time(t), -18)
-for offset in [0, .85, 1.55, 2.15, 2.65, 3.05, 3.4, 3.68, 3.9, 4.08]:
-    add_at('04-join-drop.wav', 10.9 + offset, -26)
-add_at('04-join-drop.wav', 15.213, -18)
-for frame in [1066, 1486, 2102]:
-    add_at('14-soft-air.wav', frame / 30, -25, .24)
-
-assert max(map(abs, track)) < 32767
-assert len(track) == frames * 1600
-sfx = array.array('f', (v / 32767 * 10 ** (5/20) for v in track))
-filters = 'loudnorm=I=-21:TP=-3:LRA=11,aresample=48000'
-music = array.array('f', run('ffmpeg','-v','error','-i',str(root/'public/bgm/jazz-funk/03-dirty-thinkin.mp3'),'-af',filters,'-ac','2','-ar',str(sr),'-f','f32le','-'))
+track, cues = build_opening_sfx(root, CLEAN_PROFILE)
+sfx = normalize_sfx(track)
+music = load_music(root)
 coda_start = 83.8 + 427/30
 coda_end = 86.85 + 427/30
 loop_at, loop_length, crossfade = 48., 16., .04

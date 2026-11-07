@@ -15,10 +15,6 @@ export function formatTimestamp(date: Date | string | null): string {
   return d.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-/**
- * Parse and validate a JSON request body against a Zod schema.
- * Returns [data, null] on success or [null, 400 response] on failure.
- */
 export async function parseBody<T>(
   req: Request,
   schema: { parse(data: unknown): T },
@@ -49,7 +45,6 @@ export async function parseBody<T>(
   }
 }
 
-/** Same as formatTimestamp but returns null instead of empty string. */
 export function formatTimestampNullable(date: Date | string | null): string | null {
   if (!date) return null;
   const d = typeof date === "string" ? new Date(date) : date;

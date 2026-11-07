@@ -41,9 +41,6 @@ export async function buildServerChannelGroups(
   const uncategorized: ChannelListItem[] = []
   const byCategory = new Map<string, ChannelListItem[]>()
 
-  // rows come from `listChannelsForMember` already ordered by
-  // `communityChannel.position asc`; bucket into groups preserving that
-  // per-bucket order.
   for (const c of rows) {
     const cat = c.categoryId ? categoryById.get(c.categoryId) : null
     const isPrivate = !!(cat && (cat.private ?? 0) === 1)

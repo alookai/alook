@@ -29,3 +29,5 @@ __pycache__/
 *.tar
 *.gz
 *.f32
+
+src/generated/official-logo-animation.tsx

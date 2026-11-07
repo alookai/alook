@@ -105,6 +105,44 @@ afterAll(() => {
 })
 
 describe("sendMessageDeliveryBatch", () => {
+  it.each([1, 2, 3])("rejects old batch version %s even when there are no targets", async (version) => {
+    const input = batch({ communityContract: version as MessageDeliveryBatch["communityContract"], contentUserIds: [], unreadPlainUserIds: [], unreadMentionUserIds: [], mentionUserIds: [], parentProjectionUserIds: [] })
+    await expect(sendMessageDeliveryBatch(input)).rejects.toThrow("Community delivery protocol mismatch")
+    expect(bindingFetch).not.toHaveBeenCalled()
+    expect(globalFetch).not.toHaveBeenCalled()
+  })
+
+  it.each(["server-1", undefined])("delivers scope %s without mutating the committed input", async (serverId) => {
+    const input = batch({ parentProjection: undefined, parentProjectionUserIds: undefined })
+    input.messageEvent.serverId = serverId
+    if (serverId === undefined) {
+      delete input.messageEvent.serverId
+      delete input.joinedParticipantUserIds
+      delete input.rosterRefreshUserId
+    }
+    delete input.messageEvent.parentChannelId
+    const before = structuredClone(input)
+    await sendMessageDeliveryBatch(input)
+    if (serverId) {
+      expect(requestBatch(0)).toMatchObject({ messageEvent: { serverId }, joinedParticipantUserIds: ["u1"], rosterRefreshUserId: "u1" })
+    } else {
+      expect(requestBatch(0).messageEvent).not.toHaveProperty("serverId")
+      expect(requestBatch(0)).not.toHaveProperty("joinedParticipantUserIds")
+      expect(requestBatch(0)).not.toHaveProperty("rosterRefreshUserId")
+    }
+    expect(input).toEqual(before)
+  })
+
+  it("rejects a null server identity without sending or mutating the input", async () => {
+    const input = batch({ parentProjection: undefined, parentProjectionUserIds: undefined })
+    Object.assign(input.messageEvent, { serverId: null })
+    const before = structuredClone(input)
+    await expect(sendMessageDeliveryBatch(input)).rejects.toThrow("invalid message delivery batch")
+    expect(bindingFetch).not.toHaveBeenCalled()
+    expect(globalFetch).not.toHaveBeenCalled()
+    expect(input).toEqual(before)
+  })
+
   it("retains the original roster refresh identity after a partial retry subset", async () => {
     bindingFetch.mockResolvedValueOnce(Response.json({ failedUserIds: ["u2"] }, { status: 207 }))
       .mockResolvedValueOnce(Response.json({ failedUserIds: [] }))

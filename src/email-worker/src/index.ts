@@ -136,7 +136,6 @@ export default {
     const htmlBody = body.htmlBody ?? ""
     const attachmentKeys = body.attachmentKeys ?? []
 
-    // Fetch attachment content from R2 in parallel
     const attachments = (await Promise.all(
       attachmentKeys.map(async (att) => {
         const obj = await env.EMAIL_BUCKET.get(att.key)
@@ -162,9 +161,6 @@ export default {
       : "alook.ai"
     const outMessageId = `<${nanoid()}@${fromDomain}>`
 
-    // Build the raw MIME once — used both as the wire message (CF path) and as the
-    // R2 archive (both paths). buildMimeMessage emits From + Message-ID + threading
-    // headers, so the archived copy always matches what was transmitted.
     const rawMime = buildMimeMessage({
       from: fromAddress,
       to: body.to,
@@ -229,7 +225,6 @@ export default {
       await env.SEND_EMAIL.send(new EmailMessage(fromAddress, body.to, rawMime))
     }
 
-    // Store the SAME MIME archive in R2 (wire id == archived id).
     const r2Id = nanoid()
     const r2Key = `emails/${r2Id}/raw`
     await env.EMAIL_BUCKET.put(r2Key, rawMime, {

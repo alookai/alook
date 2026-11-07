@@ -516,7 +516,7 @@ describe("useCommunityWs — operation bundles", () => {
         thread: { id: "ch-1", name: "thread", messageCount: 1 },
       },
     })
-    const { captureChannelMetadataToken } = await import("@/hooks/community/channel-metadata")
+    const { captureChannelMetadataToken } = await import("@/lib/community/channel-metadata")
     const verification = captureChannelMetadataToken(capturedQueryClient, "ch-1")
     await act(async () => { await seedConversationEntry(capturedQueryClient, conversationEntryFromChannel({ id: "ch-1", serverId: "s1", type: "thread", name: "thread", parentChannelId: "forum_1", parentMessageId: "opener-1", creatorId: "viewer-1", archived: false, createdAt: "2026-08-20T00:00:00.000Z" }, verification.viewerId!)) })
     vi.spyOn(capturedQueryClient, "invalidateQueries")

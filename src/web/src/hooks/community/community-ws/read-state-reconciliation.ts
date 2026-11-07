@@ -10,7 +10,7 @@ import { conversationReadRetryPolicy, isConversationAccessError } from "@/lib/co
 import { isAbortError } from "@/lib/errors"
 import { accountAttentionMatchesReadState, reconcileAccountAttention } from "@/hooks/community/use-account-attention"
 
-export type AccountReadStateSnapshot = Awaited<ReturnType<typeof queries.communityReadState.getAccountReadStateSnapshot>>
+export type AccountReadStateSnapshot = queries.communityReadState.AccountReadStateSnapshot
 export type ReadStateEnvelope = Pick<CommunityInboxChanged, "revision" | "inboxChanged">
 
 class ReadStateRevisionPendingError extends Error {}

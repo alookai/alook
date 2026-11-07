@@ -186,6 +186,26 @@ describe("Message author line", () => {
 })
 
 describe("Message memo comparator", () => {
+  it.each(["denied", "waiting"] as const)("updates an approval-only message to %s with stable row props", (state) => {
+    const approval: NonNullable<RenderMsg["approval"]> = {
+      friendshipId: "friendship", status: "pending", waitingOn: "you",
+      otherProfile: { id: "u1", name: "Alice", discriminator: "0001", image: null, avatarVersion: 0 },
+      botProfile: { id: "bot", name: "Bot", discriminator: "0002", image: null, avatarVersion: 0 },
+    }
+    const message = baseMsg({ content: "", approval })
+    const props = { m: message, onOpenThread: vi.fn() }
+    const view = rtlRender(makeTree(props))
+    expect(view.getByRole("button", { name: "Approve", exact: true })).toBeVisible()
+    expect(view.getByRole("button", { name: "Deny", exact: true })).toBeVisible()
+    const nextApproval = state === "denied" ? { ...approval, status: "denied" as const, waitingOn: null }
+      : { ...approval, waitingOn: "other-owner" as const, waitingOnProfile: approval.otherProfile }
+    view.rerender(makeTree({ ...props, m: { ...message, approval: nextApproval } }))
+    expect(view.queryByRole("button", { name: "Approve", exact: true })).toBeNull()
+    expect(view.queryByRole("button", { name: "Deny", exact: true })).toBeNull()
+    if (state === "denied") expect(view.getByText("Denied", { exact: true })).toBeVisible()
+    else expect(view.getByText(/waiting on/i)).toBeVisible()
+  })
+
 
   it.each([true, false])("selects an external-link message without navigating (hover: %s)", async (hoverCapable) => {
     const onToggleSelect = vi.fn()

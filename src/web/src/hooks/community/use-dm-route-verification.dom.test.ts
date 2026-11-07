@@ -7,7 +7,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { channelMetadataOptions } from "./channel-metadata"
+import { channelMetadataOptions } from "@/lib/community/channel-metadata"
 import { startChannelRouteVerification } from "./channel-route-verification"
 import { useChannelMetadata } from "./use-channel-metadata"
 

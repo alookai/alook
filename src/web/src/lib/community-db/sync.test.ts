@@ -4,7 +4,7 @@ import { dmConversationEntryFixture, forumConversationEntryFixture, conversation
 import { publishConversationEntry } from "@/lib/community/conversation-entry"
 import { dmListRowFixture, categoryResourceFixture, serverRailResponseFixture, serverResourceFixture, messageSeedFixture, channelResourceFixture, messageResourceFixture, fullResourceBundleFixture, resourceBundleFixture, serverDirectoryFixture } from "@/test/community-resource-fixtures"
 import { seedCommunityAttentionScope } from "@/test/community-query-owner"
-import { normalizeThreadResources } from "@/hooks/community/forum-feed-window"
+import { normalizeThreadResources } from "@/lib/community/forum-feed-window"
 import { projectPostedMessage } from "@/lib/community/message-wire"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -66,7 +66,7 @@ import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { decodeCommunityReadResponse } from "@/lib/community/read-response"
 import type { MessageInput } from "@/lib/community/models/message"
 import { writeCommunityCollectionRows } from "./write"
-import { applyTypingIndicator } from "@/hooks/community/community-ws/typing"
+import { applyTypingIndicator } from "@/lib/community/typing"
 
 const pendingApproval = { friendshipId: "friendship", status: "pending" as const, waitingOn: null, otherProfile: { id: "approval", name: "Approval", discriminator: "0004", image: null, avatarVersion: 1 }, botProfile: { id: "bot", name: "Bot", discriminator: "0005", image: null, avatarVersion: 1 } }
 

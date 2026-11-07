@@ -18,12 +18,11 @@ const ARCH_AGENTS: AgentInfo[] = [
 ];
 const ARCH_CONFIG: DashboardConfig = { agents: ARCH_AGENTS };
 
-/* ─── Planner's chat steps ─── */
 const PLANNER_STEPS: DashboardStep[] = [
   { type: "user-message", text: "A user reported Safari crashes on login — can you fix it?" },
   { type: "message", text: "On it. Let me investigate and delegate to Coder." },
   { type: "email-out", subject: "Fix Safari flex gap in login page", address: "coder@alook.ai" },
-  // After Coder finishes:
+
   { type: "email-in", subject: "Re: Fix Safari flex gap — Done, PR #142", address: "coder@alook.ai" },
   { type: "message", markdown: "Coder fixed it — <strong>PR #142</strong> opened. Both <code>login-page.tsx</code> and <code>signup.tsx</code> patched, 42 tests passing." },
   { type: "user-message", text: "Nice, ship it" },
@@ -31,7 +30,6 @@ const PLANNER_STEPS: DashboardStep[] = [
   { type: "email-out", subject: "Re: Login crashes on Safari — Fixed", address: "user@company.com" },
 ];
 
-/* ─── Coder's chat steps ─── */
 const CODER_STEPS: DashboardStep[] = [
   { type: "email-in", subject: "Fix Safari flex gap in login page", address: "planner@alook.ai" },
   { type: "message", text: "Got it. Searching for flex gap usage..." },
@@ -40,7 +38,6 @@ const CODER_STEPS: DashboardStep[] = [
   { type: "email-out", subject: "Re: Fix Safari flex gap — Done, PR #142", address: "planner@alook.ai" },
 ];
 
-/* ─── Terminal lines ─── */
 const TERMINAL_LINES: TerminalLine[] = [
   { spans: [
     { text: "INFO  ", color: "keyword" },
@@ -144,14 +141,13 @@ const TERMINAL_LINES: TerminalLine[] = [
   ] },
 ];
 
-/* ─── Timeline ─── */
 const TIMELINE: TimelineStep[] = [
-  // Planner phase 1: user asks, planner responds + delegates
+
   { id: "user-asks", duration: 2000 },
   { id: "planner-typing", duration: 1500 },
   { id: "planner-msg1", duration: 1500 },
   { id: "planner-email-out", duration: 2000 },
-  // Switch to Coder
+
   { id: "switch-to-coder", duration: 1200 },
   { id: "coder-email-in", duration: 1800 },
   { id: "coder-typing", duration: 1200 },
@@ -159,7 +155,7 @@ const TIMELINE: TimelineStep[] = [
   { id: "coder-msg2", duration: 1800 },
   { id: "coder-msg3", duration: 1800 },
   { id: "coder-email-out", duration: 2000 },
-  // Switch back to Planner
+
   { id: "switch-to-planner", duration: 1200 },
   { id: "planner-email-in", duration: 1800 },
   { id: "planner-msg2", duration: 2000 },
@@ -168,17 +164,14 @@ const TIMELINE: TimelineStep[] = [
   { id: "planner-final-email", duration: 3000 },
 ];
 
-/* ─── Main component ─── */
-
 export function ArchitectureOverview() {
   const sectionRef = useRef<HTMLDivElement>(null);
 
   const { visibleCount, isResetting, containerRef, isStepVisible } =
     useScriptedTimeline({ steps: TIMELINE, holdAfterComplete: 3500 });
 
-  // Derive dashboard state from timeline
   const dashboardState: DashboardState = useMemo(() => {
-    // Which agent is active?
+
     const showCoder = isStepVisible(4) && !isStepVisible(11);
     const activeAgent = showCoder ? "coder" as const : "planner" as const;
 
@@ -215,9 +208,8 @@ export function ArchitectureOverview() {
     return { activeAgent, steps, visibleCount: vis, isTyping, isWorking };
   }, [visibleCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Terminal: each timeline step from 0 onward maps to a line
   const terminalVisible = useMemo(() => {
-    // Map timeline steps to terminal lines
+
     const mapping = [0, 1, 2, 3, 4, 4, 5, 6, 7, 8, 9, 10, 10, 11, 11, 12, 12];
     let count = 0;
     for (let i = 0; i < mapping.length; i++) {

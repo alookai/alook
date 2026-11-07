@@ -1,20 +1,13 @@
-/**
- * Real session dependencies for `PiDriver` — the only piece that
- * actually talks to `@earendil-works/pi-coding-agent`. Kept out of `pi.ts` so
- * that file stays free of a hard SDK import (mirrors the "deps carry the
- * constructors" design already documented there); this module is where the
- * daemon actually loads and drives the vendor package.
- */
+
 import { readFileSync } from "fs";
 import * as path from "path";
 import { pathToFileURL } from "url";
 import type { AdapterLaunchContext } from "../../internal/adapter.js";
-import { findPiSessionFile, resolvePiSdkPackageDir, resolvePiSessionDir } from "./index.js";
+import { findPiSessionFile, resolvePiSdkPackageDir, resolvePiSessionDir } from "./paths.js";
 import { prepareCliTransport } from "../../internal/cliTransport.js";
 
 const PI_SDK_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 
-/** The slice of the vendor SDK's module exports this file actually calls. */
 export interface PiSdkModule {
   ModelRuntime: { create(): Promise<PiModelRuntime> };
   AuthStorage?: { create(): unknown };
@@ -52,7 +45,6 @@ interface PiBashToolOptions {
   spawnHook?: (context: PiBashSpawnContext) => PiBashSpawnContext;
 }
 
-/** Injectable loader for tests — never actually imports the real package. */
 export type PiSdkLoader = () => Promise<PiSdkModule>;
 
 let cachedSdkPromise: Promise<PiSdkModule> | null = null;
@@ -140,7 +132,6 @@ export function loadPiSdkModule(): Promise<PiSdkModule> {
   return cachedSdkPromise;
 }
 
-/** Parse a `"provider/id"` model string; undefined pieces mean "use the SDK's own default". */
 function parseModelString(model: string | undefined): { provider: string; id: string } | undefined {
   if (!model) return undefined;
   const idx = model.indexOf("/");
@@ -148,13 +139,6 @@ function parseModelString(model: string | undefined): { provider: string; id: st
   return { provider: model.slice(0, idx), id: model.slice(idx + 1) };
 }
 
-/**
- * Build the real Pi session dependencies for a launch. Closes over `ctx` so
- * `buildSpawnEnv` needs no arguments (matches `PiDriver.openLane`'s
- * existing contract) — a fresh instance is built per launch, so nothing here
- * is process-global mutable state (safe for concurrent agents with different
- * credentials).
- */
 export interface PiSessionDependencies {
   buildSpawnEnv(): Promise<NodeJS.ProcessEnv>;
   createAgentSession(opts: Record<string, unknown>): Promise<{ session: unknown; sessionId: string }>;

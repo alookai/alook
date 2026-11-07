@@ -2,7 +2,7 @@ import { lstatSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { parseArgs } from "./desktop-release-artifacts.mjs"
+import { parseArgs } from "./cli-args.mjs"
 import { androidProperties as properties, readAndroidToolchain } from "./android-toolchain.mjs"
 
 function read(project, name) {

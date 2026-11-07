@@ -5,7 +5,7 @@
 //
 // IMPORTANT: <use href="#id"> resolves against ids that must be unique in the
 // document. Each tile mounts its own copy of <TileDefs> with an `idPrefix` so
-// several tiles can coexist on one page (the gallery shows three at once) without
+// several tiles can coexist on one page without
 // id collisions. The tile passes the same prefix to its <use href> refs.
 
 export function tileIds(p: string) {

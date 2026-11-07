@@ -11,7 +11,7 @@ import { MessageContextSheet } from "../messages/message-context-sheet"
 import { ConversationFooterShell } from "../messages/conversation-footer-shell"
 import { MessageList } from "../messages/message-list"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
-import { buildAttachmentUploadFormData } from "@/hooks/community/mutations/uploads"
+import { buildAttachmentUploadFormData } from "@/lib/community/attachment-upload"
 
 const mutationMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -98,13 +98,13 @@ vi.mock("@/hooks/community/mutations", () => ({
   useCreateThread: () => ({ mutateAsync: mutationMocks.createThread }),
   useUploadFile: () => ({ mutateAsync: mutationMocks.uploadFile }),
 }))
-vi.mock("@/hooks/community/mutations/messages", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/hooks/community/mutations/messages")>(),
+vi.mock("@/lib/community/message-send-input", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community/message-send-input")>(),
   sendNonce: () => "nonce_1",
   tempMessageId: () => "temp_1",
 }))
-vi.mock("@/hooks/community/mutations/uploads", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/hooks/community/mutations/uploads")>(),
+vi.mock("@/lib/community/attachment-upload", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community/attachment-upload")>(),
   zipUploadResultsWithDimensions: () => [],
 }))
 vi.mock("@/hooks/community/use-community-ws", () => ({

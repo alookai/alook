@@ -2,7 +2,6 @@
 import { useObservedRegion } from "@/lib/observability/regions"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
-
 import { dmHref, normalizeCommunityHref, resolveCommunityModulePlan } from "@/lib/community/community-route"
 import { Activity, useCallback, useLayoutEffect, useMemo, useState } from "react"
 import { useCommunityRouteFrame } from "./community-route-context"
@@ -10,8 +9,7 @@ import { DmSidebar } from "@/components/community/channels/dm-sidebar"
 import { useDms } from "@/hooks/community/use-dms"
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
 import { useInboxUnreads } from "@/hooks/community/use-inbox"
-// DM-side layout. The DM subtree has no server settings, no channel sidebar,
-// and no `[serverId]` param — everything is scoped to the current user.
+
 export function DmSidebarSlot({ visible = true, href, routeCommitted = true }: { visible?: boolean; href?: string; routeCommitted?: boolean }) {
   const { frame } = useCommunityRouteFrame()
   const target = normalizeCommunityHref(href ?? frame.href)

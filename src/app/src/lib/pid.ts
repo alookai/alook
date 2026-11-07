@@ -1,19 +1,10 @@
+import type { DevPortProfile } from "@alook/shared";
+import type { ServiceKey } from "./service-topology.js";
 import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import { PID_FILE } from "./constants.js";
 
-interface PidRecord {
-  web?: number;
-  emailWorker?: number;
-  wsDo?: number;
-  queueWorker?: number;
-  ports?: {
-    web?: number;
-    emailWorker?: number;
-    wsDo?: number;
-    queueWorker?: number;
-  };
-}
+type PidRecord = Partial<Record<ServiceKey, number>> & { ports?: Partial<DevPortProfile> };
 
 export function readPids(): PidRecord {
   if (!existsSync(PID_FILE)) return {};

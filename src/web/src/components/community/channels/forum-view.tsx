@@ -154,17 +154,17 @@ export function ForumView({
   // resolves or rejects. `CreateForumThread` catches rejection to toast and
   // preserve composer state for retry.
   onCreatePost?: (post: NewForumThread) => Promise<void>
-  // Save handler for a single post's tags. Absent → tag editing disabled.
+
   onEditPostTags?: (threadId: string, tags: string[]) => Promise<void> | void
   // Whether the current user may edit a given post's tags (creator or manager).
   canEditPostTags?: (post: ForumThread) => boolean | undefined
-  // The post id whose tag save is in flight, if any.
+
   savingTagsFor?: string | null
-  // Delete handler for a single post. Absent → delete disabled.
+
   onDeletePost?: (post: ForumThread) => void
   // Whether the current user may delete a given post (creator or manager).
   canDeletePost?: (post: ForumThread) => boolean | undefined
-  // The post id whose delete is in flight, if any.
+
   deletingPost?: string | null
   onScrollRoot?: (node: HTMLDivElement | null) => void
 }) {
@@ -443,8 +443,6 @@ export function ForumView({
   )
 }
 
-// Loading placeholder for the forum post list. It mirrors the flat rows so the
-// page does not flash back to the old card treatment while data is loading.
 function ForumPostSkeleton({ postId }: { postId?: string }) {
   return (
     <div

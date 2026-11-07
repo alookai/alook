@@ -6,7 +6,7 @@ import { WifiOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import { isFailedMessageRepair, retryFailedMessageRepairs } from "@/hooks/community/community-ws/reconnect-messages"
+import { isFailedMessageRepair, retryFailedMessageRepairs } from "@/lib/community/message-reconcile"
 
 export function CommunityWsReconnectBoundary({ children }: { children: ReactNode }) {
   const connectionStatus = useCommunityWsStore((state) => state.connectionStatus)

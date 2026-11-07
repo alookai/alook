@@ -1,4 +1,4 @@
-/** In-process lane with live-streaming prompt/steer protection. */
+
 import { EventEmitter } from "events";
 import type {
   AdapterEvent,
@@ -62,7 +62,6 @@ export class SdkLane implements RuntimeLane {
     return this.send({ ...input, mode: "idle" });
   }
 
-  /** Delivers immediately; failures return through normalized events. */
   send(input: LaneSendInput): Promise<LaneAdmission> {
     const receipt = input.terminalOwner ?? `${this.sessionId}:sdk:${++this.admissionSequence}`;
     void this.deliver(input.text, input.mode, receipt, input.inputs ?? []);

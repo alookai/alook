@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 const mockDaemonStart = vi.hoisted(() => vi.fn(async () => {}));
 const mockDaemonStartById = vi.hoisted(() => vi.fn(async () => {}));
 const mockDaemonReconnect = vi.hoisted(() => vi.fn(async () => {}));
+const mockSavedDaemonMachineIds = vi.hoisted(() => vi.fn(() => ["cm_saved_machine"]));
 const mockDaemonList = vi.hoisted(() => vi.fn(() => [{ id: "cm_saved_machine", pid: 42, alive: true, agents: 1, running: 0, lastActiveMs: 1 }]));
 const mockDaemonRunFromIpc = vi.hoisted(() => vi.fn(async () => new Promise<never>(() => {})));
 const mockDaemonRefreshFromIpc = vi.hoisted(() => vi.fn(async () => {}));
@@ -14,6 +15,7 @@ vi.mock("./daemonStart", async (importOriginal) => ({
   daemonStartById: mockDaemonStartById,
   daemonReconnect: mockDaemonReconnect,
   daemonList: mockDaemonList,
+  savedDaemonMachineIds: mockSavedDaemonMachineIds,
   daemonRunFromIpc: mockDaemonRunFromIpc,
 }));
 vi.mock("./messageReminderClient", async (importOriginal) => ({
@@ -116,6 +118,7 @@ beforeEach(() => {
   mockDaemonReconnect.mockClear();
   mockDaemonRunFromIpc.mockClear();
   mockDaemonList.mockClear();
+  mockSavedDaemonMachineIds.mockClear();
   process.env.ALOOK_AGENT_ID = "agent_test";
   savedProxyEnv = {};
   for (const k of PROXY_ENV_KEYS) {
@@ -1787,6 +1790,14 @@ describe("friend request", () => {
     const env = parseEnvelope(cap.lines());
     expect(env.error).toBeDefined();
     expect(env.code).toBe("blocked");
+  });
+});
+
+describe("daemon saved-machines", () => {
+  it("returns the daemon-owned saved IDs in one envelope", async () => {
+    await main(["daemon", "saved-machines", "--base-dir", "/saved/base"]);
+    expect(parseEnvelope(cap.lines())).toEqual({ success: { machineIds: ["cm_saved_machine"] } });
+    expect(mockSavedDaemonMachineIds).toHaveBeenCalledWith({ baseDir: "/saved/base" });
   });
 });
 

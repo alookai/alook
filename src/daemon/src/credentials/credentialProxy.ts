@@ -193,7 +193,7 @@ export class CredentialBroker {
     try {
       fs.rmSync(reg.voucherFile, { force: true });
     } catch {
-      /* best-effort */
+
     }
     return true;
   }

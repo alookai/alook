@@ -1,4 +1,4 @@
-import type { AuditEvent, AuditKind } from "@/hooks/community/use-bot-audit-log"
+import type { AuditEvent, AuditKind } from "@/lib/community/models/audit"
 
 const SUMMARY_BY_KIND: Record<AuditKind, string> = {
   cli_invocation: "alook command",

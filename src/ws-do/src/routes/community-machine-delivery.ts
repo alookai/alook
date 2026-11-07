@@ -11,9 +11,7 @@ export async function handleMachinePush({ request, env, url, traceId, log }: Rou
   const machineId = decodeURIComponent(pushToMachine[1])
   const reqLog = log.child({ traceId, machineId })
   reqLog.debug("pushing bot event to machine")
-  // Look up the active `do_name` for this machineId via D1. Multiple
-  // credentials may exist for a machine over time; we push to every live
-  // one (there should be exactly one, but be robust).
+
   let doNames: string[] = []
   try {
     const shared = await import("@alook/shared")
@@ -48,7 +46,7 @@ export async function handleMachinePush({ request, env, url, traceId, log }: Rou
         && receipt.sent >= 0
       ) delivered += receipt.sent
     } catch {
-      // best-effort
+
     }
   }
   return Response.json({ sent: delivered })

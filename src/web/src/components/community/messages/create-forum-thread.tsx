@@ -5,7 +5,7 @@ import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
 import { useCallback, useRef, useMemo, useEffect } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
-import type { UploadFileArgs, UploadFileResult } from "@/hooks/community/mutations/uploads"
+import type { UploadFileArgs, UploadFileResult } from "@/lib/community/attachment-upload"
 import { PlusCircle, Upload, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
@@ -25,10 +25,8 @@ import {
   type SendAttachment,
 } from "./composer"
 import type { Member } from "@/lib/community/models/people"
-import {
-  useUploadFile,
-  zipUploadResultsWithDimensions,
-} from "@/hooks/community/mutations/uploads"
+import { useUploadFile } from "@/hooks/community/mutations/uploads"
+import { zipUploadResultsWithDimensions } from "@/lib/community/attachment-upload"
 
 // A forum post's body IS the first message in its thread — content plus any
 // attachments and the audience-broadcast `mentionType` extracted from the body

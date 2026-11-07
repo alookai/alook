@@ -1,3 +1,4 @@
+import { sameDaemonOwnership } from "./daemonOwnership.js";
 /**
  * `alook daemon start|stop|list` — daemon lifecycle commands.
  *
@@ -30,7 +31,7 @@ import {
  */
 const STOP_GRACE_MS = 5000;
 const STOP_KILL_GRACE_MS = 2_000;
-/** How often `daemonStop` polls `isProcessAlive` while waiting on SIGTERM. */
+
 const POLL_MS = 100;
 const START_RECEIPT_TIMEOUT_MS = 15_000;
 const PAIRING_ACTIVATION_TIMEOUT_MS = 30_000;
@@ -49,10 +50,6 @@ function resolveDefaultBaseDir(): string {
 export const DEFAULT_BASE_DIR = resolveDefaultBaseDir();
 
 const log = createLogger({ header: "@alook/daemon" });
-
-/* ------------------------------------------------------------------ */
-/* Per-machine pidfile helpers                                          */
-/* ------------------------------------------------------------------ */
 
 function daemonsDir(baseDir: string): string {
   return path.join(baseDir, "daemons");
@@ -93,7 +90,6 @@ export function pidfilePathById(baseDir: string, id: string): string {
   return path.join(daemonDirById(baseDir, id), "daemon.pid");
 }
 
-/** Per-daemon status snapshot: `daemons/<id>/status.json` (id = machineId). */
 function statusFilePathById(baseDir: string, id: string): string {
   return path.join(daemonDirById(baseDir, id), "status.json");
 }
@@ -149,7 +145,7 @@ function parsePidFileContent(raw: string): DaemonPidFile | null {
       };
     }
     if (typeof content.key === "string") return { pid: content.pid, key: content.key };
-  } catch { /* malformed */ }
+  } catch {  }
   return null;
 }
 
@@ -157,7 +153,7 @@ export function readPidFile(filePath: string): DaemonPidFile | null {
   if (!fs.existsSync(filePath)) return null;
   try {
     return parsePidFileContent(fs.readFileSync(filePath, "utf8"));
-  } catch { /* malformed */ }
+  } catch {  }
   return null;
 }
 
@@ -194,9 +190,9 @@ function writeExclusive(filePath: string, value: object): void {
     syncDirectory(dir);
   } finally {
     if (fd !== null) {
-      try { fs.closeSync(fd); } catch { /* best effort */ }
+      try { fs.closeSync(fd); } catch {  }
     }
-    try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
+    try { fs.unlinkSync(tempPath); } catch {  }
   }
 }
 
@@ -218,9 +214,9 @@ function writePrivateJsonAtomic(filePath: string, value: object): void {
     syncDirectory(dir);
   } finally {
     if (fd !== null) {
-      try { fs.closeSync(fd); } catch { /* best effort */ }
+      try { fs.closeSync(fd); } catch {  }
     }
-    try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
+    try { fs.unlinkSync(tempPath); } catch {  }
   }
 }
 
@@ -237,7 +233,7 @@ function removeOwnedFile(filePath: string, pid: number, ownerToken: string): voi
     if (content?.pid === pid && content.ownerToken === ownerToken) {
       fs.unlinkSync(filePath);
     }
-  } catch { /* best effort */ }
+  } catch {  }
 }
 
 function removePidFileIfMatches(filePath: string, expected: DaemonPidFile): void {
@@ -248,7 +244,7 @@ function removePidFileIfMatches(filePath: string, expected: DaemonPidFile): void
   try {
     const current = readPidFile(filePath);
     if (current?.pid === expected.pid && current.key === expected.key) fs.unlinkSync(filePath);
-  } catch { /* best effort */ }
+  } catch {  }
 }
 
 function malformedPidHint(raw: string): number | null {
@@ -293,7 +289,7 @@ function clearStaleOwnership(filePath: string, liveError: (pid: number) => Error
       current.mtimeMs !== before.mtimeMs
     ) return;
     fs.unlinkSync(filePath);
-  } catch { /* best effort */ }
+  } catch {  }
 }
 
 export function replacementLockPathById(baseDir: string, machineId: string): string {
@@ -337,7 +333,7 @@ export function removeReplacementLockIfMatches(
   try {
     const current = readReplacementLock(filePath);
     if (current && replacementLocksEqual(current, expected)) fs.unlinkSync(filePath);
-  } catch { /* best effort */ }
+  } catch {  }
 }
 
 function checkReplacementLock(
@@ -377,7 +373,7 @@ function checkReplacementLock(
         && current.size === before.size
         && current.mtimeMs === before.mtimeMs
       ) fs.unlinkSync(lockPath);
-    } catch { /* best effort */ }
+    } catch {  }
     return;
   }
   if (!isProcessAlive(lock.pid)) {
@@ -484,10 +480,6 @@ function reconcileLegacyMachineKeyOwnership(baseDir: string, machineKey: string)
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* daemon list                                                         */
-/* ------------------------------------------------------------------ */
-
 export interface DaemonListOpts {
   baseDir?: string;
 }
@@ -544,10 +536,10 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
     if (!data) return;
     const alive = isProcessAlive(data.pid);
     if (!alive) {
-      // Prune the stale pidfile (subdir daemon.pid or legacy flat).
+
       removePidFileIfMatches(pidfile, data);
     }
-    // Per-daemon status: read THIS daemon's own snapshot (C0), not a global one.
+
     let agents: number | null = null;
     let running: number | null = null;
     let lastActiveMs: number | null = null;
@@ -569,8 +561,7 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
   };
 
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    // Per-machine subdir layout: daemons/<id>/daemon.pid + status.json. Each
-    // daemon has its own directory; id = the directory name.
+
     if (entry.isDirectory() && isDaemonId(entry.name)) {
       const id = entry.name;
       pushRow(id, path.join(dir, id, "daemon.pid"), path.join(dir, id, "status.json"));
@@ -579,10 +570,6 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
 
   return results;
 }
-
-/* ------------------------------------------------------------------ */
-/* daemon status                                                       */
-/* ------------------------------------------------------------------ */
 
 export interface DaemonStatusOpts {
   baseDir?: string;
@@ -593,7 +580,7 @@ export interface DaemonStatusOpts {
    * ambiguous → `ambiguous:true` (the CLI then tells the user to pass an id).
    */
   id?: string;
-  /** Injectable clock for tests; defaults to Date.now. */
+
   now?: () => number;
 }
 
@@ -667,7 +654,6 @@ function daemonStatusFromFile(statusPath: string, nowMs: number): DaemonStatusRe
   }
 }
 
-/** The subdir ids of daemons that have a per-machine status file. */
 function daemonIdsWithStatus(baseDir: string): string[] {
   const dir = daemonsDir(baseDir);
   if (!fs.existsSync(dir)) return [];
@@ -687,11 +673,11 @@ function daemonIdsWithStatus(baseDir: string): string[] {
 export function daemonStatus(opts: DaemonStatusOpts): DaemonStatusResult {
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
   const nowMs = (opts.now ?? (() => Date.now()))();
-  // Explicit id → that daemon's per-machine status.
+
   if (opts.id) {
     return daemonStatusFromFile(statusFilePathById(baseDir, opts.id), nowMs);
   }
-  // No id: auto-pick the sole daemon; ambiguous if more than one.
+
   const ids = daemonIdsWithStatus(baseDir);
   if (ids.length === 1) {
     return daemonStatusFromFile(statusFilePathById(baseDir, ids[0]!), nowMs);
@@ -701,10 +687,6 @@ export function daemonStatus(opts: DaemonStatusOpts): DaemonStatusResult {
   }
   return MISSING_STATUS;
 }
-
-/* ------------------------------------------------------------------ */
-/* daemon stop                                                         */
-/* ------------------------------------------------------------------ */
 
 export interface DaemonStopOpts {
   /** The id shown in `daemon list` (= the daemon's machine-id subdir name). */
@@ -773,10 +755,6 @@ export async function daemonStop(opts: DaemonStopOpts): Promise<void> {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* daemon start                                                        */
-/* ------------------------------------------------------------------ */
-
 export interface DaemonStartOpts {
   machineKey: string;
   serverUrl?: string;
@@ -823,6 +801,22 @@ export interface DaemonLaunchRecord {
  */
 export function credentialFilePathByMachineId(baseDir: string, machineId: string): string {
   return path.join(daemonsDir(baseDir), `${validateMachineId(machineId)}.credential.json`);
+}
+
+export function savedDaemonMachineIds(opts: { baseDir?: string } = {}): string[] {
+  const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
+  const dir = daemonsDir(baseDir);
+  let entries: string[];
+  try { entries = fs.readdirSync(dir); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  return entries
+    .filter((name) => name.endsWith(".credential.json"))
+    .map((name) => name.slice(0, -".credential.json".length))
+    .filter((id) => MACHINE_ID_PATTERN.test(id))
+    .sort();
 }
 
 function readCredentialFile(filePath: string): (DaemonLaunchRecord | { credential: string; machineId: string }) | null {
@@ -1141,14 +1135,6 @@ export async function daemonStartById(opts: {
   });
 }
 
-function pidOwnershipEqual(a: DaemonPidFile | null, b: DaemonPidFile | null): boolean {
-  if (!a || !b) return a === b;
-  return a.pid === b.pid
-    && a.machineId === b.machineId
-    && a.startedAt === b.startedAt
-    && a.ownerToken === b.ownerToken;
-}
-
 /**
  * Exact-machine reconnect. Replacement ownership is acquired before the old
  * PID is touched and held through activation plus replacement readiness.
@@ -1181,7 +1167,7 @@ export async function daemonReconnect(
   let activationAttempted = false;
   try {
     const owned = readPidFile(pidPath);
-    if (!pidOwnershipEqual(before, owned)) {
+    if (!sameDaemonOwnership(before, owned)) {
       throw new Error("daemon ownership changed after reconnect lock acquisition");
     }
     if (owned && (deps.isProcessAlive ?? isProcessAlive)(owned.pid)) {

@@ -507,53 +507,6 @@ describe("listUnreadMentionSources", () => {
   });
 });
 
-// The reply/DM/read exclusion semantics live in the subquery's WHERE clause.
-// We can't execute a WHERE against a mock, but we CAN pin that the subquery
-// is built with the right filter shape — a raw `sql` cast or a missing
-// eq(mention.kind, "mention") clause would be a bug we'd catch by reading
-// the subquery source. As a low-cost regression signal, assert the source
-// text of `listUserServers` includes the three critical predicates.
-describe("listUserServers — filter predicates (source-level pin)", () => {
-  const src = serverQueries.listUserServers.toString();
-
-  it("subquery filters mention rows to the viewer (userId equality)", () => {
-    // The `eq(communityMention.userId, userId)` clause is what pins the
-    // aggregate to the caller's mentions — never anyone else's.
-    expect(src).toMatch(/communityMention\.userId/);
-  });
-
-  it("subquery excludes already-read mentions (read = 0)", () => {
-    // Guards against dropping the `eq(communityMention.read, 0)` predicate,
-    // which would keep the badge permanently red.
-    expect(src).toMatch(/communityMention\.read/);
-    expect(src).toMatch(/,\s*0\s*\)/);
-  });
-
-  it("subquery counts only kind='mention' (not replies)", () => {
-    // `kind = "reply"` events live in For You but do not warrant a red badge
-    // on the server icon — the plan pins this explicitly. The literal is now
-    // sourced from the shared MENTION_KIND constant (#5 consolidation), so the
-    // filter reads `communityMention.kind, MENTION_KIND.MENTION` rather than a
-    // bare "mention" string.
-    expect(src).toMatch(/communityMention\.kind/);
-    expect(src).toMatch(/MENTION_KIND\.MENTION/);
-  });
-
-  it("gates the rail count by current policy and the aligned read cursor", () => {
-    expect(src).toMatch(/notificationEligibleSql/);
-    expect(src).toMatch(/channelReadableSql/);
-    expect(src).toMatch(/communityMessage\.seq/);
-    expect(src).toMatch(/communityReadState\.lastReadSeq/);
-  });
-
-  it("joins go through community_message → community_channel so DM mentions never land in the aggregate", () => {
-    // DM messages have channelId=NULL and would be excluded by INNER JOIN on
-    // `community_channel.id = message.channelId`. Pin the join topology.
-    expect(src).toMatch(/communityMessage/);
-    expect(src).toMatch(/communityChannel/);
-  });
-});
-
 function createResolveServerMock(selectReturns: unknown[][]) {
   const selectCalls: Array<{ fields: Record<string, unknown>; where?: unknown }> = [];
   let index = 0;

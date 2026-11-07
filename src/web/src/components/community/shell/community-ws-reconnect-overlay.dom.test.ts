@@ -10,7 +10,7 @@ import { CommunityRuntimeProvider } from "@/stores/community/runtime"
 let registry: CommunityDbRegistry
 import { CommunityWsReconnectBoundary } from "./community-ws-reconnect-overlay"
 import { communityKeys } from "@/lib/query-keys"
-import { messageReconcileOptions } from "@/hooks/community/community-ws/reconnect-messages"
+import { messageReconcileOptions } from "@/lib/community/message-reconcile"
 import { ApiError } from "@/lib/errors"
 const apiFetchMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }))

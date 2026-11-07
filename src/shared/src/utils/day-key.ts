@@ -14,11 +14,6 @@ export function utcDayKey(now: Date | string | number): string {
   return d.toISOString().slice(0, 10)
 }
 
-/**
- * The UTC `YYYY-MM-DD` key `days` calendar days before `now` (inclusive-window
- * lower bound). The heatmap read passes `utcDayKeyDaysAgo(now, 29)` so a 30-day
- * window (today + the 29 preceding days) is returned.
- */
 export function utcDayKeyDaysAgo(now: Date | string | number, days: number): string {
   const d = now instanceof Date ? new Date(now.getTime()) : new Date(now)
   d.setUTCDate(d.getUTCDate() - days)

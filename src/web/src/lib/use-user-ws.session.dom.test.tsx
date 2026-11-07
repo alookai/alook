@@ -3,11 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 
 const backend = vi.hoisted(() => { const fetch = vi.fn(); vi.stubGlobal("fetch", fetch); return fetch })
-vi.mock("@/lib/analytics", () => ({
-  trackCommunityWsAuthFailure: vi.fn(), trackCommunityWsFrameDropped: vi.fn(),
-  trackCommunityWsLifecycleClose: vi.fn(), trackCommunityWsLifecycleRecovery: vi.fn(),
-  trackCommunityWsLifecycleStage: vi.fn(), trackCommunityWsRetryScheduled: vi.fn(),
-}))
+
 import { authClient } from "./auth-client"
 import { useUserWs } from "./use-user-ws"
 

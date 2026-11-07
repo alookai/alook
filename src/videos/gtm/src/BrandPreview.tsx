@@ -1,6 +1,6 @@
 import React from 'react';
 import { AbsoluteFill, Easing, interpolate, getInputProps } from 'remotion';
-import { AlookLogoAnimation } from './official-logo-animation';
+import { AlookLogoAnimation } from './generated/official-logo-animation';
 export function BrandPreview({t,settledLogo=false}:{t:number;settledLogo?:boolean}) {
  const move=(start:number,end:number)=>interpolate(t,[start,end],[0,1],{extrapolateLeft:'clamp',extrapolateRight:'clamp',easing:Easing.bezier(.65,0,.25,1)});
 

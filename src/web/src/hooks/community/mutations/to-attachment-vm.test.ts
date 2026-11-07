@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { toAttachmentVm } from "./messages"
+import { toAttachmentVm } from "@/lib/community/message-send-input"
 
 // `toAttachmentVm` materializes the optimistic-send attachment view model from
 // the uploaded-attachment shape. Reserve-by-id (route/disc step 2b): the input

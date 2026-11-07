@@ -1,4 +1,5 @@
-import { eq, ne, and, asc, desc, exists, gt, lt, lte, or, sql, inArray, count, min, type SQL, type GetColumnData } from "drizzle-orm";
+import { advanceReadStateRevisionsForUsersBuilder } from "./read-state-revision";
+import { eq, ne, and, asc, desc, exists, gt, lt, lte, or, sql, inArray, count, min, type GetColumnData } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -69,39 +70,8 @@ export function isMessageAttachmentConflict(error: unknown): boolean {
 
 const DEFAULT_LIMIT = 50;
 
-// Module-level logger so every parse failure lands on the same service tag.
-// Shared with any consumer of these queries; the alternative (plumbing a
-// logger down through 30+ call sites) buys nothing here.
 const log = createLogger({ service: "community-queries" });
 
-function advanceMessageDeletionRevisionsBuilder(
-  db: Database,
-  userIds: string[],
-  condition: SQL<unknown>
-) {
-  const ids = JSON.stringify([...new Set(userIds)]);
-  const selected = db
-    .select({
-      userId: sql<string>`CAST(value AS TEXT)`.as("user_id"),
-      revision: sql<number>`1`.as("revision"),
-    })
-    .from(sql`json_each(${ids})`)
-    .where(condition);
-  return db
-    .insert(communityReadStateRevision)
-    .select(selected)
-    .onConflictDoUpdate({
-      target: communityReadStateRevision.userId,
-      set: { revision: sql`${communityReadStateRevision.revision} + 1` },
-    })
-    .returning({
-      userId: communityReadStateRevision.userId,
-      revision: communityReadStateRevision.revision,
-    });
-}
-
-// TEXT column at rest → JSON at the boundary. Isolating the parse here keeps
-// storage-format concerns out of every route.
 function safeParseEmbeds(raw: string | null, messageId: string): unknown | undefined {
   if (!raw) return undefined;
   try {
@@ -157,16 +127,6 @@ export type CreateMessageData = {
   };
 };
 
-/**
- * `createMessage` overloads:
- * callers that never pass `expectedSeq` keep today's non-nullable return
- * type — no pointless null-checks forced onto direct callers such as message
- * send, bot provisioning, and friend request, which never opt into the CAS
- * guard. Only
- * callers that explicitly pass a numeric `expectedSeq` (the agent-send race
- * fix) see the nullable return — `null` means "lost the race, the atomic batch
- * rolled back, treat as a complete no-op".
- */
 export async function createMessage(
   db: Database,
   data: CreateMessageData & { expectedSeq?: undefined }
@@ -509,7 +469,7 @@ async function hardDeleteMessageAttempt(
     : db.delete(communityReadState).where(readStateWhere);
 
   const revisionStatements = impactedUserIds.length > 0
-    ? [advanceMessageDeletionRevisionsBuilder(
+    ? [advanceReadStateRevisionsForUsersBuilder(
         db,
         impactedUserIds,
         and(rootStillExists, impactedHumansStable, enumeratedUserHasEffect)!,
@@ -544,9 +504,6 @@ async function hardDeleteMessageAttempt(
   return { readStateRevisions };
 }
 
-// Shared select projection for the three list-messages paths (`listMessages`,
-// `listMessagesAround`, `listMessagesSince`). Keeps their row shape identical
-// so downstream mappers (`mapMessageForApi`) don't have to branch on source.
 const messageProjection = {
   id: communityMessage.id,
   authorId: communityMessage.authorId,
@@ -717,8 +674,6 @@ export async function listMessagesAround(
     eq(communityMessage.channelId, opts.channelId),
   ];
 
-  // Older half: strictly older than the anchor tuple, DESC. Fetch one extra
-  // row to distinguish "exactly N older" from "N older with more available".
   const olderCond = or(
     lt(communityMessage.createdAt, opts.anchor.createdAt),
     and(
@@ -727,8 +682,6 @@ export async function listMessagesAround(
     )
   )! as ReturnType<typeof eq>;
 
-  // Newer half INCLUDES the anchor (id >= anchor.id at the same createdAt) so
-  // the returned window renders the anchor row itself.
   const newerCond = or(
     gt(communityMessage.createdAt, opts.anchor.createdAt),
     and(
@@ -768,7 +721,7 @@ export async function listMessagesAround(
       ))
       : selectNewer())
       .where(and(...scopeConds, newerCond))
-      // Anchor + newerHalf newer rows + 1 extra probe.
+
       .orderBy(asc(communityMessage.createdAt), asc(communityMessage.id))
       .limit(newerHalf + 1 + 1),
   ]);
@@ -776,8 +729,6 @@ export async function listMessagesAround(
   const hasMoreOlder = olderRows.length > olderHalf;
   const older = (hasMoreOlder ? olderRows.slice(0, olderHalf) : olderRows).map(parseEmbeds);
 
-  // The newer window's target size is (anchor + newerHalf). Anything beyond
-  // means more newer rows exist server-side.
   const newerBudget = newerHalf + 1;
   const hasMoreNewer = newerRows.length > newerBudget;
   const newer = (hasMoreNewer ? newerRows.slice(0, newerBudget) : newerRows).map(parseEmbeds);
@@ -887,8 +838,7 @@ export async function getLatestMessage(
     .select({
       id: communityMessage.id,
       createdAt: communityMessage.createdAt,
-      // `seq` so the human read-state writers can store `lastReadSeq` alongside
-      // `lastReadAt`/`lastReadMessageId` (ref/id read-model seq unification).
+
       seq: communityMessage.seq,
     })
     .from(communityMessage)
@@ -935,8 +885,7 @@ export async function getLatestMessagesByChannelIds(
         channelId: communityMessage.channelId,
         id: communityMessage.id,
         createdAt: communityMessage.createdAt,
-        // `seq` so `markAllServerChannelsRead` can store `lastReadSeq` per
-        // channel (ref/id read-model seq unification).
+
         seq: communityMessage.seq,
       })
       .from(communityMessage)
@@ -972,8 +921,6 @@ export async function getLatestMessagesByChannelIds(
   }
   return Array.from(bestByChannel.values());
 }
-
-
 
 /**
  * Look up a single message by (channel-or-DM scope, seq). `seq === 0` is the
@@ -1209,7 +1156,6 @@ export async function listMessagesReferencingFriendship(
   }));
 }
 
-/** Scope a single-id/batched-id lookup to a channel. */
 export type MessageScope = { channelId: string };
 
 function scopeCondition(scope: MessageScope) {
@@ -1239,7 +1185,6 @@ export async function getMessageInScope(db: Database, messageId: string, scope: 
   return parseEmbeds(row);
 }
 
-/** Batched form of `getMessageInScope` — see its doc comment for the "why". */
 export async function getMessagesByIdsInScope(db: Database, ids: string[], scope: MessageScope) {
   return getMessagesByIdsInChannels(db, ids, [scope.channelId]);
 }

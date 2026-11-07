@@ -2,7 +2,8 @@ import { spawnSync } from "node:child_process"
 import { lstatSync } from "node:fs"
 import { pathToFileURL } from "node:url"
 
-import { parseArgs, resolveSourcePath, targetSpec } from "./desktop-release-artifacts.mjs"
+import { parseArgs } from "./cli-args.mjs"
+import { resolveSourcePath, targetSpec } from "./desktop-release-artifacts.mjs"
 
 function regularFile(path, label) {
   try {

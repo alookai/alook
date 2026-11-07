@@ -8,15 +8,7 @@ import {
   handleWebSocketError,
   handleWebSocketMessage,
 } from "./ws-durable/user-auth"
-import {
-  broadcastPresence,
-  broadcastToAudience,
-  fanOutTyping,
-  fanOutTypingStop,
-  getPresenceAudience,
-  notifyUserDO,
-  sendPresenceSnapshot,
-} from "./ws-durable/presence-typing"
+import { notifyUserDO } from "./ws-durable/presence-typing"
 import {
   acceptCommunityMachineWebSocket,
   handleMachineControlFetch,
@@ -44,7 +36,6 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   /** Preserve start/stop delivery order independently for each user and scope. */
   private typingFanoutChains = new Map<string, Promise<void>>()
 
-  /** Typing dedup window: 8 seconds */
   private static readonly TYPING_DEDUP_MS = 8_000
 
   private static readonly SUBREQUEST_BATCH_SIZE = 40
@@ -144,57 +135,4 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     await notifyUserDO(this.domainContext(), userId, payload)
   }
 
-  private async fanOutTyping(
-    senderUserId: string,
-    channelId?: string,
-    event?: string
-  ): Promise<void> {
-    await fanOutTyping(this.domainContext(), senderUserId, channelId, event)
-  }
-
-  /**
-   * Fan out an explicit `community:typing.stop` for a channel scope to its
-   * recipients. Mirrors `fanOutTyping` but never traverses a dedup cache — a
-   * stop must always land or the pill dangles until the client's 8s expiry.
-   * A DM is a channel now; recipients are its relation='access' members.
-   */
-  private async fanOutTypingStop(
-    senderUserId: string,
-    channelId: string,
-  ): Promise<void> {
-    await fanOutTypingStop(this.domainContext(), senderUserId, channelId)
-  }
-
-  private async broadcastPresence(userId: string, online: boolean): Promise<void> {
-    await broadcastPresence(this.domainContext(), userId, online)
-  }
-
-  /**
-   * Fan a payload out to `userId`'s presence audience (co-members ∪ friends),
-   * batched to stay under the subrequest limit. Factored out of
-   * `broadcastPresence` so other per-audience events (e.g.
-   * `community:bot.activity`) share the same batched-fetch loop.
-   */
-  private async broadcastToAudience(userId: string, payload: unknown): Promise<void> {
-    await broadcastToAudience(this.domainContext(), userId, payload)
-  }
-
-  /**
-   * Who should learn about `userId`'s online/offline flips: server
-   * co-members AND accepted friends — where "friends" (`getFriendUserIds`)
-   * already includes the owner↔own-bot implicit friendship (see
-   * `queries/community/friendship.ts`), so a fresh bot with zero servers
-   * still reaches its owner with no `isBot` branch needed here. Friends are
-   * also the common case that a co-members-only audience misses entirely —
-   * two people can be friends without ever sharing a server, which is the
-   * whole point of a friends list. Deduped so a friend who's also a
-   * co-member gets one fetch, not two.
-   */
-  private async getPresenceAudience(userId: string): Promise<string[]> {
-    return getPresenceAudience(this.domainContext(), userId)
-  }
-
-  private async sendPresenceSnapshot(ws: WebSocket, userId: string): Promise<void> {
-    await sendPresenceSnapshot(this.domainContext(), ws, userId)
-  }
 }

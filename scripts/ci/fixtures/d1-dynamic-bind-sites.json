@@ -540,19 +540,7 @@
     "key": "src/shared/src/db/queries/community/user-profile.ts:getProfilesByUserIds:inArray:1"
   },
   {
-    "key": "src/shared/src/db/queries/conversation.ts:getConversationsByIds:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/conversation.ts:getThreadsByParentMessages:inArray:1"
-  },
-  {
     "key": "src/shared/src/db/queries/email-account.ts:getEmailAccountsByAgents:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/issue.ts:listIssues:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/issue.ts:listIssues:inArray:2"
   },
   {
     "key": "src/shared/src/db/queries/meeting-session.ts:claimMeetingSessions:inArray:1"
@@ -583,96 +571,6 @@
   },
   {
     "key": "src/shared/src/db/queries/product-plan.ts:setPlanEntitlement:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/runtime.ts:deleteRuntimesByDaemonId:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/runtime.ts:getAgentRuntimesForWorkspace:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:cancelActiveTasksByConversation:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:cancelTask:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:claimKillTasks:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:claimKillTasks:inArray:2"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:claimTask:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:claimTask:inArray:2"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:countRunningTasks:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:failStaleKillTasks:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:failStaleRunningTasks:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:failTask:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:findSteerableReplacement:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:findSteerableReplacement:inArray:2"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:getActiveTaskByConversation:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:getTraceAgentsByTaskIds:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:getTraceAgentsByTaskIds:inArray:2"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:hasPendingTaskForConversation:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:listActiveTaskCountsByWorkspace:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:listActiveTaskCountsByWorkspace:inArray:2"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:listActiveTasksByAgent:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:listActiveTasksByWorkspace:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:listActiveTasksByWorkspace:inArray:2"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:listPendingTasksByRuntimes:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:listPendingTasksByRuntimes:inArray:2"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:listTaskHistory:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:listTaskHistory:inArray:2"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:listTraces:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:listTraces:inArray:2"
-  },
-  {
-    "key": "src/shared/src/db/queries/task.ts:supersedeTask:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/user.ts:getUsersByIds:inArray:1"

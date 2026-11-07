@@ -7,9 +7,6 @@ import { CircleAlert, Link2Off, LoaderCircle, LockKeyhole } from "lucide-react"
 import styles from "./inline-marks.module.css"
 import { ChannelIcon } from "../channels/channel-icon"
 
-// Pill components the streamdown renderer maps custom tags to (see message-markdown.tsx).
-
-// Spoiler — hidden until clicked.
 export function Spoiler({ children }: { children?: React.ReactNode }) {
   const [shown, setShown] = useAtom(useCreateAtom(false))
   return (
@@ -25,9 +22,6 @@ export function Spoiler({ children }: { children?: React.ReactNode }) {
   )
 }
 
-// @mention pill. `everyone` styles @everyone distinctly. `onClick` is
-// only wired for resolvable member mentions — @everyone has no
-// profile to open, so message-markdown.tsx never passes it for those.
 export function MentionPill({
   children,
   everyone,
@@ -37,8 +31,7 @@ export function MentionPill({
   children?: React.ReactNode
   everyone?: boolean
   onClick?: (e: React.MouseEvent) => void
-  // Plain-text label for the native `title` tooltip so a long, truncated
-  // mention stays fully readable on hover. Falls back to the string children.
+
   label?: string
 }) {
   const title = label ?? (typeof children === "string" ? children : undefined)

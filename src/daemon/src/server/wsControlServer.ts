@@ -1,34 +1,8 @@
-/**
- * WsControlServer — the SERVER end of the control plane, over a real WebSocket.
- *
- * This is a thin ws-transport shim: it authenticates a connecting daemon by
- * machine key, then lets the caller `pushCommand()` a `HostCommand` down the
- * active socket and observe inbound `ready` / `agent_session` / ack frames.
- * It does NOT decide when to wake an agent, does NOT track a server-side
- * "running agents" set, and does NOT retry/redeliver anything — that
- * server-side control-plane state was retired (minimal-wake-queue-unread-notice
- * plan §6): the real production path is `src/web`'s wake producer →
- * `src/queue-worker`'s queue consumer → `sendWakeToMachine`, and the DAEMON
- * (not this fixture) decides spawn-vs-notify-vs-coalesce for `agent:wake`.
- * This class exists purely so daemon-side control-plane/e2e tests can drive
- * `agent:wake`/`agent:stop` over a REAL WebSocket instead of an in-process
- * shortcut, exercising the same transport (`WsControlChannel`) production
- * code uses.
- *
- * Frames (symmetric with `WsControlChannel`):
- *   - server → host:  the JSON `HostCommand` (`agent:wake` / `agent:stop` / `bot:*`)
- *   - host → server:  `{ type:"ready", …HostReady }` | `{ type:"agent_session", … }` |
- *                      `{ type:"agent_wake_ack" | "agent_stopped_ack", … }`
- *
- * The ws server impl is injected (`WebSocketServerLike`) so this file carries no
- * hard `ws` dependency and stays unit-testable; a deployment/test harness passes
- * a factory built on the `ws` package.
- */
+
 import type { HostCommand, HostReady, AgentId, WebSocketLike } from "./contract.js";
-// Re-export so existing importers of WebSocketLike from this module keep working.
+
 export type { WebSocketLike } from "./contract.js";
 
-/** Per-connection metadata extracted from the WS upgrade request. */
 export interface WsConnectionMeta {
   /** The `Authorization` header on the upgrade request (e.g. `Bearer <machineKey>`). */
   authHeader?: string;
@@ -108,7 +82,6 @@ export class WsControlServer {
     });
   }
 
-  /** True iff a daemon is currently connected and authenticated. */
   get isConnected(): boolean {
     return this.active !== null;
   }
@@ -137,7 +110,7 @@ export class WsControlServer {
         socket.send(JSON.stringify({ type: "error", code: "AUTH_REJECTED" }));
         socket.close();
       } catch {
-        /* already gone */
+
       }
       return;
     }
@@ -149,7 +122,7 @@ export class WsControlServer {
       if (this.active === socket) this.active = null;
     });
     socket.on("error", () => {
-      /* close handler clears the socket */
+
     });
   }
 
@@ -162,8 +135,7 @@ export class WsControlServer {
     }
     if (!frame || typeof frame.type !== "string") return;
     if (frame.type === "ready") {
-      // Strip the wire-only `type` discriminant — `HostReady` itself has no
-      // `type` field (see `WsControlChannel.reportReady`'s flat-spread frame).
+
       const { type: _type, ...ready } = frame;
       this.opts.onReady?.(ready);
     } else if (frame.type === "agent_session") {

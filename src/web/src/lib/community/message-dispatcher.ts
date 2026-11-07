@@ -18,7 +18,6 @@ import { mapMessageForWs, loadApiMessageContext, readCommunityMessageProfiles } 
 import { sendMessageDeliveryBatch } from "./message-delivery-transport"
 import { enqueueQueueTasks } from "./queue-producer"
 
-import { communityProducerContract } from "./producer-contract"
 import { groupAttachments } from "./messages"
 
 const log = createLogger({ service: "committed-message-dispatcher" })
@@ -235,8 +234,7 @@ async function runCommittedMessageDispatch(
   structural: CommittedMessageStructuralOutcome,
 ): Promise<void> {
   const startedAt = Date.now()
-  getCloudflareContext()
-  const contract = communityProducerContract()
+  const contract = BUSINESS_SCHEMA_VERSION
   const plan = await planCommittedMessage(
     db,
     messageId,

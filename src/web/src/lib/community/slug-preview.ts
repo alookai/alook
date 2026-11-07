@@ -2,9 +2,9 @@ import { slugify } from "@alook/shared"
 
 export type SlugPreview = {
   slug: string
-  /** Trimmed input is non-empty but the slug is empty — the exact case every route 400s on. */
+
   invalid: boolean
-  /** Slug is non-empty and differs from the trimmed input — worth showing a preview for. */
+
   changed: boolean
 }
 

@@ -1,27 +1,4 @@
-/**
- * createDaemon — the real daemon, end-to-end.
- *
- * A daemon holds a machine credential (`cmk_...`) + the server's URLs. It
- * does NOT import a server object and cannot reach the admin plane — its
- * whole capability surface is three network faces (all toward the server
- * it was pointed at):
- *
- *   1. control plane (ws):   receive agent:wake/stop, report ready/
- *      session/ack. Connects with `Authorization: Bearer <machineKey>`
- *      (`cmk_`). This is the only path — no URL-token fallback exists.
- *   2. enroll plane (http):  POST /api/community/daemon/enroll-agent
- *      (Bearer `cmk_`) → per-agent runner key (`crk_`).
- *   3. credential proxy (http): validates agent vouchers, swaps in runner
- *      keys, stamps X-Agent-Id, and forwards to the server's data plane.
- *      All agent traffic flows through canonical `/api/community/*` REST
- *      doors; the deleted flat `/api/<verb>` catalog is rejected by the proxy.
- *
- * It is agnostic on both axes:
- *   - whether the server is a real Alook server or a local `wrangler dev`
- *     instance — same wire contract either way;
- *   - whether an agent is a real runtime (Claude, Codex, …) or a test stub
- *     — the `driverFor` is INJECTED by the caller.
- */
+
 import { homedir } from "os";
 import { PiiStore } from "../pii/store.js";
 import { appendFileSync, mkdirSync } from "node:fs";
@@ -137,25 +114,8 @@ export function createRuntimeRawLineTap(args: {
   };
 }
 
-/**
- * Derive the audit-log `cli_invocation` subcommand from a proxy request
- * pathname. The CLI calls canonical `/api/community/*` REST doors directly;
- * the proxy preserves that pathname unchanged.
- *
- * Canonical `users/me/inbox/ack` is the advance sibling of `inboxPull` with no
- * user intent, so it is dropped (returns `null`). Anything outside recognized
- * canonical shapes returns `null` too — the proxy is generic and could carry
- * non-audit traffic in the future.
- */
 export function deriveAuditLogSubcommand(pathname: string, method?: string): string | null {
-  // Route/disc retarget: several flat verbs now hit the canonical id-in-path
-  // door (`channels/{id}/messages`, `messages/{id}/reactions/…`) instead of
-  // `/api/<verb>`. Slicing the first segment of those would log the DOOR name
-  // (`channels`/`messages`) instead of the logical verb the bot invoked, so the
-  // `cli_invocation` audit row would lose which action ran. Map the canonical
-  // SHAPES back to their verb FIRST, on the canonical `/api/community/…`
-  // shape. The messages door is dual-verb — GET is `read`, POST is `send` — so
-  // it needs the method; the others are single-verb.
+
   const canonical = pathname.split("?")[0] ?? pathname;
   if (/^\/api\/community\/messages\/[^/]+\/properties$/.test(canonical)) {
     if (method === "GET") return "messagePropertyList";
@@ -170,40 +130,20 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
     return method === "GET" ? "read" : "send";
   }
   if (/^\/api\/community\/channels\/[^/]+\/members(\/|$)/.test(canonical)) return "channelMember";
-  // Attachments door (attachments fold): the flat `attachmentUpload` /
-  // `attachmentDownload` verbs fold onto channels/{id}/attachments (POST upload)
-  // + channels/{id}/attachments/{attachmentId} (GET download). Map both back so
-  // the audit row keeps the logical verb, not the `channels` door segment. The
-  // download shape (has the `{attachmentId}` sub-segment) is tested FIRST so the
-  // bare-upload shape doesn't swallow it.
+
   if (/^\/api\/community\/channels\/[^/]+\/attachments\/[^/]+/.test(canonical)) return "attachmentDownload";
   if (/^\/api\/community\/channels\/[^/]+\/attachments(\/|$)/.test(canonical)) return "attachmentUpload";
-  // Single-message hydrate door GET messages/{id} = the folded `resolve` verb.
-  // AFTER the reactions pattern so that specific sub-path wins.
+
   if (/^\/api\/community\/messages\/[^/]+$/.test(canonical)) return "resolve";
-  // Server-scoped list doors (轴3 fold): GET servers/{id}/members = the folded
-  // `listMembers` verb; GET servers/{id}/channels and GET servers/channels (the
-  // all-servers collection read) = the folded `listChannels` verb. Map back so
-  // the audit row keeps the logical verb, not the `servers` door segment.
+
   if (/^\/api\/community\/servers\/[^/]+\/members(\/|$)/.test(canonical)) return "listMembers";
   if (/^\/api\/community\/servers\/[^/]+\/channels(\/|$)/.test(canonical)) return "listChannels";
   if (/^\/api\/community\/servers\/channels(\/|$)/.test(canonical)) return "listChannels";
-  // Friends bucket doors (轴3 fold): the bot's `listFriends` fans out to
-  // GET friends/accepted + GET friends/pending. Map both back to the logical
-  // verb so the audit row stays `listFriends`, not the `friends` segment.
-  // (/friends/blocked is bot-403 → never reached by a bot, so it needs no map.)
+
   if (/^\/api\/community\/friends\/(accepted|pending)(\/|$|\?)/.test(canonical)) return "listFriends";
-  // friend-request door (friendRequest fold): the bot verb folded onto POST
-  // friends/request (dual-actor). Map back to `friendRequest` so the audit row
-  // stays the logical verb, not the `friends` segment. (Audit derivation is
-  // daemon/proxy-only = bot path; the human arm's own logAudit is untouched.)
+
   if (/^\/api\/community\/friends\/request(\/|$|\?)/.test(canonical)) return "friendRequest";
-  // Inbox trinity doors (轴3 fold): the caller's own inbox pull/snapshot/ack fold
-  // into users/me/inbox/{pull,snapshot,ack}. Map back to the logical verb so the
-  // audit row stays inboxPull/inboxSnapshot/ack, not the `users` segment. (ack is
-  // the advance operation of the fetch↔advance trinity — snapshot=peek /
-  // pull=fetch / ack=advance; route/disc Gener #215 乙, relocated with the inbox
-  // family, NOT to channels/{id}/read.)
+
   if (/^\/api\/community\/users\/me\/inbox\/pull(\/|$|\?)/.test(canonical)) return "inboxPull";
   if (/^\/api\/community\/users\/me\/inbox\/snapshot(\/|$|\?)/.test(canonical)) return "inboxSnapshot";
   if (/^\/api\/community\/users\/me\/inbox\/ack(\/|$|\?)/.test(canonical)) return null; // ack writes no audit row here (re-homed to daemon reborn-ready signal)
@@ -215,9 +155,6 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   if (method === "PATCH" && canonical === "/api/community/users/me/profile") return "profileBioUpdate";
   if (method === "POST" && canonical === "/api/community/users/me/avatar") return "profileAvatarUpdate";
 
-  // Bot-self lifecycle door (bots/me/*, Blondie #527): nap relocated from the flat
-  // /nap to bots/me/nap. Map back to the logical `nap` verb so the audit stays
-  // `nap`, not the `bots` segment.
   if (/^\/api\/community\/bots\/me\/nap(\/|$|\?)/.test(canonical)) return "nap";
 
   return null;
@@ -251,7 +188,6 @@ export function emitImplicitTypingStopOnSend(args: {
   }
 }
 
-/** The minimal WebSocket the control channel needs (host injects a `ws` factory). */
 export type DaemonWebSocketFactory = (url: string, headers: Record<string, string>) => unknown;
 
 export interface CreateDaemonOptions {
@@ -392,11 +328,6 @@ export function createBuiltinDaemonSessionFactory(
   };
 }
 
-/**
- * Start a daemon. Connects the control plane, starts the credential proxy (with
- * an inboxPull hook for timeline), enrolls agents on first contact, and wires
- * the agent manager. The full real code path is exercised — no shortcuts.
- */
 export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDaemon> {
   const log = opts.logger ?? createLogger({ header: "@alook/daemon" });
   const recentContextSdk = createBuiltinAgentDriverSdk();
@@ -443,7 +374,6 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     log.warn("timeline startup sweep failed");
   });
 
-  // Self-healing: resolve CLI path with fallback if primary is missing
   const resolvedCliPath = resolveAlookCliPathWithFallback(opts.agentCliPath);
   const onRuntimeRawLine = createRuntimeRawLineTap({
     traceDir: opts.fsmTraceDir,
@@ -458,12 +388,8 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     providerFor: (agentId) => managerRef?.agentBackendId(agentId) ?? null,
   });
 
-  // Held in a mutable cell so the credential-proxy and manager audit hooks
-  // (constructed above the WsControlChannel below) can call it lazily —
-  // the closures fire on real traffic long after `channel` is populated.
   let channelRef: WsControlChannel | null = null;
-  // Populated after `manager` is constructed below. Producer B reads
-  // `auditContext(agentId)` off it inside `onProxyRequest`.
+
   const providerQuotaSnapshots = (): ProviderQuotaSnapshot[] =>
     [...providerQuotaByBackend.values()].map((snapshot) => structuredClone(snapshot));
   const tokenUsageAvailability = new Map<string, { backendId: BuiltinBackendId; status: "available" | "unavailable" }>();
@@ -553,8 +479,6 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     });
   };
 
-  // Declared above the proxy so `onProxyRequest`'s implicit-typing.stop hook
-  // can read it. Populated later by the AgentRouter on each `agent:wake`.
   const typingTracker: TypingScopeTracker = createTypingScopeTracker();
 
   const broker = new CredentialBroker({ upstreamBaseUrl: opts.serverUrl });
@@ -596,15 +520,13 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     onProxyRequest: (agentId, method, pathname, metadata) => {
       const subcommand = deriveAuditLogSubcommand(pathname, method);
       if (!subcommand) return;
-      // Producer B: read the same audit context Producer A does so
-      // cli_invocation rows carry launchId (and sessionId once the runtime
-      // handshake has landed) — matches plan §Data model.
+
       const context = managerRef?.auditContext(agentId);
       emitBotAuditEvent(agentId, {
         kind: "cli_invocation",
         payload: { subcommand, ...(metadata ? { propertyType: metadata.propertyType } : {}) },
       }, context);
-      // Typing pill fallback — see `emitImplicitTypingStopOnSend` docstring.
+
       emitImplicitTypingStopOnSend({
         subcommand,
         agentId,
@@ -614,18 +536,8 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     },
   });
 
-  // Per-agent enrolled runner keys (enrollment is async; stored before deliver).
   const enrolledKeys = new Map<string, string>();
 
-  // ── Bot typing indicator (DM-only) ─────────────────────────────────────
-  //
-  // `typingTracker` is declared above the proxy so `onProxyRequest`'s
-  // implicit-typing.stop hook can read it. Populated by the AgentRouter on
-  // each `agent:wake` (from `unreadNotice.channelId`) and cleared on
-  // FSM transitions into `idle`/`stopping`.
-  //
-  // Per-agent heartbeat interval handles. Only alive while an agent is in
-  // a running-family state; recreated on each starting/running transition.
   const typingHeartbeats = new Map<string, ReturnType<typeof setInterval>>();
   const TYPING_HEARTBEAT_MS = 5_000;
   function stopTypingHeartbeat(agentId: string): void {
@@ -743,7 +655,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     while (Date.now() - start < WARMUP_CEILING_MS) {
       try {
         const bots = await listMyBotsHttp();
-        // Server snapshot wins — reconcile the cache.
+
         replaceBotCache(bots);
         log.info("cold-start bot-cache warmup succeeded", { bots: bots.length, attempt });
         return;
@@ -753,8 +665,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         attempt++;
       }
     }
-    // Ceiling exhausted — resolve empty. A subsequent `agent:wake` frame
-    // will trigger a deferred retry via enrollAgent.
+
     log.warn("cold-start bot-cache warmup exhausted its ceiling", { ceilingMs: WARMUP_CEILING_MS, attempts: attempt });
   }
 
@@ -934,11 +845,6 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     }
   }
 
-  // Router is wired below. Held in a mutable cell so `driverFor` — which
-  // needs to consult live runtime-health — and the manager's session-lifecycle
-  // callbacks can reach it after construction. Both closures resolve `router!`
-  // lazily; router.start() runs at the bottom of createDaemon before any
-  // command dispatch, so runtime code always sees a populated cell.
   let router: AgentRouter | null = null;
 
   const diagnosticTrace = (() => {
@@ -995,9 +901,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     baseContextFor: (agentId: string) => {
       const runnerKey = enrolledKeys.get(agentId);
       if (!runnerKey) throw new Error(`agent ${agentId} not enrolled yet — enroll before deliver`);
-      // Look up bot metadata for system-prompt assembly. Missing (unknown bot
-      // that pre-dates warmup) is not fatal — the manager's default prompt
-      // path handles missing name/description.
+
       const botMeta = botsById.get(agentId);
       return {
         agentId,
@@ -1057,7 +961,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       recordProviderQuota(backendId, quota);
       reportTelemetryForIdleAgent(agentId);
     },
-    // Bash suppression + thinking truncation happen inside managerRuntime.
+
     onBotAuditEvent: (agentId, event, context) => emitBotAuditEvent(agentId, event, context),
     // Idle hibernation / stall-recovery stops the subprocess without a
     // server-sent agent:stop; keep AgentRouter.running aligned so the next
@@ -1109,7 +1013,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         agents: manager.statusProjection(nowMs),
       });
     };
-    writeStatus(); // one immediately so `daemon status` works right after boot
+    writeStatus();
     statusTimer = setInterval(writeStatus, STATUS_WRITE_INTERVAL_MS);
     statusTimer.unref?.();
   }
@@ -1162,7 +1066,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
           const bots = await listMyBotsHttp();
           replaceBotCache(bots);
         } catch {
-          // Fall through — still treat as unknown below.
+
         }
       }
       if (!botsById.has(agentId)) {
@@ -1226,9 +1130,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   channel.onCommand((cmd) => {
     handleBotFrame(cmd);
   });
-  // Warmup on every (re)connect — including the first open. `onOpen` fires
-  // after resync completes. Wake-resync runs alongside it so a message
-  // dropped while this daemon was offline gets a second chance right away.
+
   channel.onOpen(() => {
     if (stopping) return;
     void coldStartWarmup();
@@ -1276,8 +1178,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       manager.beginShutdown();
       selfSleepScheduler?.stop();
       reminderSchedulerRef?.clearAll();
-      // Clear all bot-typing heartbeat intervals and emit final stops for
-      // any outstanding scopes so no pill is left dangling.
+
       for (const agentId of [...typingHeartbeats.keys()]) {
         try { emitTypingStopsAndClear(agentId); } catch (error) { failures.push(error); }
       }

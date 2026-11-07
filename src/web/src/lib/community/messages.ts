@@ -39,7 +39,6 @@ export function parseMemberCursor(cursorParam: string | null): { joinedAt: strin
   return undefined
 }
 
-// Parse a positive integer query param with default + ceiling.
 export function parseBoundedInt(
   param: string | null,
   defaultValue: number,
@@ -52,7 +51,6 @@ export function parseBoundedInt(
   return Math.min(Math.max(n, min), max)
 }
 
-// Build next cursor string from the last item, or undefined if no more pages
 export function buildPaginatedResponse<T extends { createdAt: string; id: string }>(
   rows: T[],
   pageSize: number
@@ -171,7 +169,6 @@ export function groupAttachments(
   return map
 }
 
-// Group raw reaction rows by messageId into aggregated display format
 export function groupReactions(
   reactions: Array<{ messageId: string; emoji: string; userId: string }>,
   currentUserId: string

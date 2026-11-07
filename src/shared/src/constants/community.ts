@@ -1,11 +1,10 @@
-// Pagination
+
 export const DEFAULT_MESSAGE_PAGE_SIZE = 50
 export const MAX_MESSAGE_PAGE_SIZE = 100
 export const DEFAULT_MEMBERS_PAGE_SIZE = 100
 export const MAX_MEMBERS_PAGE_SIZE = 200
 export const DEFAULT_USER_SEARCH_LIMIT = 20
 
-// Length limits — names, descriptions, profile text
 export const MAX_SERVER_NAME_LENGTH = 100
 export const MAX_SERVER_DESCRIPTION_LENGTH = 2000
 export const MAX_CHANNEL_NAME_LENGTH = 100
@@ -21,15 +20,13 @@ export const FORUM_ARCHIVE_TAG = "archived"
 export const MAX_FORUM_TAG_LENGTH = 30
 export const MAX_FORUM_TAGS_PER_POST = 5
 
-// Reactions
 export const MAX_EMOJI_BYTES = 32
 
-// Attachments / uploads
 export const MAX_ATTACHMENTS_PER_MESSAGE = 10
-export const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024 // 25 MB
+export const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024
 export const MAX_ATTACHMENT_THUMBNAIL_EDGE_PX = 720
-export const MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES = 256 * 1024 // 256 KiB
-export const MAX_SERVER_ICON_SIZE_BYTES = 5 * 1024 * 1024 // 5 MB
+export const MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES = 256 * 1024
+export const MAX_SERVER_ICON_SIZE_BYTES = 5 * 1024 * 1024
 export const ALLOWED_ICON_MIME_TYPES = [
   "image/png",
   "image/jpeg",
@@ -40,7 +37,7 @@ export const ALLOWED_ICON_MIME_TYPES = [
 // Client-side crop/zoom picker (server icon, user avatar, bot avatar) — the
 // server-side upload handlers still enforce `MAX_SERVER_ICON_SIZE_BYTES` /
 // `ALLOWED_ICON_MIME_TYPES` above; these are the pre-cropper picker gates.
-export const MAX_ICON_SOURCE_FILE_SIZE_BYTES = 15 * 1024 * 1024 // 15 MB
+export const MAX_ICON_SOURCE_FILE_SIZE_BYTES = 15 * 1024 * 1024
 export const ICON_CROP_OUTPUT_SIZE = 512
 export const ICON_CROP_MIN_ZOOM = 1
 export const ICON_CROP_MAX_ZOOM = 3
@@ -50,13 +47,11 @@ export const ALLOWED_ICON_SOURCE_MIME_TYPES = [
   "image/webp",
 ] as const
 
-// Search
 export const MIN_SEARCH_LENGTH = 2
 export const MAX_SEARCH_LENGTH = 200
 export const DEFAULT_SEARCH_LIMIT = 50
 export const MAX_SEARCH_LIMIT = 100
 
-// Invites
 export const MIN_INVITE_MAX_USES = 1
 export const MAX_INVITE_MAX_USES = 1000
 export const MAX_INVITE_EXPIRY_DAYS = 30
@@ -68,7 +63,6 @@ export const MAX_ACTIVE_INVITES_PER_SERVER = 50
 // API call, or the server 404s ("category not found").
 export const UNCATEGORIZED_CATEGORY_ID = "__uncategorized__"
 
-// Previews
 export const MESSAGE_PREVIEW_LENGTH = 120
 
 export function truncateMessagePreview(text: string): string {
@@ -87,7 +81,6 @@ export function truncateMessagePreview(text: string): string {
   return `${text.slice(0, end)}…`
 }
 
-// Inbox / unreads
 export const DEFAULT_INBOX_PAGE_SIZE = 100
 export const MAX_INBOX_PAGE_SIZE = 200
 

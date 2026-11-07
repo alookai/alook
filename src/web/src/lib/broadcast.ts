@@ -1,4 +1,4 @@
-import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import type { WsMessage } from "@alook/shared"
 import {
@@ -12,14 +12,13 @@ import {
   type CommunityContract,
 } from "@alook/shared"
 import { fetchViaBindingOrDevFallback } from "./dev-binding-fetch"
-import { communityProducerContract } from "./community/producer-contract"
 
 const log = createLogger({ service: "broadcast" })
 const bulkBroadcastMaxUserIds = 1000
 const bulkBroadcastMaxActive = 3
 
 function encodeCommunityProducerEvent(message: unknown) {
-  const contract = communityProducerContract()
+  const contract = BUSINESS_SCHEMA_VERSION
   const encoded = encodeCommunityBrowserEvent(message, contract)
   return encoded.ok ? { ...encoded, contract } : encoded
 }

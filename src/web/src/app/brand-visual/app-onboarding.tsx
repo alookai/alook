@@ -34,8 +34,6 @@ import { BillingContent, BillingSheet } from "@/components/community/billing/bil
 import { FounderPlanChangeDialog } from "@/components/community/billing/founder-plan-change-dialog"
 import { Fixtures, Specimen } from "./app-components"
 
-/* ---------- demo fixtures ---------- */
-
 const DAY = 864e5
 const iso = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 6e4).toISOString()
 /** Board-only cache seeds never go stale, so no query refetches on its own. */
@@ -61,7 +59,7 @@ const ONLINE_MAC = {
     { id: "opencode", version: "1.4.0", status: "healthy", reasoning: OPENCODE_CATALOG },
   ],
 } as unknown as MachineSummary
-/** Online, but the chosen agent failed detection: the machine dialog's "isn't ready" state. */
+
 const BROKEN_MAC = {
   ...ONLINE_MAC,
   availableRuntimes: [{ id: "claude", version: "2.0.9", status: "unhealthy", lastError: "claude: command not found (PATH=/usr/bin:/bin)" }],
@@ -96,7 +94,7 @@ const SUBSCRIBED: BillingSummary = {
     scheduledChange: { plan: { id: "studio", displayName: "Studio" }, effectiveAt: new Date(Date.now() + 18 * DAY).toISOString() },
   },
 }
-/** Only the fields BillingContent reads; every action is a no-op on the board. */
+
 function boardBilling(data: BillingSummary): BillingController {
   return {
     data, isPending: false, isFetching: false, isError: false, returnFrom: null, polling: false, actionError: null,
@@ -104,15 +102,12 @@ function boardBilling(data: BillingSummary): BillingController {
   } as unknown as BillingController
 }
 
-/* ---------- layout ---------- */
-
 const grid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 1fr))", gap: 16, alignItems: "start" }
 const row: CSSProperties = { display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }
 const stack: CSSProperties = { display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }
 /** Fixed children (overlays, toasts) stay inside: translateZ makes this box their containing block. */
 const contained = (height: number): CSSProperties => ({ position: "relative", height, overflow: "hidden", transform: "translateZ(0)", display: "flex", flexDirection: "column" })
 
-/** Inner breathing room: the board's specimen body clips at its rounded edge. */
 function Pad({ children }: { children: ReactNode }) {
   return <div style={{ padding: 16, minWidth: 0 }}>{children}</div>
 }
@@ -135,7 +130,6 @@ function Scope({ machines = [], capacity, children }: { machines?: MachineSummar
   )
 }
 
-/** The tile slot the real empty states use (machine list, bot list). */
 function TileSlot({ children }: { children: ReactNode }) {
   return (
     <div className="w-full max-w-70 overflow-hidden rounded-xl">
@@ -143,8 +137,6 @@ function TileSlot({ children }: { children: ReactNode }) {
     </div>
   )
 }
-
-/* ---------- onboarding ---------- */
 
 /** Stages that do not call the network on mount. Agent setup, manual pairing and
  * room initialization create real tokens, codes or bots, so the board closes the
@@ -183,7 +175,7 @@ function OnboardingShellLaunchers() {
 
 function OnboardingPreviewLaunchers() {
   const [variant, setVariant] = useState<null | { key: number; online?: boolean; settingUp?: boolean }>(null)
-  // The preview flow has no close control; Esc unmounts it on the board.
+
   useEffect(() => {
     if (!variant) return
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setVariant(null) }
@@ -290,8 +282,6 @@ function OnboardingSpecimens() {
   )
 }
 
-/* ---------- onboard cards ---------- */
-
 function TileSpecimens() {
   const [helpOpen, setHelpOpen] = useState(false)
   const [helpMounted, setHelpMounted] = useState(false)
@@ -314,8 +304,6 @@ function TileSpecimens() {
     </div>
   )
 }
-
-/* ---------- machines ---------- */
 
 function PairStepsSpecimen() {
   const states = [
@@ -392,8 +380,6 @@ function MachineSpecimens() {
   )
 }
 
-/* ---------- shell overlays ---------- */
-
 function FailedConnection({ children }: { children: ReactNode }) {
   const runtime = useCommunityRuntime()
   useEffect(() => { runtime.ws.actions.setConnectionStatus("failed") }, [runtime])
@@ -417,8 +403,6 @@ function ShellSpecimens() {
     </div>
   )
 }
-
-/* ---------- billing ---------- */
 
 function BillingSpecimens() {
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -446,7 +430,6 @@ function BillingSpecimens() {
   )
 }
 
-/** /brand-visual: Onboarding specimens (real components on demo fixtures). */
 export function AppOnboardingSpecimens(_props: { mode: "light" | "dark" }) {
   // Tiles, relative times and the GSAP timelines depend on the client; render after mount.
   const [mounted, setMounted] = useState(false)

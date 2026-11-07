@@ -68,11 +68,6 @@ export function isOwnedBotAvatarObjectKey(key: string, botId: string): boolean {
   return suffix.length > 0 && !suffix.includes("/")
 }
 
-/**
- * Map a `communityServer` row to the public icon URL. The DB stores the R2
- * key; clients need a routable URL. Returns `null` when no icon is set so
- * callers can pass the value straight through to the response payload.
- */
 export function serverIconUrl(server: { id: string; icon: string | null }): string | null {
   if (!server.icon) return null
   return `/api/community/servers/${server.id}/icon?v=${encodeURIComponent(server.icon)}`

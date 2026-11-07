@@ -12,13 +12,13 @@
  * auto-expire cleans up if the daemon dies mid-turn).
  */
 export interface TypingScopeTracker {
-  /** Insert (idempotent) a channel scope for this agent. */
+
   add(agentId: string, channelId: string): void;
-  /** Current channel scopes for this agent (empty if none / unknown). */
+
   snapshot(agentId: string): string[];
-  /** Whether this agent has ANY active scope. */
+
   hasAny(agentId: string): boolean;
-  /** Drop all scopes for this agent. */
+
   clear(agentId: string): void;
 }
 

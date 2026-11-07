@@ -108,10 +108,6 @@ export interface PlanResult {
   localResponse?: Record<string, unknown>;
 }
 
-/* ------------------------------------------------------------------ */
-/* The reducer                                                         */
-/* ------------------------------------------------------------------ */
-
 export function planAgentInboxSideEffect(input: PlanInput): PlanResult {
   const heldContextLimit = input.heldContextLimit ?? DEFAULT_HELD_CONTEXT_LIMIT;
   const trace: TraceEntry[] = [
@@ -129,7 +125,6 @@ export function planAgentInboxSideEffect(input: PlanInput): PlanResult {
     },
   ];
 
-  // Explicit override: send/act regardless.
   if (input.continueAnyway) {
     appendTrace(trace, "continue_anyway_bypass");
     return forwardPlan(
@@ -139,7 +134,6 @@ export function planAgentInboxSideEffect(input: PlanInput): PlanResult {
     );
   }
 
-  // Case 1: messages pending on the exact target.
   if (input.pendingMessages.length > 0) {
     appendTrace(trace, "pending_messages_found", { pendingCount: input.pendingMessages.length });
     const pending = sortInboxMessagesBySeq(normalizeInboxVisibleMessages(input.pendingMessages, input.target));
@@ -160,7 +154,6 @@ export function planAgentInboxSideEffect(input: PlanInput): PlanResult {
       unseenCount: unconsumedMessages.length,
     });
 
-    // 1a: everything pending is already seen → forward, advance boundary.
     if (unconsumedMessages.length === 0) {
       const contiguousBoundary = maxKnownContiguousBoundary(input);
       const canAdvanceBoundary =
@@ -194,7 +187,6 @@ export function planAgentInboxSideEffect(input: PlanInput): PlanResult {
       );
     }
 
-    // 1b: some unseen → HOLD, show latest few.
     const heldBoundary = resolveFreshnessBoundary(unconsumedMessages);
     if (heldBoundary.ok) {
       const heldMessages = latestVisibleMessages(unconsumedMessages, heldContextLimit);
@@ -241,7 +233,6 @@ export function planAgentInboxSideEffect(input: PlanInput): PlanResult {
     return forwardWithoutDecision(input, trace);
   }
 
-  // Case 2: no pending; trust a known seq boundary if we have one.
   const boundary = Math.max(input.existingSeenUpToSeq ?? 0, input.modelSeenSeq ?? 0);
   appendTrace(trace, "model_boundary_checked", { boundary });
   if (boundary > 0) {
@@ -262,7 +253,6 @@ export function planAgentInboxSideEffect(input: PlanInput): PlanResult {
     );
   }
 
-  // Case 3: first touch — decide from "recent" context (untrusted).
   if (input.recentMessages.length > 0) {
     return planFirstTouchRecentContext(input, heldContextLimit, trace);
   }
@@ -282,10 +272,6 @@ export function planAgentInboxSideEffect(input: PlanInput): PlanResult {
     trace,
   );
 }
-
-/* ------------------------------------------------------------------ */
-/* First-touch (recent context, untrusted)                            */
-/* ------------------------------------------------------------------ */
 
 function planFirstTouchRecentContext(input: PlanInput, heldContextLimit: number, trace: TraceEntry[]): PlanResult {
   const recent = sortInboxMessagesBySeq(normalizeInboxVisibleMessages(input.recentMessages, input.target));
@@ -396,10 +382,6 @@ function planFirstTouchRecentContext(input: PlanInput, heldContextLimit: number,
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Plan builders                                                       */
-/* ------------------------------------------------------------------ */
-
 function heldPlan(
   input: PlanInput,
   held: { decision: FreshnessDecision; context: HeldContext; consumeMessages: InboxVisibleMessage[]; consumeBoundarySeq: number },
@@ -467,10 +449,6 @@ function forwardWithoutDecision(input: PlanInput, trace: TraceEntry[]): PlanResu
   appendTrace(trace, "plan_built", { outcome: "forward", decision: "none", effectCount: 0 });
   return { outcome: "forward", target: input.target, effects: [], trace };
 }
-
-/* ------------------------------------------------------------------ */
-/* Normalization & seq helpers                                         */
-/* ------------------------------------------------------------------ */
 
 export function normalizeInboxVisibleMessage(message: InboxVisibleMessage, target?: string): InboxVisibleMessage {
   const targetFields = target ? parseTargetFields(target) : {};
@@ -559,10 +537,6 @@ function messageSenderId(message: InboxVisibleMessage): string | undefined {
   return undefined;
 }
 
-/* ------------------------------------------------------------------ */
-/* Target parsing                                                      */
-/* ------------------------------------------------------------------ */
-
 function parseTargetFields(target: string): Record<string, string> {
   if (target.startsWith("dm:@")) {
     const rest = target.slice("dm:@".length);
@@ -587,10 +561,6 @@ function parseTargetFields(target: string): Record<string, string> {
   }
   return {};
 }
-
-/* ------------------------------------------------------------------ */
-/* Held-envelope projection + stable producer-fact hashing             */
-/* ------------------------------------------------------------------ */
 
 export interface HeldFreshnessEnvelope {
   clauseId: "SMR-006";
@@ -669,10 +639,6 @@ function stableNormalizeApmHeldFreshness(value: unknown): unknown {
   }
   return normalized;
 }
-
-/* ------------------------------------------------------------------ */
-/* Trace helpers                                                       */
-/* ------------------------------------------------------------------ */
 
 function appendTrace(trace: TraceEntry[], step: string, data?: Record<string, unknown>): void {
   const compacted = compactTraceData(data);

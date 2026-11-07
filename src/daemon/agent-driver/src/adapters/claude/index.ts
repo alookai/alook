@@ -100,7 +100,6 @@ export class ClaudeDriver implements BackendAdapter {
       shell: spec.shell,
     });
 
-    // Deliver the initial prompt as the first stream-json line.
     const stdinMsg = JSON.stringify({
       type: "user",
       message: { role: "user", content: [{ type: "text", text: ctx.prompt }] },
@@ -164,7 +163,6 @@ export class ClaudeDriver implements BackendAdapter {
     }
   }
 
-  /** Both idle and busy messages use the same stream-json user-message shape. */
   encodeMessage(text: string, sessionId: string | null, opts?: EncodeMessageOptions): string {
     const uuid = opts?.mode === "idle"
       ? this.turnProtocol.rootInputUuid(opts?.inputs)

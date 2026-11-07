@@ -34,7 +34,7 @@ import type { Message } from "../server/contract.js";
  *
  * On a system row, `session_id`/`provider` are null and `messages`/
  * `agent_responses` are empty. The system row is not mergeable with a
- * following turn (see `appendOrMergeEntry`).
+ * following turn.
  */
 // Stall recovery uses durable attempt/clear markers plus a final barrier so a
 // daemon restart cannot replenish the same poisoned session's retry allowance.

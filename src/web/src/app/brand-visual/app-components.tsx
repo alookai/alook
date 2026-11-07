@@ -37,8 +37,6 @@ import { Composer } from "@/components/community/messages/composer"
 import { ConversationFooterShell, ConversationFooterSlotProvider } from "@/components/community/messages/conversation-footer-shell"
 import s from "./brand-visual.module.css"
 
-/** Real app components on demo fixtures, so /brand-visual shows exactly what
- * ships. Each piece is wrapped in the same providers the landing demo uses. */
 export function Fixtures({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } }))
   const [registry] = useState(() => createCommunityDbRegistry(queryClient, null))
@@ -95,7 +93,7 @@ const POSTS: ForumThread[] = [
   } as unknown as ForumThread
 })
 const noop = () => {}
-/** Only the fields renderBotMachineGroup reads; actions are no-ops on the board. */
+
 function boardBotController(collapsed: Set<string>, setCollapsed: BotListController["setCollapsedMachines"]): BotListController {
   return {
     bringMachineOnline: noop, chatWithBot: noop, collapsedMachines: collapsed, groupRefs: { current: {} }, highlightId: null,
@@ -241,7 +239,6 @@ export function AppComponents() {
   )
 }
 
-/** Two real message rows for the landing feature window (no mock rows). */
 export function FeatureMessages() {
   const rows = (DEMO_MESSAGES["demo-general"] ?? []).slice(4, 6)
   return (

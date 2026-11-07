@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { withTransientMutationRetry } from "./transientMutationRetry.js";
 import { daemonRefreshFromIpc } from "./daemonRefresh.js";
 import { registerPlatformCommands } from "./platform.js";
 import { registerUseCommands } from "./use.js";
@@ -25,7 +26,7 @@ import { pathToFileURL } from "node:url";
 import type { ServerApi, Cursor, Message, AckFailure } from "../server/contract.js";
 import { DM_SERVER, parseRef } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
-import { daemonReconnect, daemonResume, daemonRunFromIpc, daemonStart, daemonStartById, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
+import { daemonReconnect, daemonResume, daemonRunFromIpc, daemonStart, daemonStartById, daemonStop, daemonList, savedDaemonMachineIds, daemonStatus, type DaemonInfo } from "./daemonStart.js";
 import { daemonReplace } from "./daemonUpdate.js";
 import { armMessageReminderFromEnv, parseRemindAfter } from "./messageReminderClient.js";
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
@@ -77,7 +78,6 @@ function printEnvelope(env: Envelope): void {
   process.stdout.write(JSON.stringify(out) + "\n");
 }
 
-/** "just now (12s)" / "3m ago" / "2h ago" — human relative time from an ms epoch. */
 function relTime(ms: number | null, nowMs: number): string {
   if (ms == null) return "—";
   const s = Math.max(0, Math.round((nowMs - ms) / 1000));
@@ -110,10 +110,6 @@ export function renderDaemonList(daemons: DaemonInfo[], nowMs: number = Date.now
   const fmt = (cols: string[]) => cols.map((c, i) => c.padEnd(widths[i]!)).join("  ");
   return [fmt(header), ...rows.map(fmt)].join("\n");
 }
-
-/* ------------------------------------------------------------------ */
-/* API resolution                                                      */
-/* ------------------------------------------------------------------ */
 
 let injectedApi: ServerApi | null = null;
 export function setApiForTesting(api: ServerApi | null): void {
@@ -209,10 +205,6 @@ function stripMalformedAlookHeredocTail(input: string): string {
   return input.replace(MALFORMED_ALOOK_HEREDOC_TAIL, "$1");
 }
 
-/* ------------------------------------------------------------------ */
-/* Commands                                                            */
-/* ------------------------------------------------------------------ */
-
 const CLIENT_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const CLIENT_MAX_MESSAGE_BODY_BYTES = 1024;
 // The agent tool stops waiting after 10 seconds. Do not start an acknowledgement
@@ -220,11 +212,6 @@ const CLIENT_MAX_MESSAGE_BODY_BYTES = 1024;
 // one second of headroom at that outer boundary.
 const INBOX_PULL_OUTPUT_DEADLINE_MS = 9_000;
 
-/**
- * Guess a content-type from a filename extension. Kept trivial — the server
- * stores MIME as descriptive metadata. Falls back to `application/octet-stream`
- * for unknown extensions.
- */
 function contentTypeFromFilename(filename: string): string {
   const ext = filename.slice(filename.lastIndexOf(".") + 1).toLowerCase();
   switch (ext) {
@@ -243,55 +230,6 @@ function contentTypeFromFilename(filename: string): string {
 }
 
 /**
- * Is this a transport-transient mutation error worth retrying?
- *
- * Only true for "the request may or may not have reached/committed on the
- * server, but the RESPONSE was lost" shapes: an upstream 5xx wrapper, a body
- * that couldn't be read, or a network-level fetch failure. Callers must make a
- * committed-but-response-lost retry safe: sends/posts reuse one nonce, while
- * property set/remove mutations are database-idempotent.
- *
- * NOT transient (never retried here): business outcomes. `blocked`/unaligned is
- * a RETURN value (handled below, never thrown). 4xx business errors (bad
- * attachment, reply-not-found, forbidden) come back as thrown Errors with the
- * server's message and are deterministic — retrying would just re-fail.
- */
-function isTransientMutationError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  const status = typeof err === "object" && err !== null && "status" in err
-    ? (err as { status?: unknown }).status
-    : undefined;
-  return (
-    (typeof status === "number" && status >= 500 && status <= 599) ||
-    /upstream returned 5\d\d/.test(msg) ||
-    msg.includes("upstream body read failed") ||
-    msg.includes("fetch failed") ||
-    msg.includes("ECONNRESET") ||
-    msg.includes("ETIMEDOUT") ||
-    msg.includes("socket hang up") ||
-    msg.includes("network")
-  );
-}
-
-async function withTransientMutationRetry<T>(mutation: () => Promise<T>): Promise<T> {
-  const MAX_ATTEMPTS = 4;
-  const BASE_DELAY_MS = 150;
-  const MAX_DELAY_MS = 2000;
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    try {
-      return await mutation();
-    } catch (err) {
-      lastErr = err;
-      if (!isTransientMutationError(err) || attempt === MAX_ATTEMPTS - 1) throw err;
-      const cap = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt);
-      await new Promise((resolve) => setTimeout(resolve, cap));
-    }
-  }
-  throw lastErr;
-}
-
-/**
  * Send with a bounded, same-nonce internal retry (mutation-idempotency plan,
  * ② CLI). The `nonce` is generated ONCE by the caller and reused across every
  * attempt, so a "committed-but-response-lost" send is absorbed here — the
@@ -300,7 +238,8 @@ async function withTransientMutationRetry<T>(mutation: () => Promise<T>): Promis
  * duplicate). Only transient TRANSPORT errors are retried; business outcomes
  * (blocked return / thrown 4xx) pass straight through. Bounded so a genuinely
  * down gateway can't hang the agent: after the attempts are spent we throw the
- * real error and the agent's own rerun (with a fresh nonce) is then safe.
+ * real error. A lost response can still hide a committed send; a fresh nonce
+ * would not preserve the same-send deduplication.
  */
 async function sendWithRetry(
   api: ServerApi,
@@ -333,8 +272,6 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
     );
   }
 
-  // `--attachment` may repeat. Commander wires this via `.option(..., collect, [])`
-  // below; treat a missing flag as an empty list.
   const attachmentIds = Array.isArray(opts.attachment) ? (opts.attachment as string[]) : [];
 
   const hasText = text.trim().length > 0;
@@ -801,10 +738,6 @@ async function cmdNap(opts: Record<string, unknown>): Promise<unknown> {
   return await api.nap(handoff === undefined ? {} : { handoff });
 }
 
-/* ------------------------------------------------------------------ */
-/* Program definition                                                  */
-/* ------------------------------------------------------------------ */
-
 function buildProgram(stdin: CliInputStream): Command {
   const program = new Command("alook")
     .description("agent CLI")
@@ -1238,6 +1171,16 @@ function buildProgram(stdin: CliInputStream): Command {
     });
 
   daemon
+    .command("saved-machines", { hidden: true })
+    .option("--base-dir <path>", "data directory (or ALOOK_DATA_DIR env)")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(function (this: Command) {
+      const machineIds = savedDaemonMachineIds({ baseDir: this.opts().baseDir as string | undefined });
+      printEnvelope({ success: { machineIds } });
+    });
+
+  daemon
     .command("list")
     .description("list running daemons on this machine")
     .option("--base-dir <path>", "data directory (or ALOOK_DATA_DIR env)")
@@ -1267,8 +1210,7 @@ function buildProgram(stdin: CliInputStream): Command {
     .action(function (this: Command, id: string | undefined) {
       const localOpts = this.opts();
       const status = daemonStatus({ id, baseDir: localOpts.baseDir as string | undefined });
-      // Multiple daemons + no id → ambiguous: tell the reader which id to pass
-      // (status is per-daemon since C0, so it can't guess which one).
+
       if (status.ambiguous) {
         printEnvelope({
           error: "multiple daemons on this machine — pass an id: `alook daemon status <id>`",
@@ -1284,10 +1226,6 @@ function buildProgram(stdin: CliInputStream): Command {
 
   return program;
 }
-
-/* ------------------------------------------------------------------ */
-/* Main entry                                                          */
-/* ------------------------------------------------------------------ */
 
 export async function main(argv = process.argv.slice(2), io: CliIo = {}): Promise<number> {
   const stdin = io.stdin ?? (process.stdin as CliInputStream);

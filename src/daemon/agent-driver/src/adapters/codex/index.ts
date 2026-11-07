@@ -64,12 +64,9 @@ export class CodexDriver implements BackendAdapter {
   discoverRecentContext(request: Parameters<typeof discoverCodexRecentContext>[0]) {
     return discoverCodexRecentContext(request);
   }
-  /** Resolved Codex home root (CODEX_HOME or ~/.codex); set on spawn. */
+
   private codexHomeRoot: string | null = null;
-  /**
-   * The spawned process, retained so the initial-prompt `turn/start` can be
-   * written once the thread id is adopted (see `normalizeLine`). Null until spawn.
-   */
+
   private proc: SpawnedProcess["process"] | null = null;
   /**
    * The initial user message drained into `ctx.prompt` at spawn, held until the
@@ -110,7 +107,6 @@ export class CodexDriver implements BackendAdapter {
     this.proc.stdin.write(jsonRpcRequest("account/rateLimits/read", {}, quotaReadRequestId) + "\n");
   }
 
-  /** Resolved Codex home root (CODEX_HOME or ~/.codex). Null until spawned. */
   get codexHome(): string | null {
     return this.codexHomeRoot;
   }
@@ -260,8 +256,7 @@ export class CodexDriver implements BackendAdapter {
 
   async spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess> {
     const { spawnEnv } = await prepareCliTransport(ctx);
-    // Resolve the Codex home so resume can find its session rollout (and so a
-    // host could surface "missing rollout" recovery — see classifyCodexResumeError).
+
     this.codexHomeRoot = resolveCodexHomeRootFromEnv(spawnEnv, { cwd: ctx.workingDirectory });
     // Cross-platform spawn: on Windows the codex entry is often a `.cmd` shim.
     const override = resolveCodexCommand(resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command);

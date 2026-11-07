@@ -1,5 +1,5 @@
 import rawContractInput0 from "./add-members-dialog.tsx?raw"
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 
@@ -10,7 +10,7 @@ vi.mock("@/lib/api/client", () => ({
   toastApiError: (...args: unknown[]) => toastApiErrorSpy(...args),
 }))
 
-import { AddMemberRow, runAdd, type AddableCandidate } from "./add-members-dialog"
+import { AddMemberRow, type AddableCandidate } from "./add-members-dialog"
 
 const candidate: AddableCandidate = { userId: "u_1", name: "Alice", avatar: "A" }
 
@@ -47,41 +47,5 @@ describe("AddMemberRow", () => {
     expect(source).toContain('errorMessage="Couldn\'t load people."')
     expect(source).toContain('emptyMessage="Everyone is already here."')
     expect(source).toContain("onRetry={() => { source.capture()(); queryState.retry?.() }}")
-  })
-})
-
-describe("runAdd", () => {
-  beforeEach(() => {
-    toastApiErrorSpy.mockClear()
-  })
-
-  // Capture the sequence of set-state updater results so we can assert the id
-  // enters then leaves the in-flight set.
-  function trackingSetter() {
-    let set = new Set<string>()
-    const calls: string[][] = []
-    const setAddingIds = (updater: Set<string> | ((s: Set<string>) => Set<string>)) => {
-      set = typeof updater === "function" ? updater(set) : updater
-      calls.push([...set])
-    }
-    return { setAddingIds: setAddingIds as never, snapshots: () => calls, current: () => [...set] }
-  }
-
-  it("marks the id in flight and KEEPS it on success (spinner persists until the row unmounts)", async () => {
-    const t = trackingSetter()
-    await runAdd("u_1", async () => {}, t.setAddingIds)
-    // Added once, never cleared — the row leaves the candidate list on refetch,
-    // so clearing here would flash the button back to "Add" for a frame.
-    expect(t.snapshots()).toEqual([["u_1"]])
-    expect(t.current()).toEqual(["u_1"])
-    expect(toastApiErrorSpy).not.toHaveBeenCalled()
-  })
-
-  it("clears the id AND toasts on failure (row reverts to a clickable Add)", async () => {
-    const t = trackingSetter()
-    await runAdd("u_1", async () => { throw new Error("nope") }, t.setAddingIds)
-    expect(t.current()).toEqual([])
-    expect(toastApiErrorSpy).toHaveBeenCalledTimes(1)
-    expect(toastApiErrorSpy).toHaveBeenCalledWith(expect.any(Error), "Couldn't add member")
   })
 })

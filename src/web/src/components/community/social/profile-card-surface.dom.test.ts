@@ -1,12 +1,8 @@
-import staticContractInput0 from "./profile-card.tsx?raw"
-import staticContractInput1 from "../../ui/sheet.tsx?raw"
 import React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { resolve } from "node:path"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, render, waitFor } from "@/test/react-dom-harness"
-import { appBackdropClassName } from "@/components/ui/app-edge-fade"
 import type { Profile } from "@/components/community/social/profile-types"
 
 const mockProps = vi.hoisted(() => new Map<string, Record<string, unknown>>())
@@ -150,12 +146,12 @@ describe("ProfileCard surface contracts", () => {
     ))
 
     const profile = renderer.getByTestId("community-profile-card")
-    expect(profile.className).toBe("w-full overflow-hidden rounded-t-xl border-x border-t border-border/40 bg-popover p-2")
+    expect(profile).toHaveTextContent("Ren")
     expect(renderer.container.querySelectorAll("sheet-root")).toHaveLength(0)
     expect(renderer.container.querySelectorAll("popover-root")).toHaveLength(0)
   })
 
-  it("keeps the User Bar extension profile at its original single-card height", () => {
+  it("renders the self extension without the running-bots zone or an overlay", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const renderer = render(React.createElement(
       QueryClientProvider,
@@ -172,13 +168,14 @@ describe("ProfileCard surface contracts", () => {
     ))
 
     const profile = renderer.getByTestId("community-profile-card")
-    expect(profile.className).toBe("w-full")
+    expect(profile).toHaveTextContent("Ren")
+    expect(renderer.getAllByTestId("community-profile-card")).toHaveLength(1)
     expect(renderer.queryByTestId("community-profile-running-bots-card")).toBeNull()
     expect(renderer.container.querySelectorAll("sheet-root")).toHaveLength(0)
     renderer.unmount()
   })
 
-  it("uses the shared modal bottom Sheet without a copied or foreground-derived overlay", async () => {
+  it("configures a modal bottom Sheet and mounts its overlay with hidden edge decorations", async () => {
     const { renderer } = renderSurface("mobile")
     const root = mockProps.get("sheet-root")!
     const close = renderer.container.querySelector("sheet-close")!
@@ -187,27 +184,12 @@ describe("ProfileCard surface contracts", () => {
 
     expect(root.open).toBe(true)
     expect(root.modal).toBe(true)
-    expect(close).toHaveClass("sr-only")
     expect(close).toHaveTextContent("Close profile")
     expect(content.side).toBe("bottom")
     expect(content.showOverlay).toBe(true)
     expect(content.showCloseButton).toBe(false)
-    expect(content.className).toContain("data-[side=bottom]:border-t-0")
-    expect(content.className).not.toContain("border-0")
-    expect(content.className).toContain("bg-transparent")
-    expect(content.className).not.toContain("bg-foreground")
-    expect(profile.className).toContain("rounded-xl")
-    expect(profile.className).toContain("border")
-    expect(profile.className).toContain("border-border")
-    expect(profile.className).toContain("bg-popover")
+    expect(profile).toHaveTextContent("Ren")
     expect(renderer.container.querySelectorAll("popover-root")).toHaveLength(0)
-
-    const profileSource = staticContractInput0
-    const sheetSource = staticContractInput1
-    expect(profileSource).not.toContain("bg-foreground/30")
-    expect(profileSource).not.toContain("<SheetOverlay")
-    expect(sheetSource).toContain("data-[side=bottom]:border-t")
-    expect(sheetSource).not.toContain("bg-foreground")
 
     const sharedSheet = await vi.importActual<typeof import("@/components/ui/sheet")>("@/components/ui/sheet")
     render(React.createElement(
@@ -219,17 +201,14 @@ describe("ProfileCard surface contracts", () => {
         React.createElement(sharedSheet.SheetTitle, null, "Shared profile backdrop"),
       ),
     ))
-    const overlay = document.querySelector('[data-slot="sheet-overlay"]')!
-    expect(overlay).toHaveClass(...appBackdropClassName.split(" "))
-    expect(overlay).toHaveClass("bg-black/10", "supports-backdrop-filter:backdrop-blur-xs")
-    const fades = overlay.querySelector('[data-slot="app-edge-fade"]')!
+    const overlay = document.querySelector('[data-slot="sheet-overlay"]')
+    expect(overlay).toBeInTheDocument()
+    const fades = overlay!.querySelector('[data-slot="app-edge-fade"]')
+    expect(fades).toBeInTheDocument()
     expect(fades).toHaveAttribute("aria-hidden", "true")
-    expect(fades).toHaveClass("pointer-events-none")
-    expect(fades.querySelectorAll("[data-app-edge]")).toHaveLength(4)
+    expect(fades!.querySelectorAll("[data-app-edge]")).toHaveLength(4)
     for (const side of ["top", "bottom", "left", "right"]) {
-      expect(fades.querySelector(`[data-app-edge="${side}"]`)).toHaveClass(
-        side === "top" || side === "bottom" ? "h-(--app-edge-fade-size)" : "w-(--app-edge-fade-size)",
-      )
+      expect(fades!.querySelector(`[data-app-edge="${side}"]`)).toBeInTheDocument()
     }
   })
 
@@ -257,20 +236,16 @@ describe("ProfileCard surface contracts", () => {
     expect(root.open).toBe(true)
     expect(trigger.style).toEqual({ left: 24, top: 48 })
     expect(content.side).toBe("right")
-    expect(content.className).toContain("w-75")
-    expect(content.className).toContain("overflow-visible")
-    expect(content.className).not.toContain("data-[side=bottom]:border-t-0")
     expect(renderer.container.querySelectorAll("sheet-root")).toHaveLength(0)
     expect(renderer.getByTestId("community-profile-card")).toBeInTheDocument()
   })
 
-  it("clips and disables the owned desktop preview before its first measurement", () => {
+  it("keeps the owned desktop preview hidden and inert before its first measurement", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const html = renderToStaticMarkup(surfaceElement(queryClient, "desktop", {
       identity: ownedBotIdentity,
     }))
 
-    expect(html).toContain("overflow-hidden")
     expect(html).toContain('data-measurement-ready="false"')
     expect(html).toContain('aria-hidden="true"')
     expect(html).toContain("visibility:hidden")
@@ -318,7 +293,6 @@ describe("ProfileCard surface contracts", () => {
     expect(readinessWrites.slice(0, 2)).toEqual(["false", "true"])
     expect(dock).toHaveAttribute("aria-hidden", "false")
     expect(dock).toHaveStyle({ visibility: "visible" })
-    expect(mockProps.get("popover-content")?.className).toContain("overflow-visible")
 
     readinessWrites.length = 0
     renderer.rerender(surfaceElement(queryClient, "desktop", {

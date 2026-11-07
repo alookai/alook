@@ -1,14 +1,4 @@
-/**
- * ProcessLane — the generic child-process host for CLI adapters.
- *
- * It owns the spawned process, line-buffers stdout, runs each complete line
- * through `driver.normalizeLine`, and re-emits the resulting `AdapterEvent`s. The
- * driver supplies the runtime-specific behavior; this class is the uniform
- * plumbing (start / send / stop / event fan-out) the daemon talks to.
- *
- * In-process SDK adapters (Pi) do not use this helper; their `openLane()`
- * returns a runtime lane backed directly by the vendor session.
- */
+
 import { EventEmitter } from "events";
 import { StringDecoder } from "node:string_decoder";
 import type {
@@ -110,7 +100,6 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
     this.events.on(event, listener);
   }
 
-  /** Spawn the process and deliver the initial prompt (handled inside spawn). */
   async start(input: LaneStartInput): Promise<LaneAdmission> {
     if (this.started) {
       return { ok: false, reason: "runtime_error", error: "runtime session already started" };
@@ -146,7 +135,6 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
       ?? this.admitPrompt(input.terminalOwner, `${this.driver.id}:process:${proc.pid ?? this.ctx.launchId}`);
   }
 
-  /** Write a mid-session message (idle prompt or busy steer) to stdin. */
   async send(input: LaneSendInput): Promise<LaneAdmission> {
     const proc = this.process;
     if (!proc || this.closed) return { ok: false, reason: "closed" };
@@ -290,7 +278,6 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
     return this.driver.updateSettings?.(input) ?? Promise.resolve({ status: "unsupported" });
   }
 
-  /** Wire stdout line-buffering → normalizeLine → runtime_event, plus lifecycle. */
   private attachProcess(proc: SpawnedProcessHandle): void {
     proc.stdout?.on("data", (chunk) => {
       this.events.emit("stdout", chunk.toString());

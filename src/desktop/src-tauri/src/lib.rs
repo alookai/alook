@@ -1,4 +1,6 @@
 mod commands;
+#[cfg(desktop)]
+mod daemon_commands;
 mod file_save;
 #[cfg(desktop)]
 mod file_save_journal;
@@ -46,7 +48,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(native_geometry::init());
 
-    // Desktop-only plugins
     #[cfg(desktop)]
     {
         let builder = builder
@@ -142,7 +143,7 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
 
 #[cfg(desktop)]
 fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
-    // Register splash:// protocol to serve inline HTML for the splash window
+
     builder = builder.register_uri_scheme_protocol("splash", |_ctx, _req| {
         let html = commands::splash_html();
         tauri::http::Response::builder()
@@ -151,14 +152,13 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
             .unwrap()
     });
 
-    // Register IPC commands (desktop only)
     builder = builder.invoke_handler(tauri::generate_handler![
         file_save_runtime::file_save_begin,
         file_save_runtime::file_save_write_chunk,
         file_save_runtime::file_save_commit,
         file_save_runtime::file_save_cancel,
-        commands::daemon_runtime_capability,
-        commands::daemon_pair,
+        daemon_commands::daemon_runtime_capability,
+        daemon_commands::daemon_pair,
         commands::set_window_theme,
         native_geometry::native_geometry_snapshot,
         commands::close_splashscreen,
@@ -181,7 +181,6 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         system_notifications::desktop_system_notification_unlisten,
     ]);
 
-    // System tray + window setup (desktop only)
     builder = builder.setup(|app| {
         #[cfg(all(target_os = "macos", debug_assertions))]
         commands::create_qa_main_window(app)?;

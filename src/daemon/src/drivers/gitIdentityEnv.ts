@@ -24,10 +24,8 @@ import { execFileSync } from "child_process";
 
 const GIT_IDENTITY_DOMAIN = "alook.ai";
 
-/** Timeout for the `git config` read of the host owner's identity. */
 const HOST_GIT_READ_TIMEOUT_MS = 2000;
 
-/** Generic identity when an agent's name/handle is unavailable (degraded spawn). */
 const FALLBACK_NAME = "Alook Agent";
 const FALLBACK_LOCAL_PART = "alook-agent";
 
@@ -99,9 +97,6 @@ export function buildGitIdentityEnv(input: GitIdentityInput): Record<string, str
   const cleanName = agentName ? sanitizeGitName(agentName) : "";
   const displayName = cleanName || FALLBACK_NAME;
 
-  // Email local-part: `<name-slug>.<discriminator>`, joined with "." and
-  // dropping any empty fragment (all-CJK name → discriminator only; neither →
-  // generic fallback).
   const nameSlug = cleanName ? asciiSlug(cleanName) : "";
   const localPart =
     [nameSlug, discriminator].filter(Boolean).join(".") || FALLBACK_LOCAL_PART;
@@ -184,7 +179,6 @@ export function readHostGitIdentity(): HostGitUser | null {
   return value;
 }
 
-/** Clear the memoized host git identity (test-only; the value is static in prod). */
 export function resetHostGitIdentityCache(): void {
   hostGitIdentityMemo = undefined;
 }

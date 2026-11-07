@@ -23,8 +23,6 @@ import {
   type OwnerServerDeleteRouteToken,
 } from "@/lib/community/eject-server"
 
-// ── Create server ──────────────────────────────────────────────────────────
-
 export type CreateServerArgs = { name: string }
 export type CreateServerResult = { server: { id: string } }
 
@@ -39,14 +37,11 @@ export function useCreateServer() {
       })
     },
     onSuccess: (_data, args) => {
-      // The server row includes owner/role metadata we don't get from the
-      // response — refetch to hydrate the rail correctly.
+
       void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), predicate: (query) => args.resources.includes(query) })
     },
   })
 }
-
-// ── Join server (via invite token) ─────────────────────────────────────────
 
 export type JoinServerArgs = { inviteCode: string }
 export type JoinServerResult = { serverId: string }
@@ -77,8 +72,6 @@ export function useJoinServer() {
     },
   })
 }
-
-// ── Leave / delete server ──────────────────────────────────────────────────
 
 export type LeaveServerArgs = { serverId: string }
 type DeleteServerArgs = LeaveServerArgs & { isUiCurrent?: () => boolean }
@@ -177,8 +170,6 @@ export function useDeleteServer(callbacks: DeleteServerCallbacks) {
   })
 }
 
-// ── Update server (name + description) ─────────────────────────────────────
-
 export type UpdateServerArgs = {
   serverId: string
   name: string
@@ -223,8 +214,6 @@ export function useUpdateServer() {
     },
   })
 }
-
-// ── Upload server icon ─────────────────────────────────────────────────────
 
 export type UploadServerIconArgs = { serverId: string; file: File }
 export type UploadServerIconResult = { url: string }

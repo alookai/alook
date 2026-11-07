@@ -80,11 +80,6 @@ export async function insertBotActivityEventAndPrune(
   return rows[0] ?? null;
 }
 
-/**
- * Insert a single event. Prefer the atomic batch (insert + prune) invoked from
- * ws-do; this is exposed as a Drizzle statement builder so ws-do can compose
- * it into a `db.batch([...])` call.
- */
 export function insertBotActivityEventStatement(
   db: Database,
   data: BotActivityEventInput
@@ -214,15 +209,6 @@ export async function listOwnedBotActivityEvents(
   );
 }
 
-/**
- * Wake-trigger audit write — thin wrapper around
- * `insertBotActivityEventAndPrune` for the queue-worker's write path
- * (`buildUnreadWakeCommand`). Serializes the typed `WakeTriggerPayload` into
- * the existing opaque `payload` text column and runs the same rolling-500
- * prune atomically. Distinct entry point so queue-worker callers can't
- * accidentally construct a shape that fails `BotAuditEventSchema` at read
- * time.
- */
 export async function insertBotAuditWakeTrigger(
   db: Database,
   data: {

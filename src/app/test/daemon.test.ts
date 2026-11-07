@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, rmSync } from "fs";
 import { join } from "path";
 const paths = vi.hoisted(() => ({
   testDir: `/tmp/alook-app-daemon-${process.pid}`,
@@ -44,11 +44,21 @@ afterEach(() => {
 });
 
 describe("saved daemon discovery", () => {
-  it("returns only safe machine ids from credential filenames", () => {
-    writeFileSync(join(daemonBaseDir, "daemons", "cm_valid_machine.credential.json"), "{}");
-    writeFileSync(join(daemonBaseDir, "daemons", "cm_x.credential.json"), "{}");
-    writeFileSync(join(daemonBaseDir, "daemons", "notes.txt"), "{}");
+  it("uses the embedded daemon's saved-machine envelope", () => {
+    spawnSync.mockReturnValue(result(JSON.stringify({ success: { machineIds: ["cm_valid_machine"] } })));
     expect(listSavedDaemonIds()).toEqual(["cm_valid_machine"]);
+    expect(spawnSync.mock.calls[0]![1]).toEqual(expect.arrayContaining(["daemon", "saved-machines", "--base-dir", daemonBaseDir]));
+  });
+
+  it.each([
+    { stdout: JSON.stringify({ error: "directory unavailable" }), status: 0 },
+    { stdout: "not JSON", status: 0 },
+    { stdout: JSON.stringify({ success: {} }), status: 0 },
+    { stdout: JSON.stringify({ success: { machineIds: ["../outside"] } }), status: 0 },
+    { stdout: "", status: 1 },
+  ])("does not silently skip saved machines after discovery failure: $stdout", ({ stdout, status }) => {
+    spawnSync.mockReturnValue(result(stdout, status));
+    expect(() => listSavedDaemonIds()).toThrow();
   });
 
   it("reads live ids from the daemon JSON envelope", () => {
@@ -76,14 +86,12 @@ describe("daemon lifecycle", () => {
   });
 
   it("starts saved but stopped machines and skips live ones", () => {
-    for (const id of ["cm_live_machine", "cm_saved_machine"]) {
-      writeFileSync(join(daemonBaseDir, "daemons", `${id}.credential.json`), "{}");
-    }
     spawnSync
       .mockReturnValueOnce(result(JSON.stringify({ success: { daemons: [{ id: "cm_live_machine", alive: true }] } })))
+      .mockReturnValueOnce(result(JSON.stringify({ success: { machineIds: ["cm_live_machine", "cm_saved_machine"] } })))
       .mockReturnValueOnce(result("daemon started\n"));
     expect(startSavedDaemons()).toEqual({ started: ["cm_saved_machine"], failed: [] });
-    expect(spawnSync.mock.calls[1]![1]).toEqual(expect.arrayContaining(["start", "--id", "cm_saved_machine"]));
+    expect(spawnSync.mock.calls[2]![1]).toEqual(expect.arrayContaining(["start", "--id", "cm_saved_machine"]));
   });
 
   it("stops every live app-owned daemon", () => {

@@ -1,3 +1,4 @@
+import { isolatedRepositoryGitEnvironment } from "./repository-git.mjs"
 import { execFileSync } from "node:child_process"
 import {
   chmodSync,
@@ -14,7 +15,6 @@ import { describe, expect, it, vi } from "vitest"
 import {
   collectChangedPatchCoverage,
   executableLineCounters,
-  isolatedRepositoryGitEnvironment,
   parseAddedLines,
   runCli,
   validateCoverageReport,

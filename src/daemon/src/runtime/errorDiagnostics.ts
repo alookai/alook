@@ -17,15 +17,7 @@ const ERROR_EXCERPT_MAX_BYTES = 4000;
 /** How many hex chars of the scrubbed-message SHA-256 form the `runtime_error_fingerprint`. */
 const ERROR_FINGERPRINT_LEN = 16;
 
-/**
- * Buckets for the `runtime_error_message_length_bucket` telemetry dimension.
- * Label and threshold live in the SAME entry on purpose: they must never drift
- * apart (a bucket whose label says "1k-4k" while its boundary moved to 8k
- * silently corrupts every dashboard built on this dimension). Deliberately
- * NOT derived from `ERROR_EXCERPT_MAX_BYTES` — the excerpt cap is a payload
- * budget and these are analytics boundaries; coupling them means tuning one
- * silently relabels the other.
- */
+// Dashboard bucket meanings must remain independent of the diagnostic excerpt budget.
 const ERROR_LEN_BUCKETS: readonly { readonly under: number; readonly label: string }[] = [
   { under: 1000, label: "<1k" },
   { under: 4000, label: "1k-4k" },

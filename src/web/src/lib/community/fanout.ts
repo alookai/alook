@@ -1,15 +1,6 @@
 /**
- * Server-side fan-out helpers for community real-time events.
- *
- * Each function resolves the recipient set via D1 queries,
- * then sends one bounded bulk request through the existing broadcast
- * service binding (WS_DO_WORKER -> /broadcast/users).
- *
- * The bulk helper uses the same service-binding -> HTTP fallback behavior
- * as the compatibility single-user helper.
- *
- * Contract: these helpers absorb all failures internally and never reject.
- * Routes call them as fire-and-forget statements without `.catch()`.
+ * These helpers must absorb failures and never reject: routes call them
+ * fire-and-forget without a rejection handler.
  */
 
 import { getCloudflareContext } from "@opennextjs/cloudflare"
@@ -22,9 +13,6 @@ const log = createLogger({ service: "community-fanout" })
 
 type BroadcastableEvent = CommunityWsEvent & { type: string }
 
-/**
- * Resolves all member user IDs for a server.
- */
 async function getServerMemberUserIds(db: Database, serverId: string): Promise<string[]> {
   return queries.communityMember.listMemberUserIds(db, serverId)
 }
@@ -44,9 +32,6 @@ async function getChannelRecipientUserIds(db: Database, channelId: string): Prom
   )
 }
 
-/**
- * Fan out an event to all members of the server that owns a channel.
- */
 export function fanOutToChannel(
   channelId: string,
   event: BroadcastableEvent,
@@ -57,9 +42,7 @@ export function fanOutToChannel(
     const db = getDb((env as Env).DB)
     const work = (async () => {
       try {
-        // Reuse a pre-resolved recipient set when the caller already resolved it
-        // (message-handler shares one set between fan-out and the notify pipeline),
-        // else resolve here.
+
         const userIds = opts?.recipients ?? await getChannelRecipientUserIds(db, channelId)
         await broadcastToRecipients(userIds, event)
       } catch (err) {
@@ -264,9 +247,6 @@ export async function fanOutProfileUpdate(profile: {
   }
 }
 
-/**
- * Fan out an event to all members of a server.
- */
 export function fanOutToServerMembers(
   serverId: string,
   event: BroadcastableEvent,
@@ -328,9 +308,6 @@ export async function broadcastToUserSafe(
   }
 }
 
-/**
- * Internal: broadcast a community event to a list of user IDs.
- */
 async function broadcastToRecipients(
   userIds: string[],
   event: BroadcastableEvent,

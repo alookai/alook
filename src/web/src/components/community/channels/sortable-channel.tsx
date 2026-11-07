@@ -19,9 +19,6 @@ export function hasChannelMenu(h: { onEdit?: () => void; onManageMembers?: () =>
   return !!(h.onEdit || h.onManageMembers || h.onDelete)
 }
 
-// Optimistic placeholder for a channel being created. Matches SortableChannel's
-// row geometry so the temp→real swap is a reveal, not a reflow. Non-interactive:
-// no drag, no click, no context menu — a spinner sits where the entity icon goes.
 export function PendingChannelRow({ ch }: { ch: Channel }) {
   return (
     <div
@@ -36,9 +33,6 @@ export function PendingChannelRow({ ch }: { ch: Channel }) {
   )
 }
 
-// A single drag-sortable channel row. The whole row is the drag surface (no handle);
-// mouse movement or a touch long-press distinguishes navigation from reorder.
-// Right-click opens an edit/mute/delete menu.
 export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, onManageMembers, canReorder = true }: {
   ch: Channel
   href?: string

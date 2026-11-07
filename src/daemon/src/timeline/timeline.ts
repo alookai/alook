@@ -359,7 +359,7 @@ function scanTimelineFile(filePath: string): TimelineLine[] | null {
     return null;
   } finally {
     if (fd !== null) {
-      try { fs.closeSync(fd); } catch { /* best effort */ }
+      try { fs.closeSync(fd); } catch {  }
     }
   }
 }
@@ -383,20 +383,10 @@ function atomicReplaceTimeline(filePath: string, lines: readonly TimelineLine[])
     return false;
   } finally {
     if (fd !== null) {
-      try { fs.closeSync(fd); } catch { /* best effort */ }
+      try { fs.closeSync(fd); } catch {  }
     }
-    try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
+    try { fs.unlinkSync(tempPath); } catch {  }
   }
-}
-
-function writeRequiredTimeline(
-  filePath: string,
-  input: readonly TimelineLine[],
-  required: TimelineLine,
-): boolean {
-  const compacted = compactLines(input);
-  if (!compacted.includes(required)) return false;
-  return atomicReplaceTimeline(filePath, compacted);
 }
 
 function writeTrackedTimeline(
@@ -435,10 +425,6 @@ function writeTrackedTimeline(
   };
 }
 
-/* ------------------------------------------------------------------ */
-/* Date / filename helpers (injectable clock)                          */
-/* ------------------------------------------------------------------ */
-
 export function filenameForDate(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -446,7 +432,6 @@ export function filenameForDate(date: Date): string {
   return `${y}-${m}-${d}.jsonl`;
 }
 
-/** Filenames for the last `maxDays` days, today first. */
 export function recentFilenames(maxDays: number, now: Date): string[] {
   const out: string[] = [];
   for (let i = 0; i < maxDays; i++) {
@@ -456,10 +441,6 @@ export function recentFilenames(maxDays: number, now: Date): string[] {
   }
   return out;
 }
-
-/* ------------------------------------------------------------------ */
-/* Read                                                                */
-/* ------------------------------------------------------------------ */
 
 function readJsonl(filePath: string): ContextTimelineEntry[] {
   return scanTimelineFile(filePath)?.map((line) => line.entry) ?? [];
@@ -482,7 +463,7 @@ export function readRecentEntries(timelineDir: string, opts: ReadRecentOptions =
   if (timelineDirectoryState(timelineDir) !== "safe") return [];
   const now = opts.now ?? new Date();
   const maxDays = opts.maxDays ?? 7;
-  // recentFilenames is today-first; reverse to oldest-first for ascending time.
+
   const filenames = recentFilenames(maxDays, now).reverse();
   const entries: ContextTimelineEntry[] = [];
   for (const filename of filenames) {
@@ -566,7 +547,7 @@ export function readResumeControlState(timelineDir: string): ResumeControlReadRe
     return { kind: "invalid" };
   } finally {
     if (fd !== null) {
-      try { fs.closeSync(fd); } catch { /* best effort */ }
+      try { fs.closeSync(fd); } catch {  }
     }
   }
 }
@@ -623,9 +604,9 @@ export function updateResumeControlState(
       return true;
     } finally {
       if (fd !== null) {
-        try { fs.closeSync(fd); } catch { /* best effort */ }
+        try { fs.closeSync(fd); } catch {  }
       }
-      try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
+      try { fs.unlinkSync(tempPath); } catch {  }
     }
   } catch {
     return false;
@@ -634,11 +615,6 @@ export function updateResumeControlState(
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Write (lock-guarded)                                                */
-/* ------------------------------------------------------------------ */
-
-/** Append one row and return its exact process-local handle plus rewrite remap. */
 export function appendTrackedEntry(
   timelineDir: string,
   entry: ContextTimelineEntry,
@@ -725,162 +701,6 @@ export function updateTrackedEntry(
   }
 }
 
-/** Append a new entry to today's file. Best-effort: logs nothing, swallows lock miss. */
-export function appendEntry(timelineDir: string, entry: ContextTimelineEntry, now: Date = new Date()): boolean {
-  if (timelineDirectoryState(timelineDir) !== "safe") return false;
-  const filename = filenameForDate(now);
-  const filePath = join(timelineDir, filename);
-  const lockPath = lockPathFor(timelineDir, filename);
-  if (!acquireLock(lockPath)) return false;
-  try {
-    const existing = scanTimelineFile(filePath);
-    const required = timelineLine(entry);
-    if (!existing || !required) return false;
-    return writeRequiredTimeline(filePath, [...existing, required], required);
-  } catch {
-    return false;
-  } finally {
-    releaseLock(lockPath);
-  }
-}
-
-/**
- * Open an entry for a new inbox pull, MERGING into the latest row instead of
- * appending a new one when that row is the "same still-unanswered turn":
- * identical `session_id` AND `provider` AND no `agent_responses` yet. That means
- * the agent pulled again before producing any output, so the new messages belong
- * to the same pending context — concat them rather than splitting the turn. This
- * also removes the response-misattribution race: there's never more than one
- * empty-response row that a late text event could land on. Otherwise (the latest
- * row already has responses, or differs in session/provider) append a fresh entry.
- *
- * Atomic under today's file lock: read latest → decide → merge-or-append in one
- * critical section. Best-effort (swallows lock miss / errors).
- */
-export function appendOrMergeEntry(timelineDir: string, entry: ContextTimelineEntry, now: Date = new Date()): boolean {
-  if (timelineDirectoryState(timelineDir) !== "safe") return false;
-  const filename = filenameForDate(now);
-  const filePath = join(timelineDir, filename);
-  const lockPath = lockPathFor(timelineDir, filename);
-  if (!acquireLock(lockPath)) return false;
-  try {
-    const existing = scanTimelineFile(filePath);
-    if (!existing) return false;
-    if (existing.length > 0) {
-      const latest = existing[existing.length - 1]!.entry;
-      const mergeable =
-        !latest.system &&
-        !entry.system &&
-        latest.session_id === entry.session_id &&
-        latest.provider === entry.provider &&
-        latest.agent_responses.length === 0;
-      if (mergeable) {
-        const merged: ContextTimelineEntry = {
-          ...latest,
-          messages: [...latest.messages, ...entry.messages],
-          agent_responses: [...latest.agent_responses],
-        };
-        const required = timelineLine(merged);
-        if (!required) return false;
-        return writeRequiredTimeline(filePath, [...existing.slice(0, -1), required], required);
-      }
-    }
-    const required = timelineLine(entry);
-    if (!required) return false;
-    return writeRequiredTimeline(filePath, [...existing, required], required);
-  } catch {
-    return false;
-  } finally {
-    releaseLock(lockPath);
-  }
-}
-
-/**
- * Mutate the MOST-RECENT TURN entry via `updater`, rewriting that file
- * atomically under lock. This is how the control plane (manager) targets
- * "the agent's current turn" without threading a task id across layers —
- * the data plane appended that row on the inbox pull that opened the turn,
- * so it is the latest turn row when responses/end arrive.
- *
- * A system row (e.g. `reset_session` barrier) STOPS the walk and this
- * function returns false. Rationale: the barrier's semantics are
- * "everything before me belongs to a dead session"; a response landing
- * AFTER the barrier belongs to the NEW session and must NOT attach to a
- * pre-barrier turn row. When a barrier is the newest row (or a barrier
- * sits above every candidate turn row), returning false lets the caller
- * open a fresh turn row post-barrier instead.
- *
- * Returns false when the newest day file's newest non-empty row is a
- * system row, or there is no row at all.
- */
-export function updateLatestEntry(
-  timelineDir: string,
-  updater: (entry: ContextTimelineEntry) => void,
-  opts: { maxDays?: number; now?: Date } = {},
-): boolean {
-  return updateLatestEntryResult(timelineDir, updater, opts) === "updated";
-}
-
-export type UpdateLatestEntryResult = "updated" | "missing" | "rejected";
-
-export function updateLatestEntryResult(
-  timelineDir: string,
-  updater: (entry: ContextTimelineEntry) => void,
-  opts: { maxDays?: number; now?: Date } = {},
-): UpdateLatestEntryResult {
-  const directoryState = timelineDirectoryState(timelineDir);
-  if (directoryState !== "safe") return directoryState === "missing" ? "missing" : "rejected";
-  const now = opts.now ?? new Date();
-  const maxDays = opts.maxDays ?? 7;
-  for (const filename of recentFilenames(maxDays, now)) {
-    const filePath = join(timelineDir, filename);
-    // Nothing to update if this day has no file yet — skip BEFORE locking, so we
-    // never try to mkdir a lock dir under a timelineDir that doesn't exist (the
-    // common case: a runtime event arrives before the first inbox-pull opened any
-    // entry). Avoids an ENOENT from the lock's non-recursive mkdir.
-    let source: fs.Stats;
-    try {
-      source = fs.lstatSync(filePath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-      return "rejected";
-    }
-    if (!source.isFile()) return "rejected";
-    const lockPath = lockPathFor(timelineDir, filename);
-    if (!acquireLock(lockPath)) return "rejected";
-    try {
-      const lines = scanTimelineFile(filePath);
-      if (!lines) return "rejected";
-      if (lines.length === 0) continue;
-      // The newest row of the newest day file is authoritative: if it's a
-      // system barrier, we must NOT walk past it into a pre-barrier turn.
-      // Return false and let the caller open a fresh post-barrier turn row.
-      const latest = lines[lines.length - 1]!.entry;
-      if (latest.system) return "missing";
-      const updated: ContextTimelineEntry = {
-        ...latest,
-        messages: [...latest.messages],
-        agent_responses: [...latest.agent_responses],
-      };
-      try {
-        updater(updated);
-      } catch {
-        return "rejected";
-      }
-      const required = timelineLine(updated);
-      if (!required) return "rejected";
-      return writeRequiredTimeline(filePath, [...lines.slice(0, -1), required], required)
-        ? "updated"
-        : "rejected";
-    } catch {
-      return "rejected";
-    } finally {
-      releaseLock(lockPath);
-    }
-  }
-  return "missing";
-}
-
 export interface TimelineSweepOptions {
   yieldAfterFile?: (filePath: string) => Promise<void>;
 }
@@ -945,10 +765,6 @@ export async function sweepTimelineHistory(
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Construction                                                        */
-/* ------------------------------------------------------------------ */
-
 export interface NewEntryFields {
   /** The messages the agent saw this turn (verbatim inbox-pull payload). */
   messages: Message[];
@@ -956,7 +772,6 @@ export interface NewEntryFields {
   provider?: string | null;
 }
 
-/** Build a fresh entry (the 4-field schema). */
 export function createTimelineEntry(fields: NewEntryFields): ContextTimelineEntry {
   return {
     session_id: fields.sessionId ?? null,
@@ -987,10 +802,6 @@ export function createSystemEntry(
     },
   };
 }
-
-/* ------------------------------------------------------------------ */
-/* Queries (pure over already-read rows)                               */
-/* ------------------------------------------------------------------ */
 
 /**
  * The agent's most recent session id — the resume target so its next launch

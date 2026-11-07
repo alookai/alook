@@ -1,3 +1,4 @@
+import { parseArgs } from "./cli-args.mjs"
 import { createHash } from "node:crypto"
 import {
   constants,
@@ -349,17 +350,6 @@ export function assertCompletePlatformKeys(actualKeys) {
   }
 }
 
-export function parseArgs(argv) {
-  const [command, ...rest] = argv
-  const args = { command }
-  for (let index = 0; index < rest.length; index += 2) {
-    const key = rest[index]
-    const value = rest[index + 1]
-    if (!key?.startsWith("--") || value == null) throw new Error(`Invalid argument: ${key ?? "<missing>"}`)
-    args[key.slice(2)] = value
-  }
-  return args
-}
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv)

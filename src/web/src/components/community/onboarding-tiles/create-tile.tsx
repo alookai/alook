@@ -22,17 +22,17 @@ export function CreateTile({ idPrefix = "ot-create" }: { idPrefix?: string }) {
       gsap.set(".ot-say", { opacity: 0 })
       gsap.set(".ot-av", { x: 0, y: 0, scale: 1, svgOrigin: "100 65" })
       const tl = gsap.timeline({ repeat: -1, defaults: { ease: OT_EASE } })
-      // ACT 1: empty slot → centered avatar appears
+
       tl.fromTo(".ot-plus", { scale: 0.9 }, { scale: 1.12, duration: 0.9, yoyo: true, repeat: 1 })
         .to(".ot-ph", { opacity: 0, scale: 1.06, duration: 0.55 }, "+=0.15")
         .to(".ot-bot", { opacity: 1, scale: 1, duration: 0.55 }, "<")
       comeOnline(tl, ".ot-dot", 120.5, 85.5, "-=0.1")
-      // ACT 2: recompose into the real message row + post first message
+
       tl.to(".ot-av", { scale: 0.77, x: -50, y: -4, duration: 0.6, svgOrigin: "100 65" }, "+=0.5")
         .from(".ot-say", { x: -8, duration: 0.5 }, "<0.15")
         .to(".ot-say", { opacity: 1, duration: 0.4 }, "<")
         .to({}, { duration: 1.6 })
-        // loop back to the empty slot
+
         .to(".ot-say", { opacity: 0, x: -8, duration: 0.4 })
         .to(".ot-av", { scale: 0.9, x: 0, y: 0, duration: 0.45, svgOrigin: "100 65" }, "<0.1")
         .to(".ot-bot", { opacity: 0, duration: 0.4 })

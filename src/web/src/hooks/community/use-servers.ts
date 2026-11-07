@@ -5,8 +5,6 @@ import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle
 import { conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { useSelector } from "@tanstack/react-store"
 
-
-
 import {
 useQuery,
 QueryObserver,
@@ -22,7 +20,7 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import { isServerOwner, type CommunityRole } from "@alook/shared"
-import type { Server,Category,Channel } from "@/lib/community/models/navigation"
+import type { Server,Channel,ServersResponse,ServerDetail } from "@/lib/community/models/navigation"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -47,7 +45,6 @@ function canonicalServerIdsSignature(servers: readonly Pick<Server, "id">[]) {
   return JSON.stringify([...new Set(servers.map((server) => server.id))].sort())
 }
 
-
 type RawServerRow = {
   id: string
   name: string
@@ -64,11 +61,6 @@ type RawServerRow = {
   mentionSources?: Array<{ channelId: string; count: number; lastSeq: number }>
 }
 
-export type ServersResponse = { servers: Server[] }
-
-// Frozen empty fallback — reused across renders while the query is loading so
-// consumers depending on `servers` in a `useEffect` dep array don't re-fire
-// per render (a fresh `[]` would churn the reference).
 const EMPTY_SERVERS: readonly Server[] = Object.freeze([])
 
 export const serversQueryFn = async (
@@ -161,8 +153,6 @@ export function useServers(): UseQueryResult<string[]> & { servers: Server[]; is
   }
 }
 
-// ── Single-server detail ─────────────────────────────────────────────────────
-
 export function useViewerServerRole(serverId: string | null, viewerId: string): CommunityRole | undefined {
   const registry = useOptionalCommunityDbRegistry()
   const runtime = useCommunityRuntime()
@@ -181,31 +171,6 @@ export function useViewerServerRole(serverId: string | null, viewerId: string): 
   const role = membership?.role
   return role === "owner" || role === "admin" || role === "member" ? role : undefined
 }
-
-export type ServerDetail = {
-  id: string
-  name: string
-  discriminator: string
-  description: string
-  icon: string | null
-  official?: boolean
-  ownerId: string
-  categories: Category[]
-  /** Canonical unread ownership for participating children of forum channels. */
-  forumUnreadState?: ForumUnreadState
-  unreadSources?: Array<{
-    channelId: string
-    lastUnreadSeq: number
-    lastAttentionSeq: number | null
-  }>
-}
-
-type ForumUnreadState = Record<string, {
-  /** The forum channel's own unread contribution, excluding child posts. */
-  baseUnread: boolean
-  /** Every canonically unread participating child, loaded in the sidebar or not. */
-  childIds: string[]
-}>
 
 type RawChannel = Channel & { categoryId: string | null }
 async function resolveServerIdentity(queryClient: QueryClient, serverId: string, signal?: AbortSignal): Promise<ServerRow | undefined> {
@@ -306,11 +271,6 @@ export const serverProjectedQueryFn = (
   }
 }
 
-/**
- * Fetches the detail (categories + channels) for one server. Pass `null` for
- * "no active server" (including the DM home) — the query stays disabled and
- * no request fires.
- */
 export function useServer(
   serverId: string | null,
 ): UseQueryResult<ServerDirectoryWindow> & { server: ServerDetail | null } {
@@ -348,3 +308,5 @@ export function useServer(
       : dbServer ?? null,
   }
 }
+
+export type { ServersResponse, ServerDetail } from "@/lib/community/models/navigation"

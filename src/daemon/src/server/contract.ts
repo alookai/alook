@@ -1,12 +1,4 @@
-/**
- * Server API contract — the agent ⇄ server boundary.
- *
- * This file is now a thin re-export shim. The canonical definitions live in
- * `@alook/shared`'s `community-cli-contract.ts` (lifted there so the real
- * server routes and the wake producer/consumer can share the exact same
- * types this CLI/production server pair implements against. Keep importing from
- * `./contract.js` at existing daemon call sites; nothing else changes.
- */
+
 export type {
   Id,
   UserId,

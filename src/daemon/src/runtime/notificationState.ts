@@ -53,7 +53,6 @@ export class RuntimeNotificationState {
   private lastEncodeFailedFingerprint: string | null = null;
   private lastEncodeFailedSessionId: string | null = null;
 
-  /** Message identities already written successfully this session. */
   private contributedIdentities = new Set<string>();
   private contributionSessionId: string | null = null;
 
@@ -61,7 +60,6 @@ export class RuntimeNotificationState {
     return this.pendingCountValue;
   }
 
-  /** Same notice set + same session as the last write ⇒ duplicate. */
   isDuplicateNotice(fingerprint: string, sessionId: string): boolean {
     if (fingerprint.length === 0) return false;
     return this.lastNoticeFingerprint === fingerprint && this.lastNoticeSessionId === sessionId;
@@ -90,7 +88,6 @@ export class RuntimeNotificationState {
     return this.lastEncodeFailedFingerprint === fingerprint && this.lastEncodeFailedSessionId === sessionId;
   }
 
-  /** Drop messages already contributed in this session (or all if session changed). */
   filterUncontributedMessages(messages: InboxMessageLike[], sessionId: string): InboxMessageLike[] {
     if (this.contributionSessionId !== sessionId) return messages;
     return messages.filter((m) => {
@@ -103,7 +100,6 @@ export class RuntimeNotificationState {
     this.pendingCountValue += count;
   }
 
-  /** Arm a one-shot debounce timer; returns false if one is already armed. */
   schedule(callback: () => void, delayMs: number): boolean {
     if (this.timerValue) return false;
     this.timerValue = setTimeout(() => {
@@ -114,7 +110,6 @@ export class RuntimeNotificationState {
     return true;
   }
 
-  /** Atomically read & reset the pending count and clear the timer. */
   takePendingAndClearTimer(): number {
     const count = this.pendingCountValue;
     this.pendingCountValue = 0;

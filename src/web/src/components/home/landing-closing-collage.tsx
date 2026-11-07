@@ -32,7 +32,7 @@ function Piece({ className, children }: { className: string; children: ReactNode
     drag.current = null
     delete event.currentTarget.dataset.dragging
   }
-  // Double-click puts a piece back where it was cut out.
+
   const reset = () => { offset.current = { x: 0, y: 0 }; apply() }
 
   return (

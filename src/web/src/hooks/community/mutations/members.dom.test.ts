@@ -19,20 +19,32 @@ function deferred() {
   const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail })
   return { promise, resolve, reject }
 }
-async function setup(kind: "role" | "kick") {
+async function setup(kind: "role" | "kick", unloadedTarget = false) {
   const owner = await createCommunityQueryOwner()
   const key = serverMembershipKey("srv_1", "u_1")
   const member = { id: "mem_1", userId: "u_1", role: "member", avatarVersion: 0, name: "n", discriminator: "0000", avatar: "N", status: "offline", sub: "" }
   owner.registry.collections.serverMemberships.utils.writeUpsert({ id: key, serverId: "srv_1", userId: "u_1", memberId: "mem_1", role: "member", viewer: false })
   owner.registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ id: "u_1", kind: "human", name: "n", discriminator: "0000", avatar: "N", avatarVersion: 0 }))
-  owner.client.setQueryData(communityKeys.members("srv_1"), { pages: [{ members: [{ id: "mem_1", userId: "u_1" }], hasMore: false, limit: 50, total: 1, liveRevision: 0 }], pageParams: [null] })
+  const ghostKey = serverMembershipKey("srv_1", "u_ghost")
+  if (unloadedTarget) {
+    owner.registry.collections.serverMemberships.utils.writeUpsert({ id: ghostKey, serverId: "srv_1", userId: "u_ghost", memberId: "mem_ghost", role: "member", viewer: false })
+    owner.registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ id: "u_ghost", kind: "human", name: "Ghost", discriminator: "0001", avatar: null, avatarVersion: 0 }))
+  }
+  owner.client.setQueryData(communityKeys.members("srv_1"), { pages: [{ members: [{ id: "mem_1", userId: "u_1" }], hasMore: unloadedTarget, ...(unloadedTarget ? { cursor: "next" } : {}), limit: 50, total: unloadedTarget ? 2 : 1, liveRevision: 0 }], pageParams: [null] })
   const held = deferred()
   let remote = [member]
-  apiFetch.mockImplementation((_path: string, options?: { method?: string }) => options?.method ? held.promise.then(() => { remote = kind === "role" ? [{ ...member, role: "admin" }] : [] }) : Promise.resolve(serverMembersReadFixture("srv_1", remote, { search: _path.includes("/members/search"), limit: 50 })))
+  let remoteTotal = unloadedTarget ? 2 : 1
+  let committedCommand = false
+  const refetch = deferred()
+  apiFetch.mockImplementation((_path: string, options?: { method?: string }) => options?.method ? held.promise.then(() => {
+    committedCommand = true
+    if (kind === "role") remote = remote.map(row => ({ ...row, role: "admin" }))
+    else { remote = remote.filter(row => row.id !== _path.split("/").at(-1)); remoteTotal-- }
+  }) : (unloadedTarget && committedCommand ? refetch.promise : Promise.resolve()).then(() => serverMembersReadFixture("srv_1", remote, { search: _path.includes("/members/search"), limit: 50, total: remoteTotal, hasMore: remoteTotal > remote.length, ...(remoteTotal > remote.length ? { cursor: "next" } : {}) })))
   const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, children)
   const rendered = renderHook(() => ({ role: useSetMemberRole(), kick: useKickMember(), roster: useServerMembers("srv_1") }), { wrapper })
   await waitFor(() => expect(rendered.result.current.roster.members[0]?.role).toBe("member"))
-  return { ...owner, key, held, rendered, confirmRemoteRole: (role: string) => { remote = remote.map((row) => ({ ...row, role })) } }
+  return { ...owner, key, ghostKey, held, rendered, releaseRefetch: refetch.resolve, confirmRemoteRole: (role: string) => { remote = remote.map((row) => ({ ...row, role })) } }
 }
 
 describe("Native member command canonical publication", () => {
@@ -79,6 +91,27 @@ describe("Native member command canonical publication", () => {
     expect(view.registry.collections.serverMemberships.has(view.key)).toBe(false)
     expect(view.rendered.result.current.roster.members).toEqual([])
     expect(apiFetch).toHaveBeenCalledWith("/api/community/servers/srv_1/members/mem_1", expect.objectContaining({ method: "DELETE", authenticationAccount: "viewer", signal: expect.any(AbortSignal) }))
+  })
+
+  it("decrements total for a confirmed kick outside the loaded member window", async () => {
+    const view = await setup("kick", true)
+    expect(view.rendered.result.current.roster.total).toBe(2)
+    expect(view.registry.collections.serverMemberships.has(view.ghostKey)).toBe(true)
+    let request!: Promise<unknown>
+    act(() => { request = view.rendered.result.current.kick.mutateAsync({ serverId: "srv_1", memberId: "mem_ghost" }) })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith("/api/community/servers/srv_1/members/mem_ghost", expect.objectContaining({ method: "DELETE" })))
+    try {
+      await act(async () => { view.held.resolve(); await request })
+      await waitFor(() => expect(view.client.isFetching({ queryKey: communityKeys.members("srv_1") })).toBe(1))
+      await waitFor(() => expect(view.rendered.result.current.roster.total).toBe(1))
+      expect(view.rendered.result.current.roster.members.map(member => member.id)).toEqual(["mem_1"])
+      expect(view.registry.collections.serverMemberships.has(view.ghostKey)).toBe(false)
+      const window = view.client.getQueryData<import("../use-server-members").MembersWindowCache>(communityKeys.members("srv_1"))!
+      expect(window.pages[0].total).toBe(1)
+      expect(window.pages[0].members).toEqual([{ id: "mem_1", userId: "u_1" }])
+    } finally { await act(async () => { view.releaseRefetch() }) }
+    await waitFor(() => expect(view.client.isFetching({ queryKey: communityKeys.members("srv_1") })).toBe(0))
+    expect(view.rendered.result.current.roster.total).toBe(1)
   })
 
   it("preserves a newer confirmed role through a failed optimistic role command", async () => {

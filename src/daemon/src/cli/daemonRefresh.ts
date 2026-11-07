@@ -6,14 +6,13 @@ import {
   acquireDaemonReplacementLock, daemonProcessArguments, daemonResume, pidfilePathById,
   readDaemonLaunchRecord, readPidFile, removeReplacementLockIfMatches, stopExactDaemonPid,
 } from "./daemonStart.js";
-import type { DaemonSelfUpdateContext } from "./daemonUpdate.js";
+import { sameDaemonOwnership, type DaemonOwnerContext } from "./daemonOwnership.js";
 
-type RefreshContext = DaemonSelfUpdateContext;
+type RefreshContext = DaemonOwnerContext;
 
 function ownsDaemon(context: RefreshContext): boolean {
   const current = readPidFile(pidfilePathById(context.baseDir, context.machineId));
-  return current?.pid === context.pid && current.machineId === context.machineId
-    && current.startedAt === context.startedAt && current.ownerToken === context.ownerToken;
+  return sameDaemonOwnership(current, context);
 }
 
 export function createDaemonRefreshHandler(context: RefreshContext, options: {

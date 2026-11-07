@@ -16,7 +16,7 @@ vi.mock("./analytics-consent", async importOriginal => ({
 
 const mockSendGTMEvent = mocks.sendGTMEvent
 
-import { trackSignUp, trackSignInSuccess, trackInviteAccepted, trackCommunityRuntimeConnected, trackCommunityOnboardingCompleted, trackCommunityOnboardingSkipped, trackCommunityOnboardingStageCompleted, trackCommunityOnboardingStarted, trackFirstAgentReplyPersisted, trackHumanInvitationSent, trackHumanInvitationCopied, trackInvitedHumanJoined, trackGithubOutboundClicked, trackLandingCtaClicked, trackTemplatesBrowsed, trackCommunityWsFrameDropped, trackCommunityWsAuthFailure, trackCommunityWsLifecycleClose, trackCommunityWsLifecycleRecovery, trackCommunityWsLifecycleStage, trackCommunityWsReconcileComplete, trackCommunityWsReconcileFailure, trackCommunityWsRetryScheduled, toAnalyticsCurrentPlan, toAnalyticsPlanId, trackBeginCheckout, trackPricingCtaClick, trackPricingView } from "./analytics"
+import { trackSignUp, trackSignInSuccess, trackInviteAccepted, trackCommunityRuntimeConnected, trackCommunityOnboardingCompleted, trackCommunityOnboardingSkipped, trackCommunityOnboardingStageCompleted, trackCommunityOnboardingStarted, trackFirstAgentReplyPersisted, trackHumanInvitationSent, trackHumanInvitationCopied, trackInvitedHumanJoined, trackGithubOutboundClicked, trackLandingCtaClicked, trackTemplatesBrowsed, toAnalyticsCurrentPlan, toAnalyticsPlanId, trackBeginCheckout, trackPricingCtaClick, trackPricingView } from "./analytics"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -76,7 +76,7 @@ describe("analytics utility", () => {
     trackInvitedHumanJoined()
     trackCommunityOnboardingCompleted()
     trackCommunityOnboardingSkipped("complete")
-    trackCommunityWsFrameDropped({ type: "message.new", reason: "invalid-json" })
+
     expect(mockSendGTMEvent).not.toHaveBeenCalled()
   })
 
@@ -238,127 +238,5 @@ describe("analytics utility", () => {
     })
   })
 
-  describe("community WebSocket runtime contract", () => {
-    it("reports only bounded frame metadata", () => {
-      trackCommunityWsFrameDropped({
-        reason: "oversized",
-        type: "community:message.create",
-        byteCount: 65_537,
-      })
-      expect(mockSendGTMEvent).toHaveBeenCalledWith({
-        event: "community_ws_frame_dropped",
-        reason: "oversized",
-        type: "community:message.create",
-        byteCount: 65_537,
-      })
-    })
 
-    it("reports aggregate reconciliation completion", () => {
-      trackCommunityWsReconcileComplete({
-        policyCount: 12,
-        successCount: 11,
-        failureCount: 1,
-        durationMs: 25,
-        reconnectDurationMs: 1_500,
-      })
-      expect(mockSendGTMEvent).toHaveBeenCalledWith({
-        event: "community_ws_reconcile_complete",
-        policyCount: 12,
-        successCount: 11,
-        failureCount: 1,
-        durationMs: 25,
-        reconnectDurationMs: 1_500,
-      })
-    })
-
-    it("reports policy failures without raw errors or identifiers", () => {
-      trackCommunityWsReconcileFailure({
-        policy: "machines",
-        reason: "async-rejection",
-        payload: "private",
-        userId: "user-1",
-        token: "secret",
-        error: "raw error",
-      } as never)
-      expect(mockSendGTMEvent).toHaveBeenCalledWith({
-        event: "community_ws_reconcile_failure",
-        policy: "machines",
-        reason: "async-rejection",
-      })
-    })
-
-    it("reports only bounded visible lifecycle recovery metadata", () => {
-      trackCommunityWsLifecycleRecovery({
-        trigger: "sentinel",
-        strategy: "replace",
-        socketReadyState: "open",
-        suspensionDuration: "over-2m",
-        userId: "user-1",
-        token: "secret",
-        nonce: "private-nonce",
-        payload: "private payload",
-      } as never)
-      expect(mockSendGTMEvent).toHaveBeenCalledWith({
-        event: "community_ws_lifecycle_recovery",
-        trigger: "sentinel",
-        strategy: "replace",
-        socketReadyState: "open",
-        suspensionDuration: "over-2m",
-      })
-    })
-
-    it("reports normalized close metadata without raw reasons or identities", () => {
-      trackCommunityWsLifecycleClose({
-        initiator: "validation-timeout",
-        code: 1006,
-        wasClean: false,
-        reasonBucket: "abnormal",
-        reason: "token=secret",
-        userId: "user-1",
-        url: "wss://example.test/?token=secret",
-      } as never)
-      expect(mockSendGTMEvent).toHaveBeenCalledWith({
-        event: "community_ws_lifecycle_close",
-        initiator: "validation-timeout",
-        code: 1006,
-        wasClean: false,
-        reasonBucket: "abnormal",
-      })
-    })
-
-    it("reports bounded auth, stage, and retry fields only", () => {
-      trackCommunityWsAuthFailure({
-        failureClass: "credentials",
-        token: "secret",
-      } as never)
-      trackCommunityWsLifecycleStage({
-        stage: "auth",
-        result: "timeout",
-        durationMs: Number.POSITIVE_INFINITY,
-        nonce: "private",
-      } as never)
-      trackCommunityWsRetryScheduled({
-        attempt: 3_000,
-        delayMs: -1,
-        windowMs: 900_000,
-        rawReason: "private",
-      } as never)
-
-      expect(mockSendGTMEvent.mock.calls).toEqual([
-        [{ event: "community_ws_auth_failure", failureClass: "credentials" }],
-        [{
-          event: "community_ws_lifecycle_stage",
-          stage: "auth",
-          result: "timeout",
-          durationMs: 0,
-        }],
-        [{
-          event: "community_ws_retry_scheduled",
-          attempt: 1_000,
-          delayMs: 0,
-          windowMs: 600_000,
-        }],
-      ])
-    })
-  })
 })

@@ -3,7 +3,7 @@ import {
   applyTypingIndicator,
   clearTypingIndicator,
   typingScopeKey,
-} from "@/hooks/community/community-ws/typing"
+} from "@/lib/community/typing"
 import type { TypingEventContext } from "@/hooks/community/community-ws/handler-context"
 import { getCanonicalCommunityTypingMembership } from "@/lib/community-db/sync"
 

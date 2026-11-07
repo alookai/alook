@@ -23,7 +23,6 @@ function throwIfStale<T extends { stale?: boolean }>(v: T): T {
 type InviteResourceRow = Omit<InviteRow, "by">
 export type InvitesResponse = { invites: InviteResourceRow[] }
 
-// Frozen empty fallbacks — see `use-servers.ts` for the rationale.
 const EMPTY_INVITES: readonly InviteRow[] = Object.freeze([])
 
 export const invitesQueryFn = (serverId: string) => async (context: QueryFunctionContext): Promise<InvitesResponse> => {
@@ -67,9 +66,7 @@ export function useInvites(
       : (() => Promise.reject(new Error("disabled"))),
     enabled,
     subscribed: enabled,
-    // Not WS-live — no invite events patch this cache. A short staleTime keeps
-    // a re-opened settings tab from re-fetching on every mount without going
-    // fully stale.
+
     staleTime: 60_000,
   })
   const profiles = useCanonicalProfilesByUserId(query.data?.invites.flatMap((row) => row.creatorId ? [row.creatorId] : []) ?? [])
@@ -83,11 +80,6 @@ export function useInvites(
   }
 }
 
-/**
- * Fetches the presence roster for a server — the list of online user ids
- * cached at `communityKeys.presence(serverId)`. WS `presence.update` events
- * live-patch the global profile map; this initial load seeds the same map.
- */
 export type PresenceResponse = CommunityPresenceRead
 
 export const presenceQueryFn = (serverId: string) => (context: QueryFunctionContext) =>
@@ -118,8 +110,7 @@ export function usePresence(
   })
   return {
     ...query,
-    // Reuse a frozen empty array so consumers depending on `online` in a
-    // hook dep array don't re-fire on every render while data is loading.
+
     online: query.data?.online ?? EMPTY_ONLINE,
   }
 }

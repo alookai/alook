@@ -1,5 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
+  BUSINESS_SCHEMA_VERSION,
   COMMUNITY_DELIVERY_OPERATION_ID_HEADER,
   DEV_WS_DO_URL,
   MESSAGE_DELIVERY_MAX_USERS,
@@ -12,7 +13,6 @@ import {
   type CommunityDeliveryOperationId,
 } from "@alook/shared"
 import { fetchViaBindingOrDevFallback } from "../dev-binding-fetch"
-import { projectCommunityProducerDelivery } from "./producer-contract"
 
 const log = createLogger({ service: "message-delivery-transport" })
 const maxAttempts = 3
@@ -184,7 +184,8 @@ export async function sendMessageDeliveryBatch(
   }
   const operationId = plannedOperationId ?? derivedOperationId
   const { env } = getCloudflareContext()
-  const batch = projectCommunityProducerDelivery(original, env as Env)
+  if (original.communityContract !== BUSINESS_SCHEMA_VERSION) throw new Error("Community delivery protocol mismatch")
+  const batch = original
   const targets = allTargetUserIds(batch)
   const chunks: MessageDeliveryBatch[] = []
   let index = 0

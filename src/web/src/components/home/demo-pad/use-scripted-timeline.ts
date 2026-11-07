@@ -60,13 +60,13 @@ export function useScriptedTimeline({
 
     function showNext(index: number) {
       if (index >= steps.length) {
-        // All steps shown — hold then reset
+
         timerRef.current = setTimeout(() => {
           setIsResetting(true);
           timerRef.current = setTimeout(() => {
             setIsResetting(false);
             setVisibleCount(0);
-            // Restart after a brief pause
+
             timerRef.current = setTimeout(() => showNext(0), 200);
           }, resetDuration);
         }, holdAfterComplete);
@@ -80,7 +80,6 @@ export function useScriptedTimeline({
       );
     }
 
-    // Initial delay before starting
     timerRef.current = setTimeout(() => showNext(0), 500);
 
     return clearTimer;

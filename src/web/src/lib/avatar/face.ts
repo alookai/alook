@@ -134,12 +134,6 @@ export function renderFaceSvg(
   const bg = theme.background
   const c = theme.ink
 
-  // INDEPENDENT feature selection via radix slicing of the hash. The old code
-  // used i%len for shape but digit(i,4)%6 / digit(i,5)%6 for eye/mouth — a
-  // single 0–9 digit %6 makes idx 4/5 (wink/happy, grin/cat) only ~10% each
-  // (non-uniform), and coupling all three to the same source collapses the
-  // 11×21×22 space. Radix slicing gives each feature its own uniform,
-  // decorrelated index regardless of vocabulary size.
   const shapePath = SHAPES[SHAPE_KEYS[i % SHAPE_KEYS.length]]
   const eyeFn = EYES[EYE_KEYS[Math.floor(i / SHAPE_KEYS.length) % EYE_KEYS.length]]
   const mouthFn = MOUTHS[MOUTH_KEYS[Math.floor(i / (SHAPE_KEYS.length * EYE_KEYS.length)) % MOUTH_KEYS.length]]

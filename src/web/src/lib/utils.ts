@@ -34,10 +34,6 @@ export function isLocalServiceEnvironment(): boolean {
   return hostname !== undefined && LOCAL_SERVICE_HOSTNAMES.has(hostname)
 }
 
-// The local dev WS Durable Object port (see DEV_WS_DO_URL in @alook/shared).
-// Browser-side constant shared by every hook/component that dials ws-do
-// directly in local dev — keep this the single definition instead of
-// re-reading NEXT_PUBLIC_WS_DO_PORT in each call site.
 export const WS_DO_PORT_DEFAULT = Number(process.env.NEXT_PUBLIC_WS_DO_PORT) || devWsDoPort()
 
 export function cliCmd(): string {

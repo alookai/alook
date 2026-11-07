@@ -19,15 +19,15 @@ export function nextListScrollTop(
   elemTop: number,
   elemHeight: number,
 ): number {
-  // Above the viewport → pull the row's top into view.
+
   if (elemTop < scrollTop + MARGIN) {
     return Math.max(0, elemTop - MARGIN)
   }
-  // Below the viewport → align the row's bottom to the viewport bottom.
+
   const elemBottom = elemTop + elemHeight
   if (elemBottom > scrollTop + clientHeight - MARGIN) {
     return elemBottom - clientHeight + MARGIN
   }
-  // Already fully visible → no movement.
+
   return scrollTop
 }

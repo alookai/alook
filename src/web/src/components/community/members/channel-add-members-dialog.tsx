@@ -6,12 +6,6 @@ import {
   useAddChannelMember,
 } from "@/hooks/community/use-channel-members"
 
-/**
- * Channel/post add-members dialog: a thin wrapper that resolves the addable
- * server members (not-yet-in-channel) and wires the add mutation, then renders
- * the shared `AddMembersDialog`. Add-only — the current roster and its
- * remove/leave controls live in the Members drawer's row right-click menu.
- */
 export function ChannelAddMembersDialog({
   serverId,
   channelId,

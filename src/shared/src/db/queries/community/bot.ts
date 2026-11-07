@@ -51,8 +51,6 @@ import { getBotCapacitySummary } from "../product-plan";
 import type { BotCapacitySummary } from "../../../product-entitlements";
 import { isPresenceOnline } from "../../../utils/status";
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 export type BotRow = {
   id: string;
   name: string;
@@ -96,12 +94,6 @@ export function isBotEntitlementLimitError(error: unknown): boolean {
   return error instanceof Error && error.message.includes(BOT_ENTITLEMENT_LIMIT_ERROR);
 }
 
-// ─── Reads ─────────────────────────────────────────────────────────────────
-
-/**
- * List live bots owned by `ownerId`. Filters `isBot=true AND deletedAt IS NULL`.
- * Joined against `communityBotBinding` for machine/runtime overlay.
- */
 export async function listBotsForOwner(
   db: Database,
   ownerId: string
@@ -207,10 +199,6 @@ export async function getBotDailyTokenUsageForOwner(
   return byBot;
 }
 
-/**
- * Get a bot iff it's owned by `ownerId`. Returns null on any mismatch — this
- * is the ownership-scoping gate for every bot-mutating route.
- */
 export async function getBotOwnedBy(
   db: Database,
   botId: string,
@@ -368,7 +356,6 @@ export async function publishOwnedBotAvatar(
   return previous && current ? { previous, current } : null;
 }
 
-/** Cheap ownership probe used by ack/error paths. */
 export async function countLiveBotsForOwner(
   db: Database,
   ownerId: string
@@ -386,7 +373,6 @@ export async function countLiveBotsForOwner(
   return rows[0]?.n ?? 0;
 }
 
-/** Get bot binding by userId. Returns null if none. */
 export async function getBotBinding(
   db: Database,
   botId: string
@@ -716,9 +702,7 @@ export async function getBotBindingWithOwner(
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
       ownerUserId: user.ownerUserId,
-      // Bot's display identity — carried on typing fan-out so the client
-      // renders the name without a roster lookup. Free: this join already
-      // reads the `user` row.
+
       name: user.name,
       discriminator: user.discriminator,
       isActive: communityBotBinding.isActive,
@@ -880,13 +864,6 @@ export async function getBotWakeContext(db: Database, botUserId: string): Promis
   };
 }
 
-/**
- * Bots bound to this machine — daemon cold-start warmup uses this, AND batch
- * reset (`machine:reset_all`) enumerates the same binding set. `runtime` +
- * `modelName` come off the binding row (the runtime pairing) so a caller can
- * build a per-agent RuntimeConfig without a second query (batch reset needs
- * them; warmup ignores the extra fields).
- */
 export async function listBotsForMachine(
   db: Database,
   machineId: string,
@@ -947,10 +924,6 @@ export async function listBotsForMachine(
   }));
 }
 
-/**
- * List server ids the bot is currently a member of. Used before soft-delete
- * so the caller can fan out MEMBER_LEAVE for each server.
- */
 export async function listBotServerMemberships(
   db: Database,
   botId: string,
@@ -970,7 +943,6 @@ export async function listBotServerMemberships(
   return rows.map((r) => r.serverId);
 }
 
-/** Machine-delete UX preflight: which bots would cascade? */
 export async function listBotsBoundToMachine(
   db: Database,
   machineId: string,
@@ -989,8 +961,6 @@ export async function listBotsBoundToMachine(
       )
     );
 }
-
-// ─── Writes ────────────────────────────────────────────────────────────────
 
 export type CreateBotInput = {
   ownerId: string;
@@ -1061,7 +1031,7 @@ export async function createBot(
     db,
     { id: botId, name: data.name },
     async (discriminator) => {
-      // Three-statement batch. D1 rolls back all on any error.
+
       await db.batch(buildBotCreationStatements(db, data, { botId, discriminator, nowIso }) as never);
       return discriminator;
     }
@@ -1076,11 +1046,6 @@ export async function createBot(
   };
 }
 
-/**
- * Update bot fields. UPDATE predicate carries `ownerUserId + isBot + deletedAt IS NULL`
- * so a cross-owner call is a no-op with zero rows changed.
- * Returns the updated row, or null if the predicate matched zero rows.
- */
 export async function updateBot(
   db: Database,
   botId: string,
@@ -1383,13 +1348,6 @@ export interface BotDailyActivityRow {
   sentCount: number;
 }
 
-/**
- * Read a bot's per-day activity for the heatmap: rows with `day >= sinceDay`,
- * ascending. At most ~30 rows (the caller passes `sinceDay = today - 29`),
- * covered by the `(botId, day)` PK. A bot with no activity yet returns `[]`
- * (the caller/FE pads the missing days to zero cells — an empty array is the
- * normal new-bot path, not an error).
- */
 export async function getBotDailyActivity(
   db: Database,
   botId: string,
@@ -1538,8 +1496,6 @@ export async function assertNoLiveBots(
     );
   }
 }
-
-// ─── Machine cascade helpers ─────────────────────────────────────────────
 
 /**
  * Verify a machine belongs to `ownerId` — used by /api/community/bots create

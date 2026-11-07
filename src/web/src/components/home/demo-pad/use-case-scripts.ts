@@ -1,7 +1,6 @@
 import type { DashboardStep, AgentInfo } from "./demo-dashboard";
 import type { UseCaseScript } from "./use-case-demo";
 
-/* ─── Agent Configs ─── */
 const SALES: AgentInfo = { name: "Sales", email: "sales@alook.ai", seed: "demo-sales" };
 const PLANNER: AgentInfo = { name: "Planner", email: "planner@alook.ai", seed: "demo-planner" };
 const CODER: AgentInfo = { name: "Coder", email: "coder@alook.ai", seed: "demo-coder" };
@@ -9,11 +8,6 @@ const REVIEWER: AgentInfo = { name: "Reviewer", email: "reviewer@alook.ai", seed
 const MARKETER: AgentInfo = { name: "Marketer", email: "marketer@alook.ai", seed: "demo-marketer" };
 const OPS: AgentInfo = { name: "Ops", email: "ops@alook.ai", seed: "demo-ops" };
 const ASSISTANT: AgentInfo = { name: "Assistant", email: "assistant@alook.ai", seed: "demo-assistant" };
-
-/* ═══════════════════════════════════════════
-   1. Lead Auto Follow-up
-   Sales recalls memory → asks Coder about feature → sends personalized reply
-   ═══════════════════════════════════════════ */
 
 const LEAD_SALES_STEPS: DashboardStep[] = [
   { type: "email-in", subject: "What's your pricing for a 50-person team?", address: "sarah@acmecorp.com" },
@@ -67,11 +61,6 @@ export const leadFollowupScript: UseCaseScript = {
   },
 };
 
-/* ═══════════════════════════════════════════
-   2. Monday 8am Briefing
-   Calendar triggers Planner → asks CTO + Marketer → compiles weekly report
-   ═══════════════════════════════════════════ */
-
 const BRIEF_PLANNER_STEPS: DashboardStep[] = [
   { type: "email-in", subject: "Weekly Briefing — Mon 8:00 AM", address: "calendar@alook.ai" },
   { type: "message", text: "Collecting updates from the team..." },
@@ -102,23 +91,23 @@ export const weeklyBriefScript: UseCaseScript = {
     { id: "planner-typing", duration: 1500 },
     { id: "planner-msg", duration: 1500 },
     { id: "planner-email-out-coder", duration: 1800 },
-    // Switch to Coder
+
     { id: "switch-coder", duration: 1000 },
     { id: "coder-email-in", duration: 1500 },
     { id: "coder-typing", duration: 1200 },
     { id: "coder-msg", duration: 1500 },
     { id: "coder-email-out", duration: 1800 },
-    // Switch back to Planner briefly
+
     { id: "switch-planner-1", duration: 1000 },
     { id: "planner-email-in-coder", duration: 1200 },
     { id: "planner-email-out-marketer", duration: 1500 },
-    // Switch to Marketer
+
     { id: "switch-marketer", duration: 1000 },
     { id: "marketer-email-in", duration: 1500 },
     { id: "marketer-typing", duration: 1200 },
     { id: "marketer-msg", duration: 1500 },
     { id: "marketer-email-out", duration: 1800 },
-    // Switch back to Planner for final
+
     { id: "switch-planner-2", duration: 1000 },
     { id: "planner-email-in-marketer", duration: 1200 },
     { id: "planner-msg-2", duration: 2500 },
@@ -141,7 +130,7 @@ export const weeklyBriefScript: UseCaseScript = {
       if (isStepVisible(8)) vis = 3;
       return { activeAgent: "coder", steps: BRIEF_CODER_STEPS, visibleCount: vis, isTyping: isStepVisible(6) && !isStepVisible(7), isWorking: isStepVisible(5) && !isStepVisible(8) };
     }
-    // Planner view
+
     let vis = 0;
     if (isStepVisible(0)) vis = 1;  // calendar trigger
     if (isStepVisible(2)) vis = 2;  // msg "collecting..."
@@ -154,11 +143,6 @@ export const weeklyBriefScript: UseCaseScript = {
     return { activeAgent: "planner", steps: BRIEF_PLANNER_STEPS, visibleCount: vis, isTyping: isStepVisible(1) && !isStepVisible(2), isWorking: isStepVisible(0) && !isStepVisible(20) };
   },
 };
-
-/* ═══════════════════════════════════════════
-   3. Daily Store Operations
-   Ops checks inventory → finds low stock → emails Marketer to pause ads
-   ═══════════════════════════════════════════ */
 
 const STORE_OPS_STEPS: DashboardStep[] = [
   { type: "email-in", subject: "Daily Store Check — 7:00 AM", address: "calendar@alook.ai" },
@@ -211,11 +195,6 @@ export const storeOpsScript: UseCaseScript = {
     return { activeAgent: "ops", steps: STORE_OPS_STEPS, visibleCount: vis, isTyping: isStepVisible(1) && !isStepVisible(2), isWorking: isStepVisible(0) && !isStepVisible(12) };
   },
 };
-
-/* ═══════════════════════════════════════════
-   4. Bug Report → PR Ready
-   Email → Planner → Coder → Reviewer → PR merged
-   ═══════════════════════════════════════════ */
 
 const BUG_PLANNER_STEPS: DashboardStep[] = [
   { type: "email-in", subject: "Login page crashes on Safari", address: "user@company.com" },
@@ -291,11 +270,6 @@ export const bugToPrScript: UseCaseScript = {
   },
 };
 
-/* ═══════════════════════════════════════════
-   5. "Post an update"
-   User → Marketer asks Coder what shipped → drafts + publishes
-   ═══════════════════════════════════════════ */
-
 const POST_MARKETER_STEPS: DashboardStep[] = [
   { type: "user-message", text: "Post something about today's release" },
   { type: "message", text: "I need to know what shipped today. Emailing Coder." },
@@ -344,11 +318,6 @@ export const postUpdateScript: UseCaseScript = {
     return { activeAgent: "marketer", steps: POST_MARKETER_STEPS, visibleCount: vis, isTyping: isStepVisible(1) && !isStepVisible(2), isWorking: isStepVisible(0) && !isStepVisible(11) };
   },
 };
-
-/* ═══════════════════════════════════════════
-   6. "Fill this form"
-   User drops PDF → Assistant recalls from memory → fills all fields
-   ═══════════════════════════════════════════ */
 
 const FILL_STEPS: DashboardStep[] = [
   { type: "user-message", text: "Fill this for me", attachment: "YC_Application_W27.pdf" },

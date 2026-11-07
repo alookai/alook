@@ -27,7 +27,6 @@ export function updateCommand(): Command {
       console.log("Running migrations...");
       runMigrations();
 
-      // Restart services that were running before the update
       if (servicesWereRunning) {
         console.log("Restarting services...");
         startServices(DEFAULT_PORTS);

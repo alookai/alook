@@ -1,3 +1,5 @@
+import type { DevPortProfile } from "@alook/shared";
+import { SELF_HOSTED_SERVICES } from "./service-topology.js";
 import { createConnection } from "net";
 
 export function checkNodeVersion(): void {
@@ -16,13 +18,8 @@ export async function checkPort(port: number): Promise<boolean> {
   });
 }
 
-export async function checkPorts(ports: { web: number; emailWorker: number; wsDo: number; queueWorker: number }): Promise<void> {
-  const checks = [
-    { name: "web", port: ports.web },
-    { name: "email-worker", port: ports.emailWorker },
-    { name: "ws-do", port: ports.wsDo },
-    { name: "queue-worker", port: ports.queueWorker },
-  ];
+export async function checkPorts(ports: DevPortProfile): Promise<void> {
+  const checks = SELF_HOSTED_SERVICES.map((service) => ({ name: service.directory, port: ports[service.key] }));
 
   for (const { name, port } of checks) {
     const available = await checkPort(port);

@@ -9,7 +9,7 @@ export function isEmptyHtml(html: string | null | undefined): boolean {
   if (html == null) return true;
   const trimmed = html.trim();
   if (trimmed === "") return true;
-  // Strip a single outer <p>...</p> wrapper and inspect its interior.
+
   const match = /^<p>([\s\S]*?)<\/p>$/i.exec(trimmed);
   if (!match) return false;
   const inner = match[1]!

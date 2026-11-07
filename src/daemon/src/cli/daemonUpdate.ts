@@ -1,3 +1,4 @@
+import { readDaemonOwnership, sameDaemonOwnership, type DaemonOwnership, type DaemonOwnerContext } from "./daemonOwnership.js";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -14,7 +15,6 @@ import {
   readPidFile,
   removeReplacementLockIfMatches,
   stopExactDaemonPid,
-  type DaemonPidFile,
 } from "./daemonStart.js";
 
 const UPDATE_INTENT_SCHEMA_VERSION = 1;
@@ -22,22 +22,12 @@ const UPDATE_LOG_MAX_BYTES = 512 * 1024;
 const UPDATE_LOG_KEEP_BYTES = 256 * 1024;
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
-export interface DaemonUpdateIntent {
+export interface DaemonUpdateIntent extends DaemonOwnership {
   schemaVersion: 1;
   requestId: string;
-  pid: number;
-  machineId: string;
-  startedAt: string;
-  ownerToken: string;
 }
 
-export interface DaemonSelfUpdateContext {
-  machineId: string;
-  baseDir: string;
-  pid: number;
-  startedAt: string;
-  ownerToken: string;
-}
+export type DaemonSelfUpdateContext = DaemonOwnerContext;
 
 export interface SelfUpdateDeps {
   spawnProcess?: typeof spawn;
@@ -90,9 +80,9 @@ function writePrivateJsonAtomic(filePath: string, value: object): void {
     fs.renameSync(tempPath, filePath);
   } finally {
     if (fd !== null) {
-      try { fs.closeSync(fd); } catch { /* best effort */ }
+      try { fs.closeSync(fd); } catch {  }
     }
-    try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
+    try { fs.unlinkSync(tempPath); } catch {  }
   }
 }
 
@@ -119,31 +109,6 @@ function appendUpdateLog(baseDir: string, machineId: string, event: string, fiel
   }
 }
 
-function pidTuple(value: DaemonPidFile | null): Omit<DaemonUpdateIntent, "schemaVersion" | "requestId"> | null {
-  if (
-    !value
-    || typeof value.machineId !== "string"
-    || typeof value.startedAt !== "string"
-    || typeof value.ownerToken !== "string"
-  ) return null;
-  return {
-    pid: value.pid,
-    machineId: value.machineId,
-    startedAt: value.startedAt,
-    ownerToken: value.ownerToken,
-  };
-}
-
-function tuplesEqual(
-  value: ReturnType<typeof pidTuple>,
-  expected: Pick<DaemonUpdateIntent, "pid" | "machineId" | "startedAt" | "ownerToken">,
-): boolean {
-  return value?.pid === expected.pid
-    && value.machineId === expected.machineId
-    && value.startedAt === expected.startedAt
-    && value.ownerToken === expected.ownerToken;
-}
-
 function readIntent(baseDir: string, machineId: string): DaemonUpdateIntent {
   const filePath = intentPath(baseDir, machineId);
   const stat = fs.lstatSync(filePath);
@@ -167,7 +132,7 @@ function removeIntentIfMatches(baseDir: string, machineId: string, requestId: st
   try {
     const current = readIntent(baseDir, machineId);
     if (current.requestId === requestId) fs.unlinkSync(intentPath(baseDir, machineId));
-  } catch { /* best effort */ }
+  } catch {  }
 }
 
 const defaultNpmLaunchFileProbe: NpmLaunchFileProbe = {
@@ -327,14 +292,8 @@ export function createDaemonSelfUpdateHandler(
     if (updateInFlight && updateInFlight.exitCode === null && updateInFlight.signalCode === null) return;
     let requestId = "";
     try {
-      const current = pidTuple(readPidFile(pidfilePathById(context.baseDir, context.machineId)));
-      if (
-        !current
-        || current.pid !== context.pid
-        || current.machineId !== context.machineId
-        || current.startedAt !== context.startedAt
-        || current.ownerToken !== context.ownerToken
-      ) throw new Error("daemon ownership changed before update launch");
+      const current = readDaemonOwnership(readPidFile(pidfilePathById(context.baseDir, context.machineId)));
+      if (!current || !sameDaemonOwnership(current, context)) throw new Error("daemon ownership changed before update launch");
       const npmLaunch = resolveNpmLaunchCommand({
         npmExecPath: deps.npmExecPath,
         env: deps.npmLaunchEnv,
@@ -386,14 +345,14 @@ export function createDaemonSelfUpdateHandler(
   };
 }
 
-function currentPidTuple(baseDir: string, machineId: string): ReturnType<typeof pidTuple> {
-  return pidTuple(readPidFile(pidfilePathById(baseDir, machineId)));
+function currentPidTuple(baseDir: string, machineId: string): ReturnType<typeof readDaemonOwnership> {
+  return readDaemonOwnership(readPidFile(pidfilePathById(baseDir, machineId)));
 }
 
 function removeOldPidfileIfMatches(baseDir: string, intent: DaemonUpdateIntent): void {
   const filePath = pidfilePathById(baseDir, intent.machineId);
-  if (!tuplesEqual(currentPidTuple(baseDir, intent.machineId), intent)) return;
-  try { fs.unlinkSync(filePath); } catch { /* best effort */ }
+  if (!sameDaemonOwnership(currentPidTuple(baseDir, intent.machineId), intent)) return;
+  try { fs.unlinkSync(filePath); } catch {  }
 }
 
 async function runPinnedResume(args: {
@@ -455,7 +414,7 @@ export async function daemonReplace(opts: {
     removeIntentIfMatches(baseDir, opts.id, opts.requestId);
     return;
   }
-  if (!tuplesEqual(currentPidTuple(baseDir, opts.id), intent)) {
+  if (!sameDaemonOwnership(currentPidTuple(baseDir, opts.id), intent)) {
     removeIntentIfMatches(baseDir, opts.id, opts.requestId);
     throw new Error("daemon ownership changed before replacement");
   }
@@ -464,7 +423,7 @@ export async function daemonReplace(opts: {
   const acquired = acquireDaemonReplacementLock({ baseDir, machineId: opts.id, requestId: opts.requestId });
   let oldStopped = false;
   try {
-    if (!tuplesEqual(currentPidTuple(baseDir, opts.id), intent)) {
+    if (!sameDaemonOwnership(currentPidTuple(baseDir, opts.id), intent)) {
       throw new Error("daemon ownership changed after replacement lock");
     }
     appendUpdateLog(baseDir, opts.id, "replacement_started", {

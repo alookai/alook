@@ -1,12 +1,15 @@
+import { assertCommunityContractVersion, readChannelEnvelope, readAccessMembers, fixtureErrorCode } from "./community-contract.mjs"
 import { setTimeout as sleep } from 'node:timers/promises'
 import { randomUUID } from 'node:crypto'
 
-export async function api(baseUrl, account, path, { method = 'GET', body, timeoutMs = 15000, requestId } = {}) {
+export async function api(baseUrl, account, path, { method = 'GET', body, timeoutMs = 15000, requestId, communityContractVersion } = {}) {
+  const community = new URL(path, baseUrl).pathname.startsWith('/api/community/')
+  if (community) assertCommunityContractVersion(communityContractVersion)
   const encoded = body === undefined ? undefined : JSON.stringify(body)
   const started = performance.now()
   const response = await fetch(new URL(path, baseUrl), {
     method, redirect: 'error', headers: { Cookie: account.cookie, Origin: new URL(baseUrl).origin,
-      'Content-Type': 'application/json', ...(requestId ? { 'x-alook-benchmark-id': requestId } : {}) },
+      'Content-Type': 'application/json', ...(community ? { 'X-Alook-Community-Contract': String(communityContractVersion) } : {}), ...(requestId ? { 'x-alook-benchmark-id': requestId } : {}) },
     body: encoded, signal: AbortSignal.timeout(timeoutMs),
   })
   const bytes = Buffer.from(await response.arrayBuffer())
@@ -14,18 +17,19 @@ export async function api(baseUrl, account, path, { method = 'GET', body, timeou
   let data = null
   let parseError = false
   try { data = JSON.parse(bytes.toString('utf8')) } catch { parseError = true }
-  return { status: response.status, ok: response.ok, data, parseError, wallMs,
+  return { status: response.status, ok: response.ok, protocolError: community && response.headers.get('X-Alook-Community-Contract') !== String(communityContractVersion), data, parseError, wallMs,
     requestBodyBytes: encoded === undefined ? 0 : Buffer.byteLength(encoded), responseBodyBytes: bytes.byteLength }
 }
 
-async function checked(baseUrl, account, path, options) {
-  const result = await api(baseUrl, account, path, options)
-  if (!result.ok || result.parseError) throw new Error(`Fixture API failed: ${options?.method ?? 'GET'} ${path} (${result.status})`)
+async function checked(config, account, path, options) {
+  const result = await api(config.baseUrl, account, path, { ...options, communityContractVersion: config.communityContractVersion })
+  if (!result.ok || result.parseError || result.protocolError) throw new Error(`Fixture API failed: ${options?.method ?? 'GET'} ${path} (${result.status}; ${fixtureErrorCode(result.data)})`)
   return result.data
 }
 
 export async function prepareFixture(config, create = false) {
-  const { fixture, baseUrl } = config
+  assertCommunityContractVersion(config.communityContractVersion)
+  const { fixture } = config
   if (!Array.isArray(fixture.accounts) || fixture.accounts.some(a => typeof a.cookie !== 'string' || !a.cookie || typeof a.userId !== 'string' || !a.userId)) throw new Error('Fixture requires accounts with cookie and userId')
   if (new Set(fixture.accounts.map(a => a.userId)).size !== fixture.accounts.length) throw new Error('Fixture accounts must be distinct')
   for (const [key, min, max] of [['receivers', 1, 1000], ['expectedMembers', 2, 10000], ['historyLimit', 1, 100]]) if (!Number.isInteger(config[key]) || config[key] < min || config[key] > max) throw new Error(`Invalid ${key}`)
@@ -34,27 +38,27 @@ export async function prepareFixture(config, create = false) {
   const sender = fixture.accounts[0]
   if (create) {
     if (fixture.accounts.length !== config.expectedMembers) throw new Error('Creation requires exactly expectedMembers fixture accounts')
-    const server = await checked(baseUrl, sender, '/api/community/servers', { method: 'POST', body: { name: `benchmark-${randomUUID().slice(0, 8)}` } })
+    const server = await checked(config, sender, '/api/community/servers', { method: 'POST', body: { name: `benchmark-${randomUUID().slice(0, 8)}` } })
     fixture.serverId = server.server.id
-    const invite = await checked(baseUrl, sender, `/api/community/servers/${fixture.serverId}/invites`, { method: 'POST', body: {} })
+    const invite = await checked(config, sender, `/api/community/servers/${fixture.serverId}/invites`, { method: 'POST', body: {} })
     for (const account of fixture.accounts.slice(1)) {
-      await checked(baseUrl, account, `/api/community/invites/${invite.invite.token}/join`, { method: 'POST' })
+      await checked(config, account, `/api/community/invites/${invite.invite.token}/join`, { method: 'POST' })
       await sleep(config.intervalMs)
     }
-    const channel = await checked(baseUrl, sender, '/api/community/channels', { method: 'POST', body: { serverId: fixture.serverId, name: 'benchmark', type: 'text' } })
+    const channel = await checked(config, sender, '/api/community/channels', { method: 'POST', body: { serverId: fixture.serverId, name: 'benchmark', type: 'text' } })
     fixture.channelId = channel.channel.id
   }
   if (!fixture.serverId || !fixture.channelId) throw new Error('Fixture needs serverId/channelId; run setup first')
-  const channel = await checked(baseUrl, sender, `/api/community/channels/${fixture.channelId}`)
+  const channel = readChannelEnvelope(await checked(config, sender, `/api/community/channels/${fixture.channelId}`), fixture.channelId, config.communityContractVersion)
   if (channel.serverId !== fixture.serverId || channel.type !== 'text' || channel.parentChannelId || channel.categoryId) throw new Error('First version requires a top-level text channel in the configured server')
-  const audience = await checked(baseUrl, sender, `/api/community/channels/${fixture.channelId}/members`)
-  const visible = new Set(audience.members?.map(member => member.userId))
+  const audience = await checked(config, sender, `/api/community/channels/${fixture.channelId}/members?relation=access`)
+  const visible = new Set(readAccessMembers(audience, fixture.channelId, config.communityContractVersion).map(member => member.userId))
   const members = new Set()
   let cursor
   const seen = new Set()
   do {
     const path = `/api/community/servers/${fixture.serverId}/members?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`
-    const page = await checked(baseUrl, sender, path)
+    const page = await checked(config, sender, path)
     if (!Array.isArray(page.members)) throw new Error('Invalid member page')
     for (const member of page.members) members.add(member.userId)
     cursor = page.hasMore ? page.cursor : undefined
@@ -65,7 +69,7 @@ export async function prepareFixture(config, create = false) {
   if (members.size !== config.expectedMembers) throw new Error(`Observed ${members.size} server members; expected ${config.expectedMembers}`)
   for (const account of fixture.accounts.slice(0, config.receivers + 1)) {
     if (!members.has(account.userId)) throw new Error('A measured account is not a server member')
-    await checked(baseUrl, account, `/api/community/channels/${fixture.channelId}/messages?limit=1`)
+    await checked(config, account, `/api/community/channels/${fixture.channelId}/messages?limit=1`)
   }
   return { serverMembers: members.size, visibleMembers: visible.size, channelType: channel.type, measuredReceivers: config.receivers, channelId: fixture.channelId, serverId: fixture.serverId }
 }
@@ -77,7 +81,7 @@ export function messageEvents(frame) {
 }
 
 export async function connectReceiver(config, account, index, onMessage) {
-  const auth = await checked(config.baseUrl, account, '/api/ws/token')
+  const auth = await checked(config, account, '/api/ws/token')
   if (auth.userId !== account.userId) throw new Error('WS fixture identity mismatch')
   const url = config.wsUrl ?? `${config.baseUrl.replace(/^http/, 'ws')}/api/ws/user`
   const endpoint = new URL(url)

@@ -1,6 +1,6 @@
 "use client"
 
-import type { AuditEvent } from "@/hooks/community/use-bot-audit-log"
+import type { AuditEvent } from "@/lib/community/models/audit"
 import type { Marked } from "@/lib/community/models/inbox"
 import { BotMarkStickerView } from "@/components/community/social/bot-mark-sticker"
 import { DEMO_CHANNELS, DEMO_MESSAGES, DEMO_PROFILES, DEMO_SERVERS } from "./landing-interactive-shell-data"

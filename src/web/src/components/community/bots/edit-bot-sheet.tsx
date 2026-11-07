@@ -33,7 +33,7 @@ import { BotFormFields } from "./bot-form-fields"
 import { BotRuntimeFields } from "./bot-runtime-fields"
 import { validateBotModel } from "./bot-form-validation"
 import { uniqueNamesGenerator, names } from "unique-names-generator"
-import { normalizeRuntimes } from "./create-bot-sheet"
+import { normalizeRuntimes } from "@/lib/community/machines"
 import { requiresExplicitModel, type ReasoningEffort } from "@alook/shared"
 
 function draftFromBot(bot: BotSummary): AvatarDraft {

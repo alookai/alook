@@ -1,7 +1,8 @@
 "use client"
 import { completeCommunityPublication } from "@/lib/community-db/sync"
 
-import { useMutation, useQueryClient, type Query, type MutateOptions } from "@tanstack/react-query"
+import { useMutation, useQueryClient, type Query } from "@tanstack/react-query"
+import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 import { useCallback } from "react"
 import type { CommunityRole } from "@alook/shared"
 import { useCommunityMutationOrigin } from "../community-origin"
@@ -68,15 +69,8 @@ function useMemberCommand<TInput extends KickMemberArgs>(kind: "role" | "kick") 
     },
   })
   const capture = useCallback((input: TInput): Intent => { input.assertActive?.(); return { kind, input, original: origin.begin().token, resources: queryClient.getQueryCache().findAll({ queryKey: communityKeys.members(input.serverId) }) } }, [kind, origin, queryClient])
-  const qualify = useCallback((callbacks?: MutateOptions<void, Error, TInput, unknown>): MutateOptions<void, Error, Intent, unknown> | undefined => callbacks && ({
-    onSuccess: (data, args, result, context) => { try { origin.assert(args.original); args.input.assertActive?.() } catch { return } callbacks.onSuccess?.(data, args.input as TInput, result, context) },
-    onError: (error, args, result, context) => { try { origin.assert(args.original); args.input.assertActive?.() } catch { return } callbacks.onError?.(error, args.input as TInput, result, context) },
-    onSettled: (data, error, args, result, context) => { try { origin.assert(args.original); args.input.assertActive?.() } catch { return } callbacks.onSettled?.(data, error, args.input as TInput, result, context) },
-  }), [origin])
-  const nativeMutate = native.mutate, nativeMutateAsync = native.mutateAsync
-  const mutate = useCallback((input: TInput, callbacks?: MutateOptions<void, Error, TInput, unknown>) => nativeMutate(capture(input), qualify(callbacks)), [nativeMutate, capture, qualify])
-  const mutateAsync = useCallback((input: TInput, callbacks?: MutateOptions<void, Error, TInput, unknown>) => nativeMutateAsync(capture(input), qualify(callbacks)), [nativeMutateAsync, capture, qualify])
-  return { ...native, mutate, mutateAsync }
+  const assertCurrent = useCallback((intent: Intent) => { origin.assert(intent.original); intent.input.assertActive?.() }, [origin])
+  return useNativeMutationFacade(native, capture, assertCurrent, { projectInput: (intent) => intent.input as TInput })
 }
 
 export const useSetMemberRole = () => useMemberCommand<SetMemberRoleArgs>("role")

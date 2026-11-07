@@ -24,9 +24,6 @@ import { ThreadPanelActionsFrame } from "./thread-panel-actions"
 
 const CHANNEL_OVERFLOW_GAP_CLASS_NAME = "ml-0.5"
 
-// Skeleton header for the loading frame between route change and channel
-// metadata arriving. Same h-12 footprint as <ChannelHeader> so the body below
-// doesn't shift when the real header lands.
 export function ChannelHeaderSkeleton({
   kind = "text",
   compactActions = false,
@@ -244,15 +241,11 @@ function ServerCrumb({ id, name, icon, size = 5, className = "" }: { id: string;
   )
 }
 
-// The channel dropdown = the inherit sentinel first, then the three shared
-// levels (menu label + hint straight from the single source).
 const CHANNEL_NOTIF_OPTIONS: { value: ChannelNotifLevel; label: string; hint: string }[] = [
   { value: USE_SERVER_DEFAULT, label: "Use server default", hint: "Inherit this server's setting" },
   ...NOTIF_LEVELS.map((l) => ({ value: l.display, label: l.label, hint: l.hint })),
 ]
 
-// The "Nothing" display string (the muted state's level) pulled from the single
-// source so the mute-toggle comparison can't drift.
 const MUTED_LEVEL: NotifLevel = NOTIF_LEVELS.find((l) => l.value === "nothing")!.display
 
 function ChannelNotifDropdown({ level, onSetLevel }: {

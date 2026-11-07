@@ -28,7 +28,7 @@ export function acquireLock(lockPath: string, staleMs: number = DEFAULT_STALE_MS
     writeMeta(lockPath);
     return true;
   }
-  // Held — reclaim if stale, then retry exactly once.
+
   if (isStale(lockPath, staleMs)) {
     reclaim(lockPath);
     if (tryMkdir(lockPath)) {
@@ -48,17 +48,13 @@ export function releaseLock(lockPath: string): void {
   }
 }
 
-/** Lock-path convention: a hidden sibling of the target file. */
 export function lockPathFor(dir: string, filename: string): string {
   return `${dir}/.${filename}.lock`;
 }
 
-/* ------------------------------------------------------------------ */
-
-/** Atomically create the lock dir; true if we got it, false if it already exists. */
 function tryMkdir(lockPath: string): boolean {
   try {
-    fs.mkdirSync(lockPath); // non-recursive: throws EEXIST if held → atomic acquire
+    fs.mkdirSync(lockPath);
     return true;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
@@ -75,16 +71,15 @@ function writeMeta(lockPath: string): void {
   }
 }
 
-/** A lock is stale if its meta acquire-time is older than `staleMs`. */
 function isStale(lockPath: string, staleMs: number): boolean {
   try {
     const raw = fs.readFileSync(`${lockPath}/${META}`, "utf8");
     const acquiredAt = (JSON.parse(raw) as { acquiredAt?: number }).acquiredAt;
     if (typeof acquiredAt === "number") return Date.now() - acquiredAt > staleMs;
   } catch {
-    /* fall through to the dir-mtime fallback */
+
   }
-  // No/unreadable meta — fall back to the lock dir's own mtime.
+
   try {
     return Date.now() - fs.statSync(lockPath).mtimeMs > staleMs;
   } catch {

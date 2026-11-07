@@ -1,0 +1,43 @@
+export type CommunityWsFrameDropReason =
+  | "oversized"
+  | "invalid-json"
+  | "non-object"
+  | "missing-type"
+  | "wrong-family"
+  | "unknown-community-type"
+  | "invalid-payload"
+  | "invalid-target"
+  | "too-many-targets"
+  | "pre-auth-frame"
+  | "duplicate-auth-ok"
+
+export type CommunityWsReconcilePolicy =
+  | "focused-messages"
+  | "focused-opener"
+  | "focused-channel-roster"
+  | "focused-pins"
+  | "focused-threads"
+  | "inbox-dms"
+  | "cached-read-state"
+  | "all-cached-servers"
+  | "server-rail"
+  | "friends"
+  | "status-overlay"
+  | "identity-surfaces"
+  | "ephemeral-typing"
+  | "machines"
+  | "bot-audits"
+
+export type CommunityWsLifecycleRecoveryTrigger =
+  | "focus"
+  | "online"
+  | "pageshow"
+  | "resume"
+  | "sentinel"
+  | "visibility"
+
+export type CommunityWsLifecycleStageResult =
+  | "aborted"
+  | "failure"
+  | "success"
+  | "timeout"

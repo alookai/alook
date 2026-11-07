@@ -67,7 +67,7 @@ vi.mock("@/hooks/community/use-channel-metadata", async importOriginal => {
     status: mockHistory.status, revoked: mockHistory.revoked, retry: mockHistory.retryMetadata, retrying: mockHistory.retryingMetadata,
     data: { readProof: mockHistory.allowed ? {} : undefined } })}
 })
-vi.mock("@/hooks/community/channel-metadata", () => ({ isChannelMetadataTokenCurrent: () => true }))
+vi.mock("@/lib/community/channel-metadata", () => ({ isChannelMetadataTokenCurrent: () => true }))
 vi.mock("@/lib/community/last-community-route", () => ({ commitCommunityChannelRoute: mockCommitRoute }))
 vi.mock("@/components/community/avatar", () => ({ Avatar: () => null }))
 vi.mock("@/components/community/messages/message-list", () => ({ MessageList: ({ loading }: { loading: boolean }) => React.createElement("div", { "data-testid": loading ? "history-pending" : "history-body" }) }))

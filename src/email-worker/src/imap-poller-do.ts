@@ -77,7 +77,7 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
       }
       pollIntervalMs = account.pollIntervalSeconds * 1000
     } catch {
-      // DB read failed — use default interval, will retry next alarm
+
     }
 
     try {

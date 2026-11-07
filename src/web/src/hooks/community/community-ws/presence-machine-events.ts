@@ -1,6 +1,6 @@
 import { appendBotAuditEvent, type AuditEvent } from "@/hooks/community/use-bot-audit-log"
 import { getCommunityRuntime } from "@/stores/community/runtime"
-import { replaceMachines, type MachinesResponse } from "@/hooks/community/use-machines"
+import { replaceMachines, type MachinesResponse } from "@/lib/community/machines"
 import { captureMachinesPublication, publishMachines } from "@/lib/community/machines"
 import { assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import type {
@@ -12,10 +12,8 @@ import type {
   CommunityMachineUpdated,
   CommunityPresenceUpdate,
   CommunityWsEvent,
-  CommunityStatusUpdate,
 } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
-
 
 import type { PresenceMachineEventContext } from "@/hooks/community/community-ws/handler-context"
 
@@ -34,11 +32,6 @@ export function handlePresenceUpdate(
   )
 }
 
-export function handleStatusUpdate(_event: CommunityStatusUpdate) {
-}
-
-// Push audit events into the bounded ring; the audit-log hook filters and
-// prepends them into its React Query cache.
 export function handleBotAuditEvent(event: CommunityBotAuditEvent, { queryClient }: PresenceMachineEventContext) {
   const row: AuditEvent = {
     id: event.id, kind: event.kind, payload: event.payload,

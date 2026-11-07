@@ -1,7 +1,6 @@
 import type { SpanContext } from "@opentelemetry/api"
 
-type NativeSpan = NonNullable<ReturnType<ExecutionContext["tracing"]["getActiveSpan"]>>
-type NativeTrace = Partial<Pick<NativeSpan, "isTraced">> & { spanContext?: () => SpanContext }
+type NativeTrace = { isTraced?: boolean; spanContext?: () => SpanContext }
 type Sampling = "selected" | "not_selected" | "unavailable"
 const owned = new Set(["alook_upstream", "alook_server", "alook_sampling"])
 const identifier = (value: unknown, size: number) => typeof value === "string" && new RegExp("^[0-9a-f]{" + size + "}$").test(value) && !/^0+$/.test(value)

@@ -1,6 +1,6 @@
 "use client"
 import { BotMachineField } from "./bot-machine-field"
-import type { MachineSummary } from "@/hooks/community/use-machines"
+import { normalizeRuntimes, firstHealthyRuntimeId, type MachineSummary } from "@/lib/community/machines"
 
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useQueryClient } from "@tanstack/react-query"
@@ -27,7 +27,7 @@ import { ProviderLogo } from "@/components/provider-logo"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useCreateBot, useUploadBotAvatar } from "@/hooks/community/use-bots"
 import { BotFormFields } from "./bot-form-fields"
-import { BotRuntimeFields, type BotRuntimeOption } from "./bot-runtime-fields"
+import { BotRuntimeFields } from "./bot-runtime-fields"
 import {
   type BotCreateFieldErrors,
   hasBotCreateFieldErrors,
@@ -37,37 +37,6 @@ import type { BotSummary } from "@/hooks/community/use-bots"
 
 // Stable initial seed avoids hydration mismatch (real seed is rerolled on mount).
 const INITIAL_AVATAR = serializeBeamSeed("initial")
-
-type NormalizedRuntime = BotRuntimeOption
-
-/**
- * Normalize a machine's runtimes into `{ id, unhealthy }`, healthy-first.
- *
- * A legacy MachineSummary cached client-side may still be missing
- * availableRuntimes, or a runtime entry may still be a bare string
- * (pre-health-status shape). Normalize both instead of hiding unhealthy
- * runtimes outright, so the radio card can show *why* an option is disabled.
- * Available runtimes sort first — the ones you can actually pick should never
- * be buried below ones you can't.
- */
-export function normalizeRuntimes(machine: MachineSummary | undefined): NormalizedRuntime[] {
-  const rt = machine?.availableRuntimes ?? []
-  const normalized = rt.map((r) =>
-    typeof r === "string"
-      ? { id: r, unhealthy: false }
-      : {
-          id: r.id,
-          ...(r.reasoning !== undefined ? { reasoning: r.reasoning } : {}),
-          unhealthy: r.status === "unhealthy",
-        },
-  )
-  return normalized.sort((a, b) => Number(a.unhealthy) - Number(b.unhealthy))
-}
-
-/** First healthy (selectable) runtime id, or "" if none. */
-export function firstHealthyRuntimeId(options: NormalizedRuntime[]): string {
-  return options.find((o) => !o.unhealthy)?.id ?? ""
-}
 
 /** First online (selectable) machine id, or "" if none. */
 export function firstOnlineMachineId(machines: MachineSummary[]): string {

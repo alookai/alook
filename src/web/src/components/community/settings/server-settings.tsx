@@ -50,7 +50,6 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
-// Full-screen server settings view. Data via props.
 export function ServerSettings({
   section, setSection, onClose, serverId, serverName, serverDescription, serverIcon,
   isAdmin = false,
@@ -210,10 +209,6 @@ function SettingsOverview({ serverId, serverName, serverDescription, serverIcon,
   )
 }
 
-// Row height estimate for the virtualized settings list — a frameless hover
-// row (px-2 py-2 + 32px avatar + 8px paddingBottom) is shorter than the old
-// bordered card. Slight over/under-estimation is fine; react-virtual
-// re-measures each row after mount via `measureElement`.
 const SETTINGS_ROW_HEIGHT = 68
 
 function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoadMore, onSearch, onOpenProfile, onKickMember, onSetRole }: {
@@ -271,9 +266,6 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
     return <SettingsMembersSkeleton showSearch={Boolean(onSearch)} />
   }
 
-  // Prefer the paginated envelope's total when present — otherwise fall back
-  // to the loaded slice size. When searching, `total` still reflects the
-  // server-wide count so we suffix "matches" for clarity.
   const shownCount = total ?? members.length
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
@@ -434,8 +426,6 @@ export function SettingsNotifications({ serverId, level, onSetLevel }: { serverI
   )
 }
 
-// Loading placeholders for the settings panels — match the real row heights
-// so the body doesn't shift when data lands.
 function SettingsMembersSkeleton({ showSearch }: { showSearch: boolean }) {
   return (
     <div className="flex h-full min-h-0 w-full flex-col">

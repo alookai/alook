@@ -1,23 +1,4 @@
-/**
- * AgentRouter — the host-side control-plane consumer.
- *
- * The server pushes `HostCommand`s down a `HostControlChannel`; the router turns
- * them into `AgentProcessManager` calls. It is deliberately thin and does NO
- * addressing — every command already names its recipient `agentId` (the
- * server decided who receives). The host just executes.
- *
- *   agent:wake → register (server-pushed RuntimeConfig) + deliver the
- *                bodiless unread-notice prompt. The MANAGER (not this
- *                router, and not the server) decides whether that means
- *                spawning a fresh process, notifying an already-running one,
- *                or coalescing the notice for the next turn — see
- *                `AgentProcessManager`/`managerPolicy`.
- *   agent:stop → manager.stop(agentId)
- *
- * It also reports readiness + session ids back up the channel, ACKs
- * `agent:wake`/`agent:stop` outcomes, and supplies a resync snapshot so the
- * server recovers this host's state after a dropped control connection.
- */
+
 import type { HostCommand, HostControlChannel, HostReady, HostReadyRuntime, UnreadNotice, AgentSessionReport, SessionErrorFrame, AgentId, HostAgentActivity } from "../server/contract.js";
 import { MACHINE_REFRESH_CAPABILITY, PII_CAPABILITY, type ProviderQuotaSnapshot } from "@alook/shared";
 import { CONTROL_HEARTBEAT_CAPABILITY, MACHINE_STOP_CAPABILITY, RUNTIME_MODEL_DISCOVERY_CAPABILITY } from "../server/contract.js";
@@ -80,7 +61,7 @@ export class UnknownRuntimeError extends Error {
 export interface AgentRouterOpts {
   manager: AgentProcessManager;
   channel: HostControlChannel;
-  /** Runtime descriptors reported in the ready handshake. Copied into a live mutable map. */
+
   runtimeReport: HostReadyRuntime[];
   discoverModels?: (runtimeId: string) => ReturnType<AgentBackend["discoverModels"]>;
   supportsMachineStop?: boolean;
@@ -122,14 +103,9 @@ export interface AgentRouterOpts {
    * into one wire frame. Tests inject a synchronous scheduler.
    */
   scheduleReadyResend?: (fn: () => void) => void;
-  /**
-   * Shared in-memory tracker of per-agent channel typing scopes. Populated
-   * here on `agent:wake` (when `unreadNotice.channelId` is set); read by
-   * the daemon's heartbeat manager. Optional so tests / non-community daemon
-   * builds can construct AgentRouter without one.
-   */
+
   typingTracker?: TypingScopeTracker;
-  /** Defaults to `createLogger({ header: "@alook/daemon:router" })`. */
+
   logger?: Logger;
 }
 
@@ -137,19 +113,6 @@ function defaultFormatUnreadNoticeText(): string {
   return "You have unread messages.";
 }
 
-/**
- * Fixed prompt handed to the agent as the initial input of a reset-driven
- * spawn. Wording rationale:
- *   - "reset by your owner" tells the agent this is an intentional external
- *     action, not a crash — avoids self-questioning.
- *   - `@memory.md` and the context timeline are the standing-prompt-established
- *     durable context sources; server-side message marks carry open work.
- *   - `.context_timeline` is the daemon-written per-agent JSONL under the
- *     workdir; the walker's `reset_session` barrier only blocks resume, not
- *     the on-disk history — the agent CAN read pre-reset turn contents.
- *   - "pull your inbox" makes it explicit that any real unread messages
- *     queued during the reset window need to be processed.
- */
 const REWAKE_PROMPT = `Your session was reset by your owner. Prior conversation context is gone. Read @memory.md and your .context_timeline for durable context, then pull your inbox. If it reports marked messages, run \`$ALOOK_CLI message mark list\` to identify outstanding work. Before continuing work, review memory.md and experiences:
 
 1. Consistency: Read memory.md and experiences. Merge duplicates and resolve conflicting notes against original decisions. Check links.
@@ -161,21 +124,9 @@ Edit only your own memory files. This review is internal maintenance; perform it
 
 After completing the review and any needed edits, resume outstanding work and handle your inbox messages.`;
 
-/**
- * Rewake prompt for `agent:model_switch`. Unlike `REWAKE_PROMPT`, the session
- * is PRESERVED — prior context survives — so this only tells the agent it was
- * relaunched on a different model and to continue whatever it was doing.
- */
 const MODEL_SWITCH_REWAKE_PROMPT =
   "You were just switched to a different model. Continue any unfinished work.";
 
-/**
- * Rewake prompt for `agent:nap` — the agent reset ITS OWN session and left a
- * handoff to its reborn self. Like `REWAKE_PROMPT`, prior context is gone; the
- * difference is the agent's own handoff note is spliced in inline (it is NOT a
- * message to anyone, NOT a file on disk — it arrives as part of this first
- * input). `buildNapRewakePrompt` inserts the handoff between the two halves.
- */
 function buildNapRewakePrompt(handoff: string): string {
   return (
     "You took a nap: you reset your own session, so prior conversation context " +
@@ -193,19 +144,10 @@ export class AgentRouter {
   // WakeCoordinator may deliberately re-admit the same semantic watermark
   // until its coverage is model-seen. Each admission is a new driver command.
   private nextWakeAdmissionOrdinal = 1;
-  /**
-   * Mutable per-runtime health map. Seeded from the startup snapshot passed
-   * on construction; mutated live by `markRuntimeUnhealthy` / `markRuntimeHealthy`
-   * so the router owns the single source of truth for /community's picker
-   * gating.
-   *
-   * Insertion order preserves the runtime ordering the daemon reported at
-   * startup — Map iterates in insertion order — so the ready frame lists
-   * runtimes deterministically across reports.
-   */
+
   private readonly runtimes = new Map<string, HostReadyRuntime>();
   private readonly modelDiscoveries = new Map<string, Promise<ModelDiscovery>>();
-  /** Coalescer: one microtask-scheduled `sendReady` per burst of mutations. */
+
   private pendingResend = false;
   private readonly scheduleResend: (fn: () => void) => void;
   private readonly log: Logger;
@@ -225,14 +167,8 @@ export class AgentRouter {
     }
   }
 
-  /** Wire the command handler + resync provider and announce readiness. */
   async start(): Promise<void> {
     this.opts.channel.onCommand((cmd) => this.onCommand(cmd));
-    // Resync provider: re-announce current state on every (re)connect so the
-    // server recovers this host's running set + live sessions after a drop.
-    // Reads the LIVE map so unhealthy marks accumulated during the disconnect
-    // window survive reconnect (detectRuntimes() is one-shot at daemon start —
-    // it is NOT re-invoked here).
     this.opts.channel.onResync?.(() => ({
       ready: this.buildReady(),
       sessions: this.opts.manager.liveSessionReports() as AgentSessionReport[],
@@ -243,10 +179,6 @@ export class AgentRouter {
     await this.opts.channel.reportReady(this.buildReady());
   }
 
-  /**
-   * Current ready snapshot. Public for the createDaemon wiring that hooks
-   * this into `wsControlChannel.sendReady()` for on-demand resends.
-   */
   buildReady(): HostReady {
     const timeZone = typeof this.opts.timeZone === "function"
       ? this.opts.timeZone()
@@ -265,7 +197,6 @@ export class AgentRouter {
     };
   }
 
-  /** Runtime ids currently reported healthy. Insertion-ordered. */
   healthyRuntimeIds(): string[] {
     const out: string[] = [];
     for (const r of this.runtimes.values()) {
@@ -274,12 +205,6 @@ export class AgentRouter {
     return out;
   }
 
-  /**
-   * True iff the daemon currently believes this runtime is usable. Unknown
-   * ids return false — an id the daemon never advertised was never usable.
-   * Used by `driverFor` in `createDaemon.ts` to short-circuit dispatch to a
-   * known-unhealthy runtime with `UnknownRuntimeError`; see the plan.
-   */
   isRuntimeHealthy(id: string): boolean {
     return this.runtimes.get(id)?.status === "healthy";
   }
@@ -319,12 +244,6 @@ export class AgentRouter {
     this.scheduleReadyFrameResend();
   }
 
-  /**
-   * Mark a runtime healthy after a successful post-handshake `runtime_event`.
-   * Clears `lastError` / `lastErrorAt` — leaving them stale would render a
-   * healthy chip with a "last failed with X" tooltip, which is worse than no
-   * tooltip. Idempotent + no-op for unknown ids, same as markRuntimeUnhealthy.
-   */
   markRuntimeHealthy(id: string): void {
     const existing = this.runtimes.get(id);
     if (!existing) return;
@@ -356,9 +275,6 @@ export class AgentRouter {
     this.pendingResend = true;
     this.scheduleResend(() => {
       this.pendingResend = false;
-      // sendReady on the channel no-ops when the socket isn't open (see
-      // WsControlChannel.sendFrame). Health mutations while offline just
-      // update the map; the next resyncOnConnect flushes the current state.
       try {
         this.opts.channel.sendReady?.(this.buildReady());
       } catch {
@@ -620,8 +536,6 @@ export class AgentRouter {
             });
             return;
           }
-          // Any other throw — including onBeforeAgent throws that used to be
-          // swallowed silently — surfaces as a structured error ack.
           {
             const code = classifyErrorCode(err);
             await this.opts.channel.reportWakeAck?.({

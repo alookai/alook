@@ -3,9 +3,6 @@ import { ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-m
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import type { MessageExternalLinkTarget } from "./message-external-link"
 
-// Shared message-action items, rendered for either a ContextMenu (right-click) or a
-// DropdownMenu (⋯ toolbar). Callbacks are the reusable contract; the preview wires
-// preview-local handlers, the live app wires API mutations.
 type Item = { label: string; icon?: typeof Pin; danger?: boolean; onClick?: () => void }
 
 // Menu design (locked spec, uiux #14 — Gus/Alli, "less is more"): ONE flat list, no
@@ -34,8 +31,7 @@ export function messageMenuItems(handlers: {
   onShare?: () => void
 }): Item[] {
   const items: Item[] = []
-  // Reply + Share are high-frequency → keep the icon; the rest are text only (their
-  // icon slot becomes an aligning placeholder at render). Original ordering preserved.
+
   if (handlers.onAddReaction) items.push({ label: "Add Reaction", onClick: handlers.onAddReaction })
   if (handlers.onReply) items.push({ label: "Reply", icon: Reply, onClick: handlers.onReply })
   if (handlers.onCreateThread) items.push({ label: "Create Thread", onClick: handlers.onCreateThread })
@@ -53,8 +49,6 @@ export function messageMenuItems(handlers: {
   return items
 }
 
-// True when at least one action is available — callers use this to decide whether to
-// render the ⋯ trigger / context-menu wrapper at all.
 export function hasMessageMenu(handlers: Parameters<typeof messageMenuItems>[0]) {
   return messageMenuItems(handlers).length > 0
 }
@@ -79,9 +73,6 @@ export function messageLinkMenuItems({
   ]
 }
 
-// The icon slot: the real icon for high-freq rows, or an equal-width empty
-// placeholder for text-only rows so every label shares one left edge. The menu
-// item's own `gap-2` handles the spacing to the label either way.
 function IconSlot({ icon: Icon }: { icon?: Item["icon"] }) {
   return Icon ? <Icon className="size-4" /> : <span className="size-4" aria-hidden />
 }

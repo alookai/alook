@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { buildExecutionPlan, parseNameStatus, queryNativeTasks, stablePlanJson } from "./changed-scopes.mjs"
-import { isolatedRepositoryGitEnvironment } from "./report-changed-patch-coverage.mjs"
+import { isolatedRepositoryGitEnvironment } from "./repository-git.mjs"
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 

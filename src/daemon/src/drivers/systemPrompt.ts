@@ -1,12 +1,9 @@
-/**
- * Shared system-prompt builder.
- * Every CLI driver's `buildSystemPrompt` funnels through here.
- */
+
 import type { HostLaunchConfig } from "../manager/hostContext.js";
 
 // The agent invokes the CLI via the `$ALOOK_CLI` env var, NOT a bare `alook`.
-// `$ALOOK_CLI` is an ABSOLUTE path the daemon injects (see spawnEnv
-// `<PREFIX>_CLI` / cliTransport), so it always resolves to the daemon-injected
+// `$ALOOK_CLI` is an ABSOLUTE path the daemon injects (see prepared launch context
+// and agent-driver cliTransport), so it always resolves to the daemon-injected
 // agent CLI — never the host's own `alook` on PATH (a different package we don't
 // control, and PATH order a re-sourced shell rc can reorder). The `$`-form
 // expands in the agent's shell; the daemon exports the var into the process env.
@@ -35,17 +32,6 @@ export const MESSAGE_SEND_STDIN_POLICY = [
     "the body carries only the short summary and next action.",
 ].join("\n");
 
-/* ------------------------------------------------------------------ */
-/* Section builders                                                     */
-/* ------------------------------------------------------------------ */
-
-/**
- * "Who am I, and to whom." Frames the agent as a member of the owner's
- * household — a peer inside their inner circle — rather than as a tool
- * "operating" in Alook. This framing is load-bearing: the tone, loyalty,
- * privacy defaults, and channel etiquette elsewhere in the prompt all
- * derive from it. Placed first so identity and role read together.
- */
 function identitySection(config: HostLaunchConfig): string {
   const parts: string[] = ["## Identity", ""];
 
@@ -94,7 +80,6 @@ function identitySection(config: HostLaunchConfig): string {
   return parts.join("\n");
 }
 
-/** Keeps social message composition distinct from professional file/artifact writing. */
 function goodMessageContentSection(): string {
   return [
     "## Good message content",
@@ -107,14 +92,6 @@ function goodMessageContentSection(): string {
   ].join("\n");
 }
 
-/**
- * Reference list of every command `alook` exposes, grouped by category, plus
- * the universal output-format contract every command shares. This is the ONE
- * place commands are enumerated — when a future category is added (tasks,
- * calendar, …) it gets its own `### <Category>` subsection here, so the list
- * of "what can I run" always lives in one spot instead of being rediscovered
- * from scattered mentions across other sections.
- */
 function cliCommandsSection(): string {
   return [
     "## CLI commands",
@@ -209,14 +186,6 @@ function cliCommandsSection(): string {
   ].join("\n");
 }
 
-/**
- * The "how" for the messaging commands specifically: reply mechanics,
- * addressing, and the shape of a pulled message. Command *existence* lives in
- * `## CLI commands` — this section is about using them, not listing them, so
- * it doesn't need to grow when new non-messaging command categories are added.
- * Named "Messaging", not "Good message content", so it can't collide with the
- * social/behavioral guidance above (a different concern).
- */
 function messagingSection(): string {
   return [
     "## Messaging",
@@ -387,7 +356,6 @@ function channelTypesSection(): string {
   ].join("\n");
 }
 
-/** Keeps conversation visibility separate from active notification behavior. */
 function visibilityAndNotificationsSection(): string {
   return [
     "## Visibility & notifications",
@@ -410,7 +378,6 @@ function visibilityAndNotificationsSection(): string {
   ].join("\n");
 }
 
-/** Miscellaneous utilities that don't fit into other sections. */
 function utilsSection(): string {
   return [
     "## Utils",
@@ -442,11 +409,6 @@ function utilsSection(): string {
   ].join("\n");
 }
 
-/**
- * Hard constraints, pulled out of style/prose bullets and given their own
- * visually-distinct section — break one of these and something actually
- * fails, as opposed to the softer style guidance elsewhere in the prompt.
- */
 function criticalRulesSection(): string {
   return [
     "## Critical rules",
@@ -602,20 +564,6 @@ function workspaceMemorySection(config: HostLaunchConfig): string {
   ].join("\n");
 }
 
-/* ------------------------------------------------------------------ */
-/* Main builder                                                        */
-/* ------------------------------------------------------------------ */
-
-/**
- * Assemble the standing/system prompt.
- *
- * Asserts what's universally true for any Alook agent workspace — identity,
- * CLI command reference, messaging mechanics, critical rules, startup
- * sequence, communication style, channel awareness, workspace/memory model,
- * and utilities. Uniform across drivers — the returned string does not
- * depend on which runtime is about to be spawned (see
- * `systemPrompt.test.ts`).
- */
 export function buildCliSystemPrompt(config: HostLaunchConfig): string {
   const sections: string[] = [
     identitySection(config),

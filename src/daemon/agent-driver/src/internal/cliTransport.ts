@@ -1,30 +1,7 @@
 /**
- * Shared CLI transport — the common launch scaffolding for every CLI-style
- * runtime (Claude, Codex, Cursor, OpenCode).
- *
- * The runtime child process talks back to its host platform through a small
- * **Alook CLI**, reached purely via the exec environment (PATH + env vars). The
- * agent always invokes a stable `cliName`; a per-launch link in a PATH-prepended
- * bin dir points it at the host's real `hostCliPath` (POSIX symlink / Windows
- * `.cmd` shim — see `cliLink.ts`), so the host binary can be renamed/relocated
- * without touching the agent-facing surface, and no forwarding script is written
- * on POSIX.
- *
- * This module is deliberately host-agnostic: it ships an Alook-branded, swappable
- * CLI config (`alook` name + `ALOOK_*` env contract, no real `hostCliPath`). A
- * real deployment passes its own `CliTransportConfig` — the backend never
- * hardcodes any particular platform.
- *
- * `prepareCliTransport` builds the spawn environment from explicit layers (see
- * `spawnEnv.ts`) so override precedence is data, not spread order; the child can:
- *   - invoke the stable `cliName` (link → host `hostCliPath`) via PATH,
- *   - authenticate back to the host, and
- *   - see the neutral `<PREFIX>_*` runtime-context env vars.
- *
- * AUTH IS ZERO-TRUST ONLY. The host prepares the credential-sensitive
- * environment layer before the adapter runs; this transport only merges that
- * opaque layer at the highest precedence. The real key never enters the
- * child's environment and the package has no credential-broker dependency.
+ * Authentication is zero-trust. The host prepares the opaque credential-sensitive
+ * layer; this transport merges it at the highest precedence. The real key must
+ * not enter the child environment or require a credential-broker dependency.
  */
 import * as fs from "fs";
 import * as path from "path";
@@ -44,17 +21,6 @@ interface PreparedCliTransport {
   spawnEnv: NodeJS.ProcessEnv;
 }
 
-/**
- * Host-supplied knobs for the CLI transport.
- *
- * The transport places a per-launch link named `cliName` in a `bin` dir and
- * prepends that dir to PATH. The agent always invokes the same stable name
- * (`cliName`, default `alook`); on POSIX the link is a symlink to `hostCliPath`,
- * on Windows a `.cmd` shim. This **decouples the agent-facing CLI name from the
- * host's real binary name** — the backend's prompts/contract never depend on what
- * the host actually calls its CLI, and the host can rename or relocate its binary
- * without touching the agent surface.
- */
 export interface CliTransportConfig {
   /** Stable command name the agent invokes (the link's filename). */
   cliName: string;
@@ -75,10 +41,6 @@ export interface CliTransportConfig {
   extraEnv?: Record<string, string>;
 }
 
-/**
- * The default Alook CLI config template. No `hostCliPath` is wired — a real
- * deployment overrides it with `{ ...DEFAULT_CLI_CONFIG, hostCliPath }`.
- */
 const DEFAULT_CLI_CONFIG: CliTransportConfig = {
   cliName: "alook",
   envPrefix: "ALOOK",
@@ -152,7 +114,7 @@ export async function prepareCliTransport(
       vars: resource.credentialSensitive,
     },
   ];
-  const { env: spawnEnv } = mergeEnvLayers(resource.base, layers);
+  const spawnEnv = mergeEnvLayers(resource.base, layers);
   if (platform === "win32" && hostCliPath) {
     spawnEnv.BASH_ENV = writeWindowsBashEnv(binDir, cli.cliName, cli.envPrefix, spawnEnv.BASH_ENV);
   }

@@ -20,7 +20,7 @@ import {
 } from "@/lib/community/conversation-entry"
 import { messageWindowIdentity, type MessageWindowData } from "@/lib/community/message-window"
 import { communityKeys } from "@/lib/query-keys"
-import { reconcileWindow } from "./community-ws/reconnect-messages"
+import { reconcileWindow } from "@/lib/community/message-reconcile"
 import { isConversationAccessError, isConversationAnchorMissingError } from "@/lib/community/conversation-read"
 
 type EntryWindow = NonNullable<ReturnType<typeof findConversationEntryWindow>>
@@ -143,7 +143,7 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
   })
   const forumMessageIds: string[] = []
   const forumProfileIds: string[] = []
-  const forum = client.getQueryData<{ pages: import("./forum-feed-window").ForumFeedPage[] }>(communityKeys.forumFeed(channelId, tag))
+  const forum = client.getQueryData<{ pages: import("@/lib/community/forum-feed-window").ForumFeedPage[] }>(communityKeys.forumFeed(channelId, tag))
   if (Array.isArray(forum?.pages)) for (const page of forum.pages) if (Array.isArray(page?.threads)) for (const thread of page.threads) {
     if (!thread || typeof thread.id !== "string") continue
     if (Array.isArray(thread.participantIds)) forumProfileIds.push(...thread.participantIds.filter(id => typeof id === "string"))

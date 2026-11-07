@@ -35,10 +35,6 @@ describe("magic-number extractions", () => {
     expect(SESSION_STOP_GRACE_MS).toBeLessThan(Number(match![1]));
   });
 
-  it("the removed raw-stderr manager buffer limit stays deleted", () => {
-    expect(readSrc("manager/managerRuntime.ts")).not.toMatch(/\bSTDERR_LOG_MAX_LEN\b/);
-  });
-
   it("ERROR_EXCERPT_MAX_BYTES is set to 4000 in runtime/errorDiagnostics.ts", () => {
     expect(readSrc("runtime/errorDiagnostics.ts")).toMatch(/ERROR_EXCERPT_MAX_BYTES\s*=\s*4000\b/);
   });
@@ -59,48 +55,4 @@ describe("magic-number extractions", () => {
     expect(readSrc("inbox/projection.ts")).toMatch(/MESSAGE_ID_SHORT_LEN\s*=\s*8\b/);
   });
 
-});
-
-describe("deleted symbols stay deleted", () => {
-  it("MACHINE_KEY_DISPLAY_PREFIX_LEN is gone from cli/daemonStart.ts (C3 dropped keyPrefix; list shows no credential)", () => {
-    expect(readSrc("cli/daemonStart.ts")).not.toMatch(/\bMACHINE_KEY_DISPLAY_PREFIX_LEN\b/);
-  });
-
-  it("machine-key hashing is gone from daemonStart (fresh credentials resolve server identity)", () => {
-    expect(readSrc("cli/daemonStart.ts")).not.toMatch(/MACHINE_KEY_HASH_PREFIX_LEN|fallbackIdForStableKey|function keyHash/);
-  });
-
-  it("readCommandVersion is no longer exported by the driver probe", () => {
-    expect(readSrc("../agent-driver/src/internal/probe.ts")).not.toMatch(/\breadCommandVersion\b/);
-  });
-
-  it("credentialFilesDir is no longer defined in cli/daemonStart.ts", () => {
-    expect(readSrc("cli/daemonStart.ts")).not.toMatch(/\bcredentialFilesDir\b/);
-  });
-
-  it("SystemPromptOpts is no longer defined in drivers/systemPrompt.ts", () => {
-    expect(readSrc("drivers/systemPrompt.ts")).not.toMatch(/\bSystemPromptOpts\b/);
-  });
-
-  it("DEFAULT_CLAUDE_MODEL is no longer defined in the Claude adapter", () => {
-    expect(readSrc("../agent-driver/src/adapters/claude/launch.ts")).not.toMatch(/\bDEFAULT_CLAUDE_MODEL\b/);
-  });
-
-  it("agent-backend / 1.0.0 identity string no longer appears in daemon source", () => {
-    // Walk every .ts under src/ (excluding tests) and assert the legacy string
-    // is gone. Cheap, but catches a future regression.
-    const walk = (dir: string): string[] => {
-      const out: string[] = [];
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const p = path.join(dir, entry.name);
-        if (entry.isDirectory()) out.push(...walk(p));
-        else if (entry.isFile() && p.endsWith(".ts") && !p.endsWith(".test.ts")) out.push(p);
-      }
-      return out;
-    };
-    for (const file of walk(HERE)) {
-      const text = fs.readFileSync(file, "utf-8");
-      expect(text, `${file} contained "agent-backend"`).not.toMatch(/"agent-backend"/);
-    }
-  });
 });

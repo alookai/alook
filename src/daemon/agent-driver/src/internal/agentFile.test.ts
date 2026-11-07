@@ -56,9 +56,11 @@ describe("writeAgentFile", () => {
   });
 
   it("rejects adapter-declared instruction paths that escape the workspace", () => {
-    expect(() => writeAgentFile(tmpDir, "unsafe", { canonical: "../outside.md", aliases: [] }))
+    const workspace = path.join(tmpDir, "workspace");
+    fs.mkdirSync(workspace);
+    expect(() => writeAgentFile(workspace, "unsafe", { canonical: "../outside.md", aliases: [] }))
       .toThrow("plain workspace basenames");
-    expect(fs.existsSync(path.join(tmpDir, "..", "outside.md"))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, "outside.md"))).toBe(false);
   });
 });
 

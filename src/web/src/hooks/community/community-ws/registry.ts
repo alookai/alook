@@ -6,7 +6,7 @@ import { telemetryId, currentPageObservation, startPageOperation, finishPageOper
 import { emitTelemetry } from "@/lib/observability/telemetry"
 
 import type { CommunityWsEvent } from "@alook/shared"
-import type { CommunityWsReconcilePolicy } from "@/lib/analytics"
+import type { CommunityWsReconcilePolicy } from "@/lib/community/ws-connection-types"
 import type {
   CommunityWsDispatchContext,
   CommunityWsHandlerContext,
@@ -16,7 +16,6 @@ import {
   handleMessageCreate,
   handleMessageUpdated,
   handlePinEvent,
-  handleReactionEvent,
 } from "@/hooks/community/community-ws/message-events"
 import { handleTypingStart, handleTypingStop } from "@/hooks/community/community-ws/typing-events"
 import {
@@ -49,12 +48,7 @@ import {
   handleMachineUpdated,
   handlePresenceUpdate,
   handleRuntimeModels,
-  handleStatusUpdate,
 } from "@/hooks/community/community-ws/presence-machine-events"
-import {
-  handleIdentityUpdate,
-  handleProfileUpdate,
-} from "@/hooks/community/community-ws/identity-events"
 import { projectCommunityWsEventToDb } from "@/lib/community-db/sync"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { withCommunityCollectionWrites } from "@/lib/community-db/write"
@@ -63,7 +57,7 @@ import { scheduleAccountAttentionReconcile } from "@/hooks/community/use-account
 type CommunityEventType = CommunityWsEvent["type"]
 type CommunityEventFor<T extends CommunityEventType> = Extract<CommunityWsEvent, { type: T }>
 type RegistryEntry<T extends CommunityEventType> = {
-  handler: (event: CommunityEventFor<T>, context: CommunityWsHandlerContext) => void | Promise<void>
+  handler?: (event: CommunityEventFor<T>, context: CommunityWsHandlerContext) => void | Promise<void>
   reconnectPolicies: readonly [CommunityWsReconcilePolicy, ...CommunityWsReconcilePolicy[]]
 }
 type CommunityWsRegistry = { [T in CommunityEventType]: RegistryEntry<T> }
@@ -71,8 +65,8 @@ type CommunityWsRegistry = { [T in CommunityEventType]: RegistryEntry<T> }
 export const communityWsRegistry = {
   "community:message.create": { handler: handleMessageCreate, reconnectPolicies: ["focused-messages", "inbox-dms"] },
   "community:message.updated": { handler: handleMessageUpdated, reconnectPolicies: ["focused-messages", "friends"] },
-  "community:reaction.add": { handler: handleReactionEvent, reconnectPolicies: ["focused-messages", "focused-opener"] },
-  "community:reaction.remove": { handler: handleReactionEvent, reconnectPolicies: ["focused-messages", "focused-opener"] },
+  "community:reaction.add": { reconnectPolicies: ["focused-messages", "focused-opener"] },
+  "community:reaction.remove": { reconnectPolicies: ["focused-messages", "focused-opener"] },
   "community:pin.add": { handler: handlePinEvent, reconnectPolicies: ["focused-messages", "focused-pins"] },
   "community:pin.remove": { handler: handlePinEvent, reconnectPolicies: ["focused-messages", "focused-pins"] },
   "community:typing.start": { handler: handleTypingStart, reconnectPolicies: ["ephemeral-typing"] },
@@ -105,9 +99,9 @@ export const communityWsRegistry = {
   "community:read_state.advanced": { handler: handleReadStateAdvanced, reconnectPolicies: ["cached-read-state", "inbox-dms", "all-cached-servers"] },
   "community:inbox.changed": { handler: handleInboxChanged, reconnectPolicies: ["cached-read-state", "inbox-dms", "all-cached-servers"] },
   "community:presence.update": { handler: handlePresenceUpdate, reconnectPolicies: ["friends", "all-cached-servers"] },
-  "community:status.update": { handler: (event) => handleStatusUpdate(event), reconnectPolicies: ["status-overlay"] },
-  "community:identity.update": { handler: handleIdentityUpdate, reconnectPolicies: ["identity-surfaces"] },
-  "community:profile.update": { handler: handleProfileUpdate, reconnectPolicies: ["identity-surfaces"] },
+  "community:status.update": { reconnectPolicies: ["status-overlay"] },
+  "community:identity.update": { reconnectPolicies: ["identity-surfaces"] },
+  "community:profile.update": { reconnectPolicies: ["identity-surfaces"] },
   "community:machine.created": { handler: handleMachineCreated, reconnectPolicies: ["machines"] },
   "community:machine.status": { handler: handleMachineStatus, reconnectPolicies: ["machines"] },
   "community:machine.updated": { handler: handleMachineUpdated, reconnectPolicies: ["machines"] },
@@ -194,7 +188,7 @@ export function dispatchCommunityWsEvents(
       const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
       const receipt = { id: telemetryId(), start: performance.now(), type: event.type, operation: startPageOperation("ws.event_applied", { phase: "commit", source: "ws", event_type: event.type }, currentPageObservation()) }
       receipts.push(receipt)
-      const publication = entry.handler(event, handlerContext)
+      const publication = entry.handler?.(event, handlerContext)
       if (publication) publications.push(publication)
       if (event.type !== "community:message.create") projectCommunityWsEventToDb(context.queryClient, event, context.contract)
       if ([

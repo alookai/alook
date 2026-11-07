@@ -6,7 +6,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 import { useForumFeed } from "./use-forum-feed"
 import { useUpdatePostTags } from "./mutations/forum"
-import type { ForumFeedTransportPage } from "./forum-feed-window"
+import type { ForumFeedTransportPage } from "@/lib/community/forum-feed-window"
 import { forumConversationEntryFixture } from "@/test/conversation-entry-fixtures"
 
 const api = vi.hoisted(() => vi.fn())

@@ -23,19 +23,9 @@ import {
   unmountHook,
 } from "./test-harness"
 
-const telemetry = vi.hoisted(() => ({
-  complete: vi.fn(),
-  failure: vi.fn(),
-}))
 
-vi.mock("@/lib/analytics", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/analytics")>("@/lib/analytics")
-  return {
-    ...actual,
-    trackCommunityWsReconcileComplete: telemetry.complete,
-    trackCommunityWsReconcileFailure: telemetry.failure,
-  }
-})
+
+
 
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
@@ -151,9 +141,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient)
 
     expect(summary.failureCount).toBeGreaterThan(0)
-    expect(telemetry.failure).toHaveBeenCalledWith(
-      expect.objectContaining({ policy: "identity-surfaces" }),
-    )
+
   })
 
   it("reactivates the attention owner after a Strict Effects cleanup/setup replay", async () => {
@@ -580,14 +568,11 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       exact: true,
       refetchType: "active",
     })
-    expect(telemetry.failure).toHaveBeenCalledTimes(1)
-    expect(telemetry.failure).toHaveBeenCalledWith({
-      policy: "all-cached-servers",
-      reason: "async-rejection",
-    })
-    expect(JSON.stringify(telemetry.failure.mock.calls)).not.toContain("private backend detail")
-    expect(telemetry.complete).toHaveBeenCalledTimes(1)
-    expect(telemetry.complete).toHaveBeenCalledWith(summary)
+
+
+
+
+
   })
 
   it("waits for forum notify reconciliation and reports its reconnect failure", async () => {
@@ -613,11 +598,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await pending
 
     expect(summary).toMatchObject({ failureCount: 1, reconnectDurationMs: 25 })
-    expect(telemetry.failure).toHaveBeenCalledWith({
-      policy: "all-cached-servers",
-      reason: "async-rejection",
-    })
-    expect(JSON.stringify(telemetry.failure.mock.calls)).not.toContain("private sidebar transport detail")
+
+
   })
 
   it("isolates a policy rejection and reports only the stable policy key", async () => {
@@ -631,11 +613,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     invalidate.mockRestore()
 
     expect(summary).toMatchObject({ policyCount: 15, successCount: 14, failureCount: 1 })
-    expect(telemetry.failure).toHaveBeenCalledWith({
-      policy: "friends",
-      reason: "async-rejection",
-    })
-    expect(JSON.stringify(telemetry.failure.mock.calls)).not.toContain("private sync detail")
+
+
   })
 
   it("can exclude only Inbox/DM repair while completing every other reconnect policy", async () => {

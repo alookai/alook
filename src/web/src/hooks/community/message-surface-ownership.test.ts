@@ -22,7 +22,7 @@ import {
 } from "@/lib/community-db/sync"
 import type { Msg } from "@/lib/community/models/message"
 import { mapForumFeedPages } from "./use-forum-feed"
-import { normalizeThreadResources, forumFeedWindow, type ForumFeedTransportPage } from "./forum-feed-window"
+import { normalizeThreadResources, forumFeedWindow, type ForumFeedTransportPage } from "@/lib/community/forum-feed-window"
 import { materializeThreadsResponse, type ThreadsResponse } from "./use-channel-panels"
 
 let registry: CommunityDbRegistry | undefined

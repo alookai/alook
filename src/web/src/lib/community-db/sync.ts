@@ -17,14 +17,12 @@ import { notifyManager,type QueryClient } from "@tanstack/react-query"
 import { createStore } from "@tanstack/store"
 import type { Query } from "@tanstack/react-query"
 import { FORUM_ARCHIVE_TAG, CommunityChannelResourceSchema, AttentionIncludedSchema, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, CommunityResourceProfileSchema, CommunityMemberRelationSchema, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile, type CommunityMessageResource, type AccountAttentionSnapshot, type CommunityWsEvent, type CommunityContract, type ServerRailProjection } from "@alook/shared"
-import type { DmsResponse } from "@/hooks/community/use-dms"
-import type { FoldersResponse } from "@/hooks/community/use-folders"
-import type {
-AccountReadStateSnapshot,
-} from "@/hooks/community/community-ws/read-state-reconciliation"
-import type { ServersResponse } from "@/hooks/community/use-servers"
+import type { CommunityDmsRead as DmsResponse } from "@alook/shared"
+import type { FoldersResponse, ServersResponse } from "@/lib/community/models/navigation"
+import type { queries } from "@alook/shared"
+type AccountReadStateSnapshot = queries.communityReadState.AccountReadStateSnapshot
 import { applyMessageReaction, messageProfileIds, type Msg, type MessageInput } from "@/lib/community/models/message"
-import type { NotificationSettings } from "@/hooks/community/use-notification-settings"
+import type { NotificationSettings } from "@/lib/community/models/notification"
 import { communityKeys } from "@/lib/query-keys"
 import {
 beginCommunityProfileSeed,
@@ -37,11 +35,9 @@ isCommunityProfileRetired,
 import type { CommunityProfilePatch } from "@/lib/community/models/people"
 import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 
-
-
 import { canonicalUserImage } from "@/lib/community/storage"
 import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
-import { clearTypingIndicator } from "@/hooks/community/community-ws/typing"
+import { clearTypingIndicator } from "@/lib/community/typing"
 import { takeMessageIdsForAccessScope } from "./message-access-scope"
 import { clearLastChannel,getLastChannel } from "@/lib/community/last-channel"
 import { clearLastMeLocation,getLastMeLeaf } from "@/lib/community/last-me-location"
@@ -54,7 +50,7 @@ import type { z } from "zod"
 import { communityRowData, writeCommunityCollectionRows, writeCommunityCollectionChanges, readCommunityCollectionRow, withCommunityCollectionWrites, afterCommunityCollectionWrites, parseCommunityCollectionRows } from "./write"
 import { canonicalChannelMessages, canonicalMessageResources } from "./resources"
 import type { CommunityRestoredCollections } from "@/lib/query-persister"
-import { normalizeThreadResources, type CommunityThreadResources } from "@/hooks/community/forum-feed-window"
+import { normalizeThreadResources, type CommunityThreadResources } from "@/lib/community/forum-feed-window"
 
 type CollectionName = keyof CommunityDbRegistry["collections"]
 type SnapshotIngestMode = "authoritative" | "merge"
@@ -1777,7 +1773,6 @@ export function publishAccountAttentionSnapshot(
   })
 }
 
-/** Merge confirmed rows from one fresh transport response into canonical DB. */
 export function publishCommunityMessages(
   queryClient: QueryClient,
   publication: {
@@ -1802,7 +1797,6 @@ export function publishCommunityMessages(
   })
 }
 
-/** Publish message entities embedded in a cross-scope transport response. */
 export function publishCommunityEmbeddedMessages(
   queryClient: QueryClient,
   publication: {
@@ -1845,7 +1839,6 @@ export function confirmCommunityConversationPresence(queryClient: QueryClient, c
   })
 }
 
-/** Publish one verified channel metadata response and its viewer access fact. */
 export function publishCommunityChannelMetadata(
   queryClient: QueryClient,
   publication: {
@@ -1867,7 +1860,6 @@ export function publishCommunityChannelMetadata(
   })
 }
 
-/** Merge the fresh all-server ref directory without degrading known rows. */
 export function publishCommunityChannelDirectory(
   queryClient: QueryClient,
   publication: {
@@ -1887,7 +1879,6 @@ export function publishCommunityChannelDirectory(
 export type CommunityForumSidebarChannel = CommunityChannelResource & { activityAt: string; unread: boolean; participating: boolean }
 export type CommunityForumSidebarOpener = CommunityMessageResource
 
-/** Publish the service facts carried by one forum-sidebar response. */
 export function publishCommunityForumSidebar(
   queryClient: QueryClient,
   publication: {
@@ -2404,7 +2395,6 @@ export function collectChannelScopeIds(
   return ids
 }
 
-
 export function retireCommunityChannelReading(
   registry: CommunityDbRegistry,
   channelId: string,
@@ -2467,12 +2457,6 @@ function projectProfilePatch(
   writeCommunityProfilePatches([{ id: userId, ...patch }], registry, { event: true })
 }
 
-/**
- * Applies low-latency WS facts directly to the canonical account-scoped
- * collections. Existing React Query handlers still own reconciliation and
- * fetch invalidation; a successful queryFn explicitly publishes its fresh
- * response into the same rows after its signal and account token are checked.
- */
 export function projectCommunityWsEventToDb(
   queryClient: QueryClient,
   event: CommunityWsEvent,

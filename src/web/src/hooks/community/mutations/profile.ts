@@ -22,10 +22,6 @@ export type UpdateProfileArgs = {
 
 export type UpdateProfileResult = CommunitySelfProfileRead
 
-/**
- * PATCH the current user's profile card. The shell applies the canonical
- * response to the global profile map without rewriting query data.
- */
 export function useUpdateProfile() {
   const origin = useCommunityMutationOrigin()
   type Intent = UpdateProfileArgs & { original: ReturnType<typeof origin.begin>["token"] }
@@ -52,11 +48,6 @@ export function useUpdateProfile() {
 export type UploadUserAvatarArgs = { file: File; assertActive?: OriginalView }
 export type UploadUserAvatarResult = { url: string; avatarVersion: number }
 
-/**
- * Uploads the current user's avatar. Mirrors `useUploadServerIcon`'s raw
- * `fetch`-with-`FormData` pattern. The shell applies the versioned result to
- * the global profile map.
- */
 export function useUploadUserAvatar() {
   const origin = useCommunityMutationOrigin()
   type Intent = UploadUserAvatarArgs & { original: ReturnType<typeof origin.begin>["token"] }

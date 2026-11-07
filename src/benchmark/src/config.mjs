@@ -1,3 +1,4 @@
+import { assertCommunityContractVersion } from "./community-contract.mjs"
 import { readFile } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
 
@@ -9,6 +10,7 @@ export async function loadConfig(path) {
     phases: [{ name: 'baseline', delayMs: 0 }, { name: 'request-delay', delayMs: 1000 }],
     ...source,
   }
+  if (config.case === 'channel-message-send') assertCommunityContractVersion(config.communityContractVersion)
   const url = new URL(config.baseUrl)
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('baseUrl must be a credential-free HTTP(S) origin')
   if (!['local', 'staging'].includes(config.targetKind)) throw new Error('targetKind must explicitly name local or staging')
@@ -31,5 +33,5 @@ export async function loadConfig(path) {
 }
 
 export function publicConfig(config) {
-  return Object.fromEntries(['case', 'observeDB', 'baseUrl', 'targetKind', 'targetVersion', 'environment', 'samples', 'warmup', 'concurrency', 'timeoutMs', 'intervalMs', 'payloadBytes', 'receivers', 'expectedMembers', 'historyLimit', 'phases'].map(key => [key, config[key]]))
+  return Object.fromEntries(['case', 'communityContractVersion', 'observeDB', 'baseUrl', 'targetKind', 'targetVersion', 'environment', 'samples', 'warmup', 'concurrency', 'timeoutMs', 'intervalMs', 'payloadBytes', 'receivers', 'expectedMembers', 'historyLimit', 'phases'].map(key => [key, config[key]]))
 }

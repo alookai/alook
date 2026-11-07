@@ -16,12 +16,12 @@ const mocks = vi.hoisted(() => ({
   })),
 }))
 
-vi.mock("@/hooks/community/mutations/messages", () => ({
+vi.mock("@/lib/community/message-send-input", () => ({
   sendNonce: () => "nonce_1",
   tempMessageId: () => "temp_1",
   toAttachmentVm: mocks.toVm,
 }))
-vi.mock("@/hooks/community/mutations/uploads", () => ({ zipUploadResultsWithDimensions: mocks.zip }))
+vi.mock("@/lib/community/attachment-upload", () => ({ zipUploadResultsWithDimensions: mocks.zip }))
 vi.mock("@/hooks/community/use-community-ws", () => ({
   communityWsEndTyping: mocks.endTyping,
 }))

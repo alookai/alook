@@ -30,33 +30,12 @@ import {
   publishCommunityLiveSnapshot,
 } from "@/lib/community-db/sync"
 
-/**
- * Fetches the user's notification-setting rows and materialises them into
- * `{ server: { [serverId]: displayLevel }, channel: { [channelId]: displayLevel } }`
- * — the shape the settings UI consumes. Display strings ("All Messages",
- * "Only @mentions", "Nothing") mirror the mapping in the old context.
- */
-type NotificationSettingRow = {
-  serverId?: string | null
-  channelId?: string | null
-  level: string
-}
+import type { NotificationSettingRow, NotificationSettings } from "@/lib/community/models/notification"
+export type { NotificationSettings } from "@/lib/community/models/notification"
 
-export type NotificationSettings = {
-  raw: NotificationSettingRow[]
-  server: Record<string, string>
-  channel: Record<string, string>
-}
-
-// Frozen empty fallbacks — reused across renders while the query is loading
-// so consumers reading `server` / `channel` in a `useEffect` dep array don't
-// re-fire per render (a fresh `{}` would churn the reference).
 const EMPTY_NOTIF_SERVER: Readonly<Record<string, string>> = Object.freeze({})
 const EMPTY_NOTIF_CHANNEL: Readonly<Record<string, string>> = Object.freeze({})
 
-// API-level ("all"|"mentions"|"nothing") → display string, from the shared
-// single-source bijection (`notifLevelDisplay`). Was a hand-rolled map that
-// drifted on casing ("All Messages" vs the shared const's "All messages").
 const displayNotifLevel = notifLevelDisplay
 
 const DEFAULT_SERVER_NOTIFICATION_LEVEL = notifLevelDisplay("all")

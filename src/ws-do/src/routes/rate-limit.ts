@@ -3,14 +3,7 @@ export async function handleRateLimit(
   env: Env,
   url: URL,
 ): Promise<Response | null> {
-  // Strongly-consistent, parameterized rate limiter. Every rate-limit
-  // call site (community message send, auth OTP, future policies) hits
-  // this single endpoint with a `{ name, key, windowMs, max }` payload
-  // — one DO instance per (name, key) pair. Policy values come from the
-  // shared `RATE_LIMITS` registry in `src/shared/src/lib/rate-limits.ts`
-  // so ceilings live in one place, not scattered across route handlers.
-  //
-  // See `rate-limit-do.ts` for the counter logic.
+
   const automation = url.pathname === "/rate-limit/automation"
   if ((!automation && url.pathname !== "/rate-limit/check") || request.method !== "POST") return null
 
