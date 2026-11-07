@@ -20,10 +20,18 @@ export async function uploadDraft(receipt, bytes, token, request = fetch, progre
       signal: AbortSignal.timeout(media ? 300_000 : 60_000),
     })
     if (!response.ok) {
-      const failure = { method, stage: progress.stage, httpStatus: response.status }
+      const failure = { method, stage: progress.stage, httpStatus: response.status, messageHint: "Unrecognized Google error message" }
       let payload
       try { payload = await response.json(); failure.responseJson = "parsed" } catch { failure.responseJson = "unavailable" }
       const error = payload?.error
+      const instructions = [
+        ["The query parameter changesNotSentForReview must not be set", "Google requires omitting changesNotSentForReview for this edit.", "Changes are sent for review automatically. "],
+        ["Please set the query parameter changesNotSentForReview to true", "Google requires changesNotSentForReview=true for this edit.", "Changes cannot be sent for review automatically. "],
+      ].filter(([instruction]) => typeof error?.message === "string" && error.message.includes(instruction))
+      if (instructions.length === 1 && [instructions[0][0], instructions[0][2] + instructions[0][0]].some(instruction =>
+        error.message.startsWith(instruction) && /^[.:\s]?$/.test(error.message.slice(instruction.length, instruction.length + 1)))) {
+        failure.messageHint = instructions[0][1]
+      }
       const identifier = (value, pattern) => typeof value === "string" && pattern.test(value) && !value.includes(String(token)) ? value : undefined
       if (Number.isInteger(error?.code) && error.code >= 100 && error.code <= 599) failure.googleCode = error.code
       const status = identifier(error?.status, /^[A-Z][A-Z0-9_]{0,127}$/)
@@ -35,7 +43,7 @@ export async function uploadDraft(receipt, bytes, token, request = fetch, progre
       if (reasons.length) failure.reasons = [...new Set(reasons)]
       progress.httpErrors ??= []
       progress.httpErrors.push(failure)
-      const detail = [failure.googleStatus, ...(failure.reasons ?? [])].filter(Boolean).join(", ")
+      const detail = [failure.googleStatus, ...(failure.reasons ?? []), failure.messageHint].filter(Boolean).join(", ")
       throw new Error(`Google Play ${method} failed with HTTP ${response.status} at ${progress.stage}${detail ? ` (${detail})` : ""}`)
     }
     return response.status === 204 ? {} : response.json()
@@ -73,7 +81,7 @@ export async function uploadDraft(receipt, bytes, token, request = fetch, progre
     await api("PUT", `${path(editId)}/tracks/internal`, track)
     progress.stage = "commit-draft"
     progress.commitState = "unknown"
-    const committed = await api("POST", `${path(editId)}:commit?changesNotSentForReview=true&changesInReviewBehavior=ERROR_IF_IN_REVIEW`)
+    const committed = await api("POST", `${path(editId)}:commit?changesInReviewBehavior=ERROR_IF_IN_REVIEW`)
     if (committed.id !== editId) throw new Error("Google Play returned a different committed edit")
     progress.committed = true
     progress.commitState = "confirmed"

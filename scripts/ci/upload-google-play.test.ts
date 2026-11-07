@@ -56,7 +56,7 @@ describe("verified bundle to Google Play internal draft", () => {
     expect(JSON.parse(calls[5].options.body as string)).toEqual({ track: "internal", releases: [previous, publishedDraft] })
     expect(calls[6].options.body).toBeUndefined()
     expect(Object.fromEntries(new URL(calls[6].url).searchParams)).toEqual({
-      changesNotSentForReview: "true", changesInReviewBehavior: "ERROR_IF_IN_REVIEW",
+      changesInReviewBehavior: "ERROR_IF_IN_REVIEW",
     })
     expect(JSON.stringify(result)).not.toContain("offline-token")
     expect(progress).toMatchObject({ stage: "confirmed", committed: true, commitState: "confirmed", readback: true })
@@ -135,9 +135,60 @@ describe("verified bundle to Google Play internal draft", () => {
     const { request } = fixture({}, 6, Response.json({ error }, { status: 400 }))
     const progress: Record<string, unknown> = {}
     await expect(uploadDraft(receipt, bytes, "offline-token", request, progress)).rejects.toThrow("HTTP 400")
-    expect(progress.httpErrors).toEqual([{ method: "POST", stage: "commit-draft", httpStatus: 400, responseJson: "parsed", ...expected }])
+    expect(progress.httpErrors).toEqual([{ method: "POST", stage: "commit-draft", httpStatus: 400, messageHint: "Unrecognized Google error message", responseJson: "parsed", ...expected }])
     expect(JSON.stringify(progress)).not.toContain("CHANGES_ALREADY_IN_REVIEW")
     expect(JSON.stringify(progress)).not.toContain("excluded legacy prose")
+  })
+
+  it.each([
+    ["The query parameter changesNotSentForReview must not be set", "Google requires omitting changesNotSentForReview for this edit.", true],
+    ["Please set the query parameter changesNotSentForReview to true", "Google requires changesNotSentForReview=true for this edit.", true],
+    ["Changes are sent for review automatically. The query parameter changesNotSentForReview must not be set.", "Google requires omitting changesNotSentForReview for this edit.", false],
+    ["Changes cannot be sent for review automatically. Please set the query parameter changesNotSentForReview to true", "Google requires changesNotSentForReview=true for this edit.", false],
+  ])("explains the Google parameter instruction without retrying: %s", async (instruction, hint, sensitiveSuffix) => {
+    const token = "SECRET_HINT_TOKEN_54"
+    const { request, calls } = fixture({}, 6, Response.json({ error: { code: 400, status: "INVALID_ARGUMENT",
+      message: sensitiveSuffix ? `${instruction}. Bearer ${token} private@example.test https://private.test/?token=hidden /private/context` : instruction } }, { status: 400 }))
+    const progress: Record<string, unknown> = {}
+    const error = await uploadDraft(receipt, bytes, token, request, progress).catch(value => value)
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toContain(hint)
+    expect(progress.httpErrors).toEqual([{ method: "POST", stage: "commit-draft", httpStatus: 400, responseJson: "parsed",
+      messageHint: hint, googleCode: 400, googleStatus: "INVALID_ARGUMENT" }])
+    expect(progress).toMatchObject({ commitState: "unknown" })
+    expect(calls).toHaveLength(7)
+    expect(calls.filter(call => call.url.includes(":commit"))).toHaveLength(1)
+    expect(calls.some(call => call.options.method === "DELETE")).toBe(false)
+    for (const excluded of [token, "Bearer", "private@example.test", "https://private.test", "/private/context"]) {
+      expect(JSON.stringify(progress) + error.message).not.toContain(excluded)
+    }
+  })
+
+  it.each([
+    ["missing", undefined],
+    ["null", null],
+    ["object", { access_token: "PRIVATE_HINT_CONTEXT" }],
+    ["unknown", "Invalid request PRIVATE_HINT_CONTEXT"],
+    ["oversized", "X".repeat(16384) + " PRIVATE_HINT_CONTEXT"],
+    ["embedded", "Private context: The query parameter changesNotSentForReview must not be set. PRIVATE_HINT_CONTEXT"],
+    ["word boundary", "The query parameter changesNotSentForReview must not be setValue PRIVATE_HINT_CONTEXT"],
+    ["conflicting", "The query parameter changesNotSentForReview must not be set. Please set the query parameter changesNotSentForReview to true. PRIVATE_HINT_CONTEXT"],
+    ["mismatched automatic introduction", "Changes are sent for review automatically. Please set the query parameter changesNotSentForReview to true. PRIVATE_HINT_CONTEXT"],
+    ["mismatched manual introduction", "Changes cannot be sent for review automatically. The query parameter changesNotSentForReview must not be set. PRIVATE_HINT_CONTEXT"],
+    ["dynamic complete prefix", "PRIVATE_HINT_CONTEXT Changes are sent for review automatically. The query parameter changesNotSentForReview must not be set."],
+    ["conflicting complete formats", "Changes are sent for review automatically. The query parameter changesNotSentForReview must not be set. Changes cannot be sent for review automatically. Please set the query parameter changesNotSentForReview to true. PRIVATE_HINT_CONTEXT"],
+  ])("leaves a %s Google message unrecognized without copying or guessing", async (_kind, message) => {
+    const { request, calls } = fixture({}, 6, Response.json({ error: { code: 400, status: "INVALID_ARGUMENT", message } }, { status: 400 }))
+    const progress: Record<string, unknown> = {}
+    const error = await uploadDraft(receipt, bytes, "offline-token", request, progress).catch(value => value)
+    expect(error).toBeInstanceOf(Error)
+    expect(progress.httpErrors).toEqual([{ method: "POST", stage: "commit-draft", httpStatus: 400, responseJson: "parsed",
+      messageHint: "Unrecognized Google error message", googleCode: 400, googleStatus: "INVALID_ARGUMENT" }])
+    expect(progress).toMatchObject({ commitState: "unknown" })
+    expect(calls).toHaveLength(7)
+    for (const excluded of ["PRIVATE_HINT_CONTEXT", "CHANGES_ALREADY_IN_REVIEW", "Google requires", "X".repeat(128)]) {
+      expect(JSON.stringify(progress) + error.message).not.toContain(excluded)
+    }
   })
 
   it.each(["non-JSON", "body-read failure"])("keeps the HTTP error when its body has %s", async kind => {
@@ -146,7 +197,7 @@ describe("verified bundle to Google Play internal draft", () => {
     const { request, calls } = fixture({}, 6, response)
     const progress: Record<string, unknown> = {}
     await expect(uploadDraft(receipt, bytes, "offline-token", request, progress)).rejects.toThrow("HTTP 502 at commit-draft")
-    expect(progress.httpErrors).toEqual([{ method: "POST", stage: "commit-draft", httpStatus: 502, responseJson: "unavailable" }])
+    expect(progress.httpErrors).toEqual([{ method: "POST", stage: "commit-draft", httpStatus: 502, messageHint: "Unrecognized Google error message", responseJson: "unavailable" }])
     expect(calls).toHaveLength(7)
     expect(JSON.stringify(progress)).not.toContain("excluded")
   })
@@ -165,7 +216,7 @@ describe("verified bundle to Google Play internal draft", () => {
     const progress: Record<string, unknown> = {}
     const error = await uploadDraft(receipt, bytes, token, request, progress).catch(value => value)
     expect(error).toBeInstanceOf(Error)
-    expect(progress.httpErrors).toEqual([{ method: "POST", stage: "commit-draft", httpStatus: 400, responseJson: "parsed", googleCode: 400,
+    expect(progress.httpErrors).toEqual([{ method: "POST", stage: "commit-draft", httpStatus: 400, messageHint: "Unrecognized Google error message", responseJson: "parsed", googleCode: 400,
       ...(field === "status" ? {} : { googleStatus: "FAILED_PRECONDITION" }), reasons: ["CHANGES_ALREADY_IN_REVIEW"] }])
     for (const excluded of [token, "Bearer", "Authorization", "metadata", "EXCLUDED_WRONG_TYPE", "X".repeat(129)]) {
       expect(JSON.stringify(progress) + error.message).not.toContain(excluded)
@@ -190,11 +241,15 @@ describe("verified bundle to Google Play internal draft", () => {
     ] })
   })
 
-  it("writes the HTTP diagnosis into the real main failure receipt", async () => {
+  it.each([
+    [{ code: 400, status: "FAILED_PRECONDITION", details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "CHANGES_ALREADY_IN_REVIEW" }] },
+      { googleStatus: "FAILED_PRECONDITION", reasons: ["CHANGES_ALREADY_IN_REVIEW"], messageHint: "Unrecognized Google error message" }],
+    [{ code: 400, status: "INVALID_ARGUMENT", message: "Changes are sent for review automatically. The query parameter changesNotSentForReview must not be set. SECRET_DYNAMIC_CONTEXT" },
+      { googleStatus: "INVALID_ARGUMENT", messageHint: "Google requires omitting changesNotSentForReview for this edit." }],
+  ])("writes the HTTP diagnosis into the real main failure receipt: %j", async (providerError, expected) => {
     const dir = mkdtempSync(join(tmpdir(), "alook-play-http-error-"))
     const bundle = join(dir, "bundle.aab"), input = join(dir, "bundle.json"), output = join(dir, "result.json")
-    const { request, calls } = fixture({}, 6, Response.json({ error: { code: 400, status: "FAILED_PRECONDITION",
-      details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "CHANGES_ALREADY_IN_REVIEW" }] } }, { status: 400 }))
+    const { request, calls } = fixture({}, 6, Response.json({ error: providerError }, { status: 400 }))
     try {
       writeFileSync(bundle, bytes)
       writeFileSync(input, JSON.stringify({ ...receipt, path: bundle }))
@@ -203,7 +258,8 @@ describe("verified bundle to Google Play internal draft", () => {
       await expect(main([input, output])).rejects.toThrow("HTTP 400")
       expect(JSON.parse(readFileSync(output, "utf8"))).toEqual({ stage: "commit-draft", committed: false, commitState: "unknown",
         readback: false, editId: "write-edit", success: false, httpErrors: [{ method: "POST", stage: "commit-draft", httpStatus: 400,
-          responseJson: "parsed", googleCode: 400, googleStatus: "FAILED_PRECONDITION", reasons: ["CHANGES_ALREADY_IN_REVIEW"] }] })
+          responseJson: "parsed", googleCode: 400, ...expected }] })
+      expect(readFileSync(output, "utf8")).not.toContain("SECRET_DYNAMIC_CONTEXT")
       expect(calls).toHaveLength(7)
     } finally {
       vi.unstubAllGlobals()
@@ -219,7 +275,7 @@ describe("verified bundle to Google Play internal draft", () => {
       ? new Response(null, { status: 503 }) : request(url, options)
     await expect(uploadDraft(receipt, bytes, "offline-token", failingCleanup, progress)).rejects.toThrow("cleanup failed")
     expect(progress).toMatchObject({ committed: true, readback: true, cleanupFailed: true })
-    expect(progress.httpErrors).toEqual([{ method: "DELETE", stage: "confirmed", httpStatus: 503, responseJson: "unavailable" }])
+    expect(progress.httpErrors).toEqual([{ method: "DELETE", stage: "confirmed", httpStatus: 503, messageHint: "Unrecognized Google error message", responseJson: "unavailable" }])
   })
 })
 
