@@ -1,0 +1,37 @@
+{
+  "extends": "../web/tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": [
+        "../web/src/*"
+      ],
+      "@blog/*": [
+        "../web/blog/src/*"
+      ]
+    },
+    "types": [
+      "../web/cloudflare-env.d.ts",
+      "node"
+    ],
+    "plugins": [],
+    "incremental": false,
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    ".storybook/**/*.ts",
+    ".storybook/**/*.tsx",
+    "preview/**/*.ts",
+    "preview/**/*.tsx",
+    "stories/**/*.ts",
+    "stories/**/*.tsx",
+    "../web/src/**/*.d.ts",
+    "../web/*.d.ts",
+    "*.mjs",
+    "scripts/**/*.mjs",
+    "scripts/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "storybook-static"
+  ]
+}

@@ -37,3 +37,9 @@ src/daemon/LICENSE
 src/web/blog/public/blog/_generated/
 .ci/
 .vitest/
+
+*storybook.log
+storybook-static
+
+src/storybook/public/preview/attachment.html
+src/storybook/public/favicon.ico

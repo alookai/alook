@@ -1,0 +1,48 @@
+{
+  "name": "@alook/storybook",
+  "version": "0.1.65",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm prepare:assets && storybook dev --host 127.0.0.1 --port 6006 --ci --disable-telemetry",
+    "build": "pnpm prepare:assets && storybook build --disable-telemetry",
+    "typecheck": "tsc --noEmit && pnpm catalog:check",
+    "lint": "eslint .",
+    "catalog": "node scripts/catalog.mjs",
+    "catalog:check": "node scripts/catalog.mjs --check --complete",
+    "prepare:assets": "tsx scripts/prepare-assets.ts"
+  },
+  "dependencies": {
+    "@alook/shared": "workspace:*",
+    "@alook/web": "workspace:*",
+    "next": "16.4.2",
+    "next-themes": "0.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "sonner": "^2.0.8"
+  },
+  "devDependencies": {
+    "@storybook/addon-a11y": "10.6.6",
+    "@storybook/addon-docs": "10.6.6",
+    "@storybook/nextjs-vite": "10.6.6",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^25",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.2",
+    "eslint-plugin-tailwind-canonical-classes": "^1.6.0",
+    "msw": "^3.0.4",
+    "msw-storybook-addon": "^3.0.3",
+    "storybook": "10.6.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "8.72.0",
+    "vite": "8.3.6",
+    "tsx": "4.23.15"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
+  }
+}
