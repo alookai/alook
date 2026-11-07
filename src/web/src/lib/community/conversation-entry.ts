@@ -209,8 +209,8 @@ function conversationDisplayWindows(client: QueryClient, target: ConversationEnt
 }
 
 export function findConversationDisplayWindow(client: QueryClient, target: ConversationEntryTarget, scope: ConversationWindowScope) {
-  return conversationDisplayWindows(client, target, scope)?.find(window => !messageWindowIdentity(window.key) || target.preferTail === false || !!target.anchorMessageId
-    || window.initial.mode === "newest" && client.getQueryData<MessageWindowData>(window.key)?.pages[0]?.hasMoreNewer === false)
+  // Display needs a qualified, complete cache; tail or target coverage belongs to entry positioning and reading.
+  return conversationDisplayWindows(client, target, scope)?.[0]
 }
 
 export function findConversationEntryWindow(client: QueryClient, target: ConversationEntryTarget, resource: ConversationWindowScope, pointer: CommunityReadStateResource | undefined) {

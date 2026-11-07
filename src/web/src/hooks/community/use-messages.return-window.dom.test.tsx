@@ -117,12 +117,12 @@ describe("returned entry and selected message window", () => {
     } finally { if (!unmounted) hook.unmount(); client.clear() }
   })
 
-  it("retains complete cached rows but waits for latest positioning while the selected window repair is pending", async () => {
+  it("admits complete cached rows for local placement while selected-window repair keeps reading pending", async () => {
     const { hook, late, fresh } = await holdSelectedWindowRepair()
     try {
       expect(hook.result.current.readSnapshotFetching).toBe(true)
       expect(hook.result.current.positionDataState).toBe("pending")
-      expect(hook.result.current.initialScrollReady).toBe(false)
+      expect(hook.result.current.initialDisplayReady).toBe(true)
       expect(hook.result.current.messages.map(message => message.id)).toEqual(["m1"])
       await act(async () => late.resolve(messageReadPageFixture({ messages: fresh.messages, latestSeq: 3, hasMoreNewer: false })))
       await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
@@ -173,9 +173,10 @@ describe("returned entry and selected message window", () => {
     try {
       await waitFor(() => expect(load).toHaveBeenCalledTimes(2))
       const oldParam = { mode: "newest" }
-      expect(returned.result.current.data?.pageParams[0]).toEqual(kind === "same-key newest" ? oldParam : undefined)
-      expect(returned.result.current.messages.map(message => message.id)).toEqual(kind === "same-key newest" ? ["m1"] : [])
-      expect(returned.result.current.readSnapshot?.lastReadSeq).toBe(kind === "same-key newest" ? 1 : undefined)
+      expect(returned.result.current.data?.pageParams[0]).toEqual(kind === "same-key newest" ? oldParam : { mode: "anchor", anchor: "m1" })
+      expect(returned.result.current.messages.map(message => message.id)).toEqual(["m1"])
+      expect(returned.result.current.initialDisplayReady).toBe(true)
+      expect(returned.result.current.readSnapshot?.lastReadSeq).toBe(1)
       await act(async () => response.resolve(fresh))
       await waitFor(() => expect(returned.result.current.isFetching).toBe(false))
       const expectedIds = fresh.messages.map(message => message.id)

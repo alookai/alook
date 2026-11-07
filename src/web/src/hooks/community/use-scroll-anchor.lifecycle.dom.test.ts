@@ -111,13 +111,13 @@ describe("qualified positioning lifecycle", () => {
     expect(positioned).toHaveBeenCalledTimes(target === "target" ? 1 : 0)
   })
 
-  it.each((["local", "unread", "tail"] as const).flatMap(target => [false, true].flatMap(strict =>
+  it.each((["local", "tail-new", "tail", "tail-manual"] as const).flatMap(target => [false, true].flatMap(strict =>
     [320, 1280].map(width => [target, strict, width] as const))))("finishes cached %s positioning with StrictMode=%s at %spx while reads remain pending without late NEW taking ownership", (target, strict, width) => {
     scrollFixture.width = width
     const settled = vi.fn()
     const items = Array.from({ length: 14 }, (_, i) => ({ ...message(`m${i}`), newDivider: i === 5 }))
     const h = mount({ items, positionDataState: "pending", initialScrollReady: true,
-      ...(target === "local" ? { initialPositionMessageId: "m4" } : target === "unread" ? { newDividerBefore: "m5" } : {}),
+      ...(target === "local" ? { initialPositionMessageId: "m4" } : target === "tail-new" ? { newDividerBefore: "m5" } : {}),
       onInitialPositionSettled: settled,
     }, strict)
     expect(settled).toHaveBeenCalledOnce()
@@ -126,6 +126,7 @@ describe("qualified positioning lifecycle", () => {
     const targetId = target === "local" ? "m4" : "m13"
     expect(bodyTop(h.root, targetId)).toBeGreaterThan(0)
     expect(bodyTop(h.root, targetId)).toBeLessThan(h.root.clientHeight)
+    if (target === "tail-manual") h.move(h.root.scrollTop - 80)
     const anchor = [...h.root.querySelectorAll<HTMLElement>("[data-msg-id]")]
       .find(row => row.getBoundingClientRect().bottom > 0)!.dataset.msgId!
     const before = bodyTop(h.root, anchor)
@@ -134,7 +135,12 @@ describe("qualified positioning lifecycle", () => {
     act(() => vi.advanceTimersByTime(6500))
     h.update({ items: [...items.map(item => ({ ...item, newDivider: false })),
       { ...message("m14"), newDivider: true }, message("m15")], newDividerBefore: "m14" })
-    expect(bodyTop(h.root, anchor)).toBeCloseTo(before, 0)
+    if (target === "tail" || target === "tail-new") {
+      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+      scrollFixture.bodyHeights.set("m15", 456)
+      resize()
+      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    } else expect(bodyTop(h.root, anchor)).toBeCloseTo(before, 0)
     expect(index).not.toHaveBeenCalled()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     const landed = h.root.scrollTop
@@ -143,7 +149,7 @@ describe("qualified positioning lifecycle", () => {
     expect(h.root.scrollTop).toBeCloseTo(landed, 0)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     expect(scrollFixture.latest.paginationEnabled).toBe(true)
-    expect(end).not.toHaveBeenCalled()
+    expect(end).toHaveBeenCalledTimes(target === "tail" || target === "tail-new" ? 1 : 0)
     expect(index).toHaveBeenCalledTimes(commands)
     expect(settled).toHaveBeenCalledOnce()
   })

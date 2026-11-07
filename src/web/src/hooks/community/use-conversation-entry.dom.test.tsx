@@ -802,7 +802,7 @@ describe("conversation entry return during accepted reading", () => {
         loading: feed.isLoading, initialLoadError: feed.initialLoadError,
         newBoundary: feed.newBoundary, latestSeq: feed.latestSeq, retiredNewTargetId: feed.retiredNewTargetId,
         onLoadNewTarget: feed.loadNewTarget, onReadNewBoundary: feed.readNewBoundary, scrollToMessageId,
-        initialScrollReady: feed.initialScrollReady,
+        initialScrollReady: feed.initialDisplayReady,
         onUserTakeover: feed.onUserTakeover,
         positionDataState: feed.positionDataState, positionEntry: feed.positionEntry, messageWindow: feed.messageWindow,
         hasMore: feed.hasMoreOlder, hasMoreNewer: feed.hasMoreNewer,

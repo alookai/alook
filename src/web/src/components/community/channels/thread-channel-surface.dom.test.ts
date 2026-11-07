@@ -159,7 +159,6 @@ function feed(overrides: Record<string, unknown> = {}) {
     anchorInCache: true,
     initialPositionKnown: true,
     initialDisplayReady: true,
-    initialScrollReady: true,
     newDividerBefore: undefined,
     unreadCount: 0,
     setScrollRootEl: vi.fn(),
@@ -223,6 +222,13 @@ describe("ThreadChannelSurface ownership", () => {
     mockedUseClaimThreadOpenerReadHandoff.mockReset()
     mockedUseChannelMessageFeed.mockReturnValue(feed())
     mocks.apiFetch.mockResolvedValue({})
+  })
+
+  it.each([false, true])("passes the complete child cache to local placement before reading, forum parent=%s", parentIsForum => {
+    mockedUseChannelMessageFeed.mockReturnValue(feed({ readSnapshotFetching: true, positionDataState: "pending", navigationBlocked: true }))
+    render(renderSurface({ parentIsForum }))
+    expect(mockedMessageList.mock.calls.at(-1)?.[0]).toMatchObject({ initialScrollReady: true, positionDataState: "pending" })
+    expect(mockedConversationFooterShell.mock.calls.at(-1)?.[0].inert).toBe(true)
   })
 
   it("keeps full header fallback while split actions await layout measurement", () => {

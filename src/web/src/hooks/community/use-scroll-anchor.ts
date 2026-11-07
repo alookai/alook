@@ -493,7 +493,8 @@ export function useScrollAnchor({
     scrollPaddingEnd: viewportInsetEnd,
     anchorTo: !entryChanged && ownerKind === "idle" && !awaitingTarget && !pendingLocalSubmit
       && (paginationDirection !== null || (readPositionReady && (nativeOriginKey === null || nativeOriginKey !== items[0]?.key))) ? "end" : "start",
-    followOnAppend: visible && !entryChanged && ownerKind === "idle" && readPositionReady && dataState === "ready" && !awaitingTarget
+    // A settled local tail follows qualified rows while read proof waits; reading and pagination keep separate gates.
+    followOnAppend: visible && !entryChanged && ownerKind === "idle" && readPositionReady && initialScrollReady && !awaitingTarget
       && !pendingLocalSubmit && !followSuspended && !hasMoreNewer
       && !isFetchingOlder && !isFetchingNewer && paginationDirection === null
       && (nativeOriginKey === null || nativeOriginKey !== items[0]?.key) ? "auto" : false,
@@ -691,7 +692,8 @@ export function useScrollAnchor({
       }
       if (landed) {
         const initial = positionKind.get() === "initial"
-        if (initial && contextRef.current.dataState === "pending") setFollowSuspended(true)
+        // Pending read proof must not detach an ordinary tail landing; local targets keep their viewport.
+        if (initial && intent.type !== "end" && contextRef.current.dataState === "pending") setFollowSuspended(true)
         const geometry = readGeometry()
         if (!geometry) return
         if (intent.type !== "end" && root.scrollTop <= 1) holdNativeOrigin(currentItemsRef.current[0]?.key ?? null)
@@ -1330,6 +1332,7 @@ export function useScrollAnchor({
       return
     }
     if (positionKind.get() === "idle") return
+    // Initial placement can use qualified local rows while snapshot/coverage keeps reading pending.
     if (dataState === "pending" && !initialScrollReady) return
     if (positionKind.get() !== "initial" || initialRetiredRef.current || !hasMessages) return
     if (!entryResolvedRef.current) {
