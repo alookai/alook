@@ -493,7 +493,8 @@ export function useScrollAnchor({
     scrollPaddingEnd: viewportInsetEnd,
     anchorTo: !entryChanged && ownerKind === "idle" && !awaitingTarget && !pendingLocalSubmit
       && (paginationDirection !== null || (readPositionReady && (nativeOriginKey === null || nativeOriginKey !== items[0]?.key))) ? "end" : "start",
-    followOnAppend: visible && !entryChanged && ownerKind === "idle" && readPositionReady && dataState === "ready" && !awaitingTarget
+    // A settled local tail follows qualified rows while read proof waits; reading and pagination keep separate gates.
+    followOnAppend: visible && !entryChanged && ownerKind === "idle" && readPositionReady && initialScrollReady && !awaitingTarget
       && !pendingLocalSubmit && !followSuspended && !hasMoreNewer
       && !isFetchingOlder && !isFetchingNewer && paginationDirection === null
       && (nativeOriginKey === null || nativeOriginKey !== items[0]?.key) ? "auto" : false,
