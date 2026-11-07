@@ -7,8 +7,8 @@ const steps = [{ id: "request", duration: 100 }, { id: "answer", duration: 200 }
 let intersect: (active: boolean) => void
 let motion: (reduced: boolean) => void
 let reduced = false
-const disconnect = vi.fn()
-const removeListener = vi.fn()
+let observers: Array<{ targets: Set<Element> }> = []
+let mediaQueries: Array<Set<(event: MediaQueryListEvent) => void>> = []
 
 function Demo() {
   const timeline = useScriptedTimeline({ steps, holdAfterComplete: 1000, resetDuration: 100 })
@@ -19,21 +19,39 @@ function Demo() {
 beforeEach(() => {
   vi.useFakeTimers()
   reduced = false
-  disconnect.mockClear()
-  removeListener.mockClear()
-  vi.stubGlobal("matchMedia", () => ({
-    matches: reduced,
-    addEventListener: (_: string, callback: (event: MediaQueryListEvent) => void) => {
-      motion = (matches) => callback({ matches } as MediaQueryListEvent)
-    },
-    removeEventListener: removeListener,
-  }))
-  vi.stubGlobal("IntersectionObserver", class {
-    constructor(callback: IntersectionObserverCallback) {
-      intersect = (isIntersecting) => callback([{ isIntersecting } as IntersectionObserverEntry], this as unknown as IntersectionObserver)
+  observers = []
+  mediaQueries = []
+  vi.stubGlobal("matchMedia", () => {
+    const callbacks = new Set<(event: MediaQueryListEvent) => void>()
+    mediaQueries.push(callbacks)
+    const query = {
+      matches: reduced,
+      addEventListener: (type: string, callback: (event: MediaQueryListEvent) => void) => {
+        if (type === "change") callbacks.add(callback)
+      },
+      removeEventListener: (type: string, callback: (event: MediaQueryListEvent) => void) => {
+        if (type === "change") callbacks.delete(callback)
+      },
     }
-    observe() {}
-    disconnect = disconnect
+    motion = (matches) => {
+      query.matches = matches
+      for (const callback of Array.from(callbacks)) callback({ matches } as MediaQueryListEvent)
+    }
+    return query
+  })
+  vi.stubGlobal("IntersectionObserver", class {
+    targets = new Set<Element>()
+    constructor(callback: IntersectionObserverCallback) {
+      observers.push(this)
+      intersect = (isIntersecting) => {
+        if (!this.targets.size) return
+        const entries = Array.from(this.targets, (target) => ({ target, isIntersecting }))
+        callback(entries as IntersectionObserverEntry[], this as unknown as IntersectionObserver)
+      }
+    }
+    observe(target: Element) { this.targets.add(target) }
+    unobserve(target: Element) { this.targets.delete(target) }
+    disconnect() { this.targets.clear() }
   })
 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
@@ -41,6 +59,9 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 describe("scripted demo timeline", () => {
   it("reveals steps only in view, holds the result and restarts after its fade", () => {
     const view = render(createElement(Demo))
+    const target = view.container.firstElementChild!
+    expect(observers.some((observer) => observer.targets.has(target))).toBe(true)
+    expect(mediaQueries.some((callbacks) => callbacks.size > 0)).toBe(true)
     act(() => vi.advanceTimersByTime(2000))
     expect(screen.queryByText("request")).toBeNull()
     act(() => intersect(true))
@@ -59,15 +80,23 @@ describe("scripted demo timeline", () => {
     act(() => intersect(false))
     act(() => vi.advanceTimersByTime(5000))
     expect(screen.queryByText("answer")).toBeNull()
+    const activeObservers = observers.filter((observer) => observer.targets.has(target))
+    const activeMediaQueries = mediaQueries.filter((callbacks) => callbacks.size > 0)
+    expect(activeObservers.length).toBeGreaterThan(0)
+    expect(activeMediaQueries.length).toBeGreaterThan(0)
     view.unmount()
     expect(vi.getTimerCount()).toBe(0)
-    expect(disconnect).toHaveBeenCalledOnce()
-    expect(removeListener).toHaveBeenCalledWith("change", expect.any(Function))
+    expect(activeObservers.flatMap((observer) => Array.from(observer.targets))).toEqual([])
+    expect(activeMediaQueries.flatMap((callbacks) => Array.from(callbacks))).toEqual([])
   })
 
   it("shows the complete demo immediately for reduced motion", () => {
     reduced = true
     const view = render(createElement(Demo))
+    expect(screen.getByText("request")).toBeVisible()
+    expect(screen.getByText("answer")).toBeVisible()
+    expect(screen.getByTestId("demo")).toHaveAttribute("data-resetting", "false")
+    expect(vi.getTimerCount()).toBe(0)
     act(() => intersect(true))
     act(() => vi.advanceTimersByTime(10000))
     expect(screen.getByText("request")).toBeVisible()
@@ -82,6 +111,10 @@ describe("scripted demo timeline", () => {
     act(() => intersect(true))
     act(() => vi.advanceTimersByTime(500))
     act(() => motion(true))
+    expect(screen.getByText("request")).toBeVisible()
+    expect(screen.getByText("answer")).toBeVisible()
+    expect(screen.getByTestId("demo")).toHaveAttribute("data-resetting", "false")
+    expect(vi.getTimerCount()).toBe(0)
     act(() => vi.advanceTimersByTime(10000))
     expect(screen.getByText("request")).toBeVisible()
     expect(screen.getByText("answer")).toBeVisible()
