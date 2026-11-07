@@ -9,7 +9,7 @@ pnpm install
 pnpm dev:storybook
 ```
 
-Open <http://127.0.0.1:6006/>. Startup prepares Blog responsive images through the existing Blog pipeline and the local HTML attachment through the product preview-bridge producer. Stop with Ctrl+C in the terminal that started it. Keep one service on this port; reuse that service for review and owner input.
+Open <http://127.0.0.1:6006/>. Startup prepares Blog responsive images through the existing Blog pipeline and the local HTML attachment through the product preview-bridge producer. It also copies the original Web app favicon into the local static root; the product Contact page uses that same unchanged file. Stop with Ctrl+C in the terminal that started it. Keep one service on this port; reuse that service for review and owner input.
 
 ## Finding examples
 

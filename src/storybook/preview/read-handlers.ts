@@ -41,6 +41,7 @@ export const readHandlers = [
     const result = fixturePins(String(params.channelId))
     return result ? communityJson(result) : undefined
   }),
+  http.get("*/api/community/channels/:channelId/messages/tags", ({ params }) => fixtureChannel(String(params.channelId)) ? communityJson({ tags: [] }) : undefined),
   http.get("*/api/community/channels/:channelId/messages/seq/:seq", ({ params }) => {
     if (!fixtureChannel(String(params.channelId))) return
     const row = fixtureRows(String(params.channelId)).find((row) => row.seq === Number(params.seq))

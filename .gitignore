@@ -42,3 +42,4 @@ src/web/blog/public/blog/_generated/
 storybook-static
 
 src/storybook/public/preview/attachment.html
+src/storybook/public/favicon.ico
