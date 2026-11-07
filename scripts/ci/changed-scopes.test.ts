@@ -440,7 +440,7 @@ describe("canonical execution plan", () => {
 
     expect(result.change_class).toBe("blog")
     expect(result.packages.direct).toEqual(["@alook/web"])
-    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/storybook", "@alook/web"])
     expect(result.suites.unit_build_tasks).toEqual(["@alook/agent-driver#build"])
     expect(result.suites.unit_tasks).not.toContain("@alook/agent-driver#test")
     expect(result.suites.unit).toEqual(["src/web"])
@@ -465,7 +465,7 @@ describe("canonical execution plan", () => {
     expect(result.change_class).toBe("blog")
     expect(result.blog_only).toBe(true)
     expect(result.packages.direct).toEqual(["@alook/web"])
-    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/storybook", "@alook/web"])
     expect(result.suites.unit_build_tasks).toEqual(["@alook/agent-driver#build"])
     expect(result.suites.unit_tasks).not.toContain("@alook/agent-driver#test")
     expect(result.suites.unit).toEqual(["src/web"])
@@ -485,10 +485,10 @@ describe("canonical execution plan", () => {
     expect(result.change_class).toBe("auth")
     expect(result.auth_only).toBe(true)
     expect(result.packages.direct).toEqual(["@alook/web"])
-    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/storybook", "@alook/web"])
     expect(result.suites.unit_build_tasks).toEqual(["@alook/agent-driver#build"])
     expect(result.suites.unit_tasks).not.toContain("@alook/agent-driver#test")
-    expect(result.suites.static).toEqual(["@alook/web"])
+    expect(result.suites.static).toEqual(["@alook/storybook", "@alook/web"])
     expect(result.suites.build_tasks).toEqual(["@alook/web#build:auth"])
     expect(result.suites.knip_tasks).toEqual(["@alook/web#knip"])
     expect(result.suites.unit).toEqual(["src/web"])
@@ -500,6 +500,26 @@ describe("canonical execution plan", () => {
     expect(result.jobs.lighthouse).toBe(false)
     expect(result.jobs.app_packed_artifact).toBe(false)
     expect(result.artifacts.worker_zones).toEqual([])
+  })
+
+  it("checks standalone workbench source without scheduling product execution", () => {
+    const result = plan(["src/storybook/stories/foundations/button.stories.tsx"])
+
+    expect(result.full).toBe(false)
+    expect(result.packages.direct).toEqual(["@alook/storybook"])
+    expect(result.packages.affected).toEqual(["@alook/storybook"])
+    expect(result.suites.static_tasks).toEqual(["@alook/storybook#typecheck", "@alook/storybook#lint"])
+    expect(result.suites.unit_tasks).toEqual([])
+    expect(result.suites.unit_build_tasks).toEqual([])
+    expect(result.coverage.targets).toEqual([])
+    expect(result.suites.build_tasks).toEqual([])
+    expect(result.suites.knip_tasks).toEqual([])
+    expect(result.suites.integration).toEqual([])
+    expect(result.suites.windows).toEqual([])
+    expect(result.ui.specs).toEqual([])
+    expect(result.jobs.app_packed_artifact).toBe(false)
+    expect(result.jobs.blog_build).toBe(false)
+    expect(result.jobs.auth_build).toBe(false)
   })
 
   it("selects the active app package without retired CLI suites", () => {
@@ -555,6 +575,7 @@ describe("canonical execution plan", () => {
       "@alook/email-worker",
       "@alook/queue-worker",
       "@alook/shared",
+      "@alook/storybook",
       "@alook/test-utils",
       "@alook/web",
       "@alook/ws-do",
@@ -741,7 +762,7 @@ describe("coverage name-status contract", () => {
       "src/web/src/lib/runtime-lookalike.config.ts",
     ])
 
-    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/app", "@alook/web"])
+    expect(result.packages.affected).toEqual(["@alook/agent-driver", "@alook/app", "@alook/storybook", "@alook/web"])
     expect(result.suites.unit_build_tasks).toEqual(["@alook/agent-driver#build"])
     expect(result.suites.unit_tasks).not.toContain("@alook/agent-driver#test")
     expect(result.suites.unit).toEqual(["src/app", "src/web"])

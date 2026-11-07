@@ -88,12 +88,12 @@ function SettingsDialog({ open, onOpenChange, title, children }: { open: boolean
 
 type Open = null | "user" | "server" | "category" | "newCategory" | "newServer"
 
-export function AppSettingsSpecimens(_props: { mode: "light" | "dark" }) {
+export function AppSettingsSpecimens({ accountId }: { mode: "light" | "dark"; accountId?: string }) {
   const [open, setOpen] = useState<Open>(null)
   const close = () => setOpen(null)
   const toggle = (k: Exclude<Open, null>) => setOpen((cur) => (cur === k ? null : k))
   return (
-    <Fixtures>
+    <Fixtures accountId={accountId}>
       <div style={{ display: "grid", gap: 24 }}>
         <Specimen label="Open as dialogs" note="Real app modals, mounted only on press. Data calls fail without a backend; saves are no-ops.">
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: 16 }}>

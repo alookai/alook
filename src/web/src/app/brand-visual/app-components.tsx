@@ -37,9 +37,17 @@ import { Composer } from "@/components/community/messages/composer"
 import { ConversationFooterShell, ConversationFooterSlotProvider } from "@/components/community/messages/conversation-footer-shell"
 import s from "./brand-visual.module.css"
 
-export function Fixtures({ children }: { children: ReactNode }) {
+export function Fixtures({ children, accountId = null }: { children: ReactNode; accountId?: string | null }) {
+  return <FixtureOwner key={JSON.stringify(accountId)} accountId={accountId}>{children}</FixtureOwner>
+}
+
+function FixtureOwner({ children, accountId }: { children: ReactNode; accountId: string | null }) {
   const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } }))
-  const [registry] = useState(() => createCommunityDbRegistry(queryClient, null))
+  const [registry] = useState(() => {
+    const registry = createCommunityDbRegistry(queryClient, accountId)
+    if (accountId) registry.runtime.ws.actions.activateProfileAccount(accountId)
+    return registry
+  })
   const disposeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (disposeTimer.current !== null) clearTimeout(disposeTimer.current)

@@ -883,6 +883,14 @@
         "$TURBO_ROOT$/src/web/src/lib/**"
       ],
       "outputs": []
+    },
+    "@alook/storybook#build": {
+      "dependsOn": [
+        "^source"
+      ],
+      "outputs": [
+        "storybook-static/**"
+      ]
     }
   },
   "futureFlags": {

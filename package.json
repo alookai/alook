@@ -13,6 +13,7 @@
     "typecheck": "node scripts/ci/run-turbo.mjs run typecheck typecheck:blog typecheck:auth",
     "lint": "node scripts/ci/run-turbo.mjs run lint lint:blog lint:auth",
     "knip": "node scripts/ci/run-turbo.mjs run knip",
+    "dev:storybook": "pnpm --filter @alook/storybook dev",
     "dev:web": "pnpm --filter @alook/web dev",
     "daemon": "pnpm --filter @alook/daemon exec tsx src/cli/index.ts daemon",
     "daemon-use": "pnpm --filter @alook/daemon exec tsx src/cli/index.ts use",

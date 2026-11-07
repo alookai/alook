@@ -1,0 +1,16 @@
+@import "../../web/blog/src/app/globals.css";
+@source "../stories/**/*.{ts,tsx}";
+@source "../../web/src/**/*.{ts,tsx}";
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-dm-sans);
+}
+
+[data-storybook-product-surface] {
+  min-width: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-dm-sans);
+}

@@ -9,3 +9,9 @@ packages:
   - "src/app"
   - "src/desktop"
   - "tests/utils"
+  - "src/storybook"
+
+packageExtensions:
+  "@next/mdx@16.4.2":
+    peerDependencies:
+      next: "16.4.2"
