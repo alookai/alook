@@ -116,13 +116,18 @@ describe("Web workerd runtime", () => {
     },
   )
 
-  it.each(["/w/one", "/workspaces", "/dashboard/one", "/invite/one", "/api/one", "/_next/one", "/c", "/c/me", "/c/channels/s1/c1", "/c/invite/token", "/sign-in", "/device", "/auth/native/start", "/apiary", "/unknown"])(
+  it.each(["/w/one", "/workspaces", "/dashboard/one", "/invite/one", "/api/one", "/_next/one", "/c", "/c/me", "/c/me/bots", "/c/channels/s1/c1", "/c/invite/token", "/sign-in", "/device", "/auth/native/start", "/apiary", "/unknown"])(
     "does not add public cache headers to private route %s",
     async (pathname) => {
       const privateResponse = await worker.fetch(new Request(`https://worker.test${pathname}`))
       expect(await privateResponse.text()).toBe(`open-next:${pathname}`)
-      expect(privateResponse.headers.get("Cache-Control")).toBeNull()
+      expect(privateResponse.headers.get("Cache-Control")).toBe(
+        pathname === "/c/me" || pathname === "/c/me/bots"
+          ? "private, no-cache, no-store, max-age=0, must-revalidate"
+          : null,
+      )
       expect(privateResponse.headers.get("CDN-Cache-Control")).toBeNull()
+      expect(privateResponse.headers.get("Cloudflare-CDN-Cache-Control")).toBeNull()
     },
   )
 

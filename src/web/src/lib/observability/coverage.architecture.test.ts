@@ -12,7 +12,7 @@ const files = (root: string) => readdirSync(root, { recursive: true }).filter((f
 it("keeps the route whitelist aligned with both builds and parallel route slots", () => {
   const routes = new Set(["src/app", "blog/src/app"].flatMap(root => files(resolve(web, root)).filter(file => file.endsWith("/page.tsx")).map(file => "/" + relative(resolve(web, root), file).split("/").slice(0, -1).filter(segment => !segment.startsWith("(") && !segment.startsWith("@")).join("/"))))
   expect([...routes].filter(route => !/^\/c(?:\/|$)/.test(route)).sort()).toEqual(pageRoutes.filter(route => !/^\/c(?:\/|$)/.test(route)).sort())
-  expect([...routes].filter(route => route === "/c" || route.startsWith("/c/")).sort()).toEqual(["/c", "/c/[...path]", "/c/invite/[token]"])
+  expect([...routes].filter(route => route === "/c" || route.startsWith("/c/")).sort()).toEqual(["/c", "/c/[...path]", "/c/invite/[token]", "/c/me", "/c/me/bots"])
   for (const route of pageRoutes.filter(route => route === "/c" || route.startsWith("/c/"))) {
     const concrete = route.replace(/\[[^\]]+\]/g, "fixture-id")
     expect(resolveCommunityModulePlan(concrete).route, concrete).not.toBe("unknown")

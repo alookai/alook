@@ -1,5 +1,25 @@
+const prerenderedCommunityPaths = ["/c/me", "/c/me/bots"] as const;
+
 const PUBLIC_CACHE_CONTROL = "public, max-age=0, must-revalidate";
 const PUBLIC_CDN_CACHE_CONTROL = "public, s-maxage=3600, stale-while-revalidate=86400";
+
+export function finalizeCommunityDocumentResponse(response: Response, request: Request): Response {
+	if (response.status !== 200 || !["GET", "HEAD"].includes(request.method)) return response;
+	let pathname: string;
+	try {
+		pathname = decodeURIComponent(new URL(request.url).pathname).replace(/\/$/, "");
+	} catch {
+		return response;
+	}
+	if (!prerenderedCommunityPaths.some(path => path === pathname)) return response;
+	const contentType = response.headers.get("Content-Type")?.split(";", 1)[0].trim().toLowerCase();
+	if (contentType !== "text/html" && contentType !== "text/x-component") return response;
+	const finalized = new Response(response.body, response);
+	finalized.headers.set("Cache-Control", "private, no-cache, no-store, max-age=0, must-revalidate");
+	finalized.headers.delete("CDN-Cache-Control");
+	finalized.headers.delete("Cloudflare-CDN-Cache-Control");
+	return finalized;
+}
 
 export function finalizePublicWorkerResponse(
 	response: Response,

@@ -1,7 +1,7 @@
 import { cleanAttributes, type Attributes } from "./observability/schema"
 import { routeTemplate } from "./observability/coverage"
 import { resolveObservationBuild } from "./observability/build"
-import { finalizePublicWorkerResponse } from "./public-worker-response"
+import { finalizeCommunityDocumentResponse, finalizePublicWorkerResponse } from "./public-worker-response"
 import { traceResponse, responseTraceContext } from "./observability/trace-response"
 
 const PUBLIC_DOCUMENTS = new Set(["/", "/pricing", "/privacy", "/templates"])
@@ -29,7 +29,8 @@ export function createWebWorkerHandler(
 
 			const execute = async (span?: Parameters<typeof traceResponse>[2]) => {
 				const response = await openNextHandler.fetch!(request, env, ctx)
-				return traceResponse(finalizePublicWorkerResponse(response, isPublicRoute(url.pathname), request), request, invocation ?? span)
+				const finalized = finalizeCommunityDocumentResponse(finalizePublicWorkerResponse(response, isPublicRoute(url.pathname), request), request)
+				return traceResponse(finalized, request, invocation ?? span)
 			}
 			return ctx.tracing ? ctx.tracing.enterSpan("web.request", span => {
 				const fields = cleanAttributes({ ...workerRequestAttributes(request, env, build), route_template: routeTemplate(request.url, url.origin), request_kind: url.searchParams.has("_rsc") ? "rsc" : url.pathname.startsWith("/api/") ? "api" : "document" })
