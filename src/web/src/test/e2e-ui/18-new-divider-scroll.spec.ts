@@ -1,3 +1,4 @@
+import type { Response } from "@playwright/test"
 import { communityFixtureFetch } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
@@ -153,11 +154,43 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
   await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
   const jumpToNew = page.getByTestId(tid.scrollToNew)
   await expect(jumpToNew).toBeVisible({ timeout: 30_000 })
-  await scroller.evaluate(element => element.scrollTo({ top: 0, behavior: "auto" }))
-  await expect(page.getByTestId(tid.message(beforeNewId))).toBeInViewport()
-  await expect(jumpToNew).toBeHidden()
-  await scroller.evaluate(element => element.scrollTo({ top: element.scrollHeight, behavior: "auto" }))
-  await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
+  const preparation: { older: Response | null; issued: boolean; failure: { error: unknown } | null } = {
+    older: null, issued: false, failure: null,
+  }
+  const observeOlderPage = (response: Response) => {
+    const url = new URL(response.url())
+    if (!preparation.older && response.request().method() === "GET"
+      && url.pathname === `/api/community/channels/${channelId}/messages` && url.searchParams.has("cursor")) {
+      preparation.older = response
+    }
+  }
+  const preparationDeadline = Date.now() + 10_000
+  const remainingPreparation = () => Math.max(1, preparationDeadline - Date.now())
+  page.on("response", observeOlderPage)
+  try {
+    await scroller.evaluate(element => element.scrollTo({ top: 0, behavior: "auto" }))
+    await expect(page.getByTestId(tid.message(beforeNewId))).toBeInViewport({ timeout: remainingPreparation() })
+    await expect(jumpToNew).toBeHidden({ timeout: remainingPreparation() })
+    await expect.poll(async () => {
+      if (preparation.failure) throw preparation.failure.error
+      if (!preparation.issued) {
+        if (!preparation.older || Date.now() >= preparationDeadline) return Number.POSITIVE_INFINITY
+        expect(preparation.older.status()).toBe(200)
+        const ownerReleased = await scroller.evaluate(root => root.dataset.paginationEnabled === "true")
+        if (!ownerReleased || Date.now() >= preparationDeadline) return Number.POSITIVE_INFINITY
+        preparation.issued = true
+        try {
+          await scroller.evaluate(element => element.scrollTo({ top: element.scrollHeight, behavior: "auto" }))
+        } catch (error) {
+          preparation.failure = { error }
+          throw error
+        }
+      }
+      return scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)
+    }, { timeout: remainingPreparation() }).toBeLessThanOrEqual(1)
+  } finally {
+    page.off("response", observeOlderPage)
+  }
   await expect(jumpToNew).toBeVisible()
   await jumpToNew.click()
   const divider = page.getByTestId(tid.newDivider)

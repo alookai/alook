@@ -377,7 +377,7 @@ export function useMessageListController({
     virtualizer,
     onRowsLayoutCommit,
     readPositionReady,
-    paginationEnabled,
+    paginationEnabled: paginationEnabled && !paginationRequestPending,
     jumpTo,
     pillCount,
     pillMode: jumpMode ? "jump" as const : "scroll" as const,

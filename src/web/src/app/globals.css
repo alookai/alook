@@ -2706,6 +2706,9 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 [data-streamdown="table-header-cell"] {
   font-weight: 600 !important;
   background: var(--muted) !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 [data-streamdown="table-body"] [data-streamdown="table-row"]:last-child [data-streamdown="table-cell"] {
