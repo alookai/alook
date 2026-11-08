@@ -3,14 +3,41 @@ import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
 
+const HEADER_TITLES = ["Exact baseline location(s)", "Purpose / current context", "Intended correction", "Git lineage", ...Array.from({ length: 4 }, (_, column) => `Column_${column + 4}_long_unbroken_heading`)]
 const WIDE_TABLE = [
-  `| ${Array.from({ length: 8 }, (_, column) => `Column_${column}_long_unbroken_heading`).join(" | ")} |`,
+  `| ${HEADER_TITLES.map((title, column) => column === 0 ? `**${title}**` : column === 1 ? `\`${title}\`` : title).join(" | ")} |`,
   `| ${Array.from({ length: 8 }, () => "---").join(" | ")} |`,
   ...Array.from({ length: 30 }, (_, row) => `| ${Array.from({ length: 8 }, (_, column) => (
     row === 0 && column === 0 ? "FIRST_TABLE" : row === 29 && column === 7 ? "LAST_TABLE" : `${row}-${column}`
   )).join(" | ")} |`),
 ].join("\n")
 const FIT_TABLE = "| Name | Value |\n| --- | --- |\n| Small | Fits |"
+
+async function headerGeometry(table: Locator) {
+  return table.locator("thead th").evaluateAll((headers) => headers.map((element) => {
+    const style = getComputedStyle(element)
+    const box = element.getBoundingClientRect()
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    const text = range.getBoundingClientRect()
+    let visibleLeft = text.left, visibleRight = text.right
+    for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+      if (getComputedStyle(ancestor).overflowX === "visible") continue
+      const clip = ancestor.getBoundingClientRect()
+      visibleLeft = Math.max(visibleLeft, clip.left + ancestor.clientLeft)
+      visibleRight = Math.min(visibleRight, clip.left + ancestor.clientLeft + ancestor.clientWidth)
+    }
+    return {
+      text: element.textContent,
+      left: box.left, right: box.right,
+      textLeft: text.left, textRight: text.right, visibleLeft, visibleRight,
+      clientWidth: element.clientWidth, scrollWidth: element.scrollWidth,
+      contentHeight: element.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+      lineHeight: parseFloat(style.lineHeight),
+      whiteSpace: style.whiteSpace, overflowX: style.overflowX, textOverflow: style.textOverflow,
+    }
+  }))
+}
 
 async function cellGeometry(cell: Locator) {
   return cell.evaluate((element) => {
@@ -117,6 +144,17 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 
       const wideMessage = page.getByTestId(tid.message(wideId))
       const inline = wideMessage.locator('[data-streamdown="table"]')
       await expect(inline).toHaveCount(1)
+      await page.evaluate(async () => { await document.fonts.ready })
+      const headings = await headerGeometry(inline)
+      expect(headings.map((header) => header.text)).toEqual(HEADER_TITLES)
+      expect(headings.some((header) => header.scrollWidth > header.clientWidth)).toBe(true)
+      for (const header of headings) {
+        expect(header.contentHeight).toBeLessThanOrEqual(header.lineHeight + 1)
+        expect(header.visibleLeft).toBeGreaterThanOrEqual(header.left - 1)
+        expect(header.visibleRight).toBeLessThanOrEqual(header.right + 1)
+        if (header.scrollWidth > header.clientWidth) expect(header.textOverflow).toBe("ellipsis")
+      }
+      await testInfo.attach(`inline-header-geometry-${mode}`, { body: JSON.stringify(headings), contentType: "application/json" })
       const inlineLeading = await wheelToEnd(page, inline, false)
       const inlineTrailing = await wheelToEnd(page, inline, true)
       await wideMessage.getByRole("button", { name: "View fullscreen", exact: true }).click()
@@ -147,6 +185,9 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 
       expect(await wideMessage.locator("[data-community-message-body]").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 
+      const shortHeaders = await headerGeometry(page.getByTestId(tid.message(fitId)).locator('[data-streamdown="table"]'))
+      expect(shortHeaders.map((header) => header.text)).toEqual(["Name", "Value"])
+      expect(shortHeaders.every((header) => header.scrollWidth <= header.clientWidth)).toBe(true)
       const fitMessage = page.getByTestId(tid.message(fitId))
       await fitMessage.hover()
       await fitMessage.getByRole("button", { name: "View fullscreen", exact: true }).click()
