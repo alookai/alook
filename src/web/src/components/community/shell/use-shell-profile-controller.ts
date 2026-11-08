@@ -1,6 +1,6 @@
 "use client"
 
-import { CommunityUserSearchReadSchema, type CommunityUserSearchRead } from "@alook/shared"
+import { searchCommunityUserIds } from "@/lib/community/user-search"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { useCommunityRuntime } from "@/stores/community/runtime"
@@ -17,9 +17,9 @@ import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use-user-profile"
-import { apiFetchProfiles } from "@/lib/community/profile-seed"
-import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { validateIconSourceFile } from "@/lib/community/image-crop"
+
+
+import { acquireIconCropSource, type IconCropSource } from "@/lib/community/image-crop"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type {
   OwnerProfileRef,
@@ -99,12 +99,9 @@ export function useShellProfileController({
   const [profileTarget, setProfile] = useAtom(useCreateAtom<ShellProfileState | null>(null))
   const [preview, setPreview] = useAtom(useCreateAtom<ImagePreview | null>(null))
   const [attachmentPreview, setAttachmentPreview] = useAtom(useCreateAtom<FileAttachment | null>(null))
-  const avatarCropTask = useCreateAtom<{
-    src: string
-    fileName: string
+  const avatarCropTask = useCreateAtom<(IconCropSource & {
     assertActive: ReturnType<typeof source.capture>
-    release: () => void
-  } | null>(null)
+  }) | null>(null)
   const [pendingAvatarCrop, setPendingAvatarCrop] = useAtom(avatarCropTask)
   const finishAvatarCrop = useCallback((task: NonNullable<typeof pendingAvatarCrop>) => {
     task.release()
@@ -128,14 +125,7 @@ export function useShellProfileController({
     queryKey: ["community", "user-search", lookupHandle],
     enabled: !!lookupHandle,
     retry: false,
-    queryFn: async ({ signal, client }) => {
-      const data = await apiFetchProfiles<CommunityUserSearchRead>(`/api/community/users/search?q=${encodeURIComponent(lookupHandle)}`, (response) => CommunityUserSearchReadSchema.parse(response).users.map((user) => ({
-        id: user.id,
-        identityAbout: { name: user.name, discriminator: user.discriminator },
-        avatar: { avatar: user.image, avatarVersion: user.avatarVersion },
-      })), { signal }, getCommunityDbRegistry(client))
-      return data.users.map((user) => user.id)
-    },
+    queryFn: ({ signal, client }) => searchCommunityUserIds(lookupHandle, client, { signal }),
   })
   const profileUserId = profileTarget?.data.userId ?? (lookupHandle ? lookup.data?.[0] : undefined)
   const canMessage = !!profileUserId && profileUserId !== currentUser.id
@@ -297,32 +287,21 @@ export function useShellProfileController({
       try { assert() } catch { return }
       const file = input.files?.[0]
       if (!file) return
-      const check = validateIconSourceFile(file)
+      const check = acquireIconCropSource(file)
       if (!check.ok) {
         toast(check.error)
         return
       }
-      const src = URL.createObjectURL(file)
-      let released = false
-      const release = () => {
-        if (released) return
-        released = true
-        URL.revokeObjectURL(src)
-      }
       avatarCropTask.get()?.release()
-      setPendingAvatarCrop({ src, fileName: file.name, assertActive: assert, release })
+      setPendingAvatarCrop({ ...check.source, assertActive: assert })
     }
     input.click()
   }
 
   const onSaveProfile: ComponentProps<typeof UserSettings>["onSave"] = async (data) => {
     const assert = source.capture()
-    try {
-      await updateProfile.mutateAsync({ ...data, assertActive: assert })
-      assert()
-    } catch (error) {
-      toastApiError(error, "Failed to save profile", assert)
-    }
+    await updateProfile.mutateAsync({ ...data, assertActive: assert })
+    assert()
   }
 
   const clearVolatileAccountState = () => {

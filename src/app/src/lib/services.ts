@@ -88,26 +88,27 @@ export function startServices(ports: DevPortProfile, opts: StartOptions = {}): v
       const args = service.key === "web"
         ? ["next", "dev", "--port", String(ports.web)]
         : ["wrangler", "dev", "--local", "--port", String(ports[service.key]), ...persistTo];
-      return { command: "npx", args, cwd: join(process.env.ALOOK_PROJECT_ROOT!, "src", service.directory) };
+      return { service, command: "npx", args, cwd: join(process.env.ALOOK_PROJECT_ROOT!, "src", service.directory) };
     }
     return {
+      service,
       ...wranglerProcess(["dev", "--local", "--port", String(ports[service.key]), ...persistTo]),
       cwd: join(SELF_HOSTED_DIR, service.directory),
     };
   });
-  const children = processes.map((process, index) => spawnService(
-    SELF_HOSTED_SERVICES[index].directory, process.command, process.args, process.cwd, foreground,
-  ));
+  const started = processes.map((record) => ({ ...record,
+    child: spawnService(record.service.directory, record.command, record.args, record.cwd, foreground),
+  }));
 
-  if (children.some((child) => !child.pid)) {
+  if (started.some(({ child }) => !child.pid)) {
     console.error("Error: failed to start one or more services.");
-    for (const child of children) {
+    for (const { child } of started) {
       if (child.pid) killProcess(child.pid);
     }
     process.exit(1);
   }
 
-  const pids = Object.fromEntries(SELF_HOSTED_SERVICES.map((service, index) => [service.key, children[index].pid!]));
+  const pids = Object.fromEntries(started.map(({ service, child }) => [service.key, child.pid!]));
   writePids({
     ...pids,
     ports: Object.fromEntries(SELF_HOSTED_SERVICES.map((service) => [service.key, ports[service.key]])),
@@ -124,7 +125,7 @@ export function startServices(ports: DevPortProfile, opts: StartOptions = {}): v
       if (exiting) return;
       exiting = true;
       console.log("\nStopping services...");
-      for (const child of children) {
+      for (const { child } of started) {
         if (child.pid) killProcess(child.pid);
       }
       clearPids();

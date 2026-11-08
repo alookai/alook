@@ -8,13 +8,12 @@ import { mapMessageForWs } from "./message-payload"
 import { projectCommunityMessageCreate } from "./message-wire"
 import { communityKeys } from "@/lib/query-keys"
 
-const request = (version?: string) => new Request("https://alook.test/api/community/channels/channel", { headers: version ? { [COMMUNITY_CONTRACT_HEADER]: version } : {} })
 const channel = channelResourceFixture({ id: "channel", type: "dm", serverId: null, name: null })
 
 describe("common reading negotiation", () => {
   it("emits current metadata and requires exact response confirmation", async () => {
     const access = { canRead: true, canSend: false, canCreateDiscussion: false }
-    const current = writeCommunityChannelRead(request(String(BUSINESS_SCHEMA_VERSION)), "channel", channel, access)
+    const current = writeCommunityChannelRead("channel", channel, access)
     expect(current.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
     const body = await current.json()
     expect(decodeCommunityReadResponse("/api/community/channels/channel", "GET", current, body)).toEqual({ ...channel, accessDecision: { channelId: "channel", ...access } })
@@ -23,7 +22,7 @@ describe("common reading negotiation", () => {
   })
   it.each(["channel", "forum", "thread", "dm"] as const)("uses the same message resource for %s", async (surfaceKind) => {
     const message = messageResourceFixture({ id: "m1", channelId: "channel", authorId: "user", content: "hello" })
-    const response = writeCommunityMessagesRead(request(String(BUSINESS_SCHEMA_VERSION)), "channel", { messages: [message], profiles: [profileResourceFixture({ id: "user", name: "User" })], latestSeq: 1, hasMore: true, cursor: "cursor", surfaceReceipt: { channelId: "channel", surfaceKind } })
+    const response = writeCommunityMessagesRead("channel", { messages: [message], profiles: [profileResourceFixture({ id: "user", name: "User" })], latestSeq: 1, hasMore: true, cursor: "cursor", surfaceReceipt: { channelId: "channel", surfaceKind } })
     const body = await response.json()
     expect(body.messages[0]).toMatchObject({ channelId: "channel", clientNonce: null, replyToId: null, attachments: [] })
     expect(body.messages[0]).not.toHaveProperty("resourceComplete")
@@ -53,7 +52,7 @@ describe("current resource ingress", () => {
     const attachments = [{ id: "a2", name: "first", url: "/first", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null }, { id: "a1", name: "second", url: "/second", thumbnailUrl: null, contentType: "image/png", sizeBytes: 1024, width: 40, height: 50 }]
     const row = { id: "full", seq: 2, authorId: "peer", authorName: "Peer", authorImage: null, authorAvatarVersion: 4, createdAt: "now", type: "chat", content: "body", clientNonce: "nonce", replyToId: null, mentionType: null, embeds: [null, { unsupported: true }] }
     const full = mapMessageForWs(row, { replyMap: new Map(), attachments: [], resourceAttachments: attachments, clientNonce: "nonce" }, BUSINESS_SCHEMA_VERSION, "channel")
-    const response = writeCommunityMessagesRead(request(String(BUSINESS_SCHEMA_VERSION)), "channel", { messages: [full], profiles: [profileResourceFixture({ id: "peer", name: "Peer", avatarVersion: 4 })], latestSeq: 2, surfaceReceipt: { channelId: "channel", surfaceKind } })
+    const response = writeCommunityMessagesRead("channel", { messages: [full], profiles: [profileResourceFixture({ id: "peer", name: "Peer", avatarVersion: 4 })], latestSeq: 2, surfaceReceipt: { channelId: "channel", surfaceKind } })
     const body = await response.json()
     const http = decodeCommunityReadResponse("/api/community/channels/channel/messages", "GET", response, body, BUSINESS_SCHEMA_VERSION) as { messages: unknown[] }
     const ws = projectCommunityMessageCreate(full, "channel", BUSINESS_SCHEMA_VERSION)

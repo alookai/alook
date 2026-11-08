@@ -306,13 +306,13 @@ describe("Automation file message send", () => {
     } finally { await rm(dir, { recursive: true, force: true }) }
   }
   it("sends exact UTF-8 file contents as me or a bot using only the dedicated API", async () => {
-    await fileRun("你好\nline two\n", async (path) => {
+    await fileRun("€€\nline two\n", async (path) => {
       for (const identity of ["me", "@Helper#0001"]) {
         vi.mocked(fetch).mockClear().mockResolvedValueOnce(Response.json({ state: "sent", seq: "#1", deduped: false }, { status: 201 }))
         const { run, output } = program()
         await run(["use", "message", "--send", "--target", "/.dm/Alice#0002", "--as", identity, "--file", path])
         expect(fetch).toHaveBeenCalledExactlyOnceWith("http://localhost:4328/api/community/automation/messages", expect.objectContaining({ method: "POST", redirect: "error" }))
-        expect(JSON.parse(vi.mocked(fetch).mock.lastCall![1]!.body as string)).toEqual({ target: "/.dm/Alice#0002", as: identity, content: "你好\nline two\n", nonce: expect.any(String) })
+        expect(JSON.parse(vi.mocked(fetch).mock.lastCall![1]!.body as string)).toEqual({ target: "/.dm/Alice#0002", as: identity, content: "€€\nline two\n", nonce: expect.any(String) })
         expect(output).toHaveBeenCalledWith({ success: { state: "sent", seq: "#1", deduped: false } })
       }
     })

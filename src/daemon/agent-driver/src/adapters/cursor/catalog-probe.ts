@@ -1,6 +1,7 @@
 import type { RuntimeReasoningCatalog } from "../../contract.js";
 import type { SpawnedProcessHandle } from "../../internal/adapter.js";
-import { killProcessTree, spawnAgentProcess } from "../../internal/killTree.js";
+import { runBoundedDiscoveryProcess, type DiscoveryProcessControl, type DiscoveryProcessDependencies } from "../../internal/discovery-process.js";
+import { spawnAgentProcess } from "../../internal/killTree.js";
 import {
   normalizeRuntimeModelId,
   RUNTIME_MODEL_CATALOG_MAX,
@@ -16,20 +17,6 @@ const MODEL_DISPLAY_NAME_MAX = 256;
 const MODEL_OPTION_NESTING_MAX = 16;
 
 type JsonRecord = Record<string, unknown>;
-
-type ProbeSpawn = (
-  command: string,
-  args: string[],
-  options: { cwd: string; env: NodeJS.ProcessEnv; shell: boolean },
-) => SpawnedProcessHandle;
-
-interface CursorAcpCatalogProbeOptions {
-  readonly cwd?: string;
-  readonly timeoutMs?: number;
-  readonly outputMaxBytes?: number;
-  readonly spawn?: ProbeSpawn;
-  readonly cleanup?: (process: SpawnedProcessHandle) => Promise<void>;
-}
 
 function record(value: unknown): JsonRecord | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -88,17 +75,9 @@ export function parseCursorAcpModelCatalog(session: unknown): RuntimeReasoningCa
   return models.length > 0 ? { updateMode: "unsupported", models } : undefined;
 }
 
-async function cleanupProbeProcess(process: SpawnedProcessHandle): Promise<void> {
-  if (process.pid) {
-    await killProcessTree(process.pid, { graceMs: 250 }).catch(() => {});
-    return;
-  }
-  if (process.exitCode === null && process.signalCode === null) process.kill("SIGTERM");
-}
-
 export async function probeCursorAcpCatalog(
   command?: string,
-  options: CursorAcpCatalogProbeOptions = {},
+  options: DiscoveryProcessDependencies = {},
 ): Promise<RuntimeReasoningCatalog | undefined> {
   const cwd = options.cwd ?? process.cwd();
   const spec = resolveSpawnSpec("cursor-agent", ["acp"], command);
@@ -113,84 +92,70 @@ export async function probeCursorAcpCatalog(
     return undefined;
   }
 
-  return new Promise((resolve) => {
-    let settled = false;
-    let buffer = "";
-    let outputBytes = 0;
-    let requestId = 0;
-    let expectedId = 0;
-    let expectedMethod = "";
-    const finish = (catalog?: RuntimeReasoningCatalog) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      const cleanup = options.cleanup ?? cleanupProbeProcess;
-      void Promise.resolve().then(() => cleanup(processHandle)).catch(() => {}).finally(() => resolve(catalog));
-    };
-    const request = (method: string, params: JsonRecord) => {
-      if (settled) return;
-      const stdin = processHandle.stdin;
-      if (!stdin || stdin.destroyed || stdin.writableEnded || stdin.writable === false) return finish();
-      expectedId = ++requestId;
-      expectedMethod = method;
-      try {
-        stdin.write(`${jsonRpcRequest(method, params, expectedId)}\n`);
-      } catch {
-        finish();
-      }
-    };
-    const onLine = (line: string) => {
-      const parsed = tryParseJsonLine(line);
-      const message = record(parsed);
-      if (!message) return finish();
-      if (message.id !== expectedId) return;
-      if (message.error !== undefined) return finish();
-      if (!Object.prototype.hasOwnProperty.call(message, "result")) return finish();
-      if (expectedMethod === "authenticate") {
-        request("session/new", { cwd, mcpServers: [] });
-        return;
-      }
-      const result = record(message.result);
-      if (!result) return finish();
-      if (expectedMethod === "initialize") {
-        const authMethods = Array.isArray(result.authMethods) ? result.authMethods : [];
-        if (result.protocolVersion !== ACP_PROTOCOL_VERSION
-          || !authMethods.some((method) => record(method)?.id === AUTH_METHOD_ID)) return finish();
-        request("authenticate", { methodId: AUTH_METHOD_ID });
-        return;
-      }
-      if (expectedMethod !== "session/new"
-        || typeof result.sessionId !== "string"
-        || !result.sessionId.trim()) return finish();
-      finish(parseCursorAcpModelCatalog(result));
-    };
+  let control: DiscoveryProcessControl<RuntimeReasoningCatalog | undefined>;
+  let buffer = "";
+  let requestId = 0;
+  let expectedId = 0;
+  let expectedMethod = "";
+  const finish = (catalog?: RuntimeReasoningCatalog) => control.finish(catalog);
+  const request = (method: string, params: JsonRecord) => {
+    if (control.settled) return;
+    expectedId = ++requestId;
+    expectedMethod = method;
+    control.write(`${jsonRpcRequest(method, params, expectedId)}\n`);
+  };
+  const onLine = (line: string) => {
+    const parsed = tryParseJsonLine(line);
+    const message = record(parsed);
+    if (!message) return finish();
+    if (message.id !== expectedId) return;
+    if (message.error !== undefined) return finish();
+    if (!Object.prototype.hasOwnProperty.call(message, "result")) return finish();
+    if (expectedMethod === "authenticate") {
+      request("session/new", { cwd, mcpServers: [] });
+      return;
+    }
+    const result = record(message.result);
+    if (!result) return finish();
+    if (expectedMethod === "initialize") {
+      const authMethods = Array.isArray(result.authMethods) ? result.authMethods : [];
+      if (result.protocolVersion !== ACP_PROTOCOL_VERSION
+        || !authMethods.some((method) => record(method)?.id === AUTH_METHOD_ID)) return finish();
+      request("authenticate", { methodId: AUTH_METHOD_ID });
+      return;
+    }
+    if (expectedMethod !== "session/new"
+      || typeof result.sessionId !== "string"
+      || !result.sessionId.trim()) return finish();
+    finish(parseCursorAcpModelCatalog(result));
+  };
 
-    const timer = setTimeout(() => finish(), options.timeoutMs ?? CATALOG_PROBE_TIMEOUT_MS);
-    timer.unref?.();
-    processHandle.stdout?.on("data", (chunk) => {
-      if (settled) return;
-      const text = chunk.toString();
-      outputBytes += Buffer.byteLength(text);
-      if (outputBytes > (options.outputMaxBytes ?? CATALOG_PROBE_OUTPUT_MAX_BYTES)) return finish();
-      buffer += text;
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) if (line.trim()) onLine(line);
-    });
-    processHandle.stderr?.on("data", (chunk) => {
-      if (settled) return;
-      outputBytes += Buffer.byteLength(chunk.toString());
-      if (outputBytes > (options.outputMaxBytes ?? CATALOG_PROBE_OUTPUT_MAX_BYTES)) finish();
-    });
-    processHandle.on("error", () => finish());
-    processHandle.on("exit", () => finish());
-    request("initialize", {
-      protocolVersion: ACP_PROTOCOL_VERSION,
-      clientCapabilities: {
-        fs: { readTextFile: false, writeTextFile: false },
-        terminal: false,
+  try {
+    return await runBoundedDiscoveryProcess<RuntimeReasoningCatalog | undefined>({
+      process: processHandle, label: "Cursor", timeoutMs: options.timeoutMs ?? CATALOG_PROBE_TIMEOUT_MS,
+      outputMaxBytes: options.outputMaxBytes ?? CATALOG_PROBE_OUTPUT_MAX_BYTES,
+      cleanup: options.cleanup, exitEvent: "exit",
+      onStdout: (text) => {
+        buffer += text;
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (control.settled) break;
+          if (line.trim()) onLine(line);
+        }
       },
-      clientInfo: { name: "alook-agent-driver-probe", version: "0.1.25" },
+      onExit: () => finish(),
+      onStart: (transport) => {
+        control = transport;
+        request("initialize", {
+          protocolVersion: ACP_PROTOCOL_VERSION,
+          clientCapabilities: {
+            fs: { readTextFile: false, writeTextFile: false },
+            terminal: false,
+          },
+          clientInfo: { name: "alook-agent-driver-probe", version: "0.1.25" },
+        });
+      },
     });
-  });
+  } catch { return undefined; }
 }

@@ -6,15 +6,8 @@ import { getDb } from "@/lib/db"
 import { communityActorPolicy, rejectBot } from "@/lib/middleware/community-actor"
 
 /**
- * GET /api/community/friends/blocked — the blocked bucket (route/disc trunk,
- * 接口树统一 轴3). Owner-only: a bot NEVER sees who its owner blocked.
- *
- * The bot exclusion is an ENDPOINT-level capability gate (Aigneis #408/#421,
- * Blondie #436): `rejectBot` returns 403 BEFORE any blocked-data query runs, so
- * the 403 is independent of whether/whom the caller blocked — zero existence
- * leak, a pure capability boundary (not a row-projection filter). The flat
- * `listFriends` verb never exposed blocked to bots; this keeps that invariant
- * while giving human a clean per-bucket read.
+ * Deny bots before any blocked-data query, so the response cannot reveal
+ * whether the owner blocked someone.
  */
 export const GET = withAuth({
   ...communityActorPolicy(),

@@ -42,7 +42,7 @@ describe("sanitizeSlug", () => {
   });
 
   it("returns empty for non-ASCII input", () => {
-    expect(sanitizeSlug("总部 🎉")).toBe("");
+    expect(sanitizeSlug("𝔄𝔅 🎉")).toBe("");
   });
 
   it("returns empty for all-separator or empty input", () => {

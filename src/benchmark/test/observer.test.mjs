@@ -69,7 +69,7 @@ test('failure remains same error and reports one failed call, unknown meta', asy
 })
 
 test('binary encodings are explicit; unicode bytes and unsupported values are honest', () => {
-  assert.equal(jsonBytes('你'), 5)
+  assert.equal(jsonBytes('€'), 5)
   assert.equal(jsonBytes(new Uint8Array([0, 255])), Buffer.byteLength(JSON.stringify({ binaryBase64: 'AP8=' })))
   assert.equal(jsonBytes(new Uint8Array([0, 255]).buffer), jsonBytes(new Uint8Array([0, 255])))
   assert.equal(jsonBytes(1n), null)

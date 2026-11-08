@@ -1,3 +1,5 @@
+export type PetCoordinateSpace = "viewport" | "boundary";
+
 export type PetPoint = {
   x: number;
   y: number;

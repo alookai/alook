@@ -72,6 +72,7 @@ const credentialProxyHarness = vi.hoisted(() => ({
     method: string,
     pathname: string,
     metadata?: { propertyType: "emoji" | "tag" | "mark" },
+    operation?: string | null,
   ) => void) | undefined,
 }));
 
@@ -1695,6 +1696,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       "PUT",
       "/api/community/messages/resolve/properties",
       { propertyType: "mark" },
+      "messagePropertySet",
     );
     expect(reportAudit).toHaveBeenCalledWith(expect.objectContaining({
       agentId: "bot_1",
@@ -1709,6 +1711,8 @@ for await (const line of createInterface({ input: process.stdin })) {
       "bot_1",
       "POST",
       "/api/community/messages/resolve/properties",
+      undefined,
+      null,
     );
     expect(reportAudit).not.toHaveBeenCalled();
     await daemon.stop();
@@ -3175,21 +3179,21 @@ describe("deriveAuditLogSubcommand", () => {
     // members door (folded channelMember).
     expect(deriveAuditLogSubcommand("/api/community/channels/resolve/members?ref=%2Fs%2Fg", "GET")).toBe("channelMember");
     expect(deriveAuditLogSubcommand("/api/community/channels/c1/members", "GET")).toBe("channelMember");
-    // server-scoped list doors (轴3 fold): servers/{id}/members = listMembers;
+    // server-scoped list doors: servers/{id}/members = listMembers;
     // servers/{id}/channels + servers/channels (all-servers collection) = listChannels.
     expect(deriveAuditLogSubcommand("/api/community/servers/resolve/members?server=studio", "GET")).toBe("listMembers");
     expect(deriveAuditLogSubcommand("/api/community/servers/srv_1/members", "GET")).toBe("listMembers");
     expect(deriveAuditLogSubcommand("/api/community/servers/resolve/channels?server=studio", "GET")).toBe("listChannels");
     expect(deriveAuditLogSubcommand("/api/community/servers/srv_1/channels", "GET")).toBe("listChannels");
     expect(deriveAuditLogSubcommand("/api/community/servers/channels", "GET")).toBe("listChannels");
-    // friends bucket doors (轴3 fold): accepted + pending map back to listFriends
+    // friends bucket doors: accepted + pending map back to listFriends
     // (the bot's `alook friend list` fans out to both). blocked is bot-403 → not mapped.
     expect(deriveAuditLogSubcommand("/api/community/friends/accepted", "GET")).toBe("listFriends");
     expect(deriveAuditLogSubcommand("/api/community/friends/pending", "GET")).toBe("listFriends");
     // friend-request door (friendRequest fold): POST friends/request maps back to
     // `friendRequest`, not the `friends` segment (audit is daemon/proxy = bot path).
     expect(deriveAuditLogSubcommand("/api/community/friends/request", "POST")).toBe("friendRequest");
-    // inbox bucket doors (轴3 fold): users/me/inbox/{pull,snapshot} map back to
+    // inbox bucket doors: users/me/inbox/{pull,snapshot} map back to
     // the logical verb, not the `users` segment.
     expect(deriveAuditLogSubcommand("/api/community/users/me/inbox/pull", "POST")).toBe("inboxPull");
     expect(deriveAuditLogSubcommand("/api/community/users/me/inbox/snapshot", "GET")).toBe("inboxSnapshot");

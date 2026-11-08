@@ -51,10 +51,7 @@ export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const parentId = channel.parentChannelId
   if (!parentId) return writeError("thread has no parent channel", 400)
   const parentAudience = new Set(
-    await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
-      scope: "channel",
-      scopeId: parentId,
-    })
+    await queries.communityMembersResolver.resolveScopeMemberUserIds(db, parentId)
   )
   if (!parentAudience.has(targetUserId)) {
     return writeError("user is not a member of the parent channel", 400)

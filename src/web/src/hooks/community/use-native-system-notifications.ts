@@ -1,7 +1,8 @@
 "use client"
+import { createNotificationActivationDrain } from "@/lib/community/notification-activation-drain";
 
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react"
-import { createStore } from "@tanstack/store"
+
 import { useQueryClient, QueryObserver, type QueryClient } from "@tanstack/react-query"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { useCommunityViewSource } from "./use-community-view-source"
@@ -223,53 +224,27 @@ export type DesktopSystemNotificationActivationDeps = {
 export function createDesktopSystemNotificationActivationController(
   deps: DesktopSystemNotificationActivationDeps,
 ) {
-    const protocol = createStore({ disposed: false,
-        draining: false, rerun: false, unlisten: undefined as (() => void) | undefined });
-    async function drain() {
-        if (protocol.get().disposed)
-            return;
-        if (protocol.get().draining) {
-            protocol.setState(state => ({ ...state, rerun: true }));
-            return;
-        }
-        protocol.setState(state => ({ ...state, draining: true }));
-        try {
-            do {
-                protocol.setState(state => ({ ...state, rerun: false }));
-                const activation = await deps.take().catch(() => null);
-                if (!activation || protocol.get().disposed)
-                    continue;
-                const href = systemNotificationHref(activation.target);
-                try {
-                    deps.queueDismiss(activation.notificationId, href);
-                }
-                catch { }
-                if (!protocol.get().disposed)
-                    deps.navigate(href);
-            } while (protocol.get().rerun && !protocol.get().disposed);
-        }
-        finally {
-            protocol.setState(state => ({ ...state, draining: false }));
-        }
-    }
-    return {
-        async connect() {
-            const stop = await deps.listen(() => { void drain().catch(() => undefined); });
-            if (protocol.get().disposed) {
-                stop();
-                return;
-            }
-            protocol.setState(state => ({ ...state, unlisten: stop }));
-            await drain();
-        },
-        dispose() {
-            if (protocol.get().disposed)
-                return;
-            protocol.setState(state => ({ ...state, disposed: true }));
-            protocol.get().unlisten?.();
-            protocol.setState(state => ({ ...state, unlisten: undefined }));
-        },
-    };
+  const activation = createNotificationActivationDrain({
+    take: () => deps.take(),
+    hrefFor: (value) => systemNotificationHref(value.target),
+    queueDismiss: (id, href) => deps.queueDismiss(id, href),
+    navigate: (href) => deps.navigate(href),
+  })
+  let unlisten: (() => void) | undefined
+  return {
+    async connect() {
+      const stop = await deps.listen(() => { void activation.drain().catch(() => undefined) })
+      if (activation.disposed) { stop(); return }
+      unlisten = stop
+      await activation.drain()
+    },
+    dispose() {
+      if (activation.disposed) return
+      activation.dispose()
+      unlisten?.()
+      unlisten = undefined
+    },
+  }
 }
 
 export function useNativeSystemNotifications(

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import { join } from 'node:path'
 import { runBenchmark } from '../src/runner.mjs'
@@ -51,10 +51,15 @@ test('real HTTP/WS control keeps pre-ACK delivery, nonce correlation, late dupli
   const outDir = await mkdtemp(join(os.tmpdir(), 'benchmark-control-'))
   const baseUrl = `http://127.0.0.1:${server.address().port}`
   try {
-    const report = await runBenchmark({ communityContractVersion: 10, baseUrl, wsUrl: baseUrl.replace('http', 'ws') + '/api/ws/user', targetKind: 'local', targetVersion: 'control', environment: 'controlled HTTP/WS', outDir,
+    const config = { communityContractVersion: 10, baseUrl, wsUrl: baseUrl.replace('http', 'ws') + '/api/ws/user', targetKind: 'local', targetVersion: 'control', environment: 'controlled HTTP/WS', outDir,
       samples: 2, warmup: 0, concurrency: 1, timeoutMs: 2000, intervalMs: 60, receivers: 1, expectedMembers: 2, historyLimit: 20, observeDB: false,
       payloadBytes: [64], phases: [{ name: 'baseline', delayMs: 0 }],
-      fixture: { serverId: 's', channelId: 'c', accounts: [{ userId: 'sender', cookie: 'session=secret-cookie' }, { userId: 'receiver', cookie: 'session=secret-cookie' }] } })
+      fixture: { serverId: 's', channelId: 'c', accounts: [{ userId: 'sender', cookie: 'session=secret-cookie' }, { userId: 'receiver', cookie: 'session=secret-cookie' }] } }
+    await writeFile(`${outDir}/prior-run`, 'preserve exact bytes')
+    await assert.rejects(runBenchmark(config), /Output directory must be empty/)
+    assert.equal(await readFile(`${outDir}/prior-run`, 'utf8'), 'preserve exact bytes')
+    await rm(`${outDir}/prior-run`)
+    const report = await runBenchmark(config)
     const samples = (await readFile(`${outDir}/samples.jsonl`, 'utf8')).trim().split('\n').map(JSON.parse)
     assert.equal(samples.length, 2)
     assert.ok(samples.every(s => s.receivers[0].receiveMs < s.ackMs))

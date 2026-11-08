@@ -1,21 +1,5 @@
 import { describe, it, expect } from "vitest"
-import {
-  HostReadyMessageSchema,
-  CommunityBotCreateRequestSchema,
-  CommunityBotPatchRequestSchema,
-  CommunityServerOnboardRequestSchema,
-  AgentActivityMessageSchema,
-  AgentTypingMessageSchema,
-  AgentTypingStopMessageSchema,
-  CreateWorkspaceRequestSchema,
-  UpdateWorkspaceRequestSchema,
-  BotAuditEventSchema,
-  HostBotAuditEventFrameSchema,
-  CommunityAgentNapRequestSchema,
-  CommunityMachineRuntimeSchema,
-  RuntimeReasoningCatalogSchema,
-  COMMUNITY_REASONING_MODELS_MAX,
-} from "./schemas"
+import { HostReadyMessageSchema, CommunityBotCreateRequestSchema, CommunityBotPatchRequestSchema, CommunityServerOnboardRequestSchema, AgentActivityMessageSchema, AgentTypingMessageSchema, AgentTypingStopMessageSchema, BotAuditEventSchema, HostBotAuditEventFrameSchema, CommunityAgentNapRequestSchema, CommunityMachineRuntimeSchema, RuntimeReasoningCatalogSchema, COMMUNITY_REASONING_MODELS_MAX } from "./schemas"
 
 describe("large runtime model catalogs", () => {
   const catalog = (count: number) => ({
@@ -115,7 +99,7 @@ describe("CommunityAgentNapRequestSchema", () => {
   })
   it("rejects whitespace-only handoffs without trimming valid literal content", () => {
     expect(CommunityAgentNapRequestSchema.safeParse({ handoff: "  \n\t" }).success).toBe(false)
-    const handoff = "  literal \\\\n text\n中文 🎉  \n"
+    const handoff = "  literal \\\\n text\n€€ 🎉  \n"
     expect(CommunityAgentNapRequestSchema.parse({ handoff }).handoff).toBe(handoff)
   })
 })
@@ -271,46 +255,6 @@ describe("AgentTypingStopMessageSchema", () => {
   })
 })
 
-describe("CreateWorkspaceRequestSchema slug sanitization", () => {
-  it("sanitizes a dirty slug to ASCII kebab-case", () => {
-    const res = CreateWorkspaceRequestSchema.parse({ name: "Acme", slug: "My Company" })
-    expect(res.slug).toBe("my-company")
-  })
-
-  it("defaults an omitted slug to empty (route generates)", () => {
-    const res = CreateWorkspaceRequestSchema.parse({ name: "Acme" })
-    expect(res.slug).toBe("")
-  })
-
-  it("yields empty for an unsanitizable slug (route falls back)", () => {
-    const res = CreateWorkspaceRequestSchema.parse({ name: "Acme", slug: "🎉" })
-    expect(res.slug).toBe("")
-  })
-})
-
-describe("UpdateWorkspaceRequestSchema slug sanitization", () => {
-  it("sanitizes a provided slug", () => {
-    const res = UpdateWorkspaceRequestSchema.parse({ slug: "New Slug" })
-    expect(res.slug).toBe("new-slug")
-  })
-
-  it("transforms an unsanitizable slug to empty (route rejects)", () => {
-    const res = UpdateWorkspaceRequestSchema.parse({ slug: "🎉" })
-    expect(res.slug).toBe("")
-  })
-
-  it("leaves slug undefined and does not throw when omitted", () => {
-    const res = UpdateWorkspaceRequestSchema.parse({ name: "x" })
-    expect(res.slug).toBeUndefined()
-    expect(res.name).toBe("x")
-  })
-
-  it("retains the normalized prefix when truncating a very long messy slug", () => {
-    const res = UpdateWorkspaceRequestSchema.parse({ slug: "A very long name ".repeat(20) })
-    expect(res.slug).toBe("a-very-long-name-a-very-long-name-a-very-long-name-a-very-lo")
-  })
-})
-
 describe("CommunityBotCreateRequestSchema — model", () => {
   it("accepts a model string, accepts null, rejects empty and >100 chars", () => {
     expect(CommunityBotCreateRequestSchema.safeParse({ ...validCreatePayload(), model: "claude-opus-4-6" }).success).toBe(true)
@@ -399,11 +343,11 @@ describe("completed text audit payload", () => {
     },
   });
 
-  it.each(["a".repeat(1024), "中".repeat(341) + "a", "😀".repeat(256)])("accepts a full 1024-byte Unicode prefix", (text) => {
+  it.each(["a".repeat(1024), "€".repeat(341) + "a", "😀".repeat(256)])("accepts a full 1024-byte Unicode prefix", (text) => {
     expect(HostBotAuditEventFrameSchema.safeParse(frame(text)).success).toBe(true);
   });
 
-  it.each(["a".repeat(1025), "中".repeat(342), "😀".repeat(256) + "a", ""])("rejects text outside the byte budget before server storage", (text) => {
+  it.each(["a".repeat(1025), "€".repeat(342), "😀".repeat(256) + "a", ""])("rejects text outside the byte budget before server storage", (text) => {
     expect(HostBotAuditEventFrameSchema.safeParse(frame(text)).success).toBe(false);
   });
 

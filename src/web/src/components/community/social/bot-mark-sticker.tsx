@@ -4,6 +4,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 
 import { AuditLogTextPayloadSchema } from "@alook/shared"
+import { compareAuditEventsNewestFirst } from "@/lib/community/models/audit"
 import { CircleStop, LoaderCircle, Lock, Square } from "lucide-react"
 import { useEffect, useId, useLayoutEffect, useRef } from "react"
 import { useBotAuditPreview } from "@/hooks/community/use-bot-audit-preview"
@@ -75,10 +76,7 @@ export function BotMarkStickerView({
   const visibleMarks = marks.slice(0, VISIBLE_MARKS)
   const hasOverflow = marks.length > VISIBLE_MARKS
   const visibleEvents = [...activity.events]
-    .sort((a, b) => {
-      if (a.createdAt !== b.createdAt) return a.createdAt > b.createdAt ? -1 : 1
-      return a.id > b.id ? -1 : a.id < b.id ? 1 : 0
-    })
+    .sort(compareAuditEventsNewestFirst)
     .slice(0, 10)
     .reverse()
   const latestVisibleEventId = visibleEvents.at(-1)?.id

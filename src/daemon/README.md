@@ -151,8 +151,8 @@ src/
   index.ts                       # daemon exports; re-exports the driver public API
   drivers/index.ts               # daemon runtime lookup/probe facade only
   logger.ts                      # structured daemon logging
-  runtime/                       # manager liveness, notification, error helpers
-  inbox/                         # unread projection and freshness policy
+  runtime/                       # retained published runtime state and error helpers
+  inbox/                         # retained published projection/freshness APIs
   manager/
     agentDriverHost.ts           # host resource/env/CLI preparation
     managerPolicy.ts             # pure scheduling reducer
@@ -250,25 +250,19 @@ understanding what `hostApiKey` should be:
 3. **`vch_` voucher** — minted by `CredentialBroker` per launch, written to a 0600
    file, and the only credential the agent process ever sees.
 
-## Inbox layer (freshness)
+## Wake and inbox ownership
 
-Two pieces govern how messages reach the agent and how outgoing actions are
-gated:
+Server/D1 owns durable messages and read watermarks. The wake coordinator keeps
+unread coverage through reconnects, active work, failed admission and session
+replacement. Manager policy and runtime own logical-session admission and exact
+root settlement; agent-driver owns physical sessions and process cleanup.
+An acknowledgement or transport receipt is not proof that the model saw work.
 
-- **`inbox/projection.ts`** — `projectAgentInboxSnapshot` buckets pending
-  messages by target (channel / DM / thread) and projects each into the
-  metadata-only summary surfaced as an `[inbox notice: …]` (count, first,
-  latest, sender, flags). No bodies — the agent pulls those with
-  `alook inbox pull`.
-- **`inbox/stateMachine.ts`** — `planAgentInboxSideEffect` is the "don't reply on
-  stale context" guard. Before an outward action (`send` / `task_claim` /
-  `task_update`) it compares the model's seen `seq` boundary against pending
-  messages and returns **forward** (let it through), **held** (hold the action,
-  surface the latest few unseen messages as held context to reconcile first —
-  this is the "Freshness hold → saved as a draft" you can hit when messaging a
-  busy agent), or **bypass** (explicit `continueAnyway`). It is a pure function
-  producing a stable `producerFactId`; clause ids `SMR-002` (consume) and
-  `SMR-006` (held envelope) are preserved.
+The credential proxy applies current operation capabilities, local PII filters
+and send alignment. CLI inbox pull reads and acknowledges through the current
+server contract. Published inbox projection/freshness helpers, progressState,
+notificationState and WsControlServer remain available for external package
+consumers; they are not the current wake or send orchestration path.
 
 ## Build & run
 
@@ -276,7 +270,7 @@ This project uses **pnpm** (see the `packageManager` field).
 
 ```bash
 pnpm install
-pnpm run typecheck           # tsc --noEmit (passes clean)
+pnpm run typecheck           # tsc --noEmit
 pnpm test                    # Vitest package suite, including its packed/runtime categories
 pnpm run test:integration    # real infra: requires wrangler dev + ws-do dev + queue-worker dev (see below)
 ```

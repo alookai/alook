@@ -6,9 +6,9 @@ import { MAX_HTML_PREVIEW_BYTES } from "./html-preview-policy"
 const stream = (text: string) => new Response(text).body!
 describe("HTML preview response preparation", () => {
   it("reads UTF-8 split across byte chunks", async () => {
-    const bytes = new TextEncoder().encode("<p>你好</p>")
+    const bytes = new TextEncoder().encode("<p>€€</p>")
     const body = new ReadableStream({ start(controller) { for (const byte of bytes) controller.enqueue(new Uint8Array([byte])); controller.close() } })
-    expect(await readHtmlPreview(body)).toBe("<p>你好</p>")
+    expect(await readHtmlPreview(body)).toBe("<p>€€</p>")
   })
   it.each(["", " \n", "a\0b"])("rejects empty or binary input", async (text) => {
     await expect(readHtmlPreview(stream(text))).rejects.toBeInstanceOf(HtmlPreviewValidationError)

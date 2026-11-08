@@ -1,21 +1,5 @@
 import { describe, it, expect } from "vitest"
-import {
-  buildUserAvatarKey,
-  buildUserAvatarObjectKey,
-  buildBotAvatarKey,
-  buildBotAvatarObjectKey,
-  attachmentUrl,
-  attachmentThumbnailUrl,
-  ATTACHMENT_PRIVATE_IMMUTABLE_CACHE,
-  sanitizeAttachmentFilename,
-  userAvatarUrl,
-  botAvatarUrl,
-  isOwnedServerIconKey,
-  isOwnedUserAvatarObjectKey,
-  isOwnedBotAvatarObjectKey,
-  canonicalUserImage,
-  serverIconUrl,
-} from "./storage"
+import { buildUserAvatarKey, buildUserAvatarObjectKey, buildBotAvatarKey, buildBotAvatarObjectKey, attachmentUrl, attachmentThumbnailUrl, ATTACHMENT_PRIVATE_IMMUTABLE_CACHE, userAvatarUrl, botAvatarUrl, isOwnedServerIconKey, isOwnedUserAvatarObjectKey, isOwnedBotAvatarObjectKey, canonicalUserImage, serverIconUrl } from "./storage"
 
 describe("serverIconUrl", () => {
   it("uses the persisted object identity as a stable URL version", () => {
@@ -90,30 +74,6 @@ describe("no collisions between user and bot avatar keys for the same id", () =>
 
   it("distinct routable URLs", () => {
     expect(userAvatarUrl("same-id")).not.toBe(botAvatarUrl("same-id"))
-  })
-})
-
-describe("sanitizeAttachmentFilename", () => {
-  it("strips traversal sequences", () => {
-    // `..` collapses to `_` first, then `/` is replaced by `_`.
-    expect(sanitizeAttachmentFilename("../evil.png")).toBe("__evil.png")
-  })
-
-  it("replaces path separators", () => {
-    expect(sanitizeAttachmentFilename("a/b/c.png")).toBe("a_b_c.png")
-  })
-
-  it("replaces control characters", () => {
-    expect(sanitizeAttachmentFilename("a\x01b\x7fc.png")).toBe("a_b_c.png")
-  })
-
-  it("caps length at 255", () => {
-    const long = "x".repeat(300)
-    expect(sanitizeAttachmentFilename(long).length).toBe(255)
-  })
-
-  it("falls back to _ when the input is empty", () => {
-    expect(sanitizeAttachmentFilename("")).toBe("_")
   })
 })
 

@@ -35,27 +35,6 @@ static LAST_AUTOMATIC_PROMPT_VERSION: Mutex<Option<String>> = Mutex::new(None);
 static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 static UPDATE_MENU_ITEMS: Mutex<Vec<MenuItem<tauri::Wry>>> = Mutex::new(Vec::new());
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CheckSource {
-    Manual,
-    Automatic,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CheckPresentation {
-    Silent,
-    UpToDate,
-    PromptAvailable,
-    ShowError,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CheckOutcome {
-    Current,
-    Available,
-    Failed,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum AutomaticOfferDisposition {
     RefreshMenu,
@@ -157,12 +136,7 @@ impl UpdatePromptState {
         update_in_progress: &'static AtomicBool,
         already_prompted: bool,
     ) -> AutomaticOfferDisposition {
-        if presentation_for(
-            CheckSource::Automatic,
-            CheckOutcome::Available,
-            already_prompted,
-        ) != CheckPresentation::PromptAvailable
-        {
+        if already_prompted {
             return AutomaticOfferDisposition::RefreshMenu;
         }
 
@@ -237,21 +211,6 @@ impl Drop for UpdateInProgressGuard<'_> {
     }
 }
 
-fn presentation_for(
-    source: CheckSource,
-    outcome: CheckOutcome,
-    already_notified: bool,
-) -> CheckPresentation {
-    match (source, outcome, already_notified) {
-        (CheckSource::Manual, CheckOutcome::Current, _) => CheckPresentation::UpToDate,
-        (CheckSource::Manual, CheckOutcome::Available, _) => CheckPresentation::PromptAvailable,
-        (CheckSource::Manual, CheckOutcome::Failed, _) => CheckPresentation::ShowError,
-        (CheckSource::Automatic, CheckOutcome::Available, false) => {
-            CheckPresentation::PromptAvailable
-        }
-        _ => CheckPresentation::Silent,
-    }
-}
 
 fn update_prompt(current_version: &str, available_version: &str) -> UpdatePrompt {
     UpdatePrompt {
@@ -464,27 +423,19 @@ pub async fn install_update(handle: &AppHandle) {
         }
         Ok(None) => {
             set_update_menu(DEFAULT_UPDATE_LABEL, true);
-            if presentation_for(CheckSource::Manual, CheckOutcome::Current, false)
-                == CheckPresentation::UpToDate
-            {
-                handle
-                    .dialog()
-                    .message(format!(
-                        "Alook {} is the latest version.",
-                        handle.package_info().version
-                    ))
-                    .title("Alook Is Up to Date")
-                    .buttons(MessageDialogButtons::OkCustom("Done".into()))
-                    .show(|_| {});
-            }
+            handle
+                .dialog()
+                .message(format!(
+                    "Alook {} is the latest version.",
+                    handle.package_info().version
+                ))
+                .title("Alook Is Up to Date")
+                .buttons(MessageDialogButtons::OkCustom("Done".into()))
+                .show(|_| {});
         }
         Err(error) => {
             set_update_menu(DEFAULT_UPDATE_LABEL, true);
-            if presentation_for(CheckSource::Manual, CheckOutcome::Failed, false)
-                == CheckPresentation::ShowError
-            {
-                show_check_error(handle, &error.to_string());
-            }
+            show_check_error(handle, &error.to_string());
         }
     }
 }
@@ -770,51 +721,11 @@ mod tests {
     }
 
     #[test]
-    fn manual_checks_present_every_outcome() {
-        assert_eq!(
-            presentation_for(CheckSource::Manual, CheckOutcome::Current, false),
-            CheckPresentation::UpToDate
-        );
-        assert_eq!(
-            presentation_for(CheckSource::Manual, CheckOutcome::Available, false),
-            CheckPresentation::PromptAvailable
-        );
-        assert_eq!(
-            presentation_for(CheckSource::Manual, CheckOutcome::Failed, false),
-            CheckPresentation::ShowError
-        );
-    }
-
-    #[test]
-    fn automatic_checks_are_silent_except_for_a_new_version() {
-        assert_eq!(
-            presentation_for(CheckSource::Automatic, CheckOutcome::Current, false),
-            CheckPresentation::Silent
-        );
-        assert_eq!(
-            presentation_for(CheckSource::Automatic, CheckOutcome::Failed, false),
-            CheckPresentation::Silent
-        );
-        assert_eq!(
-            presentation_for(CheckSource::Automatic, CheckOutcome::Available, false),
-            CheckPresentation::PromptAvailable
-        );
-        assert_eq!(
-            presentation_for(CheckSource::Automatic, CheckOutcome::Available, true),
-            CheckPresentation::Silent
-        );
-    }
-
-    #[test]
     fn automatic_versions_prompt_once_while_manual_checks_can_reopen() {
         let mut last_prompted = None;
         assert!(!was_automatic_version_prompted(&mut last_prompted, "1.2.3"));
         assert!(was_automatic_version_prompted(&mut last_prompted, "1.2.3"));
         assert!(!was_automatic_version_prompted(&mut last_prompted, "1.2.4"));
-        assert_eq!(
-            presentation_for(CheckSource::Manual, CheckOutcome::Available, true),
-            CheckPresentation::PromptAvailable
-        );
     }
 
     #[test]
@@ -961,14 +872,7 @@ mod tests {
         let mut last_prompted = None;
         let already_prompted = was_automatic_version_prompted(&mut last_prompted, version);
 
-        assert_eq!(
-            presentation_for(
-                CheckSource::Automatic,
-                CheckOutcome::Available,
-                already_prompted
-            ),
-            CheckPresentation::PromptAvailable
-        );
+        assert!(!already_prompted);
         let prompt = update_prompt("1.9.0", version);
         assert!(!format!("{prompt:?}").contains(notes));
         assert_eq!(prompt.available_version, "2.0.0");

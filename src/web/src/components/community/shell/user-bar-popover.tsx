@@ -39,7 +39,7 @@ export function UserBarPopover({ anchor, children, companion, onDismiss, onEscap
             ref={popoverRef}
             role="presentation"
             className={`relative w-80 max-w-[calc(var(--app-safe-width)-1rem)] border-0 bg-transparent p-0 shadow-none ${companion && !ready ? "overflow-hidden" : "overflow-visible"}`}
-            initialFocus={() => document.getElementById("community-user-bar-extension")}
+            initialFocus={() => cardRef.current?.querySelector<HTMLElement>(`[data-testid="${tid.userBarExtension}"]`) ?? false}
             finalFocus={false}
           >
             <div ref={cardRef}>{children}</div>

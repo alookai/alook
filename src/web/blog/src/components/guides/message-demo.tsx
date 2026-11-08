@@ -1,5 +1,7 @@
 "use client";
 
+import { tutorialTask } from "./example-data";
+
 import { useLayoutEffect, useRef, useState } from "react";
 import { MousePointer2 } from "lucide-react";
 import { ChannelHeader } from "@/components/community/channels/channel-header";
@@ -15,7 +17,6 @@ import { DeferredDemo } from "./deferred-demo";
 import styles from "./guide.module.css";
 
 const ignore = () => {};
-export const tutorialTask = "Agree on roles, then wait for my task.";
 const bots: MentionItem[] = ["Milo", "Nova"].map((name, index) => ({ kind: "member", id: `tutorial-${name.toLowerCase()}`, userId: `tutorial-${name.toLowerCase()}`, label: `${name}#100${index + 1}`, name, discriminator: `100${index + 1}`, avatar: `avatar:beam:${name.toLowerCase()}`, status: "online" }));
 const profiles = new Map<string, CommunityProfile>([["gus", { id: "gus", name: "Gus", avatar: "avatar:beam:tutorial-gus" }]]);
 const sentMessage: RenderMsg = { id: "tutorial-sent-message", type: "chat", authorId: "gus", authorName: "Gus", authorAvatar: "avatar:beam:tutorial-gus", content: `@Milo#1001 @Nova#1002 ${tutorialTask}`, createdAt: "2026-10-28T04:00:00.000Z", seq: 1, grouped: false };

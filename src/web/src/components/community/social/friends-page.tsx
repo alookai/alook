@@ -1,9 +1,9 @@
 "use client"
 
-import { CommunityUserSearchReadSchema, type CommunityUserSearchRead } from "@alook/shared"
+import { searchCommunityUserIds } from "@/lib/community/user-search"
 import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
 import { useObservedRegion } from "@/lib/observability/regions"
-import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { useEffect, useMemo } from "react"
@@ -13,7 +13,7 @@ import { isAbortError } from "@/lib/errors"
 import type React from "react"
 import { Users, MessagesSquare, ChevronLeft, Check, LoaderCircle, X, AtSign, UserMinus, Ban, UserPlus, Search } from "lucide-react"
 import { toastApiError } from "@/lib/api/client"
-import { apiFetchProfiles } from "@/lib/community/profile-seed"
+
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { FieldError } from "@/components/ui/field"
@@ -104,7 +104,6 @@ export function FriendsPage({
     rows: incoming,
     onAccept,
     onReject,
-    surface: "friends",
   })
   const incomingCount = compactRequestCount(incomingActions.items.length)
 
@@ -125,17 +124,9 @@ export function FriendsPage({
       const token = captureCommunityLiveSnapshotToken(profileQueryClient)
       const assertActive = () => assertCommunityLiveSnapshotTokenCurrent(profileQueryClient, token, signal)
       try {
-        const data = await apiFetchProfiles<CommunityUserSearchRead>(
-          `/api/community/users/search?q=${encodeURIComponent(searchTerm)}`,
-          (response) => CommunityUserSearchReadSchema.parse(response).users.map((user) => ({
-            id: user.id,
-            identityAbout: { name: user.name, discriminator: user.discriminator },
-            avatar: { avatar: user.image, avatarVersion: user.avatarVersion },
-          })),
-          { signal, assertActive }, getCommunityDbRegistry(profileQueryClient),
-        )
+        const ids = await searchCommunityUserIds(searchTerm, profileQueryClient, { signal, assertActive }, token)
         assertActive()
-        return data.users.map((user) => user.id)
+        return ids
       } catch (error) {
         assertActive()
         if (!isAbortError(error)) toastApiError(error, "Search failed", assertActive)

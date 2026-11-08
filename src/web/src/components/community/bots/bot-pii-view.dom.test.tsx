@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest"
 import { fireEvent, render, screen, waitFor } from "@/test/react-dom-harness"
-import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
+import { ConversationActivityContext } from "@/contexts/view-activity"
 import { BotPiiView } from "./bot-pii-view"
 
 const state = vi.hoisted(() => ({ botId: "b1", viewer: "owner", epoch: 0, clearPreview: vi.fn(), reload: vi.fn(), preview: vi.fn(), pending: false, previewPending: false }))

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { legacyTweenTimeScale } from "./legacy-tween-time-scale";
+
+import { useRef } from "react";
 import dynamic from "next/dynamic";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
@@ -30,36 +32,25 @@ export function HomePage({ isLoggedIn }: { isLoggedIn: boolean }) {
   const mainRef = useRef<HTMLDivElement>(null);
   const petSettings = useHomePetSettings();
 
-  useEffect(() => {
-    const prefersReducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches;
-    if (prefersReducedMotion) {
-      gsap.globalTimeline.timeScale(20);
-    }
-  }, []);
 
   useGSAP(
     () => {
-
+      const hero = mainRef.current?.querySelector<HTMLElement>(".hero-section");
+      const nav = mainRef.current?.querySelector<HTMLElement>(".marketing-nav");
+      if (!hero || !nav) return;
+      const timeScale = legacyTweenTimeScale();
+      let navTween: gsap.core.Tween | undefined;
+      const reveal = (autoAlpha: number) => {
+        navTween?.kill();
+        navTween = gsap.to(nav, { autoAlpha, duration: 0.3, ease: "power2.out" }).timeScale(timeScale);
+      };
       ScrollTrigger.create({
-        trigger: ".hero-section",
+        trigger: hero,
         start: "bottom top",
-        onEnterBack: () => {
-          gsap.to(".marketing-nav", {
-            autoAlpha: 0,
-            duration: 0.3,
-            ease: "power2.out",
-          });
-        },
-        onLeave: () => {
-          gsap.to(".marketing-nav", {
-            autoAlpha: 1,
-            duration: 0.3,
-            ease: "power2.out",
-          });
-        },
+        onEnterBack: () => reveal(0),
+        onLeave: () => reveal(1),
       });
+      return () => navTween?.kill();
     },
     { scope: mainRef }
   );

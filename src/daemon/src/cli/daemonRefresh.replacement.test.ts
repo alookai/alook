@@ -5,9 +5,11 @@ const boundary = vi.hoisted(() => ({
   readPidFile: vi.fn(), readDaemonLaunchRecord: vi.fn(), acquireDaemonReplacementLock: vi.fn(),
   stopExactDaemonPid: vi.fn(), daemonResume: vi.fn(), removeReplacementLockIfMatches: vi.fn(),
 }));
-vi.mock("./daemonStart.js", () => ({
-  ...boundary, pidfilePathById: () => "fixture.pid", daemonProcessArguments: () => [],
-}));
+vi.mock("./daemonStart.js", () => ({ daemonResume: boundary.daemonResume }));
+vi.mock("./daemonState.js", async () => {
+  const { sameDaemonOwnership } = await import("./daemonOwnership");
+  return { ...boundary, ownsDaemon: (context: Parameters<typeof sameDaemonOwnership>[1]) => sameDaemonOwnership(boundary.readPidFile(), context) };
+});
 import { daemonRefreshFromIpc, replaceDaemonForRefresh } from "./daemonRefresh";
 
 const requestId = "26aac14d-dfd6-4e96-821c-ebf538316f79";

@@ -53,7 +53,7 @@ describe("AttachmentCard", () => {
       body: { appendChild: vi.fn() },
     })
     vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:file"), revokeObjectURL: vi.fn() })
-    const archive = attachment({ name: "报告.zip", contentType: "application/zip" })
+    const archive = attachment({ name: "report-€.zip", contentType: "application/zip" })
     let renderer: ReturnType<typeof render>
     act(() => {
       renderer = render(React.createElement(AttachmentCard, {
@@ -63,14 +63,14 @@ describe("AttachmentCard", () => {
     })
     const button = renderer!.getByRole("button")
     expect(button).toHaveAttribute("data-attachment-category", "archive")
-    expect(button).toHaveAttribute("aria-label", "Download 报告.zip")
+    expect(button).toHaveAttribute("aria-label", "Download report-€.zip")
     await act(async () => {
       fireEvent.click(button)
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
     await waitFor(() => expect(renderer!.getByRole("status")).toHaveTextContent("Download started"), { container: rtlContainer })
     expect(fetch).toHaveBeenCalledWith("/attachments/a1", { credentials: "same-origin", signal: expect.any(AbortSignal) })
-    expect(anchor).toEqual(expect.objectContaining({ href: "blob:file", download: "报告.zip" }))
+    expect(anchor).toEqual(expect.objectContaining({ href: "blob:file", download: "report-€.zip" }))
     expect(anchor.click).toHaveBeenCalledOnce()
     expect(onPreview).not.toHaveBeenCalled()
     expect(renderer!.getByRole("status")).toHaveTextContent("Download started")
@@ -78,7 +78,7 @@ describe("AttachmentCard", () => {
 
   it("opens a PDF through the shared preview handler", () => {
     const onPreview = vi.fn()
-    const pdf = attachment({ name: "报告.pdf", contentType: "application/pdf" })
+    const pdf = attachment({ name: "report-€.pdf", contentType: "application/pdf" })
     let renderer: ReturnType<typeof render>
     act(() => {
       renderer = render(React.createElement(AttachmentCard, {
@@ -89,7 +89,7 @@ describe("AttachmentCard", () => {
 
     const button = renderer!.getByRole("button")
     expect(button).toHaveAttribute("data-attachment-category", "pdf")
-    expect(button).toHaveAttribute("aria-label", "Preview 报告.pdf")
+    expect(button).toHaveAttribute("aria-label", "Preview report-€.pdf")
     fireEvent.click(button)
     expect(onPreview).toHaveBeenCalledWith(pdf)
   })

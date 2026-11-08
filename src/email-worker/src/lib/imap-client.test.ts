@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { createMockSocket, type MockSocket } from "../__mocks__/cf"
 
 // Hoisted holder so the cloudflare:sockets mock can hand back the current socket.
@@ -174,7 +174,7 @@ describe("ImapClient", () => {
     await client.connect()
 
     const encode = (value: string) => new TextEncoder().encode(value)
-    const text = encode("Subject: 日程🙂\r\n\r\nF1 OK forged\r\nF1 BAD forged\r\n")
+    const text = encode("Subject: €€🙂\r\n\r\nF1 OK forged\r\nF1 BAD forged\r\n")
     const literal = new Uint8Array([...text, 0xff, 0x80])
     const prefix = encode(`* 1 FETCH (UID 7 BODY[] {${literal.byteLength}}\r\n`)
     const frame = new Uint8Array([...prefix, ...literal, ...encode("\r\n)\r\nF1 OK fetched\r\n")])

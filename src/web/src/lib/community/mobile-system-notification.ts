@@ -1,3 +1,4 @@
+import { createNotificationActivationDrain } from "./notification-activation-drain";
 import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION, isMobile, isTauri, tauriInvoke } from "@alook/shared"
 import { createStore } from "@tanstack/store"
 import { QueryClient } from "@tanstack/react-query"
@@ -346,46 +347,13 @@ export type MobileSystemNotificationActivationDeps = {
 export function createMobileSystemNotificationActivationController(
   deps: MobileSystemNotificationActivationDeps,
 ) {
-    const protocol = createStore({ disposed: false, draining: false, rerun: false });
-    async function drain() {
-        if (protocol.get().disposed)
-            return;
-        if (protocol.get().draining) {
-            protocol.setState(state => ({ ...state, rerun: true }));
-            return;
-        }
-        protocol.setState(state => ({ ...state, draining: true }));
-        try {
-            do {
-                protocol.setState(state => ({ ...state, rerun: false }));
-                let activation: MobileSystemNotificationActivation | null;
-                try {
-                    activation = await deps.take();
-                }
-                catch {
-                    continue;
-                }
-                if (!activation || protocol.get().disposed)
-                    continue;
-                const href = deps.resolveHref?.(activation) ?? mobileSystemNotificationHref(activation);
-                try {
-                    deps.queueDismiss(activation.notificationId, href);
-                }
-                catch { }
-                if (!protocol.get().disposed)
-                    deps.navigate(href);
-            } while (protocol.get().rerun && !protocol.get().disposed);
-        }
-        finally {
-            protocol.setState(state => ({ ...state, draining: false }));
-        }
-    }
-    return {
-        drain,
-        dispose() {
-            protocol.setState(state => ({ ...state, disposed: true }));
-        },
-    };
+  const activation = createNotificationActivationDrain({
+    take: () => deps.take(),
+    hrefFor: (value) => deps.resolveHref?.(value) ?? mobileSystemNotificationHref(value),
+    queueDismiss: (id, href) => deps.queueDismiss(id, href),
+    navigate: (href) => deps.navigate(href),
+  })
+  return { drain: activation.drain, dispose: activation.dispose }
 }
 
 export function mobileSystemNotificationHref(activation: MobileSystemNotificationActivation): string {

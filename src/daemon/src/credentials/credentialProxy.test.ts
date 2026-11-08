@@ -550,16 +550,16 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
   it("fires onProxyRequest ONCE on verdict.ok, with (agentId, method, pathname), before upstream is dispatched", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
-    const sightings: Array<{ agentId: string; method: string; pathname: string }> = [];
+    const sightings: Array<{ agentId: string; method: string; pathname: string; operation?: string | null }> = [];
     const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
     proxy = await startCredentialProxy(broker, {
-      onProxyRequest: (agentId, method, pathname) => sightings.push({ agentId, method, pathname }),
+      onProxyRequest: (agentId, method, pathname, _metadata, operation) => sightings.push({ agentId, method, pathname, operation }),
     });
     const reg = broker.mint("agent-1", "l", ["send"], REAL_KEY);
 
     const r = await post(proxy.url, reg.voucher, "/api/community/channels/resolve/messages");
     expect(r.status).toBe(200);
-    expect(sightings).toEqual([{ agentId: "agent-1", method: "POST", pathname: "/api/community/channels/resolve/messages" }]);
+    expect(sightings).toEqual([{ agentId: "agent-1", method: "POST", pathname: "/api/community/channels/resolve/messages", operation: "send" }]);
   });
 
   it("reports validated property metadata and omits metadata for unknown types", async () => {
@@ -570,13 +570,14 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
       method: string;
       pathname: string;
       metadata?: { propertyType: "emoji" | "tag" | "mark" };
+      operation?: string | null;
     }> = [];
     const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
     proxy = await startCredentialProxy(broker, {
-      onProxyRequest: (agentId, method, pathname, metadata) => sightings.push({
+      onProxyRequest: (agentId, method, pathname, metadata, operation) => sightings.push({
         agentId,
         method,
-        pathname,
+        pathname, operation,
         ...(metadata ? { metadata } : {}),
       }),
     });
@@ -596,10 +597,10 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     await fetch(`${proxy.url}/api/community/users/me/marks`, { method: "GET", headers });
 
     expect(sightings).toEqual([
-      { agentId: "agent-1", method: "PUT", pathname: "/api/community/messages/resolve/properties", metadata: { propertyType: "mark" } },
-      { agentId: "agent-1", method: "DELETE", pathname: "/api/community/messages/resolve/properties", metadata: { propertyType: "mark" } },
-      { agentId: "agent-1", method: "PUT", pathname: "/api/community/messages/resolve/properties" },
-      { agentId: "agent-1", method: "GET", pathname: "/api/community/users/me/marks" },
+      { agentId: "agent-1", method: "PUT", pathname: "/api/community/messages/resolve/properties", metadata: { propertyType: "mark" }, operation: "messagePropertySet" },
+      { agentId: "agent-1", method: "DELETE", pathname: "/api/community/messages/resolve/properties", metadata: { propertyType: "mark" }, operation: "messagePropertyRemove" },
+      { agentId: "agent-1", method: "PUT", pathname: "/api/community/messages/resolve/properties", operation: "messagePropertySet" },
+      { agentId: "agent-1", method: "GET", pathname: "/api/community/users/me/marks", operation: "markList" },
     ]);
   });
 
@@ -733,7 +734,7 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
   });
 
   it("onInboxPullResponse fires for the canonical fold path users/me/inbox/pull, but NOT snapshot", async () => {
-    // The inboxPull verb folds into POST users/me/inbox/pull (route/disc 轴3);
+    // The inboxPull verb folds into POST users/me/inbox/pull;
     // callInboxPull sends this full path directly (no rewrite), so the timeline
     // recorder's exact-path guard must recognize it. The snapshot door is a
     // peek (no `{ messages }`) and must NOT be treated as a pull. The flat

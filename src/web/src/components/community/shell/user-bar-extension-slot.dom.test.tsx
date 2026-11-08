@@ -253,3 +253,17 @@ describe("UserBarExtensionSlot", () => {
     focus.mockRestore()
   })
 })
+
+it("assigns distinct fallback IDs to simultaneous standalone extension cards", () => {
+  const props = { active: "profile" as const, update: null, eligibleMachines: [], onDismiss: vi.fn(), onRequestUpdate: vi.fn() }
+  const view = render(createElement("div", null,
+    createElement(UserBarExtensionSlot, { ...props, profile: createElement("button", null, "First") }),
+    createElement(UserBarExtensionSlot, { ...props, profile: createElement("button", null, "Second") }),
+  ))
+  const cards = view.getAllByTestId(tid.userBarExtension)
+  expect(cards).toHaveLength(2)
+  expect(cards[0].id).not.toBe("")
+  expect(cards[0].id).not.toBe(cards[1].id)
+  expect(document.getElementById(cards[0].id)).toBe(cards[0])
+  expect(document.getElementById(cards[1].id)).toBe(cards[1])
+})

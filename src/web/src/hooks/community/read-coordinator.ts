@@ -25,10 +25,10 @@ import type { ReadStateRow } from "@/lib/community-db/schema"
 import {
   clearAttentionScopeOptimistically,
   captureCommunityLiveSnapshotToken,
-  commitAttentionScopeOptimisticSnapshot,
+  commitAttentionOptimisticSnapshot,
   hasAttentionScopeOptimisticFence,
   publishCommunityConversationReadState,
-  restoreAttentionScopeOptimisticSnapshot,
+  restoreAttentionOptimisticSnapshot,
   type AttentionScopeOptimisticSnapshot,
 } from "@/lib/community-db/sync"
 import { reconcileAccountAttention } from "./use-account-attention"
@@ -169,7 +169,7 @@ class ReadCoordinator {
       if (previous.timer !== null) clearTimeout(previous.timer)
       if (previous.releaseTimer !== null) clearTimeout(previous.releaseTimer)
       previous.inFlight?.controller.abort()
-      if (previous.attentionOptimistic) commitAttentionScopeOptimisticSnapshot(previous.attentionOptimistic.registry, previous.attentionOptimistic.snapshot)
+      if (previous.attentionOptimistic) commitAttentionOptimisticSnapshot(previous.attentionOptimistic.registry, previous.attentionOptimistic.snapshot)
     }
     if (current?.releaseTimer !== null && current?.releaseTimer !== undefined) clearTimeout(current.releaseTimer)
     const proof = current?.proof ?? captureCommunityLiveSnapshotToken(this.queryClient, surface.channelId)
@@ -280,7 +280,7 @@ class ReadCoordinator {
       if (scope.timer !== null) clearTimeout(scope.timer)
       if (scope.releaseTimer !== null) clearTimeout(scope.releaseTimer)
       scope.inFlight?.controller.abort()
-      if (scope.attentionOptimistic) commitAttentionScopeOptimisticSnapshot(scope.attentionOptimistic.registry, scope.attentionOptimistic.snapshot)
+      if (scope.attentionOptimistic) commitAttentionOptimisticSnapshot(scope.attentionOptimistic.registry, scope.attentionOptimistic.snapshot)
     }
   }
 
@@ -491,14 +491,14 @@ class ReadCoordinator {
     const optimistic = this.scope(key)?.attentionOptimistic
     if (!optimistic) return
     this.update(key, (current) => ({ ...current, attentionOptimistic: null }))
-    await commitAttentionScopeOptimisticSnapshot(optimistic.registry, optimistic.snapshot)
+    await commitAttentionOptimisticSnapshot(optimistic.registry, optimistic.snapshot)
   }
 
   private rollbackAttentionOptimisticRead(key: string) {
     const optimistic = this.scope(key)?.attentionOptimistic
     if (!optimistic) return
     this.update(key, (current) => ({ ...current, attentionOptimistic: null }))
-    if (!restoreAttentionScopeOptimisticSnapshot(optimistic.registry, optimistic.snapshot)) {
+    if (!restoreAttentionOptimisticSnapshot(optimistic.registry, optimistic.snapshot)) {
       const registry = getCommunityDbRegistry(this.queryClient)
       if (registry === optimistic.registry) void reconcileAccountAttention(registry).catch(() => undefined)
     }

@@ -1,17 +1,14 @@
-import { loadCommunityRequest } from "@/lib/community/account-cache-lifecycle"
 import { createStore } from "@tanstack/store"
 import type {
   CommunityProfilePatch,
 } from "@/lib/community/models/people"
 import type { MessageInput } from "@/lib/community/models/message"
 import { canonicalCommunityUserImage, type CommunityResourceProfile, type FriendApprovalPayload } from "@alook/shared"
-import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import {
   type CommunityDbRegistry,
 } from "@/lib/community-db/collections"
 import { profileSchema, type ProfileRow } from "@/lib/community-db/schema"
-import { readCommunityCollectionRow, writeCommunityCollectionChanges, withCommunityCollectionWrites } from "@/lib/community-db/write"
-import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
+import { readCommunityCollectionRow, writeCommunityCollectionChanges } from "@/lib/community-db/write"
 
 
 type ProfileFieldRevisions = {
@@ -238,59 +235,4 @@ export function writeCommunityProfilePatches(
   revisionStore.setState(() => revisions)
   const rows = [...profiles.values()]
   return writeCommunityCollectionChanges(registry, "profiles", rows)
-}
-
-export async function loadAndSeedProfiles<T>(
-  load: (options: ApiRequestOptions) => Promise<T>,
-  patches: (data: T) => readonly CommunityProfilePatch[],
-  registry: CommunityDbRegistry | null,
-  signal?: AbortSignal,
-  requestToken?: ReturnType<typeof captureCommunityLiveSnapshotToken>,
-): Promise<T> {
-  if (!registry) throw new DOMException("Missing community profile owner", "AbortError")
-  const token = requestToken ?? captureCommunityLiveSnapshotToken(registry.queryClient)
-  const overlay = registry.runtime.ws.actions
-  const overlaySnapshot = overlay.beginPresenceSnapshot()
-  const profileSnapshot = token.profileSnapshot
-  if (token.registry !== registry) throw new DOMException("Mismatched community profile owner", "AbortError")
-  const data = await loadCommunityRequest(load, token, signal)
-  const projected = patches(data)
-  await writeCommunityProfilePatches(projected, profileSnapshot.registry, {
-    snapshot: profileSnapshot,
-  })
-  assertCommunityLiveSnapshotTokenCurrent(registry.queryClient, token, signal)
-  const presence = projected.flatMap((patch) => (
-    patch.presence === undefined
-      ? []
-      : [{ id: patch.id, presence: patch.presence }]
-  ))
-  if (presence.length > 0) {
-    await withCommunityCollectionWrites(registry, () => overlay.seedPresence(
-      overlaySnapshot,
-      presence.map((patch) => [patch.id, patch.presence] as const),
-    ))
-    assertCommunityLiveSnapshotTokenCurrent(registry.queryClient, token, signal)
-  }
-  return data
-}
-
-export function apiFetchProfiles<T>(
-  path: string,
-  patches: (data: T) => readonly CommunityProfilePatch[],
-  options: ApiRequestOptions | undefined,
-  registry: CommunityDbRegistry | null,
-  requestToken?: ReturnType<typeof captureCommunityLiveSnapshotToken>,
-): Promise<T> {
-  return loadAndSeedProfiles(
-    (origin) => apiFetch<T>(path, {
-      ...options,
-      ...origin,
-      signal: options?.signal,
-      assertActive: () => { origin.assertActive?.(); options?.assertActive?.() },
-    }),
-    patches,
-    registry,
-    options?.signal ?? undefined,
-    requestToken,
-  )
 }

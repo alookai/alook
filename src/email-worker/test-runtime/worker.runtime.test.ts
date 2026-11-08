@@ -47,12 +47,12 @@ const worker = (exports as unknown as {
 
 describe("email-worker workerd runtime", () => {
   it.each([
-    { name: "overlap", start: "20071104T013000", embedded: true, expected: "2007-11-04T05:30:00.000Z", before: "2007-11-04T05:29:59.999Z", status: "scheduled" },
-    { name: "gap", start: "20070311T023000", embedded: true, expected: "2007-03-11T07:30:00.000Z", before: "2007-03-11T07:29:59.999Z", status: "scheduled" },
-    { name: "exhausted ancient monthly recurrence", start: "20260610T100000", embedded: true, zoneOverride: ANCIENT_MONTHLY_ZONE, tzid: "Ancient/Monthly", expected: null, before: "2026-06-10T08:59:59.999Z", status: "pending" },
-    { name: "unresolved bare IANA", start: "20071104T013000", embedded: false, expected: null, before: "2007-11-04T05:29:59.999Z", status: "pending" },
-    { name: "unsupported finite one-day observances", start: "20260601T120000", embedded: true, zoneOverride: FINITE_ONE_DAY_ZONE, tzid: "Finite/OneDay", expected: null, before: "2026-06-01T10:59:59.999Z", status: "pending" },
-  ])("persists qualified invitation time in real D1: $name", async ({ start, embedded, zoneOverride, tzid = "America/New_York", expected, before, status }) => {
+    { name: "overlap", start: "20071104T013000", embedded: true, expected: "2007-11-04T05:30:00.000Z", status: "scheduled" },
+    { name: "gap", start: "20070311T023000", embedded: true, expected: "2007-03-11T07:30:00.000Z", status: "scheduled" },
+    { name: "exhausted ancient monthly recurrence", start: "20260610T100000", embedded: true, zoneOverride: ANCIENT_MONTHLY_ZONE, tzid: "Ancient/Monthly", expected: null, status: "pending" },
+    { name: "unresolved bare IANA", start: "20071104T013000", embedded: false, expected: null, status: "pending" },
+    { name: "unsupported finite one-day observances", start: "20260601T120000", embedded: true, zoneOverride: FINITE_ONE_DAY_ZONE, tzid: "Finite/OneDay", expected: null, status: "pending" },
+  ])("persists qualified invitation time in real D1: $name", async ({ start, embedded, zoneOverride, tzid = "America/New_York", expected, status }) => {
     const zone = ["BEGIN:VTIMEZONE", "TZID:America/New_York", "BEGIN:DAYLIGHT",
       "DTSTART:20070311T020000", "TZOFFSETFROM:-0500", "TZOFFSETTO:-0400", "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU", "END:DAYLIGHT",
       "BEGIN:STANDARD", "DTSTART:20061105T020000", "TZOFFSETFROM:-0400", "TZOFFSETTO:-0500", "RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU", "END:STANDARD", "END:VTIMEZONE"].join("\n")
@@ -65,9 +65,11 @@ describe("email-worker workerd runtime", () => {
       await runtimeEnv.DB.prepare("INSERT INTO workspace (id, name, slug, created_at, updated_at) VALUES (?, 'ICS', ?, ?, ?)")
         .bind(workspaceId, workspaceId, now, now).run()
       const db = createDb(runtimeEnv.DB)
-      const agent = await queries.agent.createAgent(db, { workspaceId, name: "ICS agent" })
+      const agentId = `agent-${crypto.randomUUID()}`
+      await runtimeEnv.DB.prepare("INSERT INTO agent (id, workspace_id, name, created_at, updated_at) VALUES (?, ?, 'ICS agent', ?, ?)")
+        .bind(agentId, workspaceId, now, now).run()
       const notification = EmailNotifyRequestSchema.parse({
-        agentId: agent.id, workspaceId, r2Key: "runtime/unsubmitted-email",
+        agentId, workspaceId, r2Key: "runtime/unsubmitted-email",
         from: "sender@example.test", subject: "Runtime invitation", isWhitelisted: true,
         meetingInfo: parseIcs(invitation),
       })
@@ -76,15 +78,14 @@ describe("email-worker workerd runtime", () => {
       if (!info) throw new Error("invitation metadata missing")
       expect(info.startTime).toBe(expected)
       const meeting = await queries.meetingSession.createMeetingSession(db, {
-        agentId: agent.id, workspaceId, meetingUrl: info.meetingUrl, title: info.title,
+        agentId, workspaceId, meetingUrl: info.meetingUrl, title: info.title,
         status, scheduledAt: info.startTime, isWhitelisted: true,
       })
       expect(meeting.status).toBe(status)
       expect(meeting.scheduledAt).toBe(expected)
-      expect((await queries.meetingSession.getMeetingSession(db, meeting.id, workspaceId))?.scheduledAt).toBe(expected)
-      expect(await queries.meetingSession.listScheduledMeetings(db, workspaceId, before)).toEqual([])
-      expect((await queries.meetingSession.listScheduledMeetings(db, workspaceId, expected ?? now)).map(row => row.id))
-        .toEqual(expected === null ? [] : [meeting.id])
+      const stored = await runtimeEnv.DB.prepare("SELECT scheduled_at AS scheduledAt, status FROM meeting_session WHERE id = ? AND workspace_id = ?")
+        .bind(meeting.id, workspaceId).first<{ scheduledAt: string | null; status: string }>()
+      expect(stored).toEqual({ scheduledAt: expected, status })
     } finally {
       await runtimeEnv.DB.prepare("DELETE FROM workspace WHERE id = ?").bind(workspaceId).run()
     }

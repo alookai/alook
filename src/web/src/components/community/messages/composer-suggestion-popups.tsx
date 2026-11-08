@@ -1,3 +1,4 @@
+import { observeVisibilitySentinel } from "@/lib/observe-visibility-sentinel"
 import { Button } from "@/components/ui/button"
 import { useEffect, useRef } from "react"
 import { createPortal } from "react-dom"
@@ -64,12 +65,7 @@ export function CommunityMentionList({
     if (!geometry || !command || !root || !sentinel || !pagination?.hasMore
       || pagination.loading || pagination.loadingMore || pagination.failed
       || presentation.status === "loading" || !pagination.loadMore) return
-    let active = true
-    const observer = new IntersectionObserver((entries) => {
-      if (active && entries.some(entry => entry.isIntersecting)) pagination.loadMore?.()
-    }, { root, rootMargin: "100px" })
-    observer.observe(sentinel)
-    return () => { active = false; observer.disconnect() }
+    return observeVisibilitySentinel(root, sentinel, () => pagination.loadMore?.())
   }, [geometry, command, pagination, presentation.status])
   if (!geometry || !command) return null
 

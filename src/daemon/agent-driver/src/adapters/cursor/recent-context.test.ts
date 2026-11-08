@@ -80,7 +80,7 @@ describe("Cursor recent-context discovery", () => {
   });
 
   it("preserves a UTF-8 project path split across stdout chunks", async () => {
-    const unicodeProjectPath = projectPath("中文-🚀");
+    const unicodeProjectPath = projectPath("€€-🚀");
     const rpc = fakeRpcProcess((request, respond) => {
       if (request.method === "initialize") {
         return respond({
@@ -92,7 +92,7 @@ describe("Cursor recent-context discovery", () => {
       if (request.method === "authenticate") return respond({});
       return respond({ sessions: [{ cwd: unicodeProjectPath, updatedAt: "2026-01-01T00:00:00Z" }] });
     }, (stdout, payload) => {
-      const marker = Buffer.from("中");
+      const marker = Buffer.from("€");
       const markerAt = payload.indexOf(marker);
       if (markerAt < 0) {
         stdout.write(payload);

@@ -26,7 +26,7 @@ export default function ContactPage() {
     <div className={`landing ${landing.page} ${styles.page}`}>
       <PublicSiteHeader currentPath="/contact" />
       <main className={styles.main}>
-        <section className={`${landing.closingCta} ${styles.sheet}`} aria-labelledby="contact-heading">
+        <section data-slot="landing-closing" className={`${landing.closingCta} ${styles.sheet}`} aria-labelledby="contact-heading">
           <p className={styles.kicker}>Contact</p>
           <h1 id="contact-heading">Let’s <HandAccent>talk.</HandAccent></h1>
           <div className={styles.groups}>

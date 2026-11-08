@@ -11,7 +11,7 @@ export function generateWorkspaceSlug(): string {
  * kebab-case, lowercase, runs of anything outside `[a-z0-9]` collapse to a
  * single `-`, no leading/trailing `-`, capped at 60 chars (with the trailing
  * `-` a mid-run truncation may leave stripped again). Input that has no
- * `[a-z0-9]` characters (e.g. `"总部"`, `"!!!"`, `""`) returns `""` — callers
+ * `[a-z0-9]` characters returns `""` — callers
  * must treat empty as "generate a fallback" (create) or "reject" (update).
  */
 export function sanitizeSlug(input: string): string {

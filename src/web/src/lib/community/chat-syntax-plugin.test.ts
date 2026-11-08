@@ -61,16 +61,16 @@ describe("chatSyntaxPlugin — mention", () => {
     }
   })
   it("keeps a bare at-sign in prose from swallowing a following channel ref", () => {
-    const children = paragraphChildren(parse("DM回复取消自动@已交 /Alook#5620/fix/#213"))
+    const children = paragraphChildren(parse("DM reply disabled auto@delivered /Alook#5620/fix/#213"))
     expect(children.some((child) => child.type === "mention")).toBe(false)
     expect(children.find((child) => child.type === "channelRef")).toMatchObject({ value: "/Alook#5620/fix/#213" })
   })
 
-  it.each(["mail", "回复", "é", "𠮷", "_", "-", "9"])("rejects an identifier prefix before a tagged mention: %s", (prefix) => {
+  it.each(["mail", "reply", "é", "𠮷", "_", "-", "9"])("rejects an identifier prefix before a tagged mention: %s", (prefix) => {
     expect(paragraphChildren(parse(`${prefix}@Alice#0001`)).some((child) => child.type === "mention")).toBe(false)
   })
 
-  it.each(["John Doe", "李雷", "𠮷🎉", "*[Alice](https://example.com)*"])("retains a legal name after a boundary: %s", (name) => {
+  it.each(["John Doe", "界", "𠮷🎉", "*[Alice](https://example.com)*"])("retains a legal name after a boundary: %s", (name) => {
     expect(paragraphChildren(parse(`（@${name}#0042）`)).find((child) => child.type === "mention"))
       .toMatchObject({ value: `@${name}`, discriminator: "0042" })
   })
@@ -176,14 +176,14 @@ describe("chatSyntaxPlugin — mention", () => {
     expect(children.some((c) => c.type === "mention")).toBe(false)
   })
 
-  it("supports Unicode names in a handle (李四, José, Ünal) — the #4 charset fix", () => {
-    expect(paragraphChildren(parse("hi @李四#0001"))[1]).toMatchObject({ value: "@李四", discriminator: "0001" })
+  it("supports CJK and accented Unicode handle names", () => {
+    expect(paragraphChildren(parse("hi @界#0001"))[1]).toMatchObject({ value: "@界", discriminator: "0001" })
     expect(paragraphChildren(parse("hi @José#0002"))[1]).toMatchObject({ value: "@José", discriminator: "0002" })
     expect(paragraphChildren(parse("hi @Ünal#0003"))[1]).toMatchObject({ value: "@Ünal", discriminator: "0003" })
   })
 
   it("a bare unicode @name (no tag) is NOT a mention", () => {
-    expect(paragraphChildren(parse("hi @李四")).some((c) => c.type === "mention")).toBe(false)
+    expect(paragraphChildren(parse("hi @界")).some((c) => c.type === "mention")).toBe(false)
   })
 
   it("leaves an @handle inside inline code literal", () => {
@@ -297,25 +297,25 @@ describe("chatSyntaxPlugin — channelRef", () => {
     expect(ascii[1]).toMatchObject({ value: "/studio#0042/general#42" })
     expect(ascii[2]).toMatchObject({ type: "text", value: ")" })
 
-    const cjk = paragraphChildren(parse("（/Gus#5994/架构/#722#17)"))
+    const cjk = paragraphChildren(parse("（/Gus#5994/界/#722#17)"))
     expect(cjk.map((child) => child.type)).toEqual(["text", "channelRef", "text"])
     expect(cjk[0]).toMatchObject({ type: "text", value: "（" })
-    expect(cjk[1]).toMatchObject({ value: "/Gus#5994/架构/#722#17" })
+    expect(cjk[1]).toMatchObject({ value: "/Gus#5994/界/#722#17" })
     expect(cjk[2]).toMatchObject({ type: "text", value: ")" })
   })
 
   it("wraps each ref when adjacent refs are separated only by punctuation", () => {
-    const children = paragraphChildren(parse("see(/studio#0042/general#42)、（/Gus#5994/架构/#722#17)"))
+    const children = paragraphChildren(parse("see(/studio#0042/general#42)、（/Gus#5994/界/#722#17)"))
     const refs = children.filter((child) => child.type === "channelRef")
     expect(refs).toHaveLength(2)
     expect(refs[0]).toMatchObject({ value: "/studio#0042/general#42" })
-    expect(refs[1]).toMatchObject({ value: "/Gus#5994/架构/#722#17" })
+    expect(refs[1]).toMatchObject({ value: "/Gus#5994/界/#722#17" })
   })
 
   it("keeps a full-width comma after a thread-message ref outside the pill", () => {
-    const children = paragraphChildren(parse("详情和 Cecilia 建议在 /Gus#5994/架构/#722#114，"))
+    const children = paragraphChildren(parse("See Cecilia at /Gus#5994/界/#722#114，"))
     expect(children.map((child) => child.type)).toEqual(["text", "channelRef", "text"])
-    expect(children[1]).toMatchObject({ value: "/Gus#5994/架构/#722#114" })
+    expect(children[1]).toMatchObject({ value: "/Gus#5994/界/#722#114" })
     expect(children[2]).toMatchObject({ type: "text", value: "，" })
   })
 
@@ -327,9 +327,9 @@ describe("chatSyntaxPlugin — channelRef", () => {
     ]
 
     for (const terminator of terminators) {
-      const children = paragraphChildren(parse(`/Gus#5994/架构/#722#114${terminator}`))
+      const children = paragraphChildren(parse(`/Gus#5994/界/#722#114${terminator}`))
       expect(children.map((child) => child.type), terminator).toEqual(["channelRef", "text"])
-      expect(children[0], terminator).toMatchObject({ value: "/Gus#5994/架构/#722#114" })
+      expect(children[0], terminator).toMatchObject({ value: "/Gus#5994/界/#722#114" })
       expect(children[1], terminator).toMatchObject({ type: "text", value: terminator })
     }
   })
@@ -344,7 +344,7 @@ describe("chatSyntaxPlugin — channelRef", () => {
 
   it("recognizes both refs when common punctuation is their only separator", () => {
     for (const separator of [",", "，", "。", "）", "”"]) {
-      const children = paragraphChildren(parse(`/studio#0042/general#42${separator}/Gus#5994/架构/#722#17`))
+      const children = paragraphChildren(parse(`/studio#0042/general#42${separator}/Gus#5994/界/#722#17`))
       expect(children.filter((child) => child.type === "channelRef"), separator).toHaveLength(2)
     }
   })
@@ -364,49 +364,45 @@ describe("chatSyntaxPlugin — channelRef", () => {
   })
 
   it("wraps a ref with a Chinese channel name — slugify preserves CJK, the charset must match it", () => {
-    // The bug Shelly reported (#194): names are slugified display names, not
+    // The ref grammar requires: names are slugified display names, not
     // nanoid ids; slugify keeps CJK/emoji, so an ASCII-only charset dropped the pill.
-    expect(paragraphChildren(parse("see /Gus#0042/架构"))[1]).toMatchObject({ type: "channelRef", value: "/Gus#0042/架构" })
-    expect(paragraphChildren(parse("/Gus#0042/架构"))[0]).toMatchObject({ type: "channelRef", value: "/Gus#0042/架构" })
+    expect(paragraphChildren(parse("see /Gus#0042/界"))[1]).toMatchObject({ type: "channelRef", value: "/Gus#0042/界" })
+    expect(paragraphChildren(parse("/Gus#0042/界"))[0]).toMatchObject({ type: "channelRef", value: "/Gus#0042/界" })
   })
 
-  it("wraps a ref with emoji in the server segment (slugify keeps emoji, e.g. \"总部 🎉\" → \"总部-🎉\")", () => {
-    const children = paragraphChildren(parse("go /总部-🎉#0042/general now"))
-    expect(children.find((c) => c.type === "channelRef")).toMatchObject({ value: "/总部-🎉#0042/general" })
+  it("wraps a ref with an emoji in its Unicode server name", () => {
+    const children = paragraphChildren(parse("go /界-🎉#0042/general now"))
+    expect(children.find((c) => c.type === "channelRef")).toMatchObject({ value: "/界-🎉#0042/general" })
   })
 
   it("wraps a ref with accented-Latin name (café)", () => {
     expect(paragraphChildren(parse("see /studio#0042/café done"))[1]).toMatchObject({ type: "channelRef", value: "/studio#0042/café" })
   })
 
-  it("wraps the thread form on a Unicode name — /Gus#0042/架构/#42", () => {
-    expect(paragraphChildren(parse("see /Gus#0042/架构/#42"))[1]).toMatchObject({ type: "channelRef", value: "/Gus#0042/架构/#42" })
+  it("wraps a thread ref with a Unicode channel name", () => {
+    expect(paragraphChildren(parse("see /Gus#0042/界/#42"))[1]).toMatchObject({ type: "channelRef", value: "/Gus#0042/界/#42" })
   })
 
   it("still terminates a Unicode ref at a trailing ASCII period — the period is not swallowed", () => {
     // Regression guard for the Unicode charset: the segment class must stay
     // disjoint from the terminator punctuation, else a greedy match eats the `.`.
-    const children = paragraphChildren(parse("see /Gus#0042/架构."))
+    const children = paragraphChildren(parse("see /Gus#0042/界."))
     expect(children.map((c) => c.type)).toEqual(["text", "channelRef", "text"])
-    expect(children[1]).toMatchObject({ value: "/Gus#0042/架构" })
+    expect(children[1]).toMatchObject({ value: "/Gus#0042/界" })
     expect(children[2]).toMatchObject({ type: "text", value: "." })
   })
 
   it("terminates a Unicode ref at a trailing FULL-WIDTH period 。 — the most common CJK sentence ender", () => {
-    // Blair's QA flag: a Chinese sentence ends in 。, so the ref-in-a-sentence
-    // shape `看 /Gus#0042/架构。` is extremely common. The full-width 。 must be a
-    // terminator (in BOTH the segment-exclusion and the lookahead — the segment
-    // is greedy, so lookahead-only would let it swallow the 。), else the pill
-    // target becomes "架构。" and click/highlight mis-targets the real channel.
-    const children = paragraphChildren(parse("看 /Gus#0042/架构。"))
+    // Full-width sentence punctuation must stay outside the channel target.
+    const children = paragraphChildren(parse("See /Gus#0042/界。"))
     expect(children.map((c) => c.type)).toEqual(["text", "channelRef", "text"])
-    expect(children[1]).toMatchObject({ value: "/Gus#0042/架构" })
+    expect(children[1]).toMatchObject({ value: "/Gus#0042/界" })
     expect(children[2]).toMatchObject({ type: "text", value: "。" })
   })
 
   it("terminates at other full-width CJK terminators (！？ etc.)", () => {
-    expect(paragraphChildren(parse("用 /Gus#0042/架构！"))[1]).toMatchObject({ value: "/Gus#0042/架构" })
-    expect(paragraphChildren(parse("是 /Gus#0042/架构？好"))[1]).toMatchObject({ value: "/Gus#0042/架构" })
+    expect(paragraphChildren(parse("Use /Gus#0042/界！"))[1]).toMatchObject({ value: "/Gus#0042/界" })
+    expect(paragraphChildren(parse("Is /Gus#0042/界？OK"))[1]).toMatchObject({ value: "/Gus#0042/界" })
   })
 })
 
@@ -446,18 +442,18 @@ describe("chatSyntaxPlugin — serverRef", () => {
   })
 
   it("wraps a bare Unicode /server ref (Chinese, emoji)", () => {
-    expect(paragraphChildren(parse("check /架构#0042"))[1]).toMatchObject({ type: "serverRef", value: "/架构#0042" })
-    expect(paragraphChildren(parse("check /总部-🎉#0042 here"))[1]).toMatchObject({ type: "serverRef", value: "/总部-🎉#0042" })
+    expect(paragraphChildren(parse("check /界#0042"))[1]).toMatchObject({ type: "serverRef", value: "/界#0042" })
+    expect(paragraphChildren(parse("check /界-🎉#0042 here"))[1]).toMatchObject({ type: "serverRef", value: "/界-🎉#0042" })
   })
 
   it("terminates a Unicode /server ref at trailing punctuation (ASCII + full-width)", () => {
-    const ascii = paragraphChildren(parse("check /架构#0042."))
+    const ascii = paragraphChildren(parse("check /界#0042."))
     expect(ascii.map((c) => c.type)).toEqual(["text", "serverRef", "text"])
-    expect(ascii[1]).toMatchObject({ value: "/架构#0042" })
+    expect(ascii[1]).toMatchObject({ value: "/界#0042" })
 
-    const cjk = paragraphChildren(parse("去 /架构#0042。"))
+    const cjk = paragraphChildren(parse("Go /界#0042。"))
     expect(cjk.map((c) => c.type)).toEqual(["text", "serverRef", "text"])
-    expect(cjk[1]).toMatchObject({ value: "/架构#0042" })
+    expect(cjk[1]).toMatchObject({ value: "/界#0042" })
     expect(cjk[2]).toMatchObject({ type: "text", value: "。" })
   })
 })

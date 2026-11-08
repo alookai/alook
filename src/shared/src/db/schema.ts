@@ -92,17 +92,8 @@ export const verification = sqliteTable("verification", {
   updatedAt: text("updatedAt").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
-export const NATIVE_OAUTH_PROVIDERS = ["github", "google", "apple"] as const;
-export type NativeOauthProvider = (typeof NATIVE_OAUTH_PROVIDERS)[number];
-
-export const NATIVE_OAUTH_PLATFORMS = [
-  "macos",
-  "windows",
-  "linux",
-  "ios",
-  "android",
-] as const;
-export type NativeOauthPlatform = (typeof NATIVE_OAUTH_PLATFORMS)[number];
+export type { NativeOauthProvider, NativeOauthPlatform, NativeOauthFailureCode } from "../lib/native-oauth-contract";
+import type { NativeOauthProvider, NativeOauthPlatform, NativeOauthFailureCode } from "../lib/native-oauth-contract";
 
 export const NATIVE_OAUTH_STATUSES = [
   "pending",
@@ -115,16 +106,6 @@ export const NATIVE_OAUTH_STATUSES = [
   "replaced",
 ] as const;
 export type NativeOauthStatus = (typeof NATIVE_OAUTH_STATUSES)[number];
-
-export const NATIVE_OAUTH_FAILURE_CODES = [
-  "access_denied",
-  "provider_error",
-  "oauth_callback_failed",
-  "start_failed",
-  "invalid_handoff",
-] as const;
-export type NativeOauthFailureCode =
-  (typeof NATIVE_OAUTH_FAILURE_CODES)[number];
 
 export const nativeOauthAttempt = sqliteTable(
   "native_oauth_attempt",

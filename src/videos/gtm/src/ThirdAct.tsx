@@ -1,9 +1,10 @@
 import {inviteRowMotion} from './invite-motion';
+import { socialEntryMessageAnchor } from './social-entry-anchor';
 import React from 'react';
 import { invitationLines } from './meeting-story';
 import { IdentityBadge } from './IdentityBadge';
 import { interpolate, Easing } from 'remotion';
-import { Product, type ChatLine, GeneratedAvatar, seed, avatarSource, ProviderLogo } from './Product';
+import { Product, type ChatLine, GeneratedAvatar, seed, avatarSource } from './Product'
 import { InviteFriendRow } from '@/components/community/social/invite-dialog';
 import { CommunityPreviewProfileOwner } from '@/stores/community/profile-preview';
 import { Input } from '@/components/ui/input';
@@ -57,7 +58,7 @@ export function ThirdAct({t,endingEntry}:{t:number;endingEntry?:number}){
   text+='@'+s.name+s.tail.slice(0,Math.max(1,Math.floor(linear(t,s.start+.8,s.end)*s.tail.length)));
  }
  return <div className="act2-product" style={{left:90,top:42,transform:"scale(0.96)"}}>
-  <Product realtimeMotion={endingEntry!==undefined} t={endingEntry===undefined?t:83.9666666667+Math.min(endingEntry,3.5)} lines={endingEntry===undefined?collaborationLines:[...collaborationLines,{at:85.7666666667,name:"Lin",text:"Alook is sooo good.",clock:"2026-09-15T06:38:00Z"}]} composerText={endingEntry!==undefined&&endingEntry<1.8?"Alook is sooo good.".slice(0,Math.floor(linear(endingEntry,.4,1.6)*18)):t>=62.5&&t<72?text:undefined}/>
+  <Product realtimeMotion={endingEntry!==undefined} t={endingEntry===undefined?t:83.9666666667+Math.min(endingEntry,3.5)} lines={endingEntry===undefined?collaborationLines:[...collaborationLines,{at:85.7666666667,anchor:socialEntryMessageAnchor,name:"Lin",text:"Alook is sooo good.",clock:"2026-09-15T06:38:00Z"}]} composerText={endingEntry!==undefined&&endingEntry<1.8?"Alook is sooo good.".slice(0,Math.floor(linear(endingEntry,.4,1.6)*18)):t>=62.5&&t<72?text:undefined}/>
   {t>=51&&t<62&&<MultiInvite t={t}/>}
  </div>;
 }

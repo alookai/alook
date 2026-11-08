@@ -14,20 +14,20 @@ let mockNetworkLogged = false;
 const accountDeletionAuthTransitions = createStore(new Map<string, symbol>());
 type AccountDeletionAuthTransition = { key: string; id: symbol };
 
-export function beginAccountDeletionAuthTransition(accountId?: string | null): AccountDeletionAuthTransition {
-  const lease = { key: accountId ?? "legacy", id: Symbol() };
+export function beginAccountDeletionAuthTransition(accountId: string): AccountDeletionAuthTransition {
+  if (!accountId) throw new DOMException("Missing deletion account", "AbortError");
+  const lease = { key: accountId, id: Symbol() };
   accountDeletionAuthTransitions.setState((state) => new Map(state).set(lease.key, lease.id));
   return lease;
 }
-export function cancelAccountDeletionAuthTransition(lease?: AccountDeletionAuthTransition) {
-  const key = lease?.key ?? "legacy";
+export function cancelAccountDeletionAuthTransition(lease: AccountDeletionAuthTransition) {
   accountDeletionAuthTransitions.setState((state) => {
-    if (lease && state.get(key) !== lease.id) return state;
-    const next = new Map(state); next.delete(key); return next;
+    if (state.get(lease.key) !== lease.id) return state;
+    const next = new Map(state); next.delete(lease.key); return next;
   });
 }
 export function hasAccountDeletionAuthTransition(accountId?: string | null) {
-  return accountDeletionAuthTransitions.get().has(accountId ?? "legacy");
+  return Boolean(accountId && accountDeletionAuthTransitions.get().has(accountId));
 }
 
 function humanizeValidationDetail(detail: string): string {
@@ -260,15 +260,4 @@ export function toastApiError(err: unknown, fallback: string, assertActive?: () 
       toast.error(getErrorMessage(err, fallback));
     })
     .catch(() => {});
-}
-
-export async function readUploadError(res: Response, fallback: string): Promise<ApiError> {
-  let serverError: string | undefined;
-  try {
-    const body = (await res.json()) as { error?: string };
-    serverError = body.error;
-  } catch {
-    // non-JSON body
-  }
-  return new ApiError(serverError || fallback, res.status);
 }

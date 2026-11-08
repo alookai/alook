@@ -1,3 +1,4 @@
+import timeline from "./current-timeline.json";
 import React from "react";
 import { FirstActPreview } from "./FirstActPreview";
 import { OpeningQuestion } from "./OpeningQuestion";
@@ -12,9 +13,9 @@ const CompleteFilm=()=> <><Sequence durationInFrames={filmDuration*30}><Film/></
 export const Root = () => (
  <>
   <Composition id="AlookCleanReview" component={CleanReview} width={1920} height={1080} fps={30} durationInFrames={cleanReviewFrames}/>
-  <Composition id="AlookFirstActPointEight" component={()=> <FirstActPreview lineInterval={.8}/>} width={1920} height={1080} fps={30} durationInFrames={510}/>
+  <Composition id="AlookFirstActPointEight" component={()=> <FirstActPreview lineInterval={.8}/>} width={1920} height={1080} fps={30} durationInFrames={timeline.firstActFrames}/>
  <Composition id="AlookFirstActOneSecond" component={()=> <FirstActPreview lineInterval={1}/>} width={1920} height={1080} fps={30} durationInFrames={522}/>
- <Composition id="AlookFirstActPreview" component={FirstActPreview} width={1920} height={1080} fps={30} durationInFrames={510}/>
+ <Composition id="AlookFirstActPreview" component={FirstActPreview} width={1920} height={1080} fps={30} durationInFrames={timeline.firstActFrames}/>
   <Composition id="AlookOpeningQuestion" component={OpeningQuestion} width={1920} height={1080} fps={30} durationInFrames={120}/>
   <Composition id="AlookLaunchReview" component={LaunchReview} width={1920} height={1080} fps={30} durationInFrames={Math.round(launchDuration*30)}/>
   <Composition

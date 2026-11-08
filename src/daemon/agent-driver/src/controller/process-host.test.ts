@@ -207,7 +207,7 @@ describe("ProcessLane streamed lines", () => {
     const { driver, stdout } = controllableDriver(normalizeLine);
     const session = new ProcessLane(driver, minimalCtx());
     await session.start({ text: "go" });
-    const line = '{"text":"恢复会话🌙"}';
+    const line = '{"text":"€€€€🌙"}';
     for (const byte of Buffer.from(`${line}\n`)) stdout.write(Buffer.from([byte]));
     expect(normalizeLine).toHaveBeenCalledExactlyOnceWith(line);
   });

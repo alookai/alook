@@ -1,11 +1,11 @@
 import resolvedRawInput0 from "./use-composer-controller.ts?raw"
-import { readFileSync } from "node:fs"
+
 import { resolve } from "node:path"
 import { forwardRef, createElement, createRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, waitFor } from "@/test/react-dom-harness"
-import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
+import { ConversationActivityContext } from "@/contexts/view-activity"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
@@ -18,7 +18,6 @@ const mocks = vi.hoisted(() => ({
   writeDraft: vi.fn(),
   detectMentionType: vi.fn(),
   addPendingFiles: vi.fn(),
-  restorePendingFiles: vi.fn(),
   appendAttachmentSession: vi.fn(),
   clearAttachmentSession: vi.fn(),
   readAttachmentSession: vi.fn(),
@@ -185,7 +184,7 @@ describe("useComposerController", () => {
   let chainFocus: ReturnType<typeof vi.fn>
   let insertContent: ReturnType<typeof vi.fn>
   let run: ReturnType<typeof vi.fn>
-  let setPendingFiles: ReturnType<typeof vi.fn>
+  let clearPendingFiles: ReturnType<typeof vi.fn>
   let transferPendingFiles: ReturnType<typeof vi.fn>
   let awaitPendingFiles: ReturnType<typeof vi.fn>
   let resetPopups: ReturnType<typeof vi.fn>
@@ -206,7 +205,7 @@ describe("useComposerController", () => {
     run = vi.fn()
     insertContent = vi.fn(() => ({ run }))
     chainFocus = vi.fn(() => ({ insertContent }))
-    setPendingFiles = vi.fn()
+    clearPendingFiles = vi.fn()
     transferPendingFiles = vi.fn()
     awaitPendingFiles = vi.fn(async () => pendingFiles)
     resetPopups = vi.fn()
@@ -258,9 +257,8 @@ describe("useComposerController", () => {
     mocks.useFileAttachments.mockImplementation(() => ({
       pendingFiles,
       readPendingFiles: () => pendingFiles,
-      setPendingFiles,
+      clearPendingFiles,
       transferPendingFiles,
-      restorePendingFiles: mocks.restorePendingFiles,
       awaitPendingFiles,
       addPendingFiles: mocks.addPendingFiles,
       fileInputRef: { current: { click: filePickerClick } },
@@ -288,7 +286,6 @@ describe("useComposerController", () => {
     mocks.readDraft.mockReturnValue(null)
     mocks.readAttachmentSession.mockReturnValue([])
     mocks.appendAttachmentSession.mockReturnValue({ accepted: true, evictedScopes: 0 })
-    mocks.restorePendingFiles.mockResolvedValue(undefined)
     mocks.hoverCapable = true
   })
 
@@ -329,12 +326,7 @@ describe("useComposerController", () => {
   it("enables the Community thumbnail policy at the composer boundary", async () => {
     render(createElement(Harness, acceptedProps(vi.fn(() => true))))
 
-    expect(mocks.useFileAttachments).toHaveBeenCalledWith(expect.objectContaining({
-      maxFileSize: 25 * 1024 * 1024,
-      maxFiles: 10,
-      thumbnailPolicy: "community",
-      draftSessionScope: "viewer:server/channel",
-    }))
+    expect(mocks.useFileAttachments).toHaveBeenCalledWith("viewer:server/channel")
   })
 
   it.each(["before-send", "during-send"])("keeps selected files and text unsent when preparation fails %s", async (timing) => {
@@ -464,7 +456,7 @@ describe("useComposerController", () => {
       await deferred
     })
     expect(clearContent).not.toHaveBeenCalled()
-    expect(setPendingFiles).not.toHaveBeenCalled()
+    expect(clearPendingFiles).not.toHaveBeenCalled()
     expect(transferPendingFiles).not.toHaveBeenCalled()
     expect(resetPopups).not.toHaveBeenCalled()
 
@@ -591,7 +583,7 @@ describe("useComposerController", () => {
     expect(handleRef.current?.isEmpty()).toBe(false)
     const transfersBeforeReset = transferPendingFiles.mock.calls.length
     handleRef.current?.resetAfterSubmit()
-    expect(setPendingFiles).toHaveBeenCalledWith([])
+    expect(clearPendingFiles).toHaveBeenCalledWith()
     expect(resetPopups).toHaveBeenCalled()
     expect(transferPendingFiles).toHaveBeenCalledTimes(transfersBeforeReset)
 
@@ -611,9 +603,7 @@ describe("useComposerController", () => {
   it("passes the canonical channel and DM draft scopes into the attachment hook", async () => {
     const accept = vi.fn(() => true)
     const renderer = render(createElement(Harness, acceptedProps(accept)))
-    expect(mocks.useFileAttachments).toHaveBeenLastCalledWith(expect.objectContaining({
-      draftSessionScope: "viewer:server/channel",
-    }))
+    expect(mocks.useFileAttachments).toHaveBeenLastCalledWith("viewer:server/channel")
 
     renderer.rerender(createElement(Harness, {
       ...acceptedProps(accept),
@@ -621,9 +611,7 @@ describe("useComposerController", () => {
       context: "dm",
       draftKey: "dm/person",
     }))
-    expect(mocks.useFileAttachments).toHaveBeenLastCalledWith(expect.objectContaining({
-      draftSessionScope: "viewer:dm/person",
-    }))
+    expect(mocks.useFileAttachments).toHaveBeenLastCalledWith("viewer:dm/person")
   })
 
   it("skips long-paste names already used by pending files", async () => {

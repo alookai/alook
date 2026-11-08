@@ -6,23 +6,26 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const BASE64URL_32_BYTES = /^[A-Za-z0-9_-]{43}$/;
 const HANDOFF_CODE = /^[A-Za-z0-9_-]{32,128}$/;
 
-export const nativeOauthProviderSchema = z.enum(["github", "google", "apple"]);
-export const nativeOauthPlatformSchema = z.enum([
+export const NATIVE_OAUTH_PROVIDERS = ["github", "google", "apple"] as const;
+export const nativeOauthProviderSchema = z.enum(NATIVE_OAUTH_PROVIDERS);
+export const NATIVE_OAUTH_PLATFORMS = [
   "macos",
   "windows",
   "linux",
   "ios",
   "android",
-]);
+] as const;
+export const nativeOauthPlatformSchema = z.enum(NATIVE_OAUTH_PLATFORMS);
 export const nativeOauthAttemptIdSchema = z.string().regex(ATTEMPT_ID);
 export const nativeOauthHandoffCodeSchema = z.string().regex(HANDOFF_CODE);
-export const nativeOauthFailureCodeSchema = z.enum([
+export const NATIVE_OAUTH_FAILURE_CODES = [
   "access_denied",
   "provider_error",
   "oauth_callback_failed",
   "start_failed",
   "invalid_handoff",
-]);
+] as const;
+export const nativeOauthFailureCodeSchema = z.enum(NATIVE_OAUTH_FAILURE_CODES);
 
 export type NativeOauthProvider = z.infer<typeof nativeOauthProviderSchema>;
 export type NativeOauthPlatform = z.infer<typeof nativeOauthPlatformSchema>;

@@ -48,7 +48,6 @@ type Options = {
   navigationPending: boolean
   pendingHref: string | null
   viewerId: string
-  accessEpoch: number
 }
 
 export function useShellInboxController({
@@ -110,7 +109,6 @@ export function useShellInboxController({
     rows: attention.friendRequests,
     onAccept: acceptRequest,
     onReject: rejectRequest,
-    surface: "inbox",
   })
 
   const pushProjected = useCallback((

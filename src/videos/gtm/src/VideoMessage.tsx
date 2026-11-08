@@ -10,8 +10,8 @@ export function VideoMessage({ m, memory, memoryAge }: { m: RenderMsg; memory?: 
   const root = useRef<HTMLDivElement>(null);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   useLayoutEffect(() => {
-    const header = root.current?.querySelector(".items-baseline");
-    const name = header?.querySelector("button");
+    const header = root.current?.querySelector("[data-message-author-line]");
+    const name = header?.firstElementChild;
     if (!name) return;
     const mount = document.createElement("span");
     mount.style.cssText = "display:inline-flex;align-self:center;flex-shrink:0";

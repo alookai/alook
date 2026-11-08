@@ -421,7 +421,7 @@ describe("spawnAgentProcess", () => {
     try {
       const replacement: NodeJS.ProcessEnv = {
         FOO: "bar",
-        ALOOK_PROCESS_CALLER_FIXTURE: "调用😀",
+        ALOOK_PROCESS_CALLER_FIXTURE: "€€😀",
         ALOOK_PROCESS_PARENT_FIXTURE: undefined,
         ALOOK_PROCESS_EMPTY_FIXTURE: "",
         alook_windows_job_runner: "ignored-caller-owner",
@@ -619,8 +619,8 @@ describe("spawnAgentProcess", () => {
         throw new Error("Isolated target environment contract failed");
       }
       const { writeSync } = require("node:fs");
-      writeSync(1, Buffer.from("你好😀"));
-      writeSync(2, Buffer.from("日志😀"));
+      writeSync(1, Buffer.from("€€😀"));
+      writeSync(2, Buffer.from("₿₩😀"));
     `], { cwd, env: { PATH: cwd }, stdin: "ignore", traceDirectory }), { cwd, traceDirectory, report });
       } finally {
         if (before === undefined) delete process.env.ALOOK_PROCESS_PARENT_FIXTURE;
@@ -647,8 +647,8 @@ describe("spawnAgentProcess", () => {
         else reject(new Error(`Isolated process exited: code=${code}, signal=${signal}, stderr=${Buffer.concat(stderr).toString("utf8")}`));
       });
     });
-    expect(Buffer.concat(stdout).toString("utf8")).toBe("你好😀");
-    expect(Buffer.concat(stderr).toString("utf8")).toBe("日志😀");
+    expect(Buffer.concat(stdout).toString("utf8")).toBe("€€😀");
+    expect(Buffer.concat(stderr).toString("utf8")).toBe("₿₩😀");
     report("assertions-passed");
   });
 
@@ -661,9 +661,9 @@ describe("spawnAgentProcess", () => {
     const runtimeModule = join(base, "runtime.mjs");
     const command = join(base, "runtime.cmd");
     const largeEnvironment = {
-      ALOOK_JOB_LARGE_A: "甲😀".repeat(4096),
-      ALOOK_JOB_LARGE_B: "乙😃".repeat(4096),
-      ALOOK_JOB_LARGE_C: "丙😄".repeat(4096),
+      ALOOK_JOB_LARGE_A: "€😀".repeat(4096),
+      ALOOK_JOB_LARGE_B: "₿😃".repeat(4096),
+      ALOOK_JOB_LARGE_C: "₩😄".repeat(4096),
     };
     const largeEnvironmentDigest = createHash("sha256").update(JSON.stringify(Object.values(largeEnvironment))).digest("hex");
     const shellValue = "caller-env-is-not-the-dispatcher";

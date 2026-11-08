@@ -35,7 +35,7 @@ describe("common member relations", () => {
     mocks.serverMembers.mockResolvedValue([])
     const response = await readCommunityMembers({} as never, "parent", "viewer", "access")
     expect(await response.json()).toMatchObject({ members: [{ channelId: "parent", userId: "viewer", relation: "access", source: "admin" }] })
-    expect(mocks.resolve).toHaveBeenCalledWith({}, { scope: type === "forum" ? "forum" : "channel", scopeId: "parent" })
+    expect(mocks.resolve).toHaveBeenCalledWith({}, "parent")
     expect(mocks.participants).not.toHaveBeenCalled()
   })
   it("does not hydrate members when the readable DM no longer has metadata", async () => {

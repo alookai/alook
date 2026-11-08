@@ -21,7 +21,7 @@ it("runs only nonempty input and displays returned text as text", () => {
 
 it("explains the test transport and blocks input beyond the UTF-8 byte limit", () => {
   const onRun = vi.fn()
-  render(<BotPiiPlayground value={"汉".repeat(342)} onValueChange={vi.fn()} onRun={onRun} pending={false} />)
+  render(<BotPiiPlayground value={"€".repeat(342)} onValueChange={vi.fn()} onRun={onRun} pending={false} />)
   expect(screen.getByText("We don’t store this message. It is sent to your computer for testing.")).toBeVisible()
   expect(screen.getByRole("alert")).toHaveTextContent("1,024 UTF-8 bytes")
   expect(screen.getByRole("button", { name: "Run test" })).toBeDisabled()

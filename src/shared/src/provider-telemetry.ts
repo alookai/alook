@@ -1,6 +1,27 @@
 import { z } from "zod";
 
 export const DAILY_TOKEN_USAGE_WINDOW_DAYS = 30;
+export const PROVIDER_QUOTA_BACKENDS = ["claude", "codex", "grok", "antigravity"] as const;
+export const ProviderQuotaBackendSchema = z.enum(PROVIDER_QUOTA_BACKENDS);
+export type ProviderQuotaBackend = z.infer<typeof ProviderQuotaBackendSchema>;
+export type TelemetryCapability = "supported" | "unsupported" | "unknown";
+
+const tokenUsageBackends: ReadonlySet<string> = new Set([
+  "claude", "codex", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable",
+]);
+const quotaUnsupportedBackends: ReadonlySet<string> = new Set([
+  "cursor", "opencode", "pi", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable",
+]);
+
+export function isProviderQuotaBackend(backendId: string | null | undefined): backendId is ProviderQuotaBackend {
+  return typeof backendId === "string" && (PROVIDER_QUOTA_BACKENDS as readonly string[]).includes(backendId);
+}
+export function providerQuotaCapability(backendId: string): TelemetryCapability {
+  return isProviderQuotaBackend(backendId) ? "supported" : quotaUnsupportedBackends.has(backendId) ? "unsupported" : "unknown";
+}
+export function tokenUsageCapability(backendId: string): TelemetryCapability {
+  return tokenUsageBackends.has(backendId) ? "supported" : backendId === "cursor" ? "unsupported" : "unknown";
+}
 
 const safeToken = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const boundedText = z.string().min(1).refine(
@@ -108,7 +129,7 @@ export const ProviderQuotaObservationSchema = z.union([
 export type ProviderQuotaObservation = z.infer<typeof ProviderQuotaObservationSchema>;
 
 export const ProviderQuotaSnapshotSchema = z.object({
-  agentBackendId: z.enum(["claude", "codex", "grok", "antigravity"]),
+  agentBackendId: ProviderQuotaBackendSchema,
   observation: ProviderQuotaObservationSchema,
 }).strict();
 export type ProviderQuotaSnapshot = z.infer<typeof ProviderQuotaSnapshotSchema>;

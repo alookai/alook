@@ -1,6 +1,5 @@
 "use client"
 import { useCommunityPreviewNavigation } from "./community-preview-navigation"
-import { useCommunityRuntime } from "@/stores/community/runtime"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import {
@@ -10,6 +9,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useId,
   type ComponentProps,
   type CSSProperties,
   type ReactNode,
@@ -47,12 +47,7 @@ import { useServerRailCommit } from "@/hooks/community/mutations"
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import type { Server, CommunityFolder } from "@/lib/community/models/navigation"
 import type { View } from "@/components/community/shell/shell-types"
-import {
-  completeCommunityOnboarding,
-  isCommunityOnboardingStage,
-} from "@/lib/community-onboarding"
 
-const DRAG_INSTRUCTIONS_ID = "server-rail-drag-instructions"
 
 function ServerRailFrame({
   home,
@@ -150,6 +145,7 @@ function ServerRailContent({
   onOpenSettings?: (serverId: string) => void
   onOpenInvitePopover?: (serverId: string) => void
 }) {
+  const dragInstructionsId = useId()
   const [announcement, announce] = useAtom(useCreateAtom(""))
   const breakpoint = useBreakpoint()
   const safeAreaTop = useNativeSafeAreaTop()
@@ -166,7 +162,6 @@ function ServerRailContent({
   useCommunityDndScrolling(scrollRef, "community/server-rail")
   const serverActivationRef = useRef({ onServer, onServerNavigate, onOpenSettings, onOpenInvitePopover })
   const railMutation = useServerRailCommit()
-  const communityRuntime = useCommunityRuntime()
   const registry = useOptionalCommunityDbRegistry()
   const viewLifecycle = useCreateAtom({ active: true, generation: 0 })
   useLayoutEffect(() => {
@@ -242,7 +237,7 @@ function ServerRailContent({
       const testId = entity.kind === "server"
         ? tid.serverIcon(entity.id)
         : tid.serverRailFolder(entity.id)
-      document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus()
+      scrollRef.current?.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus()
     }
     requestAnimationFrame(() => {
       if (!current()) return
@@ -372,7 +367,7 @@ function ServerRailContent({
       inFolder={inFolder} dragging={dragging({ kind: "server", id: server.id })}
       preview={preview?.target.kind === "server" && preview.target.id === server.id && preview.operation !== "append" ? preview.operation : null}
       combineWith={preview?.operation === "combine" && preview.target.kind === "server" && preview.target.id === server.id && preview.source.kind === "server" ? serverById.get(preview.source.id) : undefined}
-      dnd={dnd} dragDescriptionId={DRAG_INSTRUCTIONS_ID}
+      dnd={dnd} dragDescriptionId={dragInstructionsId}
     />
   )
   const items = serverListPending ? <ServerRailSkeleton /> : (
@@ -403,7 +398,7 @@ function ServerRailContent({
                 if (railMutation.isCommandPending()) expansionOverrides.set((previous) => new Map(previous).set(folderId, expanding))
                 return expanding ? [...current, folderId] : current.filter((id) => id !== folderId)
               })}
-              folderServers={children} dragging={dragging(entry)} dnd={dnd} dragDescriptionId={DRAG_INSTRUCTIONS_ID}
+              folderServers={children} dragging={dragging(entry)} dnd={dnd} dragDescriptionId={dragInstructionsId}
             />
             <div className={`relative grid transition-[grid-template-rows] duration-150 ease-out motion-reduce:transition-none ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`} inert={!open}>
               <div className="min-h-0 overflow-hidden">
@@ -436,15 +431,13 @@ function ServerRailContent({
           testId={tid.serverAdd}
           onboardingTarget="add-server"
           onClick={() => {
-            const guided = isCommunityOnboardingStage(communityRuntime, "server")
             setCreateOpen(true)
-            if (guided) completeCommunityOnboarding(communityRuntime)
           }}
         />
       )}
     >
       <ServerRailDragPreview dnd={dnd} servers={serverById} folderNames={folderNames} state={renderState} activeServerId={view === "dm" ? "" : activeId} />
-      <span id={DRAG_INSTRUCTIONS_ID} className="sr-only">
+      <span id={dragInstructionsId} className="sr-only">
         Drag to move a server or group. On touch screens, hold before moving. Escape cancels.
       </span>
       <span className="sr-only" role="status" aria-live="polite">{announcement}</span>

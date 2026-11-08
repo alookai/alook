@@ -109,13 +109,6 @@ export function fanOutToDM(
   }
 }
 
-/**
- * Resolves the audience for a self-authored profile change: co-members
- * (every server the user shares with someone) union friends. Mirrors
- * `ws-durable.ts`'s `getPresenceAudience` — that function lives in the
- * separate `ws-do` worker and isn't reachable from `src/web`'s API routes,
- * but it's built from the same two shared query functions used here.
- */
 async function getProfileAudience(
   db: Database,
   userId: string,
@@ -322,4 +315,11 @@ async function broadcastToRecipients(
       err: String(err),
     })
   }
+}
+
+export async function publishServerMemberLeaves(serverId: string, userIds: readonly string[]): Promise<void> {
+  await Promise.all(userIds.flatMap((userId) => {
+    const event = { type: WS_EVENTS.MEMBER_LEAVE, serverId, userId } as const
+    return [fanOutToServerMembers(serverId, event), broadcastToUserSafe(userId, event)]
+  }))
 }

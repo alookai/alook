@@ -27,12 +27,13 @@ import {
   isPhotoAvatarUrl,
 } from "@/components/avatar"
 import { serializeBeamSeed, parseBeamSeed } from "@/lib/avatar/seed-url"
+import { useAvatarDraftPreview } from "@/lib/avatar/use-avatar-draft-preview"
 import { useUpdateBot, useUploadBotAvatar, type BotSummary } from "@/hooks/community/use-bots"
 import { useMachines } from "@/hooks/community/use-machines"
 import { BotFormFields } from "./bot-form-fields"
 import { BotRuntimeFields } from "./bot-runtime-fields"
 import { validateBotModel } from "./bot-form-validation"
-import { uniqueNamesGenerator, names } from "unique-names-generator"
+import { randomBotName } from "@/lib/community/bot-random-name"
 import { normalizeRuntimes } from "@/lib/community/machines"
 import { requiresExplicitModel, type ReasoningEffort } from "@alook/shared"
 
@@ -67,8 +68,9 @@ export function EditBotSheet({
   const [runtime, setRuntime] = useAtom(useCreateAtom(bot?.runtime ?? ""))
   const [confirmProviderSwitch, setConfirmProviderSwitch] = useAtom(useCreateAtom(false))
   const [nameError, setNameError] = useAtom(useCreateAtom<string | undefined>(undefined))
-const [avatarDraft, setAvatarDraft] = useAtom(useCreateAtom<AvatarDraft>(((): AvatarDraft =>
+  const [avatarDraft, setAvatarDraft] = useAtom(useCreateAtom<AvatarDraft>(((): AvatarDraft =>
     bot ? draftFromBot(bot) : { kind: "procedural", image: serializeBeamSeed("initial") })()))
+  useAvatarDraftPreview(avatarDraft)
   const update = useUpdateBot()
   const uploadBotAvatar = useUploadBotAvatar()
   const { machines } = useMachines()
@@ -106,7 +108,7 @@ const [avatarDraft, setAvatarDraft] = useAtom(useCreateAtom<AvatarDraft>(((): Av
   }
 
   function shuffleName() {
-    setName(uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "capital" }))
+    setName(randomBotName())
     setNameError(undefined)
   }
 

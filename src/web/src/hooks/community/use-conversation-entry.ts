@@ -3,7 +3,7 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { hashKey, useIsRestoring, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useConversationActivity, useConversationPresentation } from "@/contexts/community/conversation-activity"
+import { useConversationActivity, useConversationPresentation } from "@/contexts/view-activity"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { channelHref, normalizeCommunityHref } from "@/lib/community/community-route"
 import { communityMessageProfileIds, type CommunityReadStateResource } from "@alook/shared"

@@ -15,7 +15,6 @@ interface RuntimeEnv {
   DEV_WS_DO_URL?: string
   DEV_QUEUE_WORKER_URL?: string
   JEV_PROVIDER?: string
-  JEV_WAKE_THRESHOLD?: string
   OPENROUTER_API_KEY?: string
   OPENROUTER_JEV_BASE_URL?: string
   OPENROUTER_JEV_MODEL?: string

@@ -56,7 +56,7 @@ describe("OpenNext query encoding patch", () => {
     ["%2FGener%239879%2Ffix%2F%231", "/Gener#9879/fix/#1"],
     ["%2F.dm%2FAudrie%234069", "/.dm/Audrie#4069"],
     ["Gener%239879", "Gener#9879"],
-    ["%2F%E8%AE%BE%E8%AE%A1+team%2Fa%26b%3Dc%2F%2523literal", "/设计 team/a&b=c/%23literal"],
+    ["%2F%E2%82%AC%E2%82%AC+team%2Fa%26b%3Dc%2F%2523literal", "/€€ team/a&b=c/%23literal"],
   ])("round-trips encoded query data %s", (encoded, expected) => {
     const result = roundTrip(`ref=${encoded}`)
 

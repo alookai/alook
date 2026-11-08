@@ -4,7 +4,7 @@ import * as traceSamplerModule from "./traceSampler.js";
 
 /*
  * Heartbeat-sampler trace completeness.
- * Two acceptance conditions (Claudette 架构#421):
+ * Two acceptance conditions:
  *   ① retention: folding the unchanged-tick / progress / runtime_signal noise
  *      bounds each agent's sampleable streams; the B1 fleet-budget test below
  *      combines that rate with N=8, transition, and turn-span traffic.

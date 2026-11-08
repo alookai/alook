@@ -1,11 +1,12 @@
 "use client"
 
+import { type OwnerServerDeleteRouteToken } from "@/stores/community/server-eject-store"
 import type { Action } from "@/lib/observability/context"
 import { createContext, useContext, type RefObject } from "react"
 import type { useRouter } from "next/navigation"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import type { CommunityCommittedFrame } from "@/lib/community/community-route"
-import type { OwnerServerDeleteRouteToken } from "@/lib/community/eject-server"
+
 
 export type CommunityNavigationController = {
   entryIntent?: { href: string; resume?: boolean } | null

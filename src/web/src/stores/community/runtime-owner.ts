@@ -1,9 +1,10 @@
+import { type createOwnerServerDeleteStore } from "@/stores/community/server-eject-store"
 import type { Store } from "@tanstack/store"
 import type { QueryClient } from "@tanstack/react-query"
 import type { createCommunityStore } from "./ui-store"
 import type { createCommunityWsStore } from "./ws-store"
 import type { createMessageStreamStore } from "./message-stream-store"
-import type { createOwnerServerDeleteStore } from "@/lib/community/eject-server"
+
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
 export type CommunityRuntime = {

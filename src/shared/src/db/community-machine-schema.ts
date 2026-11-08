@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { user } from "./schema";
 import type { CommunityMachineRuntime } from "../schemas";
-import type { QuotaLimit } from "../provider-telemetry";
+import type { ProviderQuotaBackend, QuotaLimit } from "../provider-telemetry";
 
 import type { DiagnosticReportFailureCode } from "../diagnostics-contract";
 
@@ -268,7 +268,7 @@ export const communityMachineBackendQuota = sqliteTable(
     machineId: text("machine_id")
       .notNull()
       .references(() => communityMachine.id, { onDelete: "cascade" }),
-    agentBackendId: text("agent_backend_id").$type<"claude" | "codex" | "grok" | "antigravity">().notNull(),
+    agentBackendId: text("agent_backend_id").$type<ProviderQuotaBackend>().notNull(),
     sourceEpoch: text("source_epoch").notNull(),
     status: text("status").$type<MachineBackendQuotaStatus>().notNull(),
     planName: text("plan_name"),

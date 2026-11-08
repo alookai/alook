@@ -79,18 +79,8 @@ export function removeServiceBinding(content: string, binding: string): string {
 
 export function patchWranglerConfigs(ports: DevPortProfile): void {
   const webToml = join(SELF_HOSTED_DIR, "web", "wrangler.toml");
-  let webContent = deduplicateDevSection(readFileSync(webToml, "utf-8"));
-
-  if (!webContent.includes("[dev]")) {
-    webContent += `\n[dev]\nport = ${ports.web}\n`;
-  } else {
-    const hasPort = /\[dev\][^\[]*?(?<!inspector_)port\s*=/.test(webContent);
-    if (hasPort) {
-      webContent = webContent.replace(/(\[dev\][^\[]*?)(?<!inspector_)port\s*=\s*\d+/, `$1port = ${ports.web}`);
-    } else {
-      webContent = webContent.replace(/(\[dev\][^\[]*)/, `$1port = ${ports.web}\n`);
-    }
-  }
+  setDevPort(webToml, ports.web);
+  let webContent = readFileSync(webToml, "utf-8");
 
   for (const service of SELF_HOSTED_SERVICES) {
     if ("urlVariable" in service) webContent = setVar(webContent, service.urlVariable, `http://localhost:${ports[service.key]}`);

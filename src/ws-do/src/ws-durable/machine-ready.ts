@@ -1,3 +1,4 @@
+import { publishMachinePresence } from "./machine-presence"
 import { PII_CAPABILITY } from "@alook/shared"
 import {
   CONTROL_HEARTBEAT_CAPABILITY,
@@ -23,7 +24,7 @@ import type {
   WsDurableContext,
 } from "./internal"
 import { scheduleHeartbeatAlarm } from "./machine-lifecycle"
-import { broadcastToAudience, notifyUserDO } from "./presence-typing"
+import { broadcastToAudience } from "./presence-typing"
 import { prepareQuotaReplace } from "./provider-telemetry-persistence"
 
 function canonicalRuntimes(list: CommunityMachineRuntime[]): string {
@@ -188,10 +189,10 @@ export async function handleReadyFrame(
     // Runtime status/lastError drift is machine metadata drift and must reach
     // open clients even when the runtime set and versions are unchanged.
     if (priorStatus !== "online" || priorCanonical !== nextCanonical || priorDaemonVersion !== daemonVersion) {
-      await notifyUserDO(context, identity.userId, {
+      await publishMachinePresence(context, identity.userId, {
         type: WS_EVENTS.MACHINE_UPDATED,
         machine: summary,
-      }, { machineOnlineTransition: priorStatus !== "online" })
+      }, priorStatus !== "online")
     }
 
     await scheduleHeartbeatAlarm(context)
@@ -230,7 +231,7 @@ export async function fanOutMachineUpdated(
   const row = await queries.communityMachine.getMachineByIdForUser(db, userId, machineId)
   if (!row) return
   const summary = await summaryWithOverlay(context, row)
-  await notifyUserDO(context, userId, {
+  await publishMachinePresence(context, userId, {
     type: WS_EVENTS.MACHINE_UPDATED,
     machine: summary,
   })

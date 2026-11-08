@@ -104,10 +104,7 @@
   will-change: opacity;
 }
 
-body.driver-active .community-ws-reconnect-overlay,
-body.driver-active .community-ws-reconnect-overlay * {
-  pointer-events: auto;
-}
+
 
 @keyframes community-ws-connecting-letter {
   0%,
@@ -367,18 +364,9 @@ body.driver-active .community-ws-reconnect-overlay * {
   97.5%, 100% { opacity: 1; }
 }
 
-.driver-active .driver-active-element {
-  position: relative;
-  z-index: 10001;
-}
 
-.dark .driver-active .driver-active-element {
-  outline: 2px solid color-mix(in oklab, var(--primary) 72%, white) !important;
-  outline-offset: 3px !important;
-  box-shadow:
-    0 0 0 6px color-mix(in oklab, var(--primary) 24%, transparent),
-    0 0 24px color-mix(in oklab, var(--primary) 42%, transparent) !important;
-}
+
+
 
 @media (max-width: 639px) {
   .community-first-signup-guide {
@@ -937,7 +925,7 @@ body.driver-active .community-ws-reconnect-overlay * {
 
 /* ── Paper — slides up inside the track ── */
 .tw-paper.tw-paper-city {
-  /* A slightly deeper bottom margin lifts the city clear of the platen (Gus #2771). */
+  /* A slightly deeper bottom margin lifts the city clear of the platen. */
   padding: 8px 8px 36px;
 }
 
@@ -1000,7 +988,7 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 .tw-body > .tw-paper-track {
-  /* The sheet goes into the top deck behind the platen and stands parallel to the back panel (Gus #2778). */
+  /* The sheet goes into the top deck behind the platen and stands parallel to the back panel. */
   transform: translateX(-50%) translateZ(-40px);
 }
 
@@ -1067,7 +1055,7 @@ body.driver-active .community-ws-reconnect-overlay * {
 
 .tw-body-bottom {
   /* 2px wider each side, tucked under the rounded edge strips, so the underside never shows a light seam
-     from the default up-left view (Gus #2783). */
+     from the default up-left view. */
   left: 22px;
   width: 376px;
   background: oklch(0.14 0.01 55);
@@ -1873,12 +1861,6 @@ body.driver-active .community-ws-reconnect-overlay * {
   text-decoration-color: currentColor;
 }
 
-/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5
- * component: platform link badge · genre: playful · theme: studied-DNA (supplied reference)
- * macrostructure: platform glyph + Alook inline-reference pill
- * states: default · hover · focus · active · disabled · loading · error · success
- * slop: pass (1–58) · contrast: pass (40–41) · mobile: pass (34, 49, 50–57)
- */
 .markdown a.platform-link-badge {
   display: inline-flex;
   max-inline-size: min(24rem, 100%);
@@ -2810,16 +2792,9 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   color: var(--foreground) !important;
 }
 
-/* ── Task highlight (activity page scroll-to-task) ── */
-.task-highlight {
-  background-color: oklch(0.8 0.04 80 / 0.4);
-  border-radius: 0.75rem;
-  transition: background-color 1.5s ease-out;
-}
 
-:is(.dark) .task-highlight {
-  background-color: oklch(0.4 0.04 80 / 0.3);
-}
+
+
 
 /* ── Avatar hover animations ── */
 [data-avatar-shape],
@@ -3096,7 +3071,7 @@ body {
   min-height: 100dvh;
 }
 
-/* Hallmark · active bot boundary: strong beat, weak beat, pause. */
+/* Active bot boundary: strong beat, weak beat, pause. */
 .bot-audit-active-heartbeat::before {
   animation: bot-audit-heartbeat 2s ease-in-out infinite;
 }

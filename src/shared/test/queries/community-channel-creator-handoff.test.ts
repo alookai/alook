@@ -293,4 +293,24 @@ describe("community channel creator handoff", () => {
     ]);
     expect(getLastBatchParamCounts().every((count) => count <= 100)).toBe(true);
   });
+  it("removes exact parent access and child notify rows while preserving physical neighbors", async () => {
+    const { sqlite, db } = createDatabase();
+    try {
+      sqlite.exec(`
+        INSERT INTO community_server(id) VALUES ('server');
+        INSERT INTO community_channel(id,server_id,type,parent_channel_id) VALUES
+          ('parent','server','text',NULL), ('foreign-parent','server','text',NULL),
+          ('one','server','thread','parent'), ('two','server','thread','parent'), ('foreign','server','thread','foreign-parent');
+        INSERT INTO community_channel_member(id,channel_id,user_id,relation,added_at) VALUES
+          ('parent-access','parent','actor','access','now'), ('one-notify','one','actor','notify','now'),
+          ('two-notify','two','actor','notify','now'), ('foreign-notify','foreign','actor','notify','now'),
+          ('other-user','one','other','notify','now'), ('child-access','one','actor','access','now');
+      `);
+      await expect(deleteChannelMemberAndChildParticipants(db, 'parent', 'actor')).resolves.toBeTruthy();
+      expect(sqlite.prepare('SELECT id FROM community_channel_member ORDER BY id').all()).toEqual([
+        { id: 'child-access' }, { id: 'foreign-notify' }, { id: 'other-user' },
+      ]);
+    } finally { sqlite.close(); }
+  });
+
 });

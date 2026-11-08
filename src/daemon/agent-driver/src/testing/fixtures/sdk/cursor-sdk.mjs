@@ -38,7 +38,7 @@ export class Agent {
           child.unref();
           writeFileSync(join(cwd, "child-pid"), String(child.pid));
         }
-        onDelta({ update: { type: "text-delta", text: "你好😀" } });
+        onDelta({ update: { type: "text-delta", text: "€€😀" } });
         timer = setInterval(() => { if (existsSync(join(cwd, "release"))) settle("finished"); }, 10);
         return {
           id: `run-${text}`,

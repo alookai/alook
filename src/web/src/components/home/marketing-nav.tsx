@@ -52,6 +52,7 @@ export function MarketingNav({
 }) {
   const [revealed, setRevealed] = useAtom(useCreateAtom(false));
   const prefetch = revealAfterHero && !revealed ? false : undefined;
+  const navRef = useRef<HTMLElement>(null);
   const mobileMenuRef = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {
@@ -79,7 +80,7 @@ export function MarketingNav({
     if (!revealAfterHero) return;
 
     const update = () => {
-      const hero = document.querySelector(".hero-section");
+      const hero = navRef.current?.closest(".landing")?.querySelector(".hero-section");
       setRevealed(Boolean(hero && hero.getBoundingClientRect().bottom <= 0));
     };
 
@@ -90,6 +91,7 @@ export function MarketingNav({
 
   return (
     <nav
+      ref={navRef}
       aria-label={ariaLabel}
       data-placement={sticky ? "sticky" : "fixed"}
       className={sticky

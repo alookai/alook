@@ -22,49 +22,12 @@ import {
   registerCommunityDbRegistry,
   type CommunityDbRegistry,
 } from "./collections"
-import {
-  publishCommunityResourceBundle,
-  publishCommunityForumFeed,
-  ingestDms,
-  ingestAttentionSnapshot,
-  ingestMessages,
-  ingestReadStateSnapshot,
-  publishCommunityConversationReadState,
-  ingestServerDetail,
-  ingestServers,
-  installCommunityDbSync,
-  captureCommunityLiveSnapshotToken,
-  getCanonicalCommunityTypingMembership,
-  publishCommunityMembersSnapshot,
-  publishCommunityChannelMembersSnapshot,
-  setCanonicalCommunityChannelMember,
-  clearAttentionOptimistically,
-  clearAttentionScopeOptimistically,
-  commitAttentionOptimisticSnapshot,
-  commitAttentionScopeOptimisticSnapshot,
-  patchCanonicalCommunityMessage,
-  publishCommunityDmSummary,
-  publishCommunityMessages,
-  publishCommunityChannelDirectory,
-  publishCommunityChannelMetadata,
-  publishCommunityServerFields,
-  publishCommunityChannelFields,
-  publishCommunityLiveSnapshot as publishCommunityLiveSnapshotWithProof,
-  publishAccountAttentionSnapshot,
-  projectCommunityWsEventToDb,
-  purgeCommunityChannel,
-  purgeCommunityServer,
-  retireCommunityChannelReading,
-  removeCanonicalCommunityChannelMembership,
-  removeAttentionItemsOptimistically,
-  restoreAttentionScopeOptimisticSnapshot,
-  type CommunityLiveSnapshot,
-} from "./sync"
-import { useCommunityStore } from "@/stores/community"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { publishCommunityResourceBundle, publishCommunityForumFeed, ingestDms, ingestAttentionSnapshot, ingestMessages, ingestReadStateSnapshot, publishCommunityConversationReadState, ingestServerDetail, ingestServers, captureCommunityLiveSnapshotToken, getCanonicalCommunityTypingMembership, publishCommunityMembersSnapshot, publishCommunityChannelMembersSnapshot, setCanonicalCommunityChannelMember, clearAttentionOptimistically, clearAttentionScopeOptimistically, commitAttentionOptimisticSnapshot, patchCanonicalCommunityMessage, publishCommunityDmSummary, publishCommunityMessages, publishCommunityChannelDirectory, publishCommunityChannelMetadata, publishCommunityServerFields, publishCommunityChannelFields, publishCommunityLiveSnapshot as publishCommunityLiveSnapshotWithProof, publishAccountAttentionSnapshot, projectCommunityWsEventToDb, purgeCommunityChannel, purgeCommunityServer, retireCommunityChannelReading, removeCanonicalCommunityChannelMembership, removeAttentionItemsOptimistically, restoreAttentionOptimisticSnapshot, type CommunityLiveSnapshot } from "./sync"
+
+
 import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { decodeCommunityReadResponse } from "@/lib/community/read-response"
-import type { MessageInput } from "@/lib/community/models/message"
+
 import { writeCommunityCollectionRows } from "./write"
 import { applyTypingIndicator } from "@/lib/community/typing"
 
@@ -159,12 +122,12 @@ describe("community DB sync", () => {
     seed(3)
     const first = clearAttentionScopeOptimistically(db, "dm", 5)
     expect(db.collections.attentionScopes.get("dm")?.unreadCount).toBeUndefined()
-    restoreAttentionScopeOptimisticSnapshot(db, first)
+    restoreAttentionOptimisticSnapshot(db, first)
     expect(db.collections.attentionScopes.get("dm")?.unreadCount).toBe(3)
     const next = clearAttentionScopeOptimistically(db, "dm", 5)
     await publishCommunityConversationReadState(db.queryClient, { channelId: "dm", lastReadMessageId: "m5", lastReadAt: "2026-10-27T00:00:05.000Z", lastReadSeq: 5 }, 2, { token: captureCommunityLiveSnapshotToken(db.queryClient) }, "advance")
     seed(1)
-    await commitAttentionScopeOptimisticSnapshot(db, next)
+    await commitAttentionOptimisticSnapshot(db, next)
     expect(db.collections.attentionScopes.get("dm")?.unreadCount).toBe(1)
   })
 
@@ -974,7 +937,7 @@ describe("community DB sync", () => {
 
   it("never treats raw server-detail query keys as canonical writers", async () => {
     const db = await registry()
-    const uninstall = installCommunityDbSync(db.queryClient, db)
+    await db.preload()
 
     db.queryClient.setQueryData(communityKeys.channelRefDirectory(), [{
       channelId: "channel-directory-only",
@@ -994,7 +957,6 @@ describe("community DB sync", () => {
       categories: [],
     })
     expect(db.collections.servers.get("s1")).toBeUndefined()
-    uninstall()
   })
 
   it("does not replay hydrated or setQueryData transport payloads into canonical DB", async () => {
@@ -1011,7 +973,7 @@ describe("community DB sync", () => {
       queryKey: ["community", "pending-ingest"],
       queryFn: async () => null,
     })
-    const uninstall = installCommunityDbSync(db.queryClient, db)
+    await db.preload()
     await db.preload()
     expect(db.collections.servers.get("s1")).toBeUndefined()
     expect(db.collections.channels.get("dm1")).toBeUndefined()
@@ -1089,12 +1051,11 @@ describe("community DB sync", () => {
     expect(db.collections.messages.get("context-message")).toBeUndefined()
     expect(db.collections.readStateClock.get("account")).toBeUndefined()
     expect([...db.collections.notificationSettings.keys()]).toEqual([])
-    uninstall()
   })
 
   it("never deletes or revokes from cached-success replay", async () => {
     const db = await registry()
-    const uninstall = installCommunityDbSync(db.queryClient, db)
+    await db.preload()
     const server = (id: string) => ({
       id,
       name: id,
@@ -1211,7 +1172,6 @@ describe("community DB sync", () => {
     expect(db.collections.folders.get("merge-f2")).toBeDefined()
     expect(db.collections.readStates.get("merge-c2")).toBeDefined()
     expect(db.collections.notificationSettings.get("channel:merge-c2")).toBeDefined()
-    uninstall()
   })
 
   it("gives destructive replacement only to live publishers and explicit events", async () => {
@@ -1540,7 +1500,7 @@ describe("community DB sync", () => {
     const token = captureCommunityLiveSnapshotToken(db.queryClient)
     const optimistic = clearAttentionScopeOptimistically(db, "post", 4)
     ingestReadStateSnapshot(db, { revision: 1, readStates: [{ channelId: "post", lastReadMessageId: "m4", lastReadAt: at, lastReadSeq: 4 }] })
-    await commitAttentionScopeOptimisticSnapshot(db, optimistic)
+    await commitAttentionOptimisticSnapshot(db, optimistic)
     expect(db.queryClient.getQueryData<Array<{ channelId: string; lastReadSeq: number }>>(communityKeys.communityDbCollection(db.scopeId, "readStates"))?.find((row) => row.channelId === "post")?.lastReadSeq).toBe(4)
     expect(await publishAccountAttentionSnapshot(db.queryClient, { snapshot, proof: { token, signal: undefined } })).toBe("published")
     if (cold) await db.preload()
@@ -1628,7 +1588,7 @@ describe("community DB sync", () => {
     const optimistic = clearAttentionScopeOptimistically(db, "other", 0)
     expect(db.collections.attentionItems.get("reply:m4")).toBeDefined()
     expect(db.collections.attentionScopes.get("post")).toMatchObject({ ordinaryUnread: false, attentionCount: 1 })
-    await commitAttentionScopeOptimisticSnapshot(db, optimistic)
+    await commitAttentionOptimisticSnapshot(db, optimistic)
     expect(db.collections.attentionItems.get("reply:m4")).toBeDefined()
   })
 
@@ -1921,7 +1881,7 @@ describe("community DB sync", () => {
       limit: 100,
       truncated: false,
     })
-    commitAttentionScopeOptimisticSnapshot(db, optimistic)
+    commitAttentionOptimisticSnapshot(db, optimistic)
 
     expect(db.collections.attentionScopes.get("c1")).toMatchObject({
       lastUnreadSeq: 5,
@@ -1991,7 +1951,7 @@ describe("community DB sync", () => {
       expect(db.collections.attentionItems.get(newItem.id)).toMatchObject(newItem)
       if (terminal === "success") {
         ingestAttentionSnapshot(db, truncatedSnapshot)
-        commitAttentionScopeOptimisticSnapshot(db, optimistic)
+        commitAttentionOptimisticSnapshot(db, optimistic)
         expect(db.collections.attentionScopes.get("c1")?.attentionCount).toBe(1)
       } else {
         const newerSnapshot = { resources: resourceBundleFixture(),
@@ -2019,7 +1979,7 @@ describe("community DB sync", () => {
           snapshot: newerSnapshot,
           proof: { token: reconcileToken },
         })
-        expect(restoreAttentionScopeOptimisticSnapshot(db, optimistic)).toBe(true)
+        expect(restoreAttentionOptimisticSnapshot(db, optimistic)).toBe(true)
         ingestAttentionSnapshot(db, newerSnapshot)
         expect(db.collections.attentionScopes.get("c1")?.attentionCount).toBe(2)
         expect(db.collections.attentionItems.get("mention:m6")).toMatchObject({
@@ -2056,7 +2016,7 @@ describe("community DB sync", () => {
         ingestAttentionSnapshot(db, { resources: resourceBundleFixture({ viewerId: db.accountId! }), ...snapshot, scopes: [] })
       }
     })
-    await expect(Promise.all([commitAttentionScopeOptimisticSnapshot(db, first), commitAttentionScopeOptimisticSnapshot(db, second)])).resolves.toEqual([true, true])
+    await expect(Promise.all([commitAttentionOptimisticSnapshot(db, first), commitAttentionOptimisticSnapshot(db, second)])).resolves.toEqual([true, true])
     expect(rebased).toBe(true)
     expect(db.collections.attentionScopes.size).toBe(0)
     expect(db.collections.attentionItems.size).toBe(0)
@@ -2108,23 +2068,23 @@ describe("community DB sync", () => {
       ingestAttentionSnapshot(db, snapshot)
       expect(db.collections.attentionScopes.get("c1")).toBeUndefined()
       if (settledFirst === "older-first") {
-        commitAttentionScopeOptimisticSnapshot(db, older)
-        expect(restoreAttentionScopeOptimisticSnapshot(db, newer)).toBe(true)
+        commitAttentionOptimisticSnapshot(db, older)
+        expect(restoreAttentionOptimisticSnapshot(db, newer)).toBe(true)
         expect(db.collections.attentionScopes.get("c1")?.attentionCount).toBe(1)
         expect(db.collections.attentionItems.get("mention:4")).toBeUndefined()
         expect(db.collections.attentionItems.get("mention:5")).toBeDefined()
       } else if (settledFirst === "newer-first") {
-        commitAttentionScopeOptimisticSnapshot(db, newer)
-        expect(restoreAttentionScopeOptimisticSnapshot(db, older)).toBe(false)
+        commitAttentionOptimisticSnapshot(db, newer)
+        expect(restoreAttentionOptimisticSnapshot(db, older)).toBe(false)
         expect(db.collections.attentionScopes.get("c1")).toBeUndefined()
       } else {
-        expect(restoreAttentionScopeOptimisticSnapshot(db, older)).toBe(false)
+        expect(restoreAttentionOptimisticSnapshot(db, older)).toBe(false)
         ingestAttentionSnapshot(db, snapshot)
         expect(db.collections.attentionScopes.get("c1")).toBeUndefined()
         if (settledFirst === "rollback-older") {
-          commitAttentionScopeOptimisticSnapshot(db, newer)
+          commitAttentionOptimisticSnapshot(db, newer)
         } else {
-          expect(restoreAttentionScopeOptimisticSnapshot(db, newer)).toBe(true)
+          expect(restoreAttentionOptimisticSnapshot(db, newer)).toBe(true)
           expect(db.collections.attentionScopes.get("c1")?.attentionCount).toBe(2)
           expect(db.collections.attentionItems.get("mention:4")).toBeDefined()
           expect(db.collections.attentionItems.get("mention:5")).toBeDefined()
@@ -2168,9 +2128,9 @@ describe("community DB sync", () => {
     const middle = clearAttentionScopeOptimistically(db, "c1", 5)
     const newest = clearAttentionScopeOptimistically(db, "c1", 6)
 
-    commitAttentionScopeOptimisticSnapshot(db, oldest)
-    commitAttentionScopeOptimisticSnapshot(db, middle)
-    expect(restoreAttentionScopeOptimisticSnapshot(db, newest)).toBe(true)
+    commitAttentionOptimisticSnapshot(db, oldest)
+    commitAttentionOptimisticSnapshot(db, middle)
+    expect(restoreAttentionOptimisticSnapshot(db, newest)).toBe(true)
     expect(db.collections.attentionScopes.get("c1")?.attentionCount).toBe(1)
     expect(db.collections.attentionItems.get("mention:6")).toBeDefined()
   })
@@ -2233,7 +2193,7 @@ describe("community DB sync", () => {
     }
     ingestAttentionSnapshot(db, newerSnapshot)
 
-    expect(restoreAttentionScopeOptimisticSnapshot(db, optimistic)).toBe(true)
+    expect(restoreAttentionOptimisticSnapshot(db, optimistic)).toBe(true)
     ingestAttentionSnapshot(db, newerSnapshot)
     expect(db.collections.attentionScopes.get("c1")).toMatchObject({
       lastUnreadSeq: 5,
@@ -2680,7 +2640,7 @@ describe("community DB sync", () => {
       setItem: (key: string, value: string) => navigationMemory.set(key, value),
       removeItem: (key: string) => navigationMemory.delete(key),
     })
-    const uninstall = installCommunityDbSync(db.queryClient, db)
+    await db.preload()
     ingestServerDetail(db, serverDirectoryFixture({
       id: "s1", name: "Server", discriminator: "0001", description: "",
       icon: null, ownerId: "owner",
@@ -2773,7 +2733,6 @@ describe("community DB sync", () => {
       pendingReply: null,
     })
     expect(db.runtime.messageStream.get().entries.size).toBe(0)
-    uninstall()
     db.runtime.ui.actions.reset()
     db.runtime.messageStream.actions.resetAll()
   })
@@ -3060,7 +3019,7 @@ describe("community DB sync", () => {
 
   it("ignores raw message-bearing surfaces while canonical rows still accept WS deltas", async () => {
     const db = await registry()
-    const uninstall = installCommunityDbSync(db.queryClient, db)
+    await db.preload()
     const message = (id: string, content: string) => ({
       id,
       type: "chat" as const,
@@ -3122,12 +3081,11 @@ describe("community DB sync", () => {
     purgeCommunityChannel(db, "c1")
     expect(db.collections.messages.size).toBe(0)
     expect(db.queryClient.getQueryState(communityKeys.message("pin"))).toBeUndefined()
-    uninstall()
   })
 
   it("does not infer a cold opener from raw Query but accepts explicit canonical publication", async () => {
     const db = await registry()
-    const uninstall = installCommunityDbSync(db.queryClient, db)
+    await db.preload()
     ingestServers(db, serverRailResponseFixture({
       servers: [{
         id: "s1", name: "Server", initial: "S", active: false, unread: false,
@@ -3202,7 +3160,6 @@ describe("community DB sync", () => {
       content: "cold opener",
       reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["viewer"] }],
     })
-    uninstall()
   })
 })
 

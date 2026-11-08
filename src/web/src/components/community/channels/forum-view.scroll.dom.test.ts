@@ -175,7 +175,7 @@ describe("ForumView scroll anchoring", () => {
     expect(heading.getAttribute("aria-label")).toBe("Short title #205")
     expect(title.contains(sequence)).toBe(false)
 
-    const name = "移动端论坛标题需要独立截断".repeat(8)
+    const name = "A long mobile forum title must truncate independently".repeat(8)
     view.rerender(createElement(ForumView, {
       ...props([{ ...initial, name, parentSeq: 987654321012345 }]), onOpenPost,
     }))

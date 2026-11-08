@@ -93,30 +93,26 @@ export const serversProjectedQueryFn = (
   ) => void,
 ) => async (context?: QueryFunctionContext) => {
   const structuralToken = captureCommunityLiveSnapshotToken(queryClient)
-  try {
-    const registry = structuralToken.registry
-    await registry?.ready
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, context?.signal)
-    await Promise.all([registry!.collections.servers.preload(), registry!.collections.serverMemberships.preload()])
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, context?.signal)
-    const data = await serversQueryFn(context)
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, context?.signal)
-    await publishCommunityLiveSnapshot(queryClient, {
-      snapshot: { kind: "servers", data },
-      proof: { kind: "structural", token: structuralToken, signal: context?.signal },
-    })
-    registry!.serverListAuthority.setState(() => ({
-      viewerId: structuralToken.viewerId,
-      accountEpoch: structuralToken.accountEpoch,
-      accessEpoch: structuralToken.accessEpoch,
-      ownerGeneration: structuralToken.ownerGeneration,
-      serverIdsSignature: canonicalServerIdsSignature(data.servers),
-    }))
-    onLiveSuccess?.(structuralToken, data, context?.signal)
-    return data.servers.map((server) => server.id)
-  } catch (error) {
-    throw error
-  }
+  const registry = structuralToken.registry
+  await registry?.ready
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, context?.signal)
+  await Promise.all([registry!.collections.servers.preload(), registry!.collections.serverMemberships.preload()])
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, context?.signal)
+  const data = await serversQueryFn(context)
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, context?.signal)
+  await publishCommunityLiveSnapshot(queryClient, {
+    snapshot: { kind: "servers", data },
+    proof: { kind: "structural", token: structuralToken, signal: context?.signal },
+  })
+  registry!.serverListAuthority.setState(() => ({
+    viewerId: structuralToken.viewerId,
+    accountEpoch: structuralToken.accountEpoch,
+    accessEpoch: structuralToken.accessEpoch,
+    ownerGeneration: structuralToken.ownerGeneration,
+    serverIdsSignature: canonicalServerIdsSignature(data.servers),
+  }))
+  onLiveSuccess?.(structuralToken, data, context?.signal)
+  return data.servers.map((server) => server.id)
 }
 
 function serversQueryOptions(queryClient: QueryClient) {

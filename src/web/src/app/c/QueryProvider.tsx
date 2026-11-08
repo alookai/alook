@@ -30,8 +30,7 @@ import { usePersistedAccountLifecycle } from "@/lib/use-persisted-account-lifecy
 import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
 import { registerBusinessSchemaOwner } from "@/lib/business-schema-lifecycle"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
-import { discardCommunityRestoreReplacements, installCommunityDbSync, restoreCommunityCollections } from "@/lib/community-db/sync"
-import type { CurrentUser } from "@/contexts/community/current-user"
+import { discardCommunityRestoreReplacements, restoreCommunityCollections } from "@/lib/community-db/sync"
 import { observeHydration, discardHydration } from "@/lib/observability/restore"
 import { captureTelemetryIdentityRetirement, setTelemetryUser } from "@/lib/observability/client"
 
@@ -80,8 +79,10 @@ function CommunityDbRuntime({
   useLayoutEffect(() => {
     if (isRestoring) return
     onRestoreComplete()
-    return installCommunityDbSync(queryClient, registry)
-  }, [isRestoring, onRestoreComplete, queryClient, registry])
+    void registry.preload().catch((error: unknown) => {
+      if (!isAbortError(error)) console.error("Community collection preload failed", error)
+    })
+  }, [isRestoring, onRestoreComplete, registry])
 
   return <CommunityDbProvider registry={registry}>{children}</CommunityDbProvider>
 }
@@ -99,7 +100,7 @@ function CommunityDbRuntime({
  * the previous session's cached message list. Passing `null` (pre-auth) hits
  * an "anon" namespace that never carries real content.
  */
-export function QueryProvider(props: { children: ReactNode; userId: string | null; initialUser?: CurrentUser }) {
+export function QueryProvider(props: { children: ReactNode; userId: string | null }) {
   const session = useSession()
   return <ScopedQueryProvider key={props.userId ?? "anon"} {...props} session={session} sessionViewer={currentSessionViewer} />
 }
@@ -112,7 +113,6 @@ function ScopedQueryProvider({
 }: {
   children: ReactNode
   userId: string | null
-  initialUser?: CurrentUser
   session: ReturnType<typeof useSession>
   sessionViewer: () => string | null | undefined
 }) {

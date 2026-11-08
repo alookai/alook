@@ -147,21 +147,44 @@ function Sticker({ children, tone = "outline", tilt = -3, style }: { children: R
   return <Badge variant={tone} style={{ rotate: `${tilt}deg`, ...style }}>{children}</Badge>
 }
 
-/** The board renders real components. Block every write to the API so a
- * specimen can never create a real pair key, bot, server or access code. */
+const boardWriteGuards = new WeakMap<Document, {
+  references: number
+  original: typeof fetch
+  guard: typeof fetch
+}>()
+
 function useBoardWriteGuard() {
   useEffect(() => {
-    const original = window.fetch
-    window.fetch = (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
-      const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase()
-      if (method !== "GET" && method !== "HEAD" && /\/api\//.test(url)) {
-
-        return Promise.reject(new TypeError("Failed to fetch (writes are disabled on /brand-visual)"))
+    const owner = document
+    const view = owner.defaultView
+    if (!view) return
+    let current = boardWriteGuards.get(owner)
+    if (current) current.references += 1
+    else {
+      const original = view.fetch
+      const state = { references: 1, original, guard: original }
+      state.guard = (input, init) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+        const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase()
+        if (state.references > 0 && method !== "GET" && method !== "HEAD" && /\/api\//.test(url)) {
+          return Promise.reject(new TypeError("Failed to fetch (writes are disabled on /brand-visual)"))
+        }
+        return original(input, init)
       }
-      return original(input, init)
+      current = state
+      boardWriteGuards.set(owner, current)
+      view.fetch = current.guard
     }
-    return () => { window.fetch = original }
+    const captured = current
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      captured.references -= 1
+      if (captured.references !== 0) return
+      if (view.fetch === captured.guard) view.fetch = captured.original
+      if (boardWriteGuards.get(owner) === captured) boardWriteGuards.delete(owner)
+    }
   }, [])
 }
 

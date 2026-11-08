@@ -5,7 +5,6 @@ import { useEffect, type ComponentProps, type ReactNode } from "react"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
-import { ChannelShell } from "@/components/community/channels/channel-shell"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
 import { Composer } from "@/components/community/messages/composer"
@@ -23,7 +22,7 @@ import type { FileAttachment, ImagePreview } from "@/lib/community/models/messag
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import { tid } from "@/lib/community/testids"
-import { ConversationActivityContext, useConversationActivity } from "@/contexts/community/conversation-activity"
+import { ConversationActivityContext, useConversationActivity } from "@/contexts/view-activity"
 import type { MessageHeaderTitleState } from "./message-header"
 
 export function TextChannelSurface({
@@ -88,7 +87,6 @@ export function TextChannelSurface({
     channelId,
     serverId,
     viewerUserId: viewer.id,
-    isChildChannel: false,
     anchorMessageId,
     threadsEnabled: rightPanel === "threads",
   })
@@ -117,8 +115,8 @@ export function TextChannelSurface({
       resolveUserName={resolveUserName}
     >
       {(controller) => (
-        <ChannelShell
-          header={(
+        <>
+{(
             <ChannelHeader
               channel={channelName}
               titleState={channelTitleState}
@@ -130,7 +128,7 @@ export function TextChannelSurface({
               mobileBack={onNavigateParent}
             />
           )}
-          body={(
+{(
             <Body
               data-slot="community-conversation-surface"
               data-channel-id={channelId}
@@ -219,7 +217,7 @@ export function TextChannelSurface({
               </ConversationFooterSlotProvider>
             </Body>
           )}
-          panels={(
+{(
             <CommunityPanel
               open={rightPanel !== null}
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
@@ -234,7 +232,7 @@ export function TextChannelSurface({
               onJumpToMessage={controller.jumpToSeq}
             />
           )}
-          dialogs={(
+{(
             <>
               {manageMembersDialog}
               <MessageContextSheet
@@ -254,7 +252,7 @@ export function TextChannelSurface({
               />
             </>
           )}
-        />
+</>
       )}
     </MessageChannelController>
   )

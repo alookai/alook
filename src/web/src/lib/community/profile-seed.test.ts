@@ -2,14 +2,7 @@ import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Msg } from "@/lib/community/models/message"
 import { communityKeys } from "@/lib/query-keys"
-import {
-  apiFetchProfiles,
-  beginCommunityProfileSeed,
-  communityUserProfilePatch,
-  messageProfilePatches,
-  writeCommunityProfilePatches,
-  retireCommunityProfile,
-} from "./profile-seed"
+import { beginCommunityProfileSeed, communityUserProfilePatch, messageProfilePatches, writeCommunityProfilePatches, retireCommunityProfile } from "./profile-seed"
 import {
   createCommunityDbRegistry,
   registerCommunityDbRegistry,
@@ -211,26 +204,6 @@ describe("profile seeding boundaries", () => {
 
     expect(registry.collections.profiles.get("u-mismatch")).toBeUndefined()
     await other.cleanup()
-  })
-
-  it("returns the raw API object while updating its canonical profile projection", async () => {
-    const raw = { member: { id: "u2", name: "API Alice", discriminator: "0042", avatar: null, avatarVersion: 0 } }
-    apiFetch.mockResolvedValueOnce(raw)
-
-    const result = await apiFetchProfiles(
-      "/profiles",
-      (data: typeof raw) => [{
-        id: data.member.id,
-        identityAbout: { name: data.member.name, discriminator: data.member.discriminator },
-        avatar: { avatar: data.member.avatar, avatarVersion: data.member.avatarVersion },
-      }],
-      undefined,
-      registry,
-    )
-
-    expect(result).toBe(raw)
-    expect(apiFetch).toHaveBeenCalledWith("/profiles", expect.objectContaining({ authenticationAccount: "viewer", assertActive: expect.any(Function) }))
-    expect(registry.collections.profiles.get("u2")?.name).toBe("API Alice")
   })
 
   it("merges partial updates without erasing canonical fields", () => {

@@ -38,6 +38,7 @@ vi.mock("@/hooks/community/use-channel-message-feed", async original => {
 })
 vi.mock("@/hooks/community/use-channel-panels", () => ({ usePins: () => ({pins: [], isLoading: false}), useThreads: () => ({threads: [], isLoading: false}) }))
 vi.mock("@/hooks/community/mutations", () => ({
+  useRenameChannel: () => ({ mutateAsync: vi.fn(async () => {}) }),
   useSendMessage: () => ({mutateAsync: vi.fn()}), useSetChannelNotif: () => ({mutate: vi.fn()}),
   useToggleReactionApi: () => vi.fn(), useAddReactionApi: () => vi.fn(),
   usePinMessage: () => ({mutate: vi.fn()}), useUnpinMessage: () => ({mutate: vi.fn()}),

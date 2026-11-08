@@ -104,7 +104,7 @@ interface ManagedSessionLifecycle {
 }
 interface TraceRecordBase {
   agentId: string;
-  effects: string[];
+  effects: ManagerEffect["type"][];
   nowMs: number;
   timeIso: string;
 }
@@ -115,9 +115,11 @@ interface TraceSpanMetadata {
   turnOrdinal: number;
   launchIdSnapshot: string | null;
 }
+export type ManagerFsmTraceEvent = ManagerEvent["type"] | "root_work" | "turn_end";
+
 interface FsmTraceRecord extends TraceRecordBase, Partial<TraceSpanMetadata> {
   recordKind: "fsm";
-  event: ManagerEvent["type"] | "root_work" | "turn_end";
+  event: ManagerFsmTraceEvent;
   status: AgentStatus;
   turnId: string | null;
   turnActive: boolean;

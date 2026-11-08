@@ -3,8 +3,7 @@ import { NextRequest } from "next/server"
 import { parseIcs } from "@alook/shared"
 
 const mocks = vi.hoisted(() => ({
-  agent: vi.fn(), email: vi.fn(), meeting: vi.fn(), broadcast: vi.fn(), invalidate: vi.fn(),
-  conversation: vi.fn(), task: vi.fn(),
+  agent: vi.fn(), email: vi.fn(), meeting: vi.fn(), broadcast: vi.fn(),
 }))
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })) }))
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
@@ -14,14 +13,9 @@ vi.mock("@alook/shared", async importOriginal => ({
     agent: { getAgent: mocks.agent },
     email: { createEmail: mocks.email },
     meetingSession: { createMeetingSession: mocks.meeting },
-    conversation: { createConversation: mocks.conversation },
-    task: { createTask: mocks.task },
   },
 }))
 vi.mock("@/lib/broadcast", () => ({ broadcastToUser: mocks.broadcast }))
-vi.mock("@/lib/cache", async importOriginal => ({
-  ...await importOriginal<typeof import("@/lib/cache")>(), invalidate: mocks.invalidate,
-}))
 import { POST } from "./route"
 
 const ANCIENT_MONTHLY_ZONE = `BEGIN:VTIMEZONE
@@ -66,11 +60,10 @@ beforeEach(() => {
   mocks.agent.mockResolvedValue({ id: "a1", runtimeId: "old-runtime", ownerId: "owner" })
   mocks.email.mockResolvedValue({ id: "email-1" })
   mocks.broadcast.mockResolvedValue(undefined)
-  mocks.invalidate.mockResolvedValue(undefined)
 })
 
 describe("inbound email after legacy execution removal", () => {
-  it.each([true, false])("stores whitelisted=%s email without creating legacy tasks or conversations", async isWhitelisted => {
+  it.each([true, false])("stores whitelisted=%s email and notifies its owner", async isWhitelisted => {
     const response = await POST(request({ ...body, isWhitelisted }))
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
@@ -78,10 +71,7 @@ describe("inbound email after legacy execution removal", () => {
       agentId: "a1", workspaceId: "ws1", r2Key: body.r2Key, fromEmail: body.from,
       toEmail: body.to, subject: body.subject, messageId: body.messageId, direction: "inbound", isWhitelisted,
     }))
-    expect(mocks.conversation).not.toHaveBeenCalled()
-    expect(mocks.task).not.toHaveBeenCalled()
     expect(mocks.broadcast).toHaveBeenCalledWith("owner", { type: "email.received", agentId: "a1" })
-    expect(mocks.invalidate).toHaveBeenCalledTimes(2)
   })
 
   it.each([
@@ -104,7 +94,6 @@ describe("inbound email after legacy execution removal", () => {
       agentId: "a1", workspaceId: "ws1", title: "Planning", participants: ["guest@example.test"],
       status, isWhitelisted, scheduledAt,
     }))
-    expect(mocks.task).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -123,8 +112,6 @@ describe("inbound email after legacy execution removal", () => {
     expect(mocks.agent).not.toHaveBeenCalled()
     expect(mocks.email).not.toHaveBeenCalled()
     expect(mocks.meeting).not.toHaveBeenCalled()
-    expect(mocks.conversation).not.toHaveBeenCalled()
-    expect(mocks.task).not.toHaveBeenCalled()
   })
 
   it("retains mail storage when the old agent lookup has no result", async () => {

@@ -15,6 +15,7 @@ static UIColor *alookDarkColor(void) {
 static const void *kAlookResolvedDarkThemeKey = &kAlookResolvedDarkThemeKey;
 static const void *kAlookWebBackgroundKey = &kAlookWebBackgroundKey;
 static const void *kAlookWebDarkThemeKey = &kAlookWebDarkThemeKey;
+static const void *kAlookThemeHandlerKey = &kAlookThemeHandlerKey;
 static const void *kAlookGeometryKey = &kAlookGeometryKey;
 static const void *kAlookKeyboardLayoutViewKey = &kAlookKeyboardLayoutViewKey;
 static const void *kAlookCommunityRootScrollDelegateKey = &kAlookCommunityRootScrollDelegateKey;
@@ -465,13 +466,19 @@ static NSString *const kThemeObserverScript =
 
 @interface AlookThemeHandler : NSObject <WKScriptMessageHandler>
 @property (nonatomic, weak) UIViewController *viewController;
+@property (nonatomic, weak) WKWebView *webView;
 @end
 
 @implementation AlookThemeHandler
 
 - (void)userContentController:(WKUserContentController *)userContentController
       didReceiveScriptMessage:(WKScriptMessage *)message {
-    if (![message.name isEqualToString:@"alookTheme"]) return;
+    WKWebView *webView = self.webView;
+    UIViewController *controller = self.viewController;
+    if (webView == nil || controller == nil || message.webView != webView ||
+        !message.frameInfo.isMainFrame || webView.superview != controller.view ||
+        objc_getAssociatedObject(webView, kAlookThemeHandlerKey) != self ||
+        ![message.name isEqualToString:@"alookTheme"]) return;
     NSDictionary *payload = [message.body isKindOfClass:NSDictionary.class] ? message.body : nil;
     NSString *theme = payload != nil ? payload[@"theme"] : message.body;
     if (![theme isKindOfClass:NSString.class] ||
@@ -488,9 +495,15 @@ static NSString *const kThemeObserverScript =
         }
     }
     BOOL isDark = [theme isEqualToString:@"dark"];
+    __weak WKWebView *capturedWebView = webView;
+    __weak UIViewController *capturedController = controller;
     dispatch_async(dispatch_get_main_queue(), ^{
-        UIViewController *viewController = self.viewController;
-        if (viewController == nil) return;
+        WKWebView *currentWebView = capturedWebView;
+        UIViewController *viewController = capturedController;
+        if (currentWebView == nil || viewController == nil ||
+            self.webView != currentWebView || self.viewController != viewController ||
+            currentWebView.superview != viewController.view ||
+            objc_getAssociatedObject(currentWebView, kAlookThemeHandlerKey) != self) return;
         objc_setAssociatedObject(
             viewController,
             kAlookWebDarkThemeKey,
@@ -503,6 +516,24 @@ static NSString *const kThemeObserverScript =
 }
 
 @end
+
+static void alookInstallThemeObserver(UIViewController *controller, WKWebView *webView) {
+    AlookThemeHandler *handler = objc_getAssociatedObject(webView, kAlookThemeHandlerKey);
+    if (handler != nil) {
+        handler.viewController = controller;
+        return;
+    }
+    handler = [[AlookThemeHandler alloc] init];
+    handler.viewController = controller;
+    handler.webView = webView;
+    [webView.configuration.userContentController addScriptMessageHandler:handler name:@"alookTheme"];
+    WKUserScript *script = [[WKUserScript alloc]
+        initWithSource:kThemeObserverScript
+        injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
+        forMainFrameOnly:YES];
+    [webView.configuration.userContentController addUserScript:script];
+    objc_setAssociatedObject(webView, kAlookThemeHandlerKey, handler, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 
 @interface AlookGeometryHandler : NSObject <WKScriptMessageHandlerWithReply>
 @property (nonatomic, weak) UIViewController *viewController;
@@ -668,18 +699,7 @@ static NSString *const kThemeObserverScript =
                     [webView evaluateJavaScript:@"window.dispatchEvent(new Event('alook:geometry-change'))" completionHandler:nil];
                 }
             }
-            static dispatch_once_t scriptToken;
-            dispatch_once(&scriptToken, ^{
-                AlookThemeHandler *handler = [[AlookThemeHandler alloc] init];
-                handler.viewController = self;
-                [webView.configuration.userContentController
-                    addScriptMessageHandler:handler name:@"alookTheme"];
-                WKUserScript *script = [[WKUserScript alloc]
-                    initWithSource:kThemeObserverScript
-                    injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
-                    forMainFrameOnly:YES];
-                [webView.configuration.userContentController addUserScript:script];
-            });
+            alookInstallThemeObserver(self, webView);
 
             alookApplyTheme(self, alookEffectiveDarkTheme(self));
         }

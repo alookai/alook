@@ -59,13 +59,6 @@ function createMigratedDatabase() {
   }
 }
 
-describe("community/bot exports", () => {
-  it("exports OwnerHasBotsError as a real Error subclass", () => {
-    const e = new q.OwnerHasBotsError("boom")
-    expect(e).toBeInstanceOf(Error)
-    expect(e.name).toBe("OwnerHasBotsError")
-  })
-})
 
 describe("communityBotSyntheticEmail", () => {
   it("lowercases + uses bots.alook.local domain", () => {

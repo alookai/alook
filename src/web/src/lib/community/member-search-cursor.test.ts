@@ -7,8 +7,8 @@ import {
 describe("member search cursor", () => {
   const cursor = {
     serverId: "srv_1",
-    query: "阿 li|ce",
-    name: "Alice | 阿",
+    query: "€ li|ce",
+    name: "Alice | €",
     id: "member_2",
   }
 

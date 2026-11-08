@@ -33,7 +33,6 @@ const mocks = vi.hoisted(() => ({
   signOut: vi.fn(),
   toast: vi.fn(),
   toastApiError: vi.fn(),
-  validate: vi.fn(),
   disposeReconciliation: vi.fn(),
   disposeCoordinator: vi.fn(),
 }))
@@ -45,7 +44,6 @@ vi.mock("@/lib/api/client", () => ({
   toastApiError: mocks.toastApiError,
   apiFetch: (path: string, options: { method?: string; body?: string }) => Promise.resolve(options?.method === "PATCH" ? mocks.updateProfile(JSON.parse(options.body!)) : mocks.query(path, options)).then((data) => options?.method === "PATCH" ? data : path.startsWith("/api/community/users/search?") ? { users: [], ...data } : ({ id: path.split("/").at(-2), name: "Remote", discriminator: "0001", image: null, avatarVersion: 0, bannerColor: null, aboutMe: "", mutualServers: 0, statusEmoji: null, statusText: null, kind: "human", ...data })),
 }))
-vi.mock("@/lib/community/image-crop", () => ({ validateIconSourceFile: mocks.validate }))
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => mocks.currentUser,
 }))
@@ -161,7 +159,6 @@ describe("useShellProfileController", () => {
     for (const mock of Object.values(mocks)) {
       if (typeof mock === "function" && "mockReset" in mock) mock.mockReset()
     }
-    mocks.validate.mockReturnValue({ ok: true })
     mocks.updateProfile.mockResolvedValue({
       id: "self",
       name: "Self",
@@ -267,10 +264,10 @@ describe("useShellProfileController", () => {
   it("does not create a literal card for an unresolved tagged target", async () => {
     mocks.query.mockResolvedValue({ users: [] })
     const hook = await renderController()
-    await act(async () => hook.current.openProfile("已交 /Alook", { clientX: 2, clientY: 3 } as never, "5620"))
-    await waitFor(() => expect(hook.queryClient.getQueryState(["community", "user-search", "已交 /Alook#5620"])?.status).toBe("success"))
+    await act(async () => hook.current.openProfile("Delivered /Alook", { clientX: 2, clientY: 3 } as never, "5620"))
+    await waitFor(() => expect(hook.queryClient.getQueryState(["community", "user-search", "Delivered /Alook#5620"])?.status).toBe("success"))
     expect(hook.current.profile).toBeNull()
-    expect(mocks.query).toHaveBeenCalledWith(`/api/community/users/search?q=${encodeURIComponent("已交 /Alook#5620")}`, expect.anything())
+    expect(mocks.query).toHaveBeenCalledWith(`/api/community/users/search?q=${encodeURIComponent("Delivered /Alook#5620")}`, expect.anything())
     expect(mocks.query.mock.calls.some(([path]) => path.endsWith("/profile"))).toBe(false)
   })
 
@@ -566,8 +563,7 @@ describe("useShellProfileController", () => {
 
     const saveError = new Error("save")
     mocks.updateProfile.mockRejectedValueOnce(saveError)
-    await act(async () => hook.current.userSettingsProps.onSave({ name: "Broken" }))
-    expect(mocks.toastApiError).toHaveBeenLastCalledWith(saveError, "Failed to save profile", expect.any(Function))
+    await act(async () => { await expect(hook.current.userSettingsProps.onSave({ name: "Broken" })).rejects.toBe(saveError) })
   })
 
   it("replaces the document after logout cleanup and preserves rejection behavior", async () => {
@@ -752,13 +748,12 @@ describe("useShellProfileController", () => {
       },
     })
     vi.stubGlobal("URL", { createObjectURL, revokeObjectURL: vi.fn() })
-    mocks.validate.mockReturnValue({ ok: false, error: "Choose a smaller image" })
     const hook = await renderController()
 
     await act(async () => hook.current.userSettingsProps.onUploadAvatar())
-    input!.files = [new File(["large"], "large.png", { type: "image/png" })]
+    input!.files = [new File(["invalid"], "invalid.txt", { type: "text/plain" })]
     await act(async () => input!.onchange?.())
-    expect(mocks.toast).toHaveBeenLastCalledWith("Choose a smaller image")
+    expect(mocks.toast).toHaveBeenLastCalledWith("Image must be PNG, JPEG, or WebP")
     expect(createObjectURL).not.toHaveBeenCalled()
     expect(hook.current.pendingAvatarCrop).toBeNull()
   })

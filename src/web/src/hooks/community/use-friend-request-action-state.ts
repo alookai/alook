@@ -5,12 +5,11 @@ import { useMutationState, useQueryClient } from "@tanstack/react-query"
 import { isAbortError } from "@/lib/errors"
 
 export type FriendRequestAction = "accept" | "reject"
-export type FriendRequestSurface = "inbox" | "friends"
 type FriendRequestRow = { id: string; userId?: string }
 export type ActionableFriendRequest<T> = { row: T; action?: FriendRequestAction; status?: "pending" | "error"; error?: string }
 const key = ["community", "friend-request"] as const
 
-export function useFriendRequestActionState<T extends FriendRequestRow>({ rows, onAccept, onReject, surface: _surface }: { rows: readonly T[]; onAccept?: (id: string) => Promise<unknown>; onReject?: (id: string) => Promise<unknown>; surface: FriendRequestSurface }) {
+export function useFriendRequestActionState<T extends FriendRequestRow>({ rows, onAccept, onReject }: { rows: readonly T[]; onAccept?: (id: string) => Promise<unknown>; onReject?: (id: string) => Promise<unknown> }) {
   const queryClient = useQueryClient()
   const commands = useMutationState({ filters: { mutationKey: key }, select: (mutation) => ({ id: (mutation.state.variables as { friendshipId?: string } | undefined)?.friendshipId, action: mutation.options.mutationKey?.[2] as FriendRequestAction, status: mutation.state.status, error: mutation.state.error, at: mutation.state.submittedAt, mutationId: mutation.mutationId }) })
   const items: Array<ActionableFriendRequest<T>> = rows.map((row) => {

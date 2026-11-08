@@ -35,14 +35,6 @@ export async function addMember(
   return rows[0]!;
 }
 
-export async function removeMember(db: Database, memberId: string) {
-  const rows = await db
-    .delete(communityServerMember)
-    .where(eq(communityServerMember.id, memberId))
-    .returning();
-  return rows[0] ?? null;
-}
-
 /**
  * Removes a server member and the owner's in-server bots in one D1 batch.
  * The target delete is scoped by both ids so a stale/cross-server member id
@@ -485,14 +477,6 @@ export function removeOwnerBotsFromServerStatement(
     ));
 }
 
-export async function removeOwnerBotsFromServer(
-  db: Database,
-  serverId: string,
-  botUserIds: string[],
-) {
-  await removeOwnerBotsFromServerStatement(db, serverId, botUserIds);
-}
-
 /**
  * Wake-dispatch access re-check (unread-wake rebuild path,
  * `buildUnreadWakeCommand`) — scoped in SQL before returning, per
@@ -504,7 +488,7 @@ export async function removeOwnerBotsFromServer(
  * The gate applies BOTH visibility AND notification-set semantics: a public
  * child thread is technically READABLE by any server member, but wakes only
  * fire for its `community_channel_member(relation='notify')` set — same rule the human
- * inbox uses (`listUnreadChannels`, `inbox.ts:123-143`). Without the
+ * inbox uses (`listEligibleUnreadChannels`). Without the
  * participation gate a bogus source query could still leak a wake for a
  * public-forum message whose scope has no
  * `community_channel_member(relation='notify')` row for the bot
@@ -528,11 +512,7 @@ export async function canBotReadWakeScope(
   // relation='access' member row), no server walk or notify narrowing.
   if (ctx.channel.type === "dm") return true;
 
-  const accessible = !ctx.isPrivate || canSeePrivateChannel({
-    role: ctx.role,
-    isCreator: ctx.isCreator,
-    isChannelMember: ctx.isChannelMember,
-  });
+  const accessible = !ctx.isPrivate || canSeePrivateChannel({ isCreator: ctx.isCreator, isChannelMember: ctx.isChannelMember });
   if (!accessible) return false;
 
   // Notification-set narrowing — child-thread scopes only notify users with a

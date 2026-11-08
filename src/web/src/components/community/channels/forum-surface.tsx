@@ -62,9 +62,7 @@ export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, 
       ? "error"
       : !readState.snapshot
       ? "pending"
-      : readState.snapshot
-        ? "ready"
-        : "error",
+      : "ready",
     feedStatus: feed.isPending
       ? "pending"
       : feed.isError

@@ -9,7 +9,7 @@ import { clearOutdatedPublicWorkerCaches, clearPublicWorkerCaches, getPublicWork
 function fixture() {
   for (const [name, value] of Object.entries(fakeIndexedDB)) if (name.startsWith("IDB")) vi.stubGlobal(name, value)
   vi.stubGlobal("indexedDB", new fakeIndexedDB.IDBFactory())
-  const response = new Response("你好")
+  const response = new Response("€€")
   const entries = new Map(["alook-public-precache-v0", "alook-public-precache-v1", "alook-public-v99-runtime", "unrelated-cache"].map((name) => [name, new Map([["https://alook.test/file", response.clone()]])]))
   const storage = { keys: vi.fn(async () => [...entries.keys()]), delete: vi.fn(async (name: string) => entries.delete(name)),
     open: vi.fn(async (name: string) => ({ keys: async () => [...entries.get(name)?.keys() ?? []].map((url) => new Request(url)),

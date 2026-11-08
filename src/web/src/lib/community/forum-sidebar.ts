@@ -1,4 +1,4 @@
-import { compareAsciiSqliteBinary, FORUM_ARCHIVE_TAG } from "@alook/shared"
+import { compareAsciiSqliteBinary, FORUM_ARCHIVE_TAG, FORUM_SIDEBAR_MAX_PER_PARENT, FORUM_SIDEBAR_ACTIVITY_WINDOW_MS } from "@alook/shared"
 import type { AttentionScopeRow, ChannelMembershipRow, ChannelRow, MessageRow } from "@/lib/community-db/schema"
 
 export type ForumSidebarThread = Pick<ChannelRow, "id"> & { unread: boolean } & {
@@ -13,7 +13,6 @@ export function supportsSidebarThreads(type: string | null | undefined) {
   return type === "forum" || type === "text"
 }
 
-export const FORUM_SIDEBAR_ACTIVITY_WINDOW_MS = 72 * 60 * 60 * 1000
 
 type AttentionProjection = {
   servers: Map<string, { unread: boolean; mentions: number }>
@@ -95,8 +94,8 @@ export function projectForumSidebarStructure(
   }
   const threads = [...byParent.values()].flatMap((siblings) => {
     const retained = retainId ? siblings.find((thread) => thread.id === retainId) : undefined
-    if (!retained || siblings.slice(0, 5).some((thread) => thread.id === retainId)) return siblings.slice(0, 5)
-    return [...siblings.filter((thread) => thread.id !== retainId).slice(0, 4), retained].sort(compareForumSidebarThreads)
+    if (!retained || siblings.slice(0, FORUM_SIDEBAR_MAX_PER_PARENT).some((thread) => thread.id === retainId)) return siblings.slice(0, FORUM_SIDEBAR_MAX_PER_PARENT)
+    return [...siblings.filter((thread) => thread.id !== retainId).slice(0, FORUM_SIDEBAR_MAX_PER_PARENT - 1), retained].sort(compareForumSidebarThreads)
   })
   return { threads, parentIds: channels.filter(channel => channel.serverId === serverId && channel.type !== "thread").map(channel => channel.id) }
 }

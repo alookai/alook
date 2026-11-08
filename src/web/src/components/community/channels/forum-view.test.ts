@@ -2,13 +2,7 @@ import rawContractInput0 from "../../../app/globals.css?raw"
 import { beforeEach, describe, it, expect, vi } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import {
-  ForumView,
-  ForumViewSkeleton,
-  forumTagScrollFades,
-  shouldActivateForumRow,
-  toggleForumArchivedStatus,
-} from "./forum-view"
+import { ForumView, ForumViewSkeleton, shouldActivateForumRow, toggleForumArchivedStatus } from "./forum-view"
 import { tid } from "@/lib/community/testids"
 import type { ForumThread } from "@/lib/community/models/message"
 
@@ -153,7 +147,7 @@ describe("ForumView post card header", () => {
   })
 
   it("keeps the full title and complete sequence accessible in the server-rendered fallback", () => {
-    const name = "完整标题👩‍👩‍👧‍👦 é ".repeat(12)
+    const name = "Complete title👩‍👩‍👧‍👦 é ".repeat(12)
     const html = render([makePost({ name, parentSeq: 9007199254740991 })])
     expect(html).toContain(`aria-label="${name} #9007199254740991"`)
     expect(html).toContain(`title="${name}"`)
@@ -185,7 +179,7 @@ describe("ForumView post card header", () => {
     if (count > 1) expect(html).toContain("my-[6.6px] bg-border/50")
   })
 
-  it.each(["Alice", "VeryLongAuthorName".repeat(8), "很长的作者名称".repeat(12)])("preserves the full author name behind its single-line width limit: %s", authorName => {
+  it.each(["Alice", "VeryLongAuthorName".repeat(8), "界".repeat(12)])("preserves the full author name behind its single-line width limit: %s", authorName => {
     const html = render([makePost({ parent: { authorName, text: "root" }, participants: [{ id: "usr_alice", name: authorName, avatar: "A" }] })])
     const label = html.match(/<span data-slot="community-forum-post-author"[^>]*>([^<]*)<\/span>/)
     expect(label?.[1]).toBe(authorName)
@@ -413,16 +407,6 @@ describe("ForumView platform post actions", () => {
 })
 
 describe("ForumView filter bar / composer swap", () => {
-  it("derives conditional edge fades from rail scroll geometry", () => {
-    expect(forumTagScrollFades({ scrollLeft: 0, clientWidth: 200, scrollWidth: 200 }))
-      .toEqual({ left: false, right: false })
-    expect(forumTagScrollFades({ scrollLeft: 0, clientWidth: 200, scrollWidth: 420 }))
-      .toEqual({ left: false, right: true })
-    expect(forumTagScrollFades({ scrollLeft: 110, clientWidth: 200, scrollWidth: 420 }))
-      .toEqual({ left: true, right: true })
-    expect(forumTagScrollFades({ scrollLeft: 220, clientWidth: 200, scrollWidth: 420 }))
-      .toEqual({ left: true, right: false })
-  })
 
   it("shows the New Post trigger by default (not the composer)", () => {
     const html = render([makePost()])

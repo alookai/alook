@@ -1,4 +1,4 @@
-import { useConversationActivity } from "@/contexts/community/conversation-activity"
+import { useConversationActivity } from "@/contexts/view-activity"
 import { useMutation, useIsMutating, useQueryClient } from "@tanstack/react-query";
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections";
 import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
@@ -13,7 +13,6 @@ import {
 import { useEditor, type Editor, type JSONContent } from "@tiptap/react"
 import Placeholder from "@tiptap/extension-placeholder"
 import { DOMParser as PMDOMParser } from "@tiptap/pm/model"
-import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared"
 import { useFileAttachments } from "@/hooks/use-file-attachments"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { tid } from "@/lib/community/testids"
@@ -78,12 +77,10 @@ export function useComposerController(
   useLayoutEffect(() => {
     hoverCapableRef.current = hoverCapable
   }, [hoverCapable])
-  const attachments = useFileAttachments({ maxFileSize: MAX_ATTACHMENT_SIZE_BYTES,
-    maxFiles: MAX_ATTACHMENTS_PER_MESSAGE, thumbnailPolicy: "community",
-    draftSessionScope: isForumThreadBody ? undefined : draftKey })
+  const attachments = useFileAttachments(isForumThreadBody ? undefined : draftKey)
   const {
     pendingFiles,
-    setPendingFiles,
+    clearPendingFiles,
     transferPendingFiles,
     awaitPendingFiles,
     addPendingFiles,
@@ -341,7 +338,7 @@ export function useComposerController(
       if (!protocol.get().active || !editor) return
       editor.commands.clearContent()
       setEditorHasContent(false)
-      setPendingFiles([])
+      clearPendingFiles()
       protocol.setState((state) => ({ ...state, nextLongPasteIndex: 1 }))
       resetPopups()
     },

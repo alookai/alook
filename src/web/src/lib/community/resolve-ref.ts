@@ -111,7 +111,7 @@ export async function resolveTargetForMember(
   // resolver (`resolveChannelByNameForMember` filters `parent_channel_id IS
   // NULL`, so `channel.parentChannelId` is always null here); it stays as a
   // guard against future changes that widen that resolver, and mirrors what
-  // `createThreadChannel` enforces at the DB layer as a last resort.
+  // `createThreadForUser` enforces at the DB layer as a last resort.
   if (channel.parentChannelId) {
     return { error: 400, message: "can't start a thread inside a thread or forum post" }
   }

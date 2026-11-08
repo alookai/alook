@@ -2,7 +2,7 @@
 
 import { useEffect } from "react"
 import { RefreshCw } from "lucide-react"
-import { useConversationActivity } from "@/contexts/community/conversation-activity"
+import { useConversationActivity } from "@/contexts/view-activity"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { isPresenceOnline } from "@alook/shared"

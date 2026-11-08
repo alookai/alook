@@ -118,7 +118,7 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
     viewerId: userId, target: resolved.value, window, tag, contract: COMMUNITY_RESOURCE_CONTRACT_VERSION,
   })
   if (!result.ok) return NextResponse.json({ error: result.error, details: result.details }, { status: result.status })
-  return writeCommunityMessagesRead(req, channelId, result.page)
+  return writeCommunityMessagesRead(channelId, result.page)
 })
 
 /**

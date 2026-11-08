@@ -25,11 +25,7 @@ import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
-import {
-  HorizontalOverflowFadeOverlays,
-  horizontalOverflowFades,
-  useHorizontalOverflowRail,
-} from "@/components/horizontal-overflow-rail"
+import { HorizontalOverflowFadeOverlays, useHorizontalOverflowRail } from "@/components/horizontal-overflow-rail"
 
 const MAX_AVATARS = 5
 const MAX_VISIBLE_TAGS = 2
@@ -44,7 +40,6 @@ export function shouldActivateForumRow(event: {
   return event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")
 }
 
-export const forumTagScrollFades = horizontalOverflowFades
 
 function ForumTagSummary({ tags }: { tags: string[] }) {
   const ordinaryTags = tags.filter((tag) => tag !== FORUM_ARCHIVE_TAG)
@@ -304,7 +299,6 @@ export function ForumView({
               const archived = p.tags.includes(FORUM_ARCHIVE_TAG)
               const hasOrdinaryTags = p.tags.some((postTag) => postTag !== FORUM_ARCHIVE_TAG)
               const savingTags = savingTagsFor === p.id
-              const actionCount = (canEdit ? 2 : 0) + (canDelete ? 1 : 0)
               const author = readCommunityProfile(
                 profilesByUserId.get(p.authorId),
                 p.authorId,
@@ -332,7 +326,7 @@ export function ForumView({
                     POST_ROW_CLASS,
                   )}
                 >
-                  <div className={cn("grid grid-rows-[minmax(2rem,max-content)_auto] gap-x-2", actionCount > 0 ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1")}>
+                  <div className={cn("grid grid-rows-[minmax(2rem,max-content)_auto] gap-x-2", canEdit || canDelete ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1")}>
                     <ForumPostTitle name={p.name} postId={p.id} seq={p.parentSeq} />
                     {(canEdit || canDelete) && (
                       <div

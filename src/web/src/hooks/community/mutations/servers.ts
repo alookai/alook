@@ -1,4 +1,5 @@
 "use client"
+import { type OwnerServerDeleteRouteToken } from "@/stores/community/server-eject-store"
 import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import { communityCommandInput, useCommunityCommandMutation, type CommunityCommandArgs } from "../use-community-command-mutation"
@@ -16,12 +17,7 @@ import {
   evictServerChannelScopes,
   flushOwnerServerDeleteAfterSuccess,
 } from "@/hooks/community/community-ws/scope-eviction"
-import {
-  beginOwnerServerDelete,
-  cancelOwnerServerDelete,
-  commitOwnerServerDelete,
-  type OwnerServerDeleteRouteToken,
-} from "@/lib/community/eject-server"
+import { beginOwnerServerDelete, cancelOwnerServerDelete, commitOwnerServerDelete } from "@/lib/community/eject-server"
 
 export type CreateServerArgs = { name: string }
 export type CreateServerResult = { server: { id: string } }

@@ -11,7 +11,7 @@ import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { normalizeCommunityHref, type CommunityCommittedFrame } from "@/lib/community/community-route"
 import { communityKeys } from "@/lib/query-keys"
 import { tid } from "@/lib/community/testids"
-import { captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot, publishAccountAttentionSnapshot, clearAttentionScopeOptimistically, restoreAttentionScopeOptimisticSnapshot } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot, publishAccountAttentionSnapshot, clearAttentionScopeOptimistically, restoreAttentionOptimisticSnapshot } from "@/lib/community-db/sync"
 import { createOwnerServerDeleteRouteToken } from "@/lib/community/eject-server"
 import { serversProjectedQueryFn } from "@/hooks/community/use-servers"
 import { useCommunityRuntime } from "@/stores/community/runtime"
@@ -78,7 +78,7 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   await act(async () => { await attention(5) })
   await waitFor(() => expect(indicator()).toHaveClass("h-2.5"))
   await act(async () => {
-    restoreAttentionScopeOptimisticSnapshot(registry, optimistic)
+    restoreAttentionOptimisticSnapshot(registry, optimistic)
     await publishAccountAttentionSnapshot(client, { snapshot: { resources: resourceBundleFixture(), scopes: [], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }, proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
   })
   await waitFor(() => expect(indicator()).toHaveClass("h-0"))

@@ -4,7 +4,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { useCommunityRuntime } from "@/stores/community/runtime"
-import { saveFile, fileSaveMessage, type FileSaveResult } from "@/lib/file-save"
+import { saveFile, fileSaveMessage } from "@/lib/file-save"
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react"
 import { toBlob } from "html-to-image"
 import { toast } from "sonner"
@@ -32,20 +32,6 @@ import {
   type PreparedShareImageSession,
 } from "@/lib/community/share-image-session"
 
-export { ShareImageSessionError as ShareCardRenderError }
-
-async function renderShareCard(
-  node: HTMLElement,
-  fontEmbedCSS = "",
-  rasterize = toBlob,
-  options: { timeoutMs?: number; signal?: AbortSignal } = {},
-): Promise<Blob> {
-  return capturePreparedShareImage(node, fontEmbedCSS, rasterize, options)
-}
-
-type ShareCardRenderer = () => Promise<Blob | null>
-type ShareCardBlobWriter = (blob: Blob) => Promise<void> | void
-
 function mobileShareImageErrorCode(error: unknown): string | null {
   if (typeof error !== "object" || error === null) return null
   const value = error as { name?: unknown; code?: unknown }
@@ -66,26 +52,6 @@ export async function writeShareCardToClipboard(blob: Blob, assertActive?: () =>
   await navigator.clipboard.write([
     new ClipboardItem({ "image/png": blob }),
   ])
-}
-
-export async function copyRenderedShareCard(
-  render: ShareCardRenderer,
-  write: ShareCardBlobWriter = writeShareCardToClipboard,
-): Promise<void> {
-  const blob = await render()
-  if (!blob) throw new ShareImageSessionError("rasterize")
-  await write(blob)
-}
-
-async function saveShareCardDownload(blob: Blob, filename: string, save?: ShareCardBlobWriter, signal?: AbortSignal): Promise<FileSaveResult> {
-  if (save) { await save(blob); return { status: "started" } }
-  return saveFile(blob, filename, { signal })
-}
-
-export async function downloadRenderedShareCard(render: ShareCardRenderer, filename: string, save?: ShareCardBlobWriter): Promise<FileSaveResult> {
-  const blob = await render()
-  if (!blob) throw new ShareImageSessionError("rasterize")
-  return saveShareCardDownload(blob, filename, save)
 }
 
 export function shareCardRenderErrorMessage(error: unknown): string | null {
@@ -152,7 +118,7 @@ export function MessageShareDialog({ m, open, onClose }: {
       const prepared = client.getQueryData<{ value: PreparedShareImageSession; filename: string }>(preparationKey)
       const node = previewRef.current?.querySelector<HTMLElement>("[data-share-card]")
       if (!node || !prepared) throw new ShareImageSessionError("rasterize")
-      const blob = await renderShareCard(node, prepared.value.fontEmbedCSS, toBlob, { signal })
+      const blob = await capturePreparedShareImage(node, prepared.value.fontEmbedCSS, toBlob, { signal })
       assert()
       return blob
     },
@@ -182,7 +148,7 @@ export function MessageShareDialog({ m, open, onClose }: {
         original()
         return { action, destination: result.destination }
       }
-      const result = await saveShareCardDownload(blob, prepared.filename, undefined, original.signal)
+      const result = await saveFile(blob, prepared.filename, { signal: original.signal })
       original()
       if (result.status === "error") toast.error(fileSaveMessage(result))
       else if (result.status !== "cancelled") toast.success(fileSaveMessage(result))

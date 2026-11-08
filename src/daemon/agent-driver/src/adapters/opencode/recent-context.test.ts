@@ -62,11 +62,11 @@ describe("OpenCode recent-context discovery", () => {
   });
 
   it("preserves a UTF-8 project path split across stdout chunks", async () => {
-    const unicodeProjectPath = projectPath("中文-🚀");
+    const unicodeProjectPath = projectPath("€€-🚀");
     const payload = Buffer.from(JSON.stringify([
       { directory: unicodeProjectPath, updated: Date.parse("2026-01-01T00:00:00Z") },
     ]));
-    const markerAt = payload.indexOf(Buffer.from("中"));
+    const markerAt = payload.indexOf(Buffer.from("€"));
     expect(markerAt).toBeGreaterThanOrEqual(0);
     const result = await discoverOpenCodeRecentContext({
       recentSessionFilesTopK: 0,

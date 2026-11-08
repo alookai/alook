@@ -1,5 +1,7 @@
 "use client";
 
+import { legacyTweenTimeScale } from "./legacy-tween-time-scale";
+
 import { useRef } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
@@ -18,6 +20,7 @@ export function QuickstartSection() {
 
   useGSAP(
     () => {
+      const timeScale = legacyTweenTimeScale();
       gsap.from(".selfhost-title", {
         y: 30,
         opacity: 0,
@@ -27,7 +30,7 @@ export function QuickstartSection() {
           start: "top 75%",
           toggleActions: "play none none none",
         },
-      });
+      }).timeScale(timeScale);
 
       gsap.from(".selfhost-point", {
         y: 25,
@@ -35,11 +38,11 @@ export function QuickstartSection() {
         duration: 0.5,
         stagger: 0.12,
         scrollTrigger: {
-          trigger: ".selfhost-grid",
+          trigger: sectionRef.current?.querySelector(".selfhost-grid"),
           start: "top 80%",
           toggleActions: "play none none none",
         },
-      });
+      }).timeScale(timeScale);
     },
     { scope: sectionRef }
   );

@@ -1,5 +1,7 @@
 "use client"
 
+import { useReducedMotion } from "@/hooks/use-reduced-motion"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, type CSSProperties } from "react"
 import {
@@ -19,19 +21,6 @@ import { useLandingMotionPlayback } from "./use-landing-motion-playback"
  * PhoneMockupCard. See ./opensourceui-mockups.LICENSE.txt.
  */
 
-function useReducedMotion() {
-  const [reduced, setReduced] = useAtom(useCreateAtom(false))
-
-  useEffect(() => {
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)")
-    const sync = () => setReduced(query.matches)
-    sync()
-    query.addEventListener("change", sync)
-    return () => query.removeEventListener("change", sync)
-  }, [setReduced])
-
-  return reduced
-}
 
 export function LandingReachMotion() {
   const maxBeat = SCENE_MAX_BEAT.server

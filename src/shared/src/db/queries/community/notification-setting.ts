@@ -1,22 +1,8 @@
-import {
-  eq,
-  and,
-  or,
-  isNull,
-  isNotNull,
-  inArray,
-  exists,
-  sql,
-} from "drizzle-orm";
+import { channelReadableSql } from "./channel";
+import { eq, and, or, isNull, isNotNull, exists, sql } from "drizzle-orm";
 import type { SQLWrapper } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import {
-  communityNotificationSetting,
-  communityChannel,
-  communityCategory,
-  communityChannelMember,
-  communityServerMember,
-} from "../../community-schema";
+import { communityNotificationSetting, communityChannel } from "../../community-schema"
 import type { Database } from "../../index";
 import {
   accountReadStateRevisionBuilder,
@@ -24,19 +10,7 @@ import {
 } from "./read-state";
 import type { NotificationLevelValue } from "../../../constants/community";
 import { currentEffectiveLevelSql } from "./notification-eligibility";
-import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
-type EffectiveLevelChannel = {
-  id: string;
-  serverId: string;
-  parentChannelId: string | null;
-};
-
-type EffectiveLevelSetting = {
-  channelId: string | null;
-  serverId: string | null;
-  level: string;
-};
 
 export function policyAllows(
   level: NotificationLevelValue,
@@ -44,119 +18,6 @@ export function policyAllows(
 ): boolean {
   if (level === "nothing") return false;
   return level === "all" || hasAttention;
-}
-
-// Resolve a user's effective notification level for a channel: own-channel
-// override beats parent-channel (forum/thread → its parent) beats server
-// default beats the global default "all". A DM channel has serverId null and no
-// parent, so it matches none of the fallbacks and lands on its OWN setting or
-// the "all" default — a DM's level is self-contained, never inherited from a
-// server/parent (a `nothing` set elsewhere can't cascade onto a DM).
-export function computeEffectiveLevel(
-  settings: EffectiveLevelSetting[],
-  channel: EffectiveLevelChannel
-): NotificationLevelValue {
-  const own = settings.find((s) => s.channelId === channel.id);
-  if (own) return own.level as NotificationLevelValue;
-
-  if (channel.parentChannelId) {
-    const parent = settings.find((s) => s.channelId === channel.parentChannelId);
-    if (parent) return parent.level as NotificationLevelValue;
-  }
-
-  const server = settings.find(
-    (s) => s.channelId == null && s.serverId === channel.serverId
-  );
-  if (server) return server.level as NotificationLevelValue;
-
-  return "all";
-}
-
-async function loadChannel(
-  db: Database,
-  channelId: string
-): Promise<EffectiveLevelChannel | null> {
-  const rows = await db
-    .select({
-      id: communityChannel.id,
-      serverId: communityChannel.serverId,
-      parentChannelId: communityChannel.parentChannelId,
-    })
-    .from(communityChannel)
-    .where(eq(communityChannel.id, channelId));
-  return rows[0] ?? null;
-}
-
-async function loadScopedSettings(
-  db: Database,
-  userIds: string[],
-  channel: EffectiveLevelChannel
-): Promise<(EffectiveLevelSetting & { userId: string })[]> {
-  const channelIds = channel.parentChannelId
-    ? [channel.id, channel.parentChannelId]
-    : [channel.id];
-
-  // Reserve one bind for serverId plus one per own/parent channel id. The
-  // remainder is the safe recipient batch under D1's 100-bind ceiling.
-  const usersPerQuery = D1_MAX_IN_PARAMS - channelIds.length - 1;
-  const rows = await Promise.all(
-    chunk(userIds, usersPerQuery).map((ids) =>
-      db
-        .select({
-          userId: communityNotificationSetting.userId,
-          channelId: communityNotificationSetting.channelId,
-          serverId: communityNotificationSetting.serverId,
-          level: communityNotificationSetting.level,
-        })
-        .from(communityNotificationSetting)
-        .where(
-          and(
-            inArray(communityNotificationSetting.userId, ids),
-            or(
-              inArray(communityNotificationSetting.channelId, channelIds),
-              and(
-                eq(communityNotificationSetting.serverId, channel.serverId),
-                isNull(communityNotificationSetting.channelId)
-              )
-            )
-          )
-        )
-    )
-  );
-  return rows.flat();
-}
-
-export async function resolveEffectiveLevel(
-  db: Database,
-  userId: string,
-  channelId: string
-): Promise<NotificationLevelValue> {
-  const channel = await loadChannel(db, channelId);
-  if (!channel) return "all";
-  const settings = await loadScopedSettings(db, [userId], channel);
-  return computeEffectiveLevel(settings, channel);
-}
-
-export async function resolveEffectiveLevelForUsers(
-  db: Database,
-  userIds: string[],
-  channelId: string
-): Promise<Map<string, NotificationLevelValue>> {
-  const result = new Map<string, NotificationLevelValue>();
-  if (userIds.length === 0) return result;
-
-  const channel = await loadChannel(db, channelId);
-  if (!channel) {
-    for (const uid of userIds) result.set(uid, "all");
-    return result;
-  }
-
-  const rows = await loadScopedSettings(db, userIds, channel);
-  for (const uid of userIds) {
-    const userSettings = rows.filter((r) => r.userId === uid);
-    result.set(uid, computeEffectiveLevel(userSettings, channel));
-  }
-  return result;
 }
 
 export async function getSettings(db: Database, userId: string) {
@@ -220,45 +81,6 @@ function affectedChannelWhere(scope: MutationScope) {
         eq(communityChannel.id, scope.id),
         eq(communityChannel.parentChannelId, scope.id),
       )!;
-}
-
-/** The target identity must be able to read every channel whose cursor moves. */
-function userCanAccessChannelSql(userId: string) {
-  const anchorId = sql`coalesce(${communityChannel.parentChannelId}, ${communityChannel.id})`;
-  const anchorPrivate = sql<number>`coalesce((
-    select ${communityCategory.private}
-    from ${communityChannel} notification_anchor
-    left join ${communityCategory}
-      on ${communityCategory.id} = notification_anchor.category_id
-    where notification_anchor.id = ${anchorId}
-    limit 1
-  ), 0)`;
-  const anchorCreator = sql`(
-    select notification_anchor.creator_id
-    from ${communityChannel} notification_anchor
-    where notification_anchor.id = ${anchorId}
-    limit 1
-  )`;
-  const hasChannelAccess = sql<boolean>`exists(
-    select 1 from ${communityChannelMember}
-    where ${communityChannelMember.channelId} = ${anchorId}
-      and ${communityChannelMember.userId} = ${userId}
-      and ${communityChannelMember.relation} = 'access'
-  )`;
-  const hasServerMembership = sql<boolean>`exists(
-    select 1 from ${communityServerMember}
-    where ${communityServerMember.serverId} = ${communityChannel.serverId}
-      and ${communityServerMember.userId} = ${userId}
-  )`;
-
-  return sql<boolean>`case
-    when ${communityChannel.serverId} is null then ${hasChannelAccess}
-    else ${hasServerMembership} and (
-      ${anchorPrivate} = 0
-      or ${anchorCreator} = ${userId}
-      or ${hasChannelAccess}
-    )
-  end`;
 }
 
 function settingLevelForChannelSql(
@@ -346,7 +168,7 @@ function effectivePolicyChangesCondition(
     .where(
       and(
         affectedChannelWhere(scope),
-        userCanAccessChannelSql(userId),
+        channelReadableSql(userId, { ...channelSql, type: communityChannel.type }),
         sql`${currentEffectiveLevelSql(userId, channelSql)} <> ${nextEffectiveLevelSql(userId, change)}`,
       ),
     ));

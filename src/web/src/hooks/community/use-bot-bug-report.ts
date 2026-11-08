@@ -70,13 +70,10 @@ type CreateBugReportFailureAction =
   | { type: "create_error" }
   | { type: "create_rejected"; code: BugReportClientErrorCode }
 
-type BugReportAction =
+type BugReportFailure =
   | CreateBugReportFailureAction
-  | { type: "poll_error" }
   | { type: "invalid_payload" }
   | { type: "deadline" }
-  | { type: "created"; delivery: "accepted" | "unknown"; report: OwnerBugReport }
-  | { type: "status"; report: OwnerBugReport }
 
 const errorMessages: Record<BugReportUiErrorCode, string> = {
   offline: "Bring the daemon online, then try again.",
@@ -221,10 +218,7 @@ function stateForReport(state: BugReportState, report: OwnerBugReport): BugRepor
   }
 }
 
-export function bugReportReducer(state: BugReportState, action: BugReportAction): BugReportState {
-  if (action.type === "created" || action.type === "status") {
-    return stateForReport(state, action.report)
-  }
+function applyBugReportFailure(state: BugReportState, action: BugReportFailure): BugReportState {
   if (action.type === "create_error") {
     return { ...state, phase: "failed", terminal: false, errorCode: "internal_error" }
   }
@@ -239,24 +233,9 @@ export function bugReportReducer(state: BugReportState, action: BugReportAction)
   if (action.type === "invalid_payload") {
     return { ...state, phase: "failed", terminal: true, errorCode: "internal_error" }
   }
-  if (action.type === "deadline") {
-    return { ...state, phase: "timeout", terminal: true, errorCode: "timeout" }
-  }
-  return state
+  return { ...state, phase: "timeout", terminal: true, errorCode: "timeout" }
 }
 
-export function shouldPollBugReport(
-  state: BugReportState,
-  options: { open: boolean; nowMs: number },
-): boolean {
-  return Boolean(
-    options.open &&
-      state.phase === "collecting" &&
-      state.reportId &&
-      state.deadlineAt !== null &&
-      options.nowMs < state.deadlineAt,
-  )
-}
 
 function reportFromEnvelope(value: unknown): OwnerBugReport | null {
   if (!isRecord(value)) return null
@@ -313,12 +292,12 @@ export function useBotBugReport({ agentId, open }: { agentId: string; open: bool
   if (creation.variables?.nonce === intent.nonce) {
     if (creation.isPending) state = { ...state, phase: "submitting" }
     else if (creation.error && !(creation.error instanceof DOMException && creation.error.name === "AbortError")) {
-      state = bugReportReducer(state, creation.error instanceof InvalidBugReportPayloadError ? { type: "invalid_payload" } : createActionFromApiError(creation.error))
+      state = applyBugReportFailure(state, creation.error instanceof InvalidBugReportPayloadError ? { type: "invalid_payload" } : createActionFromApiError(creation.error))
     }
   }
   if (statusQuery.data && statusQuery.data.reportId === reportId) state = stateForReport(state, statusQuery.data)
-  if (statusQuery.error instanceof InvalidBugReportPayloadError) state = bugReportReducer(state, { type: "invalid_payload" })
-  if (intent.expiredReportId === reportId && state.phase === "collecting") state = bugReportReducer(state, { type: "deadline" })
+  if (statusQuery.error instanceof InvalidBugReportPayloadError) state = applyBugReportFailure(state, { type: "invalid_payload" })
+  if (intent.expiredReportId === reportId && state.phase === "collecting") state = applyBugReportFailure(state, { type: "deadline" })
   useEffect(() => {
     const report = statusQuery.data
     if (!open || !report || report.status !== "pending") return

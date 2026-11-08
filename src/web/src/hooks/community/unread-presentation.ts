@@ -1,5 +1,3 @@
-import type { InboxRowTarget } from "./inbox-read-reservation"
-
 export type UnreadPresentationInput = {
   accountUnread: boolean
   reserved?: boolean
@@ -43,53 +41,4 @@ export function selectUnreadPresentation({
             ? "unread"
             : "idle",
   }
-}
-
-export type UnreadPresentationExclusion = {
-  channelId: string
-  throughSeq?: number
-}
-
-export function reservedUnreadExclusion(
-  target: InboxRowTarget | null,
-  domain: "channels" | "dms",
-): UnreadPresentationExclusion | null {
-  if (!target || target.kind === "mention") return null
-  if (domain === "dms") {
-    return target.kind === "dm"
-      ? {
-          channelId: target.channelId,
-          ...(target.reservedThroughSeq !== undefined
-            ? { throughSeq: target.reservedThroughSeq }
-            : {}),
-        }
-      : null
-  }
-  if (target.kind === "channel-direct") {
-    return {
-      channelId: target.channelId,
-      ...(target.reservedThroughSeq !== undefined
-        ? { throughSeq: target.reservedThroughSeq }
-        : {}),
-    }
-  }
-  if (target.kind === "thread") {
-    return {
-      channelId: target.childChannelId,
-      ...(target.reservedThroughSeq !== undefined
-        ? { throughSeq: target.reservedThroughSeq }
-        : {}),
-    }
-  }
-  return null
-}
-
-export function isInboxTargetReserved(
-  target: InboxRowTarget | null,
-  candidate: InboxRowTarget | null,
-) {
-  return !!target
-    && !!candidate
-    && target.identity === candidate.identity
-    && target.fingerprint === candidate.fingerprint
 }

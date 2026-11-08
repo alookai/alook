@@ -73,7 +73,7 @@ describe("human-only PII management", () => {
     expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
     expect(await response.json()).toEqual({ dispatched: true, requestId: "preview" })
     expect(JSON.parse(mocks.dispatch.mock.calls[0][2].body)).toEqual({ type: "pii:manage", botId: "bot", ...preview })
-    for (const operation of [{ ...preview.operation, text: "中".repeat(400) }, { ...preview.operation, text: " " }, { action: "preview", text: "text" }]) {
+    for (const operation of [{ ...preview.operation, text: "€".repeat(400) }, { ...preview.operation, text: " " }, { action: "preview", text: "text" }]) {
       expect((await POST(request({ requestId: "invalid", operation }), context)).status).toBe(400)
     }
     const escaped = await POST(request({ requestId: "escaped", operation: { ...preview.operation, text: "\u0000".repeat(1024) } }), context)

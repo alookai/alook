@@ -2,7 +2,7 @@ import { messageReadPageFixture } from "@/test/community-resource-fixtures"
 import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act } from "@/test/react-dom-harness"
+import { act, waitFor } from "@/test/react-dom-harness"
 import { render as renderBase } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
@@ -140,7 +140,7 @@ describe("MessageContextSheet native query publication", () => {
       messageResourceFixture({ id: "after", channelId: "context_channel", seq: 3, content: "after", authorId: "author", authorName: "Author" }),
       messageResourceFixture({ id: "anchor", channelId: "context_channel", seq: 2, content: "anchor", authorId: "author", authorName: "Author" }),
     ], hasMore: false }))
-    await expect(messageContextQueryFn("channel", "context_channel", "anchor", owner.client)({ signal })).resolves.toMatchObject({
+    await expect(messageContextQueryFn("context_channel", "anchor", owner.client)({ signal })).resolves.toMatchObject({
       notFound: false, anchorId: "anchor", messages: [{ id: "anchor" }, { id: "after" }],
     })
     expect(mocks.apiFetch.mock.calls.map(([url]) => url)).toEqual([
@@ -158,7 +158,7 @@ describe("MessageContextSheet native query publication", () => {
     const revision = beginCommunityProfileSeed(owner.registry).revision
     const { ApiError } = await import("@/lib/errors")
     mocks.apiFetch.mockRejectedValueOnce(new ApiError("missing", 404))
-    await expect(messageContextIdQueryFn("dm", "context_dm", 8, owner.client)()).resolves.toMatchObject({ notFound: true })
+    await expect(messageContextIdQueryFn("context_dm", 8, owner.client)()).resolves.toMatchObject({ notFound: true })
     expect(mocks.apiFetch).toHaveBeenCalledTimes(1)
     expect(beginCommunityProfileSeed(owner.registry).revision).toBe(revision)
     expect([...owner.registry.collections.messages.values()]).toEqual([])
@@ -169,10 +169,10 @@ describe("MessageContextSheet native query publication", () => {
     const { retireCommunityChannelReading } = await import("@/lib/community-db/sync")
     let resolvePage!: (page: unknown) => void
     mocks.apiFetch.mockImplementationOnce(() => new Promise((resolve) => { resolvePage = resolve }))
-    const pending = messageContextQueryFn("channel", "context_channel", "anchor", owner.client)().catch((error) => error)
-    while (!resolvePage) await Promise.resolve()
+    const pending = messageContextQueryFn("context_channel", "anchor", owner.client)().catch((error) => error)
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledOnce())
     retireCommunityChannelReading(owner.registry, "context_channel", { reason: "read-denied", serverId: "context_server" })
-    resolvePage({ messages: [messageResourceFixture({ id: "anchor", channelId: "context_channel", seq: 2, content: "late", authorId: "author", authorName: "Late Author" })], hasMore: false })
+    resolvePage(messageReadPageFixture({ messages: [messageResourceFixture({ id: "anchor", channelId: "context_channel", seq: 2, content: "late", authorId: "author", authorName: "Late Author" })], hasMore: false }))
     expect(await pending).toMatchObject({ name: "AbortError" })
     expect(owner.registry.collections.messages.get("anchor")).toBeUndefined()
     expect(owner.registry.collections.profiles.get("author")).toBeUndefined()

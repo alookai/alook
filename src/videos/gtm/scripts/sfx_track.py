@@ -1,8 +1,8 @@
 import array
 import math
-import re
 import subprocess
 import wave
+from current_timeline import REVIEW_SEGMENTS
 
 RATE = 48000
 
@@ -35,6 +35,7 @@ def build_base_sfx(root, frame_count=2590, final_frame_map=None):
         if name.startswith('18'):
             db += 6
         gain = 32767 * 10 ** (db / 20) / max(map(abs, data))
+        # Historical source-to-review edits precede the caller's final timeline map.
         if not absolute:
             frame = math.ceil(230+(frame-170)*175/130-1e-8) if 170 <= frame < 300 else frame+105 if frame>=300 else frame
             frame += 90 if frame>=462 else 0
@@ -83,7 +84,7 @@ def build_base_sfx(root, frame_count=2590, final_frame_map=None):
         start = .3 + (index % 3) * .4
         add('18-keyboard-soft.wav', first, -17, start, 3.3, duration=(last-first)/30)
 
-    segments=[tuple(map(float,m)) for m in re.findall(r'from:(\d+)/30,to:(\d+)/30,sourceFrom:([\d.]+),sourceTo:([\d.]+)',(root/'src/review-timing.ts').read_text())]
+    segments = [(float(s["fromFrame"]), float(s["toFrame"]), s["sourceFrom"], s["sourceTo"]) for s in REVIEW_SEGMENTS]
     def source_frame(t):
         a,b,c,d=next(s for s in segments if s[2]<=t<s[3])
         return math.ceil(a+(t-c)/(d-c)*(b-a)-1e-8)

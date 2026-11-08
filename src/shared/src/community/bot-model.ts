@@ -1,6 +1,8 @@
 // Stored model names are not a catalog gate: non-empty names remain launchable.
 import type { ModelConfig } from "../runtime-config";
 
+export const BOT_MODEL_NAME_MAX_LENGTH = 100;
+
 export function requiresExplicitModel(runtime: string | null | undefined): boolean {
   return runtime === "opencode" || runtime === "pi-durable" || runtime === "cursor-sdk";
 }

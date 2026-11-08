@@ -1,40 +1,9 @@
 /**
- * FSM-trace sampler — heartbeat throttling so the bounded trace retains a
- * useful HISTORY WINDOW instead of being flushed by routine noise.
- *
- * WHY: the default trace is capped at 32 MiB per generation (64 MiB for active
- * + `.1`, rotatingFileSink).
- * Unchanged-state heartbeats carry no new information and would otherwise flush
- * information-rich transitions far sooner; write rate still scales with agent
- * count, so a much larger fleet needs the byte budget revisited.
- *
- * INVARIANT (Cecilia 架构#423 ③): a row is sampleable IFF its information can be
- * fully reconstructed from the retained neighbors; otherwise it is sacrosanct.
- * Concretely:
- *   - SACROSANCT, never dropped:
- *       · any non-`tick` event (transition/lifecycle: exit, turn_end,
- *         reset_session, begin_reset, rewake_after_reset, spawned, wake,
- *         register, session);
- *       · ANY row whose `effects` is non-empty — the watchdog-fired frame
- *         (terminate_stalled/force_exit/…). This is where the PEAK
- *         `sinceProgressMs` lives (Blair's 121846ms was on the
- *         `effects:['terminate_stalled']` tick; the following turn_end had
- *         already reset it to 0). Dropping it would shorten the reconstructed
- *         "stuck for how long". (Cecilia 架构#423 ④.)
- *   - SAMPLEABLE (throttled): unchanged-state `tick`, plus `root_work` /
- *     `runtime_signal` heartbeats. An unchanged-state tick is one with
- *     `effects==[]` AND status/turnActive/inbox/resetting/stopping unchanged
- *     from the previous emitted tick for that agent.
- *
- * WEDGE RECONSTRUCTION (Claudette 架构#421 assertion ②): a stuck run must remain
- * reconstructable — which state/phase, how long, through to kill — from the
- * retained rows alone. Guaranteed by: the edge INTO the stuck state is emitted
- * (state change), interior points every `throttleMs` bound the slope, the last
- * unchanged tick of the run is TAIL-FLUSHED (held and emitted right before the
- * next emitted tick-stream row), and the terminating frame (effects tick / a
- * transition) is sacrosanct. `sinceProgressMs` is self-contained on each tick
- * row, so duration reconstructs from the tick stream alone even when the
- * `root_work` stream is fully folded.
+ * Routine heartbeats can evict useful history from the bounded local trace.
+ * Sample only rows reconstructable from retained neighbors. Keep transitions,
+ * effect-bearing rows and terminal peak durations so a stuck run can still be
+ * reconstructed through termination. Flush the last held heartbeat before
+ * the next emitted row to preserve the run's duration.
  */
 
 interface TraceRec {

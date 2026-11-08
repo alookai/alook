@@ -43,7 +43,6 @@ describe("interactive landing workspace", () => {
         expect(DEMO_MESSAGES[channel.id].length).toBeGreaterThanOrEqual(3)
         for (const message of DEMO_MESSAGES[channel.id]) {
           expect(DEMO_PROFILES.has(message.authorId!)).toBe(true)
-          expect(message.content).not.toMatch(/[\u4e00-\u9fff]/)
         }
       }
     }

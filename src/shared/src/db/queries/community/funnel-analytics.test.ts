@@ -11,7 +11,7 @@ import * as userSchema from "../../schema"
 import type { Database } from "../../index"
 import {
   claimPendingEvents,
-  recordFirstAgentReplyPersisted,
+  recordFirstAgentReplyPersistedStatement,
   recordInvitedHumanJoinedStatement,
   recordRuntimeConnectedStatement,
 } from "./funnel-analytics"
@@ -110,18 +110,18 @@ describe("Community funnel analytics ledger", () => {
       credentialHash: "hash",
       now: "2026-09-14T00:00:01.000Z",
     })
-    await expect(recordFirstAgentReplyPersisted(db, {
+    await recordFirstAgentReplyPersistedStatement(db, {
       botUserId: "bot",
       messageId: "message-first",
       conversationType: "thread",
       now: "2026-09-14T00:00:02.000Z",
-    })).resolves.toBe(true)
-    await expect(recordFirstAgentReplyPersisted(db, {
+    })
+    await recordFirstAgentReplyPersistedStatement(db, {
       botUserId: "bot",
       messageId: "message-later",
       conversationType: "dm",
       now: "2026-09-14T00:00:03.000Z",
-    })).resolves.toBe(false)
+    })
     await recordInvitedHumanJoinedStatement(db, {
       ownerUserId: "owner",
       membershipId: "membership",

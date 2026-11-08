@@ -12,10 +12,7 @@ import { avatarHash, avatarThemeFromSeed } from "./theme"
 
 const C = 36
 const CX = 18
-// Head center pushed DOWN to 23.5 (was 18) so the head fills the disc width and
-// the chin clips naturally at the bottom, while the CROWN clears the hat band.
-// Only the top is reserved — the sides/chin fill the crop like a normal avatar
-// (an earlier R=11.2 shrank the whole head to reserve the top → "太小", Gus #99).
+// Approved geometry fills the crop at the sides/chin while clearing the top band.
 const CYh = 23.5
 export const FACE_HAT_LINE = 4
 

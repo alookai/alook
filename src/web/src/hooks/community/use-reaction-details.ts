@@ -1,4 +1,5 @@
 "use client"
+import { apiFetchProfiles } from "@/lib/community/account-cache-lifecycle"
 import { parseCommunityReactionDetailsRead, type CommunityReactionDetailsRead, type CommunityReactionActorProfile } from "@alook/shared"
 import { createStore } from "@tanstack/react-store"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
@@ -10,7 +11,7 @@ import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle
 
 import { useEffect, useMemo } from "react"
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
-import { apiFetchProfiles, communityUserProfilePatch } from "@/lib/community/profile-seed"
+import { communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 
 export type ReactionDetailsProfile = CommunityReactionActorProfile

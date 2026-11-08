@@ -1,6 +1,6 @@
 import React from "react"
 import { messageResourceFixture } from "@/test/community-resource-fixtures"
-import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
+import { ConversationActivityContext } from "@/contexts/view-activity"
 import type { QueryClient } from "@tanstack/react-query"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
@@ -49,7 +49,10 @@ import {
   armThreadOpenerReservationHandoff,
   disposeInboxReadReservation,
   getThreadOpenerReservationHandoff,
-  reserveInboxUnreadsResponse,
+  armInboxReadReservationCandidate,
+  activateInboxProjectionTicket,
+  registerInboxProjectionTicket,
+  inboxReadCandidateFingerprint,
   type ThreadOpenerHandoffTarget,
 } from "./inbox-read-reservation"
 import { useTimelineReadObserver, type ReadCandidate } from "./use-read-observer"
@@ -68,7 +71,7 @@ const target: ThreadOpenerHandoffTarget = {
 async function client() {
   const { client: queryClient } = await createCommunityQueryOwner()
   vi.spyOn(queryClient, "cancelQueries")
-  vi.spyOn(queryClient, "refetchQueries")
+  vi.spyOn(queryClient, "invalidateQueries")
   return queryClient
 }
 function NativeOwner({ children }: React.PropsWithChildren) {
@@ -190,39 +193,6 @@ function DirectChildHarness({
   )
 }
 
-function openerResponse() {
-  return {
-    servers: [{
-      channels: [{
-        channelId: "parent-1",
-        lastMessageAt: "2026-08-27T01:00:00.000Z",
-        children: [{
-          channelId: "child-1",
-          lastMessageAt: "2026-08-27T01:00:00.000Z",
-          openerMessageId: "opener-7",
-          openerSeq: 7,
-          openerUnread: true,
-        }],
-      }],
-    }],
-    dms: [],
-  }
-}
-
-function directResponse(lastMessageAt = "2026-08-27T01:00:00.000Z") {
-  return {
-    servers: [{
-      channels: [{
-        channelId: "child-1",
-        lastMessageAt,
-        hasDirectUnread: true,
-        children: [],
-      }],
-    }],
-    dms: [],
-  }
-}
-
 async function render(lifecycle: Lifecycle = "pending") {
   let renderer!: ReturnType<typeof rtlRender>
   await act(async () => {
@@ -289,7 +259,7 @@ describe("thread opener read handoff", () => {
     expect(mocks.replace).not.toHaveBeenCalled()
     expect(mocks.register).not.toHaveBeenCalled()
     expect(mocks.submit).not.toHaveBeenCalled()
-    expect(getThreadOpenerReservationHandoff(state.queryClient!, "nonce-2")).toMatchObject({phase: "armed", openerSeq: 7})
+    expect(getThreadOpenerReservationHandoff(state.queryClient!, "nonce-2")).toEqual(next)
     state.params = "inboxThreadOpener=nonce-2&msg=new-target&tab=all"
     renderer.rerender(node(true))
     expect(mocks.submit).toHaveBeenCalledExactlyOnceWith({lease: "parent"}, {kind: "timeline", channelId: "parent-1", messageId: "opener-7", seq: 7})
@@ -303,7 +273,7 @@ describe("thread opener read handoff", () => {
     expect(mocks.register).not.toHaveBeenCalled()
     expect(mocks.submit).not.toHaveBeenCalled()
     expect(mocks.replace).not.toHaveBeenCalled()
-    expect(getThreadOpenerReservationHandoff(state.queryClient!, "nonce-1")).toMatchObject({phase: "armed"})
+    expect(getThreadOpenerReservationHandoff(state.queryClient!, "nonce-1")).toEqual(target)
     renderer.rerender(node(true))
     expect(mocks.submit).toHaveBeenCalledExactlyOnceWith({lease: "parent"}, {kind: "timeline", channelId: "parent-1", messageId: "opener-7", seq: 7})
     expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/server-1/child-1?msg=message-9&tab=all", {scroll: false})
@@ -325,7 +295,7 @@ describe("thread opener read handoff", () => {
     expect(mocks.register).not.toHaveBeenCalled()
     expect(mocks.submit).not.toHaveBeenCalled()
     expect(mocks.replace).not.toHaveBeenCalled()
-    expect(state.queryClient!.refetchQueries).not.toHaveBeenCalled()
+    expect(state.queryClient!.invalidateQueries).not.toHaveBeenCalled()
     await act(async () => renderer.unmount())
   })
 
@@ -352,7 +322,7 @@ describe("thread opener read handoff", () => {
       messageId: "opener-7",
       seq: 7,
     })
-    expect(state.queryClient!.refetchQueries).not.toHaveBeenCalled()
+    expect(state.queryClient!.invalidateQueries).not.toHaveBeenCalled()
     expect(mocks.replace).toHaveBeenCalledWith(
       "/c/channels/server-1/child-1?msg=message-9&tab=all",
       { scroll: false },
@@ -365,7 +335,7 @@ describe("thread opener read handoff", () => {
     armThreadOpenerReservationHandoff(state.queryClient!, nextTarget)
     const renderer = await render("pending")
     expect(getThreadOpenerReservationHandoff(state.queryClient!, "nonce-1")).not.toBeNull()
-    expect(state.queryClient!.refetchQueries).not.toHaveBeenCalled()
+    expect(state.queryClient!.invalidateQueries).not.toHaveBeenCalled()
 
     await act(async () => {
       renderer.rerender(React.createElement(
@@ -469,8 +439,9 @@ describe("thread opener read handoff", () => {
     disposeInboxReadReservation(firstClient)
   })
 
-  it("settles an orphaned push when a later nonce-free direct child route matches", async () => {
+  it("clears the prior handoff before direct navigation and reads only revealed content", async () => {
     armThreadOpenerReservationHandoff(state.queryClient!, target)
+    clearThreadOpenerReadHandoff(state.queryClient!)
     state.params = "tab=all"
     let renderer!: ReturnType<typeof rtlRender>
     await act(async () => {
@@ -483,16 +454,8 @@ describe("thread opener read handoff", () => {
       )
     })
 
-    let pending!: Promise<ReturnType<typeof openerResponse>>
-    await act(async () => {
-      pending = reserveInboxUnreadsResponse(state.queryClient!, openerResponse())
-      void pending.catch(() => undefined)
-      await Promise.resolve()
-    })
-
-    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
     expect(getThreadOpenerReservationHandoff(state.queryClient!, "nonce-1")).toBeNull()
-    expect(state.queryClient!.refetchQueries).toHaveBeenCalledTimes(1)
+    expect(state.queryClient!.invalidateQueries).toHaveBeenCalledTimes(1)
     expect(mocks.submit).not.toHaveBeenCalled()
     expect(mocks.replace).not.toHaveBeenCalled()
 
@@ -543,7 +506,7 @@ describe("thread opener read handoff", () => {
     await act(async () => renderer.unmount())
   })
 
-  it("reclassifies an authoritative absent candidate on reveal and releases its held response once", async () => {
+  it("classifies an absent focused candidate on reveal and settles its ticket once", async () => {
     const messages: ReadCandidate[] = [{
       id: "message-10",
       seq: 10,
@@ -561,22 +524,22 @@ describe("thread opener read handoff", () => {
       }))
     })
 
-    let held!: Promise<ReturnType<typeof directResponse>>
-    let settled = false
+    const receipt = vi.fn()
     await act(async () => {
-      held = reserveInboxUnreadsResponse(state.queryClient!, directResponse())
-      void held.then(() => { settled = true }, () => { settled = true })
+      const target = { kind: "thread" as const, identity: "child-1", fingerprint: inboxReadCandidateFingerprint({ channelId: "child-1", lastMessageAt: "2026-08-27T01:00:00.000Z", openerUnread: false }), confirmationChannelId: "child-1", serverId: "server-1", parentChannelId: "parent-1", childChannelId: "child-1" }
+      activateInboxProjectionTicket(registerInboxProjectionTicket(state.queryClient!, 1, target, receipt))
+      armInboxReadReservationCandidate(state.queryClient!, { channelId: "child-1", lastMessageAt: "2026-08-27T01:00:00.000Z" })
       await Promise.resolve()
     })
     const readObserver = readObservers.findLast((record) => !record.disconnected)!
     const messageRow = renderer.container.querySelector<HTMLElement>("[data-msg-id='message-10']")!
     emitReadIntersection(readObserver, messageRow)
 
-    expect(settled).toBe(false)
+    expect(receipt).not.toHaveBeenCalled()
     expect(catchUp).not.toHaveBeenCalled()
     expect(mocks.submit).not.toHaveBeenCalled()
     expect(mocks.resume).not.toHaveBeenCalled()
-    expect(state.queryClient!.refetchQueries).not.toHaveBeenCalled()
+    expect(state.queryClient!.invalidateQueries).not.toHaveBeenCalled()
 
     await act(async () => {
       renderer.rerender(React.createElement(DirectChildHarness, {
@@ -587,15 +550,14 @@ describe("thread opener read handoff", () => {
       await Promise.resolve()
     })
 
-    await expect(held).rejects.toMatchObject({ name: "AbortError" })
-    expect(settled).toBe(true)
+    await vi.waitFor(() => expect(receipt).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ terminal: "negative" })))
     expect(catchUp).not.toHaveBeenCalled()
     expect(mocks.submit).not.toHaveBeenCalled()
-    expect(state.queryClient!.refetchQueries).toHaveBeenCalledOnce()
+    expect(state.queryClient!.invalidateQueries).toHaveBeenCalledOnce()
     await act(async () => renderer.unmount())
   })
 
-  it("runs one behind-tail catch-up after reveal, then settles the still-absent held response", async () => {
+  it("runs one behind-tail catch-up after reveal before settling the absent candidate", async () => {
     const messages: ReadCandidate[] = [{
       id: "message-1",
       seq: 1,
@@ -616,18 +578,18 @@ describe("thread opener read handoff", () => {
       }))
     })
 
-    let held!: Promise<ReturnType<typeof directResponse>>
-    let settled = false
+    const receipt = vi.fn()
     await act(async () => {
-      held = reserveInboxUnreadsResponse(state.queryClient!, directResponse())
-      void held.then(() => { settled = true }, () => { settled = true })
+      const target = { kind: "thread" as const, identity: "child-1", fingerprint: inboxReadCandidateFingerprint({ channelId: "child-1", lastMessageAt: "2026-08-27T01:00:00.000Z", openerUnread: false }), confirmationChannelId: "child-1", serverId: "server-1", parentChannelId: "parent-1", childChannelId: "child-1" }
+      activateInboxProjectionTicket(registerInboxProjectionTicket(state.queryClient!, 1, target, receipt))
+      armInboxReadReservationCandidate(state.queryClient!, { channelId: "child-1", lastMessageAt: "2026-08-27T01:00:00.000Z" })
       await Promise.resolve()
     })
     const readObserver = readObservers.findLast((record) => !record.disconnected)!
     const messageRow = renderer.container.querySelector<HTMLElement>("[data-msg-id='message-1']")!
     emitReadIntersection(readObserver, messageRow)
 
-    expect(settled).toBe(false)
+    expect(receipt).not.toHaveBeenCalled()
     expect(catchUp).not.toHaveBeenCalled()
     expect(mocks.submit).not.toHaveBeenCalled()
     expect(mocks.resume).not.toHaveBeenCalled()
@@ -642,8 +604,8 @@ describe("thread opener read handoff", () => {
     })
 
     expect(catchUp).toHaveBeenCalledOnce()
-    expect(settled).toBe(false)
-    expect(state.queryClient!.refetchQueries).not.toHaveBeenCalled()
+    expect(receipt).not.toHaveBeenCalled()
+    expect(state.queryClient!.invalidateQueries).not.toHaveBeenCalled()
 
     await act(async () => {
       resolveCatchUp()
@@ -651,11 +613,10 @@ describe("thread opener read handoff", () => {
       await Promise.resolve()
     })
 
-    await expect(held).rejects.toMatchObject({ name: "AbortError" })
-    expect(settled).toBe(true)
+    await vi.waitFor(() => expect(receipt).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ terminal: "negative" })))
     expect(catchUp).toHaveBeenCalledOnce()
     expect(mocks.submit).not.toHaveBeenCalled()
-    expect(state.queryClient!.refetchQueries).toHaveBeenCalledOnce()
+    expect(state.queryClient!.invalidateQueries).toHaveBeenCalledOnce()
     await act(async () => renderer.unmount())
   })
 
@@ -679,7 +640,7 @@ describe("thread opener read handoff", () => {
     })
 
     expect(mocks.submit).not.toHaveBeenCalled()
-    expect(state.queryClient!.refetchQueries).toHaveBeenCalledTimes(1)
+    expect(state.queryClient!.invalidateQueries).toHaveBeenCalledTimes(1)
     expect(mocks.replace).toHaveBeenCalledWith(
       "/c/channels/server-1/child-1?msg=message-9&tab=all",
       { scroll: false },
@@ -694,6 +655,6 @@ describe("thread opener read handoff", () => {
       await Promise.resolve()
     })
     expect(mocks.submit).not.toHaveBeenCalled()
-    expect(state.queryClient!.refetchQueries).toHaveBeenCalledTimes(1)
+    expect(state.queryClient!.invalidateQueries).toHaveBeenCalledTimes(1)
   })
 })

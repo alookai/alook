@@ -5,8 +5,8 @@ import { ProductComposer } from "./ProductComposer";
 import { Shell } from "@/components/community/shell/shell";
 import { ServerRail } from "@/components/community/shell/server-rail";
 import { ChannelSidebarTreeOwner } from "@/components/community/channels/channel-sidebar-tree-owner";
-import { DmHeader } from "@/components/community/channels/dm-header";
-import { DmSidebar } from "@/components/community/channels/dm-sidebar";
+
+
 import { ChannelHeader } from "@/components/community/channels/channel-header";
 import {messageMotion,playbackAge} from "./message-motion";
 import { VideoMessage } from "./VideoMessage";
@@ -15,9 +15,9 @@ import { AppSurface } from "@/components/ui/app-surface";
 import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview";
 import { GeneratedAvatar } from "@/components/avatar/generated-avatar";
 import { ProviderLogo } from "@/components/provider-logo";
-import { interpolate, staticFile, delayRender, continueRender } from "remotion";
+import { staticFile, delayRender, continueRender } from "remotion"
 import type { RenderMsg } from "@/lib/community/models/message";
-import type { DM } from "@/lib/community/models/people";
+
 import type { CommunityProfile } from "@/lib/community/models/people";
 export { GeneratedAvatar, ProviderLogo };
 export const names = ["Lin", "Alex", "Milo", "Nova", "Remy", "Pip", "Sam"];
@@ -43,90 +43,18 @@ export const profiles = new Map<string, CommunityProfile>(
   ]),
 );
 const noop = () => {};
-const miloDm: DM = {
-  id: "milo-dm",
-  userId: "milo-orange",
-  name: "Milo",
-  discriminator: "2048",
-  avatar: avatarSource("Milo"),
-  avatarVersion: 0,
-  preview: "",
-  status: "online",
-  unread: false,
-};
 export type ChatLine = {
+  anchor?: string;
   at: number;
   name: string;
   text: string;
-  preview?: boolean;
   memory?: string;
   memoryAt?: number;
   clock?: string;
 };
-export const workLines: ChatLine[] = [
-  { at: 18.25, name: "Lin", text: "Alex, meet Milo." },
-  {
-    at: 19,
-    name: "Alex",
-    text: "Below the headline. Show me the mobile version.",
-  },
-  {
-    at: 20.55,
-    name: "Milo",
-    text: "Here’s the mobile version.",
-    preview: true,
-  },
-  { at: 22.2, name: "Alex", text: "That works." },
-  { at: 25.85, name: "Alex", text: "The headline needs work, too." },
-  {
-    at: 29.55,
-    name: "Lin",
-    text: "Milo, keep going on the page. Nova, help with the copy.",
-  },
-  { at: 31, name: "Nova", text: "“Your next good idea starts here.”" },
-  { at: 32, name: "Alex", text: "Love it. Let’s use that." },
-  { at: 33, name: "Milo", text: "Updated the page.", preview: true },
-  {
-    at: 39.3,
-    name: "Lin",
-    text: "I’m tied up with this launch page all afternoon.",
-  },
-  { at: 40.5, name: "Milo", text: "I’ll keep working on the mobile layout." },
-];
-export const homeLines: ChatLine[] = [
-  { at: 42.8, name: "Sam", text: "Is Lin free?" },
-  { at: 44.3, name: "Milo", text: "He’s busy right now." },
-];
-export function LaunchPreview({
-  updated = false,
-  small = false,
-}: {
-  updated?: boolean;
-  small?: boolean;
-}) {
-  return (
-    <div className={"launch-preview " + (small ? "small" : "")}>
-      <div className="preview-nav">
-        FIELDNOTES <span>Ideas, together.</span>
-      </div>
-      <div className="preview-copy">
-        {updated
-          ? "Your next good idea starts here."
-          : "A little space for your next idea."}
-      </div>
-      <div className="preview-button">Join the waitlist ↗</div>
-      <div className="preview-art">
-        <i />
-        <i />
-        <i />
-      </div>
-    </div>
-  );
-}
 export function Product({
   t,
   home = false,
-  permission = false,
   lines,
   composerText,
   sourceTime=t,
@@ -134,8 +62,7 @@ export function Product({
 }: {
   t: number;
   home?: boolean;
-  permission?: boolean;
-  lines?: ChatLine[];
+  lines: ChatLine[];
   composerText?: string;
   sourceTime?: number;
   realtimeMotion?: boolean;
@@ -148,18 +75,7 @@ export function Product({
         },
       }),
   );
-  const entries = lines ?? (permission
-    ? [
-        {
-          at: 35,
-          name: "Lin",
-          text: "You can let my family know when I’m busy. Keep work details private.",
-        },
-      ]
-    : home
-      ? homeLines
-      : workLines);
-  const visible = entries.filter((m) => t >= m.at);
+  const visible = lines.filter((m) => t >= m.at);
   const keep = visible;
   const scroll = useRef<HTMLDivElement>(null);
   const contents = useRef<HTMLDivElement>(null);
@@ -215,7 +131,7 @@ export function Product({
     isOwner: true,
     icon: name === "Home" ? staticFile("people/Home.png") : null,
   }));
-  const channel = permission ? "Milo" : home ? "family" : "launch";
+  const channel = home ? "family" : "launch";
   return (
     <QueryClientProvider client={client}><CurrentUserProvider initialUser={{id:"Lin",name:"Lin",email:"lin@example.test",avatar:avatarSource("Lin")}}>
       <CommunityPreviewProfileOwner profiles={profiles}>
@@ -225,7 +141,7 @@ export function Product({
               servers={servers}
               folders={[]}
               activeServerId={home ? "Home" : "Studio"}
-              view={permission ? "dm" : "server"}
+              view="server"
               bottomInset={60}
               onHome={noop}
               onServer={noop}
@@ -235,18 +151,7 @@ export function Product({
               <AppSurface className="rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none border-l border-t border-border/40 shadow-none ring-0">
                 <div className="flex min-h-0 flex-1">
                   <div className="flex w-60 shrink-0 flex-col bg-sidebar pb-14">
-                    <>
-                      {permission ? (
-                        <DmSidebar
-                          dms={[miloDm]}
-                          activeDm="milo-dm"
-                          onPickDm={noop}
-                          onShowFriends={noop}
-                          onShowMachines={noop}
-                          onShowBots={noop}
-                        />
-                      ) : (
-                        <ChannelSidebarTreeOwner
+                    <ChannelSidebarTreeOwner
                           scopeKey={`gtm-${channel}`}
                           categories={[
                             {
@@ -270,21 +175,15 @@ export function Product({
                           setActiveChannel={noop}
                           isAdmin={false}
                           currentUserId="Lin"
-                        />
-                      )}
-                    </>
+                    />
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col bg-background">
-                    {permission ? (
-                      <DmHeader dm={miloDm} />
-                    ) : (
-                      <ChannelHeader
+                    <ChannelHeader
                         channel={channel}
                         kind="text"
                         rightPanel={null}
                         onToggle={noop}
-                      />
-                    )}
+                    />
                     <div className="chat-content" ref={scroll}>
                       <div
                         ref={contents}
@@ -306,15 +205,12 @@ export function Product({
                             <div
                               className="chat-line"
                               data-message-text={line.text}
+                              data-message-anchor={line.anchor}
                               key={line.at}
                               style={{translate:`0 ${messageMotion(motionAge(line.at)).y}px`,opacity:messageMotion(motionAge(line.at)).opacity}}
                             >
                               <VideoMessage m={m} memory={line.memory} memoryAge={line.memoryAt===undefined?undefined:t-line.memoryAt} />
-                              {line.preview && (
-                                <div className="attachment-preview">
-                                  <LaunchPreview small updated={t > 32.5} />
-                                </div>
-                              )}
+
                             </div>
                           );
                         })}

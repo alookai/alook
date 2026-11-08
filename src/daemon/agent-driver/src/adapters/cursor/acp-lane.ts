@@ -1,3 +1,4 @@
+import { Utf8LineFramer, Utf8TextDecoder } from "../../internal/utf8-lines.js";
 import { EventEmitter } from "node:events";
 import type {
   AdapterEvent,
@@ -109,7 +110,6 @@ export class CursorAcpLane implements RuntimeLane {
   private readonly pending = new Map<number, PendingRequest>();
   private readonly toolCalls = new Map<string, string | null>();
   private process: SpawnedProcessHandle | null = null;
-  private stdoutBuffer = "";
   private requestSequence = 0;
   private started = false;
   private ready = false;
@@ -453,10 +453,10 @@ export class CursorAcpLane implements RuntimeLane {
   }
 
   private attachProcess(proc: SpawnedProcessHandle): void {
+    const stdout = new Utf8LineFramer();
+    const stderr = new Utf8TextDecoder();
     proc.stdout?.on("data", (chunk) => {
-      this.stdoutBuffer += chunk.toString();
-      const lines = this.stdoutBuffer.split("\n");
-      this.stdoutBuffer = lines.pop() ?? "";
+      const lines = stdout.write(chunk);
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
@@ -479,7 +479,11 @@ export class CursorAcpLane implements RuntimeLane {
       }
     });
     proc.stderr?.on("data", (chunk) => {
-      const text = chunk.toString().trim();
+      const text = stderr.write(chunk).trim();
+      if (text) this.events.emit("stderr", text);
+    });
+    proc.stderr?.on("end", () => {
+      const text = stderr.end().trim();
       if (text) this.events.emit("stderr", text);
     });
     proc.on("error", (error) => {

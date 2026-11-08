@@ -36,6 +36,10 @@ vi.mock("@/components/ui/number-ticker", () => ({
   NumberTicker: ({ value }: { value: string | number }) => React.createElement("span", null, value),
 }))
 
+vi.mock("@/components/community/social/community-invite-card", () => ({
+  CommunityInviteCard: ({ token, perspective }: { token: string; perspective: "sender" | "recipient" | "neutral" }) => React.createElement("output", { "data-testid": "invite-perspective" }, `${token}:${perspective}`),
+}))
+
 type MessageProps = Parameters<typeof Message>[0]
 let queryClient: QueryClient
 const views = new Set<RenderResult>()
@@ -186,6 +190,19 @@ describe("Message author line", () => {
 })
 
 describe("Message memo comparator", () => {
+  it("updates invite perspective when only the author or viewer changes", () => {
+    const props = { m: baseMsg({ content: "/c/invite/token123" }), viewerUserId: "u1", onOpenThread: vi.fn() }
+    const view = rtlRender(makeTree(props))
+    expect(view.getByTestId("invite-perspective")).toHaveTextContent("token123:sender")
+    const otherAuthor = { ...props, m: { ...props.m, authorId: "u2" } }
+    view.rerender(makeTree(otherAuthor))
+    expect(view.getByTestId("invite-perspective")).toHaveTextContent("token123:recipient")
+    view.rerender(makeTree({ ...otherAuthor, viewerUserId: "u2" }))
+    expect(view.getByTestId("invite-perspective")).toHaveTextContent("token123:sender")
+    view.rerender(makeTree({ ...otherAuthor, viewerUserId: undefined }))
+    expect(view.getByTestId("invite-perspective")).toHaveTextContent("token123:neutral")
+  })
+
   it.each(["denied", "waiting"] as const)("updates an approval-only message to %s with stable row props", (state) => {
     const approval: NonNullable<RenderMsg["approval"]> = {
       friendshipId: "friendship", status: "pending", waitingOn: "you",

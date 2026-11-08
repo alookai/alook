@@ -1,10 +1,10 @@
 "use client"
 
-import { useConversationActivity } from "@/contexts/community/conversation-activity"
+import { useConversationActivity } from "@/contexts/view-activity"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useMessageUnreadCount } from "./use-message-unread-count"
-import { useChannelWatermark } from "./use-channel-watermark"
+import { useTimelineReadObserver } from "./use-read-observer"
 import { useMessages } from "./use-messages"
 import { usePins, useThreads } from "./use-channel-panels"
 
@@ -12,14 +12,12 @@ export function useChannelMessageFeed({
   channelId,
   serverId,
   viewerUserId,
-  isChildChannel: _isChildChannel,
   anchorMessageId,
   threadsEnabled = false,
 }: {
   channelId: string | null
   serverId: string
   viewerUserId: string
-  isChildChannel: boolean
   anchorMessageId: string | null
   threadsEnabled?: boolean
 }) {
@@ -33,7 +31,7 @@ export function useChannelMessageFeed({
   const newDividerBefore = messagesQuery.newBoundary?.target?.id
   const [scrollRootEl, setScrollRootEl] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
   /* istanbul ignore next -- retained Chromium covers the mounted observer integration */
-  useChannelWatermark({
+  useTimelineReadObserver({
     channelId: active ? channelId : null,
     messages: messagesQuery.messages,
     scrollRootEl,

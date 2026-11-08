@@ -1,4 +1,5 @@
 mod commands;
+mod current_listener;
 #[cfg(desktop)]
 mod daemon_commands;
 mod file_save;

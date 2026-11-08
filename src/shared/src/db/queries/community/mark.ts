@@ -75,7 +75,7 @@ export async function isMessageMarked(
 export async function listMarksForUser(
   db: Database,
   userId: string,
-  opts: { limit?: number; visibleChannelIds?: string[] } = {}
+  opts: { limit?: number; visibleChannelIds?: string[] }
 ) {
   const runQuery = (extra: ReturnType<typeof inArray>[] = []) => {
     const q = db
@@ -96,12 +96,8 @@ export async function listMarksForUser(
     return opts.limit !== undefined ? q.limit(opts.limit) : q;
   };
 
-  // No channel scoping → single query (callers that don't need the leak guard).
-  if (!opts.visibleChannelIds) {
-    return runQuery();
-  }
-  // `inArray(col, [])` is rejected by some drivers; an empty scope means nothing
-  // is visible, so return early.
+  // The owner-only bot preview reads that bot's marks without a channel filter.
+  if (!opts.visibleChannelIds) return runQuery();
   if (opts.visibleChannelIds.length === 0) return [];
 
   // `visibleChannelIds` is an unbounded authorization scope, so chunk the

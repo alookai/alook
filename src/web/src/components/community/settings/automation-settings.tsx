@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
-import { AUTOMATION_READ_PERMISSIONS, AutomationAccessCodeCreateSchema, type AutomationAccessCode, type AutomationAccessCodeCreate, type AutomationAccessCodeCreateResponse, type AutomationExpiry, type AutomationPermissionPolicy } from "@alook/shared"
+import { AUTOMATION_PERMISSION_LIMITS, AUTOMATION_READ_PERMISSIONS, AutomationAccessCodeCreateSchema, type AutomationAccessCode, type AutomationAccessCodeCreate, type AutomationAccessCodeCreateResponse, type AutomationExpiry, type AutomationPermissionPolicy } from "@alook/shared"
 import { ChevronDown, Copy, Pencil, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -57,7 +57,7 @@ export function AutomationCodeForm({ code, pending, onCancel, onSave }: {
   const [expiry, setExpiry] = useAtom(useCreateAtom<AutomationExpiry | "keep">(code ? "keep" : "24h"))
   const [policies, setPolicies] = useAtom(useCreateAtom<DraftPolicy[]>(permissionOptions.map(({ permission }) => {
     const existing = code?.permissions.find((policy) => policy.permission === permission)
-    return { enabled: code ? Boolean(existing) : (AUTOMATION_READ_PERMISSIONS as readonly string[]).includes(permission), limit: String(existing?.limit ?? 64), period: existing?.period ?? "hour" }
+    return { enabled: code ? Boolean(existing) : (AUTOMATION_READ_PERMISSIONS as readonly string[]).includes(permission), limit: String(existing?.limit ?? AUTOMATION_PERMISSION_LIMITS.hour), period: existing?.period ?? "hour" }
   })))
   const [error, setError] = useAtom(useCreateAtom<string | null>(null))
   const updatePolicy = (index: number, patch: Partial<DraftPolicy>) => setPolicies((current) => current.map((policy, i) => i === index ? { ...policy, ...patch } : policy))
@@ -70,7 +70,7 @@ export function AutomationCodeForm({ code, pending, onCancel, onSave }: {
         name, expiresIn: expiry === "keep" ? "24h" : expiry,
         permissions: policies.flatMap((policy, index) => policy.enabled ? [{ permission: permissionOptions[index].permission, limit: Number(policy.limit), period: policy.period }] : []),
       })
-      if (!parsed.success) { if (parsed.error.issues.some((issue) => issue.path.includes("limit"))) setAdvanced(true); setError("Enter a name, select at least one permission, and use a whole-number limit from 1–64 per hour or 1–1,536 per day."); return }
+      if (!parsed.success) { if (parsed.error.issues.some((issue) => issue.path.includes("limit"))) setAdvanced(true); setError(`Enter a name, select at least one permission, and use a whole-number limit from 1–${AUTOMATION_PERMISSION_LIMITS.hour} per hour or 1–${AUTOMATION_PERMISSION_LIMITS.day.toLocaleString("en-US")} per day.`); return }
       try { await onSave(parsed.data, expiry !== "keep") } catch (cause) {
         if (!isAbortError(cause)) setError(getErrorMessage(cause, "Could not save this access code. Try again."))
       }
@@ -113,14 +113,14 @@ export function AutomationCodeForm({ code, pending, onCancel, onSave }: {
         </Button>
         {advanced ? <fieldset id="automation-rate-limits" className="space-y-4" disabled={pending}>
           <legend className="mb-2 text-sm font-medium">Request limits</legend>
-          <p className="text-xs leading-5 text-muted-foreground">Each permission defaults to 64 requests per hour. Limits use the last hour or 24 hours. Daily limits also have a cap of 64 requests in the last hour.</p>
+          <p className="text-xs leading-5 text-muted-foreground">Each permission defaults to {AUTOMATION_PERMISSION_LIMITS.hour} requests per hour. Limits use the last hour or 24 hours. Daily limits also have a cap of {AUTOMATION_PERMISSION_LIMITS.hour} requests in the last hour.</p>
           {permissionOptions.map(({ permission, label }, index) => {
             const policy = policies[index]
             if (!policy.enabled) return null
             return <div key={permission} className="flex items-center gap-4">
               <span className="min-w-0 flex-1 text-sm">{label}</span>
               <div className="flex shrink-0 items-center gap-2">
-                <Input type="number" aria-label={`${label} request limit`} className={`${control} w-24 font-mono tabular-nums`} min={1} max={policy.period === "hour" ? 64 : 1536} step={1} required value={policy.limit} onChange={(event) => updatePolicy(index, { limit: event.target.value })} />
+                <Input type="number" aria-label={`${label} request limit`} className={`${control} w-24 font-mono tabular-nums`} min={1} max={AUTOMATION_PERMISSION_LIMITS[policy.period]} step={1} required value={policy.limit} onChange={(event) => updatePolicy(index, { limit: event.target.value })} />
                 <Select value={policy.period} onValueChange={(value) => { if (value) updatePolicy(index, { period: value }) }} disabled={pending}>
                   <SelectTrigger className={selectControl} aria-label={`${label} limit period`}><SelectValue>{policy.period === "hour" ? "per hour" : "per day"}</SelectValue></SelectTrigger>
                   <SelectContent><SelectItem value="hour" className="min-h-11 sm:min-h-8">per hour</SelectItem><SelectItem value="day" className="min-h-11 sm:min-h-8">per day</SelectItem></SelectContent>

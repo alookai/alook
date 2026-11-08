@@ -16,7 +16,7 @@ vi.mock("./analytics-consent", async importOriginal => ({
 
 const mockSendGTMEvent = mocks.sendGTMEvent
 
-import { trackSignUp, trackSignInSuccess, trackInviteAccepted, trackCommunityRuntimeConnected, trackCommunityOnboardingCompleted, trackCommunityOnboardingSkipped, trackCommunityOnboardingStageCompleted, trackCommunityOnboardingStarted, trackFirstAgentReplyPersisted, trackHumanInvitationSent, trackHumanInvitationCopied, trackInvitedHumanJoined, trackGithubOutboundClicked, trackLandingCtaClicked, trackTemplatesBrowsed, toAnalyticsCurrentPlan, toAnalyticsPlanId, trackBeginCheckout, trackPricingCtaClick, trackPricingView } from "./analytics"
+import { trackCommunityRuntimeConnected, trackCommunityOnboardingSkipped, trackCommunityOnboardingStageCompleted, trackCommunityOnboardingStarted, trackFirstAgentReplyPersisted, trackGithubOutboundClicked, trackLandingCtaClicked, trackTemplatesBrowsed, toAnalyticsCurrentPlan, toAnalyticsPlanId, trackBeginCheckout, trackPricingCtaClick, trackPricingView } from "./analytics"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -28,7 +28,6 @@ describe("analytics utility", () => {
 
   it("retains the original consent gate outside public Web", () => {
     mocks.hasAnalyticsConsent.mockReturnValue(false)
-    trackSignUp("github")
     trackPricingView({ auth_state: "guest", current_plan: "none" })
     trackCommunityRuntimeConnected()
     expect(mockSendGTMEvent).not.toHaveBeenCalled()
@@ -54,7 +53,6 @@ describe("analytics utility", () => {
     const browser = { location: new URL(`https://alook.ai${path}`) }
     vi.stubGlobal("window", browser)
     trackCommunityRuntimeConnected()
-    trackSignUp("github")
     expect(mockSendGTMEvent).not.toHaveBeenCalled()
     browser.location = new URL("https://alook.ai/pricing")
     trackPricingView({ auth_state: "guest", current_plan: "none" })
@@ -67,14 +65,9 @@ describe("analytics utility", () => {
     trackPricingView({ auth_state: "guest", current_plan: "none" })
     mockSendGTMEvent.mockClear()
     browser.location = new URL(`https://alook.ai${path}`)
-    trackSignUp("github")
     trackCommunityOnboardingStarted()
-    trackHumanInvitationCopied()
     trackCommunityRuntimeConnected()
     trackFirstAgentReplyPersisted("thread")
-    trackHumanInvitationSent()
-    trackInvitedHumanJoined()
-    trackCommunityOnboardingCompleted()
     trackCommunityOnboardingSkipped("complete")
 
     expect(mockSendGTMEvent).not.toHaveBeenCalled()
@@ -83,55 +76,28 @@ describe("analytics utility", () => {
   it("preserves the Native Allow gate on public paths", () => {
     vi.stubGlobal("window", { __TAURI__: {}, location: new URL("https://alook.ai/") })
     mocks.hasAnalyticsConsent.mockReturnValue(false)
-    trackSignUp("github")
+    trackCommunityRuntimeConnected()
     expect(mockSendGTMEvent).not.toHaveBeenCalled()
     mocks.hasAnalyticsConsent.mockReturnValue(true)
-    trackSignUp("github")
-    expect(mockSendGTMEvent.mock.calls).toEqual([[{ event: "sign_up", method: "github" }]])
-  })
-
-  describe("P0 — Core Funnel Events", () => {
-    it("trackSignUp sends sign_up event", () => {
-      trackSignUp("github")
-      expect(mockSendGTMEvent).toHaveBeenCalledWith({ event: "sign_up", method: "github" })
-    })
-
-    it("trackSignInSuccess sends sign_in_success event", () => {
-      trackSignInSuccess("email_otp")
-      expect(mockSendGTMEvent).toHaveBeenCalledWith({ event: "sign_in_success", method: "email_otp" })
-    })
+    trackCommunityRuntimeConnected()
+    expect(mockSendGTMEvent.mock.calls).toEqual([[{ event: "runtime_connected", surface: "community", connection_type: "local_daemon" }]])
   })
 
   describe("P2 — Growth & Retention Signals", () => {
 
-    it("trackInviteAccepted sends invite_accepted event", () => {
-      trackInviteAccepted({ workspace_id: "ws_1" })
-      expect(mockSendGTMEvent).toHaveBeenCalledWith({
-        event: "invite_accepted",
-        workspace_id: "ws_1",
-      })
-    })
-
     it("sends the exact Community funnel payloads", () => {
       trackCommunityRuntimeConnected()
       trackFirstAgentReplyPersisted("thread")
-      trackHumanInvitationSent()
-      trackHumanInvitationCopied()
-      trackInvitedHumanJoined()
 
       expect(mockSendGTMEvent.mock.calls).toEqual([
         [{ event: "runtime_connected", surface: "community", connection_type: "local_daemon" }],
         [{ event: "first_agent_reply_persisted", surface: "community", conversation_type: "thread" }],
-        [{ event: "human_invitation_sent", surface: "community", invite_method: "dm" }],
-        [{ event: "human_invitation_copied", surface: "community", invite_method: "link_copy" }],
-        [{ event: "invited_human_joined", surface: "community" }],
       ])
     })
 
     it("sends the exact Community onboarding payloads", () => {
       trackCommunityOnboardingStarted()
       trackCommunityOnboardingStageCompleted("harness")
-      trackCommunityOnboardingCompleted()
       trackCommunityOnboardingSkipped("initializing")
 
       expect(mocks.product.mock.calls).toEqual([
@@ -139,7 +105,7 @@ describe("analytics utility", () => {
         [{ event: "community_onboarding_stage_completed", stage: "harness" }],
         [{ event: "community_onboarding_skipped", stage: "initializing" }],
       ])
-      expect(mockSendGTMEvent.mock.calls).toEqual([[{ event: "community_onboarding_completed" }]])
+      expect(mockSendGTMEvent).not.toHaveBeenCalled()
     })
 
     it("fails open when the tag manager rejects a Community funnel event", () => {

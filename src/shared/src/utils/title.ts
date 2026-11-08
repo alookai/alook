@@ -1,18 +1,5 @@
 import { messagePreviewText, type MessagePreviewInput } from "../lib/message-preview";
 
-export function truncateTitle(text: string, maxLen = 50): string {
-  const trimmed = text.replace(/\s+/g, " ").trim();
-  if (trimmed.length <= maxLen) return trimmed;
-  const cut = trimmed.slice(0, maxLen);
-  const lastSpace = cut.lastIndexOf(" ");
-  const title = lastSpace > 20 ? cut.slice(0, lastSpace) : cut;
-  return title + "...";
-}
-
-export function stripInlineMarkup(raw: string): string {
-  return messagePreviewText({ content: raw })
-}
-
 export function deriveThreadName(
   raw: string | MessagePreviewInput | null | undefined,
   fallback: string,

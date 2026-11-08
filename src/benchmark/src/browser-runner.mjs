@@ -1,12 +1,13 @@
 import { cpus, totalmem, release } from 'node:os'
 import { chromium } from 'playwright'
-import { mkdir, writeFile, appendFile, readFile, readdir } from 'node:fs/promises'
+import { writeFile, appendFile, readFile, readdir } from 'node:fs/promises'
 import { randomUUID, createHash } from 'node:crypto'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { publicConfig } from './config.mjs'
 import { syncPageClock, metricDelta } from './browser-probe.mjs'
 import { browserSummary, browserMarkdown } from './browser-report.mjs'
 import { resolveCase } from './cases/index.mjs'
+import { prepareRunDirectory } from './run-directory.mjs'
 
 async function metrics(session) {
   return Object.fromEntries((await session.send('Performance.getMetrics')).metrics.map(item => [item.name, item.value]))
@@ -44,20 +45,19 @@ export async function runBrowserBenchmark(config, suppliedCase) {
   if (!participants?.length || !workloads?.length || new Set(workloads.map(item => item.id)).size !== workloads.length) throw new Error('Case requires participants and distinct workloads')
   const intercepted = config.observeDB || config.phases.some(phase => phase.delayMs > 0)
   const windowMs = config.observationWindowMs ?? 1800
-  await mkdir(config.outDir, { recursive: true })
-  if ((await readdir(config.outDir)).length) throw new Error('Output directory must be empty; preserve each run separately')
-  const browser = await chromium.launch({ headless: config.headless !== false, ...(config.executablePath ? { executablePath: config.executablePath } : {}), args: ['--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'] })
+  await prepareRunDirectory(config.outDir)
   const runId = randomUUID(), samples = [], pages = [], pendingCapture = new Set()
   let active = null, requestSequence = 0
-  const metadata = { kind: 'browser-user-operation', schemaVersion: 2, runId, startedAt: new Date().toISOString(),
-    case: { id: benchmarkCase.id, version: benchmarkCase.version, metrics: benchmarkCase.metrics, options: benchmarkCase.options ?? {} }, workloads,
-    participants: participants.map((item, role) => ({ role, name: item.name })), fixture,
-    config: { ...publicConfig(config), observationWindowMs: windowMs, viewport: config.viewport ?? { width: 1280, height: 900 }, headless: config.headless !== false, serviceWorkers: 'block', networkMode: intercepted ? 'intercepted-cache-disabled' : 'passive-native-cache' },
-    runner: { toolDigest: await sourceDigest(), hardware: { cpuModel: cpus()[0]?.model ?? null, logicalCpus: cpus().length, totalMemoryBytes: totalmem(), osRelease: release() }, node: process.version, platform: process.platform, arch: process.arch, browser: browser.version() },
-    coverage: 'Real browser pages; page main-thread CPU/JS heap including observer overhead; HTTP/WS application bytes; optional web env.DB only. Unobserved services, server CPU/RSS and physical I/O unknown.' }
-  await writeFile(`${config.outDir}/metadata.json`, JSON.stringify(metadata, null, 2))
-  await writeFile(`${config.outDir}/operations.jsonl`, '')
+  const browser = await chromium.launch({ headless: config.headless !== false, ...(config.executablePath ? { executablePath: config.executablePath } : {}), args: ['--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'] })
   try {
+    const metadata = { kind: 'browser-user-operation', schemaVersion: 2, runId, startedAt: new Date().toISOString(),
+      case: { id: benchmarkCase.id, version: benchmarkCase.version, metrics: benchmarkCase.metrics, options: benchmarkCase.options ?? {} }, workloads,
+      participants: participants.map((item, role) => ({ role, name: item.name })), fixture,
+      config: { ...publicConfig(config), observationWindowMs: windowMs, viewport: config.viewport ?? { width: 1280, height: 900 }, headless: config.headless !== false, serviceWorkers: 'block', networkMode: intercepted ? 'intercepted-cache-disabled' : 'passive-native-cache' },
+      runner: { toolDigest: await sourceDigest(), hardware: { cpuModel: cpus()[0]?.model ?? null, logicalCpus: cpus().length, totalMemoryBytes: totalmem(), osRelease: release() }, node: process.version, platform: process.platform, arch: process.arch, browser: browser.version() },
+      coverage: 'Real browser pages; page main-thread CPU/JS heap including observer overhead; HTTP/WS application bytes; optional web env.DB only. Unobserved services, server CPU/RSS and physical I/O unknown.' }
+    await writeFile(`${config.outDir}/metadata.json`, JSON.stringify(metadata, null, 2))
+    await writeFile(`${config.outDir}/operations.jsonl`, '')
     for (let role = 0; role < participants.length; role++) {
       const participant = participants[role]
       const context = await browser.newContext({ viewport: metadata.config.viewport, serviceWorkers: 'block' })

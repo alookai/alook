@@ -123,9 +123,8 @@ describe("Composer committed send lifecycle", () => {
     })
     mocks.useFileAttachments.mockImplementation(() => ({
       pendingFiles,
-      setPendingFiles: vi.fn(),
+      clearPendingFiles: vi.fn(),
       transferPendingFiles,
-      restorePendingFiles: vi.fn(),
       awaitPendingFiles,
       addPendingFiles: vi.fn(),
       fileInputRef: { current: null },

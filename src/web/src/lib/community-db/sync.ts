@@ -8,8 +8,6 @@ import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { ServerDirectorySnapshotSchema, recordServerDirectoryWindow, reconcileExistingServerDirectoryWindows, type ServerDirectorySnapshot } from "@/lib/community/server-directory-window"
 import { serverRailTopOrder } from "@alook/shared"
 import type { Transaction } from "@tanstack/react-db"
-import { communityRequestOptions as qualifiedCommunityRequestOptions } from "@/lib/community/account-cache-lifecycle"
-import { isAbortError } from "@/lib/errors"
 import { isOwnerServerDeleteScopeEvictionBlocked } from "@/lib/community/eject-server"
 
 import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/community/runtime-owner"
@@ -1497,24 +1495,10 @@ export function clearAttentionScopeOptimistically(registry: CommunityDbRegistry,
     itemIds: new Set(removed.map((item) => item.id)), itemDomains: new Map(removed.map((item) => [item.id, "mentions" as const])),
   }) as AttentionScopeOptimisticSnapshot
 }
-export function commitAttentionScopeOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionScopeOptimisticSnapshot) {
-  settleAttentionIntent(registry, snapshot, new Set(["channels", "dms", "mentions"]))
-  return snapshot.settled
-}
-export function restoreAttentionScopeOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionScopeOptimisticSnapshot) {
-  return settleAttentionIntent(registry, snapshot)
-}
 
 export function removeAttentionItemsOptimistically(registry: CommunityDbRegistry, remove: (item: AttentionItemRow) => boolean): AttentionIntent {
   const items = collectionRows(registry, "attentionItems").filter(remove)
   return beginAttentionIntent(registry, { floors: new Map(), itemIds: new Set(items.map((item) => item.id)), itemDomains: new Map(items.map((item) => [item.id, "mentions" as const])), clearedAttentionCount: 0 })
-}
-export function commitAttentionItemsOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionIntent) {
-  settleAttentionIntent(registry, snapshot, new Set(["channels", "dms", "mentions"]))
-  return snapshot.settled
-}
-export function restoreAttentionItemsOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionIntent) {
-  return settleAttentionIntent(registry, snapshot)
 }
 
 function ingestNotificationSettings(
@@ -2743,23 +2727,4 @@ export function projectCommunityWsEventToDb(
         return
     }
   })
-}
-
-export function installCommunityDbSync(
-  queryClient: QueryClient,
-  registry: CommunityDbRegistry,
-) {
-  // Canonical collections hydrate themselves. Raw Query payloads are never
-  // replayed into DB: a cache notification does not prove request freshness.
-  void queryClient
-  void registry.preload().catch((error: unknown) => {
-    if (isAbortError(error)) return
-    console.error("Community collection preload failed", error)
-  })
-  return () => {}
-}
-
-export function communityRequestOptions(queryClient: QueryClient, signal?: AbortSignal) {
-  const token = captureCommunityLiveSnapshotToken(queryClient)
-  return qualifiedCommunityRequestOptions(queryClient, token, signal)
 }

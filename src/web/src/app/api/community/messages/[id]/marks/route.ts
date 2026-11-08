@@ -7,16 +7,8 @@ import { queries } from "@alook/shared"
 import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 
 /**
- * Message-keyed mark door (route/disc trunk 接口树统一, marks relocation, Melly
- * #420): a mark is a mutation ON a message → message-keyed, self-scoped (the row
- * is always keyed to ctx.userId, never a body-supplied id). Folds the former
- * flat `marks` verbs:
- *   - PUT    → toggle-on  (was POST /marks)
- *   - DELETE → toggle-off (was DELETE /marks/{messageId})
- *   - GET    → is-this-marked-by-me (was GET /marks/{messageId})
- * The cross-channel "my marks list" aggregate is a user-scoped read and lives at
- * GET users/me/marks (relocated separately). Bodies are byte-identical to the
- * former routes; only the addressing moved (messageId flat→path).
+ * Marks are keyed by the authenticated user and message. A supplied user id
+ * must not select another user's mark.
  */
 
 // Toggle-on: mark a message for the current user. Idempotent — a re-mark hits

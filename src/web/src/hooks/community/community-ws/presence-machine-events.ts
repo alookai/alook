@@ -58,7 +58,7 @@ export async function handleMachineCreated(
   if (!published) return
   assertCommunityLiveSnapshotTokenCurrent(queryClient, original.token, undefined)
   if (queryClient.getQueryCache().get(original.query.queryHash) !== original.query) return
-  getCommunityRuntime(queryClient).ui.actions.setPendingMachineTokenId(event.tokenId)
+  getCommunityRuntime(queryClient).ui.actions.setAcceptedMachinePairing({ tokenId: event.tokenId, machineId: event.machine.id })
   const current = queryClient.getQueryData<MachinesResponse>(original.query.queryKey)
   if (current?.complete === false || current?.observed === false) void queryClient.invalidateQueries({ queryKey: communityKeys.machines(), exact: true })
 }

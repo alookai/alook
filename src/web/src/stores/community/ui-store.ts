@@ -95,8 +95,8 @@ type CommunityStoreState = {
   lastTypingSent: Map<string, number>
 
 
-  // Machine pairing in flight (raw token id awaiting activate).
-  pendingMachineTokenId: string | null
+  // Accepted WS receipt; a locally minted token alone does not prove pairing.
+  acceptedMachinePairing: { tokenId: string; machineId: string } | null
 
   // A reply target handed off across a channel navigation (cross-channel sheet
   // Reply → navigate → destination page seeds its composer). See `PendingReply`.
@@ -119,7 +119,7 @@ type CommunityStoreState = {
   claimSecondaryChannel: (owner: symbol, id: string) => void
   releaseSecondaryChannel: (owner: symbol) => void
   unsubscribe: () => void
-  setPendingMachineTokenId: (tokenId: string | null) => void
+  setAcceptedMachinePairing: (receipt: { tokenId: string; machineId: string } | null) => void
   setPendingReply: (reply: PendingReply | null) => void
   registerUiHandlers: (handlers: CommunityUiHandlers) => void
   reset: () => void
@@ -135,7 +135,7 @@ const initialState = (): Pick<
   | "typingByScope"
   | "typingTimers"
   | "lastTypingSent"
-  | "pendingMachineTokenId"
+  | "acceptedMachinePairing"
   | "pendingReply"
   | "secondaryChannelOwner"
   | "subscription"
@@ -147,7 +147,7 @@ const initialState = (): Pick<
   typingByScope: new Map(),
   typingTimers: new Map(),
   lastTypingSent: new Map(),
-  pendingMachineTokenId: null,
+  acceptedMachinePairing: null,
   pendingReply: null,
   secondaryChannelOwner: null,
   subscription: {},
@@ -155,7 +155,7 @@ const initialState = (): Pick<
 })
 
 export function createCommunityStore() {
-  return createStore<ReturnType<typeof initialState>, Pick<CommunityStoreState, "setCurrentServerId" | "setCurrentChannelId" | "subscribe" | "claimSecondaryChannel" | "releaseSecondaryChannel" | "unsubscribe" | "setPendingMachineTokenId" | "setPendingReply" | "registerUiHandlers" | "reset">>(initialState(), ({ setState, get }) => ({
+  return createStore<ReturnType<typeof initialState>, Pick<CommunityStoreState, "setCurrentServerId" | "setCurrentChannelId" | "subscribe" | "claimSecondaryChannel" | "releaseSecondaryChannel" | "unsubscribe" | "setAcceptedMachinePairing" | "setPendingReply" | "registerUiHandlers" | "reset">>(initialState(), ({ setState, get }) => ({
 
   setCurrentServerId: (id) => {
     if (get().currentServerId === id) return
@@ -216,9 +216,10 @@ export function createCommunityStore() {
     setState((state) => ({ ...state, ...{ subscription: {}, secondaryChannelOwner: null } }))
   },
 
-  setPendingMachineTokenId: (tokenId) => {
-    if (get().pendingMachineTokenId === tokenId) return
-    setState((state) => ({ ...state, ...{ pendingMachineTokenId: tokenId } }))
+  setAcceptedMachinePairing: (receipt) => {
+    const current = get().acceptedMachinePairing
+    if (current?.tokenId === receipt?.tokenId && current?.machineId === receipt?.machineId) return
+    setState((state) => ({ ...state, acceptedMachinePairing: receipt }))
   },
 
   setPendingReply: (reply) => {

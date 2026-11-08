@@ -1,5 +1,7 @@
 "use client";
 
+import { legacyTweenTimeScale } from "./legacy-tween-time-scale";
+
 import { Button } from "@/components/ui/button"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useRef } from "react";
@@ -81,6 +83,7 @@ export function UseCasesSection() {
 
   useGSAP(
     () => {
+      const timeScale = legacyTweenTimeScale();
       gsap.from(".usecase-title", {
         y: 30,
         opacity: 0,
@@ -90,7 +93,7 @@ export function UseCasesSection() {
           start: "top 75%",
           toggleActions: "play none none none",
         },
-      });
+      }).timeScale(timeScale);
 
       gsap.from(".usecase-layout", {
         y: 40,
@@ -98,11 +101,11 @@ export function UseCasesSection() {
         duration: 0.6,
         ease: "power2.out",
         scrollTrigger: {
-          trigger: ".usecase-layout",
+          trigger: sectionRef.current?.querySelector(".usecase-layout"),
           start: "top 85%",
           toggleActions: "play none none none",
         },
-      });
+      }).timeScale(timeScale);
     },
     { scope: sectionRef }
   );

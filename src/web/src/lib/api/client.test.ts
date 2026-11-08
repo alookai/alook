@@ -8,7 +8,7 @@ vi.mock("sonner", () => ({
   },
 }))
 
-import { getErrorMessage, toastApiError, readUploadError } from "./client"
+import { getErrorMessage, toastApiError } from "./client"
 
 describe("getErrorMessage", () => {
   it("returns the ApiError's message when non-empty", () => {
@@ -85,30 +85,6 @@ describe("toast eligibility at publication", () => {
     toastApiError(new DOMException("retired", "AbortError"), "Failed")
     await new Promise((done) => setTimeout(done, 0))
     expect(toastErrorMock).not.toHaveBeenCalled()
-  })
-})
-
-describe("readUploadError", () => {
-  it("parses a JSON { error } body and returns an ApiError with that message and status", async () => {
-    const res = new Response(JSON.stringify({ error: "File exceeds 8MB limit" }), { status: 413 })
-    const err = await readUploadError(res, "Upload failed")
-    expect(err).toBeInstanceOf(ApiError)
-    expect(err.message).toBe("File exceeds 8MB limit")
-    expect(err.status).toBe(413)
-  })
-
-  it("falls back to the provided message when the body is not valid JSON", async () => {
-    const res = new Response("<html>not json</html>", { status: 500 })
-    const err = await readUploadError(res, "Upload failed")
-    expect(err.message).toBe("Upload failed")
-    expect(err.status).toBe(500)
-  })
-
-  it("falls back to the provided message when the body has no error field", async () => {
-    const res = new Response(JSON.stringify({ ok: false }), { status: 400 })
-    const err = await readUploadError(res, "Upload failed")
-    expect(err.message).toBe("Upload failed")
-    expect(err.status).toBe(400)
   })
 })
 

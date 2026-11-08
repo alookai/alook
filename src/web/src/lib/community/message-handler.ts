@@ -50,18 +50,6 @@ export function isDmTarget(target: { kind: string } | string): boolean {
   return (typeof target === "string" ? target : target.kind) === "dm"
 }
 
-export function isThreadTarget<T extends { kind: string }>(target: T): target is Extract<T, { kind: "thread" }>
-export function isThreadTarget(kind: string): boolean
-export function isThreadTarget(target: { kind: string } | string): boolean {
-  return (typeof target === "string" ? target : target.kind) === "thread"
-}
-
-export function isChannelTarget<T extends { kind: string }>(target: T): target is Extract<T, { kind: "channel" }>
-export function isChannelTarget(kind: string): boolean
-export function isChannelTarget(target: { kind: string } | string): boolean {
-  return (typeof target === "string" ? target : target.kind) === "channel"
-}
-
 export type IncomingMessageBody = {
   content?: unknown
   replyToId?: unknown
@@ -160,17 +148,6 @@ export async function createCommunityMessage(params: {
    * thread posts), which keep the unconditional, always-succeeds claim.
    */
   expectedSeq?: number
-  /**
-   * Sets `communityMessage.type` (e.g. `"thread_created"`). Defaults to
-   * `"default"` — every normal-message caller is untouched.
-   */
-  messageType?: string
-  /**
-   * Skip `@`/reply mention extraction + `communityMention` writes + the
-   * `MENTION_CREATE` broadcast. System/card messages (thread_created, bot DM
-   * cards) opt in — they never mention anyone.
-   */
-  skipMentions?: boolean
   attachmentIds?: string[]
   /**
    * Do NOT run any WS side effect inline. Instead, on success, return a
@@ -180,37 +157,6 @@ export async function createCommunityMessage(params: {
    * conflict — broadcasting before that commit would show a phantom card.
    */
   deferBroadcast?: boolean
-  /**
-   * Migration-backfill mode: DROP every WS side effect entirely (MESSAGE_CREATE
-   * fan-out, notify push, bot wake, CHILD_CHANNEL_UPDATE) — historical backfill
-   * must not ping anyone or push M×N real-time frames. UNLIKE `deferBroadcast`,
-   * which hands the caller a thunk to fire later, this simply never runs the
-   * broadcast at all.
-   *
-   * CRITICAL (Aigneis #133 / Melly #135 / message-handler decouple at
-   * `skipChildChannelUpdate`): this closes ONLY the real-time DELIVERY shell.
-   * The STRUCTURAL core — the message row, thread open, and the notify-set
-   * ENROLL (`addThreadParticipants`, the reach-axis participant write) + mention
-   * ROW writes — all run inline ABOVE the broadcast block and are NOT gated by
-   * this flag. Do NOT reach for `skipMentions` to silence a backfill: that flag
-   * ALSO closes enroll + mention rows (`!skipMentions` at the enroll gate), which
-   * would silently drop the migrated thread's participant set. Keep this flag
-   * about DELIVERY only, so a migrated post's participants (opener + each reply's
-   * author/mention) are identical to the new-build path.
-   *
-   * Built for the forum carrier-swap migration entry (route/disc trunk); no
-   * real-time caller passes it, so real-time create behavior is unchanged.
-   */
-  suppressBroadcast?: boolean
-  /**
-   * Suppress ONLY the parent `CHILD_CHANNEL_UPDATE` WS emission — participant
-   * enroll (the notify-set write) still runs per `kind`. A thread-open's
-   * first message opts in when the caller already emits its own
-   * CHILD_CHANNEL_CREATE for the new thread (the two would otherwise
-   * collide). Decouples enroll from the WS tick so dodging the collision no
-   * longer silently skips enrollment.
-   */
-  skipChildChannelUpdate?: boolean
   /**
    * Idempotency key (mutation-idempotency plan). When present, the handler
    * dedupes on (author, nonce) BEFORE claiming a seq: a resend carrying a
@@ -227,7 +173,6 @@ export async function createCommunityMessage(params: {
    * identity-agnostic — the bot-only caller supplies the statement.
    */
   extraStatements?: unknown[]
-  suppressThreadFanout?: boolean
   forumThread?: Parameters<typeof queries.communityMessage.createMessage>[1]["forumThread"]
 }): Promise<CreateMessageResult> {
   const {
@@ -238,12 +183,8 @@ export async function createCommunityMessage(params: {
     body,
     source,
     expectedSeq,
-    messageType,
-    skipMentions,
     deferBroadcast,
-    suppressBroadcast,
     attachmentIds,
-    skipChildChannelUpdate,
     clientNonce,
     extraStatements,
   } = params
@@ -330,7 +271,7 @@ export async function createCommunityMessage(params: {
   // preview is rebuilt from this same persisted relation by the dispatcher.
   const replyTargets = new Set<string>()
 
-  if (!skipMentions && replyToId && resolvedReplyMsg) {
+  if (replyToId && resolvedReplyMsg) {
     // single-id path — see `dm/[id]/messages/route.ts` / `channels/[id]/messages/route.ts` for the batched N-id path
     if (resolvedReplyMsg.authorId && resolvedReplyMsg.authorId !== authorId) {
       replyTargets.add(resolvedReplyMsg.authorId)
@@ -354,7 +295,7 @@ export async function createCommunityMessage(params: {
   // subscribe the whole channel/server to every future reply (that would defeat
   // the notification dimension). See the thread-participation block below.
   const explicitMentionTargets = new Set<string>()
-  if (!skipMentions && !isDmTarget(target)) {
+  if (!isDmTarget(target)) {
 
     const isPrivate = await withD1Retry(
       () => queries.communityChannel.isChannelPrivate(db, target.channelId),
@@ -429,8 +370,7 @@ export async function createCommunityMessage(params: {
   //   - @mention: an explicitly mentioned/replied audience member becomes a
   //     participant (source "mention"). `mentionTargets`/`replyTargets` are
   //     already scoped to the unit's audience by the block above.
-  // Admins are NOT auto-added — only real participation joins the set. System /
-  // card messages (`skipMentions`) don't add the author.
+  // Only actual speaking, explicit mentions and replies enroll participants.
   // Enroll gate = the REACH axis (B2): a message enrolls participants iff its
   // channel's reach is `participant-set`. This is the WRITE side of red-line ③ —
   // it keys on the SAME reach value that the fan-out recipient set and the
@@ -443,7 +383,7 @@ export async function createCommunityMessage(params: {
   // for today's types — a future type could have a parent but server reach, or
   // participant reach without a parent, so the two rules stay separate.
   let participants: { userId: string; source: string }[] = []
-  if (reachIsParticipantSet(target.kind) && !skipMentions) {
+  if (reachIsParticipantSet(target.kind)) {
     const rows: { userId: string; source: typeof PARTICIPANT_SOURCE.SPOKE | typeof PARTICIPANT_SOURCE.MENTION }[] = [
       { userId: authorId, source: PARTICIPANT_SOURCE.SPOKE },
     ]
@@ -461,7 +401,6 @@ export async function createCommunityMessage(params: {
 
   const qualifiesForFirstAgentReply = authorKind === "bot"
     && (source === "cli" || source === "daemon-http")
-    && (messageType ?? "default") === "default"
   const messageId = qualifiesForFirstAgentReply ? nanoid() : undefined
   const conversationType = target.kind === "dm"
     ? "dm"
@@ -483,7 +422,6 @@ export async function createCommunityMessage(params: {
     channelId: target.channelId,
     replyToId,
     mentionType,
-    type: messageType,
     clientNonce,
     ...(extraStatements?.length || funnelStatements.length
       ? { extraStatements: [...(extraStatements ?? []), ...funnelStatements] }
@@ -531,7 +469,6 @@ export async function createCommunityMessage(params: {
   const doBroadcast = async (): Promise<void> => {
     const deliveries: Promise<void>[] = [dispatchCommittedMessage(db, created.id, {
       ...(joinedParticipantUserIds.length ? { joinedParticipantUserIds } : {}),
-      ...(skipChildChannelUpdate ? { suppressParentProjection: true } : {}),
     })]
     if (readStateRevision !== undefined) {
       deliveries.push(broadcastToUserSafe(authorId, {
@@ -540,7 +477,7 @@ export async function createCommunityMessage(params: {
         inboxChanged: true,
       }))
     }
-    if (created.createdThread && !params.suppressThreadFanout) {
+    if (created.createdThread) {
       const child = await queries.communityChannel.getThreadChannelByParentMessage(db, target.channelId, created.id)
       const event = {
         type: WS_EVENTS.CHILD_CHANNEL_CREATE,
@@ -553,7 +490,7 @@ export async function createCommunityMessage(params: {
     await Promise.all(deliveries)
   }
 
-  if (!suppressBroadcast && !deferBroadcast) {
+  if (!deferBroadcast) {
     void doBroadcast().catch((error) => {
       log.warn("post_commit_notification_failed", { messageId: created.id, error: String(error) })
     })
@@ -574,7 +511,7 @@ export async function createCommunityMessage(params: {
   }
 
   const postedRow = { ...row, clientNonce: created.clientNonce }
-  if (!suppressBroadcast && deferBroadcast) {
+  if (deferBroadcast) {
     return { ok: true, row: postedRow, attachments, broadcast: doBroadcast }
   }
   return { ok: true, row: postedRow, attachments }

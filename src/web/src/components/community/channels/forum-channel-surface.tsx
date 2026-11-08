@@ -9,7 +9,6 @@ import { canManageServer, type CommunityRole as Role } from "@alook/shared"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
-import { ChannelShell } from "@/components/community/channels/channel-shell"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
 import type { NewForumThread } from "@/components/community/messages/create-forum-thread"
@@ -104,8 +103,8 @@ export function ForumChannelSurface({
   const Body = embedded ? "div" : "main"
 
   return (
-    <ChannelShell
-      header={(
+    <>
+{(
         <ChannelHeader
           channel={channelName}
           titleState={channelTitleState}
@@ -118,7 +117,7 @@ export function ForumChannelSurface({
           tools={{ threads: false, pinned: false }}
         />
       )}
-      body={(
+{(
         <Body className="flex min-h-0 min-w-0 flex-1 flex-col">
           <ForumSurface
             serverId={serverId}
@@ -164,7 +163,7 @@ export function ForumChannelSurface({
           />
         </Body>
       )}
-      panels={(
+{(
         <CommunityPanel
           open={rightPanel !== null}
           onOpenChange={(open) => { if (!open) setPanelState({ channelId, panel: null }) }}
@@ -176,7 +175,7 @@ export function ForumChannelSurface({
           onOpenProfile={onOpenProfile}
         />
       )}
-      dialogs={manageMembersDialog}
-    />
+{manageMembersDialog}
+</>
   )
 }

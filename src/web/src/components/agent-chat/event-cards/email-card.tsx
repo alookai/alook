@@ -1,67 +1,13 @@
-import { Button } from "@/components/ui/button"
-import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useCallback } from "react";
-import { relativeTime } from "@/lib/time";
-import { AnimatedAvatar } from "@/components/avatar";
-import { ChevronRight, MessageSquare } from "lucide-react";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { useLongPress } from "@/hooks/use-long-press";
-import type { Agent } from "@alook/shared";
-
-export function EmailCard({
-  subject,
-  address,
-  direction,
-  onClick,
-  timestamp,
-  isInternal,
-  internalHandle,
-  targetConvId,
-  targetAgentId,
-  agents,
-  onAgentChatOpen,
-  touchAction,
-}: {
+export function EmailCard({ subject, address, direction }: {
   subject: string;
   address: string;
   direction: "inbound" | "outbound";
-  onClick?: () => void;
-  timestamp?: string;
-  isInternal?: boolean;
-  internalHandle?: string;
-  targetConvId?: string;
-  targetAgentId?: string;
-  agents?: Agent[];
-  onAgentChatOpen?: (agentId: string, targetConvId: string) => void;
-  touchAction?: { label: string; onClick: () => void } | null;
 }) {
-  const [hoverResolved, setHoverResolved] = useAtom(useCreateAtom(false));
-  const [touchSheetOpen, setTouchSheetOpen] = useAtom(useCreateAtom(false));
-
-  const longPressHandlers = useLongPress(() => {
-    if (touchAction) setTouchSheetOpen(true);
-  });
-
-  const handlePointerEnter = useCallback(() => {
-    if (!isInternal || hoverResolved) return;
-    setHoverResolved(true);
-  }, [isInternal, hoverResolved, setHoverResolved]);
-  const resolvedAgent = hoverResolved ? agents?.find((agent) => agent.email_handle === internalHandle) : null;
   return (
-    <>
     <button
       type="button"
-      onClick={(e) => {
-        if (touchAction && longPressHandlers.onClick) {
-          longPressHandlers.onClick(e);
-          if (e.defaultPrevented) return;
-        }
-        onClick?.();
-      }}
-      disabled={!onClick}
-      onPointerEnter={handlePointerEnter}
-      {...(touchAction ? { onPointerDown: longPressHandlers.onPointerDown, onPointerMove: longPressHandlers.onPointerMove, onPointerUp: longPressHandlers.onPointerUp, onPointerCancel: longPressHandlers.onPointerCancel, onPointerLeave: longPressHandlers.onPointerLeave } : {})}
-      className={`card-grain w-104 max-w-full rounded-(--radius) border border-(--border) bg-(--paper) text-left flex flex-col cursor-pointer [transition:translate_.2s_cubic-bezier(.2,.8,.2,1),box-shadow_.2s_ease] hover:-translate-y-0.5 [box-shadow:var(--e1)] hover:[box-shadow:var(--e2)] ${isInternal && targetConvId ? "overflow-visible group/ecard relative hover:z-20" : "overflow-hidden"}`}
+      disabled
+      className="card-grain w-104 max-w-full rounded-(--radius) border border-(--border) bg-(--paper) text-left flex flex-col cursor-pointer [transition:translate_.2s_cubic-bezier(.2,.8,.2,1),box-shadow_.2s_ease] hover:-translate-y-0.5 [box-shadow:var(--e1)] hover:[box-shadow:var(--e2)] overflow-hidden"
     >
       <span className="h-2.5 relative block">
         <svg
@@ -87,11 +33,6 @@ export function EmailCard({
             {address}
           </span>
           <span className="shrink-0 flex flex-col items-end gap-1">
-            {timestamp && (
-              <span className="text-[0.62rem] font-mono text-muted-foreground/65">
-                {relativeTime(timestamp)}
-              </span>
-            )}
             <span className="text-[0.5rem] font-bold uppercase tracking-wider text-(--te) px-1 py-1 rounded-[3px] border-[1.5px] border-(--te) opacity-45 -rotate-3">
               {direction === "inbound" ? "Inbound" : "Sent"}
             </span>
@@ -101,51 +42,6 @@ export function EmailCard({
           {subject}
         </span>
       </span>
-      {isInternal && resolvedAgent && targetConvId && (
-        <span
-          className="absolute -bottom-2 left-1/2 -translate-x-1/2 translate-y-1 opacity-0 group-hover/ecard:opacity-100 group-hover/ecard:translate-y-0 transition-all duration-200 ease-out pointer-events-none group-hover/ecard:pointer-events-auto z-10"
-        >
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (targetConvId && targetAgentId) onAgentChatOpen?.(targetAgentId, targetConvId);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.stopPropagation();
-                if (targetConvId && targetAgentId) onAgentChatOpen?.(targetAgentId, targetConvId);
-              }
-            }}
-            className="flex items-center gap-2 py-1 pl-0.5 pr-2 bg-(--paper) border border-(--border) rounded-full shadow-md hover:bg-(--secondary) cursor-pointer whitespace-nowrap"
-          >
-            <AnimatedAvatar seed={resolvedAgent.id} avatarUrl={resolvedAgent.avatar_url} size={20} isHovered={false} className="rounded-full" />
-            <span className="text-[0.62rem] font-semibold opacity-80">{resolvedAgent.name}</span>
-            <ChevronRight className="w-2.5 h-2.5 text-muted-foreground/45 -ml-1" />
-          </span>
-        </span>
-      )}
     </button>
-    {touchAction && (
-      <Sheet open={touchSheetOpen} onOpenChange={setTouchSheetOpen}>
-        <SheetContent side="bottom" showCloseButton={false} className="rounded-t-2xl p-2">
-          <div className="flex flex-col">
-            <Button variant="ghost" size="sm"
-              type="button"
-              onClick={() => {
-                touchAction.onClick();
-                setTouchSheetOpen(false);
-              }}
-              className="h-auto flex items-center justify-start gap-3 rounded-lg px-3 py-3 text-left text-[0.95rem] active:bg-muted text-foreground"
-            >
-              <span className="text-muted-foreground"><MessageSquare className="w-5 h-5" /></span>
-              {touchAction.label}
-            </Button>
-          </div>
-        </SheetContent>
-      </Sheet>
-    )}
-    </>
   );
 }

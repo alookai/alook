@@ -12,19 +12,6 @@ for (const [i, line] of voice.entries()) {
     );
   assert.ok(existsSync(`public/${line.file}`));
 }
-const film = readFileSync("src/Film.tsx", "utf8"),
-  product = readFileSync("src/Product.tsx", "utf8"),
-  ending = readFileSync("src/Ending.tsx", "utf8");
-assert.ok(!/opacity|fadeIn|fadeOut/.test(film));
-assert.ok(!/heading-mask|className="heading"/.test(film));
-assert.match(film, /Lin’s teammate/);
-assert.match(film, /Share your agents with people you trust\./);
-assert.equal(
-  ending.match(/const agents\s*=\s*\[([\s\S]*?)\]/)[1].match(/['"][^'"]+['"]/g)
-    .length,
-  9,
-);
-assert.match(product, /Keep work details private/);
 const shots = JSON.parse(readFileSync("src/camera-keyframes.json", "utf8"));
 for (let i = 1; i < shots.length; i++) assert.ok(shots[i][0] > shots[i - 1][0]);
 assert.ok(Math.max(...shots.map((s) => s[3])) >= 1.48);
@@ -36,5 +23,5 @@ assert.ok(
 for (const name of ["Lin", "Alex", "Sam"])
   assert.ok(existsSync(`src/assets/people/${name}.png`));
 console.log(
-  "PASS: named protagonist, non-overlapping VO, 63s timeline, deliberate zoom/pan and pullbacks, no section titles/fades, nine-agent ending, private sharing boundary.",
+  "PASS: historical narration timing/non-overlap and media presence; historical camera zoom/pan/pullback metadata.",
 );

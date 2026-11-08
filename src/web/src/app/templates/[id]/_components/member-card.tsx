@@ -24,24 +24,23 @@ const ROLE_STYLES: Record<string, { bg: string; text: string; label: string }> =
 const FALLBACK_STYLE = {
   bg: "bg-muted/40",
   text: "text-muted-foreground",
-  label: "Agent",
 };
 
 export function MemberCard({
   role,
-  roleLabel,
   description,
 }: {
   role: string;
-  roleLabel: string;
   description: string;
 }) {
-  const style = ROLE_STYLES[role] || FALLBACK_STYLE;
+  const style = Object.hasOwn(ROLE_STYLES, role)
+    ? ROLE_STYLES[role]
+    : { ...FALLBACK_STYLE, label: role };
 
   return (
     <div className={`rounded-lg p-4 ${style.bg}`}>
       <span className={`text-xs font-semibold uppercase tracking-wider ${style.text}`}>
-        {roleLabel}
+        {style.label}
       </span>
       <p className="mt-2 text-sm leading-relaxed text-foreground/80">
         {description}

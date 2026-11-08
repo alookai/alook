@@ -45,7 +45,7 @@ describe("ThreadOpener image attachment layout", () => {
   })
 
   it("keeps the full canonical author, exact profile target and original Jump action", () => {
-    const authorName = "这是很长的作者姓名 LongUnbrokenName".repeat(4)
+    const authorName = "A long author name Zoë LongUnbrokenName".repeat(4)
     const createdAt = "2026-08-08T00:00:00.000Z"
     profileState.name = authorName
     useMessageMock.mockReturnValue({

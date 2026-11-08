@@ -3,7 +3,7 @@
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { dmHref } from "@/lib/community/community-route"
 import { memo } from "react"
-import { Users, Ban, Monitor, Bot, Shield } from "lucide-react"
+import { Users, Ban, Monitor, Bot, Shield, type LucideIcon } from "lucide-react"
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -36,11 +36,17 @@ export const DmSidebar = memo(function DmSidebar({
 }) {
   const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive && !privacyActive)
   const requestCount = compactRequestCount(friendRequestCount)
-  // One selection that travels between shortcuts (Stageshow: the selection
-  // moves, it does not jump). Rows are h-9 with gap-1, so the offset is
-  // index × 2.5rem (h-9 + gap-1). Hidden while a DM is open.
-  const shortcutActive = [isFriendsActive, ...(onShowMachines ? [!!machinesActive] : []), ...(onShowBots ? [!!botsActive] : []), ...(onShowPrivacy ? [!!privacyActive] : [])]
-  const activeShortcut = shortcutActive.indexOf(true)
+  const shortcuts: Array<{
+    href: string; label: string; Icon: LucideIcon; active?: boolean; onActivate: () => void
+    testId?: string; ariaLabel?: string; badge?: string | null
+  }> = [
+    { href: "/c/me/friends", label: "Friends", Icon: Users, active: isFriendsActive, onActivate: onShowFriends,
+      ariaLabel: requestCount ? `Friends, ${friendRequestCount} new requests` : "Friends", badge: requestCount },
+    ...(onShowMachines ? [{ href: "/c/me/machines", label: "Machines", Icon: Monitor, active: machinesActive, onActivate: onShowMachines, testId: tid.machineGuideIntroSource }] : []),
+    ...(onShowBots ? [{ href: "/c/me/bots", label: "My Bots", Icon: Bot, active: botsActive, onActivate: onShowBots }] : []),
+    ...(onShowPrivacy ? [{ href: "/c/me/privacy", label: "Privacy", Icon: Shield, active: privacyActive, onActivate: onShowPrivacy }] : []),
+  ]
+  const activeShortcut = shortcuts.findIndex((shortcut) => shortcut.active)
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div data-slot="dm-sidebar-shortcuts" className="shrink-0 px-2 pt-4">
@@ -51,74 +57,29 @@ export const DmSidebar = memo(function DmSidebar({
             className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-9 rounded-md bg-sidebar-accent transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.25,0.8,0.25,1)] motion-reduce:transition-none"
             style={{ transform: `translateY(${Math.max(activeShortcut, 0) * 2.5}rem)`, opacity: activeShortcut < 0 ? 0 : 1 }}
           />
-          <CommunityNavigationLink
-            aria-label={requestCount ? `Friends, ${friendRequestCount} new requests` : "Friends"}
-            href="/c/me/friends"
-            prefetchMode="visible"
-            active={isFriendsActive}
-            onActivate={onShowFriends}
-            className={[
-              "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium transition-[color,background-color,transform] duration-150 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
-              isFriendsActive ? "text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-            ].join(" ")}
-          >
-            <Users className="size-5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">Friends</span>
-            {requestCount && (
-              <span
-                data-testid={tid.friendsShortcutBadge}
-                className="ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground"
-              >
-                {requestCount}
-              </span>
-            )}
-          </CommunityNavigationLink>
-          {onShowMachines && (
+          {shortcuts.map((shortcut) => (
             <CommunityNavigationLink
-              data-testid={tid.machineGuideIntroSource}
-              href="/c/me/machines"
+              key={shortcut.href}
+              data-testid={shortcut.testId}
+              aria-label={shortcut.ariaLabel}
+              href={shortcut.href}
               prefetchMode="visible"
-              active={machinesActive}
-              onActivate={onShowMachines}
+              active={shortcut.active}
+              onActivate={shortcut.onActivate}
               className={[
                 "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium transition-[color,background-color,transform] duration-150 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
-                machinesActive ? "text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                shortcut.active ? "text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
               ].join(" ")}
             >
-              <Monitor className="size-5 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">Machines</span>
+              <shortcut.Icon className="size-5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{shortcut.label}</span>
+              {shortcut.badge && (
+                <span data-testid={tid.friendsShortcutBadge} className="ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground">
+                  {shortcut.badge}
+                </span>
+              )}
             </CommunityNavigationLink>
-          )}
-          {onShowBots && (
-            <CommunityNavigationLink
-              href="/c/me/bots"
-              prefetchMode="visible"
-              active={botsActive}
-              onActivate={onShowBots}
-              className={[
-                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium transition-[color,background-color,transform] duration-150 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
-                botsActive ? "text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-              ].join(" ")}
-            >
-              <Bot className="size-5 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">My Bots</span>
-            </CommunityNavigationLink>
-          )}
-          {onShowPrivacy && (
-            <CommunityNavigationLink
-              href="/c/me/privacy"
-              prefetchMode="visible"
-              active={privacyActive}
-              onActivate={onShowPrivacy}
-              className={[
-                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium transition-[color,background-color,transform] duration-150 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
-                privacyActive ? "text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-              ].join(" ")}
-            >
-              <Shield className="size-5 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">Privacy</span>
-            </CommunityNavigationLink>
-          )}
+          ))}
         </div>
         <div className="my-2 h-px bg-border" />
       </div>

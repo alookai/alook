@@ -9,37 +9,10 @@ import { isDmTarget } from "@/lib/community/message-handler"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 
 /**
- * POST /api/community/users/me/inbox/ack — the canonical bot batch-ack
- * (route/disc 接口树统一, ack relocation, Gener #215 乙). ack ADVANCES the bot's
- * cross-channel read waterline (`lastReadSeq`); it is the third operation on the
- * one inbox resource, completing the fetch↔advance separation (Aigneis #41):
- *   - GET  users/me/inbox/snapshot → peek (never advances)
- *   - POST users/me/inbox/pull     → fetch
- *   - POST users/me/inbox/ack      → advance
- * The waterline WRITE (bumpReadCursor) converges with the human read route's
- * markReadToMessageBuilder on the SAME communityReadState row + same 3 columns
- * (lastReadAt/lastReadMessageId/lastReadSeq) — one waterline, two input anchors
- * (bot=seq / human=messageId). That single-source is at the write layer, NOT the
- * URL: this endpoint stays a bot-native MOVE-FLAT (乙: 寻址/水位归一 ≠ URL归一),
- * kept distinct from the human PUT channels/{id}/read for three orthogonal
- * reasons — (1) batch-of-cursors best-effort + failed[] never-drop, (2) it does
- * NOT clear mentions (the human PUT does), (3) ref-resolve with create DISABLED
- * (resolve≠create). Bot-only; a human actor → 403 via requireBot (Gener #116).
- *
- * The flat /api/community/ack route is deleted (flat-delete step) — this door
- * is the sole canonical entry; the deploy-orchestration verify-list gates
- * deleting it (and inboxPull's flat verb) on the daemon being confirmed on
- * this new target.
- *
- * Best-effort per cursor, NOT fail-fast: every good cursor is applied and its
- * waterline advanced regardless of any sibling cursor failing. A single
- * unresolvable child-thread cursor must
- * never stall the healthy cursors behind it — that regressed their waterlines
- * and muted the bot in every channel with unread. Bad cursors are collected
- * into `failed[]` with a coarse `code`; the response is ALWAYS 200 (partial
- * success is not a request-level error — the good cursors DID apply, and the
- * daemon must not treat the whole call as failed). Only a genuine D1 exception
- * escaping `withD1Retry` propagates as a 500 so the daemon retries the batch.
+ * Bot ack shares the human read-state row, but uses sequence anchors and does
+ * not clear mentions or create targets. Apply valid cursors despite sibling
+ * failures, returning failed[] with HTTP200. Unhandled D1 errors remain500
+ * so the daemon can retry the batch.
  */
 export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const gate = requireBot(ctx.actor)

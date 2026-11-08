@@ -9,7 +9,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import type { AuditEvent, AuditKind } from "@/hooks/community/use-bot-audit-log"
+import type { AuditEvent, AuditKind } from "@/lib/community/models/audit"
 import {
   formatAlookAuditCommand,
   formatAuditToolName,
@@ -62,6 +62,12 @@ function kindMeta(kind: AuditKind): { label: string; tone: string } {
   return { label: "think", tone: "text-muted-foreground/70" }
 }
 
+const lifecycleText: Partial<Record<AuditKind, { lead: string; detail: string }>> = {
+  turn_interrupt: { lead: "Stop accepted by daemon", detail: "— waiting for the active turn to become idle." },
+  session_reset: { lead: "Session reset requested", detail: "— the bot will start a fresh session on its next message." },
+  nap: { lead: "Reset its own session", detail: "— the bot napped and will start fresh on its next message." },
+}
+
 function RowBody({ event }: { event: AuditEvent }) {
   if (event.kind === "cli_invocation") {
     const command = formatAlookAuditCommand(event.payload)
@@ -85,45 +91,11 @@ function RowBody({ event }: { event: AuditEvent }) {
     }
     return <TruncatedAuditLog fullText={name}>{name}</TruncatedAuditLog>
   }
-  if (event.kind === "turn_interrupt") {
-    const detail = "Stop accepted by daemon — waiting for the active turn to become idle."
+  const lifecycle = lifecycleText[event.kind]
+  if (lifecycle) {
     return (
-      <TruncatedAuditLog
-        fullText={detail}
-        data-testid="bot-activity-event-turn_interrupt"
-      >
-        <span>Stop accepted by daemon</span>{" "}
-        <span className="text-muted-foreground">
-          — waiting for the active turn to become idle.
-        </span>
-      </TruncatedAuditLog>
-    )
-  }
-  if (event.kind === "session_reset") {
-    const detail = "Session reset requested — the bot will start a fresh session on its next message."
-    return (
-      <TruncatedAuditLog
-        fullText={detail}
-        data-testid="bot-activity-event-session_reset"
-      >
-        <span>Session reset requested</span>{" "}
-        <span className="text-muted-foreground">
-          — the bot will start a fresh session on its next message.
-        </span>
-      </TruncatedAuditLog>
-    )
-  }
-  if (event.kind === "nap") {
-    const detail = "Reset its own session — the bot napped and will start fresh on its next message."
-    return (
-      <TruncatedAuditLog
-        fullText={detail}
-        data-testid="bot-activity-event-nap"
-      >
-        <span>Reset its own session</span>{" "}
-        <span className="text-muted-foreground">
-          — the bot napped and will start fresh on its next message.
-        </span>
+      <TruncatedAuditLog fullText={`${lifecycle.lead} ${lifecycle.detail}`} data-testid={`bot-activity-event-${event.kind}`}>
+        <span>{lifecycle.lead}</span>{" "}<span className="text-muted-foreground">{lifecycle.detail}</span>
       </TruncatedAuditLog>
     )
   }

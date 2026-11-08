@@ -35,7 +35,7 @@ import { useDms } from "@/hooks/community/use-dms"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useDmMessages } from "@/hooks/community/use-messages"
 import { useMessageUnreadCount } from "@/hooks/community/use-message-unread-count"
-import { useDmWatermark } from "@/hooks/community/use-dm-watermark"
+import { useTimelineReadObserver } from "@/hooks/community/use-read-observer"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
 import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
 import {
@@ -51,10 +51,7 @@ import {
   communityWsSendTyping,
   communityWsEndTyping,
 } from "@/hooks/community/use-community-ws"
-import {
-  advanceCommunityOnboarding,
-  readCommunityOnboardingState,
-} from "@/lib/community-onboarding"
+
 import { notifLevelDisplay, type NotifLevel } from "@alook/shared"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useSetChannelNotif } from "@/hooks/community/mutations"
@@ -192,12 +189,12 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
   }, [channelRefDirectoryEnabled, channelRefDirectoryError, refetchChannelRefDirectory, setChannelRefDirectoryEnabled])
   const newDividerBefore = newBoundary?.target?.id
 
-  // Scroll root of the message list — needed so `useDmWatermark`'s
+  // Scroll root of the message list — needed so `useTimelineReadObserver`'s
   // IntersectionObserver measures against the correct viewport rather
   // than the page viewport. Set once by `MessageList` via `onScrollRoot`.
   const [scrollRootEl, setScrollRootEl] = useState<HTMLDivElement | null>(null)
-  useDmWatermark({
-    dmId,
+  useTimelineReadObserver({
+    channelId: dmId,
     messages,
     scrollRootEl,
     snapshotStatus: readSnapshotFetching
@@ -280,13 +277,6 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     }
   }, [friends, currentUser.id, currentUser.name, dm])
 
-  const advanceOnboardingAfterSend = useCallback(() => {
-    const state = readCommunityOnboardingState(communityRuntime)
-    if (state?.status === "active" && state.stage === "dm" && state.dmId === dmId) {
-      advanceCommunityOnboarding(communityRuntime, "dm", "server")
-    }
-  }, [communityRuntime, dmId])
-
   const messageActions = useMemo(() => ({
     onToggleReaction: (id: string, emoji: string) =>
       toggleReaction({ dmId, messageId: id, emoji, userId: currentUser.id }),
@@ -315,10 +305,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
       const m = messages.find((x) => x.id === id)
       if (!m?.clientNonce) return
       const assertActive = sendView.capture()
-      void retryDmMessage(dmId, m.clientNonce, assertActive).then((result) => {
-        try { assertActive() } catch { return }
-        if (result.ok) advanceOnboardingAfterSend()
-      })
+      void retryDmMessage(dmId, m.clientNonce, assertActive)
     },
     onDismiss: (id: string) => {
       const m = messages.find((x) => x.id === id)
@@ -334,7 +321,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     onPreviewAttachment: (attachment: FileAttachment) => {
       uiHandlers.previewAttachment?.(attachment)
     },
-  }), [toggleReaction, dmId, currentUser.id, addReaction, messages, setReplyTo, toggleMark, retryDmMessage, sendView, advanceOnboardingAfterSend, communityRuntime.messageStream.actions, uiHandlers, sendAllowed])
+  }), [toggleReaction, dmId, currentUser.id, addReaction, messages, setReplyTo, toggleMark, retryDmMessage, sendView, communityRuntime.messageStream.actions, uiHandlers, sendAllowed])
 
   // DM endpoint ignores mentionType. Replies are supported — the backend
   // persists replyToId for DMs too.
@@ -356,10 +343,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     if (!receipt.accepted) return false
     if (hasMoreNewerMessages) jumpToPresent()
     setLocalSubmitVersion((version) => version + 1)
-    void receipt.committed.then((result) => {
-      try { assertActive() } catch { return }
-      if (result.ok) advanceOnboardingAfterSend()
-    })
+
     communityWsEndTyping(communityRuntime, { channelId: dmId })
     setReplyTo(null)
     return true

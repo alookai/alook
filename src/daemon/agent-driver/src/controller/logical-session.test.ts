@@ -1281,7 +1281,8 @@ describe("closed physical-lane tombstone", () => {
     await Promise.resolve();
 
     const second = await session.send({ id: "b", kind: "user", text: "second" });
-    expect(second.status).toBe("accepted");
+    expect(second).toMatchObject({ status: "queued", reason: "runtime_busy" });
+    await vi.waitFor(() => expect(session.snapshot()).toMatchObject({ state: "working", activeTurn: { commandIds: ["b"] } }));
     await emit(driver, { kind: "tool_call", name: "current", input: {} });
     expect(await session.send({ id: "c", kind: "user", text: "third" })).toEqual({
       status: "queued",
@@ -1297,7 +1298,7 @@ describe("closed physical-lane tombstone", () => {
     });
 
     const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
-    while (observed.length < 10) {
+    while (!observed.some(event => event.type === "command_accepted" && event.commandId === "c")) {
       const next = await iterator.next();
       if (next.done) break;
       observed.push(next.value);
@@ -2104,7 +2105,7 @@ describe("logical-session terminal facts", () => {
       await expect(session.closed).resolves.toMatchObject({
         outcome: "crashed",
         error: { code: "event_buffer_overflow" },
-        cleanup: { status: "released" },
+        cleanup: { status: "timed_out", error: { code: "lane_stop_timeout" } },
       });
       const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
       for await (const event of { [Symbol.asyncIterator]: () => iterator }) observed.push(event);
@@ -2210,9 +2211,9 @@ describe("logical-session terminal facts", () => {
     const gate = deferred();
     const stop = vi.spyOn(ProcessLane.prototype, "stop")
       .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error("stop rejected"));
+      .mockRejectedValueOnce(new Error("stop rejected cmk_late_cleanup_fixture"));
     try {
-      const { session, driver } = makeSession("claude", { timeout: 25 });
+      const { session, driver, host } = makeSession("claude", { timeout: 25 });
       driver.spawnGate = gate.promise;
       const starting = session.start({ id: "one", kind: "user", text: "start" });
       await Promise.resolve();
@@ -2220,6 +2221,9 @@ describe("logical-session terminal facts", () => {
       gate.resolve();
       await expect(starting).resolves.toEqual({ status: "rejected", reason: "closed" });
       expect(stop).toHaveBeenCalledTimes(2);
+      expect(host.rawOutput).toContainEqual(expect.objectContaining({ stream: "stderr", text: expect.stringContaining("stop_failed") }));
+      expect(host.rawOutput.map(event => event.text).join("\n")).not.toContain("cmk_late_cleanup_fixture");
+      await expect(session.closed).resolves.toMatchObject({ outcome: "stopped" });
     } finally {
       stop.mockRestore();
     }
@@ -2259,7 +2263,7 @@ describe("logical-session terminal facts", () => {
       const stopped = session.stop({ reason: "owner_request", forceAfterMs: 25 });
       await vi.advanceTimersByTimeAsync(130);
       expect(await stopped).toMatchObject({ status: "accepted" });
-      expect(await session.closed).toMatchObject({ outcome: "forced" });
+      expect(await session.closed).toMatchObject({ outcome: "forced", cleanup: { status: "timed_out", error: { code: "lane_stop_timeout" } } });
       expect(host.releases).toHaveLength(1);
     } finally {
       vi.useRealTimers();
@@ -2331,7 +2335,7 @@ describe("logical-session terminal facts", () => {
     await expect(session.closed).resolves.toMatchObject({
       outcome: "forced",
       error: { code: "stop_failed" },
-      cleanup: { status: "released" },
+      cleanup: { status: "failed", error: { code: "stop_failed" } },
     });
     expect(session.snapshot().state).toBe("closed");
     expect(host.releases).toHaveLength(1);
@@ -2372,7 +2376,7 @@ describe("logical-session terminal facts", () => {
       status: "failed",
       error: { code: "stop_failed" },
     });
-    await expect(session.closed).resolves.toMatchObject({ outcome: "forced", error: { code: "stop_failed" } });
+    await expect(session.closed).resolves.toMatchObject({ outcome: "forced", error: { code: "stop_failed" }, cleanup: { status: "failed", error: { code: "stop_failed" } } });
     expect(host.releases).toHaveLength(1);
   });
 
@@ -2481,4 +2485,25 @@ describe("logical-session terminal facts", () => {
     await session.closed;
     expect(prepared.release).toHaveBeenCalledOnce();
   });
+});
+
+it.each(["negative", "reject"] as const)("cleans a late %s physical admission after stop without accepting work", async outcome => {
+  const lane = new ControlledRuntimeLane();
+  let resolve!: (value: LaneAdmission) => void, reject!: (error: unknown) => void;
+  lane.startPromise = new Promise<LaneAdmission>((yes, no) => { resolve = yes; reject = no; });
+  const entered = vi.fn(); lane.onStart = entered;
+  const { session, host } = makeSession("claude", { lane });
+  const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+  const collect = (async () => { for await (const event of session.events) observed.push(event); })();
+  const starting = session.start({ id: "old", kind: "user", text: "held" });
+  await vi.waitFor(() => expect(entered).toHaveBeenCalledOnce());
+  await session.stop({ reason: "owner_request", forceAfterMs: 10 });
+  await session.closed;
+  if (outcome === "negative") resolve({ ok: false, reason: "late unavailable" }); else reject(new Error("late admission rejected"));
+  await expect(starting).resolves.toEqual({ status: "rejected", reason: "closed" });
+  await collect;
+  expect(lane.stop).toHaveBeenCalledTimes(2);
+  expect(host.releases).toHaveLength(1);
+  expect(observed.some(event => event.type === "command_accepted")).toBe(false);
+  expect(await session.send({ id: "new", kind: "user", text: "later" })).toMatchObject({ status: "rejected", reason: "closed" });
 });

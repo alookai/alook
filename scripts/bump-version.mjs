@@ -2,9 +2,11 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
+import { workspacePackageRoots } from "./workspace-packages.mjs";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
-const WORKSPACE_DIRS = ["src/shared", "src/app", "src/daemon", "src/daemon/agent-driver", "src/web", "src/email-worker", "src/ws-do", "src/queue-worker", "src/desktop"];
+const INDEPENDENT_VERSION_ROOTS = new Set(["tests/utils"]);
+const WORKSPACE_DIRS = workspacePackageRoots(ROOT).filter((root) => !INDEPENDENT_VERSION_ROOTS.has(root));
 const DEPLOY_TRIGGER_DIRS = ["src/web", "src/email-worker", "src/ws-do", "src/queue-worker"];
 
 function readPkg(dir) {
@@ -53,7 +55,7 @@ const BUMP_TYPES = ["patch", "minor", "major"];
 let version;
 
 if (BUMP_TYPES.includes(arg)) {
-  const { pkg } = readPkg(WORKSPACE_DIRS[0]);
+  const { pkg } = readPkg("src/shared");
   version = bumpSemver(pkg.version, arg);
 } else {
   version = arg.replace(/^v/, "");

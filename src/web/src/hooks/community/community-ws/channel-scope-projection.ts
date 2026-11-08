@@ -6,7 +6,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { clearLastChannel } from "@/lib/community/last-channel"
 import { channelHref } from "@/lib/community/community-route"
 import type { PageCache } from "./cache"
-import { removeThreadFromCache } from "./cache"
+import { removeOpenerMessageFromCache } from "./cache"
 import type { ForumFeedPage } from "@/lib/community/forum-feed-window"
 import { removeForumPostFromFeed } from "@/lib/community/forum-feed-window"
 import type { InfiniteData } from "@tanstack/react-query"
@@ -29,7 +29,7 @@ function evictForumPostUnitQueryCaches(
   const allowed = (query: Query) => !queries || queries.has(query)
   queryClient.setQueriesData<PageCache>(
     { queryKey: communityKeys.channelMessages(unit.forumChannelId), predicate: allowed },
-    (cache) => removeThreadFromCache(cache, unit.childChannelId, unit.openerMessageId),
+    (cache) => removeOpenerMessageFromCache(cache, unit.openerMessageId),
   )
   queryClient.setQueriesData<InfiniteData<ForumFeedPage>>(
     { queryKey: communityKeys.forumFeeds(unit.forumChannelId), predicate: allowed },

@@ -1,6 +1,6 @@
 "use client"
 import { useObservedRegion } from "@/lib/observability/regions"
-import { useCommunityRuntime } from "@/stores/community/runtime"
+
 
 import { createStore, useSelector, useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useMutationState, useQueryClient } from "@tanstack/react-query"
@@ -9,7 +9,7 @@ import { useStartBotChat } from "@/hooks/community/use-start-bot-chat"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useCommunityModuleLocation } from "@/contexts/community/module-route"
-import { isPresenceOnline } from "@alook/shared"
+
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { removeCommunityParam } from "@/lib/community/community-route"
@@ -27,17 +27,10 @@ import {
 import { useCreateOrGetDm } from "@/hooks/community/mutations"
 import { useUiHandlers } from "@/stores/community"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
-import {
-  advanceCommunityOnboarding,
-  readCommunityOnboardingState,
-  recoverCommunityOnboardingMachine,
-  updateCommunityOnboardingResources,
-  useCommunityOnboarding,
-} from "@/lib/community-onboarding"
+
 import type { BotListController } from "./bot-list-types"
 
 export function useBotListController(): BotListController {
-  const communityRuntime = useCommunityRuntime()
   const client = useQueryClient()
   const protocol = useMemo(() => createStore({ scrolledFor: null as string | null, suppressedAudit: null as string | null, targetAudit: null as string | null, activityOpen: false, activityGeneration: 0 }), [])
   const patchProtocol = useCallback((patch: Partial<ReturnType<typeof protocol.get>>) => protocol.setState((state) => ({ ...state, ...patch })), [protocol])
@@ -105,16 +98,7 @@ export function useBotListController(): BotListController {
   const setActive = useSetBotActive()
   const createOrGetDm = useCreateOrGetDm()
   const { start: startBotChat, pending: startingBotChat } = useStartBotChat(source)
-  const onboardingState = useCommunityOnboarding()
-  const guidedActive = onboardingState?.status === "active" && onboardingState.stage === "bot"
-  const guidedPendingBotId = guidedActive ? onboardingState.botId : undefined
-  const guidedNeedsMachine =
-    guidedActive && !machinesLoading && !machinesUnknown && !machines.some((machine) => isPresenceOnline(machine.status))
-  const guidedCreateLabel = guidedNeedsMachine
-    ? "Connect a machine"
-    : guidedPendingBotId
-      ? "Open bot chat"
-      : "Create a bot"
+  const createLabel = "Create a bot"
   const planSummary = botsQuery.data?.plan && botsQuery.data.limit !== undefined && botsQuery.data.ownedCount !== undefined && botsQuery.data.activeCount !== undefined && botsQuery.data.isFounder !== undefined
     ? {
         plan: botsQuery.data.plan,
@@ -128,7 +112,7 @@ export function useBotListController(): BotListController {
   const isAtCapacity = Boolean(
     planSummary && planSummary.ownedCount >= planSummary.limit,
   )
-  const isCreateDisabled = isAtCapacity && guidedCreateLabel === "Create a bot"
+  const isCreateDisabled = isAtCapacity
 
   const chatWithBot = async (bot: BotSummary) => {
     const assert = source.capture()
@@ -153,43 +137,7 @@ export function useBotListController(): BotListController {
     })
   }
 
-  const openGuidedBotDm = async (botId: string) => {
-    const assert = source.capture()
-    assert()
-    uiHandlers.cancelPendingNavigation?.()
-    try {
-      const data = await createOrGetDm.mutateAsync({ userId: botId, assertActive: assert })
-      assert()
-      advanceCommunityOnboarding(communityRuntime, "bot", "dm", {
-        botId,
-        dmId: data.conversation.id,
-      })
-      router.push(`/c/me/${data.conversation.id}`)
-    } catch (e) {
-      toastApiError(e, "Bot created, but the chat couldn't open", assert)
-    }
-  }
-
-  const onBotCreated = async (bot: BotSummary) => {
-    const state = readCommunityOnboardingState(communityRuntime)
-    if (state?.status !== "active" || state.stage !== "bot") return
-    updateCommunityOnboardingResources(communityRuntime, { botId: bot.id })
-    await openGuidedBotDm(bot.id)
-  }
-
-  const openGuidedCreate = () => {
-    const state = readCommunityOnboardingState(communityRuntime)
-    const hasUsableMachine = machines.some((machine) => isPresenceOnline(machine.status))
-    if (state?.status === "active" && state.stage === "bot" && !hasUsableMachine) {
-      recoverCommunityOnboardingMachine(communityRuntime)
-      uiHandlers.cancelPendingNavigation?.()
-      router.push("/c/me/machines")
-      return
-    }
-    if (state?.status === "active" && state.stage === "bot" && state.botId) {
-      void openGuidedBotDm(state.botId)
-      return
-    }
+  const openCreate = () => {
     if (isCreateDisabled) {
       setBillingOpen(true)
       return
@@ -450,17 +398,14 @@ export function useBotListController(): BotListController {
     setCollapsedMachines,
     helpOpen,
     setHelpOpen,
-    guidedActive,
-    guidedCreateLabel,
-    guidedAvatarSeed: guidedActive ? onboardingState.guideAvatarSeed : undefined,
+    createLabel,
     groups,
     highlightId,
     groupRefs,
     chatWithBot,
     askBotToCreate,
     startingBotChat,
-    onBotCreated,
-    openGuidedCreate,
+    openCreate,
     openMachines,
     bringMachineOnline,
     machineName,

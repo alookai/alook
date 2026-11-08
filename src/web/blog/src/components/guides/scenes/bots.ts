@@ -1,5 +1,5 @@
 import { requiresExplicitModel } from "@alook/shared";
-import { tutorialModel } from "../mock-scenes";
+import { tutorialModel } from "../example-data";
 import { demoMotion } from "./motion";
 
 export function createScene(root: HTMLElement, complete: () => void) {

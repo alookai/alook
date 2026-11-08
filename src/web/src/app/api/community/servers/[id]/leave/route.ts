@@ -1,9 +1,10 @@
+import { publishServerMemberLeaves } from "@/lib/community/fanout"
 import { withAuth } from "@/lib/middleware/auth-policy"
 import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, isServerOwner, parseNameAndTag, WS_EVENTS } from "@alook/shared"
-import { broadcastToUserSafe, fanOutToServerMembers } from "@/lib/community/fanout"
+import { queries, isServerOwner, parseNameAndTag } from "@alook/shared"
+
 import { requireServerMember } from "@/lib/community/permissions"
 
 const REF_PLACEHOLDER_ID = "resolve"
@@ -57,25 +58,7 @@ export const POST = withAuth(communityActorPolicy({ allowInactiveBot: true }), a
   )
   if (!removed) return writeError("member not found", 404)
 
-  const viewerLeaveEvent = {
-    type: WS_EVENTS.MEMBER_LEAVE,
-    serverId,
-    userId,
-  } as const
-  const botLeaveEvents = botIdsToCascade.map((botId) => ({
-      type: WS_EVENTS.MEMBER_LEAVE,
-      serverId,
-      userId: botId,
-  } as const))
-
-  await Promise.all([
-    fanOutToServerMembers(serverId, viewerLeaveEvent),
-    broadcastToUserSafe(userId, viewerLeaveEvent),
-    ...botLeaveEvents.flatMap((event) => [
-      fanOutToServerMembers(serverId, event),
-      broadcastToUserSafe(event.userId, event),
-    ]),
-  ])
+  await publishServerMemberLeaves(serverId, [userId, ...botIdsToCascade])
 
   return new Response(null, { status: 204 })
 })

@@ -17,6 +17,7 @@ import { useBotAuditLog } from "@/hooks/community/use-bot-audit-log"
 import type { BotSummary } from "@/hooks/community/use-bots"
 import { tid } from "@/lib/community/testids"
 import { BotActivityRow } from "./bot-activity-row"
+import { compareAuditEventsNewestFirst } from "@/lib/community/models/audit"
 
 const DAY_DIVIDER_HEIGHT = 33
 
@@ -47,18 +48,8 @@ export function BotActivityModal({
     isFetchNextPageError,
   } = useBotAuditLog(bot?.id ?? null)
 
-  // Merged stream = paginated GET (DESC) + live WS ring (arrival-ordered).
-  // The two are NOT a single monotonic sequence: a live event can carry a
-  // `createdAt` that interleaves with an older page, and a paginated older
-  // page prepends rows whose timestamps sit before the live tail. Sort
-  // once by `(createdAt, id)` ascending so the UI is chronological
-  // end-to-end — reversing alone would leave that jumbled.
-  const chronological = useMemo(() => {
-    return [...events].sort((a, b) => {
-      if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
-    })
-  }, [events])
+  // Live arrivals can interleave with paginated rows; reversal alone is insufficient.
+  const chronological = useMemo(() => [...events].sort((a, b) => compareAuditEventsNewestFirst(b, a)), [events])
 
   const dateAfter = useMemo(() => chronological.map((event, index) => {
     const next = chronological[index + 1]

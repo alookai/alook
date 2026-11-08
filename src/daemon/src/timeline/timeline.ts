@@ -21,6 +21,7 @@ import { localISOString } from "../util/localTime.js";
 
 export { localISOString };
 
+export const TIMELINE_MAX_AGENT_RESPONSES = 5;
 export const TIMELINE_MAX_BYTES = 1_048_576;
 export const TIMELINE_READ_CHUNK_BYTES = 65_536;
 const DATE_FILENAME_PATTERN = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
@@ -117,7 +118,7 @@ function canonicalTimelineEntry(value: unknown): ContextTimelineEntry | null {
   return {
     session_id: entry.session_id,
     messages: entry.messages,
-    agent_responses: entry.agent_responses.slice(-5),
+    agent_responses: entry.agent_responses.slice(-TIMELINE_MAX_AGENT_RESPONSES),
     provider: entry.provider,
   };
 }
@@ -125,7 +126,7 @@ function canonicalTimelineEntry(value: unknown): ContextTimelineEntry | null {
 function timelineLine(entry: ContextTimelineEntry): TimelineLine | null {
   const boundedEntry = entry.system
     ? createSystemEntry(entry.system.type, entry.system.time, entry.system.backend_session_id)
-    : { ...entry, agent_responses: entry.agent_responses.slice(-5) };
+    : { ...entry, agent_responses: entry.agent_responses.slice(-TIMELINE_MAX_AGENT_RESPONSES) };
   const text = JSON.stringify(boundedEntry);
   const bytes = Buffer.byteLength(text, "utf8") + 1;
   if (bytes > TIMELINE_MAX_BYTES) return null;
@@ -473,6 +474,16 @@ export function readRecentEntries(timelineDir: string, opts: ReadRecentOptions =
 }
 
 /** Latest durable resume-control row across the complete retained timeline. */
+function validPendingIdleResetEvents(value: unknown): value is ResumeControlState["pendingIdleResetEvents"] {
+  return Array.isArray(value) && value.length <= MAX_PENDING_IDLE_RESET_EVENTS
+    && value.every((event) => event && typeof event === "object"
+      && typeof event.eventId === "string" && event.eventId.length >= 1 && event.eventId.length <= 128
+      && typeof event.occurredAt === "string"
+      && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(event.occurredAt)
+      && Number.isFinite(Date.parse(event.occurredAt)))
+    && new Set(value.map((event) => event.eventId)).size === value.length;
+}
+
 export function readResumeControlState(timelineDir: string): ResumeControlReadResult {
   if (timelineDirectoryState(timelineDir) !== "safe") return { kind: "missing" };
   const filePath = join(timelineDir, RESUME_CONTROL_FILENAME);
@@ -513,20 +524,7 @@ export function readResumeControlState(timelineDir: string): ResumeControlReadRe
       value.version !== 1
       || !validSessionId(value.attemptedSessionId)
       || !validSessionId(value.fencedSessionId)
-      || !Array.isArray(pendingIdleResetEvents)
-      || pendingIdleResetEvents.length > MAX_PENDING_IDLE_RESET_EVENTS
-      || pendingIdleResetEvents.some(
-        (event) =>
-          !event
-          || typeof event !== "object"
-          || typeof event.eventId !== "string"
-          || event.eventId.length < 1
-          || event.eventId.length > 128
-          || typeof event.occurredAt !== "string"
-          || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(event.occurredAt)
-          || !Number.isFinite(Date.parse(event.occurredAt)),
-      )
-      || new Set(pendingIdleResetEvents.map((event) => event.eventId)).size !== pendingIdleResetEvents.length
+      || !validPendingIdleResetEvents(pendingIdleResetEvents)
       || (
         value.fullBarrier !== null
         && value.fullBarrier !== "reset_session"
@@ -563,22 +561,7 @@ export function updateResumeControlState(
     const current = readResumeControlState(timelineDir);
     const base = current.kind === "state" ? current.state : EMPTY_RESUME_CONTROL;
     const next = update({ ...base });
-    if (
-      !Array.isArray(next.pendingIdleResetEvents)
-      || next.pendingIdleResetEvents.length > MAX_PENDING_IDLE_RESET_EVENTS
-      || next.pendingIdleResetEvents.some(
-        (event) =>
-          !event
-          || typeof event !== "object"
-          || typeof event.eventId !== "string"
-          || event.eventId.length < 1
-          || event.eventId.length > 128
-          || typeof event.occurredAt !== "string"
-          || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(event.occurredAt)
-          || !Number.isFinite(Date.parse(event.occurredAt)),
-      )
-      || new Set(next.pendingIdleResetEvents.map((event) => event.eventId)).size !== next.pendingIdleResetEvents.length
-    ) return false;
+    if (!validPendingIdleResetEvents(next.pendingIdleResetEvents)) return false;
     const canonical: ResumeControlState = {
       version: 1,
       attemptedSessionId: next.attemptedSessionId,

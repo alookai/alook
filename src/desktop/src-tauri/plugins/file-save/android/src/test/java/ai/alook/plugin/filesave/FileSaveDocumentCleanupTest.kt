@@ -54,8 +54,8 @@ class FileSaveDocumentCleanupTest {
         assertFalse(FileSaveDocumentCleanup(store, provider).discard("A", "uri:A"))
         assertTrue("uri:A" in provider.grants)
         val next = FileSaveDocumentCleanup(Store(store.file), provider)
-        next.acquire("B", "uri:B")
-        assertTrue(next.published("B", "uri:B"))
+        store.put("B", DocumentCleanupRecord("uri:B", releaseOnly = true))
+        provider.retain("uri:B")
         assertFalse(next.repair())
         assertEquals(setOf("A"), store.entries().keys)
         provider.failures.clear()
@@ -74,9 +74,10 @@ class FileSaveDocumentCleanupTest {
     }
     @Test fun failedJournalRemovalRetriesReleaseWithoutDeletingPublishedFile() = fixture { store, provider ->
         val cleanup = FileSaveDocumentCleanup(store, provider)
-        cleanup.acquire("A", "uri:A")
+        store.put("A", DocumentCleanupRecord("uri:A", releaseOnly = true))
+        provider.retain("uri:A")
         store.failRemove = true
-        assertFalse(cleanup.published("A", "uri:A"))
+        assertFalse(cleanup.repair())
         assertTrue(store.entries()["A"]!!.releaseOnly)
         assertTrue(FileSaveDocumentCleanup(Store(store.file), provider).repair())
         assertTrue("uri:A" in provider.documents)

@@ -1,60 +1,67 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { removeServiceBinding } from "../src/lib/wrangler-config";
 
-// Test the setVar logic directly (extracted for testability)
-function setVar(content: string, key: string, value: string): string {
-  const pattern = new RegExp(`${key}\\s*=\\s*"[^"]*"`);
-  if (pattern.test(content)) {
-    return content.replace(pattern, `${key} = "${value}"`);
+const roots: string[] = [];
+const ports = { web: 3000, emailWorker: 8788, wsDo: 8789, queueWorker: 8790 };
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  vi.doUnmock("../src/lib/constants.js");
+  vi.resetModules();
+});
+async function patch(content: string) {
+  const root = mkdtempSync(join(tmpdir(), "alook-app-wrangler-"));
+  roots.push(root);
+  for (const service of ["web", "email-worker", "ws-do", "queue-worker"]) {
+    mkdirSync(join(root, service), { recursive: true });
+    writeFileSync(join(root, service, "wrangler.toml"), content);
   }
-  if (content.includes("[vars]")) {
-    return content.replace(/\[vars\]/, `[vars]\n${key} = "${value}"`);
-  }
-  return content + `\n[vars]\n${key} = "${value}"\n`;
+  vi.resetModules();
+  vi.doMock("../src/lib/constants.js", () => ({ SELF_HOSTED_DIR: root }));
+  const { patchWranglerConfigs } = await import("../src/lib/wrangler-config.js");
+  patchWranglerConfigs(ports);
+  return Object.fromEntries(["web", "email-worker", "ws-do", "queue-worker"].map(service => [service, readFileSync(join(root, service, "wrangler.toml"), "utf8")]));
 }
 
-function setDevPort(content: string, port: number): string {
-  if (content.includes("[dev]")) {
-    const patched = content.replace(/(\[dev\][^\[]*?)(?<!inspector_)port\s*=\s*\d+/, `$1port = ${port}`);
-    if (patched === content) {
-      return content.replace(/(\[dev\][^\[]*)/, `$1port = ${port}\n`);
+describe("real self-hosted config file patching", () => {
+  it("disables only Blog discovery while preserving the WS binding", async () => {
+    const result = await patch('name = "web"\n[[services]]\nbinding = "WS_DO_WORKER"\nservice = "alook-ws-do"\n\n[[services]]\nbinding = "BLOG_WORKER"\nservice = "alook-blog"\n\n[vars]\nBLOG_DISCOVERY_REQUIRED = "true"\n');
+    expect(result.web).toContain('BLOG_DISCOVERY_REQUIRED = "false"');
+    expect(result.web).not.toContain('binding = "BLOG_WORKER"');
+    expect(result.web).toContain('binding = "WS_DO_WORKER"');
+    expect(result.web).toContain('service = "alook-ws-do"');
+  });
+  it.each([
+    ['existing variable', '[vars]\nDEV_WS_DO_URL = "http://localhost:9999"'],
+    ['existing vars section', 'name = "web"\n[vars]\nFOO = "bar"'],
+    ['missing vars', 'name = "web"\n[dev]\nport = 9999'],
+    ['empty config', ''],
+  ])("writes real service URLs for %s", async (_name, content) => {
+    const result = await patch(content);
+    expect(result.web).toContain('DEV_WS_DO_URL = "http://localhost:8789"');
+    expect(result.web).toContain('DEV_EMAIL_WORKER_URL = "http://localhost:8788"');
+    expect(result.web).toContain('DEV_QUEUE_WORKER_URL = "http://localhost:8790"');
+    expect(result.web).not.toContain('http://localhost:9999');
+    expect(result.web).toContain('NODE_ENV = "development"');
+    if (content.includes('FOO')) expect(result.web).toContain('FOO = "bar"');
+  });
+  it.each([
+    ['inspector first', '[dev]\ninspector_port = 7\nport = 9999\n'],
+    ['port first', '[dev]\nport = 9999\ninspector_port = 7\n'],
+    ['inspector only', '[dev]\ninspector_port = 7\n'],
+    ['port only', '[dev]\nport = 9999\n'],
+    ['missing dev', 'name = "service"\n'],
+    ['duplicate keys', '[dev]\nport = 1\ninspector_port = 2\nport = 9999\ninspector_port = 7\n[vars]\nFOO = "bar"\n'],
+  ])("patches the actual four files with %s", async (_name, content) => {
+    const result = await patch(content);
+    for (const [directory, port, inspector] of [['web', 3000, 19229], ['email-worker', 8788, 19231], ['ws-do', 8789, 19230], ['queue-worker', 8790, 19232]] as const) {
+      expect(result[directory].match(/^port\s*=.*$/gm)).toEqual([`port = ${port}`]);
+      expect(result[directory].match(/^inspector_port\s*=.*$/gm)).toEqual([`inspector_port = ${inspector}`]);
+      if (content.includes('FOO')) expect(result[directory]).toContain('FOO = "bar"');
     }
-    return patched;
-  }
-  return content + `\n[dev]\nport = ${port}\n`;
-}
-
-describe("wrangler-config", () => {
-	it("patches the self-hosted Web config to disable Blog discovery", async () => {
-		const root = mkdtempSync(join(tmpdir(), "alook-app-wrangler-"));
-		for (const service of ["web", "email-worker", "ws-do", "queue-worker"]) {
-			mkdirSync(join(root, service), { recursive: true });
-			writeFileSync(join(root, service, "wrangler.toml"), service === "web"
-				? `name = "web"
-[[services]]
-binding = "BLOG_WORKER"
-service = "alook-blog"
-
-[vars]
-BLOG_DISCOVERY_REQUIRED = "true"
-`
-				: `name = "${service}"\n`);
-		}
-
-		vi.resetModules();
-		vi.doMock("../src/lib/constants.js", () => ({ SELF_HOSTED_DIR: root }));
-		const { patchWranglerConfigs } = await import("../src/lib/wrangler-config.js");
-		patchWranglerConfigs({ web: 3000, emailWorker: 8788, wsDo: 8789, queueWorker: 8790 });
-
-		const web = readFileSync(join(root, "web/wrangler.toml"), "utf8");
-		expect(web).toContain('BLOG_DISCOVERY_REQUIRED = "false"');
-		expect(web).not.toContain('binding = "BLOG_WORKER"');
-		expect(web).toContain('DEV_QUEUE_WORKER_URL = "http://localhost:8790"');
-	});
-
+  });
   describe("removeServiceBinding", () => {
     it("removes only the Blog service binding for self-hosting", () => {
       const content = `name = "web"
@@ -79,75 +86,5 @@ BLOG_DISCOVERY_REQUIRED = "true"
     });
   });
 
-  describe("setVar", () => {
-    it("replaces existing var value", () => {
-      const content = `[vars]\nDEV_WS_DO_URL = "http://localhost:8789"`;
-      const result = setVar(content, "DEV_WS_DO_URL", "http://localhost:9999");
-      expect(result).toContain(`DEV_WS_DO_URL = "http://localhost:9999"`);
-    });
 
-    it("adds var under existing [vars] section", () => {
-      const content = `name = "web"\n[vars]\nFOO = "bar"`;
-      const result = setVar(content, "NEW_KEY", "new_value");
-      expect(result).toContain(`[vars]\nNEW_KEY = "new_value"`);
-      expect(result).toContain(`FOO = "bar"`);
-    });
-
-    it("creates [vars] section when missing", () => {
-      const content = `name = "web"\n[dev]\nport = 3000`;
-      const result = setVar(content, "DEV_WS_DO_URL", "http://localhost:8789");
-      expect(result).toContain(`[vars]`);
-      expect(result).toContain(`DEV_WS_DO_URL = "http://localhost:8789"`);
-    });
-
-    it("handles empty content", () => {
-      const result = setVar("", "KEY", "value");
-      expect(result).toContain(`[vars]\nKEY = "value"`);
-    });
-  });
-
-  describe("setDevPort", () => {
-    it("replaces port in existing [dev] section", () => {
-      const content = `name = "web"\n[dev]\nport = 3000`;
-      const result = setDevPort(content, 4000);
-      expect(result).toContain("port = 4000");
-      expect(result).not.toContain("port = 3000");
-    });
-
-    it("appends [dev] section when missing", () => {
-      const content = `name = "web"`;
-      const result = setDevPort(content, 3000);
-      expect(result).toContain("[dev]");
-      expect(result).toContain("port = 3000");
-    });
-
-    it("does not match inspector_port when it precedes port", () => {
-      const content = `[dev]\ninspector_port = 19229\nport = 15210`;
-      const result = setDevPort(content, 16000);
-      expect(result).toContain("inspector_port = 19229");
-      expect(result).toContain("port = 16000");
-      expect(result).not.toContain("port = 15210");
-    });
-
-    it("correctly matches standalone port when inspector_port precedes it", () => {
-      const content = `[dev]\ninspector_port = 19229\nport = 15210\n`;
-      const result = setDevPort(content, 8080);
-      expect(result).toContain("inspector_port = 19229");
-      expect(result).toContain("port = 8080");
-    });
-
-    it("correctly matches port when port comes first (no regression)", () => {
-      const content = `[dev]\nport = 15210\ninspector_port = 19229\n`;
-      const result = setDevPort(content, 9000);
-      expect(result).toContain("port = 9000");
-      expect(result).toContain("inspector_port = 19229");
-    });
-
-    it("appends port when [dev] exists with only inspector_port", () => {
-      const content = `[dev]\ninspector_port = 19229\n`;
-      const result = setDevPort(content, 15210);
-      expect(result).toContain("inspector_port = 19229");
-      expect(result).toContain("port = 15210");
-    });
-  });
 });

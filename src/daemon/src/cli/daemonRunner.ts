@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createDaemonRefreshHandler } from "./daemonRefresh.js";
+import { createDaemonRefreshHandler } from "./daemonRefreshHandler.js";
 import { WebSocket } from "ws";
 import type { DiagnosticCollectCommand, DiagnosticReportFailureCode } from "@alook/shared";
 import { createDaemon } from "../daemon/createDaemon.js";
@@ -23,7 +23,7 @@ import { createLogger, type Logger } from "../logger.js";
 import { UnknownRuntimeError } from "../manager/agentRouter.js";
 import { scrubRuntimeErrorDiagnosticText } from "../runtime/errorDiagnostics.js";
 import { createRotatingFileSink, type RotatingFileSink } from "../util/rotatingFileSink.js";
-import { createDaemonSelfUpdateHandler } from "./daemonUpdate.js";
+import { createDaemonSelfUpdateHandler } from "./daemonSelfUpdate.js";
 
 const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge", "attach", "friend", "profile"];
 export const DAEMON_LOG_MAX_BYTES = 8 * 1024 * 1024;
@@ -300,18 +300,21 @@ export async function runPreparedDaemon(
     shuttingDown = true;
     clearInterval(keepAlive);
     log.info("shutting down…");
+    let actualExitCode = exitCode;
     try {
       await testShutdownDelay();
       await stopDaemon();
     } catch (error) {
+      actualExitCode ||= 1;
       log.error("daemon teardown failed", safeDaemonError(error));
     } finally {
       try {
         opts.releaseOwnership();
       } catch (error) {
+        actualExitCode ||= 1;
         log.error("daemon ownership release failed", safeDaemonError(error));
       } finally {
-        process.exit(exitCode);
+        process.exit(actualExitCode);
       }
     }
   };

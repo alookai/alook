@@ -1,4 +1,4 @@
-import { and, eq, gt, desc, isNull, exists, inArray, sql } from "drizzle-orm";
+import { and, eq, gt, desc, isNull, exists, sql } from "drizzle-orm"
 import {
   communityMachineToken,
   communityMachine,
@@ -589,43 +589,6 @@ export async function revokeRunnerKeysForMachine(
     )
     .returning({ doName: communityAgentRunnerKey.doName });
   return { doNames: rows.map((r) => r.doName) };
-}
-
-/**
- * Statement-returning variant scoped by owner via subquery. Composed into
- * `db.batch([...])` inside the bot soft-delete flow so the revoke commits
- * atomically with the user-flag and member-row updates.
- *
- * Uses a subquery on `user.ownerUserId` rather than a plain `agentId = :id`
- * predicate: the batch must be a no-op against a cross-owner bot id.
- */
-export function revokeRunnerKeysForAgentStatement(
-  db: Database,
-  agentUserId: string,
-  ownerId: string
-) {
-  return db
-    .update(communityAgentRunnerKey)
-    .set({ revokedAt: new Date().toISOString() })
-    .where(
-      and(
-        eq(communityAgentRunnerKey.agentId, agentUserId),
-        isNull(communityAgentRunnerKey.revokedAt),
-        inArray(
-          communityAgentRunnerKey.userId,
-          db
-            .select({ id: user.id })
-            .from(user)
-            .where(
-              and(
-                eq(user.id, agentUserId),
-                eq(user.ownerUserId, ownerId),
-                eq(user.isBot, true)
-              )
-            )
-        )
-      )
-    );
 }
 
 export async function findActiveAgentRunnerKeyByBearer(

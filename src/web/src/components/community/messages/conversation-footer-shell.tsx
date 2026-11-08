@@ -4,7 +4,7 @@ import { useAtom, useCreateAtom, type Atom } from "@tanstack/react-store";
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, type HTMLAttributes, type ReactNode } from "react"
 import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import { useNativeKeyboard } from "@/hooks/use-native-keyboard"
-import { useConversationPresentation } from "@/contexts/community/conversation-activity"
+import { useConversationPresentation } from "@/contexts/view-activity"
 
 type ConversationFooterSlot = {
   target: HTMLDivElement | null

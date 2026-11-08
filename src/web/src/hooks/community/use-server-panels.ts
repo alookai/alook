@@ -1,11 +1,12 @@
 "use client"
+import { loadAndSeedProfiles } from "@/lib/community/account-cache-lifecycle"
 import { CommunityInvitesReadSchema, CommunityPresenceReadSchema, type CommunityPresenceRead } from "@alook/shared"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import type { QueryFunctionContext } from "@tanstack/react-query"
 
 import { useQuery,useQueryClient,useMutationState,keepPreviousData,type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
-import { communityUserProfilePatch, loadAndSeedProfiles } from "@/lib/community/profile-seed"
+import { communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { captureCommunityLiveSnapshotToken,assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
@@ -47,25 +48,19 @@ export const invitesQueryFn = (serverId: string) => async (context: QueryFunctio
   return { invites }
 }
 
-/**
- * Only surfaces the invite list inside the admin settings tab. Non-admins
- * never see the data — pass `isAdmin=false` to skip the fetch. The server
- * endpoint allows any member (no 4xx), but firing it for members who can't
- * see the UI is wasted bandwidth.
- */
 export function useInvites(
   serverId: string | null,
-  isAdmin: boolean = true,
+  enabled: boolean,
 ): UseQueryResult<InvitesResponse> & { invites: InviteRow[] } {
   const client = useQueryClient()
-  const enabled = !!serverId && isAdmin
+  const admitted = !!serverId && enabled
   const query = useQuery({
-    queryKey: enabled ? communityKeys.invites(serverId!) : communityKeys.invites("__none__"),
-    queryFn: enabled
+    queryKey: admitted ? communityKeys.invites(serverId!) : communityKeys.invites("__none__"),
+    queryFn: admitted
       ? invitesQueryFn(serverId!)
       : (() => Promise.reject(new Error("disabled"))),
-    enabled,
-    subscribed: enabled,
+    enabled: admitted,
+    subscribed: admitted,
 
     staleTime: 60_000,
   })

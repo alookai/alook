@@ -107,7 +107,7 @@ describe("PATCH /api/community/users/me/server-rail", () => {
 
   it("rejects an oversized UTF-8 body before reading a snapshot", async () => {
     const response = await PATCH(
-      patchRequest(`{"commands":[],"padding":"${"界".repeat(MAX_SERVER_RAIL_REQUEST_BYTES)}"}`),
+      patchRequest(`{"commands":[],"padding":"${"€".repeat(MAX_SERVER_RAIL_REQUEST_BYTES)}"}`),
       {} as any,
     )
 

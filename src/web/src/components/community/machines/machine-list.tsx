@@ -30,7 +30,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog"
-import { apiFetch, getErrorMessage } from "@/lib/api/client"
+import { getErrorMessage } from "@/lib/api/client"
 import { fetchLatestDaemonVersion } from "@/lib/api/config"
 import { getAppMode } from "@/lib/utils"
 import { machineName } from "@/lib/community/machine-name"
@@ -43,7 +43,7 @@ import { replaceMachines } from "@/lib/community/machines"
 import { useMachines, machinesQueryFn } from "@/hooks/community/use-machines"
 import { captureMachinesPublication, publishMachines } from "@/lib/community/machines"
 import { useBots } from "@/hooks/community/use-bots"
-import { usePendingMachineTokenId } from "@/stores/community"
+import { useAcceptedMachinePairing } from "@/stores/community"
 import { communityKeys } from "@/lib/query-keys"
 import { tid } from "@/lib/community/testids"
 import {
@@ -214,7 +214,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     else router.push(href)
   }, [routeCommitted, router, searchParams])
   const { bots } = useBots()
-  const pendingMachineTokenId = usePendingMachineTokenId()
+  const acceptedPairing = useAcceptedMachinePairing()
   const [pairOpen, setPairOpen] = useAtom(useCreateAtom(false))
   const [pairMode, setPairMode] = useAtom(useCreateAtom<PairMachineSheetMode>({ kind: "pair" }))
   const [pendingTokenId, setPendingTokenId] = useAtom(useCreateAtom<string | null>(null))
@@ -257,19 +257,13 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   }, [setGuideAvatarSeed])
 
 
-  // When the WS layer announces a machine for our pending token, flip the sheet.
   useEffect(() => {
-    if (!pendingTokenId) return
-    const justConnected = machines.find(
-      (m) =>
-        m.lastSeenAt &&
-        isPresenceOnline(m.status) &&
-        pendingMachineTokenId === pendingTokenId
-    )
-    if (justConnected && !connectedHostname) {
-      setConnectedHostname(justConnected.hostname || "machine")
-    }
-  }, [machines, pendingMachineTokenId, pendingTokenId, connectedHostname, setConnectedHostname])
+    if (!pairOpen || !pendingTokenId || acceptedPairing?.tokenId !== pendingTokenId) return
+    if (pairMode.kind === "reconnect" && acceptedPairing.machineId !== pairMode.machineId) return
+    const justConnected = machines.find((machine) => machine.id === acceptedPairing.machineId
+      && machine.lastSeenAt && isPresenceOnline(machine.status))
+    if (justConnected && !connectedHostname) setConnectedHostname(justConnected.hostname || "machine")
+  }, [machines, acceptedPairing, pendingTokenId, pairOpen, pairMode, connectedHostname, setConnectedHostname])
 
   const openPair = useCallback(() => {
     setPairMode({ kind: "pair" })
@@ -284,7 +278,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     }
     setPendingTokenId(null)
     setConnectedHostname(null)
-    getCommunityRuntime(queryClient).ui.actions.setPendingMachineTokenId(null)
+    getCommunityRuntime(queryClient).ui.actions.setAcceptedMachinePairing(null)
     setPairOpen(true)
   }, [capacity, queryClient, setConnectedHostname, setLimitOpen, setPairMode, setPairOpen, setPendingTokenId])
 
@@ -296,7 +290,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     })
     setPendingTokenId(null)
     setConnectedHostname(null)
-    getCommunityRuntime(queryClient).ui.actions.setPendingMachineTokenId(null)
+    getCommunityRuntime(queryClient).ui.actions.setAcceptedMachinePairing(null)
     setPairOpen(true)
   }, [queryClient, setConnectedHostname, setPairMode, setPairOpen, setPendingTokenId])
 
@@ -322,7 +316,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     if (!open) {
       setPendingTokenId(null)
       setConnectedHostname(null)
-      getCommunityRuntime(queryClient).ui.actions.setPendingMachineTokenId(null)
+      getCommunityRuntime(queryClient).ui.actions.setAcceptedMachinePairing(null)
     }
   }, [queryClient, setConnectedHostname, setPairOpen, setPendingTokenId])
 
@@ -342,8 +336,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
 
   const handleSetPendingTokenId = useCallback((tokenId: string | null) => {
     setPendingTokenId(tokenId)
-    getCommunityRuntime(queryClient).ui.actions.setPendingMachineTokenId(tokenId)
-  }, [queryClient, setPendingTokenId])
+  }, [setPendingTokenId])
 
   const onConfirmUpdate = async (machine: MachineSummary) => {
     const assert = source.capture(), token = origin.begin().token
@@ -448,7 +441,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
               <Button
                 data-testid={tid.onboardingStart}
                 variant="ghost"
-                onClick={() => startCommunityOnboarding(communityRuntime, { guideAvatarSeed })}
+                onClick={() => startCommunityOnboarding(communityRuntime)}
               >
                 Guide me
               </Button>

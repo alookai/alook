@@ -5,16 +5,7 @@ import { getDb } from "@/lib/db"
 import { communityActorPolicy, requireBot } from "@/lib/middleware/community-actor"
 
 /**
- * GET /api/community/users/me/inbox/snapshot — a non-consuming, bodiless summary
- * of the caller's pending unread, bucketed per channel/DM (route/disc trunk,
- * 接口树统一 轴3; folds the flat `inboxSnapshot` verb into the users/me resource).
- * A GET (pure peek — it NEVER advances the read waterline, unlike pull), so the
- * fetch↔advance decoupling is preserved (Aigneis #41: snapshot=peek, pull=fetch,
- * ack=advance).
- *
- * Bot-only (human actor → 403). ⭐ users/me/* family invariant (Aigneis #426):
- * scope is the caller's own userId (`gate.bot.userId`), NO target-user param —
- * a bot only ever sees its own inbox summary.
+ * Bot-only, self-scoped unread summary. Fetching it never advances read state.
  */
 export const GET = withAuth(communityActorPolicy({ allowInactiveBot: true }), async (_req: NextRequest, ctx) => {
   const gate = requireBot(ctx.actor)

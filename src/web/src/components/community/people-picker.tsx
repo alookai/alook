@@ -22,14 +22,12 @@ export type PeoplePickerViewState =
 
 export function resolvePeoplePickerViewState({
   resolved,
-  loading,
   error,
   sourceCount,
   visibleCount,
   query,
 }: {
   resolved: boolean
-  loading: boolean
   error: boolean
   sourceCount: number
   visibleCount: number
@@ -37,7 +35,6 @@ export function resolvePeoplePickerViewState({
 }): PeoplePickerViewState {
   if (!resolved) {
     if (error) return "error"
-    if (loading) return "loading"
     return "loading"
   }
   if (sourceCount === 0) return "empty"

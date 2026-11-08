@@ -5,7 +5,7 @@ import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import type { Member } from "@/lib/community/models/people"
 import type { ComposerProps, ComposerReplyTarget } from "./composer-types"
 import { prependReplyMention } from "./prepend-reply-mention"
-import { useConversationActivity } from "@/contexts/community/conversation-activity"
+import { useConversationActivity } from "@/contexts/view-activity"
 
 export function useComposerReplyMention({
   editor, channelType, isForumThreadBody, replyingTo, members, suppressSuggestions,

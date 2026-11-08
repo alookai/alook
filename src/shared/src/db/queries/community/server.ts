@@ -141,7 +141,7 @@ export async function getServer(db: Database, serverId: string) {
 export async function updateServer(
   db: Database,
   serverId: string,
-  data: { name?: string; description?: string; icon?: string }
+  data: { name?: string; description?: string }
 ) {
   const rows = await db
     .update(communityServer)
@@ -168,14 +168,6 @@ export async function updateServerIconIfCurrent(
         ? isNull(communityServer.icon)
         : eq(communityServer.icon, input.expectedIcon)
     ))
-    .returning();
-  return rows[0] ?? null;
-}
-
-export async function deleteServer(db: Database, serverId: string) {
-  const rows = await db
-    .delete(communityServer)
-    .where(eq(communityServer.id, serverId))
     .returning();
   return rows[0] ?? null;
 }
@@ -354,15 +346,4 @@ export async function getServersByIds(db: Database, serverIds: string[]) {
       )
     )
   ).flat();
-}
-
-export async function setServerIcon(
-  db: Database,
-  serverId: string,
-  icon: string | null,
-) {
-  await db
-    .update(communityServer)
-    .set({ icon })
-    .where(eq(communityServer.id, serverId));
 }

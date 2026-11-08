@@ -106,12 +106,9 @@ export const DELETE = withAuth(humanAuthPolicy, async (_req, ctx) => {
     inboxChanged: true,
   })))
 
-  const mediaKeys = [
-    ...result.mediaKeys,
-    ...(result.iconKey && isOwnedServerIconKey(result.iconKey, serverId)
-      ? [result.iconKey]
-      : []),
-  ]
+  const mediaKeys = result.iconKey && isOwnedServerIconKey(result.iconKey, serverId)
+    ? [result.iconKey]
+    : []
   if (mediaKeys.length > 0) {
     scheduleCommunityMediaCleanup(ctx.env.COMMUNITY_MEDIA, executionContext, {
       keys: mediaKeys,

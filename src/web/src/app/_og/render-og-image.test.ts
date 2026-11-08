@@ -368,7 +368,7 @@ describe("OG image", () => {
       },
       {
         name: "cjk-long",
-        title: "如何在快速变化的团队里协调多个人工智能代理同时保留上下文避免重复工作遗漏审批并确保每一个共享流程都清晰可靠可追溯并能长期安全展示",
+        title: "界".repeat(64),
         expectsEllipsis: true,
       },
     ]

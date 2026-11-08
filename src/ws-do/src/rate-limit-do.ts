@@ -1,31 +1,8 @@
 import { DurableObject } from "cloudflare:workers"
+import { AUTOMATION_PERMISSION_LIMITS } from "@alook/shared"
 
-/**
- * Strongly-consistent, parameterized rate limiter.
- *
- * Cloudflare KV is eventually consistent (see
- * https://developers.cloudflare.com/kv/concepts/how-kv-works/) and has no
- * atomic read-modify-write, so any counter driven by `get → mutate → put`
- * can leak past its cap under concurrent load. A Durable Object instance
- * is single-threaded and its `ctx.storage` is strongly consistent, which
- * is exactly what a rate limiter needs.
- *
- * Every rate-limit call is a fixed-window counter parameterized by
- * `{ windowMs, max }`. The policy is chosen by the CALLER — see the shared
- * `RATE_LIMITS` registry in `src/shared/src/lib/rate-limits.ts` for the
- * canonical list of policies used across the app. This class is
- * intentionally policy-agnostic: adding a new rate limit means adding a
- * row to that registry, not editing this file.
- *
- * Sharding: one DO instance per key via `idFromName(name + ":" + key)`.
- * Different rate-limit names never collide even when they share a key
- * (e.g. same userId for both `community:msgSend` and `auth:otpSend`).
- *
- * Endpoint:
- *   POST /check
- *     Body: { windowMs: number, max: number }
- *     Response: { allowed: true } | { allowed: false, retryAfterSec: number }
- */
+// One DO per policy/key keeps admission atomic. Automation uses rolling windows;
+// general policies use caller-supplied fixed windows.
 
 type WindowState = { count: number; windowStart: number }
 
@@ -43,7 +20,7 @@ export class RateLimitDurableObject extends DurableObject<Env> {
       let body: unknown
       try { body = await request.json() } catch { return new Response("invalid json", { status: 400 }) }
       const { max, period } = (body ?? {}) as { max?: unknown; period?: unknown }
-      if ((period !== "hour" && period !== "day") || typeof max !== "number" || !Number.isInteger(max) || max < 1 || max > (period === "hour" ? 64 : 1536)) {
+      if ((period !== "hour" && period !== "day") || typeof max !== "number" || !Number.isInteger(max) || max < 1 || max > AUTOMATION_PERMISSION_LIMITS[period]) {
         return new Response("invalid automation policy", { status: 400 })
       }
       return Response.json(await this.checkAutomation(max, period))
@@ -78,7 +55,7 @@ export class RateLimitDurableObject extends DurableObject<Env> {
       const recentHour = day.filter((time) => time > now - hour)
       const configured = period === "hour" ? recentHour : day
       let retryMs = 0
-      if (recentHour.length >= 64) retryMs = recentHour[recentHour.length - 64]! + hour - now
+      if (recentHour.length >= AUTOMATION_PERMISSION_LIMITS.hour) retryMs = recentHour[recentHour.length - AUTOMATION_PERMISSION_LIMITS.hour]! + hour - now
       if (configured.length >= max) retryMs = Math.max(retryMs, configured[configured.length - max]! + (period === "hour" ? hour : 24 * hour) - now)
       if (retryMs > 0) return { allowed: false, retryAfterSec: Math.max(1, Math.ceil(retryMs / 1000)) }
       day.push(now)

@@ -1,5 +1,5 @@
 "use client"
-import { sendNonce, tempMessageId, toAttachmentVm, type OriginalView, type SendMessageArgs, type SendMessageResult, type SendDmMessageArgs } from "@/lib/community/message-send-input"
+import { type OriginalView, type SendMessageArgs, type SendMessageResult, type SendDmMessageArgs } from "@/lib/community/message-send-input"
 import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import { CommunityChannelResourceSchema, type CommunityChannelResource } from "@alook/shared"
@@ -40,11 +40,9 @@ import { reconcileAccountAttention } from "@/hooks/community/use-account-attenti
 import {
   clearAttentionOptimistically,
   commitAttentionOptimisticSnapshot,
-  commitAttentionItemsOptimisticSnapshot,
   removeAttentionItemsOptimistically,
   restoreAttentionOptimisticDomains,
   restoreAttentionOptimisticSnapshot,
-  restoreAttentionItemsOptimisticSnapshot,
   type AttentionDomain,
   type AttentionIntent,
 } from "@/lib/community-db/sync"
@@ -337,7 +335,7 @@ export function useDeleteMention() {
       origin.assert(original)
       const registry = origin.registry
       if (registry && context.attentionSnapshot) {
-        await commitAttentionItemsOptimisticSnapshot(registry, context.attentionSnapshot)
+        await commitAttentionOptimisticSnapshot(registry, context.attentionSnapshot)
         origin.assert(original)
         void reconcileAccountAttention(registry).catch(() => undefined)
       }
@@ -346,7 +344,7 @@ export function useDeleteMention() {
     onError: (err, { original }, ctx) => {
       const registry = origin.registry
       if (registry && ctx?.attentionSnapshot) {
-        restoreAttentionItemsOptimisticSnapshot(registry, ctx.attentionSnapshot)
+        restoreAttentionOptimisticSnapshot(registry, ctx.attentionSnapshot)
       }
       try { origin.assert(original) } catch { return }
       if (isAbortError(err)) return

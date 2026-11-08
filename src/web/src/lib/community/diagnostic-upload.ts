@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  DIAGNOSTIC_GZIP_MAX_BYTES,
   queries,
   withD1Retry,
   type Database,
@@ -271,7 +272,7 @@ export function createDiagnosticUploadService(args: {
       body: ReadableStream<Uint8Array>;
     }): Promise<DiagnosticUploadResult> {
       const sha256Bytes = exactSha256Bytes(input.sha256);
-      if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes < 1 || input.sizeBytes > 10 * 1024 * 1024 || !sha256Bytes) {
+      if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes < 1 || input.sizeBytes > DIAGNOSTIC_GZIP_MAX_BYTES || !sha256Bytes) {
         return { kind: "rejected", status: 400 };
       }
       const nowMs = now();

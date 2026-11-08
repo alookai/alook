@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation"
 import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
 import { toastApiError } from "@/lib/api/client"
 import { ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
-import { ConversationMessageSkeleton } from "@/components/community/channels/conversation-message-skeleton"
+import { MessageListSkeleton } from "@/components/community/messages/message-list-view"
 import { ComposerSkeleton } from "@/components/community/messages/composer"
 import { TextChannelSurface } from "@/components/community/channels/text-channel-surface"
 import { ThreadChannelSurface } from "@/components/community/channels/thread-channel-surface"
@@ -36,7 +36,7 @@ import {
 import { useThreadSplitMode } from "@/hooks/community/use-thread-split-mode"
 import { resolveConversationSubtype } from "@/lib/community/conversation-subtype"
 import { MobilePage } from "@/components/community/shell/mobile-page"
-import { ConversationActivityContext, ConversationPresentationContext, useConversationActivity, useConversationPresentation } from "@/contexts/community/conversation-activity"
+import { ConversationActivityContext, ConversationPresentationContext, useConversationActivity, useConversationPresentation } from "@/contexts/view-activity"
 import { useRouteChannelProjection } from "@/lib/community-db/projections"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 import type { MessageHeaderTitleState } from "./message-header"
@@ -63,10 +63,6 @@ type ChannelRouteProps = {
 }
 
 export function ChannelRoute(props: ChannelRouteProps) {
-  return <MobileChannelRoutes {...props} />
-}
-
-function MobileChannelRoutes(props: ChannelRouteProps) {
   const { breakpoint } = useCommunityRouteFrame()
   const [mobileSeen, setMobileSeen] = useState(breakpoint === "mobile")
   if (breakpoint === "mobile" && !mobileSeen) setMobileSeen(true)
@@ -136,7 +132,7 @@ function ChannelRouteFrame(target: RouteTarget) {
   const { navigation, breakpoint } = useCommunityRouteFrame()
   const isThread = routeModel.skeletonSubtype === "thread"
     || routeModel.routeLifecycle === "ready" && routeModel.isChild
-  const { containerRef, mode } = useThreadSplitMode({
+  const { modeMarkerRef, mode } = useThreadSplitMode({
     breakpoint,
     enabled: isThread,
     forceFullscreen: searchParams.get(THREAD_VIEW_PARAM) === "full",
@@ -167,8 +163,9 @@ function ChannelRouteFrame(target: RouteTarget) {
   const pane = <ChannelTargetPane key={JSON.stringify([currentUser.id, serverId, channelId])}
     {...target} split={split} layoutPending={layoutPending} resolvingParent={resolvingParent} onOpenChild={enterThread} />
   const targetHref = `${channelHref(serverParam, channelId)}${searchParams.size ? `?${searchParams}` : ""}`
-  return <div ref={containerRef} data-community-target-href={targetHref} className="flex min-h-0 min-w-0 flex-1 flex-col max-sm:fixed max-sm:inset-0 max-sm:z-20 max-sm:bg-background">
+  return <div data-community-target-href={targetHref} className="flex min-h-0 min-w-0 flex-1 flex-col max-sm:fixed max-sm:inset-0 max-sm:z-20 max-sm:bg-background">
     <ThreadSplitView
+      modeMarkerRef={modeMarkerRef}
       split={split} layoutPending={layoutPending} resolvingParent={resolvingLayout || resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
       parent={split && parent ? <ThreadSplitParentSurface
         key={JSON.stringify([currentUser.id, serverId, parent.id])}
@@ -389,7 +386,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
         <>
           <ChannelHeaderSkeleton kind="thread" compactActions={split} layoutPending={layoutPending} />
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <ConversationMessageSkeleton />
+            <MessageListSkeleton />
             <ComposerSkeleton />
           </div>
         </>

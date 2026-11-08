@@ -18,7 +18,7 @@
  * return null / 404 at the route. The victim's state must be untouched.
  */
 
-import { type SQL, aliasedTable, and, count, eq, exists, gt, gte, inArray, isNotNull, isNull, lt, ne, notExists, or, sql } from "drizzle-orm";
+import { type SQL, aliasedTable, and, eq, exists, gt, gte, inArray, isNotNull, isNull, lt, ne, notExists, or, sql } from "drizzle-orm";
 import { user } from "../../schema";
 import {
   communityBotBinding,
@@ -80,13 +80,6 @@ export type BotBinding = {
   isActive: boolean;
   createdAt: string;
 };
-
-export class OwnerHasBotsError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "OwnerHasBotsError";
-  }
-}
 
 const BOT_ENTITLEMENT_LIMIT_ERROR = "BOT_ENTITLEMENT_LIMIT_REACHED";
 
@@ -354,23 +347,6 @@ export async function publishOwnedBotAvatar(
   const previous = Array.isArray(results[0]) ? results[0][0] : undefined;
   const current = Array.isArray(results[1]) ? results[1][0] : undefined;
   return previous && current ? { previous, current } : null;
-}
-
-export async function countLiveBotsForOwner(
-  db: Database,
-  ownerId: string
-): Promise<number> {
-  const rows = await db
-    .select({ n: count() })
-    .from(user)
-    .where(
-      and(
-        eq(user.isBot, true),
-        eq(user.ownerUserId, ownerId),
-        isNull(user.deletedAt)
-      )
-    );
-  return rows[0]?.n ?? 0;
 }
 
 export async function getBotBinding(
@@ -1146,77 +1122,6 @@ export async function updateBot(
   };
 }
 
-/**
- * Update a bot's stored model name. Owner-scoped in the WHERE clause via the
- * sanctioned `ownerScopedIds` subquery (see §Ownership scoping invariant) — a
- * cross-owner `botId` is a no-op, not a leak.
- *
- * Returns whether a binding row was actually written. `getBotOwnedBy` 404s a
- * missing/cross-owner bot before this runs, but a bot with NO binding row
- * (unbound / never paired) still passes that check while this UPDATE matches
- * zero rows — the caller must NOT report a model as saved in that case (it
- * wasn't). Detection uses `RETURNING` (reliable in D1, as `softDeleteBot`
- * relies on) rather than the driver-specific `meta.changes` that "can flip a
- * real success into a 404".
- */
-export async function updateBotModel(
-  db: Database,
-  botId: string,
-  ownerId: string,
-  modelName: string | null
-): Promise<boolean> {
-  const ownerScopedIds = db
-    .select({ id: user.id })
-    .from(user)
-    .where(
-      and(
-        eq(user.id, botId),
-        eq(user.ownerUserId, ownerId),
-        eq(user.isBot, true),
-        isNull(user.deletedAt)
-      )
-    );
-  const rows = await db
-    .update(communityBotBinding)
-    .set({
-      modelName,
-      runtimeConfigRevision: sql`${communityBotBinding.runtimeConfigRevision} + 1`,
-    })
-    .where(inArray(communityBotBinding.userId, ownerScopedIds))
-    .returning({ userId: communityBotBinding.userId });
-  return rows.length > 0;
-}
-
-export async function updateBotRuntime(
-  db: Database,
-  botId: string,
-  ownerId: string,
-  runtime: string,
-  modelName: string | null
-): Promise<boolean> {
-  const ownerScopedIds = db
-    .select({ id: user.id })
-    .from(user)
-    .where(
-      and(
-        eq(user.id, botId),
-        eq(user.ownerUserId, ownerId),
-        eq(user.isBot, true),
-        isNull(user.deletedAt)
-      )
-    );
-  const rows = await db
-    .update(communityBotBinding)
-    .set({
-      runtime,
-      modelName,
-      runtimeConfigRevision: sql`${communityBotBinding.runtimeConfigRevision} + 1`,
-    })
-    .where(inArray(communityBotBinding.userId, ownerScopedIds))
-    .returning({ userId: communityBotBinding.userId });
-  return rows.length > 0;
-}
-
 export async function updateBotRuntimeConfig(
   db: Database,
   botId: string,
@@ -1348,28 +1253,6 @@ export interface BotDailyActivityRow {
   sentCount: number;
 }
 
-export async function getBotDailyActivity(
-  db: Database,
-  botId: string,
-  sinceDay: string
-): Promise<BotDailyActivityRow[]> {
-  const rows = await db
-    .select({
-      day: communityBotDailyActivity.day,
-      handledCount: communityBotDailyActivity.handledCount,
-      sentCount: communityBotDailyActivity.sentCount,
-    })
-    .from(communityBotDailyActivity)
-    .where(
-      and(
-        eq(communityBotDailyActivity.botId, botId),
-        gte(communityBotDailyActivity.day, sinceDay)
-      )
-    )
-    .orderBy(communityBotDailyActivity.day);
-  return rows;
-}
-
 /**
  * Batch read of per-day activity for ALL of an owner's bots in a single query,
  * so the my-bots list attaches heatmaps without N+1. Rows are scoped to bots
@@ -1464,9 +1347,9 @@ export async function softDeleteBot(
     .set({ revokedAt: nowIso })
     .where(
       and(
-        eq(communityAgentRunnerKey.agentId, botId),
-        isNull(communityAgentRunnerKey.revokedAt),
-        inArray(communityAgentRunnerKey.userId, ownerScopedIds)
+        eq(communityAgentRunnerKey.userId, ownerId),
+        inArray(communityAgentRunnerKey.agentId, ownerScopedIds),
+        isNull(communityAgentRunnerKey.revokedAt)
       )
     );
   const s4 = db
@@ -1478,23 +1361,6 @@ export async function softDeleteBot(
   // means the predicate didn't match (cross-owner or already-tombstoned).
   const firstRows = Array.isArray(results?.[0]) ? results[0] : [];
   return firstRows.length > 0;
-}
-
-/**
- * Ship a real guard so future user-delete plumbing has a clear failure mode.
- * Throws `OwnerHasBotsError` when a user still has live bots. No callers
- * today; called by any future delete-endpoint before it fires.
- */
-export async function assertNoLiveBots(
-  db: Database,
-  userId: string
-): Promise<void> {
-  const n = await countLiveBotsForOwner(db, userId);
-  if (n > 0) {
-    throw new OwnerHasBotsError(
-      `user ${userId} has ${n} live bots; delete them first`
-    );
-  }
 }
 
 /**

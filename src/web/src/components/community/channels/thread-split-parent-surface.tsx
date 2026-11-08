@@ -1,6 +1,6 @@
 "use client"
 
-import { useConversationActivity } from "@/contexts/community/conversation-activity"
+import { useConversationActivity } from "@/contexts/view-activity"
 import { useLayoutEffect, useState, type ComponentProps } from "react"
 import { canManageServer, isForum, USE_SERVER_DEFAULT } from "@alook/shared"
 import { toastApiError } from "@/lib/api/client"
@@ -15,7 +15,7 @@ import { ForumChannelSurface } from "@/components/community/channels/forum-chann
 import { TextChannelSurface } from "@/components/community/channels/text-channel-surface"
 import type { ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { ChannelHeaderSkeleton } from "@/components/community/channels/channel-header"
-import { ConversationMessageSkeleton } from "@/components/community/channels/conversation-message-skeleton"
+import { MessageListSkeleton } from "@/components/community/messages/message-list-view"
 import { ForumViewSkeleton } from "@/components/community/channels/forum-view"
 import { ConversationResolutionErrorFrame } from "@/components/community/channels/conversation-resolution-error-frame"
 import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
@@ -91,7 +91,7 @@ export function ThreadSplitParentSurface({
     return <>
       <ChannelHeaderSkeleton kind={isForum(channel.type) ? "forum" : "text"} />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {isForum(channel.type) ? <ForumViewSkeleton /> : <ConversationMessageSkeleton />}
+        {isForum(channel.type) ? <ForumViewSkeleton /> : <MessageListSkeleton />}
       </main>
     </>
   }

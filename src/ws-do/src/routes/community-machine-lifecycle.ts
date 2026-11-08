@@ -1,3 +1,4 @@
+import { forwardMachineCommand } from "./machine-command-forwarding"
 import { queries } from "@alook/shared"
 import type { RouterContext } from "../router-context"
 
@@ -108,50 +109,15 @@ export async function handleMachineReset({ request, env, url, traceId, log }: Ro
     return Response.json({ error: "invalid payload" }, { status: 400 })
   }
 
-  let doNames: string[] = []
-  try {
-    const shared = await import("@alook/shared")
-    const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
-    doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
-  } catch (err) {
-    reqLog.error("failed to resolve machine doNames for agent reset", { err })
+  const outcome = await forwardMachineCommand(env, machineId, "/push", JSON.stringify({ type: "agent:reset", agentId, config, launchId }))
+  if (outcome.kind === "resolution-failed") {
+    reqLog.error("failed to resolve machine doNames for agent reset", { err: outcome.cause })
     return Response.json({ error: "failed to resolve machine" }, { status: 503 })
   }
-  if (doNames.length === 0) {
-    return Response.json({ sent: 0 })
-  }
-  const frame = JSON.stringify({ type: "agent:reset", agentId, config, launchId })
-  let delivered = 0
-  let transientFailure = false
-  for (const dn of doNames) {
-    const doId = env.WS_DO.idFromName("community-machine:" + dn)
-    const stub = env.WS_DO.get(doId)
-    try {
-      const res = await stub.fetch(
-        new Request("http://internal/push", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: frame,
-        }),
-      )
-      if (!res.ok) {
-        transientFailure = true
-        continue
-      }
-      const data = (await res.json()) as { sent?: unknown }
-      if (typeof data.sent !== "number" || !Number.isFinite(data.sent) || data.sent < 0) {
-        transientFailure = true
-        continue
-      }
-      delivered += data.sent
-    } catch {
-      transientFailure = true
-    }
-  }
-  if (delivered === 0 && transientFailure) {
+  if (outcome.kind === "forward-failed") {
     return Response.json({ error: "failed to forward agent reset" }, { status: 503 })
   }
-  return Response.json({ sent: delivered })
+  return Response.json({ sent: outcome.sent })
 }
 
 export async function handleMachineBatchReset({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
@@ -214,50 +180,15 @@ export async function handleMachineBatchReset({ request, env, url, traceId, log 
     resets.push({ agentId: r.agentId, config: r.config, launchId: r.launchId })
   }
 
-  let doNames: string[] = []
-  try {
-    const shared = await import("@alook/shared")
-    const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
-    doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
-  } catch (err) {
-    reqLog.error("failed to resolve machine doNames for batch reset", { err })
+  const outcome = await forwardMachineCommand(env, machineId, "/push", JSON.stringify({ type: "machine:reset_all", resets }))
+  if (outcome.kind === "resolution-failed") {
+    reqLog.error("failed to resolve machine doNames for batch reset", { err: outcome.cause })
     return Response.json({ error: "failed to resolve machine" }, { status: 503 })
   }
-  if (doNames.length === 0) {
-    return Response.json({ sent: 0 })
-  }
-  const frame = JSON.stringify({ type: "machine:reset_all", resets })
-  let delivered = 0
-  let transientFailure = false
-  for (const dn of doNames) {
-    const doId = env.WS_DO.idFromName("community-machine:" + dn)
-    const stub = env.WS_DO.get(doId)
-    try {
-      const res = await stub.fetch(
-        new Request("http://internal/push", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: frame,
-        }),
-      )
-      if (!res.ok) {
-        transientFailure = true
-        continue
-      }
-      const data = (await res.json()) as { sent?: unknown }
-      if (typeof data.sent !== "number" || !Number.isFinite(data.sent) || data.sent < 0) {
-        transientFailure = true
-        continue
-      }
-      delivered += data.sent
-    } catch {
-      transientFailure = true
-    }
-  }
-  if (delivered === 0 && transientFailure) {
+  if (outcome.kind === "forward-failed") {
     return Response.json({ error: "failed to forward batch reset" }, { status: 503 })
   }
-  return Response.json({ sent: delivered })
+  return Response.json({ sent: outcome.sent })
 }
 
 export async function handleMachineNap({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
@@ -298,50 +229,15 @@ export async function handleMachineNap({ request, env, url, traceId, log }: Rout
     return Response.json({ error: "invalid payload" }, { status: 400 })
   }
 
-  let doNames: string[] = []
-  try {
-    const shared = await import("@alook/shared")
-    const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
-    doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
-  } catch (err) {
-    reqLog.error("failed to resolve machine doNames for agent nap", { err })
+  const outcome = await forwardMachineCommand(env, machineId, "/push", JSON.stringify({ type: "agent:nap", agentId, config, launchId, handoff }))
+  if (outcome.kind === "resolution-failed") {
+    reqLog.error("failed to resolve machine doNames for agent nap", { err: outcome.cause })
     return Response.json({ error: "failed to resolve machine" }, { status: 503 })
   }
-  if (doNames.length === 0) {
-    return Response.json({ sent: 0 })
-  }
-  const frame = JSON.stringify({ type: "agent:nap", agentId, config, launchId, handoff })
-  let delivered = 0
-  let transientFailure = false
-  for (const dn of doNames) {
-    const doId = env.WS_DO.idFromName("community-machine:" + dn)
-    const stub = env.WS_DO.get(doId)
-    try {
-      const res = await stub.fetch(
-        new Request("http://internal/push", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: frame,
-        }),
-      )
-      if (!res.ok) {
-        transientFailure = true
-        continue
-      }
-      const data = (await res.json()) as { sent?: unknown }
-      if (typeof data.sent !== "number" || !Number.isFinite(data.sent) || data.sent < 0) {
-        transientFailure = true
-        continue
-      }
-      delivered += data.sent
-    } catch {
-      transientFailure = true
-    }
-  }
-  if (delivered === 0 && transientFailure) {
+  if (outcome.kind === "forward-failed") {
     return Response.json({ error: "failed to forward agent nap" }, { status: 503 })
   }
-  return Response.json({ sent: delivered })
+  return Response.json({ sent: outcome.sent })
 }
 
 export async function handleMachineForceClose({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {

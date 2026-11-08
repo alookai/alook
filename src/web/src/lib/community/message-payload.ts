@@ -11,7 +11,6 @@ export type MessageRow = Pick<Awaited<ReturnType<typeof queries.communityMessage
   "id" | "authorId" | "authorName" | "authorImage" | "authorAvatarVersion" | "mentionType" | "replyToId" | "seq" | "createdAt"> & { content: string | null; type: string | null; embeds: unknown; clientNonce?: string | null; friendshipId?: string | null }
 
 type ReplyIdentity = Pick<MessageRow, "id" | "authorId" | "authorName">
-type ReplyTargetRow = Awaited<ReturnType<typeof queries.communityMessage.getMessagesByIdsInScope>>[number]
 
 type UiReaction = NonNullable<CommunityMessageResource["reactions"]>[number]
 type ReplyPreview = NonNullable<CommunityMessageResource["replyTo"]>
@@ -75,7 +74,7 @@ type MessageContextOptions = { skipEmpty?: boolean; rootReactions?: boolean; roo
 export async function loadApiMessageContext(db: Database, userId: string, ids: string[], readReplies: () => ReturnType<typeof queries.communityMessage.getMessagesByIdsInChannels>, options: MessageContextOptions = {}) {
   const [attachments, reactions, replyRows] = await Promise.all([
     options.skipEmpty && !ids.length ? Promise.resolve([]) : queries.communityAttachment.listByMessageIds(db, ids),
-    options.rootReactions === false || options.skipEmpty && !ids.length ? Promise.resolve([]) : queries.communityReaction.listReactionsByMessageIds(db, ids, userId),
+    options.rootReactions === false || options.skipEmpty && !ids.length ? Promise.resolve([]) : queries.communityReaction.listReactionsByMessageIds(db, ids),
     readReplies(),
   ])
   const replies = [...new Map(replyRows.map(reply => [`${reply.channelId}:${reply.id}`, reply])).values()]
@@ -84,7 +83,7 @@ export async function loadApiMessageContext(db: Database, userId: string, ids: s
   const cardRows = [...new Map([...(options.rootMessages ?? []), ...related].map(row => [row.id, row])).values()]
   const [replyAttachments, replyReactions, approvalByMessageId, botCreationByMessageId] = await Promise.all([
     relatedIds.length ? queries.communityAttachment.listByMessageIds(db, relatedIds) : Promise.resolve([]),
-    relatedIds.length ? queries.communityReaction.listReactionsByMessageIds(db, relatedIds, userId) : Promise.resolve([]),
+    relatedIds.length ? queries.communityReaction.listReactionsByMessageIds(db, relatedIds) : Promise.resolve([]),
     cardRows.some(row => row.friendshipId) ? queries.communityFriendship.hydrateApprovalsForDmMessages(db, cardRows.filter(row => row.friendshipId).map(row => row.id), userId) : Promise.resolve(new Map<string, FriendApprovalPayload>()),
     cardRows.some(row => row.type === "bot_creation_request") ? queries.communityBotCreation.hydrateCreationRequestsForDmMessages(db, cardRows.filter(row => row.type === "bot_creation_request").map(row => row.id), userId) : Promise.resolve(new Map<string, BotCreationPayload>()),
   ])

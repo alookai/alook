@@ -1,3 +1,4 @@
+import { createOwnerServerDeleteStore, emptyOwnerServerDeleteState } from "@/stores/community/server-eject-store"
 import type { z } from "zod"
 import { AttentionScopeSchema, AttentionItemSchema } from "@alook/shared"
 import { clearPersistedCache, type QualifiedPersister, type CommunityRestoredCollections } from "@/lib/query-persister"
@@ -15,7 +16,7 @@ import { createStore } from "@tanstack/store"
 import { createCommunityStore } from "@/stores/community/ui-store"
 import { createCommunityWsStore } from "@/stores/community/ws-store"
 import { createMessageStreamStore } from "@/stores/community/message-stream-store"
-import { createOwnerServerDeleteStore, emptyOwnerServerDeleteState } from "@/lib/community/eject-server"
+
 import type { CanonicalMessage } from "@/lib/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
 import {

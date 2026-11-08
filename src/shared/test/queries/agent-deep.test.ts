@@ -47,75 +47,6 @@ describe("getAgent", () => {
   });
 });
 
-describe("createAgent", () => {
-  it("creates with defaults", async () => {
-    const a = { id: "ag_1" };
-    const chain: any = {};
-    chain.insert = vi.fn(() => chain); chain.values = vi.fn(() => chain);
-    chain.returning = vi.fn(() => Promise.resolve([a]));
-    const result = await agentQueries.createAgent(chain, { workspaceId: "w", name: "Bot" });
-    expect(chain.values).toHaveBeenCalledWith(expect.objectContaining({
-      name: "Bot", runtimeMode: "local", visibility: "private", maxConcurrentTasks: 6,
-    }));
-    expect(result).toEqual(a);
-  });
-});
-
-describe("deleteAgent", () => {
-  it("returns null when not found", async () => {
-    const chain: any = {};
-    chain.delete = vi.fn(() => chain); chain.where = vi.fn(() => chain);
-    chain.returning = vi.fn(() => Promise.resolve([]));
-    expect(await agentQueries.deleteAgent(chain, "x", "w")).toBeNull();
-  });
-  it("returns deleted agent", async () => {
-    const a = { id: "ag_1" };
-    const chain: any = {};
-    chain.delete = vi.fn(() => chain); chain.where = vi.fn(() => chain);
-    chain.returning = vi.fn(() => Promise.resolve([a]));
-    expect(await agentQueries.deleteAgent(chain, "ag_1", "w")).toEqual(a);
-  });
-  it("filters by ownerId when provided", async () => {
-    const chain: any = {};
-    chain.delete = vi.fn(() => chain); chain.where = vi.fn(() => chain);
-    chain.returning = vi.fn(() => Promise.resolve([]));
-    await agentQueries.deleteAgent(chain, "ag_1", "w", "usr_1");
-    expect(chain.where).toHaveBeenCalled();
-  });
-});
-
-describe("updateAgent", () => {
-  it("returns null when not found", async () => {
-    const chain: any = {};
-    chain.update = vi.fn(() => chain); chain.set = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain); chain.returning = vi.fn(() => Promise.resolve([]));
-    expect(await agentQueries.updateAgent(chain, "x", "w", { name: "N" })).toBeNull();
-  });
-  it("returns updated agent", async () => {
-    const a = { id: "ag_1" };
-    const chain: any = {};
-    chain.update = vi.fn(() => chain); chain.set = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain); chain.returning = vi.fn(() => Promise.resolve([a]));
-    expect(await agentQueries.updateAgent(chain, "ag_1", "w", { name: "N" })).toEqual(a);
-  });
-});
-
-describe("updateAgentStatus", () => {
-  it("returns null when not found", async () => {
-    const chain: any = {};
-    chain.update = vi.fn(() => chain); chain.set = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain); chain.returning = vi.fn(() => Promise.resolve([]));
-    expect(await agentQueries.updateAgentStatus(chain, "x", "w", "active")).toBeNull();
-  });
-  it("returns updated agent", async () => {
-    const a = { id: "ag_1" };
-    const chain: any = {};
-    chain.update = vi.fn(() => chain); chain.set = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain); chain.returning = vi.fn(() => Promise.resolve([a]));
-    expect(await agentQueries.updateAgentStatus(chain, "ag_1", "w", "active")).toEqual(a);
-  });
-});
-
 describe("getAgentByHandle", () => {
   it("returns null when not found", async () => {
     const chain: any = {};
@@ -129,11 +60,5 @@ describe("getAgentByHandle", () => {
     chain.select = vi.fn(() => chain); chain.from = vi.fn(() => chain);
     chain.where = vi.fn(() => Promise.resolve([a]));
     expect(await agentQueries.getAgentByHandle(chain, "bot")).toEqual(a);
-  });
-});
-
-describe("getAgentsByIds", () => {
-  it("returns empty for empty ids", async () => {
-    expect(await agentQueries.getAgentsByIds(null as any, [], "w")).toEqual([]);
   });
 });

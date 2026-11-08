@@ -540,7 +540,7 @@ const AGENT_UNREAD_CHANNEL_CHUNK_SIZE = maxInParams(13);
  * unread completely (in seq order) before starting the next. Excludes the
  * bot's own authored messages. Never mutates read state.
  *
- * Visibility rule: same as the human unread path (`listUnreadChannels`) —
+ * Visibility rule: same as the human unread path (`listEligibleUnreadChannels`) —
  * (1) channel messages restricted to `listVisibleChannelIdsForUser(botUserId)`
  * (respects private-category rosters), and
  * (2) child threads additionally require a
@@ -663,7 +663,7 @@ export async function listUnreadMessagesForAgent(
  * pull will never hand over — the exact "not aligned: N unread"
  * deadlock a bot hit trying to post into a thread it hadn't engaged. This drops
  * ONLY true spectators: a bot @mentioned into a thread gets a `notify` row on the
- * send hot path (`addThreadParticipants`, source=mention), so its owed mention
+ * atomic message write (source=mention), so its owed mention
  * still counts as deliverable — the narrowing is not-more-not-less than the pull.
  */
 export async function hasDeliverableUnreadForAgentScope(

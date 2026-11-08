@@ -1,3 +1,4 @@
+import { resolveProxyCapability, resolveProxyRoute } from "./route-policy.js";
 /**
  * Credential proxy — zero-trust credential isolation for spawned agents.
  *
@@ -250,57 +251,7 @@ function parseBearer(authHeader: string | undefined): string | null {
  */
 export type CapabilityResolver = (method: string, pathname: string) => Capability | undefined;
 
-export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname) => {
-  if (pathname.startsWith("/api/community/machines")) return "read";
-  if (pathname === "/api/community/bots" && method === "GET") return "read";
-  if (pathname === "/api/community/bots/creation-requests" && method === "POST") return "send";
-  if (
-    ((method === "GET" || method === "PATCH") && pathname === "/api/community/users/me/profile")
-    || (method === "POST" && pathname === "/api/community/users/me/avatar")
-  ) return "profile";
-  // Match `/attachmentUpload` and `/attachmentDownload` (pre-rewrite pathname
-  // — the credential proxy inspects the client's `/api/...` path here). Both
-  // endpoints share the `"attach"` capability so a voucher can be scoped to
-  // attach-only without granting `send`/`read`.
-  if (pathname.includes("/attachment")) return "attach";
-  // Friend surfaces: the per-bucket sub-resource endpoints (/friends,
-  // /friends/accepted, /friends/pending, /friends/request). /friends/blocked is
-  // bot-403 at the route (owner-only) so a bot voucher never reaches it
-  // regardless of cap. The flat /friendRequest and /listFriends verbs are
-  // deleted (flat-delete step) — no substring rule for them anymore.
-  if (/\/friends(\/|$|\?)/.test(pathname)) return "friend";
-
-  // ── Canonical id-in-path message door (route/disc trunk). Matched by METHOD +
-  //    path SHAPE, before the flat-verb substring rules below, because the
-  //    substring rules can't tell a canonical shape apart: `/channels/{id}/…`
-  //    contains the literal `channel`, which the legacy `/server|/channel →
-  //    "server"` rule (kept at the bottom) would grab FIRST — mis-scoping a
-  //    bot send/read to the `server` capability. Shape+method disambiguates:
-  //    the same `channels/{id}/messages` path is `read` on GET, `send` on POST.
-  //      - GET  channels/{id}/messages           → read  (list, folds `read`)
-  //      - POST channels/{id}/messages           → send  (create, folds `send`)
-  //      - GET  channels/{id}/messages/seq/{seq}  → read  (folds `resolve`'s seq→id)
-  //      - PUT/DELETE messages/{id}/reactions/…   → send  (write, folds `reactAdd`)
-  const isMessagesDoor = /\/channels\/[^/]+\/messages(\/|$|\?)/.test(pathname)
-  if (isMessagesDoor) return method === "GET" ? "read" : "send";
-  if (/\/messages\/[^/]+\/properties(\/|$|\?)/.test(pathname)) {
-    return method === "GET" ? "read" : "send";
-  }
-  if (/\/messages\/[^/]+\/reactions\//.test(pathname)) return "send";
-  if (method === "GET" && /\/users\/me\/marks(\/|$|\?)/.test(pathname)) return "read";
-  // Single-message hydrate door GET messages/{id} (folds the `resolve` verb — a
-  // read). Matched AFTER the message-keyed write doors above so their more
-  // specific `/reactions|/threads` sub-paths win first.
-  if (method === "GET" && /\/messages\/[^/]+(\?|$)/.test(pathname)) return "read";
-
-  // ── Remaining generic read/server families. ──
-  // send/read/reactAdd/resolve/channelMember flat routes are DELETED (folded into
-  // the canonical doors above), so their substring rules are gone.
-  if (pathname.includes("/history") || pathname.includes("/search") || pathname.includes("/inbox"))
-    return "read";
-  if (pathname.includes("/server") || pathname.includes("/channel")) return "server";
-  return undefined;
-};
+export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = resolveProxyCapability;
 
 /** Default cap on how long a forwarded upstream request may stay open. */
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
@@ -340,6 +291,7 @@ export interface CredentialProxyOptions {
     method: string,
     pathname: string,
     metadata?: { propertyType: "emoji" | "tag" | "mark" },
+    operation?: string | null,
   ) => void;
   /** Consume an authenticated reminder arm request locally; never forwarded. */
   onMessageReminderArm?: (
@@ -417,21 +369,6 @@ function isCanonicalChannelScope(channel: string): boolean {
   } catch {
     return false;
   }
-}
-
-function propertyAuditMetadata(
-  method: string,
-  pathname: string,
-  requestUrl: string,
-): { propertyType: "emoji" | "tag" | "mark" } | undefined {
-  if (
-    (method !== "PUT" && method !== "DELETE")
-    || !/^\/api\/community\/messages\/[^/]+\/properties$/.test(pathname)
-  ) return undefined;
-  const type = new URL(requestUrl, "http://placeholder").searchParams.get("type");
-  return type === "emoji" || type === "tag" || type === "mark"
-    ? { propertyType: type }
-    : undefined;
 }
 
 function parseLocalMessageReminderBody(body: Buffer, agentId: string): LocalMessageReminderArmInput | null {
@@ -525,7 +462,7 @@ export async function startCredentialProxy(
   options: CredentialProxyOptions = {},
 ): Promise<RunningProxy> {
   const host = options.host ?? "127.0.0.1";
-  const resolveCap = options.capabilityResolver ?? DEFAULT_CAPABILITY_RESOLVER;
+  const resolveCap = options.capabilityResolver;
   const upstream = new URL(broker.upstreamBaseUrl);
   const upstreamClient = upstream.protocol === "https:" ? https : http;
 
@@ -584,7 +521,8 @@ export async function startCredentialProxy(
       );
       return;
     }
-    const requiredCap = resolveCap(req.method ?? "GET", pathname);
+    const route = resolveProxyRoute(pathname, req.method ?? "GET", req.url ?? pathname);
+    const requiredCap = resolveCap ? resolveCap(req.method ?? "GET", pathname) : route.capability;
     const verdict = broker.check(req.headers["authorization"], requiredCap);
 
     if (!verdict.ok) {
@@ -621,7 +559,7 @@ export async function startCredentialProxy(
     }
     let filteredBody: Buffer | undefined;
     let piiTriggeredFilters: { id: string; name: string }[] = [];
-    if (options.pii && req.method === "POST" && /^\/api\/community\/channels\/[^/]+\/messages\/?$/.test(pathname)) {
+    if (options.pii && route.filterPiiSend) {
       try {
         const filtered = await filterPiiRequest(req, reg.agentId, options.pii);
         filteredBody = filtered.body;
@@ -630,16 +568,8 @@ export async function startCredentialProxy(
       catch (error) { writePiiError(res, error); return; }
       if (res.destroyed) return;
     }
-    // Tightened from `.endsWith("/inboxPull")` — the attachment-download
-    // endpoint returns raw binary, and a loose match here would try to JSON-
-    // parse it as an inbox response. Exact-path match the canonical inbox-pull
-    // door that returns the `{ messages }` shape the timeline recorder
-    // consumes: `/api/community/users/me/inbox/pull` (route/disc 轴3;
-    // `callInboxPull` sends this full path directly, no rewrite). The flat
-    // `/api/inboxPull` verb is deleted (flat-delete step). inboxSnapshot is
-    // deliberately EXCLUDED (peek, no `{ messages }` to record).
-    const isInboxPull = req.method === "POST" && pathname === "/api/community/users/me/inbox/pull";
-    const isInboxAck = req.method === "POST" && pathname === "/api/community/users/me/inbox/ack";
+    const isInboxPull = route.inboxObservation === "pull";
+    const isInboxAck = route.inboxObservation === "ack";
     const shouldObserveInboxPull = Boolean(isInboxPull && onPull);
     const shouldObserveInboxAck = Boolean(isInboxAck && onAck);
     let inboxPullObservationToken: unknown;
@@ -670,9 +600,7 @@ export async function startCredentialProxy(
     if (onProxyRequest) {
       try {
         const method = req.method ?? "GET";
-        const metadata = propertyAuditMetadata(method, pathname, req.url ?? pathname);
-        if (metadata) onProxyRequest(reg.agentId, method, pathname, metadata);
-        else onProxyRequest(reg.agentId, method, pathname);
+        onProxyRequest(reg.agentId, method, pathname, route.propertyMetadata, route.auditOperation);
       } catch {
         // observational callback — never disrupt the proxy.
       }
@@ -857,7 +785,7 @@ export async function startCredentialProxy(
     // so it keeps firing across the whole exchange, not just while waiting
     // for headers — always destroy, but only write a 504 if we haven't
     // already committed to a response.
-    const waitingForModels = req.method === "POST" && /^\/api\/community\/machines\/[^/]+\/discover-models$/.test(pathname) && requestUrl.searchParams.get("wait") === "1";
+    const waitingForModels = route.modelDiscovery && requestUrl.searchParams.get("wait") === "1";
     const upstreamTimeoutMs = options.upstreamTimeoutMs ?? (waitingForModels ? 55_000 : DEFAULT_UPSTREAM_TIMEOUT_MS);
     upstreamReq.setTimeout(upstreamTimeoutMs, () => {
       upstreamReq.destroy();

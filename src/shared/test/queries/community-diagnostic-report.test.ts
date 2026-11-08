@@ -614,37 +614,6 @@ describe("diagnostic report query contract", () => {
     );
   });
 
-  it("terminal readback retains enough metadata for same/different compensation", async () => {
-    const expected = {
-      r2Key: `bug-reports/${OWNER_ID}/${REPORT_ID}.ndjson.gz`,
-      sha256: "a".repeat(64),
-      sizeBytes: 1234,
-    };
-    const uploadExpected = { status: "uploaded" as const, ...expected };
-    expect(q.classifyDiagnosticReportTerminal({
-      ...pendingRow,
-      status: "uploaded",
-      ...expected,
-    }, uploadExpected)).toEqual({ kind: "uploaded_same" });
-    expect(q.classifyDiagnosticReportTerminal({
-      ...pendingRow,
-      status: "uploaded",
-      ...expected,
-      sha256: "b".repeat(64),
-    }, uploadExpected)).toEqual({ kind: "uploaded_different" });
-    expect(q.classifyDiagnosticReportTerminal({
-      ...pendingRow,
-      status: "failed",
-      failureCode: "upload_conflict",
-    }, { status: "failed", failureCode: "upload_conflict" })).toEqual({ kind: "failed_same" });
-    expect(q.classifyDiagnosticReportTerminal({
-      ...pendingRow,
-      status: "failed",
-      failureCode: "upload_conflict",
-    }, { status: "failed", failureCode: "invalid_upload" })).toEqual({ kind: "failed_different" });
-    expect(q.classifyDiagnosticReportTerminal(pendingRow, uploadExpected)).toEqual({ kind: "pending" });
-  });
-
   it("rejects finalize time whose exact object expiry is not a safe integer", async () => {
     const { db, chain } = scriptedDb([]);
     await expect(

@@ -139,7 +139,7 @@ function ToastClose({
   )
 }
 
-function ToastIcon({ toastItem }: { toastItem: ToastPrimitive.Root.ToastObject<MessageNotificationData> }) {
+function resolveToastIcon(toastItem: ToastPrimitive.Root.ToastObject<MessageNotificationData>) {
   const customIcon = toastItem.data?.icon
   const statusIcon = toastItem.type === "success"
     ? <CircleCheckIcon />
@@ -152,7 +152,10 @@ function ToastIcon({ toastItem }: { toastItem: ToastPrimitive.Root.ToastObject<M
           : toastItem.type === "loading"
             ? <Loader2Icon className="animate-spin motion-reduce:animate-none" />
             : null
-  const icon = customIcon ?? statusIcon
+  return customIcon ?? statusIcon
+}
+
+function ToastIcon({ toastItem, icon }: { toastItem: ToastPrimitive.Root.ToastObject<MessageNotificationData>; icon: React.ReactNode }) {
   if (!icon) return null
 
   return (
@@ -182,10 +185,8 @@ function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager<MessageNotificationData>()
 
   return toasts.map((toastItem) => {
-    const hasIcon = Boolean(
-      toastItem.data?.icon
-      || ["success", "info", "warning", "error", "loading"].includes(toastItem.type ?? ""),
-    )
+    const icon = resolveToastIcon(toastItem)
+    const hasIcon = Boolean(icon)
     const closeLabel = toastItem.data?.closeLabel ?? "Close notification"
 
     return (
@@ -199,7 +200,7 @@ function ToastList() {
             ? undefined
             : "grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_auto_auto]"}
         >
-          <ToastIcon toastItem={toastItem} />
+          <ToastIcon toastItem={toastItem} icon={icon} />
           <div className={cn(
             "row-start-1 flex min-w-0 flex-col gap-1",
             hasIcon ? "col-start-2" : "col-start-1",

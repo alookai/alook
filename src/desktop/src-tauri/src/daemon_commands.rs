@@ -805,8 +805,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn shell_environment_retains_non_path_multiline_exports_without_inherited_noise() {
-        let parsed = parse_shell_environment("banner\n__ALOOK_ENV_V1__\0PATH=/usr/bin:/bin\0HOME=/tmp/test\0SYNTHETIC=line1\n你好=$literal\0", false).unwrap();
-        assert!(parsed.contains(&("SYNTHETIC".to_string(), "line1\n你好=$literal".to_string())));
+        let parsed = parse_shell_environment("banner\n__ALOOK_ENV_V1__\0PATH=/usr/bin:/bin\0HOME=/tmp/test\0SYNTHETIC=line1\n€€=$literal\0", false).unwrap();
+        assert!(parsed.contains(&("SYNTHETIC".to_string(), "line1\n€€=$literal".to_string())));
         assert!(parse_shell_environment("PATH=/usr/bin", false).is_err());
         assert!(parse_shell_environment("__ALOOK_ENV_V1__\0PATH=/bin\0BAD\0", false).is_err());
     }

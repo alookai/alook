@@ -1,4 +1,5 @@
 "use client"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import type { CommunityProfile } from "@/lib/community/models/people"
 
 import { useObservedRegion } from "@/lib/observability/regions"
@@ -189,14 +190,12 @@ export function UserSettings({ titleId, initialTab = "profile", billingReturn = 
   userEmail: string
   aboutMe: string
   avatar: string
-  onSave: (data: Partial<Pick<CommunityProfile, "name" | "aboutMe" | "statusEmoji" | "statusText">>) => void
+  onSave: (data: Partial<Pick<CommunityProfile, "name" | "aboutMe" | "statusEmoji" | "statusText">>) => void | Promise<void>
   onLogout?: () => void
   onAccountDeleted: () => Promise<void>
   onUploadAvatar?: () => void
 } & Pick<CommunityProfile, "statusEmoji" | "statusText">) {
-  // Draft + saved baseline are mount-only on purpose — a WS-driven prop change
-  // (e.g. status fan-out echo) must not clobber an in-progress edit. The
-  // baseline advances only on a successful save.
+  // Mount owns the draft; WS echoes must not replace unsaved edits.
   const [name, setName] = useAtom(useCreateAtom(userName))
   const [value, setValue] = useAtom(useCreateAtom(aboutMe))
   const [status, setStatus] = useAtom(useCreateAtom({ emoji: statusEmoji ?? null, text: statusText ?? null }))
@@ -218,21 +217,25 @@ export function UserSettings({ titleId, initialTab = "profile", billingReturn = 
     status.emoji !== baseline.emoji ||
     status.text !== baseline.text
 
+  const view = useCommunityViewSource(JSON.stringify(["user-settings", userId]))
+  const save = useMutation({
+    mutationFn: async (submitted: { name: string; aboutMe: string; emoji: string | null; text: string | null; rawName: string; rawAbout: string; assertActive: ReturnType<typeof view.capture> }) => {
+      await onSave({ name: submitted.name, aboutMe: submitted.aboutMe, statusEmoji: submitted.emoji, statusText: submitted.text })
+      submitted.assertActive()
+    },
+    onSuccess: (_, submitted) => {
+      try { submitted.assertActive() } catch { return }
+      setBaseline({ name: submitted.name, aboutMe: submitted.aboutMe, emoji: submitted.emoji, text: submitted.text })
+      // Normalize only fields that still contain this submission, preserving later edits.
+      setName((current) => current === submitted.rawName ? submitted.name : current)
+      setValue((current) => current === submitted.rawAbout ? submitted.aboutMe : current)
+    },
+    onError: (error, submitted) => toastApiError(error, "Failed to save profile", submitted.assertActive),
+  })
   const handleSave = () => {
-    if (!dirty) return
-    const trimmedName = name.trim()
-    const trimmedAbout = value.trim()
-    // Status is part of the unified payload so the WS-store write and
-    // server-side fanOutStatusUpdate still fire (see shell-frame wiring).
-    onSave({
-      name: trimmedName,
-      aboutMe: trimmedAbout,
-      statusEmoji: status.emoji,
-      statusText: status.text,
-    })
-    setBaseline({ name: trimmedName, aboutMe: trimmedAbout, emoji: status.emoji, text: status.text })
-    setName(trimmedName)
-    setValue(trimmedAbout)
+    if (!dirty || save.isPending) return
+    save.mutate({ name: name.trim(), aboutMe: value.trim(), emoji: status.emoji, text: status.text,
+      rawName: name, rawAbout: value, assertActive: view.capture() })
   }
 
   const handleCancel = () => {
@@ -316,7 +319,7 @@ export function UserSettings({ titleId, initialTab = "profile", billingReturn = 
               </div>
               <div className="flex items-center justify-end gap-2">
                 <Button variant="ghost" size="sm" className="h-11 sm:h-8" onClick={handleCancel} disabled={!dirty}>Cancel</Button>
-                <Button size="sm" className="h-11 sm:h-8" onClick={handleSave} disabled={!dirty}>Save changes</Button>
+                <Button size="sm" className="h-11 sm:h-8" onClick={handleSave} disabled={!dirty || save.isPending}>Save changes</Button>
               </div>
               {/* Danger zone: kept apart from the profile's primary actions (QA #21). */}
               <div data-slot="settings-danger-zone" className="flex items-center justify-between gap-4 border-t border-border/40 pt-6">

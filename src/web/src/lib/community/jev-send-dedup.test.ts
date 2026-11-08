@@ -8,8 +8,8 @@ vi.mock("@alook/shared", async () => {
     ...actual.queries.communityMessage, listRecentMessagesForDuplicateCheck: mocks.recent,
   }, user: { ...actual.queries.user, getUserSelf: mocks.author }, communityAttachment: { listByMessageIds: mocks.previous } } }
 })
-vi.mock("./jev-wake-gate", async () => {
-  const actual = await vi.importActual<typeof import("./jev-wake-gate")>("./jev-wake-gate")
+vi.mock("./jev-decision-provider", async () => {
+  const actual = await vi.importActual<typeof import("./jev-decision-provider")>("./jev-decision-provider")
   return { ...actual, createJevDecisionProvider: mocks.create }
 })
 import { isDuplicateBotMessage } from "./jev-send-dedup"
@@ -47,7 +47,6 @@ describe("bot send duplicate judgment", () => {
     expect(mocks.author).toHaveBeenCalledExactlyOnceWith(input.db, "bot")
     expect(mocks.previous).not.toHaveBeenCalled()
     expect(mocks.recent).toHaveBeenCalledExactlyOnceWith(input.db, "channel")
-    expect(mocks.create.mock.calls[0][0].threshold).toBe(0.5)
     expect(vi.getTimerCount()).toBe(0)
   })
 
@@ -88,10 +87,9 @@ describe("bot send duplicate judgment", () => {
     mocks.decide.mockResolvedValue({ answers: { duplicate: answer } })
     expect(await isDuplicateBotMessage(input)).toBe(false)
   })
-  it("fails open for missing credentials, independently of retired wake threshold", async () => {
+  it("fails open for missing credentials", async () => {
     expect(await isDuplicateBotMessage({ ...input, env: {} })).toBe(false)
     expect(mocks.recent).not.toHaveBeenCalled()
-    expect(await isDuplicateBotMessage({ ...input, env: { ...input.env, JEV_WAKE_THRESHOLD: "invalid" } })).toBe(true)
   })
   it("fails open on query/provider initialization/request failure", async () => {
     mocks.recent.mockRejectedValueOnce(new Error("DB unavailable"))
@@ -110,7 +108,7 @@ describe("bot send duplicate judgment", () => {
     expect(vi.getTimerCount()).toBe(0)
   })
   it("fails open rather than truncating oversized input", async () => {
-    mocks.recent.mockResolvedValue([{ ...row(1), content: "界".repeat(50_000) }])
+    mocks.recent.mockResolvedValue([{ ...row(1), content: "€".repeat(50_000) }])
     expect(await isDuplicateBotMessage(input)).toBe(false)
     expect(mocks.decide).not.toHaveBeenCalled()
   })

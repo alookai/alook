@@ -1,4 +1,5 @@
 "use client"
+import { observeVisibilitySentinel } from "@/lib/observe-visibility-sentinel"
 import { Button } from "@/components/ui/button"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
@@ -191,20 +192,9 @@ export function MemberList({
   })
 
   useEffect(() => {
-    if (!onLoadMore || !hasMore) return
-    const el = sentinelRef.current
-    const root = scrollRef.current
-    if (!el || !root) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting && !loadingMore) onLoadMore()
-        }
-      },
-      { root, rootMargin: "100px" },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
+    if (!onLoadMore || !hasMore || loadingMore) return
+    const sentinel = sentinelRef.current, root = scrollRef.current
+    if (sentinel && root) return observeVisibilitySentinel(root, sentinel, onLoadMore)
   }, [onLoadMore, hasMore, loadingMore])
 
   if (loading && members.length === 0 && !query) {

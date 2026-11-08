@@ -364,7 +364,7 @@ describe("DELETE /channels/[id]", () => {
       env: { DB: {}, COMMUNITY_MEDIA: { delete: vi.fn() } },
       ctx: { waitUntil: mockWaitUntil },
     })
-    mockDeleteChannelWithMedia.mockResolvedValue({ deleted: true, mediaKeys: [], readStateRevisions: [] })
+    mockDeleteChannelWithMedia.mockResolvedValue({ deleted: true, readStateRevisions: [] })
     mockIsChannelPrivate.mockResolvedValue(false)
     mockGetChannelType.mockResolvedValue("forum")
   })
@@ -374,36 +374,12 @@ describe("DELETE /channels/[id]", () => {
     const res = await DELETE(delReq(), ctx)
     expect(res.status).toBe(204)
     expect(mockFanOutToServerMembers).toHaveBeenCalled()
+    expect(mockScheduleMediaCleanup).not.toHaveBeenCalled()
     expect(mockBroadcastToUserSafe).not.toHaveBeenCalled()
     expect(mockDeleteChannelWithMedia).toHaveBeenCalledWith(expect.anything(), {
       channelId: "c1",
       serverId: "s1",
     })
-  })
-
-  it("returns 500 without mutating D1 when execution context acquisition fails", async () => {
-    mockResolveChannelAccessContext.mockResolvedValue(accessCtx({ role: "admin", canManage: true }))
-    mockGetCloudflareContext.mockRejectedValueOnce(new Error("context unavailable"))
-
-    const res = await DELETE(delReq(), ctx)
-
-    expect(res.status).toBe(500)
-    expect(mockDeleteChannelWithMedia).not.toHaveBeenCalled()
-    expect(mockFanOutToServerMembers).not.toHaveBeenCalled()
-  })
-
-  it("keeps the winner 204 and fanout when waitUntil throws synchronously", async () => {
-    mockResolveChannelAccessContext.mockResolvedValue(accessCtx({ role: "admin", canManage: true }))
-    mockDeleteChannelWithMedia.mockResolvedValue({ deleted: true, mediaKeys: ["original"], readStateRevisions: [] })
-    mockWaitUntil.mockImplementationOnce(() => {
-      throw new TypeError("secret registration detail")
-    })
-
-    const res = await DELETE(delReq(), ctx)
-
-    expect(res.status).toBe(204)
-    expect(mockDeleteChannelWithMedia).toHaveBeenCalledOnce()
-    expect(mockFanOutToServerMembers).toHaveBeenCalledOnce()
   })
 
   it("private-channel delete fans out to the resolved audience only", async () => {
@@ -458,38 +434,9 @@ describe("DELETE /channels/[id]", () => {
     expect(mockDeleteChannelWithMedia).not.toHaveBeenCalled()
   })
 
-  it("schedules winner media cleanup before the existing public fanout", async () => {
-    const order: string[] = []
-    mockResolveChannelAccessContext.mockResolvedValue(accessCtx({ role: "admin", canManage: true }))
-    mockDeleteChannelWithMedia.mockImplementation(async () => {
-      order.push("delete")
-      return { deleted: true, mediaKeys: ["original", "thumbnail"], readStateRevisions: [] }
-    })
-    mockScheduleMediaCleanup.mockImplementation(() => order.push("cleanup"))
-    mockFanOutToServerMembers.mockImplementation(async () => {
-      order.push("fanout")
-    })
-
-    const res = await DELETE(delReq(), ctx)
-
-    expect(res.status).toBe(204)
-    expect(order).toEqual(["delete", "cleanup", "fanout"])
-    expect(mockScheduleMediaCleanup).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ waitUntil: mockWaitUntil }),
-      {
-        keys: ["original", "thumbnail"],
-        warning: {
-          event: "community_channel_media_cleanup_failed",
-          fields: { serverId: "s1", channelId: "c1" },
-        },
-      },
-    )
-  })
-
   it("returns 404 and never schedules or broadcasts when the D1 delete loses", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(accessCtx({ role: "admin", canManage: true }))
-    mockDeleteChannelWithMedia.mockResolvedValue({ deleted: false, mediaKeys: [], readStateRevisions: [] })
+    mockDeleteChannelWithMedia.mockResolvedValue({ deleted: false, readStateRevisions: [] })
 
     const res = await DELETE(delReq(), ctx)
 

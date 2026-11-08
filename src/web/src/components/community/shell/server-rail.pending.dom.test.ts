@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   pending: false,
   announce: vi.fn(),
   captureDndOptions: vi.fn(),
-  querySelector: vi.fn(),
   sortableProps: vi.fn(),
   railFolderProps: vi.fn(),
 }))
@@ -36,7 +35,7 @@ vi.mock("./sortable-server", () => ({
     return createElement("div", {
       "data-sortable-server": "",
       "data-server-id": server.id,
-    })
+    }, createElement("button", { "data-testid": tid.serverIcon(server.id) }, server.id))
   },
 }))
 vi.mock("./rail-folder", () => ({
@@ -138,15 +137,12 @@ function flushAnimationFrame() {
   callback(0)
 }
 
-async function expectReconciledFocus(testId: string, focus: ReturnType<typeof vi.fn>) {
-  expect(mocks.querySelector).not.toHaveBeenCalled()
-  expect(focus).not.toHaveBeenCalled()
+async function expectReconciledFocus(target: HTMLElement) {
+  expect(document.activeElement).not.toBe(target)
   await act(async () => flushAnimationFrame())
-  expect(mocks.querySelector).not.toHaveBeenCalled()
-  expect(focus).not.toHaveBeenCalled()
+  expect(document.activeElement).not.toBe(target)
   await act(async () => flushAnimationFrame())
-  expect(mocks.querySelector).toHaveBeenLastCalledWith(`[data-testid="${testId}"]`)
-  expect(focus).toHaveBeenCalledTimes(1)
+  expect(document.activeElement).toBe(target)
 }
 
 describe("ServerRail one-in-flight structural guard", () => {
@@ -163,9 +159,6 @@ describe("ServerRail one-in-flight structural guard", () => {
     })
     animationFrames.length = 0
     vi.stubGlobal("sessionStorage", { getItem: vi.fn(() => null), setItem: vi.fn() })
-    vi.spyOn(document, "querySelector").mockImplementation((selector) => (
-      mocks.querySelector(selector) as Element | null
-    ))
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       animationFrames.push(callback)
       return animationFrames.length
@@ -425,9 +418,8 @@ describe("ServerRail one-in-flight structural guard", () => {
   })
 
   it("keeps immediate rejected-operation focus on one animation frame", async () => {
-    const focus = vi.fn()
-    mocks.querySelector.mockReturnValue({ focus })
-    renderRail()
+    const view = renderRail()
+    const target = view.getByTestId(tid.serverIcon("a"))
     await act(async () => drop({
       operation: "reorder-after",
       source: { kind: "server", id: "a" },
@@ -435,21 +427,17 @@ describe("ServerRail one-in-flight structural guard", () => {
     }))
 
     expect(mocks.mutate).not.toHaveBeenCalled()
-    expect(focus).not.toHaveBeenCalled()
+    expect(document.activeElement).not.toBe(target)
     await act(async () => flushAnimationFrame())
-    expect(mocks.querySelector).toHaveBeenLastCalledWith(
-      `[data-testid="${tid.serverIcon("a")}"]`,
-    )
-    expect(focus).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(target)
     expect(animationFrames).toHaveLength(0)
   })
 
   it.each(["success", "error"] as const)(
     "returns drag source focus only after the mutation settles: %s",
     async (outcome) => {
-      const focus = vi.fn()
-      mocks.querySelector.mockReturnValue({ focus })
-      renderRail()
+      const view = renderRail()
+      const target = view.getByTestId(tid.serverIcon("a"))
       await act(async () => drop({
         operation: "reorder-after",
         source: { kind: "server", id: "a" },
@@ -461,22 +449,21 @@ describe("ServerRail one-in-flight structural guard", () => {
         if (outcome === "success") callbacks.onSuccess({ createdFolderIds: {} })
         else callbacks.onError()
       })
-      expect(focus).not.toHaveBeenCalled()
+      expect(document.activeElement).not.toBe(target)
 
       await act(async () => callbacks.onSettled(
         undefined,
         outcome === "error" ? new Error("failed") : null,
       ))
-      await expectReconciledFocus(tid.serverIcon("a"), focus)
+      await expectReconciledFocus(target)
     },
   )
 
   it.each(["success", "error"] as const)(
     "returns combine-created-group focus to its source server after settle: %s",
     async (outcome) => {
-      const focus = vi.fn()
-      mocks.querySelector.mockReturnValue({ focus })
-      renderRail()
+      const view = renderRail()
+      const target = view.getByTestId(tid.serverIcon("a"))
       await act(async () => drop({
         operation: "combine",
         source: { kind: "server", id: "a" },
@@ -492,13 +479,13 @@ describe("ServerRail one-in-flight structural guard", () => {
           callbacks.onError()
         }
       })
-      expect(focus).not.toHaveBeenCalled()
+      expect(document.activeElement).not.toBe(target)
 
       await act(async () => callbacks.onSettled(
         undefined,
         outcome === "error" ? new Error("failed") : null,
       ))
-      await expectReconciledFocus(tid.serverIcon("a"), focus)
+      await expectReconciledFocus(target)
     },
   )
 

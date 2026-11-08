@@ -1,4 +1,5 @@
 "use client"
+import { loadAndSeedProfiles } from "@/lib/community/account-cache-lifecycle"
 import { CommunityPresenceReadSchema, type CommunityPresenceRead, CommunityAcceptedFriendsReadSchema, CommunityBlockedFriendsReadSchema, CommunityPendingFriendsReadSchema, type CommunityResourceBundle } from "@alook/shared"
 import type { z } from "zod"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -7,10 +8,7 @@ import type { QueryFunctionContext } from "@tanstack/react-query"
 import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { useMemo } from "react"
 import { apiFetch } from "@/lib/api/client"
-import {
-  communityUserProfilePatch,
-  loadAndSeedProfiles,
-} from "@/lib/community/profile-seed"
+import { communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { Friend, PendingRequest, BlockedUser } from "@/lib/community/models/people"
 import { useCanonicalProfilesByUserId, useFriendshipRows } from "@/lib/community-db/projections"

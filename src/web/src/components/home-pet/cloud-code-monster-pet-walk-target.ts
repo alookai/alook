@@ -3,9 +3,9 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { type RefObject, useCallback, useEffect, useRef } from "react";
 
-import { clampPetPosition, createWalkToTargetVelocity, getBounds } from "./cloud-code-monster-pet-activity";
+import { clampPetPosition, createWalkToTargetVelocity, getBounds, petPointFromClient } from "./cloud-code-monster-pet-activity";
 import { CLOUD_CODE_MONSTER_AUTO_WALK_STEP_MS, CLOUD_CODE_MONSTER_SIZE } from "./cloud-code-monster-pet-constants";
-import type { PetPoint } from "./cloud-code-monster-pet-types";
+import type { PetPoint, PetCoordinateSpace } from "./cloud-code-monster-pet-types";
 
 const WALK_TO_TARGET_SPEED = 3.2;
 const ARRIVAL_THRESHOLD = 10;
@@ -19,6 +19,7 @@ export type WalkToTargetState = {
 
 type UseWalkToTargetParams = {
   boundaryRef: RefObject<HTMLElement | null>;
+  coordinateSpace: PetCoordinateSpace;
   targetId: string | null;
   enabled: boolean;
   position: PetPoint | null;
@@ -29,26 +30,27 @@ type UseWalkToTargetParams = {
 
 function getTargetPosition(
   boundaryEl: HTMLElement | null,
-  targetId: string
+  targetId: string,
+  coordinateSpace: PetCoordinateSpace
 ): PetPoint | null {
   if (!boundaryEl) return null;
 
-  const targetEl =
-    boundaryEl.querySelector<HTMLElement>(`[data-pet-target-id="${targetId}"]`) ??
-    document.querySelector<HTMLElement>(`[data-pet-target-id="${targetId}"]`);
+  const targetEl = boundaryEl.querySelector<HTMLElement>(`[data-pet-target-id="${targetId}"]`);
   if (!targetEl) return null;
 
   const targetRect = targetEl.getBoundingClientRect();
-  const bounds = getBounds(boundaryEl);
+  const bounds = getBounds(boundaryEl, coordinateSpace);
 
-  const x = targetRect.right + TARGET_OFFSET_X;
-  const y = targetRect.top + targetRect.height / 2 - CLOUD_CODE_MONSTER_SIZE.height / 2;
+  const point = petPointFromClient({ x: targetRect.right, y: targetRect.top + targetRect.height / 2 }, boundaryEl, coordinateSpace);
+  const x = point.x + TARGET_OFFSET_X;
+  const y = point.y - CLOUD_CODE_MONSTER_SIZE.height / 2;
 
   return clampPetPosition({ x, y }, bounds, CLOUD_CODE_MONSTER_SIZE);
 }
 
 export function useWalkToTarget({
   boundaryRef,
+  coordinateSpace,
   targetId,
   enabled,
   position,
@@ -103,7 +105,7 @@ const [walkDirection, setWalkDirection] = useAtom(useCreateAtom<"left" | "right"
           return;
         }
 
-        const target = getTargetPosition(boundaryRef.current, targetId);
+        const target = getTargetPosition(boundaryRef.current, targetId, coordinateSpace);
         const current = positionRef.current;
 
         if (!target || !current) {
@@ -130,7 +132,7 @@ const [walkDirection, setWalkDirection] = useAtom(useCreateAtom<"left" | "right"
 
         const next = clampPetPosition(
           { x: current.x + velocity.x, y: current.y + velocity.y },
-          getBounds(boundaryRef.current),
+          getBounds(boundaryRef.current, coordinateSpace),
           CLOUD_CODE_MONSTER_SIZE
         );
 
@@ -146,7 +148,7 @@ const [walkDirection, setWalkDirection] = useAtom(useCreateAtom<"left" | "right"
       clearStepTimer();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, targetId, !!position, boundaryRef, cancel, clearStepTimer, onArrive, onStep, setPosition]);
+  }, [enabled, targetId, !!position, boundaryRef, coordinateSpace, cancel, clearStepTimer, onArrive, onStep, setPosition]);
 
   return { isWalking, isIdlingAtTarget, walkDirection };
 }

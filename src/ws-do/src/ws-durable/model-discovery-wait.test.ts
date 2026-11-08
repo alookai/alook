@@ -80,7 +80,7 @@ it("preserves a large Unicode catalog in one bounded temporary result record", a
   const f = fixture()
   const waiting = waitForModelDiscovery(f.context, command, f.dispatch)
   await vi.advanceTimersByTimeAsync(0)
-  const large = { status: "complete" as const, catalog: { updateMode: "unsupported" as const, models: Array.from({ length: 1024 }, (_, index) => ({ id: `model-${index}`, displayName: "模型".repeat(100), supportedReasoningEfforts: [] })) } }
+  const large = { status: "complete" as const, catalog: { updateMode: "unsupported" as const, models: Array.from({ length: 1024 }, (_, index) => ({ id: `model-${index}`, displayName: "€€".repeat(100), supportedReasoningEfforts: [] })) } }
   await completeModelDiscoveryWait(f.context, command.requestId, command.runtimeId, large)
   expect(f.store.get("model-discovery-wait:request").completed).toBe(true)
   const records = [...f.store].filter(([key]) => key.startsWith("model-discovery-result:"))

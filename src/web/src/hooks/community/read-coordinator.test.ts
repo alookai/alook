@@ -58,7 +58,6 @@ import {
   registerInboxProjectionTicket,
   registerInboxReadReservationSurface,
   releaseInboxReadReservationSurface,
-  reserveInboxUnreadsResponse,
   settleInboxReadReservationGeneration,
   type InboxRowTarget,
 } from "./inbox-read-reservation"
@@ -1392,7 +1391,7 @@ describe("read coordinator", () => {
     await vi.waitFor(() => expect(reconcileAccountReadState).not.toHaveBeenCalled())
   })
 
-  it("fences a committed mutation whose Inbox settlement loses ownership", async () => {
+  it("fences committed read reconciliation after account disposal", async () => {
     const queryClient = createOwnedClient()
     const data = {
       servers: [{
@@ -1411,8 +1410,7 @@ describe("read coordinator", () => {
       "channel-1",
       vi.fn(),
     )
-    const held = reserveInboxUnreadsResponse(queryClient, data)
-    void held.catch(() => undefined)
+    armInboxReadReservationCandidate(queryClient, { channelId: "channel-1", lastMessageAt: "2026-08-27T01:00:00.000Z" })
     const lease = timelineLease(queryClient)
     const generation = submitReadIntentGeneration(lease, {
       kind: "timeline",
@@ -1423,20 +1421,15 @@ describe("read coordinator", () => {
     const { promoteInboxReadReservation } = await import("./inbox-read-reservation")
     promoteInboxReadReservation(reservation, generation)
     apiFetch.mockResolvedValue({ changed: true, revision: 20, targetSeq: 4 })
-    let releaseCancel!: () => void
-    const cancelQueries = vi.spyOn(queryClient, "cancelQueries").mockReturnValue(
-      new Promise<void>((resolve) => {
-        releaseCancel = resolve
-      }),
-    )
-
+    let releaseReconciliation!: () => void
+    reconcileAccountReadState.mockReturnValue(new Promise<void>(resolve => { releaseReconciliation = resolve }))
     const work = flushPendingReadIntents(queryClient)
-    await vi.waitFor(() => expect(cancelQueries).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(reconcileAccountReadState).toHaveBeenCalledOnce())
     disposeReadCoordinator(queryClient)
-    releaseCancel()
-
+    releaseReconciliation()
     await expect(work).resolves.toEqual({ consumed: false, cutoff: generation })
-    expect(reconcileAccountReadState).not.toHaveBeenCalled()
+    expect(reconcileAccountReadState).toHaveBeenCalledOnce()
+
   })
 
   it("does not consume a committed read whose authoritative refresh fails", async () => {
@@ -1491,8 +1484,7 @@ describe("read coordinator", () => {
       "channel-1",
       vi.fn(),
     )
-    const pending = reserveInboxUnreadsResponse(queryClient, data)
-    void pending.catch(() => undefined)
+    armInboxReadReservationCandidate(queryClient, { channelId: "channel-1", lastMessageAt: "2026-08-27T01:00:00.000Z" })
     const readLease = timelineLease(queryClient)
     const generation = submitReadIntentGeneration(readLease, {
       kind: "timeline",
@@ -1560,8 +1552,7 @@ describe("read coordinator", () => {
         "channel-1",
         vi.fn(),
       )
-      const pending = reserveInboxUnreadsResponse(queryClient, data)
-      void pending.catch(() => undefined)
+      armInboxReadReservationCandidate(queryClient, { channelId: "channel-1", lastMessageAt: "2026-08-27T01:00:00.000Z" })
       const readLease = timelineLease(queryClient)
       const generation = submitReadIntentGeneration(readLease, {
         kind: "timeline",

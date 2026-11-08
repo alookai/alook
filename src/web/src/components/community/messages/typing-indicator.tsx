@@ -12,9 +12,7 @@ export function TypingIndicator({
   className?: string
 }) {
   if (names.length === 0) return null
-  const label = names.length === 0
-    ? null
-    : names.length === 1
+  const label = names.length === 1
       ? <><span className="font-medium text-foreground">{names[0]}</span> is typing…</>
       : names.length <= 3
         ? <><span className="font-medium text-foreground">{names.slice(0, -1).join(", ")} and {names[names.length - 1]}</span> are typing…</>

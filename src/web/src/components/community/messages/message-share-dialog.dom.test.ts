@@ -1,3 +1,4 @@
+import { ShareImageSessionError } from "@/lib/community/share-image-session"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Blob as NodeBlob } from "node:buffer"
 import React from "react"
@@ -7,9 +8,6 @@ import { toBlob } from "html-to-image"
 import { toast } from "sonner"
 import {
   MessageShareDialog,
-  ShareCardRenderError,
-  copyRenderedShareCard,
-  downloadRenderedShareCard,
   shareCardRenderErrorMessage,
   writeShareCardToClipboard,
 } from "./message-share-dialog"
@@ -190,7 +188,7 @@ beforeEach(() => {
   ) => {
     if (options.signal?.aborted) throw new DOMException("aborted", "AbortError")
     const blob = await rasterize(source, { fontEmbedCSS })
-    if (!blob) throw new ShareCardRenderError("rasterize")
+    if (!blob) throw new ShareImageSessionError("rasterize")
     return blob
   })
   vi.mocked(toBlob).mockResolvedValue(new Blob(["png"], { type: "image/png" }))
@@ -277,7 +275,7 @@ describe("MessageShareDialog session lifecycle", () => {
 
   it("shows a typed preparation error and retries from the source tree", async () => {
     sessionMocks.prepare
-      .mockRejectedValueOnce(new ShareCardRenderError("assets", true))
+      .mockRejectedValueOnce(new ShareImageSessionError("assets", true))
       .mockImplementationOnce(async (source: HTMLElement) => preparedFrom(source))
     const renderer = renderMessage()
 
@@ -475,6 +473,77 @@ describe("MessageShareDialog message projection", () => {
 })
 
 describe("MessageShareDialog exports", () => {
+  it("downloads the prepared PNG through the native desktop save receipt", async () => {
+    const bridgeDescriptor = Object.getOwnPropertyDescriptor(window, "__TAURI__")
+    const terminal = deferred<Record<string, unknown>>()
+    const invoke = vi.fn(async (command: string, args: { payload: Record<string, unknown> }) => {
+      const payload = args.payload
+      if (command === "file_save_begin") return { attemptId: payload.attemptId }
+      if (command === "file_save_write_chunk") {
+        return {
+          attemptId: payload.attemptId,
+          sequence: Number(payload.sequence) + 1,
+          bytes: Number(payload.offset) + atob(String(payload.data)).length,
+        }
+      }
+      if (command === "file_save_commit") return terminal.promise
+      if (command === "file_save_cancel") return undefined
+      throw new Error(`Unexpected native command: ${command}`)
+    })
+    Object.defineProperty(window, "__TAURI__", {
+      configurable: true,
+      value: { core: { invoke } },
+    })
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Macintosh")
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
+    vi.mocked(toBlob).mockResolvedValueOnce(new Blob([
+      new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+    ], { type: "image/png" }))
+
+    let renderer: Awaited<ReturnType<typeof renderReady>> | undefined
+    try {
+      const mounted = await renderReady()
+      renderer = mounted
+      await act(async () => buttonWithText(mounted.container, "Download").click())
+      await waitFor(() => expect(invoke).toHaveBeenCalledTimes(3))
+
+      const attemptId = invoke.mock.calls[0]![1].payload.attemptId
+      expect(attemptId).toEqual(expect.any(String))
+      expect(attemptId).not.toBe("")
+      expect(invoke.mock.calls).toEqual([
+        ["file_save_begin", { payload: {
+          attemptId, name: "alook-message-Alice.png", mime: "image/png", size: 8,
+        } }],
+        ["file_save_write_chunk", { payload: {
+          attemptId, sequence: 0, offset: 0, data: "iVBORw0KGgo=",
+        } }],
+        ["file_save_commit", { payload: { attemptId, bytes: 8 } }],
+      ])
+      expect(toast.success).not.toHaveBeenCalled()
+      await act(async () => terminal.resolve({
+        attemptId,
+        status: "saved",
+        name: "alook-message-Alice.png",
+        mime: "image/png",
+        bytes: 8,
+        sha256: "a".repeat(64),
+        destination: "desktop",
+      }))
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Saved"))
+      expect(toast.error).not.toHaveBeenCalled()
+      expect(toBlob).toHaveBeenCalledTimes(1)
+      expect(click).not.toHaveBeenCalled()
+      expect(invoke).toHaveBeenCalledTimes(3)
+    } finally {
+      await act(async () => {
+        renderer?.unmount()
+        terminal.resolve({})
+      })
+      if (bridgeDescriptor) Object.defineProperty(window, "__TAURI__", bridgeDescriptor)
+      else Reflect.deleteProperty(window, "__TAURI__")
+    }
+  })
+
   it("reuses one finalized PNG for consecutive Copy then Download", async () => {
     const write = vi.fn().mockResolvedValue(undefined)
     const createObjectURL = vi.fn(() => "blob:share-card")
@@ -510,7 +579,7 @@ describe("MessageShareDialog exports", () => {
       configurable: true,
       value: { write },
     })
-    sessionMocks.capture.mockRejectedValueOnce(new ShareCardRenderError("rasterize", true))
+    sessionMocks.capture.mockRejectedValueOnce(new ShareImageSessionError("rasterize", true))
     const renderer = await renderReady()
 
     await act(async () => buttonWithText(renderer.container, "Copy image").click())
@@ -777,7 +846,7 @@ describe("MessageShareDialog exports", () => {
   })
 
   it("does not confirm a failed image download", async () => {
-    sessionMocks.capture.mockRejectedValueOnce(new ShareCardRenderError("rasterize"))
+    sessionMocks.capture.mockRejectedValueOnce(new ShareImageSessionError("rasterize"))
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
     const renderer = await renderReady()
 
@@ -792,29 +861,6 @@ describe("MessageShareDialog exports", () => {
 })
 
 describe("share image action helpers", () => {
-  it("hands only a completed PNG to copy and download writers", async () => {
-    const blob = new Blob(["png"], { type: "image/png" })
-    const copyWrite = vi.fn()
-    const downloadWrite = vi.fn()
-
-    await copyRenderedShareCard(async () => blob, copyWrite)
-    await downloadRenderedShareCard(async () => blob, "share.png", downloadWrite)
-
-    expect(copyWrite).toHaveBeenCalledWith(blob)
-    expect(downloadWrite).toHaveBeenCalledWith(blob)
-  })
-
-  it("rejects an empty raster result before either writer", async () => {
-    const write = vi.fn()
-
-    await expect(copyRenderedShareCard(async () => null, write)).rejects.toMatchObject({
-      stage: "rasterize",
-    })
-    await expect(downloadRenderedShareCard(async () => null, "share.png", write)).rejects.toMatchObject({
-      stage: "rasterize",
-    })
-    expect(write).not.toHaveBeenCalled()
-  })
 
   it.each([
     ["source", "preparing the preview"],
@@ -823,10 +869,10 @@ describe("share image action helpers", () => {
     ["freeze", "freezing the preview"],
     ["rasterize", "rendering the image"],
   ] as const)("maps %s failures to stage-specific feedback", (stage, copy) => {
-    expect(shareCardRenderErrorMessage(new ShareCardRenderError(stage))).toBe(
+    expect(shareCardRenderErrorMessage(new ShareImageSessionError(stage))).toBe(
       `Couldn't generate image — ${copy} failed`,
     )
-    expect(shareCardRenderErrorMessage(new ShareCardRenderError(stage, true))).toBe(
+    expect(shareCardRenderErrorMessage(new ShareImageSessionError(stage, true))).toBe(
       `Couldn't generate image — ${copy} took too long`,
     )
   })

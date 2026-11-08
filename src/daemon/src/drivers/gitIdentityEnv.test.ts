@@ -21,9 +21,9 @@ describe("buildGitIdentityEnv", () => {
     expect(env.GIT_AUTHOR_EMAIL).toBe("bot-one.0007@alook.ai");
   });
 
-  it("CJK/emoji name — empty ASCII slug dropped, email falls back to disc only, display keeps UTF-8", () => {
-    const env = buildGitIdentityEnv({ agentName: "总部🎉", discriminator: "1043" });
-    expect(env.GIT_AUTHOR_NAME).toBe("总部🎉");
+  it("non-ASCII/emoji name — empty ASCII slug dropped, email falls back to disc only, display keeps UTF-8", () => {
+    const env = buildGitIdentityEnv({ agentName: "𝔄🎉", discriminator: "1043" });
+    expect(env.GIT_AUTHOR_NAME).toBe("𝔄🎉");
     expect(env.GIT_AUTHOR_EMAIL).toBe("1043@alook.ai");
   });
 

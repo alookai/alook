@@ -1,6 +1,6 @@
 "use client"
 
-import { useConversationActivity } from "@/contexts/community/conversation-activity"
+import { useConversationActivity } from "@/contexts/view-activity"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 

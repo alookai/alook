@@ -2,6 +2,14 @@
   container: thread-split / inline-size;
 }
 
+.modeMarker {
+  --thread-split-mode: full;
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
 .layout[data-layout-pending] > [data-group] > [data-panel][id="parent"] {
   flex: 0 0 0px !important;
   width: 0 !important;
@@ -25,6 +33,10 @@
 }
 
 @container thread-split (min-width: 880px) {
+  .modeMarker {
+    --thread-split-mode: split;
+  }
+
   .layout[data-layout-pending] > [data-group] > [data-panel][id="parent"] {
     flex: 1 0 0px !important;
     width: auto !important;

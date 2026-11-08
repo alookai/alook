@@ -8,7 +8,7 @@ describe("validateCommunityName", () => {
 
   it("accepts spaces, unicode, hyphens, underscores", () => {
     expect(validateCommunityName("John Doe")).toEqual({ ok: true });
-    expect(validateCommunityName("李四")).toEqual({ ok: true });
+    expect(validateCommunityName("Zoë")).toEqual({ ok: true });
     expect(validateCommunityName("José")).toEqual({ ok: true });
     expect(validateCommunityName("Ünal")).toEqual({ ok: true });
     expect(validateCommunityName("jean-luc_picard")).toEqual({ ok: true });
@@ -55,7 +55,7 @@ describe("sanitizeCommunityName", () => {
 
   it("keeps a clean name unchanged", () => {
     expect(sanitizeCommunityName("John Doe")).toBe("John Doe");
-    expect(sanitizeCommunityName("李四")).toBe("李四");
+    expect(sanitizeCommunityName("Zoë")).toBe("Zoë");
   });
 
   it("clamps to 100 chars", () => {

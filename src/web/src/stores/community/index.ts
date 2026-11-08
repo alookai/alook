@@ -34,8 +34,8 @@ export function useUiHandlers() {
   }), [ui])
 }
 
-export const usePendingMachineTokenId = () =>
-  useCommunityStore((s) => s.pendingMachineTokenId)
+export const useAcceptedMachinePairing = () =>
+  useCommunityStore((s) => s.acceptedMachinePairing)
 
 // Module-scoped stable empty array — avoids allocating a fresh `[]` on every
 // selector run for the common no-typing case.

@@ -2,7 +2,6 @@
 
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useMutation, useMutationState, useQueryClient } from "@tanstack/react-query"
-import type React from "react"
 import { useEffect, useMemo } from "react"
 import { Loader2, Search } from "lucide-react"
 import { toast } from "sonner"
@@ -76,36 +75,6 @@ export function InviteFriendRow({
       </Button>
     </div>
   )
-}
-
-/**
- * Own one friend's complete invite lifecycle. The mutable set is updated
- * synchronously before React rerenders, so two rapid activations cannot start
- * duplicate DM/message chains. Other user ids remain independent.
- */
-export async function runInviteFriend(
-  userId: string,
-  inFlightUserIds: Set<string>,
-  sendInvite: () => Promise<void>,
-  onInvited: (userId: string) => void,
-  setInvitingUserIds: React.Dispatch<React.SetStateAction<Set<string>>>,
-): Promise<boolean> {
-  if (inFlightUserIds.has(userId)) return false
-
-  inFlightUserIds.add(userId)
-  setInvitingUserIds(new Set(inFlightUserIds))
-  try {
-    await sendInvite()
-    onInvited(userId)
-    return true
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Couldn't send invite"
-    toast(msg)
-    return false
-  } finally {
-    inFlightUserIds.delete(userId)
-    setInvitingUserIds(new Set(inFlightUserIds))
-  }
 }
 
 export async function awaitCommittedInvite(
@@ -214,7 +183,6 @@ export function InviteDialog({
   }, [friends, query])
   const pickerState = resolvePeoplePickerViewState({
     resolved: friendsQuery.data !== undefined,
-    loading: friendsQuery.isLoading,
     error: friendsQuery.isError,
     sourceCount: friends.length,
     visibleCount: eligibleFriends.length,

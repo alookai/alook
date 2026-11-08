@@ -13,7 +13,7 @@ import { dehydrate, hydrate, CancelledError, QueryClient, QueryClientProvider } 
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
-import { CommunityDbProvider, useForumSidebarProjection, useServerTreeProjection } from "@/lib/community-db/projections"
+import { CommunityDbProvider, useServerSidebarProjection, useServerTreeProjection } from "@/lib/community-db/projections"
 import { ChannelSidebarRevealBoundary } from "@/components/community/channels/channel-sidebar-tree-owner"
 import { tid } from "@/lib/community/testids"
 import {
@@ -627,7 +627,7 @@ describe("forum sidebar canonical projection", () => {
     setActivity(response, 5, expired)
     await publishResourceSet(queryClient, response.resources)
     seedCommunityAttentionScope(queryClient, { channelId: "post-6", serverId: "server-1", parentChannelId: "forum-1" })
-    const rendered = renderHook(() => useForumSidebarProjection("server-1", "post-6", Date.now()), { wrapper })
+    const rendered = renderHook(() => useServerSidebarProjection("server-1", "post-6", Date.now(), undefined, false).projection, { wrapper })
     await waitFor(() => expect(rendered.result.current?.threads).toHaveLength(5))
     expect(rendered.result.current).toMatchObject({
       threads: expect.arrayContaining([expect.objectContaining({ id: "post-6", unread: true })]),
@@ -650,7 +650,7 @@ describe("forum sidebar canonical projection", () => {
     registry.collections.channelMemberships.utils.writeUpsert({ id: "post-1:other:notify",
       channelId: "post-1", userId: "other", relation: "notify", source: "explicit" })
     expect(getForumSidebarBase(queryClient, "server-1").threads).toEqual([])
-    const rendered = renderHook(() => useForumSidebarProjection("server-1", null, Date.now()), { wrapper })
+    const rendered = renderHook(() => useServerSidebarProjection("server-1", null, Date.now(), undefined, false).projection, { wrapper })
     await waitFor(() => expect(rendered.result.current?.threads).toEqual([]))
     apiFetchMock.mockResolvedValue(envelopeFor([]))
     const result = await reconcileForumSidebarNotifyMemberships(queryClient, "server-1")
@@ -666,7 +666,7 @@ describe("forum sidebar canonical projection", () => {
     const data = envelopeFor(["0", "9", "A", "Z", "a", "z", "expired"])
     setActivity(data, 6, new Date(Date.now() - 73 * 60 * 60 * 1000).toISOString())
     await publishResourceSet(queryClient, data.resources)
-    const rendered = renderHook(() => useForumSidebarProjection("server-1", retainId, Date.now()), { wrapper })
+    const rendered = renderHook(() => useServerSidebarProjection("server-1", retainId, Date.now(), undefined, false).projection, { wrapper })
     const expected = retainId === null ? ["z", "a", "Z", "A", "9"] : ["z", "a", "Z", "A", retainId]
     await waitFor(() => expect(rendered.result.current?.threads.map((row) => row.id)).toEqual(expected))
     expect(getForumSidebarBase(queryClient, "server-1").threads.map((row) => row.id)).toEqual(["z", "a", "Z", "A", "9", "0", "expired"])
@@ -981,7 +981,7 @@ describe("forum sidebar canonical projection", () => {
     const { queryClient, registry, wrapper } = await setup()
     await publish(queryClient)
     const rendered = renderHook(
-      () => useForumSidebarProjection("server-1", null, Date.now()),
+      () => useServerSidebarProjection("server-1", null, Date.now(), undefined, false).projection,
       { wrapper },
     )
     await waitFor(() => expect(rendered.result.current?.threads).toHaveLength(1))
@@ -1021,7 +1021,7 @@ describe("forum sidebar canonical projection", () => {
     const { queryClient, wrapper } = await setup()
     await publish(queryClient, envelope())
     seedCommunityAttentionScope(queryClient, { channelId: "post-1", serverId: "server-1", parentChannelId: "forum-1" })
-    const rendered = renderHook(() => useForumSidebarProjection("server-1", null, Date.now()), { wrapper })
+    const rendered = renderHook(() => useServerSidebarProjection("server-1", null, Date.now(), undefined, false).projection, { wrapper })
     await waitFor(() => expect(rendered.result.current).toEqual({
       threads: [expect.objectContaining({ id: "post-1", unread: true })],
       parentUnread: { "forum-1": true },
@@ -1399,7 +1399,7 @@ describe("forum sidebar canonical projection", () => {
     }))
     seedCommunityAttentionScope(queryClient, { channelId: "hidden-child", serverId: "server-1", parentChannelId: "forum-1" })
     const rendered = renderHook(
-      () => useForumSidebarProjection("server-1", null, Date.now()),
+      () => useServerSidebarProjection("server-1", null, Date.now(), undefined, false).projection,
       { wrapper },
     )
     await waitFor(() => expect(rendered.result.current).toEqual({
@@ -1416,7 +1416,7 @@ describe("forum sidebar canonical projection", () => {
     registry.collections.channelMemberships.utils.writeDelete("post-1:viewer:notify")
     seedCommunityAttentionScope(queryClient, { channelId: "post-1", serverId: "server-1", parentChannelId: "forum-1" })
     const rendered = renderHook(
-      () => useForumSidebarProjection("server-1", null, Date.now()),
+      () => useServerSidebarProjection("server-1", null, Date.now(), undefined, false).projection,
       { wrapper },
     )
     await waitFor(() => expect(rendered.result.current).toEqual({

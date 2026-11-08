@@ -6,9 +6,9 @@ describe("semantic message previews", () => {
   it("projects complete chat syntax and preserves literal code and filenames", () => {
     expect(messagePreviewText({ content: "**Hello** [read me](https://example.test/a_(b)) `file_name.ts`\n\n> second\n\n- third" }))
       .toBe("Hello read me file_name.ts second third")
-    expect(messagePreviewText({ content: "中文**重点** /团队#0042/架构#7" })).toBe("中文重点 /团队#0042/架构#7")
-    expect(messagePreviewText({ content: "中文**重点**，~~删除~~。 @用户#0042 https://example.test。下一句" }))
-      .toBe("中文重点，删除。 @用户#0042 https://example.test。下一句")
+    expect(messagePreviewText({ content: "界**界** /team#0042/design#7" })).toBe("界界 /team#0042/design#7")
+    expect(messagePreviewText({ content: "界**界**，~~界~~。 @user#0042 https://example.test。Next" }))
+      .toBe("界界，界。 @user#0042 https://example.test。Next")
   })
 
   it("masks spoilers and the existing redaction syntax without exposing hidden text", () => {

@@ -11,7 +11,7 @@ describe("slugify", () => {
   })
 
   it("preserves non-Latin scripts and emoji", () => {
-    expect(slugify("总部 🎉")).toBe("总部-🎉")
+    expect(slugify("𝔄𝔅 🎉")).toBe("𝔄𝔅-🎉")
   })
 
   it("strips / and # outright, with no hyphen substitution", () => {

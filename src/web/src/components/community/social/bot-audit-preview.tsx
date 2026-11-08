@@ -5,7 +5,7 @@ import { useMountedClock } from "@/hooks/use-mounted-clock"
 import { Activity, ChevronRight, Lock } from "lucide-react"
 import { useEffect } from "react"
 import { useBotAuditPreview } from "@/hooks/community/use-bot-audit-preview"
-import type { AuditEvent } from "@/hooks/community/use-bot-audit-log"
+import { compareAuditEventsNewestFirst, type AuditEvent } from "@/lib/community/models/audit"
 import {
   formatAuditPreviewTime,
   summarizeAuditEvent,
@@ -33,10 +33,7 @@ export function BotAuditPreview({
   if (isNotFound) return null
 
   const visibleEvents = [...events]
-    .sort((a, b) => {
-      if (a.createdAt !== b.createdAt) return a.createdAt > b.createdAt ? -1 : 1
-      return a.id > b.id ? -1 : a.id < b.id ? 1 : 0
-    })
+    .sort(compareAuditEventsNewestFirst)
     .slice(0, active ? 4 : 5)
     .reverse()
 

@@ -80,6 +80,7 @@ const mockListThreadParticipantUserIds = vi.fn(() => [] as string[])
 
 import {
   fanOutToServerMembers,
+  publishServerMemberLeaves,
   fanOutToChannel,
   fanOutToDM,
   fanOutStatusUpdate,
@@ -102,6 +103,14 @@ describe("fanOutToServerMembers", () => {
     // the thread test overrides this. (clearAllMocks resets call history, not
     // the resolved-value impl, so re-assert the default each test.)
     mockGetChannelType.mockResolvedValue("text")
+  })
+
+  it("publishes each removed identity to the remaining roster and its own connections", async () => {
+    mockListMemberUserIds.mockResolvedValue(["remaining-1", "remaining-2"])
+    await publishServerMemberLeaves("server", ["human", "bot"])
+    const events = ["human", "bot"].map(userId => ({ type: WS_EVENTS.MEMBER_LEAVE, serverId: "server", userId }))
+    expect(mockBroadcastToUsers.mock.calls).toEqual(events.map(event => [["remaining-1", "remaining-2"], event]))
+    expect(mockBroadcastToUser.mock.calls).toEqual(events.map(event => [event.userId, event]))
   })
 
   it("resolves recipients via listMemberUserIds and includes every account connection", async () => {

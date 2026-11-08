@@ -64,3 +64,17 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     img.src = src
   })
 }
+
+export type IconCropSource = { src: string; fileName: string; release: () => void }
+
+export function acquireIconCropSource(file: File): { ok: true; source: IconCropSource } | { ok: false; error: string } {
+  const validated = validateIconSourceFile(file)
+  if (!validated.ok) return validated
+  const src = URL.createObjectURL(file)
+  let released = false
+  return { ok: true, source: { src, fileName: file.name, release: () => {
+    if (released) return
+    released = true
+    URL.revokeObjectURL(src)
+  } } }
+}

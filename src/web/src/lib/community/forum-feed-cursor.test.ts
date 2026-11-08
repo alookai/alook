@@ -6,7 +6,7 @@ describe("forum created-at cursor", () => {
     parentChannelId: "forum_1",
     createdAt: "2026-08-08T02:00:00.123Z",
     id: "thread_2",
-    tag: "产品",
+    tag: "Product €",
   }
 
   it("round-trips an opaque cursor within the same forum and tag scope", () => {
@@ -14,7 +14,7 @@ describe("forum created-at cursor", () => {
     expect(encoded).not.toContain("forum_1")
     expect(parseForumCreatedAtCursor(encoded, {
       parentChannelId: "forum_1",
-      tag: "产品",
+      tag: "Product €",
     })).toEqual({
       createdAt: "2026-08-08T02:00:00.123Z",
       id: "thread_2",
@@ -23,8 +23,8 @@ describe("forum created-at cursor", () => {
 
   it("rejects malformed, cross-forum, and cross-tag cursors", () => {
     const encoded = encodeForumCreatedAtCursor(value)
-    expect(parseForumCreatedAtCursor("invalid", { parentChannelId: "forum_1", tag: "产品" })).toBeNull()
-    expect(parseForumCreatedAtCursor(encoded, { parentChannelId: "forum_2", tag: "产品" })).toBeNull()
+    expect(parseForumCreatedAtCursor("invalid", { parentChannelId: "forum_1", tag: "Product €" })).toBeNull()
+    expect(parseForumCreatedAtCursor(encoded, { parentChannelId: "forum_2", tag: "Product €" })).toBeNull()
     expect(parseForumCreatedAtCursor(encoded, { parentChannelId: "forum_1", tag: "bug" })).toBeNull()
   })
 

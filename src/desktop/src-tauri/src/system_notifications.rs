@@ -1,3 +1,4 @@
+use crate::current_listener::CurrentListener;
 use crate::native_command_guard::guard;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -439,52 +440,10 @@ impl NotificationRecord {
     }
 }
 
-struct Notifications<T> {
-    next_id: u64,
-    current: Option<(u64, T)>,
-}
-
-impl<T> Default for Notifications<T> {
-    fn default() -> Self {
-        Self {
-            next_id: 0,
-            current: None,
-        }
-    }
-}
-
-impl<T> Notifications<T> {
-    fn install(&mut self, channel: T) -> u64 {
-        self.next_id += 1;
-        self.current = Some((self.next_id, channel));
-        self.next_id
-    }
-
-    fn remove(&mut self, id: u64) {
-        if self
-            .current
-            .as_ref()
-            .is_some_and(|(current, _)| *current == id)
-        {
-            self.current = None;
-        }
-    }
-
-    fn notify(&mut self, send: impl FnOnce(&T) -> bool) {
-        if self
-            .current
-            .as_ref()
-            .is_some_and(|(_, channel)| !send(channel))
-        {
-            self.current = None;
-        }
-    }
-}
-
 pub struct DesktopSystemNotificationState {
     record: Mutex<NotificationRecord>,
     store: Arc<Store<tauri::Wry>>,
-    notifications: Mutex<Notifications<Channel<()>>>,
+    notifications: Mutex<CurrentListener<Channel<()>>>,
     pending: Mutex<Option<NotificationActivation>>,
 }
 
@@ -621,7 +580,7 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let state = DesktopSystemNotificationState {
         record: Mutex::new(record),
         store,
-        notifications: Mutex::new(Notifications::default()),
+        notifications: Mutex::new(CurrentListener::default()),
         pending: Mutex::new(None),
     };
     state.transact(|_| Ok(()))?;
@@ -647,7 +606,7 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 pub fn retire_listener(app: &AppHandle) {
     if let Some(state) = app.try_state::<DesktopSystemNotificationState>() {
         if let Ok(mut listeners) = state.notifications.lock() {
-            listeners.current = None;
+            listeners.retire();
         }
     }
 }

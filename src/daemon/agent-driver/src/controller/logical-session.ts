@@ -47,6 +47,11 @@ import { mkdirSync } from "node:fs";
 
 type SessionState = AgentSessionSnapshot["state"];
 
+type LaneStopSettlement =
+  | { status: "stopped"; forced: boolean }
+  | { status: "failed"; forced: boolean; error: AgentDriverError }
+  | { status: "timed_out"; forced: true; error: AgentDriverError };
+
 interface QueuedCommand {
   message: AgentMessage;
   reason: "unsafe_boundary" | "runtime_busy" | "waiting_for_message";
@@ -229,6 +234,8 @@ implements AgentSession<Specs, Id> {
   private turnError?: AgentDriverError;
   private interruptedTurnId?: string;
   private processTurnEnded = false;
+  private retiringLane: RuntimeLane | null = null;
+  private laneCleanupFailure?: Extract<HostCleanupResult, { status: "failed" | "timed_out" }>;
   private stopRequestId?: string;
   private anonymousOutstandingToolUses = 0;
   private readonly outstandingToolCallIds = new Set<string>();
@@ -391,10 +398,11 @@ implements AgentSession<Specs, Id> {
     this.failQueued("cancelled", "session_stopping", "Session is stopping");
     let forced = false;
     let stopFailure: AgentDriverError | undefined;
-    if (this.lane) {
-      const settlement = await this.settleLaneStop(input.reason, input.forceAfterMs);
+    const lane = this.lane;
+    if (lane) {
+      const settlement = await this.settleLaneStop(lane, input.reason, input.forceAfterMs);
       forced = settlement.forced;
-      stopFailure = settlement.failure;
+      stopFailure = settlement.status === "failed" ? settlement.error : undefined;
     }
     if (stopFailure) {
       const error = stopFailure;
@@ -558,6 +566,8 @@ implements AgentSession<Specs, Id> {
         || this.safeBoundaryFlush !== undefined
         || this.safeBoundaryDelivery !== undefined
         || this.settingsUpdatePending
+        || this.processTurnEnded
+        || this.retiringLane !== null
       )
     ) {
       return this.queue(message, "runtime_busy");
@@ -658,7 +668,7 @@ implements AgentSession<Specs, Id> {
         const failedLane = this.lane;
         if (failedLane) {
           this.lane = null;
-          await this.stopLaneInstanceBounded(failedLane, "failed_start", this.hostReleaseTimeoutMs);
+          await this.settleLaneStop(failedLane, "failed_start", 0);
         }
         this.emit({ type: "session_failed", error: failure });
         await this.finish(
@@ -718,16 +728,29 @@ implements AgentSession<Specs, Id> {
     this.lane = lane;
     this.attachLane(lane, generation);
     if (!this.isOpenCurrent(generation)) {
-      await this.stopLaneInstanceBounded(lane, "stale_open", this.hostReleaseTimeoutMs);
+      await this.settleLaneStop(lane, "stale_open", 0);
       if (this.lane === lane) this.lane = null;
       return null;
     }
-    const admission = await lane.start({
-      text: prompt,
-      sessionId: ctx.config.sessionId,
-      terminalOwner: this.activeTurn?.terminalOwner,
-      inputs: this.inputReferences(this.turnAdmission?.messages ?? []),
-    });
+    let admission: LaneAdmission;
+    try {
+      admission = await lane.start({
+        text: prompt,
+        sessionId: ctx.config.sessionId,
+        terminalOwner: this.activeTurn?.terminalOwner,
+        inputs: this.inputReferences(this.turnAdmission?.messages ?? []),
+      });
+    } catch (error) {
+      if (this.isOpenCurrent(generation)) throw error;
+      await this.settleLaneStop(lane, "stale_open", 0);
+      if (this.lane === lane) this.lane = null;
+      return null;
+    }
+    if (!this.isOpenCurrent(generation)) {
+      await this.settleLaneStop(lane, "stale_open", 0);
+      if (this.lane === lane) this.lane = null;
+      return null;
+    }
     if (!admission.ok) {
       if (admission.reason === "reset_required" || admission.reason === "incompatible_configuration") {
         throw new StructuredLaneAdmissionError(admission.reason, admission.error ?? admission.reason);
@@ -736,11 +759,6 @@ implements AgentSession<Specs, Id> {
         throw new StructuredLaneAdmissionError("authentication_required", admission.error ?? admission.reason);
       }
       throw new Error(admission.error ?? admission.reason);
-    }
-    if (!this.isOpenCurrent(generation)) {
-      await this.stopLaneInstanceBounded(lane, "stale_open", this.hostReleaseTimeoutMs);
-      if (this.lane === lane) this.lane = null;
-      return null;
     }
     return admission;
   }
@@ -1273,7 +1291,7 @@ implements AgentSession<Specs, Id> {
   }
 
   private async startNextQueued(): Promise<void> {
-    if (this.state !== "idle" || this.queued.length === 0) return;
+    if (this.state !== "idle" || this.queued.length === 0 || this.processTurnEnded || this.retiringLane) return;
     const item = this.queued.shift()!;
     this.recordQueueDwell(item);
     await this.startTurn([item.message], "prompt");
@@ -1289,20 +1307,24 @@ implements AgentSession<Specs, Id> {
   }
 
   private async onLaneExit(lane: RuntimeLane, info: unknown): Promise<void> {
-    if (this.lane !== lane || this.state === "closed") return;
+    if (this.lane !== lane || this.state === "closed" || this.retiringLane === lane) return;
+    this.retiringLane = lane;
     const stoppingBeforeExit = this.state === "stopping" || this.finishing;
     const expectedTurnExit = this.adapter.execution.lifetime === "turn" && this.processTurnEnded;
     if (!stoppingBeforeExit && !expectedTurnExit) this.enterStopping();
-    await this.stopLaneInstanceBounded(lane, "runtime_exit", this.hostReleaseTimeoutMs);
+    const settlement = await this.settleLaneStop(lane, "runtime_exit", 0);
     if (this.lane === lane) this.lane = null;
+    if (this.retiringLane === lane) this.retiringLane = null;
     if (this.terminalResult || stoppingBeforeExit) return;
-    if (expectedTurnExit) {
+    if (expectedTurnExit && settlement.status === "stopped") {
       this.processTurnEnded = false;
       await this.startNextQueued();
       return;
     }
     const facts = info as { code?: number | null; signal?: string | null } | undefined;
-    const error = driverError("process", "runtime_exit", "Runtime exited unexpectedly", true);
+    const error = settlement.status === "stopped"
+      ? driverError("process", "runtime_exit", "Runtime exited unexpectedly", true)
+      : settlement.error;
     this.emit({ type: "session_failed", error });
     await this.finish(
       (cleanup) => ({
@@ -1639,7 +1661,10 @@ implements AgentSession<Specs, Id> {
           this.activeTurn = undefined;
           this.interruptedTurnId = undefined;
         }
-        const cleanup = await this.cleanupResource(releaseReason);
+        const hostCleanup = await this.cleanupResource(releaseReason);
+        const cleanup = hostCleanup.status === "failed" || hostCleanup.status === "timed_out"
+          ? hostCleanup
+          : this.laneCleanupFailure ?? hostCleanup;
         const result = buildResult(cleanup);
         this.terminalResult = result;
         this.state = "closed";
@@ -1656,20 +1681,8 @@ implements AgentSession<Specs, Id> {
     if (this.terminalResult || this.finishing) return;
     const error = driverError("buffer_overflow", "event_buffer_overflow", "Event buffer exceeded 4 MiB");
     this.enterStopping();
-    if (this.lane) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        const stopped = this.stopLane("event_buffer_overflow", 0).catch(() => {});
-        const deadline = new Promise<void>((resolve) => {
-          timer = setTimeout(resolve, this.hostReleaseTimeoutMs);
-          timer.unref?.();
-        });
-        await Promise.race([stopped, deadline]);
-        stopped.catch(() => {});
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
-    }
+    const lane = this.lane;
+    if (lane) await this.settleLaneStop(lane, "event_buffer_overflow", 0);
     this.emit({ type: "session_failed", error });
     await this.finish(
       (cleanup) => ({ outcome: "crashed", requested: false, exitCode: null, signal: null, error, cleanup }),
@@ -1702,31 +1715,39 @@ implements AgentSession<Specs, Id> {
       });
   }
 
-  private stopLane(reason: string, forceAfterMs: number): Promise<unknown> {
-    if (!this.lane) return Promise.resolve();
-    return this.lane.stop({ reason, forceAfterMs });
+  private recordLaneStop(settlement: LaneStopSettlement): LaneStopSettlement {
+    if (settlement.status === "stopped") return settlement;
+    const cleanup = { status: settlement.status, error: settlement.error };
+    if (this.terminalResult) {
+      try {
+        this.host.onRawOutput({
+          backend: this.backend, launchId: this.launch.launchId, stream: "stderr",
+          text: `${settlement.error.code}: ${settlement.error.message}`,
+        });
+      } catch { /* Observation cannot reopen or change a sealed session result. */ }
+    } else {
+      this.laneCleanupFailure ??= cleanup;
+      this.emit({ type: "diagnostic", severity: "error", source: this.backend, message: settlement.error.message });
+    }
+    return settlement;
   }
 
-  /**
-   * Own physical stop settlement across two bounded windows.
-   *
-   * `forceAfterMs` decides whether the public result is forced, but it is not
-   * permission to release host resources while the lane's already-started hard
-   * teardown is still settling. After that outer deadline, wait one separate
-   * host-owned cleanup window so a tree-kill success/rejection remains visible.
-   * A truly hung SDK lane is still bounded by the second window.
-   */
+  /** The force deadline is separate from the bounded wait for physical teardown. */
   private async settleLaneStop(
+    lane: RuntimeLane,
     reason: string,
     forceAfterMs: number,
-  ): Promise<{ forced: boolean; failure?: AgentDriverError }> {
-    type StopSettlement = { kind: "stopped" } | { kind: "failed"; error: unknown };
-    const stopped: Promise<StopSettlement> = Promise.resolve()
-      .then(() => this.stopLane(reason, forceAfterMs))
+  ): Promise<LaneStopSettlement> {
+    type StopResult = { kind: "stopped" } | { kind: "failed"; error: unknown };
+    const stopped: Promise<StopResult> = Promise.resolve()
+      .then(() => lane.stop({ reason, forceAfterMs }))
       .then(
         () => ({ kind: "stopped" }),
         (error: unknown) => ({ kind: "failed", error }),
       );
+    const failure = (error: unknown, forced: boolean) => this.recordLaneStop({
+      status: "failed", forced, error: driverError("process", "stop_failed", String(error), true),
+    });
     let outerTimer: ReturnType<typeof setTimeout> | undefined;
     const outerDeadline = new Promise<{ kind: "outer_deadline" }>((resolve) => {
       outerTimer = setTimeout(() => resolve({ kind: "outer_deadline" }), forceAfterMs);
@@ -1734,10 +1755,8 @@ implements AgentSession<Specs, Id> {
     });
     const first = await Promise.race([stopped, outerDeadline]);
     if (outerTimer) clearTimeout(outerTimer);
-    if (first.kind === "stopped") return { forced: false };
-    if (first.kind === "failed") {
-      return { forced: false, failure: driverError("process", "stop_failed", String(first.error), true) };
-    }
+    if (first.kind === "stopped") return { status: "stopped", forced: false };
+    if (first.kind === "failed") return failure(first.error, false);
 
     let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
     const cleanupDeadline = new Promise<{ kind: "cleanup_deadline" }>((resolve) => {
@@ -1746,10 +1765,12 @@ implements AgentSession<Specs, Id> {
     });
     const final = await Promise.race([stopped, cleanupDeadline]);
     if (cleanupTimer) clearTimeout(cleanupTimer);
-    if (final.kind === "failed") {
-      return { forced: true, failure: driverError("process", "stop_failed", String(final.error), true) };
-    }
-    return { forced: true };
+    if (final.kind === "failed") return failure(final.error, true);
+    if (final.kind === "stopped") return { status: "stopped", forced: true };
+    return this.recordLaneStop({
+      status: "timed_out", forced: true,
+      error: driverError("timeout", "lane_stop_timeout", "Runtime physical teardown did not settle before its cleanup deadline"),
+    });
   }
 
   private enterStopping(): string {
@@ -1773,23 +1794,4 @@ implements AgentSession<Specs, Id> {
     return this.isOpenCurrent(generation) && this.activeTurn?.turnId === turnId;
   }
 
-  private async stopLaneInstanceBounded(
-    lane: RuntimeLane,
-    reason: string,
-    timeoutMs: number,
-  ): Promise<void> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const stopped = lane.stop({ reason, forceAfterMs: 0 })
-      .catch(() => {});
-    const deadline = new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, timeoutMs);
-      timer.unref?.();
-    });
-    try {
-      await Promise.race([stopped, deadline]);
-      stopped.catch(() => {});
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
 }

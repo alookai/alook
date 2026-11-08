@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, type ReactNode } from "react"
+import { useEffect, useId, useRef, type ReactNode } from "react"
 import { CircleAlert, Download, LoaderCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { MachineSummary } from "@/hooks/community/use-machines"
@@ -25,6 +25,7 @@ const EXTERNAL_INTERACTIVE_SELECTOR = [
 ].join(",")
 
 type Props = {
+  id?: string
   active: Exclude<UserBarExtensionKind, "none">
   inbox?: ReactNode
   profile?: ReactNode
@@ -42,6 +43,7 @@ type Props = {
 }
 
 export function UserBarExtensionSlot({
+  id,
   active,
   inbox,
   profile,
@@ -57,6 +59,7 @@ export function UserBarExtensionSlot({
   onInitialFocus,
   presentation = "slot",
 }: Props) {
+  const generatedId = useId()
   const ref = useRef<HTMLDivElement>(null)
   const boundedHeight = `min(28rem, max(0px, calc(var(--app-overlay-safe-height) - ${COMMUNITY_USER_BAR_HEIGHT_CSS})))`
   const unframedMobileProfile = presentation === "slot" && active === "profile"
@@ -98,7 +101,7 @@ export function UserBarExtensionSlot({
   return (
     <div
       ref={ref}
-      id="community-user-bar-extension"
+      id={id ?? generatedId}
       role="dialog"
       aria-modal="false"
       aria-label={title}

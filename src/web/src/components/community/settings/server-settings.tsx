@@ -1,9 +1,12 @@
 "use client"
+import { observeVisibilitySentinel } from "@/lib/observe-visibility-sentinel"
 
 import { useObservedRegion } from "@/lib/observability/regions"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useRef } from "react"
+import { toast } from "sonner"
+import type { ServerSettingsEditor } from "./server-settings-editor"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { Settings, Users, Link2, Bell, Trash2, X, Shield, Search, Camera, Hash } from "lucide-react"
 import {
@@ -51,18 +54,17 @@ function capitalize(s: string): string {
 }
 
 export function ServerSettings({
-  section, setSection, onClose, serverId, serverName, serverDescription, serverIcon,
+  section, setSection, onClose, serverId, serverName, serverIcon,
   isAdmin = false,
   members, membersLoading, membersLoadingMore, membersHasMore, membersTotal, onLoadMoreMembers, onSearchMembers,
   onOpenProfile,
-  onKickMember, onSetRole, onRevokeInvite, onCopyInvite, onDeleteServer, onUploadIcon, onUpdateServer, notifLevel, onSetNotifLevel,
+  onKickMember, onSetRole, onRevokeInvite, onCopyInvite, onDeleteServer, onUploadIcon, editor, captureSaveFeedback, notifLevel, onSetNotifLevel,
 }: {
   section: SettingsSection
   setSection: (s: SettingsSection) => void
   onClose: () => void
   serverId: string
   serverName: string
-  serverDescription?: string
   serverIcon?: string | null
   isAdmin?: boolean
   members: Member[]
@@ -79,7 +81,8 @@ export function ServerSettings({
   onCopyInvite?: (code: string) => void
   onDeleteServer?: () => void
   onUploadIcon?: () => void
-  onUpdateServer?: (name: string, desc: string) => void
+  editor: ServerSettingsEditor
+  captureSaveFeedback: () => () => void
   notifLevel?: string
   onSetNotifLevel?: (l: string) => void
 }) {
@@ -118,7 +121,7 @@ export function ServerSettings({
         tabs={nav}
         onClose={onClose}
       >
-        <SettingsShellPanel value="overview"><SettingsOverview serverId={serverId} serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} onRequestDelete={() => setConfirmDelete(true)} /></SettingsShellPanel>
+        <SettingsShellPanel value="overview"><SettingsOverview key={serverId} serverId={serverId} serverIcon={serverIcon} onUploadIcon={onUploadIcon} editor={editor} captureSaveFeedback={captureSaveFeedback} onRequestDelete={() => setConfirmDelete(true)} /></SettingsShellPanel>
         {isAdmin && section === "channels" && <SettingsShellPanel value="channels"><ServerSettingsChannels key={serverId} serverId={serverId} /></SettingsShellPanel>}
         <SettingsShellPanel value="members" className="h-full"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></SettingsShellPanel>
         <SettingsShellPanel value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} /></SettingsShellPanel>
@@ -128,29 +131,16 @@ export function ServerSettings({
   )
 }
 
-function SettingsOverview({ serverId, serverName, serverDescription, serverIcon, onUploadIcon, onUpdateServer, onRequestDelete }: { serverId: string; serverName: string; serverDescription?: string; serverIcon?: string | null; onUploadIcon?: () => void; onUpdateServer?: (name: string, desc: string) => void; onRequestDelete?: () => void }) {
-  // The draft is mount-only on purpose. The cross-server "stale draft" case
-  // is already handled in layout.tsx — switching servers closes the dialog
-  // (`setServerSettingsOpen(false)` in the serverId effect), which unmounts
-  // <SettingsOverview>; reopening on the new server mounts a fresh instance
-  // with the new initial values. Syncing props into draft state via useEffect
-  // would also fire on WS-driven server renames, clobbering the user's
-  // in-progress edits — keep it simple and let mount handle it.
-  const [name, setName] = useAtom(useCreateAtom(serverName))
-  const [desc, setDesc] = useAtom(useCreateAtom(serverDescription ?? ""))
-  // Saved baseline is mount-only (same rationale as the draft above): a WS
-  // rename must not reset it mid-edit. Advances only on a successful save.
-  const [baseline, setBaseline] = useAtom(useCreateAtom({ name: serverName, desc: serverDescription ?? "" }))
+function SettingsOverview({ serverId, serverIcon, onUploadIcon, editor, captureSaveFeedback, onRequestDelete }: { serverId: string; serverIcon?: string | null; onUploadIcon?: () => void; editor: ServerSettingsEditor; captureSaveFeedback: () => () => void; onRequestDelete?: () => void }) {
+  const { name, desc, setName, setDesc, dirty, cancel } = editor
   const namePreview = previewSlug(name)
-  const dirty = name !== baseline.name || desc !== baseline.desc
   const save = () => {
-    if (namePreview.invalid || !dirty) return
-    onUpdateServer?.(name, desc)
-    setBaseline({ name, desc })
-  }
-  const cancel = () => {
-    setName(baseline.name)
-    setDesc(baseline.desc)
+    if (!dirty || namePreview.invalid || editor.pending) return
+    const assert = captureSaveFeedback()
+    void editor.save().then((accepted) => {
+      if (!accepted) return
+      try { assert(); toast("Server updated") } catch {}
+    }, (error) => toastApiError(error, "Failed to update server", assert))
   }
   return (
     <div className="w-full space-y-8">
@@ -192,7 +182,7 @@ function SettingsOverview({ serverId, serverName, serverDescription, serverIcon,
         </div>
         <div className="flex items-center justify-start gap-2">
           <Button variant="ghost" size="sm" className="h-11 sm:h-8" onClick={cancel} disabled={!dirty}>Cancel</Button>
-          <Button size="sm" className="h-11 sm:h-8" onClick={save} disabled={!dirty || namePreview.invalid}>Save changes</Button>
+          <Button size="sm" className="h-11 sm:h-8" onClick={save} disabled={!dirty || namePreview.invalid || editor.pending}>Save changes</Button>
         </div>
       </section>
 
@@ -246,20 +236,9 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
   })
 
   useEffect(() => {
-    if (!onLoadMore || !hasMore) return
-    const el = sentinelRef.current
-    const root = scrollRef.current
-    if (!el || !root) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting && !loadingMore) onLoadMore()
-        }
-      },
-      { root, rootMargin: "100px" },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
+    if (!onLoadMore || !hasMore || loadingMore) return
+    const sentinel = sentinelRef.current, root = scrollRef.current
+    if (sentinel && root) return observeVisibilitySentinel(root, sentinel, onLoadMore)
   }, [onLoadMore, hasMore, loadingMore])
 
   if (loading && members.length === 0 && !query) {

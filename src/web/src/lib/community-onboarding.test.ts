@@ -27,11 +27,8 @@ import {
   completeCommunityOnboarding,
   readCommunityOnboardingState,
   recoverCommunityOnboardingHarness,
-  recoverCommunityOnboardingMachine,
   skipCommunityOnboarding,
   startCommunityOnboarding,
-  subscribeCommunityOnboarding,
-  updateCommunityOnboardingResources,
   updateCommunityOnboardingInitialization,
 } from "./community-onboarding";
 
@@ -120,42 +117,15 @@ describe("community onboarding journey", () => {
     });
   });
 
-  it("keeps the same companion avatar through every guide stage", () => {
-    startCommunityOnboarding(runtime(), { guideAvatarSeed: "guide-face-7" });
-    advanceCommunityOnboarding(runtime(), "harness", "machine");
-    advanceCommunityOnboarding(runtime(), "machine", "identity");
-    advanceCommunityOnboarding(runtime(), "identity", "initializing");
-
-    expect(readCommunityOnboardingState(runtime())).toMatchObject({
-      stage: "initializing",
-      guideAvatarSeed: "guide-face-7",
-    });
-  });
-
-  it("recovers a missing machine without falsely completing the bot stage", () => {
-    startCommunityOnboarding(runtime());
-    advanceCommunityOnboarding(runtime(), "harness", "machine");
-    advanceCommunityOnboarding(runtime(), "machine", "bot");
-    recoverCommunityOnboardingMachine(runtime());
-    expect(readCommunityOnboardingState(runtime())).toEqual({
-      status: "active",
-      stage: "bot",
-      machineRecovery: true,
-    });
-    expect(analytics.stageCompleted).toHaveBeenCalledTimes(2);
-  });
-
   it("returns to harness selection without completing machine or retaining stale choices", () => {
-    startCommunityOnboarding(runtime(), { guideAvatarSeed: "guide-face-7" });
-    advanceCommunityOnboarding(runtime(), "harness", "machine", { harness: "codex" });
-    updateCommunityOnboardingResources(runtime(), { machineId: "stale-machine" });
+    startCommunityOnboarding(runtime());
+    advanceCommunityOnboarding(runtime(), "harness", "machine", { harness: "codex", machineId: "stale-machine" });
 
     recoverCommunityOnboardingHarness(runtime());
 
     expect(readCommunityOnboardingState(runtime())).toEqual({
       status: "active",
       stage: "harness",
-      guideAvatarSeed: "guide-face-7",
     });
     expect(analytics.stageCompleted).toHaveBeenCalledOnce();
     expect(analytics.stageCompleted).toHaveBeenCalledWith("harness");
@@ -206,17 +176,5 @@ describe("community onboarding journey", () => {
     startCommunityOnboarding(runtime());
     expect(completeCommunityOnboarding(runtime())).toEqual({ status: "active", stage: "harness" });
     expect(analytics.completed).not.toHaveBeenCalled();
-  });
-
-  it("publishes in-memory state changes to mounted consumers", () => {
-    const listener = vi.fn();
-    const unsubscribe = subscribeCommunityOnboarding(runtime(), listener);
-    startCommunityOnboarding(runtime());
-    advanceCommunityOnboarding(runtime(), "harness", "machine");
-    skipCommunityOnboarding(runtime());
-    unsubscribe();
-    expect(listener).toHaveBeenNthCalledWith(1, { status: "active", stage: "harness" });
-    expect(listener).toHaveBeenNthCalledWith(2, { status: "active", stage: "machine" });
-    expect(listener).toHaveBeenNthCalledWith(3, null);
   });
 });

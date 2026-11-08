@@ -445,7 +445,6 @@ export function InboxPopover({
   onRetryFriendRequest,
   onOpenChannel,
   onOpenThread,
-  onOpenForumThread,
   onOpenDm,
   onOpenMention,
   onOpenMarked,
@@ -481,12 +480,6 @@ export function InboxPopover({
     directUnreadVisible: boolean,
   ) => void
   onOpenThread?: (server: UnreadServer, parent: UnreadChannel, child: UnreadChild) => void
-  /** Compatibility for non-community showcase fixtures; product wiring uses onOpenThread. */
-  onOpenForumThread?: (
-    server: UnreadServer,
-    parent: UnreadChannel,
-    child: UnreadChild,
-  ) => void
   onOpenDm?: (dm: UnreadDm) => void
   onOpenMention?: (m: Mention) => void
   onOpenMarked?: (m: Marked) => void
@@ -563,7 +556,7 @@ export function InboxPopover({
           onRejectFriendRequest={onRejectFriendRequest}
           onRetryFriendRequest={onRetryFriendRequest}
           onOpenChannel={onOpenChannel}
-          onOpenThread={onOpenThread ?? onOpenForumThread ?? (() => {})}
+          onOpenThread={onOpenThread ?? (() => {})}
           onOpenDm={onOpenDm}
           profilesByUserId={profilesByUserId}
           getScrollOffset={getScrollOffset}

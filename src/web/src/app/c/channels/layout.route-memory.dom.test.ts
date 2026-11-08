@@ -1,3 +1,4 @@
+import type { OwnerServerDeleteRouteToken } from "@/stores/community/server-eject-store"
 import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
 import { createElement, useLayoutEffect } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -8,7 +9,7 @@ import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { ingestServers } from "@/lib/community-db/sync"
-import { registerOwnerServerDeleteRoute, type OwnerServerDeleteRouteToken } from "@/lib/community/eject-server"
+import { registerOwnerServerDeleteRoute,  } from "@/lib/community/eject-server"
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),

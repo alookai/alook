@@ -127,7 +127,7 @@ export function ChannelHeader({
   )
   const identity = (
     <>
-      {server && <ServerCrumb id={server.id} name={server.name} icon={server.icon} size={6} className="ml-1" />}
+      {server && <ServerCrumb id={server.id} name={server.name} icon={server.icon} className="ml-1" />}
       <div data-channel-header-icon className={`grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground ${mobileBack ? (mobileBackDisplay === "viewport" ? "sm:ml-1" : "") : server ? "" : "ml-1"}`}>
         <EntityIcon kind={kind} className="size-4" />
       </div>
@@ -220,30 +220,24 @@ function ChannelOverflowMenu({
   )
 }
 
-// Server identity chip — icon (or initial-letter fallback) in a rounded
-// square. Tailwind only picks up complete literal class names at build time,
-// so `size` can't be interpolated — it's an explicit ternary.
-function ServerCrumb({ id, name, icon, size = 5, className = "" }: { id: string; name: string; icon: string | null; size?: 5 | 6 | 7; className?: string }) {
-  const sizeCls = size === 7 ? "size-7" : size === 6 ? "size-6" : "size-5"
-  const iconTextCls = size === 7 ? "text-xs" : size === 6 ? "text-[0.6875rem]" : "text-[0.625rem]"
-  const initialTextCls = size === 7 ? "text-base" : size === 6 ? "text-sm" : "text-xs"
+function ServerCrumb({ id, name, icon, className = "" }: { id: string; name: string; icon: string | null; className?: string }) {
   return (
     <ServerIcon
       id={id}
       name={name}
       initial={avatarInitial(name)}
       icon={icon}
-      size={size * 4}
-      fontSize={size === 7 ? 16 : size === 6 ? 14 : 12}
-      className={`relative grid shrink-0 place-items-center overflow-hidden rounded-md ${icon ? `font-semibold ${iconTextCls} bg-secondary text-foreground` : `font-brand font-bold ${initialTextCls} text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]`} ${sizeCls} ${className}`}
+      size={24}
+      fontSize={14}
+      className={`relative grid size-6 shrink-0 place-items-center overflow-hidden rounded-md ${icon ? "font-semibold text-[0.6875rem] bg-secondary text-foreground" : "font-brand font-bold text-sm text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]"} ${className}`}
       title={name}
     />
   )
 }
 
-const CHANNEL_NOTIF_OPTIONS: { value: ChannelNotifLevel; label: string; hint: string }[] = [
-  { value: USE_SERVER_DEFAULT, label: "Use server default", hint: "Inherit this server's setting" },
-  ...NOTIF_LEVELS.map((l) => ({ value: l.display, label: l.label, hint: l.hint })),
+const CHANNEL_NOTIF_OPTIONS: { value: ChannelNotifLevel; label: string }[] = [
+  { value: USE_SERVER_DEFAULT, label: "Use server default" },
+  ...NOTIF_LEVELS.map((l) => ({ value: l.display, label: l.label })),
 ]
 
 const MUTED_LEVEL: NotifLevel = NOTIF_LEVELS.find((l) => l.value === "nothing")!.display

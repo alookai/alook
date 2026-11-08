@@ -22,6 +22,11 @@
   pointer-events: none;
 }
 
+.petLayer[data-coordinate-space="boundary"] .pet,
+.petLayer[data-coordinate-space="boundary"] .footsteps {
+  position: absolute;
+}
+
 .footprint {
   position: absolute;
   left: 0;

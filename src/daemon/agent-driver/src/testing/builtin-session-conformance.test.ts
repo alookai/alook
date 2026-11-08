@@ -898,7 +898,7 @@ describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravi
       const receipt = await opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
       expect(receipt.status).toBe("failed");
       expect(JSON.stringify(receipt)).not.toContain("/Users/Alice");
-      expect((await opened.session.closed).outcome).toBe("forced");
+      expect(await opened.session.closed).toMatchObject({ outcome: "forced", cleanup: { status: "failed", error: { code: "stop_failed" } } });
       expect(host.releases).toHaveLength(1);
     });
 
@@ -934,7 +934,7 @@ describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravi
       );
       expect(await opened.session.stop({ reason: "stalled", forceAfterMs: 1 })).toMatchObject({ status: "accepted" });
       const closed = await opened.session.closed;
-      expect(closed.outcome).toBe("forced");
+      expect(closed).toMatchObject({ outcome: "forced", cleanup: { status: "timed_out", error: { code: "lane_stop_timeout" } } });
       expect(host.releases).toHaveLength(1);
       expect(host.releases[0]?.reason).toBe("requested_stop");
     });

@@ -6,11 +6,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { CreateTile } from "@/components/community/onboarding-tiles/create-tile"
 import { tid } from "@/lib/community/testids"
 import { BotActiveSummary } from "./bot-active-summary"
-import { CreateBotSheet } from "./create-bot-sheet"
 import { renderBotMachineGroup } from "./bot-list-machine-group"
 import { renderBotListOverlaySlots } from "./bot-list-overlays"
 import type { BotListController, BotListProps } from "./bot-list-types"
-import { BillingSheet } from "@/components/community/billing/billing-sheet"
 
 function BotCardSkeleton() {
   return (
@@ -105,6 +103,8 @@ export function renderBotListView(
 
   if (controller.initialError) return <ConversationResolutionErrorFrame as="div" retrying={controller.retryingInitialLoad} onRetry={controller.retryInitialLoad} />
 
+  const overlays = overlaySlots ?? renderBotListOverlaySlots(controller)
+
   if (controller.bots.length === 0) {
     const needsMachine = !controller.machinesLoading && !controller.machinesUnknown && controller.machines.length === 0
     return (
@@ -128,28 +128,21 @@ export function renderBotListView(
           </div>
           <div data-onboarding-target="create-bot" className="w-fit">
             <Button
-              onClick={needsMachine ? controller.openMachines : controller.openGuidedCreate}
+              onClick={needsMachine ? controller.openMachines : controller.openCreate}
               disabled={controller.machinesLoading || controller.machinesUnknown || !needsMachine && controller.isCreateDisabled && !controller.canShowLimit}
               data-testid={!needsMachine ? tid.createBot : undefined}
             >
-              {controller.machinesLoading ? "Checking machines…" : controller.machinesUnknown ? "Machine status unknown" : needsMachine ? "Connect a machine" : controller.guidedCreateLabel}
+              {controller.machinesLoading ? "Checking machines…" : controller.machinesUnknown ? "Machine status unknown" : needsMachine ? "Connect a machine" : controller.createLabel}
             </Button>
           </div>
           {controller.planSummary?.isFounder && <p className="text-sm text-muted-foreground">Founder plan</p>}
         </div>
-        <CreateBotSheet
-          open={controller.createOpen}
-          onOpenChange={controller.setCreateOpen}
-          onCreated={controller.onBotCreated}
-          guided={controller.guidedActive}
-          avatarSeed={controller.guidedAvatarSeed}
-        />
-        <BillingSheet open={controller.billingOpen && controller.canShowLimit} onOpenChange={controller.setBillingOpen} limit={controller.planSummary?.limit ?? 0} onViewPlan={controller.viewPlan} />
+        {overlays.create}
+        {overlays.billing}
       </div>
     )
   }
 
-  const overlays = overlaySlots ?? renderBotListOverlaySlots(controller)
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {backBar}
@@ -171,11 +164,11 @@ export function renderBotListView(
             </Button>
             <div data-onboarding-target="create-bot" className="w-fit">
               <Button
-                onClick={controller.openGuidedCreate}
+                onClick={controller.openCreate}
                 disabled={controller.isCreateDisabled && !controller.canShowLimit}
                 data-testid={tid.createBot}
                 title={controller.isCreateDisabled ? "Bot limit reached. Delete a bot or change plan to create another." : undefined}
-              >{controller.guidedCreateLabel}</Button>
+              >{controller.createLabel}</Button>
             </div>
           </div>
         </header>

@@ -57,7 +57,6 @@ export type OnboardingSelectDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   step?: { current: number; total: number }
-  stepLabel?: string
   title: string
   description?: string
   options: OnboardingSelectOption[]

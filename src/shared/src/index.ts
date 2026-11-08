@@ -29,43 +29,6 @@ export type {
   WorkspaceFileResult,
 } from "./types";
 
-export type {
-  ApiResponse,
-  ApiListResponse,
-  ApiErrorResponse,
-  GetUserResponse,
-  ListWorkspacesResponse,
-  GetWorkspaceResponse,
-  ListAgentsResponse,
-  GetAgentResponse,
-  ListRuntimesResponse,
-  GetRuntimeResponse,
-  ListConversationsResponse,
-  GetConversationResponse,
-  ListMessagesResponse,
-  ListTasksResponse,
-  GetTaskResponse,
-  ListTaskMessagesResponse,
-  ListMachineTokensResponse,
-  ListCalendarEventsResponse,
-  GetCalendarEventResponse,
-  ListIssuesResponse,
-  GetIssueResponse,
-  CreateCalendarEventRequest,
-  UpdateCalendarEventRequest,
-  DeleteCalendarEventRequest,
-  CreateIssueRequest,
-  UpdateIssueRequest,
-  CreateIssueCommentRequest,
-  CreateAgentLinkRequest,
-  UpdateAgentLinkRequest,
-  CreateWorkspaceRequest,
-  UpdateAgentRequest,
-  SendMessageRequest,
-  CreateMachineTokenRequest,
-  CreateMachineTokenResponse,
-} from "./api-types";
-
 export * from "./diagnostics-contract";
 export * from "./community-attention";
 export { compareAsciiSqliteBinary } from "./lib/sqlite-binary";
@@ -206,66 +169,11 @@ export type {
 } from "./constants";
 
 export {
-  TaskStatusSchema,
-  ClaimedTaskRowSchema,
   TaskAgentDataApiSchema,
   TaskApiBaseSchema,
   TaskApiSchema,
-  HeartbeatRequestSchema,
-  PollRequestSchema,
-  MAX_POLL_TASKS,
-  PollResponseSchema,
-  PollMeetingItemSchema,
-  RegisterResponseSchema,
-  DaemonRuntimeItemSchema,
-  ActivateTokenRuntimeSchema,
-  ActivateTokenRequestSchema,
-  RegisterDaemonRequestSchema,
-  DeregisterRequestSchema,
-  CompleteTaskRequestSchema,
-  FailTaskRequestSchema,
-  MessageItemSchema,
-  ReportMessagesRequestSchema,
-  RepeatIntervalSchema,
-  CreateCalendarEventRequestSchema,
-  UpdateCalendarEventRequestSchema,
-  DeleteCalendarEventRequestSchema,
-  CalendarEventApiSchema,
-  IssueStatusSchema,
-  CreateIssueRequestSchema,
-  UpdateIssueRequestSchema,
-  CreateIssueCommentBodySchema,
-  IssueCommentApiSchema,
-  IssueApiSchema,
-  CreateAgentLinkRequestSchema,
-  UpdateAgentLinkRequestSchema,
-  UpsertAgentLinkRequestSchema,
-  AddWhitelistRequestSchema,
-  CreateAgentRequestSchema,
-  UpdateAgentRequestSchema,
-  CreateConversationRequestSchema,
-  CreateMessageRequestSchema,
-  EmailAttachmentSchema,
-  SendEmailRequestSchema,
-  UpdateEmailStatusRequestSchema,
   EmailNotifyRequestSchema,
-  UpdateMemberRequestSchema,
-  CreateWorkspaceRequestSchema,
-  CreateEmailAccountSchema,
-  UpdateEmailAccountSchema,
-  TestEmailConnectionSchema,
-  UpdateWorkspaceRequestSchema,
-  DeleteWorkspaceRequestSchema,
-  GrantAgentAccessRequestSchema,
-  FileRequestItemSchema,
-  WorkspaceFileBrowseRequestSchema,
   WorkspaceFileEntrySchema,
-  WorkspaceFileReportSchema,
-  SkillEntrySchema,
-  SkillSyncRequestSchema,
-  CreateStudioRequestSchema,
-  RecruitAgentRequestSchema,
-  CreateThreadRequestSchema,
   CommunityMachineRuntimeSchema,
   CommunityMachineRuntimeListSchema,
   ReasoningEffortSchema,
@@ -335,50 +243,8 @@ export {
 } from "./schemas";
 
 export type {
-  ClaimedTaskRow,
-  TaskAgentDataApi,
-  TaskApiBase,
   TaskApi,
-  HeartbeatRequest,
-  PollRequest,
-  PollResponse,
-  PollMeetingItem,
-  RegisterResponse,
-  DaemonRuntimeItem,
-  ActivateTokenRuntime,
-  ActivateTokenRequest,
-  RegisterDaemonRequest,
-  DeregisterRequest,
-  CompleteTaskRequest,
-  FailTaskRequest,
-  MessageItem,
-  ReportMessagesRequest,
-  CreateCalendarEventRequestInput,
-  UpdateCalendarEventRequestInput,
-  DeleteCalendarEventRequestInput,
-  CalendarEventApi,
-  CreateIssueRequestInput,
-  UpdateIssueRequestInput,
-  CreateIssueCommentBody,
-  IssueCommentApi,
-  IssueApi,
-  CreateAgentLinkRequestInput,
-  UpdateAgentLinkRequestInput,
-  UpsertAgentLinkRequestInput,
-  AddWhitelistRequest,
-  CreateEmailAccountRequest,
-  UpdateMemberRequest,
-  UpdateEmailAccountRequest,
-  TestEmailConnectionRequest,
-  FileRequestItem,
   WorkspaceFileEntry,
-  WorkspaceFileBrowseRequest,
-  WorkspaceFileReport,
-  SkillEntry,
-  SkillSyncRequest,
-  CreateStudioRequest,
-  RecruitAgentRequest,
-  CreateThreadRequest,
   CommunityDaemonReady,
   CommunityPairTokenResponse,
   CommunityDaemonActivateRequest,
@@ -520,6 +386,7 @@ export { resolveReasoningEffort } from "./community/bot-reasoning-effort";
 export {
   MODEL_SELECT_DEFAULT,
   MODEL_SELECT_CUSTOM,
+  BOT_MODEL_NAME_MAX_LENGTH,
   requiresExplicitModel,
   resolveModelConfig,
   formatModelLabel,
@@ -568,7 +435,10 @@ export {
 } from "./community/bot-activity-presets";
 export type { BotActivityPreset } from "./community/bot-activity-presets";
 
-export type { CommunityMachineSummary, CommunityMachineRuntime } from "./schemas";
+export type {
+  CommunityMachineSummary,
+  CommunityMachineRuntime,
+} from "./schemas";
 export type {
   BotAddedFrame,
   BotUpdatedFrame,
@@ -721,7 +591,7 @@ export { communityServer, communityServerInvite, communityFriendship, communityS
 export { Logger, createLogger } from "./logger"
 export type { LogLevel, LoggerOptions } from "./logger"
 
-export { isEmptyHtml } from "./lib/html";
+
 export { RATE_LIMITS } from "./lib/rate-limits";
 export type { RateLimitName, RateLimitPolicy, RateLimitResult } from "./lib/rate-limits";
 export { parseIcs } from "./lib/ics-parser";
@@ -736,7 +606,7 @@ export { slugify } from "./lib/slugify";
 
 export { parseEmailHandle, toAlookAddress, isValidHandle, extractDomain, isSensitiveRecipient } from "./utils/email";
 export { MENTION_TOKEN_RE, stripMentionTokens } from "./utils/mention-token";
-export { isValidToken, isValidEmail } from "./utils/validation";
+export { isValidEmail } from "./utils/validation";
 export { escapeLikePattern } from "./utils/sql-like";
 export {
   calendarDayKeyDaysAgo,
@@ -744,12 +614,12 @@ export {
   utcDayKey,
   utcDayKeyDaysAgo,
 } from "./utils/day-key";
-export { isOnline, formatStatus, isPresenceOnline, isPresenceOffline } from "./utils/status";
+export { isPresenceOnline, isPresenceOffline } from "./utils/status";
 export { isUniqueConstraintError } from "./utils/db-errors";
 export * from "./lib/native-oauth-contract";
 export * from "./lib/safe-redirect";
 export { generateWorkspaceSlug, sanitizeSlug, slugSuffix } from "./utils/slug";
-export { truncateTitle, stripInlineMarkup, deriveThreadName } from "./utils/title";
+export { deriveThreadName } from "./utils/title";
 export {
   buildCommunityNotificationCopy,
   type CommunityNotificationConversationKind,
@@ -798,11 +668,11 @@ export {
   FRIENDSHIP_STATUS,
 } from "./utils/friendship";
 export type { FriendshipStatus } from "./utils/friendship";
-export { isPublic, isPrivate } from "./utils/visibility";
-export type { AgentVisibility } from "./utils/visibility";
+export { isPublic } from "./utils/visibility";
+
 export { extractMentionedUserIds, MENTION_TYPES, isMentionType, MENTION_IDENTIFIER_CHARACTERS, isMentionStartBoundary, isMentionEndBoundary } from "./utils/community-mentions";
 export type { MentionCandidate, MentionType } from "./utils/community-mentions";
-export { parseReleaseVersion, releaseVersionGte, semverGte } from "./semver";
+export { parseReleaseVersion, releaseVersionGte } from "./semver";
 export type { ReleaseVersion } from "./semver";
 export { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, getClientPlatform, tauriInvoke } from "./mode";
 export type { AlookMode, ModeSignals, BaseUrlSignals } from "./mode";

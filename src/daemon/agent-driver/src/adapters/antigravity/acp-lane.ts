@@ -1,3 +1,4 @@
+import { Utf8LineFramer, Utf8TextDecoder } from "../../internal/utf8-lines.js";
 import { NativeUsageReader } from "./usage.js";
 import type { RuntimeSettingsUpdate, RuntimeSettingsUpdateResult } from "../../contract.js";
 import { parseAntigravityCatalog, antigravityModelForEffort, type AntigravityCatalog } from "./catalog.js";
@@ -120,7 +121,6 @@ export class AntigravityAcpLane implements RuntimeLane {
   private usageHome?: string;
   private usageReader?: Pick<NativeUsageReader, "read">;
   private process: SpawnedProcessHandle | null = null;
-  private stdoutBuffer = "";
   private requestSequence = 0;
   private started = false;
   private ready = false;
@@ -485,15 +485,12 @@ export class AntigravityAcpLane implements RuntimeLane {
   }
 
   private attachProcess(proc: SpawnedProcessHandle): void {
+    const stdout = new Utf8LineFramer(8 * 1024 * 1024);
+    const stderr = new Utf8TextDecoder();
     proc.stdout?.on("data", (chunk) => {
-      this.stdoutBuffer += chunk.toString();
-      if (Buffer.byteLength(this.stdoutBuffer) > 8 * 1024 * 1024) {
-        this.stdoutBuffer = "";
-        this.protocolFailure("Antigravity ACP exceeded the protocol buffer limit");
-        return;
-      }
-      const lines = this.stdoutBuffer.split("\n");
-      this.stdoutBuffer = lines.pop() ?? "";
+      let lines: string[];
+      try { lines = stdout.write(chunk); }
+      catch { this.protocolFailure("Antigravity ACP exceeded the protocol buffer limit"); return; }
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
@@ -515,7 +512,11 @@ export class AntigravityAcpLane implements RuntimeLane {
       }
     });
     proc.stderr?.on("data", (chunk) => {
-      const text = chunk.toString().trim();
+      const text = stderr.write(chunk).trim();
+      if (text) this.events.emit("stderr", text);
+    });
+    proc.stderr?.on("end", () => {
+      const text = stderr.end().trim();
       if (text) this.events.emit("stderr", text);
     });
     proc.on("error", (error) => {

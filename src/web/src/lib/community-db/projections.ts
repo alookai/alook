@@ -68,12 +68,6 @@ const useLiveQuery = ((options: unknown) => {
 }) as typeof useNativeLiveQuery
 
 const absentPresence = createStore({ presenceByUserId: new Map<string, "online" | "offline">() })
-const absentRestoration = createStore({ captured: false, names: new Set<string>(), hasData: false })
-
-export function useTrustedRestoredPrimary() {
-  const registry = useOptionalCommunityDbRegistry()
-  return useSelector(registry?.restoration ?? absentRestoration, (state) => state.names.has("categories") && state.names.has("channels"))
-}
 
 export function CommunityDbProvider({
   registry,
@@ -537,15 +531,6 @@ function useForumSidebarRows(serverId: string) {
   const ready = serverProjection.isReady && channelProjection.isReady && membershipProjection.isReady && messageProjection.isReady
   return { registry: channelProjection.registry, ready, servers: serverProjection.data, channels,
     channelMemberships: membershipProjection.data, messages: messageProjection.data, attention: useAttentionScopes() }
-}
-
-export function useForumSidebarProjection(serverId: string, retainId: string | null, serverNowMs: number | null) {
-  const rows = useForumSidebarRows(serverId)
-  const structure = useMemo(() => {
-    if (serverNowMs === null || !rows.ready || !rows.registry || !rows.channels || !rows.channelMemberships || !rows.messages) return undefined
-    return projectForumSidebarStructure(rows.channels, rows.channelMemberships, rows.messages, rows.registry.accountId, serverId, retainId, serverNowMs)
-  }, [serverNowMs, rows.ready, rows.registry, rows.channels, rows.channelMemberships, rows.messages, serverId, retainId])
-  return useMemo(() => structure && applyForumSidebarAttention(structure, serverId, rows.attention), [structure, serverId, rows.attention])
 }
 
 export function useServerSidebarProjection(

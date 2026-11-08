@@ -111,15 +111,10 @@ vi.mock("@/hooks/community/use-machines", async (importOriginal) => ({ ...await 
 }))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
 vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(),
-  usePendingMachineTokenId: () => null,
   useUiHandlers: () => ({ goBackMobile: mocks.goBackMobile }),
-  useCommunityStore: { getState: () => ({ setPendingMachineTokenId: vi.fn() }) },
 }))
 vi.mock("@/lib/community-onboarding", () => ({
-  advanceCommunityOnboarding: vi.fn(),
-  readCommunityOnboardingState: vi.fn(() => null),
   startCommunityOnboarding: mocks.startOnboarding,
-  updateCommunityOnboardingResources: vi.fn(),
   useCommunityOnboarding: () => mocks.onboardingState.current,
 }))
 vi.mock("@/lib/api/config", () => ({
@@ -426,7 +421,7 @@ describe("machine daemon update UI", () => {
     fireEvent.click(renderer.getByTestId(tid.onboardingStart))
 
     expect(mocks.startOnboarding).toHaveBeenCalledOnce()
-    expect(mocks.startOnboarding).toHaveBeenCalledWith(expect.objectContaining({ ui: expect.any(Object), lifecycle: expect.any(Object) }), { guideAvatarSeed: expect.any(String) })
+    expect(mocks.startOnboarding).toHaveBeenCalledWith(expect.objectContaining({ ui: expect.any(Object), lifecycle: expect.any(Object) }))
   })
 
   it("loads Community update eligibility from the daemon package endpoint", async () => {

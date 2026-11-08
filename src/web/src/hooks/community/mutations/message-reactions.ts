@@ -49,9 +49,8 @@ function useReactionIntent(intent: "toggle" | "add") {
       const transaction = origin.registry!.dbClient.createTransaction({ autoCommit: false, mutationFn: () => persist(args) })
       args.protocol.setState((state) => ({ ...state, transaction }))
       transaction.mutate(() => { if (origin.registry!.collections.messages.has(args.messageId)) origin.registry!.collections.messages.update(args.messageId, (row) => { row.reactions = applyMessageReaction(row.reactions as Msg["reactions"], args.emoji, args.userId, args.nextMe, args.userId) }) })
-      return { persist: () => persist(args) }
     },
-    mutationFn: async (args, _context) => {
+    mutationFn: async (args) => {
       assert(args)
       const transaction = args.protocol.get().transaction
       if (transaction?.mutations.length) await transaction.commit()

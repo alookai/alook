@@ -921,9 +921,7 @@
 .appGrid {
   display: grid;
   grid-template-columns: 76px 260px minmax(0, 1fr);
-  grid-template-areas:
-    "rail tree convo"
-    "user user convo";
+
   gap: 20px;
   align-items: start;
 }
@@ -1015,10 +1013,7 @@
 @media (max-width: 1000px) {
   .appGrid {
     grid-template-columns: 76px minmax(0, 1fr);
-    grid-template-areas:
-      "rail tree"
-      "convo convo"
-      "user user";
+
   }
 }
 
@@ -1030,14 +1025,6 @@
 .specMembers { grid-area: members; }
 .specStates { grid-area: states; }
 .specToast { grid-area: toast; }
-
-.appGrid {
-  grid-template-areas:
-    "rail tree convo"
-    "user user convo"
-    "members members states"
-    "toast toast states";
-}
 
 .membersHost {
   display: flex;
@@ -1073,26 +1060,8 @@
   background: var(--tn-paper-raised);
 }
 
-@media (max-width: 1000px) {
-  .appGrid {
-    grid-template-areas:
-      "rail tree"
-      "convo convo"
-      "user user"
-      "members members"
-      "states states"
-      "toast toast";
-  }
-}
 
 /* Wide layout: members beside toast, states as one row of three */
-.appGrid {
-  grid-template-areas:
-    "rail tree convo"
-    "user user convo"
-    "members members toast"
-    "states states states";
-}
 
 .membersHost {
   padding: 0;
@@ -1110,15 +1079,6 @@
 
 .specForm { grid-area: form; }
 .specMachines { grid-area: machines; }
-
-.appGrid {
-  grid-template-areas:
-    "rail tree convo"
-    "user user convo"
-    "members members toast"
-    "states states states"
-    "form form machines";
-}
 
 .formHost {
   display: grid;
@@ -1145,31 +1105,8 @@
   justify-self: start;
 }
 
-@media (max-width: 1000px) {
-  .appGrid {
-    grid-template-areas:
-      "rail tree"
-      "convo convo"
-      "user user"
-      "members members"
-      "toast toast"
-      "states states"
-      "form form"
-      "machines machines";
-  }
-}
 
 .specForum { grid-area: forum; }
-
-.appGrid {
-  grid-template-areas:
-    "rail tree convo"
-    "user user convo"
-    "members members toast"
-    "members members forum"
-    "states states states"
-    "form form machines";
-}
 
 .forumHost {
   display: flex;
@@ -1179,20 +1116,6 @@
   background: var(--tn-paper-raised);
 }
 
-@media (max-width: 1000px) {
-  .appGrid {
-    grid-template-areas:
-      "rail tree"
-      "convo convo"
-      "user user"
-      "members members"
-      "toast toast"
-      "forum forum"
-      "states states"
-      "form form"
-      "machines machines";
-  }
-}
 
 /* On phones the mode switch sits at the bottom so it never covers captions */
 @media (max-width: 640px) {

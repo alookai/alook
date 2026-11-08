@@ -548,8 +548,8 @@
     "kind": "direct",
     "examples": [
       {
-        "story": "web-business-presence--reading",
-        "region": "Queued/running/idle status controls"
+        "story": "web-business-presence--typing",
+        "region": "Current agent typing line"
       }
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -1764,16 +1764,6 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
-  "src/web/src/components/community/channels/channel-shell.tsx": {
-    "kind": "composition",
-    "examples": [
-      {
-        "story": "web-business-shell-details--channel-frame",
-        "region": "Shared original header/body/panel/dialog slots"
-      }
-    ],
-    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
-  },
   "src/web/src/components/community/channels/channel-sidebar-tree-owner.tsx": {
     "kind": "composition",
     "examples": [
@@ -1800,16 +1790,6 @@
       {
         "story": "web-business-navigation--glyphs-and-indicators",
         "region": "Unread insertion-point example"
-      }
-    ],
-    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
-  },
-  "src/web/src/components/community/channels/conversation-message-skeleton.tsx": {
-    "kind": "composition",
-    "examples": [
-      {
-        "story": "web-business-loading-and-errors--text-pending",
-        "region": "Text conversation skeleton"
       }
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."

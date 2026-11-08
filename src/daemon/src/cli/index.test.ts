@@ -15,8 +15,11 @@ vi.mock("./daemonStart", async (importOriginal) => ({
   daemonStartById: mockDaemonStartById,
   daemonReconnect: mockDaemonReconnect,
   daemonList: mockDaemonList,
-  savedDaemonMachineIds: mockSavedDaemonMachineIds,
   daemonRunFromIpc: mockDaemonRunFromIpc,
+}));
+vi.mock("./daemonState.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./daemonState.js")>(),
+  savedDaemonMachineIds: mockSavedDaemonMachineIds,
 }));
 vi.mock("./messageReminderClient", async (importOriginal) => ({
   ...await importOriginal<typeof import("./messageReminderClient")>(),
@@ -255,7 +258,7 @@ describe("envelope contract", () => {
     expect(parseEnvelope(cap.lines()).error).toContain("no ServerApi available");
   });
 
-  it("`-h` prints PLAIN TEXT usage, NOT a JSON envelope (Gus 架构#473)", async () => {
+  it("`-h` prints PLAIN TEXT usage, NOT a JSON envelope", async () => {
     const code = await main(["-h"]);
     expect(code).toBe(0);
     const out = cap.lines().join("");
@@ -2006,7 +2009,7 @@ describe("decodeTextEscapes", () => {
   });
 
   it("leaves plain text (incl. UTF-8/emoji) untouched", () => {
-    expect(decodeTextEscapes("总部 🎉 no escapes")).toBe("总部 🎉 no escapes");
+    expect(decodeTextEscapes("€€ 🎉 no escapes")).toBe("€€ 🎉 no escapes");
   });
 });
 
@@ -2025,7 +2028,7 @@ describe("message send — required bounded stdin body contract", () => {
         },
       }),
     );
-    const literal = `  \`marker\` $(touch ${marker}) \${HOME} ' \\\" \\\\ a\\\\nb\n# markdown\n总部 🎉  \n`;
+    const literal = `  \`marker\` $(touch ${marker}) \${HOME} ' \\\" \\\\ a\\\\nb\n# markdown\n€€ 🎉  \n`;
     await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"], literal);
     expect(sentText).toBe(literal);
     expect(fs.existsSync(marker)).toBe(false);
@@ -2092,7 +2095,7 @@ describe("message send — required bounded stdin body contract", () => {
   });
 
   it("decodes UTF-8 once after joining split stdin byte chunks", async () => {
-    const literal = "中文 🎉";
+    const literal = "€€ 🎉";
     const bytes = Buffer.from(literal, "utf8");
     const input = Readable.from([bytes.subarray(0, 1), bytes.subarray(1, 4), bytes.subarray(4)]) as CliInputStream;
     let sentText: string | undefined;
@@ -2124,7 +2127,7 @@ describe("message send — required bounded stdin body contract", () => {
 
   it.each([
     ["ASCII", "a".repeat(1025), 1025],
-    ["multibyte UTF-8", "界".repeat(342), 1026],
+    ["multibyte UTF-8", "€".repeat(342), 1026],
   ])("rejects an oversized %s stdin body before sending", async (_label, body, expectedBytes) => {
     const sendSpy = vi.fn();
     setApiForTesting(stubApi({ send: sendSpy }));
@@ -2259,7 +2262,7 @@ describe("nap", () => {
     const path = await import("path");
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nap-"));
     const file = path.join(dir, "handoff.md");
-    const literal = "  Was mid-review of PR #42; next: run QA.\\\\n\n中文 🎉  \n";
+    const literal = "  Was mid-review of PR #42; next: run QA.\\\\n\n€€ 🎉  \n";
     fs.writeFileSync(file, literal);
     let handoff: string | undefined;
     setApiForTesting(

@@ -1,4 +1,5 @@
 "use client"
+import { loadAndSeedProfiles } from "@/lib/community/account-cache-lifecycle"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
 import {
@@ -8,10 +9,7 @@ import {
   type QueryFunctionContext,
   type UseQueryResult,
 } from "@tanstack/react-query"
-import {
-  loadAndSeedProfiles,
-  communityUserProfilePatch,
-} from "@/lib/community/profile-seed"
+import { communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import { parseCommunityDmsRead } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
@@ -50,17 +48,13 @@ export const dmsProjectedQueryFn = (
   queryClient: QueryClient,
 ) => async (context: QueryFunctionContext) => {
   const publicationToken = captureCommunityLiveSnapshotToken(queryClient)
-  try {
-    const data = await loadDms(context, publicationToken)
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, publicationToken, context.signal)
-    await publishCommunityLiveSnapshot(queryClient, {
-      snapshot: { kind: "dms", data },
-      proof: { kind: "structural", token: publicationToken, signal: context.signal },
-    })
-    return { ids: data.conversations.map((dm) => dm.id) }
-  } catch (error) {
-    throw error
-  }
+  const data = await loadDms(context, publicationToken)
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, publicationToken, context.signal)
+  await publishCommunityLiveSnapshot(queryClient, {
+    snapshot: { kind: "dms", data },
+    proof: { kind: "structural", token: publicationToken, signal: context.signal },
+  })
+  return { ids: data.conversations.map((dm) => dm.id) }
 }
 
 export function useDms(enabled = true, subscribed = enabled): UseQueryResult<{ ids: string[] }> & { dms: DM[] } {

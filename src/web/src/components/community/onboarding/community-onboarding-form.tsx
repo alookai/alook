@@ -162,7 +162,6 @@ function CommunityOnboardingSteps() {
         onOpenChange={(open) => { if (!open) skipCommunityOnboarding(communityRuntime) }}
         step={{ current: 1, total: 2 }}
         dismissible
-        stepLabel="Your harness"
         title="Which harness do you already use?"
         description="Pick the setup that already runs your bots."
         options={[...ONBOARDING_HARNESSES]}
@@ -221,7 +220,6 @@ function CommunityOnboardingSteps() {
         open
         onOpenChange={(open) => { if (!open) skipCommunityOnboarding(communityRuntime) }}
         step={{ current: totalSteps, total: totalSteps }}
-        stepLabel="About you"
         dismissible
         title="Which best describes you?"
         description="We’ll shape the room around your work."
@@ -309,7 +307,7 @@ export function CommunityOnboardingForm() {
         <Button type="button" variant="ghost" size="icon" aria-label="Exit setup" title="Exit setup" className="size-11 text-foreground" onClick={() => skipCommunityOnboarding(runtime)}><X aria-hidden className="size-4" /></Button>
       </header>
       <div className="min-h-0 overflow-y-auto thin-scrollbar">
-        <StepSlide testId="onboarding-step-transition" step={`${state.stage}-${mode}`} order={["harness", "machine", "model", "identity", "initializing", "bot"].indexOf(state.stage) * 2 + (mode === "manual" ? 1 : 0)}>
+        <StepSlide testId="onboarding-step-transition" step={`${state.stage}-${mode}`} order={["harness", "machine", "model", "identity", "initializing"].indexOf(state.stage) * 2 + (mode === "manual" ? 1 : 0)}>
           <CommunityOnboardingSteps />
         </StepSlide>
       </div>

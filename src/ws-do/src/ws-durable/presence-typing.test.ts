@@ -1,60 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createMockWebSocket } from "../__mocks__/cf"
 import { INTERNAL_USER_TARGET_HEADER } from "../internal-user-broadcast"
-import {
-  CFResponse,
-  cleanupHarness,
-  createDO,
-  flushAsyncWork,
-  mockCheckAliveFetch,
-  mockCreateDb,
-  mockD1WithSession,
-  mockFindCredentialByHash,
-  mockGetBotBinding,
-  mockGetBotBindingWithOwner,
-  mockGetChannelForMember,
-  mockGetChannelType,
-  mockGetCoMemberUserIds,
-  mockGetDM,
-  mockGetDMPeer,
-  mockIsBlocked,
-  mockIsThreadParticipant,
-  mockAreFriends,
-  mockGetFriendUserIds,
-  mockGetMachineByIdForUser,
-  mockGetPrivateChannelAudienceUserIds,
-  mockGetProfile,
-  mockGetRuntimeIdsByDaemon,
-  mockGetUserInternal,
-  mockGetValidSession,
-  mockGetValidSessionWithIdentity,
-  mockHashCredential,
-  mockInsertBotActivityEventAndPrune,
-  mockInsertBotAuditModelChanged,
-  mockInsertBotAuditNap,
-  mockInsertBotAuditProviderChanged,
-  mockInsertBotAuditSessionReset,
-  mockIsBotOnline,
-  mockIsChannelPrivate,
-  mockListBotsForMachine,
-  mockListChannelMemberUserIds,
-  mockListMembers,
-  mockListThreadParticipantUserIds,
-  mockMarkMachineOffline,
-  mockMarkMachineOnlineIfOffline,
-  mockLogWarn,
-  mockReconcileBotActivityFromRunningAgents,
-  mockResolveScopeMemberUserIds,
-  mockResolveChannelRecipientUserIds,
-  mockStubFetch,
-  mockToSummary,
-  mockTouchBotRefreshContext,
-  mockTouchMachineHeartbeat,
-  mockUpdateProfile,
-  mockUpsertMachineByMachineId,
-  mockWithD1Retry,
-  resetHarness
-} from "./test-harness"
+import { cleanupHarness, createDO, flushAsyncWork, mockD1WithSession, mockGetChannelForMember, mockGetChannelType, mockGetCoMemberUserIds, mockGetDMPeer, mockIsBlocked, mockIsThreadParticipant, mockAreFriends, mockGetFriendUserIds, mockGetUserInternal, mockGetValidSessionWithIdentity, mockIsBotOnline, mockListBotsForMachine, mockListChannelMemberUserIds, mockListMembers, mockListThreadParticipantUserIds, mockLogWarn, mockResolveScopeMemberUserIds, mockResolveChannelRecipientUserIds, mockStubFetch, mockWithD1Retry, resetHarness } from "./test-harness"
+import { publishMachinePresence } from "./machine-presence"
 import { getPresenceAudience, broadcastPresence, sendPresenceSnapshot } from "./presence-typing"
 import { BUSINESS_SCHEMA_VERSION, createLogger } from "@alook/shared"
 
@@ -426,11 +374,7 @@ describe("WebSocketDurableObject", () => {
     // `getFriendUserIds` (mocked as `mockGetFriendUserIds` above) says.
   })
 
-  describe("notifyUserDO — bot fan-out on community:machine.status (Fix 3)", () => {
-    // `notifyUserDO` is private; every `community:machine.status` emission in
-    // this file funnels through it (the single choke point the plan calls
-    // for), so exercising it directly here covers all 5 call sites without
-    // duplicating their individual setup.
+  describe("typed machine presence and generic user delivery", () => {
     type NotifyInternals = { notifyUserDO(userId: string, payload: unknown): Promise<void> }
 
     /** Collects `{ url, body }` for every `mockStubFetch` call so far. */
@@ -444,7 +388,7 @@ describe("WebSocketDurableObject", () => {
     }
 
     it("fans out community:presence.update(online: true) to every bot bound to the machine, beyond the owner notify", async () => {
-      const { durable, env } = createDO()
+      const { context, env } = createPresenceDomain()
       mockListBotsForMachine.mockResolvedValue([
         { id: "bot-1", name: "Bot One", discriminator: "0001", description: "" },
         { id: "bot-2", name: "Bot Two", discriminator: "0002", description: "" },
@@ -453,7 +397,7 @@ describe("WebSocketDurableObject", () => {
       mockGetFriendUserIds.mockResolvedValue([])
       mockStubFetch.mockClear()
 
-      await (durable as unknown as NotifyInternals).notifyUserDO("owner-1", {
+      await publishMachinePresence(context, "owner-1", {
         type: "community:machine.status",
         machineId: "m1",
         status: "online",
@@ -474,7 +418,7 @@ describe("WebSocketDurableObject", () => {
     })
 
     it("broadcasts online: false for every bound bot on a machine-offline transition", async () => {
-      const { durable } = createDO()
+      const { context } = createPresenceDomain()
       mockListBotsForMachine.mockResolvedValue([
         { id: "bot-1", name: "Bot One", discriminator: "0001", description: "" },
       ])
@@ -482,7 +426,7 @@ describe("WebSocketDurableObject", () => {
       mockGetFriendUserIds.mockResolvedValue([])
       mockStubFetch.mockClear()
 
-      await (durable as unknown as NotifyInternals).notifyUserDO("owner-1", {
+      await publishMachinePresence(context, "owner-1", {
         type: "community:machine.status",
         machineId: "m1",
         status: "offline",
@@ -494,11 +438,11 @@ describe("WebSocketDurableObject", () => {
     })
 
     it("a machine bound to zero bots triggers no extra broadcast beyond the owner notify", async () => {
-      const { durable } = createDO()
+      const { context } = createPresenceDomain()
       mockListBotsForMachine.mockResolvedValue([])
       mockStubFetch.mockClear()
 
-      await (durable as unknown as NotifyInternals).notifyUserDO("owner-1", {
+      await publishMachinePresence(context, "owner-1", {
         type: "community:machine.status",
         machineId: "m1",
         status: "online",
@@ -553,13 +497,13 @@ describe("WebSocketDurableObject", () => {
       expect(await request.json()).toEqual(payload)
     })
 
-    it("resolves cleanly when the owner-notify stub fetch rejects — the whole method is under try/catch, callers never see the throw", async () => {
+    it("continues bot fanout after owner delivery fails", async () => {
       // Regression guard: the owner-notify `userStub.fetch(...)` used to
       // sit OUTSIDE the method's try/catch. A stub-fetch throw would
       // propagate through every caller's `.catch(() => {})` and skip the
       // bot fan-out entirely, contradicting the comment that claims the
       // failure would "at least be visible."
-      const { durable } = createDO()
+      const { context } = createPresenceDomain()
       mockStubFetch.mockClear()
       // First call is the owner notify — reject it. Subsequent calls
       // (bot fan-out per-audience-member) should still fire.
@@ -571,7 +515,7 @@ describe("WebSocketDurableObject", () => {
       mockGetFriendUserIds.mockResolvedValue([])
 
       await expect(
-        (durable as unknown as NotifyInternals).notifyUserDO("owner-1", {
+        publishMachinePresence(context, "owner-1", {
           type: "community:machine.status",
           machineId: "m1",
           status: "online",

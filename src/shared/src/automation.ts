@@ -3,6 +3,8 @@ import { MAX_MESSAGE_CONTENT_LENGTH } from "./constants/community"
 import { parseNameAndTag } from "./lib/discriminator"
 import { parseRef } from "./community-cli-contract"
 
+export const AUTOMATION_PERMISSION_LIMITS = { hour: 64, day: 1536 } as const
+
 export const AUTOMATION_WRITE_PERMISSIONS = ["bot.create", "server.create", "server.invite", "message.send"] as const
 export const AUTOMATION_READ_PERMISSIONS = ["machine.read", "friend.read", "server.read"] as const
 export const AutomationPermissionSchema = z.enum([...AUTOMATION_WRITE_PERMISSIONS, ...AUTOMATION_READ_PERMISSIONS])
@@ -11,8 +13,8 @@ export const AutomationPermissionPolicySchema = z.strictObject({
   permission: AutomationPermissionSchema,
   limit: z.number().int().positive(),
   period: z.enum(["hour", "day"]),
-}).refine((value) => value.limit <= (value.period === "hour" ? 64 : 1536), {
-  message: "Limit cannot exceed 64/hour or 1536/day", path: ["limit"],
+}).refine((value) => value.limit <= AUTOMATION_PERMISSION_LIMITS[value.period], {
+  message: `Limit cannot exceed ${AUTOMATION_PERMISSION_LIMITS.hour}/hour or ${AUTOMATION_PERMISSION_LIMITS.day}/day`, path: ["limit"],
 })
 const permissions = z.array(AutomationPermissionPolicySchema).min(1).max(AutomationPermissionSchema.options.length)
   .refine((values) => new Set(values.map((value) => value.permission)).size === values.length, "Duplicate permission")

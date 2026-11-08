@@ -2,41 +2,12 @@ import type { Server } from "./models/navigation"
 import { ApiError } from "@/lib/errors"
 import { communityServerId } from "./community-route"
 import type { QueryClient } from "@tanstack/react-query"
-import { createStore, type Store } from "@tanstack/store"
+import type { OwnerServerDeleteRouteToken, OwnerServerDeleteRecord, OwnerServerDeleteState } from "@/stores/community/server-eject-store"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import {
   COMMUNITY_COLD_ENTRY_FALLBACK,
   consumeCommunityColdEntryFailure,
 } from "./last-community-route"
-
-export type OwnerServerDeleteRouteToken = { owner: QueryClient; store: Store<OwnerServerDeleteState> }
-
-type OwnerServerDeleteRecord = {
-  serverId: string
-  request: "pending" | "resolving" | "navigating"
-  originToken: OwnerServerDeleteRouteToken
-  participantTokens: Set<OwnerServerDeleteRouteToken>
-  lastCommittedHref: string
-  targetHref: string | null
-  navigationIssued: boolean
-  scopes: "retained" | "flushing"
-}
-
-export type OwnerServerDeleteState = {
-  transactions: Map<string, OwnerServerDeleteRecord>
-  tombstones: WeakMap<OwnerServerDeleteRouteToken, string>
-  flushedServerIds: Set<string>
-  voluntaryLeaves: Set<string>
-  meRootLanding: boolean
-}
-
-export function emptyOwnerServerDeleteState(): OwnerServerDeleteState {
-  return { transactions: new Map(), tombstones: new WeakMap(), flushedServerIds: new Set(), voluntaryLeaves: new Set(), meRootLanding: false }
-}
-
-export function createOwnerServerDeleteStore(): Store<OwnerServerDeleteState> {
-  return createStore(emptyOwnerServerDeleteState())
-}
 
 function ownerServerDeleteStore(queryClient: QueryClient, token?: OwnerServerDeleteRouteToken) {
   if (token) return token.owner === queryClient ? token.store : undefined

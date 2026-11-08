@@ -62,6 +62,7 @@ function renderDragHarness(activityId: CloudCodeMonsterActivityId | null) {
   function DragHarness() {
     handlers = usePetDrag({
       boundaryRef: { current: null },
+      coordinateSpace: "viewport",
       position: { x: 120, y: 140 },
       isDragging: false,
       fainted: false,
@@ -462,7 +463,8 @@ describe("Cloud Code monster PET helpers", () => {
       resolveCloudCodeMonsterPeekPosition(
         { agentId: "ag_mandy", x: 1, y: 1 },
         boundary,
-        { width: 900, height: 700 }
+        { width: 900, height: 700 },
+        "viewport",
       )
     ).toEqual({ x: 329, y: 345.24 });
   });

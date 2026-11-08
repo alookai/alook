@@ -1,21 +1,5 @@
-import contractText0 from "../messages/message-share-dialog.tsx?raw"
-import contractText1 from "../messages/message.tsx?raw"
-import contractText2 from "./community-invite-card.tsx?raw"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { resolveInviteCardPresentation } from "./community-invite-card"
-
-const componentDirectory = dirname(fileURLToPath(import.meta.url))
-const contractSources: Record<string, string> = {
-  "../messages/message-share-dialog.tsx": contractText0,
-  "../messages/message.tsx": contractText1,
-  "community-invite-card.tsx": contractText2,
-}
-const readComponent = (path: string) => {
-  if (!(path in contractSources)) throw new Error("unregistered contract source: " + path)
-  return contractSources[path]
-}
 
 describe("resolveInviteCardPresentation", () => {
   it("keeps sender state stable and non-interactive", () => {
@@ -45,28 +29,5 @@ describe("resolveInviteCardPresentation", () => {
       eyebrow: "Server invite",
       action: null,
     })
-  })
-})
-
-describe("invite-card perspective wiring", () => {
-  it("keeps loading on the real three-line text footprint", () => {
-    const card = readComponent("community-invite-card.tsx")
-    expect(card).toContain('className="h-3 w-32 rounded"')
-    expect(card).toContain('className="h-4 w-24 rounded"')
-    expect(card).toContain('className="h-3 w-16 rounded"')
-  })
-
-  it("derives sender perspective from the message author and viewer", () => {
-    const message = readComponent("../messages/message.tsx")
-
-    expect(message).toContain("m.authorId === viewerUserId ? \"sender\" : \"recipient\"")
-    expect(message).toContain("a.authorId !== b.authorId")
-    expect(message).toContain("prev.viewerUserId === next.viewerUserId")
-  })
-
-  it("keeps Share as Image explicitly neutral", () => {
-    const shareDialog = readComponent("../messages/message-share-dialog.tsx")
-
-    expect(shareDialog).toContain('perspective="neutral"')
   })
 })

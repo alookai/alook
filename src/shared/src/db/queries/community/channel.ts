@@ -1,6 +1,6 @@
 import { readServerRailSnapshot } from "./server-rail";
 import { sortServerRailRows } from "../../../community-server-rail";
-import { eq, and, asc, desc, isNotNull, isNull, inArray, count, ne, or, sql } from "drizzle-orm";
+import { eq, and, asc, desc, isNotNull, isNull, inArray, ne, or, sql } from "drizzle-orm";
 import type { SQLWrapper } from "drizzle-orm";
 import {
   communityChannel,
@@ -13,7 +13,7 @@ import {
 import type { Database } from "../../index";
 import { nanoid } from "nanoid";
 import { PARTICIPANT_SOURCE, type ParticipantSource } from "../../../constants/community";
-import { canSeePrivateChannel, visibilityIsDmParticipant, ROLES } from "../../../utils/community-roles";
+import { visibilityIsDmParticipant, ROLES } from "../../../utils/community-roles"
 import { formatHandle } from "../../../lib/discriminator";
 import { user } from "../../schema";
 import { chunk, D1_MAX_IN_PARAMS, maxInParams, maxRowsPerInsert } from "../_chunk";
@@ -237,75 +237,12 @@ export async function getChannelType(
  * predicate is in SQL, not a post-fetch check.
  */
 export async function getChannelForMember(db: Database, channelId: string, userId: string) {
-  // Fetch the channel row once, then dispatch on its VISIBILITY trait (B3): the
-  // DM access rule (member-row check, no server walk, no inheritance) is keyed on
-  // `visibilityIsDmParticipant`, the single source shared with
-  // `resolveChannelAccessContext` — not a re-tested `type === 'dm'`. A missing
-  // row → null (its 403/404 translation is the caller's surface-partitioned job,
-  // untouched here).
-  const dmRows = await db
+  const [channel] = await db
     .select(CHANNEL_COLUMNS)
     .from(communityChannel)
-    .where(eq(communityChannel.id, channelId))
+    .where(and(eq(communityChannel.id, channelId), channelReadableSql(userId, CHANNEL_COLUMNS)))
     .limit(1);
-  const dmRow = dmRows[0];
-  if (dmRow && visibilityIsDmParticipant(dmRow.type)) {
-    // DM (type=dm, server_id NULL) — readable iff the user has a
-    // relation='access' member row.
-    const isMember = await isChannelMember(db, channelId, userId, "access");
-    return isMember ? dmRow : null;
-  }
-
-  const rows = await db
-    .select({ ...CHANNEL_COLUMNS, memberRole: communityServerMember.role })
-    .from(communityChannel)
-    .innerJoin(
-      communityServerMember,
-      and(
-        eq(communityServerMember.serverId, communityChannel.serverId),
-        eq(communityServerMember.userId, userId)
-      )
-    )
-    .where(eq(communityChannel.id, channelId));
-  const row = rows[0];
-  if (!row) return null;
-  const { memberRole, ...channelRow } = row;
-
-  // Unified model — the anchor (`parentChannelId ?? id`) is both the privacy and
-  // roster anchor. A child thread climbs to its parent forum/channel for
-  // BOTH the category-privacy flag and the roster (member rows + creator); a
-  // top-level channel/forum is its own anchor. The single query below reads that
-  // anchor and its creator.
-  const anchorId = channelRow.parentChannelId ?? channelRow.id;
-
-  const anchor = await db
-    .select({
-      creatorId: communityChannel.creatorId,
-      categoryPrivate: communityCategory.private,
-    })
-    .from(communityChannel)
-    .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
-    .where(eq(communityChannel.id, anchorId))
-    .limit(1);
-
-  const isPrivate = (anchor[0]?.categoryPrivate ?? 0) === 1;
-  if (isPrivate) {
-    // ACCESS creator = the ANCHOR creator (the forum/parent-channel creator for a
-    // post/thread). Feeds canSeePrivateChannel, so post access is pure inheritance
-    // from the forum; post-manage rights are derived at the route from
-    // channel.creatorId.
-    const isCreator = anchor[0]?.creatorId === userId;
-    // Membership checks a row on the anchor (own row for a forum/channel, the
-    // parent forum/channel for a post/thread). Admins have NO content privilege
-    // for private units — no role short-circuit here; an admin must be the
-    // creator or an explicit member to see it.
-    const isMember = isCreator ? false : await isChannelMember(db, anchorId, userId);
-    if (!canSeePrivateChannel({ isCreator, isChannelMember: isMember })) {
-      return null;
-    }
-  }
-
-  return channelRow;
+  return channel ?? null;
 }
 
 export async function updateChannel(
@@ -323,14 +260,6 @@ export async function updateChannel(
   const rows = await db
     .update(communityChannel)
     .set(data)
-    .where(eq(communityChannel.id, channelId))
-    .returning();
-  return rows[0] ?? null;
-}
-
-export async function deleteChannel(db: Database, channelId: string) {
-  const rows = await db
-    .delete(communityChannel)
     .where(eq(communityChannel.id, channelId))
     .returning();
   return rows[0] ?? null;
@@ -469,79 +398,6 @@ export async function getThreadChannelByParentMessage(
     );
   const row = rows[0];
   return row ? row : null;
-}
-
-
-/**
- * Auto-create a thread channel rooted at `parentMessageId` inside
- * `parentChannelId` (debt #10 — threads ARE channels). `type: "thread"` is
- * REQUIRED — the column defaults to `"text"` otherwise, which would silently
- * hide the thread from the human web UI's `listChildChannels(..., {type:
- * "thread"})` query. `name` is NOT NULL with no human-supplied value here, so
- * it's derived from the parent message's own content: its first 40
- * characters, trimmed, falling back to the literal string `"Thread"` when
- * the parent message has no usable text (empty/attachment-only).
- *
- * Concurrency: relies on the partial UNIQUE index
- * `uq_community_channel_parent_message` (migration 0052) — callers must
- * catch the unique-conflict error and re-`SELECT` the winner; this function
- * does not retry internally (see `resolveTargetForMember`).
- */
-export async function createThreadChannel(
-  db: Database,
-  parentChannelId: string,
-  parentMessageId: string,
-  creatorId: string
-) {
-  const [parentServer, parentMessage] = await Promise.all([
-    db
-      .select({
-        serverId: communityChannel.serverId,
-        parentChannelId: communityChannel.parentChannelId,
-      })
-      .from(communityChannel)
-      .where(eq(communityChannel.id, parentChannelId)),
-    db
-      .select({ content: communityMessage.content })
-      .from(communityMessage)
-      .where(eq(communityMessage.id, parentMessageId)),
-  ]);
-  const serverId = parentServer[0]?.serverId;
-  if (!serverId) throw new Error(`createThreadChannel: parent channel ${parentChannelId} not found`);
-
-  // A thread may only root on a TOP-LEVEL channel. Rooting on a child channel
-  // (a forum child thread, or another thread) would make this a grandchild whose
-  // privacy the single-level anchor climb can't resolve — it would read the
-  // child's own `categoryId` (always NULL) as public and leak a private
-  // forum's thread server-wide. Single chokepoint for every caller (web
-  // threads route, agent send/resolve auto-thread, future callers).
-  if (parentServer[0]?.parentChannelId) {
-    throw new Error(
-      `createThreadChannel: cannot root a thread on child channel ${parentChannelId}`
-    );
-  }
-
-  const rawContent = parentMessage[0]?.content?.trim() ?? "";
-  const name = rawContent.length > 0 ? rawContent.slice(0, 40) : "Thread";
-
-  // `communityChannel` is typed as `SQLiteTableWithColumns<any>` (schema
-  // file), so `.returning()` without an explicit column set loses all type
-  // info. Return just the new id, then re-fetch through `getChannel`'s
-  // properly-typed `CHANNEL_COLUMNS` select instead of casting `any`.
-  const inserted = await db
-    .insert(communityChannel)
-    .values({
-      serverId,
-      name,
-      type: "thread",
-      parentChannelId,
-      parentMessageId,
-      creatorId,
-    })
-    .returning({ id: communityChannel.id });
-  const created = await getChannel(db, inserted[0]!.id);
-  if (!created) throw new Error(`createThreadChannel: failed to re-fetch created channel ${inserted[0]!.id}`);
-  return created;
 }
 
 export async function listChildChannels(
@@ -958,33 +814,6 @@ export async function isChannelMember(
     )
     .limit(1);
   return rows.length > 0;
-}
-
-export async function getChannelMemberCount(
-  db: Database,
-  channelId: string
-): Promise<number> {
-  const rows = await db
-    .select({ cnt: count() })
-    .from(communityChannelMember)
-    .where(
-      and(
-        eq(communityChannelMember.channelId, channelId),
-        eq(communityChannelMember.relation, "access")
-      )
-    );
-  return rows[0]?.cnt ?? 0;
-}
-
-export async function countChannelsInCategory(
-  db: Database,
-  categoryId: string
-): Promise<number> {
-  const rows = await db
-    .select({ cnt: count() })
-    .from(communityChannel)
-    .where(eq(communityChannel.categoryId, categoryId));
-  return rows[0]?.cnt ?? 0;
 }
 
 /**

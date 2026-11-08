@@ -66,7 +66,7 @@ describe.skipIf(process.platform !== "win32")("native Windows injected Node CLI"
   it("preserves UTF-8 stdin and exit codes through cmd and PowerShell", async () => {
     const directory = mkdtempSync(join(tmpdir(), "alook Windows stdin with spaces-"));
     const host = join(directory, "index.cjs");
-    const message = "Windows 中文回复✓ nonce-cli-165";
+    const message = "Windows €€€€✓ nonce-cli-165";
     writeFileSync(host, "if(process.argv.includes('--fail'))process.exit(23);console.log(require('node:fs').readFileSync(0,'utf8').trimEnd());\n");
     try {
       const ctx = fakeLaunchContext("codex", directory, {
@@ -116,8 +116,8 @@ describe.skipIf(process.platform === "win32")("Windows Bash launcher logic on PO
         prepared: { ...fakePrepared({ base: { ...process.env, BASH_ENV: startup } }), executablePath: host },
       });
       const { spawnEnv } = await prepareCliTransport(ctx, {}, undefined, "win32");
-      const result = await invoke("/bin/bash", ["--noprofile", "--norc", "-c", '"$ALOOK_CLI" --target "/server#0042/general" "中文✓"; test "${MSYS2_ARG_CONV_EXCL-unset}" = unset'], directory, false, { env: { ...spawnEnv, MSYS2_ARG_CONV_EXCL: undefined } });
-      expect(JSON.parse(result.stdout)).toEqual({ args: ["--target", "/server#0042/general", "中文✓"], exclusion: "*", startup: "loaded" });
+      const result = await invoke("/bin/bash", ["--noprofile", "--norc", "-c", '"$ALOOK_CLI" --target "/server#0042/general" "€€✓"; test "${MSYS2_ARG_CONV_EXCL-unset}" = unset'], directory, false, { env: { ...spawnEnv, MSYS2_ARG_CONV_EXCL: undefined } });
+      expect(JSON.parse(result.stdout)).toEqual({ args: ["--target", "/server#0042/general", "€€✓"], exclusion: "*", startup: "loaded" });
       expect(result.code).toBe(0);
     } finally {
       rmSync(directory, { recursive: true, force: true });
@@ -185,7 +185,7 @@ describe.skipIf(!process.env.ALOOK_NATIVE_CLI_PATH)("installed host CLI callback
       expect(JSON.parse(pull.stdout).success.messages[0].content.text).toBe(incoming.content.text);
       expect(JSON.parse(pull.stdout).success.acked).toBe(1);
       expect(pull.code).toBe(0);
-      const message = "Windows 中文回复✓ nonce-product-cli-165";
+      const message = "Windows €€€€✓ nonce-product-cli-165";
       const sendArgs = ["message", "send", "--target", channel, "--reply", "1", "--stdin", "--remind-after", "0"];
       const send = await invoke(spawnEnv.ALOOK_CLI!, sendArgs, directory, windows, { env: spawnEnv, stdin: message });
       console.log(JSON.stringify({ stage: "candidate-stdin-send", ...send }));

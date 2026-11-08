@@ -152,7 +152,7 @@ describe("PII playground", () => {
     const h = mount()
     await h.reply(h.state()!.requestId)
     await waitFor(() => expect(h.result.current.snapshot).toEqual(snapshot))
-    await act(async () => { expect(await h.result.current.preview("汉".repeat(342))).toBe(false) })
+    await act(async () => { expect(await h.result.current.preview("€".repeat(342))).toBe(false) })
     expect(apiFetch).toHaveBeenCalledTimes(1)
     let run: Promise<boolean>
     act(() => { run = h.result.current.preview("sample") })

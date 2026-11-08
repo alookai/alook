@@ -15,7 +15,7 @@ describe("published landing testimonial inventory", () => {
       expect(post.quote.trim()).not.toBe("")
       expect(Number.isNaN(Date.parse(post.checkedAt))).toBe(false)
       expect(post.followers === null || (Number.isInteger(post.followers) && post.followers >= 0)).toBe(true)
-      if (!/[\u4e00-\u9fff]/.test(post.quote)) expect(post.quote.trim().split(/\s+/).length).toBeLessThanOrEqual(25)
+      expect(post.quote.trim().split(/\s+/).length).toBeLessThanOrEqual(25)
     }
   })
 

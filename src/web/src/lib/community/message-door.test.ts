@@ -17,41 +17,9 @@ vi.mock("./channel-write-guard", () => ({
   requireMessageBearingSurface: (...a: unknown[]) => mockRequireMessageBearingSurface(...a),
 }))
 
-import { parseTargetDescriptor, resolveMessageTarget } from "./message-door"
+import { resolveMessageTarget } from "./message-door"
 
 const db = {} as never
-
-describe("parseTargetDescriptor — id-xor-ref (Aigneis #190)", () => {
-  it("accepts { id } alone", () => {
-    expect(parseTargetDescriptor({ id: "c1" })).toEqual({ ok: true, value: { id: "c1" } })
-  })
-
-  it("accepts { ref } alone, threading create-if-missing (ref arm only)", () => {
-    expect(parseTargetDescriptor({ ref: "/s/c", createDmIfMissing: true })).toEqual({
-      ok: true,
-      value: { ref: "/s/c", createDmIfMissing: true, createThreadIfMissing: undefined },
-    })
-  })
-
-  it("rejects neither field", () => {
-    expect(parseTargetDescriptor({})).toMatchObject({ ok: false, status: 400 })
-  })
-
-  it("rejects both fields (must be exactly one)", () => {
-    expect(parseTargetDescriptor({ id: "c1", ref: "/s/c" })).toMatchObject({ ok: false, status: 400 })
-  })
-
-  it("rejects create-if-missing on the { id } arm (resolve≠create, structural)", () => {
-    expect(parseTargetDescriptor({ id: "c1", createDmIfMissing: true })).toMatchObject({
-      ok: false,
-      status: 400,
-    })
-    expect(parseTargetDescriptor({ id: "c1", createThreadIfMissing: true })).toMatchObject({
-      ok: false,
-      status: 400,
-    })
-  })
-})
 
 describe("resolveMessageTarget — single mask output + surface→target (Aigneis ④)", () => {
   beforeEach(() => {

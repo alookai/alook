@@ -5,10 +5,9 @@ export type PageCache = InfiniteData<MessagesWindowPage>
 
 
 
-export function removeThreadFromCache(
+export function removeOpenerMessageFromCache(
   cache: PageCache | undefined,
-  threadId: string,
-  openerMessageId?: string,
+  openerMessageId: string,
 ): PageCache | undefined {
   if (!cache) return cache
   let touched = false

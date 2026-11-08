@@ -16,14 +16,8 @@ vi.mock("../discovery", async (importOriginal) => ({
   resolveAlookCliPathWithFallback: vi.fn(() => undefined),
 }));
 
-import {
-  acquireDaemonReplacementLock,
-  daemonReconnect,
-  daemonRunFromIpc,
-  daemonStart,
-  daemonStartById,
-  removeReplacementLockIfMatches,
-} from "./daemonStart";
+import { daemonReconnect, daemonRunFromIpc, daemonStart, daemonStartById } from "./daemonStart";
+import { acquireDaemonReplacementLock, removeReplacementLockIfMatches } from "./daemonState";
 import { readDaemonVersion } from "../version";
 
 describe("daemon lifecycle ownership cleanup", () => {

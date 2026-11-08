@@ -43,7 +43,6 @@ export function buildMessagesUrl(base: string, pageParam: MessagesPageParam, tag
 }
 
 async function fetchMessagesTransport(
-  queryClient: QueryClient,
   url: string,
   signal: AbortSignal | undefined,
   options: MessagesTransportOptions | undefined,
@@ -82,7 +81,7 @@ export const channelMessagesQueryFn =
       pageParam,
       tag,
     )
-    const page = await fetchMessagesTransport(originalClient, url, signal, { ...options, observation: { ...observation,
+    const page = await fetchMessagesTransport(url, signal, { ...options, observation: { ...observation,
       role: pageParam.mode === "older" || pageParam.mode === "newer" ? "pagination" : "window", windowMode: pageParam.mode,
     } }, publicationToken)
     {
@@ -137,4 +136,3 @@ export function messageWindowOptions(
     networkMode: "always",
   })
 }
-

@@ -1,7 +1,10 @@
+import { machineResourceFixture } from "@/test/community-resource-fixtures"
+import { machineObservationsOptions } from "@/lib/community/machines"
+import { handleMachineCreated } from "@/hooks/community/community-ws/presence-machine-events"
 import React from "react"
 import { IsRestoringProvider } from "@tanstack/react-query"
 import { beforeEach, expect, it, vi } from "vitest"
-import { act, render, waitFor } from "@/test/react-dom-harness"
+import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityModuleRouteContext } from "@/contexts/community/module-route"
@@ -9,15 +12,17 @@ import { communityKeys } from "@/lib/query-keys"
 import { MachineList } from "./machine-list"
 
 const load = vi.hoisted(() => vi.fn())
+const leaf = vi.hoisted(() => ({ sheet: null as React.ComponentProps<typeof import("./pair-machine-sheet").PairMachineSheet> | null }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: load, getErrorMessage: () => "Unavailable" }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }), useSearchParams: () => new URLSearchParams() }))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
-vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: () => null }))
+vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: (props: React.ComponentProps<typeof import("./pair-machine-sheet").PairMachineSheet>) => { leaf.sheet = props; return null } }))
+vi.mock("./machine-card", async original => ({ ...await original<typeof import("./machine-card")>(), MachineCard: ({ machine, onReconnect }: { machine: { id: string }; onReconnect: () => void }) => <button onClick={onReconnect}>Reconnect {machine.id}</button> }))
 vi.mock("./guide-me-avatar-motion", () => ({ GuideMeAvatarMotion: () => null }))
 vi.mock("@/lib/community-onboarding", () => ({ useCommunityOnboarding: () => "done", startCommunityOnboarding: vi.fn() }))
 vi.mock("@/lib/utils", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/utils")>(), getAppMode: () => "dev" }))
 
-beforeEach(() => { load.mockReset() })
+beforeEach(() => { load.mockReset(); leaf.sheet = null })
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -71,4 +76,30 @@ it.each([false, true])("shows a complete cached empty list while its capacity re
   expect(view.getByText("No machines yet")).toBe(empty)
   await act(async () => { primary.resolve({ machines: [], complete: true }); observations.resolve({ quotas: [] }) })
   expect(view.getByText("No machines yet")).toBe(empty)
+})
+
+it.each(["pair", "reconnect"] as const)("requires the exact local token and accepted machine for %s", async mode => {
+  const { client, registry } = await createCommunityQueryOwner()
+  const unrelated = machineResourceFixture({ id: "unrelated", hostname: "Other", status: "online", lastSeenAt: "2026-01-01T00:00:00Z" })
+  const expected = machineResourceFixture({ id: "expected", hostname: "Expected", status: "offline", lastSeenAt: null })
+  client.setQueryData(communityKeys.machines(), { machines: [unrelated, expected], complete: true, observed: true, source: "network" })
+  client.setQueryData(machineObservationsOptions().queryKey, { quotas: [], machineCapacity: { plan: { id: "studio", displayName: "Studio" }, isFounder: false, limit: 10, ownedCount: 2, onlineCount: 1 } })
+  load.mockImplementation(() => new Promise(() => {}))
+  const view = render(<CommunityTestProvider client={client} registry={registry}><CommunityModuleRouteContext value={{ href: "/c/me/machines", routeCommitted: false }}><MachineList /></CommunityModuleRouteContext></CommunityTestProvider>)
+  if (mode === "pair") fireEvent.click(view.getByRole("button", { name: "Connect a machine" }))
+  else fireEvent.click(view.getByRole("button", { name: "Reconnect expected" }))
+  expect(leaf.sheet?.open).toBe(true)
+  act(() => leaf.sheet!.setPendingTokenId("current-token"))
+  act(() => registry.runtime.ui.actions.setAcceptedMachinePairing({ tokenId: "other-token", machineId: "unrelated" }))
+  expect(leaf.sheet?.pendingTokenId).toBe("current-token")
+  expect(leaf.sheet?.connectedHostname).toBeNull()
+  if (mode === "reconnect") {
+    act(() => registry.runtime.ui.actions.setAcceptedMachinePairing({ tokenId: "current-token", machineId: "unrelated" }))
+    expect(leaf.sheet?.connectedHostname).toBeNull()
+  }
+  act(() => registry.runtime.ui.actions.setAcceptedMachinePairing({ tokenId: "current-token", machineId: "expected" }))
+  expect(leaf.sheet?.connectedHostname).toBeNull()
+  await act(async () => { await handleMachineCreated({ type: "community:machine.created", tokenId: "current-token", machine: { ...expected, status: "online", lastSeenAt: "2026-01-01T00:00:01Z" } }, { queryClient: client }) })
+  await waitFor(() => expect(leaf.sheet?.connectedHostname).toBe("Expected"))
+  expect(leaf.sheet?.pendingTokenId).toBe("current-token")
 })

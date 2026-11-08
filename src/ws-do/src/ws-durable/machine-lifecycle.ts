@@ -1,3 +1,4 @@
+import { publishMachinePresence } from "./machine-presence"
 import {
   COMMUNITY_MACHINE_HEARTBEAT_MS,
   COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
@@ -19,7 +20,6 @@ import type {
   ConnectionState,
   WsDurableContext,
 } from "./internal"
-import { notifyUserDO } from "./presence-typing"
 
 type DiagnosticAlarmHint = Readonly<{ machineId: string; deadlineAt: number }>
 
@@ -121,7 +121,7 @@ async function markIdentityOffline(
     epoch: identity,
   })
   if (result.type === "stale_epoch") return false
-  await notifyUserDO(context, identity.userId, {
+  await publishMachinePresence(context, identity.userId, {
     type: WS_EVENTS.MACHINE_STATUS,
     machineId: identity.machineId,
     status: "offline",
@@ -243,7 +243,7 @@ export async function handleMachineAlarm(context: WsDurableContext): Promise<voi
           }
           currentLeaseCount++
           if (heartbeat.priorStatus === "offline") {
-            await notifyUserDO(context, identity.userId, {
+            await publishMachinePresence(context, identity.userId, {
               type: WS_EVENTS.MACHINE_STATUS,
               machineId: identity.machineId,
               status: "online",
@@ -317,7 +317,7 @@ export async function handleMachineAlarm(context: WsDurableContext): Promise<voi
         await context.ctx.storage.delete(IDENTITY_KEY)
       }
     } else {
-      await notifyUserDO(context, stored.userId, {
+      await publishMachinePresence(context, stored.userId, {
         type: WS_EVENTS.MACHINE_STATUS,
         machineId: stored.machineId,
         status: "offline",

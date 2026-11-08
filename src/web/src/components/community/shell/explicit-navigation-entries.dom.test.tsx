@@ -2,9 +2,9 @@ import { CommunityTestProvider as QueryClientProvider } from "@/test/community-o
 import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { createElement, useLayoutEffect } from "react"
 import { QueryClient } from "@tanstack/react-query"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
-import { useCommunityStore } from "@/stores/community"
+
 import { communityKeys } from "@/lib/query-keys"
 import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { useBotListController } from "../bots/bot-list-controller"
@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => ({
   createDm: vi.fn(),
   join: vi.fn(),
   alreadyMember: false,
-  onboarding: null as { status: string; stage: string; botId?: string } | null,
 }))
 
 vi.mock("next/navigation", () => ({
@@ -57,13 +56,6 @@ vi.mock("@/components/community/social/friends-page", () => ({
   FriendsPage: ({ onDm }: { onDm: (id: string) => Promise<void> }) => createElement("button", {
     onClick: () => { void onDm("friend") },
   }, "Friends DM"),
-}))
-vi.mock("@/lib/community-onboarding", () => ({
-  useCommunityOnboarding: () => mocks.onboarding,
-  readCommunityOnboardingState: () => mocks.onboarding,
-  advanceCommunityOnboarding: vi.fn(),
-  updateCommunityOnboardingResources: vi.fn(),
-  recoverCommunityOnboardingMachine: vi.fn(),
 }))
 vi.mock("@/hooks/community/use-servers", () => ({
   useServers: () => ({ servers: mocks.alreadyMember ? [{ id: "server" }] : [] }),
@@ -116,29 +108,23 @@ const bot = { id: "bot" } as BotSummary
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.alreadyMember = false
-  mocks.onboarding = null
 
 })
 
 
 describe("real navigation entry actions", () => {
-  it.each(["bot DM", "guided DM", "created bot DM", "invite Join", "Friends DM"])(
+  it.each(["bot DM", "invite Join", "Friends DM"])(
     "%s supersedes the old resolver before its own mutation completes",
     async (entry) => {
       const mutation = deferred<{ conversation: { id: string }; serverId: string }>()
       mocks.createDm.mockReturnValue(mutation.promise)
       mocks.join.mockReturnValue(mutation.promise)
-      if (entry.includes("guided") || entry.includes("created")) {
-        mocks.onboarding = { status: "active", stage: "bot", botId: "bot" }
-      }
       const view = renderEntries()
       const old = deferred<string>()
       let oldResult!: Promise<boolean>
       act(() => { oldResult = view.navigation.resolveAndPush(() => old.promise) })
       act(() => {
         if (entry === "bot DM") void view.bots.chatWithBot(bot)
-        else if (entry === "guided DM") view.bots.openGuidedCreate()
-        else if (entry === "created bot DM") void view.bots.onBotCreated(bot)
         else fireEvent.click(screen.getByRole("button", { name: entry === "invite Join" ? "Join" : "Friends DM" }))
       })
       expect(mocks.push).not.toHaveBeenCalled()
@@ -175,7 +161,7 @@ describe("real navigation entry actions", () => {
   it("opening the bot creation dialog preserves the pending intent", () => {
     const view = renderEntries()
     act(() => view.navigation.push("/c/me/old"))
-    act(() => view.bots.openGuidedCreate())
+    act(() => view.bots.openCreate())
     expect(view.bots.createOpen).toBe(true)
     expect(view.navigation.pendingHref).toBe("/c/me/old")
     expect(mocks.push).toHaveBeenCalledOnce()

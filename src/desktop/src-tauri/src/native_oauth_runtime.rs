@@ -1,3 +1,4 @@
+use crate::current_listener::CurrentListener;
 use crate::native_command_guard::guard;
 use crate::native_oauth::{Exchange, Proof, Record, Registration, Snapshot};
 use std::sync::{Arc, Mutex};
@@ -6,42 +7,10 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Store, StoreExt};
 
-#[derive(Default)]
-struct Notifications<T> {
-    next_id: u64,
-    current: Option<(u64, T)>,
-}
-
-impl<T> Notifications<T> {
-    fn install(&mut self, channel: T) -> u64 {
-        self.next_id += 1;
-        self.current = Some((self.next_id, channel));
-        self.next_id
-    }
-    fn remove(&mut self, id: u64) {
-        if self
-            .current
-            .as_ref()
-            .is_some_and(|(current, _)| *current == id)
-        {
-            self.current = None;
-        }
-    }
-    fn notify(&mut self, send: impl FnOnce(&T) -> bool) {
-        if self
-            .current
-            .as_ref()
-            .is_some_and(|(_, channel)| !send(channel))
-        {
-            self.current = None;
-        }
-    }
-}
-
 pub struct NativeOauthState {
     record: Mutex<Record>,
     store: Arc<Store<tauri::Wry>>,
-    notifications: Mutex<Notifications<Channel<()>>>,
+    notifications: Mutex<CurrentListener<Channel<()>>>,
 }
 
 fn now() -> u64 {
@@ -96,7 +65,7 @@ impl NativeOauthState {
 pub fn retire_listener(app: &AppHandle) {
     if let Some(state) = app.try_state::<NativeOauthState>() {
         if let Ok(mut listeners) = state.notifications.lock() {
-            listeners.current = None;
+            listeners.retire();
         }
     }
 }
@@ -143,10 +112,7 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let state = NativeOauthState {
         record: Mutex::new(record),
         store,
-        notifications: Mutex::new(Notifications {
-            next_id: 0,
-            current: None,
-        }),
+        notifications: Mutex::new(CurrentListener::default()),
     };
     state.transact(|_| Ok(()))?;
     #[cfg(target_os = "linux")]
@@ -353,7 +319,7 @@ mod tests {
         )
         .unwrap();
         assert!(accepted);
-        let mut slots = Notifications::<()>::default();
+        let mut slots = CurrentListener::<()>::default();
         slots.notify(|_| panic!("not registered"));
         slots.install(());
         slots.notify(|_| false);
@@ -380,27 +346,5 @@ mod tests {
             assert!(!caller_allowed("splash", &url, debug));
         }
     }
-    #[test]
-    fn listener_replacement_late_cleanup_and_failed_delivery_do_not_touch_candidates() {
-        let mut slots = Notifications::<u8>::default();
-        slots.notify(|_| panic!("no listener"));
-        let old = slots.install(1);
-        let new = slots.install(2);
-        slots.remove(old);
-        slots.notify(|value| {
-            assert_eq!(*value, 2);
-            true
-        });
-        slots.notify(|value| {
-            assert_eq!(*value, 2);
-            true
-        });
-        slots.notify(|_| false);
-        assert!(slots.current.is_none());
-        let latest = slots.install(3);
-        slots.remove(new);
-        assert_eq!(slots.current, Some((latest, 3)));
-        slots.remove(latest);
-        assert!(slots.current.is_none());
-    }
+
 }

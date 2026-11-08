@@ -769,7 +769,7 @@ describe("all-account persisted cache management", () => {
 
   it("sums serialized UTF-8 bytes across account and cache versions", async () => {
     await set("alook:qc:v1:u_alice:client", "abc")
-    await set("alook:qc:cache:u_bob:client", "你好")
+    await set("alook:qc:cache:u_bob:client", "€€")
     await set("alook:qc:v99:u_future:client", "!")
 
     expect(await getPersistedCacheSizeBytes()).toBe(10)

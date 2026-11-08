@@ -193,7 +193,7 @@ describe("createTimelineRecorder exact turn ownership", () => {
     const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
     const owner = begin(recorder, "turn-a");
     recorder.recordInboxPull("a", owner, [msg("#1", "x".repeat(1_020_000))]);
-    recorder.recordAssistantMessage("a", owner, "你".repeat(30_000));
+    recorder.recordAssistantMessage("a", owner, "€".repeat(30_000));
     recorder.finalizeTurn("a", owner);
 
     const [row] = readRecentEntries(dir, { now: NOW() });

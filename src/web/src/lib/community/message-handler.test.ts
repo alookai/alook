@@ -8,17 +8,14 @@ const mockGetMessage = vi.fn()
 const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockGetMessageInScope = vi.fn()
 const mockHardDeleteMessage = vi.fn()
-const mockGetUserInternal = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
-const mockCreateMentions = vi.fn()
 const mockGetThreadChannelByParentMessage = vi.fn()
 const mockGetChannel = vi.fn()
 const mockIsChannelPrivate = vi.fn(() => false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
 const mockCreateChannelMember = vi.fn()
-const mockAddThreadParticipants = vi.fn()
 const firstAgentReplyStatement = { kind: "first-agent-reply-statement" }
 const mockRecordFirstAgentReplyPersistedStatement = vi.fn(() => firstAgentReplyStatement)
 
@@ -50,21 +47,12 @@ vi.mock("@alook/shared", async () => {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
         listMemberUserIds: (...a: unknown[]) => mockListMemberUserIds(...a),
       },
-      communityMention: {
-        createMentions: (...a: unknown[]) => mockCreateMentions(...a),
-      },
       communityChannel: {
         getThreadChannelByParentMessage: (...args: unknown[]) => mockGetThreadChannelByParentMessage(...args),
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
         isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
         createChannelMember: (...a: unknown[]) => mockCreateChannelMember(...a),
-      },
-      communityThread: {
-        addThreadParticipants: (...a: unknown[]) => mockAddThreadParticipants(...a),
-      },
-      user: {
-        getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
       },
       communityFunnelAnalytics: {
         recordFirstAgentReplyPersistedStatement: (...a: unknown[]) => mockRecordFirstAgentReplyPersistedStatement(...a),
@@ -86,36 +74,7 @@ vi.mock("./fanout", () => ({
 }))
 
 
-import {
-  createCommunityMessage,
-  getCommunityMessageReplay,
-  isDmTarget,
-  isThreadTarget,
-  isChannelTarget,
-  type MessageTarget,
-} from "./message-handler"
-
-describe("message-target predicates", () => {
-  const channel: MessageTarget = { kind: "channel", channelId: "c1", serverId: "s1" }
-  const thread: MessageTarget = { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "s1" }
-  const dm: MessageTarget = { kind: "dm", channelId: "d1", otherUserId: "u1" }
-
-  it("isChannelTarget", () => {
-    expect(isChannelTarget(channel)).toBe(true)
-    expect(isChannelTarget(thread)).toBe(false)
-    expect(isChannelTarget(dm)).toBe(false)
-  })
-  it("isThreadTarget", () => {
-    expect(isThreadTarget(thread)).toBe(true)
-    expect(isThreadTarget(channel)).toBe(false)
-    expect(isThreadTarget(dm)).toBe(false)
-  })
-  it("isDmTarget", () => {
-    expect(isDmTarget(dm)).toBe(true)
-    expect(isDmTarget(channel)).toBe(false)
-    expect(isDmTarget(thread)).toBe(false)
-  })
-})
+import { createCommunityMessage, getCommunityMessageReplay } from "./message-handler"
 
 function messageRow(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -142,7 +101,6 @@ describe("createCommunityMessage — replyToId write-path scope validation (dang
   beforeEach(() => {
     vi.clearAllMocks()
     mockCreateMessage.mockResolvedValue({ id: "msg_1" })
-    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false, deletedAt: null })
   })
 
   // The reply target the client asked to answer, living in the SAME channel.
@@ -159,6 +117,7 @@ describe("createCommunityMessage — replyToId write-path scope validation (dang
     mockGetMessage.mockResolvedValue(messageRow({ replyToId: "reply_1" }))
 
     const result = await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -183,6 +142,7 @@ describe("createCommunityMessage — replyToId write-path scope validation (dang
     mockGetMessage.mockResolvedValue(messageRow({ replyToId: null }))
 
     const result = await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -216,6 +176,7 @@ describe("createCommunityMessage — replyToId write-path scope validation (dang
     mockGetMessage.mockResolvedValue(messageRow({ replyToId: null }))
 
     const result = await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -230,11 +191,11 @@ describe("createCommunityMessage — replyToId write-path scope validation (dang
   })
 
   it("bot author (source cli) hits the SAME drop — the send codepath is shared, so bots can't POST a dangling reply either (#204)", async () => {
-    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: true, deletedAt: null })
     mockGetMessageInScope.mockResolvedValue(null)
     mockGetMessage.mockResolvedValue(messageRow({ replyToId: null }))
 
     const result = await createCommunityMessage({
+      authorKind: "bot" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -257,6 +218,7 @@ describe("createCommunityMessage — replyToId write-path scope validation (dang
     mockGetMessage.mockResolvedValue(messageRow({ replyToId: null }))
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -276,6 +238,7 @@ describe("createCommunityMessage — CAS race", () => {
     mockCreateMessage.mockResolvedValue(null)
 
     const result = await createCommunityMessage({
+      authorKind: "bot" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -287,16 +250,15 @@ describe("createCommunityMessage — CAS race", () => {
     expect(result).toEqual({ ok: false, status: 409, error: "seq_conflict" })
     // Lost the race — none of the downstream pipeline steps should fire.
     expect(mockGetMessage).not.toHaveBeenCalled()
-    expect(mockCreateMentions).not.toHaveBeenCalled()
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
   })
 
   it("passes expectedSeq through to createMessage when provided", async () => {
     mockCreateMessage.mockResolvedValue({ id: "msg_1" })
     mockGetMessage.mockResolvedValue(messageRow())
-    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false, deletedAt: null })
 
     await createCommunityMessage({
+      authorKind: "bot" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -314,9 +276,9 @@ describe("createCommunityMessage — CAS race", () => {
   it("omits expectedSeq entirely from the createMessage call when not provided (regression — web/human sends unaffected)", async () => {
     mockCreateMessage.mockResolvedValue({ id: "msg_1" })
     mockGetMessage.mockResolvedValue(messageRow())
-    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false, deletedAt: null })
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -331,7 +293,6 @@ describe("createCommunityMessage — CAS race", () => {
 describe("createCommunityMessage — committed delivery handoff", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false, deletedAt: null })
   })
 
   it("returns reserved attachment dimensions but hands only committed identity to the dispatcher", async () => {
@@ -358,6 +319,7 @@ describe("createCommunityMessage — committed delivery handoff", () => {
     mockGetMessage.mockResolvedValue(messageRow())
 
     const result = await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -382,6 +344,7 @@ describe("createCommunityMessage — committed delivery handoff", () => {
     mockGetMessage.mockResolvedValue(messageRow())
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: {
@@ -446,7 +409,6 @@ describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockCreateMessage.mockResolvedValue({ id: "msg_1" })
-    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false, deletedAt: null })
     mockListMembers.mockResolvedValue([
       { userId: "author_1", userName: "Author", discriminator: "1111" },
       { userId: "alex_1", userName: "Alex", discriminator: "0001" },
@@ -461,6 +423,7 @@ describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
   ])("excludes protected/literal member tokens from committed targets: %s", async (content) => {
     mockGetMessage.mockResolvedValue(messageRow({ content }))
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -475,6 +438,7 @@ describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Alex#0002, over here" }))
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -489,6 +453,7 @@ describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Alex#0001" }))
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -503,7 +468,6 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
   beforeEach(() => {
     vi.clearAllMocks()
     mockCreateMessage.mockResolvedValue({ id: "msg_1" })
-    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false, deletedAt: null })
     mockListMembers.mockResolvedValue([
       { userId: "author_1", userName: "Author", discriminator: "1111" },
       { userId: "bob_1", userName: "Bob", discriminator: "0001" },
@@ -518,6 +482,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     const content = "`@Bob#0001` [@Cara#0002](https://example.com) \\@Cara#0002 @Cara#0002"
     mockGetMessage.mockResolvedValue(messageRow({ content, channelId: "t1" }))
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "srv_1" },
@@ -531,6 +496,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
   it("preserves an explicit API broadcast without a body token and clamps its audience", async () => {
     mockGetMessage.mockResolvedValue(messageRow({ content: "API broadcast", mentionType: "everyone" }))
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -545,6 +511,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Bob" }))
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -553,14 +520,13 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
 
     // Channel roster is NOT expanded by a mention.
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
-    // Bob was outside the audience → dropped → no mention row.
-    expect(mockCreateMentions).not.toHaveBeenCalled()
   })
 
   it("keeps an @mention of an existing channel member", async () => {
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Cara#0002" }))
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -575,6 +541,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     mockGetMessage.mockResolvedValue(messageRow({ content: "@everyone hi", mentionType: "everyone" }))
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -591,6 +558,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     mockCreateMessage.mockResolvedValueOnce({ id: "msg_1", joinedParticipantUserIds: ["author_1"] })
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "srv_1" },
@@ -605,7 +573,6 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     // Bob is outside the (private) parent audience → dropped, no mention row,
     // and NEVER auto-added to the channel roster.
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
-    expect(mockCreateMentions).not.toHaveBeenCalled()
     expect(mockDispatchCommittedMessage).toHaveBeenCalledWith({}, "msg_1", {
       joinedParticipantUserIds: ["author_1"],
     })
@@ -617,6 +584,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Cara#0002", channelId: "t1" }))
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "srv_1" },
@@ -641,6 +609,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     mockGetMessage.mockResolvedValue(messageRow({ content: "@everyone heads up", channelId: "t1", mentionType: "everyone" }))
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "srv_1" },
@@ -668,6 +637,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     )
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "srv_1" },
@@ -688,6 +658,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     mockGetMessage.mockResolvedValue(messageRow({ content: "first reply", channelId: "p1" }))
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "thread", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
@@ -705,6 +676,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Cara#0002", channelId: "p1" }))
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "thread", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
@@ -717,40 +689,12 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     ])
   })
 
-  it("thread under a forum + skipChildChannelUpdate: enroll STILL runs, but the parent CHILD_CHANNEL_UPDATE is suppressed", async () => {
-    // The post-opening CREATE path (createMessageWithThread) routes its
-    // reply as kind:"thread" (so an @-mentioned user enrolls as a
-    // participant → appears in members), AND sets skipChildChannelUpdate to
-    // avoid colliding with its own CHILD_CHANNEL_CREATE. Enroll and the WS
-    // tick are decoupled: enroll runs, the tick does not.
-    mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
-    mockGetMessage.mockResolvedValue(messageRow({ content: "welcome @Cara#0002", channelId: "p1" }))
-    mockCreateMessage.mockResolvedValueOnce({ id: "msg_1", joinedParticipantUserIds: ["author_1", "cara_1"] })
-
-    await createCommunityMessage({
-      db: {} as never,
-      authorId: "author_1",
-      target: { kind: "thread", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
-      body: { content: "welcome @Cara#0002" },
-      skipChildChannelUpdate: true,
-    })
-
-    // Enroll is unaffected by the flag — Cara joins as a participant.
-    expect(mockCreateMessage.mock.calls.at(-1)?.[1].participants).toEqual([
-      { userId: "author_1", source: "spoke" },
-      { userId: "cara_1", source: "mention" },
-    ])
-    expect(mockDispatchCommittedMessage).toHaveBeenCalledWith({}, "msg_1", {
-      joinedParticipantUserIds: ["author_1", "cara_1"],
-      suppressParentProjection: true,
-    })
-  })
-
   it("public channel: mention of any server member is kept, no roster row", async () => {
     mockIsChannelPrivate.mockResolvedValue(false)
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Bob#0001" }))
 
     await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -766,6 +710,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     mockDispatchCommittedMessage.mockReturnValueOnce(new Promise<void>(() => {}))
 
     const result = await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -780,6 +725,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     mockGetMessage.mockResolvedValue(messageRow({ content: "hello" }))
 
     const result = await createCommunityMessage({
+      authorKind: "human" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -793,44 +739,11 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     await expect(result.broadcast?.()).resolves.toBeUndefined()
     expect(mockDispatchCommittedMessage).toHaveBeenCalledWith({}, "msg_1", {})
   })
-
-  it("suppressBroadcast (migration-backfill mode): STRUCTURAL core runs (enroll + mention rows), real-time delivery shell is fully dropped", async () => {
-    // The existing-data migration's atomic primitive needs a create that
-    // persists the message + enrolls participants + writes mention rows but
-    // fires ZERO real-time WS (no ping / no M×N frames on historical
-    // backfill). This proves the shell-OFF capability keeps the structural core
-    // — unlike skipMentions, which would ALSO drop enroll (the 213-218 class bug
-    // this whole knob-split guards against).
-    mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
-    mockGetMessage.mockResolvedValue(messageRow({ content: "welcome @Cara#0002", channelId: "p1" }))
-
-    const result = await createCommunityMessage({
-      db: {} as never,
-      authorId: "author_1",
-      target: { kind: "thread", channelId: "p1", parentChannelId: "forum_1", serverId: "srv_1" },
-      body: { content: "welcome @Cara#0002" },
-      suppressBroadcast: true,
-    })
-
-    // Structural core KEPT: participant enroll (reach-axis write) still runs...
-    expect(mockCreateMessage.mock.calls.at(-1)?.[1].participants).toEqual([
-      { userId: "author_1", source: "spoke" },
-      { userId: "cara_1", source: "mention" },
-    ])
-    // ...and mention ROW persistence still runs (rows are not a broadcast).
-    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["cara_1"].map((userId) => ({ userId, kind: "mention" })))
-    // Real-time delivery shell FULLY dropped: no WS fan-out of any kind.
-    expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
-    // ...and no deferred thunk handed back either (unlike deferBroadcast).
-    expect(result.ok).toBe(true)
-    if (result.ok) expect(result.broadcast).toBeUndefined()
-  })
 })
 
 describe("createCommunityMessage — attachment reservation-first flow (agent path)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: true, deletedAt: null })
     mockGetMessage.mockResolvedValue(messageRow())
     mockListByMessageIds.mockResolvedValue([])
   })
@@ -883,6 +796,7 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
     mockListByMessageIds.mockResolvedValue([replayAttachment])
 
     const replay = await createCommunityMessage({
+      authorKind: "bot" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -902,6 +816,7 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
   it("atomic attachment eligibility failure returns 400 without compensation or dispatch", async () => {
     mockCreateMessage.mockRejectedValue(new Error("NOT NULL constraint failed: community_message.content"))
     const res = await createCommunityMessage({
+      authorKind: "bot" as const,
       db: {} as never, authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
       body: { content: "hi" }, attachmentIds: ["att_1", "att_2"],
@@ -917,6 +832,7 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
 
     await expect(
       createCommunityMessage({
+      authorKind: "bot" as const,
         db: {} as never,
         authorId: "author_1",
         target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -932,6 +848,7 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
     mockCreateMessage.mockResolvedValue(null) // CAS-null (returned, not thrown)
 
     const res = await createCommunityMessage({
+      authorKind: "bot" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -964,6 +881,7 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
     ])
 
     const res = await createCommunityMessage({
+      authorKind: "bot" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -995,6 +913,7 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
     ])
 
     const res = await createCommunityMessage({
+      authorKind: "bot" as const,
       db: {} as never,
       authorId: "author_1",
       target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
@@ -1021,7 +940,6 @@ describe("post-commit notification registration", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockCreateMessage.mockResolvedValue({ id: "msg_1", createdThread: { id: "child", name: "post", createdAt: "2026-01-01" } })
-    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false })
     mockGetMessage.mockResolvedValue(messageRow())
     mockListByMessageIds.mockResolvedValue([])
     mockDispatchCommittedMessage.mockResolvedValue(undefined)
@@ -1029,6 +947,7 @@ describe("post-commit notification registration", () => {
   })
 
   const params = {
+    authorKind: "human" as const,
     db: {} as never,
     authorId: "author_1",
     target: { kind: "channel" as const, channelId: "c1", serverId: "s1" },
@@ -1073,19 +992,12 @@ describe("post-commit notification registration", () => {
       resolve()
     }
   })
-
-  it("preserves explicit notification suppression", async () => {
-    expect((await createCommunityMessage({ ...params, suppressBroadcast: true })).ok).toBe(true)
-    expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
-    expect(mockFanOutToChannel).not.toHaveBeenCalled()
-  })
 })
 
 describe("first Agent reply funnel boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockCreateMessage.mockResolvedValue({ id: "msg_1" })
-    mockGetUserInternal.mockResolvedValue({ id: "bot_1", isBot: true, deletedAt: null })
     mockGetMessage.mockResolvedValue(messageRow({ authorId: "bot_1" }))
     mockListByMessageIds.mockResolvedValue([])
   })
@@ -1118,7 +1030,6 @@ describe("first Agent reply funnel boundary", () => {
   it.each([
     { authorKind: "human" as const, source: "web" as const },
     { authorKind: "bot" as const, source: "web" as const },
-    { authorKind: "bot" as const, source: "cli" as const, messageType: "system" },
   ])("does not record non-qualifying messages", async (input) => {
     await createCommunityMessage({
       db: {} as never,

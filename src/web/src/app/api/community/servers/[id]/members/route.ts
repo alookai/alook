@@ -16,22 +16,9 @@ import { mapMemberForApi } from "@/lib/community/member-payload"
 import { fetchOnlineUserIds, toMemberStatus } from "@/lib/community/member-presence"
 
 /**
- * GET /api/community/servers/[id]/members — dual-actor server-member list
- * (route/disc trunk, 接口树统一 轴3). Folds the flat bot `listMembers` verb into
- * this canonical server-scoped collection: human addresses by `[id]` path, bot
- * addresses by `?server=<ref>` (id OR display name), both converge on one
- * serverId and one member read. Type/caller is data, not a separate route.
- *
- * Two projections off actor.kind (Fork-C): human = full UI DTO (paginated,
- * owner-scoped isBot/ownerUserId via `mapMemberForApi` botGating) ; bot = lean
- * `{handle, role, online, status}` (no internal ids), also PAGINATED (stable
- * keyset cursor, `hasMore`/`cursor` on the wire) — the roster is a whole-server
- * audience and potentially unbounded, unlike a channel/thread roster.
- *
- * ①-C existence mask: the bot's `resolveServerByNameForMember` is member-scoped,
- * so a server the bot isn't in returns zero matches → 404 "server not found"
- * (indistinguishable from a truly nonexistent server — no existence leak). The
- * human arm keeps `requireServerMember`'s own 403/404.
+ * Bot server resolution is member-scoped and returns404 for inaccessible
+ * servers. Its lean roster uses a stable keyset cursor because server
+ * membership is unbounded; human profile fields retain their owner gates.
  */
 export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)

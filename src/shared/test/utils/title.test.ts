@@ -1,79 +1,43 @@
 import { describe, it, expect } from "vitest";
-import { truncateTitle, stripInlineMarkup, deriveThreadName } from "../../src/utils/title";
+import { deriveThreadName } from "../../src/utils/title";
+import { messagePreviewText } from "../../src/lib/message-preview";
 
-describe("truncateTitle", () => {
-  it("collapses runs of whitespace into single spaces", () => {
-    expect(truncateTitle("hello   \n\t  world")).toBe("hello world");
-  });
+const previewText = (content: string) => messagePreviewText({ content });
 
-  it("trims leading and trailing whitespace", () => {
-    expect(truncateTitle("   padded title   ")).toBe("padded title");
-  });
-
-  it("returns the text unchanged when at or under the cap", () => {
-    const exact = "a".repeat(50);
-    expect(truncateTitle(exact)).toBe(exact);
-    expect(truncateTitle("short")).toBe("short");
-  });
-
-  it("caps at a word boundary and appends an ellipsis", () => {
-    // 60-char input, last space before the 50-char cut is after "boundary".
-    const text =
-      "the quick brown fox jumps over the lazy dog near a boundary marker";
-    const out = truncateTitle(text);
-    expect(out.endsWith("...")).toBe(true);
-    expect(out).not.toContain("  ");
-    // Cut on a space, never mid-word.
-    expect(out.slice(0, -3).endsWith(" ")).toBe(false);
-    expect(out.length).toBeLessThanOrEqual(53); // <=50 word-boundary cut + "..."
-  });
-
-  it("hard-cuts mid-word when there's no late-enough space (lastSpace <= 20)", () => {
-    // One long token (no spaces) — lastSpace is -1, so it slices at maxLen.
-    const text = "x".repeat(80);
-    const out = truncateTitle(text);
-    expect(out).toBe("x".repeat(50) + "...");
-  });
-
-  it("respects a custom maxLen", () => {
-    expect(truncateTitle("hello world", 5)).toBe("hello...");
-  });
-});
-
-describe("stripInlineMarkup", () => {
+describe("semantic message preview", () => {
   it("masks spoiler text", () => {
-    expect(stripInlineMarkup("a ||secret|| b")).toBe("a [Spoiler] b");
+    expect(previewText("a ||secret|| b")).toBe("a [Spoiler] b");
   });
 
   it("retains literal typed HTML", () => {
-    expect(stripInlineMarkup("<spoiler>secret</spoiler> plan")).toBe("<spoiler>secret</spoiler> plan");
-    expect(stripInlineMarkup("line<br/>break")).toBe("line<br/>break");
+    expect(previewText("<spoiler>secret</spoiler> plan")).toBe("<spoiler>secret</spoiler> plan");
+    expect(previewText("line<br/>break")).toBe("line<br/>break");
   });
 
   it("strips bold/emphasis/strike markers", () => {
-    expect(stripInlineMarkup("**bold** _em_ ~~gone~~ *i* __u__")).toBe("bold em gone i u");
+    expect(previewText("**bold** _em_ ~~gone~~ *i* __u__")).toBe("bold em gone i u");
   });
 
   it("keeps inner text of inline and fenced code", () => {
-    expect(stripInlineMarkup("run `npm test` now")).toBe("run npm test now");
-    expect(stripInlineMarkup("```ts\nconst x = 1\n```")).toBe("Code: const x = 1");
+    expect(previewText("run `npm test` now")).toBe("run npm test now");
+    expect(previewText("```ts\nconst x = 1\n```")).toBe("Code: const x = 1");
   });
 
   it("strips leading block markers (heading, quote, list)", () => {
-    expect(stripInlineMarkup("# Title")).toBe("Title");
-    expect(stripInlineMarkup("> quote")).toBe("quote");
-    expect(stripInlineMarkup("- item")).toBe("item");
-    expect(stripInlineMarkup("1. first")).toBe("first");
+    expect(previewText("# Title")).toBe("Title");
+    expect(previewText("> quote")).toBe("quote");
+    expect(previewText("- item")).toBe("item");
+    expect(previewText("1. first")).toBe("first");
   });
 
   it("keeps link/image label text", () => {
-    expect(stripInlineMarkup("see [the docs](https://x.io)")).toBe("see the docs");
-    expect(stripInlineMarkup("![alt text](a.png) after")).toBe("Photo: alt text after");
-    expect(stripInlineMarkup("ref [label][1]")).toBe("ref [label][1]");
+    expect(previewText("see [the docs](https://x.io)")).toBe("see the docs");
+    expect(previewText("![alt text](a.png) after")).toBe("Photo: alt text after");
+    expect(previewText("ref [label][1]")).toBe("ref [label][1]");
   });
 
   it("keeps a @mention discriminator but keeps unicode names", () => {
-    expect(stripInlineMarkup("hi @李四#0042 there")).toBe("hi @李四#0042 there");
+    expect(previewText("hi @Zoë#0042 there")).toBe("hi @Zoë#0042 there");
   });
 });
 

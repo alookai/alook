@@ -1,5 +1,7 @@
 "use client";
 
+import { legacyTweenTimeScale } from "./legacy-tween-time-scale";
+
 import { useRef } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
@@ -102,6 +104,7 @@ export function ByoaSection() {
 
   useGSAP(
     () => {
+      const timeScale = legacyTweenTimeScale();
       gsap.from(".byoa-title", {
         y: 30,
         opacity: 0,
@@ -111,7 +114,7 @@ export function ByoaSection() {
           start: "top 75%",
           toggleActions: "play none none none",
         },
-      });
+      }).timeScale(timeScale);
 
       gsap.from(".byoa-card", {
         y: 30,
@@ -119,11 +122,11 @@ export function ByoaSection() {
         duration: 0.5,
         stagger: 0.1,
         scrollTrigger: {
-          trigger: ".byoa-grid",
+          trigger: sectionRef.current?.querySelector(".byoa-grid"),
           start: "top 80%",
           toggleActions: "play none none none",
         },
-      });
+      }).timeScale(timeScale);
     },
     { scope: sectionRef }
   );

@@ -109,7 +109,6 @@ describe("existing delete media real D1 batches", () => {
 
     expect(results.filter((result) => result.deleted)).toHaveLength(1)
     const winner = results.find((result) => result.deleted)!
-    expect(winner.mediaKeys).toEqual([])
     expect(winner.readStateRevisions).toEqual([{ userId: owner, revision: 1 }])
     await expect(queries.communityReadState.getAccountReadStateSnapshot(db, owner)).resolves.toEqual({
       revision: 1,
@@ -120,7 +119,6 @@ describe("existing delete media real D1 batches", () => {
         lastReadSeq: 1,
       }],
     })
-    expect(results.find((result) => !result.deleted)?.mediaKeys).toEqual([])
     expect(await first("SELECT id FROM community_channel WHERE id = ?", root)).toBeNull()
     expect(await first("SELECT id FROM community_channel WHERE id = ?", child)).toBeNull()
     expect(await first("SELECT id FROM community_attachment WHERE id = ?", `att_pending_child_${stamp}`)).not.toBeNull()
@@ -153,7 +151,7 @@ describe("existing delete media real D1 batches", () => {
     await expect(queries.communityDeleteMedia.deleteServerWithMedia(db, {
       serverId: server,
       ownerId: "not-owner",
-    })).resolves.toEqual({ deleted: false, mediaKeys: [], iconKey: null, readStateRevisions: [] })
+    })).resolves.toEqual({ deleted: false, iconKey: null, readStateRevisions: [] })
 
     const results = await Promise.all([
       queries.communityDeleteMedia.deleteServerWithMedia(db, { serverId: server, ownerId: owner }),
@@ -162,13 +160,11 @@ describe("existing delete media real D1 batches", () => {
     expect(results.filter((result) => result.deleted)).toHaveLength(1)
     expect(results.find((result) => result.deleted)).toEqual({
       deleted: true,
-      mediaKeys: [],
       iconKey: icon,
       readStateRevisions: [{ userId: owner, revision: 1 }],
     })
     expect(results.find((result) => !result.deleted)).toEqual({
       deleted: false,
-      mediaKeys: [],
       iconKey: null,
       readStateRevisions: [],
     })
@@ -277,7 +273,7 @@ describe("reusable file insert and server icon CAS in real D1", () => {
     await expect(queries.communityDeleteMedia.deleteServerWithMedia(db, {
       serverId: server,
       ownerId: owner,
-    })).resolves.toEqual({ deleted: true, mediaKeys: [], iconKey: replacement, readStateRevisions: [] })
+    })).resolves.toEqual({ deleted: true, iconKey: replacement, readStateRevisions: [] })
   })
 
   it("linearizes server deletion before a stale icon replacement at the delete", async () => {
@@ -288,7 +284,7 @@ describe("reusable file insert and server icon CAS in real D1", () => {
     await expect(queries.communityDeleteMedia.deleteServerWithMedia(db, {
       serverId: server,
       ownerId: owner,
-    })).resolves.toEqual({ deleted: true, mediaKeys: [], iconKey: original, readStateRevisions: [] })
+    })).resolves.toEqual({ deleted: true, iconKey: original, readStateRevisions: [] })
     await expect(queries.communityServer.updateServerIconIfCurrent(db, {
       serverId: server,
       expectedIcon: original,

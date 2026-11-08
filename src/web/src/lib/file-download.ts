@@ -1,10 +1,10 @@
 "use client"
 
 import { startAction, finishAction } from "./observability/context"
-import { useCallback, useLayoutEffect, useMemo } from "react"
-import { createStore } from "@tanstack/react-store"
+import { useCallback } from "react"
+import { useApplicationViewSource } from "@/hooks/use-application-view-source"
 import { QueryObserver, queryOptions, useQuery, CancelledError, type QueryKey } from "@tanstack/react-query"
-import { applicationKey, useApplicationOwner, captureApplicationOwner, assertApplicationOwner, type ApplicationOwner } from "./application-owner"
+import { applicationKey, captureApplicationOwner, assertApplicationOwner, type ApplicationOwner } from "./application-owner"
 import { downloadUrl, fileSaveMessage, type FileSaveResult } from "./file-save"
 import { isAbortError } from "./errors"
 
@@ -72,27 +72,16 @@ export async function startFileDownload(owner: ApplicationOwner, target: FileDow
 }
 
 export function useFileDownload(target: FileDownloadTarget) {
-  const owner = useApplicationOwner()
-  const view = useMemo(() => ({ scope: [owner, target.url, target.name], store: createStore({ active: true, generation: 0, controller: new AbortController() }) }), [owner, target.url, target.name]).store
-  useLayoutEffect(() => {
-    view.setState((state) => ({ ...state, active: true, controller: state.controller.signal.aborted ? new AbortController() : state.controller }))
-    return () => {
-      const original = view.get().controller
-      view.setState((state) => ({ ...state, active: false, generation: state.generation + 1 }))
-      original.abort()
-    }
-  }, [view])
+  const view = useApplicationViewSource(JSON.stringify(["file-download", target.url, target.name]))
+  const { owner } = view
   const query = useQuery({ ...downloadOptions(owner, target), enabled: false }, owner.queryClient)
   const state: FileDownloadState = query.isFetching ? { status: "downloading" } : query.data ?? idle
   const start = useCallback(async (onComplete?: (receipt: FileSaveResult) => void) => {
     try {
-      const original = view.get(), token = captureApplicationOwner(owner)
-      assertApplicationOwner(token)
-      if (!original.active) return { status: "cancelled" } as FileSaveResult
-      const receipt = await startFileDownload(owner, target, original.controller.signal)
-      assertApplicationOwner(token)
-      const current = view.get()
-      if (!current.active || current.generation !== original.generation) return { status: "cancelled" } as FileSaveResult
+      const original = view.capture()
+      original.assert()
+      const receipt = await startFileDownload(owner, target, original.signal)
+      original.assert()
       onComplete?.(receipt)
       return receipt
     } catch (error) {

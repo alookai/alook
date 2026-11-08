@@ -1,13 +1,13 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useId, useRef } from "react"
+import { useEffect, useId, useRef } from "react"
 import { ImagePlus } from "lucide-react"
 import { toast } from "sonner"
 import { SeededBackdrop } from "@/components/avatar"
 import { Button } from "@/components/ui/button"
 import { avatarInitial } from "@/lib/community/avatar"
-import { validateIconSourceFile } from "@/lib/community/image-crop"
+import { acquireIconCropSource, type IconCropSource } from "@/lib/community/image-crop"
 import { previewSlug } from "@/lib/community/slug-preview"
 import { tid } from "@/lib/community/testids"
 import { CreateDialogShell } from "./create-dialog-shell"
@@ -70,7 +70,14 @@ export function CreateServerDialog({ onClose, onCreateServer, previewName }: {
   const name = previewName ?? draftName
   const [iconFile, setIconFile] = useAtom(useCreateAtom<File | null>(null))
   const [iconPreview, setIconPreview] = useAtom(useCreateAtom<string | null>(null))
-  const [pendingCropSrc, setPendingCropSrc] = useAtom(useCreateAtom<{ src: string; fileName: string } | null>(null))
+  useEffect(() => () => { if (iconPreview) URL.revokeObjectURL(iconPreview) }, [iconPreview])
+  const cropSource = useCreateAtom<IconCropSource | null>(null)
+  const [pendingCropSrc, setPendingCropSrc] = useAtom(cropSource)
+  useEffect(() => () => {
+    const task = cropSource.get()
+    task?.release()
+    setPendingCropSrc((current) => current === task ? null : current)
+  }, [cropSource, setPendingCropSrc])
   const fileRef = useRef<HTMLInputElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
   const avatarRef = useRef<HTMLButtonElement>(null)
@@ -102,12 +109,13 @@ export function CreateServerDialog({ onClose, onCreateServer, previewName }: {
     const file = e.target.files?.[0]
     e.target.value = ""
     if (!file) return
-    const check = validateIconSourceFile(file)
+    const check = acquireIconCropSource(file)
     if (!check.ok) {
       toast.error(check.error)
       return
     }
-    setPendingCropSrc({ src: URL.createObjectURL(file), fileName: file.name })
+    cropSource.get()?.release();
+    setPendingCropSrc(check.source)
   }
 
   return (
@@ -186,17 +194,15 @@ export function CreateServerDialog({ onClose, onCreateServer, previewName }: {
           originalFileName={pendingCropSrc.fileName}
           maskShape="square"
           onCropped={(file) => {
+            if (cropSource.get() !== pendingCropSrc) { pendingCropSrc.release(); return; }
             setIconFile(file)
-            setIconPreview((prev) => {
-              if (prev) URL.revokeObjectURL(prev)
-              return URL.createObjectURL(file)
-            })
-            URL.revokeObjectURL(pendingCropSrc.src)
-            setPendingCropSrc(null)
+            setIconPreview(URL.createObjectURL(file))
+            pendingCropSrc.release()
+            setPendingCropSrc((current) => current === pendingCropSrc ? null : current)
           }}
           onCancel={() => {
-            URL.revokeObjectURL(pendingCropSrc.src)
-            setPendingCropSrc(null)
+            pendingCropSrc.release()
+            setPendingCropSrc((current) => current === pendingCropSrc ? null : current)
           }}
         />
       )}

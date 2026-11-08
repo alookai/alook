@@ -58,6 +58,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   extension?: UserBarExtension
 }) {
   const nativeMobile = useHydratedClient() && isMobile()
+  const extensionId = useId()
   const profileTriggerRef = useRef<HTMLButtonElement>(null)
   const profileNameTriggerRef = useRef<HTMLButtonElement>(null)
   const lastProfileTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -91,6 +92,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   }
   const extensionContent = extension && extension.active !== "none" ? (
     <UserBarExtensionSlot
+      id={extensionId}
       active={extension.active}
       inbox={extension.inbox}
       profile={extension.profile}
@@ -140,6 +142,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
         )}
       >
         <Inner
+          extensionId={extensionId}
           breakpoint={breakpoint}
           user={user}
           onOpenProfile={onOpenProfile}
@@ -190,7 +193,8 @@ export function UserBarSkeleton() {
   )
 }
 
-function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, inboxOpening, onInboxOpenChange, closeInboxForAction, profileTriggerRef, profileNameTriggerRef, lastProfileTriggerRef, inboxTriggerRef, updateBadgeRef, onRequestExtensionFocus, extension }: {
+function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, inboxOpening, onInboxOpenChange, closeInboxForAction, profileTriggerRef, profileNameTriggerRef, lastProfileTriggerRef, inboxTriggerRef, updateBadgeRef, onRequestExtensionFocus, extension }: {
+  extensionId: string
   breakpoint: Breakpoint
   user: { id: string; name: string; avatar: string; presence?: Presence; runningBotCount?: number }
   onOpenProfile?: OpenProfile
@@ -236,7 +240,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
         onOpenProfile?.(user.name, e, undefined, user.id)
       }} className={cn(styles.target, "rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 focus-visible:ring-offset-muted focus-visible:outline-none sm:focus-visible:ring-offset-4")} aria-label={hasRunningBots
         ? `Open profile. ${runningBotCount} running ${runningBotCount === 1 ? "bot" : "bots"}.`
-        : "Open profile"} aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? "community-user-bar-extension" : undefined}>
+        : "Open profile"} aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? extensionId : undefined}>
         <span className={cn(styles.visual, "relative grid place-items-center rounded-full")}>
           {hasRunningBots && (
             <>
@@ -264,7 +268,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
         }
         if (!extension) closeInboxForAction()
         onOpenProfile?.(user.name, e, undefined, user.id)
-      }} className={cn(styles.name, "min-w-0 flex-1 text-left rounded sm:@max-[224px]/user-bar:hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")} aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? "community-user-bar-extension" : undefined}>
+      }} className={cn(styles.name, "min-w-0 flex-1 text-left rounded sm:@max-[224px]/user-bar:hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")} aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? extensionId : undefined}>
         <div data-testid={tid.userBarName} className="truncate text-sm font-medium leading-tight">{user.name}</div>
       </button>
       <div className="flex shrink-0 items-center gap-1">
@@ -303,7 +307,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
             aria-describedby={inboxDescriptionId}
             aria-expanded={inboxOpen}
             aria-pressed={mobile ? inboxOpen : undefined}
-            aria-controls={inboxOpen && extension ? "community-user-bar-extension" : undefined}
+            aria-controls={inboxOpen && extension ? extensionId : undefined}
             onClick={() => {
               if (!inboxOpen && !inboxOpening) onRequestExtensionFocus("inbox")
               if (inboxOpening) onRequestExtensionFocus("none")

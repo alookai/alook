@@ -100,10 +100,15 @@ export function useScriptedTimeline({
     return () => observer.disconnect();
   }, [setIsActive]);
 
+  const isStepVisible = useCallback((id: string) => {
+    const index = steps.findIndex((step) => step.id === id);
+    return index >= 0 && index < visibleCount;
+  }, [steps, visibleCount]);
+
   return {
     visibleCount,
     isResetting,
     containerRef,
-    isStepVisible: (index: number) => index < visibleCount,
+    isStepVisible,
   };
 }

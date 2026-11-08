@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite"
 import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { getAuth } from "@/lib/auth"
-import { authResponseCookies } from "@/lib/auth-response-cookies"
+import { browserCookieHeaders } from "@/test/browser-cookie-jar"
 
 const environment = vi.hoisted(() => ({ current: {} as Env }))
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: () => ({ env: environment.current }) }))
@@ -48,9 +48,7 @@ async function sessionFixture() {
 }
 
 function nextHeaders(headers: Headers, response: Response) {
-  const forwarded = authResponseCookies(new NextRequest("https://fixture.test/api/ws/token", { headers }), response.headers)
-  const cookie = forwarded.headers.get("x-middleware-request-cookie")
-  return cookie === null ? new Headers(headers) : new Headers({ Cookie: cookie })
+  return browserCookieHeaders(headers, response.headers)
 }
 
 function request(headers: Headers, refresh = false) {

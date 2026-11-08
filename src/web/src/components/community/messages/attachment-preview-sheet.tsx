@@ -17,9 +17,9 @@ import {
   resolveAttachmentPresentation,
 } from "@/lib/community/attachment-presentation"
 import {
-  attachmentDownloadStatusText,
-  useAttachmentDownload,
-} from "@/lib/community/attachment-download"
+  fileDownloadStatusText,
+  useFileDownload,
+} from "@/lib/file-download"
 
 const CodePreview = dynamic(
   () => import("./code-preview").then((module) => module.CodePreview),
@@ -64,8 +64,8 @@ type PreviewState =
 const IDLE_STATE: PreviewState = { status: "idle", content: null, error: null }
 
 function AttachmentPreviewDownload({ attachment }: { attachment: FileAttachment }) {
-  const download = useAttachmentDownload(attachment)
-  const statusText = attachmentDownloadStatusText(download.state)
+  const download = useFileDownload(attachment)
+  const statusText = fileDownloadStatusText(download.state)
   const Icon = download.state.status === "downloading"
     ? Loader2
     : (download.state.status === "saved" || download.state.status === "started")

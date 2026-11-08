@@ -304,7 +304,7 @@ describe("HostCommand nap contract", () => {
 
   it("accepts an omitted handoff and preserves a supplied note verbatim", () => {
     expect(HostCommandSchema.parse(command)).toEqual(command);
-    const handoff = "  Next step\n第二行\n";
+    const handoff = "  Next step\nSecond line\n";
     expect(HostCommandSchema.parse({ ...command, handoff })).toEqual({ ...command, handoff });
   });
 

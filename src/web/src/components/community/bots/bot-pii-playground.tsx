@@ -49,7 +49,7 @@ export function BotPiiPlayground({ value, onValueChange, result, triggeredFilter
           <div className="flex justify-end">
             <Button type="submit" disabled={pending || disabled || tooLong || !value.trim()} className="min-h-11 gap-2 px-4" data-testid="pii-playground-run"><Play className="size-4" />{pending ? "Running…" : "Run test"}</Button>
           </div>
-          {tooLong ? <p role="alert" className="text-sm text-destructive">Use 1,024 UTF-8 bytes or fewer.</p> : null}
+          {tooLong ? <p role="alert" className="text-sm text-destructive">Use {PII_TEXT_MAX_BYTES.toLocaleString("en-US")} UTF-8 bytes or fewer.</p> : null}
         </form>
       </div>
       <p id="pii-playground-notice" className="text-sm leading-relaxed text-muted-foreground">We don’t store this message. It is sent to your computer for testing.</p>

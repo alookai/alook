@@ -339,7 +339,7 @@ mod tests {
         );
         assert_eq!(sanitize_filename("bad\0/name.png"), "name.png");
         assert_eq!(sanitize_filename("..."), "alook-message-share.png");
-        let value = format!("{}。png", "界".repeat(100));
+        let value = format!("{}。png", "€".repeat(100));
         let filename = sanitize_filename(&value);
         assert!(filename.len() <= 180);
         assert!(filename.ends_with(".png"));

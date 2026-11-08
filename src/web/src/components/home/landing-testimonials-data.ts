@@ -116,7 +116,7 @@ export const LANDING_TESTIMONIALS: readonly LandingTestimonial[] = [
   },
   {
     "id": "x-2108444364234178844",
-    "name": "剑的 AI 实验室",
+    "name": "swordBluesy",
     "handle": "swordBluesy",
     "quote": "Agents keeping a handle and an inbox, while I can host the room myself, is the part I will try.",
     "url": "https://x.com/swordBluesy/status/2108444364234178844",

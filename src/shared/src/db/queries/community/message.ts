@@ -531,62 +531,6 @@ export type ListedMessageRow = Omit<{
   [K in keyof typeof listedMessageProjection]: GetColumnData<typeof listedMessageProjection[K]>
 }, "embeds"> & { embeds: unknown };
 
-const wakeContextMessageProjection = {
-  id: communityMessage.id,
-  authorId: communityMessage.authorId,
-  authorName: user.name,
-  authorDiscriminator: user.discriminator,
-  authorIsBot: user.isBot,
-  content: communityMessage.content,
-  type: communityMessage.type,
-  replyToId: communityMessage.replyToId,
-  seq: communityMessage.seq,
-  createdAt: communityMessage.createdAt,
-  channelId: communityMessage.channelId,
-} as const;
-
-export type WakeContextMessageRow = {
-  [K in keyof typeof wakeContextMessageProjection]: GetColumnData<typeof wakeContextMessageProjection[K]>
-};
-
-export async function listWakeContextMessagesBefore(
-  db: Database,
-  opts: { channelId: string; beforeSeq: number; limit: number }
-): Promise<{ messages: WakeContextMessageRow[]; hasMore: boolean }> {
-  const rows = await db
-    .select(wakeContextMessageProjection)
-    .from(communityMessage)
-    .innerJoin(user, eq(communityMessage.authorId, user.id))
-    .where(and(
-      eq(communityMessage.channelId, opts.channelId),
-      lt(communityMessage.seq, opts.beforeSeq)
-    ))
-    .orderBy(desc(communityMessage.seq))
-    .limit(opts.limit + 1);
-  const hasMore = rows.length > opts.limit;
-  return {
-    messages: rows.slice(0, opts.limit).reverse(),
-    hasMore,
-  };
-}
-
-export async function getWakeContextMessageInScope(
-  db: Database,
-  messageId: string,
-  scope: MessageScope
-): Promise<WakeContextMessageRow | null> {
-  const rows = await db
-    .select(wakeContextMessageProjection)
-    .from(communityMessage)
-    .innerJoin(user, eq(communityMessage.authorId, user.id))
-    .where(and(
-      eq(communityMessage.id, messageId),
-      eq(communityMessage.channelId, scope.channelId)
-    ))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
 function parseEmbeds<T extends { id: string; embeds: string | null }>(row: T) {
   const { embeds, ...rest } = row;
   return { ...rest, embeds: safeParseEmbeds(embeds, row.id) };
@@ -822,34 +766,6 @@ export async function getLatestMessageSeq(
 }
 
 /**
- * Newest-by-`createdAt` message row for a single channel or DM conversation.
- * Returns `null` when the target has no messages yet.
- *
- * Callers use this to derive the `(id, createdAt)` tuple that
- * `markReadToMessageBuilder` / `markReadToMessage` require. When the target
- * is empty the mass mark-read paths must SKIP the write instead of inserting
- * a `lastReadMessageId = null` row — see the invariant in `read-state.ts`.
- */
-export async function getLatestMessage(
-  db: Database,
-  target: { channelId: string }
-): Promise<{ id: string; createdAt: string; seq: number } | null> {
-  const rows = await db
-    .select({
-      id: communityMessage.id,
-      createdAt: communityMessage.createdAt,
-
-      seq: communityMessage.seq,
-    })
-    .from(communityMessage)
-    .where(eq(communityMessage.channelId, target.channelId))
-    .orderBy(desc(communityMessage.createdAt), desc(communityMessage.id))
-    .limit(1);
-
-  return rows[0] ?? null;
-}
-
-/**
  * Batched form of `getLatestMessage` for the mass mark-read path.
  *
  * Returns one row per channel that HAS messages — empty channels are omitted
@@ -1078,34 +994,6 @@ export async function getMessageByAuthorAndNonce(
   const row = rows[0];
   if (!row) return null;
   return parseEmbeds(row);
-}
-
-// No ordering guarantee — callers build a Map<id, row> and hydrate by id.
-// Unknown ids silently drop out via the natural WHERE id IN (...) semantics.
-//
-// `seq` is included so callers resolving a thread's parent message (e.g. the
-// threads route, plan community-channel-ref.md §3) can surface the parent's
-// per-channel sequence without a separate lookup.
-export async function getMessagesByIds(db: Database, ids: string[]) {
-  if (ids.length === 0) return [];
-  // `ids` are child-thread openers under one channel — unbounded on a
-  // busy forum. Chunk for D1's 100-param limit; no order/limit → concat.
-  const rows = (
-    await Promise.all(
-      chunk(ids, D1_MAX_IN_PARAMS).map((batch) =>
-        db
-          .select({
-            ...messageProjection,
-            seq: communityMessage.seq,
-            authorEmail: user.email,
-          })
-          .from(communityMessage)
-          .innerJoin(user, eq(communityMessage.authorId, user.id))
-          .where(inArray(communityMessage.id, batch))
-      )
-    )
-  ).flat();
-  return rows.map(parseEmbeds);
 }
 
 /**

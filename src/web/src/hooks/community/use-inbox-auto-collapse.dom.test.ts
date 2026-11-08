@@ -1,5 +1,5 @@
-import { createElement } from "react"
-import { renderToStaticMarkup } from "react-dom/server"
+
+
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook } from "@/test/react-dom-harness"
 import type {
@@ -8,11 +8,11 @@ import type {
 } from "./inbox-read-reservation"
 import {
   useInboxAutoCollapse,
-  useInboxProjectionTarget,
 } from "./use-inbox-auto-collapse"
 
 const mocks = vi.hoisted(() => ({
   callbacks: new Map<symbol, (receipt: InboxProjectionTerminalReceipt) => void>(),
+  register: vi.fn(),
   activate: vi.fn(),
   cancel: vi.fn(),
 }))
@@ -27,6 +27,7 @@ vi.mock("./inbox-read-reservation", async (importOriginal) => {
       _target: InboxRowTarget,
       callback: (receipt: InboxProjectionTerminalReceipt) => void,
     ) => {
+      mocks.register(queryClient, epoch, _target)
       const token = Symbol(String(epoch))
       mocks.callbacks.set(token, callback)
       return { queryClient, epoch, token }
@@ -46,17 +47,6 @@ const target = (fingerprint = "g1", channelId = "c1"): InboxRowTarget => ({
 })
 
 type Options = Parameters<typeof useInboxAutoCollapse>[0]
-
-function ProjectionCapture({
-  queryClient,
-  onResult,
-}: {
-  queryClient: Options["queryClient"]
-  onResult: (target: InboxRowTarget | null) => void
-}) {
-  onResult(useInboxProjectionTarget(queryClient))
-  return null
-}
 
 function renderInboxHook(overrides: Partial<Options> = {}) {
   let options: Options = {
@@ -88,6 +78,7 @@ function renderInboxHook(overrides: Partial<Options> = {}) {
 describe("useInboxAutoCollapse", () => {
   beforeEach(() => {
     mocks.callbacks.clear()
+    mocks.register.mockReset()
     mocks.activate.mockReset()
     mocks.cancel.mockReset()
   })
@@ -95,45 +86,21 @@ describe("useInboxAutoCollapse", () => {
   it("closes immediately and projects only the exact identity and fingerprint", async () => {
     const hook = renderInboxHook()
     await hook.call(() => hook.current.onOpenChange(true))
-    await hook.call(() => hook.current.beginProjection(target(), "/c/channels/s1/c1"))
+    let epoch = 0
+    await hook.call(() => { epoch = hook.current.beginProjection(target(), "/c/channels/s1/c1") })
 
     expect(hook.current.open).toBe(false)
-    expect(hook.current.projectionTarget).toEqual(target())
-    expect(hook.current.isProjected(target())).toBe(true)
-    expect(hook.current.isProjected(target("g2"))).toBe(false)
-    expect(hook.current.isProjected(target("g1", "c2"))).toBe(false)
-  })
-
-  it("publishes the current target to external subscribers and unsubscribes cleanly", async () => {
-    const queryClient = {} as Options["queryClient"]
-    const subscriber = renderHook(() => useInboxProjectionTarget(queryClient))
-    const hook = renderInboxHook({ queryClient })
-
-    await hook.call(() => hook.current.beginProjection(target(), "/c/channels/s1/c1"))
-    expect(subscriber.result.current).toEqual(target())
-
-    subscriber.unmount()
-    const projected = subscriber.result.current
-    await hook.call(() => hook.current.beginProjection(target("g2"), "/c/channels/s1/c1"))
-    expect(subscriber.result.current).toEqual(projected)
-    await hook.unmount()
-  })
-
-  it("provides a stable server snapshot before any projection exists", () => {
-    let projected: InboxRowTarget | null | undefined
-    expect(renderToStaticMarkup(createElement(ProjectionCapture, {
-      queryClient: {} as Options["queryClient"],
-      onResult: (value) => { projected = value },
-    }))).toBe("")
-    expect(projected).toBeNull()
+    expect(mocks.register).toHaveBeenCalledExactlyOnceWith(expect.anything(), epoch, target())
+    expect(hook.current.isLatestProjection(epoch)).toBe(true)
   })
 
   it("preserves a tombstone across manual close and reopen", async () => {
     const hook = renderInboxHook()
     await hook.call(() => hook.current.onOpenChange(true))
-    await hook.call(() => hook.current.beginProjection(target(), "/c/channels/s1/c1"))
+    let epoch = 0
+    await hook.call(() => { epoch = hook.current.beginProjection(target(), "/c/channels/s1/c1") })
     await hook.call(() => hook.current.onOpenChange(true))
-    expect(hook.current.isProjected(target())).toBe(true)
+    expect(hook.current.isLatestProjection(epoch)).toBe(true)
   })
 
   it("closes an open Inbox when an unrelated destination publishes", async () => {
@@ -172,7 +139,7 @@ describe("useInboxAutoCollapse", () => {
     await first.unmount()
 
     const second = renderInboxHook({ queryClient, publishedHref: href })
-    expect(second.current.isProjected(target())).toBe(true)
+    expect(second.current.isLatestProjection(epoch)).toBe(true)
   })
 
   it("activates a same-href ticket immediately after submission", async () => {
@@ -202,7 +169,7 @@ describe("useInboxAutoCollapse", () => {
     await hook.call(() => { epoch = hook.current.beginProjection(target(), href) })
     await hook.call(() => hook.current.markProjectionSubmitted(epoch))
 
-    expect(hook.current.isProjected(target())).toBe(true)
+    expect(hook.current.isLatestProjection(epoch)).toBe(true)
     expect(mocks.cancel).not.toHaveBeenCalled()
 
     await hook.rerender({ navigationPending: true, pendingHref: href })
@@ -217,7 +184,7 @@ describe("useInboxAutoCollapse", () => {
     await hook.call(() => { epoch = hook.current.beginProjection(target(), href) })
     await hook.call(() => hook.current.markProjectionSubmitted(epoch))
     await hook.rerender({ navigationPending: false, pendingHref: null })
-    expect(hook.current.isProjected(target())).toBe(false)
+    expect(hook.current.isLatestProjection(epoch)).toBe(false)
     expect(hook.current.open).toBe(false)
   })
 
@@ -228,8 +195,7 @@ describe("useInboxAutoCollapse", () => {
     await hook.call(() => { epoch = hook.current.beginProjection(target(), "/c/channels/s1/c1") })
     await hook.call(() => hook.current.rollbackProjection(epoch, true))
     expect(hook.current.open).toBe(true)
-    expect(hook.current.projectionTarget).toBeNull()
-    expect(hook.current.isProjected(target())).toBe(false)
+    expect(hook.current.isLatestProjection(epoch)).toBe(false)
   })
 
   it("ignores a stale receipt after A is superseded by B", async () => {
@@ -237,7 +203,8 @@ describe("useInboxAutoCollapse", () => {
     let aEpoch = 0
     await hook.call(() => { aEpoch = hook.current.beginProjection(target(), "/c/channels/s1/c1") })
     const aCallback = [...mocks.callbacks.values()][0]!
-    await hook.call(() => hook.current.beginProjection(target("b1", "c2"), "/c/channels/s1/c2"))
+    let bEpoch = 0
+    await hook.call(() => { bEpoch = hook.current.beginProjection(target("b1", "c2"), "/c/channels/s1/c2") })
     await hook.call(() => aCallback({
       epoch: aEpoch,
       target: target(),
@@ -245,10 +212,12 @@ describe("useInboxAutoCollapse", () => {
       disposition: "retire",
       observedFingerprint: null,
     }))
-    expect(hook.current.isProjected(target("b1", "c2"))).toBe(true)
+    expect(hook.current.isLatestProjection(bEpoch)).toBe(true)
+    expect(hook.current.isLatestProjection(aEpoch)).toBe(false)
+    expect(mocks.register).toHaveBeenLastCalledWith(expect.anything(), bEpoch, target("b1", "c2"))
   })
 
-  it("clears the matching projection for either frozen terminal disposition", async () => {
+  it.each(["retire", "rollback"] as const)("clears the matching projection for terminal %s", async disposition => {
     const hook = renderInboxHook({ publishedHref: "/c/channels/s1/c1" })
     let epoch = 0
     await hook.call(() => { epoch = hook.current.beginProjection(target(), "/c/channels/s1/c1") })
@@ -258,9 +227,9 @@ describe("useInboxAutoCollapse", () => {
       epoch,
       target: target(),
       terminal: "negative",
-      disposition: "rollback",
-      observedFingerprint: "g1",
+      disposition,
+      observedFingerprint: disposition === "rollback" ? "g1" : null,
     }))
-    expect(hook.current.isProjected(target())).toBe(false)
+    expect(hook.current.isLatestProjection(epoch)).toBe(false)
   })
 })

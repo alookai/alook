@@ -3,8 +3,8 @@ import { describe, it, expect, vi } from "vitest"
 import React from "react"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { resolve } from "node:path"
+
 import { extractTableDataFromElement } from "streamdown"
 import fullMessagePlugins from "./message-body-full"
 import { MessageBodyView } from "./message-body-view"
@@ -12,8 +12,6 @@ import { MessageBodyView } from "./message-body-view"
 function MessageBody(props: Omit<React.ComponentProps<typeof MessageBodyView>, "plugins">) {
   return React.createElement(MessageBodyView, { ...props, plugins: fullMessagePlugins })
 }
-
-const componentDirectory = dirname(fileURLToPath(import.meta.url))
 
 describe("MessageBody — plain URL rendering", () => {
   it.each([
@@ -297,7 +295,7 @@ describe("MessageBody — single newlines render as hard breaks (remark-breaks)"
 
 describe("MessageBody — redacted content", () => {
   it("renders builtin, custom and adjacent placeholders without changing surrounding prose", () => {
-    const text = "邮箱：[REDACTED_EMAIL]，key [REDACTED_ENV_KEY] [REDACTED][REDACTED_PHONE]。"
+    const text = "Email:[REDACTED_EMAIL]，key [REDACTED_ENV_KEY] [REDACTED][REDACTED_PHONE]。"
     let renderer: ReturnType<typeof render>
     act(() => { renderer = render(React.createElement(MessageBody, { text })) })
     expect(renderer!.container.querySelectorAll("[data-redacted]")).toHaveLength(4)

@@ -1,12 +1,9 @@
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { queryOptions, type QueryClient } from "@tanstack/react-query"
 import { CommunityResourceError } from "@/lib/errors"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import {
-  assertCommunityLiveSnapshotTokenCurrent,
-  captureCommunityLiveSnapshotToken,
-  communityRequestOptions,
-} from "@/lib/community-db/sync"
+import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { isPresenceOnline, type CommunityMachineRuntime, CommunityMachineListReadSchema, type CommunityMachineIdentityCache, type CommunityMachineSummary, type MachineCapacitySummary, type ProviderQuotaObservation, type QuotaLimit } from "@alook/shared"
 
 type MachineQuotaSnapshot =
@@ -44,7 +41,7 @@ export type MachinesResponse = { machines: MachineSummary[]; machineCapacity?: M
 export const machinesOptions = () => queryOptions<MachinesResponse>({
   queryKey: communityKeys.machines(),
   queryFn: async ({ client, signal }) => {
-    const parsed = CommunityMachineListReadSchema.safeParse(await apiFetch<unknown>("/api/community/machines?view=list", communityRequestOptions(client, signal)))
+    const parsed = CommunityMachineListReadSchema.safeParse(await apiFetch<unknown>("/api/community/machines?view=list", communityRequestOptions(client, captureCommunityLiveSnapshotToken(client), signal)))
     if (!parsed.success) throw new CommunityResourceError(parsed.error)
     return { ...parsed.data, observed: true, source: "network" as const }
   },
@@ -85,7 +82,7 @@ export function publishMachines(
 
 export const machineObservationsOptions = () => queryOptions<MachineObservations>({
   queryKey: [...communityKeys.machines(), "observations"],
-  queryFn: ({ client, signal }) => apiFetch("/api/community/machines?view=observations", communityRequestOptions(client, signal)),
+  queryFn: ({ client, signal }) => apiFetch("/api/community/machines?view=observations", communityRequestOptions(client, captureCommunityLiveSnapshotToken(client), signal)),
   staleTime: 5_000,
 })
 

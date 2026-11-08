@@ -5,7 +5,7 @@ import { isTauri } from "@alook/shared"
 import { hasAnalyticsConsent, isPublicAnalyticsPath } from "@/lib/analytics-consent"
 
 import { captureProductAnalytics } from "@/lib/product-analytics"
-import { LANDING_CTA_NAMES } from "@/lib/product-analytics-contract"
+import { LANDING_CTA_NAMES, type ONBOARDING_ANALYTICS_STAGES } from "@/lib/product-analytics-contract"
 
 const analyticsPlanIds = ["free", "studio", "house"] as const
 
@@ -37,10 +37,10 @@ const pricingCtaIdByEntryPoint: Record<BillingEntryPoint, Partial<Record<Analyti
 const analyticsPlanIdSet = new Set<string>(analyticsPlanIds)
 
 function sendConsentAwareGTMEvent(payload: Record<string, unknown>) {
-  if (typeof window !== "undefined" && /^\/c(?:\/|$)/u.test(window.location.pathname)) return
-  const publicWeb = typeof window !== "undefined" && !isTauri() && isPublicAnalyticsPath(window.location.pathname)
-  if (!publicWeb && !hasAnalyticsConsent()) return
   try {
+    if (typeof window !== "undefined" && /^\/c(?:\/|$)/u.test(window.location.pathname)) return
+    const publicWeb = typeof window !== "undefined" && !isTauri() && isPublicAnalyticsPath(window.location.pathname)
+    if (!publicWeb && !hasAnalyticsConsent()) return
     sendGTMEvent(payload)
   } catch {
     return
@@ -56,28 +56,12 @@ export function toAnalyticsCurrentPlan(value: string, isFounder = false): Analyt
   return toAnalyticsPlanId(value) ?? "unknown"
 }
 
-function sendCommercialEvent(payload: Record<string, unknown>) {
-  try {
-    sendConsentAwareGTMEvent(payload)
-  } catch {
-    return
-  }
-}
-
-function sendFunnelEvent(payload: Record<string, unknown>) {
-  try {
-    sendConsentAwareGTMEvent(payload)
-  } catch {
-    return
-  }
-}
-
 export function trackPricingView(params: {
   auth_state: AnalyticsAuthState
   current_plan: AnalyticsCurrentPlan
 }) {
   const { auth_state, current_plan } = params
-  sendCommercialEvent({ event: "pricing_view", auth_state, current_plan })
+  sendConsentAwareGTMEvent({ event: "pricing_view", auth_state, current_plan })
 }
 
 export function trackPricingCtaClick(params: {
@@ -90,7 +74,7 @@ export function trackPricingCtaClick(params: {
   const { plan_id, cta_action, auth_state, current_plan, entry_point } = params
   const cta_id = pricingCtaIdByEntryPoint[entry_point][plan_id]
   if (!cta_id) return
-  sendCommercialEvent({ event: "pricing_cta_click", plan_id, cta_id, cta_action, auth_state, current_plan, entry_point })
+  sendConsentAwareGTMEvent({ event: "pricing_cta_click", plan_id, cta_id, cta_action, auth_state, current_plan, entry_point })
 }
 
 export function trackBeginCheckout(params: {
@@ -103,25 +87,13 @@ export function trackBeginCheckout(params: {
   const currency = params.currency.toUpperCase()
   if (!Intl.supportedValuesOf("currency").includes(currency) || !Number.isFinite(value) || value < 0) return
   const item = { item_id: plan_id, item_name: analyticsPlanNames[plan_id], price: value, quantity: 1 as const }
-  sendCommercialEvent({ event: "begin_checkout", currency, value: item.price * item.quantity, items: [item], entry_point })
-}
-
-export function trackSignUp(method: string) {
-  sendConsentAwareGTMEvent({ event: "sign_up", method });
-}
-
-export function trackSignInSuccess(method: string) {
-  sendConsentAwareGTMEvent({ event: "sign_in_success", method });
-}
-
-export function trackInviteAccepted(params: { workspace_id: string }) {
-  sendConsentAwareGTMEvent({ event: "invite_accepted", ...params });
+  sendConsentAwareGTMEvent({ event: "begin_checkout", currency, value: item.price * item.quantity, items: [item], entry_point })
 }
 
 export type GithubOutboundSurface = "landing" | "blog" | "public_nav" | "public_footer"
 
 export function trackCommunityRuntimeConnected() {
-  sendFunnelEvent({
+  sendConsentAwareGTMEvent({
     event: "runtime_connected",
     surface: "community",
     connection_type: "local_daemon",
@@ -131,50 +103,22 @@ export function trackCommunityRuntimeConnected() {
 export function trackFirstAgentReplyPersisted(
   conversationType: "dm" | "channel" | "thread",
 ) {
-  sendFunnelEvent({
+  sendConsentAwareGTMEvent({
     event: "first_agent_reply_persisted",
     surface: "community",
     conversation_type: conversationType,
   })
 }
 
-export function trackHumanInvitationSent() {
-  sendFunnelEvent({
-    event: "human_invitation_sent",
-    surface: "community",
-    invite_method: "dm",
-  })
-}
-
-export function trackHumanInvitationCopied() {
-  sendFunnelEvent({
-    event: "human_invitation_copied",
-    surface: "community",
-    invite_method: "link_copy",
-  })
-}
-
-export function trackInvitedHumanJoined() {
-  sendFunnelEvent({ event: "invited_human_joined", surface: "community" })
-}
-
 export function trackGithubOutboundClicked(surface: GithubOutboundSurface) {
-  sendFunnelEvent({
+  sendConsentAwareGTMEvent({
     event: "github_outbound_clicked",
     surface,
     destination: "alook_repo",
   })
 }
 
-export type CommunityOnboardingStage =
-  | "harness"
-  | "machine"
-  | "model"
-  | "identity"
-  | "initializing"
-  | "bot"
-  | "dm"
-  | "server";
+export type CommunityOnboardingStage = (typeof ONBOARDING_ANALYTICS_STAGES)[number];
 
 export function trackCommunityOnboardingStarted() {
   void captureProductAnalytics({ event: "community_onboarding_started" });
@@ -184,10 +128,6 @@ export function trackCommunityOnboardingStageCompleted(
   stage: CommunityOnboardingStage,
 ) {
   void captureProductAnalytics({ event: "community_onboarding_stage_completed", stage });
-}
-
-export function trackCommunityOnboardingCompleted() {
-  sendConsentAwareGTMEvent({ event: "community_onboarding_completed" });
 }
 
 export function trackCommunityOnboardingSkipped(

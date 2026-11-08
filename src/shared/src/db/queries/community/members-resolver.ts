@@ -20,8 +20,6 @@ import {
 import { listMemberUserIds } from "./member";
 import { listThreadParticipantUserIds } from "./thread";
 
-export type ScopeKind = "channel" | "forum";
-
 // Why a user is in the resolved set. Lets callers distinguish an explicitly
 // added private-channel member from an inherited public-channel member or a
 // server admin who sees everything.
@@ -62,7 +60,7 @@ export async function resolveChannelNotificationRecipientUserIds(
     case "server-or-roster":
       return runQuery(
         "scope-members",
-        () => resolveScopeMemberUserIds(db, { scope: "channel", scopeId: channelId }),
+        () => resolveScopeMemberUserIds(db, channelId),
       );
     default: {
       const _never: never = reach;
@@ -80,9 +78,7 @@ export async function resolveChannelContentRecipientUserIds(
   if (!isStoredChannelType(type)) return [];
   const candidates = type === "dm"
     ? await runQuery("dm-members", () => listChannelMemberUserIds(db, channelId))
-    : await runQuery("scope-members", () => resolveScopeMemberUserIds(db, {
-        scope: "channel", scopeId: channelId,
-      }));
+    : await runQuery("scope-members", () => resolveScopeMemberUserIds(db, channelId));
   return runQuery("readable-members", () => filterChannelReadableUserIds(db, channelId, candidates));
 }
 
@@ -100,7 +96,7 @@ export async function resolveChannelContentRecipientUserIds(
  */
 export async function resolveScopeMemberUserIds(
   db: Database,
-  { scopeId }: { scope: ScopeKind; scopeId: string }
+  scopeId: string
 ): Promise<string[]> {
   const channel = await db
     .select({ serverId: communityChannel.serverId })
@@ -125,9 +121,9 @@ export async function resolveScopeMemberUserIds(
  */
 export async function resolveScopeMembers(
   db: Database,
-  { scope, scopeId }: { scope: ScopeKind; scopeId: string }
+  scopeId: string
 ): Promise<ScopeMember[]> {
-  const userIds = await resolveScopeMemberUserIds(db, { scope, scopeId });
+  const userIds = await resolveScopeMemberUserIds(db, scopeId);
   if (userIds.length === 0) return [];
 
   const target = await db

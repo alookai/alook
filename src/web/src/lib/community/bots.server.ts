@@ -1,4 +1,4 @@
-import { parseCommunityBotsProfileRead, queries, DAILY_TOKEN_USAGE_WINDOW_DAYS, calendarDayKeyDaysAgo, dayKeyInTimeZone, utcDayKey, utcDayKeyDaysAgo, type Database } from "@alook/shared"
+import { tokenUsageCapability, parseCommunityBotsProfileRead, queries, DAILY_TOKEN_USAGE_WINDOW_DAYS, calendarDayKeyDaysAgo, dayKeyInTimeZone, utcDayKey, utcDayKeyDaysAgo, type Database } from "@alook/shared"
 import { canonicalUserImage } from "./storage"
 
 export function tokenUsageDayWindow(now: Date, timeZone: string | null | undefined): string[] {
@@ -45,11 +45,7 @@ export async function readCommunityBots(db: Database, userId: string) {
       image: canonicalUserImage(bot.id, bot.image, bot.avatarVersion),
       dailyActivity: activityByBot.get(bot.id) ?? [],
       usage: {
-        capability: (["claude", "codex", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"] as string[]).includes(bot.runtime)
-          ? "supported" as const
-          : ["cursor"].includes(bot.runtime)
-            ? "unsupported" as const
-            : "unknown" as const,
+        capability: tokenUsageCapability(bot.runtime),
         days: usageDays.map((day, index) => {
           const stored = usageByBot.get(bot.id)?.find((snapshot) => snapshot.day === day)
           return {

@@ -195,13 +195,6 @@ export function MachineQuotaSummary({
         data-testid={tid.machineQuota(machineId)}
         className="flex h-7 min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
       >
-        {entries?.map((entry) => (
-          <ProviderLogo
-            key={entry.scope.agentBackendId}
-            provider={entry.scope.agentBackendId}
-            className="size-3.5 shrink-0"
-          />
-        ))}
         <span className="truncate">{placeholder ?? "Quota unavailable"}</span>
       </div>
     )

@@ -160,25 +160,3 @@ describe("getMessageClientNonceForDelivery", () => {
     ).resolves.toBeNull();
   });
 });
-
-describe("safeParseEmbeds via getMessagesByIds", () => {
-  beforeEach(() => warn.mockReset());
-
-  it("parses embeds across the batch", async () => {
-    const db = createSelectMock([
-      messageRow("m_1", '[{"url":"a"}]'),
-      messageRow("m_2", null),
-    ]);
-    const result = await messageQueries.getMessagesByIds(db, ["m_1", "m_2"]);
-    expect(result[0]!.embeds).toEqual([{ url: "a" }]);
-    expect(result[1]!.embeds).toBeUndefined();
-    expect(warn).not.toHaveBeenCalled();
-  });
-
-  it("empty ids short-circuits without hitting the db", async () => {
-    const db = createSelectMock([messageRow("m_1", null)]);
-    const result = await messageQueries.getMessagesByIds(db, []);
-    expect(result).toEqual([]);
-    expect(db.select).not.toHaveBeenCalled();
-  });
-});

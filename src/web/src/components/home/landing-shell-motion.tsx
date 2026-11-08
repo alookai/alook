@@ -1,5 +1,7 @@
 "use client"
 
+import { useReducedMotion } from "@/hooks/use-reduced-motion"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import {
   useEffect,
@@ -539,17 +541,6 @@ const BOT_AVATAR_DRAFT: AvatarDraft = {
 const PAIR_COMMAND =
   "npx --yes @alook/daemon@latest daemon start --machine-key cmk_demo"
 
-function useReducedMotion() {
-  const [reduced, setReduced] = useAtom(useCreateAtom(false))
-  useEffect(() => {
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)")
-    const sync = () => setReduced(query.matches)
-    sync()
-    query.addEventListener("change", sync)
-    return () => query.removeEventListener("change", sync)
-  }, [setReduced])
-  return reduced
-}
 
 function useTargetCursor(
   cameraRef: RefObject<HTMLDivElement | null>,
@@ -742,6 +733,7 @@ export function LandingShellMotion({
         data-scene={scene}
         data-beat={snapshot.beat}
         aria-hidden
+        inert
       >
         <div
           className={styles.canvas}
@@ -818,6 +810,7 @@ export function LandingMobileChatMotion({ beat }: { beat: number }) {
       data-testid={tid.landingMobileMotionStage}
       data-beat={snapshot.beat}
       aria-hidden
+      inert
     >
       <div
         className={styles.mobileCanvas}
@@ -1006,23 +999,22 @@ function PrototypeUserBar({
   const inboxTarget = workUnread
     ? "continuity-inbox-row-work"
     : "continuity-inbox-row-life"
-  const inboxChannel = workUnread ? "frontend-design" : "family"
+  const inboxChannelId = workUnread ? "continuity-frontend-design" : "continuity-family"
   const unreads = workUnread ? CONTINUITY_WORK_UNREAD : CONTINUITY_LIFE_UNREAD
 
   useLayoutEffect(() => {
     const root = rootRef.current
-    const trigger = root?.querySelector<HTMLElement>('button[aria-label="Inbox"]')
+    const trigger = root?.querySelector<HTMLElement>(`[data-testid="${tid.inboxTrigger}"]`)
     trigger?.setAttribute("data-motion-target", "continuity-inbox")
 
-    const row = Array.from(root?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-      .find((button) => button.textContent?.includes(inboxChannel))
+    const row = root?.querySelector<HTMLElement>(`[data-testid="${tid.inboxUnreadChannel(inboxChannelId)}"]`)
     row?.setAttribute("data-motion-target", inboxTarget)
 
     return () => {
       trigger?.removeAttribute("data-motion-target")
       row?.removeAttribute("data-motion-target")
     }
-  }, [inboxChannel, inboxOpen, inboxTarget])
+  }, [inboxChannelId, inboxOpen, inboxTarget])
 
   return (
     <div ref={rootRef} className="relative">
@@ -1035,7 +1027,6 @@ function PrototypeUserBar({
             marked={[]}
             hasProjectedUnreads={unreads.length > 0}
             hasProjectedMentions={false}
-            onOpenForumThread={() => {}}
           />
         </div>
       )}
@@ -1119,9 +1110,7 @@ function PrototypeChannelSidebar({
   useLayoutEffect(() => {
     if (!room) return
     const sidebar = sidebarRef.current
-    const serverNameElement = Array.from(
-      sidebar?.querySelectorAll<HTMLElement>("header span") ?? [],
-    ).find((element) => element.textContent?.trim() === serverName)
+    const serverNameElement = sidebar?.querySelector<HTMLElement>('[data-slot="community-sidebar-server-name"]')
     const channelElement = sidebar?.querySelector<HTMLElement>(
       `[data-testid="${tid.channelRow(activeChannel)}"]`,
     )

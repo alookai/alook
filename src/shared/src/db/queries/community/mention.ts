@@ -2,60 +2,12 @@ import { eq, and, inArray, desc, exists, lte, sql, type SQL } from "drizzle-orm"
 import { communityChannel, communityMention, communityMessage } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
-import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import { MENTION_KIND, type MentionKind } from "../../../constants/community";
 import {
   accountReadStateRevisionBuilder,
   advanceReadStateRevisionWhenBuilder,
 } from "./read-state";
-
-// communityMention emits 5 bind params/row (id $defaultFn, message_id, user_id,
-// kind default, read default), so a single INSERT caps at floor(100/5)=20 rows.
-const MENTION_INSERT_MAX_ROWS = maxRowsPerInsert(5);
-
-export async function createMentions(
-  db: Database,
-  data: { messageId: string; userIds: string[]; kind?: MentionKind }
-) {
-  if (data.userIds.length === 0) return [];
-
-  const kind = data.kind ?? MENTION_KIND.MENTION;
-  // `@everyone` expands userIds to the whole server roster — unbounded. Chunk so
-  // no INSERT statement exceeds D1's 100-param limit; concat the returned rows.
-  const rows = (
-    await Promise.all(
-      chunk(data.userIds, MENTION_INSERT_MAX_ROWS).map((batch) =>
-        db
-          .insert(communityMention)
-          .values(
-            batch.map((userId) => ({
-              messageId: data.messageId,
-              userId,
-              kind,
-            }))
-          )
-          .returning()
-      )
-    )
-  ).flat();
-  return rows;
-}
-
-/**
- * Return the persisted attention audience for one committed message.
- *
- * Both direct mentions and reply attention are included. Delivery planning
- * deliberately reads this fact back from D1 instead of accepting an
- * in-memory recipient hint from the route, so deferred dispatch and retries
- * use the same committed source of truth.
- */
-export async function listMessageMentionUserIds(
-  db: Database,
-  messageId: string,
-): Promise<string[]> {
-  const rows = await listMessageAttentionTargets(db, messageId);
-  return [...new Set(rows.map((row) => row.userId))];
-}
 
 export async function listMessageAttentionTargets(
   db: Database,
@@ -78,25 +30,14 @@ export async function listUnreadMentions(
   db: Database,
   userId: string,
   opts: {
-    kind?: MentionKind;
     limit?: number;
-    /**
-     * Scope mentions to channels the viewer may see (scope-first, in-query —
-     * NOT a post-fetch filter). Closes the removed-from-private-channel leak:
-     * a user @-mentioned in a private channel then removed no longer sees that
-     * mention. `NULL IN (...)` is never true in SQL, so DM reply rows
-     * (`channelId = NULL`) are naturally excluded — which is intended, the
-     * Mentions tab does not surface DM replies. Omitted → no channel scoping
-     * (callers that don't need it, e.g. a single-kind agent read).
-     */
-    visibleChannelIds?: string[];
-  } = {}
+    visibleChannelIds: string[];
+  }
 ) {
   const baseConditions = [
     eq(communityMention.userId, userId),
     eq(communityMention.read, 0),
   ];
-  if (opts.kind) baseConditions.push(eq(communityMention.kind, opts.kind));
 
   const runQuery = (extra: ReturnType<typeof inArray>[] = []) => {
     const q = db
@@ -118,12 +59,6 @@ export async function listUnreadMentions(
     return opts.limit !== undefined ? q.limit(opts.limit) : q;
   };
 
-  // No channel scoping → single query (agent single-kind read path).
-  if (!opts.visibleChannelIds) {
-    return runQuery();
-  }
-  // `NULL IN (...)` is never true, so an empty scope yields nothing — match
-  // that instead of running an `inArray(col, [])` (which some drivers reject).
   if (opts.visibleChannelIds.length === 0) return [];
 
   // D1 caps a statement at 100 bound params. `visibleChannelIds` is an
@@ -177,13 +112,6 @@ export async function listUnreadMentionScopes(
       )
     )
   ).flat();
-}
-
-export async function markAllMentionsRead(db: Database, userId: string) {
-  await db
-    .update(communityMention)
-    .set({ read: 1 })
-    .where(and(eq(communityMention.userId, userId), eq(communityMention.read, 0)));
 }
 
 export async function markAllMentionsReadWithRevision(
@@ -344,16 +272,6 @@ export async function hasMentionForMessage(
     )
     .limit(1);
   return rows.length > 0;
-}
-
-export async function deleteMention(db: Database, userId: string, mentionId: string) {
-  const rows = await db
-    .delete(communityMention)
-    .where(
-      and(eq(communityMention.id, mentionId), eq(communityMention.userId, userId))
-    )
-    .returning({ id: communityMention.id });
-  return rows.length;
 }
 
 export async function dismissMentionWithRevision(

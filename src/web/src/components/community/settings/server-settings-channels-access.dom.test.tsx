@@ -1,4 +1,4 @@
-import { createElement, type PropsWithChildren } from "react"
+import { createElement, type ComponentProps, type PropsWithChildren } from "react"
 import { QueryClient } from "@tanstack/react-query"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { describe, expect, it, vi } from "vitest"
@@ -18,6 +18,14 @@ vi.mock("@/hooks/community/use-notification-settings", async (importOriginal) =>
 }))
 
 import { ServerSettings } from "./server-settings"
+import { useServerSettingsEditor } from "./server-settings-editor"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+
+function Settings(props: Omit<ComponentProps<typeof ServerSettings>, "editor" | "captureSaveFeedback">) {
+  const editor = useServerSettingsEditor({ serverId: props.serverId, name: props.serverName, desc: "", open: true, onSave: async () => {} })
+  const feedback = useCommunityViewSource(JSON.stringify(["server-settings-test", props.serverId]))
+  return <ServerSettings {...props} editor={editor} captureSaveFeedback={feedback.capture} />
+}
 
 const props = { section: "overview" as const, setSection: vi.fn(), onClose: vi.fn(), serverId: "server-1", serverName: "Server", members: [] }
 
@@ -32,7 +40,7 @@ describe("Channels tab access", () => {
     const { client, wrapper } = setup()
     const setSection = vi.fn()
     const user = setupUser()
-    const rendered = render(createElement(ServerSettings, { ...props, isAdmin: true, setSection }), { wrapper })
+    const rendered = render(createElement(Settings, { ...props, isAdmin: true, setSection }), { wrapper })
     await user.click(screen.getByTestId(tid.settingsTab("channels")))
     expect(setSection).toHaveBeenCalledWith("channels")
     rendered.unmount()
@@ -41,7 +49,7 @@ describe("Channels tab access", () => {
 
   it("hides the entry and rejects a stale Channels selection after role loss", () => {
     const { client, wrapper } = setup()
-    const rendered = render(createElement(ServerSettings, { ...props, isAdmin: false, section: "channels" }), { wrapper })
+    const rendered = render(createElement(Settings, { ...props, isAdmin: false, section: "channels" }), { wrapper })
     expect(screen.queryByTestId(tid.settingsTab("channels"))).not.toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "overview" })).toBeVisible()
     expect(screen.queryByTestId(tid.settingsChannels)).not.toBeInTheDocument()
@@ -52,14 +60,14 @@ describe("Channels tab access", () => {
   it("requests only when Channels opens, and removes the list when the role is lost", async () => {
     apiFetchMock.mockReset().mockResolvedValue({ channels: [{ id: "private-1", name: "private-1", category: null, creator: null, createdAt: "2026-10-01T00:00:00.000Z" }] })
     const { client, wrapper } = setup()
-    const rendered = render(createElement(ServerSettings, { ...props, isAdmin: true }), { wrapper })
+    const rendered = render(createElement(Settings, { ...props, isAdmin: true }), { wrapper })
     expect(apiFetchMock).not.toHaveBeenCalled()
-    rendered.rerender(createElement(ServerSettings, { ...props, isAdmin: true, section: "members" }))
+    rendered.rerender(createElement(Settings, { ...props, isAdmin: true, section: "members" }))
     expect(apiFetchMock).not.toHaveBeenCalled()
-    rendered.rerender(createElement(ServerSettings, { ...props, isAdmin: true, section: "channels" }))
+    rendered.rerender(createElement(Settings, { ...props, isAdmin: true, section: "channels" }))
     await waitFor(() => expect(screen.getByTestId(tid.settingsChannel("private-1"))).toBeVisible())
     expect(apiFetchMock).toHaveBeenCalledOnce()
-    rendered.rerender(createElement(ServerSettings, { ...props, isAdmin: false, section: "channels" }))
+    rendered.rerender(createElement(Settings, { ...props, isAdmin: false, section: "channels" }))
     expect(screen.queryByTestId(tid.settingsChannels)).not.toBeInTheDocument()
     expect(screen.queryByText("private-1")).not.toBeInTheDocument()
     expect(apiFetchMock).toHaveBeenCalledOnce()

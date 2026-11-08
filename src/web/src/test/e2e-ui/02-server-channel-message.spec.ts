@@ -222,7 +222,7 @@ test("server → channel → message", async ({ caseActors, caseResources }, tes
   await editable.click()
   await editable.pressSequentially(imeBody)
   await editable.evaluate((element) => {
-    element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "候" }))
+    element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "é" }))
     element.dispatchEvent(new KeyboardEvent("keydown", {
       key: "Enter",
       code: "Enter",
@@ -232,7 +232,7 @@ test("server → channel → message", async ({ caseActors, caseResources }, tes
       bubbles: true,
       cancelable: true,
     }))
-    element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "候" }))
+    element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "é" }))
   })
   await expect(editable).toContainText(imeBody)
   await expect.poll(() => sends).toBe(0)
