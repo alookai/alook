@@ -25,9 +25,9 @@ import {
   type AttachmentCategory,
 } from "@/lib/community/attachment-presentation"
 import {
-  attachmentDownloadStatusText,
-  useAttachmentDownload,
-} from "@/lib/community/attachment-download"
+  fileDownloadStatusText,
+  useFileDownload,
+} from "@/lib/file-download"
 
 const CATEGORY_ICONS: Record<AttachmentCategory, LucideIcon> = {
   image: FileImage,
@@ -70,10 +70,10 @@ function FileAttachmentCard({
   onPreview?: (attachment: FileAttachment) => void
 }) {
   const presentation = resolveAttachmentPresentation(attachment.name, attachment.contentType)
-  const download = useAttachmentDownload(attachment)
+  const download = useFileDownload(attachment)
   const Icon = CATEGORY_ICONS[presentation.category]
   const canPreview = presentation.previewKind !== null && !!onPreview
-  const statusText = canPreview ? null : attachmentDownloadStatusText(download.state)
+  const statusText = canPreview ? null : fileDownloadStatusText(download.state)
   const ActionIcon = canPreview
     ? Eye
     : download.state.status === "downloading"

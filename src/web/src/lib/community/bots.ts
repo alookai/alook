@@ -4,7 +4,7 @@ import type { DailyUsageMetric, ReasoningEffort } from "@alook/shared"
 import type { BotActivityDay, CommunityProfilePatch } from "./models/people"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityKeys } from "@/lib/query-keys"
-import { apiFetchProfiles } from "./profile-seed"
+import { apiFetchProfiles } from "./account-cache-lifecycle"
 
 export type BotUsageDay = {
   day: string

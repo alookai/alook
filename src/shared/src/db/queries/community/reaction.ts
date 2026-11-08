@@ -173,17 +173,9 @@ export async function removeReaction(
   return deleted ?? null;
 }
 
-export async function getMessageReactions(db: Database, messageId: string) {
-  return db
-    .select()
-    .from(communityReaction)
-    .where(eq(communityReaction.messageId, messageId));
-}
-
 export async function listReactionsByMessageIds(
   db: Database,
-  messageIds: string[],
-  _currentUserId: string
+  messageIds: string[]
 ) {
   if (messageIds.length === 0) return [];
   return (

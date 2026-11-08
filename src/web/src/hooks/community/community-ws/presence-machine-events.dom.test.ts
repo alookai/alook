@@ -1,4 +1,4 @@
-import { currentCommunityEventFixture, dmListRowFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
+import { currentCommunityEventFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityUserProfilePatch, writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { act } from "react"
@@ -206,7 +206,7 @@ describe("useCommunityWs — machines", () => {
     expect(readCache()).toEqual({ machines: [replacement, original], machineCapacity: { ...capacity, ownedCount: 2 } })
     if (kind === "created") {
       const { useCommunityStore } = await import("@/stores/community")
-      expect(getCapturedRuntime().ui.get().pendingMachineTokenId).toBe("cmt_live")
+      expect(getCapturedRuntime().ui.get().acceptedMachinePairing).toEqual({ tokenId: "cmt_live", machineId: "new" })
     }
   })
 
@@ -243,7 +243,7 @@ describe("useCommunityWs — machines", () => {
     expect(readCache()).toEqual({ machines: [event.machine], complete: false })
   })
 
-  it("machine.created upserts and stashes pending token", async () => {
+  it("machine.created publishes its exact accepted pairing receipt", async () => {
     await mountHook()
     const created: CommunityMachineCreated = {
       type: "community:machine.created",
@@ -268,7 +268,7 @@ describe("useCommunityWs — machines", () => {
       capturedQueryClient.getQueryData<{ machines: { id: string }[] }>(communityKeys.machines())?.machines,
     ).toHaveLength(1)
     const { useCommunityStore } = await import("@/stores/community")
-    expect(getCapturedRuntime().ui.get().pendingMachineTokenId).toBe("cmt_abc")
+    expect(getCapturedRuntime().ui.get().acceptedMachinePairing).toEqual({ tokenId: "cmt_abc", machineId: "m_1" })
   })
 
   it("machine.status patches lastSeenAt/status only", async () => {

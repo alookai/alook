@@ -1,6 +1,7 @@
+import { type OwnerServerDeleteRouteToken } from "@/stores/community/server-eject-store"
 import type { Action } from "@/lib/observability/context"
 import type { ReactNode } from "react"
-import type { OwnerServerDeleteRouteToken } from "@/lib/community/eject-server"
+
 import type { View } from "./shell-types"
 
 export type ShellFrameProps = {

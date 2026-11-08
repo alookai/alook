@@ -4,7 +4,7 @@ import { fireEvent, mockElementGeometry, render, screen, waitFor } from "@/test/
 import { SwipeRoot, SwipePortal, SwipeViewport, SwipePopup, SwipeTitle } from "./swipe-container"
 import { canStartSwipe, isSystemSwipeStart } from "./swipe-gesture-policy"
 import { Dialog, DialogContent, DialogTitle } from "./dialog"
-import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
+import { ConversationActivityContext } from "@/contexts/view-activity"
 import { requestNativeBack } from "./native-back-layer"
 
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => true }))

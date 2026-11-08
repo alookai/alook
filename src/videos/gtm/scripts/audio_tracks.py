@@ -4,14 +4,12 @@ import array
 import math
 import subprocess
 from sfx_track import RATE, build_base_sfx, read_sound
+from current_timeline import TIMELINE, FULL_FRAMES, card_intervals, full_frame_map
 
 
 def clean_frame_map(frame):
     return frame + 159 + (76 if frame >= 907 else 0) + (96 if frame >= 1251 else 0) + (96 if frame >= 1771 else 0)
 
-
-def full_frame_map(frame):
-    return frame + 177 + (85 if frame >= 907 else 0) + (105 if frame >= 1251 else 0) + (105 if frame >= 1771 else 0)
 
 
 @dataclass(frozen=True)
@@ -26,12 +24,12 @@ class OpeningProfile:
 
 
 CLEAN_PROFILE = OpeningProfile(3047, clean_frame_map, 3.1, 10.9, 15.213, (1.62, 2.45, 3.3, 3.6, 3.85), (1066, 1486, 2102))
-FULL_PROFILE = OpeningProfile(3092, full_frame_map, 3.7, 11.5, 15.813, (1.62, 2.45, 3.35, 3.6, 3.85), (1084, 1513, 2107))
+FULL_PROFILE = OpeningProfile(FULL_FRAMES, full_frame_map, 3.7, 11.5, 15.813, (1.62, 2.45, 3.35, 3.6, 3.85), tuple(start for start, *_ in card_intervals()))
 
 
 def build_opening_sfx(root, profile):
     sr = RATE
-    track, cues = build_base_sfx(root, profile.frames, lambda frame: profile.frame_map(frame) if frame >= 333 else None)
+    track, cues = build_base_sfx(root, profile.frames, lambda frame: profile.frame_map(frame) if frame >= TIMELINE["storySourceStartFrame"] else None)
 
     def add_at(name, time, db, length=None):
         data = read_sound(root, name)
@@ -44,8 +42,8 @@ def build_opening_sfx(root, profile):
             track[at + i] += value * gain * envelope
         cues.append({'sound': name[:2], 'frame': round(time * 30), 'startSample': at, 'samples': len(data), 'peakDb': db})
 
-    source_times = [0, .65, .76, 1.5, 1.8, 2, 2.2, 2.45, 2.5, 2.8, 3, 3.3, 3.38, 3.55, 3.6, 3.86, 4.3]
-    output_times = [0, .6, 1, 2, 2.5, 3.1, 3.5, 3.85, 4.1, 4.65, 5.25, 5.8, 6.25, 6.6, 7.1, 7.7, 7.8]
+    source_times = TIMELINE["firstActSourceTimes"]
+    output_times = TIMELINE["firstActPlaybackTimes"]
     def opening_time(t):
         i = next(i for i in range(len(source_times)-1) if source_times[i] <= t <= source_times[i+1])
         return profile.opening_offset + output_times[i] + (t-source_times[i])/(source_times[i+1]-source_times[i])*(output_times[i+1]-output_times[i])

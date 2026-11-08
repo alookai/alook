@@ -1,56 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as wl from "../../src/db/queries/whitelist";
 
-describe("addWhitelist", () => {
-  it("returns null on conflict", async () => {
-    const chain: any = {};
-    chain.insert = vi.fn(() => chain); chain.values = vi.fn(() => chain);
-    chain.onConflictDoNothing = vi.fn(() => chain);
-    chain.returning = vi.fn(() => Promise.resolve([]));
-    expect(await wl.addWhitelist(chain, "ag_1", "w", "test@test.com")).toBeNull();
-  });
-  it("returns entry when created", async () => {
-    const entry = { id: "wl_1", email: "test@test.com" };
-    const chain: any = {};
-    chain.insert = vi.fn(() => chain); chain.values = vi.fn(() => chain);
-    chain.onConflictDoNothing = vi.fn(() => chain);
-    chain.returning = vi.fn(() => Promise.resolve([entry]));
-    expect(await wl.addWhitelist(chain, "ag_1", "w", "test@test.com")).toEqual(entry);
-  });
-});
-
-describe("removeWhitelist", () => {
-  it("returns null when not found", async () => {
-    const chain: any = {};
-    chain.delete = vi.fn(() => chain); chain.where = vi.fn(() => chain);
-    chain.returning = vi.fn(() => Promise.resolve([]));
-    expect(await wl.removeWhitelist(chain, "x", "ag_1", "w")).toBeNull();
-  });
-  it("returns removed entry", async () => {
-    const entry = { id: "wl_1" };
-    const chain: any = {};
-    chain.delete = vi.fn(() => chain); chain.where = vi.fn(() => chain);
-    chain.returning = vi.fn(() => Promise.resolve([entry]));
-    expect(await wl.removeWhitelist(chain, "wl_1", "ag_1", "w")).toEqual(entry);
-  });
-});
-
-describe("removeWhitelistByEmail", () => {
-  it("returns null when not found", async () => {
-    const chain: any = {};
-    chain.delete = vi.fn(() => chain); chain.where = vi.fn(() => chain);
-    chain.returning = vi.fn(() => Promise.resolve([]));
-    expect(await wl.removeWhitelistByEmail(chain, "ag_1", "w", "x@x.com")).toBeNull();
-  });
-  it("returns removed entry", async () => {
-    const entry = { id: "wl_1" };
-    const chain: any = {};
-    chain.delete = vi.fn(() => chain); chain.where = vi.fn(() => chain);
-    chain.returning = vi.fn(() => Promise.resolve([entry]));
-    expect(await wl.removeWhitelistByEmail(chain, "ag_1", "w", "t@t.com")).toEqual(entry);
-  });
-});
-
 describe("isWhitelisted", () => {
   it("returns true for whitelisted email", async () => {
     const chain: any = {};

@@ -48,7 +48,7 @@ final class MobileShareImagePluginTests: XCTestCase {
     XCTAssertEqual(MobileShareImageValidator.sanitizeFilename("..."), "alook-message-share.png")
     XCTAssertEqual(MobileShareImageValidator.sanitizeFilename("x\u{0}/name.png"), "name.png")
     XCTAssertLessThanOrEqual(
-      MobileShareImageValidator.sanitizeFilename(String(repeating: "界", count: 100)).utf8.count,
+      MobileShareImageValidator.sanitizeFilename(String(repeating: "€", count: 100)).utf8.count,
       180
     )
     XCTAssertEqual(MobileShareImageValidator.sanitizeFilename(String(repeating: "a", count: 175)).utf8.count, 179)

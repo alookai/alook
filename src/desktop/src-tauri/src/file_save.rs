@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(safe_name("../CON.txt"), "_CON.txt");
         assert_eq!(safe_name("x\\a\0:b?.txt  "), "a_b_.txt");
         assert_eq!(safe_name("..."), "download");
-        assert!(safe_name(&"中".repeat(100)).len() <= 180);
+        assert!(safe_name(&"€".repeat(100)).len() <= 180);
         let mut t = transfer(Some(0));
         t.seal(Commit {
             attempt_id: t.metadata.attempt_id.clone(),

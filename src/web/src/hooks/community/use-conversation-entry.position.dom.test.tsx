@@ -7,7 +7,7 @@ import { useMessageChannelController } from "@/components/community/messages/mes
 import { MessageList } from "@/components/community/messages/message-list"
 import { CurrentUserProvider } from "@/contexts/community/current-user"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
-import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
+import { ConversationActivityContext } from "@/contexts/view-activity"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
@@ -56,7 +56,7 @@ let latest: {
 }
 
 function Conversation({ channelId, kind, anchorMessageId }: { channelId: string; kind: Kind; anchorMessageId: string | null }) {
-  const feed = useChannelMessageFeed({ channelId, serverId: "s1", viewerUserId: viewer.id, isChildChannel: kind !== "channel", anchorMessageId })
+  const feed = useChannelMessageFeed({ channelId, serverId: "s1", viewerUserId: viewer.id, anchorMessageId })
   const channel = useMessageChannelController({ channelId, serverId: "s1", serverParam: "s1", channelName: "Conversation",
     viewer, anchorMessageId, feed, uiHandlers: {}, onOpenThread: () => {}, onOpenPinned: () => {}, resolveUserName: id => id,
     forumParentChannelId: kind === "post" ? "parent" : undefined,

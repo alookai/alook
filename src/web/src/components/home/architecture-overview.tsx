@@ -1,5 +1,7 @@
 "use client";
 
+import { legacyTweenTimeScale } from "./legacy-tween-time-scale";
+
 import { useMemo, useRef } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
@@ -141,38 +143,38 @@ const TERMINAL_LINES: TerminalLine[] = [
   ] },
 ];
 
-const TIMELINE: TimelineStep[] = [
+const TIMELINE: Array<TimelineStep & { terminalLines: number }> = [
 
-  { id: "user-asks", duration: 2000 },
-  { id: "planner-typing", duration: 1500 },
-  { id: "planner-msg1", duration: 1500 },
-  { id: "planner-email-out", duration: 2000 },
+  { id: "user-asks", duration: 2000, terminalLines: 1 },
+  { id: "planner-typing", duration: 1500, terminalLines: 2 },
+  { id: "planner-msg1", duration: 1500, terminalLines: 3 },
+  { id: "planner-email-out", duration: 2000, terminalLines: 4 },
 
-  { id: "switch-to-coder", duration: 1200 },
-  { id: "coder-email-in", duration: 1800 },
-  { id: "coder-typing", duration: 1200 },
-  { id: "coder-msg1", duration: 1500 },
-  { id: "coder-msg2", duration: 1800 },
-  { id: "coder-msg3", duration: 1800 },
-  { id: "coder-email-out", duration: 2000 },
+  { id: "switch-to-coder", duration: 1200, terminalLines: 5 },
+  { id: "coder-email-in", duration: 1800, terminalLines: 5 },
+  { id: "coder-typing", duration: 1200, terminalLines: 6 },
+  { id: "coder-msg1", duration: 1500, terminalLines: 7 },
+  { id: "coder-msg2", duration: 1800, terminalLines: 8 },
+  { id: "coder-msg3", duration: 1800, terminalLines: 9 },
+  { id: "coder-email-out", duration: 2000, terminalLines: 10 },
 
-  { id: "switch-to-planner", duration: 1200 },
-  { id: "planner-email-in", duration: 1800 },
-  { id: "planner-msg2", duration: 2000 },
-  { id: "user-confirms", duration: 1800 },
-  { id: "planner-msg3", duration: 1500 },
-  { id: "planner-final-email", duration: 3000 },
+  { id: "switch-to-planner", duration: 1200, terminalLines: 11 },
+  { id: "planner-email-in", duration: 1800, terminalLines: 11 },
+  { id: "planner-msg2", duration: 2000, terminalLines: 12 },
+  { id: "user-confirms", duration: 1800, terminalLines: 12 },
+  { id: "planner-msg3", duration: 1500, terminalLines: 13 },
+  { id: "planner-final-email", duration: 3000, terminalLines: 13 },
 ];
 
 export function ArchitectureOverview() {
   const sectionRef = useRef<HTMLDivElement>(null);
 
-  const { visibleCount, isResetting, containerRef, isStepVisible } =
+  const { isResetting, containerRef, isStepVisible } =
     useScriptedTimeline({ steps: TIMELINE, holdAfterComplete: 3500 });
 
   const dashboardState: DashboardState = useMemo(() => {
 
-    const showCoder = isStepVisible(4) && !isStepVisible(11);
+    const showCoder = isStepVisible("switch-to-coder") && !isStepVisible("switch-to-planner");
     const activeAgent = showCoder ? "coder" as const : "planner" as const;
 
     let steps: DashboardStep[];
@@ -183,51 +185,48 @@ export function ArchitectureOverview() {
     if (showCoder) {
       steps = CODER_STEPS;
       vis = 0;
-      if (isStepVisible(5)) vis = 1;  // email-in
-      if (isStepVisible(7)) vis = 2;  // msg1 "Got it"
-      if (isStepVisible(8)) vis = 3;  // msg2 "Found 2 files"
-      if (isStepVisible(9)) vis = 4;  // msg3 "Done"
-      if (isStepVisible(10)) vis = 5; // email-out
-      isTyping = isStepVisible(6) && !isStepVisible(7);
-      isWorking = isStepVisible(5) && !isStepVisible(10);
+      if (isStepVisible("coder-email-in")) vis = 1;
+      if (isStepVisible("coder-msg1")) vis = 2;
+      if (isStepVisible("coder-msg2")) vis = 3;
+      if (isStepVisible("coder-msg3")) vis = 4;
+      if (isStepVisible("coder-email-out")) vis = 5;
+      isTyping = isStepVisible("coder-typing") && !isStepVisible("coder-msg1");
+      isWorking = isStepVisible("coder-email-in") && !isStepVisible("coder-email-out");
     } else {
       steps = PLANNER_STEPS;
       vis = 0;
-      if (isStepVisible(0)) vis = 1;  // user msg
-      if (isStepVisible(2)) vis = 2;  // planner msg1
-      if (isStepVisible(3)) vis = 3;  // email-out to coder
-      if (isStepVisible(12)) vis = 4; // email-in from coder
-      if (isStepVisible(13)) vis = 5; // planner msg2 "Coder fixed it"
-      if (isStepVisible(14)) vis = 6; // user "Nice, ship it"
-      if (isStepVisible(15)) vis = 7; // planner msg3 "Done"
-      if (isStepVisible(16)) vis = 8; // email-out to user
-      isTyping = isStepVisible(1) && !isStepVisible(2);
-      isWorking = isStepVisible(0) && !isStepVisible(16);
+      if (isStepVisible("user-asks")) vis = 1;
+      if (isStepVisible("planner-msg1")) vis = 2;
+      if (isStepVisible("planner-email-out")) vis = 3;
+      if (isStepVisible("planner-email-in")) vis = 4;
+      if (isStepVisible("planner-msg2")) vis = 5;
+      if (isStepVisible("user-confirms")) vis = 6;
+      if (isStepVisible("planner-msg3")) vis = 7;
+      if (isStepVisible("planner-final-email")) vis = 8;
+      isTyping = isStepVisible("planner-typing") && !isStepVisible("planner-msg1");
+      isWorking = isStepVisible("user-asks") && !isStepVisible("planner-final-email");
     }
 
     return { activeAgent, steps, visibleCount: vis, isTyping, isWorking };
-  }, [visibleCount]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isStepVisible]);
 
   const terminalVisible = useMemo(() => {
 
-    const mapping = [0, 1, 2, 3, 4, 4, 5, 6, 7, 8, 9, 10, 10, 11, 11, 12, 12];
-    let count = 0;
-    for (let i = 0; i < mapping.length; i++) {
-      if (isStepVisible(i)) count = mapping[i] + 1;
-    }
+    const count = TIMELINE.reduce((count, step) => isStepVisible(step.id) ? step.terminalLines : count, 0);
     return Math.min(count, TERMINAL_LINES.length);
-  }, [visibleCount]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isStepVisible]);
 
   useGSAP(
     () => {
+      const timeScale = legacyTweenTimeScale();
       gsap.from(".arch-title", {
         y: 30, opacity: 0, duration: 0.6,
         scrollTrigger: { trigger: sectionRef.current, start: "top 75%", toggleActions: "play none none none" },
-      });
+      }).timeScale(timeScale);
       gsap.from(".arch-demo-container", {
         y: 40, opacity: 0, duration: 0.7,
-        scrollTrigger: { trigger: ".arch-demo-container", start: "top 70%", toggleActions: "play none none none" },
-      });
+        scrollTrigger: { trigger: sectionRef.current?.querySelector(".arch-demo-container"), start: "top 70%", toggleActions: "play none none none" },
+      }).timeScale(timeScale);
     },
     { scope: sectionRef },
   );

@@ -16,7 +16,8 @@ vi.mock("@/components/ui/tooltip", () => ({
     React.createElement("div", { "data-tip": true }, children),
 }))
 
-import { BotActivityHeatmap, type BotActivityDay } from "./bot-activity-heatmap"
+import { BotActivityHeatmap } from "./bot-activity-heatmap"
+import type { BotActivityDay } from "@/lib/community/models/people"
 
 // The heatmap must place each sparse day at its true calendar slot (a gap of N
 // days = N empty cells between them), NOT left-pad by count — Alli/Blair

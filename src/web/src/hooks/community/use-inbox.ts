@@ -1,4 +1,5 @@
 "use client"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { useMemo } from "react"
 import {
 keepPreviousData,
@@ -9,7 +10,7 @@ type QueryClient,
 type QueryFunctionContext,
 type UseQueryResult,
 } from "@tanstack/react-query"
-import { communityRequestOptions } from "@/lib/community-db/sync"
+
 import { apiFetch } from "@/lib/api/client"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
@@ -263,8 +264,6 @@ export function useInboxAttention() {
   return {
     ...query,
     ...projected,
-    pendingChannelIds: [] as string[],
-    isProjectionPending: false,
     hasUnread: projected.servers.length > 0 || projected.dms.length > 0,
     hasMention: projected.mentions.length > 0,
     hasProjectedUnread: projected.servers.length > 0 || projected.dms.length > 0,
@@ -327,7 +326,7 @@ export type MessageMarkedResponse = { marked: boolean }
 
 const messageMarkedQueryFn = (messageId: string) => ({ client, signal }: QueryFunctionContext) =>
   apiFetch<MessageMarkedResponse & { stale?: boolean }>(
-    `/api/community/messages/${messageId}/marks`, communityRequestOptions(client, signal),
+    `/api/community/messages/${messageId}/marks`, communityRequestOptions(client, captureCommunityLiveSnapshotToken(client), signal),
   ).then(throwIfStale)
 
 export function useMessageMarked(

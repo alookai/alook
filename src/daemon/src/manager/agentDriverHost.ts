@@ -24,6 +24,7 @@ function runtimeEnvironment(ctx: HostLaunchContext): Record<string, string | und
 export function createDaemonAgentDriverHost(
   ctx: HostLaunchContext,
   onRawLine?: (line: string) => void,
+  onRawStderr?: (text: string) => void,
 ): AgentDriverHost {
   return {
     async prepareExecution() {
@@ -105,6 +106,7 @@ export function createDaemonAgentDriverHost(
     },
     onRawOutput(event) {
       if (event.stream === "stdout") onRawLine?.(event.text);
+      else onRawStderr?.(event.text);
     },
     now: () => Date.now(),
     createId: () => randomUUID(),

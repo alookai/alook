@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { credentialFilePathByMachineId, daemonStatus, savedDaemonMachineIds } from "./daemonStart";
+import { daemonStatus } from "./daemonStart";
+import { credentialFilePathByMachineId, savedDaemonMachineIds } from "./daemonState";
 
 describe("daemonStart — credentialFilePath by machineId", () => {
   let baseDir: string;

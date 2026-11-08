@@ -8,6 +8,7 @@ import {
   calculateMonsterWalkIntensity,
   clampPetPosition,
   getBounds,
+  petPointFromClient,
   getMonsterFootstepIntervalMs,
   hasViolentMonsterDirectionChange,
   isMonsterFaintShakeEvent,
@@ -22,6 +23,7 @@ import {
 import type {
   CloudCodeMonsterActivityId,
   PetPoint,
+  PetCoordinateSpace,
   StoredCloudCodeMonsterActivity,
 } from "./cloud-code-monster-pet-types";
 
@@ -29,6 +31,7 @@ type PetDragTimerKey = "faint" | "notification" | "walkSettle";
 
 type UsePetDragParams = {
   boundaryRef: RefObject<HTMLElement | null>;
+  coordinateSpace: PetCoordinateSpace;
   initialPosition?: PetPoint;
   position: PetPoint | null;
   isDragging: boolean;
@@ -56,24 +59,13 @@ type UsePetDragParams = {
   startFaintReaction: () => void;
 };
 
-function getPointerPoint(
-  event: ReactPointerEvent<HTMLButtonElement>,
-  boundary: HTMLElement | null
-): PetPoint {
-  const boundaryRect = boundary?.getBoundingClientRect();
-
-  return {
-    x: event.clientX - (boundaryRect?.left ?? 0),
-    y: event.clientY - (boundaryRect?.top ?? 0),
-  };
-}
-
 function isSleepyActivity(activityId: CloudCodeMonsterActivityId | null) {
   return activityId === "sleeping" || activityId === "dozing" || activityId === "yawning";
 }
 
 export function usePetDrag({
   boundaryRef,
+  coordinateSpace,
   initialPosition,
   position,
   isDragging,
@@ -149,7 +141,7 @@ export function usePetDrag({
         return;
       }
 
-      const bounds = getBounds(boundaryRef.current);
+      const bounds = getBounds(boundaryRef.current, coordinateSpace);
       const currentPosition =
         position ??
         clampPetPosition(
@@ -160,7 +152,7 @@ export function usePetDrag({
           bounds,
           CLOUD_CODE_MONSTER_SIZE
         );
-      const pointerPoint = getPointerPoint(event, boundaryRef.current);
+      const pointerPoint = petPointFromClient({ x: event.clientX, y: event.clientY }, boundaryRef.current, coordinateSpace);
       const now = performance.now();
 
       if (isSleepyActivity(activityState?.activityId ?? null)) {
@@ -185,6 +177,7 @@ export function usePetDrag({
     },
     [
       boundaryRef,
+      coordinateSpace,
       activityState?.activityId,
       initialPosition,
       lastFootstepAtRef,
@@ -202,8 +195,8 @@ export function usePetDrag({
         return;
       }
 
-      const bounds = getBounds(boundaryRef.current);
-      const pointerPoint = getPointerPoint(event, boundaryRef.current);
+      const bounds = getBounds(boundaryRef.current, coordinateSpace);
+      const pointerPoint = petPointFromClient({ x: event.clientX, y: event.clientY }, boundaryRef.current, coordinateSpace);
       const now = performance.now();
       const lastPointer = lastPointerRef.current ?? {
         point: pointerPoint,
@@ -281,6 +274,7 @@ export function usePetDrag({
     },
     [
       boundaryRef,
+      coordinateSpace,
       fainted,
       isDragging,
       lastFootstepAtRef,
@@ -306,7 +300,7 @@ export function usePetDrag({
       lastPointerRef.current = null;
       lastDragDeltaRef.current = null;
 
-      if (position) {
+      if (position && coordinateSpace === "viewport") {
         writeStoredPosition(position);
       }
 
@@ -319,6 +313,7 @@ export function usePetDrag({
       }
     },
     [
+      coordinateSpace,
       isDragging,
       position,
       setIsDragging,

@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { StringDecoder } from "node:string_decoder";
+import { Utf8LineFramer, Utf8TextDecoder } from "./utf8-lines.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -26,9 +26,8 @@ export class SdkWorkerLane implements RuntimeLane {
   private readonly init: SdkWorkerInit;
   private sequence = 0;
   private sessionId: string | null = null;
-  private buffer = "";
-  private readonly stdoutDecoder = new StringDecoder("utf8");
-  private readonly stderrDecoder = new StringDecoder("utf8");
+  private readonly stdout = new Utf8LineFramer();
+  private readonly stderr = new Utf8TextDecoder();
   private started = false;
   private stopping = false;
   private exited = false;
@@ -49,9 +48,13 @@ export class SdkWorkerLane implements RuntimeLane {
       writeFileSync(entry, source, { mode: 0o600 });
       this.child = spawnAgentProcess(process.execPath, ["--experimental-import-meta-resolve", entry], { cwd: init.cwd, env: environment, shell: false });
     } catch (error) { rmSync(this.directory, { recursive: true, force: true }); throw error; }
-    this.child.stdout?.on("data", (chunk) => this.read(this.stdoutDecoder.write(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk.toString()))));
+    this.child.stdout?.on("data", (chunk) => this.read(chunk));
     this.child.stderr?.on("data", (chunk) => {
-      const text = this.stderrDecoder.write(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk.toString()));
+      const text = this.stderr.write(chunk);
+      if (text) this.events.emit("stderr", scrubDriverErrorMessage(text));
+    });
+    this.child.stderr?.on("end", () => {
+      const text = this.stderr.end();
       if (text) this.events.emit("stderr", scrubDriverErrorMessage(text));
     });
     this.child.on("error", (error) => {
@@ -133,12 +136,8 @@ export class SdkWorkerLane implements RuntimeLane {
     });
   }
 
-  private read(chunk: string): void {
-    this.buffer += chunk;
-    let end: number;
-    while ((end = this.buffer.indexOf("\n")) !== -1) {
-      const line = this.buffer.slice(0, end);
-      this.buffer = this.buffer.slice(end + 1);
+  private read(chunk: Uint8Array | string): void {
+    for (const line of this.stdout.write(chunk)) {
       if (Buffer.byteLength(line) > MAX_LINE_BYTES) { this.protocolFailure(); return; }
       try {
         const frame = JSON.parse(line) as { id?: number; result?: unknown; error?: { code?: string; message?: string }; event?: SdkWorkerEvent };
@@ -161,11 +160,11 @@ export class SdkWorkerLane implements RuntimeLane {
         }
       } catch { this.protocolFailure(); return; }
     }
-    if (Buffer.byteLength(this.buffer) > MAX_LINE_BYTES) this.protocolFailure();
+    if (this.stdout.pendingByteLength > MAX_LINE_BYTES) this.protocolFailure();
   }
 
   private protocolFailure(message = "SDK worker emitted an invalid or oversized protocol frame"): void {
-    this.buffer = "";
+    this.stdout.clear();
     const error = new Error(scrubDriverErrorMessage(message));
     this.rejectPending(error);
     this.events.emit("error", error);

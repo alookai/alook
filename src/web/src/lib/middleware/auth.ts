@@ -1,3 +1,4 @@
+import { isCookieHumanSameOrigin } from "@/lib/server/request-security"
 import type { AuthPolicy, AuthResolution } from "./auth-policy"
 import { observeWorkerOperation } from "@/lib/observability/worker"
 import { NextRequest, NextResponse } from "next/server"
@@ -5,7 +6,6 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { COMMUNITY_BOT_ACTOR_HEADER, queries } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
 import { getAuth } from "@/lib/auth"
-import { bindCacheKV } from "@/lib/cache"
 import { protectCommunityJsonResponse, rejectUnknownCommunityContract, varyPrivateResponseByCredentials } from "./response-cache"
 
 export interface AuthContext {
@@ -157,29 +157,6 @@ function accountDeletionAuthError(error: string, status: number): NextResponse {
   )
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  return hostname === "localhost"
-    || hostname === "127.0.0.1"
-    || hostname === "[::1]"
-}
-
-function isCookieHumanSameOrigin(req: NextRequest): boolean {
-  const originHeader = req.headers.get("Origin")
-  if (!originHeader) return false
-  let originUrl: URL
-  try {
-    originUrl = new URL(originHeader)
-  } catch {
-    return false
-  }
-  if (originHeader !== originUrl.origin) return false
-  const requestUrl = req.nextUrl
-  if (originUrl.origin === requestUrl.origin) return true
-  return isLoopbackHostname(originUrl.hostname)
-    && isLoopbackHostname(requestUrl.hostname)
-    && req.headers.get("Host") === originUrl.host
-}
-
 function rejectBotSelection(req: NextRequest): NextResponse | null {
   return req.headers.has(COMMUNITY_BOT_ACTOR_HEADER)
     ? NextResponse.json({ error: "bot selection is not supported by this endpoint" }, { status: 403 })
@@ -198,7 +175,6 @@ async function resolveCookieHuman(req: NextRequest): Promise<AuthResolution<Cook
 
   const cloudflare = await getCloudflareContext({ async: true })
   const cloudflareEnv = cloudflare.env as Env
-  bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
   const resolved = await resolveSession(req, cloudflareEnv)
   if (resolved.kind === "error") {
     return accountDeletionAuthError("SESSION_VALIDATION_FAILED", 503)
@@ -247,7 +223,6 @@ export async function resolveHumanAuth(req: NextRequest): Promise<AuthResolution
   if (unsupported) return unsupported
   const { env } = await getCloudflareContext({ async: true })
   const cloudflareEnv = env as Env
-  bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
   const session = await resolveSession(req, cloudflareEnv)
 
   if (session.kind === "error") {
@@ -313,7 +288,6 @@ export const optionalAuthPolicy: AuthPolicy<OptionalAuthContext> = {
 async function resolveOptionalHuman(req: NextRequest): Promise<AuthResolution<OptionalAuthContext>> {
   const { env } = await getCloudflareContext({ async: true })
   const cloudflareEnv = env as Env
-  bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
 
   const session = await resolveSession(req, cloudflareEnv)
 

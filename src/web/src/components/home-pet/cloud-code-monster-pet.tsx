@@ -14,6 +14,7 @@ import {
   createCloudCodeMonsterSleepingState,
   createCloudCodeMonsterWalkVelocity,
   getBounds,
+  petPointFromClient,
   getMonsterFootstepIntervalMs,
   readStoredActivity,
   readStoredPosition,
@@ -51,6 +52,7 @@ import type {
   CloudCodeMonsterActivityId,
   CloudCodeMonsterPeekTarget,
   Footprint,
+  PetCoordinateSpace,
   PetPoint,
   StoredCloudCodeMonsterActivity,
 } from "./cloud-code-monster-pet-types";
@@ -109,6 +111,7 @@ export type {
   CloudCodeMonsterPeekTarget,
   CloudCodeMonsterPetPreset,
   PetBounds,
+  PetCoordinateSpace,
   PetPoint,
   StoredCloudCodeMonsterActivity,
 } from "./cloud-code-monster-pet-types";
@@ -118,6 +121,7 @@ export type CloudCodeMonsterPetProps = {
   activeAgentTaskCount?: number;
   subscribeWs?: (callback: (message: WsMessage) => void) => () => void;
   boundaryRef: RefObject<HTMLElement | null>;
+  coordinateSpace?: PetCoordinateSpace;
   initialPosition?: PetPoint;
   previewComebackToken?: number;
   notificationToken?: number;
@@ -331,6 +335,7 @@ export function CloudCodeMonsterPet({
   activeAgentTaskCount = 0,
   subscribeWs,
   boundaryRef,
+  coordinateSpace = "viewport",
   initialPosition,
   previewComebackToken = 0,
   notificationToken = 0,
@@ -404,13 +409,13 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
 
   useEffect(() => {
     const syncPosition = () => {
-      const bounds = getBounds(boundaryRef.current);
+      const bounds = getBounds(boundaryRef.current, coordinateSpace);
 
       setPosition((currentPosition) =>
         currentPosition
           ? clampPetPosition(currentPosition, bounds, CLOUD_CODE_MONSTER_SIZE)
           : clampPetPosition(
-              initialPosition ?? readStoredPosition() ?? {
+              initialPosition ?? (coordinateSpace === "viewport" ? readStoredPosition() : null) ?? {
                 x: bounds.width - CLOUD_CODE_MONSTER_SIZE.width - 112,
                 y: Math.min(
                   bounds.height * 0.48,
@@ -435,7 +440,7 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
     };
-  }, [boundaryRef, initialPosition, setPosition]);
+  }, [boundaryRef, coordinateSpace, initialPosition, setPosition]);
 
   useEffect(() => {
     return clearAllPetTimers;
@@ -566,6 +571,7 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
 
   const walkToTarget = useWalkToTarget({
     boundaryRef,
+    coordinateSpace,
     targetId: inboxWalkEnabled ? "inbox" : null,
     enabled: inboxWalkEnabled && !isDragging && !reacting && !shaken && !fainted,
     position,
@@ -755,7 +761,7 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
 
     const scheduleNextWalkStep = () => {
       setPetTimer("autonomousWalk", () => {
-        const bounds = getBounds(boundaryRef.current);
+        const bounds = getBounds(boundaryRef.current, coordinateSpace);
         const intensity = 1.45;
 
         setWalkIntensity(intensity);
@@ -799,7 +805,7 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
     return () => {
       clearPetTimer("autonomousWalk");
     };
-  }, [activityState?.activityId, boundaryRef, fainted, hasPosition, isDragging, isPeeking, isWalkingToTarget, reacting, clearPetTimer, pushFootprint, shaken, shouldAutoWalk, setPetTimer, setIsAutoWalking, setWalkIntensity, setPosition, setWalkDirection]);
+  }, [activityState?.activityId, boundaryRef, coordinateSpace, fainted, hasPosition, isDragging, isPeeking, isWalkingToTarget, reacting, clearPetTimer, pushFootprint, shaken, shouldAutoWalk, setPetTimer, setIsAutoWalking, setWalkIntensity, setPosition, setWalkDirection]);
 
   useEffect(() => {
     if (
@@ -825,11 +831,12 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
         return;
       }
 
-      const bounds = getBounds(boundaryRef.current);
+      const bounds = getBounds(boundaryRef.current, coordinateSpace);
       const nextPosition = resolveCloudCodeMonsterPeekPosition(
         target,
         boundaryRef.current,
-        bounds
+        bounds,
+        coordinateSpace
       );
 
       setIsAutoWalking(false);
@@ -846,7 +853,7 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
     return () => {
       clearPetTimer("peek");
     };
-  }, [boundaryRef, clearPetTimer, fainted, hasPeekTargets, hasPosition, isDragging, isWalkingToTarget, reacting, shaken, setPetTimer, setIsAutoWalking, setIsPeeking, setWalkIntensity, setPosition]);
+  }, [boundaryRef, coordinateSpace, clearPetTimer, fainted, hasPeekTargets, hasPosition, isDragging, isWalkingToTarget, reacting, shaken, setPetTimer, setIsAutoWalking, setIsPeeking, setWalkIntensity, setPosition]);
 
   const wakeMonsterToDefault = useCallback(() => {
     if (isSleepyActivity(activityState?.activityId ?? null)) {
@@ -1060,6 +1067,7 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
   } = usePetDrag({
     activityState,
     boundaryRef,
+    coordinateSpace,
     fainted,
     initialPosition,
     isDragging,
@@ -1090,11 +1098,7 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
     }
 
     const handlePointerLook = (event: PointerEvent) => {
-      const boundaryRect = boundaryRef.current?.getBoundingClientRect();
-      const cursor = {
-        x: event.clientX - (boundaryRect?.left ?? 0),
-        y: event.clientY - (boundaryRect?.top ?? 0),
-      };
+      const cursor = petPointFromClient({ x: event.clientX, y: event.clientY }, boundaryRef.current, coordinateSpace);
       const nextPose = resolveCloudCodeMonsterCursorPose(cursor, position);
       const nextOffset = { x: nextPose.eyeX, y: nextPose.eyeY };
       setEyeOffset((current) =>
@@ -1121,7 +1125,7 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
     return () => {
       window.removeEventListener("pointermove", handlePointerLook);
     };
-  }, [boundaryRef, position, setCursorPose, setEyeOffset]);
+  }, [boundaryRef, coordinateSpace, position, setCursorPose, setEyeOffset]);
 
   if (!position || !activityState) {
     return null;
@@ -1140,7 +1144,7 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
   };
 
   return (
-    <div className={styles.petLayer}>
+    <div className={styles.petLayer} data-coordinate-space={coordinateSpace}>
       <div className={styles.footsteps} aria-hidden="true">
         {footprints.map((footprint) => (
           <span

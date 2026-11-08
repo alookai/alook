@@ -3,10 +3,10 @@ import { createWriteStream, unlinkSync } from "node:fs";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
+import { DIAGNOSTIC_GZIP_MAX_BYTES } from "@alook/shared";
 import type { BundleArtifact, DiagnosticEventRow } from "./types.js";
 
 export const DIAGNOSTIC_NDJSON_MAX_BYTES = 9 * 1024 * 1024;
-export const DIAGNOSTIC_GZIP_MAX_BYTES = 10 * 1024 * 1024;
 
 class BundleTooLargeError extends Error {
   readonly code = "bundle_too_large";

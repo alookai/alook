@@ -37,10 +37,14 @@ vi.mock("../../internal/probe.js", async () => {
 function simpleProcess() {
   const proc = new EventEmitter() as EventEmitter & {
     stdin: { write: ReturnType<typeof vi.fn> };
+    exitCode: number | null;
+    signalCode: NodeJS.Signals | null;
     kill: ReturnType<typeof vi.fn>;
   };
   proc.stdin = { write: vi.fn() };
-  proc.kill = vi.fn();
+  proc.exitCode = null;
+  proc.signalCode = null;
+  proc.kill = vi.fn(() => true);
   return proc;
 }
 
@@ -880,4 +884,13 @@ describe("CodexDriver live reasoning settings", () => {
       vi.useRealTimers();
     }
   });
+});
+
+it("keeps CLI installation healthy but discards a successful catalog after cleanup rejection", async () => {
+  const proc = probingProcess(request => ({ jsonrpc: "2.0", id: request.id, result: request.method === "model/list" ? { data: [{ id: "valid-model" }], nextCursor: null } : {} }));
+  proc.pid = 42_424;
+  runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+  runtimeMocks.killProcessTree.mockRejectedValueOnce(new Error("cleanup rejected"));
+  await expect(new CodexDriver().probe()).resolves.toMatchObject({ status: "healthy", reasoning: undefined });
+  expect(runtimeMocks.killProcessTree).toHaveBeenCalledWith(42_424, { graceMs: 250 });
 });

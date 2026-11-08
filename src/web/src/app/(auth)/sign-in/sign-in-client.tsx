@@ -375,7 +375,7 @@ function SignInForm({
       >
         {showMethodsPane ? (
           <div aria-hidden={isTransitioning || undefined} inert={isTransitioning || undefined} className="flex min-h-(--app-auth-available-height) w-full shrink-0 flex-col justify-center gap-4 pt-2 pb-4 sm:min-h-0 sm:p-8">
-            <SignInMobileTypewriter collapsed={false} />
+            <SignInMobileTypewriter />
             <div className="mx-auto w-full max-w-88 px-4 sm:px-0">
               <FieldGroup className="gap-4">
                   {accountDeleted || accountDeletionPending ? (

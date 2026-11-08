@@ -1,5 +1,4 @@
 export type ComposerAccessoryRailOccupancy = {
-  mode: "normal"
   left: boolean
   center: boolean
   right?: boolean

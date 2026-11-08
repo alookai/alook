@@ -22,33 +22,12 @@ export type DeleteForumPostInput = {
 export type DeleteForumPostResult = {
   /** False only when a concurrently-resolved delete committed first. */
   deleted: boolean;
-  /** Captured in the same D1 batch before message/channel cascades ran. */
-  mediaKeys: string[];
   readStateRevisions: AccountReadStateRevisionByUser[];
 };
 
-/**
- * Delete one already-authorized canonical forum post as a single D1 unit.
- *
- * The route resolves and authorizes the exact opener→forum→unique-child tuple;
- * this primitive owns only mutation atomicity. It intentionally does not reuse
- * `hardDeleteMessage`, whose bookkeeping and contract are limited to immediate
- * send rollback.
- *
- * Batch order matters:
- *   1. snapshot every linked/pending Community-media key;
- *   2. mint account revisions while every destructive read-state effect is
- *      still observable;
- *   3. repair or remove parent-forum read cursors that point at the opener;
- *   4. remove child-scoped pending attachment rows (linked rows cascade);
- *   5. update parent forum count/activity once;
- *   6. delete the opener, whose FK cascades the child channel and its rows.
- *
- * Every mutating statement is guarded by the opener still existing in the
- * resolved forum. D1 serializes each batch transaction, so when two requests
- * resolve before either commits, the loser becomes a no-op rather than
- * decrementing the parent twice.
- */
+// The route authorizes the opener/forum/child tuple. Every mutation is guarded
+// by the opener: concurrent deletes must not decrement the parent twice.
+// Read-state revisions precede destructive pointer and mention changes.
 export async function deleteForumPost(
   db: Database,
   input: DeleteForumPostInput,
@@ -298,7 +277,6 @@ async function deleteForumPostAttempt(
 
   return {
     deleted,
-    mediaKeys: [],
     readStateRevisions: deleted ? revisions : [],
   };
 }

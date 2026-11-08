@@ -1,6 +1,6 @@
 import { UnresolvedMainSkeleton } from "../shell/unresolved-main-skeleton"
 import { ChannelHeaderSkeleton } from "./channel-header"
-import { ConversationMessageSkeleton } from "./conversation-message-skeleton"
+import { MessageListSkeleton } from "@/components/community/messages/message-list-view"
 import { ForumViewSkeleton } from "./forum-view"
 import { ComposerSkeleton } from "../messages/composer"
 import { tid } from "@/lib/community/testids"
@@ -38,7 +38,7 @@ export function ConversationResolutionPendingFrame({
           data-community-conversation-subtype={subtype}
           className="flex min-h-0 min-w-0 flex-1 flex-col"
         >
-          <ConversationMessageSkeleton />
+          <MessageListSkeleton />
           <ComposerSkeleton />
         </main>
       </>

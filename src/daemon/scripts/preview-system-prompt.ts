@@ -1,14 +1,14 @@
 /**
  * `pnpm tsx scripts/preview-system-prompt.ts` — dump the system prompt to /tmp
- * with mock LaunchConfig values, so you can read/iterate on it as prose.
+ * with mock HostLaunchConfig values, so you can read/iterate on it as prose.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildCliSystemPrompt } from "../src/drivers/systemPrompt.js";
-import type { LaunchConfig } from "../src/types.js";
+import type { HostLaunchConfig } from "../src/manager/hostContext.js";
 
-const mockConfig: LaunchConfig = {
+const mockConfig: HostLaunchConfig = {
   agentName: "Gus",
   agentHandle: "@Gus#4821",
   ownerHandle: "@gustavo#0001",

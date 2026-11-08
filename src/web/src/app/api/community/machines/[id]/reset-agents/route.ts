@@ -7,21 +7,8 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { pushBatchResetToMachine } from "@/lib/community/bot-push"
 
 /**
- * Owner-triggered BATCH reset — reset EVERY agent bound to a machine in one
- * command (my-bots machine-category "Reset all" button).
- *
- * Flow: owner-scope the machine → enumerate its full binding set
- * (`listBotsForMachine`, all bound bots regardless of running state — a
- * bound-but-idle bot cold-starts on reset, scope ②) → build a per-agent
- * RuntimeConfig (same as single-reset) → push ONE `machine:reset_all` frame to
- * the machine's daemon (server packs the array; the daemon does NOT re-enumerate
- * and gates each agentId on its own `botsById`). If delivered (`sent > 0`)
- * return `{ dispatched: N }`; if the daemon is offline (`sent === 0`) return 409.
- *
- * v1 is DISPATCH-level (Gus 架构#825): we confirm the daemon RECEIVED the batch,
- * not per-agent reset completion — matching single-reset's fire-and-confirm-
- * delivery honesty. No per-agent success tracking (that'd be a v2 correlated-ack
- * path the control channel doesn't have).
+ * Dispatch confirms daemon receipt of the batch, not completion of each reset.
+ * Include idle bound bots; the daemon validates each binding independently.
  */
 export const POST = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const machineId = ctx.params?.id as string

@@ -25,6 +25,7 @@ import {
   refreshTimelineEntryHandle,
   filenameForDate,
   TIMELINE_MAX_BYTES,
+  TIMELINE_MAX_AGENT_RESPONSES,
   prepareTimelineDirectory,
 } from "./timeline.js";
 import type {
@@ -36,7 +37,6 @@ import type {
 import type { Message } from "../server/contract.js";
 import type { ContextTimelineEntry, SystemEntryType } from "./types.js";
 
-const MAX_AGENT_RESPONSES = 5;
 const MAX_AGENT_RESPONSE_BYTES = 65_536;
 const MAX_PENDING_COMMITS_PER_AGENT = 8;
 const PENDING_COMMIT_TTL_MS = 15 * 60_000;
@@ -105,7 +105,7 @@ function serializedTimelineBytes(entry: ContextTimelineEntry): number {
 function fitResponsesToRow(entry: ContextTimelineEntry, responses: readonly string[]): string[] | null {
   let fitted = [...entry.agent_responses];
   for (const response of responses) {
-    fitted = [...fitted, response].slice(-MAX_AGENT_RESPONSES);
+    fitted = [...fitted, response].slice(-TIMELINE_MAX_AGENT_RESPONSES);
     if (serializedTimelineBytes({ ...entry, agent_responses: fitted }) <= TIMELINE_MAX_BYTES) continue;
     const truncationBase = response.endsWith(TRUNCATION_MARKER)
       ? response.slice(0, -TRUNCATION_MARKER.length)
@@ -474,8 +474,8 @@ export function createTimelineRecorder(opts: TimelineRecorderOptions): TimelineR
         return;
       }
       state.responses.push(boundedResponse(text, truncated));
-      if (state.responses.length > MAX_AGENT_RESPONSES) {
-        state.responses.splice(0, state.responses.length - MAX_AGENT_RESPONSES);
+      if (state.responses.length > TIMELINE_MAX_AGENT_RESPONSES) {
+        state.responses.splice(0, state.responses.length - TIMELINE_MAX_AGENT_RESPONSES);
       }
     },
     finalizeTurn(agentId, owner) {

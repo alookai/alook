@@ -5,8 +5,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { resolve } from "path"
 import { test as caseTest, type CaseActors, type CaseResources } from "./e2e-ui/_fixtures/case-fixture"
 import { cleanupGeometryServers, seedGeometryRoutes } from "./e2e-ui/_fixtures/community-loading-geometry"
-import { seedChannel, seedDm, seedForumThread, seedMessage, seedServer, seedThread } from "./e2e-ui/_fixtures/seed"
-import * as legacySeed from "./e2e-ui/_fixtures/seed"
+import { createSeed } from "./e2e-ui/_fixtures/seed"
 
 function communityJsonReply(body: unknown, init?: ResponseInit) {
   const headers = new Headers(init?.headers)
@@ -51,15 +50,11 @@ vi.mock("./e2e-ui/_fixtures/seed-retry", async (importOriginal) => ({
   retrySeedRequest: (request: () => Promise<Response>) => request(),
 }))
 
-vi.mock("./e2e-ui/_fixtures/seed", async (importOriginal) => ({
-  ...await importOriginal<typeof import("./e2e-ui/_fixtures/seed")>(),
-  seedServer: vi.fn(),
-  seedChannel: vi.fn(),
-  seedDm: vi.fn(),
-  seedForumThread: vi.fn(),
-  seedMessage: vi.fn(),
-  seedThread: vi.fn(),
-}))
+const geometrySeed = {
+  ...createSeed({ sessionCookie: key => `fixture-user=${key}`, userId: key => `user-${key}`, users: () => ({}) }),
+  seedServer: vi.fn(), seedChannel: vi.fn(), seedDm: vi.fn(), seedForumThread: vi.fn(), seedMessage: vi.fn(), seedThread: vi.fn(),
+}
+const { seedServer, seedChannel, seedDm, seedForumThread, seedMessage, seedThread } = geometrySeed
 
 describe("geometry fixture backend resource isolation", () => {
   beforeEach(() => {
@@ -82,8 +77,8 @@ describe("geometry fixture backend resource isolation", () => {
     const request = vi.fn().mockResolvedValue(new Response(null, { status: 204, headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     vi.stubGlobal("fetch", request)
 
-    const routes = await seedGeometryRoutes(owned, legacySeed, (key) => `user-${key}`)
-    await cleanupGeometryServers(owned, legacySeed)
+    const routes = await seedGeometryRoutes(owned, geometrySeed, (key) => `user-${key}`)
+    await cleanupGeometryServers(owned, geometrySeed)
 
     expect(routes).toHaveLength(9)
     expect(owned).toEqual(Array.from({ length: 20 }, (_, index) => `owned-${index + 1}`))
@@ -103,8 +98,8 @@ describe("geometry fixture backend resource isolation", () => {
     const request = vi.fn().mockResolvedValue(new Response(null, { status: 204, headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     vi.stubGlobal("fetch", request)
 
-    await expect(seedGeometryRoutes(owned, legacySeed, (key) => `user-${key}`)).rejects.toThrow("seed failed")
-    await cleanupGeometryServers(owned, legacySeed)
+    await expect(seedGeometryRoutes(owned, geometrySeed, (key) => `user-${key}`)).rejects.toThrow("seed failed")
+    await cleanupGeometryServers(owned, geometrySeed)
 
     expect(owned).toEqual(["owned-first", "owned-second"])
     expect(request.mock.calls.map(([url]) => new URL(url).pathname)).toEqual([
@@ -121,7 +116,7 @@ describe("geometry fixture backend resource isolation", () => {
       .mockResolvedValueOnce(new Response(null, { status: 204, headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     vi.stubGlobal("fetch", request)
 
-    const error = await cleanupGeometryServers(["failed", "disconnected", "already-gone", "remaining"], legacySeed)
+    const error = await cleanupGeometryServers(["failed", "disconnected", "already-gone", "remaining"], geometrySeed)
       .catch((failure: AggregateError) => failure)
 
     expect(error).toBeInstanceOf(AggregateError)

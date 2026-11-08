@@ -1,12 +1,13 @@
 "use client"
-import { useConversationPresentation } from "@/contexts/community/conversation-activity"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { useConversationPresentation } from "@/contexts/view-activity"
 import { useMemo } from "react"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
 import { useMutationState, useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query"
-import { communityRequestOptions } from "@/lib/community-db/sync"
+
 import { apiFetch } from "@/lib/api/client"
-import { apiFetchCommunity, communityRequestOptions as qualifiedCommunityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
 import type { Thread, Msg } from "@/lib/community/models/message"
 import {
@@ -33,7 +34,7 @@ export type ThreadsResponse = {
 }
 
 async function loadThreadResources(queryClient: QueryClient, channelId: string, proof: CommunityFreshQueryProof) {
-  const options = qualifiedCommunityRequestOptions(queryClient, proof.token, proof.signal)
+  const options = communityRequestOptions(queryClient, proof.token, proof.signal)
   const response = await apiFetch<CommunityThreadsRead>(`/api/community/channels/${channelId}/threads?include=parentMessage,firstMessage,tags,participants&archived=false`, options)
   assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
   return normalizeThreadResources(channelId, response)
@@ -87,7 +88,7 @@ export function useForumTags(channelId: string | null, enabled: boolean) {
   const presented = useConversationPresentation()
   return useQuery({
     queryKey: communityKeys.forumTags(channelId ?? "__none__"),
-    queryFn: ({ client, signal }) => apiFetch<{ tags: string[] }>(`/api/community/channels/${channelId}/messages/tags`, communityRequestOptions(client, signal)),
+    queryFn: ({ client, signal }) => apiFetch<{ tags: string[] }>(`/api/community/channels/${channelId}/messages/tags`, communityRequestOptions(client, captureCommunityLiveSnapshotToken(client), signal)),
     enabled: !!channelId && enabled && presented,
   })
 }

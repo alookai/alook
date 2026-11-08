@@ -1,5 +1,4 @@
 import "fake-indexeddb/auto"
-import React from "react"
 import { openDB } from "idb"
 import { del, get, set } from "idb-keyval"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -17,7 +16,7 @@ async function seed(name: string) {
     for (const table of ["messages", "cache_meta", "last_open", "conv_extras"]) db.createObjectStore(table)
   } })
   connections.push(db)
-  for (const table of db.objectStoreNames) await db.put(table, { text: "旧聊天", marker: table }, table)
+  for (const table of db.objectStoreNames) await db.put(table, { text: "Old chat", marker: table }, table)
   return db
 }
 function mount() {
@@ -44,13 +43,13 @@ describe("AdvancedSettings legacy device cache", () => {
     unrelated.close()
     const cacheNames = new Set(["alook-public-precache-v0", "alook-public-precache-v1", "alook-public-v99-runtime", "unrelated-cache"])
     const storage = { keys: vi.fn(async () => [...cacheNames]), delete: vi.fn(async (name: string) => cacheNames.delete(name)),
-      open: vi.fn(async () => ({ keys: async () => [new Request("https://example.test/asset")], match: async () => new Response("你好") })) }
+      open: vi.fn(async () => ({ keys: async () => [new Request("https://example.test/asset")], match: async () => new Response("€€") })) }
     vi.stubGlobal("caches", storage)
     await set("alook:qc:v1:settings:client", "old")
-    await set("alook:qc:v3:settings:client", "你好")
+    await set("alook:qc:v3:settings:client", "€€")
     await set("alook:qc:v99:settings:application:client", "future")
     await set("settings-unrelated", "keep")
-    expect(await getPersistedCacheSizeBytes()).toBe(33 + ["messages", "cache_meta", "last_open", "conv_extras"].reduce((sum, table) => sum + new TextEncoder().encode(JSON.stringify({ text: "旧聊天", marker: table })).byteLength, 0))
+    expect(await getPersistedCacheSizeBytes()).toBe(33 + ["messages", "cache_meta", "last_open", "conv_extras"].reduce((sum, table) => sum + new TextEncoder().encode(JSON.stringify({ text: "Old chat", marker: table })).byteLength, 0))
     mount()
     await waitFor(() => expect(screen.getByTestId(tid.settingsCacheSize)).not.toHaveTextContent("Calculating"))
     expect(screen.getByTestId(tid.settingsCacheSize)).not.toHaveTextContent("0 B")

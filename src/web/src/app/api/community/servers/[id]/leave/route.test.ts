@@ -10,6 +10,7 @@ const mockResolveServerByNameForMember = vi.fn()
 const mockRemoveMemberAndOwnerBots = vi.fn()
 const mockListOwnerBotsInServer = vi.fn()
 const mockFanOut = vi.fn()
+const mockPublishLeaves = vi.fn(async (..._args: unknown[]) => {})
 const mockBroadcastToUserSafe = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
@@ -32,6 +33,7 @@ vi.mock("@alook/shared", async () => {
 })
 
 vi.mock("@/lib/community/fanout", () => ({
+  publishServerMemberLeaves: (...args: unknown[]) => mockPublishLeaves(...args),
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
@@ -86,7 +88,7 @@ describe("POST /api/community/servers/[id]/leave", () => {
   it("returns 204 after removing the member", async () => {
     const res = await POST(postReq(), ctx)
     expect(res.status).toBe(204)
-
+    expect(mockPublishLeaves).toHaveBeenCalledExactlyOnceWith("s1", ["u1"])
   })
 
   it("returns 403 when the user is not a member", async () => {
@@ -118,6 +120,7 @@ describe("POST /api/community/servers/[id]/leave", () => {
       ["bot_1", "bot_2"],
     )
     expect(mockGetMember).toHaveBeenCalledTimes(1)
+    expect(mockPublishLeaves).toHaveBeenCalledExactlyOnceWith("s1", ["u1", "bot_1", "bot_2"])
   })
 
   it("bot resolves an exact member-scoped handle and converges on the existing leave path", async () => {
@@ -142,6 +145,7 @@ describe("POST /api/community/servers/[id]/leave", () => {
       "bot1",
       [],
     )
+    expect(mockPublishLeaves).toHaveBeenCalledExactlyOnceWith("s1", ["bot1"])
   })
 
   it("bot cannot supply a raw server id", async () => {

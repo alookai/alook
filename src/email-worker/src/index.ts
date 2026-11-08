@@ -1,6 +1,7 @@
+import { notifyWeb } from "./notify-web"
 import { nanoid } from "nanoid"
 import PostalMime from "postal-mime"
-import { createDb, queries, parseEmailHandle, toAlookAddress, DEV_WEB_URL, createLogger, buildMimeMessage, extractAttachmentMeta } from "@alook/shared"
+import { createDb, queries, parseEmailHandle, toAlookAddress, createLogger, buildMimeMessage, extractAttachmentMeta } from "@alook/shared"
 import { decrypt } from "@alook/shared/crypto"
 import { WorkerMailer, type AuthType } from "worker-mailer"
 import { EmailMessage } from "cloudflare:email"
@@ -19,31 +20,6 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
     binary += String.fromCharCode(bytes[i]!)
   }
   return btoa(binary)
-}
-
-async function notifyWeb(env: EmailEnv, payload: Record<string, unknown>, traceId: string) {
-  const body = JSON.stringify(payload)
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-Trace-Id": traceId,
-  }
-
-  const init: RequestInit = { method: "POST", headers, body }
-
-  try {
-    const res = await env.WEB_SERVICE.fetch("http://internal/api/email/notify", init)
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => "")
-      throw new Error(`WEB_SERVICE responded ${res.status}: ${errBody}`)
-    }
-  } catch (serviceErr) {
-    try {
-      const fallback = await fetch(`${DEV_WEB_URL}/api/email/notify`, init)
-      if (!fallback.ok) throw new Error(`fallback responded ${fallback.status}`)
-    } catch {
-      throw serviceErr instanceof Error ? serviceErr : new Error(String(serviceErr))
-    }
-  }
 }
 
 export default {
@@ -375,7 +351,7 @@ export default {
         isWhitelisted: true,
         ...threadingFields,
         ...attachmentsField,
-      }, traceId)
+      }, { traceId, includeResponseBody: true })
     } else {
       emailLog.info("non-whitelisted email, rejecting", { agentId: agent.id })
       await notifyWeb(env, {
@@ -389,7 +365,7 @@ export default {
         forwarded: false,
         ...threadingFields,
         ...attachmentsField,
-      }, traceId)
+      }, { traceId, includeResponseBody: true })
 
       message.setReject("Sender not whitelisted")
     }

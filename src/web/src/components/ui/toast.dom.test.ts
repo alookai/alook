@@ -1,5 +1,5 @@
 import staticContractInput0 from "../../app/layout.tsx?raw"
-import { resolve } from "node:path"
+
 import React, { type ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, type RenderResult } from "@/test/react-dom-harness"
@@ -312,4 +312,12 @@ describe("top-center message notification", () => {
     expect(onButtonClose).toHaveBeenCalledOnce()
     expect(onSwipeClose).toHaveBeenCalledOnce()
   })
+it("uses an explicit false icon for both rendering and the no-icon grid", () => {
+  renderToaster()
+  act(() => { messageNotification.add({ id: "suppressed", title: "No success icon", type: "success", data: { icon: false } }) })
+  const root = Array.from(renderer.container.querySelectorAll("toast-root")).find(node => node.querySelector("toast-title")?.textContent === "No success icon")!
+  expect(root.querySelector('[data-slot="message-notification-icon"]')).toBeNull()
+  expect(root.querySelector('[data-slot="message-notification-content"]')?.className).toContain("grid-cols-[minmax(0,1fr)_auto]")
+})
+
 })

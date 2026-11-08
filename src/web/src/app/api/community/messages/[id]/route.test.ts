@@ -451,7 +451,6 @@ describe("DELETE /api/community/messages/[id]", () => {
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue([])
     mockDeleteForumPost.mockResolvedValue({
       deleted: true,
-      mediaKeys: ["opener/original", "opener/thumb"],
       readStateRevisions: [],
     })
     mockFanOutToServerMembers.mockResolvedValue(undefined)
@@ -465,7 +464,7 @@ describe("DELETE /api/community/messages/[id]", () => {
     })
   }
 
-  it("lets the author delete the canonical opener, then schedules media and broadcasts the post unit", async () => {
+  it("lets the author delete the canonical opener, preserves reusable media and broadcasts the post unit", async () => {
     const res = await DELETE(deleteReq(), { params: { id: "opener_1" } } as any)
 
     expect(res.status).toBe(204)
@@ -475,9 +474,8 @@ describe("DELETE /api/community/messages/[id]", () => {
       forumChannelId: "forum_1",
       childChannelId: "child_1",
     })
-    expect(cloudflareMocks.waitUntil).toHaveBeenCalledTimes(1)
-    await cloudflareMocks.waitUntil.mock.calls[0]![0]
-    expect(cloudflareMocks.mediaDelete).toHaveBeenCalledWith(["opener/original", "opener/thumb"])
+    expect(cloudflareMocks.waitUntil).not.toHaveBeenCalled()
+    expect(cloudflareMocks.mediaDelete).not.toHaveBeenCalled()
     expect(mockFanOutToServerMembers).toHaveBeenCalledWith("server_1", {
       type: "community:channel.delete",
       serverId: "server_1",
@@ -547,7 +545,7 @@ describe("DELETE /api/community/messages/[id]", () => {
   })
 
   it("treats a concurrently-resolved losing batch as idempotent without duplicate side effects", async () => {
-    mockDeleteForumPost.mockResolvedValue({ deleted: false, mediaKeys: [], readStateRevisions: [] })
+    mockDeleteForumPost.mockResolvedValue({ deleted: false, readStateRevisions: [] })
 
     const res = await DELETE(deleteReq(), { params: { id: "opener_1" } } as any)
 

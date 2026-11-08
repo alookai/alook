@@ -5,6 +5,7 @@ import {
   type CommunityBrowserEventEnvelope,
   encodeCommunityBrowserEvent,
   utf8ByteLength,
+  isWellFormedUnicode,
   type CommunityWsEvent,
 } from "./community-ws-events"
 import { MESSAGE_DELIVERY_MAX_EVENTS_PER_USER } from "./community-message-delivery"
@@ -104,20 +105,6 @@ export type CommunityBrowserEventBatchDecodeResult =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-function isWellFormedUnicode(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const codeUnit = value.charCodeAt(index)
-    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
-      const next = value.charCodeAt(index + 1)
-      if (!Number.isInteger(next) || next < 0xdc00 || next > 0xdfff) return false
-      index += 1
-    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
-      return false
-    }
-  }
-  return true
 }
 
 function bytesToHex(bytes: Uint8Array): string {

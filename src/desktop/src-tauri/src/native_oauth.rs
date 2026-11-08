@@ -457,7 +457,7 @@ mod tests {
     }
     #[test]
     fn redirects_match_the_shared_nested_decode_contract() {
-        for path in ["/c/me", "/c/me?tab=hello%20world", "/c?x=%25", "/%E4%B8%AD"] {
+        for path in ["/c/me", "/c/me?tab=hello%20world", "/c?x=%25", "/%E2%82%AC"] {
             assert!(safe_redirect(path), "{path}");
         }
         for path in [

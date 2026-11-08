@@ -26,7 +26,6 @@ export type CommittedMessageStructuralOutcome = {
   /** A participant row inserted by this exact message write. */
   joinedParticipantUserIds?: string[]
   /** Existing thread-open collision suppression; no audience/policy input. */
-  suppressParentProjection?: boolean
 }
 
 export type MessageDeliveryPlan = MessageDeliveryBatch & {
@@ -191,7 +190,7 @@ export async function planCommittedMessage(
   if (!messageResult.ok || messageResult.event.type !== WS_EVENTS.MESSAGE_CREATE) throw new Error("Invalid committed message event")
   const messageEvent = messageResult.event
 
-  const includeParent = Boolean(channel.parentChannelId && !structural.suppressParentProjection)
+  const includeParent = Boolean(channel.parentChannelId)
   const parentProjectionUserIds = includeParent
     ? unique(await resolveRecipients(db, channel.parentChannelId!))
     : []

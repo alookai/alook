@@ -58,25 +58,23 @@ describe("SignInMobileTypewriter", () => {
     delete (window as Window & { DeviceMotionEvent?: unknown }).DeviceMotionEvent
   })
 
-  it("mounts TypewriterVisual only on mobile when not collapsed", () => {
+  it("mounts TypewriterVisual only on mobile", () => {
     mockMatchMedia({ mobile: false })
-    const desktop = render(createElement(SignInMobileTypewriter, { collapsed: false }))
+    const desktop = render(createElement(SignInMobileTypewriter))
     expect(screen.queryByTestId("typewriter-visual-stub")).toBeNull()
     desktop.unmount()
 
     mockMatchMedia({ mobile: true })
-    const mobile = render(createElement(SignInMobileTypewriter, { collapsed: false }))
+    const mobile = render(createElement(SignInMobileTypewriter))
     expect(screen.getByTestId("typewriter-visual-stub")).toBeVisible()
-    expect(screen.getByTestId("sign-in-mobile-typewriter")).toHaveAttribute("data-collapsed", "false")
-
-    mobile.rerender(createElement(SignInMobileTypewriter, { collapsed: true }))
+    expect(screen.getByTestId("sign-in-mobile-typewriter")).toBeVisible()
+    mobile.unmount()
     expect(screen.queryByTestId("typewriter-visual-stub")).toBeNull()
-    expect(screen.getByTestId("sign-in-mobile-typewriter")).toHaveAttribute("data-collapsed", "true")
   })
 
   it("tilts with gyroscope orientation and shakes on accelerometer spikes before decaying to rest", () => {
     mockMatchMedia({ mobile: true })
-    render(createElement(SignInMobileTypewriter, { collapsed: false }))
+    render(createElement(SignInMobileTypewriter))
     const stage = screen.getByTestId("sign-in-mobile-typewriter")
 
     act(() => {
@@ -124,7 +122,7 @@ describe("SignInMobileTypewriter", () => {
 
   function mobileStage() {
     mockMatchMedia({ mobile: true })
-    const view = render(createElement(SignInMobileTypewriter, { collapsed: false }))
+    const view = render(createElement(SignInMobileTypewriter))
     const stage = screen.getByTestId("sign-in-mobile-typewriter")
     vi.spyOn(stage, "getBoundingClientRect").mockReturnValue({
       x: 0, y: 0, left: 0, top: 0, right: 390, bottom: 240,
@@ -193,7 +191,7 @@ describe("SignInMobileTypewriter", () => {
 
   it("does not animate reduced motion and cancels a pending frame on unmount", () => {
     mockMatchMedia({ mobile: true, reducedMotion: true })
-    const reduced = render(createElement(SignInMobileTypewriter, { collapsed: false }))
+    const reduced = render(createElement(SignInMobileTypewriter))
     const stage = screen.getByTestId("sign-in-mobile-typewriter")
     act(() => {
       orientation(40, 0)
@@ -216,7 +214,7 @@ describe("SignInMobileTypewriter", () => {
       requestPermission,
     }
 
-    render(createElement(SignInMobileTypewriter, { collapsed: false }))
+    render(createElement(SignInMobileTypewriter))
     const stage = screen.getByTestId("sign-in-mobile-typewriter")
     vi.spyOn(stage, "getBoundingClientRect").mockReturnValue({
       x: 0,
@@ -269,7 +267,7 @@ describe("SignInMobileTypewriter", () => {
     const isSensorEvent = ([name]: readonly unknown[]) =>
       name === "deviceorientation" || name === "devicemotion"
 
-    render(createElement(SignInMobileTypewriter, { collapsed: false }))
+    render(createElement(SignInMobileTypewriter))
     act(() => {
       const motion = new Event("devicemotion")
       Object.defineProperty(motion, "acceleration", { value: { x: 1, y: 1 } })
@@ -301,7 +299,7 @@ describe("SignInMobileTypewriter", () => {
     const pending = new Promise<"granted">((_resolve, reject) => { rejectPermission = reject })
     const requestPermission = vi.fn().mockReturnValueOnce(pending).mockResolvedValue("granted")
     ;(window as Window & { DeviceOrientationEvent?: unknown }).DeviceOrientationEvent = { requestPermission }
-    render(createElement(SignInMobileTypewriter, { collapsed: false }))
+    render(createElement(SignInMobileTypewriter))
     const stage = screen.getByTestId("sign-in-mobile-typewriter")
     const tap = () => {
       fireEvent.pointerDown(stage, { pointerId: 1 })
@@ -319,7 +317,7 @@ describe("SignInMobileTypewriter", () => {
     expect(requestPermission).toHaveBeenCalledTimes(2)
   })
 
-  it("does not reattach sensors after a late permission result following unmount or collapse", async () => {
+  it("does not reattach sensors after a late permission result following unmount", async () => {
     mockMatchMedia({ mobile: true })
     const isSensorEvent = ([name]: readonly unknown[]) =>
       name === "deviceorientation" || name === "devicemotion"
@@ -331,7 +329,7 @@ describe("SignInMobileTypewriter", () => {
       requestPermission: vi.fn(() => unmountPermission),
     }
     const add = vi.spyOn(window, "addEventListener")
-    const unmountedView = render(createElement(SignInMobileTypewriter, { collapsed: false }))
+    const unmountedView = render(createElement(SignInMobileTypewriter))
     fireEvent.pointerDown(screen.getByTestId("sign-in-mobile-typewriter"), { pointerId: 1 })
     fireEvent.pointerUp(screen.getByTestId("sign-in-mobile-typewriter"), { pointerId: 1 })
     unmountedView.unmount()
@@ -343,24 +341,5 @@ describe("SignInMobileTypewriter", () => {
     })
     expect(add.mock.calls.filter(isSensorEvent)).toHaveLength(0)
 
-    let grantCollapse!: (value: "granted") => void
-    const collapsePermission = new Promise<"granted">((resolve) => {
-      grantCollapse = resolve
-    })
-    ;(window as Window & { DeviceOrientationEvent?: unknown }).DeviceOrientationEvent = {
-      requestPermission: vi.fn(() => collapsePermission),
-    }
-    const collapsedView = render(createElement(SignInMobileTypewriter, { collapsed: false }))
-    fireEvent.pointerDown(screen.getByTestId("sign-in-mobile-typewriter"), { pointerId: 2 })
-    fireEvent.pointerUp(screen.getByTestId("sign-in-mobile-typewriter"), { pointerId: 2 })
-    collapsedView.rerender(createElement(SignInMobileTypewriter, { collapsed: true }))
-    add.mockClear()
-    await act(async () => {
-      grantCollapse("granted")
-      await collapsePermission
-      await Promise.resolve()
-    })
-    expect(add.mock.calls.filter(isSensorEvent)).toHaveLength(0)
-    collapsedView.unmount()
   })
 })

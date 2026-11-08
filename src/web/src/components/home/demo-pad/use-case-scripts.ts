@@ -42,22 +42,22 @@ export const leadFollowupScript: UseCaseScript = {
     { id: "sales-email-out-2", duration: 3000 },
   ],
   derive(isStepVisible) {
-    const showCoder = isStepVisible(4) && !isStepVisible(9);
+    const showCoder = isStepVisible("switch-coder") && !isStepVisible("switch-sales");
     if (showCoder) {
       let vis = 0;
-      if (isStepVisible(5)) vis = 1;
-      if (isStepVisible(7)) vis = 2;
-      if (isStepVisible(8)) vis = 3;
-      return { activeAgent: "coder", steps: LEAD_CODER_STEPS, visibleCount: vis, isTyping: isStepVisible(6) && !isStepVisible(7), isWorking: isStepVisible(5) && !isStepVisible(8) };
+      if (isStepVisible("coder-email-in")) vis = 1;
+      if (isStepVisible("coder-msg")) vis = 2;
+      if (isStepVisible("coder-email-out")) vis = 3;
+      return { activeAgent: "coder", steps: LEAD_CODER_STEPS, visibleCount: vis, isTyping: isStepVisible("coder-typing") && !isStepVisible("coder-msg"), isWorking: isStepVisible("coder-email-in") && !isStepVisible("coder-email-out") };
     }
     let vis = 0;
-    if (isStepVisible(0)) vis = 1;
-    if (isStepVisible(2)) vis = 2;
-    if (isStepVisible(3)) vis = 3;
-    if (isStepVisible(10)) vis = 4;
-    if (isStepVisible(11)) vis = 5;
-    if (isStepVisible(12)) vis = 6;
-    return { activeAgent: "sales", steps: LEAD_SALES_STEPS, visibleCount: vis, isTyping: isStepVisible(1) && !isStepVisible(2), isWorking: isStepVisible(0) && !isStepVisible(12) };
+    if (isStepVisible("email-in")) vis = 1;
+    if (isStepVisible("sales-msg")) vis = 2;
+    if (isStepVisible("sales-email-out")) vis = 3;
+    if (isStepVisible("sales-email-in-2")) vis = 4;
+    if (isStepVisible("sales-msg-2")) vis = 5;
+    if (isStepVisible("sales-email-out-2")) vis = 6;
+    return { activeAgent: "sales", steps: LEAD_SALES_STEPS, visibleCount: vis, isTyping: isStepVisible("sales-typing") && !isStepVisible("sales-msg"), isWorking: isStepVisible("email-in") && !isStepVisible("sales-email-out-2") };
   },
 };
 
@@ -114,33 +114,33 @@ export const weeklyBriefScript: UseCaseScript = {
     { id: "planner-email-out-final", duration: 3000 },
   ],
   derive(isStepVisible) {
-    const showCoder = isStepVisible(4) && !isStepVisible(9);
-    const showMarketer = isStepVisible(12) && !isStepVisible(17);
+    const showCoder = isStepVisible("switch-coder") && !isStepVisible("switch-planner-1");
+    const showMarketer = isStepVisible("switch-marketer") && !isStepVisible("switch-planner-2");
     if (showMarketer) {
       let vis = 0;
-      if (isStepVisible(13)) vis = 1;
-      if (isStepVisible(15)) vis = 2;
-      if (isStepVisible(16)) vis = 3;
-      return { activeAgent: "marketer", steps: BRIEF_MARKETER_STEPS, visibleCount: vis, isTyping: isStepVisible(14) && !isStepVisible(15), isWorking: isStepVisible(13) && !isStepVisible(16) };
+      if (isStepVisible("marketer-email-in")) vis = 1;
+      if (isStepVisible("marketer-msg")) vis = 2;
+      if (isStepVisible("marketer-email-out")) vis = 3;
+      return { activeAgent: "marketer", steps: BRIEF_MARKETER_STEPS, visibleCount: vis, isTyping: isStepVisible("marketer-typing") && !isStepVisible("marketer-msg"), isWorking: isStepVisible("marketer-email-in") && !isStepVisible("marketer-email-out") };
     }
     if (showCoder) {
       let vis = 0;
-      if (isStepVisible(5)) vis = 1;
-      if (isStepVisible(7)) vis = 2;
-      if (isStepVisible(8)) vis = 3;
-      return { activeAgent: "coder", steps: BRIEF_CODER_STEPS, visibleCount: vis, isTyping: isStepVisible(6) && !isStepVisible(7), isWorking: isStepVisible(5) && !isStepVisible(8) };
+      if (isStepVisible("coder-email-in")) vis = 1;
+      if (isStepVisible("coder-msg")) vis = 2;
+      if (isStepVisible("coder-email-out")) vis = 3;
+      return { activeAgent: "coder", steps: BRIEF_CODER_STEPS, visibleCount: vis, isTyping: isStepVisible("coder-typing") && !isStepVisible("coder-msg"), isWorking: isStepVisible("coder-email-in") && !isStepVisible("coder-email-out") };
     }
 
     let vis = 0;
-    if (isStepVisible(0)) vis = 1;  // calendar trigger
-    if (isStepVisible(2)) vis = 2;  // msg "collecting..."
-    if (isStepVisible(3)) vis = 3;  // email-out to coder
-    if (isStepVisible(10)) vis = 4; // email-in from coder
-    if (isStepVisible(11)) vis = 5; // email-out to marketer
-    if (isStepVisible(18)) vis = 6; // email-in from marketer
-    if (isStepVisible(19)) vis = 7; // briefing summary
-    if (isStepVisible(20)) vis = 8; // email-out to owner
-    return { activeAgent: "planner", steps: BRIEF_PLANNER_STEPS, visibleCount: vis, isTyping: isStepVisible(1) && !isStepVisible(2), isWorking: isStepVisible(0) && !isStepVisible(20) };
+    if (isStepVisible("trigger")) vis = 1;  // calendar trigger
+    if (isStepVisible("planner-msg")) vis = 2;  // msg "collecting..."
+    if (isStepVisible("planner-email-out-coder")) vis = 3;  // email-out to coder
+    if (isStepVisible("planner-email-in-coder")) vis = 4; // email-in from coder
+    if (isStepVisible("planner-email-out-marketer")) vis = 5; // email-out to marketer
+    if (isStepVisible("planner-email-in-marketer")) vis = 6; // email-in from marketer
+    if (isStepVisible("planner-msg-2")) vis = 7; // briefing summary
+    if (isStepVisible("planner-email-out-final")) vis = 8; // email-out to owner
+    return { activeAgent: "planner", steps: BRIEF_PLANNER_STEPS, visibleCount: vis, isTyping: isStepVisible("planner-typing") && !isStepVisible("planner-msg"), isWorking: isStepVisible("trigger") && !isStepVisible("planner-email-out-final") };
   },
 };
 
@@ -177,22 +177,22 @@ export const storeOpsScript: UseCaseScript = {
     { id: "ops-final-email", duration: 3000 },
   ],
   derive(isStepVisible) {
-    const showMarketer = isStepVisible(5) && !isStepVisible(10);
+    const showMarketer = isStepVisible("switch-marketer") && !isStepVisible("switch-ops");
     if (showMarketer) {
       let vis = 0;
-      if (isStepVisible(6)) vis = 1;
-      if (isStepVisible(8)) vis = 2;
-      if (isStepVisible(9)) vis = 3;
-      return { activeAgent: "marketer", steps: STORE_MARKETER_STEPS, visibleCount: vis, isTyping: isStepVisible(7) && !isStepVisible(8), isWorking: isStepVisible(6) && !isStepVisible(9) };
+      if (isStepVisible("marketer-email-in")) vis = 1;
+      if (isStepVisible("marketer-msg")) vis = 2;
+      if (isStepVisible("marketer-email-out")) vis = 3;
+      return { activeAgent: "marketer", steps: STORE_MARKETER_STEPS, visibleCount: vis, isTyping: isStepVisible("marketer-typing") && !isStepVisible("marketer-msg"), isWorking: isStepVisible("marketer-email-in") && !isStepVisible("marketer-email-out") };
     }
     let vis = 0;
-    if (isStepVisible(0)) vis = 1;
-    if (isStepVisible(2)) vis = 2;
-    if (isStepVisible(3)) vis = 3;
-    if (isStepVisible(4)) vis = 4;
-    if (isStepVisible(11)) vis = 5;
-    if (isStepVisible(12)) vis = 6;
-    return { activeAgent: "ops", steps: STORE_OPS_STEPS, visibleCount: vis, isTyping: isStepVisible(1) && !isStepVisible(2), isWorking: isStepVisible(0) && !isStepVisible(12) };
+    if (isStepVisible("trigger")) vis = 1;
+    if (isStepVisible("ops-msg")) vis = 2;
+    if (isStepVisible("ops-msg-2")) vis = 3;
+    if (isStepVisible("ops-email-out")) vis = 4;
+    if (isStepVisible("ops-email-in")) vis = 5;
+    if (isStepVisible("ops-final-email")) vis = 6;
+    return { activeAgent: "ops", steps: STORE_OPS_STEPS, visibleCount: vis, isTyping: isStepVisible("ops-typing") && !isStepVisible("ops-msg"), isWorking: isStepVisible("trigger") && !isStepVisible("ops-final-email") };
   },
 };
 
@@ -242,31 +242,31 @@ export const bugToPrScript: UseCaseScript = {
     { id: "planner-email-out-2", duration: 3000 },
   ],
   derive(isStepVisible) {
-    const showCoder = isStepVisible(4) && !isStepVisible(10);
-    const showReviewer = isStepVisible(10) && !isStepVisible(15);
+    const showCoder = isStepVisible("switch-coder") && !isStepVisible("switch-reviewer");
+    const showReviewer = isStepVisible("switch-reviewer") && !isStepVisible("switch-planner");
     if (showReviewer) {
       let vis = 0;
-      if (isStepVisible(11)) vis = 1;
-      if (isStepVisible(13)) vis = 2;
-      if (isStepVisible(14)) vis = 3;
-      return { activeAgent: "reviewer", steps: BUG_REVIEWER_STEPS, visibleCount: vis, isTyping: isStepVisible(12) && !isStepVisible(13), isWorking: isStepVisible(11) && !isStepVisible(14) };
+      if (isStepVisible("reviewer-email-in")) vis = 1;
+      if (isStepVisible("reviewer-msg")) vis = 2;
+      if (isStepVisible("reviewer-email-out")) vis = 3;
+      return { activeAgent: "reviewer", steps: BUG_REVIEWER_STEPS, visibleCount: vis, isTyping: isStepVisible("reviewer-typing") && !isStepVisible("reviewer-msg"), isWorking: isStepVisible("reviewer-email-in") && !isStepVisible("reviewer-email-out") };
     }
     if (showCoder) {
       let vis = 0;
-      if (isStepVisible(5)) vis = 1;
-      if (isStepVisible(7)) vis = 2;
-      if (isStepVisible(8)) vis = 3;
-      if (isStepVisible(9)) vis = 4;
-      return { activeAgent: "coder", steps: BUG_CODER_STEPS, visibleCount: vis, isTyping: isStepVisible(6) && !isStepVisible(7), isWorking: isStepVisible(5) && !isStepVisible(9) };
+      if (isStepVisible("coder-email-in")) vis = 1;
+      if (isStepVisible("coder-msg")) vis = 2;
+      if (isStepVisible("coder-email-out-1")) vis = 3;
+      if (isStepVisible("coder-email-out-2")) vis = 4;
+      return { activeAgent: "coder", steps: BUG_CODER_STEPS, visibleCount: vis, isTyping: isStepVisible("coder-typing") && !isStepVisible("coder-msg"), isWorking: isStepVisible("coder-email-in") && !isStepVisible("coder-email-out-2") };
     }
     let vis = 0;
-    if (isStepVisible(0)) vis = 1;
-    if (isStepVisible(2)) vis = 2;
-    if (isStepVisible(3)) vis = 3;
-    if (isStepVisible(16)) vis = 4;
-    if (isStepVisible(17)) vis = 5;
-    if (isStepVisible(18)) vis = 6;
-    return { activeAgent: "planner", steps: BUG_PLANNER_STEPS, visibleCount: vis, isTyping: isStepVisible(1) && !isStepVisible(2), isWorking: isStepVisible(0) && !isStepVisible(18) };
+    if (isStepVisible("email-in")) vis = 1;
+    if (isStepVisible("planner-msg")) vis = 2;
+    if (isStepVisible("planner-email-out")) vis = 3;
+    if (isStepVisible("planner-email-in-1")) vis = 4;
+    if (isStepVisible("planner-email-in-2")) vis = 5;
+    if (isStepVisible("planner-email-out-2")) vis = 6;
+    return { activeAgent: "planner", steps: BUG_PLANNER_STEPS, visibleCount: vis, isTyping: isStepVisible("planner-typing") && !isStepVisible("planner-msg"), isWorking: isStepVisible("email-in") && !isStepVisible("planner-email-out-2") };
   },
 };
 
@@ -301,21 +301,21 @@ export const postUpdateScript: UseCaseScript = {
     { id: "marketer-msg-2", duration: 3000 },
   ],
   derive(isStepVisible) {
-    const showCoder = isStepVisible(4) && !isStepVisible(9);
+    const showCoder = isStepVisible("switch-coder") && !isStepVisible("switch-marketer");
     if (showCoder) {
       let vis = 0;
-      if (isStepVisible(5)) vis = 1;
-      if (isStepVisible(7)) vis = 2;
-      if (isStepVisible(8)) vis = 3;
-      return { activeAgent: "coder", steps: POST_CODER_STEPS, visibleCount: vis, isTyping: isStepVisible(6) && !isStepVisible(7), isWorking: isStepVisible(5) && !isStepVisible(8) };
+      if (isStepVisible("coder-email-in")) vis = 1;
+      if (isStepVisible("coder-msg")) vis = 2;
+      if (isStepVisible("coder-email-out")) vis = 3;
+      return { activeAgent: "coder", steps: POST_CODER_STEPS, visibleCount: vis, isTyping: isStepVisible("coder-typing") && !isStepVisible("coder-msg"), isWorking: isStepVisible("coder-email-in") && !isStepVisible("coder-email-out") };
     }
     let vis = 0;
-    if (isStepVisible(0)) vis = 1;
-    if (isStepVisible(2)) vis = 2;
-    if (isStepVisible(3)) vis = 3;
-    if (isStepVisible(10)) vis = 4;
-    if (isStepVisible(11)) vis = 5;
-    return { activeAgent: "marketer", steps: POST_MARKETER_STEPS, visibleCount: vis, isTyping: isStepVisible(1) && !isStepVisible(2), isWorking: isStepVisible(0) && !isStepVisible(11) };
+    if (isStepVisible("user-asks")) vis = 1;
+    if (isStepVisible("marketer-msg")) vis = 2;
+    if (isStepVisible("marketer-email-out")) vis = 3;
+    if (isStepVisible("marketer-email-in")) vis = 4;
+    if (isStepVisible("marketer-msg-2")) vis = 5;
+    return { activeAgent: "marketer", steps: POST_MARKETER_STEPS, visibleCount: vis, isTyping: isStepVisible("marketer-typing") && !isStepVisible("marketer-msg"), isWorking: isStepVisible("user-asks") && !isStepVisible("marketer-msg-2") };
   },
 };
 
@@ -337,10 +337,10 @@ export const fillFormScript: UseCaseScript = {
   ],
   derive(isStepVisible) {
     let vis = 0;
-    if (isStepVisible(0)) vis = 1;
-    if (isStepVisible(2)) vis = 2;
-    if (isStepVisible(3)) vis = 3;
-    if (isStepVisible(4)) vis = 4;
-    return { activeAgent: "assistant", steps: FILL_STEPS, visibleCount: vis, isTyping: isStepVisible(1) && !isStepVisible(2), isWorking: isStepVisible(0) && !isStepVisible(4) };
+    if (isStepVisible("user-drops")) vis = 1;
+    if (isStepVisible("agent-msg-1")) vis = 2;
+    if (isStepVisible("agent-msg-2")) vis = 3;
+    if (isStepVisible("agent-msg-3")) vis = 4;
+    return { activeAgent: "assistant", steps: FILL_STEPS, visibleCount: vis, isTyping: isStepVisible("agent-typing") && !isStepVisible("agent-msg-1"), isWorking: isStepVisible("user-drops") && !isStepVisible("agent-msg-3") };
   },
 };

@@ -9,20 +9,8 @@ import { communityActorPolicy, requireBot } from "@/lib/middleware/community-act
 const MAX_PULL = 200
 
 /**
- * POST /api/community/users/me/inbox/pull — the caller's own inbox pull
- * (route/disc trunk, 接口树统一 轴3; folds the flat `inboxPull` verb into the
- * users/me resource). Bot-only (human actor → 403 via requireBot); a human
- * reads unread through the inbox aggregate sub-routes, not this consuming pull.
- *
- * ⭐ users/me/* family invariant (Aigneis #426/Melly #427/#447): scope is ALWAYS
- * the caller's own userId (`gate.bot.userId` from the voucher) — this endpoint
- * takes NO target-user param, so a bot can only ever pull ITS OWN inbox, never
- * another user's unread. inbox = "my unread", so a leaked target param would be
- * a cross-user data leak; the self-scope is load-bearing here.
- *
- * Grouped-by-channel fill (v4): `ORDER BY channel_id, seq ASC`, one channel's
- * unread drained fully before the next (`seq` is per-scope). Excludes the bot's
- * own authored messages. Never mutates read state — `ack` is the only mutator.
+ * Bot-only, self-scoped unread fetch. Neither fetch endpoint advances read
+ * state; ack owns that write. The CLI combines pull and ack separately.
  */
 export const POST = withAuth(communityActorPolicy({ allowInactiveBot: true }), async (req: NextRequest, ctx) => {
   const gate = requireBot(ctx.actor)

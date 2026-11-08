@@ -1,6 +1,5 @@
 import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
@@ -18,7 +17,6 @@ import {
 import { fanOutToServerMembers, fanOutToChannel, broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireChannelAccess, requireMessageSurfaceAccess } from "@/lib/community/permissions"
 import { writeCommunityChannelRead } from "@/lib/community/read-contract"
-import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
 
 export const GET = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -33,7 +31,7 @@ export const GET = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const readable = !channel.archived
   const communicable = readable && (auth.value.surface !== "dm"
     || await queries.communityFriendship.areFriends(db, ctx.userId, auth.value.dm.otherUserId))
-  return writeCommunityChannelRead(req, channelId, channel, { canRead: readable, canSend: communicable,
+  return writeCommunityChannelRead(channelId, channel, { canRead: readable, canSend: communicable,
     canCreateDiscussion: readable && !channel.parentChannelId && (channel.type === "text" || channel.type === "forum") })
 })
 
@@ -175,13 +173,6 @@ export const DELETE = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) =
     ? await queries.communityChannel.getPrivateChannelAudienceUserIds(db, channelId)
     : null
 
-  let executionContext: ExecutionContext
-  try {
-    ({ ctx: executionContext } = await getCloudflareContext({ async: true }))
-  } catch {
-    return writeError("internal error", 500)
-  }
-
   const result = await queries.communityDeleteMedia.deleteChannelWithMedia(db, {
     channelId,
     serverId: channel.serverId,
@@ -193,16 +184,6 @@ export const DELETE = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) =
     revision: revision.revision,
     inboxChanged: true,
   })))
-
-  if (result.mediaKeys.length > 0) {
-    scheduleCommunityMediaCleanup(ctx.env.COMMUNITY_MEDIA, executionContext, {
-      keys: result.mediaKeys,
-      warning: {
-        event: "community_channel_media_cleanup_failed",
-        fields: { serverId: channel.serverId, channelId },
-      },
-    })
-  }
 
   const event = {
     type: WS_EVENTS.CHANNEL_DELETE,

@@ -66,7 +66,7 @@ vi.mock("@/lib/community-db/sync", async (importOriginal) => ({ ...await importO
 }))
 
 import { buildChannelRouteModel, useChannelRouteModel } from "./use-channel-route-model"
-import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
+import { ConversationActivityContext } from "@/contexts/view-activity"
 
 function Harness({ channelId = "post-1" }: { channelId?: string }) {
   const result = useChannelRouteModel("server-1", "server-1", channelId, "viewer")

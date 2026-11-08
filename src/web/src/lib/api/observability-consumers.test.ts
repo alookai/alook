@@ -1,6 +1,6 @@
 import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
-import { apiFetch, readUploadError } from "./client"
+import { apiFetch } from "./client"
 import { configureTelemetry, installTelemetrySink, retireTelemetry } from "../observability/telemetry"
 
 const fetch = vi.fn(), events: Array<{ name: string; attributes: Record<string, string> }> = []
@@ -17,10 +17,4 @@ it("preserves live multipart JSON parsing, owner checks and sanitized diagnostic
   expect(assertActive).toHaveBeenCalled()
   expect(events.some(event => event.name === "request.body_parsed" && event.attributes.route_template === "/api/community/channels/[id]/attachments")).toBe(true)
   expect(JSON.stringify(events)).not.toMatch(/private-(?:file|body)/)
-})
-it("retains shared upload errors without including the response body in telemetry", async () => {
-  const error = await readUploadError(Response.json({ error: "private-upload-error" }, { status: 413 }), "Upload failed")
-  expect(error.status).toBe(413)
-  expect(error.message).toBe("private-upload-error")
-  expect(JSON.stringify(events)).not.toContain("private-upload-error")
 })

@@ -10,7 +10,7 @@ function versionedJSON(data: unknown, contract: CommunityContract = COMMUNITY_CO
   return NextResponse.json(data, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(contract) } })
 }
 
-export function writeCommunityChannelRead(_request: Request, channelId: string, channel: unknown,
+export function writeCommunityChannelRead( channelId: string, channel: unknown,
   access: Omit<CommunityAccessDecision, "channelId">) {
   const contract = COMMUNITY_CONTRACT_VERSION
   return versionedJSON(communityReadSchemas(contract).channel.parse({ contractVersion: contract, channelId,
@@ -27,7 +27,7 @@ export type MessagePage = Pick<CommunityMessagesRead["page"], "latestSeq"> & Par
   surfaceReceipt: CommunityMessageSurfaceReceipt
 }
 
-export function writeCommunityMessagesRead(_request: Request, channelId: string, page: MessagePage) {
+export function writeCommunityMessagesRead( channelId: string, page: MessagePage) {
   const contract = COMMUNITY_CONTRACT_VERSION
   return versionedJSON(communityReadSchemas(contract).messages.parse(messageReadPayload(channelId, page, contract)), contract)
 }

@@ -1,13 +1,9 @@
 import contractText0 from "./bot-list-overlays.tsx?raw"
 import React from "react"
-import { resolve } from "node:path"
+
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotListController } from "./bot-list-types"
 import { fireEvent, render } from "@/test/react-dom-harness"
-
-const webRoot = process.cwd().endsWith("/src/web")
-  ? process.cwd()
-  : resolve(process.cwd(), "src/web")
 const contractSources: Record<string, string> = {
   "src/components/community/bots/bot-list-overlays.tsx": contractText0,
 }
@@ -68,9 +64,6 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     startingBotChat: false,
     createOpen: false,
     setCreateOpen: noop,
-    onBotCreated: noop,
-    guidedActive: false,
-    guidedAvatarSeed: undefined,
     helpOpen: false,
     setHelpOpen: noop,
     editingBot: null,
@@ -166,8 +159,6 @@ describe("renderBotListOverlaySlots", () => {
     const setBugReportOpen = vi.fn()
     const state = controller({
       createOpen: true,
-      guidedActive: true,
-      guidedAvatarSeed: "seed",
       helpOpen: true,
       editingBot: bot as BotListController["editingBot"],
       editOpen: true,
@@ -185,9 +176,6 @@ describe("renderBotListOverlaySlots", () => {
     expect(slots.create.props).toEqual({
       open: true,
       onOpenChange: state.setCreateOpen,
-      onCreated: state.onBotCreated,
-      guided: true,
-      avatarSeed: "seed",
       onAskBotToCreate: undefined,
       askingBotToCreate: false,
     })

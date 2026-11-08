@@ -153,16 +153,13 @@ function TestSurfaces({
   const inboxActions = useFriendRequestActionState({
     rows: inboxRows.filter((row) => inbox.items.some((item) => item.sourceId === row.id)),
     onAccept,
-    surface: "inbox",
   })
   const friendsActions = useFriendRequestActionState({
     rows: canonicalPending,
     onAccept,
-    surface: "friends",
   })
   const shortcutActions = useFriendRequestActionState({
     rows: canonicalPending,
-    surface: "friends",
   })
 
   const find = <T extends { id: string }>(

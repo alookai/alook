@@ -16,6 +16,7 @@ const mockUpdateRole = vi.fn()
 const mockRemoveMemberAndOwnerBots = vi.fn()
 const mockListOwnerBotsInServer = vi.fn()
 const mockFanOut = vi.fn()
+const mockPublishLeaves = vi.fn(async (..._args: unknown[]) => {})
 const mockBroadcastToUserSafe = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
@@ -46,6 +47,7 @@ vi.mock("@alook/shared", async () => {
 })
 
 vi.mock("@/lib/community/fanout", () => ({
+  publishServerMemberLeaves: (...args: unknown[]) => mockPublishLeaves(...args),
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
@@ -204,11 +206,7 @@ describe("DELETE /api/community/servers/[id]/members/[memberId]", () => {
     )
     // Broadcast payload uses target.userId — proves the scoped helper's row
     // is what the fan-out reads.
-    expect(mockFanOut).toHaveBeenCalledWith("srv_1", expect.objectContaining({ userId: "u_target" }))
-    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith(
-      "u_target",
-      expect.objectContaining({ type: "community:member.leave", userId: "u_target" }),
-    )
+    expect(mockPublishLeaves).toHaveBeenCalledExactlyOnceWith("srv_1", ["u_target"])
   })
 
   it("returns 404 when the target member is not scoped to this server", async () => {
@@ -261,9 +259,6 @@ describe("DELETE /api/community/servers/[id]/members/[memberId]", () => {
       "u_target",
       ["bot_1"],
     )
-    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith(
-      "bot_1",
-      expect.objectContaining({ type: "community:member.leave", userId: "bot_1" }),
-    )
+    expect(mockPublishLeaves).toHaveBeenCalledExactlyOnceWith("srv_1", ["u_target", "bot_1"])
   })
 })

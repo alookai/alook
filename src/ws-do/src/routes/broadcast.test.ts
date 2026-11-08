@@ -18,9 +18,6 @@ import {
 import { communityWsEventFixtures } from "../../../shared/test/community-ws-events.fixtures"
 
 const sharedMocks = getSharedMocks()
-const mockHashCredential = sharedMocks.hashCredential
-const mockDoNameFromHash = sharedMocks.doNameFromHash
-const mockGetActiveDoNamesForMachine = sharedMocks.getActiveDoNamesForMachine
 const loggerMocks = {
   child: sharedMocks.loggerChild,
   debug: sharedMocks.loggerDebug,
@@ -145,7 +142,7 @@ describe("ws-do router", () => {
       expect(await internal.text()).toBe(body)
     })
 
-    it.each(["用户/space value", ".", "..", "%2E"])(
+    it.each(["€€/space value", ".", "..", "%2E"])(
       "validates and forwards framed strict community target %j without URL dot normalization",
       async (target) => {
       doMock.stubFetch.mockImplementation(async () => Response.json({ sent: 1 }))

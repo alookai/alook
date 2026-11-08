@@ -1,11 +1,8 @@
 import React from 'react';
 import { AbsoluteFill, Easing, interpolate } from 'remotion';
 
-const lines = [
-  [{text: 'Still ', strong: false}, {text: 'copy-pasting', strong: true}],
-  [{text: 'between your ', strong: false}, {text: 'team', strong: true}],
-  [{text: 'and your ', strong: false}, {text: 'agent?', strong: true}],
-];
+import timeline from "./current-timeline.json";
+const lines = timeline.openingQuestion.lines;
 const clamp = {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'} as const;
 
 export type StoryCardLines = typeof lines;

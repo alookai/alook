@@ -289,13 +289,6 @@ async function forceCloseCommunityMachine(
   return closed
 }
 
-function rejectCommunityMachine(ws: WebSocket, reason: string): void {
-  try {
-    ws.send(JSON.stringify({ type: "error", code: "AUTH_REJECTED", reason }))
-  } catch { /* ok */ }
-  try { ws.close(1008, "Unauthorized") } catch { /* ok */ }
-}
-
 function forwardToCommunityMachine(context: WsDurableContext, message: string, capability?: "modelDiscovery" | "machineStop" | "machineRefresh" | "pii"): { sent: number; unsupported: number } {
   let sent = 0
   let unsupported = 0

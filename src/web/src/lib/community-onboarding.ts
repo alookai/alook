@@ -19,12 +19,6 @@ type JourneyResources = {
   machineId?: string;
   model?: string | null;
   identity?: string;
-  botId?: string;
-  dmId?: string;
-  serverId?: string;
-  generalId?: string;
-  machineRecovery?: boolean;
-  guideAvatarSeed?: string;
 };
 
 export type CommunityOnboardingState = {
@@ -43,10 +37,10 @@ export function readCommunityOnboardingState(runtime: CommunityRuntime) {
   return runtime.ui.get().onboardingState;
 }
 
-export function startCommunityOnboarding(runtime: CommunityRuntime, resources: Pick<JourneyResources, "guideAvatarSeed"> = {}) {
+export function startCommunityOnboarding(runtime: CommunityRuntime) {
   const currentState = readCommunityOnboardingState(runtime);
   if (currentState) return currentState;
-  const next: CommunityOnboardingState = { ...resources, status: "active", stage: "harness" };
+  const next: CommunityOnboardingState = { status: "active", stage: "harness" };
   publish(runtime, next);
   trackCommunityOnboardingStarted();
   return next;
@@ -73,12 +67,6 @@ export function advanceCommunityOnboarding(
   return next;
 }
 
-export function updateCommunityOnboardingResources(runtime: CommunityRuntime, resources: JourneyResources) {
-  const currentState = readCommunityOnboardingState(runtime);
-  if (currentState?.status !== "active") return currentState;
-  return publish(runtime, { ...currentState, ...resources });
-}
-
 export function updateCommunityOnboardingInitialization(runtime: CommunityRuntime, update: (current: OnboardingInitializationProtocol) => OnboardingInitializationProtocol) {
   const current = readCommunityOnboardingState(runtime);
   if (current?.stage !== "initializing") throw new DOMException("Retired onboarding initialization", "AbortError");
@@ -102,14 +90,6 @@ export function recoverCommunityOnboardingHarness(runtime: CommunityRuntime) {
     ...retainedState
   } = currentState;
   return publish(runtime, { ...retainedState, stage: "harness" });
-}
-
-export function recoverCommunityOnboardingMachine(runtime: CommunityRuntime) {
-  const currentState = readCommunityOnboardingState(runtime);
-  if (currentState?.status !== "active" || currentState.stage !== "bot") {
-    return currentState;
-  }
-  return publish(runtime, { ...currentState, machineRecovery: true });
 }
 
 export function completeCommunityOnboarding(runtime: CommunityRuntime, pathname?: string) {
@@ -148,19 +128,6 @@ export function skipCommunityOnboarding(runtime: CommunityRuntime) {
   publish(runtime, null);
   trackCommunityOnboardingSkipped(stage);
   return null;
-}
-
-export function isCommunityOnboardingStage(runtime: CommunityRuntime, stage: CommunityOnboardingStage) {
-  const currentState = readCommunityOnboardingState(runtime);
-  return currentState?.status === "active" && currentState.stage === stage;
-}
-
-export function subscribeCommunityOnboarding(
-  runtime: CommunityRuntime,
-  listener: (state: CommunityOnboardingState | null) => void,
-) {
-  const subscription = runtime.ui.subscribe(() => listener(readCommunityOnboardingState(runtime)));
-  return () => subscription.unsubscribe();
 }
 
 export function useCommunityOnboarding() {

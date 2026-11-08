@@ -1043,11 +1043,11 @@
 
 /* Running bots card: no divider lines between rows; rows read by spacing and
  * a hover tint. */
-.theme [data-testid="community-profile-running-bots-card"] [class*="divide-y"] > * {
+.theme [data-testid="community-profile-running-bots-card"] [data-slot="profile-running-bots-list"] > * {
   border-color: transparent !important;
 }
 
-.theme [data-testid="community-profile-running-bots-card"] [class*="border-t"] {
+.theme [data-testid="community-profile-running-bots-card"] [data-slot="profile-running-bots-panel"] {
   border-top-color: transparent !important;
 }
 
@@ -1304,12 +1304,12 @@
 }
 
 /* Unread count: a round sticker, never a blob */
-.theme [class*="inbox-unread-indicator-module"][class*="circle"] {
+.theme [data-slot="inbox-unread-indicator"] [data-slot="inbox-unread-circle"] {
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 45%), 0 1px 2px rgb(60 45 20 / 25%);
 }
 
 /* Date divider label: muted tape */
-.theme [class~="my-2"]:has(> [data-slot="separator"]) > span {
+.theme [data-slot="message-date-divider"]:has(> [data-slot="separator"]) > span {
   padding: 1px 8px 2px;
   border-radius: 3px;
   background: var(--tn-tape-muted);
@@ -1387,7 +1387,7 @@
   background: var(--tn-paper) !important;
   box-shadow: var(--tn-paper-lift);
 }
-.theme [data-testid^="community-profile-running-bot-"] [class~="mt-0.5"]::before {
+.theme [data-testid^="community-profile-running-bot-"] [data-slot="profile-running-bot-activity"]::before {
   width: 6px;
   height: 6px;
   flex: none;
@@ -1406,7 +1406,7 @@
   50% { opacity: 0.45; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .theme [data-testid^="community-profile-running-bot-"] [class~="mt-0.5"]::before { animation: none; }
+  .theme [data-testid^="community-profile-running-bot-"] [data-slot="profile-running-bot-activity"]::before { animation: none; }
 }
 
 
@@ -2186,7 +2186,7 @@
 /* #1 mobile hero: the new bold sans + Caveat headline is taller than the pixel
  * face it replaced; size it so the subline clears the typewriter again */
 @media (max-width: 639px) {
-  .theme :global(.landing) [class*="landingHeroHeadline"] {
+  .theme :global(.landing) [data-testid="landing-hero"] :where(h1) {
     font-size: clamp(30px, 8.6vw, 38px) !important;
     line-height: 1.02 !important;
   }
@@ -2214,7 +2214,7 @@
 /* Landing section and closing titles on phones: the bold sans is wider than the
  * pixel face the clamp was tuned for */
 @media (max-width: 639px) {
-  .theme :global(.landing) :is([class*="sectionIntro"], [class*="closingCta"]) h2 {
+  .theme :global(.landing) [data-slot="landing-closing"] h2 {
     font-size: clamp(2rem, 10.5vw, 3rem) !important;
     overflow-wrap: anywhere;
   }

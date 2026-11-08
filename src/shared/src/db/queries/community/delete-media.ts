@@ -15,7 +15,6 @@ import {
 
 export type DeleteCommunityMediaResult = {
   deleted: boolean
-  mediaKeys: string[]
   readStateRevisions: AccountReadStateRevisionByUser[]
 }
 
@@ -157,7 +156,6 @@ async function deleteChannelWithMediaAttempt(
 
   return {
     deleted,
-    mediaKeys: [],
     readStateRevisions: deleted ? revisions : [],
   }
 }
@@ -282,7 +280,6 @@ async function deleteServerWithMediaAttempt(
 
   return {
     deleted,
-    mediaKeys: [],
     iconKey: deleted ? deletedRows[0]!.icon : null,
     readStateRevisions: deleted ? revisions : [],
   }

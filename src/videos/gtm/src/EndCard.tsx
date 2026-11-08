@@ -1,8 +1,9 @@
 import React from 'react';
 import {AbsoluteFill,useCurrentFrame,useVideoConfig} from 'remotion';
 import {MacOpening} from './MacOpening';
-import {endingAddedTime,endingTrim,endingPhysicalTime,endingStoryTime,networkStart,networkEnd,socialEase} from './social-network';
-export const endingDuration=Math.round((11.4+endingAddedTime-endingTrim+1)*30)/30;
+import {endingPhysicalTime,endingStoryTime,networkStart,networkEnd,socialEase} from './social-network';
+import timeline from "./current-timeline.json";
+export const endingDuration=timeline.endingFrames/timeline.fps;
 export function EndCard(){
  const {fps}=useVideoConfig(),t=endingStoryTime(useCurrentFrame()/fps);
  return <AbsoluteFill className="film revision-two">

@@ -1,5 +1,6 @@
 "use client"
 
+import { loadAndSeedProfiles } from "@/lib/community/account-cache-lifecycle"
 import { CommunitySelfProfileReadSchema, parseCommunitySelfProfileRead } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -13,7 +14,7 @@ import { useCommunityRuntime } from "@/stores/community/runtime"
 
 import { useEffect, useLayoutEffect, type ReactNode } from "react"
 import { usePathname } from "next/navigation"
-import { loadAndSeedProfiles } from "@/lib/community/profile-seed"
+
 import { QueryProvider } from "./QueryProvider"
 import {
   CurrentUserProvider,
@@ -41,7 +42,7 @@ export function CommunityShell({
   children: ReactNode
 }) {
   return (
-    <QueryProvider userId={currentUser.id} initialUser={currentUser}>
+    <QueryProvider userId={currentUser.id}>
       <CommunityRestoreBoundary>
         <ProfileAccountBoundary viewerId={currentUser.id}>
           <CurrentUserProvider initialUser={currentUser}>

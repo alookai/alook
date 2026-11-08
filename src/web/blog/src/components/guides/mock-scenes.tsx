@@ -1,5 +1,7 @@
 "use client";
 
+import { tutorialModel } from "./example-data";
+
 import { MousePointer2, Terminal } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { LandingShellMotion, PrototypeSheet } from "@/components/home/landing-shell-motion";
@@ -19,7 +21,6 @@ import { DeferredDemo } from "./deferred-demo";
 import styles from "./guide.module.css";
 
 const pairingCommand = "npx --yes @alook/daemon@latest daemon start --machine-key <YOUR_MACHINE_KEY>";
-export const tutorialModel = "provider/model-id";
 const ignore = () => {};
 const machine: CommunityMachineSummary = {
   id: "tutorial-machine", hostname: "studio-mac", displayName: "Studio Mac", platform: "darwin", arch: "arm64", osRelease: "15.6", daemonVersion: "0.1.60",

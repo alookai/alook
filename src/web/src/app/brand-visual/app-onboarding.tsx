@@ -155,7 +155,7 @@ function OnboardingShellLaunchers() {
   const runtime = useCommunityRuntime()
   const open = (stage: "harness" | "model" | "identity") => {
     skipCommunityOnboarding(runtime)
-    startCommunityOnboarding(runtime, { guideAvatarSeed: "alook-guide-board" })
+    startCommunityOnboarding(runtime)
     if (stage === "harness") return
     const harness = stage === "model" ? "opencode" : "claude"
     advanceCommunityOnboarding(runtime, "harness", "machine", { harness, setupMode: "manual" })

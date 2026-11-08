@@ -10,7 +10,7 @@ import { getCommunityRuntime } from "@/stores/community/runtime"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useBreakpoint } from "@/hooks/use-mobile"
-import { useCommunityOnboarding } from "@/lib/community-onboarding"
+
 import {
   advanceCommunityCommittedFrame,
   channelHref,
@@ -66,7 +66,6 @@ export function ShellFrame(props: ShellFrameProps) {
   const currentUser = useCurrentUser()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const breakpoint = useBreakpoint()
-  const onboardingState = useCommunityOnboarding()
   const initialCommittedFrame: CommunityCommittedFrame = {
     ...normalizeCommunityHref(frameHref),
     revision: 0,
@@ -170,7 +169,6 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     navigationPending: navigation.navigationPending,
     pendingHref: navigation.pendingHref,
     viewerId: currentUser.id,
-    accessEpoch,
   })
   const [userBarExtension, setUserBarExtension] = useAtom(useCreateAtom(initialUserBarExtensionState))
   const dispatchUserBarExtension = useCallback((action: Parameters<typeof userBarExtensionReducer>[1]) => {
@@ -360,16 +358,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     dispatchUserBarExtension({ type: "extension.close", extension: "profile" })
   }, [currentUser.id, dispatchUserBarExtension, profile.profile, userBarExtension.active])
 
-  useEffect(() => {
-    if (
-      breakpoint !== "mobile" ||
-      onboardingState?.status !== "active" ||
-      onboardingState.stage !== "server" ||
-      route.surface !== "detail" ||
-      !route.parentPath
-    ) return
-    replacePath(route.parentPath)
-  }, [breakpoint, onboardingState, replacePath, route.parentPath, route.surface])
+
 
   useEffect(() => {
     getCommunityRuntime(queryClient).ui.actions.registerUiHandlers({

@@ -403,7 +403,7 @@ describe("PostTagDialog responsive session", () => {
   })
 
   it("caps input and contains maximum-length chip labels", () => {
-    const tag = "标签".repeat(MAX_FORUM_TAG_LENGTH / 2)
+    const tag = "ab".repeat(MAX_FORUM_TAG_LENGTH / 2)
     const { renderer } = renderDialog({ current: [tag], allTags: [tag] })
     setOpen(true)
     setDraft(renderer, "x".repeat(MAX_FORUM_TAG_LENGTH + 8))

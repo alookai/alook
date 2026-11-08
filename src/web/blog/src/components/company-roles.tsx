@@ -23,7 +23,7 @@ const roles = [
   ]
 ];
 export function CompanyRoles({ avatars }: { avatars: ReactNode[] }) {
-  return <table className={`${styles.roles} ${styles.roles}`} aria-label="Four agent roles: inputs and required results">
+  return <table className={styles.roles} aria-label="Four agent roles: inputs and required results">
     <thead><tr><th scope="col">Agent</th><th scope="col">What it works from</th><th scope="col">What you get back</th></tr></thead>
     <tbody>{roles.map(([name, inputs, result], i) => <tr key={name}>
       <th scope="row">{avatars[i]}<span>{name}</span></th>

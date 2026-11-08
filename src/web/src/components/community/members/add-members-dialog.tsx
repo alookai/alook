@@ -112,7 +112,6 @@ export function AddMembersDialog({
 
   const pickerState = resolvePeoplePickerViewState({
     resolved: queryState.resolved,
-    loading: queryState.loading,
     error: queryState.error,
     sourceCount: visibleCandidates.length,
     visibleCount: filtered.length,

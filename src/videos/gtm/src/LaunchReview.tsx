@@ -1,3 +1,4 @@
+import timeline from "./current-timeline.json";
 import React from 'react';
 import {AbsoluteFill, Audio, staticFile, Sequence, useCurrentFrame} from 'remotion';
 import {Film} from './Film';
@@ -27,7 +28,7 @@ function CleanStory(){
  </>;
 }
 export function CleanReview(){return <>
- <Sequence durationInFrames={510}><FirstActPreview/></Sequence>
- <Sequence from={510} durationInFrames={cleanStoryFrames}><CleanStory/></Sequence>
- <Sequence from={510+cleanStoryFrames}><EndCard/></Sequence>
+ <Sequence durationInFrames={timeline.firstActFrames}><FirstActPreview/></Sequence>
+ <Sequence from={timeline.firstActFrames} durationInFrames={cleanStoryFrames}><CleanStory/></Sequence>
+ <Sequence from={timeline.firstActFrames+cleanStoryFrames}><EndCard/></Sequence>
  </>;}

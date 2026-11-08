@@ -1,4 +1,4 @@
-import { requiresExplicitModel } from "@alook/shared"
+import { BOT_MODEL_NAME_MAX_LENGTH, requiresExplicitModel } from "@alook/shared"
 
 export interface BotCreateRequiredFields {
   name: string
@@ -44,6 +44,6 @@ export function validateBotModel(model: string | null, runtime?: string): string
   if (requiresExplicitModel(runtime) && !model?.trim()) return "Choose a model before saving"
   if (model === null) return undefined
   if (model.trim().length === 0) return "Enter a model name"
-  if (model.length > 100) return "Model name must be 100 characters or fewer"
+  if (model.length > BOT_MODEL_NAME_MAX_LENGTH) return `Model name must be ${BOT_MODEL_NAME_MAX_LENGTH} characters or fewer`
   return undefined
 }

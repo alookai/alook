@@ -10,39 +10,7 @@ vi.mock("next/server", () => {
   };
 });
 
-import {
-  writeJSON,
-  writeError,
-  parseBody,
-  formatTimestamp,
-  formatTimestampNullable,
-} from "./helpers";
-describe("formatTimestamp", () => {
-  it("strips milliseconds from ISO string", () => {
-    const d = new Date("2024-01-15T10:30:00.000Z");
-    expect(formatTimestamp(d)).toBe("2024-01-15T10:30:00Z");
-  });
-
-  it("returns empty string for null", () => {
-    expect(formatTimestamp(null)).toBe("");
-  });
-
-  it("handles non-zero milliseconds", () => {
-    const d = new Date("2024-01-15T10:30:45.123Z");
-    expect(formatTimestamp(d)).toBe("2024-01-15T10:30:45Z");
-  });
-});
-
-describe("formatTimestampNullable", () => {
-  it("returns null for null input", () => {
-    expect(formatTimestampNullable(null)).toBeNull();
-  });
-
-  it("strips milliseconds for non-null dates", () => {
-    const d = new Date("2024-01-15T10:30:00.000Z");
-    expect(formatTimestampNullable(d)).toBe("2024-01-15T10:30:00Z");
-  });
-});
+import { writeJSON, writeError, parseBody } from "./helpers"
 
 describe("writeJSON", () => {
   it("returns response with default status 200", () => {

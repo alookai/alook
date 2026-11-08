@@ -17,7 +17,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
+export function SignInMobileTypewriter() {
   const isMobile = useIsMobile()
   const stageRef = useRef<HTMLDivElement>(null)
   const sensorsActiveRef = useRef(false)
@@ -174,7 +174,7 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
   }, [schedulePose])
 
   useEffect(() => {
-    if (!isMobile || collapsed) {
+    if (!isMobile) {
       sensorsActiveRef.current = false
       return
     }
@@ -191,10 +191,10 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
       lastFrameRef.current = null
       dragPointerRef.current = null
     }
-  }, [attachSensors, collapsed, isMobile])
+  }, [attachSensors, isMobile])
 
   useEffect(() => {
-    if (!isMobile || collapsed) return
+    if (!isMobile) return
     const el = stageRef.current
     if (!el || typeof ResizeObserver !== "function") return
     const updateScale = () => {
@@ -209,7 +209,7 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
     const observer = new ResizeObserver(updateScale)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [collapsed, isMobile])
+  }, [isMobile])
 
   const unlockSensorsOnGesture = () => {
     if (!sensorsActiveRef.current || typeof window === "undefined") return
@@ -289,7 +289,6 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
       ref={stageRef}
       aria-hidden="true"
       data-testid="sign-in-mobile-typewriter"
-      data-collapsed={collapsed ? "true" : "false"}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerEnd}
@@ -298,12 +297,10 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
       className={cn(
         styles.stage,
         "relative flex w-full touch-none items-center justify-center transition-opacity duration-200 select-none sm:hidden",
-        collapsed
-          ? "pointer-events-none h-0 flex-none overflow-hidden opacity-0"
-          : "h-48 min-h-0 shrink overflow-visible opacity-100 [@media(min-height:740px)]:h-62",
+        "h-48 min-h-0 shrink overflow-visible opacity-100 [@media(min-height:740px)]:h-62",
       )}
     >
-      {isMobile && !collapsed ? (
+      {isMobile ? (
         <TypewriterVisual
           animateEntrance={false}
           blobScale={1.2}

@@ -1,9 +1,6 @@
 import { Command } from "commander";
 import { startServices, stopServices, isRunning } from "../lib/services.js";
-import { installBundled } from "../lib/install.js";
-import { ensureSecrets } from "../lib/secrets.js";
-import { patchWranglerConfigs } from "../lib/wrangler-config.js";
-import { runMigrations } from "../lib/migrate.js";
+import { prepareSelfHosted } from "../lib/prepare-self-hosted.js";
 import { DEFAULT_PORTS } from "../lib/constants.js";
 
 export function updateCommand(): Command {
@@ -18,14 +15,7 @@ export function updateCommand(): Command {
         stopServices();
       }
 
-      console.log("Installing latest version...");
-      installBundled();
-
-      ensureSecrets(DEFAULT_PORTS.web);
-      patchWranglerConfigs(DEFAULT_PORTS);
-
-      console.log("Running migrations...");
-      runMigrations();
+      prepareSelfHosted(DEFAULT_PORTS, true);
 
       if (servicesWereRunning) {
         console.log("Restarting services...");

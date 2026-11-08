@@ -7,16 +7,16 @@ import { useScriptedTimeline, type TimelineStep } from "./use-scripted-timeline"
 export interface UseCaseScript {
   agents: AgentInfo[];
   timeline: TimelineStep[];
-  derive: (isStepVisible: (i: number) => boolean) => DashboardState;
+  derive: (isStepVisible: (id: string) => boolean) => DashboardState;
 }
 
 export function UseCaseDemo({ script }: { script: UseCaseScript }) {
-  const { visibleCount, isResetting, containerRef, isStepVisible } =
+  const { isResetting, containerRef, isStepVisible } =
     useScriptedTimeline({ steps: script.timeline, holdAfterComplete: 3000 });
 
   const state = useMemo(
     () => script.derive(isStepVisible),
-    [visibleCount], // eslint-disable-line react-hooks/exhaustive-deps
+    [script, isStepVisible],
   );
 
   const config: DashboardConfig = useMemo(() => ({ agents: script.agents }), [script.agents]);

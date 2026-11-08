@@ -1,6 +1,5 @@
 import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
@@ -18,7 +17,6 @@ import {
   fanOutToServerMembers,
 } from "@/lib/community/fanout"
 import { readCommunityMessageResource, readCommunityMessageProfiles } from "@/lib/community/message-payload"
-import { scheduleForumPostMediaCleanup } from "@/lib/community/forum-post-media-cleanup"
 import { CommunityMessageReadSchema, COMMUNITY_RESOURCE_CONTRACT_VERSION, type CommunityContract } from "@alook/shared"
 import { writeCommunityContractJSON } from "@/lib/community/read-contract"
 
@@ -128,15 +126,6 @@ export const DELETE = withAuth(communityActorPolicy(), async (_req: NextRequest,
       revision: revision.revision,
       inboxChanged: true,
     })))
-    if (result.mediaKeys.length > 0) {
-      const { ctx: executionContext } = await getCloudflareContext({ async: true })
-      scheduleForumPostMediaCleanup(ctx.env.COMMUNITY_MEDIA, executionContext, {
-        openerId,
-        childChannelId: child.id,
-        keys: result.mediaKeys,
-      })
-    }
-
     const event = {
       type: WS_EVENTS.CHANNEL_DELETE,
       serverId: forum.serverId,

@@ -1,6 +1,8 @@
+import { BotAvatarPickerDialog } from "@/components/avatar/bot-avatar-picker-dialog"
+import type { AvatarDraft } from "@/lib/avatar/model"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import React from "react"
-import { act, fireEvent } from "@/test/react-dom-harness"
+import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
 
 // --- Pure helper unit tests -------------------------------------------------
@@ -139,10 +141,16 @@ vi.mock("@/components/community/shell/community-sheet", () => {
   }
 })
 
-const botFormFieldsRenders: Array<{ avatarDraft: { image?: string } }> = []
+const avatarFixture = { renderPicker: false }
+type CropProps = { imageSrc: string; onCropped: (file: File) => void; onCancel: () => void }
+const cropRenders: CropProps[] = []
+vi.mock("@/components/community/image-crop-dialog", () => ({ ImageCropDialog: (props: CropProps) => { cropRenders.push(props); return React.createElement("div", { "data-crop-source": props.imageSrc }) } }))
+vi.mock("@/components/avatar/generated-avatar", () => ({ GeneratedAvatar: () => React.createElement("span") }))
+const botFormFieldsRenders: Array<{ avatarDraft: AvatarDraft & { image?: string }; onAvatarChange: (draft: AvatarDraft) => void }> = []
 vi.mock("./bot-form-fields", () => ({
-  BotFormFields: ({ avatarDraft }: { avatarDraft: { image?: string } }) => {
-    botFormFieldsRenders.push({ avatarDraft })
+  BotFormFields: ({ avatarDraft, onAvatarChange }: { avatarDraft: AvatarDraft; onAvatarChange: (draft: AvatarDraft) => void }) => {
+    botFormFieldsRenders.push({ avatarDraft, onAvatarChange })
+    if (avatarFixture.renderPicker) return React.createElement(BotAvatarPickerDialog, { image: avatarDraft.kind === "photo" ? avatarDraft.previewUrl : avatarDraft.image, onChange: onAvatarChange })
     return React.createElement("div", { "data-mock": "form-fields" })
   },
 }))
@@ -226,13 +234,13 @@ describe("CreateBotSheet — auto-select defaults", () => {
     expect(botFormFieldsRenders.at(-1)?.avatarDraft.image).toBe("avatar:beam:guide-face-7")
   })
 
-  it.each([["opencode", false], ["opencode", true], ["pi-durable", false], ["pi-durable", true], ["cursor-sdk", false], ["cursor-sdk", true]] as const)("requires an explicit %s model, including guided creation=%s", async (runtime, guided) => {
+  it.each(["opencode", "pi-durable", "cursor-sdk"] as const)("requires an explicit %s model", async runtime => {
     useMachinesMock.mockReturnValue({ machines: [machine({ id: "mac", availableRuntimes: [{
       id: runtime, status: "healthy", reasoning: {
         updateMode: "unsupported", defaultModelId: "provider/picked", models: [{ id: "provider/picked", supportedReasoningEfforts: [] }],
       },
     }] })] })
-    const renderer = render({ guided })
+    const renderer = render()
     const create = renderer.getByRole("button", { name: "Create bot" })
     expect(renderer.getByTestId("set-model")).toBeInTheDocument()
     expect(create).toBeDisabled()
@@ -527,5 +535,49 @@ describe("CreateBotSheet — auto-select defaults", () => {
     // Choice stands.
     expect(checkedValue(renderer, "bot-machine")).toBe("server")
     expect(checkedValue(renderer, "bot-runtime")).toBe("codex")
+  })
+})
+
+describe("actual create-sheet avatar ownership", () => {
+  it("keeps an accepted photo after picker unmount, but releases it on parent replacement", async () => {
+    useMachinesMock.mockReturnValue({ machines: [] })
+    avatarFixture.renderPicker = true
+    cropRenders.length = 0
+    const originalCreate = Object.getOwnPropertyDescriptor(URL, "createObjectURL"), originalRevoke = Object.getOwnPropertyDescriptor(URL, "revokeObjectURL")
+    const createUrl = vi.fn().mockReturnValueOnce("blob:source-a").mockReturnValueOnce("blob:source-b").mockReturnValueOnce("blob:accepted")
+    const revoke = vi.fn()
+    Object.defineProperties(URL, { createObjectURL: { configurable: true, writable: true, value: createUrl }, revokeObjectURL: { configurable: true, writable: true, value: revoke } })
+    const props = { open: true, onOpenChange: vi.fn() }
+    const view = render(props)
+    try {
+      fireEvent.click(view.getByRole("button", { name: "Choose bot avatar" }))
+      fireEvent.click(view.getByRole("tab", { name: "Photo" }))
+      const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
+      fireEvent.change(input, { target: { files: [new File(["a"], "a.png", { type: "image/png" })] } })
+      const a = cropRenders.at(-1)!
+      fireEvent.change(input, { target: { files: [new File(["b"], "b.png", { type: "image/png" })] } })
+      const b = cropRenders.at(-1)!
+      expect(revoke.mock.calls).toEqual([["blob:source-a"]])
+      act(() => a.onCropped(new File(["stale"], "stale.webp", { type: "image/webp" })))
+      expect(createUrl).toHaveBeenCalledTimes(2)
+      expect(document.querySelector('[data-crop-source="blob:source-b"]')).not.toBeNull()
+      act(() => b.onCropped(new File(["accepted"], "accepted.webp", { type: "image/webp" })))
+      await waitFor(() => expect(botFormFieldsRenders.at(-1)?.avatarDraft).toMatchObject({ kind: "photo", previewUrl: "blob:accepted" }))
+      expect(document.querySelector('[data-crop-source]')).toBeNull()
+      avatarFixture.renderPicker = false
+      view.rerender(React.createElement(CreateBotSheet, props))
+      expect(revoke.mock.calls).toEqual([["blob:source-a"], ["blob:source-b"]])
+      const photo = botFormFieldsRenders.at(-1)!.avatarDraft
+      act(() => botFormFieldsRenders.at(-1)!.onAvatarChange({ ...photo }))
+      expect(revoke).toHaveBeenCalledTimes(2)
+      act(() => botFormFieldsRenders.at(-1)!.onAvatarChange({ kind: "procedural", image: "avatar:beam:new" }))
+      expect(revoke.mock.calls).toEqual([["blob:source-a"], ["blob:source-b"], ["blob:accepted"]])
+      view.unmount()
+      expect(revoke).toHaveBeenCalledTimes(3)
+    } finally {
+      avatarFixture.renderPicker = false; view.unmount()
+      if (originalCreate) Object.defineProperty(URL, "createObjectURL", originalCreate); else Reflect.deleteProperty(URL, "createObjectURL")
+      if (originalRevoke) Object.defineProperty(URL, "revokeObjectURL", originalRevoke); else Reflect.deleteProperty(URL, "revokeObjectURL")
+    }
   })
 })

@@ -1,6 +1,7 @@
 import React from "react"
-import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
-import { act, fireEvent, render } from "@/test/react-dom-harness"
+import { ConversationActivityContext } from "@/contexts/view-activity"
+import { act, fireEvent } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ThreadChannelSurface } from "./thread-channel-surface"
 import { ChannelHeader, ChannelHeaderSkeleton } from "./channel-header"
@@ -17,6 +18,7 @@ import type { MessageChannelControllerValue } from "../messages/message-channel-
 const mocks = vi.hoisted(() => ({
   router: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
   apiFetch: vi.fn(),
+  renameChannel: vi.fn(),
   toastApiError: vi.fn(),
   toggleReaction: vi.fn(),
   acceptMessage: vi.fn(() => true),
@@ -39,24 +41,12 @@ vi.mock("@/hooks/community/use-channel-message-feed", () => ({
   useChannelMessageFeed: vi.fn(),
 }))
 vi.mock("@/hooks/community/mutations", () => ({
+  useRenameChannel: () => ({ mutateAsync: mocks.renameChannel }),
   useToggleReactionApi: () => mocks.toggleReaction,
 }))
 vi.mock("@/components/community/channels/channel-header", () => ({
   ChannelHeader: vi.fn(() => null),
   ChannelHeaderSkeleton: vi.fn(() => null),
-}))
-vi.mock("@/components/community/channels/channel-shell", () => ({
-  ChannelShell: ({
-    header,
-    body,
-    panels,
-    dialogs,
-  }: {
-    header: React.ReactNode
-    body: React.ReactNode
-    panels?: React.ReactNode
-    dialogs?: React.ReactNode
-  }) => React.createElement(React.Fragment, null, header, body, panels, dialogs),
 }))
 vi.mock("@/components/community/shell/community-panel", () => ({
   CommunityPanel: vi.fn(() => null),
@@ -222,6 +212,7 @@ describe("ThreadChannelSurface ownership", () => {
     mockedUseClaimThreadOpenerReadHandoff.mockReset()
     mockedUseChannelMessageFeed.mockReturnValue(feed())
     mocks.apiFetch.mockResolvedValue({})
+    mocks.renameChannel.mockReset().mockResolvedValue({})
   })
 
   it.each([false, true])("passes the complete child cache to local placement before reading, forum parent=%s", parentIsForum => {
@@ -310,7 +301,6 @@ describe("ThreadChannelSurface ownership", () => {
       channelId: "thread_1",
       serverId: "server_1",
       viewerUserId: "viewer_1",
-      isChildChannel: true,
       anchorMessageId: "m_target",
       threadsEnabled: false,
     })
@@ -455,10 +445,9 @@ describe("ThreadChannelSurface ownership", () => {
     await act(async () => {
       await headerProps.onRename?.("Renamed thread")
     })
-    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/community/channels/thread_1", {
-      method: "PATCH",
-      body: JSON.stringify({ name: "Renamed thread" }),
-    })
+    expect(mocks.renameChannel).toHaveBeenCalledWith({ serverId: "server_1", channelId: "thread_1", name: "Renamed thread" })
+    expect(mockedChannelHeader.mock.calls.at(-1)![0].channel).toBe("Thread name")
+    act(() => renderer!.rerender(React.createElement(ThreadChannelSurface, { ...props, channelName: "Renamed thread" })))
     headerProps = mockedChannelHeader.mock.calls.at(-1)![0]
     expect(headerProps.channel).toBe("Renamed thread")
     act(() => headerProps.mobileBack?.())
@@ -492,7 +481,7 @@ describe("ThreadChannelSurface ownership", () => {
 
   it("preserves rename errors for regular threads", async () => {
     const threadError = new Error("thread rename failed")
-    mocks.apiFetch.mockRejectedValueOnce(threadError)
+    mocks.renameChannel.mockRejectedValueOnce(threadError)
     act(() => {
       render(renderSurface())
     })

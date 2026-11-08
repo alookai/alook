@@ -9,7 +9,7 @@ import {
   type DiagnosticUploadResult,
 } from "@/lib/community/diagnostic-upload";
 
-const MAX_BUNDLE_BYTES = 10 * 1024 * 1024;
+import { DIAGNOSTIC_GZIP_MAX_BYTES } from "@alook/shared";
 
 function responseStatus(result: DiagnosticUploadResult): number {
   if (result.kind === "retryable") return 503;
@@ -32,7 +32,7 @@ export const PUT = withAuth(machineAuthPolicy, async (request, ctx) => {
     return NextResponse.json({ error: "invalid diagnostic content length" }, { status: 400 });
   }
   const sizeBytes = Number(rawLength);
-  if (!Number.isSafeInteger(sizeBytes) || sizeBytes > MAX_BUNDLE_BYTES) {
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes > DIAGNOSTIC_GZIP_MAX_BYTES) {
     return NextResponse.json({ error: "invalid diagnostic content length" }, { status: 400 });
   }
   const sha256 = request.headers.get("x-alook-content-sha256");

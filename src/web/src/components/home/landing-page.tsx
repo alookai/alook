@@ -97,7 +97,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
       <HomepageFaq />
 
       <section className={styles.closingSection} data-testid="landing-closing">
-        <div className={styles.closingCta} data-landing-scroll-anchor>
+        <div data-slot="landing-closing" className={styles.closingCta} data-landing-scroll-anchor>
           <div className={styles.closingCopy}>
           <p className={styles.kicker}>Ready to share</p>
           <h2>Bring your team into the <HandAccent>conversation</HandAccent></h2>

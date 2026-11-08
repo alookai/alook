@@ -19,27 +19,6 @@ export function rawEmail(from: string, to: string, subject: string, body: string
   ].join("\r\n")
 }
 
-export function rawEmailWithHeaders(
-  from: string,
-  to: string,
-  subject: string,
-  body: string,
-  headers: Record<string, string>,
-): string {
-  const lines = [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    ...Object.entries(headers).map(([k, v]) => `${k}: ${v}`),
-    `Date: ${new Date().toUTCString()}`,
-    `MIME-Version: 1.0`,
-    `Content-Type: text/plain; charset=utf-8`,
-    "",
-    body,
-  ]
-  return lines.join("\r\n")
-}
-
 export async function postEmail(from: string, to: string, subject: string, body: string): Promise<Response> {
   const url = `${EMAIL_WORKER_URL}/cdn-cgi/handler/email?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
   return fetchWithRetry(url, {

@@ -1,8 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import { SESSION_STOP_GRACE_MS } from "../agent-driver/src/internal/killTree.js";
+import { stopExactDaemonPid } from "./cli/daemonState.js";
 
 /**
  * Structural pins for extracted constants. We assert *magnitudes*, not
@@ -25,14 +26,42 @@ describe("magic-number extractions", () => {
     expect(SESSION_STOP_GRACE_MS).toBe(2000);
   });
 
-  it("SESSION_STOP_GRACE_MS stays strictly below the daemon's own STOP_GRACE_MS", () => {
-    // `daemonStop` SIGKILLs the daemon after STOP_GRACE_MS; the daemon's
-    // SIGTERM handler awaits per-session kills that each wait
-    // SESSION_STOP_GRACE_MS. Equal windows orphan detached agent processes.
-    const daemonStartSrc = readSrc("cli/daemonStart.ts");
-    const match = daemonStartSrc.match(/const STOP_GRACE_MS\s*=\s*(\d+)/);
-    expect(match).not.toBeNull();
-    expect(SESSION_STOP_GRACE_MS).toBeLessThan(Number(match![1]));
+  it("allows the session grace to finish before the actual daemon stop escalates at five seconds", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const fixturePid = 424242;
+    let alive = true;
+    let settled = false;
+    const signals: Array<{ signal: string; at: number }> = [];
+    const kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid !== fixturePid) throw new Error("unexpected fixture pid");
+      if (signal === 0) {
+        if (!alive) throw Object.assign(new Error("fixture exited"), { code: "ESRCH" });
+        return true;
+      }
+      if (signal !== "SIGTERM" && signal !== "SIGKILL") throw new Error("unexpected fixture signal");
+      signals.push({ signal, at: Date.now() });
+      if (signal === "SIGKILL") alive = false;
+      return true;
+    });
+    try {
+      const stopping = stopExactDaemonPid(fixturePid).then(() => { settled = true; });
+      expect(signals).toEqual([{ signal: "SIGTERM", at: 0 }]);
+      await vi.advanceTimersByTimeAsync(SESSION_STOP_GRACE_MS);
+      expect(signals).toEqual([{ signal: "SIGTERM", at: 0 }]);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(4_999 - SESSION_STOP_GRACE_MS);
+      expect(signals).toEqual([{ signal: "SIGTERM", at: 0 }]);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(signals).toEqual([{ signal: "SIGTERM", at: 0 }, { signal: "SIGKILL", at: 5_000 }]);
+      await stopping;
+      expect(settled).toBe(true);
+    } finally {
+      vi.clearAllTimers();
+      kill.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("ERROR_EXCERPT_MAX_BYTES is set to 4000 in runtime/errorDiagnostics.ts", () => {

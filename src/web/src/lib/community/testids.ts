@@ -1,6 +1,6 @@
 // Single source of truth for community `data-testid` values. Imported by both
 // product components (so the attribute strings are never hand-typed) and the
-// Playwright specs (via _fixtures/testids). Naming: community-<区域>-<元素>[-<标识>].
+// Playwright specs (via _fixtures/testids). Naming: community-<region>-<element>[-<identifier>].
 export const tid = {
   botCreationRequestCard: "community-bot-creation-request-card",
   botCreationApprove: "community-bot-creation-approve",

@@ -8,7 +8,7 @@ import {
   setupUser,
   within,
 } from "@/test/react-dom-harness";
-import type { BlogIndexPost } from "./model";
+
 import {
   RecentPosts,
   replaceRecentPostsTopicUrl,

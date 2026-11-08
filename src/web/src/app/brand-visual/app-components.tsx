@@ -18,7 +18,7 @@ import { MemberList } from "@/components/community/members/member-list"
 import { EmptyState } from "@/components/community/empty-state"
 import { DateDivider, NewDivider } from "@/components/community/dividers"
 import { ConversationResolutionErrorFrame } from "@/components/community/channels/conversation-resolution-error-frame"
-import { ConversationMessageSkeleton } from "@/components/community/channels/conversation-message-skeleton"
+import { MessageListSkeleton } from "@/components/community/messages/message-list-view"
 import { Button } from "@/components/ui/button"
 import { messageNotification } from "@/components/ui/toast"
 import { applyMessageReaction, type Msg } from "@/lib/community/models/message"
@@ -29,6 +29,7 @@ import { CreateChannelDialog } from "@/components/community/settings/create-chan
 import { MachineCard } from "@/components/community/machines/machine-card"
 import type { MachineSummary } from "@/lib/community/machines"
 import type { AvatarDraft } from "@/lib/avatar/model"
+import { useAvatarDraftPreview } from "@/lib/avatar/use-avatar-draft-preview"
 import { ForumView } from "@/components/community/channels/forum-view"
 import type { ForumThread } from "@/lib/community/models/message"
 import { renderBotMachineGroup } from "@/components/community/bots/bot-list-machine-group"
@@ -134,6 +135,7 @@ export function AppComponents() {
   const [botName, setBotName] = useState("Pixel")
   const [botDesc, setBotDesc] = useState("")
   const [avatar, setAvatar] = useState<AvatarDraft>({ kind: "procedural", image: DEMO_PROFILES.get("demo-alli")?.avatar ?? "" })
+  useAvatarDraftPreview(avatar)
   const [channelOpen, setChannelOpen] = useState(false)
   const [tag, setTag] = useState("All")
   const [collapsedMachines, setCollapsedMachines] = useState<Set<string>>(new Set())
@@ -185,7 +187,7 @@ export function AppComponents() {
           <div className={s.userHost}>
             {inboxOpen ? (
               <div className={s.inboxHost}>
-                <InboxPopover unreads={[]} unreadDms={[]} mentions={[]} marked={[]} hasProjectedUnreads={false} hasProjectedMentions={false} onOpenForumThread={() => {}} />
+                <InboxPopover unreads={[]} unreadDms={[]} mentions={[]} marked={[]} hasProjectedUnreads={false} hasProjectedMentions={false} />
               </div>
             ) : null}
             <UserBar
@@ -206,7 +208,7 @@ export function AppComponents() {
         <Specimen label="States" note="Empty, loading, error" className={s.specStates}>
           <div className={s.statesHost}>
             <div className={s.stateCell}><EmptyState icon={Inbox} label="Nothing here yet. Mentions and marked messages land here." /></div>
-            <div className={s.stateCell}><ConversationMessageSkeleton /></div>
+            <div className={s.stateCell}><MessageListSkeleton /></div>
             <div className={s.stateCell}>
               <ConversationResolutionErrorFrame as="div" retrying={retrying} onRetry={() => { setRetrying(true); setTimeout(() => setRetrying(false), 1200) }} />
             </div>

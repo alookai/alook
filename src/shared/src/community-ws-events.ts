@@ -1,11 +1,10 @@
 import { PiiResultSchema } from "./pii-contract"
 import { z } from "zod"
 import { COMMUNITY_CONTRACT_VERSION } from "./community-contract"
-import { serverSchema } from "./community-cache"
 import { CommunityMachineSummarySchema, RuntimeModelDiscoveryResultSchema } from "./schemas"
 import { FriendApprovalPayloadSchema } from "./community-friend-approval"
 import { BotCreationPayloadSchema } from "./community-bot-creation"
-import { CommunityCategoryResourceSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "./community-resources"
+import { CommunityServerResourceSchema, CommunityCategoryResourceSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "./community-resources"
 
 export { FriendApprovalPayloadSchema } from "./community-friend-approval"
 export type { FriendApprovalPayload, FriendApprovalProfile } from "./community-friend-approval"
@@ -95,7 +94,7 @@ const communityChildChannelUpdateSchema = z.strictObject({
 
 const communityServerUpdateSchema = z.strictObject({
   type: z.literal("community:server.update"), serverId: string,
-  changes: serverSchema.pick({ name: true, description: true, icon: true }).partial(),
+  changes: CommunityServerResourceSchema.pick({ name: true, description: true, icon: true }).partial(),
 })
 
 const communityServerRailChangedSchema = z.strictObject({
@@ -611,7 +610,7 @@ export function isCommunityEvent(msg: { type: string }): msg is CommunityWsEvent
   return isCommunityEventType(msg.type)
 }
 
-function isWellFormedUnicode(value: string): boolean {
+export function isWellFormedUnicode(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
     const codeUnit = value.charCodeAt(index)
     if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {

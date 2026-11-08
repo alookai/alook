@@ -45,7 +45,7 @@ describe("complete thread read resource", () => {
     expect(body.included.messages.find(message => message.id === "previous")).toMatchObject({ content: "same-channel reply", channelId: "thread" })
     expect(JSON.stringify(body)).not.toContain("foreign private body")
     expect(mocks.attachments).toHaveBeenCalledWith(db, ["opener", "reply"])
-    expect(mocks.reactions).toHaveBeenCalledWith(db, ["opener", "reply"], "viewer")
+    expect(mocks.reactions).toHaveBeenCalledWith(db, ["opener", "reply"])
     expect(mocks.replies).toHaveBeenCalledWith(db, ["previous"], ["forum", "thread"])
   })
 
@@ -71,7 +71,7 @@ describe("complete thread read resource", () => {
     expect(communityReadSchemas().threads.parse(await response.json())).toMatchObject({ threads: [], included: { messages: [], tags: [], members: [], profiles: [], participantCounts: [] }, page: { nextCursor: null, hasMore: false } })
     expect(mocks.replies).toHaveBeenCalledWith(db, [], ["forum"])
     expect(mocks.attachments).toHaveBeenCalledWith(db, [])
-    expect(mocks.reactions).toHaveBeenCalledWith(db, [], "viewer")
+    expect(mocks.reactions).toHaveBeenCalledWith(db, [])
   })
 
   it("deduplicates profiles while preserving the scoped participant counts", async () => {

@@ -30,6 +30,8 @@ import type { ForumSidebarThread } from "@/hooks/community/use-forum-sidebar-thr
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { ChannelUnreadIndicator } from "./channel-unread-indicator"
 
+const FORUM_SIDEBAR_ROW_HEIGHT = 28
+
 type Dialog =
   | { kind: "create-channel"; categoryId: string }
   | { kind: "edit-channel"; id: string; categoryId: string; name: string; type: ChannelType }
@@ -42,7 +44,6 @@ export type ChannelSidebarProps = {
   tree: ChannelTree
   serverName: string
   official?: boolean
-  serverIcon?: string | null
   activeChannel: string
   setActiveChannel: (id: string) => void
   noHeader?: boolean
@@ -107,8 +108,7 @@ function ChannelSidebarContent({
   const childRows = (parentId: string) => {
     const threads = forumThreadsByParent[parentId] ?? []
     if (threads.length === 0) return null
-    const rowHeight = 28
-    const branchY = (index: number) => index * rowHeight + rowHeight / 2
+    const branchY = (index: number) => index * FORUM_SIDEBAR_ROW_HEIGHT + FORUM_SIDEBAR_ROW_HEIGHT / 2
     const lastY = branchY(threads.length - 1)
     const connectorPath = [
       `M 1 0 V ${lastY - 6} Q 1 ${lastY} 7 ${lastY} H 11`,
@@ -118,10 +118,10 @@ function ChannelSidebarContent({
       <div className="relative mt-0! ml-5">
         <svg
           aria-hidden="true"
-          viewBox={`0 0 16 ${threads.length * rowHeight}`}
+          viewBox={`0 0 16 ${threads.length * FORUM_SIDEBAR_ROW_HEIGHT}`}
           preserveAspectRatio="none"
           className="pointer-events-none absolute top-0 left-0 w-4 text-muted-foreground/45"
-          style={{ height: threads.length * rowHeight }}
+          style={{ height: threads.length * FORUM_SIDEBAR_ROW_HEIGHT }}
         >
           <path
             d={connectorPath}
@@ -246,7 +246,7 @@ function ChannelSidebarContent({
           <OfficialServerBadge official={official} className="absolute left-1 top-0.5 z-1" />
           <DropdownMenu disabled={!onOpenSettings} actionsRef={headerMenuActionsRef}>
             <DropdownMenuTrigger disabled={!onOpenSettings} className="flex h-11 min-w-0 max-w-full items-center gap-2 rounded-md px-2 enabled:hover:bg-accent disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-auto sm:py-1">
-              <span className="min-w-0 truncate pr-1 font-brand text-[1.75rem] leading-none font-bold">{serverName || "\u00a0"}</span>
+              <span data-slot="community-sidebar-server-name" className="min-w-0 truncate pr-1 font-brand text-[1.75rem] leading-none font-bold">{serverName || "\u00a0"}</span>
               <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
             </DropdownMenuTrigger>
             {onOpenSettings && (
@@ -370,6 +370,7 @@ function ForumSidebarThreadRow({
     muted,
   })
   const rowProps = {
+    style: { height: FORUM_SIDEBAR_ROW_HEIGHT },
     "data-testid": tid.forumSidebarThread(thread.id),
     "aria-current": active ? "page" as const : undefined,
     onContextMenu: (event: MouseEvent<HTMLElement>) => {
@@ -377,7 +378,7 @@ function ForumSidebarThreadRow({
       event.stopPropagation()
     },
     className: [
-      "relative ml-4 flex h-7 w-[calc(100%-1rem)] min-w-0 items-center rounded-md px-2 text-left text-xs font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+      "relative ml-4 flex w-[calc(100%-1rem)] min-w-0 items-center rounded-md px-2 text-left text-xs font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
       active
         ? "bg-sidebar-accent text-foreground"
         : muted
@@ -392,7 +393,7 @@ function ForumSidebarThreadRow({
     <ChannelUnreadIndicator visible={unread.showDot} dot />
   </>)
   return (
-    <div className="relative h-7">
+    <div className="relative" style={{ height: FORUM_SIDEBAR_ROW_HEIGHT }}>
       {href ? (
         <CommunityNavigationLink {...rowProps} href={href} active={active} onActivate={onClick}
           navigationDisabled={dragActive !== null}>

@@ -27,11 +27,15 @@ export interface AgentDriverConformanceResult {
   readonly events: readonly { readonly type: string; readonly sequence: number }[];
 }
 
-interface AgentBackendAdapterConformanceFixture<Id extends string, Config> {
-  exercise(adapter: NormalizingBackendAdapter<Id, Config>): readonly AdapterEvent[];
+type AgentBackendAdapterConformanceFixture<Id extends string, Config> = {
   readonly expectedEventKinds: readonly AdapterEvent["kind"][];
-  readonly terminalSource?: "normalized_event" | "transport_invocation";
-}
+} & ({
+  readonly terminalSource?: "normalized_event";
+  exercise(adapter: NormalizingBackendAdapter<Id, Config>): readonly AdapterEvent[];
+} | {
+  readonly terminalSource: "transport_invocation";
+  exercise(adapter: BackendAdapter<Id, Config>): readonly AdapterEvent[];
+});
 
 /** Internal real-adapter contract runner; intentionally omitted from /testing. */
 export function runAgentBackendAdapterConformance<Specs, Id extends BackendId<Specs>>(
@@ -53,9 +57,12 @@ export function runAgentBackendAdapterConformance<Specs, Id extends BackendId<Sp
     first.execution.lifetime === "session" || first.execution.lifetime === "turn",
     "adapter must declare an execution strategy",
   );
-  assert(typeof first.normalizeLine === "function", "built-in adapter must expose its internal event normalizer");
-
-  const events = fixture.exercise(first);
+  const events = fixture.terminalSource === "transport_invocation"
+    ? fixture.exercise(first)
+    : (() => {
+      assert(typeof first.normalizeLine === "function", "normalized-event adapter must expose its event normalizer");
+      return fixture.exercise(first);
+    })();
   assert(
     JSON.stringify(events.map((event) => event.kind)) === JSON.stringify(fixture.expectedEventKinds),
     `normalized event order for ${registration.id} did not match the contract fixture`,

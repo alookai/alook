@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
   buildExecutionPlan as createExecutionPlan,
   queryNativeTasks,
@@ -31,7 +31,7 @@ function nativeRepository() {
     mkdirSync(dirname(target), { recursive: true })
     const metadata = /(?:^|\/)package\.json$/.test(file) || /\.json$/.test(file)
       || ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "turbo.json", ".gitignore", "codecov.yml"].includes(file)
-      || /^scripts\/ci\/.*\.mjs$/.test(file)
+      || /^scripts\/ci\/.*\.mjs$/.test(file) || file === "scripts/workspace-packages.mjs"
     writeFileSync(target, metadata ? readFileSync(join(source, file)) : "")
   }
   symlinkSync(join(source, "node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir")

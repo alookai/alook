@@ -7,12 +7,6 @@ import type { ComposerHandle, ComposerMention } from "./composer"
 
 type MentionIdentity = Pick<Member, "id" | "userId" | "name" | "discriminator">
 
-export function canonicalAuthorMentionText(
-  identity: Pick<MentionIdentity, "name" | "discriminator">,
-): string {
-  return `@${formatHandle(identity.name, identity.discriminator)}`
-}
-
 export function useAuthorMentionInsertion({
   members,
   viewerUserId,

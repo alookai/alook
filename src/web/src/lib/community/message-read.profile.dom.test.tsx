@@ -41,7 +41,7 @@ it.each(["messages", "entry", "committed-ws"].flatMap(scenario => [false, true].
   if (!target.ok) throw new Error(JSON.stringify(target))
   const result = await readCommunityMessageWindow(db, { viewerId: "viewer", target: target.value, window: parseCommunityMessageWindow(new URLSearchParams()), contract: COMMUNITY_CONTRACT_VERSION })
   if (!result.ok) throw new Error(JSON.stringify(result))
-  const response = writeCommunityMessagesRead(new Request("http://localhost/api/community/channels/channel/messages"), "channel", result.page)
+  const response = writeCommunityMessagesRead("channel", result.page)
   const body = await response.json()
   let wireProfiles = CommunityMessagesReadSchema.parse(body).profiles
   fixtures.response = decodeCommunityReadResponse("/api/community/channels/channel/messages", "GET", response, body)

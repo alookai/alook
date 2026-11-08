@@ -28,6 +28,7 @@ import type { BugReportPhase } from "@/hooks/community/use-bot-bug-report"
 import type { AuditEvent } from "@/hooks/community/use-bot-audit-log"
 import type { BotActivityDay } from "@/lib/community/models/people"
 import type { AvatarDraft } from "@/lib/avatar/model"
+import { useAvatarDraftPreview } from "@/lib/avatar/use-avatar-draft-preview"
 import { communityKeys } from "@/lib/query-keys"
 import { DEMO_PROFILES } from "@/components/home/landing-interactive-shell-data"
 import { Fixtures, Specimen } from "./app-components"
@@ -239,6 +240,7 @@ function SheetLaunchers() {
 
 function FormFieldSpecimens() {
   const [avatar, setAvatar] = useState<AvatarDraft>({ kind: "procedural", image: BOT.image ?? "" })
+  useAvatarDraftPreview(avatar)
   const [machineId, setMachineId] = useState("m-mac")
   const [runtime, setRuntime] = useState("claude")
   const [model, setModel] = useState<string | null>("claude-opus-5-5")
@@ -249,7 +251,7 @@ function FormFieldSpecimens() {
   return (
     <>
       <Specimen label="Avatar picker" note="Click the avatar"><Pad>
-        <BotAvatarPickerDialog image={avatar.kind === "photo" ? null : avatar.image} onChange={setAvatar} />
+        <BotAvatarPickerDialog image={avatar.kind === "photo" ? avatar.previewUrl : avatar.image} onChange={setAvatar} />
       </Pad></Specimen>
       <Specimen label="Machine field" note="Online and offline"><Pad>
         <div style={panel}><BotMachineField machines={MACHINES} machineId={machineId} onChange={setMachineId} radioName="board-bot-machine" /></div>

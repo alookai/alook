@@ -1,63 +1,48 @@
 "use client"
-import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
+import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useCallback, useLayoutEffect, type RefCallback } from "react"
 import type { Breakpoint } from "@/hooks/use-mobile"
 
-export const THREAD_SPLIT_MIN_CONTENT_WIDTH = 880
+type ThreadSplitMode = "pending" | "split" | "full"
 
-export function resolveThreadSplitMode({
-  breakpoint,
-  contentWidth,
-  forceFullscreen,
-}: {
-  breakpoint: Breakpoint
-  contentWidth: number | null
-  forceFullscreen: boolean
-}): "pending" | "split" | "full" {
-  if (forceFullscreen || breakpoint === "mobile") return "full"
-  if (breakpoint === "unknown" || contentWidth === null) return "pending"
-  return contentWidth >= THREAD_SPLIT_MIN_CONTENT_WIDTH ? "split" : "full"
-}
-
-export function useThreadSplitMode({
-  breakpoint,
-  enabled,
-  forceFullscreen,
-}: {
+export function useThreadSplitMode({ breakpoint, enabled, forceFullscreen }: {
   breakpoint: Breakpoint
   enabled: boolean
   forceFullscreen: boolean
-}): {
-  containerRef: RefCallback<HTMLElement>
-  mode: "pending" | "split" | "full"
-} {
-  const [container, setContainer] = useAtom(useCreateAtom<HTMLElement | null>(null))
-  const [contentWidth, setContentWidth] = useAtom(useCreateAtom<number | null>(null))
-  const containerRef = useCallback((node: HTMLElement | null) => {
-    setContentWidth(null)
-    setContainer(node)
-  }, [setContainer, setContentWidth])
+}): { modeMarkerRef: RefCallback<HTMLElement>; mode: ThreadSplitMode } {
+  const [marker, setMarker] = useAtom(useCreateAtom<HTMLElement | null>(null))
+  const [cssMode, setCssMode] = useAtom(useCreateAtom<ThreadSplitMode>("pending"))
+  const modeMarkerRef = useCallback((node: HTMLElement | null) => {
+    setCssMode("pending")
+    setMarker(node)
+  }, [setMarker, setCssMode])
 
   const measureEnabled = enabled && breakpoint === "desktop" && !forceFullscreen
   useLayoutEffect(() => {
-    if (!container || !measureEnabled) {
-      setContentWidth(null)
+    const container = marker?.parentElement
+    if (!marker || !container || !measureEnabled) {
+      setCssMode("pending")
       return
     }
-    const measure = () => setContentWidth(container.getBoundingClientRect().width)
+    let active = true
+    const measure = () => {
+      if (!active) return
+      const value = window.getComputedStyle(marker).getPropertyValue("--thread-split-mode").trim()
+      setCssMode(value === "split" || value === "full" ? value : "pending")
+    }
     measure()
     if (typeof ResizeObserver === "undefined") {
       window.addEventListener("resize", measure)
-      return () => window.removeEventListener("resize", measure)
+      return () => { active = false; window.removeEventListener("resize", measure) }
     }
-    const observer = new ResizeObserver(([entry]) => {
-      setContentWidth(entry?.contentRect.width ?? container.getBoundingClientRect().width)
-    })
+    const observer = new ResizeObserver(measure)
     observer.observe(container)
-    return () => observer.disconnect()
-  }, [container, measureEnabled, setContentWidth])
+    return () => { active = false; observer.disconnect() }
+  }, [marker, measureEnabled, setCssMode])
 
-  const mode = enabled ? resolveThreadSplitMode({ breakpoint, contentWidth, forceFullscreen }) : "full"
-
-  return { containerRef, mode }
+  const mode = !enabled || forceFullscreen || breakpoint === "mobile"
+    ? "full"
+    : breakpoint === "unknown" ? "pending" : cssMode
+  return { modeMarkerRef, mode }
 }

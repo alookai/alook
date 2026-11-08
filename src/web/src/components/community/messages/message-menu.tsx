@@ -3,7 +3,7 @@ import { ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-m
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import type { MessageExternalLinkTarget } from "./message-external-link"
 
-type Item = { label: string; icon?: typeof Pin; danger?: boolean; onClick?: () => void }
+type Item = { label: string; icon?: typeof Pin; onClick?: () => void }
 
 // Menu design (locked spec, uiux #14 — Gus/Alli, "less is more"): ONE flat list, no
 // sections/divider. In the ordinary message-action list, only the HIGH-FREQUENCY
@@ -82,7 +82,7 @@ export function MessageContextItems(props: MessageMenuHandlers & MessageLinkMenu
   return (
     <>
       {messageMenuItems(props).map((it) => (
-        <ContextMenuItem key={it.label} onClick={it.onClick} className={it.danger ? "text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive" : ""}>
+        <ContextMenuItem key={it.label} onClick={it.onClick}>
           <IconSlot icon={it.icon} /> {it.label}
         </ContextMenuItem>
       ))}
@@ -107,7 +107,6 @@ export function MessageDropdownItems({
         <DropdownMenuItem
           key={it.label}
           onClick={it.onClick}
-          variant={it.danger ? "destructive" : "default"}
           className={touch ? "min-h-11" : undefined}
         >
           <IconSlot icon={it.icon} /> {it.label}

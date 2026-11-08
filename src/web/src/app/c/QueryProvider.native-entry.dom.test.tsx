@@ -51,7 +51,7 @@ describe("native client-entry consumers", () => {
       React.useLayoutEffect(() => { registry = owned; restoring = pending }, [owned, pending])
       return <section><output data-testid="avatar-version">{self.avatarVersion}</output><span data-testid="profile-about">{self.aboutMe}</span><Avatar label={self.avatar} seed={self.id} /></section>
     }
-    const view = render(<QueryProvider userId="viewer" initialUser={authUser}><HydrationBoundary state={dehydrate(bootstrap)}><CurrentUserProvider initialUser={authUser}><Self /></CurrentUserProvider></HydrationBoundary></QueryProvider>)
+    const view = render(<QueryProvider userId="viewer"><HydrationBoundary state={dehydrate(bootstrap)}><CurrentUserProvider initialUser={authUser}><Self /></CurrentUserProvider></HydrationBoundary></QueryProvider>)
     try {
       await waitFor(() => expect(screen.getByTestId("avatar-version")).toHaveTextContent("6"))
       const image = view.container.querySelector("img")

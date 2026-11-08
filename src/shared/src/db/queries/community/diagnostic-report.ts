@@ -439,36 +439,3 @@ export async function finalizeDiagnosticReportUpload(
     .returning();
   return rows[0] ?? null;
 }
-
-type ExpectedTerminal =
-  | { status: "uploaded"; r2Key: string; sha256: string; sizeBytes: number }
-  | { status: "failed"; failureCode: DiagnosticReportFailureCode };
-
-export function classifyDiagnosticReportTerminal(
-  report: Pick<
-    DiagnosticReportRow,
-    "status" | "failureCode" | "r2Key" | "sha256" | "sizeBytes"
-  >,
-  expected: ExpectedTerminal
-):
-  | { kind: "pending" }
-  | { kind: "uploaded_same" }
-  | { kind: "uploaded_different" }
-  | { kind: "failed_same" }
-  | { kind: "failed_different" } {
-  if (report.status === "pending") return { kind: "pending" };
-  if (report.status === "failed") {
-    return expected.status === "failed" && report.failureCode === expected.failureCode
-      ? { kind: "failed_same" }
-      : { kind: "failed_different" };
-  }
-  if (
-    expected.status === "uploaded" &&
-    report.r2Key === expected.r2Key &&
-    report.sha256 === expected.sha256 &&
-    report.sizeBytes === expected.sizeBytes
-  ) {
-    return { kind: "uploaded_same" };
-  }
-  return { kind: "uploaded_different" };
-}

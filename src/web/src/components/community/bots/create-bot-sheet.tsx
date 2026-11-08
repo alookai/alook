@@ -16,14 +16,15 @@ import {
   requiresExplicitModel,
   type ReasoningEffort,
 } from "@alook/shared"
-import { machineName } from "@/lib/community/machine-name"
-import { runtimeLabel } from "@/lib/community/runtime-label"
+
+
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
 import { type AvatarDraft } from "@/components/avatar"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
+import { useAvatarDraftPreview } from "@/lib/avatar/use-avatar-draft-preview"
 import { randomBotName } from "@/lib/community/bot-random-name"
-import { ProviderLogo } from "@/components/provider-logo"
+
 import { useMachines } from "@/hooks/community/use-machines"
 import { useCreateBot, useUploadBotAvatar } from "@/hooks/community/use-bots"
 import { BotFormFields } from "./bot-form-fields"
@@ -47,7 +48,6 @@ export function CreateBotSheet({
   open,
   onOpenChange,
   onCreated,
-  guided = false,
   avatarSeed,
   onAskBotToCreate,
   askingBotToCreate = false,
@@ -55,7 +55,6 @@ export function CreateBotSheet({
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreated?: (bot: BotSummary) => void | Promise<void>
-  guided?: boolean
   avatarSeed?: string
   onAskBotToCreate?: () => void | Promise<void>
   askingBotToCreate?: boolean
@@ -73,21 +72,14 @@ export function CreateBotSheet({
   const [model, setModel] = useAtom(useCreateAtom<string | null>(null))
   const [reasoningEffort, setReasoningEffort] = useAtom(useCreateAtom<ReasoningEffort | null>(null))
   const [fieldErrors, setFieldErrors] = useAtom(useCreateAtom<BotCreateFieldErrors>({}))
-  const [technicalExpanded, setTechnicalExpanded] = useAtom(useCreateAtom(false))
   const [avatarDraft, setAvatarDraft] = useAtom(useCreateAtom<AvatarDraft>({
     kind: "procedural",
     image: INITIAL_AVATAR,
   }))
+  useAvatarDraftPreview(avatarDraft)
 
   const selectedMachine = machines.find((m) => m.id === machineId)
   const runtimeOptions = useMemo(() => normalizeRuntimes(selectedMachine), [selectedMachine])
-  const singleTechnicalDefault =
-    guided &&
-    !requiresExplicitModel(runtime) &&
-    Boolean(selectedMachine && runtime) &&
-    machines.filter((machine) => isPresenceOnline(machine.status)).length === 1 &&
-    runtimeOptions.filter((option) => !option.unhealthy).length === 1
-
   // Randomize name + avatar on client mount (not during SSR — Math.random would
   // hydration-mismatch). Fires once per sheet open.
   const initialization = useMemo(() => ({ scope: [source.signal], store: createStore(false) }), [source.signal]).store
@@ -105,8 +97,7 @@ export function CreateBotSheet({
     setModel(null)
     setReasoningEffort(null)
     setFieldErrors({})
-    setTechnicalExpanded(false)
-  }, [open, avatarSeed, initialization, setName, setAvatarDraft, setDescription, setMachineId, setRuntime, setModel, setReasoningEffort, setFieldErrors, setTechnicalExpanded])
+  }, [open, avatarSeed, initialization, setName, setAvatarDraft, setDescription, setMachineId, setRuntime, setModel, setReasoningEffort, setFieldErrors])
 
   // Auto-select sensible defaults once machine data arrives. useMachines()
   // loads async, so `machines` is often [] on the open transition and
@@ -231,17 +222,6 @@ export function CreateBotSheet({
             nameError={fieldErrors.name}
           />
 
-          {singleTechnicalDefault && !technicalExpanded ? (
-            <div className="flex items-center gap-3 rounded-lg bg-muted/60 px-3 py-2.5">
-              <ProviderLogo provider={runtime} className="size-5 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">Ready on {selectedMachine ? machineName(selectedMachine) : "your machine"}</p>
-                <p className="text-xs text-muted-foreground">{runtimeLabel(runtime)} · Default model</p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setTechnicalExpanded(true)}>Change</Button>
-            </div>
-          ) : (
-          <>
           <BotMachineField machines={machines} machineId={machineId} onChange={selectMachine} error={fieldErrors.machineId} />
 
           {selectedMachine && (
@@ -262,8 +242,6 @@ export function CreateBotSheet({
                 disableUnhealthyOptions
               />
             </div>
-          )}
-          </>
           )}
     </CommunitySheet>
   )

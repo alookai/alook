@@ -1,11 +1,12 @@
 "use client"
 
+import { loadAndSeedProfiles } from "@/lib/community/account-cache-lifecycle"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { parseCommunityUserCardRead, type CommunityUserCardRead } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import type { QueryFunctionContext } from "@tanstack/react-query"
 
-import { loadAndSeedProfiles, retireCommunityProfile } from "@/lib/community/profile-seed"
+import { retireCommunityProfile } from "@/lib/community/profile-seed"
 import { ApiError } from "@/lib/errors"
 import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 

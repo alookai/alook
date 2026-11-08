@@ -133,7 +133,6 @@ export function OnboardingSelectDialogPreview({
       open
       onOpenChange={() => undefined}
       step={{ current: isIdentity ? 3 : 1, total: 3 }}
-      stepLabel={isIdentity ? "About you" : "Your harness"}
       title={isIdentity ? "Which best describes you?" : "Which harness do you already use?"}
       description={
         isIdentity

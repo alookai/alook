@@ -13,14 +13,14 @@ function streaming(chunks: Uint8Array[], cancel?: () => void) {
 
 describe("bounded HTTP JSON", () => {
   it("decodes UTF-8 split across chunks and reports bytes rather than characters", async () => {
-    const bytes = encoder.encode(JSON.stringify({ text: "你好🌍" }))
+    const bytes = encoder.encode(JSON.stringify({ text: "€€🌍" }))
     const body = new ReadableStream<Uint8Array>({ start(controller) {
       controller.enqueue(bytes.slice(0, 10))
       controller.enqueue(bytes.slice(10))
       controller.close()
     } })
     const request = new Request(url, { method: "POST", body, duplex: "half" } as RequestInit)
-    expect(await readBoundedJsonRequest(request, bytes.length)).toEqual({ ok: true, value: { text: "你好🌍" }, byteCount: bytes.length })
+    expect(await readBoundedJsonRequest(request, bytes.length)).toEqual({ ok: true, value: { text: "€€🌍" }, byteCount: bytes.length })
   })
 
   it("rejects an oversized declared body before consuming it", async () => {

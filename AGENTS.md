@@ -19,14 +19,14 @@ Alook's main purpose is to make the cli agent always on, and give it a email add
   - don't stash others' works, you can wait, but stash others' work will cause many problems.
 
 ## Release — Unified Version Bump
-All workspace packages share one version. Use `pnpm bump` to release:
+Packages declared in `pnpm-workspace.yaml` share one version, including private Storybook, except `tests/utils`, which is versioned independently. Standalone benchmark/video packages are outside this cohort. Use `pnpm bump` to release:
 ```bash
 pnpm bump 0.0.11      # explicit version (v prefix optional)
 pnpm bump patch        # auto-increment patch/minor/major
 pnpm bump patch --min-cli  # also update MIN_CLI_VERSION in src/web/wrangler.toml
 pnpm bump patch --desktop  # trigger desktop build
 ```
-This updates every `src/*/package.json` and commits `release: vX.Y.Z`.
+This updates the declared workspace cohort (excluding `tests/utils`) and commits `release: vX.Y.Z`. Package version alignment does not add a publishing or deployment target.
 Add `--min-cli` when the release contains breaking changes that require users to update their CLI.
 Add `--desktop` when the release includes desktop app changes that need a new build.
 Add `--mobile` to trigger the existing iOS TestFlight upload and Android artifact workflow. Upload, store processing and review acceptance are separate outcomes.

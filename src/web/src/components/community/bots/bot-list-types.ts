@@ -63,17 +63,14 @@ export type BotListController = {
   setCollapsedMachines: Atom<Set<string>>["set"]
   helpOpen: boolean
   setHelpOpen: Atom<boolean>["set"]
-  guidedActive: boolean
-  guidedCreateLabel: string
-  guidedAvatarSeed: string | undefined
+  createLabel: string
   groups: BotMachineGroup[]
   highlightId: string | null
   groupRefs: { current: Record<string, HTMLDivElement | null> }
   startingBotChat: boolean
   askBotToCreate: () => Promise<void>
   chatWithBot: (bot: BotSummary) => Promise<void>
-  onBotCreated: (bot: BotSummary) => Promise<void>
-  openGuidedCreate: () => void
+  openCreate: () => void
   openMachines: () => void
   bringMachineOnline: (machineId: string) => void
   machineName: (machineId: string) => string

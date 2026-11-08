@@ -176,8 +176,8 @@ vi.mock("@/components/community/channels/channel-header", () => ({
     React.createElement("div", { "data-testid": "channel-header-skeleton", "data-kind": kind }),
 }))
 vi.mock("@/components/community/messages/message-list", () => ({ MessageList: vi.fn(() => null) }))
-vi.mock("@/components/community/channels/conversation-message-skeleton", () => ({
-  ConversationMessageSkeleton: () => React.createElement("div", { "data-message-list-skeleton": true }),
+vi.mock("@/components/community/messages/message-list-view", () => ({
+  MessageListSkeleton: () => React.createElement("div", { "data-message-list-skeleton": true }),
 }))
 vi.mock("@/components/community/messages/composer", () => ({
   Composer: ({ draftKey }: { draftKey: string }) => React.createElement("textarea", { "data-draft-key": draftKey }),
@@ -191,10 +191,6 @@ vi.mock("@/components/community/channels/forum-channel-surface", () => ({
 }))
 vi.mock("@/components/community/members/channel-member-view-model", () => ({
   useChannelMemberViewModel: vi.fn(() => mockMemberViewModel),
-}))
-vi.mock("@/components/community/channels/channel-shell", () => ({
-  ChannelShell: ({ header, body }: { header: React.ReactNode; body: React.ReactNode }) =>
-    React.createElement(React.Fragment, null, header, body),
 }))
 vi.mock("@/components/community/shell/community-panel", () => ({ CommunityPanel: () => null }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
@@ -249,7 +245,7 @@ vi.mock("@/hooks/community/use-native-system-notifications", () => ({
 }))
 vi.mock("@/hooks/community/use-thread-split-mode", () => ({
   useThreadSplitMode: (options: Parameters<typeof mockUseThreadSplitMode>[0]) =>
-    mockUseThreadSplitMode(options) ?? { containerRef: mockSplitContainerRef, mode: mockSplitMode.value },
+    mockUseThreadSplitMode(options) ?? { modeMarkerRef: mockSplitContainerRef, mode: mockSplitMode.value },
 }))
 vi.mock("@/components/community/channels/thread-split-parent-surface", () => ({
   ThreadSplitParentSurface: mockSplitParentSurface,
@@ -262,6 +258,7 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
     thread,
     conversationSubtype,
     resolvingParent,
+    modeMarkerRef,
   }: {
     split: boolean
     layoutPending?: boolean
@@ -269,6 +266,7 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
     thread: React.ReactNode
     conversationSubtype?: string
     resolvingParent?: boolean
+    modeMarkerRef?: React.RefCallback<HTMLElement>
   }) => React.createElement(
     "main",
     {
@@ -277,6 +275,7 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
       "data-layout-pending": layoutPending || undefined,
       "data-community-conversation-subtype": conversationSubtype === "unknown" ? undefined : conversationSubtype,
     },
+    React.createElement("span", { ref: modeMarkerRef, "data-testid": "split-mode-marker" }),
     resolvingParent && React.createElement("main", { "aria-label": "Resolving conversation", "data-community-conversation-subtype": "unknown" }),
     (split || layoutPending) && React.createElement(
       "section",
@@ -328,6 +327,7 @@ vi.mock("@/stores/community/ws", async (importOriginal) => ({ ...await importOri
     selector({ userStatuses: new Map() }),
 }))
 vi.mock("@/hooks/community/mutations", () => ({
+  useRenameChannel: () => ({ mutateAsync: vi.fn(async () => {}) }),
   useSendMessage: () => ({ mutateAsync: vi.fn() }),
   useToggleReactionApi: () => vi.fn(),
   useAddReactionApi: () => vi.fn(),
@@ -944,7 +944,7 @@ describe("ChannelRoute message surface ownership", () => {
     renderer.unmount()
   })
 
-  it("starts no transient parent resources through measured mobile639 to desktop640 transitions", async () => {
+  it("starts no transient parent resources through mobile and desktop CSS mode transitions", async () => {
     await observeSecondary()
     const { ThreadSplitParentSurface } = await vi.importActual<typeof import("./thread-split-parent-surface")>("./thread-split-parent-surface")
     const { useThreadSplitMode } = await vi.importActual<typeof import("@/hooks/community/use-thread-split-mode")>("@/hooks/community/use-thread-split-mode")
@@ -954,10 +954,14 @@ describe("ChannelRoute message surface ownership", () => {
       modes.push(result.mode)
       return result
     })
-    let width = 639
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
-      width, height: 800, top: 0, right: width, bottom: 800, left: 0, x: 0, y: 0, toJSON: () => ({}),
-    }))
+    let cssMode = "full"
+    const computed = window.getComputedStyle.bind(window)
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
+      const style = computed(element, pseudo)
+      return element.getAttribute("data-testid") === "split-mode-marker"
+        ? Object.assign(Object.create(style), { getPropertyValue: (property: string) => property === "--thread-split-mode" ? cssMode : style.getPropertyValue(property) })
+        : style
+    })
     vi.stubGlobal("ResizeObserver", undefined)
     mockSplitParentSurface.mockImplementation((props) => React.createElement(ThreadSplitParentSurface, props as never))
     configureThreadRoute()
@@ -974,7 +978,7 @@ describe("ChannelRoute message surface ownership", () => {
     fireEvent.change(composer, { target: { value: "Keep this draft" } })
     for (const breakpoint of ["desktop", "mobile", "desktop"] as const) {
       mockBreakpoint.value = breakpoint
-      width = breakpoint === "desktop" ? 640 : 639
+      cssMode = "full"
       renderer.rerender(node())
       expect(screen.getByTestId("community-thread-split")).toHaveAttribute("data-layout", "full")
       expect(screen.queryByTestId("community-thread-split-parent")).not.toBeInTheDocument()
@@ -991,7 +995,7 @@ describe("ChannelRoute message surface ownership", () => {
       expect(composer).toHaveValue("Keep this draft")
     }
     expect(modes).toContain("pending")
-    width = 880
+    cssMode = "split"
     act(() => window.dispatchEvent(new Event("resize")))
     expect(screen.getByTestId("community-thread-split")).toHaveAttribute("data-layout", "split")
     expect(mockUseChannelMetadata).toHaveBeenCalled()
@@ -999,7 +1003,7 @@ describe("ChannelRoute message surface ownership", () => {
     const [runtime, owner] = mockClaimSecondary.mock.calls.at(-1)!
     expect(owner).toBeDefined()
     mockBreakpoint.value = "mobile"
-    width = 639
+    cssMode = "full"
     renderer.rerender(node())
     expect(screen.queryByTestId("community-thread-split-parent")).not.toBeInTheDocument()
     expect(mockReleaseSecondary).toHaveBeenCalledWith(runtime, owner)
@@ -1202,7 +1206,8 @@ describe("ChannelRoute message surface ownership", () => {
     const renderer = render(React.createElement(ChannelRoute, props))
     const outer = renderer.container.firstElementChild
     expect(outer?.tagName).toBe("DIV")
-    const measurement = renderer.container.querySelector('[data-community-target-href]')
+    const measurement = screen.getByTestId("split-mode-marker")
+    expect(measurement.parentElement).toBe(screen.getByTestId("community-thread-split"))
     expect(mockSplitContainerRef).toHaveBeenCalledWith(measurement)
     Object.assign(mockRouteModel, {
       skeletonSubtype: "thread",
@@ -1842,7 +1847,6 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockedUseChannelMessageFeed).toHaveBeenCalledTimes(1)
     expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({
       channelId: "channel_1",
-      isChildChannel: true,
     }))
     expect(mockRouter.replace).toHaveBeenLastCalledWith(
       "/c/channels/server_1/channel_1?keep=1",

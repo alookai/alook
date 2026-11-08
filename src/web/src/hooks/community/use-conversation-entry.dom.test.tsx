@@ -12,7 +12,7 @@ import { conversationEntryOptions, currentConversationReadState, publishConversa
 import { communityKeys } from "@/lib/query-keys"
 import { ConversationReadTimeoutError } from "@/lib/community/conversation-read"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
-import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
+import { ConversationActivityContext } from "@/contexts/view-activity"
 import { reconcileWindow } from "@/lib/community/message-reconcile"
 import { useConversationEntry } from "./use-conversation-entry"
 import { useChannelMetadata } from "./use-channel-metadata"
@@ -820,7 +820,7 @@ describe("conversation entry return during accepted reading", () => {
             createElement(VirtualRows<FlatItem>, {
               items: controller.items, virtualizer: controller.virtualizer, reactLayout: true,
               onLayoutCommit: controller.onRowsLayoutCommit,
-              renderItem: (item, index) => item.kind === "leading" ? renderMessageListRow(item, props, controller, index) : createElement("div", {
+              renderItem: (item) => item.kind === "leading" ? renderMessageListRow(item, props, controller) : createElement("div", {
                 "data-message-row-key": item.key, "data-fixture-kind": item.kind,
                 "data-fixture-date": String(item.kind === "divider" && !!item.dateLabel),
                 "data-message-divider-for": item.kind === "divider" ? item.messageId : undefined,

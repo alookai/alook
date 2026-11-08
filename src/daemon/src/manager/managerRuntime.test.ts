@@ -2936,7 +2936,7 @@ describe("truncateAuditText", () => {
 
   it.each([
     { input: "a".repeat(1025), expected: "a".repeat(1024), chars: 1025 },
-    { input: "中".repeat(341) + "😀", expected: "中".repeat(341), chars: 342 },
+    { input: "€".repeat(341) + "😀", expected: "€".repeat(341), chars: 342 },
     { input: "a".repeat(1021) + "😀", expected: "a".repeat(1021), chars: 1022 },
     { input: "😀".repeat(256) + "x", expected: "😀".repeat(256), chars: 257 },
   ])("keeps a complete UTF-8 prefix and original code-point count ($chars)", ({ input, expected, chars }) => {
@@ -2976,10 +2976,10 @@ describe("AgentProcessManager — bot audit event emission", () => {
     mgr.deliver("a1", { seq: 1, text: "hello" });
     await session.fire("runtime_event", { kind: "text", text: "" });
     await session.fire("runtime_event", { kind: "thinking", text: "local reasoning only" });
-    await session.fire("runtime_event", { kind: "text", text: "中".repeat(400) });
+    await session.fire("runtime_event", { kind: "text", text: "€".repeat(400) });
     await session.fire("runtime_event", { kind: "text", text: "" });
     expect(onBotAuditEvent.mock.calls.map(([, event]) => event)).toEqual([
-      { kind: "text", payload: { text: "中".repeat(341), truncated: true, chars: 400 } },
+      { kind: "text", payload: { text: "€".repeat(341), truncated: true, chars: 400 } },
     ]);
   });
 
@@ -3292,12 +3292,8 @@ describe("AgentProcessManager — error audit emission", () => {
     expect(errCalls).toHaveLength(0);
   });
 
-  it("adds a stuck-reset correlation trace for a reborn error while the reset window is wedged — WITHOUT suppressing the error (batch D)", async () => {
-    // Batch D: the stuck-reset trace is purely additive. A reborn (non-
-    // superseded) session's genuine error must STILL surface as an audit row
-    // (batch C's 命门, unchanged); on top of that, if the agent's reset window
-    // has been stuck past the reconcile threshold, a diagnostic `warn` line
-    // correlates the error with the wedged reset. The gate judge is untouched.
+  it("adds a stuck-reset correlation trace for a reborn error while the reset window is wedged without suppressing the error", async () => {
+    // Additive stuck-reset diagnostics must preserve a reborn session's original audit error.
     let clock = 0;
     const onBotAuditEvent = vi.fn();
     const logger = stubLogger();
@@ -3312,7 +3308,7 @@ describe("AgentProcessManager — error audit emission", () => {
     // Reborn (superseded=false) error fires while the window is wedged.
     fireManagedError(mgr, "reborn hit a rate limit", false);
 
-    // 命门: the error STILL surfaces (additive trace never suppresses).
+    // Additional tracing must not suppress the original error.
     const errCalls = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "error",
     );

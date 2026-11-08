@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { savedDaemonMachineIds } from "./daemonState.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
 import { daemonRefreshFromIpc } from "./daemonRefresh.js";
 import { registerPlatformCommands } from "./platform.js";
@@ -26,7 +27,7 @@ import { pathToFileURL } from "node:url";
 import type { ServerApi, Cursor, Message, AckFailure } from "../server/contract.js";
 import { DM_SERVER, parseRef } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
-import { daemonReconnect, daemonResume, daemonRunFromIpc, daemonStart, daemonStartById, daemonStop, daemonList, savedDaemonMachineIds, daemonStatus, type DaemonInfo } from "./daemonStart.js";
+import { daemonReconnect, daemonResume, daemonRunFromIpc, daemonStart, daemonStartById, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
 import { daemonReplace } from "./daemonUpdate.js";
 import { armMessageReminderFromEnv, parseRemindAfter } from "./messageReminderClient.js";
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
@@ -1236,11 +1237,7 @@ export async function main(argv = process.argv.slice(2), io: CliIo = {}): Promis
   } catch (err) {
     if (err instanceof CommanderError) {
       if (err.code === "commander.helpDisplayed" || err.code === "commander.help") {
-        // `-h`/`--help` is a HUMAN reading usage in a terminal — print the plain
-        // commander usage text, NOT the agent JSON envelope. Help is the one
-        // path that's human-facing; every other outcome (success results,
-        // errors, unknownCommand) stays a one-JSON-line envelope for agents to
-        // consume. (Gus 架构#473: -h wrongly returned `{"success":{"usage":…}}`.)
+        // Human help is plain text; agent outcomes use one-line JSON.
         process.stdout.write(getHelpText(program, argv) + "\n");
       } else if (err.code === "commander.unknownCommand") {
         printEnvelope({ error: `unknown command: ${argv.join(" ") || "(none)"}. Run \`alook help\`.` });

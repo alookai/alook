@@ -26,9 +26,6 @@ export function renderBotListOverlaySlots(
       <CreateBotSheet
         open={controller.createOpen}
         onOpenChange={controller.setCreateOpen}
-        onCreated={controller.onBotCreated}
-        guided={controller.guidedActive}
-        avatarSeed={controller.guidedAvatarSeed}
         onAskBotToCreate={controller.bots.length ? controller.askBotToCreate : undefined}
         askingBotToCreate={controller.startingBotChat}
       />

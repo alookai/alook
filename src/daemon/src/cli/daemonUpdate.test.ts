@@ -18,16 +18,16 @@ vi.mock("node:child_process", async (importOriginal) => ({
 vi.mock("./daemonStart", async (importOriginal) => ({
   ...await importOriginal<typeof import("./daemonStart")>(),
   daemonResume: lifecycleMocks.daemonResume,
+}));
+
+vi.mock("./daemonState.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./daemonState.js")>(),
   stopExactDaemonPid: lifecycleMocks.stopExactDaemonPid,
 }));
 
 import { readDaemonVersion } from "../version";
-import {
-  createDaemonSelfUpdateHandler,
-  daemonReplace,
-  resolveNpmLaunchCommand,
-  type NpmLaunchFileProbe,
-} from "./daemonUpdate";
+import { daemonReplace } from "./daemonUpdate";
+import { createDaemonSelfUpdateHandler, resolveNpmLaunchCommand, type NpmLaunchFileProbe } from "./daemonSelfUpdate";
 
 const machineId = "cm_update_unit_123456";
 

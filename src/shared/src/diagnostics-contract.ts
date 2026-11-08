@@ -18,6 +18,8 @@ export type DiagnosticReportFailureCode =
   (typeof DIAGNOSTIC_REPORT_FAILURE_CODES)[number];
 
 
+export const DIAGNOSTIC_GZIP_MAX_BYTES = 10 * 1024 * 1024;
+
 export const DIAGNOSTIC_REPORT_COLLECTION_WINDOW_MS = 86_400_000;
 export const DIAGNOSTIC_REPORT_DEADLINE_WINDOW_MS = 600_000;
 export const DIAGNOSTIC_COLLECT_SPAN_MS =

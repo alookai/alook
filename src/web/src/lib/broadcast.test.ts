@@ -257,7 +257,7 @@ describe("broadcastToUser", () => {
     expect(mockWarn).not.toHaveBeenCalled()
   })
 
-  it.each(["用户/one", ".", "..", "%2E"])(
+  it.each(["€€/one", ".", "..", "%2E"])(
     "encodes and routes community events through the framed strict user endpoint for %j",
     async (target) => {
     const bindingFetch = vi.fn(async () => Response.json({ sent: 1 }))

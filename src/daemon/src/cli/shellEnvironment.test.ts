@@ -43,9 +43,9 @@ describe("fresh local shell environment", () => {
     writeFileSync(config, "export ALOOK_SYNTHETIC_REFRESH='first'\n");
     const input = { ...process.env, HOME: dir, SHELL: shell, OLD_ONLY: "stale-private-value" };
     expect((await readShellEnvironment({ env: input })).ALOOK_SYNTHETIC_REFRESH).toBe("first");
-    writeFileSync(config, "export ALOOK_SYNTHETIC_REFRESH='second\n你好=$literal'\n");
+    writeFileSync(config, "export ALOOK_SYNTHETIC_REFRESH='second\n€€=$literal'\n");
     const fresh = await readShellEnvironment({ env: input });
-    expect(fresh.ALOOK_SYNTHETIC_REFRESH).toBe("second\n你好=$literal");
+    expect(fresh.ALOOK_SYNTHETIC_REFRESH).toBe("second\n€€=$literal");
     expect(fresh.OLD_ONLY).toBeUndefined();
     expect(input.OLD_ONLY).toBe("stale-private-value");
   });
@@ -151,7 +151,7 @@ describe("fresh local shell environment", () => {
   it.runIf(process.platform === "win32")("captures real PowerShell profile Unicode through UTF-8 and removes old exports", async () => {
     const dir = fixture();
     const profile = join(dir, "profile.ps1");
-    writeFileSync(profile, "\ufeff$env:ALOOK_REFRESH_UNICODE='你好\nline=$literal'\n$env:Path=(Join-Path $env:SystemRoot 'System32')+';'\nWrite-Output 'profile startup banner'\n");
+    writeFileSync(profile, "\ufeff$env:ALOOK_REFRESH_UNICODE='€€\nline=$literal'\n$env:Path=(Join-Path $env:SystemRoot 'System32')+';'\nWrite-Output 'profile startup banner'\n");
     const quotedProfile = "'" + profile.replaceAll("'", "''") + "'";
     const quotedMissing = "'" + join(dir, "missing.ps1").replaceAll("'", "''") + "'";
     let failure = "unavailable";
@@ -175,7 +175,7 @@ describe("fresh local shell environment", () => {
         ? error.cause : "unknown";
       throw new Error(`PowerShell fixture failed (cause=${cause}; ${termination}; diagnostic=${failure})`);
     });
-    expect(fresh.ALOOK_REFRESH_UNICODE).toBe("你好\nline=$literal");
+    expect(fresh.ALOOK_REFRESH_UNICODE).toBe("€€\nline=$literal");
     expect(fresh.ALOOK_REFRESH_OLD_FIXTURE).toBeUndefined();
     expect(fresh.USERNAME).toBe(process.env.USERNAME);
     expect(fresh.USERPROFILE).toBe(process.env.USERPROFILE);

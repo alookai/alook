@@ -5,7 +5,6 @@ import { renderCommunityThumbnail, requiresCommunityThumbnail, type CommunityIma
 
 export type { CommunityImagePreparation } from "./community-image-thumbnail"
 
-const LEGACY_MAX_SIZE = 200
 const COMMUNITY_RASTER_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -14,28 +13,6 @@ const COMMUNITY_RASTER_MIME_TYPES = new Set([
 ])
 
 class RequiredThumbnailError extends Error {}
-
-export type ThumbnailResult = { blob: Blob; width: number; height: number }
-
-export async function generateThumbnail(file: File, signal?: AbortSignal): Promise<ThumbnailResult | null> {
-  if (!isRasterImage(file)) return null
-
-  let objectUrl: string | undefined
-  try {
-    objectUrl = URL.createObjectURL(file)
-    const img = await loadImage(objectUrl, signal)
-    const { w, h } = fitWithin(img.naturalWidth, img.naturalHeight, LEGACY_MAX_SIZE)
-
-    const blob = await renderJpeg(img, w, h, 0.7, signal)
-    if (!blob) return null
-    return { blob, width: img.naturalWidth, height: img.naturalHeight }
-  } catch (error) {
-    if (signal?.aborted) throw error
-    return null
-  } finally {
-    if (objectUrl) URL.revokeObjectURL(objectUrl)
-  }
-}
 
 export async function prepareCommunityImage(
   file: File,
@@ -112,12 +89,6 @@ function loadImage(src: string, signal?: AbortSignal): Promise<HTMLImageElement>
   })
 }
 
-function fitWithin(srcW: number, srcH: number, max: number) {
-  if (srcW <= max && srcH <= max) return { w: srcW, h: srcH }
-  const scale = Math.min(max / srcW, max / srcH)
-  return { w: Math.round(srcW * scale), h: Math.round(srcH * scale) }
-}
-
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number, signal?: AbortSignal): Promise<Blob | null> {
   return new Promise((resolve, reject) => {
     const cleanup = () => signal?.removeEventListener("abort", abort)
@@ -126,24 +97,4 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number, 
     if (signal?.aborted) { abort(); return }
     canvas.toBlob((blob) => { cleanup(); if (!signal?.aborted) resolve(blob) }, type, quality)
   })
-}
-
-function isRasterImage(file: File): boolean {
-  return file.type.startsWith("image/") && file.type !== "image/svg+xml"
-}
-
-async function renderJpeg(
-  img: HTMLImageElement,
-  width: number,
-  height: number,
-  quality: number,
-  signal?: AbortSignal,
-): Promise<Blob | null> {
-  const canvas = document.createElement("canvas")
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext("2d")
-  if (!ctx) return null
-  ctx.drawImage(img, 0, 0, width, height)
-  return canvasToBlob(canvas, "image/jpeg", quality, signal)
 }

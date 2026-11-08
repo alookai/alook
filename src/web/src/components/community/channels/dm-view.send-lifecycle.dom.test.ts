@@ -11,7 +11,7 @@ import { dmConversationEntryFixture, seedConversationEntry } from "@/test/conver
 import { communityRowData } from "@/lib/community-db/write"
 import { profileSchema } from "@/lib/community-db/schema"
 
-const mocks = vi.hoisted(() => ({ api: vi.fn(), advance: vi.fn(), list: vi.fn(), positionEntry: null as object | null, failed: true, breakpoint: "mobile", identity: true, identityName: "Peer", identityError: false, identitySettled: false, blocked: false, windowBlocked: false }))
+const mocks = vi.hoisted(() => ({ api: vi.fn(), list: vi.fn(), positionEntry: null as object | null, failed: true, breakpoint: "mobile", identity: true, identityName: "Peer", identityError: false, identitySettled: false, blocked: false, windowBlocked: false }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.api, toastApiError: vi.fn() }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint }))
 vi.mock("@/contexts/community/current-user", () => ({ useCurrentUser: () => ({ id: "u_me", name: "Me", avatar: "M" }) }))
@@ -26,7 +26,6 @@ vi.mock("./use-dm-seq-context", () => ({ useDmSeqContext: vi.fn() }))
 vi.mock("@/lib/community/last-community-route", () => ({ commitCommunityChannelRoute: vi.fn() }))
 vi.mock("@/hooks/community/use-notification-settings", () => ({ useNotificationSettings: () => ({ channel: {} }) }))
 vi.mock("@/hooks/community/use-community-ws", () => ({ communityWsSubscribe: vi.fn(), communityWsUnsubscribe: vi.fn(), communityWsSendTyping: vi.fn(), communityWsEndTyping: vi.fn() }))
-vi.mock("@/lib/community-onboarding", () => ({ readCommunityOnboardingState: () => ({ status: "active", stage: "dm", dmId: "dm_1" }), advanceCommunityOnboarding: mocks.advance }))
 vi.mock("@/hooks/community/mutations", async importOriginal => ({ ...await importOriginal<typeof import("@/hooks/community/mutations")>(), useAddReactionApi: () => vi.fn(), useToggleReactionApi: () => vi.fn(), useToggleMark: () => vi.fn(), useSetChannelNotif: () => ({ mutate: vi.fn() }) }))
 vi.mock("./dm-header", () => ({
   DmHeaderSkeleton: () => React.createElement("header", { "data-testid": "pending-peer" }),
@@ -44,7 +43,7 @@ vi.mock("@/components/community/messages/message-list", () => ({ MessageList: (p
   return React.createElement("button", { onClick: () => props.onRetry?.("failed") }, "Retry")
 } }))
 
-beforeEach(() => { mocks.api.mockReset(); mocks.advance.mockReset(); mocks.list.mockReset(); mocks.positionEntry = null; mocks.failed = true; mocks.breakpoint = "mobile"; mocks.identity = true; mocks.identityName = "Peer"; mocks.identityError = false; mocks.identitySettled = false; mocks.blocked = false; mocks.windowBlocked = false })
+beforeEach(() => { mocks.api.mockReset(); mocks.list.mockReset(); mocks.positionEntry = null; mocks.failed = true; mocks.breakpoint = "mobile"; mocks.identity = true; mocks.identityName = "Peer"; mocks.identityError = false; mocks.identitySettled = false; mocks.blocked = false; mocks.windowBlocked = false })
 
 function posted(body: { content: string; nonce: string }) {
   return { profiles: messageProfilesFixture([messageResourceFixture({ id: "confirmed", channelId: "dm_1", authorId: "u_me", authorName: "Me", authorAvatarVersion: 0, seq: 9, content: body.content, clientNonce: body.nonce, createdAt: "2026-10-09T00:00:00Z", embeds: [] })]), deduped: false, message: messageResourceFixture({ id: "confirmed", channelId: "dm_1", authorId: "u_me", authorName: "Me", authorAvatarVersion: 0, seq: 9, content: body.content, clientNonce: body.nonce, createdAt: "2026-10-09T00:00:00Z", embeds: [] }) }
@@ -195,7 +194,7 @@ describe("real DmView accepted send UI lifecycle", () => {
     expect(mocks.list.mock.lastCall?.[0].positionEntry).not.toBe(first)
     view.unmount()
   })
-  it.each(["send", "retry"] as const)("continues %s after target view retires without advancing old onboarding", async action => {
+  it.each(["send", "retry"] as const)("continues %s after target view retires and keeps publication in its original channel", async action => {
     const owner = await createDmOwner()
     owner.runtime.messageStream.actions.accept({ kind: "dm", id: "dm_1" }, { nonce: "retry_nonce", tempId: "temp_retry", message: { type: "chat", authorId: "u_me", content: "retry" }, localUploads: [] })
     owner.runtime.messageStream.actions.dispatch({ kind: "dm", id: "dm_1" }, { type: "postFail", nonce: "retry_nonce" })
@@ -212,7 +211,6 @@ describe("real DmView accepted send UI lifecycle", () => {
     expect(options.signal.aborted).toBe(false)
     await act(async () => finish(posted(body)))
     await waitFor(() => expect(owner.registry.collections.messages.get("confirmed")?.channelId).toBe("dm_1"))
-    expect(mocks.advance).not.toHaveBeenCalled()
     expect(mocks.api).toHaveBeenCalledOnce()
     view.unmount()
   })
@@ -224,7 +222,8 @@ describe("real DmView accepted send UI lifecycle", () => {
     const wrapper = ({ children }: PropsWithChildren) => React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "u_me", retainOwner: true }, children)
     const view = render(React.createElement(DmView, { dmId: "dm_1" }), { wrapper })
     await act(async () => screen.getByRole("button", { name: action === "send" ? "Send" : "Retry" }).click())
-    await waitFor(() => expect(mocks.advance).toHaveBeenCalledOnce())
+    await waitFor(() => expect(owner.registry.collections.messages.get("confirmed")?.channelId).toBe("dm_1"))
+    expect(mocks.api).toHaveBeenCalledOnce()
     view.unmount()
   })
 })

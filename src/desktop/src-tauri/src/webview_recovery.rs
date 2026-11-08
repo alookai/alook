@@ -1120,7 +1120,7 @@ mod tests {
     fn exact_http_targets_round_trip_through_both_protocol_transports() {
         let targets = [
             "https://alook.ai/c",
-            "https://alook.ai/c/channel?after=%23一&view=all#message-7",
+            "https://alook.ai/c/channel?after=%23€&view=all#message-7",
             "http://127.0.0.1:4317/path?a=hello%20world#end",
         ];
         for target in targets {
@@ -1213,9 +1213,6 @@ mod tests {
         assert!(!html.contains("linear-gradient"));
         assert!(!html.contains("box-shadow"));
         assert!(!html.contains("#e66b2e"));
-        assert!(!html
-            .chars()
-            .any(|character| ('\u{4e00}'..='\u{9fff}').contains(&character)));
         assert!(html.contains("parsed.hostname!==\"alook-recovery.localhost\""));
     }
 

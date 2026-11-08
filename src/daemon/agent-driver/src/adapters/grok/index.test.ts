@@ -433,3 +433,13 @@ describe("GrokDriver launch boundary", () => {
       .resolves.toMatchObject({ status: "unhealthy", lastError: "grok_acp_probe_failed" });
   });
 });
+
+it("rejects successful Grok discovery when physical cleanup fails", async () => {
+  const cleanup = vi.fn(async () => { throw new Error("cleanup rejected"); });
+  const process = fakeProcess((proc, message) => {
+    if (message.method === "initialize") respond(proc, message, { protocolVersion: 1, agentCapabilities: { loadSession: true }, authMethods: [{ id: "cached_token" }], _meta: { modelState } });
+    else if (message.method === "authenticate") respond(proc, message, {});
+  });
+  await expect(probeGrokAcpCatalog(undefined, { spawn: () => process, cleanup })).resolves.toEqual({ status: "unhealthy", lastError: "grok_acp_probe_failed" });
+  expect(cleanup).toHaveBeenCalledOnce();
+});

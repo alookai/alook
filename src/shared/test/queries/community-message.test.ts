@@ -55,57 +55,6 @@ function createSelectMock(rows: any[]) {
   return chain;
 }
 
-describe("getMessagesByIds", () => {
-  it("returns [] and does NOT hit db when ids is empty", async () => {
-    const db = createSelectMock([messageRow("m_1")]);
-    const result = await messageQueries.getMessagesByIds(db, []);
-    expect(result).toEqual([]);
-    expect(db.select).not.toHaveBeenCalled();
-  });
-
-  it("does not call orderBy — rows returned unordered", async () => {
-    const db = createSelectMock([messageRow("m_1")]);
-    await messageQueries.getMessagesByIds(db, ["m_1"]);
-    expect(db.orderBy).not.toHaveBeenCalled();
-  });
-
-  it("silently drops unknown ids: length matches DB result, not input length", async () => {
-    // 3 ids requested, only 2 rows come back — no throw, length matches rows.
-    const db = createSelectMock([messageRow("m_1"), messageRow("m_2")]);
-    const result = await messageQueries.getMessagesByIds(db, ["m_1", "m_2", "m_missing"]);
-    expect(result).toHaveLength(2);
-  });
-
-  it("returned rows carry the getMessage projection, no extras", async () => {
-    const db = createSelectMock([messageRow("m_1")]);
-    const result = await messageQueries.getMessagesByIds(db, ["m_1"]);
-    expect(result).toHaveLength(1);
-    const keys = Object.keys(result[0]!).sort();
-    expect(keys).toEqual(
-      [
-        "authorEmail",
-        "authorId",
-        "authorImage",
-        "authorName",
-        "channelId",
-        "content",
-        "createdAt",
-        "embeds",
-        "id",
-        "mentionType",
-        "replyToId",
-        "type",
-      ].sort()
-    );
-  });
-
-  it("innerJoin(user) is applied — mirrors getMessage projection", async () => {
-    const db = createSelectMock([]);
-    await messageQueries.getMessagesByIds(db, ["m_1"]);
-    expect(db.innerJoin).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe("getMessageInScope", () => {
 
   it("returns the row when the db finds an in-scope match", async () => {
@@ -660,52 +609,6 @@ describe("createMessage — CAS claim with expectedSeq", () => {
   });
 });
 
-// ── getLatestMessage / getLatestMessagesByChannelIds ──────────────────────
-//
-// These feed the invariant unification (plan #4) — every mark-read path that
-// doesn't already know a message id calls one of these to resolve the target
-// tuple. Empty target → `null` / omitted, and the mark-read path must skip.
-
-/** Terminal-limit mock: `.limit(n)` resolves to `rows`. */
-function createLimitMock(rows: any[]) {
-  const chain: any = {};
-  chain.select = vi.fn(() => chain);
-  chain.from = vi.fn(() => chain);
-  chain.where = vi.fn(() => chain);
-  chain.orderBy = vi.fn(() => chain);
-  chain.limit = vi.fn(() => Promise.resolve(rows));
-  return chain;
-}
-
-describe("getLatestMessage", () => {
-  it("channel branch: returns the row from db, orders by desc(createdAt), desc(id), limit 1", async () => {
-    const db = createLimitMock([
-      { id: "m_latest", createdAt: "2026-07-05T10:00:00Z" },
-    ]);
-    const result = await messageQueries.getLatestMessage(db, { channelId: "c_1" });
-    expect(result).toEqual({ id: "m_latest", createdAt: "2026-07-05T10:00:00Z" });
-    expect(db.orderBy).toHaveBeenCalledTimes(1);
-    expect(db.limit).toHaveBeenCalledWith(1);
-  });
-
-  it("dm branch: same shape, scoped by the DM's channelId", async () => {
-    const db = createLimitMock([
-      { id: "m_dm_latest", createdAt: "2026-07-05T11:00:00Z" },
-    ]);
-    const result = await messageQueries.getLatestMessage(db, { channelId: "dm_ch_1" });
-    expect(result).toEqual({ id: "m_dm_latest", createdAt: "2026-07-05T11:00:00Z" });
-    expect(db.limit).toHaveBeenCalledWith(1);
-  });
-
-  it("returns null when the target has no messages (empty channel / dm)", async () => {
-    const db = createLimitMock([]);
-    const cRes = await messageQueries.getLatestMessage(db, { channelId: "c_empty" });
-    const dRes = await messageQueries.getLatestMessage(db, { channelId: "dm_ch_empty" });
-    expect(cRes).toBeNull();
-    expect(dRes).toBeNull();
-  });
-});
-
 // ── listMessagesAround / listMessagesSince / getLatestMessageSeq ─────────
 //
 // New envelope-critical queries for the anchor-scroll refactor. The three feed the message-list
@@ -729,61 +632,6 @@ function createDualLimitMock(sequences: any[][]) {
   chain.limit = vi.fn(() => Promise.resolve(sequences[idx++] ?? []));
   return chain;
 }
-
-function wakeContextRow(id: string, seq: number) {
-  return {
-    id,
-    authorId: `u_${id}`,
-    authorName: `User ${id}`,
-    authorDiscriminator: "1234",
-    authorIsBot: false,
-    content: id,
-    type: "default",
-    replyToId: null,
-    seq,
-    createdAt: `2026-01-01T00:00:0${seq}.000Z`,
-    channelId: "c_1",
-  };
-}
-
-describe("JEV wake context queries", () => {
-  it("returns the nearest prior rows chronologically and reports the extra-row probe", async () => {
-    const db = createDualLimitMock([[
-      wakeContextRow("m_3", 3),
-      wakeContextRow("m_2", 2),
-      wakeContextRow("m_1", 1),
-    ]]);
-
-    const result = await messageQueries.listWakeContextMessagesBefore(db, {
-      channelId: "c_1",
-      beforeSeq: 4,
-      limit: 2,
-    });
-
-    expect(db.limit).toHaveBeenCalledWith(3);
-    expect(result.hasMore).toBe(true);
-    expect(result.messages.map((row) => row.id)).toEqual(["m_2", "m_3"]);
-    const projection = db.select.mock.calls[0]![0];
-    expect(projection).toMatchObject({
-      authorDiscriminator: expect.anything(),
-      authorIsBot: expect.anything(),
-    });
-    expect(projection).not.toHaveProperty("authorEmail");
-  });
-
-  it("resolves one context row only through its channel-scoped lookup", async () => {
-    const row = wakeContextRow("m_1", 1);
-    const db = createDualLimitMock([[row]]);
-
-    await expect(messageQueries.getWakeContextMessageInScope(
-      db,
-      "m_1",
-      { channelId: "c_1" },
-    )).resolves.toEqual(row);
-    expect(db.where).toHaveBeenCalledOnce();
-    expect(db.limit).toHaveBeenCalledWith(1);
-  });
-})
 
 function listedRow(id: string, createdAt: string) {
   return {

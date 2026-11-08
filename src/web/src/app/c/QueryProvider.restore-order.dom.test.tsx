@@ -23,7 +23,6 @@ import {
   useCanonicalMessagesById,
   useOptionalCommunityDbRegistry,
   useDmProjection,
-  useTrustedRestoredPrimary,
 } from "@/lib/community-db/projections"
 
 const persister = vi.hoisted(() => ({
@@ -55,7 +54,8 @@ import { createCommunityDbRegistry, getCommunityDbRegistry } from "@/lib/communi
 import { getCommunityRuntime, useCommunityRuntime } from "@/stores/community/runtime"
 import { applyTypingIndicator } from "@/lib/community/typing"
 import { useCommunityStore } from "@/stores/community"
-import { apiFetchProfiles, communityUserProfilePatch } from "@/lib/community/profile-seed"
+import { apiFetchProfiles } from "@/lib/community/account-cache-lifecycle"
+import { communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
 vi.mock("next/navigation", () => ({ usePathname: () => "/c/channels/server-1/post-1", useRouter: () => ({ replace: vi.fn() }) }))
 vi.mock("@/hooks/community/use-servers", async (importOriginal) => ({
@@ -121,7 +121,7 @@ describe("QueryProvider persistence ordering", () => {
       React.useLayoutEffect(() => { registry = current; restoring = pending })
       return null
     }
-    const renderer = render(<QueryProvider userId={viewerId} initialUser={{ id: viewerId, name: "SSR viewer", email: "viewer@example.test", avatar: "S", avatarVersion: 0 }}>
+    const renderer = render(<QueryProvider userId={viewerId}>
       <CommunityRestoreBoundary><Probe /></CommunityRestoreBoundary>
     </QueryProvider>)
     await waitFor(() => expect(restoring).toBe(false))
@@ -199,14 +199,12 @@ describe("QueryProvider persistence ordering", () => {
     function Probe() {
       mounted.client = useQueryClient()
       mounted.registry = useOptionalCommunityDbRegistry()
-      const trustedRestoredPrimary = useTrustedRestoredPrimary()
       const messages = useCanonicalMessagesById()
       const dms = useDmProjection()
       return React.createElement(
         "output",
         {
           "data-testid": "canonical-message",
-          "data-trusted-restored-primary": String(trustedRestoredPrimary),
         },
         [messages?.get(message.id)?.content ?? "missing", dms?.[0]?.name ?? "missing-dm"].join("|"),
       )
@@ -238,8 +236,6 @@ describe("QueryProvider persistence ordering", () => {
       expect(screen.getByTestId("canonical-message").textContent)
         .toBe(`${message.content}|Persisted peer`)
     })
-    expect(screen.getByTestId("canonical-message"))
-      .toHaveAttribute("data-trusted-restored-primary", "true")
     expect(mounted.client?.getQueryData(canonicalKey)).toEqual([message])
 
     act(() => renderer.unmount())

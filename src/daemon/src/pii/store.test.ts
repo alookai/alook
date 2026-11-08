@@ -98,7 +98,7 @@ describe("PII pipeline", () => {
     }
     expect(await store.manage("a", { action: "preview", text: "unchanged", expectedRevision: snapshot.revision }))
       .toEqual({ status: "complete", output: "unchanged", snapshot, triggeredFilters: [] });
-    snapshot = await store.local("a", { action: "add", name: "fixture", description: "safe error fixtures", source: 'export default (text: string) => { if(!text)return text; if(text==="expand")return "中".repeat(400); if(text==="erase")return ""; if(text==="loop"){while(true){}} if(text==="number")return 1; throw new Error(text); };' });
+    snapshot = await store.local("a", { action: "add", name: "fixture", description: "safe error fixtures", source: 'export default (text: string) => { if(!text)return text; if(text==="expand")return "€".repeat(400); if(text==="erase")return ""; if(text==="loop"){while(true){}} if(text==="number")return 1; throw new Error(text); };' });
     const before = readFileSync(fileFor(path), "utf8");
     for (const [text, code] of [["expand", "PII_OUTPUT_TOO_LARGE"], ["erase", "PII_INVALID_RESULT"], ["number", "PII_INVALID_RESULT"], ["loop", "PII_PLUGIN_FAILED"], ["private-error-text", "PII_PLUGIN_FAILED"]]) {
       const result = await store.manage("a", { action: "preview", text: text!, expectedRevision: snapshot.revision });
@@ -106,7 +106,7 @@ describe("PII pipeline", () => {
       expect(result).not.toHaveProperty("output");
       expect(JSON.stringify(result)).not.toContain(text);
     }
-    expect(await store.manage("a", { action: "preview", text: "中".repeat(400), expectedRevision: snapshot.revision }))
+    expect(await store.manage("a", { action: "preview", text: "€".repeat(400), expectedRevision: snapshot.revision }))
       .toEqual({ status: "error", code: "PII_INVALID_REQUEST" });
     expect(readFileSync(fileFor(path), "utf8")).toBe(before);
   });

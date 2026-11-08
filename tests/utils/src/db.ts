@@ -47,19 +47,6 @@ export function sqlQuery<T = Record<string, unknown>>(query: string, ...params: 
   return (params.length ? stmt.all(...params) : stmt.all()) as T[]
 }
 
-export function sqlBatch(queries: string[]): void {
-  const db = getDb()
-  const transaction = db.transaction(() => {
-    for (const query of queries) {
-      const trimmed = query.trim()
-      if (trimmed) {
-        db.exec(trimmed)
-      }
-    }
-  })
-  transaction()
-}
-
 export function closeDb(): void {
   if (_db) {
     _db.close()

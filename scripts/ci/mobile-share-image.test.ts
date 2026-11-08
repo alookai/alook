@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest"
 const root = resolve(import.meta.dirname, "../..")
 const tauriRoot = resolve(root, "src/desktop/src-tauri")
 const pluginRoot = resolve(tauriRoot, "plugins/mobile-share-image")
-const readRoot = (file: string) => readFileSync(resolve(root, file), "utf8")
 const readTauri = (file: string) => readFileSync(resolve(tauriRoot, file), "utf8")
 const readPlugin = (file: string) => readFileSync(resolve(pluginRoot, file), "utf8")
 
@@ -183,21 +182,4 @@ describe("native mobile share-image contract", () => {
     expect(readPlugin("ios/Package.swift")).toContain("platforms: [.iOS(.v14)]")
   })
 
-  it("preserves Web and desktop routes while mobile uses only its typed adapter", () => {
-    const dialog = readRoot(
-      "src/web/src/components/community/messages/message-share-dialog.tsx",
-    )
-    const adapter = readRoot("src/web/src/lib/community/mobile-share-image.ts")
-    expect(dialog).toContain("const mobileNative = isTauri() && isMobile()")
-    expect(dialog).toContain("if (isTauri() && isDesktop())")
-    expect(dialog).toContain("navigator.clipboard.write")
-    expect(dialog).toContain("saveFile(blob, filename")
-    expect(dialog).not.toContain("anchor.download")
-    expect(dialog).toContain('await import("@/lib/community/mobile-share-image")')
-    expect(dialog).not.toMatch(/^import .*mobile-share-image/m)
-    expect(adapter).toContain('"mobile_share_image_copy"')
-    expect(adapter).toContain('"mobile_share_image_save"')
-    expect(adapter).not.toContain("setInterval")
-    expect(adapter).not.toContain("heartbeat")
-  })
 })

@@ -10,11 +10,9 @@ import {
   bugReportErrorMessage,
   buildBugReportCreateRequest,
   buildBugReportStatusRequest,
-  bugReportReducer,
   createActionFromApiError,
   initialBugReportState,
   projectOwnerBugReport,
-  shouldPollBugReport,
   startBugReportAttempt,
   useBotBugReport,
 } from "./use-bot-bug-report"
@@ -181,72 +179,10 @@ describe("bug-report client state", () => {
     expect(doubleConfirm).toEqual(first)
   })
 
-  it.each([
-    [0, "network_error", false, "Unable to connect — check your network"],
-    [404, "target_unavailable", false, "Diagnostics aren't available for this bot right now."],
-    [409, "nonce_conflict", true, "That report already belongs to another bot. Try again."],
-    [429, "rate_limited", true, "You can send another report in a minute."],
-  ] as const)("maps create HTTP %s to semantic %s (terminal=%s)", (status, code, terminal, message) => {
-    const action = createActionFromApiError(new ApiError("server detail must not leak", status))
-    expect(action).toEqual({ type: "create_rejected", code })
-
-    const started = {
-      ...initialBugReportState,
-      phase: "submitting" as const,
-      clientNonce: "nonce-create",
-    }
-    const failed = bugReportReducer(started, action)
-    expect(failed).toMatchObject({
-      phase: "failed",
-      terminal,
-      errorCode: code,
-      clientNonce: "nonce-create",
-    })
-    expect(bugReportErrorMessage(code)).toBe(message)
-  })
-
-  it.each([
-    [500, "Something went wrong — please try again"],
-    [502, "upstream"],
-  ] as const)("maps create HTTP %s to unknown internal_error", (status, msg) => {
-    const action = createActionFromApiError(new ApiError(msg, status))
-    expect(action).toEqual({ type: "create_error" })
-    expect(bugReportReducer({
-      ...initialBugReportState,
-      phase: "submitting",
-      clientNonce: "nonce-unknown",
-    }, action)).toMatchObject({
-      phase: "failed",
-      terminal: false,
-      errorCode: "internal_error",
-    })
-  })
-
   it("maps non-ApiError create failures to unknown internal_error", () => {
     expect(createActionFromApiError(new TypeError("connection dropped"))).toEqual({
       type: "create_error",
     })
-  })
-
-  it.each([
-    ["network_error", false, "nonce-create"],
-    ["target_unavailable", false, "nonce-create"],
-    ["nonce_conflict", true, "nonce-new"],
-    ["rate_limited", true, "nonce-new"],
-  ] as const)("create %s retry nonce: reuse=%s", (code, expectNewNonce, expectedNonce) => {
-    const failed = bugReportReducer({
-      ...initialBugReportState,
-      phase: "submitting",
-      clientNonce: "nonce-create",
-    }, { type: "create_rejected", code })
-    const randomUUID = vi.fn(() => "nonce-new")
-    const retry = startBugReportAttempt(failed, randomUUID)
-    if (expectNewNonce) {
-      expect(randomUUID).toHaveBeenCalledTimes(1)
-    } else {
-      expect(randomUUID).not.toHaveBeenCalled()
-    }
-    expect(retry.clientNonce).toBe(expectedNonce)
   })
 
   it("never projects client request codes onto OwnerBugReport.failureCode", () => {
@@ -260,92 +196,6 @@ describe("bug-report client state", () => {
         objectExpired: false,
       })).toBeNull()
     }
-  })
-
-  it("reuses the nonce after an ambiguous POST failure and adopts an existing pending id", () => {
-    const started = {
-      ...initialBugReportState,
-      phase: "submitting" as const,
-      clientNonce: "nonce-stable",
-    }
-    const ambiguous = bugReportReducer(started, { type: "create_error" })
-    expect(ambiguous).toMatchObject({
-      phase: "failed",
-      terminal: false,
-      clientNonce: "nonce-stable",
-      reportId: null,
-    })
-
-    const randomUUID = vi.fn(() => "nonce-new")
-    const retry = startBugReportAttempt(ambiguous, randomUUID)
-    expect(randomUUID).not.toHaveBeenCalled()
-    expect(retry.clientNonce).toBe("nonce-stable")
-
-    const collecting = bugReportReducer(retry, {
-      type: "created",
-      delivery: "unknown",
-      report: {
-        reportId: "dbr_existing_pending",
-        status: "pending",
-        deadlineAt: 5_000,
-        completedAt: null,
-        failureCode: null,
-        objectExpired: false,
-      },
-    })
-    expect(collecting).toMatchObject({
-      phase: "collecting",
-      terminal: false,
-      clientNonce: "nonce-stable",
-      reportId: "dbr_existing_pending",
-    })
-  })
-
-  it("keeps the report id and collecting phase across polling failure", () => {
-    const collecting = {
-      ...initialBugReportState,
-      phase: "collecting" as const,
-      clientNonce: "nonce-1",
-      reportId: "dbr_1",
-      deadlineAt: 5_000,
-    }
-    expect(bugReportReducer(collecting, { type: "poll_error" })).toMatchObject({
-      phase: "collecting",
-      reportId: "dbr_1",
-      clientNonce: "nonce-1",
-    })
-  })
-
-  it("maps uploaded/failed/timeout and stops polling at terminal, close, or deadline", () => {
-    const collecting = {
-      ...initialBugReportState,
-      phase: "collecting" as const,
-      clientNonce: "nonce-1",
-      reportId: "dbr_1",
-      deadlineAt: 5_000,
-    }
-    const uploaded = bugReportReducer(collecting, {
-      type: "status",
-      report: { reportId: "dbr_1", status: "uploaded", deadlineAt: 5_000, completedAt: 2_000, failureCode: null, objectExpired: false },
-    })
-    const failed = bugReportReducer(collecting, {
-      type: "status",
-      report: { reportId: "dbr_1", status: "failed", deadlineAt: 5_000, completedAt: 2_000, failureCode: "offline", objectExpired: false },
-    })
-    const timeout = bugReportReducer(collecting, {
-      type: "status",
-      report: { reportId: "dbr_1", status: "failed", deadlineAt: 5_000, completedAt: 5_000, failureCode: "timeout", objectExpired: false },
-    })
-
-    expect(uploaded).toMatchObject({ phase: "uploaded", terminal: true })
-    expect(failed).toMatchObject({ phase: "failed", terminal: true })
-    expect(timeout).toMatchObject({ phase: "timeout", terminal: true })
-    expect(shouldPollBugReport(collecting, { open: true, nowMs: 4_999 })).toBe(true)
-    expect(shouldPollBugReport(collecting, { open: false, nowMs: 4_999 })).toBe(false)
-    expect(shouldPollBugReport(collecting, { open: true, nowMs: 5_000 })).toBe(false)
-    expect(shouldPollBugReport(uploaded, { open: true, nowMs: 2_001 })).toBe(false)
-    expect(shouldPollBugReport(failed, { open: true, nowMs: 2_001 })).toBe(false)
-    expect(shouldPollBugReport(timeout, { open: true, nowMs: 5_001 })).toBe(false)
   })
 
   it("creates a fresh UUID only for an explicit new attempt after confirmed terminal", () => {

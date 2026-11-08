@@ -1,6 +1,6 @@
 "use client"
 
-import { useConversationActivity } from "@/contexts/community/conversation-activity"
+import { useConversationActivity } from "@/contexts/view-activity"
 import { useLayoutEffect, useMemo } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useCommunityMutationOrigin } from "./community-origin"

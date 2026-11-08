@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 336,
+    "composition": 334,
     "environment": 9,
     "nonvisual": 30,
     "direct": 39
@@ -1288,8 +1288,8 @@
       "kind": "direct",
       "examples": [
         {
-          "story": "web-business-presence--reading",
-          "region": "Queued/running/idle status controls"
+          "story": "web-business-presence--typing",
+          "region": "Current agent typing line"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -2117,7 +2117,6 @@
         "ChannelRouteFrame",
         "ChannelRouteLayer",
         "ChannelTargetPane",
-        "MobileChannelRoutes",
         "QualifiedThreadSurface"
       ],
       "kind": "composition",
@@ -2125,21 +2124,6 @@
         {
           "story": "web-pages-community-shell--server-conversation",
           "region": "Actual route/type resolution; Server thread covers child/split branch"
-        }
-      ],
-      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
-    },
-    {
-      "source": "src/web/src/components/community/channels/channel-shell.tsx",
-      "application": "Web",
-      "candidates": [
-        "ChannelShell"
-      ],
-      "kind": "composition",
-      "examples": [
-        {
-          "story": "web-business-shell-details--channel-frame",
-          "region": "Shared original header/body/panel/dialog slots"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -2190,21 +2174,6 @@
         {
           "story": "web-business-navigation--glyphs-and-indicators",
           "region": "Unread insertion-point example"
-        }
-      ],
-      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
-    },
-    {
-      "source": "src/web/src/components/community/channels/conversation-message-skeleton.tsx",
-      "application": "Web",
-      "candidates": [
-        "ConversationMessageSkeleton"
-      ],
-      "kind": "composition",
-      "examples": [
-        {
-          "story": "web-business-loading-and-errors--text-pending",
-          "region": "Text conversation skeleton"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -7016,12 +6985,6 @@
       "source": "src/storybook/stories/business/email-card.stories.tsx"
     },
     {
-      "id": "web-business-email-card--internal",
-      "title": "Web/Business/Email card",
-      "name": "Internal",
-      "source": "src/storybook/stories/business/email-card.stories.tsx"
-    },
-    {
       "id": "web-business-email-card--long-subject",
       "title": "Web/Business/Email card",
       "name": "Long Subject",
@@ -7232,21 +7195,9 @@
       "source": "src/storybook/stories/business/navigation.stories.tsx"
     },
     {
-      "id": "web-business-presence--reading",
-      "title": "Web/Business/Presence",
-      "name": "Reading",
-      "source": "src/storybook/stories/business/presence.stories.tsx"
-    },
-    {
       "id": "web-business-presence--typing",
       "title": "Web/Business/Presence",
       "name": "Typing",
-      "source": "src/storybook/stories/business/presence.stories.tsx"
-    },
-    {
-      "id": "web-business-presence--idle",
-      "title": "Web/Business/Presence",
-      "name": "Idle",
       "source": "src/storybook/stories/business/presence.stories.tsx"
     },
     {

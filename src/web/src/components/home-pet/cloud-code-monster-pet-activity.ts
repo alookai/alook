@@ -27,6 +27,7 @@ import type {
   CloudCodeMonsterExpression,
   CloudCodeMonsterPeekTarget,
   PetBounds,
+  PetCoordinateSpace,
   PetPoint,
   PetSize,
   ReflectedMonsterWalk,
@@ -507,10 +508,20 @@ export function createWalkToTargetVelocity(
   return { x: (dx / distance) * speed, y: (dy / distance) * speed };
 }
 
-export function getBounds(_boundary: HTMLElement | null): PetBounds {
+export function getBounds(boundary: HTMLElement | null, coordinateSpace: PetCoordinateSpace): PetBounds {
+  return coordinateSpace === "boundary"
+    ? { width: boundary?.clientWidth ?? 0, height: boundary?.clientHeight ?? 0 }
+    : { width: window.innerWidth, height: window.innerHeight };
+}
+
+export function petPointFromClient(point: PetPoint, boundary: HTMLElement | null, coordinateSpace: PetCoordinateSpace): PetPoint {
+  if (coordinateSpace === "viewport" || !boundary) return point;
+  const rect = boundary.getBoundingClientRect();
+  const scaleX = rect.width / boundary.offsetWidth || 1;
+  const scaleY = rect.height / boundary.offsetHeight || 1;
   return {
-    width: window.innerWidth,
-    height: window.innerHeight,
+    x: (point.x - rect.left) / scaleX - boundary.clientLeft,
+    y: (point.y - rect.top) / scaleY - boundary.clientTop,
   };
 }
 
@@ -532,23 +543,17 @@ function findAgentPeekNode(
 export function resolveCloudCodeMonsterPeekPosition(
   target: CloudCodeMonsterPeekTarget,
   boundary: HTMLElement | null,
-  bounds: PetBounds
+  bounds: PetBounds,
+  coordinateSpace: PetCoordinateSpace
 ): PetPoint {
   if (target.agentId) {
     const agentNode = findAgentPeekNode(boundary, target.agentId);
     const agentRect = agentNode?.getBoundingClientRect();
 
     if (agentRect) {
+      const point = petPointFromClient({ x: agentRect.left + agentRect.width / 2, y: agentRect.top }, boundary, coordinateSpace);
       return clampPetPosition(
-        {
-          x:
-            agentRect.left +
-            agentRect.width / 2 -
-            CLOUD_CODE_MONSTER_SIZE.width / 2,
-          y:
-            agentRect.top -
-            CLOUD_CODE_MONSTER_SIZE.height * 0.18,
-        },
+        { x: point.x - CLOUD_CODE_MONSTER_SIZE.width / 2, y: point.y - CLOUD_CODE_MONSTER_SIZE.height * 0.18 },
         bounds,
         CLOUD_CODE_MONSTER_SIZE
       );

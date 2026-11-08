@@ -298,7 +298,6 @@ describe("deleteForumPost real D1 batch", () => {
     });
 
     expect(result.deleted).toBe(true);
-    expect(result.mediaKeys).toEqual([]);
     expect(await first<{ message_count: number; last_message_at: string }>(
       "SELECT message_count, last_message_at FROM community_channel WHERE id = ?",
       id.forum,
@@ -508,7 +507,7 @@ describe("deleteForumPost real D1 batch", () => {
     }
   });
 
-  it("serializes concurrent winners without double-decrementing or returning duplicate cleanup keys", async () => {
+  it("serializes concurrent winners without double-decrementing", async () => {
     const { id, t2 } = await seedCanonicalPost();
     const db = createDb(runtimeEnv.DB);
     const input = {
@@ -524,7 +523,6 @@ describe("deleteForumPost real D1 batch", () => {
     ]);
 
     expect(results.filter((result) => result.deleted)).toHaveLength(1);
-    expect(results.every((result) => result.mediaKeys.length === 0)).toBe(true);
     expect(await first<{ message_count: number; last_message_at: string }>(
       "SELECT message_count, last_message_at FROM community_channel WHERE id = ?",
       id.forum,

@@ -1,7 +1,6 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),ts=require('typescript'),vm=require('node:vm');
-const context={exports:{},require:(id)=>id==='./review-timing'?{filmDuration:1963/30}:{endingDuration:657/30}};
-vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/clean-review-timing.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,context);
-const {cleanFrameState:state,cleanReviewFrames,cleanStoryFrames,storyCards,cardFrames,storyCardFrames}=context.exports;
+const load = require('./load-source.cjs');
+const {cleanFrameState:state,cleanReviewFrames,cleanStoryFrames,storyCards,cardFrames,storyCardFrames}=load('src/clean-review-timing.ts');
 assert.equal(cleanReviewFrames,3092);
 assert.equal(state(0).sourceFrame,333);
 assert.equal(state(cleanStoryFrames-1).sourceFrame,1962);
@@ -34,14 +33,14 @@ assert.equal(storyCards[2].lines.flat().map(p=>p.text).join(' '),'Many bots One 
 assert.equal(storyCards[2].sourceFrame,1740);
 
 assert.ok(storyCards.every(card=>card.lines.every(line=>!/[.!?]$/.test(line.map(p=>p.text).join('')))));
-assert.ok(fs.readFileSync('src/OpeningQuestion.tsx','utf8').includes("text: 'agent?'"));
+
 
 assert.equal(storyCards[0].sourceFrame,907);
 assert.equal(storyCards[0].resumeFrame,927);
 assert.ok(storyCards[0].resumeFrame-storyCards[0].sourceFrame<54,'Underlying transition ends before orange exits');
-const componentContext={exports:{},require};
-vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/OpeningQuestion.tsx','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React,esModuleInterop:true}}).outputText,componentContext);
-const card=({lineInterval=.5,...props})=>componentContext.exports.OpeningQuestion({...props,lineInterval});
+const {OpeningQuestion} = load('src/OpeningQuestion.tsx');
+const card=({lineInterval=.5,...props})=>OpeningQuestion({...props,lineInterval});
+assert.equal(card({}).props.children[1].props.children.props.children[2].props.children.at(-1).props.children, 'agent?');
 const positions=t=>card({time:t}).props.children[1].props.children.props.children.map(line=>parseFloat(line.props.style.translate));
 assert.equal(positions(0)[0],1920);
 assert.equal(positions(.5)[1],1920);
@@ -65,10 +64,9 @@ assert.equal(mediumPositions(1.6)[2],1920);
 assert.ok(mediumPositions(2.25).every(x=>Math.abs(x)<40));
 console.log('PASS: .8s preview line separation24 frames, question mark present.');
 
-const review={exports:{}};
-vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/review-timing.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,review);
+const review=load('src/review-timing.ts');
 const cardStart=2107, last=state(cardStart-510-1), first=state(cardStart-510);
-const before=review.exports.sourceTimeAt(last.sourceFrame/30);
+const before=review.sourceTimeAt(last.sourceFrame/30);
 assert.ok(before>=59 && before<61,'All invites finished; modal has not begun closing');
 assert.equal(first.cardIndex,2);
 assert.equal(storyCardFrames(storyCards[2]),136);

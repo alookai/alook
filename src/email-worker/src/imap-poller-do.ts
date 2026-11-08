@@ -1,3 +1,4 @@
+import { notifyWeb } from "./notify-web"
 import { DurableObject } from "cloudflare:workers"
 import PostalMime from "postal-mime"
 import { nanoid } from "nanoid"
@@ -207,7 +208,7 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
 
         const attachmentsMeta = extractAttachmentMeta(parsed.attachments || [])
 
-        await this.notifyWeb({
+        await notifyWeb(this.env, {
           agentId: account.agentId,
           workspaceId: account.workspaceId,
           r2Key,
@@ -284,27 +285,4 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
     await this.ctx.storage.setAlarm(Date.now() + delayMs)
   }
 
-  private async notifyWeb(payload: Record<string, unknown>): Promise<void> {
-    const traceId = nanoid(12)
-    const body = JSON.stringify(payload)
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "X-Trace-Id": traceId,
-    }
-
-    const init: RequestInit = { method: "POST", headers, body }
-
-    try {
-      const res = await this.env.WEB_SERVICE.fetch("http://internal/api/email/notify", init)
-      if (!res.ok) throw new Error(`WEB_SERVICE responded ${res.status}`)
-    } catch (serviceErr) {
-      try {
-        const { DEV_WEB_URL } = await import("@alook/shared")
-        const fallback = await fetch(`${DEV_WEB_URL}/api/email/notify`, init)
-        if (!fallback.ok) throw new Error(`fallback responded ${fallback.status}`)
-      } catch {
-        throw serviceErr instanceof Error ? serviceErr : new Error(String(serviceErr))
-      }
-    }
-  }
 }

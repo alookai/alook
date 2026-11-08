@@ -1,9 +1,12 @@
 "use client"
 
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+
 import { useState, type CSSProperties, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { UserSettings } from "@/components/community/settings/user-settings"
+import { useServerSettingsEditor } from "@/components/community/settings/server-settings-editor"
 import { ServerSettings } from "@/components/community/settings/server-settings"
 import { CategorySettingsDialog } from "@/components/community/settings/category-settings-dialog"
 import { CreateCategoryDialog } from "@/components/community/settings/create-category-dialog"
@@ -48,6 +51,9 @@ function UserSettingsDemo({ onClose }: { onClose: () => void }) {
 
 function ServerSettingsDemo({ onClose }: { onClose: () => void }) {
   const [section, setSection] = useState<SettingsSection>("overview")
+  const feedback = useCommunityViewSource("server-settings-demo")
+  const editor = useServerSettingsEditor({ serverId: SERVER?.id ?? "demo-studio", name: SERVER?.name ?? "Alook",
+    desc: "Where people and agents build Alook together.", open: true, onSave: noop })
   return (
     <ServerSettings
       isAdmin
@@ -56,7 +62,6 @@ function ServerSettingsDemo({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       serverId={SERVER?.id ?? "demo-studio"}
       serverName={SERVER?.name ?? "Alook"}
-      serverDescription="Where people and agents build Alook together."
       serverIcon={SERVER?.icon ?? null}
       members={MEMBERS}
       membersTotal={MEMBERS.length}
@@ -68,7 +73,8 @@ function ServerSettingsDemo({ onClose }: { onClose: () => void }) {
       onCopyInvite={noop}
       onDeleteServer={noop}
       onUploadIcon={noop}
-      onUpdateServer={noop}
+      editor={editor}
+      captureSaveFeedback={feedback.capture}
       notifLevel="Only @mentions"
       onSetNotifLevel={noop}
     />

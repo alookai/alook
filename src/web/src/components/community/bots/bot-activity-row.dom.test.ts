@@ -30,7 +30,7 @@ describe("BotActivityRow — text and historical thinking", () => {
   }
 
   it("renders the retained Unicode body literally without interpreting markup", () => {
-    const text = "正文🙂\n<script>private body</script>"
+    const text = "Body🙂\n<script>private body</script>"
     const renderer = render(textEvent({ text, truncated: false, chars: [...text].length }))
     expect(renderer.getByTestId("bot-activity-event-text").textContent).toBe(text)
     expect(renderer.container.querySelector("script")).toBeNull()

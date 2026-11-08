@@ -352,3 +352,12 @@ describe("canonical audit pagination and retention", () => {
     expect(result.current.hasNextPage).toBe(false)
   })
 })
+
+it("orders equal timestamps by descending binary ID through HTTP and live publication", async () => {
+  const row = (id: string): AuditEvent => ({ id, kind: "tool_call", payload: { name: "Read" }, sessionId: null, launchId: null, createdAt: "2026-01-01T00:00:00.000Z" })
+  mockApiFetch.mockResolvedValueOnce({ events: ["a", "Z", "9", "z", "A"].map(row), nextCursor: null })
+  const { result, queryClient } = renderAuditLog("tie-bot")
+  await waitFor(() => expect(result.current.events.map(event => event.id)).toEqual(["z", "a", "Z", "A", "9"]))
+  act(() => appendBotAuditEvent(queryClient, "tie-bot", row("b")))
+  await waitFor(() => expect(result.current.events.map(event => event.id)).toEqual(["z", "b", "a", "Z", "A", "9"]))
+})

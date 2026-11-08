@@ -2,7 +2,7 @@ import React from "react"
 import { createPortal } from "react-dom"
 import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { ConversationPresentationContext } from "@/contexts/community/conversation-activity"
+import { ConversationPresentationContext } from "@/contexts/view-activity"
 import {
   ConversationFooterShell,
   ConversationFooterSlotProvider,

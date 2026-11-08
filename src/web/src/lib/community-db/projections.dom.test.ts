@@ -7,7 +7,7 @@ import React, { type ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
-import { useCommunityWsStore } from "@/stores/community/ws"
+
 import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
 import { createCommunityDbRegistry } from "./collections"
 import {
@@ -25,7 +25,6 @@ import {
   useRouteChannelProjection,
   useServerRailProjection,
   useServerTreeProjection,
-  useTrustedRestoredPrimary,
 } from "./projections"
 import { ingestMessages, ingestServerDetail, ingestServers, restoreCommunityCollections } from "./sync"
 import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-persister"
@@ -237,7 +236,6 @@ describe("community DB projections", () => {
     const client = new QueryClient()
     const wrapper = ({ children }: { children: ReactNode }) => React.createElement(QueryClientProvider, { client }, children)
     const rendered = renderHook(() => ({
-      restored: useTrustedRestoredPrimary(),
       rail: useServerRailProjection(),
       tree: useServerTreeProjection("s1"),
       dms: useDmProjection(),
@@ -249,7 +247,6 @@ describe("community DB projections", () => {
     }), { wrapper })
 
     expect(rendered.result.current).toEqual({
-      restored: false,
       rail: undefined,
       tree: undefined,
       dms: undefined,
@@ -491,19 +488,13 @@ describe("community DB projections", () => {
     const registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()
     registry.runtime.ws.setState((state) => ({ ...state, ...{ presenceByUserId: new Map([["peer", "online"]]) } }))
-    const restoredListener = vi.fn()
-    const restoredSubscription = registry.restoration.subscribe(restoredListener)
     registry.captureRestoredCollections(input)
-    registry.captureRestoredCollections(input)
-    expect(restoredListener).toHaveBeenCalledOnce()
-    restoredSubscription.unsubscribe()
     const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
       QueryClientProvider,
       { client: queryClient },
       React.createElement(CommunityDbProvider, { registry }, children),
     )
     const rendered = renderHook(() => ({
-      restored: useTrustedRestoredPrimary(),
       rail: useServerRailProjection(),
       tree: useServerTreeProjection("s1"),
       dms: useDmProjection(),
@@ -515,8 +506,6 @@ describe("community DB projections", () => {
       profile: useCanonicalCommunityProfile("peer"),
       directory: useChannelRefDirectoryProjection(),
     }), { wrapper })
-
-    await waitFor(() => expect(rendered.result.current.restored).toBe(true))
     expect(rendered.result.current.rail?.servers).toEqual([
       expect.objectContaining({ id: "s1", name: "Server", unread: true, mentions: 2 }),
     ])

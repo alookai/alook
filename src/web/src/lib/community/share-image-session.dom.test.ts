@@ -952,7 +952,7 @@ describe("prepareShareImageSession", () => {
   it("counts percent escapes and UTF-8 code points in non-base64 data URLs", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(dataUrlResponse(new Uint8Array([8]))))
     const source = sourceCard('<img alt="inline">')
-    source.querySelector("img")!.setAttribute("src", "data:image/png,A%20é中😀")
+    source.querySelector("img")!.setAttribute("src", "data:image/png,A%20é€😀")
 
     const prepared = await prepare(source, vi.fn(), 11)
 

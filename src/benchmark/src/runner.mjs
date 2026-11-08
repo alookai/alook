@@ -1,4 +1,4 @@
-import { mkdir, writeFile, appendFile } from 'node:fs/promises'
+import { writeFile, appendFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { setTimeout as sleep } from 'node:timers/promises'
 import os from 'node:os'
@@ -6,10 +6,11 @@ import { api, prepareFixture, connectReceiver } from './client.mjs'
 import { startProxy } from './proxy.mjs'
 import { publicConfig } from './config.mjs'
 import { summarize, markdown } from './report.mjs'
+import { prepareRunDirectory } from './run-directory.mjs'
 
 export async function runBenchmark(config) {
   const fixture = await prepareFixture(config)
-  await mkdir(config.outDir, { recursive: true })
+  await prepareRunDirectory(config.outDir)
   const runId = randomUUID()
   const metadata = { runId, startedAt: new Date().toISOString(), config: publicConfig(config), fixture,
     runner: { node: process.version, platform: process.platform, arch: process.arch, cpus: os.cpus().length },

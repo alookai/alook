@@ -1,3 +1,4 @@
+import { tutorialTask, tutorialModel } from "@blog/components/guides/example-data";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 import technostalgia from "@/components/brand/technostalgia.module.css";
@@ -88,7 +89,7 @@ export default async function StepGuidePage({ params }: { params: Promise<{ slug
           <Heading index={2} steps={steps} />
           <p>{guide.firstBotLead} Open <ZoneLink href="/c/me/bots" zone="blog">My Bots</ZoneLink> and choose <strong>Create a bot</strong>. Give it a name, select your online <strong>Machine</strong>, then select <strong>{first}</strong> under Runtime. {requiresExplicitModel(first) && <>Choose a model from your configured provider under <strong>Model</strong>. </>}Choose <strong>Create bot</strong>.</p>
           <BotsDemo runtime={first} agents={guide.agents} />
-          <p>{requiresExplicitModel(first) ? "OpenCode requires a model. The animation uses provider/model-id as a placeholder; select a model available in your own OpenCode configuration." : "Leave Model at its default to use the agent’s own default."} If a runtime is missing, check that it is installed and ready to run on the selected computer before continuing.</p>
+          <p>{requiresExplicitModel(first) ? `OpenCode requires a model. The animation uses ${tutorialModel} as a placeholder; select a model available in your own OpenCode configuration.` : "Leave Model at its default to use the agent’s own default."} If a runtime is missing, check that it is installed and ready to run on the selected computer before continuing.</p>
           <CompletionCriteria>check that your new bot appears in <ZoneLink href="/c/me/bots" zone="blog">My Bots</ZoneLink> with {first} as its runtime.</CompletionCriteria>
         </section>
         <section id={steps[3][0]} className={styles.step}>
@@ -107,7 +108,7 @@ export default async function StepGuidePage({ params }: { params: Promise<{ slug
         <section id="send-message" className={styles.step}>
           <Heading index={5} steps={steps} />
           <p>{guide.messageLead}</p>
-          <p>For example: “Agree on roles, then wait for my task.”</p>
+          <p>For example: “{tutorialTask}”</p>
           <MessageDemo />
         </section>
         <section className={`${technostalgia.theme} ${styles.close}`} aria-label="Continue in Alook">

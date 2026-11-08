@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { MAX_ICON_SOURCE_FILE_SIZE_BYTES } from "@alook/shared"
-import { validateIconSourceFile, deriveCroppedFileName, buildCroppedIconFile } from "./image-crop"
+import { acquireIconCropSource, validateIconSourceFile, deriveCroppedFileName, buildCroppedIconFile } from "./image-crop"
 
 function fakeFile(name: string, type: string, size: number): File {
   return {
@@ -49,4 +49,20 @@ describe("buildCroppedIconFile", () => {
     expect(file.type).toBe("image/webp")
     expect(file.name.endsWith(".webp")).toBe(true)
   })
+})
+
+it("validates before acquiring an object URL and releases the exact source once", () => {
+  const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:owned-source")
+  const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {})
+  try {
+    expect(acquireIconCropSource(fakeFile("bad.gif", "image/gif", 1)).ok).toBe(false)
+    expect(create).not.toHaveBeenCalled()
+    const file = new File(["valid"], "photo.png", { type: "image/png" })
+    const result = acquireIconCropSource(file)
+    if (!result.ok) throw new Error("Expected source acquisition")
+    expect(create).toHaveBeenCalledExactlyOnceWith(file)
+    expect(result.source.fileName).toBe("photo.png")
+    result.source.release(); result.source.release()
+    expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:owned-source")
+  } finally { vi.restoreAllMocks() }
 })

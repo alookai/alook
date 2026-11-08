@@ -1,6 +1,6 @@
 import { withAuth } from "@/lib/middleware/auth-policy"
 import { communityChannelResourceFromStorage } from "@alook/shared"
-import { BUSINESS_SCHEMA_VERSION, CommunityForumSidebarChannelSummarySchema, CommunityForumSidebarEnvelopeSchema } from "@alook/shared"
+import { FORUM_SIDEBAR_MAX_PER_PARENT, FORUM_SIDEBAR_ACTIVE_WITHIN, FORUM_SIDEBAR_ACTIVITY_WINDOW_MS, BUSINESS_SCHEMA_VERSION, CommunityForumSidebarChannelSummarySchema, CommunityForumSidebarEnvelopeSchema } from "@alook/shared"
 import { readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
 import { NextResponse, NextRequest } from "next/server"
 import { supportsSidebarThreads } from "@/lib/community/forum-sidebar"
@@ -12,19 +12,8 @@ import { requireServerMember } from "@/lib/community/permissions"
 import { readCommunityServerChannelRows } from "@/lib/community/server-directory.server"
 
 /**
- * GET /api/community/servers/[id]/channels — single-server channel list. Human
- * callers receive the visible top-level tree, with one strict participating
- * forum-thread projection used by the nested sidebar. The bot arm implements
- * the folded `listChannels` verb (route/disc trunk, 接口树统一 轴3). The
- * bot addresses by `?server=<name#discriminator>`; the all-servers mode
- * (bot omitting `server`) lives at the servers-collection route `GET
- * servers/channels` instead — a cross-server aggregate has no single-`[id]`
- * home.
- *
- * ①-C existence mask: `resolveServerByNameForMember` is member-scoped, so a
- * server the bot isn't in returns zero matches → 404 (indistinguishable from a
- * nonexistent server). `buildServerChannelGroups` runs `listChannelsForMember`
- * so private-category channels the bot can't see never appear.
+ * Member-scoped bot resolution masks inaccessible servers as404. Channel
+ * projection must also exclude private categories the bot cannot access.
  */
 export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -44,15 +33,15 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
       search.get("type") !== "thread" ||
       !["forum", "forum,text"].includes(search.get("parentType") ?? "") ||
       search.get("participating") !== "true" ||
-      search.get("activeWithin") !== "72h" ||
+      search.get("activeWithin") !== FORUM_SIDEBAR_ACTIVE_WITHIN ||
       search.get("include") !== "parentMessage"
     ) {
       return NextResponse.json({ error: "invalid thread sidebar query" }, { status: 400 })
     }
     const rawLimit = search.get("limitPerParent")
     const limitPerParent = rawLimit && /^\d+$/.test(rawLimit) ? Number(rawLimit) : NaN
-    if (!Number.isInteger(limitPerParent) || limitPerParent < 1 || limitPerParent > 5) {
-      return NextResponse.json({ error: "limitPerParent must be between 1 and 5" }, { status: 400 })
+    if (!Number.isInteger(limitPerParent) || limitPerParent < 1 || limitPerParent > FORUM_SIDEBAR_MAX_PER_PARENT) {
+      return NextResponse.json({ error: `limitPerParent must be between 1 and ${FORUM_SIDEBAR_MAX_PER_PARENT}` }, { status: 400 })
     }
     const retainId = search.get("retainId")?.trim()
     if (search.has("retainId") && !retainId) {
@@ -63,7 +52,7 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
       supportsSidebarThreads(channel.type) && (search.get("parentType") !== "forum" || channel.type === "forum")
     ).map((channel) => channel.id)
     const serverNow = new Date().toISOString()
-    const windowMs = 72 * 60 * 60 * 1000
+    const windowMs = FORUM_SIDEBAR_ACTIVITY_WINDOW_MS
     const activeAfter = new Date(Date.parse(serverNow) - windowMs).toISOString()
     const projection = await queries.communityThread.listParticipatingForumThreads(db, {
       parentChannelIds: parentIds,

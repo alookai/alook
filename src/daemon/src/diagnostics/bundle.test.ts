@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
+import { DIAGNOSTIC_GZIP_MAX_BYTES } from "@alook/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 interface DiagnosticEventRow {
@@ -20,7 +21,6 @@ interface BundleArtifact {
 
 interface BundleModule {
   DIAGNOSTIC_NDJSON_MAX_BYTES: number;
-  DIAGNOSTIC_GZIP_MAX_BYTES: number;
   buildDiagnosticBundle(args: {
     outputPath: string;
     header: Record<string, unknown>;
@@ -227,9 +227,9 @@ describe("B2c bounded gzip NDJSON bundle", () => {
       header: header(),
       status: null,
       events: [
-        event("daemon_log", "log-tie", 100, "错误".repeat(10)),
-        event("fsm", "fsm-tie", 100, "诊断".repeat(10)),
-        event("fsm", "newest", 200, "完整".repeat(10)),
+        event("daemon_log", "log-tie", 100, "€₿".repeat(10)),
+        event("fsm", "fsm-tie", 100, "₩€".repeat(10)),
+        event("fsm", "newest", 200, "₿₩".repeat(10)),
       ],
       maxUncompressedBytes: 900,
     });
@@ -316,7 +316,7 @@ describe("B2c bounded gzip NDJSON bundle", () => {
   it("enforces the production 9 MiB complete-envelope and 10 MiB gzip limits", async () => {
     const api = await loadSubject();
     expect(api.DIAGNOSTIC_NDJSON_MAX_BYTES).toBe(9 * 1024 * 1024);
-    expect(api.DIAGNOSTIC_GZIP_MAX_BYTES).toBe(10 * 1024 * 1024);
+    expect(DIAGNOSTIC_GZIP_MAX_BYTES).toBe(10 * 1024 * 1024);
 
     const outputPath = join(tempDir(), "max.ndjson.gz");
     const noisy = randomBytes(700_000).toString("base64");
@@ -330,7 +330,7 @@ describe("B2c bounded gzip NDJSON bundle", () => {
     const decoded = decode(outputPath);
     expect(decoded.bytes.byteLength).toBeLessThanOrEqual(api.DIAGNOSTIC_NDJSON_MAX_BYTES);
     expect(artifact.uncompressedBytes).toBe(decoded.bytes.byteLength);
-    expect(artifact.sizeBytes).toBeLessThanOrEqual(api.DIAGNOSTIC_GZIP_MAX_BYTES);
+    expect(artifact.sizeBytes).toBeLessThanOrEqual(DIAGNOSTIC_GZIP_MAX_BYTES);
     expect(decoded.rows.at(-1)).toMatchObject({ recordType: "bundle_footer", truncated: true });
   });
 

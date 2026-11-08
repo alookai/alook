@@ -1,6 +1,6 @@
 "use client"
 
-import { useConversationPresentation } from "@/contexts/community/conversation-activity"
+import { useConversationPresentation } from "@/contexts/view-activity"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useInfiniteQuery, useIsMutating, useQueryClient, type Query } from "@tanstack/react-query"

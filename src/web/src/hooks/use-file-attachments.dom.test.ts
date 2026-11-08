@@ -5,27 +5,21 @@ import React from "react"
 import { act, renderHook as renderHookLeaf, render as renderLeaf, waitFor } from "@/test/react-dom-harness"
 import { useFileAttachments, type PendingFile } from "./use-file-attachments"
 import {
+  appendComposerAttachmentSession,
   readComposerAttachmentSession,
   resetComposerAttachmentSessionsForTest,
 } from "../lib/community/composer-attachment-session"
 
-// `generateThumbnail` runs entirely against browser APIs unavailable under
-// this repo's `environment: "node"` vitest config — mocked at the module
-// boundary (this file only exercises `useFileAttachments`'s handling of the
-// hook's result, not `generateThumbnail` itself, which has its own direct
-// unit tests in `lib/image-thumbnail.test.ts`).
-const generateThumbnailMock = vi.fn()
+// The image decoder is tested separately; this suite owns preparation lifetimes.
 const prepareCommunityImageMock = vi.fn()
 const toastErrorMock = vi.fn()
 vi.mock("../lib/image-thumbnail", () => ({
-  generateThumbnail: (...args: unknown[]) => generateThumbnailMock(...args),
   prepareCommunityImage: (...args: unknown[]) => prepareCommunityImageMock(...args),
 }))
 vi.mock("sonner", () => ({ toast: { error: (...args: unknown[]) => toastErrorMock(...args) } }))
 
 beforeEach(() => {
-  generateThumbnailMock.mockReset()
-  prepareCommunityImageMock.mockReset()
+  prepareCommunityImageMock.mockReset().mockResolvedValue(null)
   toastErrorMock.mockReset()
   resetComposerAttachmentSessionsForTest()
   vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:fake"), revokeObjectURL: vi.fn() })
@@ -105,11 +99,11 @@ describe("useFileAttachments — DOM drop ownership", () => {
     act(() => { hook.current.handleDragEnter(event as never); hook.current.handleDrop(event as never) })
     expect(hook.current.dragging).toBe(false)
     expect(hook.current.pendingFiles).toEqual([])
-    expect(generateThumbnailMock).not.toHaveBeenCalled()
+    expect(prepareCommunityImageMock).not.toHaveBeenCalled()
   })
 
   it("routes picker selection and DOM drop through the same pending-file lifecycle", async () => {
-    generateThumbnailMock.mockResolvedValue(null)
+    prepareCommunityImageMock.mockResolvedValue(null)
     const hook = await renderCapture()
     const selected = new File(["picker"], "picker.txt", { type: "text/plain" })
     const dropped = new File(["drop"], "drop.png", { type: "image/png" })
@@ -125,14 +119,14 @@ describe("useFileAttachments — DOM drop ownership", () => {
 
     expect(target.value).toBe("")
     expect(hook.current.pendingFiles.map(({ file }) => file)).toEqual([selected, dropped])
-    expect(generateThumbnailMock).toHaveBeenCalledTimes(2)
+    expect(prepareCommunityImageMock).toHaveBeenCalledTimes(2)
   })
 
   it("keeps oversize DOM drops out of pending state and shows the existing error", async () => {
-    generateThumbnailMock.mockResolvedValue(null)
-    const hook = await renderCapture({ maxFileSize: 1024 * 1024 })
+    prepareCommunityImageMock.mockResolvedValue(null)
+    const hook = await renderCapture(undefined)
     const dropped = new File(
-      [new Uint8Array(1024 * 1024 + 1)],
+      [new Uint8Array(25 * 1024 * 1024 + 1)],
       "too-large.png",
       { type: "image/png" },
     )
@@ -140,31 +134,25 @@ describe("useFileAttachments — DOM drop ownership", () => {
     await dropFiles(hook, [dropped])
 
     expect(hook.current.pendingFiles).toEqual([])
-    expect(toastErrorMock).toHaveBeenCalledWith('"too-large.png" exceeds 1 MB limit')
-    expect(generateThumbnailMock).not.toHaveBeenCalled()
+    expect(toastErrorMock).toHaveBeenCalledWith('"too-large.png" exceeds 25 MB limit')
+    expect(prepareCommunityImageMock).not.toHaveBeenCalled()
   })
 
   it("keeps over-count DOM drops out of pending state and shows the existing error", async () => {
-    generateThumbnailMock.mockResolvedValue(null)
-    const hook = await renderCapture({ maxFiles: 1 })
-    const files = [
-      new File(["a"], "a.txt", { type: "text/plain" }),
-      new File(["b"], "b.txt", { type: "text/plain" }),
-    ]
+    prepareCommunityImageMock.mockResolvedValue(null)
+    const hook = await renderCapture(undefined)
+    const files = Array.from({ length: 11 }, (_, i) => new File([String(i)], `${i}.txt`, { type: "text/plain" }))
 
     await dropFiles(hook, files)
 
     expect(hook.current.pendingFiles).toEqual([])
-    expect(toastErrorMock).toHaveBeenCalledWith("You can attach up to 1 files")
-    expect(generateThumbnailMock).not.toHaveBeenCalled()
+    expect(toastErrorMock).toHaveBeenCalledWith("You can attach up to 10 files")
+    expect(prepareCommunityImageMock).not.toHaveBeenCalled()
   })
 
   it("retains a failed DOM-dropped image until the user explicitly removes it", async () => {
     prepareCommunityImageMock.mockRejectedValue(new Error("decode failed"))
-    const hook = await renderCapture({
-      thumbnailPolicy: "community",
-      draftSessionScope: "server/channel",
-    })
+    const hook = await renderCapture("server/channel")
     const dropped = new File(["image"], "broken.png", { type: "image/png" })
 
     const preventDefault = vi.fn()
@@ -192,7 +180,7 @@ describe("useFileAttachments — PendingFile width/height", () => {
     prepareCommunityImageMock
       .mockReturnValueOnce(new Promise(resolve => { finishFirst = resolve }))
       .mockReturnValueOnce(new Promise(resolve => { finishSecond = resolve }))
-    const hook = await renderCapture({ thumbnailPolicy: "community", maxFiles: 2 })
+    const hook = await renderCapture(undefined)
     const files = [new File(["one"], "one.png", { type: "image/png" }), new File(["two"], "two.png", { type: "image/png" })]
     let adding!: Promise<void>
     act(() => { adding = hook.current.addPendingFiles(files) })
@@ -211,7 +199,7 @@ describe("useFileAttachments — PendingFile width/height", () => {
     prepareCommunityImageMock
       .mockReturnValueOnce(new Promise(resolve => { finishRemoved = resolve }))
       .mockResolvedValue(null)
-    const hook = await renderCapture({ thumbnailPolicy: "community", draftSessionScope: "scope", maxFiles: 1 })
+    const hook = await renderCapture("scope")
     const removed = new File(["one"], "removed.png", { type: "image/png" })
     const kept = new File(["two"], "kept.txt", { type: "text/plain" })
     let adding!: Promise<void>
@@ -229,8 +217,8 @@ describe("useFileAttachments — PendingFile width/height", () => {
     expect(readComposerAttachmentSession("scope").map(item => item.file)).toEqual([kept])
   })
 
-  it("carries the image's natural width/height from generateThumbnail onto the PendingFile", async () => {
-    generateThumbnailMock.mockResolvedValue({ blob: { size: 1 } as Blob, width: 1920, height: 1080 })
+  it("carries the image's natural width/height from prepareCommunityImage onto the PendingFile", async () => {
+    prepareCommunityImageMock.mockResolvedValue({ blob: { size: 1 } as Blob, width: 1920, height: 1080 })
 
     const hook = await renderCapture()
     const file = new File([new Uint8Array([1, 2, 3])], "photo.png", { type: "image/png" })
@@ -242,8 +230,8 @@ describe("useFileAttachments — PendingFile width/height", () => {
     expect(pending[0].height).toBe(1080)
   })
 
-  it("leaves width/height undefined when generateThumbnail returns null (non-image file, or a failed decode)", async () => {
-    generateThumbnailMock.mockResolvedValue(null)
+  it("leaves width/height undefined when prepareCommunityImage returns null (non-image file, or a failed decode)", async () => {
+    prepareCommunityImageMock.mockResolvedValue(null)
 
     const hook = await renderCapture()
     const file = new File(["hello"], "notes.txt", { type: "text/plain" })
@@ -256,8 +244,8 @@ describe("useFileAttachments — PendingFile width/height", () => {
   })
 
   it("transfers accepted files without revoking their preview URLs", async () => {
-    generateThumbnailMock.mockResolvedValue({ blob: { size: 1 } as Blob, width: 640, height: 480 })
-    const hook = await renderCapture({ draftSessionScope: "server/channel" })
+    prepareCommunityImageMock.mockResolvedValue({ blob: { size: 1 } as Blob, width: 640, height: 480 })
+    const hook = await renderCapture("server/channel")
     const file = new File([new Uint8Array([1])], "photo.png", { type: "image/png" })
     await hook.addFiles([file])
     expect(readComposerAttachmentSession("server/channel")).toEqual([
@@ -279,7 +267,7 @@ describe("useFileAttachments — PendingFile width/height", () => {
 
   it("registers preparation synchronously and returns a fresh stable snapshot", async () => {
     let resolveThumbnail!: (value: { blob: Blob; width: number; height: number }) => void
-    generateThumbnailMock.mockReturnValueOnce(new Promise((resolve) => { resolveThumbnail = resolve }))
+    prepareCommunityImageMock.mockReturnValueOnce(new Promise((resolve) => { resolveThumbnail = resolve }))
     const hook = await renderCapture()
     const file = new File(["original"], "photo.png", { type: "image/png" })
     const thumbnailBlob = new Blob(["thumbnail"], { type: "image/jpeg" })
@@ -309,7 +297,7 @@ describe("useFileAttachments — PendingFile width/height", () => {
 
   it("uses the original file as the Community preview when no thumbnail is required", async () => {
     prepareCommunityImageMock.mockResolvedValue({ blob: null, width: 1024, height: 768 })
-    const hook = await renderCapture({ thumbnailPolicy: "community" })
+    const hook = await renderCapture(undefined)
     const file = new File([new Uint8Array(1)], "photo.png", { type: "image/png" })
 
     await hook.addFiles([file])
@@ -322,13 +310,13 @@ describe("useFileAttachments — PendingFile width/height", () => {
       width: 1024,
       height: 768,
     })
-    expect(generateThumbnailMock).not.toHaveBeenCalled()
+    expect(prepareCommunityImageMock).toHaveBeenCalledWith(file, expect.any(AbortSignal))
   })
 
   it("uses the generated Community JPEG for preview and upload", async () => {
     const thumbnail = new Blob([new Uint8Array(10)], { type: "image/jpeg" })
     prepareCommunityImageMock.mockResolvedValue({ blob: thumbnail, width: 2048, height: 1024 })
-    const hook = await renderCapture({ thumbnailPolicy: "community" })
+    const hook = await renderCapture(undefined)
     const file = new File([new Uint8Array(1)], "photo.png", { type: "image/png" })
 
     await hook.addFiles([file])
@@ -339,10 +327,7 @@ describe("useFileAttachments — PendingFile width/height", () => {
 
   it("rejects a Community image when a required preview cannot be prepared", async () => {
     prepareCommunityImageMock.mockRejectedValue(new Error("required image preview"))
-    const hook = await renderCapture({
-      thumbnailPolicy: "community",
-      draftSessionScope: "server/channel",
-    })
+    const hook = await renderCapture("server/channel")
     const file = new File([new Uint8Array(1)], "photo.png", { type: "image/png" })
 
     await hook.addFiles([file])
@@ -356,10 +341,7 @@ describe("useFileAttachments — PendingFile width/height", () => {
   it("registers raw Community Files synchronously before async image preparation", async () => {
     let release!: (value: null) => void
     prepareCommunityImageMock.mockReturnValue(new Promise((resolve) => { release = resolve }))
-    const hook = await renderCapture({
-      thumbnailPolicy: "community",
-      draftSessionScope: "server/channel",
-    })
+    const hook = await renderCapture("server/channel")
     const file = new File(["image"], "fast-switch.png", { type: "image/png" })
 
     let pending!: Promise<void>
@@ -387,14 +369,14 @@ describe("useFileAttachments — PendingFile width/height", () => {
     vi.mocked(URL.createObjectURL)
       .mockReturnValueOnce("blob:first")
       .mockReturnValueOnce("blob:restored")
-    const hook = await renderCapture({ thumbnailPolicy: "community" })
+    const hook = await renderCapture("restore-scope")
     const file = new File(["image"], "restore.png", { type: "image/png" })
     await hook.addFiles([file])
     const draftId = hook.current.pendingFiles[0].draftId!
 
-    await act(async () => {
-      await hook.current.restorePendingFiles([{ draftId, file }])
-    })
+    await hook.rerender("other-scope")
+    await hook.rerender("restore-scope")
+    await act(async () => { await hook.current.awaitPendingFiles() })
 
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:first")
     expect(hook.current.pendingFiles).toEqual([
@@ -409,25 +391,24 @@ describe("useFileAttachments — PendingFile width/height", () => {
     prepareCommunityImageMock
       .mockReturnValueOnce(new Promise((resolve) => { releaseRestore = resolve }))
       .mockResolvedValueOnce(null)
-    const hook = await renderCapture({
-      thumbnailPolicy: "community",
-      draftSessionScope: "server/channel",
-    })
     const restored = new File(["old"], "old.txt", { type: "text/plain" })
     const selected = new File(["new"], "new.txt", { type: "text/plain" })
 
-    let restore!: Promise<void>
+    appendComposerAttachmentSession("server/channel", [{ draftId: "old-id", file: restored }])
+    const hook = await renderCapture("server/channel")
+    await waitFor(() => expect(prepareCommunityImageMock).toHaveBeenCalledOnce())
     let add!: Promise<void>
     act(() => {
-      restore = hook.current.restorePendingFiles([{ draftId: "old-id", file: restored }])
       add = hook.current.addPendingFiles([selected])
     })
     expect(readComposerAttachmentSession("server/channel")).toEqual([
+      { draftId: "old-id", file: restored },
       { draftId: expect.stringMatching(/.+/), file: selected },
     ])
     await act(async () => {
       releaseRestore(null)
-      await Promise.all([restore, add])
+      await add
+      await hook.current.awaitPendingFiles()
     })
     expect(hook.current.pendingFiles.map(({ file }) => file)).toEqual([restored, selected])
     expect(new Set(hook.current.pendingFiles.map(({ draftId }) => draftId)).size).toBe(2)
@@ -440,11 +421,7 @@ describe("useFileAttachments — PendingFile width/height", () => {
       .mockReturnValueOnce(new Promise((resolve) => { releaseStale = resolve }))
       .mockReturnValueOnce(new Promise((resolve) => { releaseCurrent = resolve }))
       .mockResolvedValue(null)
-    const options = {
-      thumbnailPolicy: "community" as const,
-      draftSessionScope: "scope-a",
-      maxFiles: 10,
-    }
+    const options = "scope-a"
     const hook = await renderCapture(options)
     const restored = new File(["old"], "old.txt", { type: "text/plain" })
 
@@ -455,7 +432,7 @@ describe("useFileAttachments — PendingFile width/height", () => {
     const [{ draftId }] = readComposerAttachmentSession("scope-a")
     await waitFor(() => expect(prepareCommunityImageMock).toHaveBeenCalledTimes(1))
 
-    await hook.rerender({ ...options, draftSessionScope: "scope-b" })
+    await hook.rerender("scope-b")
     await hook.rerender(options)
     expect(readComposerAttachmentSession("scope-a")).toEqual([{ draftId, file: restored }])
 
@@ -483,59 +460,98 @@ describe("useFileAttachments — PendingFile width/height", () => {
       expect.objectContaining({ draftId, file: restored }),
     ])
   })
-
-  it("enforces an optional Community count limit without changing the generic default", async () => {
-    prepareCommunityImageMock.mockResolvedValue(null)
-    generateThumbnailMock.mockResolvedValue(null)
-    const files = Array.from({ length: 11 }, (_, index) =>
-      new File([String(index)], `${index}.txt`, { type: "text/plain" }))
-    const community = await renderCapture({ thumbnailPolicy: "community", maxFiles: 10 })
-    await community.addFiles(files)
-    expect(community.current.pendingFiles).toEqual([])
-    expect(toastErrorMock).toHaveBeenCalledWith("You can attach up to 10 files")
-
-    const generic = await renderCapture()
-    await generic.addFiles(files)
-    expect(generic.current.pendingFiles).toHaveLength(11)
-  })
 })
 
 
 describe("attachment view retirement", () => {
-  it("releases and recreates thumbnail handles when the same Activity becomes visible", async () => {
-    generateThumbnailMock.mockResolvedValue({ blob: new Blob(["thumbnail"]), width: 10, height: 10 })
+  it.each([false, true].flatMap(scoped => [false, true].map(thumbnail => ({ scoped, thumbnail }))))("retains a prepared preview through Activity hide/show (scope=$scoped, thumbnail=$thumbnail)", async ({ scoped, thumbnail }) => {
+    prepareCommunityImageMock.mockResolvedValue({ blob: thumbnail ? new Blob(["thumbnail"]) : null, width: 10, height: 10 })
     let current!: ReturnType<typeof useFileAttachments>
-    function Capture() { const value = useFileAttachments(); React.useLayoutEffect(() => { current = value }); return null }
+    function Capture() { const value = useFileAttachments(scoped ? "activity" : undefined); React.useLayoutEffect(() => { current = value }); return null }
     function App({ hidden }: { hidden: boolean }) { return React.createElement(React.Activity, { mode: hidden ? "hidden" : "visible" }, React.createElement(Capture)) }
     const mounted = render(React.createElement(App, { hidden: false }))
     const file = new File(["file"], "photo.png", { type: "image/png" })
     await act(async () => current.addPendingFiles([file]))
     expect(current.pendingFiles[0].thumbnailUrl).toBe("blob:fake")
     act(() => mounted.rerender(React.createElement(App, { hidden: true })))
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:fake")
+    expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:fake")
     act(() => mounted.rerender(React.createElement(App, { hidden: false })))
     await waitFor(() => expect(current.pendingFiles[0].thumbnailUrl).toBe("blob:fake"))
     expect(current.pendingFiles[0].file).toBe(file)
+    expect(current.pendingFiles[0].thumbnailBlob === null).toBe(!thumbnail)
+    expect(prepareCommunityImageMock).toHaveBeenCalledOnce()
     expect(URL.createObjectURL).toHaveBeenCalledTimes(2)
+    if (!thumbnail) expect(URL.createObjectURL).toHaveBeenLastCalledWith(file)
+    mounted.unmount()
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2)
+  })
+  it("requeues only canceled scoped drafts while retaining a completed preview after Activity resumes", async () => {
+    let finishOld!: (value: unknown) => void
+    prepareCommunityImageMock.mockResolvedValueOnce({ blob: new Blob(["first"]), width: 10, height: 10 })
+      .mockReturnValueOnce(new Promise(resolve => { finishOld = resolve }))
+      .mockResolvedValueOnce({ blob: new Blob(["current"]), width: 20, height: 20 })
+    let url = 0
+    vi.mocked(URL.createObjectURL).mockImplementation(() => `blob:activity-${++url}`)
+    let current!: ReturnType<typeof useFileAttachments>
+    function Capture() { const value = useFileAttachments("activity"); React.useLayoutEffect(() => { current = value }); return null }
+    const node = (hidden: boolean) => React.createElement(React.Activity, { mode: hidden ? "hidden" : "visible" }, React.createElement(Capture))
+    const mounted = render(node(false))
+    const completed = new File(["first"], "first.png", { type: "image/png" })
+    const pending = new File(["second"], "second.png", { type: "image/png" })
+    await act(async () => current.addPendingFiles([completed]))
+    let oldPreparation!: Promise<void>
+    act(() => { oldPreparation = current.addPendingFiles([pending]) })
+    await waitFor(() => expect(prepareCommunityImageMock).toHaveBeenCalledTimes(2))
+    act(() => mounted.rerender(node(true)))
+    await act(async () => { await oldPreparation })
+    expect(URL.createObjectURL).toHaveBeenCalledOnce()
+    act(() => mounted.rerender(node(false)))
+    await waitFor(() => expect(current.pendingFiles.map(row => [row.file, row.thumbnailUrl])).toEqual([
+      [completed, "blob:activity-2"], [pending, "blob:activity-3"],
+    ]))
+    expect(prepareCommunityImageMock.mock.calls.map(([file]) => file)).toEqual([completed, pending, pending])
+    await act(async () => { finishOld({ blob: new Blob(["stale"]), width: 99, height: 99 }); await Promise.resolve() })
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(3)
+    expect(current.pendingFiles[1].width).toBe(20)
+    expect(toastErrorMock).not.toHaveBeenCalled()
+    mounted.unmount()
   })
   it("held preparation from a retired Activity cannot publish after reactivation", async () => {
     let finish!: (value: unknown) => void
-    generateThumbnailMock.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
+    prepareCommunityImageMock.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
     let current!: ReturnType<typeof useFileAttachments>
     function Capture() { const value = useFileAttachments(); React.useLayoutEffect(() => { current = value }); return null }
     function App({ hidden }: { hidden: boolean }) { return React.createElement(React.Activity, { mode: hidden ? "hidden" : "visible" }, React.createElement(Capture)) }
     const mounted = render(React.createElement(App, { hidden: false }))
     let preparation!: Promise<void>
     act(() => { preparation = current.addPendingFiles([new File(["old"], "old.png", { type: "image/png" })]) })
-    await waitFor(() => expect(generateThumbnailMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(prepareCommunityImageMock).toHaveBeenCalledTimes(1))
     act(() => mounted.rerender(React.createElement(App, { hidden: true })))
     act(() => mounted.rerender(React.createElement(App, { hidden: false })))
     await act(async () => { finish({ blob: new Blob(["old"]), width: 10, height: 10 }); await preparation })
     expect(current.pendingFiles).toEqual([])
     expect(URL.createObjectURL).not.toHaveBeenCalled()
     expect(URL.revokeObjectURL).not.toHaveBeenCalled()
-    generateThumbnailMock.mockResolvedValueOnce(null)
+    prepareCommunityImageMock.mockResolvedValueOnce(null)
     await act(async () => current.addPendingFiles([new File(["new"], "new.txt")]))
     expect(current.pendingFiles.map((row) => row.file.name)).toEqual(["new.txt"])
   })
 })
+
+ it("clears a pending decode and its same-tab draft before any late result", async () => {
+   let finish!: (value: { blob: Blob; width: number; height: number }) => void
+   prepareCommunityImageMock.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+   const hook = await renderCapture("clear-scope")
+   let adding!: Promise<void>
+   act(() => { adding = hook.current.addPendingFiles([new File(["raw"], "old.png", { type: "image/png" })]) })
+   await waitFor(() => expect(prepareCommunityImageMock).toHaveBeenCalledOnce())
+   const signal = prepareCommunityImageMock.mock.calls[0][1] as AbortSignal
+   act(() => hook.current.clearPendingFiles())
+   expect(signal.aborted).toBe(true)
+   expect(readComposerAttachmentSession("clear-scope")).toEqual([])
+   expect(hook.current.pendingFiles).toEqual([])
+   await act(async () => { finish({ blob: new Blob(["late"]), width: 1, height: 1 }); await adding })
+   expect(hook.current.pendingFiles).toEqual([])
+   expect(URL.createObjectURL).not.toHaveBeenCalled()
+   expect(toastErrorMock).not.toHaveBeenCalled()
+ })

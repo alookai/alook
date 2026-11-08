@@ -1,3 +1,4 @@
+import { runBoundedDiscoveryProcess, type DiscoveryProcessControl } from "../../internal/discovery-process.js";
 import type {
   BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, LaneInterruptInput, RuntimeLane,
   RuntimeLaneOpenOptions, SpawnedProcess, SpawnedProcessHandle,
@@ -15,7 +16,7 @@ import { CodexEventNormalizer } from "./normalizer.js";
 import { probeCliRuntime, resolveSpawnSpec } from "../../internal/probe.js";
 import { resolveCodexHomeRootFromEnv } from "./home.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
-import { killProcessTree, spawnAgentProcess } from "../../internal/killTree.js";
+import { spawnAgentProcess } from "../../internal/killTree.js";
 import { jsonRpcRequest, tryParseJsonLine } from "../../internal/utils.js";
 import { scrubDriverErrorMessage } from "../../internal/errors.js";
 import {
@@ -138,116 +139,111 @@ export class CodexDriver implements BackendAdapter {
     } catch {
       return undefined;
     }
-    return new Promise((resolve) => {
-      let settled = false;
-      let buffer = "";
-      let outputBytes = 0;
-      let nextId = 0;
-      let initializeId = 0;
-      let listId = 0;
-      const models: RuntimeReasoningCatalog["models"][number][] = [];
-      const seenModels = new Set<string>();
-      let defaultModelId: string | undefined;
-      const finish = (catalog?: RuntimeReasoningCatalog) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        const done = proc.pid
-          ? killProcessTree(proc.pid, { graceMs: 250 }).catch(() => {})
-          : Promise.resolve().then(() => { proc.kill("SIGTERM"); });
-        void done.finally(() => resolve(catalog));
-      };
-      const requestModelPage = (cursor?: string) => {
-        listId = ++nextId;
-        proc.stdin?.write(jsonRpcRequest(
-          "model/list",
-          { limit: Math.min(MODEL_LIST_MAX - models.length, MODEL_LIST_MAX), includeHidden: false, ...(cursor ? { cursor } : {}) },
-          listId,
-        ) + "\n");
-      };
-      const consumeModel = (value: unknown) => {
-        if (!value || typeof value !== "object") return;
-        const model = value as Record<string, unknown>;
-        const id = normalizeRuntimeModelId(model.id);
-        if (!id || seenModels.has(id)) return;
-        const rawOptions = Array.isArray(model.supportedReasoningEfforts)
-          ? model.supportedReasoningEfforts
-          : [];
-        const seenEfforts = new Set<string>();
-        const supportedReasoningEfforts = rawOptions.flatMap((raw) => {
-          if (!raw || typeof raw !== "object") return [];
-          const option = raw as Record<string, unknown>;
-          const value = typeof option.reasoningEffort === "string"
-            ? option.reasoningEffort.trim()
-            : "";
-          if (!value || value.length > 32 || !/^[A-Za-z0-9._-]+$/.test(value) || seenEfforts.has(value)) return [];
-          seenEfforts.add(value);
-          const description = typeof option.description === "string"
-            ? option.description.slice(0, 256)
-            : undefined;
-          return [{ value, ...(description ? { description } : {}) }];
-        }).slice(0, MODEL_EFFORT_MAX);
-        const candidateDefault = typeof model.defaultReasoningEffort === "string"
-          ? model.defaultReasoningEffort
-          : undefined;
-        seenModels.add(id);
-        if (model.isDefault === true) defaultModelId = id;
-        models.push({
-          id,
-          supportedReasoningEfforts,
-          ...(candidateDefault && supportedReasoningEfforts.some((item) => item.value === candidateDefault)
-            ? { defaultReasoningEffort: candidateDefault }
-            : {}),
-        });
-      };
-      const onLine = (line: string) => {
-        let message: Record<string, unknown>;
-        try {
-          message = JSON.parse(line) as Record<string, unknown>;
-        } catch {
-          return;
-        }
-        if (message.id === initializeId) {
-          if (message.error) return finish();
-          requestModelPage();
-          return;
-        }
-        if (message.id !== listId) return;
-        if (message.error || !message.result || typeof message.result !== "object") return finish();
-        const result = message.result as Record<string, unknown>;
-        for (const model of Array.isArray(result.data) ? result.data : []) {
-          consumeModel(model);
-          if (models.length >= MODEL_LIST_MAX) break;
-        }
-        const cursor = typeof result.nextCursor === "string" ? result.nextCursor : undefined;
-        if (cursor && models.length < MODEL_LIST_MAX) return requestModelPage(cursor);
-        if (models.length === 0) return finish();
-        finish({
-          updateMode: "live_next_turn",
-          ...(defaultModelId ? { defaultModelId } : {}),
-          models,
-        });
-      };
-      const timer = setTimeout(() => finish(), MODEL_LIST_TIMEOUT_MS);
-      timer.unref?.();
-      proc.stdout?.on("data", (chunk) => {
-        const text = chunk.toString();
-        outputBytes += Buffer.byteLength(text);
-        if (outputBytes > MODEL_LIST_OUTPUT_MAX_BYTES) return finish();
-        buffer += text;
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) if (line.trim()) onLine(line);
-      });
-      proc.on("error", () => finish());
-      proc.on("exit", () => finish());
-      initializeId = ++nextId;
-      proc.stdin?.write(jsonRpcRequest(
-        "initialize",
-        { clientInfo: { name: "alook-agent-driver-probe", version: "0.1.24" }, capabilities: { experimentalApi: true } },
-        initializeId,
+    let control: DiscoveryProcessControl<RuntimeReasoningCatalog | undefined>;
+    let buffer = "";
+    let nextId = 0;
+    let initializeId = 0;
+    let listId = 0;
+    const models: RuntimeReasoningCatalog["models"][number][] = [];
+    const seenModels = new Set<string>();
+    let defaultModelId: string | undefined;
+    const finish = (catalog?: RuntimeReasoningCatalog) => control.finish(catalog);
+    const requestModelPage = (cursor?: string) => {
+      listId = ++nextId;
+      control.write(jsonRpcRequest(
+        "model/list",
+        { limit: Math.min(MODEL_LIST_MAX - models.length, MODEL_LIST_MAX), includeHidden: false, ...(cursor ? { cursor } : {}) },
+        listId,
       ) + "\n");
-    });
+    };
+    const consumeModel = (value: unknown) => {
+      if (!value || typeof value !== "object") return;
+      const model = value as Record<string, unknown>;
+      const id = normalizeRuntimeModelId(model.id);
+      if (!id || seenModels.has(id)) return;
+      const rawOptions = Array.isArray(model.supportedReasoningEfforts)
+        ? model.supportedReasoningEfforts
+        : [];
+      const seenEfforts = new Set<string>();
+      const supportedReasoningEfforts = rawOptions.flatMap((raw) => {
+        if (!raw || typeof raw !== "object") return [];
+        const option = raw as Record<string, unknown>;
+        const value = typeof option.reasoningEffort === "string"
+          ? option.reasoningEffort.trim()
+          : "";
+        if (!value || value.length > 32 || !/^[A-Za-z0-9._-]+$/.test(value) || seenEfforts.has(value)) return [];
+        seenEfforts.add(value);
+        const description = typeof option.description === "string"
+          ? option.description.slice(0, 256)
+          : undefined;
+        return [{ value, ...(description ? { description } : {}) }];
+      }).slice(0, MODEL_EFFORT_MAX);
+      const candidateDefault = typeof model.defaultReasoningEffort === "string"
+        ? model.defaultReasoningEffort
+        : undefined;
+      seenModels.add(id);
+      if (model.isDefault === true) defaultModelId = id;
+      models.push({
+        id,
+        supportedReasoningEfforts,
+        ...(candidateDefault && supportedReasoningEfforts.some((item) => item.value === candidateDefault)
+          ? { defaultReasoningEffort: candidateDefault }
+          : {}),
+      });
+    };
+    const onLine = (line: string) => {
+      let message: Record<string, unknown>;
+      try {
+        message = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      if (message.id === initializeId) {
+        if (message.error) return finish();
+        requestModelPage();
+        return;
+      }
+      if (message.id !== listId) return;
+      if (message.error || !message.result || typeof message.result !== "object") return finish();
+      const result = message.result as Record<string, unknown>;
+      for (const model of Array.isArray(result.data) ? result.data : []) {
+        consumeModel(model);
+        if (models.length >= MODEL_LIST_MAX) break;
+      }
+      const cursor = typeof result.nextCursor === "string" ? result.nextCursor : undefined;
+      if (cursor && models.length < MODEL_LIST_MAX) return requestModelPage(cursor);
+      if (models.length === 0) return finish();
+      finish({
+        updateMode: "live_next_turn",
+        ...(defaultModelId ? { defaultModelId } : {}),
+        models,
+      });
+    };
+    try {
+      return await runBoundedDiscoveryProcess<RuntimeReasoningCatalog | undefined>({
+        process: proc, label: "Codex", timeoutMs: MODEL_LIST_TIMEOUT_MS,
+        outputMaxBytes: MODEL_LIST_OUTPUT_MAX_BYTES, stderr: "ignore", exitEvent: "exit",
+        onStdout: (text) => {
+          buffer += text;
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (control.settled) break;
+            if (line.trim()) onLine(line);
+          }
+        },
+        onExit: () => finish(),
+        onStart: (transport) => {
+          control = transport;
+          initializeId = ++nextId;
+          control.write(jsonRpcRequest(
+            "initialize",
+            { clientInfo: { name: "alook-agent-driver-probe", version: "0.1.24" }, capabilities: { experimentalApi: true } },
+            initializeId,
+          ) + "\n");
+        },
+      });
+    } catch { return undefined; }
   }
 
   async openLane(ctx: AdapterLaunchContext, options?: RuntimeLaneOpenOptions): Promise<RuntimeLane> {

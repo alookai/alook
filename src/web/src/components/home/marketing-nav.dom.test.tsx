@@ -20,8 +20,9 @@ function prefetchLinks(container: HTMLElement) {
 
 it("defers route prefetch until the homepage navigation is revealed, without changing link destinations", () => {
   let bottom = 100;
-  const { container } = render(<><section className="hero-section" /><MarketingNav isLoggedIn={false} revealAfterHero collapseLinksOnMobile /></>);
-  vi.spyOn(container.querySelector(".hero-section")!, "getBoundingClientRect").mockImplementation(() => ({ bottom }) as DOMRect);
+  const { container } = render(<><section className="hero-section" data-testid="foreign-hero" /><div className="landing"><section className="hero-section" data-testid="owned-hero" /><MarketingNav isLoggedIn={false} revealAfterHero collapseLinksOnMobile /></div></>);
+  vi.spyOn(screen.getByTestId("foreign-hero"), "getBoundingClientRect").mockReturnValue({ bottom: -1 } as DOMRect);
+  vi.spyOn(screen.getByTestId("owned-hero"), "getBoundingClientRect").mockImplementation(() => ({ bottom }) as DOMRect);
   fireEvent.scroll(window);
   for (const link of prefetchLinks(container)) expect(link).toHaveAttribute("data-prefetch", "disabled");
   expect(screen.getAllByRole("link", { name: "Pricing" })[0]).toHaveAttribute("href", "/pricing");

@@ -44,11 +44,11 @@ async function fixture(withPii = true, reply?: { status?: number; body?: string;
 
 it("filters the real CLI API transport and direct canonical POST, preserving the send envelope and UTF-8 length", async () => {
   const { proxy, a, seen, request } = await fixture();
-  const body = { agentId: "a", channel: "/test#1234/general", content: { text: "给 person@company.cn 发消息", extra: "keep" }, nonce: "stable", replyToSeq: 4, attachments: ["existing-file"], force: true };
+  const body = { agentId: "a", channel: "/test#1234/general", content: { text: "Send € to person@company.cn", extra: "keep" }, nonce: "stable", replyToSeq: 4, attachments: ["existing-file"], force: true };
   const api = createProxyServerApi({ proxyUrl: proxy.url, voucher: a.voucher });
   const receipt = await api.send(body);
   expect(receipt).toMatchObject({ state: "sent", pii: { triggeredFilters: [{ id: "builtin.emails", name: "Email addresses" }] } });
-  expect(seen[0]!.body).toEqual({ ...body, agentId: undefined, content: { text: "给 [REDACTED_EMAIL] 发消息", extra: "keep" } });
+  expect(seen[0]!.body).toEqual({ ...body, agentId: undefined, content: { text: "Send € to [REDACTED_EMAIL]", extra: "keep" } });
   expect(Number(seen[0]!.headers["content-length"])).toBe(Buffer.byteLength(JSON.stringify(seen[0]!.body)));
   expect(seen[0]!.headers["transfer-encoding"]).toBeUndefined();
   expect(seen[0]!.headers["x-agent-id"]).toBe("a");
@@ -74,7 +74,7 @@ it("binds local list/add to voucher identity and never exposes remove/disable/up
 
 it("blocks failures, empty output, invalid/oversized input and oversized UTF-8 output before any upstream request", async () => {
   const { store, request, seen } = await fixture();
-  const source = 'export default (text: string) => { if(text === "throw-secret") throw new Error(text); if(text === "expand") return "中".repeat(400); if(text === "erase") return ""; return text; };';
+  const source = 'export default (text: string) => { if(text === "throw-secret") throw new Error(text); if(text === "expand") return "€".repeat(400); if(text === "erase") return ""; return text; };';
   await store.local("a", { action: "add", name: "failure", description: "synthetic behavior", source });
   for (const text of ["throw-secret", "expand", "erase"]) {
     const response = await request("/api/community/channels/resolve/messages", { channel: "/test#1234/general", content: { text } });

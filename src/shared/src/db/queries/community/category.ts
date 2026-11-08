@@ -52,15 +52,11 @@ export async function getCategory(db: Database, categoryId: string) {
 export async function updateCategory(
   db: Database,
   categoryId: string,
-  data: { name?: string; private?: boolean }
+  data: { name?: string }
 ) {
-  const setData: { name?: string; private?: number } = {};
-  if (data.name !== undefined) setData.name = data.name;
-  if (data.private !== undefined) setData.private = data.private ? 1 : 0;
-
   const rows = await db
     .update(communityCategory)
-    .set(setData)
+    .set(data)
     .where(eq(communityCategory.id, categoryId))
     .returning();
   return rows[0] ?? null;

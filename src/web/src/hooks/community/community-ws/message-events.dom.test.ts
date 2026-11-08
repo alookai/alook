@@ -26,7 +26,6 @@ import {
   promoteInboxReadReservation,
   registerInboxReadReservationSurface,
   releaseInboxReadReservationSurface,
-  reserveInboxUnreadsResponse,
   settleInboxReadReservationGeneration,
 } from "@/hooks/community/inbox-read-reservation"
 import {
@@ -700,17 +699,6 @@ describe("useCommunityWs — message.create", () => {
     capturedOnMessage!(currentCommunityEventFixture(event))
 
     expect(seen).not.toHaveBeenCalled()
-    await expect(reserveInboxUnreadsResponse(capturedQueryClient, {
-      servers: [{
-        channels: [{
-          channelId: "ch_focused",
-          lastMessageAt: event.message.createdAt,
-          hasDirectUnread: true,
-          children: [],
-        }],
-      }],
-      dms: [],
-    })).rejects.toMatchObject({ name: "AbortError" })
     releaseInboxReadReservationSurface(lease)
   })
 

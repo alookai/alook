@@ -1,3 +1,4 @@
+import { publishServerMemberLeaves } from "@/lib/community/fanout"
 import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { humanAuthPolicy } from "@/lib/middleware/auth"
@@ -11,7 +12,7 @@ import {
   ASSIGNABLE_ROLES,
   WS_EVENTS,
 } from "@alook/shared"
-import { broadcastToUserSafe, fanOutToServerMembers } from "@/lib/community/fanout"
+import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
 export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
@@ -112,28 +113,7 @@ export const DELETE = withAuth(humanAuthPolicy, async (_req, ctx) => {
   )
   if (!removed) return writeError("member not found", 404)
 
-  const targetLeaveEvent = {
-    type: WS_EVENTS.MEMBER_LEAVE,
-    serverId,
-    userId: target.userId,
-  } as const
-  const botLeaveEvents = botIdsToCascade.map((botId) => ({
-      type: WS_EVENTS.MEMBER_LEAVE,
-      serverId,
-      userId: botId,
-  } as const))
-
-  // The server-wide fan-out resolves recipients after the membership delete,
-  // so the removed identities are no longer in that set. Send them directly
-  // as well: their other tabs/daemons need the event to eject stale access.
-  await Promise.all([
-    fanOutToServerMembers(serverId, targetLeaveEvent),
-    broadcastToUserSafe(target.userId, targetLeaveEvent),
-    ...botLeaveEvents.flatMap((event) => [
-      fanOutToServerMembers(serverId, event),
-      broadcastToUserSafe(event.userId, event),
-    ]),
-  ])
+  await publishServerMemberLeaves(serverId, [target.userId, ...botIdsToCascade])
 
   return new Response(null, { status: 204 })
 })

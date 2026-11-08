@@ -1,8 +1,8 @@
+import { isCookieHumanSameOrigin } from "@/lib/server/request-security";
 import { withAuth } from "@/lib/middleware/auth-policy"
 import { queries } from "@alook/shared";
 import { getPrimaryDb } from "@/lib/db";
 import {
-  isCookieHumanSameOrigin,
   notificationDeviceInstallationIdSchema,
 } from "@/lib/community/notification-device-schema";
 import { communityActorPolicy } from "@/lib/middleware/community-actor";

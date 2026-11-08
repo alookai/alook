@@ -43,7 +43,7 @@ describe("whole-body native Markdown mention consumption", () => {
     "TOKEN",
     "🎉TOKEN!",
     "**TOKEN**",
-    "中文**TOKEN**。",
+    "界**TOKEN**。",
     "||TOKEN||",
     "\\\\TOKEN",
     "`TOKEN",

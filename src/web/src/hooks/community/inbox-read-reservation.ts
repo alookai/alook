@@ -11,32 +11,12 @@ import {
 } from "@/lib/community-db/collections"
 import {
   clearAttentionScopeOptimistically,
-  commitAttentionScopeOptimisticSnapshot,
+  commitAttentionOptimisticSnapshot,
   hasAttentionScopeOptimisticFence,
-  restoreAttentionScopeOptimisticSnapshot,
+  restoreAttentionOptimisticSnapshot,
   type AttentionScopeOptimisticSnapshot,
 } from "@/lib/community-db/sync"
 import { reconcileAccountAttention } from "./use-account-attention"
-
-type InboxChild = {
-  channelId: string
-  lastMessageAt: string
-  openerMessageId?: string
-  openerSeq?: number
-  openerUnread?: boolean
-}
-
-type InboxChannel = {
-  channelId: string
-  lastMessageAt: string
-  hasDirectUnread?: boolean
-  children: InboxChild[]
-}
-
-type InboxResponse = {
-  servers: Array<{ channels: InboxChannel[] }>
-  dms: Array<{ channelId: string; lastMessageAt: string }>
-}
 
 export type InboxReadCandidate = {
   channelId: string
@@ -121,23 +101,10 @@ export type ThreadOpenerHandoffTarget = {
   openerSeq: number
 }
 
-type ThreadOpenerHandoff = ThreadOpenerHandoffTarget & {
-  epoch: number
-  phase: "armed" | "awaiting-opener-claim" | "claimed-parent-generation"
-}
+type ThreadOpenerHandoff = ThreadOpenerHandoffTarget & { projectionTickets: readonly InboxProjectionTicket[] }
 
 type ClaimedThreadOpener = ThreadOpenerHandoffTarget & {
   generation: number
-}
-
-type HeldResponse<T extends InboxResponse = InboxResponse> = {
-  id: number
-  candidate: InboxReadCandidate
-  data: T
-  generation: number | null
-  openerClaimLocked: boolean
-  reject: (error: unknown) => void
-  removeAbort: () => void
 }
 
 type LeaseState = {
@@ -152,23 +119,12 @@ type FocusedCandidate = {
   attentionOptimistic: CanonicalAttentionOptimistic | null
 }
 
-type ResponsePermit = {
-  epoch: number
-  channelId: string
-  lastMessageAt: string | null
-  fingerprint: string | null
-}
-
 type ManagerData = {
   queryClient: QueryClient
   leases: ReadonlyMap<symbol, LeaseState>
   latestToken: symbol | null
   nextEpoch: number
-  nextResponseId: number
-  held: ReadonlyMap<number, HeldResponse>
   focusedCandidate: FocusedCandidate | null
-  discardedCandidate: { epoch: number; candidate: InboxReadCandidate } | null
-  permit: ResponsePermit | null
   handoff: ThreadOpenerHandoff | null
   claimedOpeners: ReadonlyMap<number, ClaimedThreadOpener>
   routeLeases: ReadonlyMap<symbol, ThreadOpenerRouteLease>
@@ -183,6 +139,7 @@ type ProjectionTicketState = {
   ticket: InboxProjectionTicket
   target: InboxRowTarget
   active: boolean
+  pendingTerminal: InboxProjectionTerminalReceipt["terminal"] | null
   generation: number | null
   onReceipt: (receipt: InboxProjectionTerminalReceipt) => void
   attentionOptimistic: CanonicalAttentionOptimistic | null
@@ -195,7 +152,6 @@ type CanonicalAttentionOptimistic = {
 
 type ProjectionTerminalState = {
   terminal: InboxProjectionTerminalReceipt["terminal"]
-  candidate: InboxReadCandidate | null
 }
 
 class ManagerState {
@@ -207,11 +163,7 @@ class ManagerState {
       leases: new Map(),
       latestToken: null,
       nextEpoch: 0,
-      nextResponseId: 0,
-      held: new Map(),
       focusedCandidate: null,
-      discardedCandidate: null,
-      permit: null,
       handoff: null,
       claimedOpeners: new Map(),
       routeLeases: new Map(),
@@ -234,16 +186,8 @@ class ManagerState {
   set latestToken(value: ManagerData["latestToken"]) { this.store.setState((state) => state.latestToken === value ? state : { ...state, latestToken: value }) }
   get nextEpoch() { return this.store.get().nextEpoch }
   set nextEpoch(value: ManagerData["nextEpoch"]) { this.store.setState((state) => state.nextEpoch === value ? state : { ...state, nextEpoch: value }) }
-  get nextResponseId() { return this.store.get().nextResponseId }
-  set nextResponseId(value: ManagerData["nextResponseId"]) { this.store.setState((state) => state.nextResponseId === value ? state : { ...state, nextResponseId: value }) }
-  get held() { return this.store.get().held }
-  set held(value: ManagerData["held"]) { this.store.setState((state) => state.held === value ? state : { ...state, held: value }) }
   get focusedCandidate() { return this.store.get().focusedCandidate }
   set focusedCandidate(value: ManagerData["focusedCandidate"]) { this.store.setState((state) => state.focusedCandidate === value ? state : { ...state, focusedCandidate: value }) }
-  get discardedCandidate() { return this.store.get().discardedCandidate }
-  set discardedCandidate(value: ManagerData["discardedCandidate"]) { this.store.setState((state) => state.discardedCandidate === value ? state : { ...state, discardedCandidate: value }) }
-  get permit() { return this.store.get().permit }
-  set permit(value: ManagerData["permit"]) { this.store.setState((state) => state.permit === value ? state : { ...state, permit: value }) }
   get handoff() { return this.store.get().handoff }
   set handoff(value: ManagerData["handoff"]) { this.store.setState((state) => state.handoff === value ? state : { ...state, handoff: value }) }
   get claimedOpeners() { return this.store.get().claimedOpeners }
@@ -366,40 +310,6 @@ export function inboxMentionRowTarget(mention: Mention): InboxRowTarget | null {
   }
 }
 
-function candidateFor(data: InboxResponse, channelId: string): InboxReadCandidate | null {
-  for (const server of data.servers) {
-    for (const channel of server.channels) {
-      const child = channel.children.find((row) => row.channelId === channelId)
-      if (child) {
-        const candidate = {
-          channelId,
-          lastMessageAt: child.lastMessageAt,
-          ...(child.openerMessageId ? { openerMessageId: child.openerMessageId } : {}),
-          ...(child.openerSeq !== undefined ? { openerSeq: child.openerSeq } : {}),
-          openerUnread: child.openerUnread === true,
-        }
-        return { ...candidate, fingerprint: inboxReadCandidateFingerprint(candidate) }
-      }
-      if (channel.channelId === channelId && channel.hasDirectUnread !== false) {
-        const candidate = {
-          channelId,
-          lastMessageAt: channel.lastMessageAt,
-          openerUnread: false,
-        }
-        return { ...candidate, fingerprint: inboxReadCandidateFingerprint(candidate) }
-      }
-    }
-  }
-  const dm = data.dms.find((row) => row.channelId === channelId)
-  if (!dm) return null
-  const candidate = {
-    channelId,
-    lastMessageAt: dm.lastMessageAt,
-    openerUnread: false,
-  }
-  return { ...candidate, fingerprint: inboxReadCandidateFingerprint(candidate) }
-}
-
 function targetMatchesCandidate(
   target: InboxRowTarget,
   candidate: InboxReadCandidate,
@@ -477,7 +387,12 @@ function deliverProjectionTerminal(
   ticket: ProjectionTicketState,
   terminal: InboxProjectionTerminalReceipt["terminal"],
 ) {
-  if (!ticket.active || !deleteManagerMap(state, "projectionTickets", ticket.ticket.token)) return
+  if (state.projectionTickets.get(ticket.ticket.token) !== ticket) return
+  if (!ticket.active) {
+    setManagerMap(state, "projectionTickets", ticket.ticket.token, { ...ticket, pendingTerminal: terminal })
+    return
+  }
+  if (!deleteManagerMap(state, "projectionTickets", ticket.ticket.token)) return
   const settled = settleProjectionAttention(ticket, terminal === "success" || terminal === "deferred")
   void Promise.resolve(settled).then(() => {
     try { state.assertActive() } catch { return }
@@ -531,9 +446,9 @@ function settleCanonicalAttention(
   committed: boolean,
 ) {
   if (committed) {
-    return commitAttentionScopeOptimisticSnapshot(optimistic.registry, optimistic.snapshot)
+    return commitAttentionOptimisticSnapshot(optimistic.registry, optimistic.snapshot)
   }
-  if (!restoreAttentionScopeOptimisticSnapshot(optimistic.registry, optimistic.snapshot)) {
+  if (!restoreAttentionOptimisticSnapshot(optimistic.registry, optimistic.snapshot)) {
     const registry = getCommunityDbRegistry(queryClient)
     if (registry === optimistic.registry) {
       void reconcileAccountAttention(registry).catch(() => undefined)
@@ -560,7 +475,7 @@ function bindProjectionTickets(
 ) {
   for (const ticket of state.projectionTickets.values()) {
     if (!targetMatchesCandidate(ticket.target, candidate)) continue
-    const current = generation !== null ? { ...ticket, generation } : ticket
+    const current = generation !== null ? { ...ticket, generation, pendingTerminal: ticket.generation === generation ? ticket.pendingTerminal : null } : ticket
     if (generation !== null) setManagerMap(state, "projectionTickets", ticket.ticket.token, current)
     const terminal = generation === null
       ? null
@@ -588,8 +503,7 @@ function publishProjectionTerminal(
   generation: number,
   terminal: InboxProjectionTerminalReceipt["terminal"],
 ) {
-  const candidate = state.projectionCandidates.get(generation) ?? null
-  setManagerMap(state, "projectionTerminals", generation, { terminal, candidate })
+  setManagerMap(state, "projectionTerminals", generation, { terminal })
   while (state.projectionTerminals.size > 32) {
     const oldest = state.projectionTerminals.keys().next().value
     if (oldest === undefined) break
@@ -602,86 +516,33 @@ function publishProjectionTerminal(
   }
 }
 
-function publishProjectionCandidateTerminal(
+function publishCapturedProjectionTerminal(
   state: ManagerState,
-  candidate: InboxReadCandidate,
+  captured: readonly ProjectionTicketState[],
   terminal: "negative" | "error",
 ) {
+  try { state.assertActive() } catch { return }
+  if (managers.get(state.queryClient) !== state) return
   const generations = new Set<number>()
-  for (const ticket of [...state.projectionTickets.values()]) {
-    if (!targetMatchesCandidate(ticket.target, candidate)) continue
-    if (ticket.generation !== null) generations.add(ticket.generation)
-    else deliverProjectionTerminal(state, ticket, terminal)
+  for (const original of captured) {
+    const current = state.projectionTickets.get(original.ticket.token)
+    if (!current || current.ticket.epoch !== original.ticket.epoch || current.generation !== original.generation) continue
+    if (current.generation !== null) generations.add(current.generation)
+    else deliverProjectionTerminal(state, current, terminal)
   }
-  for (const generation of generations) {
-    publishProjectionTerminal(state, generation, terminal)
-  }
+  for (const generation of generations) publishProjectionTerminal(state, generation, terminal)
 }
 
-function publishProjectionHandoffTerminal(
-  state: ManagerState,
-  handoff: ThreadOpenerHandoffTarget,
-  terminal: "negative" | "error",
-) {
-  for (const ticket of [...state.projectionTickets.values()]) {
-    const target = ticket.target
-    if (
-      target.kind === "thread"
-      && target.serverId === handoff.serverId
-      && target.parentChannelId === handoff.parentChannelId
-      && target.childChannelId === handoff.childChannelId
-    ) {
-      deliverProjectionTerminal(state, ticket, terminal)
-    }
-  }
+function isHandoffProjectionTarget(target: InboxRowTarget, handoff: ThreadOpenerHandoffTarget) {
+  return target.kind === "thread"
+    && target.serverId === handoff.serverId
+    && target.parentChannelId === handoff.parentChannelId
+    && target.childChannelId === handoff.childChannelId
+    && target.confirmationChannelId === handoff.parentChannelId
 }
 
 function activeLease(state: ManagerState) {
   return state.latestToken ? state.leases.get(state.latestToken) ?? null : null
-}
-
-function handoffMatches(
-  handoff: ThreadOpenerHandoffTarget | null,
-  candidate: InboxReadCandidate,
-) {
-  return !!handoff
-    && handoff.childChannelId === candidate.channelId
-    && handoff.openerMessageId === candidate.openerMessageId
-    && handoff.openerSeq === candidate.openerSeq
-    && candidate.openerUnread
-}
-
-function claimedOpenerForCandidate(
-  state: ManagerState,
-  candidate: InboxReadCandidate,
-) {
-  let match: ClaimedThreadOpener | null = null
-  for (const claimed of state.claimedOpeners.values()) {
-    if (handoffMatches(claimed, candidate)) match = claimed
-  }
-  return match
-}
-
-function hasExactRouteLease(
-  state: ManagerState,
-  handoff: ThreadOpenerHandoffTarget,
-) {
-  return [...state.routeLeases.values()].some((lease) => (
-    lease.nonce === handoff.nonce
-    && lease.serverId === handoff.serverId
-    && lease.childChannelId === handoff.childChannelId
-  ))
-}
-
-function shouldAwaitOpenerClaim(
-  state: ManagerState,
-  candidate: InboxReadCandidate,
-) {
-  const handoff = state.handoff
-  return !!handoff
-    && handoff.phase === "armed"
-    && handoffMatches(handoff, candidate)
-    && hasExactRouteLease(state, handoff)
 }
 
 function notifyActive(state: ManagerState, candidate: InboxReadCandidate | null) {
@@ -707,23 +568,6 @@ function candidateIdentityMatches(
     )
 }
 
-function permitMatches(
-  permit: ResponsePermit,
-  epoch: number,
-  candidate: InboxReadCandidate,
-) {
-  return permit.epoch === epoch
-    && permit.channelId === candidate.channelId
-    && (permit.lastMessageAt === null || permit.lastMessageAt === candidate.lastMessageAt)
-    && (permit.fingerprint === null || permit.fingerprint === candidate.fingerprint)
-}
-
-function cancelHeld(state: ManagerState, held: HeldResponse) {
-  if (!deleteManagerMap(state, "held", held.id)) return
-  held.removeAbort()
-  held.reject(new DOMException("Inbox response superseded", "AbortError"))
-}
-
 function queueAuthoritativeRefetch(state: ManagerState) {
   if (state.disposed || state.refetch) return state.refetch ?? Promise.resolve()
   const queryKey = communityKeys.accountAttention()
@@ -741,54 +585,6 @@ function queueAuthoritativeRefetch(state: ManagerState) {
   return original
 }
 
-function releaseHeldNegative(state: ManagerState, held: HeldResponse) {
-  const handoff = state.handoff
-  if (
-    handoff?.phase === "armed"
-    && handoffMatches(handoff, held.candidate)
-    && !hasExactRouteLease(state, handoff)
-  ) {
-    state.handoff = null
-  }
-  state.permit = {
-    epoch: activeLease(state)?.lease.epoch ?? state.nextEpoch,
-    channelId: held.candidate.channelId,
-    lastMessageAt: held.candidate.lastMessageAt,
-    fingerprint: held.candidate.fingerprint,
-  }
-  cancelHeld(state, held)
-  notifyActive(state, null)
-  return queueAuthoritativeRefetch(state).then(
-    () => publishProjectionCandidateTerminal(state, held.candidate, "negative"),
-    () => {
-      publishProjectionCandidateTerminal(state, held.candidate, "error")
-    },
-  )
-}
-
-function reclassifyHeld(state: ManagerState) {
-  const lease = activeLease(state)
-  if (!lease) return
-  let latest: InboxReadCandidate | null = null
-  for (const held of state.held.values()) {
-    if (held.openerClaimLocked) continue
-    const candidate = candidateFor(held.data, lease.lease.channelId)
-    if (!candidate) {
-      void releaseHeldNegative(state, held)
-      continue
-    }
-    const claimed = claimedOpenerForCandidate(state, candidate)
-    const current = { ...held, candidate, generation: claimed?.generation ?? null, openerClaimLocked: claimed !== null }
-    setManagerMap(state, "held", held.id, current)
-    if (shouldAwaitOpenerClaim(state, candidate) && state.handoff) {
-      state.handoff = { ...state.handoff, phase: "awaiting-opener-claim" }
-    }
-    bindProjectionTickets(state, candidate, current.generation)
-    latest = candidate
-  }
-  notifyActive(state, latest)
-}
-
 export function registerInboxProjectionTicket(
   queryClient: QueryClient,
   epoch: number,
@@ -801,6 +597,7 @@ export function registerInboxProjectionTicket(
     ticket,
     target,
     active: false,
+    pendingTerminal: null,
     generation: null,
     onReceipt,
     attentionOptimistic: null,
@@ -824,9 +621,9 @@ export function activateInboxProjectionTicket(ticket: InboxProjectionTicket) {
   if (!state || !current || current.ticket.epoch !== ticket.epoch) return false
   const active = beginProjectionAttention({ ...current, active: true })
   setManagerMap(state, "projectionTickets", ticket.token, active)
-  const terminal = active.generation === null
+  const terminal = active.pendingTerminal ?? (active.generation === null
     ? null
-    : state.projectionTerminals.get(active.generation)?.terminal ?? null
+    : state.projectionTerminals.get(active.generation)?.terminal ?? null)
   if (terminal) deliverProjectionTerminal(state, active, terminal)
   return true
 }
@@ -868,7 +665,6 @@ export function registerInboxReadReservationSurface(
     settleFocusedAttention(queryClient, state.focusedCandidate, false)
     state.focusedCandidate = null
   }
-  reclassifyHeld(state)
   return lease
 }
 
@@ -904,21 +700,6 @@ export function armInboxReadReservationCandidate(
 
   if (current?.epoch === lease.lease.epoch) {
     settleFocusedAttention(queryClient, current, false)
-    for (const held of [...state.held.values()]) {
-      if (candidateIdentityMatches(current.candidate, held.candidate)) cancelHeld(state, held)
-    }
-  }
-  if (
-    state.permit?.epoch === lease.lease.epoch
-    && state.permit.channelId === input.channelId
-  ) {
-    state.permit = null
-  }
-  if (
-    state.discardedCandidate?.epoch === lease.lease.epoch
-    && state.discardedCandidate.candidate.channelId === input.channelId
-  ) {
-    state.discardedCandidate = null
   }
   state.focusedCandidate = {
     epoch: lease.lease.epoch,
@@ -957,13 +738,7 @@ export function releaseInboxReadReservationSurface(lease: InboxReadReservationLe
     settleFocusedAttention(lease.queryClient, state.focusedCandidate, false)
     state.focusedCandidate = null
   }
-  if (state.discardedCandidate?.epoch === lease.epoch) state.discardedCandidate = null
-  if (state.permit?.epoch === lease.epoch) state.permit = null
-  const epoch = ++state.nextEpoch
-  queueMicrotask(() => {
-    if (state.disposed || state.latestToken || state.nextEpoch !== epoch) return
-    for (const held of [...state.held.values()]) void releaseHeldNegative(state, held)
-  })
+
 }
 
 export function promoteInboxReadReservation(
@@ -984,50 +759,23 @@ export function promoteInboxReadReservation(
       state.focusedCandidate.candidate,
     )
   }
-  for (const held of state.held.values()) {
-    if (held.candidate.channelId === lease.channelId && !held.openerClaimLocked) {
-      setManagerMap(state, "held", held.id, { ...held, generation })
-      rememberProjectionCandidate(state, generation, held.candidate)
-    }
-  }
   return true
 }
 
-export function takeInboxReadReservationNegative(
-  lease: InboxReadReservationLease,
-) {
+export function takeInboxReadReservationNegative(lease: InboxReadReservationLease) {
   const state = managers.get(lease.queryClient)
   const current = state?.leases.get(lease.token)
   if (!state || !current || current.lease.epoch !== lease.epoch) return false
-  if (state.handoff?.phase === "awaiting-opener-claim") return false
-  let released = false
-  for (const held of [...state.held.values()]) {
-    if (held.candidate.channelId === lease.channelId && held.generation === null) {
-      released = true
-      void releaseHeldNegative(state, held)
-    }
-  }
   const focused = state.focusedCandidate
-  if (
-    focused?.epoch === lease.epoch
-    && focused.candidate.channelId === lease.channelId
-    && focused.generation === null
-  ) {
+  if (focused?.epoch === lease.epoch && focused.candidate.channelId === lease.channelId && focused.generation === null) {
     settleFocusedAttention(lease.queryClient, focused, false)
     state.focusedCandidate = null
-    if (!released) {
-      state.permit = {
-        epoch: lease.epoch,
-        channelId: focused.candidate.channelId,
-        lastMessageAt: focused.candidate.lastMessageAt,
-        fingerprint: null,
-      }
-      notifyActive(state, null)
-      void queueAuthoritativeRefetch(state).then(
-        () => publishProjectionCandidateTerminal(state, focused.candidate, "negative"),
-        () => publishProjectionCandidateTerminal(state, focused.candidate, "error"),
-      )
-    }
+    notifyActive(state, null)
+    const captured = [...state.projectionTickets.values()].filter((ticket) => targetMatchesCandidate(ticket.target, focused.candidate))
+    void queueAuthoritativeRefetch(state).then(
+      () => publishCapturedProjectionTerminal(state, captured, "negative"),
+      () => publishCapturedProjectionTerminal(state, captured, "error"),
+    )
   }
   return true
 }
@@ -1041,152 +789,32 @@ export async function settleInboxReadReservationGeneration(
   const state = managers.get(queryClient)
   if (!state || state.disposed) return
   const claimed = state.claimedOpeners.get(generation) ?? null
-  const matching = [...state.held.values()].filter((held) => held.generation === generation)
+  deleteManagerMap(state, "claimedOpeners", generation)
   if (!committed) {
-    deleteManagerMap(state, "claimedOpeners", generation)
-    if (matching.length === 0) {
-      const lease = activeLease(state)
-      const permitChannelId = claimed?.childChannelId ?? channelId
-      if (lease?.lease.channelId !== permitChannelId) return
-      state.permit = {
-        epoch: lease.lease.epoch,
-        channelId: permitChannelId,
-        lastMessageAt: state.focusedCandidate?.generation === generation
-          ? state.focusedCandidate.candidate.lastMessageAt
-          : null,
-        fingerprint: null,
-      }
-      if (state.focusedCandidate?.generation === generation) {
-        settleFocusedAttention(queryClient, state.focusedCandidate, false)
-        state.focusedCandidate = null
-      }
-      notifyActive(state, null)
-      try {
-        await queueAuthoritativeRefetch(state)
-        const candidate = state.projectionCandidates.get(generation)
-        if (candidate) publishProjectionTerminal(state, generation, "negative")
-      } catch {
-        publishProjectionTerminal(state, generation, "error")
-      }
-      return
-    }
-    await Promise.all(matching.map((held) => releaseHeldNegative(state, held)))
-    publishProjectionTerminal(state, generation, "negative")
+    const lease = activeLease(state)
+    if (lease?.lease.channelId !== (claimed?.childChannelId ?? channelId)) return
     if (state.focusedCandidate?.generation === generation) {
       settleFocusedAttention(queryClient, state.focusedCandidate, false)
       state.focusedCandidate = null
-    }
-    return
-  }
-  if (matching.length === 0 && !claimed) {
-    const focused = state.focusedCandidate
-    if (committed && focused?.generation === generation) {
-      await settleFocusedAttention(queryClient, focused, true)
-      try { state.assertActive() } catch { return }
-      state.discardedCandidate = {
-        epoch: focused.epoch,
-        candidate: focused.candidate,
-      }
-      state.focusedCandidate = null
       notifyActive(state, null)
     }
+    try {
+      await queueAuthoritativeRefetch(state)
+      publishProjectionTerminal(state, generation, "negative")
+    } catch {
+      publishProjectionTerminal(state, generation, "error")
+    }
     return
   }
-  await state.queryClient.cancelQueries({
-    queryKey: communityKeys.inboxUnreads(),
-    exact: true,
-  })
+  const focused = state.focusedCandidate
+  if (focused?.generation !== generation) return
+  const settled = settleFocusedAttention(queryClient, focused, true)
+  const settledFocused = state.focusedCandidate
+  await settled
   try { state.assertActive() } catch { return }
-  deleteManagerMap(state, "claimedOpeners", generation)
-  for (const held of [...state.held.values()]) {
-    if (held.generation === generation) cancelHeld(state, held)
-  }
-  if (state.focusedCandidate?.generation === generation) {
-    await settleFocusedAttention(queryClient, state.focusedCandidate, true)
-    try { state.assertActive() } catch { return }
-    state.focusedCandidate = null
-  }
+  if (state.focusedCandidate !== settledFocused) return
+  state.focusedCandidate = null
   notifyActive(state, null)
-}
-
-export async function reserveInboxUnreadsResponse<T extends InboxResponse>(
-  queryClient: QueryClient,
-  data: T,
-  signal?: AbortSignal,
-): Promise<T> {
-  const state = managerFor(queryClient)
-  const lease = activeLease(state)
-  if (state.disposed || !lease) return data
-  const candidate = candidateFor(data, lease.lease.channelId)
-  if (!candidate) return data
-  const claimed = claimedOpenerForCandidate(state, candidate)
-  const armed = state.focusedCandidate?.epoch === lease.lease.epoch
-    && state.focusedCandidate.candidate.channelId === candidate.channelId
-    ? state.focusedCandidate
-    : null
-  let focused = armed && candidateIdentityMatches(armed.candidate, candidate)
-    ? armed
-    : null
-  if (armed && !focused) {
-    if (candidate.lastMessageAt <= armed.candidate.lastMessageAt) {
-      throw new DOMException("Inbox response superseded", "AbortError")
-    }
-    for (const held of [...state.held.values()]) {
-      if (candidateIdentityMatches(armed.candidate, held.candidate)) cancelHeld(state, held)
-    }
-    focused = {
-      epoch: armed.epoch,
-      candidate,
-      generation: null,
-      attentionOptimistic: armed.attentionOptimistic,
-    }
-    state.focusedCandidate = focused
-  }
-  if (
-    state.discardedCandidate?.epoch === lease.lease.epoch
-    && candidateIdentityMatches(state.discardedCandidate.candidate, candidate)
-  ) {
-    throw new DOMException("Inbox response superseded", "AbortError")
-  }
-  if (
-    !claimed
-    && state.permit
-    && permitMatches(state.permit, lease.lease.epoch, candidate)
-  ) {
-    state.permit = null
-    if (focused) state.focusedCandidate = null
-    return data
-  }
-  if (signal?.aborted) throw new DOMException("Inbox response aborted", "AbortError")
-  return new Promise<T>((_resolve, reject) => {
-    const id = ++state.nextResponseId
-    const onAbort = () => {
-      const held = state.held.get(id)
-      if (!held) return
-      deleteManagerMap(state, "held", id)
-      held.removeAbort()
-      reject(new DOMException("Inbox response aborted", "AbortError"))
-    }
-    signal?.addEventListener("abort", onAbort, { once: true })
-    const held: HeldResponse<T> = {
-      id,
-      candidate,
-      data,
-      generation: claimed?.generation ?? focused?.generation ?? null,
-      openerClaimLocked: claimed !== null,
-      reject,
-      removeAbort: () => signal?.removeEventListener("abort", onAbort),
-    }
-    setManagerMap(state, "held", id, held)
-    if (focused) {
-      state.focusedCandidate = { ...focused, candidate }
-    }
-    if (shouldAwaitOpenerClaim(state, candidate) && state.handoff) {
-      state.handoff = { ...state.handoff, phase: "awaiting-opener-claim" }
-    }
-    bindProjectionTickets(state, candidate, held.generation)
-    lease.onCandidate(candidate)
-  })
 }
 
 export function armThreadOpenerReservationHandoff(
@@ -1195,19 +823,13 @@ export function armThreadOpenerReservationHandoff(
 ) {
   const state = managerFor(queryClient)
   if (state.handoff) terminateThreadOpenerReservationHandoff(queryClient, state.handoff.nonce)
-  state.handoff = {
-    ...target,
-    epoch: ++state.nextEpoch,
-    phase: "armed",
-  }
+  state.handoff = { ...target, projectionTickets: [...state.projectionTickets.values()].filter((ticket) => isHandoffProjectionTarget(ticket.target, target)).map((ticket) => ticket.ticket) }
 }
 
-export function getThreadOpenerReservationHandoff(
-  queryClient: QueryClient,
-  nonce: string,
-) {
+export function getThreadOpenerReservationHandoff(queryClient: QueryClient, nonce: string): ThreadOpenerHandoffTarget | null {
   const handoff = managerFor(queryClient).handoff
-  return handoff?.nonce === nonce ? { ...handoff } : null
+  if (handoff?.nonce !== nonce) return null
+  return { nonce: handoff.nonce, serverId: handoff.serverId, parentChannelId: handoff.parentChannelId, childChannelId: handoff.childChannelId, openerMessageId: handoff.openerMessageId, openerSeq: handoff.openerSeq }
 }
 
 export function registerThreadOpenerRouteLease(
@@ -1225,14 +847,6 @@ export function registerThreadOpenerRouteLease(
     childChannelId,
   }
   setManagerMap(state, "routeLeases", lease.token, lease)
-  const handoff = state.handoff
-  if (
-    handoff?.phase === "armed"
-    && hasExactRouteLease(state, handoff)
-    && [...state.held.values()].some((held) => handoffMatches(handoff, held.candidate))
-  ) {
-    state.handoff = { ...handoff, phase: "awaiting-opener-claim" }
-  }
   return lease
 }
 
@@ -1266,13 +880,15 @@ export function completeThreadOpenerReservationHandoff(
   const state = managerFor(queryClient)
   const handoff = state.handoff
   if (!handoff || handoff.nonce !== nonce) return false
-  for (const held of state.held.values()) {
-    if (handoffMatches(handoff, held.candidate)) {
-      setManagerMap(state, "held", held.id, { ...held, generation, openerClaimLocked: true })
-      rememberProjectionCandidate(state, generation, held.candidate)
-    }
+  for (const owned of handoff.projectionTickets) {
+    const ticket = state.projectionTickets.get(owned.token)
+    if (!ticket || ticket.ticket.epoch !== owned.epoch) continue
+    const bound = { ...ticket, generation, pendingTerminal: ticket.generation === generation ? ticket.pendingTerminal : null }
+    setManagerMap(state, "projectionTickets", ticket.ticket.token, bound)
+    const terminal = state.projectionTerminals.get(generation)?.terminal
+    if (terminal) deliverProjectionTerminal(state, bound, terminal)
   }
-  setManagerMap(state, "claimedOpeners", generation, { ...handoff, generation })
+  setManagerMap(state, "claimedOpeners", generation, { nonce: handoff.nonce, serverId: handoff.serverId, parentChannelId: handoff.parentChannelId, childChannelId: handoff.childChannelId, openerMessageId: handoff.openerMessageId, openerSeq: handoff.openerSeq, generation })
   state.handoff = null
   return true
 }
@@ -1284,15 +900,15 @@ export function terminateThreadOpenerReservationHandoff(
   const state = managerFor(queryClient)
   const handoff = state.handoff
   if (!handoff || handoff.nonce !== nonce) return false
-  const matching = [...state.held.values()].filter((held) => handoffMatches(handoff, held.candidate))
   state.handoff = null
-  for (const held of matching) void releaseHeldNegative(state, held)
-  if (matching.length === 0) {
-    void queueAuthoritativeRefetch(state).then(
-      () => publishProjectionHandoffTerminal(state, handoff, "negative"),
-      () => publishProjectionHandoffTerminal(state, handoff, "error"),
-    )
-  }
+  const captured = handoff.projectionTickets.flatMap((owned) => {
+    const current = state.projectionTickets.get(owned.token)
+    return current?.ticket.epoch === owned.epoch ? [current] : []
+  })
+  void queueAuthoritativeRefetch(state).then(
+    () => publishCapturedProjectionTerminal(state, captured, "negative"),
+    () => publishCapturedProjectionTerminal(state, captured, "error"),
+  )
   return true
 }
 
@@ -1312,8 +928,6 @@ export function disposeInboxReadReservation(queryClient: QueryClient) {
   clearManagerMap(state, "routeLeases")
   settleFocusedAttention(queryClient, state.focusedCandidate, true)
   state.focusedCandidate = null
-  state.discardedCandidate = null
-  state.permit = null
   clearManagerMap(state, "leases")
   state.latestToken = null
   for (const ticket of state.projectionTickets.values()) {
@@ -1322,6 +936,5 @@ export function disposeInboxReadReservation(queryClient: QueryClient) {
   clearManagerMap(state, "projectionTickets")
   clearManagerMap(state, "projectionCandidates")
   clearManagerMap(state, "projectionTerminals")
-  for (const held of [...state.held.values()]) cancelHeld(state, held)
   managers.delete(queryClient)
 }

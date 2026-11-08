@@ -13,7 +13,7 @@ let mediaQueries: Array<Set<(event: MediaQueryListEvent) => void>> = []
 function Demo() {
   const timeline = useScriptedTimeline({ steps, holdAfterComplete: 1000, resetDuration: 100 })
   return createElement("div", { ref: timeline.containerRef, "data-testid": "demo", "data-resetting": timeline.isResetting },
-    steps.filter((_, index) => timeline.isStepVisible(index)).map((step) => createElement("p", { key: step.id }, step.id)))
+    steps.filter(step => timeline.isStepVisible(step.id)).map((step) => createElement("p", { key: step.id }, step.id)))
 }
 
 beforeEach(() => {

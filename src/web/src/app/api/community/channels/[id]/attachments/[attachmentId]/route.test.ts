@@ -158,14 +158,14 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
   })
 
   it("bot: percent-encodes non-ASCII filenames per RFC 5987", async () => {
-    mockGetReadableAttachmentById.mockResolvedValue(persistedRow({ messageId: null, uploaderId: "bot_1", filename: "图表.png" }))
+    mockGetReadableAttachmentById.mockResolvedValue(persistedRow({ messageId: null, uploaderId: "bot_1", filename: "€€.png" }))
     mockR2Get.mockResolvedValue(r2Object())
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(200)
     expect(res.headers.get("Vary")).toBe("Authorization")
     const encoded = res.headers.get("X-Alook-Filename")
     expect(encoded).toBeTruthy()
-    expect(decodeURIComponent(encoded!)).toBe("图表.png")
+    expect(decodeURIComponent(encoded!)).toBe("€€.png")
   })
 
   it("human: persisted image on a channel the user is a member of → 200 inline + immutable cache, no X-Alook-Filename", async () => {
@@ -189,7 +189,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     expect(res.headers.get("Content-Disposition")).toBe("attachment; filename=\"doc.pdf\"; filename*=UTF-8''doc.pdf")
   })
 
-  it.each(["small-报告.bin", "📎😀.bin", 'a"b\\c.bin', "a\r\nb.bin", "plain.bin"])("human: legal filename header and exact bytes for %j", async filename => {
+  it.each(["small-€€.bin", "📎😀.bin", 'a"b\\c.bin', "a\r\nb.bin", "plain.bin"])("human: legal filename header and exact bytes for %j", async filename => {
     const bytes = new Uint8Array([0, 1, 254, 255])
     allowPersistedHuman(persistedRow({ filename, contentType: "application/octet-stream", size: bytes.length }))
     mockR2Get.mockResolvedValue(r2Object({ size: bytes.length }, bytes))

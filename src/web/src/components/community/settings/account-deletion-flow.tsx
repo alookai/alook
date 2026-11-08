@@ -104,7 +104,7 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
     }
   }, [view])
   const capture = () => {
-    if (!registry) throw new DOMException("Missing deletion account", "AbortError")
+    if (!registry?.accountId) throw new DOMException("Missing deletion account", "AbortError")
     const token = captureCommunityLiveSnapshotToken(queryClient), generation = view.get().generation
     const controller = new AbortController()
     const assertActive = () => {
@@ -115,7 +115,7 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
     assertActive()
     const abort = () => { try { assertActive() } catch { controller.abort() } }
     const viewSubscription = view.subscribe(abort), accountSubscription = registry.runtime.lifecycle.subscribe(abort)
-    return { registry, generation, controller, assertActive, options: communityRequestOptions(queryClient, token, controller.signal, assertActive), release: () => { viewSubscription.unsubscribe(); accountSubscription.unsubscribe() } }
+    return { registry, accountId: registry.accountId, generation, controller, assertActive, options: communityRequestOptions(queryClient, token, controller.signal, assertActive), release: () => { viewSubscription.unsubscribe(); accountSubscription.unsubscribe() } }
   }
   const request = useMutation({ meta: { observabilityAction: "account.deletion.command" }, mutationFn: async ({ action, body, source }: { action: "code" | "delete"; body: string; source: ReturnType<typeof capture> }) => {
     source.assertActive()
@@ -160,7 +160,7 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
       return source.registry.authenticationView.get().active && source.registry.authenticationView.get().generation === authGeneration && (viewer === undefined || viewer === null || viewer === source.registry.accountId)
     }
     setError("")
-    const lease = beginAccountDeletionAuthTransition(source.registry.accountId); transition.current = lease
+    const lease = beginAccountDeletionAuthTransition(source.accountId); transition.current = lease
     try {
       const response = await request.mutateAsync({ action: "delete", body: JSON.stringify({ otp }), source })
       if (!response.ok) {

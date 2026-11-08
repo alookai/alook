@@ -24,7 +24,6 @@ export function renderMessageListRow(
   item: FlatItem,
   props: ResolvedMessageListProps,
   controller: MessageListController,
-  _index: number,
 ) {
   if (item.kind === "leading") {
     return (

@@ -12,12 +12,7 @@ internal interface DocumentCleanupProvider {
     fun release(uri: String)
 }
 internal class FileSaveDocumentCleanup(private val store: DocumentCleanupStore, private val provider: DocumentCleanupProvider) {
-    fun acquire(token: String, uri: String) {
-        val existing = store.entries()[token]
-        check(existing == null || existing == DocumentCleanupRecord(uri))
-        store.put(token, DocumentCleanupRecord(uri))
-        provider.retain(uri)
-    }
+
     fun discard(token: String, uri: String): Boolean {
         var durable = true
         val existing = try { store.entries()[token] } catch (_: Exception) { durable = false; null }
@@ -34,11 +29,7 @@ internal class FileSaveDocumentCleanup(private val store: DocumentCleanupStore, 
         }
         return try { provider.release(uri); false } catch (_: Exception) { false }
     }
-    fun published(token: String, uri: String): Boolean {
-        val record = DocumentCleanupRecord(uri, releaseOnly = true)
-        store.put(token, record)
-        return release(token, record)
-    }
+
     fun repair(): Boolean {
         val entries = try { store.entries() } catch (_: Exception) { return false }
         var complete = true

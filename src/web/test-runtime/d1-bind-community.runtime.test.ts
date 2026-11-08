@@ -133,7 +133,7 @@ describe("community high-cardinality D1 queries", () => {
     const db = createDb(runtimeEnv.DB);
     expect(await queries.communityMember.getMembersByUserIds(db, serverId, userIds)).toHaveLength(125);
     expect(await queries.communityCategory.getCategoriesByIds(db, categoryIds)).toHaveLength(125);
-    expect(await queries.communityReaction.listReactionsByMessageIds(db, messageIds, ownerId)).toHaveLength(125);
+    expect(await queries.communityReaction.listReactionsByMessageIds(db, messageIds)).toHaveLength(125);
 
     await run(
       "INSERT INTO community_message (id, author_id, content, created_at, channel_id, seq, client_nonce) VALUES (?, ?, 'later sequence', ?, ?, 2, 'nonce')",

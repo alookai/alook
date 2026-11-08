@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, screen } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 import type { Breakpoint } from "@/hooks/use-mobile"
-import { resolveThreadSplitMode, THREAD_SPLIT_MIN_CONTENT_WIDTH, useThreadSplitMode } from "./use-thread-split-mode"
+import { useThreadSplitMode } from "./use-thread-split-mode"
 
 function Harness({ forceFullscreen = false, breakpoint = "desktop", enabled = true, attach = true }: {
   forceFullscreen?: boolean
@@ -13,44 +13,26 @@ function Harness({ forceFullscreen = false, breakpoint = "desktop", enabled = tr
 }) {
   const split = useThreadSplitMode({ breakpoint, enabled, forceFullscreen })
   return React.createElement("div", {
-    ref: attach ? split.containerRef : undefined,
     "data-testid": "thread-split-mode",
     "data-mode": split.mode,
-  })
+  }, React.createElement("span", { ref: attach ? split.modeMarkerRef : undefined, "data-testid": "thread-split-marker" }))
 }
-
-describe("resolveThreadSplitMode", () => {
-  it("uses split only when a desktop content pane can hold both conversations", () => {
-    expect(resolveThreadSplitMode({ breakpoint: "desktop", contentWidth: THREAD_SPLIT_MIN_CONTENT_WIDTH, forceFullscreen: false })).toBe("split")
-    expect(resolveThreadSplitMode({ breakpoint: "desktop", contentWidth: THREAD_SPLIT_MIN_CONTENT_WIDTH - 1, forceFullscreen: false })).toBe("full")
-  })
-
-  it("keeps mobile and explicit fullscreen layouts single-pane", () => {
-    expect(resolveThreadSplitMode({ breakpoint: "mobile", contentWidth: 2000, forceFullscreen: false })).toBe("full")
-    expect(resolveThreadSplitMode({ breakpoint: "desktop", contentWidth: 2000, forceFullscreen: true })).toBe("full")
-  })
-
-  it("keeps unconfirmed geometry pending instead of choosing a full layout", () => {
-    expect(resolveThreadSplitMode({ breakpoint: "unknown", contentWidth: 2000, forceFullscreen: false })).toBe("pending")
-    expect(resolveThreadSplitMode({ breakpoint: "desktop", contentWidth: null, forceFullscreen: false })).toBe("pending")
-    expect(resolveThreadSplitMode({ breakpoint: "mobile", contentWidth: null, forceFullscreen: false })).toBe("full")
-  })
-})
 
 describe("useThreadSplitMode shared geometry", () => {
   let observerCallback: ResizeObserverCallback | null
-  let width: number
+  let cssMode: string
   const observe = vi.fn()
   const disconnect = vi.fn()
 
   beforeEach(() => {
     observerCallback = null
-    width = THREAD_SPLIT_MIN_CONTENT_WIDTH
+    cssMode = "split"
     observe.mockClear()
     disconnect.mockClear()
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
-      width, height: 0, top: 0, right: width, bottom: 0, left: 0, x: 0, y: 0, toJSON: () => ({}),
-    }))
+    const getComputedStyle = window.getComputedStyle.bind(window)
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) => element.getAttribute("data-testid") === "thread-split-marker"
+      ? { getPropertyValue: (name: string) => name === "--thread-split-mode" ? cssMode : "" } as CSSStyleDeclaration
+      : getComputedStyle(element))
     vi.stubGlobal("ResizeObserver", class {
       constructor(callback: ResizeObserverCallback) { observerCallback = callback }
       observe = observe
@@ -63,7 +45,14 @@ describe("useThreadSplitMode shared geometry", () => {
     vi.restoreAllMocks()
   })
 
-  it("keeps a stable outer measurement node across target rerenders", () => {
+  it.each(["", "unknown"])("keeps an unconfirmed CSS mode pending: %j", (value) => {
+    cssMode = value
+    const renderer = render(React.createElement(Harness))
+    expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "pending")
+    renderer.unmount()
+  })
+
+  it("keeps a stable owned marker and observes its parent across target rerenders", () => {
     const renderer = render(React.createElement(Harness))
     const node = screen.getByTestId("thread-split-mode")
     expect(node).toHaveAttribute("data-mode", "split")
@@ -106,13 +95,15 @@ describe("useThreadSplitMode shared geometry", () => {
     renderer.unmount()
   })
 
-  it("keeps desktop automatic measurement live below and above the split threshold", () => {
+  it("reads the current CSS decision on each parent resize", () => {
     const renderer = render(React.createElement(Harness))
     const node = screen.getByTestId("thread-split-mode")
-    act(() => observerCallback?.([{ contentRect: { width: THREAD_SPLIT_MIN_CONTENT_WIDTH - 1 } } as unknown as ResizeObserverEntry], {} as ResizeObserver))
+    cssMode = "full"
+    act(() => observerCallback?.([], {} as ResizeObserver))
     expect(node).toHaveAttribute("data-mode", "full")
     expect(disconnect).not.toHaveBeenCalled()
-    act(() => observerCallback?.([{ contentRect: { width: THREAD_SPLIT_MIN_CONTENT_WIDTH } } as unknown as ResizeObserverEntry], {} as ResizeObserver))
+    cssMode = "split"
+    act(() => observerCallback?.([], {} as ResizeObserver))
     expect(node).toHaveAttribute("data-mode", "split")
     expect(observe).toHaveBeenCalledOnce()
     renderer.unmount()
@@ -124,7 +115,7 @@ describe("useThreadSplitMode shared geometry", () => {
     renderer.rerender(React.createElement(Harness, { forceFullscreen: true }))
     expect(node).toHaveAttribute("data-mode", "full")
     expect(disconnect).toHaveBeenCalledOnce()
-    width -= 1
+    cssMode = "full"
     renderer.rerender(React.createElement(Harness))
     expect(screen.getByTestId("thread-split-mode")).toBe(node)
     expect(node).toHaveAttribute("data-mode", "full")
@@ -142,7 +133,7 @@ describe("useThreadSplitMode shared geometry", () => {
     expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "split")
     const resizeListener = addEventListener.mock.calls.find(([type]) => type === "resize")?.[1] as () => void
     expect(resizeListener).toEqual(expect.any(Function))
-    width -= 1
+    cssMode = "full"
     act(() => resizeListener())
     expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "full")
     renderer.unmount()

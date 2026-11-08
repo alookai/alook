@@ -1,76 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
+import { communityWriteDb } from "../helpers/community-write-db";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 
 vi.mock("../../src/logger", () => ({
   createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
 import * as channelQueries from "../../src/db/queries/community/channel";
-import { canSeePrivateChannel } from "../../src/utils/community-roles";
 
-function channelRow(over: Record<string, unknown> = {}) {
-  return {
-    id: "c1",
-    serverId: "s1",
-    categoryId: null,
-    name: "chan",
-    type: "text",
-    topic: "",
-    position: 0,
-    parentChannelId: null,
-    creatorId: "creator",
-    messageCount: 0,
-    archived: 0,
-    parentMessageId: null,
-    lastMessageAt: null,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    ...over,
-  };
-}
-
-/**
- * Sequenced select mock: `queue` holds the resolved rows for each select() in
- * call order. getChannelForMember now issues: (1) a leading `type='dm'` probe
- * (empty for a non-DM channel, which lets the original flow run) → (2)
- * channel+member join → (3) anchor + category-private join → (4, optional)
- * isChannelMember lookup.
- */
-function makeSeqDb(queue: any[][]) {
-  let i = 0;
-  const db: any = {
-    select: vi.fn(() => {
-      const rows = queue[i++] ?? [];
-      const chain: any = {};
-      chain.from = vi.fn(() => chain);
-      chain.innerJoin = vi.fn(() => chain);
-      chain.leftJoin = vi.fn(() => chain);
-      chain.where = vi.fn(() => Object.assign(Promise.resolve(rows), chain));
-      chain.limit = vi.fn(() => Promise.resolve(rows));
-      chain.orderBy = vi.fn(() => Promise.resolve(rows));
-      return chain;
-    }),
-  };
-  return db;
-}
-
-describe("canSeePrivateChannel — shared rule", () => {
-  it("admin/owner does NOT see it without membership (no content privilege)", () => {
-    expect(canSeePrivateChannel({ role: "admin", isCreator: false, isChannelMember: false })).toBe(false)
-    expect(canSeePrivateChannel({ role: "owner", isCreator: false, isChannelMember: false })).toBe(false)
-  })
-  it("admin who is also a member/creator sees it (via those, not role)", () => {
-    expect(canSeePrivateChannel({ role: "admin", isCreator: false, isChannelMember: true })).toBe(true)
-    expect(canSeePrivateChannel({ role: "admin", isCreator: true, isChannelMember: false })).toBe(true)
-  })
-  it("creator sees it", () => {
-    expect(canSeePrivateChannel({ role: "member", isCreator: true, isChannelMember: false })).toBe(true)
-  })
-  it("added member sees it", () => {
-    expect(canSeePrivateChannel({ role: "member", isCreator: false, isChannelMember: true })).toBe(true)
-  })
-  it("unrelated member cannot", () => {
-    expect(canSeePrivateChannel({ role: "member", isCreator: false, isChannelMember: false })).toBe(false)
-  })
-})
 
 describe("deleteChannelMemberAndChildParticipants", () => {
   it("batches access removal with child notify cleanup", async () => {
@@ -110,84 +46,46 @@ describe("deleteChannelMemberAndChildParticipants", () => {
   });
 });
 
-describe("getChannelForMember — private visibility", () => {
-  // Every queue leads with `[]` — the new `type='dm'` probe returns no row for
-  // a non-DM channel, then the original server-member → private-category flow
-  // runs exactly as before.
-  it("non-server-member → null (empty join)", async () => {
-    const db = makeSeqDb([[], []]);
-    expect(await channelQueries.getChannelForMember(db, "c1", "u1")).toBeNull();
+describe("canonical scoped channel visibility through real SQLite", () => {
+  let fixture: ReturnType<typeof communityWriteDb>;
+  beforeEach(() => {
+    fixture = communityWriteDb();
+    fixture.sqlite.exec(`
+      ALTER TABLE community_server_member ADD COLUMN role TEXT;
+      INSERT INTO user(id) VALUES ('viewer'), ('creator'), ('outsider');
+      INSERT INTO community_server_member(id, server_id, user_id, role) VALUES ('viewer-member', 'server', 'viewer', 'member'), ('creator-member', 'server', 'creator', 'member');
+      INSERT INTO community_category(id, private) VALUES ('private', 1);
+      INSERT INTO community_channel(id, server_id, category_id, creator_id, type, created_at) VALUES
+        ('public', 'server', NULL, 'creator', 'text', 'now'),
+        ('private', 'server', 'private', 'creator', 'text', 'now'),
+        ('dm', NULL, NULL, NULL, 'dm', 'now');
+      INSERT INTO community_channel(id, server_id, parent_channel_id, creator_id, type, created_at) VALUES ('child', 'server', 'private', 'outsider', 'thread', 'now');
+    `);
   });
-
-  it("public channel → returns the channel for any member", async () => {
-    const db = makeSeqDb([
-      [], // dm probe → not a DM
-      [{ ...channelRow({ categoryId: null }), memberRole: "member" }],
-      [{ creatorId: "creator", categoryPrivate: 0 }],
-    ]);
-    const res = await channelQueries.getChannelForMember(db, "c1", "u1");
-    expect(res?.id).toBe("c1");
+  afterEach(() => fixture.sqlite.close());
+  it("admits a public server member, denies an outsider, and returns only channel columns", async () => {
+    const channel = await channelQueries.getChannelForMember(fixture.db, 'public', 'viewer');
+    expect(channel).toMatchObject({ id: 'public', serverId: 'server' });
+    expect(channel).not.toHaveProperty('memberRole');
+    expect(await channelQueries.getChannelForMember(fixture.db, 'public', 'outsider')).toBeNull();
   });
-
-  it("private channel + non-member, non-creator, non-admin → null", async () => {
-    const db = makeSeqDb([
-      [], // dm probe → not a DM
-      [{ ...channelRow({ categoryId: "cat1" }), memberRole: "member" }],
-      [{ creatorId: "creator", categoryPrivate: 1 }],
-      [], // isChannelMember → no row
-    ]);
-    expect(await channelQueries.getChannelForMember(db, "c1", "u1")).toBeNull();
+  it.each(['member', 'admin', 'owner'])("denies private content to %s without access, then admits an explicit access grant", async role => {
+    fixture.sqlite.prepare('UPDATE community_server_member SET role = ? WHERE user_id = ?').run(role, 'viewer');
+    for (const id of ['private', 'child']) expect(await channelQueries.getChannelForMember(fixture.db, id, 'viewer')).toBeNull();
+    fixture.sqlite.exec("INSERT INTO community_channel_member(id,channel_id,user_id,relation,added_at) VALUES ('notify','private','viewer','notify','now')");
+    expect(await channelQueries.getChannelForMember(fixture.db, 'private', 'viewer')).toBeNull();
+    fixture.sqlite.exec("INSERT INTO community_channel_member(id,channel_id,user_id,relation,added_at) VALUES ('access','private','viewer','access','now')");
+    for (const id of ['private', 'child']) expect(await channelQueries.getChannelForMember(fixture.db, id, 'viewer')).toMatchObject({ id });
   });
-
-  it("private channel + admin, NOT a member/creator → null (no content privilege)", async () => {
-    const db = makeSeqDb([
-      [], // dm probe → not a DM
-      [{ ...channelRow({ categoryId: "cat1" }), memberRole: "admin" }],
-      [{ creatorId: "creator", categoryPrivate: 1 }],
-      [], // isChannelMember → no row; admin role no longer short-circuits
-    ]);
-    expect(await channelQueries.getChannelForMember(db, "c1", "u1")).toBeNull();
+  it("inherits the private anchor creator and denies a child creator without anchor access", async () => {
+    expect(await channelQueries.getChannelForMember(fixture.db, 'child', 'creator')).toMatchObject({ id: 'child' });
+    fixture.sqlite.exec("INSERT INTO community_server_member(id,server_id,user_id) VALUES ('outside-member','server','outsider')");
+    expect(await channelQueries.getChannelForMember(fixture.db, 'child', 'outsider')).toBeNull();
   });
-
-  it("private channel + admin who IS an added member → returns the channel", async () => {
-    const db = makeSeqDb([
-      [], // dm probe → not a DM
-      [{ ...channelRow({ categoryId: "cat1" }), memberRole: "admin" }],
-      [{ creatorId: "creator", categoryPrivate: 1 }],
-      [{ id: "cm1" }], // isChannelMember → row present
-    ]);
-    const res = await channelQueries.getChannelForMember(db, "c1", "u1");
-    expect(res?.id).toBe("c1");
-  });
-
-  it("private channel + creator → returns the channel", async () => {
-    const db = makeSeqDb([
-      [], // dm probe → not a DM
-      [{ ...channelRow({ categoryId: "cat1", creatorId: "u1" }), memberRole: "member" }],
-      [{ creatorId: "u1", categoryPrivate: 1 }],
-    ]);
-    const res = await channelQueries.getChannelForMember(db, "c1", "u1");
-    expect(res?.id).toBe("c1");
-  });
-
-  it("private channel + added member → returns the channel", async () => {
-    const db = makeSeqDb([
-      [], // dm probe → not a DM
-      [{ ...channelRow({ categoryId: "cat1" }), memberRole: "member" }],
-      [{ creatorId: "creator", categoryPrivate: 1 }],
-      [{ id: "cm1" }], // isChannelMember → row present
-    ]);
-    const res = await channelQueries.getChannelForMember(db, "c1", "u1");
-    expect(res?.id).toBe("c1");
-  });
-
-  it("strips the joined memberRole from the returned row", async () => {
-    const db = makeSeqDb([
-      [], // dm probe → not a DM
-      [{ ...channelRow(), memberRole: "member" }],
-      [{ creatorId: "creator", categoryPrivate: 0 }],
-    ]);
-    const res = await channelQueries.getChannelForMember(db, "c1", "u1");
-    expect(res).not.toHaveProperty("memberRole");
+  it("requires a DM access relation rather than notification membership", async () => {
+    fixture.sqlite.exec("INSERT INTO community_channel_member(id,channel_id,user_id,relation,added_at) VALUES ('dm-notify','dm','viewer','notify','now')");
+    expect(await channelQueries.getChannelForMember(fixture.db, 'dm', 'viewer')).toBeNull();
+    fixture.sqlite.exec("INSERT INTO community_channel_member(id,channel_id,user_id,relation,added_at) VALUES ('dm-access','dm','viewer','access','now')");
+    expect(await channelQueries.getChannelForMember(fixture.db, 'dm', 'viewer')).toMatchObject({ id: 'dm', serverId: null });
   });
 });

@@ -53,7 +53,7 @@ beforeEach(() => {
 it("publishes a cold real creator profile and renders the creator name through the actual invite query", async () => {
   const owner = await createCommunityQueryOwner()
   const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, children)
-  const hook = renderHook(() => useInvites("s1"), { wrapper })
+  const hook = renderHook(() => useInvites("s1", true), { wrapper })
   try {
     await waitFor(() => expect(hook.result.current.isSuccess).toBe(true))
     expect(hook.result.current.invites[0]?.by).toBe("Alice")

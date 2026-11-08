@@ -1,5 +1,5 @@
 import { createLogger, formatHandle, queries, type Database } from "@alook/shared"
-import { createJevDecisionProvider, resolveJevProviderConfig } from "./jev-wake-gate"
+import { createJevDecisionProvider, resolveJevProviderConfig } from "./jev-decision-provider"
 
 const log = createLogger({ service: "jev-send-dedup" })
 const TIMEOUT_MS = 1_500
@@ -14,7 +14,7 @@ export async function isDuplicateBotMessage(input: {
   authorId: string
   content: string
 }): Promise<boolean> {
-  const config = resolveJevProviderConfig(input.env, THRESHOLD)
+  const config = resolveJevProviderConfig(input.env)
   if (!config) return false
 
   let timer: ReturnType<typeof setTimeout> | undefined

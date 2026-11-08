@@ -9,7 +9,6 @@ const mockCreateCommunityMessage = vi.fn()
 const mockCreateChannel = vi.fn()
 const mockGetThreadChannelByParentMessage = vi.fn()
 const mockHardDeleteMessage = vi.fn()
-const mockAddThreadParticipants = vi.fn()
 const mockFanOutToChannel = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 const mockDeleteChannel = vi.fn()
@@ -59,10 +58,6 @@ vi.mock("@alook/shared", async () => {
         ...actual.queries.communityAttachment,
         listMessageAttachments: (...a: unknown[]) => mockListMessageAttachments(...a),
       },
-      communityThread: {
-        ...actual.queries.communityThread,
-        addThreadParticipants: (...a: unknown[]) => mockAddThreadParticipants(...a),
-      },
     },
   }
 })
@@ -99,7 +94,6 @@ describe("createThreadForUser", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetThreadChannelByParentMessage.mockResolvedValue(null)
-    mockAddThreadParticipants.mockResolvedValue(undefined)
     mockFanOutToChannel.mockResolvedValue(undefined)
   })
 
@@ -121,9 +115,6 @@ describe("createThreadForUser", () => {
       order.push("create")
       return { ...channelResourceFixture({ id: "thread_1", name: "x".repeat(40), createdAt: "t0", creatorId: "cli_author", type: "thread", serverId: "s1", parentChannelId: "parent_1", parentMessageId: "m1" }), archived: 0 }
     })
-    mockAddThreadParticipants.mockImplementation(async () => {
-      order.push("participants")
-    })
     mockFanOutToChannel.mockImplementation(async () => {
       order.push("fanout")
     })
@@ -144,7 +135,6 @@ describe("createThreadForUser", () => {
       { userId: "cli_author", source: "spoke" },
       { userId: "source_author", source: "added" },
     ] }))
-    expect(mockAddThreadParticipants).not.toHaveBeenCalled()
     expect(order).toEqual(["create", "fanout"])
   })
 
@@ -177,7 +167,6 @@ describe("createThreadForUser", () => {
     })
 
     expect(result).toMatchObject({ ok: true, value: { id: "thread_winner" } })
-    expect(mockAddThreadParticipants).not.toHaveBeenCalled()
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
 })
@@ -224,7 +213,6 @@ describe("createMessageWithThread — atomic message composition", () => {
     const result = await createMessageWithThread({ ...input, clientNonce: "nonce", attachmentIds: ["a"] })
     expect(result).toEqual({ ok: true, message: { id: "msg_1" }, attachments, thread, deduped: true })
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
-    expect(mockAddThreadParticipants).not.toHaveBeenCalled()
   })
 
   it("passes CAS and attachment rejection through without dispatch", async () => {
@@ -248,12 +236,6 @@ describe("createMessageWithThread — atomic message composition", () => {
     mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1" }, attachments: [], deduped: true })
     mockGetThreadChannelByParentMessage.mockResolvedValue(null)
     await expect(createMessageWithThread(input)).rejects.toThrow("committed forum opener is missing its thread")
-    expect(mockFanOutToChannel).not.toHaveBeenCalled()
-  })
-
-  it("keeps broadcast suppression separate from structure", async () => {
-    await createMessageWithThread({ ...input, suppressBroadcast: true, suppressThreadFanout: true })
-    expect(mockCreateCommunityMessage).toHaveBeenCalledWith(expect.objectContaining({ suppressBroadcast: true, forumThread: expect.any(Object) }))
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
 

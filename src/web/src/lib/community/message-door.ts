@@ -52,34 +52,6 @@ export type DoorTarget = {
   access: MessageSurfaceAccess
 }
 
-/**
- * Validate a raw body's target descriptor into the id-xor-ref union.
- * Rejects: neither field, both fields, wrong types, and create-if-missing on
- * the id arm (structurally forbidden — resolve≠create).
- */
-export function parseTargetDescriptor(body: unknown): DoorResult<MessageTargetDescriptor> {
-  const b = (body ?? {}) as Record<string, unknown>
-  const hasId = typeof b.id === "string" && b.id.length > 0
-  const hasRef = typeof b.ref === "string" && b.ref.length > 0
-
-  if (hasId && hasRef) return err(400, "target must be exactly one of { id } or { ref }, not both")
-  if (!hasId && !hasRef) return err(400, "target requires one of { id } or { ref }")
-
-  if (hasId) {
-    // create-if-missing is meaningless on an already-resolved id; reject rather
-    // than silently ignore, so the id arm can never carry a create intent.
-    if (b.createDmIfMissing || b.createThreadIfMissing) {
-      return err(400, "create-if-missing is only valid with { ref }, not { id }")
-    }
-    return ok({ id: b.id as string })
-  }
-  return ok({
-    ref: b.ref as string,
-    createDmIfMissing: b.createDmIfMissing === true || undefined,
-    createThreadIfMissing: b.createThreadIfMissing === true || undefined,
-  })
-}
-
 function ok<T>(value: T): DoorResult<T> {
   return { ok: true, value }
 }

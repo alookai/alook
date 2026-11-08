@@ -188,7 +188,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
         {/* Composer — matches real product pill shape */}
         <div className="px-3 py-3 border-t border-border/40">
           {state.isTyping && (
-            <PresenceLine agentFirstName={agent.name} taskStatus="running" />
+            <PresenceLine agentFirstName={agent.name} />
           )}
           <div className="flex items-center gap-2 rounded-3xl border border-border/60 bg-muted/20 px-4 py-2">
             <span className="flex-1 text-sm text-muted-foreground/50">Message {agent.name}...</span>

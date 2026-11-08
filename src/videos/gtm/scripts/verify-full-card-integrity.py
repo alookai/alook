@@ -1,7 +1,10 @@
 import subprocess,sys
+from current_timeline import TIMELINE, card_intervals
 path=sys.argv[1]
 w,h=320,180
-for offset,count,lines,exit_frame in [(0,114,3,90),(1084,105,2,81),(1513,105,2,81),(2107,136,2,112)]:
+opening = TIMELINE["openingQuestion"]
+intervals = [(0, opening["verificationFrames"], len(opening["lines"]), opening["verificationExitFrame"]), *card_intervals()]
+for offset,count,lines,exit_frame in intervals:
     raw=subprocess.check_output(['ffmpeg','-v','error','-i',path,'-vf',f'trim=start_frame={offset}:end_frame={offset+count},setpts=PTS-STARTPTS,scale={w}:{h}','-fps_mode','passthrough','-pix_fmt','rgb24','-f','rawvideo','-'])
     frames=[raw[i:i+w*h*3] for i in range(0,len(raw),w*h*3)]
     assert len(frames)==count,(offset,len(frames),count)

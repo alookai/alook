@@ -155,7 +155,7 @@ describe("resolveScopeMemberUserIds", () => {
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["u1", "u2", "admin1"]);
     const db = makeDb({ select: [[{ serverId: "srv-1" }]] });
 
-    const ids = await resolveScopeMemberUserIds(db, { scope: "channel", scopeId: CHANNEL });
+    const ids = await resolveScopeMemberUserIds(db, { scopeId: CHANNEL });
 
     expect(ids).toEqual(["u1", "u2", "admin1"]);
     expect(mockGetPrivateChannelAudienceUserIds).toHaveBeenCalledTimes(1);
@@ -167,7 +167,7 @@ describe("resolveScopeMemberUserIds", () => {
     mockListMemberUserIds.mockResolvedValue(["u1", "u2", "u3"]);
     const db = makeDb({ select: [[{ serverId: "srv-1" }]] });
 
-    const ids = await resolveScopeMemberUserIds(db, { scope: "channel", scopeId: CHANNEL });
+    const ids = await resolveScopeMemberUserIds(db, { scopeId: CHANNEL });
 
     expect(ids).toEqual(["u1", "u2", "u3"]);
     expect(mockListMemberUserIds).toHaveBeenCalledTimes(1);
@@ -179,13 +179,13 @@ describe("resolveScopeMemberUserIds", () => {
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["u1"]);
     const db = makeDb({ select: [[{ serverId: "srv-1" }]] });
 
-    const ids = await resolveScopeMemberUserIds(db, { scope: "forum", scopeId: CHANNEL });
+    const ids = await resolveScopeMemberUserIds(db, { scopeId: CHANNEL });
     expect(ids).toEqual(["u1"]);
   });
 
   it("unknown channel → empty (scope isolation — nothing leaks)", async () => {
     const db = makeDb({ select: [[]] }); // channel lookup returns no rows
-    const ids = await resolveScopeMemberUserIds(db, { scope: "channel", scopeId: "nope" });
+    const ids = await resolveScopeMemberUserIds(db, { scopeId: "nope" });
     expect(ids).toEqual([]);
     expect(mockIsChannelPrivate).not.toHaveBeenCalled();
   });
@@ -207,7 +207,7 @@ describe("resolveScopeMembers — source tagging", () => {
       ],
     });
 
-    const members = await resolveScopeMembers(db, { scope: "channel", scopeId: CHANNEL });
+    const members = await resolveScopeMembers(db, { scopeId: CHANNEL });
 
     expect(members).toEqual([
       { userId: "owner1", role: "owner", source: "admin" },
@@ -234,7 +234,7 @@ describe("resolveScopeMembers — source tagging", () => {
       ],
     });
 
-    const members = await resolveScopeMembers(db, { scope: "channel", scopeId: CHANNEL });
+    const members = await resolveScopeMembers(db, { scopeId: CHANNEL });
 
     expect(members).toEqual([
       { userId: "member1", role: "member", source: "explicit" },

@@ -80,14 +80,11 @@ export function openMessageContextThread({
   return true
 }
 
-// A DM (type=dm) and a thread are channel rows in the same id-space, so both
-// resolve through the one canonical door — no per-type URL fork. `type` is kept
-// in the signatures for call-site clarity but no longer branches the path.
-function seqLookupUrl(_type: ScopeType, id: string, seq: number): string {
+function seqLookupUrl(id: string, seq: number): string {
   return `/api/community/channels/${id}/messages/seq/${seq}`
 }
 
-function anchorFetchUrl(_type: ScopeType, id: string, anchor: string, limit: number): string {
+function anchorFetchUrl(id: string, anchor: string, limit: number): string {
   const base = `/api/community/channels/${id}/messages`
   return `${base}?anchor=${encodeURIComponent(anchor)}&limit=${limit}`
 }
@@ -99,13 +96,13 @@ type SheetCache = {
   messages?: Pick<Msg, "id">[]
 }
 
-export function messageContextIdQueryFn(type: ScopeType, channelId: string, seq: number, queryClient: ReturnType<typeof useQueryClient>) {
+export function messageContextIdQueryFn(channelId: string, seq: number, queryClient: ReturnType<typeof useQueryClient>) {
   return ({ signal }: { signal?: AbortSignal } = {}) => withConversationReadDeadline(signal, async signal => {
     const proof = captureCommunityLiveSnapshotToken(queryClient, channelId)
     await proof.registry?.ready
     assertCommunityLiveSnapshotTokenCurrent(queryClient, proof, signal)
     try {
-      const result = await apiFetch<Pick<Msg, "id">>(seqLookupUrl(type, channelId, seq), communityRequestOptions(queryClient, proof, signal))
+      const result = await apiFetch<Pick<Msg, "id">>(seqLookupUrl(channelId, seq), communityRequestOptions(queryClient, proof, signal))
       assertCommunityLiveSnapshotTokenCurrent(queryClient, proof, signal)
       return { id: result.id, proof, notFound: false }
     } catch (error) {
@@ -117,7 +114,6 @@ export function messageContextIdQueryFn(type: ScopeType, channelId: string, seq:
 }
 
 export function messageContextQueryFn(
-  type: ScopeType,
   channelId: string,
   targetId: string,
   queryClient: ReturnType<typeof useQueryClient>,
@@ -132,7 +128,7 @@ export function messageContextQueryFn(
     assert()
     let page: MessagesReadPage
     try { page = await apiFetchCommunity<MessagesReadPage>(
-      anchorFetchUrl(type, channelId, targetId, CONTEXT_LIMIT),
+      anchorFetchUrl(channelId, targetId, CONTEXT_LIMIT),
       { signal, assertActive: assert }, publicationToken,
     )
     } catch (error) {
@@ -240,7 +236,7 @@ function MessageContextSheetContent({
   const lookup = useQuery({
     queryKey: [...communityKeys.messageContext(type, channelId, targetSeq), qualification],
     enabled: open && !!channelId && !requestedId && !!targetSeq,
-    queryFn: messageContextIdQueryFn(type, channelId, targetSeq!, queryClient),
+    queryFn: messageContextIdQueryFn(channelId, targetSeq!, queryClient),
     staleTime: 30_000,
     networkMode: "always",
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.messageContexts(type, channelId) }).retry),
@@ -250,7 +246,7 @@ function MessageContextSheetContent({
   const query = useQuery({
     queryKey: [...communityKeys.messageContext(type, channelId, targetId ?? null), qualification],
     enabled: open && !!channelId && !!targetId,
-    queryFn: messageContextQueryFn(type, channelId, targetId!, queryClient),
+    queryFn: messageContextQueryFn(channelId, targetId!, queryClient),
     staleTime: 30_000,
     networkMode: "always",
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.messageContexts(type, channelId) }).retry),

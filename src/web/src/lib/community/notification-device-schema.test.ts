@@ -1,7 +1,7 @@
+import { isCookieHumanSameOrigin } from "@/lib/server/request-security"
 import { describe, expect, it } from "vitest";
 import {
   hashProviderToken,
-  isCookieHumanSameOrigin,
   notificationDeviceInstallationIdSchema,
   notificationDeviceRegistrationSchema,
 } from "./notification-device-schema";

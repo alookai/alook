@@ -9,8 +9,6 @@ export type ReactionArgs = {
   emoji: string
   userId: string
   currentMe?: boolean
-  skipDefaultCache?: boolean
-  syncReactionState?: (me: boolean) => void
   onError?: (error: unknown) => void
 }
 

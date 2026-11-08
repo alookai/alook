@@ -6,7 +6,7 @@ vi.mock("@alook/shared", async (original) => ({ ...await original<typeof import(
 vi.mock("@/lib/middleware/community-agent-runner-auth", () => ({ resolveOwnedBotActor: mocks.actor }))
 vi.mock("./message-send.server", () => ({ handleHumanSend: mocks.human, handleBotSend: mocks.bot }))
 import { sendAutomationMessage } from "./automation-message.server"
-const body = { target: "/demo#0001/general", as: "me", content: "你好\nsecond line\n", nonce: "n1" }
+const body = { target: "/demo#0001/general", as: "me", content: "Hello\nsecond line\n", nonce: "n1" }
 const req = (input: unknown = body) => new NextRequest("http://localhost/api/community/automation/messages", { method: "POST", body: JSON.stringify(input) })
 const ctx = { env: { DB: {} } as Env, userId: "owner", beforeCreate: mocks.admit }
 beforeEach(() => {

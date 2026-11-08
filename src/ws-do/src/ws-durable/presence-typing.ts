@@ -8,7 +8,6 @@ import {
   isCommunityEventCandidate,
   visibilityIsDmParticipant,
   type Database,
-  type CommunityMachineUpdated,
 } from "@alook/shared"
 import type { UserConnectionState, WsDurableContext } from "./internal"
 import { createInternalBrowserBroadcastRequest } from "../internal-user-broadcast"
@@ -145,50 +144,16 @@ export async function notifyUserDO(
   context: WsDurableContext,
   userId: string,
   payload: unknown,
-  options?: { machineOnlineTransition: boolean },
 ): Promise<void> {
   const normalized = normalizeBrowserPayload(context, payload)
   if (!normalized.ok) return
-  const outboundPayload = normalized.payload
   try {
     const userDoId = context.env.WS_DO.idFromName("user:" + userId)
     const userStub = context.env.WS_DO.get(userDoId)
-    try {
-      await userStub.fetch(
-        createInternalBrowserBroadcastRequest(userId, outboundPayload),
-      )
-    } catch (err) {
-      context.log.error("notifyUserDO: owner notify failed", { err: String(err), userId })
-    }
-
-    try {
-      const status = machineStatusPayload(outboundPayload, options?.machineOnlineTransition ?? false)
-      if (!status) return
-      const db = createDb(context.env.DB)
-      const bots = await queries.communityBot.listBotsForMachine(db, status.machineId)
-      if (bots.length === 0) return
-      await Promise.allSettled(
-        bots.map((bot) => broadcastPresence(context, bot.id, status.online))
-      )
-    } catch (err) {
-      context.log.error("notifyUserDO: bot presence fan-out failed", { err: String(err), userId })
-    }
+    await userStub.fetch(createInternalBrowserBroadcastRequest(userId, normalized.payload))
   } catch (err) {
-    context.log.error("notifyUserDO: unexpected failure", { err: String(err), userId })
+    context.log.error("notifyUserDO: owner notify failed", { err: String(err), userId })
   }
-}
-
-function machineStatusPayload(payload: unknown, machineOnlineTransition: boolean): { machineId: string; online: boolean } | null {
-  if (typeof payload !== "object" || payload === null) return null
-  const p = payload as { type?: unknown; machineId?: unknown; status?: unknown; machine?: unknown }
-  if (p.type === WS_EVENTS.MACHINE_UPDATED && machineOnlineTransition) {
-    const { machine } = payload as CommunityMachineUpdated
-    return { machineId: machine.id, online: machine.status === "online" }
-  }
-  if (p.type !== WS_EVENTS.MACHINE_STATUS) return null
-  if (typeof p.machineId !== "string") return null
-  if (p.status !== "online" && p.status !== "offline") return null
-  return { machineId: p.machineId, online: p.status === "online" }
 }
 
 export async function fanOutTyping(

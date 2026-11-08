@@ -3,7 +3,7 @@ import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 import { getAllPosts } from "@blog/lib/blog/posts";
 import { isGuide } from "@blog/lib/blog/guides";
 import { blogTopics } from "@blog/lib/blog/topics";
-import { buildBlogIndexModel } from "../blog/(index)/model";
+import { buildBlogPostCards } from "@blog/lib/blog/post-cards";
 import { RecentPosts } from "../blog/(index)/recent-posts";
 
 const description =
@@ -17,8 +17,7 @@ export const metadata = buildPublicPageMetadata({
 
 export default async function GuidesPage() {
   const posts = (await getAllPosts()).filter(isGuide);
-  const { featured, recent } = buildBlogIndexModel(posts);
-  const articles = featured ? [featured, ...recent] : recent;
+  const articles = buildBlogPostCards(posts);
   const topicIds = new Set(articles.map((post) => post.topicId));
   return (
     <div className="mx-auto max-w-270 px-4 pb-24 pt-12 sm:px-6 sm:pt-20">

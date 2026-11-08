@@ -14,30 +14,8 @@ import { communityActorPolicy, requireBot } from "@/lib/middleware/community-act
 import { pushAgentNapToMachine } from "@/lib/community/bot-push"
 
 /**
- * POST /api/community/bots/me/nap — `alook nap [--handoff <file>]`.
- *
- * Relocated from the flat /api/community/nap (route/disc 接口树统一, Gener #215
- * 乙; Blondie #527 placement). nap is a BOT-QUA-BOT self lifecycle action — the
- * agent resets its OWN session — so it lives under the bots/me/* family
- * (self-scope, "me" = the credential-authenticated bot, NO target id), the same
- * "me = credential actor" model users/me/* uses (a bot hits POST
- * users/me/inbox/pull for its own inbox). This is DISTINCT from:
- *   - bots/{id}/* (owner MANAGES an owned bot: reset-session/approval/audit —
- *     withAuth + getBotOwnedBy, owner→bot[id]); nap is bot→self, opposite auth.
- *   - users/me/* (an actor's USER-scoped resources: inbox/marks — human+bot both
- *     have a user row); nap is bot-qua-bot lifecycle, only a bot has a session.
- * bots/me/* family invariant (same as users/me #426): self-scope, credential =
- * identity, NO target-bot/target-user param, "me" never proxies another bot.
- *
- * Bot-only, human actor → 403 via requireBot (Gener #116). `botUserId`/
- * `machineId` come from the authenticated runner (gate.bot), NEVER a request
- * field, so an agent can only nap ITSELF — a single self-reset, not a batch and
- * not a nap of any other bot.
- *
- * The flat /api/community/nap route is deleted (flat-delete step) — this door
- * is the sole canonical entry; the deploy-orchestration verify-list gates
- * deleting it on the daemon being confirmed on this new target.
- *
+ * A bot can reset only its own session. Bot and machine identity come from
+ * the authenticated runner, never request fields. Human actors are denied.
  */
 export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const gate = requireBot(ctx.actor)

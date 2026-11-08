@@ -5,9 +5,9 @@ export const PII_MAX_PLUGINS = 32;
 export const PII_SOURCE_MAX_BYTES = 16 * 1024;
 export const PII_TEXT_MAX_BYTES = 1024;
 export const PII_REQUEST_MAX_BYTES = 8 * 1024;
-export const PiiPreviewTextSchema = z.string().max(PII_TEXT_MAX_BYTES)
-  .refine(text => new TextEncoder().encode(text).byteLength <= PII_TEXT_MAX_BYTES)
-  .refine(text => text.trim().length > 0);
+const piiTextSchema = z.string().max(PII_TEXT_MAX_BYTES)
+  .refine(text => new TextEncoder().encode(text).byteLength <= PII_TEXT_MAX_BYTES);
+export const PiiPreviewTextSchema = piiTextSchema.refine(text => text.trim().length > 0);
 export const PiiPluginSchema = z.strictObject({
   id: z.string().min(1).max(128),
   name: z.string().trim().min(1).max(80),
@@ -40,7 +40,7 @@ export const PiiErrorCodeSchema = z.enum([
   "PII_INVALID_SOURCE", "PII_CONFIG_UNAVAILABLE", "PII_SOURCE_TOO_LARGE", "PII_INVALID_REQUEST",
 ]);
 export const PiiResultSchema = z.discriminatedUnion("status", [
-  z.strictObject({ status: z.literal("complete"), snapshot: PiiSnapshotSchema, output: PiiPreviewTextSchema.optional(), triggeredFilters: z.array(PiiPluginSchema.pick({ id: true, name: true })).max(PII_MAX_PLUGINS).optional() }),
+  z.strictObject({ status: z.literal("complete"), snapshot: PiiSnapshotSchema, output: piiTextSchema.optional(), triggeredFilters: z.array(PiiPluginSchema.pick({ id: true, name: true })).max(PII_MAX_PLUGINS).optional() }),
   z.strictObject({
     status: z.literal("error"),
     code: PiiErrorCodeSchema,

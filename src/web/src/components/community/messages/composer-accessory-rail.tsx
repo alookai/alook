@@ -31,7 +31,6 @@ export function ComposerAccessoryRail({
   const hasScroll = scrollMode === "jump" || (scrollCount ?? 0) > 0
   const hasNew = newVisible && !newPending && !!onNew
   const layout = allocateComposerAccessoryRail({
-    mode: "normal",
     left: hasTyping,
     center: hasScroll,
     right: hasNew,

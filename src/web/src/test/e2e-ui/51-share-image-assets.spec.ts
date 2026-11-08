@@ -1291,10 +1291,12 @@ test("a statistics table message generates a complete share PNG", async ({ caseA
   const { page } = await actors.asUser("alice")
   await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
   const text = [
-    "本次示例包含多列统计，部分条目仅作展示：所有名称与数值均为测试数据。中文说明应当正常换行，表格中的多位数字保持完整。详细内容如下。",
+    "All names and values below are test data. Text must wrap and multi-digit table values must stay complete.",
     "",
-    "示例累计1215；首月为0，其余测试分类如下：",
-    "|类别|第一期|第二期|第三期|第四期|第五期|合计|",
+    `CJK wrapping sample: ${"界".repeat(60)}`,
+    "",
+    "Example total: 1215. The first month is 0. Categories follow:",
+    "|Category|Period 1|Period 2|Period 3|Period 4|Period 5|Total|",
     "|---|---:|---:|---:|---:|---:|---:|",
     "|Sample Alpha|11|22|33|44|55|165|",
     "|Beta|12|23|34|45|56|170|",
@@ -1303,9 +1305,9 @@ test("a statistics table message generates a complete share PNG", async ({ caseA
     "|Epsilon|15|26|37|48|59|185|",
     "|Sample Zeta|16|27|38|49|60|190|",
     "|Eta Group|—|—|39|50|61|150|",
-    "|合计|81|147|252|329|406|1215|",
+    "|Total|81|147|252|329|406|1215|",
     "",
-    "示例末段包含127、248与375等多位数字。继续检查导出结果，确保所有行列和中文说明完整可见。",
+    "The final paragraph includes 127, 248 and 375. All exported rows, columns and wrapping text must remain visible.",
   ].join("\n")
   const seeded = await seedMessage(page, channelId, text)
   await testInfo.attach("statistics-table-source", { body: JSON.stringify({ serverId, channelId, messageId: seeded.id }), contentType: "application/json" })
@@ -1326,7 +1328,7 @@ test("a statistics table message generates a complete share PNG", async ({ caseA
         const card = await waitForReady(dialog)
         await expect(card.getByRole("table").locator("tr")).toHaveCount(9)
         expect(await card.getByRole("table").locator("tr").evaluateAll(rows => rows.map(row => row.querySelectorAll("th, td").length))).toEqual(Array(9).fill(7))
-        await expect(card.getByRole("table").locator("tr").last()).toHaveText("合计811472523294061215")
+        await expect(card.getByRole("table").locator("tr").last()).toHaveText("Total811472523294061215")
         const downloaded = page.waitForEvent("download")
         await dialog.getByRole("button", { name: "Download" }).click()
         const download = await downloaded

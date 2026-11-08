@@ -8,20 +8,8 @@ import { serverIconUrl } from "@/lib/community/storage"
 import { buildServerChannelGroups } from "@/lib/community/list-channels"
 
 /**
- * GET /api/community/servers/channels — all-servers channel list, the
- * servers-COLLECTION-level read (Gener #392). This is the bot's `channel list`
- * with no `--server`: fan out across every server the bot is in and return one
- * flat `ChannelGroup[]` (grouped-by-category per server, in `listUserServers`
- * order). A cross-server aggregate has no single-`[id]` home, so it lives at the
- * collection level — NOT a floating top-level operation-named route (Melly
- * #393: 能嵌就嵌到底). The single-server read is the sibling `servers/[id]/channels`
- * GET.
- *
- * Bot-only (no human all-servers channel DTO — the web reads per-server via the
- * bootstrap tree). Human actor → lean 404. Per-server visibility comes from
- * `listChannelsForMember` inside `buildServerChannelGroups`, so private channels
- * the bot can't see never appear; there is no server the bot isn't a member of
- * in `listUserServers`, so no existence mask is needed here.
+ * The bot aggregate includes only joined servers and visible channels.
+ * Human callers use per-server reads and receive404 here.
  */
 export const GET = withAuth(communityActorPolicy({ allowInactiveBot: true }), async (_req: NextRequest, ctx) => {
   if (ctx.actor.kind !== "bot") {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react"
+import { useCallback, useLayoutEffect, useRef, type CSSProperties, type ReactNode, type RefCallback } from "react"
 import { useDefaultLayout, type GroupImperativeHandle, type Layout, type LayoutChangedMeta } from "react-resizable-panels"
 import { useHydratedClient } from "@/components/community/shell/use-hydrated-client"
 import {
@@ -31,6 +31,7 @@ export function ThreadSplitView({
   thread,
   conversationSubtype = "thread",
   resolvingParent = false,
+  modeMarkerRef,
 }: {
   split: boolean
   layoutPending?: boolean
@@ -38,6 +39,7 @@ export function ThreadSplitView({
   thread: ReactNode
   conversationSubtype?: "unknown" | "text" | "forum" | "thread"
   resolvingParent?: boolean
+  modeMarkerRef?: RefCallback<HTMLElement>
 }) {
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: "community-thread-split-layout",
@@ -74,6 +76,7 @@ export function ThreadSplitView({
         "--thread-split-thread-max": `${THREAD_SPLIT_PANEL_MAX_WIDTH}px`,
       } as CSSProperties}
     >
+      <span ref={modeMarkerRef} aria-hidden className={styles.modeMarker} />
       <ResizablePanelGroup
         id="community-thread-split-layout"
         orientation="horizontal"

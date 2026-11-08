@@ -1,10 +1,10 @@
 import Sqlite from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Database } from "../../src/db"
-import { listEligibleUnreadServerIds } from "../../src/db/queries/community/inbox"
+import { listEligibleUnreadChannels, listUnreadForumOpeners, listThreadOpenersByChildIds } from "../../src/db/queries/community/inbox"
 
-describe("listEligibleUnreadServerIds", () => {
+describe("listEligibleUnreadChannels", () => {
   let sqlite: Sqlite.Database
   let db: Database
 
@@ -51,14 +51,20 @@ describe("listEligibleUnreadServerIds", () => {
 
   afterEach(() => sqlite.close())
 
-  it("returns distinct server ids from the canonical visibility, cursor, and policy gates", async () => {
-    await expect(listEligibleUnreadServerIds(db, "viewer")).resolves.toEqual(["server-a"])
+  async function eligibleServerIds() {
+    const rows = await listEligibleUnreadChannels(db, "viewer", ["channel-a", "channel-a-2", "channel-b"])
+    expect(rows.every(row => row.channelId !== "hidden-a" && row.channelId !== "dm")).toBe(true)
+    return [...new Set(rows.map(row => row.serverId))].sort()
+  }
+
+  it("returns distinct server ids from the authorized channel scope, cursor, and policy gates", async () => {
+    await expect(eligibleServerIds()).resolves.toEqual(["server-a"])
 
     sqlite.exec(`
       INSERT INTO community_message (id, author_id, content, created_at, channel_id, seq)
       VALUES ('b-2', 'author', 'b2', '2026-01-04T00:00:00Z', 'channel-b', 2);
     `)
-    await expect(listEligibleUnreadServerIds(db, "viewer")).resolves.toEqual([
+    await expect(eligibleServerIds()).resolves.toEqual([
       "server-a",
       "server-b",
     ])
@@ -72,19 +78,67 @@ describe("listEligibleUnreadServerIds", () => {
       VALUES ('a-second-1', 'author', 'second', '2026-01-04T00:00:00Z', 'channel-a-2', 1);
       UPDATE community_read_state SET last_read_seq = 2 WHERE id = 'read-a';
     `)
-    await expect(listEligibleUnreadServerIds(db, "viewer")).resolves.toEqual(["server-a"])
+    await expect(eligibleServerIds()).resolves.toEqual(["server-a"])
 
     sqlite.exec(`
       INSERT INTO community_read_state (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq)
       VALUES ('read-a-2', 'viewer', 'channel-a-2', '2026-01-04T00:00:00Z', 'a-second-1', 1);
     `)
-    await expect(listEligibleUnreadServerIds(db, "viewer")).resolves.toEqual([])
+    await expect(eligibleServerIds()).resolves.toEqual([])
 
     sqlite.exec(`
       UPDATE community_read_state SET last_read_seq = 1 WHERE id = 'read-a';
       INSERT INTO community_notification_setting (id, user_id, server_id, level)
       VALUES ('mute-a', 'viewer', 'server-a', 'nothing');
     `)
-    await expect(listEligibleUnreadServerIds(db, "viewer")).resolves.toEqual([])
+    await expect(eligibleServerIds()).resolves.toEqual([])
   })
+  it("uses persisted messages, strict join time without a cursor, and sequence with a cursor", async () => {
+    sqlite.exec("DELETE FROM community_read_state WHERE id = 'read-a'; UPDATE community_message SET created_at = '2025-12-31T00:00:00Z' WHERE channel_id = 'channel-a'");
+    expect(await listEligibleUnreadChannels(db, "viewer", ["channel-a"])).toEqual([]);
+    sqlite.exec("UPDATE community_message SET created_at = '2026-01-01T00:00:00Z' WHERE channel_id = 'channel-a'");
+    expect(await listEligibleUnreadChannels(db, "viewer", ["channel-a"])).toEqual([]);
+    sqlite.exec("UPDATE community_message SET created_at = '2026-01-02T00:00:00Z' WHERE id = 'a-2'");
+    expect(await listEligibleUnreadChannels(db, "viewer", ["channel-a"])).toEqual([expect.objectContaining({ channelId: "channel-a", type: "text", lastUnreadSeq: 2, mentionCount: 0, lastAttentionSeq: null, lastMessageAt: "2026-01-02T00:00:00Z" })]);
+    sqlite.exec("INSERT INTO community_read_state(id,user_id,channel_id,last_read_at,last_read_seq) VALUES ('seq','viewer','channel-a','2026-01-04T00:00:00Z',1); UPDATE community_message SET created_at = '2025-01-01T00:00:00Z' WHERE id = 'a-2'; INSERT INTO community_mention(id,message_id,user_id,kind,read) VALUES ('mention','a-2','viewer','mention',0)");
+    expect(await listEligibleUnreadChannels(db, "viewer", ["channel-a"])).toEqual([expect.objectContaining({ lastUnreadSeq: 2, lastAttentionSeq: 2, mentionCount: 1, lastMessageAt: "2025-01-01T00:00:00Z" })]);
+    sqlite.exec("UPDATE community_read_state SET last_read_seq = 2 WHERE id = 'seq'");
+    expect(await listEligibleUnreadChannels(db, "viewer", ["channel-a"])).toEqual([]);
+  });
+
+  it("excludes archived or empty channels and requires a thread notify relation", async () => {
+    sqlite.exec("UPDATE community_channel SET archived = 1 WHERE id = 'channel-a'; INSERT INTO community_channel(id,server_id,type,archived,created_at) VALUES ('empty','server-a','text',0,'now'), ('thread','server-a','thread',0,'now'); UPDATE community_channel SET parent_channel_id = 'channel-a', parent_message_id = 'a-1' WHERE id = 'thread'; INSERT INTO community_message(id,author_id,content,created_at,channel_id,seq) VALUES ('thread-message','author','body','2026-01-02T00:00:00Z','thread',1); INSERT INTO community_channel_member(id,channel_id,user_id,relation,added_at) VALUES ('access','thread','viewer','access','now')");
+    expect(await listEligibleUnreadChannels(db, "viewer", ["channel-a", "empty", "thread"])).toEqual([]);
+    sqlite.exec("INSERT INTO community_channel_member(id,channel_id,user_id,relation,added_at) VALUES ('notify','thread','viewer','notify','now')");
+    expect(await listEligibleUnreadChannels(db, "viewer", ["thread"])).toEqual([expect.objectContaining({ channelId: "thread", type: "thread", lastUnreadSeq: 1 })]);
+    const select = vi.spyOn(db, "select");
+    expect(await listEligibleUnreadChannels(db, "viewer", [])).toEqual([]);
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it("joins only authorized forum openers and enriches exact child roots from persisted rows", async () => {
+    sqlite.exec(`
+      UPDATE community_channel SET type = 'forum' WHERE id IN ('channel-a', 'channel-b');
+      UPDATE community_read_state SET last_read_seq = 0 WHERE id = 'read-b';
+      UPDATE community_message SET content = '  Full canonical title  ' WHERE id = 'a-1';
+      UPDATE community_message SET content = '   ' WHERE id = 'a-2';
+      INSERT INTO community_channel(id,server_id,type,name,parent_channel_id,parent_message_id,archived,created_at) VALUES
+        ('post-one','server-a','thread','Truncated','channel-a','a-1',0,'now'),
+        ('post-two','server-a','thread','Fallback title','channel-a','a-2',0,'now'),
+        ('foreign-post','server-b','thread','Foreign','channel-b','b-1',0,'now');
+    `);
+    expect(await listUnreadForumOpeners(db, "viewer", ["channel-a"])).toEqual([{ forumChannelId: "channel-a", openerMessageId: "a-2", childChannelId: "post-two", title: "Fallback title", createdAt: "2026-01-03T00:00:00Z", openerSeq: 2 }]);
+    const rows = await listThreadOpenersByChildIds(db, "viewer", ["post-one", "post-two"]);
+    expect(rows).toEqual([
+      expect.objectContaining({ childChannelId: "post-two", openerMessageId: "a-2", title: "Fallback title", openerUnread: true, parentChannelId: "channel-a", parentType: "forum" }),
+      expect.objectContaining({ childChannelId: "post-one", openerMessageId: "a-1", title: "  Full canonical title  ", openerUnread: false, openerSeq: 1 }),
+    ]);
+    sqlite.exec("UPDATE community_channel SET archived = 1 WHERE id = 'post-two'");
+    expect(await listUnreadForumOpeners(db, "viewer", ["channel-a"])).toEqual([]);
+    const select = vi.spyOn(db, "select");
+    expect(await listUnreadForumOpeners(db, "viewer", [])).toEqual([]);
+    expect(await listThreadOpenersByChildIds(db, "viewer", [])).toEqual([]);
+    expect(select).not.toHaveBeenCalled();
+  });
+
 })

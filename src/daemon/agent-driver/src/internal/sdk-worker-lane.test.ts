@@ -29,7 +29,7 @@ function worker(factory: SdkWorkerFactory): SdkWorkerLane {
 
 describe("owned SDK worker transport", () => {
   it("imports a native filesystem entry with spaces, Unicode, percent and fragment characters", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "alook SDK 你好 #%-"));
+    const cwd = mkdtempSync(join(tmpdir(), "alook SDK €€ #%-"));
     roots.push(cwd);
     const modulePath = join(cwd, "sdk #%.mjs");
     writeFileSync(modulePath, "export const status = 'healthy';\n");
@@ -46,12 +46,12 @@ describe("owned SDK worker transport", () => {
     const lane = worker(async () => {
       const load = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<any>;
       const { writeSync } = await load("node:fs");
-      const line = Buffer.from(`${JSON.stringify({ event: { kind: "assistant_message_delta", text: "你好😀" } })}\n`);
+      const line = Buffer.from(`${JSON.stringify({ event: { kind: "assistant_message_delta", text: "€€😀" } })}\n`);
       for (const byte of line) {
         writeSync(1, Buffer.from([byte]));
         await new Promise((resolve) => setTimeout(resolve, 1));
       }
-      for (const byte of Buffer.from("日志😀")) {
+      for (const byte of Buffer.from("₿₩😀")) {
         writeSync(2, Buffer.from([byte]));
         await new Promise((resolve) => setTimeout(resolve, 1));
       }
@@ -63,23 +63,23 @@ describe("owned SDK worker transport", () => {
     const stderrComplete = new Promise<void>((resolve) => {
       lane.on("stderr", (text) => {
         stderr += text;
-        if (Buffer.byteLength(stderr) >= Buffer.byteLength("日志😀")) resolve();
+        if (Buffer.byteLength(stderr) >= Buffer.byteLength("₿₩😀")) resolve();
       });
     });
     expect(await lane.probe()).toEqual({ status: "healthy" });
     await stderrComplete;
-    expect(events).toEqual([{ kind: "assistant_message_delta", text: "你好😀" }]);
-    expect(stderr).toBe("日志😀");
+    expect(events).toEqual([{ kind: "assistant_message_delta", text: "€€😀" }]);
+    expect(stderr).toBe("₿₩😀");
   });
 
   it("preserves stdout write encoding, callbacks and backpressure return type", async () => {
     const lane = worker(async () => {
       await new Promise<void>((resolve, reject) => {
-        const writable = process.stdout.write("带编码😀", "utf8", (error) => error ? reject(error) : resolve());
+        const writable = process.stdout.write("€€€😀", "utf8", (error) => error ? reject(error) : resolve());
         if (typeof writable !== "boolean") reject(new Error("Lost native write return value"));
       });
       await new Promise<void>((resolve, reject) => {
-        process.stdout.write("带回调", (error) => error ? reject(error) : resolve());
+        process.stdout.write("€€€", (error) => error ? reject(error) : resolve());
       });
       return { status: "healthy" };
     });
@@ -87,11 +87,11 @@ describe("owned SDK worker transport", () => {
     const stderrComplete = new Promise<void>((resolve) => {
       lane.on("stderr", (text) => {
         stderr += text;
-        if (Buffer.byteLength(stderr) >= Buffer.byteLength("带编码😀带回调")) resolve();
+        if (Buffer.byteLength(stderr) >= Buffer.byteLength("€€€😀€€€")) resolve();
       });
     });
     expect(await lane.probe()).toEqual({ status: "healthy" });
     await stderrComplete;
-    expect(stderr).toBe("带编码😀带回调");
+    expect(stderr).toBe("€€€😀€€€");
   });
 });

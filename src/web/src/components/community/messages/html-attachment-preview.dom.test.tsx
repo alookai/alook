@@ -7,7 +7,7 @@ import { ThreadOpener } from "./thread-opener"
 import { HtmlAttachmentPreview } from "./html-attachment-preview"
 import { MessageBodyView } from "./message-body-view"
 import { tid } from "@/lib/community/testids"
-import { attachmentDownloadKey } from "@/lib/community/attachment-download"
+import { fileDownloadKey } from "@/lib/file-download"
 import { NATIVE_MOBILE_BACK_EVENT, useNativeMobileBack } from "@/hooks/community/use-native-mobile-back"
 
 const opener = vi.hoisted(() => ({ message: {} }))
@@ -68,12 +68,12 @@ describe("HTML attachment frame", () => {
     const view = setup()
     const frame = view.getByTestId(tid.htmlPreviewFrame("a1"))
     expect(frame).toHaveAttribute("src", `${file.url}?preview=html&v=1.2.3`)
-    const download = view.owner.queryClient.getQueryCache().find({ queryKey: attachmentDownloadKey(view.owner, file), exact: true })
+    const download = view.owner.queryClient.getQueryCache().find({ queryKey: fileDownloadKey(view.owner, file), exact: true })
     expect(download).toBeUndefined()
     vi.stubEnv("NEXT_PUBLIC_APP_VERSION", "1.2.4+build &next=2")
     view.rerender(view.tree(<HtmlAttachmentPreview attachment={file} />))
     expect(frame).toHaveAttribute("src", `${file.url}?preview=html&v=1.2.4%2Bbuild%20%26next%3D2`)
-    expect(view.owner.queryClient.getQueryCache().find({ queryKey: attachmentDownloadKey(view.owner, file), exact: true })).toBeUndefined()
+    expect(view.owner.queryClient.getQueryCache().find({ queryKey: fileDownloadKey(view.owner, file), exact: true })).toBeUndefined()
     expect(file.url).toBe("/api/community/channels/c1/attachments/a1")
   })
   it("posts updated Alook theme without replacing the document", () => {

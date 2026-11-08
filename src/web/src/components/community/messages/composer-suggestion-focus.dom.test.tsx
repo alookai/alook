@@ -8,7 +8,7 @@ import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { readComposerDraft, writeComposerDraft } from "@/lib/community/composer-draft"
-import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
+import { ConversationActivityContext } from "@/contexts/view-activity"
 import type { Member } from "@/lib/community/models/people"
 import { CommunityMentionList, ChannelRefList } from "./composer-suggestion-popups"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
@@ -19,7 +19,7 @@ import { NATIVE_MOBILE_BACK_EVENT, useNativeMobileBack } from "@/hooks/community
 import type { MessageChannelControllerValue } from "./message-channel-controller"
 
 const files = vi.hoisted(() => ({
-  pendingFiles: [], readPendingFiles: () => [], setPendingFiles: vi.fn(),
+  pendingFiles: [], readPendingFiles: () => [], clearPendingFiles: vi.fn(),
   transferPendingFiles: vi.fn(), awaitPendingFiles: async () => [], addPendingFiles: vi.fn(),
   fileInputRef: { current: null }, handleFileSelect: vi.fn(), removePendingFile: vi.fn(),
   dragging: false, handleDragEnter: vi.fn(), handleDragLeave: vi.fn(),
@@ -38,14 +38,14 @@ vi.mock("@/hooks/community/use-channel-message-feed", () => ({
   useChannelMessageFeed: () => ({ messages: [], isLoading: false, readSnapshotFetching: false, anchorInCache: true, navigationBlocked: surfaces.navigationBlocked }),
 }))
 vi.mock("@/components/community/channels/channel-header", () => ({ ChannelHeader: () => null }))
-vi.mock("@/components/community/channels/channel-shell", () => ({ ChannelShell: ({ body }: { body: ReactNode }) => body }))
 vi.mock("@/components/community/shell/community-panel", () => ({ CommunityPanel: () => null }))
 vi.mock("@/components/community/messages/message-list", () => ({ MessageList: () => null }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
 vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({ useClaimThreadOpenerReadHandoff: () => {} }))
 vi.mock("@/components/community/messages/thread-opener", () => ({ ThreadOpener: () => null }))
 vi.mock("@/contexts/community/module-route", () => ({ useCommunityRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }))
-vi.mock("@/hooks/community/mutations", () => ({ useToggleReactionApi: () => vi.fn() }))
+vi.mock("@/hooks/community/mutations", () => ({
+  useRenameChannel: () => ({ mutateAsync: vi.fn(async () => {}) }), useToggleReactionApi: () => vi.fn() }))
 vi.mock("@/components/community/messages/composer", async () => {
   const { forwardRef } = await import("react")
   return {

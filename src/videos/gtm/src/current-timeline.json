@@ -1,0 +1,626 @@
+{
+  "fps": 30,
+  "firstActFrames": 510,
+  "storySourceStartFrame": 333,
+  "endingFrames": 657,
+  "cardFrames": 105,
+  "reviewSegments": [
+    {
+      "fromFrame": 0,
+      "toFrame": 18,
+      "sourceFrom": 0,
+      "sourceTo": 0.65
+    },
+    {
+      "fromFrame": 18,
+      "toFrame": 21,
+      "sourceFrom": 0.65,
+      "sourceTo": 0.75
+    },
+    {
+      "fromFrame": 21,
+      "toFrame": 25,
+      "sourceFrom": 0.75,
+      "sourceTo": 1.5
+    },
+    {
+      "fromFrame": 25,
+      "toFrame": 34,
+      "sourceFrom": 1.5,
+      "sourceTo": 1.62
+    },
+    {
+      "fromFrame": 34,
+      "toFrame": 43,
+      "sourceFrom": 1.62,
+      "sourceTo": 1.8
+    },
+    {
+      "fromFrame": 43,
+      "toFrame": 56,
+      "sourceFrom": 1.8,
+      "sourceTo": 2
+    },
+    {
+      "fromFrame": 56,
+      "toFrame": 63,
+      "sourceFrom": 2,
+      "sourceTo": 2.1
+    },
+    {
+      "fromFrame": 63,
+      "toFrame": 72,
+      "sourceFrom": 2.1,
+      "sourceTo": 2.2
+    },
+    {
+      "fromFrame": 72,
+      "toFrame": 82,
+      "sourceFrom": 2.2,
+      "sourceTo": 2.45
+    },
+    {
+      "fromFrame": 82,
+      "toFrame": 84,
+      "sourceFrom": 2.45,
+      "sourceTo": 2.5
+    },
+    {
+      "fromFrame": 84,
+      "toFrame": 90,
+      "sourceFrom": 2.5,
+      "sourceTo": 2.65
+    },
+    {
+      "fromFrame": 90,
+      "toFrame": 99,
+      "sourceFrom": 2.65,
+      "sourceTo": 2.8
+    },
+    {
+      "fromFrame": 99,
+      "toFrame": 102,
+      "sourceFrom": 2.8,
+      "sourceTo": 3.3
+    },
+    {
+      "fromFrame": 102,
+      "toFrame": 109,
+      "sourceFrom": 3.3,
+      "sourceTo": 3.38
+    },
+    {
+      "fromFrame": 109,
+      "toFrame": 114,
+      "sourceFrom": 3.38,
+      "sourceTo": 3.45
+    },
+    {
+      "fromFrame": 114,
+      "toFrame": 124,
+      "sourceFrom": 3.45,
+      "sourceTo": 3.55
+    },
+    {
+      "fromFrame": 124,
+      "toFrame": 130,
+      "sourceFrom": 3.55,
+      "sourceTo": 3.6
+    },
+    {
+      "fromFrame": 130,
+      "toFrame": 142,
+      "sourceFrom": 3.6,
+      "sourceTo": 3.85
+    },
+    {
+      "fromFrame": 142,
+      "toFrame": 145,
+      "sourceFrom": 3.85,
+      "sourceTo": 4.3
+    },
+    {
+      "fromFrame": 145,
+      "toFrame": 147,
+      "sourceFrom": 4.3,
+      "sourceTo": 4.35
+    },
+    {
+      "fromFrame": 147,
+      "toFrame": 150,
+      "sourceFrom": 4.35,
+      "sourceTo": 4.45
+    },
+    {
+      "fromFrame": 150,
+      "toFrame": 153,
+      "sourceFrom": 4.45,
+      "sourceTo": 5.1
+    },
+    {
+      "fromFrame": 153,
+      "toFrame": 159,
+      "sourceFrom": 5.1,
+      "sourceTo": 5.22
+    },
+    {
+      "fromFrame": 159,
+      "toFrame": 166,
+      "sourceFrom": 5.22,
+      "sourceTo": 5.4
+    },
+    {
+      "fromFrame": 166,
+      "toFrame": 176,
+      "sourceFrom": 5.4,
+      "sourceTo": 5.55
+    },
+    {
+      "fromFrame": 176,
+      "toFrame": 180,
+      "sourceFrom": 5.55,
+      "sourceTo": 5.65
+    },
+    {
+      "fromFrame": 180,
+      "toFrame": 187,
+      "sourceFrom": 5.65,
+      "sourceTo": 5.75
+    },
+    {
+      "fromFrame": 187,
+      "toFrame": 194,
+      "sourceFrom": 5.75,
+      "sourceTo": 6
+    },
+    {
+      "fromFrame": 194,
+      "toFrame": 196,
+      "sourceFrom": 6,
+      "sourceTo": 6.05
+    },
+    {
+      "fromFrame": 196,
+      "toFrame": 200,
+      "sourceFrom": 6.05,
+      "sourceTo": 6.2
+    },
+    {
+      "fromFrame": 200,
+      "toFrame": 207,
+      "sourceFrom": 6.2,
+      "sourceTo": 6.35
+    },
+    {
+      "fromFrame": 207,
+      "toFrame": 210,
+      "sourceFrom": 6.35,
+      "sourceTo": 6.85
+    },
+    {
+      "fromFrame": 210,
+      "toFrame": 215,
+      "sourceFrom": 6.85,
+      "sourceTo": 6.93
+    },
+    {
+      "fromFrame": 215,
+      "toFrame": 219,
+      "sourceFrom": 6.93,
+      "sourceTo": 7
+    },
+    {
+      "fromFrame": 219,
+      "toFrame": 226,
+      "sourceFrom": 7,
+      "sourceTo": 7.1
+    },
+    {
+      "fromFrame": 226,
+      "toFrame": 231,
+      "sourceFrom": 7.1,
+      "sourceTo": 7.15
+    },
+    {
+      "fromFrame": 231,
+      "toFrame": 240,
+      "sourceFrom": 7.15,
+      "sourceTo": 7.4
+    },
+    {
+      "fromFrame": 240,
+      "toFrame": 243,
+      "sourceFrom": 7.4,
+      "sourceTo": 7.85
+    },
+    {
+      "fromFrame": 243,
+      "toFrame": 246,
+      "sourceFrom": 10.95,
+      "sourceTo": 11.4
+    },
+    {
+      "fromFrame": 246,
+      "toFrame": 306,
+      "sourceFrom": 11.4,
+      "sourceTo": 11.8
+    },
+    {
+      "fromFrame": 306,
+      "toFrame": 333,
+      "sourceFrom": 11.8,
+      "sourceTo": 12
+    },
+    {
+      "fromFrame": 333,
+      "toFrame": 342,
+      "sourceFrom": 120,
+      "sourceTo": 122
+    },
+    {
+      "fromFrame": 342,
+      "toFrame": 354,
+      "sourceFrom": 122,
+      "sourceTo": 123.5
+    },
+    {
+      "fromFrame": 354,
+      "toFrame": 444,
+      "sourceFrom": 123.5,
+      "sourceTo": 126.5
+    },
+    {
+      "fromFrame": 444,
+      "toFrame": 570,
+      "sourceFrom": 126.5,
+      "sourceTo": 130.2
+    },
+    {
+      "fromFrame": 570,
+      "toFrame": 606,
+      "sourceFrom": 130.2,
+      "sourceTo": 130.7
+    },
+    {
+      "fromFrame": 606,
+      "toFrame": 615,
+      "sourceFrom": 130.7,
+      "sourceTo": 132.5
+    },
+    {
+      "fromFrame": 615,
+      "toFrame": 636,
+      "sourceFrom": 132.5,
+      "sourceTo": 134.2
+    },
+    {
+      "fromFrame": 636,
+      "toFrame": 645,
+      "sourceFrom": 134.2,
+      "sourceTo": 135.5
+    },
+    {
+      "fromFrame": 645,
+      "toFrame": 678,
+      "sourceFrom": 135.5,
+      "sourceTo": 137.8
+    },
+    {
+      "fromFrame": 678,
+      "toFrame": 696,
+      "sourceFrom": 137.8,
+      "sourceTo": 139.2
+    },
+    {
+      "fromFrame": 696,
+      "toFrame": 741,
+      "sourceFrom": 139.2,
+      "sourceTo": 141.3
+    },
+    {
+      "fromFrame": 741,
+      "toFrame": 753,
+      "sourceFrom": 141.3,
+      "sourceTo": 143.5
+    },
+    {
+      "fromFrame": 753,
+      "toFrame": 807,
+      "sourceFrom": 12,
+      "sourceTo": 15.45
+    },
+    {
+      "fromFrame": 807,
+      "toFrame": 867,
+      "sourceFrom": 15.45,
+      "sourceTo": 17.1
+    },
+    {
+      "fromFrame": 867,
+      "toFrame": 877,
+      "sourceFrom": 17.1,
+      "sourceTo": 18.35
+    },
+    {
+      "fromFrame": 877,
+      "toFrame": 907,
+      "sourceFrom": 18.35,
+      "sourceTo": 18.35
+    },
+    {
+      "fromFrame": 907,
+      "toFrame": 927,
+      "sourceFrom": 18.35,
+      "sourceTo": 21.2
+    },
+    {
+      "fromFrame": 927,
+      "toFrame": 1035,
+      "sourceFrom": 21.2,
+      "sourceTo": 29.2
+    },
+    {
+      "fromFrame": 1035,
+      "toFrame": 1101,
+      "sourceFrom": 29.2,
+      "sourceTo": 37.5
+    },
+    {
+      "fromFrame": 1101,
+      "toFrame": 1251,
+      "sourceFrom": 37.5,
+      "sourceTo": 45.5
+    },
+    {
+      "fromFrame": 1251,
+      "toFrame": 1290,
+      "sourceFrom": 84,
+      "sourceTo": 86.8
+    },
+    {
+      "fromFrame": 1290,
+      "toFrame": 1319,
+      "sourceFrom": 86.8,
+      "sourceTo": 89.5
+    },
+    {
+      "fromFrame": 1319,
+      "toFrame": 1375,
+      "sourceFrom": 89.5,
+      "sourceTo": 94
+    },
+    {
+      "fromFrame": 1375,
+      "toFrame": 1393,
+      "sourceFrom": 94,
+      "sourceTo": 95.4
+    },
+    {
+      "fromFrame": 1393,
+      "toFrame": 1429,
+      "sourceFrom": 95.4,
+      "sourceTo": 96.2
+    },
+    {
+      "fromFrame": 1429,
+      "toFrame": 1459,
+      "sourceFrom": 96.2,
+      "sourceTo": 98.5
+    },
+    {
+      "fromFrame": 1459,
+      "toFrame": 1474,
+      "sourceFrom": 98.5,
+      "sourceTo": 100
+    },
+    {
+      "fromFrame": 1474,
+      "toFrame": 1513,
+      "sourceFrom": 100,
+      "sourceTo": 104
+    },
+    {
+      "fromFrame": 1513,
+      "toFrame": 1522,
+      "sourceFrom": 104,
+      "sourceTo": 106
+    },
+    {
+      "fromFrame": 1522,
+      "toFrame": 1534,
+      "sourceFrom": 106,
+      "sourceTo": 107.5
+    },
+    {
+      "fromFrame": 1534,
+      "toFrame": 1570,
+      "sourceFrom": 107.5,
+      "sourceTo": 111.2
+    },
+    {
+      "fromFrame": 1570,
+      "toFrame": 1615,
+      "sourceFrom": 111.2,
+      "sourceTo": 112.5
+    },
+    {
+      "fromFrame": 1615,
+      "toFrame": 1627,
+      "sourceFrom": 112.5,
+      "sourceTo": 114.5
+    },
+    {
+      "fromFrame": 1627,
+      "toFrame": 1771,
+      "sourceFrom": 51,
+      "sourceTo": 62.5
+    },
+    {
+      "fromFrame": 1771,
+      "toFrame": 1819,
+      "sourceFrom": 62.5,
+      "sourceTo": 72
+    },
+    {
+      "fromFrame": 1819,
+      "toFrame": 1963,
+      "sourceFrom": 72,
+      "sourceTo": 84
+    }
+  ],
+  "storyCards": [
+    {
+      "sourceFrame": 907,
+      "resumeFrame": 927,
+      "lines": [
+        [
+          {
+            "text": "Your ",
+            "strong": false
+          },
+          {
+            "text": "local",
+            "strong": true
+          },
+          {
+            "text": " agent",
+            "strong": false
+          }
+        ],
+        [
+          {
+            "text": "Now on ",
+            "strong": false
+          },
+          {
+            "text": "Alook",
+            "strong": true
+          }
+        ]
+      ],
+      "holdFrames": 0,
+      "cueShiftFrom": 907,
+      "verificationExitFrame": 81
+    },
+    {
+      "sourceFrame": 1251,
+      "resumeFrame": 1251,
+      "lines": [
+        [
+          {
+            "text": "Same bot",
+            "strong": false
+          }
+        ],
+        [
+          {
+            "text": "In ",
+            "strong": false
+          },
+          {
+            "text": "every room",
+            "strong": true
+          }
+        ]
+      ],
+      "holdFrames": 0,
+      "cueShiftFrom": 1251,
+      "verificationExitFrame": 81
+    },
+    {
+      "sourceFrame": 1740,
+      "resumeFrame": 1771,
+      "holdFrames": 31,
+      "lines": [
+        [
+          {
+            "text": "Many bots",
+            "strong": true
+          }
+        ],
+        [
+          {
+            "text": "One place",
+            "strong": false
+          }
+        ]
+      ],
+      "cueShiftFrom": 1771,
+      "verificationExitFrame": 112
+    }
+  ],
+  "firstActSourceTimes": [
+    0,
+    0.65,
+    0.76,
+    1.5,
+    1.8,
+    2,
+    2.2,
+    2.45,
+    2.5,
+    2.8,
+    3,
+    3.3,
+    3.38,
+    3.55,
+    3.6,
+    3.86,
+    4.3
+  ],
+  "firstActPlaybackTimes": [
+    0,
+    0.6,
+    1,
+    2,
+    2.5,
+    3.1,
+    3.5,
+    3.85,
+    4.1,
+    4.65,
+    5.25,
+    5.8,
+    6.25,
+    6.6,
+    7.1,
+    7.7,
+    7.8
+  ],
+  "openingQuestion": {
+    "lines": [
+      [
+        {
+          "text": "Still ",
+          "strong": false
+        },
+        {
+          "text": "copy-pasting",
+          "strong": true
+        }
+      ],
+      [
+        {
+          "text": "between your ",
+          "strong": false
+        },
+        {
+          "text": "team",
+          "strong": true
+        }
+      ],
+      [
+        {
+          "text": "and your ",
+          "strong": false
+        },
+        {
+          "text": "agent?",
+          "strong": true
+        }
+      ]
+    ],
+    "verificationFrames": 114,
+    "verificationExitFrame": 90
+  }
+}

@@ -149,7 +149,7 @@ describe("DELETE /api/community/servers/[id]", () => {
     })
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "owner" })
     mockListMemberUserIds.mockResolvedValue(["u1", "u2"])
-    mockDeleteServerWithMedia.mockResolvedValue({ deleted: true, mediaKeys: [], iconKey: null, readStateRevisions: [] })
+    mockDeleteServerWithMedia.mockResolvedValue({ deleted: true, iconKey: null, readStateRevisions: [] })
     mockFanOutToUsers.mockResolvedValue(undefined)
   })
 
@@ -161,7 +161,7 @@ describe("DELETE /api/community/servers/[id]", () => {
     })
     mockDeleteServerWithMedia.mockImplementation(async () => {
       order.push("delete")
-      return { deleted: true, mediaKeys: [], iconKey: null, readStateRevisions: [] }
+      return { deleted: true, iconKey: null, readStateRevisions: [] }
     })
     mockFanOutToUsers.mockImplementation(async () => {
       order.push("fanout")
@@ -190,8 +190,7 @@ describe("DELETE /api/community/servers/[id]", () => {
   it("keeps the winner 204 and fanout when waitUntil throws synchronously", async () => {
     mockDeleteServerWithMedia.mockResolvedValue({
       deleted: true,
-      mediaKeys: ["channel/s1/a"],
-      iconKey: null,
+      iconKey: "server-icon/s1/icon-a",
       readStateRevisions: [],
     })
     mockWaitUntil.mockImplementationOnce(() => {
@@ -205,13 +204,12 @@ describe("DELETE /api/community/servers/[id]", () => {
     expect(mockFanOutToUsers).toHaveBeenCalledOnce()
   })
 
-  it("schedules attachment and strictly-owned icon cleanup after the winner and before fanout", async () => {
+  it("schedules strictly-owned icon cleanup after the winner and before fanout", async () => {
     const order: string[] = []
     mockDeleteServerWithMedia.mockImplementation(async () => {
       order.push("delete")
       return {
         deleted: true,
-        mediaKeys: ["channel/s1/a", "channel/s1/a.thumbnail.jpg"],
         iconKey: "server-icon/s1/icon-a",
         readStateRevisions: [],
       }
@@ -231,7 +229,7 @@ describe("DELETE /api/community/servers/[id]", () => {
       expect.anything(),
       expect.objectContaining({ waitUntil: mockWaitUntil }),
       {
-        keys: ["channel/s1/a", "channel/s1/a.thumbnail.jpg", "server-icon/s1/icon-a"],
+        keys: ["server-icon/s1/icon-a"],
         warning: {
           event: "community_server_media_cleanup_failed",
           fields: { serverId: "s1" },
@@ -243,7 +241,6 @@ describe("DELETE /api/community/servers/[id]", () => {
   it("does not enqueue a legacy or cross-server icon key", async () => {
     mockDeleteServerWithMedia.mockResolvedValue({
       deleted: true,
-      mediaKeys: ["channel/s1/a"],
       iconKey: "server-icon/other/icon-a",
       readStateRevisions: [],
     })
@@ -251,15 +248,11 @@ describe("DELETE /api/community/servers/[id]", () => {
     const res = await DELETE(deleteReq(), ctx)
 
     expect(res.status).toBe(204)
-    expect(mockScheduleMediaCleanup).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
-      expect.objectContaining({ keys: ["channel/s1/a"] }),
-    )
+    expect(mockScheduleMediaCleanup).not.toHaveBeenCalled()
   })
 
   it("returns 404 without cleanup or fanout when the owner-scoped delete loses", async () => {
-    mockDeleteServerWithMedia.mockResolvedValue({ deleted: false, mediaKeys: [], iconKey: null, readStateRevisions: [] })
+    mockDeleteServerWithMedia.mockResolvedValue({ deleted: false, iconKey: null, readStateRevisions: [] })
 
     const res = await DELETE(deleteReq(), ctx)
 

@@ -1,6 +1,6 @@
 
 import { EventEmitter } from "events";
-import { StringDecoder } from "node:string_decoder";
+import { Utf8LineFramer, Utf8TextDecoder } from "../internal/utf8-lines.js";
 import type {
   BackendConfig,
   AdapterLaunchContext,
@@ -59,8 +59,6 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
   private readonly events = new EventEmitter();
   private process: SpawnedProcessHandle | null = null;
   private started = false;
-  private readonly stdoutDecoder = new StringDecoder("utf8");
-  private stdoutFragments: string[] = [];
   private requestedStopReason?: string;
   private admissionSequence = 0;
   private activeTerminalReceipt?: string;
@@ -279,18 +277,11 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
   }
 
   private attachProcess(proc: SpawnedProcessHandle): void {
+    const stdout = new Utf8LineFramer();
+    const stderr = new Utf8TextDecoder();
     proc.stdout?.on("data", (chunk) => {
       this.events.emit("stdout", chunk.toString());
-      const chunkText = Buffer.isBuffer(chunk) ? this.stdoutDecoder.write(chunk) : chunk.toString();
-      const lines: string[] = [];
-      let offset = 0;
-      for (let newline = chunkText.indexOf("\n"); newline !== -1; newline = chunkText.indexOf("\n", offset)) {
-        this.stdoutFragments.push(chunkText.slice(offset, newline));
-        lines.push(this.stdoutFragments.join(""));
-        this.stdoutFragments = [];
-        offset = newline + 1;
-      }
-      if (offset < chunkText.length) this.stdoutFragments.push(chunkText.slice(offset));
+      const lines = stdout.write(chunk);
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
@@ -319,7 +310,11 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
       }
     });
     proc.stderr?.on("data", (chunk) => {
-      const text = chunk.toString().trim();
+      const text = stderr.write(chunk).trim();
+      if (text) this.events.emit("stderr", text);
+    });
+    proc.stderr?.on("end", () => {
+      const text = stderr.end().trim();
       if (text) this.events.emit("stderr", text);
     });
     proc.on("error", (err) => {

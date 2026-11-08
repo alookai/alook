@@ -177,9 +177,14 @@ export interface AdapterLaunchContext<Id extends string = BuiltinBackendId, Conf
   config: AdapterLaunchConfig<Config>;
 }
 
+interface ProcessOutputStream {
+  on(event: "data", listener: (chunk: Uint8Array | string) => void): unknown;
+  on(event: "end", listener: () => void): unknown;
+}
+
 export interface SpawnedProcessHandle {
-  readonly stdout?: { on(event: "data", listener: (chunk: { toString(): string }) => void): unknown } | null;
-  readonly stderr?: { on(event: "data", listener: (chunk: { toString(): string }) => void): unknown } | null;
+  readonly stdout?: ProcessOutputStream | null;
+  readonly stderr?: ProcessOutputStream | null;
   readonly stdin?: {
     readonly destroyed?: boolean;
     readonly writable?: boolean;

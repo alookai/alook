@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BlogPost } from "@blog/lib/blog/posts";
-import { buildBlogIndexModel, formatBlogPostDate } from "./model";
+import { buildBlogPostCards, formatBlogPostDate } from "@blog/lib/blog/post-cards"
 
 function post(
   slug: string,
@@ -18,35 +18,35 @@ function post(
   };
 }
 
-describe("buildBlogIndexModel", () => {
+describe("buildBlogPostCards", () => {
   it("selects the newest post as Featured and excludes it from ordered Recent", () => {
-    const model = buildBlogIndexModel([
+    const model = buildBlogPostCards([
       post("personal-ai-company", "2026-08-01"),
       post("local-ai-agents", "2026-09-01"),
       post("ai-agent-vs-chatbot", "2026-08-20"),
     ]);
 
-    expect(model.featured?.slug).toBe("local-ai-agents");
-    expect(model.recent.map((item) => item.slug)).toEqual([
+    expect(model[0]?.slug).toBe("local-ai-agents");
+    expect(model.slice(1).map((item) => item.slug)).toEqual([
       "ai-agent-vs-chatbot",
       "personal-ai-company",
     ]);
-    expect(model.recent).not.toContainEqual(
+    expect(model.slice(1)).not.toContainEqual(
       expect.objectContaining({ slug: "local-ai-agents" }),
     );
   });
 
   it("preserves hero images and resolves missing ones through the canonical OG fallback", () => {
-    const model = buildBlogIndexModel([
+    const model = buildBlogPostCards([
       post("ai-agent-vs-chatbot", "2026-08-20", "/blog/ai-agent-vs-chatbot/hero.webp"),
       post("local-ai-agents", "2026-09-01"),
     ]);
 
-    expect(model.featured?.imageUrl).toBe("/og/blog/local-ai-agents");
-    expect(model.recent[0]?.imageUrl).toBe(
+    expect(model[0]?.imageUrl).toBe("/og/blog/local-ai-agents");
+    expect(model[1]?.imageUrl).toBe(
       "/blog/ai-agent-vs-chatbot/hero.webp",
     );
-    expect(model.featured?.topicId).toBe("foundations-team-design");
+    expect(model[0]?.topicId).toBe("foundations-team-design");
   });
 
   it.each(["America/Los_Angeles", "Pacific/Honolulu"])(

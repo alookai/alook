@@ -12,8 +12,8 @@ import {
 } from "@/components/horizontal-overflow-rail";
 import { useHoverCapable } from "@/hooks/use-hover-capable";
 import { useBreakpoint } from "@/hooks/use-mobile";
-import type { BlogIndexPost } from "./model";
-import { formatBlogPostDate } from "./model";
+import type { BlogPostCard } from "@blog/lib/blog/post-cards";
+import { formatBlogPostDate } from "@blog/lib/blog/post-cards";
 
 type BlogTopicFilter = {
   id: string;
@@ -21,7 +21,7 @@ type BlogTopicFilter = {
 };
 
 type RecentPostsProps = {
-  posts: readonly BlogIndexPost[];
+  posts: readonly BlogPostCard[];
   topics: readonly BlogTopicFilter[];
 };
 

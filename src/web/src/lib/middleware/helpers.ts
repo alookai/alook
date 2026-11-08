@@ -8,13 +8,6 @@ export function writeError(message: string, status: number, headers?: Record<str
   return NextResponse.json({ error: message }, { status, ...(headers ? { headers } : {}) });
 }
 
-/** Format a Date or ISO string as RFC 3339 without sub-second precision (matching Go output). */
-export function formatTimestamp(date: Date | string | null): string {
-  if (!date) return "";
-  const d = typeof date === "string" ? new Date(date) : date;
-  return d.toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
 export async function parseBody<T>(
   req: Request,
   schema: { parse(data: unknown): T },
@@ -43,10 +36,4 @@ export async function parseBody<T>(
       ),
     ];
   }
-}
-
-export function formatTimestampNullable(date: Date | string | null): string | null {
-  if (!date) return null;
-  const d = typeof date === "string" ? new Date(date) : date;
-  return d.toISOString().replace(/\.\d{3}Z$/, "Z");
 }

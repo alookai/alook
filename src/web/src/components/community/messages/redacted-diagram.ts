@@ -1,8 +1,8 @@
 import type { DiagramPlugin } from "streamdown"
+import { REDACTED } from "@alook/shared/redaction"
 
 const SVG = "http://www.w3.org/2000/svg"
 const HTML = "http://www.w3.org/1999/xhtml"
-const TOKEN = /\[REDACTED(?:_[A-Z0-9]+)*\]/g
 
 export function redactDiagramSvg(svg: string): string {
   if (!svg.includes("[REDACTED")) return svg
@@ -20,7 +20,7 @@ export function redactDiagramSvg(svg: string): string {
     if (!parent || parent.closest("style, script, title, desc")) continue
     const html = !!parent.closest("foreignObject")
     if (!html && !parent.closest("text")) continue
-    const parts = node.data.split(new RegExp(`(${TOKEN.source})`, "g"))
+    const parts = node.data.split(new RegExp(`(${REDACTED.source})`, "g"))
     if (parts.length === 1) continue
     node.replaceWith(...parts.map((value, index) => {
       if (!(index % 2)) return document.createTextNode(value)

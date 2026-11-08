@@ -3,6 +3,7 @@ import json
 import math
 import subprocess
 from audio_tracks import FULL_PROFILE, build_opening_sfx, normalize_sfx, load_music
+from current_timeline import LATE_SOURCE_SHIFT, FPS
 
 
 def render_full_audio(root, base, out, report_path):
@@ -16,8 +17,8 @@ def render_full_audio(root, base, out, report_path):
     track, cues = build_opening_sfx(root, FULL_PROFILE)
     sfx = normalize_sfx(track)
     music = load_music(root)
-    coda_start = 83.8 + 472/30
-    coda_end = 86.85 + 472/30
+    coda_start = 83.8 + LATE_SOURCE_SHIFT/FPS
+    coda_end = 86.85 + LATE_SOURCE_SHIFT/FPS
     loop_at, loop_length, crossfade = 48., 16., .04
     result = array.array('f')
     for frame in range(round(duration * sr)):

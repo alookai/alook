@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { extname, join } from "path";
-import ts from "typescript";
+import { readStaticBlogMetadata, readBlogImageReferences } from "./source-grammar.mjs";
 import { validBlogTags } from "./guides";
 
 export type BlogAssetError = string;
@@ -33,69 +33,8 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
 export type BlogMetadata = Record<(typeof REQUIRED_METADATA_FIELDS)[number] | (typeof OPTIONAL_METADATA_FIELDS)[number], string> & { tags?: string[] };
 
-function extractMetadataObject(content: string): string | null {
-  const declaration = /export\s+const\s+metadata\s*=\s*\{/.exec(content);
-  if (!declaration) return null;
-
-  const start = content.indexOf("{", declaration.index);
-  let depth = 0;
-  let quote = "";
-  let escaped = false;
-
-  for (let index = start; index < content.length; index += 1) {
-    const char = content[index];
-    if (quote) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === quote) {
-        quote = "";
-      }
-      continue;
-    }
-    if (char === '"' || char === "'" || char === "`") {
-      quote = char;
-      continue;
-    }
-    if (char === "{") depth += 1;
-    if (char === "}") {
-      depth -= 1;
-      if (depth === 0) return content.slice(start + 1, index);
-    }
-  }
-  return null;
-}
-
-function readStringProperty(object: string, property: string): string | null {
-  const match = new RegExp(`(?:^|[,\\n])\\s*${property}\\s*:\\s*(["'])`).exec(object);
-  if (!match) return null;
-
-  const quote = match[1];
-  let value = "";
-  let escaped = false;
-  for (let index = match.index + match[0].length; index < object.length; index += 1) {
-    const char = object[index];
-    if (escaped) {
-      value += char;
-      escaped = false;
-    } else if (char === "\\") {
-      escaped = true;
-    } else if (char === quote) {
-      return value;
-    } else {
-      value += char;
-    }
-  }
-  return null;
-}
-
 export function isDraftBlogPost(content: string): boolean {
-  const object = extractMetadataObject(content);
-  if (!object) return false;
-  return new RegExp(`(?:^|[,\\n])\\s*draft\\s*:\\s*true(?:\\s*[,\\n]|\\s*$)`).test(
-    object
-  );
+  return readStaticBlogMetadata(content)?.draft === true;
 }
 
 function isIsoDate(value: string): boolean {
@@ -108,7 +47,7 @@ export function readBlogMetadata(
   content: string,
   fileSlug: string
 ): { metadata: BlogMetadata; errors: BlogAssetError[] } {
-  const object = extractMetadataObject(content);
+  const object = readStaticBlogMetadata(content);
   if (!object) {
     return {
       metadata: {} as BlogMetadata,
@@ -119,25 +58,15 @@ export function readBlogMetadata(
   const metadata = {} as BlogMetadata;
   const errors: BlogAssetError[] = [];
   for (const field of [...REQUIRED_METADATA_FIELDS, ...OPTIONAL_METADATA_FIELDS]) {
-    const value = readStringProperty(object, field);
-    if (value !== null) metadata[field] = value;
+    const value = object.strings[field];
+    if (value !== undefined) metadata[field] = value;
   }
 
-  const parsed = ts.createSourceFile("metadata.ts", `const metadata = {${object}}`, ts.ScriptTarget.Latest, true);
-  const declaration = (parsed.statements[0] as ts.VariableStatement).declarationList.declarations[0];
-  const expression = declaration.initializer;
-  if (expression && ts.isObjectLiteralExpression(expression)) {
-    const tags = expression.properties.find((property) => property.name && property.name.getText(parsed).replace(/^['"]|['"]$/g, "") === "tags");
-    if (tags) {
-      const value = ts.isPropertyAssignment(tags) && ts.isArrayLiteralExpression(tags.initializer)
-        ? tags.initializer.elements.map((element) => ts.isStringLiteral(element) ? element.text : null)
-        : null;
-      if (validBlogTags(value)) metadata.tags = value;
-      else errors.push(`[post: ${fileSlug}] tags must be an array of unique lowercase kebab-case strings.`);
-    }
+  if (object.present.includes("tags")) {
+    if (validBlogTags(object.tags)) metadata.tags = object.tags;
+    else errors.push(`[post: ${fileSlug}] tags must be an array of unique lowercase kebab-case strings.`);
   }
-
-  if (/(?:^|[,\n])\s*seoTitle\s*:/.test(object) && !metadata.seoTitle?.trim()) {
+  if (object.present.includes("seoTitle") && !metadata.seoTitle?.trim()) {
     errors.push(`[post: ${fileSlug}] Optional seoTitle must be a non-empty string.`);
   }
 
@@ -234,12 +163,7 @@ export function findBlogImageErrors(
   metadataImage?: string,
   fileSize?: (path: string) => number
 ): BlogAssetError[] {
-  const sources = metadataImage ? [metadataImage] : [];
-  const imgRegex = /!\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)|<img[^>]+src=["']([^"']*)["'][^>]*>/g;
-  let match: RegExpExecArray | null;
-  while ((match = imgRegex.exec(content)) !== null) {
-    sources.push(match[1] || match[2]);
-  }
+  const sources = readBlogImageReferences(content, metadataImage);
   return findImageSourceErrors(sources, slug, publicDir, fileExists, fileSize);
 }
 

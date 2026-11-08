@@ -159,21 +159,9 @@ internal object MobileShareImage {
             throw MobileShareImageFailure("write_failed", "Could not prepare clipboard image")
         }
         cleanupClipboardTemporaries(directory)
-        val temporary = File(directory, "$token.tmp")
-        val final = File(directory, "$token.png")
-        try {
-            FileOutputStream(temporary).use { stream ->
-                stream.write(bytes)
-                stream.flush()
-                stream.fd.sync()
-            }
-            if (!temporary.renameTo(final)) {
-                throw MobileShareImageFailure("write_failed", "Could not publish clipboard image")
-            }
-            return final
+        return try {
+            writeStagedPng(directory, bytes, token, "Could not publish clipboard image")
         } catch (error: Exception) {
-            temporary.delete()
-            final.delete()
             if (error is MobileShareImageFailure) throw error
             throw MobileShareImageFailure("write_failed", error.message ?: "Could not stage clipboard image")
         }
@@ -205,6 +193,15 @@ internal object MobileShareImage {
         if (!directory.mkdirs() && !directory.isDirectory) {
             throw MobileShareImageFailure("write_failed", "Could not prepare private image staging")
         }
+        return try {
+            writeStagedPng(directory, bytes, token, "Could not publish private image staging")
+        } catch (error: Exception) {
+            if (error is MobileShareImageFailure) throw error
+            throw MobileShareImageFailure("write_failed", error.message ?: "Could not stage document image")
+        }
+    }
+
+    private fun writeStagedPng(directory: File, bytes: ByteArray, token: String, publishError: String): File {
         val temporary = File(directory, "$token.tmp")
         val final = File(directory, "$token.png")
         try {
@@ -213,15 +210,12 @@ internal object MobileShareImage {
                 stream.flush()
                 stream.fd.sync()
             }
-            if (!temporary.renameTo(final)) {
-                throw MobileShareImageFailure("write_failed", "Could not publish private image staging")
-            }
+            if (!temporary.renameTo(final)) throw MobileShareImageFailure("write_failed", publishError)
             return final
         } catch (error: Exception) {
             temporary.delete()
             final.delete()
-            if (error is MobileShareImageFailure) throw error
-            throw MobileShareImageFailure("write_failed", error.message ?: "Could not stage document image")
+            throw error
         }
     }
 

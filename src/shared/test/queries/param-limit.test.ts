@@ -7,7 +7,6 @@ import {
   communityChannelMember,
   communityServerFolderItem,
 } from "../../src/db/community-schema";
-import * as mentionQueries from "../../src/db/queries/community/mention";
 import * as attachmentQueries from "../../src/db/queries/community/attachment";
 import * as inboxQueries from "../../src/db/queries/community/inbox";
 import * as agentInboxQueries from "../../src/db/queries/community/agent-inbox";
@@ -17,8 +16,6 @@ import * as categoryQueries from "../../src/db/queries/community/category";
 import * as memberQueries from "../../src/db/queries/community/member";
 import * as reactionQueries from "../../src/db/queries/community/reaction";
 import * as dmQueries from "../../src/db/queries/community/dm";
-import * as agentQueries from "../../src/db/queries/agent";
-import * as meetingQueries from "../../src/db/queries/meeting-session";
 import * as userQueries from "../../src/db/queries/user";
 import * as userProfileQueries from "../../src/db/queries/community/user-profile";
 import { D1_MAX_BIND_PARAMS } from "../../src/db/queries/_chunk";
@@ -75,57 +72,6 @@ describe("real emitted params per row (pins the insert caps)", () => {
       position: 0,
     });
     expect(p).toBe(3);
-  });
-});
-
-// Capturing db that records each insert's row count and resolves .returning().
-function makeInsertCapture() {
-  const inserts: number[] = [];
-  const db: any = {
-    insert: vi.fn(() => {
-      const builder: any = {};
-      builder.values = vi.fn((rows: unknown[]) => {
-        inserts.push(rows.length);
-        const chainable: any = {
-          returning: vi.fn(() =>
-            Promise.resolve((rows as Record<string, unknown>[]).map((r, i) => ({ ...r, id: `row-${inserts.length}-${i}` })))
-          ),
-          onConflictDoNothing: vi.fn(() => Promise.resolve()),
-        };
-        return chainable;
-      });
-      return builder;
-    }),
-  };
-  return { db, inserts };
-}
-
-describe("createMentions chunking", () => {
-  it("100 userIds → 5 insert statements of ≤20 rows, returns all 100", async () => {
-    const { db, inserts } = makeInsertCapture();
-    const userIds = Array.from({ length: 100 }, (_, i) => `u${i}`);
-    const rows = await mentionQueries.createMentions(db, {
-      messageId: "m1",
-      userIds,
-    });
-    // 5 params/row → cap 20 → 100/20 = 5 statements.
-    expect(inserts).toEqual([20, 20, 20, 20, 20]);
-    for (const n of inserts) expect(n * 5).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
-    expect(rows).toHaveLength(100);
-  });
-
-  it("empty userIds → no insert", async () => {
-    const { db, inserts } = makeInsertCapture();
-    const rows = await mentionQueries.createMentions(db, { messageId: "m1", userIds: [] });
-    expect(inserts).toEqual([]);
-    expect(rows).toEqual([]);
-  });
-
-  it("21 userIds → 2 statements (20 + 1)", async () => {
-    const { db, inserts } = makeInsertCapture();
-    const userIds = Array.from({ length: 21 }, (_, i) => `u${i}`);
-    await mentionQueries.createMentions(db, { messageId: "m1", userIds });
-    expect(inserts).toEqual([20, 1]);
   });
 });
 
@@ -422,8 +368,6 @@ describe("high-cardinality query bind matrix", () => {
     const calls: Array<(db: ReturnType<typeof drizzle>) => Promise<unknown>> = [
       (db) => memberQueries.getMemberships(db as never, "user_1", ids),
       (db) => categoryQueries.getCategoriesByIds(db as never, ids),
-      (db) => agentQueries.getAgentsByIds(db as never, ids, "workspace_1"),
-      (db) => meetingQueries.claimMeetingSessions(db as never, ids, "workspace_1", "2026-01-01T00:00:00.000Z"),
       (db) => dmQueries.listDMs(db as never, "user_1"),
       (db) => dmQueries.getDMBetween(db as never, "user_1", "user_2"),
     ];
@@ -446,7 +390,7 @@ describe("high-cardinality query bind matrix", () => {
     expect(memberCapture.statements.map(({ params }) => params.length)).toEqual([100, 27]);
 
     const reactionCapture = makeD1Capture();
-    await reactionQueries.listReactionsByMessageIds(reactionCapture.db as never, ids, "user_1");
+    await reactionQueries.listReactionsByMessageIds(reactionCapture.db as never, ids);
     expect(reactionCapture.statements.map(({ params }) => params.length)).toEqual([100, 25]);
   });
 

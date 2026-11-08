@@ -156,12 +156,12 @@ describe("BotMarkSticker", () => {
   })
 
   it("renders literal Unicode/newlines and retention metadata; the timestamp opens the audit", () => {
-    const body = "一页正文🙂\n<b>Literal</b>"
+    const body = "Page body🙂\n<b>Literal</b>"
     mocks.activity.events = [{ id: "text", kind: "text", payload: { text: body, truncated: true, chars: 200 }, createdAt: "2026-09-04T00:00:00.000Z" }]
     const { renderer, props } = render()
     const row = renderer.container.querySelector('[data-testid="community-bot-audit-preview-row-text"]')!
     const content = row.querySelector("[data-community-message-body]")!
-    expect(content).toHaveTextContent("一页正文🙂")
+    expect(content).toHaveTextContent("Page body🙂")
     expect(content).toHaveTextContent("<b>Literal</b>…")
     expect(content.querySelector("br")).not.toBeNull()
     expect(row.querySelector("b")).toBeNull()

@@ -1,7 +1,7 @@
 "use client";
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Camera, Shuffle } from "lucide-react";
 import {
   Dialog,
@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ImageCropDialog } from "@/components/community/image-crop-dialog";
-import { validateIconSourceFile } from "@/lib/community/image-crop";
+import { acquireIconCropSource, type IconCropSource } from "@/lib/community/image-crop";
 import { toast } from "sonner";
 import { type AvatarDraft } from "@/lib/avatar/model";
 import { GeneratedAvatar } from "./generated-avatar";
@@ -32,7 +32,13 @@ interface BotAvatarPickerDialogProps {
 export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialogProps) {
   const isMobile = useIsMobile();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [pendingCropSrc, setPendingCropSrc] = useAtom(useCreateAtom<{ src: string; fileName: string } | null>(null));
+  const cropSource = useCreateAtom<IconCropSource | null>(null)
+  const [pendingCropSrc, setPendingCropSrc] = useAtom(cropSource)
+  useEffect(() => () => {
+    const task = cropSource.get()
+    task?.release()
+    setPendingCropSrc((current) => current === task ? null : current)
+  }, [cropSource, setPendingCropSrc]);
   const picker = useAvatarDraftPicker(image, onChange);
 
   const pickPhoto = () => fileInputRef.current?.click();
@@ -40,12 +46,13 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    const check = validateIconSourceFile(file);
+    const check = acquireIconCropSource(file);
     if (!check.ok) {
       toast.error(check.error);
       return;
     }
-    setPendingCropSrc({ src: URL.createObjectURL(file), fileName: file.name });
+    cropSource.get()?.release();
+    setPendingCropSrc(check.source);
   };
 
   const triggerPreview = picker.activeKind === "photo" ? picker.photoDraft?.previewUrl : null;
@@ -146,17 +153,15 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
           originalFileName={pendingCropSrc.fileName}
           maskShape="circle"
           onCropped={(file) => {
+            if (cropSource.get() !== pendingCropSrc) { pendingCropSrc.release(); return; }
             const previewUrl = URL.createObjectURL(file);
-            if (picker.photoDraft?.previewUrl.startsWith("blob:")) {
-              URL.revokeObjectURL(picker.photoDraft.previewUrl);
-            }
             picker.selectPhoto({ file, previewUrl });
-            URL.revokeObjectURL(pendingCropSrc.src);
-            setPendingCropSrc(null);
+            pendingCropSrc.release();
+            setPendingCropSrc((current) => current === pendingCropSrc ? null : current);
           }}
           onCancel={() => {
-            URL.revokeObjectURL(pendingCropSrc.src);
-            setPendingCropSrc(null);
+            pendingCropSrc.release();
+            setPendingCropSrc((current) => current === pendingCropSrc ? null : current);
           }}
         />
       )}

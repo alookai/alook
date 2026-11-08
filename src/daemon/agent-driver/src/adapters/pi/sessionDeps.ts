@@ -173,14 +173,7 @@ export function createPiSessionDependencies(
       const model = parsed ? modelRuntime.getModel(parsed.provider, parsed.id) : undefined;
 
       const cwd = opts.cwd as string;
-      // Three-branch session acquisition — see the plan's Designs section:
-      //   (i)  sessionId + matching rollout file → SessionManager.open(...)
-      //   (ii) sessionId + no matching file       → create(cwd, sessionDir, { id })
-      //   (iii) no sessionId                      → create(cwd) (fresh)
-      // We intentionally do NOT call continueRecent() for the no-id path —
-      // that would silently inherit whichever session ran last in this cwd,
-      // producing a real regression (wrong session on any workdir that has
-      // hosted more than one session).
+      // Resume requires the exact history. Never inherit another session from this cwd.
       const requestedSessionId = opts.sessionId as string | undefined;
       let sessionManager: unknown;
       if (requestedSessionId) {

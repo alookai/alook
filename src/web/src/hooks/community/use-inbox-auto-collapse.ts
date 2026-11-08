@@ -45,11 +45,6 @@ function projectionStoreFor(queryClient: QueryClient) {
   return store
 }
 
-export function useInboxProjectionTarget(queryClient: QueryClient) {
-  const store = projectionStoreFor(queryClient)
-  return useSelector(store.value, (state) => state.lease?.target ?? null)
-}
-
 function publishProjection(store: ProjectionStore, lease: ProjectionLease | null) {
   store.value.setState((state) => ({ ...state, lease }))
 }
@@ -82,7 +77,6 @@ export function useInboxAutoCollapse({
   const [open, setOpen] = useAtom(openAtom)
   const store = projectionStoreFor(queryClient)
   const projection = useSelector(store.value, (state) => state.lease)
-  const projectionTarget = projection?.target ?? null
   const previousPublishedHref = useCreateAtom(publishedHref)
 
   const commitLease = useCallback((lease: ProjectionLease) => {
@@ -161,12 +155,6 @@ export function useInboxAutoCollapse({
     setOpen(next)
   }, [setOpen])
 
-  const isProjected = useCallback((target: InboxRowTarget | null) => {
-    if (!target || !projectionTarget) return false
-    return projectionTarget.identity === target.identity
-      && projectionTarget.fingerprint === target.fingerprint
-  }, [projectionTarget])
-
   const isLatestProjection = useCallback((epoch: number) => (
     store.value.get().lease?.epoch === epoch
   ), [store])
@@ -204,13 +192,11 @@ export function useInboxAutoCollapse({
 
   return {
     open,
-    projectionTarget,
     onOpenChange,
     beginProjection,
     markProjectionSubmitted,
     rollbackProjection,
     closeWithoutProjection,
-    isProjected,
     isLatestProjection,
   }
 }

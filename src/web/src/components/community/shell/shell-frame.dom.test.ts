@@ -46,7 +46,6 @@ const mocks = vi.hoisted(() => {
     projectedServer: { current: undefined as undefined | Record<string, unknown> },
     projectedChannel: { current: undefined as undefined | Record<string, unknown> },
     breakpoint: { current: "desktop" },
-    onboardingState: { current: null as Record<string, unknown> | null },
     replace: vi.fn(),
     push: vi.fn(),
     registerUiHandlers: vi.fn(),
@@ -90,9 +89,6 @@ vi.mock("@/lib/community/eject-server", async (importOriginal) => ({ ...await im
 vi.mock("@/hooks/use-mobile", () => ({
   useBreakpoint: () => mocks.breakpoint.current,
   useIsMobile: () => mocks.breakpoint.current === "mobile",
-}))
-vi.mock("@/lib/community-onboarding", () => ({
-  useCommunityOnboarding: () => mocks.onboardingState.current,
 }))
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.currentHref.current.split("?")[0],
@@ -354,7 +350,6 @@ describe("ShellFrame orchestration", () => {
     mocks.projectedServer.current = undefined
     mocks.projectedChannel.current = undefined
     mocks.breakpoint.current = "desktop"
-    mocks.onboardingState.current = null
     mocks.registerUiHandlers.mockClear()
     mocks.observeOwnerDelete.mockClear()
     mocks.registerOwnerDelete.mockClear()
@@ -571,21 +566,6 @@ describe("ShellFrame orchestration", () => {
     expect(resetExit).toHaveBeenCalledTimes(finished && !valid ? 1 : 0)
   })
 
-  it("returns mobile server onboarding to the semantic list surface", () => {
-    mocks.breakpoint.current = "mobile"
-    mocks.currentHref.current = "/c/me/dm_1"
-    mocks.onboardingState.current = { status: "active", stage: "server" }
-
-    render(createElement(ShellFrame, {
-      ...baseProps,
-      view: "dm",
-      activeServerId: undefined,
-      frameHref: "/c/me/dm_1",
-    }))
-
-    expect(mocks.replace).toHaveBeenCalledWith("/c/me")
-  })
-
   it.each([
     ["/c/channels/s1/thread1", { id: "thread1", serverId: "s1", parentChannelId: "parent1" }, "/c/channels/s1/parent1"],
     ["/c/channels/s1/c1", { id: "c1", serverId: "s1", parentChannelId: null }, "/c/channels/s1"],
@@ -614,21 +594,6 @@ describe("ShellFrame orchestration", () => {
     act(() => { window.dispatchEvent(new Event("alook:native-back", { cancelable: true })) })
     expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/s1")
     renderer.unmount()
-  })
-
-  it("keeps mobile server onboarding stable on an existing list surface", () => {
-    mocks.breakpoint.current = "mobile"
-    mocks.currentHref.current = "/c/me"
-    mocks.onboardingState.current = { status: "active", stage: "server" }
-
-    render(createElement(ShellFrame, {
-      ...baseProps,
-      view: "dm",
-      activeServerId: undefined,
-      frameHref: "/c/me",
-    }))
-
-    expect(mocks.replace).not.toHaveBeenCalled()
   })
 
   it("registers the shared navigation and UI handlers", () => {

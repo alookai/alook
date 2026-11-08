@@ -37,7 +37,6 @@ Object.defineProperty(globalThis, "window", {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  cancelAccountDeletionAuthTransition();
 });
 
 describe("ApiError class", () => {
@@ -204,13 +203,13 @@ describe("apiFetch", () => {
     mockFetch.mockResolvedValue(await currentReply(401, { error: "unauthorized" }));
 
     const { apiFetch } = await getApiFetch();
-    beginAccountDeletionAuthTransition();
+    const lease = beginAccountDeletionAuthTransition("viewer");
 
-    await expect(apiFetch("/api/community/bots")).rejects.toMatchObject({ status: 401 });
+    await expect(apiFetch("/api/community/bots", { authenticationAccount: "viewer" })).rejects.toMatchObject({ status: 401 });
     expect(locationAssignMock).not.toHaveBeenCalled();
 
-    cancelAccountDeletionAuthTransition();
-    await expect(apiFetch("/api/community/bots")).rejects.toMatchObject({ status: 401 });
+    cancelAccountDeletionAuthTransition(lease);
+    await expect(apiFetch("/api/community/bots", { authenticationAccount: "viewer" })).rejects.toMatchObject({ status: 401 });
     expect(locationAssignMock).toHaveBeenCalledWith(new URL("/sign-in", "https://alook.test"));
   });
 });

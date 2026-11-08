@@ -1,3 +1,4 @@
+import { communityProxyRoutes } from "../credentials/route-policy.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
 import { type PlatformMachineRequest, type PlatformBotRequest } from "@alook/shared";
 /**
@@ -184,7 +185,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     // signature, so a direct `as Record<string, unknown>` is rejected (call()
     // gets this for free because its param is already `unknown`).
     const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
-    const res = await fetchImpl(`${base}/api/community/channels/${REF_PLACEHOLDER_ID}/messages`, {
+    const res = await fetchImpl(`${base}${communityProxyRoutes.channelMessages(REF_PLACEHOLDER_ID)}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -206,7 +207,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     if (req.around !== undefined) q.set("around", String(req.around))
     if (req.limit !== undefined) q.set("limit", String(req.limit))
     const res = await fetchImpl(
-      `${base}/api/community/channels/${REF_PLACEHOLDER_ID}/messages?${q.toString()}`,
+      `${base}${communityProxyRoutes.channelMessages(REF_PLACEHOLDER_ID)}?${q.toString()}`,
       {
         method: "GET",
         headers: { authorization: `Bearer ${config.voucher}` },
@@ -256,7 +257,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     req: Parameters<ServerApi["messagePropertySet"]>[0],
   ): Promise<Awaited<ReturnType<ServerApi["messagePropertySet"]>>> {
     const res = await fetchImpl(
-      `${base}/api/community/messages/${REF_PLACEHOLDER_ID}/properties${propertyAuditQuery(req.property)}`,
+      `${base}${communityProxyRoutes.messageProperties(REF_PLACEHOLDER_ID)}${propertyAuditQuery(req.property)}`,
       {
         method: "PUT",
         headers: {
@@ -276,7 +277,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     q.set("ref", req.channel);
     q.set("seq", String(req.seq));
     const res = await fetchImpl(
-      `${base}/api/community/messages/${REF_PLACEHOLDER_ID}/properties?${q.toString()}`,
+      `${base}${communityProxyRoutes.messageProperties(REF_PLACEHOLDER_ID)}?${q.toString()}`,
       {
         method: "GET",
         headers: { authorization: `Bearer ${config.voucher}` },
@@ -289,7 +290,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     req: Parameters<ServerApi["messagePropertyRemove"]>[0],
   ): Promise<Awaited<ReturnType<ServerApi["messagePropertyRemove"]>>> {
     const res = await fetchImpl(
-      `${base}/api/community/messages/${REF_PLACEHOLDER_ID}/properties${propertyAuditQuery(req.property)}`,
+      `${base}${communityProxyRoutes.messageProperties(REF_PLACEHOLDER_ID)}${propertyAuditQuery(req.property)}`,
       {
         method: "DELETE",
         headers: {
@@ -327,11 +328,6 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   }
 
   async function callListChannels(req: ListChannelsRequest): Promise<{ groups: ChannelGroup[] }> {
-    // Canonical channel-list doors: single server → GET servers/{id}/channels
-    // (ref on `?server=`, `resolve` placeholder id, member-scoped → 404 ①-C);
-    // all servers (server omitted) → GET servers/channels (collection-level
-    // aggregate, no id). RETARGETED off the flat `listChannels` verb. Both return
-    // the same `{ groups: ChannelGroup[] }`.
     const url = req.server
       ? `${base}/api/community/servers/${REF_PLACEHOLDER_ID}/channels?server=${encodeURIComponent(req.server)}`
       : `${base}/api/community/servers/channels`;
@@ -347,12 +343,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     pendingOutgoing: FriendCard[];
     pendingIncoming: FriendCard[];
   }> {
-    // RETARGETED off the flat `listFriends` verb onto the per-bucket friends
-    // sub-resource endpoints (route/disc 轴3): accepted from GET friends/accepted,
-    // pending from GET friends/pending. The bot NEVER calls friends/blocked
-    // (owner-only, bot-403). Compose the 3-bucket shape `alook friend list`
-    // renders — CLI output unchanged. Both endpoints are self-scoped to the
-    // voucher's bot (no target-user param), so no addressing goes on the wire.
+    // Blocked-friend data is owner-only. Both reads derive the bot from its credential.
     const get = async (path: string) => {
       const res = await fetchImpl(`${base}/api/community/friends/${path}`, {
         method: "GET",
@@ -374,12 +365,9 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   }
 
   async function callInboxPull(req: InboxPullRequest): Promise<InboxPullResponse> {
-    // RETARGETED off the flat `inboxPull` verb onto the caller's own inbox
-    // resource POST users/me/inbox/pull (route/disc 轴3). Self-scoped to the
-    // voucher's bot — no target-user param on the wire (users/me/* family).
-    // The legacy flat route is deleted. Same optional `{max?}` body.
+    // Self-scoped on the server; never forward a target-user identity.
     const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
-    const res = await fetchImpl(`${base}/api/community/users/me/inbox/pull`, {
+    const res = await fetchImpl(`${base}${communityProxyRoutes.inboxPull}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -391,7 +379,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   }
 
   async function callListMarks(): Promise<MessageMarkListResponse> {
-    const res = await fetchImpl(`${base}/api/community/users/me/marks`, {
+    const res = await fetchImpl(`${base}${communityProxyRoutes.marks}`, {
       method: "GET",
       headers: { authorization: `Bearer ${config.voucher}` },
     });
@@ -399,16 +387,9 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   }
 
   async function callAck(req: AckRequest): Promise<AckResponse> {
-    // RETARGETED off the flat `ack` verb onto POST users/me/inbox/ack (route/disc
-    // 接口树统一, Gener #215 乙) — ack is the ADVANCE operation of the inbox
-    // fetch↔advance trinity (snapshot=peek / pull=fetch / ack=advance, Aigneis
-    // #41). Self-scoped to the voucher's bot — the wire carries only the cursors,
-    // no target-user param (users/me/* family). Body byte-identical to the flat
-    // verb (the endpoint is a MOVE-FLAT, same seq-native/failed[]-batch/no-create
-    // shape — only the URL moved). The legacy flat route is deleted. The body
-    // is returned intact so partial success cannot be reported as a full ack.
+    // Preserve failed[]: partial cursor success must not become a full-ack receipt.
     const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
-    const res = await fetchImpl(`${base}/api/community/users/me/inbox/ack`, {
+    const res = await fetchImpl(`${base}${communityProxyRoutes.inboxAck}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -420,13 +401,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   }
 
   async function callFriendRequest(req: { agentId: AgentId; username: string }): Promise<FriendRequestResult> {
-    // RETARGETED off the flat `friendRequest` verb onto POST friends/request
-    // (route/disc 接口树统一, Melly #540) — the friend-request door is dual-actor
-    // (human/bot on one URL, dispatched to independent handlers). The bot arm
-    // keeps its distinct semantics (sibling-auto-accept, always-owner-gated, lean
-    // {friendshipId,status,hint}). Self-scoped: the wire carries only `username`,
-    // never a requesterId (that's the credential's botUserId server-side). Body
-    // byte-identical to the former flat verb; that legacy route is deleted.
+    // The credential owns requester identity; bot requests retain owner approval.
     const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
     const res = await fetchImpl(`${base}/api/community/friends/request`, {
       method: "POST",
@@ -440,13 +415,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   }
 
   async function callNap(req: { handoff?: string }): Promise<{ napped: boolean }> {
-    // RETARGETED off the flat `nap` verb onto POST bots/me/nap (route/disc
-    // 接口树统一, Gener #215 乙; Blondie #527). nap is a bot-qua-bot self
-    // lifecycle action — the agent resets its OWN session — so it lives under
-    // bots/me/* (self-scope, "me" = the credential-authenticated bot, no target
-    // id). Self-scoped to the voucher's bot: the wire carries only the handoff,
-    // never a target-bot param (bots/me/* family invariant, same as users/me).
-    // Body byte-identical to the former flat verb; that legacy route is deleted.
+    // The credential selects the bot's own session, never a supplied target.
     const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
     const res = await fetchImpl(`${base}/api/community/bots/me/nap`, {
       method: "POST",
@@ -475,7 +444,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
         const form = new FormData();
         const blob = new Blob([new Uint8Array(req.avatar!.data)], { type: req.avatar!.contentType });
         form.append("file", blob, req.avatar!.filename);
-        const res = await fetchImpl(`${base}/api/community/users/me/avatar`, {
+        const res = await fetchImpl(`${base}${communityProxyRoutes.avatar}`, {
           method: "POST",
           headers: { authorization: `Bearer ${config.voucher}` },
           body: form,
@@ -490,7 +459,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     if (req.bio !== undefined) {
       try {
         const body = await withTransientMutationRetry(async () => {
-          const res = await fetchImpl(`${base}/api/community/users/me/profile`, {
+          const res = await fetchImpl(`${base}${communityProxyRoutes.profile}`, {
             method: "PATCH",
             headers: {
               "content-type": "application/json",
@@ -518,11 +487,8 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   }
 
   async function callInboxSnapshot(): Promise<InboxSnapshot> {
-    // RETARGETED off the flat `inboxSnapshot` verb onto GET users/me/inbox/snapshot
-    // (route/disc 轴3). A GET — snapshot is a pure peek (never advances the read
-    // waterline, unlike pull), so the fetch↔advance decoupling is explicit in the
-    // verb. Self-scoped, no target-user param; the legacy flat route is deleted.
-    const res = await fetchImpl(`${base}/api/community/users/me/inbox/snapshot`, {
+    // Server fetches do not advance read state. CLI pull performs a separate ack.
+    const res = await fetchImpl(`${base}${communityProxyRoutes.inboxSnapshot}`, {
       method: "GET",
       headers: { authorization: `Bearer ${config.voucher}` },
     });
@@ -530,12 +496,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   }
 
   async function callDownload(req: AttachmentDownloadRequest): Promise<AgentAttachmentDownloadResult> {
-    // Canonical attachments door: GET channels/{id}/attachments/{attachmentId}.
-    // The attachment id is authoritative (the door authorizes from the row's own
-    // channel, never the path), so the id moves from the old POST body into the
-    // path and the `resolve` placeholder fills the channel segment. The response
-    // is still a raw binary body + `X-Alook-Filename`; success streaming +
-    // error-as-JSON handling below is unchanged.
+    // The stored attachment's channel authorizes access; the path channel is a placeholder.
     const res = await fetchImpl(
       `${base}/api/community/channels/${REF_PLACEHOLDER_ID}/attachments/${encodeURIComponent(req.id)}`,
       {

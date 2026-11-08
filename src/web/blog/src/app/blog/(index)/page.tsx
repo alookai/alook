@@ -6,7 +6,7 @@ import Link from "next/link";
 import { isGuide } from "@blog/lib/blog/guides";
 import { getAllPosts } from "@blog/lib/blog/posts";
 import { blogTopics } from "@blog/lib/blog/topics";
-import { buildBlogIndexModel, formatBlogPostDate } from "./model";
+import { buildBlogPostCards, formatBlogPostDate } from "@blog/lib/blog/post-cards";
 import { RecentPosts } from "./recent-posts";
 
 const pageTitle = "Blog";
@@ -34,7 +34,7 @@ const collectionJsonLd = {
 
 export default async function BlogPage() {
   const posts = (await getAllPosts()).filter((post) => !isGuide(post));
-  const { featured, recent } = buildBlogIndexModel(posts);
+  const [featured, ...recent] = buildBlogPostCards(posts);
 
   return (
     <>

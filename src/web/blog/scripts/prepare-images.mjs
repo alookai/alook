@@ -1,3 +1,4 @@
+import { readBlogImageReferences } from "../src/lib/blog/source-grammar.mjs";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -7,15 +8,7 @@ export async function prepareBlogImages(blogRoot) {
     const contentDir = resolve(blogRoot, "src/content");
     for (const file of (await readdir(contentDir)).filter((file) => file.endsWith(".mdx")).sort()) {
         const content = await readFile(resolve(contentDir, file), "utf8");
-        const image = /\bimage:\s*["']([^"']+)["']/.exec(content);
-        if (image)
-            sources.add(image[1]);
-        for (const match of content.matchAll(/<source[^>]+srcSet=["']([^"']+)["']/g)) {
-            for (const candidate of match[1].split(",")) sources.add(candidate.trim().split(/\s+/)[0]);
-        }
-        for (const match of content.matchAll(/!\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)|<img[^>]+src=["']([^"']*)["'][^>]*>/g)) {
-            sources.add(match[1] || match[2]);
-        }
+        for (const source of readBlogImageReferences(content)) sources.add(source);
     }
     const assets = {};
     const publicRoot = resolve(blogRoot, "public");

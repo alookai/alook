@@ -1,5 +1,7 @@
 "use client";
 
+import { legacyTweenTimeScale } from "./legacy-tween-time-scale";
+
 import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
 import { useRef } from "react";
 import Link from "next/link";
@@ -26,6 +28,7 @@ export function MarketingFooter() {
 
   useGSAP(
     () => {
+      const timeScale = legacyTweenTimeScale();
       gsap.from(footerRef.current, {
         y: 20,
         opacity: 0,
@@ -36,7 +39,7 @@ export function MarketingFooter() {
           start: "top 90%",
           toggleActions: "play none none none",
         },
-      });
+      }).timeScale(timeScale);
     },
     { scope: footerRef }
   );

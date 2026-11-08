@@ -672,7 +672,7 @@ test("forum post actions stay discoverable on mobile without changing permission
   await seedJoinServer("alice", "bob", serverId)
   await seedJoinServer("alice", "carol", serverId)
   const primaryTitle = `UnbrokenForumTitle${Date.now()}${"abcdefghij".repeat(12)}`
-  const cjkTitle = `移动端论坛长标题省略且编号保持同行${stamp}`
+  const cjkTitle = `${"界".repeat(20)}${stamp}`
   const noTagTitle = `One line ${stamp}`
   const primaryPostId = await seedForumThread(
     "bob",

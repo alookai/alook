@@ -6,7 +6,7 @@ import { ChannelHeader } from "./channel-header"
 import { CommunityPanel } from "../shell/community-panel"
 import { ForumChannelSurface } from "./forum-channel-surface"
 import { ForumSurface } from "./forum-surface"
-import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
+import { ConversationActivityContext } from "@/contexts/view-activity"
 
 const mocks = vi.hoisted(() => ({
   createForumThread: vi.fn(),

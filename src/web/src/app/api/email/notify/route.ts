@@ -4,7 +4,6 @@ import { getDb } from "@/lib/db"
 import { withEnv } from "@/lib/middleware/env"
 import { writeJSON, parseBody } from "@/lib/middleware/helpers"
 import { broadcastToUser } from "@/lib/broadcast"
-import { invalidate, cacheKeys } from "@/lib/cache"
 
 export const POST = withEnv(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -44,12 +43,6 @@ export const POST = withEnv(async (req: NextRequest, ctx) => {
       scheduledAt: mi.startTime,
     })
   }
-
-  const dateStr = new Date().toISOString().slice(0, 10);
-  await Promise.all([
-    invalidate(cacheKeys.overviewEmailStats(body.workspaceId)),
-    invalidate(cacheKeys.overviewTaskStats(body.workspaceId, dateStr)),
-  ]);
 
   if (agent?.ownerId) {
     broadcastToUser(agent.ownerId, { type: "email.received", agentId: body.agentId }).catch(() => {})

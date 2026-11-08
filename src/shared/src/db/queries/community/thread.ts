@@ -2,7 +2,7 @@ import { and, asc, desc, eq, exists, gt, inArray, isNotNull, lt, lte, notExists,
 import { communityChannel, communityChannelMember, communityMessageTag } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
-import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import { FORUM_ARCHIVE_TAG, type ParticipantSource } from "../../../constants/community";
 import { compareAsciiSqliteBinary } from "../../../lib/sqlite-binary";
 
@@ -42,38 +42,6 @@ export async function addThreadParticipant(
     .onConflictDoNothing({ target: [...NOTIFY_CONFLICT_TARGET] })
     .returning();
   return rows[0] ?? null;
-}
-
-// Bulk idempotent add — one INSERT for many (userId, source) pairs. Used on the
-// message-send hot path where a post can add the author + N mentioned users at
-// once. Skips the query for an empty list. Does not overwrite existing rows.
-export async function addThreadParticipants(
-  db: Database,
-  threadChannelId: string,
-  rows: { userId: string; source: ParticipantSource }[]
-) {
-  if (rows.length === 0) return [];
-  // communityChannelMember emits 6 bind params/row (id $defaultFn, channel_id,
-  // user_id, relation, source, added_at $defaultFn; added_by is an unsupplied
-  // literal null, not a param), so cap at floor(100/6)=16 rows for D1's 100-param
-  // limit. `onConflictDoNothing` adds no VALUES params.
-  const insertedUserIds: string[] = [];
-  for (const batch of chunk(rows, maxRowsPerInsert(6))) {
-    const inserted = await db
-      .insert(communityChannelMember)
-      .values(
-        batch.map((r) => ({
-          channelId: threadChannelId,
-          userId: r.userId,
-          relation: "notify",
-          source: r.source,
-        }))
-      )
-      .onConflictDoNothing({ target: [...NOTIFY_CONFLICT_TARGET] })
-      .returning({ userId: communityChannelMember.userId });
-    for (const row of inserted) insertedUserIds.push(row.userId);
-  }
-  return insertedUserIds;
 }
 
 export async function listThreadParticipantUserIds(
@@ -207,55 +175,6 @@ export async function isThreadParticipant(
     )
     .limit(1);
   return rows.length > 0;
-}
-
-// Leave: drop the notify row entirely (a later mention/speak re-adds). Returns
-// the removed row or null.
-export async function removeThreadParticipant(
-  db: Database,
-  threadChannelId: string,
-  userId: string
-) {
-  const rows = await db
-    .delete(communityChannelMember)
-    .where(
-      and(
-        eq(communityChannelMember.channelId, threadChannelId),
-        eq(communityChannelMember.userId, userId),
-        eq(communityChannelMember.relation, "notify")
-      )
-    )
-    .returning();
-  return rows[0] ?? null;
-}
-
-// Drop a user's notify rows from EVERY child thread
-// under a top-level unit. Called when a member is removed from a forum/channel's
-// access roster: their access is gone, so their leftover notify rows on the
-// unit's posts/threads must go too. A later mention/speak (which requires
-// access) re-adds them. Returns the count of removed rows.
-export async function removeParticipantFromChildChannels(
-  db: Database,
-  parentChannelId: string,
-  userId: string
-): Promise<number> {
-  const children = await db
-    .select({ id: communityChannel.id })
-    .from(communityChannel)
-    .where(eq(communityChannel.parentChannelId, parentChannelId));
-  const childIds = children.map((c) => c.id);
-  if (childIds.length === 0) return 0;
-  const removed = await db
-    .delete(communityChannelMember)
-    .where(
-      and(
-        inArray(communityChannelMember.channelId, childIds),
-        eq(communityChannelMember.userId, userId),
-        eq(communityChannelMember.relation, "notify")
-      )
-    )
-    .returning();
-  return removed.length;
 }
 
 export async function listParticipatingThreadIds(

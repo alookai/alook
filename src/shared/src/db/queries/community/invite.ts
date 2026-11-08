@@ -65,14 +65,6 @@ export async function createInvite(
   return rows[0] ?? null;
 }
 
-export async function getInvite(db: Database, inviteId: string) {
-  const rows = await db
-    .select()
-    .from(communityServerInvite)
-    .where(eq(communityServerInvite.id, inviteId));
-  return rows[0] ?? null;
-}
-
 export async function getInviteByToken(db: Database, token: string) {
   const rows = await db
     .select()

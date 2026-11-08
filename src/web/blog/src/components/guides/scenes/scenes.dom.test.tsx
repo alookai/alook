@@ -102,7 +102,8 @@ describe("server invitation walkthrough", () => {
 
 describe("server message walkthrough", () => {
   it("selects both native mentions, types, sends and resets the draft on Replay", async () => {
-    const { MessageDemo, tutorialTask } = await import("../message-demo");
+    const { MessageDemo } = await import("../message-demo");
+    const taskText = "Agree on roles, then wait for my task.";
     const { createScene } = await import("./message");
     render(<MessageDemo />);
     const root = screen.getByTestId("scene");
@@ -119,11 +120,11 @@ describe("server message walkthrough", () => {
       act(() => { timeline.time(11.2, false); });
       expect(draft.querySelectorAll('.mention-highlight')).toHaveLength(2);
       act(() => { timeline.time(15.2, false); });
-      expect(draft.querySelector('[data-draft-text]')).toHaveTextContent(tutorialTask);
+      expect(draft.querySelector('[data-draft-text]')).toHaveTextContent(taskText);
       expect(draft.querySelector('[aria-label="Send message"]')).toBeEnabled();
       act(() => { timeline.time(18, false); });
       expect(root.dataset.demoAction).toBe("message-posted");
-      expect(root.querySelector('[data-message-result]')).toHaveTextContent(tutorialTask);
+      expect(root.querySelector('[data-message-result]')).toHaveTextContent(taskText);
       expect(root.querySelector('[data-message-result]')).toHaveTextContent("Gus");
       act(() => { timeline.restart().pause().time(0.1, false); });
       expect(draft.querySelectorAll('.mention-highlight')).toHaveLength(0);

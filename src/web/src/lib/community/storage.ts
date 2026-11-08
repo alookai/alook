@@ -2,22 +2,6 @@ export { communityUserAvatarUrl as userAvatarUrl, communityBotAvatarUrl as botAv
 
 export const ATTACHMENT_PRIVATE_IMMUTABLE_CACHE = "private, max-age=31536000, immutable"
 
-/**
- * Sanitize a filename component that will be embedded into an R2 key. Strips
- * `..`, replaces `/` and any C0 / DEL control character with `_`, and caps
- * total length at 255. Closes an R2-key injection hole in the media-key
- * builder: without this, a filename like `../../server-icon/foo/bar.png`
- * would be inserted verbatim, letting a caller with attachment-upload access
- * write outside its target's prefix.
- */
-export function sanitizeAttachmentFilename(input: string): string {
-  const cleaned = input
-    .replace(/\.\./g, "_")
-    .replace(/[\/\x00-\x1f\x7f]/g, "_")
-  if (cleaned.length === 0) return "_"
-  return cleaned.length > 255 ? cleaned.slice(0, 255) : cleaned
-}
-
 export function attachmentUrl(targetId: string, attachmentId: string): string {
   return `/api/community/channels/${targetId}/attachments/${attachmentId}`
 }

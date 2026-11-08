@@ -104,7 +104,7 @@ export async function listReactionsForActor(
   if (!access.ok) return access
 
   const [reactions, actors] = await Promise.all([
-    queries.communityReaction.listReactionsByMessageIds(db, [input.messageId], input.userId),
+    queries.communityReaction.listReactionsByMessageIds(db, [input.messageId]),
     queries.communityReaction.getReactionDetailsActors(db, input.messageId, access.scope),
   ])
   const handles = new Map(actors.map((actor) => [

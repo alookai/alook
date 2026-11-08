@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-export type ClusterPosition = "first" | "middle" | "last" | "solo";
+type ClusterPosition = "first" | "middle" | "last" | "solo";
 
 export interface MessageClusterProps {
   avatar: ReactNode;
@@ -11,7 +11,6 @@ export interface MessageClusterProps {
   className?: string;
 }
 
-const AVATAR_SIZE = 30;
 const GUTTER_W = "w-[30px]";
 
 export function MessageCluster({
@@ -39,5 +38,3 @@ export function MessageCluster({
     </div>
   );
 }
-
-export { AVATAR_SIZE };

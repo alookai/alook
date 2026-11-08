@@ -62,9 +62,9 @@ export function WorkspaceHome({ page, onBack, onDm, onOpenProfile, onMachines }:
     activityBot: null, activityOpen: false, activityGeneration: 0, openActivity: (bot) => { edit(bot); setPanel("Activity") }, onActivityOpenChange: () => {}, onActivityOpenChangeComplete: () => {},
     bugReportBot: null, setBugReportBot: () => {}, bugReportOpen: false, setBugReportOpen: () => setPanel("Report a problem"),
     confirmDelete: null, setConfirmDelete: (bot) => { edit(bot); setPanel("Delete bot") }, confirmReset: null, setConfirmReset: (bot) => { edit(bot); setPanel("Reset session") },
-    confirmResetMachine: null, setConfirmResetMachine: () => setPanel("Reset sessions"), helpOpen: false, setHelpOpen: () => setPanel("How your agent works"), guidedActive: false, guidedCreateLabel: "Create bot", guidedAvatarSeed: undefined,
+    confirmResetMachine: null, setConfirmResetMachine: () => setPanel("Reset sessions"), helpOpen: false, setHelpOpen: () => setPanel("How your agent works"), createLabel: "Create bot",
     startingBotChat: false, askBotToCreate: async () => { const bot = bots.find((item) => item.isActive && DEMO_PROFILES.get(item.id)?.presence === "online") ?? bots[0]; if (bot) onDm(bot.id) },
-    chatWithBot: async (bot) => onDm(bot.id), onBotCreated: async () => {}, openGuidedCreate: () => { edit(null); setPanel("Create bot") }, openMachines: onMachines,
+    chatWithBot: async (bot) => onDm(bot.id), openCreate: () => { edit(null); setPanel("Create bot") }, openMachines: onMachines,
     bringMachineOnline: () => setMachines((rows) => rows.map((row) => ({ ...row, status: "online" }))), machineName: () => MACHINE.displayName,
     deleteConfirmedBot: async () => {}, resetConfirmedBot: async () => {}, resetConfirmedMachine: async () => {},
   }

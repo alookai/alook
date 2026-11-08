@@ -191,9 +191,9 @@ describe("community browser event ingress", () => {
   it("locks target decoding and the exact worst-case strict bulk boundary", async () => {
     const uuid = "123e4567-e89b-12d3-a456-426614174000"
     expect(decodeCommunityTargetPathSegment(encodeCommunityUserTargetPathSegment(uuid))).toEqual({ ok: true, target: uuid })
-    expect(decodeCommunityTargetPathSegment(encodeCommunityUserTargetPathSegment("reserved /?# 用户"))).toEqual({
+    expect(decodeCommunityTargetPathSegment(encodeCommunityUserTargetPathSegment("reserved /?# €€"))).toEqual({
       ok: true,
-      target: "reserved /?# 用户",
+      target: "reserved /?# €€",
     })
     expect(decodeCommunityTargetPathSegment("u:%zz")).toMatchObject({ reason: "invalid-target" })
     expect(decodeCommunityTargetPathSegment("unframed")).toMatchObject({ reason: "invalid-target" })

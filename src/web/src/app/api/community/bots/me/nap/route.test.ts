@@ -116,7 +116,7 @@ describe("POST /api/community/bots/me/nap", () => {
   it("daemon online (sent:1) → 200 dispatch-only; nap audit + awake stamp re-homed to daemon completion, NOT written here", async () => {
     mockGetBotWakeContext.mockResolvedValue(READY_CTX)
     mockPushAgentNapToMachine.mockResolvedValue({ sent: 1 })
-    const handoff = "  note \\\\n to future self\n中文 🎉  \n"
+    const handoff = "  note \\\\n to future self\n€€ 🎉  \n"
 
     const res = await POST(req({ handoff }))
     expect(res.status).toBe(200)

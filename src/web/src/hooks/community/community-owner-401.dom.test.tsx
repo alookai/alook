@@ -6,7 +6,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { QueryProvider } from "@/app/c/QueryProvider"
 import { clearAllPersistedCaches } from "@/lib/query-persister"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { apiFetchProfiles } from "@/lib/community/profile-seed"
+import { apiFetchProfiles } from "@/lib/community/account-cache-lifecycle"
 import { useCreateBot } from "./use-bots"
 
 const sdk = vi.hoisted(() => ({ id: "owner" }))

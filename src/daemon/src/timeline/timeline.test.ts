@@ -17,6 +17,8 @@ import {
   localISOString,
   sweepTimelineHistory,
   TIMELINE_MAX_BYTES,
+  readResumeControlState,
+  updateResumeControlState,
 } from "./timeline";
 import type { TimelineEntryHandle } from "./timeline";
 import { acquireLock, lockPathFor, releaseLock } from "./filelock";
@@ -56,7 +58,7 @@ function entryAtExactBytes(bytes: number) {
 }
 
 function entryAtExactBytesWithMultibyte(bytes: number) {
-  const multibyte = "界".repeat(64);
+  const multibyte = "€".repeat(64);
   const base = createTimelineEntry({ messages: [msg(multibyte)], sessionId: "utf8", provider: "claude" });
   const baseBytes = Buffer.byteLength(JSON.stringify(base), "utf8") + 1;
   return createTimelineEntry({
@@ -236,7 +238,7 @@ describe("exact tracked row handles", () => {
     if (written.status !== "written" || !written.handle) throw new Error("missing handle");
     const file = path.join(dir, filenameForDate(NOW));
     const bytes = fs.readFileSync(file);
-    expect(updateTrackedEntry(dir, written.handle, entry => ({ ...entry, agent_responses: ["界".repeat(TIMELINE_MAX_BYTES)] })))
+    expect(updateTrackedEntry(dir, written.handle, entry => ({ ...entry, agent_responses: ["€".repeat(TIMELINE_MAX_BYTES)] })))
       .toEqual({ status: "rejected", reason: "oversized" });
     expect(fs.readFileSync(file)).toEqual(bytes);
     const lock = lockPathFor(dir, filenameForDate(NOW));
@@ -309,7 +311,7 @@ describe("daily timeline hard cap", () => {
     expect(fs.statSync(file).size).toBe(TIMELINE_MAX_BYTES);
     const before = fs.readFileSync(file);
     const overflow = createTimelineEntry({
-      messages: [msg(`${exact.messages[0].content.text}界`)],
+      messages: [msg(`${exact.messages[0].content.text}€`)],
       sessionId: "utf8",
       provider: "claude",
     });
@@ -710,5 +712,28 @@ describe("findResumableSession", () => {
 describe("localISOString", () => {
   it("formats local time with milliseconds and a timezone offset", () => {
     expect(localISOString(NOW)).toMatch(/^2026-06-25T12:00:00\.000[+-]\d{2}:\d{2}$/);
+  });
+});
+
+describe("durable pending idle reset validation", () => {
+  const validEvent = { eventId: "idle-1", occurredAt: "2026-06-25T12:00:00.000Z" };
+  const invalid = [
+    [validEvent, validEvent], [{ ...validEvent, eventId: "" }], [{ ...validEvent, eventId: "x".repeat(129) }],
+    Array.from({ length: 33 }, (_, i) => ({ ...validEvent, eventId: String(i) })),
+    [{ ...validEvent, occurredAt: "2026-06-25" }], [{ ...validEvent, occurredAt: "2026-99-99T12:00:00.000Z" }], null,
+  ];
+  it.each(invalid.map((events, i) => [i, events] as const))("rejects invalid pending list %s on both writes and reads without replacing prior bytes", (_i, events) => {
+    const dir = mkDir(), file = path.join(dir, ".resume-control.json");
+    expect(updateResumeControlState(dir, state => ({ ...state, pendingIdleResetEvents: [validEvent] }))).toBe(true);
+    const prior = fs.readFileSync(file);
+    expect(updateResumeControlState(dir, state => ({ ...state, pendingIdleResetEvents: events as never }))).toBe(false);
+    expect(fs.readFileSync(file)).toEqual(prior);
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(prior.toString()), pendingIdleResetEvents: events }));
+    expect(readResumeControlState(dir)).toEqual({ kind: "invalid" });
+  });
+  it("reads an old valid row without a pending list as empty", () => {
+    const dir = mkDir();
+    fs.writeFileSync(path.join(dir, ".resume-control.json"), JSON.stringify({ version: 1, attemptedSessionId: null, fencedSessionId: null, fullBarrier: null }));
+    expect(readResumeControlState(dir)).toMatchObject({ kind: "state", state: { pendingIdleResetEvents: [] } });
   });
 });

@@ -1,6 +1,7 @@
 import type { RuntimeReasoningCatalog } from "../../contract.js";
 import type { SpawnedProcessHandle } from "../../internal/adapter.js";
-import { killProcessTree, spawnAgentProcess } from "../../internal/killTree.js";
+import { DiscoveryProcessError, runBoundedDiscoveryProcess, type DiscoveryProcessControl, type DiscoveryProcessDependencies } from "../../internal/discovery-process.js";
+import { spawnAgentProcess } from "../../internal/killTree.js";
 import { normalizeRuntimeModelId, RUNTIME_MODEL_CATALOG_MAX } from "../../internal/modelCatalog.js";
 import { resolveSpawnSpec } from "../../internal/probe.js";
 import { asRecord, jsonRpcRequest, tryParseJsonLine } from "../../internal/utils.js";
@@ -14,20 +15,9 @@ const CATALOG_PROBE_OUTPUT_MAX_BYTES = 1024 * 1024;
 const MODEL_DISPLAY_NAME_MAX = 256;
 const DESCRIPTION_MAX = 512;
 
-type ProbeSpawn = (
-  command: string,
-  args: string[],
-  options: { cwd: string; env: NodeJS.ProcessEnv; shell: boolean },
-) => SpawnedProcessHandle;
-
-interface GrokAcpCatalogProbeOptions {
+interface GrokAcpCatalogProbeOptions extends DiscoveryProcessDependencies {
   readonly includeModels?: boolean;
-  readonly cwd?: string;
-  readonly timeoutMs?: number;
-  readonly outputMaxBytes?: number;
   readonly catalogGraceMs?: number;
-  readonly spawn?: ProbeSpawn;
-  readonly cleanup?: (process: SpawnedProcessHandle) => Promise<void>;
 }
 
 export type GrokAcpProbeResult =
@@ -118,14 +108,6 @@ function catalogFromInitialize(result: Record<string, unknown>): RuntimeReasonin
   return parseGrokModelCatalog(meta?.modelState);
 }
 
-async function cleanupProbeProcess(process: SpawnedProcessHandle): Promise<void> {
-  if (process.pid) {
-    await killProcessTree(process.pid, { graceMs: 250 }).catch(() => {});
-    return;
-  }
-  if (process.exitCode === null && process.signalCode === null) process.kill("SIGTERM");
-}
-
 export async function probeGrokAcpCatalog(
   command?: string,
   options: GrokAcpCatalogProbeOptions = {},
@@ -143,124 +125,109 @@ export async function probeGrokAcpCatalog(
     return { status: "unhealthy", lastError: "grok_acp_spawn_failed" };
   }
 
-  return new Promise((resolve) => {
-    let settled = false;
-    let buffer = "";
-    let outputBytes = 0;
-    let expectedId = 1;
-    let authenticated = false;
-    let catalog: RuntimeReasoningCatalog | undefined;
-    let catalogGraceTimer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (value: GrokAcpProbeResult) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (catalogGraceTimer) clearTimeout(catalogGraceTimer);
-      const cleanup = options.cleanup ?? cleanupProbeProcess;
-      void Promise.resolve().then(() => cleanup(processHandle)).catch(() => {}).finally(() => resolve(value));
-    };
-    const write = (method: string, params: Record<string, unknown>, id: number) => {
-      const stdin = processHandle.stdin;
-      if (!stdin || stdin.destroyed || stdin.writableEnded || stdin.writable === false) {
-        return finish({ status: "unhealthy", lastError: "grok_acp_transport_unavailable" });
+  let control: DiscoveryProcessControl<GrokAcpProbeResult>;
+  let buffer = "";
+  let expectedId = 1;
+  let authenticated = false;
+  let catalog: RuntimeReasoningCatalog | undefined;
+  let catalogGraceTimer: ReturnType<typeof setTimeout> | undefined;
+  const finish = (value: GrokAcpProbeResult) => {
+    if (catalogGraceTimer) clearTimeout(catalogGraceTimer);
+    control.finish(value);
+  };
+  const write = (method: string, params: Record<string, unknown>, id: number) => {
+    control.write(`${jsonRpcRequest(method, params, id)}\n`);
+  };
+  const onLine = (line: string) => {
+    const message = asRecord(tryParseJsonLine(line));
+    if (!message) return finish({ status: "unhealthy", lastError: "grok_acp_invalid_response" });
+    if (typeof message.method === "string") {
+      if (message.method === "_x.ai/models/update" || message.method === "x.ai/models/update") {
+        catalog = parseGrokModelCatalog(message.params) ?? catalog;
+        if (authenticated && catalog) finish({ status: "compatible", reasoning: catalog });
       }
-      try {
-        stdin.write(`${jsonRpcRequest(method, params, id)}\n`);
-      } catch {
-        finish({ status: "unhealthy", lastError: "grok_acp_transport_unavailable" });
+      return;
+    }
+    if (message.id !== expectedId) return;
+    if (message.error !== undefined) {
+      return finish({
+        status: "unhealthy",
+        lastError: expectedId === 1
+          ? "grok_acp_initialize_failed"
+          : "grok_acp_authentication_failed",
+      });
+    }
+    if (!("result" in message)) {
+      return finish({ status: "unhealthy", lastError: "grok_acp_invalid_response" });
+    }
+    const result = asRecord(message.result) ?? {};
+    if (expectedId === 1) {
+      const capabilities = asRecord(result.agentCapabilities);
+      const methods = Array.isArray(result.authMethods) ? result.authMethods : [];
+      const methodIds = methods.flatMap((method) => {
+        const id = asRecord(method)?.id;
+        return typeof id === "string" ? [id] : [];
+      });
+      if (result.protocolVersion !== ACP_PROTOCOL_VERSION) {
+        return finish({ status: "unhealthy", lastError: "grok_acp_protocol_incompatible" });
       }
-    };
-    const onLine = (line: string) => {
-      const message = asRecord(tryParseJsonLine(line));
-      if (!message) return finish({ status: "unhealthy", lastError: "grok_acp_invalid_response" });
-      if (typeof message.method === "string") {
-        if (message.method === "_x.ai/models/update" || message.method === "x.ai/models/update") {
-          catalog = parseGrokModelCatalog(message.params) ?? catalog;
-          if (authenticated && catalog) finish({ status: "compatible", reasoning: catalog });
+      if (capabilities?.loadSession !== true) {
+        return finish({ status: "unhealthy", lastError: "grok_acp_load_session_unsupported" });
+      }
+      if (!methodIds.includes(AUTH_METHOD_ID)) {
+        if (methodIds.some((id) => INTERACTIVE_AUTH_METHOD_IDS.has(id))) {
+          return finish({ status: "unhealthy", lastError: "grok_acp_authentication_failed" });
         }
-        return;
+        return finish({ status: "unhealthy", lastError: "grok_acp_cached_auth_unsupported" });
       }
-      if (message.id !== expectedId) return;
-      if (message.error !== undefined) {
-        return finish({
-          status: "unhealthy",
-          lastError: expectedId === 1
-            ? "grok_acp_initialize_failed"
-            : "grok_acp_authentication_failed",
-        });
-      }
-      if (!("result" in message)) {
-        return finish({ status: "unhealthy", lastError: "grok_acp_invalid_response" });
-      }
-      const result = asRecord(message.result) ?? {};
-      if (expectedId === 1) {
-        const capabilities = asRecord(result.agentCapabilities);
-        const methods = Array.isArray(result.authMethods) ? result.authMethods : [];
-        const methodIds = methods.flatMap((method) => {
-          const id = asRecord(method)?.id;
-          return typeof id === "string" ? [id] : [];
-        });
-        if (result.protocolVersion !== ACP_PROTOCOL_VERSION) {
-          return finish({ status: "unhealthy", lastError: "grok_acp_protocol_incompatible" });
-        }
-        if (capabilities?.loadSession !== true) {
-          return finish({ status: "unhealthy", lastError: "grok_acp_load_session_unsupported" });
-        }
-        if (!methodIds.includes(AUTH_METHOD_ID)) {
-          if (methodIds.some((id) => INTERACTIVE_AUTH_METHOD_IDS.has(id))) {
-            return finish({ status: "unhealthy", lastError: "grok_acp_authentication_failed" });
-          }
-          return finish({ status: "unhealthy", lastError: "grok_acp_cached_auth_unsupported" });
-        }
-        if (options.includeModels === false) return finish({ status: "compatible" });
-        catalog = catalogFromInitialize(result) ?? catalog;
-        expectedId = 2;
-        write("authenticate", { methodId: AUTH_METHOD_ID }, expectedId);
-        return;
-      }
-      authenticated = true;
-      if (catalog) return finish({ status: "compatible", reasoning: catalog });
-      catalogGraceTimer = setTimeout(
-        () => finish({ status: "compatible" }),
-        options.catalogGraceMs ?? CATALOG_NOTIFICATION_GRACE_MS,
-      );
-      catalogGraceTimer.unref?.();
-    };
-
-    const timer = setTimeout(
-      () => finish({ status: "unhealthy", lastError: "grok_acp_probe_timeout" }),
-      options.timeoutMs ?? CATALOG_PROBE_TIMEOUT_MS,
+      if (options.includeModels === false) return finish({ status: "compatible" });
+      catalog = catalogFromInitialize(result) ?? catalog;
+      expectedId = 2;
+      write("authenticate", { methodId: AUTH_METHOD_ID }, expectedId);
+      return;
+    }
+    authenticated = true;
+    if (catalog) return finish({ status: "compatible", reasoning: catalog });
+    catalogGraceTimer = setTimeout(
+      () => finish({ status: "compatible" }),
+      options.catalogGraceMs ?? CATALOG_NOTIFICATION_GRACE_MS,
     );
-    timer.unref?.();
-    processHandle.stdout?.on("data", (chunk) => {
-      if (settled) return;
-      const text = chunk.toString();
-      outputBytes += Buffer.byteLength(text);
-      if (outputBytes > (options.outputMaxBytes ?? CATALOG_PROBE_OUTPUT_MAX_BYTES)) {
-        return finish({ status: "unhealthy", lastError: "grok_acp_output_limit" });
-      }
-      buffer += text;
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) if (line.trim()) onLine(line);
+    catalogGraceTimer.unref?.();
+  };
+
+  try {
+    return await runBoundedDiscoveryProcess<GrokAcpProbeResult>({
+      process: processHandle, label: "Grok", timeoutMs: options.timeoutMs ?? CATALOG_PROBE_TIMEOUT_MS,
+      outputMaxBytes: options.outputMaxBytes ?? CATALOG_PROBE_OUTPUT_MAX_BYTES,
+      cleanup: options.cleanup, exitEvent: "exit",
+      onStdout: (text) => {
+        buffer += text;
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (control.settled) break;
+          if (line.trim()) onLine(line);
+        }
+      },
+      onExit: () => finish({ status: "unhealthy", lastError: "grok_acp_process_failed" }),
+      onStart: (transport) => {
+        control = transport;
+        write("initialize", {
+          protocolVersion: ACP_PROTOCOL_VERSION,
+          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+          clientInfo: { name: "alook-agent-driver-probe", version: "0.1.31" },
+        }, expectedId);
+      },
     });
-    processHandle.stderr?.on("data", (chunk) => {
-      if (settled) return;
-      outputBytes += Buffer.byteLength(chunk.toString());
-      if (outputBytes > (options.outputMaxBytes ?? CATALOG_PROBE_OUTPUT_MAX_BYTES)) {
-        finish({ status: "unhealthy", lastError: "grok_acp_output_limit" });
-      }
-    });
-    const finishFromProcess = () => finish({
-      status: "unhealthy",
-      lastError: "grok_acp_process_failed",
-    });
-    processHandle.on("error", finishFromProcess);
-    processHandle.on("exit", finishFromProcess);
-    write("initialize", {
-      protocolVersion: ACP_PROTOCOL_VERSION,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-      clientInfo: { name: "alook-agent-driver-probe", version: "0.1.31" },
-    }, expectedId);
-  });
+  } catch (error) {
+    const code = error instanceof DiscoveryProcessError ? error.code : undefined;
+    const lastError = code === "timeout" ? "grok_acp_probe_timeout"
+      : code === "output_limit" ? "grok_acp_output_limit"
+      : code === "transport_unavailable" || code === "write_failed" ? "grok_acp_transport_unavailable"
+      : code === "process_failed" || code === "transport_failed" ? "grok_acp_process_failed"
+      : "grok_acp_probe_failed";
+    return { status: "unhealthy", lastError };
+  } finally {
+    if (catalogGraceTimer) clearTimeout(catalogGraceTimer);
+  }
 }

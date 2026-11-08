@@ -1,10 +1,11 @@
+import { runBoundedDiscoveryProcess } from "../../internal/discovery-process.js";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { RuntimeReasoningCatalog } from "../../contract.js";
 import { normalizeRuntimeModelId, RUNTIME_MODEL_CATALOG_MAX } from "../../internal/modelCatalog.js";
 import type { ProbeResult } from "../../internal/adapter.js";
-import { killProcessTree, spawnAgentProcess } from "../../internal/killTree.js";
+import { spawnAgentProcess } from "../../internal/killTree.js";
 import { probeCommandVersion, resolveCommandOnPath, resolveSpawnSpec, type ProbeDeps } from "../../internal/probe.js";
 
 export function agySpawnSpec(command?: string, deps: ProbeDeps = {}, platform = process.platform): { command: string; args: string[]; shell: boolean } {
@@ -33,21 +34,20 @@ export function parseAgyModelCatalog(output: string): RuntimeReasoningCatalog | 
 
 async function readAgyCommand(spec: ReturnType<typeof agySpawnSpec>, args: string[], includeStderr: boolean): Promise<string> {
   const child = spawnAgentProcess(spec.command, args, { cwd: process.cwd(), env: { ...process.env, CI: "1", AGY_CLI_DISABLE_AUTO_UPDATE: "true" }, shell: spec.shell, stdin: "ignore" });
-  try {
-    return await new Promise<string>((resolve, reject) => {
-      let output = "";
-      const timer = setTimeout(() => reject(new Error("timeout")), includeStderr ? 5_000 : 30_000);
-      const fail = () => { clearTimeout(timer); reject(new Error("command failed")); };
-      const collect = (chunk: { toString(): string }) => {
-        output += chunk.toString();
-        if (Buffer.byteLength(output) > (includeStderr ? 64 * 1024 : 1024 * 1024)) fail();
-      };
-      child.stdout?.on("data", collect);
-      child.stderr?.on("data", includeStderr ? collect : () => {});
-      child.on("error", fail);
-      child.on("close", (code) => { clearTimeout(timer); if (code === 0) resolve(output); else fail(); });
-    });
-  } finally { if (child.pid) await killProcessTree(child.pid, { graceMs: 100 }); }
+  let output = "";
+  const collect = (text: string) => { output += text; };
+  return runBoundedDiscoveryProcess({
+    process: child, label: "AGY", timeoutMs: includeStderr ? 5_000 : 30_000,
+    outputMaxBytes: includeStderr ? 64 * 1024 : 1024 * 1024,
+    stderr: includeStderr ? "count" : "ignore", cleanupGraceMs: 100, exitEvent: "close",
+    onStdout: collect, onStderr: includeStderr ? collect : undefined,
+    onExit: (code, _signal, control) => {
+      if (code !== 0) return control.fail("command failed");
+      control.flushStdout();
+      control.flushStderr();
+      control.finish(output);
+    },
+  });
 }
 
 export async function probeAgy(command?: string, includeModels = false): Promise<ProbeResult> {

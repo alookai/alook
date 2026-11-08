@@ -158,6 +158,10 @@ async function readClaudeQuota(options: QuotaReaderOptions): Promise<ProviderQuo
   };
 }
 
+export function supportsBuiltinQuotaPolling(backend: BuiltinBackendId | undefined): backend is "claude" | "antigravity" {
+  return backend === "claude" || backend === "antigravity";
+}
+
 export async function readBuiltinProviderQuota(
   backend: BuiltinBackendId,
   options: QuotaReaderOptions = {},

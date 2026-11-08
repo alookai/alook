@@ -184,7 +184,7 @@ async function handleBotChannelMember(
   }
 
   const scoped = await withD1Retry(
-    () => queries.communityMembersResolver.resolveScopeMembers(db, { scope: "channel", scopeId: channelId }),
+    () => queries.communityMembersResolver.resolveScopeMembers(db, channelId),
     { route: "community/channel-members:resolve-scope" },
   )
   const members = await hydrateBotMembers(db, env, channel.serverId, scoped.map((s) => s.userId))

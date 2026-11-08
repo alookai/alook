@@ -83,13 +83,7 @@ vi.mock("../people-picker", async () => {
   }
 })
 
-import {
-  InviteDialog,
-  InviteFriendRow,
-  awaitCommittedInvite,
-  copyInviteLink,
-  runInviteFriend,
-} from "./invite-dialog"
+import { InviteDialog, InviteFriendRow, awaitCommittedInvite, copyInviteLink } from "./invite-dialog"
 
 const friend: Friend = {
   id: "friend_1",
@@ -123,28 +117,6 @@ function renderRow({
 
 function hasDisabledButton(html: string) {
   return /<button[^>]*\sdisabled(?:=""|>)/.test(html)
-}
-
-function trackingSetter() {
-  let current = new Set<string>()
-  const snapshots: string[][] = []
-  const setter = (next: Set<string> | ((value: Set<string>) => Set<string>)) => {
-    current = typeof next === "function" ? next(current) : next
-    snapshots.push([...current].sort())
-  }
-  return {
-    setter: setter as never,
-    snapshots,
-    current: () => [...current].sort(),
-  }
-}
-
-function deferred() {
-  let resolve!: () => void
-  const promise = new Promise<void>((done) => {
-    resolve = done
-  })
-  return { promise, resolve }
 }
 
 describe("InviteFriendRow", () => {
@@ -243,97 +215,6 @@ describe("InviteDialog presence", () => {
     mocks.onlineUserIds = new Set([serverMemberId])
     mocks.onlineFriendIds = []
     expect(renderDialog()).toContain('data-presence="offline"')
-  })
-})
-
-describe("runInviteFriend", () => {
-  beforeEach(() => {
-    mocks.toastSpy.mockClear()
-  })
-
-  it("covers the complete success lifecycle", async () => {
-    const inFlight = new Set<string>()
-    const state = trackingSetter()
-    const onInvited = vi.fn()
-
-    await expect(
-      runInviteFriend("user_1", inFlight, async () => {}, onInvited, state.setter),
-    ).resolves.toBe(true)
-
-    expect(state.snapshots).toEqual([["user_1"], []])
-    expect(onInvited).toHaveBeenCalledWith("user_1")
-    expect(mocks.toastSpy).not.toHaveBeenCalled()
-  })
-
-  it("clears the row and allows retry after failure", async () => {
-    const inFlight = new Set<string>()
-    const state = trackingSetter()
-    const sendInvite = vi.fn()
-      .mockRejectedValueOnce(new Error("network down"))
-      .mockResolvedValueOnce(undefined)
-
-    await expect(
-      runInviteFriend("user_1", inFlight, sendInvite, vi.fn(), state.setter),
-    ).resolves.toBe(false)
-    expect(inFlight).not.toContain("user_1")
-    expect(state.current()).toEqual([])
-    expect(mocks.toastSpy).toHaveBeenCalledWith("network down")
-
-    await expect(
-      runInviteFriend("user_1", inFlight, sendInvite, vi.fn(), state.setter),
-    ).resolves.toBe(true)
-    expect(sendInvite).toHaveBeenCalledTimes(2)
-  })
-
-  it("collapses rapid duplicate activation into one send chain", async () => {
-    const gate = deferred()
-    const inFlight = new Set<string>()
-    const state = trackingSetter()
-    const sendInvite = vi.fn(() => gate.promise)
-    const onInvited = vi.fn()
-
-    const first = runInviteFriend(
-      "user_1",
-      inFlight,
-      sendInvite,
-      onInvited,
-      state.setter,
-    )
-    const duplicate = runInviteFriend(
-      "user_1",
-      inFlight,
-      sendInvite,
-      onInvited,
-      state.setter,
-    )
-
-    await expect(duplicate).resolves.toBe(false)
-    expect(sendInvite).toHaveBeenCalledTimes(1)
-    gate.resolve()
-    await expect(first).resolves.toBe(true)
-    expect(onInvited).toHaveBeenCalledTimes(1)
-  })
-
-  it("keeps different friend rows independent", async () => {
-    const firstGate = deferred()
-    const inFlight = new Set<string>()
-    const state = trackingSetter()
-    const first = runInviteFriend(
-      "user_1",
-      inFlight,
-      () => firstGate.promise,
-      vi.fn(),
-      state.setter,
-    )
-
-    await expect(
-      runInviteFriend("user_2", inFlight, async () => {}, vi.fn(), state.setter),
-    ).resolves.toBe(true)
-    expect(inFlight).toEqual(new Set(["user_1"]))
-
-    firstGate.resolve()
-    await first
-    expect(inFlight).toEqual(new Set())
   })
 })
 

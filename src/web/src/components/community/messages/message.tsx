@@ -76,22 +76,19 @@ export function shouldActivateMessageOverlays(target: EventTarget | null): boole
 
 export function messageEventBelongsToRow(
   target: EventTarget | null,
-  row: { contains?: (target: Node | null) => boolean } | null,
+  row: Pick<HTMLElement, "contains">,
 ): boolean {
-  // React portal events follow the component tree, so they can reach the
-  // message row even though their DOM target lives in an overlay elsewhere.
-  // Real row elements always expose `contains`; the fallback keeps lightweight
-  // non-DOM event doubles compatible with these pure render tests.
-  return typeof row?.contains !== "function" || row.contains(target as Node | null)
+  // Portal events bubble through React even when their target is outside this row.
+  return row.contains(target as Node | null)
 }
 
 export function shouldAdoptDesktopMenuInput(
   pointerType: string | null,
-  row: { contains?: (target: Node | null) => boolean } | null,
+  row: Pick<HTMLElement, "contains">,
   activeElement: Element | null,
 ): boolean {
   if (pointerType !== "mouse") return false
-  return typeof row?.contains !== "function" || !row.contains(activeElement)
+  return !row.contains(activeElement)
 }
 
 export function shouldSuppressTouchMenuOpen({
@@ -408,7 +405,7 @@ function MessageImpl({
         swipeReplyEnabled ? "z-10 touch-pan-y bg-background" : "",
         swipeVisual.active ? "transition-none" : "transition-transform duration-150 ease-out",
         selectable ? "cursor-pointer" : "",
-        selected ? "bg-primary/10" : highlighted ? "bg-primary/10" : selectable ? "hover:bg-accent/40" : "hover:bg-accent/40",
+        selected || highlighted ? "bg-primary/10" : "hover:bg-accent/40",
       ].join(" ")}
       style={swipeVisual.offset > 0
         ? { transform: `translate3d(${swipeVisual.offset}px, 0, 0)` }
@@ -1023,71 +1020,18 @@ function MessageImpl({
 
 type MessageProps = Parameters<typeof MessageImpl>[0]
 
-// Custom comparator — REQUIRED, not optional. `flattenMessageItems`
-// (message-list-items.ts) spreads a fresh `{ ...m, grouped }` object for every
-// message on every render, so a default shallow memo would compare `m` by
-// reference, always see "new", and never bail out (a no-op). We instead compare
-// the fields that legitimately change and REQUIRE the callbacks + resolveUserName
-// to be reference-stable (see message-list callback stabilization). An id-only
-// comparator would silently drop edits / reaction / thread-count updates — so
-// every user-visible field is enumerated here.
+function shallowEqual<T extends object>(left: T, right: T): boolean {
+  if (left === right) return true
+  const keys = Object.keys(left) as Array<keyof T>
+  return keys.length === Object.keys(right).length
+    && keys.every((key) => Object.hasOwn(right, key) && Object.is(left[key], right[key]))
+}
+
+// Message-list grouping creates a fresh wrapper while its unchanged fields stay stable.
 function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
-  if (prev.m !== next.m) {
-    const a = prev.m
-    const b = next.m
-    if (
-      a.id !== b.id ||
-      a.type !== b.type ||
-      a.content !== b.content ||
-      a.grouped !== b.grouped ||
-      a.failed !== b.failed ||
-      a.botCreation !== b.botCreation ||
-      a.approval !== b.approval ||
-      a.authorId !== b.authorId ||
-      a.color !== b.color ||
-      a.createdAt !== b.createdAt ||
-      a.reactions !== b.reactions ||
-      a.attachments !== b.attachments ||
-      a.embeds !== b.embeds ||
-      a.replyTo !== b.replyTo ||
-      a.thread !== b.thread ||
-      a.seq !== b.seq
-    ) {
-      return false
-    }
-  }
-  return (
-    prev.compact === next.compact &&
-    prev.pinned === next.pinned &&
-    prev.highlighted === next.highlighted &&
-    prev.viewerUserId === next.viewerUserId &&
-    prev.hoverCapable === next.hoverCapable &&
-    prev.onOpenThread === next.onOpenThread &&
-    prev.onOpenProfile === next.onOpenProfile &&
-    prev.onJumpReply === next.onJumpReply &&
-    prev.onToggleReaction === next.onToggleReaction &&
-    prev.onReact === next.onReact &&
-    prev.onReply === next.onReply &&
-    prev.onMentionAuthor === next.onMentionAuthor &&
-    prev.onPin === next.onPin &&
-    prev.onMark === next.onMark &&
-    prev.onCreateThread === next.onCreateThread &&
-    prev.onCopy === next.onCopy &&
-    prev.onRetry === next.onRetry &&
-    prev.onDismiss === next.onDismiss &&
-    prev.onPreviewImage === next.onPreviewImage &&
-    prev.onPreviewAttachment === next.onPreviewAttachment &&
-    prev.resolveUserName === next.resolveUserName &&
-    prev.onImageLoad === next.onImageLoad &&
-    // Multi-select: `selected` flips per-row on toggle, `selectMode` flips for
-    // all rows on enter/exit — both MUST be compared or the checkbox/tint won't
-    // re-render. The handlers are stable (id-bound in MessageRow).
-    prev.selectMode === next.selectMode &&
-    prev.selected === next.selected &&
-    prev.onToggleSelect === next.onToggleSelect &&
-    prev.onEnterSelect === next.onEnterSelect &&
-    prev.onShareSingle === next.onShareSingle
-  )
+  const { m: previousMessage, ...previousProps } = prev
+  const { m: nextMessage, ...nextProps } = next
+  return shallowEqual(previousMessage, nextMessage) && shallowEqual(previousProps, nextProps)
 }
 
 export const Message = memo(MessageImpl, messagePropsEqual)

@@ -264,8 +264,6 @@ export async function createMessageWithThread(params: {
   serverId: string
   body: IncomingMessageBody
   threadName?: string
-  suppressBroadcast?: boolean
-  suppressThreadFanout?: boolean
   attachmentIds?: string[]
   clientNonce?: string
   expectedSeq?: number
@@ -285,8 +283,6 @@ export async function createMessageWithThread(params: {
     attachmentIds: params.attachmentIds,
     clientNonce: params.clientNonce,
     expectedSeq: params.expectedSeq,
-    suppressBroadcast: params.suppressBroadcast,
-    suppressThreadFanout: params.suppressThreadFanout,
     extraStatements: params.extraStatements,
     forumThread: {
       id: nanoid(),

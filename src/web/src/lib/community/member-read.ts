@@ -16,7 +16,7 @@ export async function readCommunityMembers(db: Database, channelId: string, user
     ? (await queries.communityThread.listThreadParticipants(db, channelId)).map((row) => ({ userId: row.userId, source: row.source }))
     : access.value.surface === "dm"
       ? (await queries.communityChannel.listChannelMemberUserIds(db, channelId)).map((id) => ({ userId: id, source: "explicit" }))
-      : await queries.communityMembersResolver.resolveScopeMembers(db, { scope: channel.type === "forum" ? "forum" : "channel", scopeId: channelId })
+      : await queries.communityMembersResolver.resolveScopeMembers(db, channelId)
   const ids = relations.map((row) => row.userId)
   const [users, serverMembers] = await Promise.all([
     queries.user.getUsersByIds(db, ids), channel.serverId

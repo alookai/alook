@@ -56,8 +56,6 @@ vi.mock("./inbox-read-reservation", async () => ({
 }))
 
 import { useTimelineReadObserver } from "./use-read-observer"
-import { useChannelWatermark } from "./use-channel-watermark"
-import { useDmWatermark } from "./use-dm-watermark"
 
 type ObserverRecord = {
   callback: IntersectionObserverCallback
@@ -300,10 +298,10 @@ describe("useTimelineReadObserver", () => {
     } finally { clock.mockRestore() }
   })
 
-  it.each(["channel", "dm"] as const)("keeps the %s adapter on the common observer intent and lifetime", (kind) => {
+  it.each(["channel", "dm"] as const)("keeps the %s scope on the actual timeline observer intent and lifetime", (kind) => {
     const channelId = `${kind}-1`
     const row = makeRow("message-4")
-    const props: Parameters<typeof useChannelWatermark>[0] = {
+    const props: Parameters<typeof useTimelineReadObserver>[0] = {
       channelId,
       messages: [{ id: "message-4", type: "chat", seq: 4, authorId: "other-1", createdAt: "t4" }],
       scrollRootEl: makeRoot([row]),
@@ -315,9 +313,7 @@ describe("useTimelineReadObserver", () => {
     }
     act(() => ingestMessages(owner.registry, channelId, messageSeedFixture(channelId, props.messages)))
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "viewer-1", retainOwner: true }, children)
-    const view = kind === "channel"
-      ? renderHook(useChannelWatermark, { wrapper, initialProps: props })
-      : renderHook(useDmWatermark, { wrapper, initialProps: { ...props, dmId: channelId, channelId: "other-channel" } })
+    const view = renderHook(useTimelineReadObserver, { wrapper, initialProps: props })
 
     expect(coordinator.register).toHaveBeenCalledExactlyOnceWith(queryClient, "viewer-1", { kind: "timeline", channelId })
     expect(coordinator.confirm).toHaveBeenCalledWith({ lease: "timeline" }, 2)

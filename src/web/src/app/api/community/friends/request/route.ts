@@ -14,24 +14,9 @@ import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireNotBlocked } from "@/lib/community/permissions"
 
 /**
- * POST /api/community/friends/request — the friend-request door (route/disc
- * 接口树统一, friendRequest fold; Melly #540). Dual-actor via communityActorPolicy,
- * dispatched by actor.kind to TWO INDEPENDENT handlers that share ONLY the URL +
- * the gate — NOT one handler with shared-middle if-branches (that would flatten
- * the two distinct semantics; Ingaborg #539/#542 reds cross-contamination):
- *   - human → handleHumanFriendRequest: {userId|username}, direct send, returns
- *     the FULL friendship (201, or 200 on auto-accept). Byte-identical to the
- *     former withAuth route — NO owner-gate. KEEPS its isBot→403 backstop
- *     (Aigneis #541): the human arm auto-accepts (no owner gate), so if the
- *     dispatch ever had a seam that let a bot reach here, the bot would bypass
- *     owner-approval and directly auto-friend = capability escalation. Dispatch
- *     is the main gate; isBot→403 is the last-line backstop. BOTH stay.
- *   - bot → handleBotFriendRequest: {username} (name#tag only), sibling-bot
- *     auto-accept, ALWAYS owner-gated (needsOwnerApproval, never dropped), lean
- *     {friendshipId,status,hint} response. Folds the flat /friendRequest bot
- *     verb (flat verb deleted at
- *     the flat-delete step). Self-scoped: requesterId = the credential's
- *     botUserId, never a body field.
+ * Human requests can auto-accept without owner approval; their handler must
+ * also reject bot users to prevent bypass of the bot approval boundary.
+ * Bot requests remain self-scoped and owner-gated, with sibling auto-accept.
  */
 export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   if (ctx.actor.kind === "bot") {

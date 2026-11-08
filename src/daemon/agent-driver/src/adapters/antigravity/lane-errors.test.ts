@@ -169,3 +169,25 @@ it("rejects an in-flight handshake when the owned process fails", async () => {
   await expect(h.lane.start({ text: "first" })).rejects.toThrow("handshake process failure");
   expect(h.proc.kill).toHaveBeenCalledTimes(1);
 });
+
+it("counts a held UTF-8 scalar at the real aggregate eight-MiB transport boundary", async () => {
+  const h = harness();
+  await h.lane.start({ text: "first" });
+  h.proc.stdout.write(Buffer.concat([Buffer.alloc(8 * 1024 * 1024 - 1, 0x61), Buffer.from([0xf0])]));
+  expect(h.proc.kill).not.toHaveBeenCalled();
+  h.proc.stdout.write(Buffer.from([0x9f]));
+  await vi.waitFor(() => expect(h.proc.kill).toHaveBeenCalledOnce());
+});
+
+it("frames split scalar updates and flushes the independent stderr decoder", async () => {
+  const h = harness(), stderr = vi.fn();
+  h.lane.on("stderr", stderr);
+  await h.lane.start({ text: "first" });
+  const update = Buffer.from(JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "native", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "€😀" } } } }) + "\n");
+  for (const byte of update) h.proc.stdout.write(Buffer.from([byte]));
+  for (const byte of Buffer.from("₿₩😀")) h.proc.stderr.write(Buffer.from([byte]));
+  h.proc.stderr.end(Buffer.from([0xf0, 0x9f]));
+  await vi.waitFor(() => expect(stderr.mock.calls.map(([text]) => text).join("")).toBe("₿₩😀�"));
+  expect(h.events).toContainEqual({ kind: "assistant_message_delta", text: "€😀" });
+  await h.lane.stop();
+});

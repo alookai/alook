@@ -147,37 +147,6 @@ export function mergeChronologicalSnapshotRows(inputs: readonly SnapshotRow[][])
   );
 }
 
-export async function* mergeChronologicalSnapshotStreams(
-  inputs: readonly AsyncIterable<SnapshotRow>[],
-): AsyncGenerator<SnapshotRow> {
-  const iterators = inputs.map((input) => input[Symbol.asyncIterator]());
-  const heads = await Promise.all(iterators.map((iterator) => iterator.next()));
-  try {
-    while (true) {
-      let selected = -1;
-      for (let index = 0; index < heads.length; index += 1) {
-        const candidate = heads[index];
-        if (!candidate || candidate.done) continue;
-        if (selected < 0) { selected = index; continue; }
-        const current = heads[selected]!;
-        if (current.done) { selected = index; continue; }
-        const a = candidate.value;
-        const b = current.value;
-        if (a.timeMs < b.timeMs
-          || (a.timeMs === b.timeMs && SOURCE_ORDER[a.source] < SOURCE_ORDER[b.source])
-          || (a.timeMs === b.timeMs && a.source === b.source && a.ordinal < b.ordinal)) selected = index;
-      }
-      if (selected < 0) break;
-      const head = heads[selected]!;
-      if (head.done) break;
-      yield head.value;
-      heads[selected] = await iterators[selected]!.next();
-    }
-  } finally {
-    await Promise.all(iterators.map(async (iterator) => { try { await iterator.return?.(); } catch {  } }));
-  }
-}
-
 export async function readPinnedJsonFile(args: {
   path: string;
   maxBytes: number;

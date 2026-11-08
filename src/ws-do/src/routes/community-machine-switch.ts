@@ -1,4 +1,5 @@
-import { queries } from "@alook/shared"
+import { forwardMachineCommand } from "./machine-command-forwarding"
+
 import type { RouterContext } from "../router-context"
 
 export async function handleMachineModelSwitch({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
@@ -43,50 +44,15 @@ export async function handleMachineModelSwitch({ request, env, url, traceId, log
     return Response.json({ error: "invalid payload" }, { status: 400 })
   }
 
-  let doNames: string[] = []
-  try {
-    const shared = await import("@alook/shared")
-    const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
-    doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
-  } catch (err) {
-    reqLog.error("failed to resolve machine doNames for agent model switch", { err })
+  const outcome = await forwardMachineCommand(env, machineId, "/push-model-switch", JSON.stringify({ agentId, config, launchId, from, to }))
+  if (outcome.kind === "resolution-failed") {
+    reqLog.error("failed to resolve machine doNames for agent model switch", { err: outcome.cause })
     return Response.json({ error: "failed to resolve machine" }, { status: 503 })
   }
-  if (doNames.length === 0) {
-    return Response.json({ sent: 0 })
-  }
-  const frame = JSON.stringify({ agentId, config, launchId, from, to })
-  let delivered = 0
-  let transientFailure = false
-  for (const dn of doNames) {
-    const doId = env.WS_DO.idFromName("community-machine:" + dn)
-    const stub = env.WS_DO.get(doId)
-    try {
-      const res = await stub.fetch(
-        new Request("http://internal/push-model-switch", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: frame,
-        }),
-      )
-      if (!res.ok) {
-        transientFailure = true
-        continue
-      }
-      const data = (await res.json()) as { sent?: unknown }
-      if (typeof data.sent !== "number" || !Number.isFinite(data.sent) || data.sent < 0) {
-        transientFailure = true
-        continue
-      }
-      delivered += data.sent
-    } catch {
-      transientFailure = true
-    }
-  }
-  if (delivered === 0 && transientFailure) {
+  if (outcome.kind === "forward-failed") {
     return Response.json({ error: "failed to forward agent model switch" }, { status: 503 })
   }
-  return Response.json({ sent: delivered })
+  return Response.json({ sent: outcome.sent })
 }
 
 export async function handleMachineProviderSwitch({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
@@ -121,47 +87,15 @@ export async function handleMachineProviderSwitch({ request, env, url, traceId, 
     return Response.json({ error: "invalid payload" }, { status: 400 })
   }
 
-  let doNames: string[] = []
-  try {
-    const shared = await import("@alook/shared")
-    const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
-    doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
-  } catch (err) {
-    reqLog.error("failed to resolve machine doNames for agent provider switch", { err })
+  const outcome = await forwardMachineCommand(env, machineId, "/push-provider-switch", JSON.stringify({ agentId, config, launchId, from, to }))
+  if (outcome.kind === "resolution-failed") {
+    reqLog.error("failed to resolve machine doNames for agent provider switch", { err: outcome.cause })
     return Response.json({ error: "failed to resolve machine" }, { status: 503 })
   }
-  if (doNames.length === 0) return Response.json({ sent: 0 })
-
-  const frame = JSON.stringify({ agentId, config, launchId, from, to })
-  let delivered = 0
-  let transientFailure = false
-  for (const dn of doNames) {
-    const doId = env.WS_DO.idFromName("community-machine:" + dn)
-    const stub = env.WS_DO.get(doId)
-    try {
-      const res = await stub.fetch(new Request("http://internal/push-provider-switch", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: frame,
-      }))
-      if (!res.ok) {
-        transientFailure = true
-        continue
-      }
-      const data = (await res.json()) as { sent?: unknown }
-      if (typeof data.sent !== "number" || !Number.isFinite(data.sent) || data.sent < 0) {
-        transientFailure = true
-        continue
-      }
-      delivered += data.sent
-    } catch {
-      transientFailure = true
-    }
-  }
-  if (delivered === 0 && transientFailure) {
+  if (outcome.kind === "forward-failed") {
     return Response.json({ error: "failed to forward agent provider switch" }, { status: 503 })
   }
-  return Response.json({ sent: delivered })
+  return Response.json({ sent: outcome.sent })
 }
 
 export async function handleMachineRuntimeConfigUpdate({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
@@ -187,44 +121,13 @@ export async function handleMachineRuntimeConfigUpdate({ request, env, url, trac
     return Response.json({ error: "invalid payload" }, { status: 400 })
   }
 
-  let doNames: string[]
-  try {
-    const shared = await import("@alook/shared")
-    const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
-    doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
-  } catch (err) {
-    reqLog.error("failed to resolve machine for runtime config update", { err })
+  const outcome = await forwardMachineCommand(env, machineId, "/push-runtime-config-update", JSON.stringify({ agentId: raw.agentId, config: raw.config }))
+  if (outcome.kind === "resolution-failed") {
+    reqLog.error("failed to resolve machine for runtime config update", { err: outcome.cause })
     return Response.json({ error: "failed to resolve machine" }, { status: 503 })
   }
-  if (doNames.length === 0) return Response.json({ sent: 0 })
-
-  const frame = JSON.stringify({ agentId: raw.agentId, config: raw.config })
-  let sent = 0
-  let transientFailure = false
-  for (const doName of doNames) {
-    try {
-      const stub = env.WS_DO.get(env.WS_DO.idFromName("community-machine:" + doName))
-      const res = await stub.fetch(new Request("http://internal/push-runtime-config-update", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: frame,
-      }))
-      if (!res.ok) {
-        transientFailure = true
-        continue
-      }
-      const data = (await res.json()) as { sent?: unknown }
-      if (typeof data.sent !== "number" || !Number.isFinite(data.sent) || data.sent < 0) {
-        transientFailure = true
-        continue
-      }
-      sent += data.sent
-    } catch {
-      transientFailure = true
-    }
-  }
-  if (sent === 0 && transientFailure) {
+  if (outcome.kind === "forward-failed") {
     return Response.json({ error: "failed to forward runtime config update" }, { status: 503 })
   }
-  return Response.json({ sent })
+  return Response.json({ sent: outcome.sent })
 }

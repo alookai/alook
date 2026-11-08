@@ -15,13 +15,12 @@ import { communityKeys } from "@/lib/query-keys"
 import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { ApiError } from "@/lib/errors"
 
-import type { AuditEvent, AuditLogPage } from "@/lib/community/models/audit"
-export type { AuditKind, AuditEvent, AuditLogPage } from "@/lib/community/models/audit"
+import { compareAuditEventsNewestFirst, type AuditEvent, type AuditLogPage } from "@/lib/community/models/audit"
+export type { AuditEvent, AuditLogPage } from "@/lib/community/models/audit"
 
 const PAGE_SIZE = 50
 export const UNOBSERVED_AUDIT_HEAD_LIMIT = 200
 
-const auditOrder = (a: AuditEvent, b: AuditEvent) => a.createdAt === b.createdAt ? (a.id > b.id ? -1 : a.id < b.id ? 1 : 0) : (a.createdAt > b.createdAt ? -1 : 1)
 
 function reconcileAuditLogPages(previous: unknown, incoming: unknown, unobserved = false) {
   const prev = previous as InfiniteData<AuditLogPage> | undefined
@@ -33,7 +32,7 @@ function reconcileAuditLogPages(previous: unknown, incoming: unknown, unobserved
   const rows = new Map(next.pages[0].events.map((event) => [event.id, event]))
   const laterPageIds = new Set(next.pages.slice(1).flatMap((page) => page.events.map((event) => event.id)))
   for (const event of prev?.pages[0]?.events ?? []) if (liveIds.has(event.id) && !rows.has(event.id) && !laterPageIds.has(event.id)) rows.set(event.id, event)
-  const ordered = [...rows.values()].sort(auditOrder)
+  const ordered = [...rows.values()].sort(compareAuditEventsNewestFirst)
   const events = unobserved ? ordered.slice(0, UNOBSERVED_AUDIT_HEAD_LIMIT) : ordered
   const retained = new Set(events.map((event) => event.id))
   const [first, ...rest] = next.pages
@@ -56,9 +55,9 @@ function appendAuditEventToCache(queryClient: QueryClient, key: QueryKey, row: A
     const previousRows = first?.events ?? []
     const byId = new Map(previousRows.map((event) => [event.id, event]))
     const existing = byId.get(row.id)
-    if (existing && auditOrder(existing, row) <= 0) return cache
+    if (existing && compareAuditEventsNewestFirst(existing, row) <= 0) return cache
     byId.set(row.id, row)
-    const ordered = [...byId.values()].sort(auditOrder)
+    const ordered = [...byId.values()].sort(compareAuditEventsNewestFirst)
     truncated = unobserved && ordered.length > UNOBSERVED_AUDIT_HEAD_LIMIT
     const events = truncated ? ordered.slice(0, UNOBSERVED_AUDIT_HEAD_LIMIT) : ordered
     const retained = new Set(events.map((event) => event.id))

@@ -1,6 +1,6 @@
 "use client"
 import { completeCommunityPublication } from "@/lib/community-db/sync"
-import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { FORUM_SIDEBAR_MAX_PER_PARENT, FORUM_SIDEBAR_ACTIVE_WITHIN, FORUM_SIDEBAR_ACTIVITY_WINDOW_MS as SIDEBAR_ACTIVITY_WINDOW_MS, BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { getServerDirectoryWindow } from "@/lib/community/server-directory-window"
 import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import { useMountedClock } from "@/hooks/use-mounted-clock"
@@ -37,7 +37,7 @@ type CommunityForumSidebarChannel,
 type CommunityForumSidebarOpener,
 } from "@/lib/community-db/sync"
 import { supportsSidebarThreads, forumSidebarActivityAt, forumSidebarCandidates, viewerNotifyChannelIds, compareForumSidebarThreads as compareThreads,
-  FORUM_SIDEBAR_ACTIVITY_WINDOW_MS as SIDEBAR_ACTIVITY_WINDOW_MS, type ForumSidebarThread } from "@/lib/community/forum-sidebar"
+  type ForumSidebarThread } from "@/lib/community/forum-sidebar"
 export type { ForumSidebarThread } from "@/lib/community/forum-sidebar"
 
 type ForumSidebarRetainedDisposition =
@@ -129,8 +129,8 @@ function sidebarUrl(serverId: string, retainId: string | null) {
     type: "thread",
     parentType: "forum,text",
     participating: "true",
-    activeWithin: "72h",
-    limitPerParent: "5",
+    activeWithin: FORUM_SIDEBAR_ACTIVE_WITHIN,
+    limitPerParent: String(FORUM_SIDEBAR_MAX_PER_PARENT),
     include: "parentMessage",
   })
   if (retainId) params.set("retainId", retainId)

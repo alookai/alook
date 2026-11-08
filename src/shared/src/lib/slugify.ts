@@ -8,9 +8,6 @@
  * two grammar-reserved characters `/`/`#` (stripped outright, no hyphen
  * substitution) are normalized away.
  *
- * Examples: `"My Home"` -> `"My-Home"`, `"总部 🎉"` -> `"总部-🎉"`,
- * `"a/b#c"` -> `"abc"`, `"general"` -> `"general"` (unchanged).
- *
  * Callers must treat an empty-string result as "nothing left after
  * normalizing" (e.g. input was all whitespace/`/`/`#`) and reject it the
  * same way an empty name is rejected today.

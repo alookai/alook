@@ -260,3 +260,22 @@ describe("Cursor ACP model catalog", () => {
     expect(pidless.kill).toHaveBeenCalledWith("SIGTERM");
   });
 });
+
+it.each([false, true])("waits for catalog cleanup and discards otherwise valid output on cleanup rejection=%s", async failCleanup => {
+  let release!: () => void, reject!: (error: unknown) => void;
+  const cleanup = vi.fn(() => new Promise<void>((yes, no) => { release = yes; reject = no; }));
+  const process = fakeProcess((proc, message) => {
+    if (message.method === "initialize") respond(proc, message, { protocolVersion: 1, authMethods: [{ id: "cursor_login" }] });
+    else if (message.method === "authenticate") respond(proc, message, null);
+    else if (message.method === "session/new") respond(proc, message, { sessionId: "catalog", configOptions: [{ id: "model", options: [{ value: "live-model" }] }] });
+  });
+  let settled = false;
+  const pending = probeCursorAcpCatalog(undefined, { spawn: () => process, cleanup });
+  void pending.then(() => { settled = true; });
+  await vi.waitFor(() => expect(cleanup).toHaveBeenCalledOnce());
+  expect(settled).toBe(false);
+  if (failCleanup) reject(new Error("cleanup rejected")); else release();
+  if (failCleanup) await expect(pending).resolves.toBeUndefined();
+  else await expect(pending).resolves.toMatchObject({ models: [{ id: "live-model" }] });
+  expect(cleanup).toHaveBeenCalledOnce();
+});

@@ -1,3 +1,4 @@
+import { workspacePackageRoots } from "../workspace-packages.mjs"
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import {
@@ -223,10 +224,7 @@ export function validateScopeManifest(manifest, options = {}) {
   const roots = manifest.packages.map((entry) => normalizePath(entry.root))
   if (new Set(names).size !== names.length) throw new Error("package names must be unique")
   if (new Set(roots).size !== roots.length) throw new Error("package root must be unique")
-  const workspaceRoots = [...readFileSync(resolve(root, "pnpm-workspace.yaml"), "utf8")
-    .matchAll(/^[ ]{2}- ["']([^"']+)["']$/gm)]
-    .map((match) => normalizePath(match[1]))
-    .sort()
+  const workspaceRoots = workspacePackageRoots(root).sort()
   if (JSON.stringify([...roots].sort()) !== JSON.stringify(workspaceRoots)) {
     throw new Error("scope manifest package roots must exactly match pnpm-workspace.yaml")
   }

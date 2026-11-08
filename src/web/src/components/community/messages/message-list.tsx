@@ -13,7 +13,7 @@ import type { MessageListProps, ResolvedMessageListProps } from "./message-list-
 import { renderMessageListRow } from "./message-list-row"
 import { MessageListSkeleton, renderMessageListView } from "./message-list-view"
 import { VirtualRows } from "./virtual-cursor-list"
-import { ConversationPresentationContext, useConversationActivity } from "@/contexts/community/conversation-activity"
+import { ConversationPresentationContext, useConversationActivity } from "@/contexts/view-activity"
 
 export function MessageList(props: MessageListProps) {
   return <MessageListEntry key={props.positionScope ? hashKey(conversationListScopeKey(props.positionScope)) : undefined} {...props} />
@@ -71,7 +71,7 @@ function MessageListOwner({ variant, initialScrollReady, ...props }: MessageList
       items={controller.items}
       virtualizer={controller.virtualizer}
       onLayoutCommit={controller.onRowsLayoutCommit}
-      renderItem={(item, index) => renderMessageListRow(item, resolvedProps, controller, index)}
+      renderItem={(item) => renderMessageListRow(item, resolvedProps, controller)}
     />
   ), footerSlot?.target ?? null, footerSlot?.accessoryTarget ?? null, overlayHeight)
 }

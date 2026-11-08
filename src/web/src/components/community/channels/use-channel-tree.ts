@@ -77,7 +77,6 @@ export function useChannelTree(categories: Category[]) {
       catNames: Object.fromEntries(rows.map((category) => [category.id, category.name])),
       catPrivate: Object.fromEntries(rows.map((category) => [category.id, !!category.private])),
       catPending: Object.fromEntries(rows.map((category) => [category.id, !!category.pending])),
-      catCreators: Object.fromEntries(rows.map((category) => [category.id, category.creatorId ?? null])),
     }
   }, [categories])
   const toggleCat = useCallback((id: string) => setCollapsed((previous) => {

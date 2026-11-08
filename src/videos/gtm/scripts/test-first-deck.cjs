@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),ts=require('typescript'),vm=require('node:vm');
-function load(p){const c={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(p,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,c);return c.exports;}
+const load = require('./load-source.cjs');
 const {firstDeckClock:clock,teammateSlideAt:at,teammateStatement}=load('src/first-deck.ts');
 assert.equal(at(3.5).text,'');let prior='';for(let t=3.5;t<6.5;t+=.01){assert.ok(at(t).text.startsWith(prior));prior=at(t).text;assert.equal(at(t).page,1);}
 assert.equal(at(5.3).text,teammateStatement);assert.equal(at(6.5).page,2);assert.equal(at(11.7).page,3);

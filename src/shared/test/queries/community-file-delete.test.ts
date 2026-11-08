@@ -52,13 +52,13 @@ describe("community file deletion with migrated SQLite", () => {
     const wrongScope = kind === "channel"
       ? await deleteChannelWithMedia(db, { channelId: "source-channel", serverId: "destination" })
       : await deleteServerWithMedia(db, { serverId: "source", ownerId: "reader" });
-    expect(wrongScope).toMatchObject({ deleted: false, mediaKeys: [], readStateRevisions: [] });
+    expect(wrongScope).toMatchObject({ deleted: false, readStateRevisions: [] });
     expect(rows("community_attachment")).toHaveLength(3);
-    expect(await deleteRoot()).toMatchObject({ deleted: true, mediaKeys: [], readStateRevisions: [{ userId: "reader", revision: 1 }] });
+    expect(await deleteRoot()).toMatchObject({ deleted: true, readStateRevisions: [{ userId: "reader", revision: 1 }] });
     if (kind === "server") expect(sqlite.prepare("SELECT id FROM community_server").all()).toEqual([{ id: "destination" }]);
     assertRetainedFiles();
     expect(rows("community_read_state")).toEqual([]);
-    expect(await deleteRoot()).toMatchObject({ deleted: false, mediaKeys: [], readStateRevisions: [] });
+    expect(await deleteRoot()).toMatchObject({ deleted: false, readStateRevisions: [] });
     expect(rows("community_read_state_revision")).toEqual([{ user_id: "reader", revision: 1 }]);
   });
 
@@ -71,7 +71,7 @@ describe("community file deletion with migrated SQLite", () => {
     run("INSERT INTO community_message_attachment VALUES ('body','last-reference',0)");
     sqlite.prepare("INSERT INTO community_read_state (id,user_id,channel_id,last_read_message_id,last_read_seq,last_read_at) VALUES ('parent-read','reader','source-channel','source-message',2,?),('child-read','reader','child','body',1,?)").run(now, now);
     const input = { openerId: "source-message", openerSeq: 2, forumChannelId: "source-channel", childChannelId: "child" };
-    expect(await deleteForumPost(db, input)).toEqual({ deleted: true, mediaKeys: [], readStateRevisions: [{ userId: "reader", revision: 1 }] });
+    expect(await deleteForumPost(db, input)).toEqual({ deleted: true, readStateRevisions: [{ userId: "reader", revision: 1 }] });
     expect(rows("community_attachment").map(row => (row as { id: string }).id).sort()).toEqual(["copied", "draft"]);
     expect(rows("community_message_attachment")).toEqual([{ message_id: "destination-message", attachment_id: "copied", position: 0 }]);
     expect(sqlite.prepare("SELECT id FROM community_channel WHERE id='child'").all()).toEqual([]);
@@ -80,7 +80,7 @@ describe("community file deletion with migrated SQLite", () => {
       id: "parent-read", user_id: "reader", channel_id: "source-channel",
       last_read_message_id: "prior", last_read_seq: 1, last_read_at: now,
     }] : []);
-    expect(await deleteForumPost(db, input)).toEqual({ deleted: false, mediaKeys: [], readStateRevisions: [] });
+    expect(await deleteForumPost(db, input)).toEqual({ deleted: false, readStateRevisions: [] });
     expect(rows("community_read_state_revision")).toEqual([{ user_id: "reader", revision: 1 }]);
     expect(sqlite.prepare("SELECT message_count FROM community_channel WHERE id='source-channel'").get()).toEqual({ message_count: 1 });
     expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);

@@ -386,49 +386,6 @@ describe("addThreadParticipant", () => {
   });
 });
 
-describe("addThreadParticipants — bulk", () => {
-  it("skips the query entirely for an empty rows list", async () => {
-    const chain: any = { insert: vi.fn() };
-    await threadQueries.addThreadParticipants(chain, "t1", []);
-    expect(chain.insert).not.toHaveBeenCalled();
-  });
-
-  it("persists complete bulk rows within the real bind budget and preserves conflicts", async () => {
-    const f = createForumFixture(); f.thread({ id: "t1" }); f.thread({ id: "t2" });
-    for (const id of ["u1", "u2", "u3"]) f.user(id);
-    f.member("t1", "u1", "access", "added"); f.member("t2", "u1");
-    const before = f.members();
-    expect(await threadQueries.addThreadParticipants(f.db, "t1", [
-      { userId: "u1", source: "spoke" }, { userId: "u2", source: "mention" },
-    ])).toEqual(["u1", "u2"]);
-    expect(f.queries).toHaveLength(1);
-    expectD1Budget(f.queries);
-    expect(f.members()).toEqual(expect.arrayContaining(before));
-    expect(f.members()).toHaveLength(before.length + 2);
-    expect(f.members().filter(row => row.channel_id === "t1" && row.relation === "notify").map(row => ({ userId: row.user_id, source: row.source })))
-      .toEqual([{ userId: "u1", source: "spoke" }, { userId: "u2", source: "mention" }]);
-    const inserted = f.members();
-    expect(await threadQueries.addThreadParticipants(f.db, "t1", [
-      { userId: "u1", source: "mention" }, { userId: "u3", source: "added" },
-    ])).toEqual(["u3"]);
-    expect(f.members()).toEqual(expect.arrayContaining(inserted));
-    expect(f.members()).toHaveLength(inserted.length + 1);
-    expect(f.members().filter(row => row.user_id === "u3"))
-      .toEqual([expect.objectContaining({ channel_id: "t1", relation: "notify", source: "added" })]);
-    const beforeMany = f.members();
-    const many = Array.from({ length: 19 }, (_, index) => ({ userId: `bulk-${index}`, source: "mention" as const }));
-    for (const row of many) f.user(row.userId);
-    const input = structuredClone(many); f.queries.length = 0;
-    expect((await threadQueries.addThreadParticipants(f.db, "t1", many)).sort()).toEqual(many.map(row => row.userId).sort());
-    expect(many).toEqual(input);
-    expectD1Budget(f.queries);
-    expect(f.members()).toEqual(expect.arrayContaining(beforeMany));
-    expect(f.members()).toHaveLength(beforeMany.length + many.length);
-    expect(f.members().filter(row => row.user_id.startsWith("bulk-")).map(row => ({ userId: row.user_id, source: row.source, channelId: row.channel_id, relation: row.relation })))
-      .toEqual(many.map(row => ({ ...row, channelId: "t1", relation: "notify" })).sort((a, b) => a.userId < b.userId ? -1 : 1));
-  });
-});
-
 describe("listThreadParticipantUserIds — notify set", () => {
   it("returns the channel's complete notify set without foreign or access-only users", async () => {
     const f = createForumFixture(); f.thread({ id: "t1" }); f.thread({ id: "t2" });
@@ -511,36 +468,5 @@ describe("listParticipatingThreadIds", () => {
     for (const id of ["t1", "t2", "t3", "t4"]) f.thread({ id });
     f.member("t1", "u1"); f.member("t3", "u1"); f.member("t2", "u2"); f.member("t2", "u1", "access", "added"); f.member("t4", "u1");
     expect((await threadQueries.listParticipatingThreadIds(f.db, ["t1", "t2", "t3"], "u1")).sort()).toEqual(["t1", "t3"]);
-  });
-});
-
-describe("removeParticipantFromChildChannels — member-remove notify cascade", () => {
-  function makeDb(postRows: any[], deletedRows: any[]) {
-    const selectChain: any = {};
-    selectChain.select = vi.fn(() => selectChain);
-    selectChain.from = vi.fn(() => selectChain);
-    selectChain.where = vi.fn(() => Promise.resolve(postRows));
-    const deleteChain: any = {};
-    deleteChain.delete = vi.fn(() => deleteChain);
-    deleteChain.where = vi.fn(() => deleteChain);
-    deleteChain.returning = vi.fn(() => Promise.resolve(deletedRows));
-    return { select: selectChain.select, from: selectChain.from, where: selectChain.where, delete: deleteChain.delete } as any;
-  }
-
-  it("skips the delete when the parent has no children", async () => {
-    const db = makeDb([], []);
-    const n = await threadQueries.removeParticipantFromChildChannels(db, "forum_1", "u_removed");
-    expect(n).toBe(0);
-    expect(db.delete).not.toHaveBeenCalled();
-  });
-
-  it("deletes only the selected user's child notify rows and preserves physical neighbors", async () => {
-    const f = createForumFixture(); f.user("u_removed"); f.user("other");
-    f.thread({ id: "p1" }); f.thread({ id: "p2" }); f.thread({ id: "foreign", parentChannelId: "forum_2" });
-    f.member("p1", "u_removed"); f.member("p2", "u_removed"); f.member("foreign", "u_removed");
-    f.member("p1", "other"); f.member("p1", "u_removed", "access", "added"); f.member("forum_1", "u_removed", "access", "added");
-    const before = f.members();
-    expect(await threadQueries.removeParticipantFromChildChannels(f.db, "forum_1", "u_removed")).toBe(2);
-    expect(f.members()).toEqual(before.filter(row => !(row.user_id === "u_removed" && row.relation === "notify" && ["p1", "p2"].includes(row.channel_id))));
   });
 });

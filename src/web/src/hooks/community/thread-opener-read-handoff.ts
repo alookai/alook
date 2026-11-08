@@ -4,7 +4,7 @@ import { useCallback, useLayoutEffect, useRef } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
 import { useQueryClient } from "@tanstack/react-query"
-import { useConversationActivity } from "@/contexts/community/conversation-activity"
+import { useConversationActivity } from "@/contexts/view-activity"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { channelHref, removeCommunityParam } from "@/lib/community/community-route"
 import {

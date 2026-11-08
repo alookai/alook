@@ -1,4 +1,4 @@
-import { queries, type Database } from "@alook/shared"
+import { providerQuotaCapability, queries, type Database } from "@alook/shared"
 
 export async function readCommunityMachines(db: Database, userId: string) {
     const [machines, entitlement] = await Promise.all([
@@ -17,11 +17,7 @@ export async function readCommunityMachines(db: Database, userId: string) {
     const withQuota = machines.map((machine) => {
       const stored = quotaByMachine.get(machine.id) ?? []
       const quota = machine.availableRuntimes.map((runtime) => {
-        const capability = runtime.id === "claude" || runtime.id === "codex" || runtime.id === "grok" || runtime.id === "antigravity"
-          ? "supported" as const
-          : runtime.id === "cursor" || runtime.id === "opencode" || runtime.id === "pi" || runtime.id === "agy" || ["qoder", "copilot", "cursor-sdk", "pi-durable"].includes(runtime.id)
-            ? "unsupported" as const
-            : "unknown" as const
+        const capability = providerQuotaCapability(runtime.id)
         const runtimeState = machine.status === "offline"
           ? "offline" as const
           : runtime.status === "unhealthy"

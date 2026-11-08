@@ -1,6 +1,5 @@
 import Sqlite from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Database } from "../../src/db";
 import {
@@ -10,10 +9,8 @@ import {
   setServerLevel,
 } from "../../src/db/queries/community/notification-setting";
 import {
-  notificationEligibleSql,
   resolveNotificationEligibilityForUsers,
 } from "../../src/db/queries/community/notification-eligibility";
-import { communityChannel } from "../../src/db/community-schema";
 import { listUserServers } from "../../src/db/queries/community/server";
 import {
   getInboxSnapshotForAgent,
@@ -144,6 +141,7 @@ describe("notification setting read-state isolation contract", () => {
         ('sibling', 'server', NULL),
         ('empty', 'server', NULL),
         ('dm', NULL, NULL);
+      UPDATE community_channel SET type = 'dm' WHERE id = 'dm';
       INSERT INTO community_message (id, channel_id, created_at, seq) VALUES
         ('parent-1', 'parent', '2026-01-01T00:00:01Z', 1),
         ('parent-2', 'parent', '2026-01-01T00:00:02Z', 2),
@@ -346,21 +344,9 @@ describe("notification setting read-state isolation contract", () => {
       INSERT INTO community_mention (id, message_id, user_id, kind)
       VALUES ('mention', 'child-3', 'u', 'mention');
     `);
-    const channelSql = {
-      id: communityChannel.id,
-      serverId: communityChannel.serverId,
-      parentChannelId: communityChannel.parentChannelId,
-    };
-    const row = await (db as any)
-      .select({
-        mentioned: notificationEligibleSql("u", channelSql, { id: sql`'child-3'` }),
-        plain: notificationEligibleSql("u", channelSql, { id: sql`'plain'` }),
-      })
-      .from(communityChannel)
-      .where(eq(communityChannel.id, "child"))
-      .get();
-
-    expect(row).toEqual({ mentioned: 1, plain: 0 });
+    sqlite.exec("INSERT INTO community_message (id, channel_id, created_at, seq) VALUES ('child-plain', 'child', '2026-01-01T00:00:04Z', 4)");
+    expect(await hasDeliverableUnreadForAgentScope(db, "u", "child", 0)).toBe(true);
+    expect(await hasDeliverableUnreadForAgentScope(db, "u", "child", 3)).toBe(false);
   });
 
   it("counts only unread viewer mentions beyond the cursor in server channels", async () => {
@@ -574,4 +560,26 @@ describe("notification setting read-state isolation contract", () => {
       }),
     ]);
   });
+  it("resolves own, parent, server and default policy in real SQL without leaking into DMs", async () => {
+    const messages = { parent: "parent-1", child: "child-3", sibling: "sibling-4", dm: "dm-5" };
+    async function level(channelId: keyof typeof messages) {
+      const states = await resolveNotificationEligibilityForUsers(db, ["u"], messages[channelId]);
+      expect(states.has("u")).toBe(true);
+      return states.get("u")!.currentLevel;
+    }
+    expect(await level("child")).toBe("all");
+    await setServerLevel(db, { userId: "u", serverId: "server", level: "nothing", actorKind: "human" });
+    expect(await level("child")).toBe("nothing");
+    expect(await level("dm")).toBe("all");
+    await setChannelLevel(db, { userId: "u", channelId: "parent", level: "mentions", actorKind: "human" });
+    expect(await level("child")).toBe("mentions");
+    expect(await level("sibling")).toBe("nothing");
+    await setChannelLevel(db, { userId: "u", channelId: "child", level: "all", actorKind: "human" });
+    expect(await level("child")).toBe("all");
+    expect(await level("dm")).toBe("all");
+    await setChannelLevel(db, { userId: "u", channelId: "dm", level: "mentions", actorKind: "human" });
+    expect(await level("dm")).toBe("mentions");
+    expect(cursors()).toEqual([]);
+  });
+
 });

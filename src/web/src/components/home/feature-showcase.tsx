@@ -1,5 +1,7 @@
 "use client";
 
+import { legacyTweenTimeScale } from "./legacy-tween-time-scale";
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef } from "react";
 import gsap from "gsap";
@@ -122,6 +124,7 @@ export function FeatureShowcase() {
 
   useGSAP(
     () => {
+      const timeScale = legacyTweenTimeScale();
       gsap.from(".feature-hero", {
         y: 30,
         opacity: 0,
@@ -131,9 +134,9 @@ export function FeatureShowcase() {
           start: "top 75%",
           toggleActions: "play none none none",
         },
-      });
+      }).timeScale(timeScale);
 
-      const panels = gsap.utils.toArray<HTMLElement>(".feature-row");
+      const panels = Array.from(sectionRef.current?.querySelectorAll<HTMLElement>(".feature-row") ?? []);
       panels.forEach((panel) => {
         gsap.from(panel, {
           y: 40,
@@ -145,7 +148,7 @@ export function FeatureShowcase() {
             start: "top 80%",
             toggleActions: "play none none none",
           },
-        });
+        }).timeScale(timeScale);
       });
     },
     { scope: sectionRef }

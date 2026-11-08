@@ -159,7 +159,7 @@ describe("message send repository contract", () => {
       writeRepositoryFile(directory, "source/deleted.md", legal);
       repositoryGit(directory, ["add", "--force", "--", "source", ".next/tracked.md"]);
       rmSync(join(directory, "source/deleted.md"));
-      writeRepositoryFile(directory, "new example 中文.md", legal);
+      writeRepositoryFile(directory, "new example €€.md", legal);
       writeRepositoryFile(directory, "unsupported.png", malformed);
       for (const path of [
         ".next/build.js",
@@ -173,7 +173,7 @@ describe("message send repository contract", () => {
       }
       writeRepositoryFile(directory, "nested/.gitignore", ".cache/\n");
       writeRepositoryFile(directory, "nested/.cache/copy.ts", malformed);
-      const expected = [".next/tracked.md", "new example 中文.md", "source/tracked.ts"];
+      const expected = [".next/tracked.md", "new example €€.md", "source/tracked.ts"];
       if (process.platform !== "win32") {
         writeRepositoryFile(directory, "new\nexample.txt", legal);
         expected.push("new\nexample.txt");

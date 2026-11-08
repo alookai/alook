@@ -267,7 +267,7 @@ describe("whitelisted path", () => {
 
 describe("RFC 2047 subject decoding", () => {
   it("uses parsed.subject (decoded) over raw RFC 2047 Q-encoded header", async () => {
-    const encodedSubject = "=?UTF-8?q?Re:_=E6=96=B0=E6=B3=A8=E5=86=8C=E7=94=A8=E6=88=B7?="
+    const encodedSubject = "=?UTF-8?q?Re:_=E2=82=AC=E2=82=AC=E2=82=AC=E2=82=AC=E2=82=AC?="
     const { env, message, wsFetch } = setup({
       isWhitelisted: true,
       messageOpts: {
@@ -281,11 +281,11 @@ describe("RFC 2047 subject decoding", () => {
     await handler.email(message, env)
 
     const notifyBody = JSON.parse(wsFetch.mock.calls[0][1].body)
-    expect(notifyBody.subject).toBe("Re: 新注册用户")
+    expect(notifyBody.subject).toBe("Re: €€€€€")
   })
 
   it("uses parsed.subject (decoded) over raw RFC 2047 B-encoded header", async () => {
-    const encodedSubject = "=?UTF-8?B?5rWL6K+V5Li76aKY?="
+    const encodedSubject = "=?UTF-8?B?4oKs4oKs4oKs4oKs?="
     const { env, message, wsFetch } = setup({
       isWhitelisted: true,
       messageOpts: {
@@ -299,7 +299,7 @@ describe("RFC 2047 subject decoding", () => {
     await handler.email(message, env)
 
     const notifyBody = JSON.parse(wsFetch.mock.calls[0][1].body)
-    expect(notifyBody.subject).toBe("测试主题")
+    expect(notifyBody.subject).toBe("€€€€")
   })
 
   it("uses plain ASCII subject as-is (no encoding)", async () => {

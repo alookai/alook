@@ -9,16 +9,14 @@ import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { CommunityModuleRouteContext } from "@/contexts/community/module-route"
 import { useQueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { resolve } from "node:path"
+
 import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
 import { renderBotListView } from "./bot-list-view"
 import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotSummary } from "@/hooks/community/use-bots"
 import type { BotListController } from "./bot-list-types"
-
-const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
 const contractSources: Record<string, string> = {
   "src/components/community/bots/bot-list-controller.ts": contractText0,
   "src/components/community/bots/bot-list-machine-group.tsx": contractText1,
@@ -52,8 +50,6 @@ const mocks = vi.hoisted(() => ({
   botsLoading: false,
   machinesLoading: false,
   online: new Set<string>(),
-  onboardingSnapshot: null as Record<string, unknown> | null,
-  actionState: null as Record<string, unknown> | null,
   push: vi.fn(),
   replace: vi.fn(),
   createDm: vi.fn(),
@@ -62,9 +58,6 @@ const mocks = vi.hoisted(() => ({
   resetBot: vi.fn(),
   resetMachine: vi.fn(),
   setActive: vi.fn(),
-  advance: vi.fn(),
-  updateResources: vi.fn(),
-  recoverMachine: vi.fn(),
   onProbeLayout: null as null | ((controller: BotListController) => void),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
@@ -142,16 +135,6 @@ vi.mock("@/hooks/community/mutations", () => ({
 }))
 vi.mock("@/contexts/community/current-user", () => ({ useCurrentUser: () => ({ id: "viewer", name: "Viewer", avatar: "V" }) }))
 vi.mock("@/hooks/community/use-dm-message-sender", () => ({ useDmMessageSender: () => ({ accept: mocks.acceptDm }) }))
-vi.mock("@/lib/community-onboarding", () => ({
-  useCommunityOnboarding: () => {
-    mocks.hookOrder.push("onboarding")
-    return mocks.onboardingSnapshot
-  },
-  readCommunityOnboardingState: () => mocks.actionState,
-  advanceCommunityOnboarding: mocks.advance,
-  updateCommunityOnboardingResources: mocks.updateResources,
-  recoverCommunityOnboardingMachine: mocks.recoverMachine,
-}))
 vi.mock("sonner", () => ({
   toast: { success: mocks.toastSuccess, error: mocks.toastError },
 }))
@@ -269,8 +252,6 @@ describe("useBotListController", () => {
       { id: "mac2", displayName: "Two", hostname: "two", status: "online" },
     ]
     mocks.online = new Set()
-    mocks.onboardingSnapshot = null
-    mocks.actionState = null
     mocks.onProbeLayout = null
     mocks.createDm.mockResolvedValue({ conversation: { id: "dm1" } })
     mocks.acceptDm.mockReturnValue({ accepted: true, committed: Promise.resolve({ ok: true, message: { id: "msg1", seq: 1 } }) })
@@ -305,7 +286,7 @@ describe("useBotListController", () => {
       "setActive",
       "dm",
     ])
-    expect(mocks.hookOrder.slice(10, 13)).toEqual(["dm", "router", "onboarding"])
+    expect(mocks.hookOrder.slice(10, 12)).toEqual(["dm", "router"])
 
     const source = readWebSource("src/components/community/bots/bot-list-controller.ts")
     expect(source).not.toMatch(/useState\(/)
@@ -414,7 +395,7 @@ describe("useBotListController", () => {
     render()
     expect(latest.planSummary).toEqual({ ...mocks.planSummary, isFounder: mocks.isFounder })
     expect(latest.isCreateDisabled).toBe(true)
-    act(() => latest.openGuidedCreate())
+    act(() => latest.openCreate())
     expect(latest.createOpen).toBe(false)
     expect(latest.billingOpen).toBe(true)
     expect(mocks.toastError).not.toHaveBeenCalled()
@@ -431,7 +412,7 @@ describe("useBotListController", () => {
     mocks.planSummary = { ...mocks.planSummary, ownedCount, limit: 3 }
     render()
     expect(latest.canShowLimit).toBe(true)
-    act(() => latest.openGuidedCreate())
+    act(() => latest.openCreate())
     expect(latest.billingOpen).toBe(true)
     expect(latest.createOpen).toBe(false)
   })
@@ -443,7 +424,7 @@ describe("useBotListController", () => {
     render()
     expect(latest.canShowLimit).toBe(loaded)
     expect(latest.isCreateDisabled).toBe(false)
-    act(() => latest.openGuidedCreate())
+    act(() => latest.openCreate())
     expect(latest.createOpen).toBe(true)
     expect(latest.billingOpen).toBe(false)
     expect(mocks.toastError).not.toHaveBeenCalled()
@@ -800,69 +781,6 @@ describe("useBotListController", () => {
     expect(latest.highlightId).toBe("mac1")
   })
 
-  it("derives all three labels from the render snapshot while actions reread current state", () => {
-    mocks.target = null
-    const renderer = render()
-    expect(latest.guidedCreateLabel).toBe("Create a bot")
-
-    mocks.onboardingSnapshot = {
-      status: "active",
-      stage: "bot",
-      botId: "pending",
-      guideAvatarSeed: "seed",
-    }
-    mocks.actionState = null
-    act(() => renderer.rerender(React.createElement(Probe)))
-    expect(latest.guidedCreateLabel).toBe("Open bot chat")
-    expect(latest.guidedAvatarSeed).toBe("seed")
-    act(() => latest.openGuidedCreate())
-    expect(latest.createOpen).toBe(true)
-    expect(mocks.createDm).not.toHaveBeenCalled()
-
-    mocks.machines = [{ id: "mac1", displayName: "One", status: "offline" }]
-    act(() => renderer.rerender(React.createElement(Probe)))
-    expect(latest.guidedCreateLabel).toBe("Connect a machine")
-
-    mocks.onboardingSnapshot = { status: "active", stage: "bot" }
-    mocks.machines = [{ id: "mac1", displayName: "One", status: "online" }]
-    act(() => renderer.rerender(React.createElement(Probe)))
-    expect(latest.guidedCreateLabel).toBe("Create a bot")
-  })
-
-  it("fires the pending-bot DM without awaiting and advances only after it resolves", async () => {
-    mocks.target = null
-    mocks.onboardingSnapshot = { status: "active", stage: "bot", botId: "pending" }
-    mocks.actionState = { status: "active", stage: "bot", botId: "pending" }
-    let resolveDm!: (value: { conversation: { id: string } }) => void
-    mocks.createDm.mockReturnValue(new Promise((resolve) => { resolveDm = resolve }))
-    render()
-    let result: void
-    act(() => { result = latest.openGuidedCreate() })
-    expect(result!).toBeUndefined()
-    expect(mocks.createDm).toHaveBeenCalledWith({ userId: "pending", assertActive: expect.any(Function) })
-    expect(latest.createOpen).toBe(false)
-    expect(mocks.advance).not.toHaveBeenCalled()
-    expect(mocks.push).not.toHaveBeenCalled()
-    await act(async () => {
-      resolveDm({ conversation: { id: "dm1" } })
-      await Promise.resolve()
-    })
-    expect(mocks.advance).toHaveBeenCalledWith(expect.objectContaining({ lifecycle: expect.any(Object) }), "bot", "dm", { botId: "pending", dmId: "dm1" })
-    expect(mocks.push).toHaveBeenCalledWith("/c/me/dm1")
-  })
-
-  it("recovers a missing machine without opening DM or create", () => {
-    mocks.target = null
-    mocks.machines = [{ id: "mac1", displayName: "One", status: "offline" }]
-    mocks.actionState = { status: "active", stage: "bot", botId: "pending" }
-    render()
-    expect(latest.openGuidedCreate()).toBeUndefined()
-    expect(mocks.recoverMachine).toHaveBeenCalledOnce()
-    expect(mocks.push).toHaveBeenCalledWith("/c/me/machines")
-    expect(mocks.createDm).not.toHaveBeenCalled()
-    expect(latest.createOpen).toBe(false)
-  })
-
   it("asks the first online active bot and accepts the message before navigation", async () => {
     mocks.bots = [bot("offline", "mac1"), { ...bot("inactive", "mac1"), isActive: false }, bot("online", "mac2"), bot("later", "mac2")]
     mocks.online = new Set(["inactive", "online", "later"])
@@ -969,56 +887,6 @@ describe("useBotListController", () => {
     mocks.createDm.mockRejectedValue(error)
     await act(async () => { await latest.chatWithBot(bot("chat", "mac1")) })
     expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Failed to open chat", expect.any(Function))
-    expect(mocks.push).not.toHaveBeenCalled()
-  })
-
-  it("makes onBotCreated a no-op for inactive or wrong-stage action-time state", async () => {
-    mocks.target = null
-    render()
-    for (const state of [null, { status: "active", stage: "dm" }]) {
-      vi.clearAllMocks()
-      mocks.actionState = state
-      await act(async () => { await latest.onBotCreated(bot("ignored", "mac1")) })
-      expect(mocks.updateResources).not.toHaveBeenCalled()
-      expect(mocks.createDm).not.toHaveBeenCalled()
-      expect(mocks.advance).not.toHaveBeenCalled()
-      expect(mocks.push).not.toHaveBeenCalled()
-    }
-  })
-
-  it("updates a created bot before awaiting DM and advances/pushes only on success", async () => {
-    mocks.target = null
-    mocks.actionState = { status: "active", stage: "bot" }
-    let resolveDm!: (value: { conversation: { id: string } }) => void
-    mocks.createDm.mockReturnValue(new Promise((resolve) => { resolveDm = resolve }))
-    render()
-
-    let completion!: Promise<void>
-    act(() => { completion = latest.onBotCreated(bot("new", "mac1")) })
-    expect(mocks.updateResources).toHaveBeenCalledWith(expect.objectContaining({ lifecycle: expect.any(Object) }), { botId: "new" })
-    expect(mocks.updateResources.mock.invocationCallOrder[0])
-      .toBeLessThan(mocks.createDm.mock.invocationCallOrder[0]!)
-    expect(mocks.advance).not.toHaveBeenCalled()
-    expect(mocks.push).not.toHaveBeenCalled()
-    await act(async () => {
-      resolveDm({ conversation: { id: "dm-new" } })
-      await completion
-    })
-    expect(mocks.advance).toHaveBeenCalledWith(expect.objectContaining({ lifecycle: expect.any(Object) }), "bot", "dm", { botId: "new", dmId: "dm-new" })
-    expect(mocks.createDm.mock.invocationCallOrder[0])
-      .toBeLessThan(mocks.advance.mock.invocationCallOrder[0]!)
-    expect(mocks.advance.mock.invocationCallOrder[0]).toBeLessThan(mocks.push.mock.invocationCallOrder[0])
-
-    vi.clearAllMocks()
-    mocks.createDm.mockRejectedValue(new Error("no dm"))
-    await act(async () => { await latest.onBotCreated(bot("failed", "mac1")) })
-    expect(mocks.updateResources).toHaveBeenCalledWith(expect.objectContaining({ lifecycle: expect.any(Object) }), { botId: "failed" })
-    expect(mocks.toastApiError).toHaveBeenCalledWith(
-      expect.any(Error),
-      "Bot created, but the chat couldn't open",
-      expect.any(Function),
-    )
-    expect(mocks.advance).not.toHaveBeenCalled()
     expect(mocks.push).not.toHaveBeenCalled()
   })
 

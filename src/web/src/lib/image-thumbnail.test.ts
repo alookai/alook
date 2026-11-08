@@ -1,13 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { generateThumbnail, prepareCommunityImage } from "./image-thumbnail"
+import { prepareCommunityImage } from "./image-thumbnail"
 
 const NativeURL = URL
 
-// `generateThumbnail` runs entirely against browser APIs (Image decode,
-// canvas draw, URL.createObjectURL) that don't exist under this repo's
-// `environment: "node"` vitest config. Stub the minimal surface it touches —
-// mirrors the existing `vi.stubGlobal("window", ...)` pattern used elsewhere
-// in this repo (see `inbox-filter.test.ts`) rather than pulling in jsdom.
+// The node test environment supplies only the image/canvas APIs used by preparation.
 class FakeImage {
   onload: (() => void) | null = null
   onerror: (() => void) | null = null
@@ -119,7 +115,7 @@ describe("generateThumbnail", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:fake")
   })
 
-  it.each([generateThumbnail, prepareCommunityImage])("cancels an unfinished decode and releases its source URL", async (prepare) => {
+  it("cancels an unfinished decode and releases its source URL", async () => {
     const canvases = stubBrowserImageApis()
     const images: Array<{ src: string; onload: (() => void) | null; onerror: (() => void) | null }> = []
     vi.stubGlobal("Image", class {
@@ -129,7 +125,7 @@ describe("generateThumbnail", () => {
       constructor() { images.push(this) }
     })
     const controller = new AbortController()
-    const pending = prepare(new File(["image"], "photo.png", { type: "image/png" }), controller.signal)
+    const pending = prepareCommunityImage(new File(["image"], "photo.png", { type: "image/png" }), controller.signal)
     const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" })
     expect(images[0].src).toBe("blob:fake")
     controller.abort()
@@ -145,7 +141,7 @@ describe("generateThumbnail", () => {
     FakeImage.nextHeight = 1080
 
     const file = new File([new Uint8Array([1, 2, 3])], "photo.png", { type: "image/png" })
-    const result = await generateThumbnail(file)
+    const result = await prepareCommunityImage(file)
 
     expect(result).not.toBeNull()
     expect(result?.width).toBe(1920)
@@ -154,12 +150,8 @@ describe("generateThumbnail", () => {
   })
 
   it("returns null for a non-image file, without touching any browser API", async () => {
-    // Deliberately no stubBrowserImageApis() call — if generateThumbnail's
-    // early-return guard were removed, this would throw on `document` being
-    // undefined rather than returning null, so this test doubles as a guard
-    // against that regression.
     const file = new File(["hello"], "notes.txt", { type: "text/plain" })
-    const result = await generateThumbnail(file)
+    const result = await prepareCommunityImage(file)
     expect(result).toBeNull()
   })
 
@@ -168,7 +160,7 @@ describe("generateThumbnail", () => {
     FakeImage.nextShouldError = true
 
     const file = new File([new Uint8Array([0, 0, 0])], "fake.png", { type: "image/png" })
-    const result = await generateThumbnail(file)
+    const result = await prepareCommunityImage(file)
 
     expect(result).toBeNull()
   })

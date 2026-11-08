@@ -28,7 +28,7 @@ function BotRow({ bot, onOpenBotAudit }: {
         <span className="block truncate text-sm font-medium text-foreground">
           {bot.name}
         </span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+        <span data-slot="profile-running-bot-activity" className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           <span className="shrink-0" aria-hidden>{bot.activityEmoji}</span>
           <span className="truncate">{bot.activityText}</span>
         </span>
@@ -99,8 +99,8 @@ export function ProfileRunningBotsCardView({ runningBots, onOpenBotAudit, showSh
         </span>
       </div>
 
-      <div className="relative z-10 mt-2 flex min-h-0 flex-1 flex-col border-t border-foreground/10 pt-2">
-        <div className="min-h-0 max-h-64 flex-1 divide-y divide-border/40 overflow-y-auto overscroll-contain pr-1 thin-scrollbar">
+      <div data-slot="profile-running-bots-panel" className="relative z-10 mt-2 flex min-h-0 flex-1 flex-col border-t border-foreground/10 pt-2">
+        <div data-slot="profile-running-bots-list" className="min-h-0 max-h-64 flex-1 divide-y divide-border/40 overflow-y-auto overscroll-contain pr-1 thin-scrollbar">
           {runningBots.map((bot) => (
             <BotRow key={bot.id} bot={bot} onOpenBotAudit={onOpenBotAudit} />
           ))}

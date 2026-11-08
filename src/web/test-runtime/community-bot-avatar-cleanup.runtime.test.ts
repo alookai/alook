@@ -140,6 +140,15 @@ describe("bot avatar query and winner semantics in real D1", () => {
       botAvatarUrl(human),
     )
 
+    const otherBot = await seedBot(owner, machine)
+    const otherMachine = await seedMachine(otherOwner)
+    const keys = [
+      { id: crypto.randomUUID(), user: owner, bot: canonicalBot, machine, revoked: null },
+      { id: crypto.randomUUID(), user: owner, bot: otherBot, machine, revoked: null },
+      { id: crypto.randomUUID(), user: otherOwner, bot: canonicalBot, machine: otherMachine, revoked: null },
+      { id: crypto.randomUUID(), user: owner, bot: canonicalBot, machine, revoked: "2026-01-01T00:00:00.000Z" },
+    ]
+    for (const key of keys) await run("INSERT INTO community_agent_runner_key(id,user_id,agent_id,machine_id,runner_key_hash,do_name,created_at,revoked_at) VALUES (?,?,?,?,?,?,?,?)", key.id, key.user, key.bot, key.machine, key.id, key.id, "2026-01-01T00:00:00.000Z", key.revoked)
     const db = createDb(runtimeEnv.DB)
     await expect(queries.communityBot.getLiveBotAvatar(db, canonicalBot)).resolves.toEqual({
       id: canonicalBot,
@@ -152,11 +161,15 @@ describe("bot avatar query and winner semantics in real D1", () => {
     await expect(queries.communityBot.getLiveBotAvatar(db, "missing")).resolves.toBeNull()
     await expect(queries.communityBot.softDeleteBot(db, canonicalBot, otherOwner)).resolves.toBe(false)
 
+    for (const key of keys) expect(await first("SELECT revoked_at AS revoked FROM community_agent_runner_key WHERE id = ?", key.id)).toEqual({ revoked: key.revoked })
+
     const results = await Promise.all([
       queries.communityBot.softDeleteBot(db, canonicalBot, owner),
       queries.communityBot.softDeleteBot(db, canonicalBot, owner),
     ])
     expect(results.filter(Boolean)).toHaveLength(1)
+    expect(await first("SELECT revoked_at AS revoked FROM community_agent_runner_key WHERE id = ?", keys[0].id)).toEqual({ revoked: expect.any(String) })
+    for (const key of keys.slice(1)) expect(await first("SELECT revoked_at AS revoked FROM community_agent_runner_key WHERE id = ?", key.id)).toEqual({ revoked: key.revoked })
     await expect(queries.communityBot.softDeleteBot(db, canonicalBot, owner)).resolves.toBe(false)
     await expect(queries.communityBot.getLiveBotAvatar(db, canonicalBot)).resolves.toBeNull()
   })

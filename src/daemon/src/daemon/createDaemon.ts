@@ -1,3 +1,5 @@
+import { resolveProxyAuditOperation } from "../credentials/route-policy.js";
+import { scrubRuntimeErrorDiagnosticText } from "../runtime/errorDiagnostics.js";
 
 import { homedir } from "os";
 import { PiiStore } from "../pii/store.js";
@@ -18,8 +20,8 @@ import type { HostLaunchContext } from "../manager/hostContext.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
 import type { HostCommand } from "../server/contract.js";
 import { formatHandle } from "@alook/shared/lib/discriminator";
-import type { DiagnosticCollectCommand } from "@alook/shared";
-import { createBuiltinAgentDriverSdk, readBuiltinProviderQuota } from "@alook/agent-driver/host";
+import { isProviderQuotaBackend, tokenUsageCapability, type DiagnosticCollectCommand } from "@alook/shared";
+import { createBuiltinAgentDriverSdk, readBuiltinProviderQuota, supportsBuiltinQuotaPolling } from "@alook/agent-driver/host";
 import type { BuiltinBackendId, ProviderQuotaObservation } from "@alook/agent-driver";
 import type { HostAgentActivity, ProviderQuotaSnapshot } from "@alook/shared";
 import {
@@ -49,7 +51,6 @@ const RUNTIME_RAW_TRACE_MAX_BYTES = 8 * 1024 * 1024;
 export const RUNTIME_RAW_TRACE_AGENT_IDS_ENV = "ALOOK_RUNTIME_RAW_TRACE_AGENT_IDS";
 /** How often the daemon rewrites the `daemon status` snapshot file (batch E2). */
 const STATUS_WRITE_INTERVAL_MS = 5_000;
-const TOKEN_USAGE_BACKENDS = new Set<BuiltinBackendId>(["claude", "codex", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"]);
 
 export function parseRuntimeRawTraceAgentIds(value: string | undefined): ReadonlySet<string> {
   return new Set(
@@ -115,49 +116,7 @@ export function createRuntimeRawLineTap(args: {
 }
 
 export function deriveAuditLogSubcommand(pathname: string, method?: string): string | null {
-
-  const canonical = pathname.split("?")[0] ?? pathname;
-  if (/^\/api\/community\/messages\/[^/]+\/properties$/.test(canonical)) {
-    if (method === "GET") return "messagePropertyList";
-    if (method === "PUT") return "messagePropertySet";
-    if (method === "DELETE") return "messagePropertyRemove";
-    return null;
-  }
-  if (/^\/api\/community\/messages\/[^/]+\/reactions\//.test(canonical)) return "reactAdd";
-  if (method === "GET" && /^\/api\/community\/users\/me\/marks$/.test(canonical)) return "markList";
-  if (/^\/api\/community\/channels\/[^/]+\/messages\/seq\//.test(canonical)) return "resolve";
-  if (/^\/api\/community\/channels\/[^/]+\/messages(\/|$)/.test(canonical)) {
-    return method === "GET" ? "read" : "send";
-  }
-  if (/^\/api\/community\/channels\/[^/]+\/members(\/|$)/.test(canonical)) return "channelMember";
-
-  if (/^\/api\/community\/channels\/[^/]+\/attachments\/[^/]+/.test(canonical)) return "attachmentDownload";
-  if (/^\/api\/community\/channels\/[^/]+\/attachments(\/|$)/.test(canonical)) return "attachmentUpload";
-
-  if (/^\/api\/community\/messages\/[^/]+$/.test(canonical)) return "resolve";
-
-  if (/^\/api\/community\/servers\/[^/]+\/members(\/|$)/.test(canonical)) return "listMembers";
-  if (/^\/api\/community\/servers\/[^/]+\/channels(\/|$)/.test(canonical)) return "listChannels";
-  if (/^\/api\/community\/servers\/channels(\/|$)/.test(canonical)) return "listChannels";
-
-  if (/^\/api\/community\/friends\/(accepted|pending)(\/|$|\?)/.test(canonical)) return "listFriends";
-
-  if (/^\/api\/community\/friends\/request(\/|$|\?)/.test(canonical)) return "friendRequest";
-
-  if (/^\/api\/community\/users\/me\/inbox\/pull(\/|$|\?)/.test(canonical)) return "inboxPull";
-  if (/^\/api\/community\/users\/me\/inbox\/snapshot(\/|$|\?)/.test(canonical)) return "inboxSnapshot";
-  if (/^\/api\/community\/users\/me\/inbox\/ack(\/|$|\?)/.test(canonical)) return null; // ack writes no audit row here (re-homed to daemon reborn-ready signal)
-
-  // A combined `setting profile` invocation is deliberately two canonical
-  // mutations (avatar first, then bio). Keep them distinct in the authoritative
-  // proxy audit so partial completion is visible instead of collapsing both
-  // writes into one ambiguous shell-level event.
-  if (method === "PATCH" && canonical === "/api/community/users/me/profile") return "profileBioUpdate";
-  if (method === "POST" && canonical === "/api/community/users/me/avatar") return "profileAvatarUpdate";
-
-  if (/^\/api\/community\/bots\/me\/nap(\/|$|\?)/.test(canonical)) return "nap";
-
-  return null;
+  return resolveProxyAuditOperation(pathname, method);
 }
 
 /**
@@ -304,6 +263,7 @@ export interface RunningDaemon {
 
 export function createBuiltinDaemonSessionFactory(
   onRuntimeRawLine?: (agentId: string, line: string) => void,
+  onRuntimeStderr?: (agentId: string, text: string) => void,
 ): SessionFactory {
   return async ({ ctx, runtimeConfig }) => {
     const selected = toAgentBackendSelection(runtimeConfig);
@@ -311,6 +271,7 @@ export function createBuiltinDaemonSessionFactory(
       host: createDaemonAgentDriverHost(
         ctx,
         onRuntimeRawLine?.bind(null, ctx.agentId),
+        onRuntimeStderr?.bind(null, ctx.agentId),
       ),
     });
     const opened = await sdk.open({
@@ -397,15 +358,15 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     info: { agentId: string; state: HostAgentActivity["state"] },
   ): Promise<HostAgentActivity> => {
     if (info.state !== "idle") return info;
-    const backendId = managerRef?.agentBackendId(info.agentId);
-    if (backendId === "claude" || backendId === "antigravity") {
+    const backendId = managerRef?.agentBackendId(info.agentId) ?? undefined;
+    if (supportsBuiltinQuotaPolling(backendId)) {
       const observed = await providerQuotaReader(backendId);
       if (observed) recordProviderQuota(backendId, observed);
     }
-    const quota = backendId === "claude" || backendId === "codex" || backendId === "grok" || backendId === "antigravity"
+    const quota = isProviderQuotaBackend(backendId)
       ? providerQuotaByBackend.get(backendId)
       : undefined;
-    const usageWindow = backendId && TOKEN_USAGE_BACKENDS.has(backendId)
+    const usageWindow = backendId && tokenUsageCapability(backendId) === "supported"
       ? await dailyTokenUsage.usageWindow(info.agentId)
       : null;
     if (usageWindow && tokenUsageAvailability.get(info.agentId)?.backendId === backendId && tokenUsageAvailability.get(info.agentId)?.status === "unavailable") {
@@ -517,8 +478,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       reminderSchedulerRef?.arm(input) ?? { armed: false, reason: "reminder_scheduler_unavailable" },
     // Bot audit log — Producer B (authoritative for `alook <sub>`). Fires
     // ONLY on `verdict.ok === true`, before the upstream request is written.
-    onProxyRequest: (agentId, method, pathname, metadata) => {
-      const subcommand = deriveAuditLogSubcommand(pathname, method);
+    onProxyRequest: (agentId, _method, _pathname, metadata, subcommand) => {
       if (!subcommand) return;
 
       const context = managerRef?.auditContext(agentId);
@@ -891,7 +851,9 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       }
       return opts.driverFor(agentId, runtimeConfig);
     },
-    sessionFactory: opts.sessionFactory ?? createBuiltinDaemonSessionFactory(onRuntimeRawLine),
+    sessionFactory: opts.sessionFactory ?? createBuiltinDaemonSessionFactory(onRuntimeRawLine, (agentId, text) => {
+      log.warn("runtime stderr", { agentId, message: scrubRuntimeErrorDiagnosticText(text).slice(0, 1_024) });
+    }),
     onRuntimeSpawnFailed: (runtimeId, reason) => {
       router?.recordRuntimeSpawnFailure(runtimeId, reason);
     },
@@ -957,7 +919,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         }));
     },
     onProviderQuota: ({ agentId, backendId, quota }) => {
-      if (backendId !== "claude" && backendId !== "codex" && backendId !== "grok" && backendId !== "antigravity") return;
+      if (!isProviderQuotaBackend(backendId)) return;
       recordProviderQuota(backendId, quota);
       reportTelemetryForIdleAgent(agentId);
     },

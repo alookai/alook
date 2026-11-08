@@ -1,18 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 import { renderHook } from "@/test/react-dom-harness"
-import {
-  canonicalAuthorMentionText,
-  useAuthorMentionInsertion,
-} from "./use-author-mention-insertion"
+import { useAuthorMentionInsertion } from "./use-author-mention-insertion"
 import type { ComposerHandle } from "./composer"
 
 describe("author mention insertion", () => {
-  it("builds the existing canonical plain-text token with trailing spacing", () => {
-    expect(canonicalAuthorMentionText({
-      name: "Alice Smith",
-      discriminator: "0042",
-    })).toBe("@Alice Smith#0042")
-  })
 
   it("resolves roster and viewer authors and inserts the exact structured mention", () => {
     const rendered = renderHook(() => useAuthorMentionInsertion({

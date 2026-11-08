@@ -53,7 +53,7 @@ describe("renderSeededBackdropSvg", () => {
 })
 
 describe("seededStripeAngle", () => {
-  const seeds = ["Alice", "Milo", "Nova", "李明", "🌻", ...Array.from({ length: 100 }, (_, i) => `person-${i}`)]
+  const seeds = ["Alice", "Milo", "Nova", "Zoë", "🌻", ...Array.from({ length: 100 }, (_, i) => `person-${i}`)]
 
   it("keeps diverse seeds stable and within the signed 22.5–45 degree range", () => {
     for (const seed of seeds) {

@@ -1,10 +1,10 @@
-import React from "react"
+
 import { describe, expect, it, vi } from "vitest"
 import { fireEvent, render } from "@/test/react-dom-harness"
 import { MessageAuthorLine } from "./message-author-line"
 
 describe("MessageAuthorLine", () => {
-  it.each(["Alice", "A long author name with spaces", "这是一个很长的中文姓名", "LongUnbrokenAuthorName".repeat(8)])(
+  it.each(["Alice", "A long author name with spaces", "界界界界界界界界界界界界", "LongUnbrokenAuthorName".repeat(8)])(
     "keeps the full accessible author name and forwards the click for %s",
     (authorName) => {
       const onAuthorClick = vi.fn()

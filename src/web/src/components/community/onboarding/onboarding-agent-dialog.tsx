@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useMutation } from "@tanstack/react-query"
-import { AUTOMATION_READ_PERMISSIONS, AUTOMATION_WRITE_PERMISSIONS, isPresenceOnline, type AutomationAccessCodeCreateResponse } from "@alook/shared"
+import { AUTOMATION_PERMISSION_LIMITS, AUTOMATION_READ_PERMISSIONS, AUTOMATION_WRITE_PERMISSIONS, isPresenceOnline, type AutomationAccessCodeCreateResponse } from "@alook/shared"
 import { RefreshCw, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { PromptCopyPreview } from "@/components/ui/prompt-copy-preview"
@@ -60,7 +60,7 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
       if (!setup.code?.accessCode.expiresAt || Date.parse(setup.code.accessCode.expiresAt) <= Date.now()) {
         const code = await origin.request<AutomationAccessCodeCreateResponse>(token, "/api/community/automation/access-codes", {
           method: "POST", signal: assert.signal, assertActive: assert,
-          body: JSON.stringify({ name: "onboard", purpose: "onboarding", expiresIn: "1h", permissions: [...AUTOMATION_WRITE_PERMISSIONS, ...AUTOMATION_READ_PERMISSIONS].map((permission) => ({ permission, limit: permission === "bot.create" ? 3 : 64, period: "hour" })) }),
+          body: JSON.stringify({ name: "onboard", purpose: "onboarding", expiresIn: "1h", permissions: [...AUTOMATION_WRITE_PERMISSIONS, ...AUTOMATION_READ_PERMISSIONS].map((permission) => ({ permission, limit: permission === "bot.create" ? 3 : AUTOMATION_PERMISSION_LIMITS.hour, period: "hour" })) }),
         })
         assert()
         setSetup((current) => ({ ...(current.signal === assert.signal ? current : {}), signal: assert.signal, code }))

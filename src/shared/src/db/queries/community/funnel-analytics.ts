@@ -105,17 +105,6 @@ export function recordFirstAgentReplyPersistedStatement(db: Database, input: {
   ))).onConflictDoNothing();
 }
 
-export async function recordFirstAgentReplyPersisted(db: Database, input: {
-  botUserId: string;
-  messageId: string;
-  conversationType: CommunityFunnelConversationType;
-  now?: string;
-}) {
-  const rows = await recordFirstAgentReplyPersistedStatement(db, input)
-    .returning({ id: communityFunnelAnalyticsEvent.id });
-  return rows.length === 1;
-}
-
 export function recordInvitedHumanJoinedStatement(db: Database, input: {
   ownerUserId: string;
   membershipId: string;

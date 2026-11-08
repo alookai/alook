@@ -2,6 +2,11 @@ import { z } from "zod"
 import { BUSINESS_SCHEMA_VERSION } from "./business-schema-version"
 import { CommunityChannelResourceSchema, CommunityResourceBundleSchema } from "./community-resources"
 
+export const FORUM_SIDEBAR_MAX_PER_PARENT = 5
+export const FORUM_SIDEBAR_ACTIVITY_HOURS = 72
+export const FORUM_SIDEBAR_ACTIVITY_WINDOW_MS = FORUM_SIDEBAR_ACTIVITY_HOURS * 60 * 60 * 1000
+export const FORUM_SIDEBAR_ACTIVE_WITHIN = `${FORUM_SIDEBAR_ACTIVITY_HOURS}h`
+
 const timestamp = z.string().refine(value => Number.isFinite(Date.parse(value)))
 export const CommunityForumSidebarChannelSummarySchema = CommunityChannelResourceSchema.pick({
   id: true, name: true, serverId: true, parentChannelId: true, parentMessageId: true,
@@ -25,7 +30,7 @@ export const CommunityForumSidebarEnvelopeSchema = z.strictObject({
   if (data.resources.servers.some(row => row.id !== data.serverId) || data.resources.channels.some(row => row.serverId !== data.serverId)
     || new Set(data.channels.map(row => row.id)).size !== data.channels.length
     || new Set(data.canonicalChannels.map(row => row.id)).size !== data.canonicalChannels.length
-    || data.canonicalChannels.some(row => data.canonicalChannels.filter(other => other.parentChannelId === row.parentChannelId).length > 5)
+    || data.canonicalChannels.some(row => data.canonicalChannels.filter(other => other.parentChannelId === row.parentChannelId).length > FORUM_SIDEBAR_MAX_PER_PARENT)
     || data.channels.some(row => !selected.some(other => other.id === row.id))
     || (data.retainedDisposition === "eligible") !== (data.retainedChannel !== null)
     || selected.some(row => !data.resources.channels.some(channel => channel.id === row.id && channel.type === "thread"

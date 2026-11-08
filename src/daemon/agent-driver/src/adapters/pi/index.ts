@@ -213,20 +213,12 @@ export class PiDriver implements BackendAdapter {
     return runtimeSession;
   }
 
-  normalizeLine(): AdapterEvent[] {
-    return [];
-  }
-
   beginTurn(): string {
     return `pi:${++this.terminalSequence}`;
   }
 
   get currentSessionId(): string | null {
     return this.sessionId;
-  }
-
-  encodeMessage(): string | null {
-    return null;
   }
 
 }

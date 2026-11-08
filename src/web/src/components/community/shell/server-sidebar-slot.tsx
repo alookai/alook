@@ -24,9 +24,10 @@ import {
 } from "@/lib/community/community-route"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelSidebarRevealBoundary } from "@/components/community/channels/channel-sidebar-tree-owner"
+import { useServerSettingsEditor } from "@/components/community/settings/server-settings-editor"
 import { ServerSettings } from "@/components/community/settings/server-settings"
 import { ImageCropDialog } from "@/components/community/image-crop-dialog"
-import { validateIconSourceFile } from "@/lib/community/image-crop"
+import { acquireIconCropSource, type IconCropSource } from "@/lib/community/image-crop"
 import type { SettingsSection } from "@/components/community/settings/settings-types"
 import { supportsSidebarThreads } from "@/lib/community/forum-sidebar"
 import { canManageServer, notifLevelDisplay, type ChannelType } from "@alook/shared"
@@ -299,7 +300,16 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
   const settingsView = useCommunityViewSource("server-settings:" + serverId, settingsAdmitted)
   const [settingsSection, setSettingsSection] = useAtom(useCreateAtom<SettingsSection>("overview"))
   const [invitePopoverOpen, setInvitePopoverOpen] = useAtom(useCreateAtom(false))
-  const [pendingIconCrop, setPendingIconCrop] = useAtom(useCreateAtom<{ src: string; fileName: string } | null>(null))
+  const iconCropTask = useCreateAtom<(IconCropSource & { assertActive: ReturnType<typeof settingsView.capture> }) | null>(null)
+  const [pendingIconCrop, setPendingIconCrop] = useAtom(iconCropTask)
+  useEffect(() => {
+    if (!pendingIconCrop) return
+    const task = pendingIconCrop
+    const retire = () => { task.release(); setPendingIconCrop((current) => current === task ? null : current) }
+    if (task.assertActive.signal.aborted) retire()
+    else task.assertActive.signal.addEventListener("abort", retire, { once: true })
+    return () => { task.assertActive.signal.removeEventListener("abort", retire); task.release() }
+  }, [pendingIconCrop, setPendingIconCrop])
 
   const admittedDialogs = useRef({ settings: false, invite: false })
   useEffect(() => {
@@ -503,6 +513,12 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
     sidebarDataReady,
   ])
 
+  const settingsEditor = useServerSettingsEditor({
+    serverId, open: settingsAdmitted,
+    name: currentServer?.name ?? "", desc: currentServer?.description ?? "",
+    onSave: async (name, desc) => { await updateServerMut.mutateAsync({ serverId, name, description: desc }) },
+  })
+
   const serverSettingsDialog = (
     <Dialog open={settingsAdmitted} onOpenChange={(o) => { if (!o) closeSettings() }}>
       <DialogContent className="flex h-full max-h-full w-full max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[calc(100%-4rem)] sm:max-h-180 sm:w-[calc(100%-4rem)] sm:max-w-4xl sm:rounded-xl" showCloseButton={false}>
@@ -513,7 +529,6 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
           onClose={closeSettings}
           serverId={serverId}
           serverName={currentServer?.name ?? ""}
-          serverDescription={currentServer?.description ?? ""}
           serverIcon={currentServer?.icon ?? null}
           members={enrichedMembers}
           membersLoading={membersHook.loading}
@@ -553,27 +568,26 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
             deleteServerMut.mutate({ serverId, isUiCurrent: navigation.captureIntent() })
           }}
           onUploadIcon={() => {
+            const assert = settingsView.capture()
             const input = document.createElement("input")
             input.type = "file"
             input.accept = "image/png,image/jpeg,image/webp"
             input.onchange = () => {
+              try { assert() } catch { return }
               const f = input.files?.[0]
               if (!f) return
-              const check = validateIconSourceFile(f)
+              const check = acquireIconCropSource(f)
               if (!check.ok) {
                 toast(check.error)
                 return
               }
-              setPendingIconCrop({ src: URL.createObjectURL(f), fileName: f.name })
+              iconCropTask.get()?.release()
+              setPendingIconCrop({ ...check.source, assertActive: assert })
             }
             input.click()
           }}
-          onUpdateServer={(name, desc) =>
-            updateServerMut.mutate({ serverId, name, description: desc }, {
-              onSuccess: () => toast("Server updated"),
-              onError: (e) => toastApiError(e, "Failed to update server"),
-            })
-          }
+          editor={settingsEditor}
+          captureSaveFeedback={settingsView.capture}
           notifLevel={notifLevel}
           onSetNotifLevel={(level) => setServerNotifMut.mutate({ serverId, level }, {
             onError: (e) => toastApiError(e, "Failed to update notification level"),
@@ -590,16 +604,18 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
       originalFileName={pendingIconCrop.fileName}
       maskShape="square"
       onCropped={(file) => {
+        if (iconCropTask.get() !== pendingIconCrop) { pendingIconCrop.release(); return }
+        try { pendingIconCrop.assertActive() } catch { pendingIconCrop.release(); return }
         uploadServerIconMut.mutate({ serverId, file }, {
-          onSuccess: () => toast("Server icon updated"),
-          onError: (e) => toastApiError(e, "Failed to upload icon"),
+          onSuccess: () => { try { pendingIconCrop.assertActive(); toast("Server icon updated") } catch {} },
+          onError: (e) => toastApiError(e, "Failed to upload icon", pendingIconCrop.assertActive),
         })
-        URL.revokeObjectURL(pendingIconCrop.src)
-        setPendingIconCrop(null)
+        pendingIconCrop.release()
+        setPendingIconCrop((current) => current === pendingIconCrop ? null : current)
       }}
       onCancel={() => {
-        URL.revokeObjectURL(pendingIconCrop.src)
-        setPendingIconCrop(null)
+        pendingIconCrop.release()
+        setPendingIconCrop((current) => current === pendingIconCrop ? null : current)
       }}
     />
   )

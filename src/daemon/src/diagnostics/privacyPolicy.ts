@@ -1,3 +1,5 @@
+import type { ManagerFsmTraceEvent } from "../manager/managerRuntime.js";
+import type { ManagerEffect } from "../manager/managerPolicy.js";
 import type { LogLevel } from "../logger.js";
 import { scrubAgentDriverDiagnosticText } from "@alook/agent-driver/host";
 
@@ -164,8 +166,50 @@ export function projectDaemonLogRow(value: unknown, targetAgentId: string): Reco
   };
 }
 
-const MANAGER_EVENTS = ["register", "wake", "spawned", "session", "root_work", "turn_end", "exit", "tick", "reset_session", "begin_reset", "rewake_after_reset", "runtime_signal", "stall_control_failed", "admission_started", "admission_settled"] as const;
-const MANAGER_EFFECTS = ["spawn", "send", "stop", "terminate_stalled", "clear_stall_recovery", "force_exit", "gated_hold"] as const;
+const CURRENT_MANAGER_EVENTS = {
+  register: "include",
+  wake: "include",
+  spawned: "include",
+  queue_delivery: "include",
+  backend_session: "include",
+  attach_session: "include",
+  admission_started: "include",
+  admission_settled: "include",
+  admission_acknowledged: "include",
+  turn_started: "include",
+  turn_work: "include",
+  turn_tool_started: "include",
+  turn_tool_finished: "include",
+  turn_completed: "include",
+  session_closed: "include",
+  exit: "include",
+  tick: "include",
+  reset_session: "include",
+  begin_reset: "include",
+  rewake_after_reset: "include",
+  runtime_config_queued: "include",
+  runtime_config_applied: "include",
+  runtime_signal: "include",
+  stall_control_failed: "include",
+  delivery_rejected: "include",
+  root_work: "include",
+  turn_end: "include",
+} satisfies Record<ManagerFsmTraceEvent, "include" | "exclude">;
+const CURRENT_MANAGER_EFFECTS = {
+  spawn: "include",
+  send: "include",
+  stop: "include",
+  terminate_stalled: "include",
+  clear_stall_recovery: "include",
+  expire_admission: "include",
+  requeue_delivery: "include",
+  maintain_idle_memory: "include",
+  force_exit: "include",
+} satisfies Record<ManagerEffect["type"], "include" | "exclude">;
+const HISTORICAL_MANAGER_EVENTS = ["session"] as const;
+const HISTORICAL_MANAGER_EFFECTS = ["gated_hold"] as const;
+const MANAGER_EVENTS = [...Object.entries(CURRENT_MANAGER_EVENTS).flatMap(([name, disposition]) => disposition === "include" ? [name] : []), ...HISTORICAL_MANAGER_EVENTS];
+const MANAGER_EFFECTS = [...Object.entries(CURRENT_MANAGER_EFFECTS).flatMap(([name, disposition]) => disposition === "include" ? [name] : []), ...HISTORICAL_MANAGER_EFFECTS];
 const AGENT_STATUSES = ["idle", "starting", "running", "stopping"] as const;
 const DELIVERY_PHASES = ["idle", "admission_wait", "steering", "next_turn_queued", "compacting", "reviewing", "tool_wait", "working"] as const;
 const RESUME_OUTCOMES = ["not_requested", "pending", "resumed", "unverified", "reset_required", "failed"] as const;

@@ -4,12 +4,14 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { useCallback, useEffect, type ComponentProps, type ReactNode } from "react"
 import { useCommunityRouter } from "@/contexts/community/module-route"
-import { toastApiError, apiFetch } from "@/lib/api/client"
+import { toastApiError } from "@/lib/api/client"
+import { isAbortError } from "@/lib/errors"
+import { useRenameChannel } from "@/hooks/community/mutations"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import { useToggleReactionApi } from "@/hooks/community/mutations"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
-import { ChannelShell } from "@/components/community/channels/channel-shell"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
 import { Composer } from "@/components/community/messages/composer"
 import {
@@ -28,7 +30,7 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
 import { tid } from "@/lib/community/testids"
-import { ConversationActivityContext, useConversationActivity } from "@/contexts/community/conversation-activity"
+import { ConversationActivityContext, useConversationActivity } from "@/contexts/view-activity"
 import {
   useClaimThreadOpenerReadHandoff,
   type ThreadOpenerReadHandoff,
@@ -107,7 +109,8 @@ export function ThreadChannelSurface({
   const router = useCommunityRouter()
   const breakpoint = useBreakpoint()
   const [rightPanel, setRightPanel] = useAtom(useCreateAtom<RightPanel>(null))
-  const [localName, setLocalName] = useAtom(useCreateAtom<string | null>(null))
+  const renameChannel = useRenameChannel()
+  const renameView = useCommunityViewSource(JSON.stringify(["thread-rename", serverId, channelId]))
   const mentionInsertion = useAuthorMentionInsertion({
     members: composerMembers,
     viewerUserId: viewer.id,
@@ -130,11 +133,10 @@ export function ThreadChannelSurface({
     channelId,
     serverId,
     viewerUserId: viewer.id,
-    isChildChannel: true,
     anchorMessageId,
     threadsEnabled: rightPanel === "threads",
   })
-  const displayName = localName ?? channelName
+  const displayName = channelName
   const routeActive = useConversationActivity()
   const inputActive = routeActive && feed.navigationBlocked === false
   const Body = embedded ? "div" : "main"
@@ -142,8 +144,7 @@ export function ThreadChannelSurface({
 
   useEffect(() => {
     setRightPanel(null)
-    setLocalName(null)
-  }, [channelId, setLocalName, setRightPanel])
+  }, [channelId, setRightPanel])
 
   const togglePanel = useCallback((panel: Exclude<RightPanel, null>) => {
     setRightPanel((current) => current === panel ? null : panel)
@@ -151,14 +152,16 @@ export function ThreadChannelSurface({
   const openPinned = useCallback(() => setRightPanel("pinned"), [setRightPanel])
   const rename = !parentIsForum && canRenameThread
       ? async (name: string) => {
+          const assert = renameView.capture()
           try {
-            await apiFetch(`/api/community/channels/${channelId}`, {
-              method: "PATCH",
-              body: JSON.stringify({ name }),
-            })
-            setLocalName(name)
+            assert()
+            await renameChannel.mutateAsync({ serverId, channelId, name })
+            assert()
           } catch (error) {
-            toastApiError(error, "Failed to rename")
+            if (!isAbortError(error)) {
+              assert()
+              toastApiError(error, "Failed to rename")
+            }
             throw error
           }
         }
@@ -202,11 +205,11 @@ export function ThreadChannelSurface({
       resolveUserName={resolveUserName}
     >
       {(controller) => (
-        <ChannelShell
-          header={(
+        <>
+{(
             <ChannelHeader
               channel={displayName}
-              titleState={localName !== null ? "ready" : channelTitleState}
+              titleState={channelTitleState}
               onRetryTitle={onRetryTitle}
               retryingTitle={retryingTitle}
               kind="thread"
@@ -227,7 +230,7 @@ export function ThreadChannelSurface({
               ) : undefined}
             />
           )}
-          body={(
+{(
             <Body
               data-slot="community-conversation-surface"
               data-channel-id={channelId}
@@ -317,7 +320,7 @@ export function ThreadChannelSurface({
               </ConversationFooterSlotProvider>
             </Body>
           )}
-          panels={(
+{(
             <CommunityPanel
               open={rightPanel !== null}
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
@@ -332,7 +335,7 @@ export function ThreadChannelSurface({
               onOpenProfile={onOpenProfile}
             />
           )}
-          dialogs={(
+{(
             <>
               {manageMembersDialog}
               <MessageContextSheet
@@ -352,7 +355,7 @@ export function ThreadChannelSurface({
               />
             </>
           )}
-        />
+</>
       )}
     </MessageChannelController>
   )

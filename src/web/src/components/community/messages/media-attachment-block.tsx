@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
 import type { FileAttachment } from "@/lib/community/models/message"
 import {
-  attachmentDownloadStatusText,
-  useAttachmentDownload,
-} from "@/lib/community/attachment-download"
+  fileDownloadStatusText,
+  useFileDownload,
+} from "@/lib/file-download"
 
 type MediaKind = "audio" | "video"
 type MediaStatus = "idle" | "loading" | "ready" | "blocked" | "error"
@@ -31,8 +31,8 @@ export function MediaAttachmentBlock({
   const playbackAttemptRef = useRef(0)
   const playbackActiveRef = useRef(false)
   const MediaIcon = mediaKind === "video" ? FileVideo : FileAudio
-  const attachmentDownload = useAttachmentDownload(attachment)
-  const downloadStatusText = attachmentDownloadStatusText(attachmentDownload.state)
+  const attachmentDownload = useFileDownload(attachment)
+  const downloadStatusText = fileDownloadStatusText(attachmentDownload.state)
   const DownloadIcon = attachmentDownload.state.status === "downloading"
     ? LoaderCircle
     : (attachmentDownload.state.status === "saved" || attachmentDownload.state.status === "started")

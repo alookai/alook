@@ -1,6 +1,6 @@
 import { demoMotion } from "./motion";
 
-const task = "Agree on roles, then wait for my task.";
+import { tutorialTask } from "../example-data";
 
 export function createScene(root: HTMLElement, complete: () => void) {
   const { timeline, frames, click, move, frame, action, zoom } = demoMotion(root, complete);
@@ -30,7 +30,7 @@ export function createScene(root: HTMLElement, complete: () => void) {
   zoom(0, 11.3, editor);
   move(editor, 12.1);
   action("write-task", 12.2);
-  for (let count = 1; count <= task.length; count++) timeline.call(() => update({ text: task.slice(0, count) }), [], 12.2 + count * 0.07);
+  for (let count = 1; count <= tutorialTask.length; count++) timeline.call(() => update({ text: tutorialTask.slice(0, count) }), [], 12.2 + count * 0.07);
   const sendTarget = frames[0].querySelector('[data-message-composer]')!;
   const send = () => sendTarget.querySelector('[aria-label="Send message"]')!;
   zoom(0, 15.3, send);

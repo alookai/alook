@@ -25,6 +25,7 @@ vi.mock("./bot-list-overlays", () => ({
     mocks.overlays(controller)
     return {
       create: React.createElement("slot", { name: "create" }),
+      billing: React.createElement("slot", { name: "billing" }),
       help: React.createElement("slot", { name: "help" }),
       edit: React.createElement("slot", { name: "edit" }),
       activity: React.createElement("slot", { name: "activity" }),
@@ -88,17 +89,14 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     setCollapsedMachines: noop,
     helpOpen: false,
     setHelpOpen: noop,
-    guidedActive: false,
-    guidedCreateLabel: "Create a bot",
-    guidedAvatarSeed: undefined,
+    createLabel: "Create a bot",
     groups: [],
     highlightId: null,
     groupRefs: { current: {} },
     chatWithBot: noop,
     askBotToCreate: noop,
     startingBotChat: false,
-    onBotCreated: noop,
-    openGuidedCreate: noop,
+    openCreate: noop,
     openMachines: noop,
     bringMachineOnline: noop,
     machineName: () => "Machine",
@@ -187,46 +185,35 @@ describe("renderBotListView", () => {
     expect(mocks.overlays).toHaveBeenCalledWith(state)
   })
 
-  it("keeps empty state machine routing and constructs only its direct create sheet", () => {
+  it("keeps empty state machine routing and constructs only the shared create and billing slots", () => {
     const openMachines = vi.fn()
-    const setCreateOpen = vi.fn()
-    const onBotCreated = vi.fn()
     const state = controller({
       openMachines,
       createOpen: true,
-      setCreateOpen,
-      onBotCreated,
-      guidedActive: true,
-      guidedAvatarSeed: "seed",
     })
     const renderer = render(renderBotListView({}, state))
     expect(renderer.container.querySelectorAll("create-tile")).toHaveLength(1)
-    expect(renderer.container.querySelectorAll("create-sheet")).toHaveLength(1)
+    expect(renderer.container.querySelectorAll("create-sheet")).toHaveLength(0)
     expect(renderer.getByText("Connect a machine first")).toBeInTheDocument()
     expect(renderer.getByText(
       "Bots need a connected machine to run. Connect one first, then come back to create your bot.",
     )).toBeInTheDocument()
     fireEvent.click(renderer.getByRole("button", { name: "Connect a machine" }))
     expect(openMachines).toHaveBeenCalledOnce()
-    expect(mocks.createSheet).toHaveBeenCalledWith(expect.objectContaining({
-      open: true,
-      onOpenChange: setCreateOpen,
-      onCreated: onBotCreated,
-      guided: true,
-      avatarSeed: "seed",
-    }))
-    expect(mocks.overlays).not.toHaveBeenCalled()
+    expect(mocks.createSheet).not.toHaveBeenCalled()
+    expect(mocks.overlays).toHaveBeenCalledWith(state)
+    expect(renderer.container.querySelectorAll('slot[name="create"]')).toHaveLength(1)
   })
 
-  it("uses guided create for empty bots on a machine and preserves back wiring", () => {
+  it("uses the empty-state create action and preserves back wiring", () => {
     const onBack = vi.fn()
-    const openGuidedCreate = vi.fn()
+    const openCreate = vi.fn()
     const renderer = render(renderBotListView(
       { onBack },
       controller({
         machines: [{ id: "mac1" }] as BotListController["machines"],
-        guidedCreateLabel: "Open bot chat",
-        openGuidedCreate,
+        createLabel: "Create a bot",
+        openCreate,
       }),
     ))
     fireEvent.click(renderer.getByRole("button", { name: "Back" }))
@@ -235,17 +222,17 @@ describe("renderBotListView", () => {
     expect(renderer.getByText(
       "Create a bot and chat with it from anywhere — spin up servers and share it with family and friends.",
     )).toBeInTheDocument()
-    fireEvent.click(renderer.getByRole("button", { name: "Open bot chat" }))
-    expect(openGuidedCreate).toHaveBeenCalledOnce()
+    fireEvent.click(renderer.getByRole("button", { name: "Create a bot" }))
+    expect(openCreate).toHaveBeenCalledOnce()
   })
 
-  it("inserts group results and all eight named overlay slots in exact sibling order", () => {
+  it("inserts group results and all supplied overlay slots in exact sibling order", () => {
     const setHelpOpen = vi.fn()
-    const openGuidedCreate = vi.fn()
+    const openCreate = vi.fn()
     const state = controller({
       bots: [{ id: "b1" }] as BotListController["bots"],
       setHelpOpen,
-      openGuidedCreate,
+      openCreate,
       groups: [
         { machineId: "mac1", machine: null, bots: [] },
         { machineId: "mac2", machine: null, bots: [] },
@@ -266,10 +253,11 @@ describe("renderBotListView", () => {
     fireEvent.click(renderer.getByRole("button", { name: "How your agent works" }))
     expect(setHelpOpen).toHaveBeenCalledWith(true)
     fireEvent.click(renderer.getByRole("button", { name: "Create a bot" }))
-    expect(openGuidedCreate).toHaveBeenCalledOnce()
+    expect(openCreate).toHaveBeenCalledOnce()
     expect(Array.from(renderer.container.querySelectorAll("slot"))
       .map((node) => node.getAttribute("name"))).toEqual([
       "create",
+      "billing",
       "help",
       "edit",
       "activity",
@@ -281,7 +269,7 @@ describe("renderBotListView", () => {
   })
 
   it("exposes the active summary trigger and explains why create is disabled at capacity", () => {
-    const openGuidedCreate = vi.fn()
+    const openCreate = vi.fn()
     const renderer = render(renderBotListView({}, controller({
       bots: [{ id: "b1" }] as BotListController["bots"],
       planSummary: {
@@ -292,7 +280,7 @@ describe("renderBotListView", () => {
         activeCount: 2,
       },
       isCreateDisabled: true,
-      openGuidedCreate,
+      openCreate,
       groups: [],
     })))
     expect(renderer.getByTestId(tid.myBotsPlanSummary)).toBe(
@@ -303,7 +291,7 @@ describe("renderBotListView", () => {
     expect(create).toBeDisabled()
     expect(create).toHaveAttribute("title", "Bot limit reached. Delete a bot or change plan to create another.")
     fireEvent.click(create)
-    expect(openGuidedCreate).not.toHaveBeenCalled()
+    expect(openCreate).not.toHaveBeenCalled()
   })
 
   it("preserves the create label at capacity for a non-Founder", () => {
@@ -312,7 +300,7 @@ describe("renderBotListView", () => {
       bots: [{ id: "b1" }] as BotListController["bots"],
       isCreateDisabled: true,
       canShowLimit: true,
-      openGuidedCreate: open,
+      openCreate: open,
     })))
     fireEvent.click(ui.getByRole("button", { name: "Create a bot" }))
     expect(open).toHaveBeenCalledOnce()
@@ -381,4 +369,14 @@ describe("SSR mobile Back footprint", () => {
       }
     } finally { view?.unmount(); container.remove() }
   })
+})
+
+it.each([false, true])("uses supplied overlays without constructing another factory (populated=%s)", populated => {
+  mocks.overlays.mockClear()
+  const slots = Object.fromEntries(["create", "billing", "help", "edit", "activity", "bug", "deleteDialog", "resetDialog", "resetMachineDialog"].map(name => [name, React.createElement("slot", { name })])) as ReturnType<typeof import("./bot-list-overlays").renderBotListOverlaySlots>
+  slots.memberships = null
+  const state = controller({ bots: populated ? [{ id: "one" }] as BotListController["bots"] : [] })
+  const view = render(renderBotListView({}, state, slots))
+  expect(mocks.overlays).not.toHaveBeenCalled()
+  expect(Array.from(view.container.querySelectorAll("slot")).map(node => node.getAttribute("name"))).toEqual(populated ? ["create", "billing", "help", "edit", "activity", "bug", "deleteDialog", "resetDialog", "resetMachineDialog"] : ["create", "billing"])
 })

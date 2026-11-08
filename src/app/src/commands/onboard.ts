@@ -3,14 +3,7 @@ import { Command } from "commander";
 import { execSync, spawn as spawnAsync } from "child_process";
 import { createInterface } from "readline";
 import { checkNodeVersion, checkPorts } from "../lib/checks.js";
-import {
-  assertInstallationComplete,
-  getMissingInstallFiles,
-  installBundled,
-  isInstalled,
-} from "../lib/install.js";
-import { ensureSecrets } from "../lib/secrets.js";
-import { runMigrations } from "../lib/migrate.js";
+import { prepareSelfHosted } from "../lib/prepare-self-hosted.js";
 import { startServices, isRunning } from "../lib/services.js";
 import {
   collectEmail,
@@ -18,8 +11,7 @@ import {
   createPairingToken,
   waitForServer,
 } from "../lib/register.js";
-import { DEFAULT_PORTS, WEB_URL, SELF_HOSTED_DIR } from "../lib/constants.js";
-import { patchWranglerConfigs } from "../lib/wrangler-config.js";
+import { DEFAULT_PORTS, WEB_URL } from "../lib/constants.js";
 import { pairAndStartDaemon } from "../lib/daemon.js";
 
 export function onboardCommand(): Command {
@@ -51,18 +43,7 @@ export function onboardCommand(): Command {
         execSync("pnpm db:migrate", { cwd: root, stdio: ["pipe", "inherit", "inherit"] });
       } else {
 
-        if (!isInstalled()) {
-          const missingFiles = getMissingInstallFiles();
-          console.log(`Installing missing Alook files (${missingFiles.length} required files missing)...`);
-          installBundled();
-        } else {
-          console.log(`Installation found at ${SELF_HOSTED_DIR}`);
-        }
-
-        assertInstallationComplete();
-        ensureSecrets(ports.web);
-        patchWranglerConfigs(ports);
-        runMigrations();
+        prepareSelfHosted(ports);
       }
 
       if (isRunning()) {

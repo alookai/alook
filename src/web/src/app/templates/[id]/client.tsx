@@ -8,12 +8,7 @@ import { PublicLayout } from "@/components/public-layout";
 import { MemberCard } from "./_components/member-card";
 import type { TemplatePreset } from "@/lib/templates";
 
-const ROLE_LABELS: Record<string, string> = {
-  leader: "Leader",
-  researcher: "Researcher",
-  engineer: "Engineer",
-  assistant: "Assistant",
-};
+
 
 export function TemplateDetailClient({
   template,
@@ -126,7 +121,6 @@ export function TemplateDetailClient({
               <MemberCard
                 key={i}
                 role={member.role}
-                roleLabel={ROLE_LABELS[member.role] || member.role}
                 description={member.description}
               />
             ))}
