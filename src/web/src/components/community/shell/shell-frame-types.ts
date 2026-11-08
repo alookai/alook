@@ -1,4 +1,4 @@
-import { type OwnerServerDeleteRouteToken } from "@/stores/community/server-eject-store"
+import type { OwnerServerDeleteRouteToken } from "@/stores/community/server-eject-store"
 import type { Action } from "@/lib/observability/context"
 import type { ReactNode } from "react"
 
