@@ -23,6 +23,7 @@ class CaptureFailure extends Component<{ children: ReactNode }, { error: Error |
 }
 let mounted: ReturnType<typeof render> | undefined
 beforeEach(async () => {
+  await import("./community-authenticated-entry")
   await clearAllPersistedCaches()
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }))
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} })

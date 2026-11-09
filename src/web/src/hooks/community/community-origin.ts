@@ -2,12 +2,22 @@
 
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { useQueryClient } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useCallback, useMemo, useSyncExternalStore } from "react"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { beginCommunityProfileSeed } from "@/lib/community/profile-seed"
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
+
+export function useCommunityOnlineAccount() {
+  const registry = useOptionalCommunityDbRegistry()
+  const subscribe = useCallback((notify: () => void) => {
+    const subscription = registry?.authenticationBindings.subscribe(notify)
+    return () => subscription?.unsubscribe()
+  }, [registry])
+  const read = useCallback(() => registry?.isOnlineAccount() ?? false, [registry])
+  return useSyncExternalStore(subscribe, read, () => false)
+}
 
 // Hook callbacks and mutateAsync chains can survive unmount. Bind this domain's
 // requests to the original provider; never look up a new account as a fallback.

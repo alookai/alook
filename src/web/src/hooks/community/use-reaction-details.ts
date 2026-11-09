@@ -66,8 +66,9 @@ export function useReactionDetails({
     const known = new Set(data.actors.map((actor) => actor.userId))
     const unknown = uniqueUserIds.filter((id) => !known.has(id) && !attempted.get().ids.has(id))
     if (!unknown.length) return
+    const original = source.tryCapture()
+    if (!original) return
     attempted.setState((state) => ({ ...state, ids: new Set([...state.ids, ...unknown]) }))
-    const original = source.capture()
     const timer = setTimeout(() => {
       try { original() } catch { return }
       void refetch({ cancelRefetch: false }).catch(() => undefined)

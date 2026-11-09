@@ -24,6 +24,22 @@ beforeEach(() => {
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: mocks.copy.mockResolvedValue(undefined) } })
 })
 describe("Agent Setup", () => {
+  it("defers automatic setup without consuming its opening and starts once after confirmation", async () => {
+    const owner = await createCommunityQueryOwner()
+    owner.registry.bindAuthentication(() => undefined, async () => {})
+    const input = props()
+    const element = () => <CommunityTestProvider client={owner.client} registry={owner.registry}><OnboardingAgentDialog {...input} /></CommunityTestProvider>
+    const view = renderDom(element())
+    expect(mocks.request).not.toHaveBeenCalled()
+    expect(input.onConnected).not.toHaveBeenCalled()
+    await act(async () => { owner.registry.bindAuthentication(() => "viewer", async () => {}); owner.registry.confirmAuthentication() })
+    await waitFor(() => expect(screen.getByRole("button", { name: "Copy prompt" })).toBeEnabled())
+    expect(mocks.request).toHaveBeenCalledTimes(2)
+    view.rerender(element())
+    expect(mocks.request).toHaveBeenCalledTimes(2)
+    expect(input.onConnected).not.toHaveBeenCalled()
+  })
+
   it("prepares only pairing and one-hour authorization, and copies the complete handoff", async () => {
     render(<OnboardingAgentDialog {...props()} />)
     await waitFor(() => expect(screen.getByRole("button", { name: "Copy prompt" })).toBeEnabled())

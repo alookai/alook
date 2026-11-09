@@ -167,7 +167,8 @@ export function MemberList({
 
   useEffect(() => {
     if (!onSearch) return
-    try { source.capture()(); onSearch(query) } catch {}
+    if (!source.tryCapture()) return
+    onSearch(query)
   }, [query, onSearch, source.signal, source])
 
   const items = useMemo(() => flattenGroups(members), [members])

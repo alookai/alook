@@ -1,7 +1,7 @@
 import { resourceBundleFixture, fullResourceBundleFixture, serverResourceFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createElement, type PropsWithChildren } from "react"
-import { IsRestoringProvider, QueryClientProvider, QueryObserver } from "@tanstack/react-query"
+import { dehydrate, IsRestoringProvider, QueryClientProvider, QueryObserver } from "@tanstack/react-query"
 import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture as fixture, dmConversationEntryFixture, forumConversationEntryFixture, conversationEntryTarget as target } from "@/test/conversation-entry-fixtures"
@@ -25,6 +25,9 @@ import type { FlatItem } from "@/lib/community/message-list-items"
 import { renderMessageListRow } from "@/components/community/messages/message-list-row"
 import { confirmReadSurface, disposeReadCoordinator, getReadCoordinator, registerReadSurface, releaseReadSurface, submitReadIntentGeneration } from "./read-coordinator"
 import { disposeAccountReadStateReconciliation } from "./community-ws/read-state-reconciliation"
+import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-persister"
+import { restoreConversationDisplayWindows } from "@/lib/community/restored-conversation-window"
+import { writeCommunityCollectionChanges } from "@/lib/community-db/write"
 
 const load = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", async (original) => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => load(...args) }))
@@ -50,6 +53,34 @@ async function setup() {
 }
 
 describe("conversation entry selection", () => {
+  it.each(["row", "clock only"] as const)("keeps a restored display stable with a %s read snapshot while entry is held", async pointer => {
+    const { client, registry, wrapper, publish } = await setup()
+    const packet = fixture()
+    await publish(packet)
+    if (pointer === "clock only") {
+      await writeCommunityCollectionChanges(registry, "readStates", [], ["c1"])
+      await writeCommunityCollectionChanges(registry, "readStateClock", [{ id: "account", revision: 4 }])
+      expect(currentConversationReadState(client, "c1")).toMatchObject({ lastReadSeq: 0, observedRevision: 4 })
+    }
+    const restored = readCommunityRestoredCollections({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(client) }, "viewer")
+    client.removeQueries({ queryKey: communityKeys.channelMessages("c1") })
+    client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
+    restoreConversationDisplayWindows(registry, restored)
+    const held = deferred<typeof packet>()
+    load.mockReturnValue(held.promise)
+    const hook = renderHook(() => useMessages("c1", { serverId: "s1" }), { wrapper })
+    await waitFor(() => expect(load).toHaveBeenCalledOnce())
+    expect(hook.result.current.messages.map(message => message.id)).toEqual(["m1"])
+    expect(hook.result.current.initialPositionKnown).toBe(false)
+    expect(hook.result.current.readSnapshotFetching).toBe(true)
+    if (pointer === "clock only") packet.newBoundary = { afterSeq: 0, target: { id: "m1", seq: 1, channelId: "c1", authorId: "peer" } }
+    await act(async () => held.resolve(packet))
+    await waitFor(() => expect(hook.result.current.initialPositionKnown).toBe(true))
+    expect(hook.result.current.messages.map(message => message.id)).toEqual(["m1"])
+    expect(hook.result.current.readSnapshotFetching).toBe(false)
+    expect(load.mock.calls.filter(([url]) => String(url).includes("entry=1"))).toHaveLength(1)
+  })
+
   it.each([
     { kind: "text", useSurface: function useText() { return useMessages("c1", { serverId: "s1" }) } },
     { kind: "dm", useSurface: function useDm() { return useDmMessages("c1") } },

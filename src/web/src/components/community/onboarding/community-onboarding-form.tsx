@@ -137,9 +137,11 @@ function CommunityOnboardingSteps() {
       !state.identity
     ) return
 
-    const original = origin.begin(), assert = source.capture()
-    assert()
+    const assert = source.tryCapture()
+    if (!assert) return
     try {
+      const original = origin.begin()
+      assert()
       await mutateInitialization({
         ...original, assert,
         input: { machineId: state.machineId, runtime: state.harness, model: state.model, identity: state.identity, userName: currentUser.name, userDiscriminator: currentUser.discriminator },

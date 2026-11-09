@@ -8,7 +8,7 @@ import { MessageList } from "@/components/community/messages/message-list"
 import { CurrentUserProvider } from "@/contexts/community/current-user"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { ConversationActivityContext } from "@/contexts/view-activity"
-import { QueryClientProvider } from "@tanstack/react-query"
+import { dehydrate, QueryClientProvider } from "@tanstack/react-query"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture } from "@/test/conversation-entry-fixtures"
@@ -19,6 +19,9 @@ import { captureCommunityLiveSnapshotToken, ingestReadStateSnapshot, publishAcco
 import { currentConversationReadState } from "@/lib/community/conversation-entry"
 import { disposeReadCoordinator, getLocalReadingPosition, getReadCoordinator, READ_COORDINATOR_DEBOUNCE_MS } from "./read-coordinator"
 import { disposeAccountReadStateReconciliation, type AccountReadStateSnapshot } from "./community-ws/read-state-reconciliation"
+import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-persister"
+import { restoreConversationDisplayWindows } from "@/lib/community/restored-conversation-window"
+import { communityKeys } from "@/lib/query-keys"
 
 const navigationMock = vi.hoisted(() => ({ href: "/c/channels/s1/c1", replace: vi.fn() }))
 const load = vi.hoisted(() => vi.fn())
@@ -111,10 +114,17 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
   refreshWindow?: Promise<ReturnType<typeof entry>>
   readPointer?: AccountReadStateSnapshot["readStates"][number]
   initialActive?: boolean
+  restored?: boolean
 } = {}) {
   owner = await createCommunityQueryOwner()
   await seedConversationEntry(owner.client, options.cached ?? entry(kind, "c1", ownTail))
   await seedConversationEntry(owner.client, entry("channel", "c2"))
+  if (options.restored) {
+    const restored = readCommunityRestoredCollections({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(owner.client) }, "viewer")
+    owner.client.removeQueries({ queryKey: communityKeys.channelMessages("c1") })
+    owner.client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
+    restoreConversationDisplayWindows(owner.registry, restored)
+  }
   if (options.readPointer) ingestReadStateSnapshot(owner.registry, { revision: 2, readStates: [options.readPointer] })
   if (options.latestAttentionSeq) await publishAccountAttentionSnapshot(owner.client, {
     snapshot: { resources: resourceBundleFixture(), scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1", ordinaryUnread: true,
@@ -135,6 +145,9 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
     }))
     if (url.startsWith("/api/community/channels/c1/messages?since=") && options.refresh) return options.refresh.then(value => ({
       ...value.page, profiles: value.profiles, messages: value.messages.filter(message => message.seq > 1),
+    }))
+    if (options.restored && options.refresh && new URL(url, "https://test.invalid").searchParams.has("cursor")) return options.refresh.then(value => ({
+      ...value.page, messages: [], profiles: [], hasMoreOlder: false, olderCursor: null,
     }))
     if (url.includes("/messages?") && new URL(url, "https://test.invalid").searchParams.has("entry")) {
       const requested = new URL(url, "https://test.invalid")
@@ -292,7 +305,7 @@ describe("conversation entry positioning through real reading owners", () => {
     expect(getReadCoordinator(owner.client, viewer.id).state.get().scopes.get("timeline:c1")?.accepted?.intent.seq).toBe(42)
   })
 
-  it.each([{ delayCanonical: false, previousTail: false }, { delayCanonical: true, previousTail: false }, { delayCanonical: false, previousTail: true }])("reveals the cached ordinary window before network completion without granting reading, delayed canonical=$delayCanonical, previous tail=$previousTail", async ({ delayCanonical, previousTail }) => {
+  it.each([{ delayCanonical: false, previousTail: false, restored: false }, { delayCanonical: true, previousTail: false, restored: false }, { delayCanonical: false, previousTail: true, restored: false }, { delayCanonical: false, previousTail: false, restored: true }])("reveals the cached ordinary window before network completion without granting reading, delayed canonical=$delayCanonical, previous tail=$previousTail, restored=$restored", async ({ delayCanonical, previousTail, restored }) => {
     const fresh = entry("channel")
     fresh.messages = fresh.messages.slice(0, 13)
     fresh.channel.messageCount = 13
@@ -313,7 +326,7 @@ describe("conversation entry positioning through real reading owners", () => {
     const refresh = new Promise<typeof fresh>(resolve => { finishRefresh = resolve })
     let finishWindow!: (value: typeof fresh) => void
     const refreshWindow = new Promise<typeof fresh>(resolve => { finishWindow = resolve })
-    const view = await setup("channel", false, false, { cached, latestAttentionSeq: 13, refresh,
+    const view = await setup("channel", false, false, { cached, latestAttentionSeq: 13, refresh, restored,
       ...(previousTail ? { readPointer, refreshWindow } : {}),
     })
     const nativeWrite = owner.registry.collections.messages.utils.writeBatch.bind(owner.registry.collections.messages.utils)
@@ -334,6 +347,12 @@ describe("conversation entry positioning through real reading owners", () => {
       expect(latest.feed.readSnapshotFetching).toBe(true)
       expect(latest.feed.readSnapshot?.lastReadSeq).toBe(1)
       expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+      if (restored) {
+        expect(view.root()).toHaveAttribute("data-pagination-enabled", "false")
+        expect(view.root().querySelector("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "false")
+        expect(mounted!.queryByTestId("community-scroll-to-present")).toBeNull()
+        expect(load.mock.calls.filter(([url]) => String(url).includes("/messages") && !String(url).includes("entry=1"))).toEqual([])
+      }
       const initialReadReady = view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready") ?? "false"
       await act(async () => { finishRefresh(fresh); await vi.advanceTimersByTimeAsync(0) })
       resize()

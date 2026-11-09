@@ -179,7 +179,8 @@ test.describe("forum sidebar Stage B request shape", () => {
       await combined
       await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
       await expect.poll(entryGate.held).toBe(1)
-      await expect(childPanel(page).getByText("post body", { exact: true })).toHaveCount(0)
+      if (refresh) await expect(childPanel(page).getByText("post body", { exact: true })).toBeVisible()
+      else await expect(childPanel(page).getByText("post body", { exact: true })).toHaveCount(0)
       await expect(childPanel(page).getByTestId(tid.composerInput)).toBeVisible()
       expect(readRequests).toEqual([])
       await entryGate.release()

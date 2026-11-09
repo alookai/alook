@@ -80,7 +80,9 @@ export function OnboardingMachineDialog({
   useEffect(() => {
     if (!open) { autoAdvance.set(null); return }
     if (!readyMachineId || autoAdvance.get() === source.signal) return
-    source.capture()()
+    const assert = source.tryCapture()
+    if (!assert) return
+    assert()
     autoAdvance.set(source.signal)
     onConnected(readyMachineId)
   }, [open, readyMachineId, source, onConnected, autoAdvance])
@@ -102,9 +104,13 @@ export function OnboardingMachineDialog({
   const mutateGeneration = generation.mutateAsync
   const generateCommand = useCallback(async () => {
     if (generating || queryClient.getMutationCache().find({ mutationKey: ["community", "onboarding-machine-pair", harness], status: "pending", predicate: (mutation) => (mutation.state.variables as { assert?: { signal: AbortSignal } } | undefined)?.assert?.signal === source.signal })) return
-    const token = origin.begin().token, assert = source.capture()
-    assert()
-    try { await mutateGeneration({ token, assert }) }
+    const assert = source.tryCapture()
+    if (!assert) return
+    try {
+      const token = origin.begin().token
+      assert()
+      await mutateGeneration({ token, assert })
+    }
     catch (error) {
       try { assert() } catch { return }
       if (error instanceof Error && error.message === "MACHINE_LIMIT_REACHED") void refetch({ cancelRefetch: false })
@@ -124,6 +130,7 @@ export function OnboardingMachineDialog({
       machineLimitReached ||
       generateError
     ) return
+    if (!source.tryCapture()) return
     autoMint.set(source.signal)
     void generateCommand()
   }, [
@@ -137,7 +144,7 @@ export function OnboardingMachineDialog({
     previewConnectedMachine,
     previewCommand,
     tokenId,
-    source.signal,
+    source,
     autoMint,
   ])
 
