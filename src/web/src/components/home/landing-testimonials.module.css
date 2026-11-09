@@ -88,7 +88,7 @@
   --sticker-head-unit: calc(100cqw / 360);
   display: block;
   height: auto;
-  padding: 40px 22px 24px;
+  padding: 50px 22px 24px;
 }
 
 .message:focus-visible {
@@ -164,16 +164,16 @@
 /* The portrait, author and full quote share the contour in the wall and the design specimen. */
 .sticker > [data-slot="avatar"] {
   position: absolute;
-  top: calc(44 * var(--sticker-head-unit));
-  left: calc(4.2% + 2px);
-  width: calc(16% - 4px);
+  top: calc(54 * var(--sticker-head-unit));
+  left: calc(54 * var(--sticker-head-unit) - 10% + 2.5px);
+  width: calc(20% - 5px);
   height: auto;
   aspect-ratio: 1;
   transform: translateY(-50%);
 }
 
 .sticker .author,
-.sticker .handle { margin-left: 64px; }
+.sticker .handle { margin-left: 82px; }
 
 @media (max-width: 639px) {
   .intro { margin-bottom: 32px; }
@@ -181,7 +181,7 @@
   .messages { gap: 20px; padding: 22px 24px; }
   .messages:nth-child(2) { padding-left: 120px; }
   .messages > li { width: clamp(224px, 66cqw, 280px); }
-  .sticker { padding: 40px 16px 18px; }
+  .sticker { padding: calc(40px + 32 * var(--sticker-head-unit)) 16px 18px; }
   .sticker .author,
   .sticker .handle { margin-left: 44px; }
   .author { gap: 4px; }
