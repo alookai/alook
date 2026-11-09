@@ -43,11 +43,36 @@ export function selectDownloadInstallers(input: unknown): DownloadInstaller[] {
 }
 
 export async function readDownloadCatalog(): Promise<DownloadCatalog> {
+  let stage: "fetch" | "json" | "metadata" = "fetch"
+  let status: number | undefined
   try {
     const response = await fetchGitHubReleases()
-    if (!response.ok) return { installers: [], unavailable: true }
-    return { installers: selectDownloadInstallers(await response.json()), unavailable: false }
-  } catch { return { installers: [], unavailable: true } }
+    status = response.status
+    if (!response.ok) {
+      const rateLimitHints = Object.fromEntries(([
+        ["rate_limit_remaining", response.headers.get("x-ratelimit-remaining")],
+        ["rate_limit_reset", response.headers.get("x-ratelimit-reset")],
+        ["retry_after_seconds", response.headers.get("retry-after")],
+      ] as const).flatMap(([key, value]) => value !== null && /^\d+$/.test(value) && Number.isSafeInteger(Number(value))
+        ? [[key, Number(value)]] : []))
+      console.warn("download_catalog_unavailable", { stage: "http", status, ...rateLimitHints })
+      return { installers: [], unavailable: true }
+    }
+    stage = "json"
+    const releases: unknown = await response.json()
+    stage = "metadata"
+    return { installers: selectDownloadInstallers(releases), unavailable: false }
+  } catch (error) {
+    let errorKind = "Error"
+    try {
+      if (error instanceof Error) {
+        const name = error.name
+        if (["AbortError", "TimeoutError", "TypeError", "SyntaxError"].includes(name)) errorKind = name
+      }
+    } catch { errorKind = "Error" }
+    console.warn("download_catalog_unavailable", { stage, ...(status === undefined ? {} : { status }), error_kind: errorKind })
+    return { installers: [], unavailable: true }
+  }
 }
 
 

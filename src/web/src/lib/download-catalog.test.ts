@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { readDownloadCatalog, selectDownloadInstallers } from "./download-catalog"
 import { DOWNLOAD_TARGETS } from "./download-platforms"
 import { compareVersions, parseStableSemver } from "./github-releases"
@@ -14,7 +14,7 @@ function release(version: string, complete = true, patch: Record<string, unknown
     asset(`Alook_${version}_aarch64.app.tar.gz.sig`, version),
   ], ...patch }
 }
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe("public installer selection", () => {
   it("selects all eight actual installers in semantic order, separately from updater bundles", () => {
@@ -74,18 +74,88 @@ describe("public installer selection", () => {
 })
 
 describe("public catalog read", () => {
+  const warnings: unknown[][] = []
+  beforeEach(() => {
+    warnings.length = 0
+    vi.spyOn(console, "warn").mockImplementation((...args) => { warnings.push(args) })
+  })
   it("uses the existing public release fetch/cache and produces a serializable catalog", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify([release("1.0.0")])))
     vi.stubGlobal("fetch", fetch)
     const result = await readDownloadCatalog()
     expect(result.unavailable).toBe(false)
     expect(result.installers).toHaveLength(8)
+    expect(warnings).toEqual([])
     expect(fetch).toHaveBeenCalledWith("https://api.github.com/repos/alookai/alook/releases?per_page=100", { headers: { Accept: "application/vnd.github.v3+json", "User-Agent": "alook-updater" }, next: { revalidate: 300 } })
   })
-  it.each(["http", "network", "json", "shape"])("returns an honest fallback on %s failure", async failure => {
+  it.each([
+    ["http", { stage: "http", status: 503 }],
+    ["network", { stage: "fetch", error_kind: "Error" }],
+    ["json", { stage: "json", status: 200, error_kind: "SyntaxError" }],
+    ["shape", { stage: "metadata", status: 200, error_kind: "Error" }],
+  ] as const)("returns an honest fallback and safe diagnostic on %s failure", async (failure, diagnostic) => {
     const fetch = vi.fn().mockImplementation(() => failure === "network" ? Promise.reject(new Error("offline"))
       : Promise.resolve(new Response(failure === "json" ? "not json" : "{}", { status: failure === "http" ? 503 : 200 })))
     vi.stubGlobal("fetch", fetch)
     expect(await readDownloadCatalog()).toEqual({ installers: [], unavailable: true })
+    expect(warnings).toEqual([["download_catalog_unavailable", diagnostic]])
+  })
+
+  it.each([403, 429])("records numeric provider hints without interpreting HTTP %i as a cause", async status => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("private provider body", {
+      status,
+      headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1794204000", "retry-after": "120", "x-request-id": "mock-sensitive-request" },
+    })))
+    expect(await readDownloadCatalog()).toEqual({ installers: [], unavailable: true })
+    expect(warnings).toEqual([["download_catalog_unavailable", {
+      stage: "http", status, rate_limit_remaining: 0, rate_limit_reset: 1794204000, retry_after_seconds: 120,
+    }]])
+  })
+
+  it("omits unqualified header values and provider bodies", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("Bearer mock-private-body", {
+      status: 503,
+      headers: { "x-ratelimit-remaining": "mock-private-header", "x-ratelimit-reset": "9007199254740992", "retry-after": "Mon, 09 Nov 2026 06:00:00 GMT" },
+    })))
+    expect(await readDownloadCatalog()).toEqual({ installers: [], unavailable: true })
+    expect(warnings).toEqual([["download_catalog_unavailable", { stage: "http", status: 503 }]])
+  })
+
+  it("never serializes thrown values or arbitrary exception names", async () => {
+    const error = Object.assign(new Error("Bearer mock-private-message"), { name: "mock-private-name" })
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(error))
+    expect(await readDownloadCatalog()).toEqual({ installers: [], unavailable: true })
+    expect(warnings).toEqual([["download_catalog_unavailable", { stage: "fetch", error_kind: "Error" }]])
+  })
+
+  it("records a recognized transport exception without its message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("mock-private-network-address")))
+    expect(await readDownloadCatalog()).toEqual({ installers: [], unavailable: true })
+    expect(warnings).toEqual([["download_catalog_unavailable", { stage: "fetch", error_kind: "TypeError" }]])
+  })
+
+  it("distinguishes a failed response body from a failed request", async () => {
+    const body = new ReadableStream({ start(controller) { controller.error(new TypeError("mock-private-body-error")) } })
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body)))
+    expect(await readDownloadCatalog()).toEqual({ installers: [], unavailable: true })
+    expect(warnings).toEqual([["download_catalog_unavailable", { stage: "json", status: 200, error_kind: "TypeError" }]])
+  })
+
+  it("validates and logs one captured value from a changing exception name", async () => {
+    let reads = 0
+    const error = new Error("mock-private-message")
+    Object.defineProperty(error, "name", { get() { return ++reads === 1 ? "TypeError" : "mock-private-name" } })
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(error))
+    expect(await readDownloadCatalog()).toEqual({ installers: [], unavailable: true })
+    expect(warnings).toEqual([["download_catalog_unavailable", { stage: "fetch", error_kind: "TypeError" }]])
+    expect(reads).toBe(1)
+  })
+
+  it("keeps the unavailable result when the exception name cannot be read", async () => {
+    const error = new Error("mock-private-message")
+    Object.defineProperty(error, "name", { get() { throw new Error("mock-private-accessor-failure") } })
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(error))
+    expect(await readDownloadCatalog()).toEqual({ installers: [], unavailable: true })
+    expect(warnings).toEqual([["download_catalog_unavailable", { stage: "fetch", error_kind: "Error" }]])
   })
 })
