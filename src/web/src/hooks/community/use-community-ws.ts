@@ -7,6 +7,7 @@ import { bindCommunityTransport, useCommunityRuntime, type CommunityRuntime } fr
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
+import { useSelector } from "@tanstack/react-store"
 import { cancelMessageRepairs } from "@/lib/community/message-reconcile"
 import {
   useUserWs,
@@ -117,6 +118,8 @@ export function communityWsEndTyping(runtime: CommunityRuntime, target: { channe
 export function useCommunityWs(options?: UseCommunityWsOptions): void {
   const runtime = useCommunityRuntime()
   const queryClient = useQueryClient()
+  const registry = getCommunityDbRegistry(queryClient)!
+  const onlineAccount = useSelector(registry.authenticationBindings, registry.isOnlineAccount)
   const reconnectTransportRef = useRef<() => void>(() => undefined)
   const connectionControllerRef = useRef<CommunityWsConnectionStatusController | null>(null)
   const getConnectionController = useCallback(() => {
@@ -310,7 +313,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     return reconcileFocusedCommunityMessages(queryClient)
   }, [queryClient, runtime.ws, runtime.lifecycle, viewerUserId, viewToken])
   const { send, reconnectNow } = useUserWs(handleMessage, {
-    viewerUserId,
+    viewerUserId: onlineAccount ? viewerUserId : null,
     communityContract: options?.communityContract,
     onReconnect: handleReconnect,
     onDisconnect: runtime.ws.actions.markAccessDisconnected,

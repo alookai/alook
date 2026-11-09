@@ -32,6 +32,7 @@ import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
 import { registerBusinessSchemaOwner } from "@/lib/business-schema-lifecycle"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { discardCommunityRestoreReplacements, restoreCommunityCollections } from "@/lib/community-db/sync"
+import { restoreConversationDisplayWindows } from "@/lib/community/restored-conversation-window"
 import { observeHydration, discardHydration } from "@/lib/observability/restore"
 import { captureTelemetryIdentityRetirement, setTelemetryUser } from "@/lib/observability/client"
 
@@ -80,10 +81,7 @@ function CommunityDbRuntime({
   useLayoutEffect(() => {
     if (isRestoring) return
     onRestoreComplete()
-    void registry.preload().catch((error: unknown) => {
-      if (!isAbortError(error)) console.error("Community collection preload failed", error)
-    })
-  }, [isRestoring, onRestoreComplete, registry])
+  }, [isRestoring, onRestoreComplete])
 
   return <CommunityDbProvider registry={registry}>{children}</CommunityDbProvider>
 }
@@ -190,6 +188,12 @@ function ScopedQueryProvider({
     } finally {
       discardCommunityRestoreReplacements(communityDb)
       restoreGate.release()
+    }
+    try {
+      await communityDb.preload()
+      restoreConversationDisplayWindows(communityDb, input)
+    } catch (error: unknown) {
+      if (!isAbortError(error)) console.error("Community collection preload failed", error)
     }
   }
 

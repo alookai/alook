@@ -305,7 +305,7 @@ export function reconcileConversationLanding(queryClient: QueryClient, scope: Ga
   const highWater = page.latestSeq ?? 0
   if (!isMessageCache(data)) return Promise.resolve()
   const ids = new Set(data.pages.flatMap(part => part.messages.map(message => message.id)))
-  if (highWater <= latest(data, false) && page.messages.every(message => ids.has(message.id))) return Promise.resolve()
+  if (highWater <= latest(data, false) && page.messages.every(message => ids.has(message.id)) && data.pages[0]?.hasMoreNewer === page.hasMoreNewer) return Promise.resolve()
   return reconcileWindow(queryClient, scope, key, highWater, { page, param }, owner)
 }
 

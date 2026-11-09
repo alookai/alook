@@ -12,6 +12,7 @@ import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { communityKeys } from "@/lib/query-keys"
 import { useServers, useViewerServerRole, serversProjectedQueryFn } from "@/hooks/community/use-servers"
 import { useCreateServer } from "@/hooks/community/mutations/servers"
+import { useAccountSignOut } from "@/hooks/community/use-account-sign-out"
 import { apiFetch } from "@/lib/api/client"
 import { runApplicationRequest, useApplicationOwner } from "@/lib/application-owner"
 import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
@@ -31,13 +32,14 @@ import { authClient, currentSessionViewer } from "@/lib/auth-session"
 import { CommunityLayoutClient } from "./community-layout-client"
 import { QueryProvider } from "./QueryProvider"
 
-type Owner = { registry: CommunityDbRegistry; createServer: ReturnType<typeof useCreateServer>; application: ReturnType<typeof useApplicationOwner> }
+type Owner = { registry: CommunityDbRegistry; createServer: ReturnType<typeof useCreateServer>; application: ReturnType<typeof useApplicationOwner>; logout: ReturnType<typeof useAccountSignOut> }
 const owners = new Map<string, Owner>()
 function Probe({ id }: { id: string }) {
   const client = useQueryClient(), registry = getCommunityDbRegistry(client)!
   const servers = useServers(), role = useViewerServerRole("private-b", id)
   const createServer = useCreateServer(), application = useApplicationOwner()
-  useEffect(() => { owners.set(id, { registry, createServer, application }) }, [id, registry, createServer, application])
+  const logout = useAccountSignOut()
+  useEffect(() => { owners.set(id, { registry, createServer, application, logout }) }, [id, registry, createServer, application, logout])
   return <><output>{id}</output><output aria-label="Server list">{servers.servers.map(server => server.name).join(",")}</output><output aria-label="Live authority">{String(servers.isLiveAuthoritative)}</output><output aria-label="B role">{role ?? "none"}</output><input aria-label="Draft" /></>
 }
 let mounted: ReturnType<typeof render> | undefined
@@ -103,6 +105,48 @@ async function assertBlocked(owner: Owner) {
   expect(owner.registry.serverListAuthority.get()).toBeNull()
   expect(screen.getByLabelText("B role")).toHaveTextContent("none")
 }
+it("locally exits cached A while the real SDK is unresolved, leaving the B cookie session untouched", async () => {
+  const owner = await cachedView(), disk = createIdbPersister("cached-a")
+  expect(authClient.$store.atoms.session.get().isPending).toBe(true)
+  expect(await disk.isCurrent()).toBe(true)
+  await act(async () => { expect(await owner.logout.mutateAsync()).toBe(true) })
+  expect(owner.registry.runtime.lifecycle.get().active).toBe(false)
+  expect(owner.registry.queryClient.getQueryCache().getAll()).toEqual([])
+  expect(await disk.isCurrent()).toBe(false)
+  expect(await readPersistedAccountIdentity()).toBeUndefined()
+  expect(backend.mock.calls.filter(([input]) => new URL(String(input), "http://localhost").pathname.endsWith("/sign-out"))).toEqual([])
+  expect(businessCalls()).toEqual([])
+  await act(async () => releaseSession(sessionResponse("online-b")))
+  await screen.findByText("online-b")
+  await waitFor(() => expect(screen.getByLabelText("Server list")).toHaveTextContent("online-b server"))
+  expect(owner.registry.runtime.lifecycle.get().active).toBe(false)
+})
+it("keeps locally exited A retired when its earlier real SDK check returns A late", async () => {
+  const owner = await cachedView(), disk = createIdbPersister("cached-a")
+  expect(authClient.$store.atoms.session.get().isPending).toBe(true)
+  const retire = owner.registry.retireDisk
+  let releaseDisk!: () => void
+  const pendingDisk = new Promise<void>(resolve => { releaseDisk = resolve })
+  const hold = vi.spyOn(owner.registry, "retireDisk").mockImplementation(async () => { await pendingDisk; await retire() })
+  let result!: Promise<boolean>
+  act(() => { result = owner.logout.mutateAsync() })
+  try {
+    await waitFor(() => expect(owner.registry.runtime.lifecycle.get().active).toBe(false))
+    await act(async () => releaseSession(sessionResponse("cached-a")))
+    await waitFor(() => expect(currentSessionViewer()).toBe("cached-a"))
+    expect(owners.get("cached-a")?.registry).toBe(owner.registry)
+    expect(screen.queryByRole("textbox", { name: "Draft" })).toBeNull()
+    expect(owner.registry.runtime.lifecycle.get().active).toBe(false)
+  } finally {
+    await act(async () => { releaseDisk(); await result })
+    hold.mockRestore()
+  }
+  expect(await result).toBe(true)
+  expect(await disk.isCurrent()).toBe(false)
+  expect(await readPersistedAccountIdentity()).toBeUndefined()
+  expect(businessCalls()).toEqual([])
+  expect(backend.mock.calls.filter(([input]) => new URL(String(input), "http://localhost").pathname.endsWith("/sign-out"))).toEqual([])
+})
 it("keeps restored A intact when B business responses are available before the real delayed SDK confirms B", async () => {
   const owner = await cachedView()
   expect(authClient.$store.atoms.session.get().isPending).toBe(true)

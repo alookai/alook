@@ -6,7 +6,7 @@ export const dmSans = localFont({
   weight: "400 900",
   style: "normal",
   display: "swap",
-  preload: false,
+  preload: true,
 });
 
 export const dmMono = localFont({
@@ -15,7 +15,7 @@ export const dmMono = localFont({
   weight: "400",
   style: "normal",
   display: "swap",
-  preload: false,
+  preload: true,
 });
 
 export const instrumentSerif = localFont({

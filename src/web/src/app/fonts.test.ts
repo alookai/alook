@@ -22,7 +22,7 @@ describe("local font configuration", () => {
         weight: "400 900",
         style: "normal",
         display: "swap",
-        preload: false,
+        preload: true,
       },
       {
         src: "./fonts/dm-mono-latin-400.woff2",
@@ -30,7 +30,7 @@ describe("local font configuration", () => {
         weight: "400",
         style: "normal",
         display: "swap",
-        preload: false,
+        preload: true,
       },
       {
         src: [

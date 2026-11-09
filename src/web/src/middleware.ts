@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { safeRedirectPath } from "@/lib/safe-redirect"
+import { SIGN_OUT_ENTRY_HEADER } from "@/lib/sign-out-navigation"
 
 export async function middleware(request: NextRequest) {
   if (
@@ -13,6 +14,16 @@ export async function middleware(request: NextRequest) {
   }
 
   const { pathname } = request.nextUrl
+  const signOutEntry = pathname === "/sign-in" && request.nextUrl.searchParams.get("logout") === "1"
+  let forwardedHeaders: Headers | undefined
+  if (signOutEntry || request.headers.has(SIGN_OUT_ENTRY_HEADER)) {
+    forwardedHeaders = new Headers(request.headers)
+    forwardedHeaders.delete(SIGN_OUT_ENTRY_HEADER)
+    if (signOutEntry) {
+      forwardedHeaders.set(SIGN_OUT_ENTRY_HEADER, "1")
+      return NextResponse.next({ request: { headers: forwardedHeaders } })
+    }
+  }
   if ((pathname === "/sign-in" || pathname === "/sign-up") &&
     (request.headers.has("Cookie") || request.headers.has("Authorization"))) {
     const [{ getCloudflareContext }, { getAuth, observeAuthSession }] = await Promise.all([
@@ -36,7 +47,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  return NextResponse.next()
+  return NextResponse.next(forwardedHeaders ? { request: { headers: forwardedHeaders } } : undefined)
 }
 
 export const config = {

@@ -19,7 +19,14 @@ export function CommunityAccountPendingFrame({ pathname, children }: { pathname:
     } as CSSProperties}
   >
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-      <AppSurface className="rounded-none border-0 bg-transparent">
+      <AppSurface
+        className="rounded-none border-0 bg-transparent"
+        data-testid={children == null ? tid.pendingMain("route-resolution") : undefined}
+        data-community-main-kind={children == null ? "route-resolution" : undefined}
+        data-community-target-href={children == null ? "/c" : undefined}
+        aria-busy={children == null ? true : undefined}
+        aria-label={children == null ? "Resolving community route" : undefined}
+      >
         {children ?? <UnresolvedMainSkeleton />}
       </AppSurface>
     </div>

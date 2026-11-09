@@ -13,6 +13,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import { config, middleware } from "./middleware";
+import { SIGN_OUT_ENTRY_HEADER, SIGN_OUT_ENTRY_PATH } from "@/lib/sign-out-navigation";
 
 /** Build a request with controllable forwarded-proto + headers. */
 function makeReq(url: string, headers: Record<string, string> = {}) {
@@ -21,6 +22,30 @@ function makeReq(url: string, headers: Record<string, string> = {}) {
 
 describe("middleware", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it.each(["Cookie", "Authorization"])("keeps an explicit local logout at the form with unresolved %s credentials", async name => {
+    mockGetSession.mockResolvedValue({ headers: new Headers(), response: { user: { id: "A" } } })
+    const res = await middleware(makeReq(`https://app.com${SIGN_OUT_ENTRY_PATH}`, { [name]: "fixture" }))
+    expect(res.headers.get("x-middleware-next")).toBe("1")
+    expect(res.headers.get(`x-middleware-request-${SIGN_OUT_ENTRY_HEADER}`)).toBe("1")
+    expect(res.headers.get("location")).toBeNull()
+    expect(res.headers.get("set-cookie")).toBeNull()
+    expect(mockGetSession).not.toHaveBeenCalled()
+  })
+
+  it("does not accept a client-supplied logout header as an ordinary sign-in bypass", async () => {
+    mockGetSession.mockResolvedValue({ headers: new Headers(), response: { user: { id: "A" } } })
+    const res = await middleware(makeReq("https://app.com/sign-in?logout=0", { Cookie: "fixture", [SIGN_OUT_ENTRY_HEADER]: "1" }))
+    expect(res.headers.get("location")).toBe("https://app.com/c/me")
+    expect(mockGetSession).toHaveBeenCalledOnce()
+  })
+
+  it("strips the logout marker from an unrelated request", async () => {
+    const res = await middleware(makeReq("https://app.com/c/me", { [SIGN_OUT_ENTRY_HEADER]: "1" }))
+    expect(res.headers.get(`x-middleware-request-${SIGN_OUT_ENTRY_HEADER}`)).toBeNull()
+    expect(res.headers.get("location")).toBeNull()
+    expect(mockGetSession).not.toHaveBeenCalled()
+  })
 
   it.each(["/c", "/c/me", "/c/me/machines", "/c/channels/server/channel", "/c/invite/token"])("serves public community document %s without session work or cookie changes", async path => {
     mockGetSession.mockImplementation(() => { throw new Error("Session must not gate the public shell") })

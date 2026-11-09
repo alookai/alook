@@ -130,8 +130,14 @@ function buildCommunityDbRegistry(
   }
 
   const authenticationBindings = createStore({ retireDisk: () => clearPersistedCache(accountId), retireReadingDisk: (() => Promise.resolve()) as QualifiedPersister["retireChannels"], sessionViewer: options.sessionViewer ?? (() => accountId as string | null | undefined), confirmed: false })
+  const isOnlineAccount = () => {
+    const state = authenticationBindings.get(), viewer = state.sessionViewer()
+    return !!accountId && (viewer === accountId || viewer === undefined && state.confirmed)
+  }
   const registry = {
     accountId,
+    authenticationBindings,
+    isOnlineAccount,
     authenticationView: createStore({ active: false, generation: 0 }),
     retireDisk: () => authenticationBindings.get().retireDisk(),
     retireReadingDisk: (ids: Iterable<string>, deleted = false) => authenticationBindings.get().retireReadingDisk(ids, deleted),
@@ -144,8 +150,7 @@ function buildCommunityDbRegistry(
       return true
     },
     assertOnlineAccount: () => {
-      const state = authenticationBindings.get(), viewer = state.sessionViewer()
-      if (!accountId || viewer !== accountId && !(viewer === undefined && state.confirmed)) throw new DOMException("Unconfirmed community account", "AbortError")
+      if (!isOnlineAccount()) throw new DOMException("Unconfirmed community account", "AbortError")
     },
     scopeId,
     queryClient,
