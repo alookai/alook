@@ -1,4 +1,8 @@
+#[cfg(any(target_os = "ios", test))]
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Serialize;
+#[cfg(any(target_os = "ios", test))]
+use sha2::{Digest, Sha256};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -12,6 +16,18 @@ pub(crate) enum Phase {
     BuilderReturned,
     SetupEnter,
     SetupReturned,
+    #[cfg(windows)]
+    EnvironmentRequested,
+    #[cfg(windows)]
+    EnvironmentReady,
+    #[cfg(windows)]
+    EnvironmentFallback,
+    #[cfg(windows)]
+    MainWindowCreated,
+    #[cfg(windows)]
+    BootstrapMapped,
+    #[cfg(windows)]
+    BootstrapMappingFallback,
     HooksDispatch,
     HooksReady,
     BootstrapStarted,
@@ -461,9 +477,60 @@ pub(crate) fn native_handoff(completed: bool) {
     publish();
 }
 
+#[cfg(any(target_os = "ios", test))]
+fn system_records(launch_id: &str, summary: &str) -> Vec<String> {
+    #[derive(Serialize)]
+    struct Part<'a> {
+        schema_version: u8,
+        kind: &'static str,
+        pid: u32,
+        launch_id: &'a str,
+        summary_sha256: &'a str,
+        summary_bytes: usize,
+        part: usize,
+        parts: usize,
+        encoding: &'static str,
+        data: String,
+    }
+    let hash = format!("{:x}", Sha256::digest(summary.as_bytes()));
+    if summary.len() > 20_480 {
+        return Vec::new();
+    }
+    let parts = summary.len().div_ceil(320);
+    summary
+        .as_bytes()
+        .chunks(320)
+        .enumerate()
+        .filter_map(|(index, bytes)| {
+            serde_json::to_string(&Part {
+                schema_version: 1,
+                kind: "startup_summary_chunk",
+                pid: std::process::id(),
+                launch_id,
+                summary_sha256: &hash,
+                summary_bytes: summary.len(),
+                part: index + 1,
+                parts,
+                encoding: "base64",
+                data: STANDARD.encode(bytes),
+            })
+            .ok()
+        })
+        .collect()
+}
+
 pub(crate) fn publish() {
     update(|recorder, _| {
         if let Ok(summary) = serde_json::to_string(&recorder.summary()) {
+            #[cfg(target_os = "ios")]
+            for record in system_records(&recorder.launch_id, &summary) {
+                unsafe extern "C" {
+                    fn alook_startup_system_log(bytes: *const u8, length: usize);
+                }
+                unsafe {
+                    alook_startup_system_log(record.as_ptr(), record.len());
+                }
+            }
             log::info!(target: "alook_startup", "{summary}");
         }
     });
@@ -500,6 +567,39 @@ pub(crate) fn install<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn system_records_are_bounded_and_restore_exact_json_bytes() {
+        let mut recorder = Recorder::new();
+        recorder.mark(Phase::RustEntry, 0);
+        recorder.request(10);
+        recorder.document(true, "https://alook.ai/c", 20);
+        recorder.document(false, "https://alook.ai/c", 30);
+        let canonical = serde_json::to_string(&recorder.summary()).unwrap();
+        let multibyte = serde_json::json!({"value":"é🦀".repeat(700)}).to_string();
+        for summary in [canonical, multibyte] {
+            let records = system_records(&recorder.launch_id, &summary);
+            assert!(records.len() > 1);
+            let expected_hash = format!("{:x}", Sha256::digest(summary.as_bytes()));
+            let mut restored = Vec::new();
+            for (index, record) in records.iter().enumerate() {
+                assert!(record.len() <= 768);
+                let value: serde_json::Value = serde_json::from_str(record).unwrap();
+                assert_eq!(value["schema_version"], 1);
+                assert_eq!(value["kind"], "startup_summary_chunk");
+                assert_eq!(value["pid"], std::process::id());
+                assert_eq!(value["launch_id"], recorder.launch_id);
+                assert_eq!(value["summary_sha256"], expected_hash);
+                assert_eq!(value["summary_bytes"], summary.len());
+                assert_eq!(value["part"], index + 1);
+                assert_eq!(value["parts"], records.len());
+                assert_eq!(value["encoding"], "base64");
+                restored.extend(STANDARD.decode(value["data"].as_str().unwrap()).unwrap());
+            }
+            assert_eq!(restored, summary.as_bytes());
+        }
+        assert!(system_records(&recorder.launch_id, &"x".repeat(20_481)).is_empty());
+    }
 
     #[test]
     fn completion_uses_matched_endpoints_and_never_overwrites_them() {

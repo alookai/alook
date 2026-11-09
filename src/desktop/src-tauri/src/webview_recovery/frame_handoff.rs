@@ -225,7 +225,7 @@ mod tests {
     use std::cell::Cell;
     #[test]
     fn queued_continuation_rechecks_cancellation_and_current_document() {
-        let startup = StartupRendezvous::new();
+        let startup = StartupRendezvous::new(true);
         let action = FrameHandoff::bootstrap();
         startup.signal_frame_ready();
         assert!(action.continuation_allowed(&startup, Some(LocalDocument::Bootstrap)));
@@ -242,7 +242,7 @@ mod tests {
     }
     #[test]
     fn abandoned_bootstrap_never_schedules_or_delivers_native_effects() {
-        let startup = StartupRendezvous::new();
+        let startup = StartupRendezvous::new(true);
         let calls = Cell::new(0);
         startup.abandon();
         assert!(!consume_local_frame(
@@ -251,7 +251,7 @@ mod tests {
             |_| calls.set(1)
         ));
         assert_eq!(calls.get(), 0);
-        let startup = StartupRendezvous::new();
+        let startup = StartupRendezvous::new(true);
         let queued = Cell::new(None);
         consume_local_frame(&startup, LocalDocument::Bootstrap, |action| {
             queued.set(Some(action))
@@ -271,7 +271,7 @@ mod tests {
     }
     #[test]
     fn recovery_reveals_its_own_error_without_reviving_navigation() {
-        let startup = StartupRendezvous::new();
+        let startup = StartupRendezvous::new(true);
         startup.abandon();
         let calls = Cell::new(0);
         assert!(consume_local_frame(
@@ -292,7 +292,7 @@ mod tests {
     }
     #[test]
     fn retired_or_untrusted_documents_cannot_deliver_native_effects() {
-        let startup = StartupRendezvous::new();
+        let startup = StartupRendezvous::new(true);
         let calls = Cell::new(0);
         let action = FrameHandoff {
             document: LocalDocument::Bootstrap,
@@ -319,7 +319,7 @@ mod tests {
     }
     #[test]
     fn navigation_waits_for_native_delivery_and_duplicate_effects_are_ignored() {
-        let startup = StartupRendezvous::new();
+        let startup = StartupRendezvous::new(true);
         startup.signal_hooks_ready();
         startup.signal_bootstrap_finished();
         let queued = Cell::new(None);
@@ -345,7 +345,7 @@ mod tests {
             FrameDelivery::Ignored
         );
         assert_eq!(calls.get(), 1);
-        let failed = StartupRendezvous::new();
+        let failed = StartupRendezvous::new(true);
         assert_eq!(
             action.deliver(&failed, Some(LocalDocument::Bootstrap), || false),
             FrameDelivery::Failed

@@ -21,10 +21,18 @@ mod native_command_guard;
 mod native_geometry;
 mod native_oauth;
 mod native_oauth_runtime;
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux", test))]
+mod public_probe_input;
+#[cfg(any(windows, test))]
+mod startup_assets;
 mod startup_log;
 #[cfg(desktop)]
 mod system_notifications;
 mod webview_recovery;
+#[cfg(windows)]
+mod windows_startup;
+#[cfg(any(windows, test))]
+mod windows_startup_state;
 
 #[cfg(desktop)]
 mod updater;
@@ -195,6 +203,8 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
     builder = builder.setup(|app| {
         startup_log::mark(startup_log::Phase::SetupEnter);
         startup_log::install(app.handle());
+        #[cfg(windows)]
+        windows_startup::begin(app.handle());
 
         #[cfg(all(target_os = "macos", debug_assertions))]
         {
@@ -240,6 +250,8 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
             webview_recovery::finish_native_creation(&window);
         }
 
+        #[cfg(windows)]
+        windows_startup::setup_complete(app.handle());
         startup_log::mark(startup_log::Phase::SetupReturned);
         startup_log::publish();
         Ok(())
@@ -292,10 +304,10 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
 
 fn run_app(builder: tauri::Builder<tauri::Wry>) {
     startup_log::mark(startup_log::Phase::BuilderBegin);
-
+    #[allow(unused_mut)]
+    let mut context = tauri::generate_context!();
     #[cfg(all(target_os = "macos", debug_assertions))]
-    let app = {
-        let mut context = tauri::generate_context!();
+    {
         if context.config().identifier == "ai.alook.desktop.qa.madox.notification208" {
             let main = context
                 .config_mut()
@@ -307,17 +319,23 @@ fn run_app(builder: tauri::Builder<tauri::Wry>) {
             main.create = false;
             main.data_store_identifier = Some(commands::QA_NOTIFICATION_STORE_ID);
         }
-        builder.build(context)
     }
-    .expect("error while building tauri application");
-    #[cfg(not(all(target_os = "macos", debug_assertions)))]
+    #[cfg(windows)]
+    windows_startup::configure(context.config_mut());
     let app = builder
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application");
 
     startup_log::mark(startup_log::Phase::BuilderReturned);
 
     app.run(|app, event| {
+        #[cfg(windows)]
+        if matches!(
+            event,
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+        ) {
+            windows_startup::cancel();
+        }
         if matches!(event, tauri::RunEvent::Exit) {
             startup_log::mark(startup_log::Phase::ProcessExit);
             startup_log::publish();
@@ -346,6 +364,18 @@ fn run_app(builder: tauri::Builder<tauri::Wry>) {
             commands::show_main_window(app);
         }
     });
+}
+
+#[cfg(windows)]
+pub(crate) fn finish_windows_main_creation(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    webview_recovery::attach(window);
+    webview_recovery::watch_bootstrap(window);
+    zoom::apply_restored(window)?;
+    if let Ok(theme) = window.theme() {
+        commands::set_window_theme(window.clone(), theme == tauri::Theme::Dark, None);
+    }
+    webview_recovery::finish_native_creation(window);
+    Ok(())
 }
 
 fn should_notify_native_oauth(event: &tauri::RunEvent) -> bool {

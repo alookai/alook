@@ -38,6 +38,7 @@ version = "0.1.66"
 dependencies = [
  "base64 0.22.1",
  "block2",
+ "cc",
  "command-group",
  "getrandom 0.3.4",
  "log",
