@@ -21,7 +21,7 @@ mod native_command_guard;
 mod native_geometry;
 mod native_oauth;
 mod native_oauth_runtime;
-#[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux", test))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux"))]
 mod public_probe_input;
 #[cfg(any(windows, test))]
 mod startup_assets;
