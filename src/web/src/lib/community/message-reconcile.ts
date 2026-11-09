@@ -29,8 +29,21 @@ function url(scopeId: string, param: MessagesPageParam, tag: string | null) {
   return buildMessagesUrl(`/api/community/channels/${scopeId}/messages`, param, tag)
 }
 
+function mergeHistoryBoundary(cache: MessageCache, refreshed: MessagesPage): MessageCache {
+  const boundary = cache.pages.at(-1)
+  if (!boundary || (boundary.hasMoreOlder ?? boundary.hasMore) === false || (refreshed.hasMoreOlder ?? refreshed.hasMore) !== false) return cache
+  const references = cache.pages.flatMap(page => page.messages)
+  if (!references.length || references.some(message => !Number.isSafeInteger(message.seq))) return cache
+  const oldest = references.reduce((first, message) => message.seq! < first.seq! ? message : first)
+  if (!refreshed.messages.some(message => message.id === oldest.id && message.seq === oldest.seq)) return cache
+  const olderCursor = refreshed.olderCursor ?? refreshed.cursor
+  return { ...cache, pages: cache.pages.map((page, index) => index === cache.pages.length - 1
+    ? { ...page, hasMoreOlder: false, olderCursor, cursor: undefined } : page) }
+}
+
 function mergeWindow(cache: MessageCache, refreshed: MessagesPage, catchUp: MessagesPage[]): MessageCache {
   if (!cache.pages.length) return cache
+  cache = mergeHistoryBoundary(cache, refreshed)
   const incoming = new Map(messageWindowPage({ ...refreshed, messages: [refreshed, ...catchUp].flatMap((page) => page.messages) }).messages.map((message) => [message.id, message]))
   const pages = cache.pages.map((page) => ({ ...page, messages: page.messages.map((message) => { const replacement = incoming.get(message.id); incoming.delete(message.id); return replacement ?? message }) }))
   const newest = catchUp.at(-1) ?? refreshed
@@ -305,7 +318,7 @@ export function reconcileConversationLanding(queryClient: QueryClient, scope: Ga
   const highWater = page.latestSeq ?? 0
   if (!isMessageCache(data)) return Promise.resolve()
   const ids = new Set(data.pages.flatMap(part => part.messages.map(message => message.id)))
-  if (highWater <= latest(data, false) && page.messages.every(message => ids.has(message.id)) && data.pages[0]?.hasMoreNewer === page.hasMoreNewer) return Promise.resolve()
+  if (highWater <= latest(data, false) && page.messages.every(message => ids.has(message.id)) && data.pages[0]?.hasMoreNewer === page.hasMoreNewer && mergeHistoryBoundary(data, page) === data) return Promise.resolve()
   return reconcileWindow(queryClient, scope, key, highWater, { page, param }, owner)
 }
 

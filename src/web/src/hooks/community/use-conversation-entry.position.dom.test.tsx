@@ -5,6 +5,7 @@ import { StrictMode, useLayoutEffect } from "react"
 import { useChannelMessageFeed } from "./use-channel-message-feed"
 import { useMessageChannelController } from "@/components/community/messages/message-channel-controller-state"
 import { MessageList } from "@/components/community/messages/message-list"
+import { ConversationFooterShell, ConversationFooterSlotProvider } from "@/components/community/messages/conversation-footer-shell"
 import { CurrentUserProvider } from "@/contexts/community/current-user"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { ConversationActivityContext } from "@/contexts/view-activity"
@@ -22,6 +23,7 @@ import { disposeAccountReadStateReconciliation, type AccountReadStateSnapshot } 
 import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-persister"
 import { restoreConversationDisplayWindows } from "@/lib/community/restored-conversation-window"
 import { communityKeys } from "@/lib/query-keys"
+import { writeCommunityCollectionChanges } from "@/lib/community-db/write"
 
 const navigationMock = vi.hoisted(() => ({ href: "/c/channels/s1/c1", replace: vi.fn() }))
 const load = vi.hoisted(() => vi.fn())
@@ -58,7 +60,7 @@ let latest: {
   channel: ReturnType<typeof useMessageChannelController>
 }
 
-function Conversation({ channelId, kind, anchorMessageId }: { channelId: string; kind: Kind; anchorMessageId: string | null }) {
+function Conversation({ channelId, kind, anchorMessageId, fullFooter }: { channelId: string; kind: Kind; anchorMessageId: string | null; fullFooter?: boolean }) {
   const feed = useChannelMessageFeed({ channelId, serverId: "s1", viewerUserId: viewer.id, anchorMessageId })
   const channel = useMessageChannelController({ channelId, serverId: "s1", serverParam: "s1", channelName: "Conversation",
     viewer, anchorMessageId, feed, uiHandlers: {}, onOpenThread: () => {}, onOpenPinned: () => {}, resolveUserName: id => id,
@@ -82,7 +84,10 @@ function Conversation({ channelId, kind, anchorMessageId }: { channelId: string;
   }
   useLayoutEffect(() => { latest = { feed, channel } }, [feed, channel])
   return <div data-slot="community-conversation-surface">
-    <MessageList {...props} />
+    {fullFooter ? <ConversationFooterSlotProvider>
+      <MessageList {...props} />
+      <ConversationFooterShell><div /></ConversationFooterShell>
+    </ConversationFooterSlotProvider> : <MessageList {...props} />}
   </div>
 }
 
@@ -115,6 +120,8 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
   readPointer?: AccountReadStateSnapshot["readStates"][number]
   initialActive?: boolean
   restored?: boolean
+  fullFooter?: boolean
+  missingReadPointer?: boolean
 } = {}) {
   owner = await createCommunityQueryOwner()
   await seedConversationEntry(owner.client, options.cached ?? entry(kind, "c1", ownTail))
@@ -124,6 +131,11 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
     owner.client.removeQueries({ queryKey: communityKeys.channelMessages("c1") })
     owner.client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
     restoreConversationDisplayWindows(owner.registry, restored)
+  }
+  if (options.missingReadPointer) {
+    await writeCommunityCollectionChanges(owner.registry, "readStates", [], ["c1"])
+    await writeCommunityCollectionChanges(owner.registry, "readStateClock", [], ["account"])
+    expect(currentConversationReadState(owner.client, "c1")).toBeUndefined()
   }
   if (options.readPointer) ingestReadStateSnapshot(owner.registry, { revision: 2, readStates: [options.readPointer] })
   if (options.latestAttentionSeq) await publishAccountAttentionSnapshot(owner.client, {
@@ -176,7 +188,7 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
     <CurrentUserProvider initialUser={viewer}>
       <CommunityRouteContext value={{ navigation } as never}>
         <ConversationActivityContext value={active}>
-          <Conversation key={channelId} channelId={channelId} kind={channelId === "c1" ? kind : "channel"} anchorMessageId={anchorMessageId} />
+          <Conversation key={channelId} channelId={channelId} kind={channelId === "c1" ? kind : "channel"} anchorMessageId={anchorMessageId} fullFooter={options.fullFooter} />
         </ConversationActivityContext>
       </CommunityRouteContext>
     </CurrentUserProvider>
@@ -234,6 +246,34 @@ function boundObserver(row: Element) {
   return observer!
 }
 const messageOrReadRequests = () => load.mock.calls.filter(([url]) => String(url).includes("/messages") || String(url).endsWith("/read"))
+const latestRequests = () => load.mock.calls.filter(([url]) => url === "/api/community/channels/c1/messages")
+function deferredEntry() {
+  let resolve!: (value: ReturnType<typeof entry>) => void
+  const promise = new Promise<ReturnType<typeof entry>>(done => { resolve = done })
+  return { promise, resolve }
+}
+async function setupFooterJump(missingReadPointer = false) {
+  const fresh = entry("channel")
+  fresh.readState = { channelId: "c1", lastReadMessageId: "m1", lastReadSeq: 1, lastReadAt: fresh.messages[0].createdAt }
+  fresh.newBoundary = { afterSeq: 1, target: { id: "m2", channelId: "c1", seq: 2, authorId: "peer" } }
+  const cached = { ...fresh, channel: { ...fresh.channel, messageCount: 1 }, messages: fresh.messages.slice(0, 1),
+    page: { ...fresh.page, latestSeq: 1 }, newBoundary: { afterSeq: 1, target: null } }
+  const landing = deferredEntry(), tail = deferredEntry()
+  const view = await setup("channel", false, false, { cached, latestAttentionSeq: 42, refresh: landing.promise,
+    refreshWindow: tail.promise, restored: true, fullFooter: true, missingReadPointer })
+  expect(view.visible("m1")).toBe(true)
+  expect(view.root()).toHaveAttribute("data-pagination-enabled", "false")
+  expect(view.root().querySelector("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "false")
+  expect(latest.feed.readSnapshotFetching).toBe(true)
+  expect(load.mock.calls.filter(([url]) => String(url).includes("/messages") && !String(url).includes("entry=1"))).toEqual([])
+  expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+  const click = async () => {
+    fireEvent.click(mounted!.getByTestId("community-scroll-to-present"))
+    await act(async () => {})
+  }
+  const finish = async () => { await act(async () => { landing.resolve(fresh); tail.resolve(fresh); await vi.advanceTimersByTimeAsync(0) }) }
+  return { ...view, fresh, landing, tail, click, finish }
+}
 
 beforeEach(() => {
   installMessageScrollFixture()
@@ -261,6 +301,111 @@ afterEach(async () => {
 })
 
 describe("conversation entry positioning through real reading owners", () => {
+  it("admits one real footer Jump with a cached pointer, retains the pending window and accepts its current tail", async () => {
+    const view = await setupFooterJump()
+    try {
+      const window = latest.feed.messageWindow
+      const pointer = currentConversationReadState(owner.client, "c1")
+      await view.click()
+      const request = latest.feed.presentRequest
+      expect(request?.accepted).toBe(true)
+      if (!request?.accepted) throw new Error("The real footer did not admit Jump")
+      expect(latestRequests()).toHaveLength(1)
+      await view.click()
+      expect(latestRequests()).toHaveLength(1)
+      expect(latest.feed.messageWindow).toBe(window)
+      expect(latest.feed.messages.map(message => message.id)).toEqual(["m1"])
+      expect(currentConversationReadState(owner.client, "c1")).toBe(pointer)
+      expect(latest.feed.presentVersion).toBe(0)
+      await act(async () => { view.tail.resolve(view.fresh); await request.completed; await vi.advanceTimersByTimeAsync(0) })
+      resize()
+      const result = await request.completed
+      expect(result.status).toBe("success")
+      if (result.status !== "success") throw new Error("Current Jump did not complete")
+      expect(result.windowState?.(latest.feed.messageWindow)).toBe("ready")
+      expect(latest.feed.messages.map(message => message.id)).toEqual(view.fresh.messages.map(message => message.id))
+      expect(latest.feed.presentVersion).toBe(1)
+      expect(currentConversationReadState(owner.client, "c1")?.lastReadSeq).toBe(1)
+      expect(latestRequests()).toHaveLength(1)
+      expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+    } finally { await view.finish() }
+  })
+
+  it("does not admit the visible real footer Jump without either a read row or an account clock", async () => {
+    const view = await setupFooterJump(true)
+    try {
+      await view.click()
+      expect(latestRequests()).toEqual([])
+      expect(latest.feed.presentRequest).toBeNull()
+      expect(latest.feed.messages.map(message => message.id)).toEqual(["m1"])
+      expect(currentConversationReadState(owner.client, "c1")).toBeUndefined()
+      expect(view.visible("m1")).toBe(true)
+    } finally { await view.finish() }
+  })
+
+  it("retires an actual footer Jump after navigation without moving the next conversation", async () => {
+    const view = await setupFooterJump()
+    try {
+      await view.click()
+      const request = latest.feed.presentRequest
+      if (!request?.accepted) throw new Error("The real footer did not admit Jump")
+      await view.navigate("/c/channels/s1/c2")
+      const window = latest.feed.messageWindow, position = view.root().scrollTop
+      const ids = latest.feed.messages.map(message => message.id)
+      const pointer = currentConversationReadState(owner.client, "c2")
+      await act(async () => { view.tail.resolve(view.fresh); await request.completed; await vi.advanceTimersByTimeAsync(0) })
+      resize()
+      expect(await request.completed).toEqual({ status: "retired" })
+      expect(latest.feed.messageWindow).toBe(window)
+      expect(latest.feed.messages.map(message => message.id)).toEqual(ids)
+      expect(ids.every(id => id.startsWith("b"))).toBe(true)
+      expect(currentConversationReadState(owner.client, "c2")).toBe(pointer)
+      expect(view.root().scrollTop).toBe(position)
+      expect(latest.feed.presentVersion).toBe(0)
+      expect(latestRequests()).toHaveLength(1)
+    } finally { await view.finish() }
+  })
+
+  it("rejects an actual footer Jump response after channel access retires its generation", async () => {
+    const view = await setupFooterJump()
+    try {
+      await view.click()
+      const request = latest.feed.presentRequest
+      if (!request?.accepted) throw new Error("The real footer did not admit Jump")
+      await act(async () => owner.runtime.ws.actions.revokeChannelAccess("s1", "c1"))
+      await act(async () => { view.tail.resolve(view.fresh); await request.completed; await vi.advanceTimersByTimeAsync(0) })
+      resize()
+      expect(await request.completed).toEqual({ status: "retired" })
+      expect(owner.registry.collections.messages.has("m42")).toBe(false)
+      expect(latest.feed.messages.some(message => message.id === "m42")).toBe(false)
+      expect(latest.feed.presentVersion).toBe(0)
+      expect(latestRequests()).toHaveLength(1)
+      expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+    } finally { await view.finish() }
+  })
+
+  it("uses the fresh entry's complete oldest boundary before automatic pagination can reread a restored one-message thread", async () => {
+    const fresh = entry("thread")
+    fresh.messages = fresh.messages.slice(0, 1)
+    fresh.channel.messageCount = 1
+    fresh.page.latestSeq = 1
+    fresh.readState = { channelId: "c1", lastReadMessageId: "m1", lastReadSeq: 1, lastReadAt: fresh.messages[0].createdAt }
+    fresh.newBoundary = { afterSeq: 1, target: null }
+    const landing = deferredEntry()
+    const view = await setup("thread", false, false, { cached: fresh, refresh: landing.promise, restored: true })
+    try {
+      expect(view.visible("m1")).toBe(true)
+      expect(view.root()).toHaveAttribute("data-pagination-enabled", "false")
+      expect(latest.feed.hasMoreOlder).toBe(true)
+      await act(async () => { landing.resolve(fresh); await vi.advanceTimersByTimeAsync(500) })
+      resize()
+      expect(latest.feed.hasMoreOlder).toBe(false)
+      expect(latest.feed.historyStartKnown).toBe(true)
+      expect(load.mock.calls.filter(([url]) => String(url).includes("/messages"))).toHaveLength(1)
+      expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+    } finally { await act(async () => landing.resolve(fresh)) }
+  })
+
   it.each(["inactive", "document-hidden"])("opens the real read transport after a laid-out short entry becomes visible from %s", async mode => {
     scrollFixture.firstPrefix = 120
     if (mode === "document-hidden") visibility = "hidden"
@@ -350,7 +495,6 @@ describe("conversation entry positioning through real reading owners", () => {
       if (restored) {
         expect(view.root()).toHaveAttribute("data-pagination-enabled", "false")
         expect(view.root().querySelector("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "false")
-        expect(mounted!.queryByTestId("community-scroll-to-present")).toBeNull()
         expect(load.mock.calls.filter(([url]) => String(url).includes("/messages") && !String(url).includes("entry=1"))).toEqual([])
       }
       const initialReadReady = view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready") ?? "false"

@@ -466,7 +466,6 @@ test("a warm desktop thread reload qualifies its child and independently reconci
     await expect(page.getByTestId(tid.threadSplitParent).getByText(parentBody, { exact: false })).toBeVisible()
     await expect(page.getByTestId(tid.threadSplitParent).getByTestId(tid.messageScroller)).toHaveAttribute("data-pagination-enabled", "false")
     await expect(page.getByTestId(tid.threadSplitParent).locator("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "false")
-    await expect(page.getByTestId(tid.threadSplitParent).getByTestId(tid.scrollToPresent)).toHaveCount(0)
   }, async () => {
     await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-layout", "split", {
       timeout: 10_000,
