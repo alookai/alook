@@ -76,6 +76,7 @@
 
 /* The link is only the hit area; the PaperSticker carries the look and the hover/press response. */
 .message {
+  container-type: inline-size;
   display: block;
   height: 100%;
   border-radius: 19px;
@@ -84,6 +85,7 @@
 }
 
 .sticker {
+  --sticker-head-unit: calc(100cqw / 360);
   display: block;
   height: auto;
   padding: 40px 22px 24px;
@@ -162,7 +164,7 @@
 /* The portrait, author and full quote share the contour in the wall and the design specimen. */
 .sticker > [data-slot="avatar"] {
   position: absolute;
-  top: 44px;
+  top: calc(44 * var(--sticker-head-unit));
   left: calc(4.2% + 2px);
   width: calc(16% - 4px);
   height: auto;
@@ -180,7 +182,6 @@
   .messages:nth-child(2) { padding-left: 120px; }
   .messages > li { width: clamp(224px, 66cqw, 280px); }
   .sticker { padding: 40px 16px 18px; }
-  .sticker > [data-slot="avatar"] { top: 44px; }
   .sticker .author,
   .sticker .handle { margin-left: 44px; }
   .author { gap: 4px; }

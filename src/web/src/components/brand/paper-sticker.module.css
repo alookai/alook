@@ -1,6 +1,7 @@
 /* Two overlapping masks form one paper silhouette. Both the margin and the printed face use it;
    the reflection is painted once over the whole face, so it never breaks where head and body meet. */
 .sticker {
+  --sticker-head-unit: 1px;
   --sticker-paper: #fffdf8;
   --sticker-ink: #2a231b;
   position: relative;
@@ -27,7 +28,7 @@
   border-radius: 0;
   mask-image: var(--sticker-head-mask), var(--sticker-body-mask);
   mask-mode: alpha;
-  mask-size: 100% 96px, 100% calc(100% - 90px);
+  mask-size: 100% calc(96 * var(--sticker-head-unit)), 100% calc(100% - 96 * var(--sticker-head-unit) + 6px);
   mask-position: center top, center bottom;
   mask-repeat: no-repeat;
   pointer-events: none;
