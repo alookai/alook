@@ -24,6 +24,7 @@ import {
   type CommunityDbRegistry,
 } from "@/lib/community-db/collections"
 import { useSelector } from "@tanstack/react-store"
+import { isRejectedSession } from "@/lib/session-rejection"
 import { useSession, currentSessionViewer } from "@/lib/auth-client"
 import { useRouter } from "next/navigation"
 import { usePersistedAccountLifecycle } from "@/lib/use-persisted-account-lifecycle"
@@ -118,7 +119,7 @@ function ScopedQueryProvider({
 }) {
   const [queryClient] = useState(createQueryClient)
   const [restoreGate] = useState(createRestoreGate)
-  const [communityDb] = useState(() => createCommunityDbRegistry(queryClient, userId, { waitForRestore: restoreGate.ready }))
+  const [communityDb] = useState(() => createCommunityDbRegistry(queryClient, userId, { waitForRestore: restoreGate.ready, sessionViewer }))
   // Persister is bound to the userId at construction; on account switch the
   // whole community subtree unmounts and the shell re-renders with the new
   // id, so we don't need to reactively rebuild the persister mid-session.
@@ -127,6 +128,10 @@ function ScopedQueryProvider({
   const active = useSelector(communityDb.runtime.lifecycle, (state) => state.active)
   const router = useRouter()
   useLayoutEffect(() => { communityDb.bindAuthentication(sessionViewer, persister.retireAccount, persister.retireChannels) }, [communityDb, sessionViewer, persister])
+  useLayoutEffect(() => {
+    if (!communityDb.confirmAuthentication()) return
+    void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "community" || query.queryKey[1] !== "db" }).catch(() => undefined)
+  }, [communityDb, queryClient, session.data?.user.id, session.error, session.isPending])
   useLayoutEffect(() => registerBusinessSchemaOwner(async () => {
     restoreGate.release()
     retireCommunityAccount(communityDb)
@@ -135,7 +140,16 @@ function ScopedQueryProvider({
   const retireTelemetryIdentity = useRef<() => void>(() => undefined)
   useLayoutEffect(() => { setTelemetryUser(userId); retireTelemetryIdentity.current = captureTelemetryIdentityRetirement() }, [userId])
   const identityRetired = useRef(false)
-  const identityChanged = !session.isPending && !session.error && session.data?.user.id !== userId
+  const identityChanged = isRejectedSession(session.error) || !session.isPending && !session.error && session.data?.user.id !== userId
+  useEffect(() => {
+    const identity = session.data?.user
+    if (session.isPending || session.error || identity?.id !== userId || !identity.email) return
+    let active = true
+    void persister.rememberAccountIdentity({ id: identity.id, email: identity.email }, () => {
+      if (!active || !communityDb.runtime.lifecycle.get().active || sessionViewer() !== userId) throw new DOMException("Retired account identity", "AbortError")
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [communityDb, persister, session.data?.user, session.error, session.isPending, sessionViewer, userId])
   useLayoutEffect(() => {
     communityDb.authenticationView.setState((state) => ({ ...state, active: true }))
     return () => {

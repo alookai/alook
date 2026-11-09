@@ -50,6 +50,25 @@ async function setup() {
 }
 
 describe("conversation entry selection", () => {
+  it.each([
+    { kind: "text", useSurface: function useText() { return useMessages("c1", { serverId: "s1" }) } },
+    { kind: "dm", useSurface: function useDm() { return useDmMessages("c1") } },
+  ])("keeps a qualified local $kind window readable before this document confirms its account", async ({ kind, useSurface }) => {
+    const { registry, client, wrapper } = await setup()
+    const value = kind === "dm" ? dmConversationEntryFixture() : fixture()
+    const destination = { channelId: "c1", serverId: value.channel.serverId }
+    const resource = await publishConversationEntry(client, destination, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    client.setQueryData(conversationEntryOptions(client, destination).queryKey, resource)
+    registry.bindAuthentication(() => undefined, async () => {})
+    const local = renderHook(useSurface, { wrapper })
+    await waitFor(() => expect(local.result.current.messages.map(message => message.id)).toEqual(["m1"]))
+    expect(local.result.current.navigationBlocked).toBe(false)
+    expect(client.getQueryData(resource.windowKey)).toBeDefined()
+    expect(() => registry.assertOnlineAccount()).toThrow(expect.objectContaining({ name: "AbortError" }))
+    await expect(client.query({ ...conversationEntryOptions(client, destination), staleTime: 0, retry: false })).rejects.toMatchObject({ name: "AbortError" })
+    expect(local.result.current.messages.map(message => message.id)).toEqual(["m1"])
+  })
+
   it("waits for a refreshing warm null boundary and preserves the captured cutoff across ACK", async () => {
     const owner = await setup()
     const old = fixture()

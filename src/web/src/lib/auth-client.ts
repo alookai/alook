@@ -1,24 +1,12 @@
 "use client"
-import { createAuthClient } from "better-auth/react"
-import { emailOTPClient, lastLoginMethodClient } from "better-auth/client/plugins"
-import { LAST_LOGIN_METHOD_COOKIE } from "@/lib/last-login-method"
+import { authClient } from "./auth-session"
+export { authClient, signIn, signUp, useSession, currentSessionViewer } from "./auth-session"
 import { captureTelemetryIdentityRetirement } from "@/lib/observability/client"
 import {
   resumeMobileSystemNotificationRegistration,
   suspendMobileSystemNotificationRegistration,
   unregisterCurrentMobileSystemNotification,
 } from "@/lib/community/mobile-system-notification"
-
-export const authClient = createAuthClient({
-  baseURL: process.env.NEXT_PUBLIC_APP_URL || "",
-  plugins: [emailOTPClient(), lastLoginMethodClient({ cookieName: LAST_LOGIN_METHOD_COOKIE })],
-})
-
-export const { signIn, signUp, useSession } = authClient
-export function currentSessionViewer() {
-  const session = authClient.$store.atoms.session.get()
-  return session.isPending || session.error ? undefined : session.data?.user.id ?? null
-}
 
 async function signOutOriginal(assertOriginal: () => void, args: Parameters<typeof authClient.signOut>) {
   const options = args[0]?.fetchOptions ?? args[1]

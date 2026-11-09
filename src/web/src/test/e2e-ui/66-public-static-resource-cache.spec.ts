@@ -1,3 +1,5 @@
+import { blobKeyFor, LAST_ACCOUNT_KEY } from "../../lib/persisted-account-identity"
+import { composerEditable } from "./_fixtures/actions"
 import { createHash } from "node:crypto"
 import { mkdtempSync } from "node:fs"
 import { rm } from "node:fs/promises"
@@ -197,6 +199,82 @@ test.describe("production public static resource cache", () => {
       await testInfo.attach("public-shell-warm-reopen", { body: JSON.stringify({ shellHash: hash, documentFromServiceWorker: true, deniedNetworkRequests, observedHistoryReadyMs: Date.now() - started }), contentType: "application/json" })
       await testInfo.attach("public-shell-warm-reopen-ui", { body: await reopened.screenshot(), contentType: "image/png" })
     }, async () => { await context.unroute(documentPath, denyDocumentNetwork) })
+  })
+
+  test("an established account reopens offline from real private cache and confirms the same account after reconnection", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const dmId = await actors.seed.seedDm("alice", actors.userId("bob"))
+    const body = `Offline cold entry ${Date.now()}`
+    const messageId = await actors.seed.seedDmMessage("bob", dmId, body)
+    const viewerId = actors.userId("alice")
+    const { page, context } = await actors.asUser("alice")
+    const target = `/c/me/${dmId}`
+    await page.goto(target)
+    await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
+    await expectRootWorker(page)
+    await expect.poll(() => page.evaluate(({ viewerId, messageId, key, identityKey }) => new Promise<boolean>((resolve, reject) => {
+      const open = indexedDB.open("keyval-store")
+      open.onerror = () => reject(open.error)
+      open.onsuccess = () => {
+        const db = open.result
+        if (!db.objectStoreNames.contains("keyval")) { db.close(); resolve(false); return }
+        const transaction = db.transaction("keyval", "readonly")
+        const store = transaction.objectStore("keyval")
+        const identity = store.get(identityKey)
+        const payload = store.get(key)
+        transaction.onerror = () => { db.close(); reject(transaction.error) }
+        let populated = false
+        payload.onsuccess = () => {
+          if (typeof payload.result !== "string") return
+          let snapshot: { clientState?: { queries?: Array<{ queryKey: unknown[]; state: { data: unknown } }> } }
+          try { snapshot = JSON.parse(payload.result) as typeof snapshot } catch (error) { reject(error); return }
+          const queries = snapshot.clientState?.queries ?? []
+          const contains = (name: string, id: string) => queries.some(query => {
+            if (query.queryKey[0] !== "community" || query.queryKey[1] !== "db" || query.queryKey[2] !== viewerId || query.queryKey[3] !== name || !Array.isArray(query.state.data)) return false
+            const rows: unknown[] = query.state.data
+            return rows.some(row => row !== null && typeof row === "object" && "id" in row && row.id === id)
+          })
+          populated = contains("profiles", viewerId) && contains("messages", messageId)
+        }
+        transaction.oncomplete = () => {
+          db.close()
+          const rawIdentity: unknown = identity.result
+          resolve(rawIdentity !== null && typeof rawIdentity === "object" && "id" in rawIdentity && rawIdentity.id === viewerId && populated)
+        }
+      }
+    }), { viewerId, messageId, key: blobKeyFor(viewerId), identityKey: LAST_ACCOUNT_KEY })).toBe(true)
+    await page.close()
+    await context.setOffline(true)
+    const reopened = await context.newPage()
+    let failedSessionRequests = 0
+    const failed = (request: import("@playwright/test").Request) => {
+      if (new URL(request.url()).pathname === "/api/auth/get-session") failedSessionRequests += 1
+    }
+    context.on("requestfailed", failed)
+    await runWithCleanup(async () => {
+      const response = await reopened.goto(target)
+      expect(response?.status()).toBe(200)
+      expect(response?.fromServiceWorker()).toBe(true)
+      expectPublicCommunityDocument(await response!.text())
+      await expect(reopened.getByTestId(tid.message(messageId)).getByText(body, { exact: true })).toBeVisible()
+      await expect(reopened.getByTestId(tid.userBarName)).toHaveText(actors.userName("alice"))
+      await expect.poll(() => failedSessionRequests).toBeGreaterThan(0)
+      const composer = composerEditable(reopened)
+      const draft = "Cached account draft stays editable"
+      await composer.fill(draft)
+      await expect(composer).toContainText(draft)
+      const [session, entry] = await Promise.all([
+        reopened.waitForResponse(response => new URL(response.url()).pathname === "/api/auth/get-session" && response.ok()),
+        reopened.waitForResponse(response => new URL(response.url()).pathname === `/api/community/channels/${dmId}/messages` && response.ok()),
+        context.setOffline(false),
+      ])
+      expect((await session.json()).user.id).toBe(viewerId)
+      expect(entry.ok()).toBe(true)
+      await expect(reopened.getByTestId(tid.message(messageId))).toBeVisible()
+      await expect(composer).toContainText(draft)
+      await testInfo.attach("offline-established-account-reopen", { body: JSON.stringify({ documentFromServiceWorker: true, failedSessionRequests, sameAccountConfirmed: true, cachedMessageId: messageId, draftRetained: true }), contentType: "application/json" })
+      await testInfo.attach("offline-established-account-reopen-ui", { body: await reopened.screenshot(), contentType: "image/png" })
+    }, async () => { context.off("requestfailed", failed); await context.setOffline(false) })
   })
 
   test("a first Blog visit registers the root worker and installs the added Main public resources", async ({ page }, testInfo) => {

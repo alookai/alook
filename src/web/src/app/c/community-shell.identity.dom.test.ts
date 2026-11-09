@@ -5,18 +5,31 @@ import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
 import { dehydrate, QueryClient, useQueryClient } from "@tanstack/react-query"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import { clearAllPersistedCaches, createIdbPersister, PERSIST_BUSTER } from "@/lib/query-persister"
+import { clearAllPersistedCaches, createIdbPersister, PERSIST_BUSTER, readPersistedAccountIdentity } from "@/lib/query-persister"
 import { communityKeys } from "@/lib/query-keys"
+
+import { useCurrentUser } from "@/contexts/community/current-user"
+import { CommunityLayoutClient } from "./community-layout-client"
 
 const fixtures = vi.hoisted(() => ({
   user: { id: "user-a", name: "A", email: "a@example.test", avatar: "A" },
+  pending: false, signedIn: true, sessionError: null as Error | null, refetch: vi.fn(async () => {}),
   fetch: vi.fn(), notifications: vi.fn(), ws: vi.fn(), attention: vi.fn(), projectionError: false,
 }))
 vi.mock("@/lib/auth-client", () => ({
-  useSession: () => ({ data: { user: fixtures.user }, isPending: false }),
-  currentSessionViewer: () => fixtures.user.id,
+  useSession: () => ({ data: fixtures.signedIn ? { user: fixtures.user } : null, isPending: fixtures.pending, error: fixtures.sessionError, refetch: fixtures.refetch }),
+  currentSessionViewer: () => fixtures.sessionError && "status" in fixtures.sessionError && (fixtures.sessionError.status === 401 || fixtures.sessionError.status === 403) ? null : fixtures.pending || fixtures.sessionError ? undefined : fixtures.signedIn ? fixtures.user.id : null,
 }))
-vi.mock("next/navigation", () => ({ usePathname: () => "/c/me", useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }))
+vi.mock("@/lib/auth-session", () => ({
+  useSession: () => ({ data: fixtures.signedIn ? { user: fixtures.user } : null, isPending: fixtures.pending, error: fixtures.sessionError, refetch: fixtures.refetch }),
+  currentSessionViewer: () => fixtures.sessionError && "status" in fixtures.sessionError && (fixtures.sessionError.status === 401 || fixtures.sessionError.status === 403) ? null : fixtures.pending || fixtures.sessionError ? undefined : fixtures.signedIn ? fixtures.user.id : null,
+  authClient: { signOut: vi.fn(async () => ({ error: null })) },
+}))
+vi.mock("@/components/authenticated-context-menu-boundary", () => ({ AuthenticatedContextMenuBoundary: ({ children }: { children: React.ReactNode }) => children }))
+vi.mock("@/components/authenticated-native-oauth-cleanup", () => ({ AuthenticatedNativeOauthCleanup: () => null }))
+vi.mock("@/components/signup-tracker", () => ({ SignupTracker: () => null }))
+vi.mock("@/components/community/shell/community-route-frame", () => ({ CommunityRouteFrame: () => React.createElement(EntryProbe) }))
+vi.mock("next/navigation", () => ({ usePathname: () => "/c/me", useSearchParams: () => new URLSearchParams(), useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }))
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
 vi.mock("@/hooks/community/use-community-ws", () => ({ useCommunityWs: fixtures.ws }))
 vi.mock("@/hooks/community/use-notification-settings", () => ({ useNotificationSettings: () => {
@@ -78,13 +91,14 @@ beforeEach(async () => {
     if (path === "/api/community/users/me/read-state") return Promise.resolve({ revision: 0, readStates: [] })
     throw new Error(`Unexpected bootstrap endpoint: ${path}`)
   })
+  fixtures.pending = false; fixtures.signedIn = true; fixtures.sessionError = null; fixtures.refetch.mockClear()
   fixtures.notifications.mockClear()
   fixtures.projectionError = false
   fixtures.ws.mockClear()
   fixtures.attention.mockClear()
   registries.clear(); seen.length = 0
 })
-afterEach(() => { vi.unstubAllGlobals() })
+afterEach(async () => { await vi.dynamicImportSettled(); vi.unstubAllGlobals() })
 
 describe("CommunityShell actual identity and bootstrap boundary", () => {
   it("remounts the native query boundary when the signed-in user changes", async () => {
@@ -305,4 +319,40 @@ it.each([true, false])("uses restored full self immediately but waits for absent
   expect(names.every(name => name === "Jane Roe")).toBe(true)
   expect(selfProfileCalls()).toHaveLength(1)
   client.clear()
+})
+
+
+function EntryProbe() {
+  const user = useCurrentUser()
+  return React.createElement("output", { "data-testid": "entry-cached-name" }, user.name)
+}
+
+it("restores the real cold entry from online-populated IDB before session confirmation and retires it on rejection", async () => {
+  const online = render(React.createElement(CommunityLayoutClient))
+  await waitFor(() => expect(online.getByTestId("entry-cached-name")).toHaveTextContent("Jane Roe"))
+  const original = registries.get("user-a")!
+  const writer = createIdbPersister("user-a")
+  await act(async () => {
+    await writer.persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(original.queryClient) })
+  })
+  await waitFor(async () => expect(await readPersistedAccountIdentity()).toEqual({ id: "user-a", email: "a@example.test" }))
+  online.unmount()
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  fixtures.signedIn = false; fixtures.pending = true
+  fixtures.fetch.mockRejectedValue(new TypeError("offline"))
+  const cold = render(React.createElement(CommunityLayoutClient))
+  await waitFor(() => expect(cold.getByTestId("entry-cached-name")).toHaveTextContent("Jane Roe"))
+  const restored = registries.get("user-a")!
+  expect(restored).not.toBe(original)
+  expect(restored.runtime.lifecycle.get().active).toBe(true)
+  fixtures.pending = false; fixtures.sessionError = new TypeError("offline")
+  cold.rerender(React.createElement(CommunityLayoutClient))
+  expect(cold.getByTestId("entry-cached-name")).toHaveTextContent("Jane Roe")
+  expect(registries.get("user-a")).toBe(restored)
+  fixtures.sessionError = Object.assign(new Error("Session rejected"), { status: 401 })
+  cold.rerender(React.createElement(CommunityLayoutClient))
+  expect(cold.queryByTestId("entry-cached-name")).toBeNull()
+  await waitFor(async () => expect(await writer.isCurrent()).toBe(false))
+  expect(restored.runtime.lifecycle.get().active).toBe(false)
+  expect(await readPersistedAccountIdentity()).toBeUndefined()
 })

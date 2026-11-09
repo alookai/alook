@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query"
-import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
+import { assertCommunitySnapshotTokenCurrent, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 
 export type ConversationListScope = {
   proof: ReturnType<typeof captureChannelMetadataToken>
@@ -19,6 +19,6 @@ export function captureChannelMetadataToken(client: QueryClient, channelId: stri
 }
 
 export function isChannelMetadataTokenCurrent(token: ReturnType<typeof captureChannelMetadataToken>) {
-  try { assertCommunityLiveSnapshotTokenCurrent(token.queryClient, token, undefined); return true }
+  try { assertCommunitySnapshotTokenCurrent(token.queryClient, token, undefined); return true }
   catch { return false }
 }

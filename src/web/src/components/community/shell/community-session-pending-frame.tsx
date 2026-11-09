@@ -1,6 +1,6 @@
 "use client"
 
-import type { ReactNode } from "react"
+import type { CSSProperties, ReactNode } from "react"
 import { ChannelSidebarSkeleton } from "@/components/community/channels/channel-sidebar"
 import { DmSidebarSkeleton } from "@/components/community/channels/dm-sidebar"
 import { AppSurface } from "@/components/ui/app-surface"
@@ -20,13 +20,19 @@ export function CommunitySessionPendingFrame({ pathname, children }: { pathname:
   if (!showCommunityShell) {
     return (
       <Shell
+        fullViewport={children == null}
+        data-community-startup-frame={children == null ? "" : undefined}
         data-testid={tid.initialFrame}
+        style={{
+          "--community-pending-background": "transparent",
+          ...(children == null ? { "--app-frame": "var(--app-startup-background)" } : {}),
+        } as CSSProperties}
         data-community-route-kind={plan.route}
         aria-busy="true"
         aria-label="Loading community"
       >
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          <AppSurface className="rounded-none border-0 bg-background">
+          <AppSurface className="rounded-none border-0 bg-transparent">
             {children ?? (plan.main.kind !== "none" && (
               <CommunityPendingFrame href={pathname} plan={plan} />
             ))}

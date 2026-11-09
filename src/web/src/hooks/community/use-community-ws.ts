@@ -153,6 +153,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     async (msg: { type: string;[key: string]: unknown }, assertAdmissionCurrent?: () => void, contract: CommunityContract = COMMUNITY_CONTRACT_VERSION) => {
       if (!msg.type.startsWith("community:")) return
       if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active) return
+      try { getCommunityDbRegistry(queryClient)!.assertOnlineAccount() } catch { return }
       const communityStore = runtime.ui
       const sub = communityStore.get().subscription
       const wsStore = runtime.ws
@@ -341,7 +342,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     }
   }, [queryClient, runtime.lifecycle, viewToken])
 
-  useEffect(() => bindCommunityTransport(runtime, send), [send, runtime])
+  useEffect(() => bindCommunityTransport(runtime, (message) => {
+    try { getCommunityDbRegistry(queryClient)!.assertOnlineAccount() } catch { return }
+    send(message)
+  }), [queryClient, send, runtime])
 
   useEffect(() => {
     const controller = getConnectionController()

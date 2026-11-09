@@ -15,10 +15,11 @@ export function useCommunityMutationOrigin() {
   const qc = useQueryClient()
   const registry = useOptionalCommunityDbRegistry()
   return useMemo(() => {
-  const begin = () => ({
-    token: captureCommunityLiveSnapshotToken(qc),
-    profileSnapshot: beginCommunityProfileSeed(registry),
-  })
+  const begin = () => {
+    const token = captureCommunityLiveSnapshotToken(qc)
+    assertCommunityLiveSnapshotTokenCurrent(qc, token, undefined)
+    return { token, profileSnapshot: beginCommunityProfileSeed(registry) }
+  }
   const assert = (token: ReturnType<typeof begin>["token"]) => {
     if (!registry || getCommunityDbRegistry(qc) !== registry) {
       throw new DOMException("Retired bot mutation owner", "AbortError")
@@ -32,6 +33,7 @@ export function useCommunityMutationOrigin() {
       || state?.profileViewerId !== token.viewerId || state.profileAccountEpoch !== token.accountEpoch) {
       throw new DOMException("Retired community mutation owner", "AbortError")
     }
+    registry.assertOnlineAccount()
   }
   const runWith = async <T,>(token: ReturnType<typeof begin>["token"], load: (options: ApiRequestOptions) => Promise<T>): Promise<T> => {
     assert(token)

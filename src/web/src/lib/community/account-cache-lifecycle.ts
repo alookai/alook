@@ -5,7 +5,7 @@ import { commandObservation, currentPageObservation } from "@/lib/observability/
 import { clearComposerAttachmentSessionsForAccount } from "./composer-attachment-session"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
-import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, type CommunityLiveSnapshotToken } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, assertCommunityLiveSnapshotOwnerCurrent, type CommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import type { QueryClient } from "@tanstack/react-query"
 
 export function retireCommunityAccount(registry: CommunityDbRegistry) {
@@ -17,8 +17,9 @@ export function retireCommunityAccount(registry: CommunityDbRegistry) {
 }
 export function communityRequestOptions(queryClient: QueryClient, token: CommunityLiveSnapshotToken, signal?: AbortSignal, assertActive = () => assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)): ApiRequestOptions & { assertActive: () => void } {
   const registry = getCommunityDbRegistry(queryClient)
-  return { observation: commandObservation(token), authenticationAccount: registry?.accountId ?? undefined, signal, assertActive, onUnauthorized: async () => {
-    assertActive()
+  const assertEligible = () => { assertCommunityLiveSnapshotOwnerCurrent(queryClient, token, signal); assertActive() }
+  return { observation: commandObservation(token), authenticationAccount: registry?.accountId ?? undefined, signal, assertActive: assertEligible, onUnauthorized: async () => {
+    assertEligible()
     if (!registry || getCommunityDbRegistry(queryClient) !== registry || !registry.authenticationView.get().active) return false
     const generation = registry.authenticationView.get().generation
     retireCommunityAccount(registry)

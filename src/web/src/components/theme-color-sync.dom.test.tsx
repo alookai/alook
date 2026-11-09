@@ -35,6 +35,25 @@ function surfaces() {
 const color = () => document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content;
 const edgeColor = () => document.body.style.getPropertyValue("--app-edge-fade-color");
 
+it("publishes startup paint and returns to the normal surface when startup ends", async () => {
+  history.replaceState(null, "", "/c");
+  document.body.style.backgroundColor = "rgb(224, 213, 192)";
+  const { getByTestId } = render(<>
+    <div data-testid="startup" data-community-startup-frame="">
+      <div data-slot="community-frame-paint" style={{ backgroundColor: "rgb(250, 246, 238)" }} />
+    </div>
+    <div data-slot="community-shell-root">
+      <div data-community-mobile-surface="list" style={{ backgroundColor: "rgb(255, 253, 248)" }} />
+    </div>
+    <ThemeColorSync />
+  </>);
+  await waitFor(() => expect(color()).toBe("rgb(250, 246, 238)"));
+  expect(edgeColor()).toBe("rgb(250, 246, 238)");
+  getByTestId("startup").removeAttribute("data-community-startup-frame");
+  await waitFor(() => expect(color()).toBe("rgb(255, 253, 248)"));
+  expect(edgeColor()).toBe("rgb(255, 253, 248)");
+});
+
 it("publishes list → retained chat → list without requiring a route or theme change", async () => {
   history.replaceState(null, "", "/c/channels/qa/general");
   document.body.style.backgroundColor = "rgb(224, 213, 192)";
@@ -104,7 +123,7 @@ it("publishes edge and native colors before notifying and avoids unchanged write
   expect(publications).toHaveLength(2);
 });
 
-it("repairs missing edge publication without rewriting current native metadata", () => {
+it("notifies missing edge publication without rewriting current native metadata", () => {
   document.body.style.backgroundColor = "rgb(17, 34, 51)";
   const meta = document.createElement("meta");
   meta.name = "theme-color";
@@ -113,9 +132,12 @@ it("repairs missing edge publication without rewriting current native metadata",
   const notified = vi.fn();
   publicationListeners.push(notified);
   window.addEventListener("alook:theme-color-change", notified);
+  const writeMeta = vi.spyOn(meta, "content", "set");
+  syncThemeColorToVisibleBackground();
   syncThemeColorToVisibleBackground();
   expect(edgeColor()).toBe("rgb(17, 34, 51)");
-  expect(notified).not.toHaveBeenCalled();
+  expect(notified).toHaveBeenCalledOnce();
+  expect(writeMeta).not.toHaveBeenCalled();
 });
 
 it("preserves both prior publications for a transparent document", () => {

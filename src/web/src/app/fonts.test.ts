@@ -22,6 +22,7 @@ describe("local font configuration", () => {
         weight: "400 900",
         style: "normal",
         display: "swap",
+        preload: false,
       },
       {
         src: "./fonts/dm-mono-latin-400.woff2",
@@ -29,6 +30,7 @@ describe("local font configuration", () => {
         weight: "400",
         style: "normal",
         display: "swap",
+        preload: false,
       },
       {
         src: [
@@ -45,6 +47,7 @@ describe("local font configuration", () => {
         ],
         variable: "--font-instrument-serif",
         display: "swap",
+        preload: false,
       },
       {
         src: "./fonts/caveat-latin.woff2",
@@ -52,6 +55,7 @@ describe("local font configuration", () => {
         weight: "400 700",
         style: "normal",
         display: "swap",
+        preload: false,
       },
       {
         src: "./fonts/vt323-latin-400.woff2",
@@ -59,6 +63,7 @@ describe("local font configuration", () => {
         weight: "400",
         style: "normal",
         display: "swap",
+        preload: false,
       },
       {
         src: "./fonts/literata-latin.woff2",
@@ -66,6 +71,7 @@ describe("local font configuration", () => {
         weight: "400 600",
         style: "normal",
         display: "swap",
+        preload: false,
       },
     ])
     expect([dmSans, dmMono, instrumentSerif, caveat, vt323, literata].map(font => font.variable)).toEqual([

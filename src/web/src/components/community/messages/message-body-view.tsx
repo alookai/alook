@@ -1,3 +1,4 @@
+import "katex/dist/katex.min.css"
 import { createContext, useContext, useMemo, type ComponentProps } from "react"
 import { HtmlAttachmentPreview } from "./html-attachment-preview"
 import type { Attachment, FileAttachment } from "@/lib/community/models/message"

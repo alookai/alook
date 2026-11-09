@@ -31,7 +31,7 @@ const persister = vi.hoisted(() => ({
   removeClient: vi.fn(() => Promise.resolve()),
   isCurrent: vi.fn(async () => true),
   retireAccount: vi.fn(async () => {}),
-  retireChannels: vi.fn(async () => {}),
+  rememberAccountIdentity: vi.fn(async () => {}), retireChannels: vi.fn(async () => {}),
 }))
 const session = vi.hoisted(() => ({ viewer: "restore-order-viewer" }))
 vi.mock("@/lib/auth-client", () => ({

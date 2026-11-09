@@ -12,7 +12,8 @@ export function syncThemeColorToVisibleBackground(
 ) {
   const pathname = doc.location?.pathname;
   let surface = pathname === "/c" || pathname?.startsWith("/c/")
-    ? doc.querySelector<HTMLElement>('[data-slot="community-shell-root"] [data-community-mobile-surface]')
+    ? doc.querySelector<HTMLElement>('[data-community-startup-frame] [data-slot="community-frame-paint"]')
+      ?? doc.querySelector<HTMLElement>('[data-slot="community-shell-root"] [data-community-mobile-surface]')
     : null;
   let backgroundColor = "";
   while (surface) {
@@ -23,8 +24,10 @@ export function syncThemeColorToVisibleBackground(
   if (!surface) backgroundColor = readStyle(doc.body).backgroundColor.trim();
   if (!backgroundColor || TRANSPARENT_COLORS.has(backgroundColor)) return;
 
+  let changed = false;
   if (doc.body.style.getPropertyValue("--app-edge-fade-color") !== backgroundColor) {
     doc.body.style.setProperty("--app-edge-fade-color", backgroundColor);
+    changed = true;
   }
 
   let themeColorMetas = Array.from(
@@ -38,7 +41,6 @@ export function syncThemeColorToVisibleBackground(
     themeColorMetas = [themeColorMeta];
   }
 
-  let changed = false;
   for (const themeColorMeta of themeColorMetas) {
     if (themeColorMeta.content !== backgroundColor) {
       themeColorMeta.content = backgroundColor;
@@ -80,7 +82,7 @@ export function ThemeColorSync() {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["data-community-mobile-surface"],
+      attributeFilter: ["data-community-mobile-surface", "data-community-startup-frame"],
     });
 
     return () => {

@@ -77,7 +77,7 @@ export function CommunityDbProvider({
   children?: ReactNode
 }) {
   const application = useMemo(() => {
-    const owner = createApplicationOwner(registry.accountId ?? "__guest__", registry.queryClient)
+    const owner = createApplicationOwner(registry.accountId ?? "__guest__", registry.queryClient, registry.assertOnlineAccount)
     owner.lifecycle = registry.runtime.lifecycle
     owner.bindAuthentication(() => registry.sessionViewer(), () => registry.retireDisk())
     return owner
