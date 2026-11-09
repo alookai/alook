@@ -1,4 +1,6 @@
 name = "alook-web"
+workers_dev = false
+preview_urls = false
 main = "custom-worker.ts"
 compatibility_date = "2026-09-07"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
