@@ -128,6 +128,27 @@ it("fails closed on a catalog error and supports retry", async () => {
   await waitFor(() => expect(view.getByRole("button", { name: "Choose Studio" })).toBeEnabled())
 })
 
+it("retains the focused public Contact node when a pending anonymous session confirms over a catalog error", async () => {
+  state.session.isPending = true
+  state.api.mockRejectedValue(new Error("catalog unavailable"))
+  const view = render(<PricingClient />)
+  await view.findByRole("alert")
+  expect(view.getByTestId("pricing-choose-free")).toHaveTextContent("Loading…")
+  const contact = view.getByRole("link", { name: "Contact us" })
+  contact.focus()
+  expect(document.activeElement).toBe(contact)
+  state.session = { data: null, isPending: false, error: null }
+  view.rerender(<PricingClient />)
+  await waitFor(() => expect(view.getByTestId("pricing-choose-free")).toHaveTextContent("Start free"))
+  expect(view.getByRole("link", { name: "Contact us" })).toBe(contact)
+  expect(contact.isConnected).toBe(true)
+  expect(document.activeElement).toBe(contact)
+  expect(contact).toHaveAttribute("href", "/contact")
+  expect(view.getByTestId("pricing-choose-free")).toBeDisabled()
+  expect(state.checkout).not.toHaveBeenCalled()
+  expect(state.portal).not.toHaveBeenCalled()
+})
+
 it("does not invent purchasable offers when the catalog is empty", async () => {
   state.api.mockResolvedValue({ ...catalog, offers: [] })
   state.search = new URLSearchParams({ plan: "unknown" })

@@ -9,7 +9,7 @@ import { ConversationFooterShell, ConversationFooterSlotProvider } from "@/compo
 import { CurrentUserProvider } from "@/contexts/community/current-user"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { ConversationActivityContext } from "@/contexts/view-activity"
-import { dehydrate, QueryClientProvider } from "@tanstack/react-query"
+import { dehydrate, IsRestoringProvider, QueryClientProvider } from "@tanstack/react-query"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture } from "@/test/conversation-entry-fixtures"
@@ -120,17 +120,22 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
   readPointer?: AccountReadStateSnapshot["readStates"][number]
   initialActive?: boolean
   restored?: boolean
+  restoreAfterMount?: boolean
   fullFooter?: boolean
   missingReadPointer?: boolean
 } = {}) {
   owner = await createCommunityQueryOwner()
   await seedConversationEntry(owner.client, options.cached ?? entry(kind, "c1", ownTail))
   await seedConversationEntry(owner.client, entry("channel", "c2"))
+  let restoreWindow: (() => void) | undefined
   if (options.restored) {
     const restored = readCommunityRestoredCollections({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(owner.client) }, "viewer")
     owner.client.removeQueries({ queryKey: communityKeys.channelMessages("c1") })
     owner.client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
-    restoreConversationDisplayWindows(owner.registry, restored)
+    if (options.restoreAfterMount) restoreWindow = () => restoreConversationDisplayWindows(owner.registry, {
+      ...restored, messages: restored.messages && { ...restored.messages, updatedAt: Date.now() - 60_000 },
+    })
+    else restoreConversationDisplayWindows(owner.registry, restored)
   }
   if (options.missingReadPointer) {
     await writeCommunityCollectionChanges(owner.registry, "readStates", [], ["c1"])
@@ -183,8 +188,9 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
     throw new Error(`Unexpected entry-position transport: ${url}`)
   })
   let channelId = "c1", active = options.initialActive ?? true, anchorMessageId: string | null = null
+  let restoring = options.restoreAfterMount ?? false
   const navigation = { entryIntent: { href: "/c/channels/s1/c1" } as { href: string; resume?: boolean } }
-  const content = () => <QueryClientProvider client={owner.client}><CommunityDbProvider registry={owner.registry}>
+  const content = () => <QueryClientProvider client={owner.client}><IsRestoringProvider value={restoring}><CommunityDbProvider registry={owner.registry}>
     <CurrentUserProvider initialUser={viewer}>
       <CommunityRouteContext value={{ navigation } as never}>
         <ConversationActivityContext value={active}>
@@ -192,7 +198,7 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
         </ConversationActivityContext>
       </CommunityRouteContext>
     </CurrentUserProvider>
-  </CommunityDbProvider></QueryClientProvider>
+  </CommunityDbProvider></IsRestoringProvider></QueryClientProvider>
   const element = () => strict ? <StrictMode>{content()}</StrictMode> : content()
   mounted = render(element())
   resize()
@@ -233,7 +239,17 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
     resize()
     await act(async () => {})
   }
-  return { root, visible, navigate, canonical, tail, setActivity }
+  const publishRestoredWindow = async () => {
+    await act(async () => {
+      restoreWindow?.()
+      restoring = false
+      mounted!.rerender(element())
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    resize()
+    await act(async () => {})
+  }
+  return { root, visible, navigate, canonical, tail, setActivity, publishRestoredWindow }
 }
 
 function intersection(row: Element, ratio = 1): IntersectionObserverEntry {
@@ -301,6 +317,34 @@ afterEach(async () => {
 })
 
 describe("conversation entry positioning through real reading owners", () => {
+  it("reveals an old restored thread window after mount without launching a second freshness owner while entry is held", async () => {
+    const fresh = entry("thread")
+    fresh.messages = fresh.messages.slice(0, 1)
+    fresh.channel.messageCount = 1
+    fresh.page.latestSeq = 1
+    fresh.readState = { channelId: "c1", lastReadMessageId: "m1", lastReadSeq: 1, lastReadAt: fresh.messages[0].createdAt }
+    fresh.newBoundary = { afterSeq: 1, target: null }
+    const landing = deferredEntry()
+    const view = await setup("thread", false, false, { cached: fresh, refresh: landing.promise, refreshWindow: Promise.resolve(fresh), restored: true, restoreAfterMount: true })
+    try {
+      expect(latest.feed.messages).toEqual([])
+      expect(load.mock.calls.filter(([url]) => String(url).includes("/messages"))).toHaveLength(0)
+      await view.publishRestoredWindow()
+      expect(view.visible("m1")).toBe(true)
+      expect(latest.feed.messages.map(message => message.id)).toEqual(["m1"])
+      expect(latest.feed.readSnapshotFetching).toBe(true)
+      expect(view.root()).toHaveAttribute("data-pagination-enabled", "false")
+      expect(view.root().querySelector("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "false")
+      expect(load.mock.calls.filter(([url]) => String(url).includes("/messages"))).toHaveLength(1)
+      expect(latestRequests()).toHaveLength(0)
+      await act(async () => { landing.resolve(fresh); await vi.advanceTimersByTimeAsync(500) })
+      resize()
+      expect(latest.feed.historyStartKnown).toBe(true)
+      expect(load.mock.calls.filter(([url]) => String(url).includes("/messages"))).toHaveLength(1)
+      expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+    } finally { await act(async () => landing.resolve(fresh)) }
+  })
+
   it("admits one real footer Jump with a cached pointer, retains the pending window and accepts its current tail", async () => {
     const view = await setupFooterJump()
     try {
