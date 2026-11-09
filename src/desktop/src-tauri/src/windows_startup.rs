@@ -246,7 +246,7 @@ fn create_main(app: &AppHandle, choice: EnvironmentChoice, allow_mapping: bool) 
     if !creation_live() {
         return;
     }
-    if app.get_window("main").is_some() {
+    if app.get_webview_window("main").is_some() {
         fail(app);
         return;
     }
@@ -286,12 +286,6 @@ fn create_main(app: &AppHandle, choice: EnvironmentChoice, allow_mapping: bool) 
             ENVIRONMENT.with(|environment| {
                 environment.borrow_mut().take();
             });
-            if let Some(partial) = app.get_window("main") {
-                if partial.destroy().is_err() {
-                    fail(app);
-                    return;
-                }
-            }
             startup_log::mark(Phase::EnvironmentFallback);
             let owner = app.clone();
             post(app, move || {
