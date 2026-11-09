@@ -34,7 +34,7 @@ vi.mock("./server-rail", () => ({
   ),
 }))
 vi.mock("./shell", () => ({
-  Shell: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+  Shell: ({ children, fullViewport: _fullViewport, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
     createElement("div", props, children),
 }))
 vi.mock("./user-bar", () => ({

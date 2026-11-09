@@ -102,7 +102,7 @@ function driveIosThemeObserver(initial: Array<"light" | "dark"> = []) {
 }
 
 describe("native shell theme color contract", () => {
-  it.each(["ios", "android"])("%s reports the painted surface after load and navigation", (platform) => {
+  it.each(["ios", "android"])("%s keeps native paint until publication, then tracks load and navigation", (platform) => {
     const updates: Array<{ theme: string; background: string | null }> = []
     const listeners = new Map<string, () => void>()
     let publishedColor: string | null = null
@@ -119,7 +119,7 @@ describe("native shell theme color contract", () => {
     const documentElement = { classList: { contains: (name: string) => name === (dark ? "dark" : "light") } }
     const context = {
       document: {
-        documentElement, body: {}, querySelector: () => publishedColor === null ? null : { content: publishedColor }, addEventListener: (name: string, listener: () => void) => listeners.set(name, listener),
+        documentElement, body: { style: { getPropertyValue: () => publishedColor ?? "" } }, querySelector: () => ({ content: "#ffffff" }), addEventListener: (name: string, listener: () => void) => listeners.set(name, listener),
         createElement: () => ({ getContext: () => ({
           set fillStyle(value: string) { drawnColor = value },
           fillRect() {}, getImageData: () => ({ data: colors[drawnColor] }),
@@ -137,7 +137,7 @@ describe("native shell theme color contract", () => {
       },
     }
     runInNewContext((platform === "ios" ? iosThemeObserver : androidThemeObserver) ?? "", context)
-    expect(updates.at(-1)).toEqual({ theme: "light", background: "#e0d5c0" })
+    expect(updates.at(-1)).toEqual({ theme: "light", background: null })
     for (const [color, expected] of [["list", "#faf6ee"], ["chat", "#fffdf8"], ["list", "#faf6ee"]]) {
       publishedColor = color
       listeners.get("alook:theme-color-change")!()

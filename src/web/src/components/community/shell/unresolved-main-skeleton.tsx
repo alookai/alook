@@ -4,7 +4,7 @@ export function UnresolvedMainSkeleton() {
   return (
     <div
       data-community-unresolved-main=""
-      className="relative grid place-items-center min-h-0 h-full w-full flex-1 overflow-hidden bg-(--app-bg)"
+      className="relative grid place-items-center min-h-0 h-full w-full flex-1 overflow-hidden bg-(--community-pending-background,var(--app-bg))"
     >
       <div className="relative z-20 flex w-full max-w-xs flex-col items-center text-center text-foreground">
         <CommunityConnectingIndicator />

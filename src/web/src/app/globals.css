@@ -458,6 +458,7 @@
   --background: oklch(1 0 0);
   --app-bg: var(--background);
   --app-frame: var(--sidebar);
+  --app-startup-background: #faf6ee;
   --app-edge-fade-size: 60px;
   --foreground: oklch(0.18 0.03 230);
   --card: oklch(1 0.003 80);
@@ -518,6 +519,7 @@
 }
 
 .dark {
+  --app-startup-background: #000;
   --background: oklch(0.16 0.008 60);
   --app-bg: var(--background);
   --app-frame: var(--sidebar);
