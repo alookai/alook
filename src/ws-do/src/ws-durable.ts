@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers"
-import { createLogger } from "@alook/shared"
+import { createLogger, TYPING_INDICATOR_THROTTLE_MS } from "@alook/shared"
 import type { WsDurableContext } from "./ws-durable/internal"
 import {
   acceptUserWebSocket,
@@ -36,8 +36,6 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   /** Preserve start/stop delivery order independently for each user and scope. */
   private typingFanoutChains = new Map<string, Promise<void>>()
 
-  private static readonly TYPING_DEDUP_MS = 8_000
-
   private static readonly SUBREQUEST_BATCH_SIZE = 40
 
   private domainContext(): WsDurableContext {
@@ -47,7 +45,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       log,
       typingDedup: this.typingDedup,
       typingFanoutChains: this.typingFanoutChains,
-      typingDedupMs: WebSocketDurableObject.TYPING_DEDUP_MS,
+      typingDedupMs: TYPING_INDICATOR_THROTTLE_MS,
       subrequestBatchSize: WebSocketDurableObject.SUBREQUEST_BATCH_SIZE,
     }
   }

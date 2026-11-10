@@ -4,7 +4,7 @@ import { INTERNAL_USER_TARGET_HEADER } from "../internal-user-broadcast"
 import { cleanupHarness, createDO, flushAsyncWork, mockD1WithSession, mockGetChannelForMember, mockGetChannelType, mockGetCoMemberUserIds, mockGetDMPeer, mockIsBlocked, mockIsThreadParticipant, mockAreFriends, mockGetFriendUserIds, mockGetUserInternal, mockGetValidSessionWithIdentity, mockIsBotOnline, mockListBotsForMachine, mockListChannelMemberUserIds, mockListMembers, mockListThreadParticipantUserIds, mockLogWarn, mockResolveScopeMemberUserIds, mockResolveChannelRecipientUserIds, mockStubFetch, mockWithD1Retry, resetHarness } from "./test-harness"
 import { publishMachinePresence } from "./machine-presence"
 import { getPresenceAudience, broadcastPresence, sendPresenceSnapshot } from "./presence-typing"
-import { BUSINESS_SCHEMA_VERSION, createLogger } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, createLogger, TYPING_INDICATOR_THROTTLE_MS } from "@alook/shared"
 
 function createPresenceDomain() {
   const { ctx, env } = createDO()
@@ -12,7 +12,7 @@ function createPresenceDomain() {
     ctx, env, log: createLogger({ service: "presence-test" }),
     typingDedup: new Map<string, Map<string, number>>(),
     typingFanoutChains: new Map<string, Promise<void>>(),
-    typingDedupMs: 8_000, subrequestBatchSize: 40,
+    typingDedupMs: TYPING_INDICATOR_THROTTLE_MS, subrequestBatchSize: 40,
   } }
 }
 
@@ -548,7 +548,7 @@ describe("WebSocketDurableObject", () => {
       expect(mockStubFetch).not.toHaveBeenCalled()
     })
 
-    it("deduplicates the same user and scope inside eight seconds and accepts the boundary", async () => {
+    it("deduplicates the same user and scope inside three seconds and accepts the boundary", async () => {
       const { durable } = createDO()
       mockGetChannelForMember.mockResolvedValue({ id: "channel-1", serverId: "server-1" })
       mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
@@ -562,13 +562,14 @@ describe("WebSocketDurableObject", () => {
           JSON.stringify({ type: "community:typing.start", channelId: "channel-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
         )
         await flushAsyncWork()
-        now.mockReturnValue(17_999)
+        now.mockReturnValue(12_999)
         await durable.webSocketMessage(
           ws as any,
           JSON.stringify({ type: "community:typing.start", channelId: "channel-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
         )
         await flushAsyncWork()
-        now.mockReturnValue(18_000)
+        expect(mockStubFetch).toHaveBeenCalledTimes(1)
+        now.mockReturnValue(13_000)
         await durable.webSocketMessage(
           ws as any,
           JSON.stringify({ type: "community:typing.start", channelId: "channel-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
@@ -576,6 +577,53 @@ describe("WebSocketDurableObject", () => {
         await flushAsyncWork()
 
         expect(mockStubFetch).toHaveBeenCalledTimes(2)
+      } finally {
+        now.mockRestore()
+      }
+    })
+
+    it("refreshes continuous typing before receiver expiry without sharing a user or scope gate", async () => {
+      const { durable } = createDO()
+      mockGetChannelForMember.mockImplementation(async (_db, channelId: string) => ({ id: channelId, serverId: "server-1" }))
+      mockResolveScopeMemberUserIds.mockResolvedValue(["recipient-1"])
+      const socket = (userId: string) => {
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId, authenticated: true, sessionId: `test-${userId}`, sessionValidUntil: Date.now() + 60_000 })
+        return ws
+      }
+      const first = socket("sender-1"), other = socket("sender-2")
+      let timestamp = 10_000
+      const now = vi.spyOn(Date, "now").mockImplementation(() => timestamp)
+      const deliveries: Array<{ at: number; channelId: string; userId: string }> = []
+      try {
+        const start = async (ws: typeof first, channelId: string) => {
+          const before = mockStubFetch.mock.calls.length
+          await durable.webSocketMessage(ws as any, JSON.stringify({ type: "community:typing.start", channelId, schemaVersion: BUSINESS_SCHEMA_VERSION }))
+          await flushAsyncWork()
+          for (const [request] of mockStubFetch.mock.calls.slice(before)) {
+            const event = await (request as Request).json() as { channelId: string; userId: string; type: string }
+            expect(event.type).toBe("community:typing.start")
+            deliveries.push({ at: timestamp, channelId: event.channelId, userId: event.userId })
+          }
+        }
+        await start(first, "channel-1")
+        await start(first, "channel-2")
+        await start(other, "channel-1")
+        expect(deliveries.map(({ channelId, userId }) => ({ channelId, userId }))).toEqual([
+          { channelId: "channel-1", userId: "sender-1" },
+          { channelId: "channel-2", userId: "sender-1" },
+          { channelId: "channel-1", userId: "sender-2" },
+        ])
+        for (const at of [13_000, 16_000, 19_000]) {
+          timestamp = at
+          await start(first, "channel-1")
+        }
+        const main = deliveries.filter(event => event.channelId === "channel-1" && event.userId === "sender-1")
+        expect(main.map(event => event.at)).toEqual([10_000, 13_000, 16_000, 19_000])
+        expect(main.at(-1)!.at - main[0]!.at).toBeGreaterThan(8_000)
+        for (let index = 1; index < main.length; index++) {
+          expect(main[index]!.at - main[index - 1]!.at).toBeLessThan(8_000)
+        }
       } finally {
         now.mockRestore()
       }

@@ -129,7 +129,7 @@ source.remove();
     }
 }
 
-#[cfg(desktop)]
+#[cfg(any(all(target_os = "macos", debug_assertions), test))]
 pub fn splash_html() -> String {
     let logo = desktop_loading_logo();
     format!(
@@ -187,7 +187,7 @@ pub fn create_qa_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-#[cfg(desktop)]
+#[cfg(all(target_os = "macos", debug_assertions))]
 pub fn create_splash_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
 
@@ -236,7 +236,7 @@ pub fn finish_native_startup(
     try_close_splashscreen(handle, diagnostic_main)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(desktop)]
 pub fn show_startup_initialization_error<R: tauri::Runtime>(handle: &AppHandle<R>) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
@@ -374,13 +374,15 @@ pub fn set_window_theme(
     dark: bool,
     background: Option<tauri::window::Color>,
 ) {
-    let color = background.filter(|color| color.3 == 255).unwrap_or_else(|| {
-        if dark {
-            tauri::window::Color(0, 0, 0, 255)
-        } else {
-            tauri::window::Color(250, 246, 238, 255)
-        }
-    });
+    let color = background
+        .filter(|color| color.3 == 255)
+        .unwrap_or_else(|| {
+            if dark {
+                tauri::window::Color(0, 0, 0, 255)
+            } else {
+                tauri::window::Color(250, 246, 238, 255)
+            }
+        });
     let _ = window.set_background_color(Some(color));
 }
 
