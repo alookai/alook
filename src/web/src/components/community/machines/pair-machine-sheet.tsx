@@ -92,9 +92,11 @@ export function PairMachineSheet({
   const generationError = generation.variables?.assert.signal === source.signal && generation.isError && !(generation.error instanceof DOMException && generation.error.name === "AbortError") ? "Couldn't generate a key — try again." : null
   const mutateGeneration = generation.mutateAsync
   const generate = useCallback(async () => {
-    const assert = source.capture(), token = origin.begin().token
-    assert()
+    const assert = source.tryCapture()
+    if (!assert) return
     try {
+      const token = origin.begin().token
+      assert()
       const result = await mutateGeneration({ token, assert })
       assert()
       setPendingTokenId(result.tokenId)
@@ -109,12 +111,13 @@ export function PairMachineSheet({
     if (!open) { generatedForKey.set(null); return }
     const previous = generatedForKey.get()
     if (previous?.key === openKey && previous.signal === source.signal) return
+    if (!source.tryCapture()) return
     generatedForKey.set({ key: openKey, signal: source.signal })
     setPendingTokenId(null)
     void generate()
-  }, [open, openKey, setPendingTokenId, source.signal, generatedForKey, generate])
+  }, [open, openKey, setPendingTokenId, source, generatedForKey, generate])
   const capability = useQuery({
-    queryKey: ["community", "daemon-runtime-capability"], enabled: open && desktopNative, subscribed: open && desktopNative,
+    queryKey: ["community", "daemon-runtime-capability"], enabled: open && desktopNative && source.online, subscribed: open && desktopNative,
     gcTime: 0, retry: false,
     queryFn: async ({ signal }) => {
       const token = origin.begin().token

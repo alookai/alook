@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { BRAND_SLOGAN } from "@/lib/brand-copy";
+import { SIGN_OUT_ENTRY_HEADER } from "@/lib/sign-out-navigation";
 
 export const metadata: Metadata = {
   title: "Sign In",
@@ -16,7 +17,7 @@ export default async function AuthLayout({
   children: React.ReactNode;
 }) {
   const requestHeaders = await headers();
-  if (requestHeaders.has("Cookie") || requestHeaders.has("Authorization")) {
+  if (requestHeaders.get(SIGN_OUT_ENTRY_HEADER) !== "1" && (requestHeaders.has("Cookie") || requestHeaders.has("Authorization"))) {
     const { getSession } = await import("@/lib/session");
     const session = await getSession();
     if (session) redirect("/c/me");

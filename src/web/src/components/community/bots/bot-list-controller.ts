@@ -198,6 +198,8 @@ export function useBotListController(): BotListController {
   }, [patchProtocol, protocol, targetAuditBotId])
   useEffect(() => {
     if (!routeCommitted || !targetMachineId || bots.length === 0) return
+    const assert = source.tryCapture()
+    if (!assert) return
     setCollapsedMachines((current) => {
       if (!current.has(targetMachineId)) return current
       const next = new Set(current)
@@ -205,7 +207,6 @@ export function useBotListController(): BotListController {
       return next
     })
     if (protocol.get().scrolledFor === targetMachineId) return
-    const assert = source.capture()
     patchProtocol({ scrolledFor: targetMachineId })
     groupRefs.current[targetMachineId]?.scrollIntoView({ behavior: "smooth", block: "start" })
     setHighlightId(targetMachineId)

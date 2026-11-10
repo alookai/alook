@@ -66,6 +66,24 @@ describe("useReactionDetails", () => {
     vi.clearAllMocks()
   })
 
+  it("retains cached actors and defers their missing-actor refresh until account confirmation", async () => {
+    vi.useFakeTimers()
+    apiFetchProfiles.mockResolvedValue(envelope(["user_1"]))
+    const { client, registry } = await createCommunityQueryOwner()
+    const hook = renderReactionHook(client, { open: true, userIds: ["user_1"] })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(hook.result.current.data?.actors.map(actor => actor.userId)).toEqual(["user_1"])
+    hook.rerender({ open: false, userIds: ["user_1"] })
+    act(() => registry.bindAuthentication(() => undefined, async () => {}))
+    hook.rerender({ open: true, userIds: ["user_1", "user_2"] })
+    await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+    expect(apiFetchProfiles).toHaveBeenCalledOnce()
+    expect(hook.result.current.data?.actors.map(actor => actor.userId)).toEqual(["user_1"])
+    act(() => { registry.bindAuthentication(() => "viewer", async () => {}); registry.confirmAuthentication() })
+    await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+    expect(apiFetchProfiles).toHaveBeenCalledTimes(2)
+  })
+
   it("loads only while open and bounds burst, in-flight, missing, and reappearing actor refreshes", async () => {
     vi.useFakeTimers()
     const first = deferred<ReactionDetailsEnvelope>()

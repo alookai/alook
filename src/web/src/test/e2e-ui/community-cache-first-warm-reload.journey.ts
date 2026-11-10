@@ -195,20 +195,26 @@ async function expectCacheFirstReload(
   let heldReads = 0
   let forwardedMessages = 0
   let forwardedParentEntries = 0
+  let parentEntryAttempts = 0
+  let parentPageAttempts = 0
+  const parentReadRequests: string[] = []
   await page.route("**/api/community/**", async (route) => {
+    const url = new URL(route.request().url())
+    if (independentParentEntry && route.request().method() === "PUT" && url.pathname === `/api/community/channels/${independentParentEntry}/read`) parentReadRequests.push(url.pathname)
     if (route.request().method() !== "GET") {
       await route.continue()
       return
     }
-    const url = new URL(route.request().url())
     const path = url.pathname
     const parentEntry = independentParentEntry && path === `/api/community/channels/${independentParentEntry}/messages` && url.searchParams.get("entry") === "1"
+    if (independentParentEntry && path === `/api/community/channels/${independentParentEntry}/messages` && !parentEntry) parentPageAttempts += 1
     const childEntry = url.searchParams.get("entry") === "1" && path.endsWith("/messages") && !parentEntry
     if (childEntry) {
       await route.continue()
       return
     }
     if (parentEntry) {
+      parentEntryAttempts += 1
       heldReads += 1
       await readsGate
       forwardedParentEntries += 1
@@ -230,6 +236,12 @@ async function expectCacheFirstReload(
   try {
     await page.reload({ waitUntil: "commit" })
     await assertEntryContent()
+    if (independentParentEntry) {
+      await expect.poll(() => parentEntryAttempts).toBe(1)
+      expect(forwardedParentEntries).toBe(0)
+      expect(parentPageAttempts).toBe(0)
+      expect(parentReadRequests).toEqual([])
+    }
     await expect.poll(() => heldReads).toBeGreaterThan(0)
     await expect.poll(() => wsAttempts).toBeGreaterThan(0)
     const readCapture = () => page.evaluate((): ReloadCapture | null => {
@@ -450,7 +462,10 @@ test("a warm desktop thread reload qualifies its child and independently reconci
     await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.composerInput)).toBeVisible()
     await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.message(threadMessageId))).toBeVisible()
     await expect(page.getByTestId(tid.threadSplitPanel).getByText(threadBody, { exact: false })).toBeVisible()
-    await expect(page.getByTestId(tid.threadSplitParent).getByTestId(tid.message(openerId))).toHaveCount(0)
+    await expect(page.getByTestId(tid.threadSplitParent).getByTestId(tid.message(openerId))).toBeVisible()
+    await expect(page.getByTestId(tid.threadSplitParent).getByText(parentBody, { exact: false })).toBeVisible()
+    await expect(page.getByTestId(tid.threadSplitParent).getByTestId(tid.messageScroller)).toHaveAttribute("data-pagination-enabled", "false")
+    await expect(page.getByTestId(tid.threadSplitParent).locator("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "false")
   }, async () => {
     await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-layout", "split", {
       timeout: 10_000,

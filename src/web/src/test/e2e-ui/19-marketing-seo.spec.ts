@@ -339,15 +339,45 @@ for (const width of [1440, 390]) {
     await page.route("**/api/pricing", (route) => route.fulfill({
       status: 503, contentType: "application/json", body: JSON.stringify({ error: "Unavailable" }),
     }))
-    await page.goto("/pricing")
-    await expect(page.getByRole("main").getByRole("alert")).toContainText("Couldn't load plans")
-    await expect(page.getByRole("heading", { name: "Free", exact: true }).locator("..").getByRole("button")).toBeDisabled()
-    await expect(contact).toBeInViewport()
-    await contact.focus()
-    await page.keyboard.press("Enter")
-    await expect(page).toHaveURL(/\/contact$/)
-    await expect(page.getByRole("heading", { name: "Let’s talk." })).toBeVisible()
-    await expect.poll(contactLayout).toEqual(direct)
+    let releaseSession!: () => void
+    const sessionHeld = new Promise<void>(resolve => { releaseSession = resolve })
+    let sessionCaptured = false, sessionWasNull = false
+    let sessionStatus = 0
+    await page.route("**/api/auth/get-session", async route => {
+      const response = await route.fetch()
+      sessionStatus = response.status()
+      sessionWasNull = await response.json() === null
+      sessionCaptured = true
+      await sessionHeld
+      await route.fulfill({ response })
+    })
+    try {
+      await page.goto("/pricing")
+      await expect(page.getByRole("main").getByRole("alert")).toContainText("Couldn't load plans")
+      const freeButton = page.getByRole("heading", { name: "Free", exact: true }).locator("..").getByRole("button")
+      await expect(freeButton).toBeDisabled()
+      await expect(freeButton).toHaveText("Loading…")
+      await expect(contact).toBeInViewport()
+      await expect.poll(() => sessionCaptured).toBe(true)
+      expect(sessionStatus).toBe(200)
+      expect(sessionWasNull).toBe(true)
+      const originalContact = await contact.elementHandle()
+      if (!originalContact) throw new Error("Missing public Contact link")
+      await contact.focus()
+      expect(await originalContact.evaluate(node => node === document.activeElement)).toBe(true)
+      releaseSession()
+      await expect(freeButton).not.toHaveText("Loading…")
+      expect(await originalContact.evaluate(node => node.isConnected)).toBe(true)
+      expect(await contact.evaluate((node, original) => node === original, originalContact)).toBe(true)
+      expect(await originalContact.evaluate(node => node === document.activeElement)).toBe(true)
+      await page.keyboard.press("Enter")
+      await expect(page).toHaveURL(/\/contact$/)
+      await expect(page.getByRole("heading", { name: "Let’s talk." })).toBeVisible()
+      await expect.poll(contactLayout).toEqual(direct)
+    } finally {
+      releaseSession()
+      await page.unrouteAll({ behavior: "wait" })
+    }
 
     await page.getByRole("navigation", { name: "Site navigation" }).getByRole("link", { name: "Download", exact: true }).click()
     await expect(page).toHaveURL(/\/download$/)

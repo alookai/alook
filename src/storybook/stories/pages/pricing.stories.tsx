@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite"
 import type { PublicPricing } from "@alook/shared"
 import { fn } from "storybook/test"
-import { PricingView } from "@/app/pricing/pricing-view"
+import { PricingDetails, PricingFrame } from "@/app/pricing/pricing-view"
 import type { PricingController } from "@/app/pricing/pricing-client"
 
 const catalog: PublicPricing = {
@@ -13,7 +13,7 @@ const catalog: PublicPricing = {
 }
 function PricingExample({ state = "ready" }: { state?: "ready" | "loading" | "error" }) {
   const controller: PricingController = { catalog: state === "ready" ? catalog : undefined, offer: (plan) => state === "ready" ? catalog.offers.find((offer) => offer.plan.id === plan) : undefined, disabled: () => state !== "ready", label: () => state === "loading" ? "Loading…" : "Choose plan", choose: fn(), message: "Local preview data; amounts are examples.", error: state === "error" ? "Could not load plans." : null, retry: fn() }
-  return <PricingView controller={controller} />
+  return <PricingFrame><PricingDetails controller={controller} /></PricingFrame>
 }
 const meta = { title: "Web/Pages/Pricing", component: PricingExample, tags: ["autodocs", "ai-generated"], parameters: { layout: "fullscreen" }, args: { state: "ready" }, argTypes: { state: { control: "select", options: ["ready", "loading", "error"] } } } satisfies Meta<typeof PricingExample>
 export default meta

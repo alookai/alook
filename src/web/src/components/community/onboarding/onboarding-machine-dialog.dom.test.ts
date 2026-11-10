@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 import type { CommunityMachineSummary } from "@alook/shared"
+import { useQueryClient } from "@tanstack/react-query"
+import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
@@ -57,6 +59,29 @@ describe("OnboardingMachineDialog", () => {
     onConnected: vi.fn(),
     onChooseAnotherHarness: vi.fn(),
     onManageMachines: vi.fn(),
+  })
+
+  it.each([true, false])("waits for account confirmation before automatic machine action, already online=%s", async online => {
+    mocks.machines = online ? [{ id: "machine-1", hostname: "host", status: "online", availableRuntimes: [{ id: "codex", status: "healthy" }] }] : []
+    mocks.apiFetch.mockReturnValue(new Promise(() => undefined))
+    let registry!: CommunityDbRegistry
+    function PendingAccount({ children }: React.PropsWithChildren) {
+      const current = getCommunityDbRegistry(useQueryClient())!
+      React.useLayoutEffect(() => { registry = current; current.bindAuthentication(() => undefined, async () => {}) }, [current])
+      return children
+    }
+    const input = props()
+    render(React.createElement(PendingAccount, null, React.createElement(OnboardingMachineDialog, input)))
+    expect(input.onConnected).not.toHaveBeenCalled()
+    expect(mocks.apiFetch).not.toHaveBeenCalled()
+    await act(async () => { registry.bindAuthentication(() => "viewer", async () => {}); registry.confirmAuthentication(); await vi.advanceTimersByTimeAsync(0) })
+    if (online) {
+      expect(input.onConnected).toHaveBeenCalledExactlyOnceWith("machine-1")
+      expect(mocks.apiFetch).not.toHaveBeenCalled()
+    } else {
+      expect(input.onConnected).not.toHaveBeenCalled()
+      expect(mocks.apiFetch).toHaveBeenCalledOnce()
+    }
   })
 
   it("advances an already online matching machine once without pairing or clicking Continue", () => {

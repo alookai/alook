@@ -73,7 +73,8 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
   const mutate = mutation.mutateAsync
   const generate = useCallback(async () => {
     if (lock.get() === source.signal) return
-    const assert = source.capture()
+    const assert = source.tryCapture()
+    if (!assert) return
     assert()
     lock.set(assert.signal)
     try { await mutate({ assert, token: origin.begin().token }) }
@@ -82,9 +83,10 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
   }, [lock, source, origin, mutate])
   useEffect(() => {
     if (!isSuccess || started.get() === source.signal) return
+    if (!source.tryCapture()) return
     started.set(source.signal)
     void generate()
-  }, [isSuccess, started, source.signal, generate])
+  }, [isSuccess, started, source, generate])
   useEffect(() => {
     const refresh = () => setNow(Date.now())
     refresh()

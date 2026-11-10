@@ -184,7 +184,8 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
   const searchIntent = useSelector(intent, (state) => state)
   useEffect(() => {
     if (!serverId || searchIntent.query === searchIntent.debounced) return
-    const assert = source.capture()
+    const assert = source.tryCapture()
+    if (!assert) return
     const timer = setTimeout(() => {
       try { assert() } catch { return }
       intent.setState((state) => state.query === searchIntent.query ? { ...state, debounced: state.query } : state)
@@ -213,8 +214,8 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
   })
   useEffect(() => {
     if (!searchReady || !search.error || search.isFetching) return
-    let assertActive: ReturnType<typeof source.capture>
-    try { assertActive = source.capture(); assertActive() } catch { return }
+    const assertActive = source.tryCapture()
+    if (!assertActive) return
     toastApiError(search.error, "Search failed", assertActive)
   }, [searchReady, search.error, search.isFetching, source])
   const data = searching ? searchReady ? search.data : undefined : infinite.data

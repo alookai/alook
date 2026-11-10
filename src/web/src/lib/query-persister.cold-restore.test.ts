@@ -121,32 +121,3 @@ describe("cold IDB snapshot processing", () => {
     expect(messages(await reader.restoreClient())).toEqual([expect.objectContaining({ channelId: "b" })])
   })
 })
-
-describe("account-free cache preparation", () => {
-  it("shares the native connection without accessing any private key or qualification", async () => {
-    vi.resetModules()
-    const fresh = await import("./query-persister")
-    const open = vi.spyOn(indexedDB, "open")
-    const methods = ["get", "put", "delete", "openCursor", "openKeyCursor"] as const
-    const spies = methods.map(method => vi.spyOn(IDBObjectStore.prototype, method))
-    await Promise.all([fresh.preparePersistedCache(), fresh.preparePersistedCache()])
-    expect(open).toHaveBeenCalledExactlyOnceWith("keyval-store")
-    for (const spy of spies) expect(spy).not.toHaveBeenCalled()
-  })
-
-  it("can retry a failed preparation through the same native connection owner", async () => {
-    vi.resetModules()
-    const fresh = await import("./query-persister")
-    const open = vi.spyOn(indexedDB, "open").mockImplementationOnce(() => {
-      const request = new IDBOpenDBRequest()
-      Object.defineProperty(request, "error", { value: new DOMException("Preparation failed", "UnknownError") })
-      queueMicrotask(() => request.onerror?.call(request, new Event("error")))
-      return request
-    })
-    await expect(fresh.preparePersistedCache()).rejects.toThrow("Preparation failed")
-    const owner = fresh.createIdbPersister("cold-retry")
-    await owner.persistClient(snapshot("cold-retry"))
-    expect(messages(await owner.restoreClient())).toHaveLength(2)
-    expect(open).toHaveBeenCalledTimes(2)
-  })
-})

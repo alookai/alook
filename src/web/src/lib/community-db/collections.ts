@@ -53,7 +53,7 @@ function restoredRows<T extends object>(
 function buildCommunityDbRegistry(
   queryClient: QueryClient,
   accountId: string | null,
-  options: { waitForRestore?: Promise<void> } = {},
+  options: { waitForRestore?: Promise<void>; sessionViewer?: () => string | null | undefined } = {},
 ) {
   const scopeId = accountId ?? "anon"
   const dbClient = new DbClient({ queryClient })
@@ -129,14 +129,29 @@ function buildCommunityDbRegistry(
     lifecycle: createStore({ active: true, generation: 0 }), transport: { send: null as ((message: object) => void) | null },
   }
 
-  const authenticationBindings = createStore({ retireDisk: () => clearPersistedCache(accountId), retireReadingDisk: (() => Promise.resolve()) as QualifiedPersister["retireChannels"], sessionViewer: () => accountId as string | null | undefined })
+  const authenticationBindings = createStore({ retireDisk: () => clearPersistedCache(accountId), retireReadingDisk: (() => Promise.resolve()) as QualifiedPersister["retireChannels"], sessionViewer: options.sessionViewer ?? (() => accountId as string | null | undefined), confirmed: false })
+  const isOnlineAccount = () => {
+    const state = authenticationBindings.get(), viewer = state.sessionViewer()
+    return !!accountId && (viewer === accountId || viewer === undefined && state.confirmed)
+  }
   const registry = {
     accountId,
+    authenticationBindings,
+    isOnlineAccount,
     authenticationView: createStore({ active: false, generation: 0 }),
     retireDisk: () => authenticationBindings.get().retireDisk(),
     retireReadingDisk: (ids: Iterable<string>, deleted = false) => authenticationBindings.get().retireReadingDisk(ids, deleted),
     sessionViewer: () => authenticationBindings.get().sessionViewer(),
-    bindAuthentication: (sessionViewer: () => string | null | undefined, retireDisk: () => Promise<void>, retireReadingDisk: QualifiedPersister["retireChannels"] = () => Promise.resolve()) => authenticationBindings.setState(() => ({ sessionViewer, retireDisk, retireReadingDisk })),
+    bindAuthentication: (sessionViewer: () => string | null | undefined, retireDisk: () => Promise<void>, retireReadingDisk: QualifiedPersister["retireChannels"] = () => Promise.resolve()) => authenticationBindings.setState((state) => ({ ...state, sessionViewer, retireDisk, retireReadingDisk })),
+    confirmAuthentication: () => {
+      const state = authenticationBindings.get()
+      if (!accountId || state.confirmed || state.sessionViewer() !== accountId) return false
+      authenticationBindings.setState(() => ({ ...state, confirmed: true }))
+      return true
+    },
+    assertOnlineAccount: () => {
+      if (!isOnlineAccount()) throw new DOMException("Unconfirmed community account", "AbortError")
+    },
     scopeId,
     queryClient,
     dbClient,
@@ -184,7 +199,7 @@ export type CommunityDbRegistry = ReturnType<typeof buildCommunityDbRegistry>
 export function createCommunityDbRegistry(
   queryClient: QueryClient,
   accountId: string | null,
-  options: { waitForRestore?: Promise<void> } = {},
+  options: { waitForRestore?: Promise<void>; sessionViewer?: () => string | null | undefined } = {},
 ): CommunityDbRegistry {
   const existing = registryByQueryClient.get(queryClient)
   if (existing) {

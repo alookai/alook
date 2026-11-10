@@ -4,9 +4,9 @@ import { describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({ pathname: "/c", session: vi.fn() }))
 vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname }))
-vi.mock("@/lib/auth-client", () => ({ useSession: mocks.session, authClient: {} }))
-vi.mock("@/components/community/shell/community-session-pending-frame", () => ({
-  CommunitySessionPendingFrame: ({ pathname }: { pathname: string }) => createElement("main", { "data-pathname": pathname }, "Public frame"),
+vi.mock("@/lib/auth-session", () => ({ useSession: mocks.session, authClient: {} }))
+vi.mock("@/components/community/shell/community-account-pending-frame", () => ({
+  CommunityAccountPendingFrame: ({ pathname }: { pathname: string }) => createElement("main", { "data-pathname": pathname }, "Public frame"),
 }))
 vi.mock("./community-shell", () => ({ CommunityShell: () => { throw new Error("Private shell rendered on server") } }))
 import CommunityLayout from "./layout"

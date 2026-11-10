@@ -117,7 +117,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   }, [channelId, serverId])
   const options = messageWindowOptions(client, enabled ? channelId : "__none__", initial, tag, { observation })
   const queryKey = selectedWindow?.key ?? options.queryKey
-  const query = useInfiniteQuery({ ...options, queryKey, enabled: enabled && presented, subscribed: enabled })
+  const query = useInfiniteQuery({ ...options, queryKey, staleTime: Infinity, enabled: enabled && presented, subscribed: enabled })
   const repairKey: QueryKey = [...queryKey, "reconcile"]
   const repairOptions = client.getQueryCache().find<{ latestSeq: number }>({ queryKey: repairKey, exact: true })?.options
   const repair = useQuery({ ...(repairOptions?.queryFn ? repairOptions : messageReconcileOptions(client, {

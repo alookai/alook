@@ -7,6 +7,7 @@ import { bindCommunityTransport, useCommunityRuntime, type CommunityRuntime } fr
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
+import { useSelector } from "@tanstack/react-store"
 import { cancelMessageRepairs } from "@/lib/community/message-reconcile"
 import {
   useUserWs,
@@ -117,6 +118,8 @@ export function communityWsEndTyping(runtime: CommunityRuntime, target: { channe
 export function useCommunityWs(options?: UseCommunityWsOptions): void {
   const runtime = useCommunityRuntime()
   const queryClient = useQueryClient()
+  const registry = getCommunityDbRegistry(queryClient)!
+  const onlineAccount = useSelector(registry.authenticationBindings, registry.isOnlineAccount)
   const reconnectTransportRef = useRef<() => void>(() => undefined)
   const connectionControllerRef = useRef<CommunityWsConnectionStatusController | null>(null)
   const getConnectionController = useCallback(() => {
@@ -153,6 +156,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     async (msg: { type: string;[key: string]: unknown }, assertAdmissionCurrent?: () => void, contract: CommunityContract = COMMUNITY_CONTRACT_VERSION) => {
       if (!msg.type.startsWith("community:")) return
       if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active) return
+      try { getCommunityDbRegistry(queryClient)!.assertOnlineAccount() } catch { return }
       const communityStore = runtime.ui
       const sub = communityStore.get().subscription
       const wsStore = runtime.ws
@@ -309,7 +313,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     return reconcileFocusedCommunityMessages(queryClient)
   }, [queryClient, runtime.ws, runtime.lifecycle, viewerUserId, viewToken])
   const { send, reconnectNow } = useUserWs(handleMessage, {
-    viewerUserId,
+    viewerUserId: onlineAccount ? viewerUserId : null,
     communityContract: options?.communityContract,
     onReconnect: handleReconnect,
     onDisconnect: runtime.ws.actions.markAccessDisconnected,
@@ -341,7 +345,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     }
   }, [queryClient, runtime.lifecycle, viewToken])
 
-  useEffect(() => bindCommunityTransport(runtime, send), [send, runtime])
+  useEffect(() => bindCommunityTransport(runtime, (message) => {
+    try { getCommunityDbRegistry(queryClient)!.assertOnlineAccount() } catch { return }
+    send(message)
+  }), [queryClient, send, runtime])
 
   useEffect(() => {
     const controller = getConnectionController()

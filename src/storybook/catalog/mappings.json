@@ -3462,37 +3462,37 @@
     "examples": [
       {
         "story": "web-pages-pricing--plans",
-        "region": "Destination PricingView; this route itself only redirects and is not mounted as a visual example"
+        "region": "Destination PricingFrame and PricingDetails; this route itself only redirects and is not mounted as a visual example"
       }
     ],
-    "reason": "The original route only calls permanentRedirect to /pricing and has no independent painted output. Actual destination PricingView is exposed under Pages/Pricing; a redirect is not a renderable concept page."
+    "reason": "The original route only calls permanentRedirect to /pricing and has no independent painted output. The actual destination PricingFrame and PricingDetails composition is exposed under Pages/Pricing; a redirect is not a renderable concept page."
   },
   "src/web/src/app/pricing/page.tsx": {
     "kind": "nonvisual",
     "examples": [
       {
         "story": "web-pages-pricing--plans",
-        "region": "Original PricingView; live checkout/session owner is replaced only by typed local controller input"
+        "region": "Original PricingFrame and PricingDetails composition; live checkout/session owner is replaced only by typed local controller input"
       }
     ],
-    "reason": "Metadata and controller-entry wrapper adds no independent painted layout. The actual PricingView and billing dialogs are exposed separately; this route/controller is not claimed as mounted."
+    "reason": "Metadata and controller-entry wrapper adds no independent painted layout. The actual PricingFrame and PricingDetails composition and billing dialogs are exposed separately; this route/controller is not claimed as mounted."
   },
   "src/web/src/app/pricing/pricing-client.tsx": {
     "kind": "nonvisual",
     "examples": [
       {
         "story": "web-pages-pricing--plans",
-        "region": "This module owns session/catalog/checkout decisions and exports the controller type. Original visual markup is PricingView; real purchase commands are not initialized."
+        "region": "Session/catalog/checkout owner uses stable PricingFrame outside keyed business content; the story mounts the same PricingFrame and PricingDetails with typed local controller input"
       }
     ],
-    "reason": "The public session/query/controller owner delegates painted output to PricingView and FounderPlanChangeDialog, both exposed through their real supported preview inputs. Its service, analytics and checkout logic is not executed by those appearance stories."
+    "reason": "The route/controller delegates public chrome to PricingFrame and data-dependent output to PricingDetails and FounderPlanChangeDialog. Pages/Pricing mounts the same PricingFrame and PricingDetails composition; service, analytics and checkout commands are not executed by the appearance story."
   },
   "src/web/src/app/pricing/pricing-view.tsx": {
     "kind": "composition",
     "examples": [
       {
         "story": "web-pages-pricing--plans",
-        "region": "Actual typed PricingView with ready/loading/error controller states"
+        "region": "Actual shared PricingFrame and PricingDetails composition with ready/loading/error controller states"
       }
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -3771,8 +3771,12 @@
     "kind": "environment",
     "examples": [
       {
-        "story": "web-pages-community-shell--bots-empty",
-        "region": "Actual ShellFrame/module visual output; session-pending story supplies the pre-auth view"
+        "story": "web-pages-community-account-entry--loading",
+        "region": "Original public account loading frame before identity selection"
+      },
+      {
+        "story": "web-pages-community-account-entry--account-error",
+        "region": "Account-error frame visual fixture; no session lookup or retry execution"
       }
     ],
     "reason": "Authenticated entry, invalid-session signout and real application-navigation boundary. Its reusable pending/error frames are exposed separately, while this account bootstrap and embedded auth-error branch are outside the isolated preview."
@@ -3791,8 +3795,12 @@
     "kind": "environment",
     "examples": [
       {
-        "story": "web-pages-community-shell--bots-empty",
-        "region": "Actual ShellFrame/module visual output; session-pending story supplies the pre-auth view"
+        "story": "web-pages-community-account-entry--loading",
+        "region": "Original public account loading frame before identity selection"
+      },
+      {
+        "story": "web-pages-community-account-entry--account-error",
+        "region": "Account-error frame visual fixture; no session lookup or retry execution"
       }
     ],
     "reason": "Next authenticated application layout invokes CommunityLayoutClient. Reusable session-pending and route-frame output is exposed separately; the real auth/persistence/socket environment is not started."
@@ -4071,5 +4079,29 @@
       }
     ],
     "reason": "The story mounts the original painted view imported by the production build-flag gate. Dragging is a separate runtime qualification."
+  },
+  "src/web/src/app/c/community-authenticated-entry.tsx": {
+    "kind": "environment",
+    "examples": [
+      {
+        "story": "web-pages-community-shell--bots-empty",
+        "region": "Reusable account-shell/module visual output under local fixtures"
+      }
+    ],
+    "reason": "Deferred composition of authenticated context-menu, OAuth cleanup, QueryProvider/profile bootstrap and real route owners. The isolated workbench exposes reusable business views and does not execute this authentication/cache/transport environment."
+  },
+  "src/web/src/components/community/shell/community-account-pending-frame.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-pages-community-account-entry--loading",
+        "region": "Original full-viewport public account loading frame and artwork"
+      },
+      {
+        "story": "web-pages-community-account-entry--account-error",
+        "region": "Original frame containing an account error and Retry visual fixture"
+      }
+    ],
+    "reason": "Both stories mount the original public account frame. These are visual declarations; session lookup, private-cache admission and retry behavior require the real SDK and application environment."
   }
 }

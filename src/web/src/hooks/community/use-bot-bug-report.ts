@@ -301,7 +301,8 @@ export function useBotBugReport({ agentId, open }: { agentId: string; open: bool
   useEffect(() => {
     const report = statusQuery.data
     if (!open || !report || report.status !== "pending") return
-    const assert = source.capture()
+    const assert = source.tryCapture()
+    if (!assert) return
     const expire = () => {
       try { assert() } catch { return }
       attempt.setState((state) => ({ ...state, expiredReportId: report.reportId }))

@@ -15,7 +15,7 @@ import { PublicQueryProvider, useApplicationOwner } from "@/lib/application-owne
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { FounderPlanChangeDialog } from "@/components/community/billing/founder-plan-change-dialog"
 import { trackLandingCtaClicked, toAnalyticsCurrentPlan, toAnalyticsPlanId, trackPricingCtaClick, trackPricingView, type PricingCtaAction } from "@/lib/analytics"
-import { PricingView } from "./pricing-view"
+import { PricingDetails, PricingFrame } from "./pricing-view"
 
 function SelectedPlanMessage({ offer, fallback }: {
   offer: (plan: string) => BillingOffer | undefined
@@ -110,7 +110,7 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
     if (signedIn) billing.refresh()
   }
   return <>
-    <PricingView controller={{ catalog: catalog.data, offer, disabled, label, choose, message, error, retry }} />
+    <PricingDetails controller={{ catalog: catalog.data, offer, disabled, label, choose, message, error, retry }} />
     <FounderPlanChangeDialog offer={founderOffer} busy={billing.isBusy} onCancel={() => setFounderOffer(null)} onConfirm={() => {
       if (!founderOffer || disabled(founderOffer.plan.id)) return
       const current = paymentOffer(founderOffer.plan.id)
@@ -144,5 +144,5 @@ function PricingSession({ signedIn, sessionPending, sessionError, viewTrackedRef
 export default function PricingClient() {
   const session = useSession()
   const viewTrackedRef = useRef(false)
-  return <PricingSession key={session.data?.user.id ?? "guest"} signedIn={Boolean(session.data?.user)} sessionPending={session.isPending} sessionError={Boolean(session.error)} viewTrackedRef={viewTrackedRef} />
+  return <PricingFrame><PricingSession key={session.data?.user.id ?? "guest"} signedIn={Boolean(session.data?.user)} sessionPending={session.isPending} sessionError={Boolean(session.error)} viewTrackedRef={viewTrackedRef} /></PricingFrame>
 }

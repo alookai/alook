@@ -138,7 +138,8 @@ export function InviteDialog({
   const resolveInvite = resolver.mutate
   useEffect(() => {
     if (!open || currentResolution) return
-    const assert = view.capture()
+    const assert = view.tryCapture()
+    if (!assert) return
     resolveInvite({ currentUserId: currentUser.id, assert })
   }, [open, currentResolution, view, currentUser.id, resolveInvite])
 

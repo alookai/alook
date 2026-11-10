@@ -1,5 +1,6 @@
 import rawContractInput0 from "../app/c/layout.tsx?raw"
 import rawContractInput1 from "../app/c/community-layout-client.tsx?raw"
+import authenticatedEntry from "../app/c/community-authenticated-entry.tsx?raw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanupAuthenticatedNativeOauthResidue } from "./native-oauth-authenticated-cleanup"
 
@@ -187,14 +188,16 @@ describe("cleanupAuthenticatedNativeOauthResidue", () => {
     ])
   })
 
-  it("mounts only behind the authenticated Community layout gate", () => {
+  it("keeps native cleanup in the deferred account composition", () => {
     const communityLayout = rawContractInput0
     const communityClient = rawContractInput1
 
     expect(communityLayout).not.toContain("getSession")
     expect(communityClient).toContain("const session = useSession()")
+    expect(communityClient).toContain('import("./community-authenticated-entry")')
+    expect(authenticatedEntry).toContain("<AuthenticatedNativeOauthCleanup />")
     expect(communityClient.indexOf("if (!currentUser)")).toBeLessThan(
-      communityClient.indexOf("<AuthenticatedNativeOauthCleanup />"),
+      communityClient.indexOf("<entry.Component"),
     )
   })
 })

@@ -30,7 +30,7 @@ vi.mock("@tanstack/react-query-persist-client", async () => {
 })
 vi.mock("@/lib/query-client", () => ({ createQueryClient }))
 vi.mock("@/lib/query-persister", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/query-persister")>(),
-  createIdbPersister: () => ({ persistClient: vi.fn(), restoreClient: vi.fn(), removeClient: vi.fn(), retireAccount: vi.fn(), isCurrent: async () => true }),
+  createIdbPersister: () => ({ persistClient: vi.fn(), restoreClient: vi.fn(), removeClient: vi.fn(), retireAccount: vi.fn(), rememberAccountIdentity: vi.fn(), isCurrent: async () => true }),
 }))
 vi.mock("@/lib/community-db/sync", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/sync")>(), installCommunityDbSync: () => () => undefined }))
 import { QueryProvider } from "./QueryProvider"

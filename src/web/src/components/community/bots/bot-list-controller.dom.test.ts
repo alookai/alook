@@ -8,6 +8,7 @@ import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { CommunityModuleRouteContext } from "@/contexts/community/module-route"
 import { useQueryClient } from "@tanstack/react-query"
+import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityKeys } from "@/lib/query-keys"
 import { resolve } from "node:path"
 
@@ -222,6 +223,33 @@ describe("useBotListController", () => {
     expect(latest.activityOpen).toBe(true)
     expect(latest.activityBot?.id).toBe("b1")
     expect(mocks.replace).not.toHaveBeenCalled()
+    expect(scrollIntoView).toHaveBeenCalledOnce()
+  })
+
+  it("keeps cached Bots and its audit target mounted while machine positioning waits for account confirmation", () => {
+    let registry!: CommunityDbRegistry
+    function PendingAccount({ children }: React.PropsWithChildren) {
+      const current = getCommunityDbRegistry(useQueryClient())!
+      React.useLayoutEffect(() => { registry = current; current.bindAuthentication(() => undefined, async () => {}) }, [current])
+      return children
+    }
+    rtlRender(React.createElement(PendingAccount, null,
+      React.createElement(CommunityModuleRouteContext, {value: {href: "/c/me/bots?audit=b1&machineId=mac1", routeCommitted: true}}, React.createElement(Probe))))
+    expect(latest.bots.map(item => item.id)).toEqual(["b1"])
+    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityBot?.id).toBe("b1")
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(latest.highlightId).toBeNull()
+    act(() => {
+      registry.bindAuthentication(() => "viewer", async () => {})
+      registry.confirmAuthentication()
+    })
+    expect(scrollIntoView).toHaveBeenCalledOnce()
+    expect(latest.highlightId).toBe("mac1")
+    expect(latest.activityOpen).toBe(true)
+    act(() => registry.bindAuthentication(() => "B", async () => {}))
+    act(() => vi.advanceTimersByTime(2000))
+    expect(latest.highlightId).toBe("mac1")
     expect(scrollIntoView).toHaveBeenCalledOnce()
   })
 

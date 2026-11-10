@@ -1,6 +1,8 @@
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, setupUser, waitFor } from "@/test/react-dom-harness"
+import { act, fireEvent, setupUser, waitFor } from "@/test/react-dom-harness"
+import { useQueryClient } from "@tanstack/react-query"
+import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
@@ -72,6 +74,33 @@ describe("PairMachineSheet desktop daemon integration", () => {
       }
       return Promise.resolve({ success: true, message: "Daemon paired and started" })
     })
+  })
+
+  it.each(["pair", "reconnect"] as const)("keeps automatic %s unconsumed until confirmation and rejects its late cross-account result", async kind => {
+    let registry!: CommunityDbRegistry
+    let finish!: (value: { tokenId: string; expiresAt: string }) => void
+    mocks.apiFetch.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    function PendingAccount({ children }: React.PropsWithChildren) {
+      const current = getCommunityDbRegistry(useQueryClient())!
+      const [ready, setReady] = React.useState(false)
+      React.useLayoutEffect(() => { registry = current; current.bindAuthentication(() => undefined, async () => {}); setReady(true) }, [current])
+      return ready ? children : null
+    }
+    const setToken = vi.fn()
+    render(React.createElement(PendingAccount, null, React.createElement(PairMachineSheet, {
+      open: true, onOpenChange: vi.fn(), pendingTokenId: null, setPendingTokenId: setToken, connectedHostname: null,
+      mode: kind === "pair" ? { kind } : { kind, machineId: "machine-1", hostname: "Host" },
+    })))
+    expect(mocks.apiFetch).not.toHaveBeenCalled()
+    expect(mocks.invoke).not.toHaveBeenCalled()
+    expect(setToken).not.toHaveBeenCalled()
+    await act(async () => { registry.bindAuthentication(() => "viewer", async () => {}); registry.confirmAuthentication() })
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledOnce())
+    expect(mocks.apiFetch.mock.calls[0][0]).toBe(kind === "pair" ? "/api/community/machines/pair" : "/api/community/machines/machine-1/reconnect")
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("daemon_runtime_capability"))
+    await act(async () => { registry.bindAuthentication(() => "B", async () => {}); finish({ tokenId: "retired", expiresAt: "soon" }) })
+    expect(setToken.mock.calls.filter(([token]) => token !== null)).toEqual([])
+    expect(mocks.toastSuccess).not.toHaveBeenCalled()
   })
 
   it("opens command help by keyboard and tap without changing the command or copying it", async () => {

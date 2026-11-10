@@ -18,7 +18,7 @@ import { usePathname } from "next/navigation"
 import { QueryProvider } from "./QueryProvider"
 import {
   CurrentUserProvider,
-  type CurrentUser,
+  type CurrentUserIdentity,
 } from "@/contexts/community/current-user"
 import { useCommunityWs } from "@/hooks/community/use-community-ws"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
@@ -38,7 +38,7 @@ export function CommunityShell({
   currentUser,
   children,
 }: {
-  currentUser: CurrentUser
+  currentUser: CurrentUserIdentity
   children: ReactNode
 }) {
   return (

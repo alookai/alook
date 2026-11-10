@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import { readBillingReturn, useBilling } from "./use-billing"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 
 const mocks = vi.hoisted(() => ({ api: vi.fn(), beginCheckout: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.api }))
@@ -24,6 +25,33 @@ function setup(returnFrom: Parameters<typeof useBilling>[0] = null, enabled = tr
 describe("billing queries and redirects", () => {
   beforeEach(() => { mocks.api.mockReset(); mocks.api.mockResolvedValue(free); mocks.beginCheckout.mockReset() })
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
+
+  it.each(["checkout", "cancel", "portal"] as const)("retains cached billing without consuming %s before account confirmation", async marker => {
+    vi.useFakeTimers()
+    const owner = await createCommunityQueryOwner()
+    owner.registry.bindAuthentication(() => undefined, async () => {})
+    owner.client.setQueryData(communityKeys.billing(), free)
+    const invalidate = vi.spyOn(owner.client, "invalidateQueries")
+    const view = renderHook(() => useBilling(marker, true), {
+      wrapper: ({ children }: React.PropsWithChildren) => <QueryClientProvider client={owner.client} registry={owner.registry}>{children}</QueryClientProvider>,
+    })
+    expect(view.result.current.data).toEqual(free)
+    expect(view.result.current.polling).toBe(false)
+    expect(mocks.api).not.toHaveBeenCalled()
+    expect(invalidate).not.toHaveBeenCalled()
+    const restored = new Event("pageshow")
+    Object.defineProperty(restored, "persisted", { value: true })
+    act(() => window.dispatchEvent(restored))
+    expect(invalidate).not.toHaveBeenCalled()
+    await act(async () => { owner.registry.bindAuthentication(() => "viewer", async () => {}); owner.registry.confirmAuthentication(); await vi.advanceTimersByTimeAsync(1) })
+    expect(mocks.api).toHaveBeenCalledOnce()
+    expect(view.result.current.polling).toBe(marker !== "cancel")
+    const botsInvalidations = () => invalidate.mock.calls.filter(([options]) => JSON.stringify(options?.queryKey) === JSON.stringify(communityKeys.bots())).length
+    expect(botsInvalidations()).toBe(1)
+    await act(async () => { owner.registry.bindAuthentication(() => "B", async () => {}); await vi.advanceTimersByTimeAsync(31_000) })
+    expect(mocks.api).toHaveBeenCalledOnce()
+    expect(botsInvalidations()).toBe(1)
+  })
 
   it("does not load billing for the ordinary My Bots view", () => {
     const view = setup(null, false)

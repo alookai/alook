@@ -84,6 +84,18 @@ describe("useCommunityWs — non-community events bail", () => {
 })
 
 describe("useCommunityWs — public helper contracts", () => {
+  it("disables cached transport until account confirmation and retains that owner through later network failure", async () => {
+    const registry = getCommunityDbRegistry(capturedQueryClient)!
+    let viewer: string | undefined
+    registry.bindAuthentication(() => viewer, async () => {})
+    await mountHook({ viewerUserId: "u_me" })
+    expect(capturedUseUserWsOptions?.viewerUserId).toBeNull()
+    await act(async () => { viewer = "u_me"; registry.confirmAuthentication() })
+    expect(capturedUseUserWsOptions?.viewerUserId).toBe("u_me")
+    viewer = undefined
+    await mountHook({ viewerUserId: "u_me" })
+    expect(capturedUseUserWsOptions?.viewerUserId).toBe("u_me")
+  })
   it.each(["background", "window"] as const)("cancels the real message repair when the root sees %s retirement", async (reason) => {
     await mountHook()
     const key = communityKeys.channelMessages("root-repair")

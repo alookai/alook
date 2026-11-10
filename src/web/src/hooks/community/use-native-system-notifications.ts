@@ -4,6 +4,8 @@ import { createNotificationActivationDrain } from "@/lib/community/notification-
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react"
 
 import { useQueryClient, QueryObserver, type QueryClient } from "@tanstack/react-query"
+import { useSelector } from "@tanstack/react-store"
+import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { useCommunityViewSource } from "./use-community-view-source"
 import { isAbortError } from "@/lib/errors"
@@ -129,6 +131,8 @@ export function useNativeSystemNotificationConversationDismissal(
   ready: boolean,
 ) {
   const client = useQueryClient()
+  const registry = useOptionalCommunityDbRegistry()!
+  const onlineAccount = useSelector(registry.authenticationBindings, registry.isOnlineAccount)
   const { frame, navigation, notificationConsumer: notificationConsumerRef } = useCommunityRouteFrame()
   const current = useRef({ frame, navigation })
   useLayoutEffect(() => { current.current = { frame, navigation } }, [frame, navigation])
@@ -141,7 +145,7 @@ export function useNativeSystemNotificationConversationDismissal(
     traceNotificationDiagnostic("ready.effect", { viewerUserId, kind, serverId, channelId, ready,
       frame: current.current.frame, publishedHref: current.current.navigation.publishedHref,
       navigationPending: current.current.navigation.navigationPending, visibility: document.visibilityState })
-    if (!ready || (!isDesktop() && !isMobile())) return
+    if (!ready || !onlineAccount || !registry.isOnlineAccount() || (!isDesktop() && !isMobile())) return
     const platform = isDesktop() ? "desktop" : "mobile"
     const dismissalTarget: NativeSystemNotificationConversation = kind === "server"
       ? { kind, serverId: serverId!, channelId } : { kind, channelId }
@@ -150,7 +154,9 @@ export function useNativeSystemNotificationConversationDismissal(
       setItem: (storageKey, value) => window.localStorage.setItem(storageKey, value),
       removeItem: (storageKey) => window.localStorage.removeItem(storageKey),
     })
-    const original = source.capture()
+    let original: ReturnType<typeof source.capture>
+    try { original = source.capture(); original() }
+    catch (error) { if (isAbortError(error)) return; throw error }
     const intent = captureIntent()
     const consumer: NativeNotificationConversationConsumer = {
       matches: (viewer, targetId) => {
@@ -191,7 +197,7 @@ export function useNativeSystemNotificationConversationDismissal(
       if (notificationConsumerRef?.current === consumer) notificationConsumerRef.current = null
     }
   }, [channelId, client, kind, ready, serverId, source, viewerUserId, notificationConsumerRef,
-    frame.pathname, navigation.publishedHref, navigation.navigationPending, captureIntent])
+    frame.pathname, navigation.publishedHref, navigation.navigationPending, captureIntent, onlineAccount, registry])
 }
 
 function dismissPendingNativeSystemNotification(
@@ -257,10 +263,14 @@ export function useNativeSystemNotifications(
   const committedDismissal = useRef<() => void>(() => undefined)
   useLayoutEffect(() => { currentRoute.current = { frame, navigation } }, [frame, navigation])
   const client = useQueryClient()
+  const registry = useOptionalCommunityDbRegistry()!
+  const onlineAccount = useSelector(registry.authenticationBindings, registry.isOnlineAccount)
   const source = useCommunityViewSource(`native-notifications:${viewerUserId}`)
   useEffect(() => {
-    const original = source.capture()
-    original()
+    if (!onlineAccount || !registry.isOnlineAccount()) return
+    let original: ReturnType<typeof source.capture>
+    try { original = source.capture(); original() }
+    catch (error) { if (isAbortError(error)) return; throw error }
     const presentationWindow = window as Window & { alookNativeNotificationPresentationV1?: (identity: unknown) => boolean }
     const presentation = (identity: unknown) => {
       try { original() } catch { return false }
@@ -395,6 +405,6 @@ export function useNativeSystemNotifications(
       activation.dispose()
       releaseDismissal()
     }
-  }, [viewerUserId, client, source, notificationConsumer])
+  }, [viewerUserId, client, source, notificationConsumer, onlineAccount, registry])
   useEffect(() => { committedDismissal.current() }, [frame.href, navigation.publishedHref, navigation.navigationPending])
 }

@@ -6,6 +6,7 @@ export const dmSans = localFont({
   weight: "400 900",
   style: "normal",
   display: "swap",
+  preload: true,
 });
 
 export const dmMono = localFont({
@@ -14,6 +15,7 @@ export const dmMono = localFont({
   weight: "400",
   style: "normal",
   display: "swap",
+  preload: true,
 });
 
 export const instrumentSerif = localFont({
@@ -31,6 +33,7 @@ export const instrumentSerif = localFont({
   ],
   variable: "--font-instrument-serif",
   display: "swap",
+  preload: false,
 });
 
 export const caveat = localFont({
@@ -39,6 +42,7 @@ export const caveat = localFont({
   weight: "400 700",
   style: "normal",
   display: "swap",
+  preload: false,
 });
 
 export const vt323 = localFont({
@@ -47,6 +51,7 @@ export const vt323 = localFont({
   weight: "400",
   style: "normal",
   display: "swap",
+  preload: false,
 });
 
 export const literata = localFont({
@@ -55,4 +60,5 @@ export const literata = localFont({
   weight: "400 600",
   style: "normal",
   display: "swap",
+  preload: false,
 });

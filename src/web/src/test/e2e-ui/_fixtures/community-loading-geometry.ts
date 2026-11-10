@@ -53,6 +53,22 @@ type MatrixCase = {
   }
 }
 
+function geometryCost(theme: Theme, journey: string, dimensions: Record<string, string | number | null>) {
+  const started = performance.now()
+  let previous = started
+  const phases: Array<{ name: string; ms: number }> = []
+  return {
+    mark(name: string) {
+      const now = performance.now()
+      phases.push({ name, ms: now - previous })
+      previous = now
+    },
+    finish(outcome: { assertionsComplete: boolean; contextClosed: boolean }) {
+      console.info("geometry-cost", JSON.stringify({ theme, journey, dimensions, phases, totalMs: performance.now() - started, ...outcome }))
+    },
+  }
+}
+
 async function holdApplicationScripts(page: Page, resources?: CaseResources) {
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
@@ -697,9 +713,12 @@ export async function runDesktopPersistedPendingGeometry(
       const { viewportWidth, sidebarWidth, deviceScaleFactor } = entry
       const caseLabel = `${viewportWidth}px @${deviceScaleFactor}x, sidebar ${sidebarWidth ?? "default"}`
       await test.step(caseLabel, async () => {
+        const cost = geometryCost(theme, "persisted-sidebars", { account, viewportWidth, sidebarWidth, deviceScaleFactor })
         const { context, page } = await asUser(account, { deviceScaleFactor })
+        cost.mark("context")
         let scripts: Awaited<ReturnType<typeof holdApplicationScripts>> | undefined
         let communityReads: Awaited<ReturnType<typeof holdCommunityReads>> | undefined
+        let assertionsComplete = false, contextClosed = false
         try {
           await page.setViewportSize({ width: viewportWidth, height: 900 })
           await page.emulateMedia({ colorScheme: theme })
@@ -707,14 +726,18 @@ export async function runDesktopPersistedPendingGeometry(
           const scriptGate = await holdApplicationScripts(page)
           scripts = scriptGate
           communityReads = await holdCommunityReads(page)
+          cost.mark("setup")
           await page.goto("/c/me/machines", { waitUntil: "commit" })
+          cost.mark("document-commit")
           await expect.poll(() => scriptGate.blocked.length).toBeGreaterThan(0)
           expect(scriptGate.received).toEqual([])
           expect(scriptGate.sessionRequests()).toBe(0)
           await expectPublicRouteFrame(page, viewportWidth, 900)
+          cost.mark("public-frame")
           scriptGate.release()
           await expect.poll(communityReads.hits).toBeGreaterThan(0)
           await expect(page.locator('[data-slot="community-shell-root"]')).toBeVisible()
+          cost.mark("private-pending")
           await page.waitForTimeout(250)
 
           const samples = await desktopPendingFrameSamples(page)
@@ -747,12 +770,17 @@ export async function runDesktopPersistedPendingGeometry(
             Math.abs(samples.at(-1)!.sidebarWidth - expectedSidebarWidth),
             `${caseLabel}, final sidebar width: ${JSON.stringify(samples.at(-1))}`,
           ).toBeLessThanOrEqual(ONE_CSS_PIXEL_WITH_LAYOUT_QUANTIZATION)
+          cost.mark("sample-and-assert")
+          assertionsComplete = true
         } finally {
-          scripts?.release()
-          communityReads?.release()
-          try { await context.close() } catch (error) {
+          try { await context.close(); contextClosed = true } catch (error) {
             onCleanup(async () => { throw error })
+          } finally {
+            scripts?.release()
+            communityReads?.release()
           }
+          cost.mark("context-close-held-and-release")
+          cost.finish({ assertionsComplete, contextClosed })
         }
       })
     }
@@ -797,7 +825,9 @@ export async function runNeutralRootGeometry(
   onCleanup: (operation: () => Promise<unknown>) => void,
 ) {
       for (const width of [390, 1280] as const) {
+        const cost = geometryCost(theme, "neutral-root", { account: ISOLATED_GEOMETRY_USER, width })
         const { context, page } = await asUser(ISOLATED_GEOMETRY_USER)
+        cost.mark("context")
         await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
         await page.emulateMedia({ colorScheme: theme })
         await page.addInitScript((storageKey) => {
@@ -805,7 +835,9 @@ export async function runNeutralRootGeometry(
         }, `community:lastRoute:${encodeURIComponent(userId(ISOLATED_GEOMETRY_USER))}`)
         const scripts = await holdApplicationScripts(page)
         onCleanup(async () => { scripts.release() })
+        cost.mark("setup")
         await page.goto("/c", { waitUntil: "commit" })
+        cost.mark("document-commit")
         await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
         expect(scripts.received).toEqual([])
         expect(scripts.sessionRequests()).toBe(0)
@@ -832,6 +864,7 @@ export async function runNeutralRootGeometry(
           path: pendingPath,
           contentType: "image/png",
         })
+        cost.mark("public-frame-and-capture")
 
         scripts.release()
         await expect(page.getByTestId(tid.initialFrame)).toHaveCount(0, { timeout: 30_000 })
@@ -840,7 +873,10 @@ export async function runNeutralRootGeometry(
         expect(await page.evaluate(() => (
           document.documentElement.scrollWidth <= document.documentElement.clientWidth
         ))).toBe(true)
+        cost.mark("loaded-and-assert")
         await context.close()
+        cost.mark("context-close")
+        cost.finish({ assertionsComplete: true, contextClosed: true })
       }
 }
 
@@ -858,7 +894,9 @@ export async function runRouteLoadingGeometry(
       expect(cases).toHaveLength(18)
 
       for (const entry of cases) {
+        const cost = geometryCost(theme, "route-loading", { account: ISOLATED_GEOMETRY_USER, name: entry.name, width: entry.width })
         const { context, page } = await asUser(ISOLATED_GEOMETRY_USER)
+        cost.mark("context")
         await page.setViewportSize({ width: entry.width, height: entry.width === 390 ? 844 : 900 })
         await page.emulateMedia({ colorScheme: theme })
         await startClsObserver(page)
@@ -870,7 +908,9 @@ export async function runRouteLoadingGeometry(
           ? await holdRequest(page, entry.intermediate.requestPattern)
           : null
         if (intermediate) onCleanup(async () => { intermediate.release() })
+        cost.mark("setup")
         await page.goto(entry.pathname, { waitUntil: "commit" })
+        cost.mark("document-commit")
         await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
         expect(scripts.received).toEqual([])
         expect(scripts.sessionRequests()).toBe(0)
@@ -879,6 +919,7 @@ export async function runRouteLoadingGeometry(
           entry.width,
           entry.width === 390 ? 844 : 900,
         )
+        cost.mark("public-frame")
         scripts.release()
         await expect.poll(communityReads.hits).toBeGreaterThan(0)
         await expect(page.locator('[data-slot="community-shell-root"]')).toHaveCount(1)
@@ -886,6 +927,7 @@ export async function runRouteLoadingGeometry(
         await expect(pendingAdd).toHaveCount(0)
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
           .toBe(true)
+        cost.mark("private-pending")
         const pendingGeometry = await visibleGeometry(page)
         const pendingPath = testInfo.outputPath(`${theme}-${entry.width}-${entry.name}-pending.png`)
         await page.screenshot({ path: pendingPath })
@@ -893,6 +935,7 @@ export async function runRouteLoadingGeometry(
           path: pendingPath,
           contentType: "image/png",
         })
+        cost.mark("pending-capture")
 
         await resetCls(page)
         communityReads.release()
@@ -917,6 +960,7 @@ export async function runRouteLoadingGeometry(
           intermediate.release()
         }
         await expect(entry.ready(page)).toBeVisible({ timeout: 30_000 })
+        cost.mark("loaded")
         if (entry.name === "forum") await expect(page.getByTestId(tid.forumFilterBar)).toBeVisible()
         await expect(page.locator('[data-slot="community-shell-root"]')).toHaveCount(1)
         const loadedAdd = page.getByTestId(tid.serverAdd)
@@ -951,6 +995,9 @@ export async function runRouteLoadingGeometry(
           path: loadedPath,
           contentType: "image/png",
         })
+        cost.mark("loaded-capture-and-assert")
         await context.close()
+        cost.mark("context-close")
+        cost.finish({ assertionsComplete: true, contextClosed: true })
       }
 }

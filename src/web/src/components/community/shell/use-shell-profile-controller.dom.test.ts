@@ -582,7 +582,7 @@ describe("useShellProfileController", () => {
     await act(async () => hook.current.userSettingsProps.onLogout())
     expect(retirementError).toHaveBeenCalledWith("Account disk cache retirement failed", expect.objectContaining({ message: "cache" }))
     retirementError.mockRestore()
-    expect(order).toEqual(["signOut", "session-notify", "query", "cache", "replace:/sign-in"])
+    expect(order).toEqual(["signOut", "session-notify", "query", "cache", "replace:/sign-in?logout=1"])
     expect(hook.router.push).not.toHaveBeenCalled()
     expect(hook.router.replace).not.toHaveBeenCalled()
 
@@ -596,6 +596,20 @@ describe("useShellProfileController", () => {
     expect(mocks.toastApiError).toHaveBeenCalledWith(expect.any(Error), "Failed to log out", expect.any(Function))
     expect(mocks.clearCache).not.toHaveBeenCalled()
     expect(order.some((entry) => entry.startsWith("replace:"))).toBe(false)
+  })
+
+  it("takes unresolved cached logout to the explicit sign-in form without a remote sign-out", async () => {
+    const replace = vi.fn()
+    vi.stubGlobal("location", { replace })
+    const hook = await renderController()
+    hook.registry.bindAuthentication(() => undefined, async () => { await mocks.clearCache() })
+    await act(async () => hook.current.userSettingsProps.onLogout())
+    expect(hook.registry.runtime.lifecycle.get().active).toBe(false)
+    expect(mocks.clearCache).toHaveBeenCalledOnce()
+    expect(mocks.signOut).not.toHaveBeenCalled()
+    expect(replace).toHaveBeenCalledExactlyOnceWith("/sign-in?logout=1")
+    expect(hook.router.replace).not.toHaveBeenCalled()
+    expect(hook.router.push).not.toHaveBeenCalled()
   })
 
   it("does not navigate or delete persisted cache when signOut returns an error", async () => {

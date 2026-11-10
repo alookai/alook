@@ -119,6 +119,60 @@ beforeEach(()=>{
 })
 afterEach(()=>{window.localStorage.clear();window.sessionStorage.clear();vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs()})
 describe("notification activation",()=>{
+  it.each(["web", "desktop", "mobile"] as const)("pauses cached %s effects until this document confirms the account", async platform => {
+    hookMocks.desktop = platform === "desktop"
+    hookMocks.mobile = platform === "mobile"
+    const owner = await createCommunityQueryOwner()
+    let viewer: string | undefined
+    owner.registry.bindAuthentication(() => viewer, async () => {})
+    const wrapped = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider,
+      { client: owner.client, registry: owner.registry, retainOwner: true }, createElement(wrapper, null, children))
+    const rendered = renderOwnedHook(() => {
+      useNotifications()
+      useNativeSystemNotificationConversationDismissal("viewer", target, true)
+    }, { wrapper: wrapped })
+    expect(presentation({ viewerUserId: "viewer", targetId: "channel_1" })).toBeUndefined()
+    for (const call of [hookMocks.listen, hookMocks.take, hookMocks.mobileListen, hookMocks.mobileCheck, hookMocks.mobileTake, hookMocks.dismissConversation, hookMocks.mobileDismissConversation]) expect(call).not.toHaveBeenCalled()
+    act(() => { viewer = "viewer"; owner.registry.confirmAuthentication() })
+    await waitFor(() => expect(presentation({ viewerUserId: "viewer", targetId: "channel_1" })).toBe(platform !== "web"))
+    if (platform === "desktop") await waitFor(() => expect(hookMocks.take).toHaveBeenCalledOnce())
+    if (platform === "mobile") await waitFor(() => expect(hookMocks.mobileTake).toHaveBeenCalledOnce())
+    rendered.unmount()
+  })
+  it("retains the same confirmed native owner during a later network failure", async () => {
+    const owner = await createCommunityQueryOwner()
+    let viewer: string | undefined = "viewer"
+    owner.registry.bindAuthentication(() => viewer, async () => {})
+    owner.registry.confirmAuthentication()
+    let wake!: () => void
+    hookMocks.listen.mockImplementation(async callback => { wake = callback; return () => undefined })
+    const wrapped = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider,
+      { client: owner.client, registry: owner.registry, retainOwner: true }, children)
+    const rendered = renderOwnedHook(useNotifications, { wrapper: wrapped })
+    await waitFor(() => expect(hookMocks.take).toHaveBeenCalledOnce())
+    act(() => { viewer = undefined; wake() })
+    await waitFor(() => expect(hookMocks.take).toHaveBeenCalledTimes(2))
+    expect(hookMocks.listen).toHaveBeenCalledOnce()
+    rendered.unmount()
+  })
+  it.each([null, "other"])("rejects delayed native activation after the SDK reports %s", async nextViewer => {
+    const owner = await createCommunityQueryOwner()
+    let viewer: string | null = "viewer"
+    owner.registry.bindAuthentication(() => viewer, async () => {})
+    owner.registry.confirmAuthentication()
+    let release!: (value: DesktopSystemNotificationActivation) => void
+    hookMocks.take.mockReturnValueOnce(new Promise(resolve => { release = resolve }))
+    const wrapped = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider,
+      { client: owner.client, registry: owner.registry, retainOwner: true }, children)
+    const rendered = renderOwnedHook(useNotifications, { wrapper: wrapped })
+    await waitFor(() => expect(hookMocks.take).toHaveBeenCalledOnce())
+    await act(async () => { viewer = nextViewer; release(activation) })
+    expect(route.navigation.pushImmediate).not.toHaveBeenCalled()
+    expect(window.sessionStorage.length).toBe(0)
+    expect(hookMocks.dismiss).not.toHaveBeenCalled()
+    expect(presentation({ viewerUserId: "viewer", targetId: "channel_1" })).toBe(false)
+    rendered.unmount()
+  })
   it("queues and navigates immediately without starting a HTTP precheck",async()=>{
     const fetch=vi.fn(()=>new Promise<Response>(()=>undefined));vi.stubGlobal("fetch",fetch)
     const calls:string[]=[]

@@ -32,6 +32,7 @@ import {
   resolveProfileUserId,
 } from "@/components/community/social/profile-lookup"
 import { useAccountSignOut } from "@/hooks/community/use-account-sign-out"
+import { SIGN_OUT_ENTRY_PATH } from "@/lib/sign-out-navigation"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
@@ -317,7 +318,7 @@ export function useShellProfileController({
   const logout = useAccountSignOut()
   const onLogout = async () => {
     const token = captureCommunityLiveSnapshotToken(queryClient)
-    try { if (await logout.mutateAsync()) globalThis.location.replace("/sign-in") }
+    try { if (await logout.mutateAsync()) globalThis.location.replace(SIGN_OUT_ENTRY_PATH) }
     catch (error) { toastApiError(error, "Failed to log out", () => assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)) }
   }
 

@@ -3,17 +3,20 @@
 import { useConversationActivity } from "@/contexts/view-activity"
 import { useLayoutEffect, useMemo } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
-import { useCommunityMutationOrigin } from "./community-origin"
+import { useCommunityMutationOrigin, useCommunityOnlineAccount } from "./community-origin"
+import { isAbortError } from "@/lib/errors"
 
 export function useCommunityViewSource(identity: string, enabled = true) {
   enabled = useConversationActivity() && enabled
   const origin = useCommunityMutationOrigin()
-  const view = useMemo(() => createStore({ identity, owner: origin.registry, active: enabled, generation: 0, controller: new AbortController() }), [origin.registry, identity, enabled])
+  const onlineAccount = useCommunityOnlineAccount()
+  const active = enabled && onlineAccount
+  const view = useMemo(() => createStore({ identity, owner: origin.registry, active, generation: 0, controller: new AbortController() }), [origin.registry, identity, active])
   useLayoutEffect(() => {
-    view.setState((state) => ({ ...state, active: enabled, controller: state.controller.signal.aborted ? new AbortController() : state.controller }))
+    view.setState((state) => ({ ...state, active, controller: state.controller.signal.aborted ? new AbortController() : state.controller }))
     const original = view.get().controller
     return () => { view.setState((state) => ({ ...state, active: false, generation: state.generation + 1 })); original.abort() }
-  }, [view, enabled])
+  }, [view, active])
   const signal = useSelector(view, (state) => state.controller.signal)
   return useMemo(() => {
     const capture = () => {
@@ -32,6 +35,16 @@ export function useCommunityViewSource(identity: string, enabled = true) {
       view.setState((state) => ({ ...state, active: false, generation: state.generation + 1 }))
       controller.abort()
     }
-    return { capture, signal, retire }
-  }, [origin, signal, view])
+    const tryCapture = () => {
+      if (!onlineAccount || !origin.registry?.isOnlineAccount()) return
+      try {
+        const assert = capture()
+        assert()
+        return assert
+      } catch (error) {
+        if (!isAbortError(error)) throw error
+      }
+    }
+    return { capture, tryCapture, online: onlineAccount, signal, retire }
+  }, [onlineAccount, origin, signal, view])
 }

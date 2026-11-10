@@ -64,7 +64,8 @@ function qualifiedWindow(query: Query, initial: InitialMessageWindow, tag: strin
 
 export function assessConversationScope(client: QueryClient, target: ConversationEntryTarget) {
   const registry = getCommunityDbRegistry(client)
-  if (!registry?.accountId || registry.sessionViewer() !== registry.accountId || registry.runtime.ws.get().profileViewerId !== registry.accountId) return { reason: "account_unknown" as const }
+  const viewer = registry?.sessionViewer()
+  if (!registry?.accountId || viewer !== undefined && viewer !== registry.accountId || registry.runtime.ws.get().profileViewerId !== registry.accountId) return { reason: "account_unknown" as const }
   if (!registry.runtime.lifecycle.get().active) return { reason: "owner_retired" as const }
   const channel = registry.collections.channels.get(target.channelId)
   if (registry.runtime.ws.actions.isChannelAccessRevoked(target.channelId, target.serverId, channel?.parentChannelId ?? undefined)) return { reason: "revoked" as const }

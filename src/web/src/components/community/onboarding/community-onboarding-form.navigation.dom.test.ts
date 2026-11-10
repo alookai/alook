@@ -122,6 +122,16 @@ describe("CommunityOnboardingForm room navigation", () => {
     })
   })
 
+  it("preserves an initialization checkpoint until its account confirms", async () => {
+    owner.registry.bindAuthentication(() => undefined, async () => {})
+    render(createElement(CommunityOnboardingForm))
+    expect(owner.runtime.ui.get().onboardingState).toMatchObject({ stage: "initializing" })
+    expect(mocks.initialize).not.toHaveBeenCalled()
+    await act(async () => { owner.registry.bindAuthentication(() => "user-1", async () => {}); owner.registry.confirmAuthentication() })
+    await waitFor(() => expect(mocks.initialize).toHaveBeenCalledOnce())
+    expect(owner.runtime.ui.get().onboardingState).toMatchObject({ stage: "initializing" })
+  })
+
   it.each(["harness", "machine"])("ignores outside clicks and Escape during %s until Exit setup is clicked", async (stage) => {
     mocks.state = { status: "active", stage, ...(stage === "machine" ? { harness: "codex", setupMode: "manual" } : {}) }
     render(createElement(CommunityOnboardingForm))

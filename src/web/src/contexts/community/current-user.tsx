@@ -31,9 +31,11 @@ export type CurrentUser = {
   presence?: Presence
 }
 
+export type CurrentUserIdentity = Pick<CurrentUser, "id" | "email"> & Partial<Omit<CurrentUser, "id" | "email">>
+
 const CurrentUserContext = createContext<Pick<CurrentUser, "id" | "email"> | null>(null)
 
-export function CurrentUserProvider({ initialUser, children }: { initialUser: CurrentUser; children: ReactNode }) {
+export function CurrentUserProvider({ initialUser, children }: { initialUser: CurrentUserIdentity; children: ReactNode }) {
   const identity = useMemo(() => ({ id: initialUser.id, email: initialUser.email }), [initialUser.id, initialUser.email])
   return <CurrentUserContext.Provider value={identity}>{children}</CurrentUserContext.Provider>
 }

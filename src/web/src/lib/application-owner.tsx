@@ -13,9 +13,9 @@ import { captureTelemetryIdentityRetirement, setTelemetryUser } from "@/lib/obse
 import { disposeQueryDiagnostics } from "@/lib/observability/query-observer"
 import { registerBusinessSchemaOwner } from "@/lib/business-schema-lifecycle"
 
-export function createApplicationOwner(userId: string, queryClient = createQueryClient()) {
+export function createApplicationOwner(userId: string, queryClient = createQueryClient(), assertEligible = () => {}) {
   const bindings = createStore({ retireDisk: () => clearPersistedCache(userId), sessionViewer: () => userId as string | null | undefined })
-  return { userId, queryClient, retireDisk: () => bindings.get().retireDisk(), sessionViewer: () => bindings.get().sessionViewer(), bindAuthentication: (sessionViewer: () => string | null | undefined, retireDisk: () => Promise<void>) => bindings.setState(() => ({ sessionViewer, retireDisk })), lifecycle: createStore({ active: true, generation: 0 }) }
+  return { userId, queryClient, assertEligible, retireDisk: () => bindings.get().retireDisk(), sessionViewer: () => bindings.get().sessionViewer(), bindAuthentication: (sessionViewer: () => string | null | undefined, retireDisk: () => Promise<void>) => bindings.setState(() => ({ sessionViewer, retireDisk })), lifecycle: createStore({ active: true, generation: 0 }) }
 }
 export type ApplicationOwner = ReturnType<typeof createApplicationOwner>
 const { StoreProvider, useStoreContext } = createStoreContext<{ owner: ApplicationOwner }>()
@@ -32,6 +32,7 @@ export function assertApplicationOwner(
   token: ReturnType<typeof captureApplicationOwner>, signal?: AbortSignal,
 ) {
   const state = token.owner.lifecycle.get()
+  token.owner.assertEligible()
   if (!state.active || state.generation !== token.generation || signal?.aborted) {
     throw new DOMException("Retired application owner", "AbortError")
   }

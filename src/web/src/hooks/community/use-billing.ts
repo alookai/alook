@@ -5,7 +5,7 @@ import { emitTelemetry } from "@/lib/observability/telemetry"
 import { useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { BillingSummarySchema, BillingRedirectResponseSchema } from "@alook/shared"
-import { useCommunityMutationOrigin } from "./community-origin"
+import { useCommunityMutationOrigin, useCommunityOnlineAccount } from "./community-origin"
 import { useCreateStore, useSelector } from "@tanstack/react-store"
 import { applicationKey, captureApplicationOwner, assertApplicationOwner, invalidateApplicationAuthentication, type ApplicationOwner } from "@/lib/application-owner"
 import { isAbortError } from "@/lib/errors"
@@ -30,6 +30,9 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
   const qc = useQueryClient()
   const communityOrigin = useCommunityMutationOrigin()
   const registry = communityOrigin.registry
+  const onlineAccount = useCommunityOnlineAccount()
+  const admitted = registry ? onlineAccount : !!application
+  const viewActive = enabled && admitted
   const key = useMemo(() => application ? applicationKey(application, "billing") : communityKeys.billing(), [application])
   const capture = useCallback(() => {
     if (application) {
@@ -44,16 +47,26 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
     const token = communityOrigin.begin().token
     return { assert: () => communityOrigin.assert(token), request: <T,>(path: string, options?: ApiRequestOptions) => communityOrigin.request<T>(token, path, options) }
   }, [application, communityOrigin])
+  const tryCapture = useCallback(() => {
+    if (!admitted || registry && !registry.isOnlineAccount()) return
+    try {
+      const original = capture()
+      original.assert()
+      return original
+    } catch (error) {
+      if (!isAbortError(error)) throw error
+    }
+  }, [admitted, capture, registry])
   const ui = useCreateStore({
-    active: enabled, generation: 0, lock: null as symbol | null, redirecting: false,
+    active: viewActive, generation: 0, lock: null as symbol | null, redirecting: false,
     actionError: null as string | null, polling: false, observedPlan: null as string | null,
     handledReturn: null as BillingReturn, returnStartedAt: 0, returnComplete: false,
   })
   const state = useSelector(ui, (state) => state)
   useLayoutEffect(() => {
-    ui.setState((state) => ({ ...state, active: enabled, ...(!state.active && enabled ? { lock: null, redirecting: false } : {}) }))
+    ui.setState((state) => ({ ...state, active: viewActive, ...(!state.active && viewActive ? { lock: null, redirecting: false } : {}) }))
     return () => ui.setState((state) => ({ ...state, active: false, generation: state.generation + 1 }))
-  }, [ui, enabled])
+  }, [ui, viewActive])
   const captureView = useCallback(() => {
     const original = capture(), generation = ui.get().generation
     return { ...original, assertView: () => {
@@ -63,7 +76,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
     } }
   }, [capture, ui])
   const query = useQuery({
-    queryKey: key, enabled, subscribed: enabled,
+    queryKey: key, enabled: enabled && admitted, subscribed: enabled,
     queryFn: async ({ signal }) => {
       const original = capture()
       const summary = BillingSummarySchema.parse(await original.request<unknown>("/api/community/billing", { signal }))
@@ -83,11 +96,11 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
     const restore = (event: PageTransitionEvent) => {
       if (!event.persisted) return
       ui.setState((state) => ({ ...state, lock: null, redirecting: false }))
-      if (enabled) { capture().assert(); void qc.invalidateQueries({ queryKey: key, exact: true }); invalidateDependents() }
+      if (enabled && tryCapture()) { void qc.invalidateQueries({ queryKey: key, exact: true }); invalidateDependents() }
     }
     window.addEventListener("pageshow", restore)
     return () => window.removeEventListener("pageshow", restore)
-  }, [capture, enabled, invalidateDependents, key, qc, ui])
+  }, [tryCapture, enabled, invalidateDependents, key, qc, ui])
   useEffect(() => {
     const current = ui.get()
     if (!returnFrom || !enabled) {
@@ -98,24 +111,24 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
       if (!current.returnComplete && returnFrom !== "cancel" && Date.now() - current.returnStartedAt < 30_000) ui.setState((state) => ({ ...state, polling: true }))
       return
     }
-    capture().assert()
+    if (!tryCapture()) return
     emitTelemetry("business.result", { action_name: "billing_return", phase: "auth", outcome: returnFrom === "cancel" ? "cancelled" : "observed", capability: "limited" })
     ui.setState((state) => ({ ...state, handledReturn: returnFrom, returnComplete: false, returnStartedAt: Date.now(), polling: returnFrom !== "cancel" }))
     void qc.invalidateQueries({ queryKey: key, exact: true })
     invalidateDependents()
-  }, [enabled, returnFrom, qc, ui, capture, key, invalidateDependents])
+  }, [enabled, returnFrom, qc, ui, tryCapture, key, invalidateDependents])
   useEffect(() => {
-    if (!enabled || !state.polling) return
+    if (!enabled || !state.polling || !tryCapture()) return
     const original = captureView()
     const timer = setTimeout(() => {
       try { original.assertView() } catch { return }
       ui.setState((state) => ({ ...state, returnComplete: true, polling: false }))
     }, Math.max(0, 30_000 - (Date.now() - state.returnStartedAt)))
     return () => clearTimeout(timer)
-  }, [captureView, enabled, state.polling, state.returnStartedAt, ui])
+  }, [captureView, tryCapture, enabled, state.polling, state.returnStartedAt, ui])
   useEffect(() => {
     if (!enabled || !query.data) return
-    capture().assert()
+    if (!tryCapture()) return
     const projection = `${query.data.plan.id}:${query.data.isFounder}`
     const cachedBots = registry ? qc.getQueryData<{ plan: { id: string }; isFounder: boolean }>(communityKeys.bots()) : undefined
     const previous = ui.get().observedPlan ?? (cachedBots ? `${cachedBots.plan.id}:${cachedBots.isFounder}` : null)
@@ -124,7 +137,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
       && query.data.subscription?.status === "active" && query.data.subscription.plan.id === query.data.plan.id
     if (settled && !ui.get().returnComplete) emitTelemetry("business.result", { action_name: "billing_return", outcome: "success", phase: "primary" })
     ui.setState((state) => ({ ...state, observedPlan: projection, ...(settled ? { returnComplete: true, polling: false } : {}) }))
-  }, [enabled, returnFrom, query.data, query.dataUpdatedAt, qc, ui, capture, registry, invalidateDependents])
+  }, [enabled, returnFrom, query.data, query.dataUpdatedAt, qc, ui, tryCapture, registry, invalidateDependents])
   type Original = ReturnType<typeof captureView>
   const redirect = useMutation({ meta: { observabilityAction: "billing.redirect" },
     mutationKey: [...key, "redirect"], retry: false,

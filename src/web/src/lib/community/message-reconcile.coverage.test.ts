@@ -5,7 +5,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture as fixture } from "@/test/conversation-entry-fixtures"
 import { conversationEntryOptions, publishConversationEntry } from "@/lib/community/conversation-entry"
 import { captureCommunityLiveSnapshotToken, ingestMessages } from "@/lib/community-db/sync"
-import { messageWindowPage, type MessagesPage } from "@/lib/community/models/message"
+import { messageWindowPage, type MessagesPage, type MessagesReadPage } from "@/lib/community/models/message"
 import type { MessageWindowData } from "@/lib/community/message-window"
 import { prefetchCommunityLatestMessage, prefetchCommunityMessage } from "../../hooks/community/use-message"
 import { reconcileConversationLanding, reconcileFocusedMessageQueries, reconcileWindow } from "@/lib/community/message-reconcile"
@@ -51,6 +51,66 @@ async function setup(sequences = [98, 99, 100], tag: string | null = null) {
 }
 
 describe("complete canonical coverage at the existing repair owner", () => {
+  it.each([false, true])("preserves a completed empty history page when the fresh newest page hasMoreOlder=%s", async hasMoreOlder => {
+    const h = await setup()
+    h.client.setQueryData<MessageWindowData>(h.key, current => current && ({
+      pages: [{ ...current.pages[0], messages: [{ id: "m100", seq: 100 }] },
+        { ...current.pages[0], messages: [{ id: "m98", seq: 98 }, { id: "m99", seq: 99 }], olderCursor: "old-2" },
+        { ...current.pages[0], messages: [], hasMoreOlder: false }],
+      pageParams: [{ mode: "newest" }, { mode: "older", cursor: "old-1" }, { mode: "older", cursor: "old-2" }],
+    }))
+    const before = h.read()
+    try {
+      await reconcileConversationLanding(h.client, { kind: "channel", scopeId: "c1", serverId: "s1" }, h.key,
+        messageReadPageFixture({ messages: [98, 99, 100].map(row), latestSeq: 100, hasMoreOlder, hasMoreNewer: false }),
+        { mode: "newest" }, h.repairOwner)
+      expect(load).not.toHaveBeenCalled()
+      expect(h.read()).toBe(before)
+      expect(h.read().pages.at(-1)?.hasMoreOlder).toBe(false)
+    } finally { h.unsubscribe() }
+  })
+
+  it.each([
+    { newerUnknown: false, split: false, earlier: false }, { newerUnknown: true, split: false, earlier: false },
+    { newerUnknown: true, split: true, earlier: false }, { newerUnknown: false, split: false, earlier: true },
+    { newerUnknown: true, split: true, earlier: true },
+  ])("adopts a fresh history boundary covering the retained oldest message without another read (newer unknown=$newerUnknown, split=$split, earlier=$earlier)", async ({ newerUnknown, split, earlier }) => {
+    const h = await setup(earlier ? [100] : [98, 99, 100])
+    h.client.setQueryData<MessageWindowData>(h.key, current => current && ({ ...current, pages: current.pages.map(part => ({
+      ...part, hasMoreOlder: true, olderCursor: `${row(98).createdAt}|m98`, hasMoreNewer: newerUnknown,
+    })) }))
+    if (split) h.client.setQueryData<MessageWindowData>(h.key, current => current && ({
+      pages: [{ ...current.pages[0], messages: [{ id: "m100", seq: 100 }] }, { ...current.pages[0], messages: earlier ? [{ id: "m99", seq: 99 }] : [{ id: "m98", seq: 98 }, { id: "m99", seq: 99 }] }],
+      pageParams: [{ mode: "newest" }, { mode: "older", cursor: "history" }],
+    }))
+    const params = h.read().pageParams
+    try {
+      await reconcileConversationLanding(h.client, { kind: "channel", scopeId: "c1", serverId: "s1" }, h.key,
+        messageReadPageFixture({ messages: [98, 99, 100].map(row), latestSeq: 100, hasMoreOlder: false, hasMoreNewer: false }),
+        { mode: "newest" }, h.repairOwner)
+      expect(load).not.toHaveBeenCalled()
+      expect(h.read().pages.at(-1)).toMatchObject({ hasMoreOlder: false, olderCursor: undefined })
+      expect(h.read().pages[0].hasMoreNewer).toBe(false)
+      expect(h.ids().sort()).toEqual(["m100", "m98", "m99"])
+      expect(h.read().pageParams).toEqual(params)
+    } finally { h.unsubscribe() }
+  })
+
+  it.each(["truncated", "empty", "unknown"] as const)("retains the earlier history boundary when fresh evidence is %s", async evidence => {
+    const h = await setup()
+    const before = h.read().pages.at(-1)
+    const fresh: MessagesReadPage = messageReadPageFixture({ messages: evidence === "empty" ? [] : (evidence === "truncated" ? [row(100)] : [98, 99, 100].map(row)), latestSeq: 100, hasMoreOlder: false, hasMoreNewer: false })
+    if (evidence === "unknown") delete fresh.hasMoreOlder
+    try {
+      await reconcileConversationLanding(h.client, { kind: "channel", scopeId: "c1", serverId: "s1" }, h.key,
+        fresh, { mode: "newest" }, h.repairOwner)
+      expect(load).not.toHaveBeenCalled()
+      expect(h.read().pages.at(-1)).toBe(before)
+      expect(h.read().pages.at(-1)?.hasMoreOlder).toBe(true)
+      expect(h.ids()).toEqual(["m98", "m99", "m100"])
+    } finally { h.unsubscribe() }
+  })
+
   it.each([false, true])("merges a matching complete landing without fetching its last message again (watermark ahead=%s)", async watermarkAhead => {
     const h = await setup()
     if (watermarkAhead) h.client.setQueryData<MessageWindowData>(h.key, current => current && ({ ...current, pages: current.pages.map(part => ({ ...part, latestSeq: 101 })) }))

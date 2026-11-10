@@ -20,7 +20,7 @@ import { useComposerController } from "@/components/community/messages/use-compo
 import { CommunityMentionList } from "@/components/community/messages/composer-suggestion-popups"
 import { EditorContent, type Editor } from "@tiptap/react"
 const mocks = vi.hoisted(() => ({ restore: vi.fn(), api: vi.fn(),
-  persistClient: vi.fn(async () => {}), removeClient: vi.fn(async () => {}), isCurrent: vi.fn(async () => true), retireAccount: vi.fn(async () => {}), retireChannels: vi.fn(async () => {}),
+  persistClient: vi.fn(async () => {}), removeClient: vi.fn(async () => {}), isCurrent: vi.fn(async () => true), retireAccount: vi.fn(async () => {}), rememberAccountIdentity: vi.fn(async () => {}), retireChannels: vi.fn(async () => {}),
 }))
 vi.mock("@/lib/auth-client", () => ({ useSession: () => ({ data: { user: { id: "viewer" } }, isPending: false, error: null }), currentSessionViewer: () => "viewer" }))
 vi.mock("next/navigation", () => ({ usePathname: () => "/c/channels/s1/c1", useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }))

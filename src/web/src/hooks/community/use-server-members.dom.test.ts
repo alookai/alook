@@ -28,7 +28,7 @@ import {
 } from "./use-server-members"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { profileSchema, serverMembershipKey, serverMembershipSchema } from "@/lib/community-db/schema"
-import { createCommunityDbRegistry } from "@/lib/community-db/collections"
+import { createCommunityDbRegistry, getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, publishCommunityMemberRemoval } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import type { Member } from "@/lib/community/models/people"
@@ -104,6 +104,25 @@ function makeEnvelope(members: Member[], hasMore: boolean, total = members.lengt
 function makeSearchEnvelope(members: ReturnType<typeof m>[], hasMore: boolean) {
   return { viewerId: "viewer", serverId: "srv_1", members, hasMore, limit: 50, ...(hasMore ? { cursor: "cur_next" } : {}) }
 }
+
+it("keeps a queued member search until account confirmation resumes its debounce", async () => {
+  vi.useFakeTimers()
+  apiFetchMock.mockImplementation((url: string) => Promise.resolve(isSearchUrl(url) ? makeSearchEnvelope([], false) : makeEnvelope([], false)))
+  const harness = await mountServerMembers()
+  const registry = getCommunityDbRegistry(harness.queryClient)!
+  await act(async () => {
+    harness.resultRef.current!.searchMembers("pending")
+    registry.bindAuthentication(() => undefined, async () => {})
+    await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS + 1)
+  })
+  expect(apiFetchMock.mock.calls.filter(([url]) => isSearchUrl(url))).toEqual([])
+  await act(async () => {
+    registry.bindAuthentication(() => "viewer", async () => {})
+    registry.confirmAuthentication()
+    await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS + 1)
+  })
+  expect(apiFetchMock.mock.calls.filter(([url]) => isSearchUrl(url))).toHaveLength(1)
+})
 
 describe("membersPageQueryFn", () => {
   it("hits /members with no query string on page 1 and appends cursor on later pages", async () => {

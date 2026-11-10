@@ -1,5 +1,5 @@
 import { isServerDirectoryWindowKey, readServerDirectoryWindow, serverDirectoryWindowComplete, type ServerDirectoryWindow } from "@/lib/community/server-directory-window"
-import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { CommunitySelfProfileReadSchema } from "@alook/shared"
 import { forumSidebarWindowComplete, isForumSidebarWindowKey, readForumSidebarWindowResult } from "@/lib/community/forum-sidebar-window"
 import { clearLegacyChatCaches, getLegacyChatCacheSizeBytes } from "@/lib/legacy-chat-persistence"
 import { clearPublicWorkerCaches, getPublicWorkerCacheSizeBytes } from "@/lib/service-worker/public-cache-storage"
@@ -10,7 +10,7 @@ import type {
   PersistedClient,
   Persister,
 } from "@tanstack/react-query-persist-client"
-import { createStore, get, promisifyRequest } from "idb-keyval"
+import { get, promisifyRequest } from "idb-keyval"
 import { isCommunityListResourceKey, persistentCommunityListResource } from "@/lib/community/list-persistence"
 import {
   communityCollectionSchemas,
@@ -18,10 +18,14 @@ import {
   type CommunityCollectionRows,
 } from "@/lib/community-db/schema"
 
-export const PERSIST_VERSION = BUSINESS_SCHEMA_VERSION
-export const PERSIST_BUSTER = String(PERSIST_VERSION)
-export const PERSIST_CACHE_PREFIX = `alook:business:v${BUSINESS_SCHEMA_VERSION}`
-export const PERSIST_ACCOUNT_PREFIX = "alook:qc:cache"
+import {
+  PERSIST_VERSION, PERSIST_BUSTER, PERSIST_CACHE_PREFIX, PERSIST_ACCOUNT_PREFIX,
+  DEVICE_EPOCH_KEY, LAST_ACCOUNT_KEY, accountEpochKey, scopeEpochKey, blobKeyFor,
+  accountIdentityRecord, readPersistedAccountClaim, isEpoch, communityScopeEpoch,
+  type AccountIdentityRecord, type PersistedAccountIdentity,
+} from "./persisted-account-identity"
+import { cacheStore, cacheTransaction } from "./query-cache-store"
+export { PERSIST_VERSION, PERSIST_BUSTER, PERSIST_CACHE_PREFIX, PERSIST_ACCOUNT_PREFIX, type PersistedAccountIdentity } from "./persisted-account-identity"
 const IDB_PREFIX = PERSIST_CACHE_PREFIX
 
 export const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
@@ -239,24 +243,13 @@ function scrubDehydratedClient(
   }
 }
 
-/** IDB key namespace for a given user. `null` = pre-auth or logged out. */
-function namespaceFor(userId: string | null): string {
-  return `${IDB_PREFIX}:${userId ?? "anon"}`
-}
-
-/** Storage sub-key for the persister blob within a user's namespace. */
-type PersistDomain = "community" | "application"
 export const CACHE_INVALIDATION_STORAGE_KEY = "alook:qc:invalidation"
 export const cacheInvalidation = createNativeStore(0)
 function publishCacheInvalidation() {
   cacheInvalidation.setState((version) => version + 1)
   try { if (typeof localStorage !== "undefined") localStorage.setItem(CACHE_INVALIDATION_STORAGE_KEY, crypto.randomUUID()) } catch {}
 }
-export type QualifiedPersister = Persister & { isCurrent: () => Promise<boolean>; retireAccount: () => Promise<void>; retireChannels: (ids: Iterable<string>, deleted?: boolean) => Promise<void> }
-function blobKeyFor(userId: string | null, domain: PersistDomain = "community"): string {
-  return `${namespaceFor(userId)}${domain === "application" ? ":application" : ""}:client`
-}
-
+export type QualifiedPersister = Persister & { rememberAccountIdentity: (identity: PersistedAccountIdentity, assertCurrent: () => void) => Promise<void>; isCurrent: () => Promise<boolean>; retireAccount: () => Promise<void>; retireChannels: (ids: Iterable<string>, deleted?: boolean) => Promise<void> }
 function isPersistedCacheBlobKey(key: IDBValidKey): key is string {
   return typeof key === "string" && /^alook:(?:qc:[^:]+|business:v\d+):[^:]+(?::application)?:client$/.test(key)
 }
@@ -273,12 +266,6 @@ export function formatBytes(bytes: number): string {
   return `${Number(value.toFixed(1))} ${units[unitIndex]}`
 }
 
-// Reuse idb-keyval's existing database and native transaction serialization.
-// No document-local lock can fence a writer in another tab.
-const cacheStore = createStore("keyval-store", "keyval")
-const DEVICE_EPOCH_KEY = "alook:qc:device-epoch"
-const scopeEpochKey = (key: string) => `${key}:epoch`
-const accountEpochKey = (userId: string | null) => `${PERSIST_ACCOUNT_PREFIX}:${userId ?? "anon"}:account-epoch`
 type ChannelDiskFence = { epoch: string; deleted: boolean }
 type PersistEligibility = { device: string; scope: string; account: string; channels: Map<string, ChannelDiskFence> }
 const channelFenceKey = (userId: string | null) => `${accountEpochKey(userId)}:channels`
@@ -300,36 +287,32 @@ function decodeDiskSnapshot(raw: unknown) {
   } catch { return undefined }
 }
 
-const isEpoch = (value: unknown): value is string => (
-  typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
-)
-
-function communityScopeEpoch(value: unknown): string | undefined {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined
-  const scope = value as Record<string, unknown>
-  return Object.keys(scope).length === 2 && scope.version === PERSIST_VERSION && isEpoch(scope.epoch)
-    ? scope.epoch : undefined
-}
-
-async function cacheTransaction<T>(
-  mode: IDBTransactionMode,
-  operation: (store: IDBObjectStore) => Promise<T>,
-): Promise<T> {
-  return cacheStore(mode, async (store) => {
-    const committed = promisifyRequest(store.transaction)
-    try {
-      const result = await operation(store)
-      await committed
-      return result
-    } catch (error) {
-      await committed.catch(() => undefined)
-      throw error
-    }
+export async function readPersistedAccountIdentity(): Promise<PersistedAccountIdentity | undefined> {
+  return cacheTransaction("readonly", async store => {
+    const identity = await readPersistedAccountClaim(store)
+    if (!identity) return undefined
+    const key = blobKeyFor(identity.id)
+    const current = await readEligibility(store, key, identity.id)
+    if (current.device !== identity.device || current.account !== identity.account
+      || communityScopeEpoch(current.scope) !== identity.scope || !isChannelFences(current.channels)) return undefined
+    const decoded = decodeDiskSnapshot(await promisifyRequest<unknown>(store.get(key)))
+    if (!decoded || decoded.ownerEpochs.device !== identity.device || decoded.ownerEpochs.account !== identity.account) return undefined
+    const restored = readCommunityRestoredCollections(decoded.snapshot, identity.id)
+    const self = CommunitySelfProfileReadSchema.strip().safeParse(restored.profiles?.rows.find(profile => profile.id === identity.id))
+    if (!self.success || self.data.id !== identity.id) return undefined
+    return { id: identity.id, email: identity.email }
   })
 }
 
-export function preparePersistedCache(): Promise<void> {
-  return cacheTransaction("readonly", async () => undefined)
+export async function retirePersistedAccountIdentity(identity: AccountIdentityRecord, assertCurrent: () => void): Promise<void> {
+  const retired = await cacheTransaction("readwrite", async store => {
+    const current = await readEligibility(store, blobKeyFor(identity.id), identity.id)
+    assertCurrent()
+    if (current.device !== identity.device || current.account !== identity.account || communityScopeEpoch(current.scope) !== identity.scope) return false
+    await clearAccountRows(store, identity.id)
+    return true
+  })
+  if (retired) publishCacheInvalidation()
 }
 
 async function readEligibility(store: IDBObjectStore, key: string, userId: string | null) {
@@ -446,6 +429,15 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
     removeClient: () => { discardInitialSnapshot(); return writer.removeClient() },
   }
   return Object.assign(persister, {
+    rememberAccountIdentity: (identity: PersistedAccountIdentity, assertCurrent: () => void) => withEligiblePersister(
+      key, userId, eligibility, "readwrite", undefined, async store => {
+        assertCurrent()
+        if (identity.id !== userId || !identity.email) return
+        const { device, account, scope } = await eligibility
+        assertCurrent()
+        store.put({ id: identity.id, email: identity.email, version: PERSIST_VERSION, device, account, scope }, LAST_ACCOUNT_KEY)
+      },
+    ),
     isCurrent: () => withEligiblePersister(key, userId, eligibility, "readonly", false, async () => true),
     retireChannels: (ids: Iterable<string>, deleted = false) => {
       discardInitialSnapshot()
@@ -461,6 +453,8 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
 
 async function clearAccountRows(store: IDBObjectStore, userId: string | null, legacyOnly = false): Promise<void> {
   if (!legacyOnly) {
+    const identity = accountIdentityRecord(await promisifyRequest<unknown>(store.get(LAST_ACCOUNT_KEY)))
+    if (identity?.id === userId) store.delete(LAST_ACCOUNT_KEY)
     store.put(crypto.randomUUID(), accountEpochKey(userId))
     store.put(new Map(), channelFenceKey(userId))
     for (const domain of ["community", "application"] as const) {
@@ -536,6 +530,7 @@ export async function getPersistedCacheSizeBytes(signal?: AbortSignal): Promise<
 /** Clear this device, including qualified writers with no payload yet. */
 export async function clearAllPersistedCaches(): Promise<void> {
   await cacheTransaction("readwrite", (store) => new Promise<void>((resolve, reject) => {
+    store.delete(LAST_ACCOUNT_KEY)
     store.put(crypto.randomUUID(), DEVICE_EPOCH_KEY)
     const request = store.openCursor()
     request.onerror = () => reject(request.error)

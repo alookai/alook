@@ -2,7 +2,7 @@
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
-import { hashKey, useIsRestoring, useQuery, useQueryClient } from "@tanstack/react-query"
+import { hashKey, replaceEqualDeep, useIsRestoring, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useConversationActivity, useConversationPresentation } from "@/contexts/view-activity"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { channelHref, normalizeCommunityHref } from "@/lib/community/community-route"
@@ -252,7 +252,7 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
     ? findConversationEntryWindow(client, input, candidateScope, candidatePointer) : undefined
   const display = !selected.window && candidateScope ? findConversationDisplayWindow(client, input, candidateScope) : undefined
   const window = canRead ? (selected.retained ? selected.window : candidate) ?? selected.window ?? candidate ?? display ?? null : null
-  const snapshot = window ? (!selected.covered ? candidatePointer ?? selected.snapshot : selected.snapshot) ?? null : null
+  const snapshot = replaceEqualDeep(selected.snapshot, window ? (!selected.covered ? candidatePointer ?? selected.snapshot : selected.snapshot) ?? null : null)
   const targetCovered = canRead && (selected.covered || !!candidate)
   const newBoundary = selected.newBoundary ?? (candidateResource
     && (query.isSuccess && !query.isFetching && query.data === candidateResource

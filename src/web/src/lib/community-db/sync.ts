@@ -434,7 +434,7 @@ export function discardCommunityRestoreReplacements(registry: CommunityDbRegistr
 export async function restoreCommunityCollections(registry: CommunityDbRegistry, input: CommunityRestoredCollections) {
   const client = registry.queryClient
   const token = captureCommunityLiveSnapshotToken(client)
-  assertCommunityLiveSnapshotTokenCurrent(client, token, undefined)
+  assertCommunitySnapshotTokenCurrent(client, token, undefined)
   const replacements = canonicalRevisionState(client).restoreReplacements
   const excluded = (name: CollectionName, row: object) => replacements.some((replacement) => replacement.name === name && replacement.owns(row))
   const currentServers = new Set(collectionRows(registry, "servers").map((row) => row.id))
@@ -503,7 +503,7 @@ export async function restoreCommunityCollections(registry: CommunityDbRegistry,
     for (const name of Object.keys(input) as CollectionName[]) merge(name)
   })
   await Promise.all(completions)
-  assertCommunityLiveSnapshotTokenCurrent(client, token, undefined)
+  assertCommunitySnapshotTokenCurrent(client, token, undefined)
 }
 
 function patchRows<N extends CollectionName>(
@@ -1597,6 +1597,7 @@ function withCommunityQueryProof<T>(queryClient: QueryClient, proof: CommunityFr
     if (proof.signal?.aborted || registry !== proof.token.registry || !registry?.runtime.lifecycle.get().active
       || registry.runtime.lifecycle.get().generation !== proof.token.ownerGeneration
       || state?.profileViewerId !== proof.token.viewerId || state.profileAccountEpoch !== proof.token.accountEpoch) throw new DOMException("Retired community publication", "AbortError")
+    registry.assertOnlineAccount()
     if (proof.token.channelId) assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
   }
   try {
@@ -1673,7 +1674,16 @@ export function assertCommunityLiveSnapshotTokenCurrent(
   token: CommunityLiveSnapshotToken,
   signal: AbortSignal | undefined,
 ) {
-  assertCommunityLiveSnapshotOwnerCurrent(queryClient, token, signal)
+  assertCommunitySnapshotTokenCurrent(queryClient, token, signal)
+  token.registry!.assertOnlineAccount()
+}
+
+export function assertCommunitySnapshotTokenCurrent(
+  queryClient: QueryClient,
+  token: CommunityLiveSnapshotToken,
+  signal: AbortSignal | undefined,
+) {
+  assertCommunitySnapshotOwnerCurrent(queryClient, token, signal)
   const state = getCommunityRuntime(queryClient).ws.get()
   if (
     state.accessEpoch !== token.accessEpoch
@@ -1684,6 +1694,11 @@ export function assertCommunityLiveSnapshotTokenCurrent(
 }
 
 export function assertCommunityLiveSnapshotOwnerCurrent(queryClient: QueryClient, token: CommunityLiveSnapshotToken, signal: AbortSignal | undefined) {
+  assertCommunitySnapshotOwnerCurrent(queryClient, token, signal)
+  token.registry!.assertOnlineAccount()
+}
+
+function assertCommunitySnapshotOwnerCurrent(queryClient: QueryClient, token: CommunityLiveSnapshotToken, signal: AbortSignal | undefined) {
   const state = getCommunityRuntime(queryClient).ws.get()
   if (signal?.aborted || !token.registry?.runtime.lifecycle.get().active
     || token.registry.runtime.lifecycle.get().generation !== token.ownerGeneration
@@ -2448,6 +2463,7 @@ export function projectCommunityWsEventToDb(
 ) {
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry) return
+  registry.assertOnlineAccount()
   return withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
     switch (event.type) {
     case "community:friend.request": {

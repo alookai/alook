@@ -4,6 +4,7 @@ vi.mock("next/headers", () => ({ headers: mocks.headers }));
 vi.mock("@/lib/session", () => ({ getSession: mocks.getSession }));
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 import AuthLayout, { metadata } from "./layout";
+import { SIGN_OUT_ENTRY_HEADER } from "@/lib/sign-out-navigation";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -11,6 +12,14 @@ beforeEach(() => {
   mocks.getSession.mockResolvedValue(null);
 });
 describe("(auth) layout", () => {
+  it.each(["Cookie", "Authorization"])("keeps the explicit logout form despite a still-valid %s session", async name => {
+    mocks.headers.mockResolvedValue(new Headers({ [name]: "fixture", [SIGN_OUT_ENTRY_HEADER]: "1" }))
+    mocks.getSession.mockResolvedValue({ user: { id: "A" } })
+    const result = await AuthLayout({ children: "sign in form" })
+    expect(result.props.children).toBe("sign in form")
+    expect(mocks.getSession).not.toHaveBeenCalled()
+    expect(mocks.redirect).not.toHaveBeenCalled()
+  })
   it("gives sign-in its own noindex metadata", () => {
     expect(metadata.robots).toEqual({ index: false, follow: true });
     expect(metadata.alternates).toEqual({ canonical: "/sign-in" });
