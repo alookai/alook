@@ -11,16 +11,16 @@ import { ForumPostCount, ForumPostCountsProvider } from "@/components/community/
 
 const fetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: fetch }))
-const cleanups: Array<() => void | Promise<void>> = []
+const disposers: Array<() => void | Promise<void>> = []
 beforeEach(() => { fetch.mockReset() })
-afterEach(async () => { await act(async () => { for (const cleanup of cleanups.splice(0)) await cleanup() }) })
+afterEach(async () => { await act(async () => { for (const dispose of disposers.splice(0)) await dispose() }) })
 
 async function setup(account = "viewer") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const registry = createCommunityDbRegistry(client, account)
   await registry.preload()
   const unregister = registerCommunityDbRegistry(registry)
-  cleanups.push(unregister, registry.cleanup.bind(registry))
+  disposers.push(unregister, registry.cleanup.bind(registry))
   const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children))
   return { client, registry, wrapper }
 }

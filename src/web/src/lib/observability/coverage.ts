@@ -135,6 +135,7 @@ export const apiRoutes = [
   "/api/community/servers/[id]/channels",
   "/api/community/servers/[id]/channels/admin",
   "/api/community/servers/[id]/channels/reorder",
+  "/api/community/servers/[id]/forum-counts",
   "/api/community/servers/[id]/icon",
   "/api/community/servers/[id]/invites",
   "/api/community/servers/[id]/leave",
