@@ -7238,6 +7238,12 @@
       "source": "src/storybook/stories/business/navigation.stories.tsx"
     },
     {
+      "id": "web-business-navigation--forum-threads",
+      "title": "Web/Business/Navigation",
+      "name": "Forum Threads",
+      "source": "src/storybook/stories/business/navigation.stories.tsx"
+    },
+    {
       "id": "web-business-presence--typing",
       "title": "Web/Business/Presence",
       "name": "Typing",
