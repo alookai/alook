@@ -9,6 +9,7 @@ name = "alook_desktop_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
+cc = "=1.2.63"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
@@ -20,6 +21,8 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-store = "2"
 base64 = "0.22"
 getrandom = "0.3"
+log = "0.4"
+tauri-plugin-log = "=2.10.1"
 png = "0.18"
 sha2 = "0.10"
 subtle = "2"
@@ -36,13 +39,13 @@ tauri-plugin-notification = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
-tokio = { version = "1", features = ["macros", "time"] }
+tokio = { version = "1", features = ["macros", "time", "net", "io-util"] }
 command-group = "5.0.1"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [target."cfg(any(target_os = \"macos\", target_os = \"ios\"))".dependencies]
 objc2 = "=0.6.4"
-objc2-foundation = { version = "=0.3.2", features = ["NSArray", "NSDictionary", "NSError", "NSGeometry", "NSObject", "NSString", "NSURL", "NSURLError", "NSURLRequest"] }
+objc2-foundation = { version = "=0.3.2", features = ["NSArray", "NSBundle", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSObject", "NSString", "NSURL", "NSURLError", "NSURLRequest", "NSURLResponse"] }
 
 [target."cfg(target_os = \"macos\")".dependencies]
 block2 = "=0.6.2"
@@ -52,7 +55,7 @@ objc2-web-kit = { version = "=0.3.2", features = ["WKWebView", "block2"], defaul
 
 [target."cfg(windows)".dependencies]
 webview2-com = "=0.39.1"
-windows = { version = "=0.62.2", features = ["Data_Xml_Dom", "UI_Notifications"] }
+windows = { version = "=0.62.2", features = ["Data_Xml_Dom", "UI_Notifications", "Win32_Globalization"] }
 
 [target."cfg(target_os = \"linux\")".dependencies]
 notify-rust = "=4.17.0"

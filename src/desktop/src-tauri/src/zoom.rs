@@ -211,6 +211,17 @@ pub fn restore(app: &App) -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
+pub(crate) fn apply_restored(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    let percent = *window
+        .app_handle()
+        .state::<ZoomState>()
+        .percent
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    window.set_zoom(percent as f64 / 100.0)
+}
+
 pub fn handle_menu_event(handle: &AppHandle, id: &str) -> Result<bool, String> {
     let Some(action) = menu_action(id) else {
         return Ok(false);

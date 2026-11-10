@@ -6,17 +6,16 @@ import { isTauri, isDesktop, tauriInvoke } from "@alook/shared";
 
 export function readTauriWindowBackground(
   doc: Document = document,
-  readStyle: typeof getComputedStyle = getComputedStyle,
 ): [number, number, number] | null {
-  if (!doc.body) return null;
+  const published = doc.body?.style.getPropertyValue("--app-edge-fade-color").trim();
+  if (!published) return null;
   try {
     const canvas = doc.createElement("canvas");
     canvas.width = canvas.height = 1;
     const context = canvas.getContext("2d");
     if (!context) return null;
-    const published = doc.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content;
     context.fillStyle = "transparent";
-    context.fillStyle = published || readStyle(doc.body).backgroundColor;
+    context.fillStyle = published;
     context.fillRect(0, 0, 1, 1);
     const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data;
     return alpha === 255 ? [red, green, blue] : null;

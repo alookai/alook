@@ -4,8 +4,12 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
+import android.view.Gravity
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.widget.FrameLayout
+import android.widget.ImageView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.graphics.Insets
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -21,6 +25,8 @@ class MainActivity : TauriActivity() {
     override val handleBackNavigation: Boolean = false
 
     private var isReady = false
+    private var startupFrameReady = false
+    private var startupBackdrop: ImageView? = null
     @Volatile private var mainWebView: WebView? = null
     private var systemGestureInsets: Insets? = null
     @Volatile private var systemGestureRegionJson = "null"
@@ -46,13 +52,15 @@ class MainActivity : TauriActivity() {
                 if (window.__alookThemeObserverInstalled) return;
                 window.__alookThemeObserverInstalled = true;
                 function background() {
-                    if (!document.body) return null;
+                    if (!document.body || !document.body.style) return null;
+                    var published = document.body.style.getPropertyValue('--app-edge-fade-color').trim();
+                    if (!published) return null;
                     var canvas = document.createElement('canvas');
                     canvas.width = canvas.height = 1;
                     var context = canvas.getContext('2d');
                     if (!context) return null;
-                    var meta = document.querySelector('meta[name=theme-color]');
-                    context.fillStyle = meta && meta.content ? meta.content : getComputedStyle(document.body).backgroundColor;
+                    context.fillStyle = 'transparent';
+                    context.fillStyle = published;
                     context.fillRect(0, 0, 1, 1);
                     var pixels = context.getImageData(0, 0, 1, 1).data;
                     if (pixels[3] !== 255) return null;
@@ -85,12 +93,15 @@ class MainActivity : TauriActivity() {
         val splashScreen = installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        StartupLog.nativeLibraryReady()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         mobileShareImageDocumentOwner.attach(savedInstanceState)
 
         splashScreen.setKeepOnScreenCondition { !isReady }
         splashScreen.setOnExitAnimationListener { provider ->
+            StartupLog.handoffBegin()
             provider.remove()
+            StartupLog.handoffReturned()
         }
 
         val rootView: View = findViewById(android.R.id.content)
@@ -136,6 +147,16 @@ class MainActivity : TauriActivity() {
             })
     }
 
+    override fun onResume() {
+        super.onResume()
+        StartupLog.foregroundChanged(true)
+    }
+
+    override fun onPause() {
+        StartupLog.foregroundChanged(false)
+        super.onPause()
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         mobileShareImageDocumentOwner.saveState(outState)
         super.onSaveInstanceState(outState)
@@ -145,6 +166,7 @@ class MainActivity : TauriActivity() {
         clearStartupAttachListener()
         mainWebView?.removeOnLayoutChangeListener(gestureLayoutListener)
         mainWebView = null
+        startupBackdrop = null
         systemGestureRegionJson = "null"
         geometryJson = "null"
         keyboardJson = "null"
@@ -156,6 +178,7 @@ class MainActivity : TauriActivity() {
     }
 
     override fun onWebViewCreate(webView: WebView) {
+        StartupLog.webViewCreated()
         super.onWebViewCreate(webView)
         clearStartupAttachListener()
         mainWebView?.removeOnLayoutChangeListener(gestureLayoutListener)
@@ -178,7 +201,8 @@ class MainActivity : TauriActivity() {
             val listener = object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(view: View) {
                     if (view !== mainWebView || isDestroyed || isFinishing) return
-                    isReady = true
+                    webView.post { installStartupBackdrop(webView) }
+                    isReady = startupFrameReady
                     syncSystemGestureRegion()
                     clearStartupAttachListener()
                 }
@@ -193,6 +217,54 @@ class MainActivity : TauriActivity() {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(webView, THEME_OBSERVER_SCRIPT, setOf("*"))
         }
+    }
+
+    @androidx.annotation.Keep
+    fun alookStartupInitializationFailed() {
+        if (isDestroyed || isFinishing) return
+        isReady = true
+        clearStartupAttachListener()
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Alook")
+            .setMessage("Alook could not start. Close and reopen the app.")
+            .setCancelable(false)
+            .setPositiveButton("Close Alook") { _, _ -> finishAndRemoveTask() }
+            .show()
+    }
+
+    private fun installStartupBackdrop(webView: WebView) {
+        if (webView !== mainWebView || !webView.isAttachedToWindow || isDestroyed || isFinishing) return
+        val host = webView.parent as? FrameLayout ?: return
+        webView.setBackgroundColor(Color.TRANSPARENT)
+        val backdrop = startupBackdrop ?: ImageView(this).apply {
+            setImageResource(R.drawable.splash_icon)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            isClickable = false
+            isFocusable = false
+        }.also { startupBackdrop = it }
+        (backdrop.parent as? ViewGroup)?.removeView(backdrop)
+        val size = (288 * resources.displayMetrics.density).toInt()
+        host.addView(backdrop, host.indexOfChild(webView), FrameLayout.LayoutParams(size, size, Gravity.CENTER))
+    }
+
+    @androidx.annotation.Keep
+    fun alookStartupDocument(): Int {
+        val webView = mainWebView ?: return 0
+        if (isDestroyed || isFinishing) return 0
+        val uri = webView.url?.let { android.net.Uri.parse(it) } ?: return 0
+        if (uri.scheme != "http" || uri.host != "alook-recovery.localhost" ||
+            (uri.port != -1 && uri.port != 80) || uri.userInfo != null || uri.query != null) return 0
+        return when (uri.path) { "/bootstrap" -> 1; "/network-error" -> 2; else -> 0 }
+    }
+
+    @androidx.annotation.Keep
+    fun alookBootstrapFrameReady(): Boolean {
+        val webView = mainWebView ?: return false
+        if (alookStartupDocument() == 0) return false
+        startupFrameReady = true
+        isReady = webView.isAttachedToWindow
+        return true
     }
 
     private fun syncGeometry() {

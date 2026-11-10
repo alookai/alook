@@ -22,11 +22,13 @@ static const void *kAlookCommunityRootScrollDelegateKey = &kAlookCommunityRootSc
 static const void *kAlookCommunityRootURLObserversKey = &kAlookCommunityRootURLObserversKey;
 static const void *kAlookPublishedKeyboardSnapshotKey = &kAlookPublishedKeyboardSnapshotKey;
 static const void *kAlookStartupOverlayKey = &kAlookStartupOverlayKey;
+static const void *kAlookStartupBackdropKey = &kAlookStartupBackdropKey;
 static const void *kAlookStartupCompletedKey = &kAlookStartupCompletedKey;
 static const NSInteger kAlookStartupLogoTag = 8738;
 static const NSInteger kAlookStartupErrorTag = 8739;
 static UIView *gAlookStartupOverlay = nil;
 static BOOL gAlookStartupCompleted = NO;
+static BOOL gAlookNativeCreationReady = NO;
 static BOOL gAlookStartupFailed = NO;
 
 static BOOL alookIsTauriRootController(UIViewController *viewController);
@@ -377,8 +379,8 @@ static void alookAttachStartupOverlay(UIView *overlay, UIView *host, BOOL isDark
     CGFloat size = 106.0;
     CGRect safeBounds = UIEdgeInsetsInsetRect(overlay.bounds, host.safeAreaInsets);
     logo.frame = CGRectMake(
-        CGRectGetMidX(safeBounds) - size / 2.0,
-        CGRectGetMidY(safeBounds) - size / 2.0,
+        CGRectGetMidX(overlay.bounds) - size / 2.0,
+        CGRectGetMidY(overlay.bounds) - size / 2.0,
         size,
         size
     );
@@ -457,10 +459,25 @@ static void alookPrepareStartupOverlay(UIViewController *viewController) {
     if (overlay != nil) alookLayoutStartupOverlay(viewController, overlay);
 }
 
-static void alookFinishStartupOverlay(UIViewController *viewController) {
+static void alookLayoutStartupBackdrop(UIViewController *viewController) {
+    UIView *backdrop = objc_getAssociatedObject(viewController, kAlookStartupBackdropKey);
+    if (backdrop == nil) return;
+    backdrop.frame = viewController.view.bounds;
+    UIView *logo = [backdrop viewWithTag:kAlookStartupLogoTag];
+    logo.frame = CGRectMake(CGRectGetMidX(backdrop.bounds) - 53.0,
+                            CGRectGetMidY(backdrop.bounds) - 53.0, 106.0, 106.0);
+}
+
+static void alookFinishStartupOverlay(UIViewController *viewController, WKWebView *webView) {
     if (viewController == nil || gAlookStartupFailed) return;
     UIView *overlay = objc_getAssociatedObject(viewController, kAlookStartupOverlayKey);
     [overlay removeFromSuperview];
+    if (overlay != nil && webView.superview == viewController.view) {
+        overlay.backgroundColor = UIColor.clearColor;
+        [viewController.view insertSubview:overlay belowSubview:webView];
+        objc_setAssociatedObject(viewController, kAlookStartupBackdropKey, overlay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        alookLayoutStartupBackdrop(viewController);
+    }
     if (overlay == gAlookStartupOverlay) gAlookStartupOverlay = nil;
     gAlookStartupCompleted = YES;
     objc_setAssociatedObject(viewController, kAlookStartupOverlayKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -477,11 +494,12 @@ static NSString *const kThemeObserverScript =
     "if(window.__alookThemeObserverInstalled)return;"
     "window.__alookThemeObserverInstalled=true;"
     "function background(){"
-    "if(!document.body)return null;"
+    "if(!document.body||!document.body.style)return null;"
+    "var published=document.body.style.getPropertyValue('--app-edge-fade-color').trim();"
+    "if(!published)return null;"
     "var c=document.createElement('canvas');c.width=c.height=1;"
     "var x=c.getContext('2d');if(!x)return null;"
-    "var m=document.querySelector('meta[name=theme-color]');"
-    "x.fillStyle=m&&m.content?m.content:getComputedStyle(document.body).backgroundColor;"
+    "x.fillStyle='transparent';x.fillStyle=published;"
     "x.fillRect(0,0,1,1);var p=x.getImageData(0,0,1,1).data;"
     "if(p[3]!==255)return null;"
     "return '#'+Array.from(p).slice(0,3).map(function(v){"
@@ -621,10 +639,33 @@ static void alookInstallThemeObserver(UIViewController *controller, WKWebView *w
     if (![NSThread isMainThread] || gAlookStartupFailed) return NO;
     if (!alookIsTauriRootController(controller) ||
         ![controller.view.subviews containsObject:webView]) return NO;
+    webView.opaque = NO;
+    webView.backgroundColor = UIColor.clearColor;
+    webView.scrollView.backgroundColor = UIColor.clearColor;
+    webView.underPageBackgroundColor = UIColor.clearColor;
     if ([objc_getAssociatedObject(controller, kAlookStartupCompletedKey) boolValue]) return YES;
     alookPrepareStartupOverlay(controller);
     if (objc_getAssociatedObject(controller, kAlookStartupOverlayKey) == nil) return NO;
-    alookFinishStartupOverlay(controller);
+    gAlookNativeCreationReady = YES;
+    return YES;
+}
+
++ (NSInteger)alook_startupDocumentForWebView:(WKWebView *)webView {
+    NSURL *url = webView.URL;
+    if (url == nil || url.user != nil || url.password != nil || url.query != nil) return 0;
+    BOOL local = ([url.scheme isEqualToString:@"alook-recovery"] && [url.host isEqualToString:@"localhost"] && url.port == nil) ||
+        ([url.scheme isEqualToString:@"http"] && [url.host isEqualToString:@"alook-recovery.localhost"] && (url.port == nil || url.port.integerValue == 80));
+    if (!local) return 0;
+    if ([url.path isEqualToString:@"/bootstrap"]) return 1;
+    if ([url.path isEqualToString:@"/network-error"]) return 2;
+    return 0;
+}
+
++ (BOOL)alook_presentBootstrapForController:(UIViewController *)controller
+                                   webView:(WKWebView *)webView {
+    if (![NSThread isMainThread] || !gAlookNativeCreationReady) return NO;
+    if (!alookIsTauriRootController(controller) || ![controller.view.subviews containsObject:webView]) return NO;
+    alookFinishStartupOverlay(controller, webView);
     return YES;
 }
 
@@ -694,6 +735,7 @@ static void alookInstallThemeObserver(UIViewController *controller, WKWebView *w
     if (isTauriRoot) {
         alookInstallKeyboardLayout(self);
         alookPrepareStartupOverlay(self);
+        alookLayoutStartupBackdrop(self);
     }
     UIEdgeInsets insets = self.view.safeAreaInsets;
     for (UIView *subview in self.view.subviews) {
@@ -745,6 +787,7 @@ static void alookInstallThemeObserver(UIViewController *controller, WKWebView *w
 @end
 
 int main(int argc, char * argv[]) {
+	ffi::alook_startup_native_entry();
 	ffi::start_app();
 	return 0;
 }

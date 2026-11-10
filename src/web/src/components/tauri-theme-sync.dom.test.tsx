@@ -29,6 +29,7 @@ beforeEach(() => {
   meta.name = "theme-color"
   meta.content = "rgb(224, 213, 192)"
   document.head.appendChild(meta)
+  document.body.style.setProperty("--app-edge-fade-color", meta.content)
   pixels = [224, 213, 192, 255]
   drawn = ""
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
@@ -40,6 +41,7 @@ beforeEach(() => {
 
 afterEach(() => {
   meta.remove()
+  document.body.style.removeProperty("--app-edge-fade-color")
   vi.restoreAllMocks()
 })
 
@@ -55,7 +57,7 @@ describe("desktop published surface synchronization", () => {
     expect(drawn).toBe("rgb(224, 213, 192)")
     expect(mocks.invoke).toHaveBeenCalledWith("set_window_theme", { dark: false, background: [224, 213, 192] })
 
-    meta.content = "rgb(255, 253, 248)"
+    document.body.style.setProperty("--app-edge-fade-color", "rgb(255, 253, 248)")
     pixels = [255, 253, 248, 255]
     await act(async () => { window.dispatchEvent(new Event("alook:theme-color-change")) })
     expect(drawn).toBe("rgb(255, 253, 248)")
@@ -73,7 +75,7 @@ describe("desktop published surface synchronization", () => {
   it("replaces the theme listener when the resolved theme changes", async () => {
     const view = await mount()
     mocks.theme = "dark"
-    meta.content = "rgb(13, 13, 13)"
+    document.body.style.setProperty("--app-edge-fade-color", "rgb(13, 13, 13)")
     pixels = [13, 13, 13, 255]
     await act(async () => { view.rerender(<TauriThemeSync />) })
     mocks.invoke.mockClear()
@@ -84,14 +86,15 @@ describe("desktop published surface synchronization", () => {
     ])
   })
 
-  it("uses document paint before publication and rejects translucent samples", () => {
-    meta.remove()
-    const readStyle = vi.fn().mockReturnValue({ backgroundColor: "body-paint" })
-    expect(readTauriWindowBackground(document, readStyle)).toEqual([224, 213, 192])
-    expect(drawn).toBe("body-paint")
-    expect(readStyle).toHaveBeenCalledWith(document.body)
+  it("keeps native startup paint before publication and rejects translucent samples", async () => {
+    document.body.style.removeProperty("--app-edge-fade-color")
+    meta.content = "#ffffff"
+    expect(readTauriWindowBackground(document)).toBeNull()
+    await mount()
+    expect(mocks.invoke).toHaveBeenCalledWith("set_window_theme", { dark: false })
+    document.body.style.setProperty("--app-edge-fade-color", "rgb(224, 213, 192)")
     pixels = [224, 213, 192, 128]
-    expect(readTauriWindowBackground(document, readStyle)).toBeNull()
+    expect(readTauriWindowBackground(document)).toBeNull()
   })
 
   it.each(["missing context", "canvas error"])("still completes startup after %s", async failure => {
