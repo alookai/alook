@@ -784,6 +784,7 @@ test.describe("desktop default User Bar width", () => {
     await installLayoutState(saved.page, seededLayout)
     await gotoAfterUserWsAuth(saved.page, `/c/channels/${serverId}/${channelId}`)
     await expect(shellPanel(saved.page, "sidebar")).toBeVisible()
+    await expect(saved.page.getByTestId(tid.userBar).locator('[data-slot="community-user-bar-base"]')).toBeVisible()
     await expect.poll(async () => (
       Math.abs((await readShellGeometry(saved.page)).sidebar - expectedDefaultSidebarWidth)
     )).toBeGreaterThan(1)
