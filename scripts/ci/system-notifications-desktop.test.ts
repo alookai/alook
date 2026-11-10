@@ -30,9 +30,24 @@ function quotedValues(source: string) {
   return Array.from(source.matchAll(/"([a-z][a-z0-9_]*)"/g), (match) => match[1]!)
 }
 
+function applicationCommands(source: string) {
+  const declarations = Array.from(source.matchAll(/\bAppManifest::new\(\)\s*\.commands\(\s*&\[([\s\S]*?)\]\s*\)/g))
+  if (declarations.length !== 1) throw new Error("Expected one application command declaration")
+  return quotedValues(declarations[0]![1]!)
+}
+
 describe("desktop system notification contract", () => {
+  it("reads the command declaration without granting compiler input strings authority", () => {
+    const source = read("build.rs")
+    const commands = applicationCommands(source)
+    expect(applicationCommands(`let tool = "unrelated_compiler_input";\n${source}\nlet output = "unrelated_library";`)).toEqual(commands)
+    expect(applicationCommands(source.replace('"native_geometry_snapshot"', '"unexpected_authority"'))).toContain("unexpected_authority")
+    expect(() => applicationCommands('let tool = "unrelated_compiler_input";')).toThrow("Expected one application command declaration")
+    expect(() => applicationCommands(`${source}\n${source}`)).toThrow("Expected one application command declaration")
+  })
+
   it("keeps notification authority separate from the read-only geometry command", () => {
-    const manifestCommands = quotedValues(read("build.rs"))
+    const manifestCommands = applicationCommands(read("build.rs"))
       .filter((command) => !command.startsWith("native_oauth_")
         && !command.startsWith("mobile_share_image_")
         && !command.startsWith("mobile_system_notification_")

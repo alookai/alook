@@ -57,6 +57,7 @@ class FakeElement extends FakeEventTarget {
 
 class FakeDocument extends FakeEventTarget {
   hidden = false
+  readyState = "complete"
 
   constructor(
     private readonly surface: FakeElement,
@@ -77,11 +78,14 @@ const rustSource = readFileSync(
   resolve(repositoryRoot, "src/desktop/src-tauri/src/webview_recovery.rs"),
   "utf8",
 )
-const recoveryHtml = rustSource.match(
-  /fn recovery_html\(\) -> &'static str \{\s*r##"([\s\S]*?)"##\s*\}/,
+const recoveryTemplate = rustSource.match(
+  /fn recovery_html\(\) -> String \{\s*let html = r##"([\s\S]*?)"##;/,
 )?.[1]
+const frameReadyScript = rustSource.match(/const FRAME_READY_SCRIPT: &str = r#"([\s\S]*?)"#;/)?.[1]
 
-if (!recoveryHtml) throw new Error("recovery HTML not found")
+if (!recoveryTemplate || !frameReadyScript) throw new Error("recovery document sources not found")
+
+const recoveryHtml = recoveryTemplate.replace("</script>", `${frameReadyScript}</script>`)
 
 const recoveryScript = recoveryHtml.match(/<script>\s*([\s\S]*?)\s*<\/script>/)?.[1]
 
@@ -92,14 +96,24 @@ const defaultMessage = "Network connection failed. Click to refresh"
 const createHarness = (
   target = "https://alook.ai/c/channel?after=%23one&view=all#message-7",
   replace = vi.fn(),
+  reason?: string,
 ) => {
   const surface = new FakeElement()
   const message = new FakeElement(defaultMessage)
   const document = new FakeDocument(surface, message)
   const window = new FakeEventTarget()
+  const parameters = new URLSearchParams({ target, ...(reason ? { reason } : {}) })
   const location = {
-    hash: `#${new URLSearchParams({ target }).toString()}`,
+    hash: `#${parameters.toString()}`,
+    href: `alook-recovery://localhost/network-error#${parameters.toString()}`,
+    pathname: "/network-error",
     replace,
+  }
+  const frames: Array<() => void> = []
+  const frameRequests: string[] = []
+  class Image {
+    onerror: (() => void) | null = null
+    set src(value: string) { frameRequests.push(value) }
   }
 
   runInNewContext(recoveryScript, {
@@ -108,12 +122,37 @@ const createHarness = (
     document,
     location,
     window,
+    Image,
+    requestAnimationFrame: (callback: () => void) => frames.push(callback),
   })
 
-  return { document, location, message, replace, surface, window }
+  return {
+    document, location, message, replace, surface, window, frameRequests,
+    nextFrame: () => frames.shift()?.(),
+  }
 }
 
 describe("WebView recovery document", () => {
+  it("keeps initialization failure terminal while signalling the local recovery frame", () => {
+    const harness = createHarness(undefined, undefined, "initialization")
+
+    expect(harness.message.textContent).toBe("App initialization failed. Close and reopen Alook")
+    expect(harness.surface.attributes.get("aria-disabled")).toBe("true")
+    harness.surface.dispatch("click")
+    harness.window.dispatch("online")
+    harness.window.dispatch("blur")
+    harness.window.dispatch("focus")
+    expect(harness.replace).not.toHaveBeenCalled()
+    expect(harness.frameRequests).toEqual([])
+    harness.nextFrame()
+    expect(harness.frameRequests).toEqual([])
+    harness.nextFrame()
+    expect(harness.frameRequests).toEqual(["alook-recovery://localhost/frame-ready"])
+    harness.nextFrame()
+    expect(harness.frameRequests).toHaveLength(1)
+    expect(harness.replace).not.toHaveBeenCalled()
+  })
+
   it("does not focus on load and confines the keyboard ring to the refresh icon", () => {
     const { surface } = createHarness()
 

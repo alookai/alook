@@ -1,33 +1,51 @@
-#[cfg(desktop)]
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-#[cfg(desktop)]
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::http::{Request, Response, StatusCode};
 use tauri::Manager;
 use url::Url;
 
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+mod direct_probe;
+mod frame_handoff;
+#[cfg(target_os = "linux")]
+mod linux_direct_probe;
+#[cfg(mobile)]
+use frame_handoff::document_code;
+use frame_handoff::{consume_local_frame, local_document, FrameDelivery, FrameHandoff};
+pub(crate) use frame_handoff::{set_foreground, watch_bootstrap};
+
 pub const SCHEME: &str = "alook-recovery";
 const HOST: &str = "alook-recovery.localhost";
 const BOOTSTRAP_PATH: &str = "/bootstrap";
+pub(crate) const MAPPED_HOST: &str = "alook-startup.invalid";
+pub(crate) const MAPPED_BOOTSTRAP_URL: &str = "http://alook-startup.invalid/bootstrap.html";
+#[cfg(windows)]
+pub(crate) const WINDOWS_BOOTSTRAP_URL: &str = "http://alook-recovery.localhost/bootstrap";
+const FRAME_READY_PATH: &str = "/frame-ready";
+const FRAME_READY_SCRIPT: &str = r#"(()=>{let sent=false;const ready=()=>{if(sent)return;sent=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{const image=new Image();image.onerror=()=>{if(location.pathname==='/bootstrap')location.replace(new URL('/network-error#reason=initialization',location.href))};image.src=new URL('/frame-ready',location.href).href}))};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready,{once:true});else ready()})()"#;
 const RECOVERY_PATH: &str = "/network-error";
 const PRODUCTION_TARGET: &str = "https://alook.ai/c";
 const SPLASH_BACKGROUND_LIGHT: &str = "#faf6ee";
 const SPLASH_BACKGROUND_DARK: &str = "#000";
-static STARTUP: StartupRendezvous = StartupRendezvous::new();
+static STARTUP: StartupRendezvous = StartupRendezvous::new(!cfg!(windows));
 
 struct StartupRendezvous {
+    native_ready: AtomicBool,
     hooks_ready: AtomicBool,
     bootstrap_finished: AtomicBool,
+    frame_ready: AtomicBool,
     navigation_started: AtomicBool,
     abandoned: AtomicBool,
 }
 
 impl StartupRendezvous {
-    const fn new() -> Self {
+    const fn new(native_ready: bool) -> Self {
         Self {
+            native_ready: AtomicBool::new(native_ready),
             hooks_ready: AtomicBool::new(false),
             bootstrap_finished: AtomicBool::new(false),
+            frame_ready: AtomicBool::new(false),
             navigation_started: AtomicBool::new(false),
             abandoned: AtomicBool::new(false),
         }
@@ -43,11 +61,24 @@ impl StartupRendezvous {
         self.claim_navigation()
     }
 
+    fn signal_frame_ready(&self) -> bool {
+        self.frame_ready.store(true, Ordering::Release);
+        self.claim_navigation()
+    }
+
     fn claim_navigation(&self) -> bool {
         !self.abandoned.load(Ordering::Acquire)
+            && self.native_ready.load(Ordering::Acquire)
             && self.hooks_ready.load(Ordering::Acquire)
             && self.bootstrap_finished.load(Ordering::Acquire)
+            && self.frame_ready.load(Ordering::Acquire)
             && !self.navigation_started.swap(true, Ordering::AcqRel)
+    }
+
+    #[cfg(any(windows, test))]
+    fn signal_native_ready(&self) -> bool {
+        self.native_ready.store(true, Ordering::Release);
+        self.claim_navigation()
     }
 
     fn signal_failure(&self) -> bool {
@@ -61,17 +92,63 @@ impl StartupRendezvous {
 
 pub fn register_protocol(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder
-        .register_uri_scheme_protocol(SCHEME, |_context, request| response(request))
+        .register_uri_scheme_protocol(SCHEME, |context, request| {
+            if context.webview_label() == "main"
+                && request.method() == tauri::http::Method::GET
+                && request.uri().path() == FRAME_READY_PATH
+            {
+                let handle = context.app_handle().clone();
+                let owner = handle.clone();
+                let queued = handle.run_on_main_thread(move || {
+                    let Some(window) = owner.get_webview_window("main") else {
+                        return;
+                    };
+                    let Ok(url) = window.url() else { return };
+                    let Some(document) = local_document(&url) else {
+                        return;
+                    };
+                    consume_local_frame(&STARTUP, document, |action| {
+                        crate::startup_log::mark(crate::startup_log::Phase::BootstrapFrameReceived);
+                        release_local_placeholder(&window, action);
+                    });
+                });
+                return Response::builder()
+                    .status(if queued.is_ok() {
+                        StatusCode::ACCEPTED
+                    } else {
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    })
+                    .header("cache-control", "no-store")
+                    .header("content-type", "image/svg+xml")
+                    .body(
+                        br#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>"#
+                            .to_vec(),
+                    )
+                    .expect("frame response must be valid");
+            }
+            response(request)
+        })
         .plugin(
             tauri::plugin::Builder::<tauri::Wry>::new("main-navigation-boundary")
                 .on_navigation(|webview, url| {
-                    webview.label() != "main" || navigation_allowed(url, tauri::is_dev())
+                    if webview.label() != "main" {
+                        return true;
+                    }
+                    #[cfg(windows)]
+                    if crate::windows_startup::consume_placeholder(url) {
+                        return true;
+                    }
+                    navigation_allowed(url, tauri::is_dev())
                 })
                 .build(),
         )
 }
 
 pub(crate) fn navigation_allowed(url: &Url, development: bool) -> bool {
+    navigation_allowed_for(url, development, cfg!(windows))
+}
+
+fn navigation_allowed_for(url: &Url, development: bool, windows_startup: bool) -> bool {
     if !url.username().is_empty() || url.password().is_some() {
         return false;
     }
@@ -92,7 +169,7 @@ pub(crate) fn navigation_allowed(url: &Url, development: bool) -> bool {
         && url.host_str() == Some("localhost")
         && url.port() == Some(3000);
 
-    production || recovery || local_development
+    production || recovery || local_development || (windows_startup && is_mapped_bootstrap_url(url))
 }
 
 fn response(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
@@ -103,7 +180,7 @@ fn response(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
         },
         RECOVERY_PATH => (
             StatusCode::OK,
-            "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'".to_owned(),
+            "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'".to_owned(),
             recovery_html().as_bytes().to_vec(),
         ),
         _ => (
@@ -135,10 +212,21 @@ fn accepts_target(target: &str) -> bool {
 fn is_recovery_url(url: &Url) -> bool {
     url.scheme() == SCHEME
         || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some(HOST))
+        || (cfg!(windows) && url.host_str() == Some(MAPPED_HOST))
 }
 
 fn is_bootstrap_url(url: &Url) -> bool {
-    is_recovery_url(url) && url.path() == BOOTSTRAP_PATH
+    is_original_bootstrap_url(url) || (cfg!(windows) && is_mapped_bootstrap_url(url))
+}
+
+pub(crate) fn is_original_bootstrap_url(url: &Url) -> bool {
+    url.path() == BOOTSTRAP_PATH
+        && navigation_allowed_for(url, false, false)
+        && (url.scheme() == SCHEME || url.host_str() == Some(HOST))
+}
+
+fn is_mapped_bootstrap_url(url: &Url) -> bool {
+    url.as_str() == MAPPED_BOOTSTRAP_URL
 }
 
 #[cfg(any(not(target_os = "android"), test))]
@@ -202,6 +290,11 @@ fn windows_recovers(error_code: i32) -> bool {
 
 #[cfg(any(desktop, target_os = "ios"))]
 pub fn finish_native_creation(window: &tauri::WebviewWindow) {
+    #[cfg(desktop)]
+    crate::startup_log::mark(crate::startup_log::Phase::NativeHandoffDispatch);
+    #[cfg(target_os = "ios")]
+    crate::startup_log::mark(crate::startup_log::Phase::NativeContainerReady);
+
     let ready_window = window.clone();
     let error_window = window.clone();
     #[cfg(all(target_os = "macos", debug_assertions))]
@@ -220,6 +313,7 @@ pub fn finish_native_creation(window: &tauri::WebviewWindow) {
         serde_json::json!({ "status": "call" }),
     );
     let dispatched = window.with_webview(move |platform| {
+
         #[cfg(desktop)]
         {
             let _ = platform;
@@ -245,6 +339,7 @@ pub fn finish_native_creation(window: &tauri::WebviewWindow) {
             .then_some(&mut shown_main);
             let completed =
                 crate::commands::finish_native_startup(ready_window.app_handle(), capture);
+            crate::startup_log::native_handoff(completed);
             #[cfg(all(target_os = "macos", debug_assertions))]
             crate::system_notifications::diagnose_qa_startup(
                 ready_window.app_handle(),
@@ -253,7 +348,14 @@ pub fn finish_native_creation(window: &tauri::WebviewWindow) {
                 serde_json::json!({ "completed": completed, "snapshot": if completed && shown_main.is_some() { "eligible" } else { "not_run" } }),
             );
             if !completed {
+                STARTUP.abandon();
+                crate::startup_log::abandon(crate::startup_log::Phase::InitializationFailed);
                 eprintln!("native WebView startup handoff unavailable");
+                crate::commands::show_startup_initialization_error(ready_window.app_handle());
+            }
+            #[cfg(windows)]
+            if completed && STARTUP.signal_native_ready() {
+                finish_frame_delivery(&ready_window, FrameHandoff::bootstrap(), FrameDelivery::Ready(true));
             }
             #[cfg(all(target_os = "macos", debug_assertions))]
             if let Some((sender, _)) = diagnostic_sender {
@@ -287,6 +389,7 @@ pub fn finish_native_creation(window: &tauri::WebviewWindow) {
                 false
             };
             if !completed {
+                crate::startup_log::abandon(crate::startup_log::Phase::InitializationFailed);
                 eprintln!("native WebView startup handoff unavailable");
                 show_native_creation_error();
             }
@@ -321,14 +424,19 @@ pub fn finish_native_creation(window: &tauri::WebviewWindow) {
         }
     }
     if let Err(error) = dispatched {
+        crate::startup_log::native_handoff(false);
         eprintln!("native WebView startup callback unavailable: {error}");
-        #[cfg(target_os = "macos")]
-        crate::commands::show_startup_initialization_error(error_window.app_handle());
+        #[cfg(desktop)]
+        {
+            STARTUP.abandon();
+            crate::startup_log::abandon(crate::startup_log::Phase::InitializationFailed);
+            crate::commands::show_startup_initialization_error(error_window.app_handle());
+        }
         #[cfg(target_os = "ios")]
         if let Err(error) = error_window.run_on_main_thread(show_native_creation_error) {
             eprintln!("native WebView error dispatch unavailable: {error}");
         }
-        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        #[cfg(target_os = "android")]
         let _ = error_window;
     }
 }
@@ -371,18 +479,136 @@ fn show_native_creation_error() {
     }
 }
 
+fn finish_frame_delivery(
+    window: &tauri::WebviewWindow,
+    action: FrameHandoff,
+    delivery: FrameDelivery,
+) {
+    if matches!(
+        delivery,
+        FrameDelivery::Ignored | FrameDelivery::Ready(false)
+    ) {
+        return;
+    }
+    let pending = window.clone();
+    let app = window.app_handle().clone();
+    tauri::async_runtime::spawn(async move {
+        if app
+            .run_on_main_thread(move || {
+                let current = pending.url().ok().and_then(|url| local_document(&url));
+                if !action.continuation_allowed(&STARTUP, current) {
+                    return;
+                }
+                match delivery {
+                    FrameDelivery::Ready(true) => replace_window_with_initial_target(&pending),
+                    FrameDelivery::Failed => {
+                        initialization_failure(&pending);
+                        frame_handoff::show_failure(&pending);
+                    }
+                    _ => {}
+                }
+            })
+            .is_err()
+        {
+            crate::startup_log::abandon(crate::startup_log::Phase::InitializationFailed);
+            STARTUP.abandon();
+        }
+    });
+}
+
+fn release_local_placeholder(window: &tauri::WebviewWindow, action: FrameHandoff) {
+    #[cfg(desktop)]
+    {
+        let delivery = action.deliver(
+            &STARTUP,
+            window.url().ok().and_then(|url| local_document(&url)),
+            || true,
+        );
+        finish_frame_delivery(window, action, delivery);
+    }
+    #[cfg(target_os = "ios")]
+    {
+        let ready_window = window.clone();
+        if window.with_webview(move |platform| unsafe {
+            use objc2::{msg_send, runtime::AnyObject, sel};
+            let controller = platform.view_controller().cast::<AnyObject>();
+            let webview = platform.inner().cast::<AnyObject>();
+            let Some(class) = apple_class_method(c"UIViewController", sel!(alook_startupDocumentForWebView:)) else { finish_frame_delivery(&ready_window, action, FrameDelivery::Failed); return; };
+            let code: isize = if webview.is_null() { 0 } else { msg_send![class, alook_startupDocumentForWebView: webview] };
+            let delivery = action.deliver(&STARTUP, document_code(code as i32), || {
+                crate::startup_log::mark(crate::startup_log::Phase::NativeHandoffDispatch);
+                let completed = if controller.is_null() || webview.is_null() { false } else if let Some(class) = apple_class_method(c"UIViewController", sel!(alook_presentBootstrapForController:webView:)) {
+                    msg_send![class, alook_presentBootstrapForController: controller, webView: webview]
+                } else { false };
+                crate::startup_log::native_handoff(completed);
+                completed
+            });
+            finish_frame_delivery(&ready_window, action, delivery);
+        }).is_err() { initialization_failure(window); }
+    }
+    #[cfg(target_os = "android")]
+    {
+        let ready_window = window.clone();
+        if window
+            .with_webview(move |platform| {
+                platform.jni_handle().exec(move |env, activity, _webview| {
+                    let code = match env
+                        .call_method(activity, "alookStartupDocument", "()I", &[])
+                        .and_then(|value| value.i())
+                    {
+                        Ok(code) => code,
+                        Err(_) => {
+                            let _ = env.exception_clear();
+                            finish_frame_delivery(&ready_window, action, FrameDelivery::Failed);
+                            return;
+                        }
+                    };
+                    let delivery = action.deliver(&STARTUP, document_code(code), || {
+                        match env
+                            .call_method(activity, "alookBootstrapFrameReady", "()Z", &[])
+                            .and_then(|value| value.z())
+                        {
+                            Ok(completed) => completed,
+                            Err(_) => {
+                                let _ = env.exception_clear();
+                                false
+                            }
+                        }
+                    });
+                    finish_frame_delivery(&ready_window, action, delivery);
+                });
+            })
+            .is_err()
+        {
+            initialization_failure(window);
+        }
+    }
+}
+
 pub fn attach(window: &tauri::WebviewWindow) {
+    crate::startup_log::mark(crate::startup_log::Phase::HooksDispatch);
+
     let startup_window = window.clone();
     let error_window = window.clone();
     if let Err(error) = window.with_webview(move |webview| match platform::attach(webview) {
         Ok(()) => {
+            crate::startup_log::mark(crate::startup_log::Phase::HooksReady);
+
             if STARTUP.signal_hooks_ready() {
-                replace_window_with_initial_target(&startup_window);
+                finish_frame_delivery(
+                    &startup_window,
+                    FrameHandoff::bootstrap(),
+                    FrameDelivery::Ready(true),
+                );
             }
         }
         Err(error) => {
             eprintln!("webview recovery unavailable: {error}");
-            initialization_failure(&startup_window);
+            finish_frame_delivery(
+                &startup_window,
+                FrameHandoff::bootstrap(),
+                FrameDelivery::Failed,
+            );
         }
     }) {
         eprintln!("webview recovery callback unavailable: {error}");
@@ -394,6 +620,24 @@ pub fn on_page_load<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,
     payload: &tauri::webview::PageLoadPayload<'_>,
 ) {
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    direct_probe::on_page_load(webview, payload);
+    if webview.label() == "main" {
+        let started = matches!(payload.event(), tauri::webview::PageLoadEvent::Started);
+        if is_bootstrap_url(payload.url()) {
+            crate::startup_log::mark(if started {
+                crate::startup_log::Phase::BootstrapStarted
+            } else {
+                crate::startup_log::Phase::BootstrapFinished
+            });
+        } else if is_recovery_url(payload.url()) {
+            crate::startup_log::abandon(crate::startup_log::Phase::RecoveryEntered);
+        } else {
+            let trusted =
+                crate::native_command_guard::caller_allowed("main", payload.url(), tauri::is_dev());
+            crate::startup_log::document(started, payload.url().as_str(), trusted);
+        }
+    }
     if webview.label() == "main"
         && is_recovery_url(payload.url())
         && payload.url().path() == RECOVERY_PATH
@@ -431,6 +675,17 @@ fn initial_replace_script(
 }
 
 fn replace_window_with_initial_target(window: &tauri::WebviewWindow) {
+    crate::startup_log::request();
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    if direct_probe::try_deliver(window) {
+        return;
+    }
+    #[cfg(target_os = "linux")]
+    if linux_direct_probe::try_deliver(window) {
+        return;
+    }
+
     let result = initial_replace_script(tauri::is_dev(), window.config().build.dev_url.as_ref())
         .map_err(str::to_owned)
         .and_then(|script| window.eval(script).map_err(|error| error.to_string()));
@@ -441,11 +696,28 @@ fn replace_window_with_initial_target(window: &tauri::WebviewWindow) {
 }
 
 fn replace_webview_with_initial_target<R: tauri::Runtime>(webview: &tauri::Webview<R>) {
+    crate::startup_log::request();
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    if let Some(window) = webview.app_handle().get_webview_window("main") {
+        if direct_probe::try_deliver(&window) {
+            return;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    if let Some(window) = webview.app_handle().get_webview_window("main") {
+        if linux_direct_probe::try_deliver(&window) {
+            return;
+        }
+    }
+
     let result = initial_replace_script(tauri::is_dev(), webview.config().build.dev_url.as_ref())
         .map_err(str::to_owned)
         .and_then(|script| webview.eval(script).map_err(|error| error.to_string()));
     if let Err(error) = result {
         eprintln!("webview recovery initial navigation unavailable: {error}");
+        crate::startup_log::abandon(crate::startup_log::Phase::InitializationFailed);
         if STARTUP.signal_failure() {
             if let Err(error) = webview.navigate(initialization_error_url()) {
                 eprintln!("webview initialization error navigation unavailable: {error}");
@@ -463,6 +735,7 @@ fn initialization_error_url() -> Url {
 }
 
 fn initialization_failure(window: &tauri::WebviewWindow) {
+    crate::startup_log::abandon(crate::startup_log::Phase::InitializationFailed);
     if STARTUP.signal_failure() {
         if let Err(error) = window.navigate(initialization_error_url()) {
             eprintln!("webview initialization error navigation unavailable: {error}");
@@ -473,18 +746,7 @@ fn initialization_failure(window: &tauri::WebviewWindow) {
 fn bootstrap_document() -> (String, String) {
     #[cfg(desktop)]
     {
-        let logo = crate::commands::desktop_loading_logo();
-        let hash = STANDARD.encode(Sha256::digest(logo.script.as_bytes()));
-        let csp = format!("default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-{hash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
-        let html = format!(
-            r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{box-sizing:border-box;display:grid;place-items:center;padding:var(--app-safe-area-top,env(safe-area-inset-top)) var(--app-safe-area-right,env(safe-area-inset-right)) var(--app-safe-area-bottom,env(safe-area-inset-bottom)) var(--app-safe-area-left,env(safe-area-inset-left))}}[data-alook-native-caption]{{display:none;position:fixed;top:0;left:0;right:0;height:var(--app-safe-area-top);z-index:1000;user-select:none}}html[data-alook-native-caption="true"] [data-alook-native-caption]{{display:block}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}{styles}</style></head><body><div data-alook-native-caption data-tauri-drag-region aria-hidden="true"></div>{markup}<script type="module">{script}</script></body></html>"#,
-            light = SPLASH_BACKGROUND_LIGHT,
-            dark = SPLASH_BACKGROUND_DARK,
-            styles = logo.styles,
-            markup = logo.markup,
-            script = logo.script,
-        );
-        (csp, html)
+        desktop_bootstrap_document(FRAME_READY_SCRIPT, "'self'", false)
     }
     #[cfg(mobile)]
     {
@@ -492,15 +754,64 @@ fn bootstrap_document() -> (String, String) {
     }
 }
 
+#[cfg(desktop)]
+fn desktop_bootstrap_document(
+    frame_script: &str,
+    image_sources: &str,
+    embedded_policy: bool,
+) -> (String, String) {
+    let mut logo = crate::commands::desktop_loading_logo();
+    logo.script.push_str(frame_script);
+    let hash = STANDARD.encode(Sha256::digest(logo.script.as_bytes()));
+    let csp = format!("default-src 'none'; img-src {image_sources}; style-src 'unsafe-inline'; script-src 'sha256-{hash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+    let policy = if embedded_policy {
+        format!(
+            r#"<meta http-equiv="Content-Security-Policy" content="{}">"#,
+            csp.replace("; frame-ancestors 'none'", "")
+        )
+    } else {
+        String::new()
+    };
+    let html = format!(
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title>{policy}<style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{box-sizing:border-box;display:grid;place-items:center}}[data-alook-native-caption]{{display:none;position:fixed;top:0;left:0;right:0;height:var(--app-safe-area-top);z-index:1000;user-select:none}}html[data-alook-native-caption="true"] [data-alook-native-caption]{{display:block}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}{styles}</style></head><body><div data-alook-native-caption data-tauri-drag-region aria-hidden="true"></div>{markup}<script type="module">{script}</script></body></html>"#,
+        light = SPLASH_BACKGROUND_LIGHT,
+        dark = SPLASH_BACKGROUND_DARK,
+        styles = logo.styles,
+        markup = logo.markup,
+        script = logo.script,
+    );
+    (csp, html)
+}
+
+#[cfg(any(windows, all(test, desktop)))]
+const MAPPED_FRAME_READY_SCRIPT: &str = r#"(()=>{let sent=false;const ready=()=>{if(sent)return;sent=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{const image=new Image();image.onerror=()=>{if(location.pathname==='/bootstrap.html')location.replace('http://alook-recovery.localhost/network-error#reason=initialization')};image.src='http://alook-recovery.localhost/frame-ready'}))};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready,{once:true});else ready()})()"#;
+
+#[cfg(any(windows, all(test, desktop)))]
+pub(crate) fn mapped_bootstrap_document() -> (String, String) {
+    desktop_bootstrap_document(
+        MAPPED_FRAME_READY_SCRIPT,
+        "'self' http://alook-recovery.localhost/frame-ready",
+        true,
+    )
+}
+
 #[cfg(any(mobile, test))]
 fn mobile_bootstrap_document() -> (String, String) {
     let logo = include_str!("../../../../assets/alook.svg");
     let html = format!(
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{box-sizing:border-box;display:grid;place-items:center;padding:var(--app-safe-area-top,env(safe-area-inset-top)) var(--app-safe-area-right,env(safe-area-inset-right)) var(--app-safe-area-bottom,env(safe-area-inset-bottom)) var(--app-safe-area-left,env(safe-area-inset-left))}}[data-alook-native-caption]{{display:none;position:fixed;top:0;left:0;right:0;height:var(--app-safe-area-top);z-index:1000;user-select:none}}html[data-alook-native-caption="true"] [data-alook-native-caption]{{display:block}}#logo{{width:106px;height:106px}}#logo svg{{display:block;width:100%;height:100%}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}</style></head><body><div data-alook-native-caption data-tauri-drag-region aria-hidden="true"></div><div role="status" aria-label="Loading"><div id="logo" aria-hidden="true">{logo}</div></div></body></html>"#,
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{box-sizing:border-box;display:grid;place-items:center}}[data-alook-native-caption]{{display:none;position:fixed;top:0;left:0;right:0;height:var(--app-safe-area-top);z-index:1000;user-select:none}}html[data-alook-native-caption="true"] [data-alook-native-caption]{{display:block}}#logo{{width:106px;height:106px}}#logo svg{{display:block;width:100%;height:100%}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}</style></head><body><div data-alook-native-caption data-tauri-drag-region aria-hidden="true"></div><div role="status" aria-label="Loading"><div id="logo" aria-hidden="true">{logo}</div></div></body></html>"#,
         light = SPLASH_BACKGROUND_LIGHT,
         dark = SPLASH_BACKGROUND_DARK,
     );
-    ("default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'".to_owned(), html)
+    let hash = STANDARD.encode(Sha256::digest(FRAME_READY_SCRIPT.as_bytes()));
+    let csp = format!("default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'sha256-{hash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+    (
+        csp,
+        html.replace(
+            "</body>",
+            &format!("<script>{FRAME_READY_SCRIPT}</script></body>"),
+        ),
+    )
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -944,8 +1255,8 @@ mod platform {
     }
 }
 
-fn recovery_html() -> &'static str {
-    r##"<!doctype html>
+fn recovery_html() -> String {
+    let html = r##"<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -1003,7 +1314,8 @@ fn recovery_html() -> &'static str {
     listen(window,"pagehide",cleanup);
   </script>
 </body>
-</html>"##
+</html>"##;
+    html.replacen("</script>", &format!("{FRAME_READY_SCRIPT}</script>"), 1)
 }
 
 #[cfg(test)]
@@ -1268,10 +1580,8 @@ mod tests {
         ] {
             assert!(csp.contains(directive));
         }
-        #[cfg(desktop)]
         assert_eq!(csp.matches("script-src 'sha256-").count(), 1);
-        #[cfg(mobile)]
-        assert!(!csp.contains("script-src"));
+        assert!(csp.contains("img-src 'self'"));
         assert_eq!(
             bootstrap_response.headers()["x-content-type-options"],
             "nosniff"
@@ -1280,9 +1590,11 @@ mod tests {
             bootstrap_response.headers()["referrer-policy"],
             "no-referrer"
         );
-        #[cfg(mobile)]
-        assert!(!html.contains("<script"));
-        assert!(!html.contains("network-error"));
+        assert!(html.contains(FRAME_READY_SCRIPT));
+        assert!(!navigation_allowed(
+            &Url::parse("alook-recovery://localhost/frame-ready").unwrap(),
+            false
+        ));
 
         let request = Request::builder()
             .uri("alook-recovery://localhost/unknown")
@@ -1325,10 +1637,16 @@ mod tests {
             .split("</script>")
             .next()
             .unwrap();
-        assert_eq!(script, crate::commands::desktop_loading_logo().script);
+        assert_eq!(
+            script,
+            format!(
+                "{}{FRAME_READY_SCRIPT}",
+                crate::commands::desktop_loading_logo().script
+            )
+        );
         assert!(!script.contains('\r'));
         let hash = STANDARD.encode(Sha256::digest(script.as_bytes()));
-        assert_eq!(csp, format!("default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-{hash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"));
+        assert_eq!(csp, format!("default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'sha256-{hash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"));
         let tampered = format!("{script} ");
         let altered_hash = STANDARD.encode(Sha256::digest(tampered.as_bytes()));
         assert_ne!(hash, altered_hash);
@@ -1341,14 +1659,18 @@ mod tests {
             assert_ne!(STANDARD.encode(Sha256::digest(raw.as_bytes())), hash);
         }
         let splash = crate::commands::splash_html();
-        assert!(splash.contains(&format!("<script type=\"module\">{script}</script>")));
+        let artwork = crate::commands::desktop_loading_logo().script;
+        assert!(splash.contains(&format!("<script type=\"module\">{artwork}</script>")));
+        assert!(!splash.contains(FRAME_READY_SCRIPT));
     }
 
     #[test]
-    fn mobile_bootstrap_is_static_with_unchanged_script_restrictions() {
+    fn mobile_bootstrap_submits_a_local_frame_without_remote_script_access() {
         let (csp, html) = mobile_bootstrap_document();
-        assert_eq!(csp, "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
-        assert!(!html.contains("<script"));
+        let hash = STANDARD.encode(Sha256::digest(FRAME_READY_SCRIPT.as_bytes()));
+        assert_eq!(csp, format!("default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'sha256-{hash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"));
+        assert_eq!(html.matches("<script").count(), 1);
+        assert!(html.contains(&format!("<script>{FRAME_READY_SCRIPT}</script>")));
         assert!(!html.contains("<template"));
         assert_eq!(
             html.matches(include_str!("../../../../assets/alook.svg"))
@@ -1356,7 +1678,8 @@ mod tests {
             1
         );
         assert!(html.contains("#logo{width:106px;height:106px}"));
-        assert!(!html.contains("requestAnimationFrame"));
+        assert!(!csp.contains("unsafe-eval"));
+        assert!(!csp.contains("connect-src"));
     }
 
     #[test]
@@ -1370,6 +1693,133 @@ mod tests {
         assert!(!is_bootstrap_url(
             &Url::parse("alook-recovery://localhost/network-error").unwrap()
         ));
+    }
+
+    #[test]
+    fn mapped_bootstrap_permission_has_one_exact_windows_document() {
+        let mapped = Url::parse(MAPPED_BOOTSTRAP_URL).unwrap();
+        assert!(navigation_allowed_for(&mapped, false, true));
+        assert!(!navigation_allowed_for(&mapped, false, false));
+        assert!(!is_original_bootstrap_url(&mapped));
+        for target in [
+            "http://alook-startup.invalid/bootstrap.html?extra=1",
+            "http://alook-startup.invalid/bootstrap.html#extra",
+            "http://alook-startup.invalid/bootstrap",
+            "http://alook-startup.invalid/c",
+            "http://alook-startup.invalid:81/bootstrap.html",
+            "https://alook-startup.invalid/bootstrap.html",
+            "http://user@alook-startup.invalid/bootstrap.html",
+            "http://alook-startup.invalid.evil/bootstrap.html",
+            "about:blank",
+        ] {
+            assert!(
+                !navigation_allowed_for(&Url::parse(target).unwrap(), false, true),
+                "{target}"
+            );
+        }
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn compiled_capabilities_keep_startup_mapping_outside_business_authority() {
+        use tauri::ipc::Origin;
+        let mut context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+        let authority = context.runtime_authority_mut();
+        let production = Origin::Remote {
+            url: Url::parse("https://alook.ai/c").unwrap(),
+        };
+        for command in [
+            "native_geometry_snapshot",
+            "desktop_system_notification_show",
+        ] {
+            assert!(authority
+                .resolve_access(command, "main", "main", &production)
+                .is_some());
+            assert!(authority
+                .resolve_access(command, "other", "other", &production)
+                .is_none());
+            for url in [
+                MAPPED_BOOTSTRAP_URL,
+                "https://untrusted.invalid/c",
+                "http://localhost:3000/c",
+            ] {
+                let origin = Origin::Remote {
+                    url: Url::parse(url).unwrap(),
+                };
+                assert!(
+                    authority
+                        .resolve_access(command, "main", "main", &origin)
+                        .is_none(),
+                    "{command} on {url}"
+                );
+            }
+        }
+        let recovery = Origin::Remote {
+            url: Url::parse("http://alook-recovery.localhost/bootstrap").unwrap(),
+        };
+        assert!(authority
+            .resolve_access("native_geometry_snapshot", "main", "main", &recovery)
+            .is_some());
+        assert!(authority
+            .resolve_access(
+                "desktop_system_notification_show",
+                "main",
+                "main",
+                &recovery
+            )
+            .is_none());
+        for command in ["ios", "alook_startup_log_ios"] {
+            assert!(authority
+                .resolve_access(command, "main", "main", &production)
+                .is_none());
+        }
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn mapped_document_embeds_a_policy_for_its_actual_script_and_public_frame_endpoint() {
+        let (policy, html) = mapped_bootstrap_document();
+        let script = html
+            .split("<script type=\"module\">")
+            .nth(1)
+            .unwrap()
+            .split("</script>")
+            .next()
+            .unwrap();
+        let hash = STANDARD.encode(Sha256::digest(script.as_bytes()));
+        assert!(policy.contains(&format!("script-src 'sha256-{hash}'")));
+        assert!(policy.contains("img-src 'self' http://alook-recovery.localhost/frame-ready;"));
+        assert!(html.contains(&format!(
+            "content=\"{}\"",
+            policy.replace("; frame-ancestors 'none'", "")
+        )));
+        assert!(!html.contains("frame-ancestors"));
+        assert!(!policy.contains("unsafe-eval"));
+        assert!(!policy.contains("connect-src"));
+        assert!(html.contains(&crate::commands::desktop_loading_logo().markup));
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn mapped_frame_signal_uses_the_existing_transport_after_two_frames() {
+        let result = std::process::Command::new("node").arg("-e").arg(r#"
+const vm=require('node:vm'), assert=require('node:assert/strict');
+for(const state of ['loading','complete']) {
+ const frames=[],requests=[],replacements=[],listeners=[];let image;
+ const context={document:{readyState:state,addEventListener:(_,fn)=>listeners.push(fn)},
+ location:{pathname:'/bootstrap.html',replace:v=>replacements.push(v)},requestAnimationFrame:fn=>frames.push(fn),
+ Image:class {constructor(){image=this}set src(v){requests.push(v)}}};
+ vm.runInNewContext(process.argv[1],context);
+ if(state==='loading'){assert.equal(frames.length,0);listeners[0]();listeners[0]()}
+ assert.equal(requests.length,0);assert.equal(frames.length,1);
+ frames.shift()();assert.equal(requests.length,0);assert.equal(frames.length,1);
+ frames.shift()();assert.deepEqual(requests,['http://alook-recovery.localhost/frame-ready']);
+ assert.equal(frames.length,0);image.onerror();
+ assert.deepEqual(replacements,['http://alook-recovery.localhost/network-error#reason=initialization']);
+ context.location.pathname='/c';image.onerror();assert.equal(replacements.length,1);
+}
+"#).arg(MAPPED_FRAME_READY_SCRIPT).status().unwrap();
+        assert!(result.success());
     }
 
     #[test]
@@ -1558,31 +2008,48 @@ mod tests {
 
     #[test]
     fn build_configuration_preserves_production_bootstrap_and_target() {
-        let config = include_str!("../tauri.conf.json");
-        assert!(config.contains("\"devUrl\": \"http://localhost:3000/c\""));
-        assert!(config.contains("\"frontendDist\": \"alook-recovery://localhost/bootstrap\""));
-
-        let lib = include_str!("lib.rs");
-        assert_order(
-            lib,
-            &[
-                "webview_recovery::register_protocol(tauri::Builder::default())",
-                "run_desktop(builder)",
-                "fn run_app(builder:",
-                ".build(tauri::generate_context!())",
-            ],
-        );
-        assert_eq!(lib.matches("webview_recovery::attach(&window);").count(), 2);
-        assert_eq!(
-            lib.matches("webview_recovery::on_page_load(webview, payload);")
-                .count(),
-            2
-        );
-        assert!(!lib.contains("on_webview_ready"));
+        use tauri::utils::{
+            config::{parse::read_from, Config, FrontendDist, WebviewUrl},
+            platform::Target,
+        };
+        let project = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for target in [
+            Target::MacOS,
+            Target::Windows,
+            Target::Linux,
+            Target::Android,
+            Target::Ios,
+        ] {
+            let (merged, _) = read_from(target, &project).unwrap();
+            let config: Config = serde_json::from_value(merged).unwrap();
+            assert_eq!(
+                config.build.dev_url.as_ref().unwrap().as_str(),
+                "http://localhost:3000/c"
+            );
+            match config.build.frontend_dist.as_ref().unwrap() {
+                FrontendDist::Url(url) => {
+                    assert_eq!(url.as_str(), "alook-recovery://localhost/bootstrap");
+                    assert!(is_original_bootstrap_url(url));
+                }
+                other => panic!("unexpected production entry for {target:?}: {other:?}"),
+            }
+            assert_eq!(config.app.windows.len(), 1);
+            let main = &config.app.windows[0];
+            assert_eq!(main.label, "main");
+            assert!(main.create);
+            assert!(!main.visible);
+            assert!(
+                matches!(&main.url, WebviewUrl::App(path) if path.to_str() == Some("index.html"))
+            );
+            assert_eq!(
+                initial_replace_script(false, config.build.dev_url.as_ref()),
+                Ok(r#"location.replace("https://alook.ai/c")"#.to_string())
+            );
+        }
     }
 
     #[test]
-    fn container_handoff_is_independent_of_page_and_recovery() {
+    fn container_handoff_does_not_wait_for_business_document() {
         let lib = include_str!("lib.rs");
         assert_eq!(
             lib.matches("webview_recovery::finish_native_creation(&window);")
@@ -1603,7 +2070,6 @@ mod tests {
         assert!(activity.contains("mainWebView?.removeOnAttachStateChangeListener(it)"));
         assert!(!activity.contains("postVisualStateCallback"));
         assert!(!activity.contains("postDelayed"));
-        assert!(!activity.contains("StartupDocument"));
         let commands = include_str!("commands.rs");
         assert_order(
             commands,
@@ -1618,7 +2084,7 @@ mod tests {
     #[test]
     fn recovery_install_failure_and_bootstrap_finish_cannot_restart_production() {
         for finished_first in [false, true] {
-            let startup = StartupRendezvous::new();
+            let startup = StartupRendezvous::new(true);
             if finished_first {
                 assert!(!startup.signal_bootstrap_finished());
             }
@@ -1628,7 +2094,8 @@ mod tests {
             assert!(!startup.signal_bootstrap_finished());
             assert!(!startup.navigation_started.load(Ordering::Acquire));
         }
-        let startup = StartupRendezvous::new();
+        let startup = StartupRendezvous::new(true);
+        assert!(!startup.signal_frame_ready());
         assert!(!startup.signal_hooks_ready());
         assert!(startup.signal_bootstrap_finished());
         assert!(startup.signal_failure());
@@ -1645,21 +2112,24 @@ mod tests {
 
     #[test]
     fn ready_then_finished_starts_once() {
-        let startup = StartupRendezvous::new();
+        let startup = StartupRendezvous::new(true);
+        assert!(!startup.signal_frame_ready());
         assert!(!startup.signal_hooks_ready());
         assert!(startup.signal_bootstrap_finished());
     }
 
     #[test]
     fn finished_then_ready_starts_once() {
-        let startup = StartupRendezvous::new();
+        let startup = StartupRendezvous::new(true);
+        assert!(!startup.signal_frame_ready());
         assert!(!startup.signal_bootstrap_finished());
         assert!(startup.signal_hooks_ready());
     }
 
     #[test]
     fn duplicate_startup_signals_never_restart() {
-        let startup = StartupRendezvous::new();
+        let startup = StartupRendezvous::new(true);
+        assert!(!startup.signal_frame_ready());
         assert!(!startup.signal_hooks_ready());
         assert!(startup.signal_bootstrap_finished());
         assert!(!startup.signal_hooks_ready());
@@ -1668,10 +2138,117 @@ mod tests {
 
     #[test]
     fn missing_hook_readiness_fails_closed() {
-        let startup = StartupRendezvous::new();
+        let startup = StartupRendezvous::new(true);
         assert!(!startup.signal_bootstrap_finished());
         assert!(!startup.signal_bootstrap_finished());
         assert!(!startup.navigation_started.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn every_native_bootstrap_signal_order_claims_navigation_once() {
+        for order in [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ] {
+            let startup = StartupRendezvous::new(true);
+            for (index, signal) in order.into_iter().enumerate() {
+                let claimed = match signal {
+                    0 => startup.signal_hooks_ready(),
+                    1 => startup.signal_bootstrap_finished(),
+                    _ => startup.signal_frame_ready(),
+                };
+                assert_eq!(claimed, index == 2);
+            }
+            assert!(!startup.signal_hooks_ready());
+            assert!(!startup.signal_bootstrap_finished());
+            assert!(!startup.signal_frame_ready());
+        }
+    }
+
+    #[test]
+    fn native_handoff_joins_all_four_startup_signals_and_retires_on_failure() {
+        for a in 0..4 {
+            for b in 0..4 {
+                for c in 0..4 {
+                    for d in 0..4 {
+                        if a == b || a == c || a == d || b == c || b == d || c == d {
+                            continue;
+                        }
+                        for failure_at in 0..=4 {
+                            let startup = StartupRendezvous::new(false);
+                            for (index, signal) in [a, b, c, d].into_iter().enumerate() {
+                                if index == failure_at {
+                                    assert!(startup.signal_failure());
+                                }
+                                let claimed = match signal {
+                                    0 => startup.signal_hooks_ready(),
+                                    1 => startup.signal_bootstrap_finished(),
+                                    2 => startup.signal_frame_ready(),
+                                    _ => startup.signal_native_ready(),
+                                };
+                                assert_eq!(claimed, failure_at == 4 && index == 3);
+                            }
+                            assert!(!startup.signal_native_ready());
+                            assert!(!startup.signal_hooks_ready());
+                            assert!(!startup.signal_bootstrap_finished());
+                            assert!(!startup.signal_frame_ready());
+                            assert_eq!(
+                                startup.navigation_started.load(Ordering::Acquire),
+                                failure_at == 4
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn missing_frame_and_abandoned_frame_cannot_start_business_navigation() {
+        let startup = StartupRendezvous::new(true);
+        assert!(!startup.signal_hooks_ready());
+        assert!(!startup.signal_bootstrap_finished());
+        assert!(!startup.navigation_started.load(Ordering::Acquire));
+        startup.abandon();
+        assert!(!startup.signal_frame_ready());
+        assert!(!startup.navigation_started.load(Ordering::Acquire));
+        let startup = StartupRendezvous::new(true);
+        startup.signal_failure();
+        assert!(!startup.signal_frame_ready());
+        assert!(!startup.signal_hooks_ready());
+        assert!(!startup.signal_bootstrap_finished());
+    }
+
+    #[test]
+    fn local_submission_script_waits_for_dom_and_two_frames_and_has_no_retry_loop() {
+        let result = std::process::Command::new("node").arg("-e").arg(r#"
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+for (const state of ['loading', 'complete']) {
+ for (const path of ['/bootstrap', '/network-error']) {
+  const frames=[], requests=[], replacements=[], listeners=[]; let image;
+  const context={ URL, document:{readyState:state,addEventListener:(_event, callback)=>listeners.push(callback)},
+   location:{href:'alook-recovery://localhost'+path,pathname:path,replace:value=>replacements.push(String(value))},
+   requestAnimationFrame:callback=>frames.push(callback), Image:class {constructor(){image=this} set src(value){requests.push(String(value))}} };
+  vm.runInNewContext(process.argv[1],context);
+  if(state==='loading'){assert.equal(frames.length,0);listeners[0]();listeners[0]()}
+  assert.equal(requests.length,0);assert.equal(frames.length,1);
+  frames.shift()();assert.equal(requests.length,0);assert.equal(frames.length,1);
+  frames.shift()();assert.deepEqual(requests,['alook-recovery://localhost/frame-ready']);
+  assert.equal(frames.length,0);image.onerror();
+  assert.deepEqual(replacements,path==='/bootstrap'?['alook-recovery://localhost/network-error#reason=initialization']:[]);
+ }
+}
+"#).arg(FRAME_READY_SCRIPT).output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
     }
 
     #[test]

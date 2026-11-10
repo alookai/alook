@@ -1,4 +1,5 @@
-import type { Page, TestInfo } from "@playwright/test"
+import type { Page, TestInfo, WebSocket as BrowserSocket } from "@playwright/test"
+import { admitCommunityBrowserEventBatch, decodeCommunityBrowserEvent, isCommunityBrowserEventBatchCandidate } from "@alook/shared"
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 
@@ -21,6 +22,124 @@ async function prepareCase(actors: CaseActors) {
 
 const VIEWPORT_WIDTHS = [320, 390, 639, 640, 1280] as const
 const LONG_TYPING_NAME = `Typing ${"occupancy ".repeat(8)}edge`
+
+function observeContinuousTyping(
+  actors: CaseActors,
+  sender: Page,
+  receiver: Page,
+  channelId: string,
+  testInfo: TestInfo,
+) {
+  const timeline: Array<{ at: number; kind: string; type?: string; state?: string; width?: number }> = []
+  const received: number[] = []
+  const detach: Array<() => void> = []
+  let admission = Promise.resolve()
+  let failed = false
+  let failure: unknown
+  let active = false
+  let started = false
+  let inputRun = Promise.resolve()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let wake: (() => void) | undefined
+  const recordFailure = (error: unknown) => { failed = true; failure ??= error }
+  const assertHealthy = () => { if (failed) throw failure }
+  const onSenderSocket = (socket: BrowserSocket) => {
+    const onFrame = ({ payload }: { payload: string | Buffer }) => {
+      let frame: unknown
+      try { frame = JSON.parse(payload.toString()) } catch { return }
+      if (typeof frame !== "object" || frame === null || !("channelId" in frame) || frame.channelId !== channelId || !("type" in frame)) return
+      if (frame.type === "community:typing.start" || frame.type === "community:typing.stop") {
+        timeline.push({ at: performance.now(), kind: "sent", type: frame.type })
+      }
+    }
+    socket.on("framesent", onFrame)
+    detach.push(() => { socket.off("framesent", onFrame) })
+  }
+  const onReceiverSocket = (socket: BrowserSocket) => {
+    const onFrame = ({ payload }: { payload: string | Buffer }) => {
+      let frame: unknown
+      try { frame = JSON.parse(payload.toString()) } catch { return }
+      if (!isCommunityBrowserEventBatchCandidate(frame) && (
+        typeof frame !== "object" || frame === null || !("type" in frame)
+        || (frame.type !== "community:typing.start" && frame.type !== "community:typing.stop")
+      )) return
+      const at = performance.now()
+      admission = admission.then(async () => {
+        const decoded = isCommunityBrowserEventBatchCandidate(frame)
+          ? await admitCommunityBrowserEventBatch(frame)
+          : decodeCommunityBrowserEvent(frame)
+        if (!decoded.ok) throw new Error("Typing observation received an invalid business event")
+        for (const event of "events" in decoded ? decoded.events : [decoded.event]) {
+          if ((event.type === "community:typing.start" || event.type === "community:typing.stop")
+            && event.channelId === channelId && event.userId === actors.userId("bob")) {
+            timeline.push({ at, kind: "received", type: event.type })
+            if (event.type === "community:typing.start") received.push(at)
+          }
+        }
+      }).catch(recordFailure)
+    }
+    socket.on("framereceived", onFrame)
+    detach.push(() => { socket.off("framereceived", onFrame) })
+  }
+  sender.on("websocket", onSenderSocket)
+  receiver.on("websocket", onReceiverSocket)
+  const stop = async () => {
+    active = false
+    if (timer !== undefined) clearTimeout(timer)
+    timer = undefined
+    wake?.()
+    wake = undefined
+    await inputRun
+    assertHealthy()
+  }
+  actors.onCleanup(async () => {
+    const errors: unknown[] = []
+    try { await stop() } catch (error) { errors.push(error) }
+    sender.off("websocket", onSenderSocket)
+    receiver.off("websocket", onReceiverSocket)
+    for (const remove of detach) remove()
+    detach.length = 0
+    await admission
+    try { assertHealthy() } catch (error) { if (!errors.includes(error)) errors.push(error) }
+    await testInfo.attach("continuous-typing-events.json", {
+      body: JSON.stringify({ clock: "runner monotonic milliseconds", timeline, started,
+        inputTaskRetired: !active && timer === undefined && wake === undefined,
+        listenersRemoved: true, decodingDrained: true, failed }),
+      contentType: "application/json",
+    })
+    if (errors.length) throw new AggregateError(errors, "Continuous typing did not retire cleanly")
+  })
+  return {
+    start: () => {
+      if (started) throw new Error("Continuous typing can start only once")
+      started = true
+      active = true
+      inputRun = (async () => {
+        while (active) {
+          await new Promise<void>((resolve) => { wake = resolve; timer = setTimeout(resolve, 1_000) })
+          wake = undefined
+          timer = undefined
+          if (!active) break
+          timeline.push({ at: performance.now(), kind: "input-start" })
+          await composerEditable(sender).pressSequentially("x", { timeout: 10_000 })
+          timeline.push({ at: performance.now(), kind: "input-end" })
+        }
+      })().catch(recordFailure)
+    },
+    check: async (state = "qualification", width?: number) => {
+      await admission
+      assertHealthy()
+      expect(received.length, "Actual matching typing receipt is required").toBeGreaterThan(0)
+      for (let index = 1; index < received.length; index++) {
+        expect(received[index]! - received[index - 1]!, "Continuous received typing gap").toBeLessThan(8_000)
+      }
+      expect(performance.now() - received.at(-1)!, "Current received typing age").toBeLessThan(8_000)
+      timeline.push({ at: performance.now(), kind: "sample", state, width })
+    },
+    receivedSpan: () => received.length > 1 ? received.at(-1)! - received[0]! : 0,
+    stop,
+  }
+}
 
 test("Typing uses the remaining width beside New while the present control stays independent", async ({ caseActors }, testInfo) => {
   const actors = await caseActors(["alice", "bob"])
@@ -398,6 +517,7 @@ async function captureState(args: {
   themeEvidence?: boolean
   widths?: readonly number[]
   finalMessageId?: string
+  typingActivity?: (state: string, width: number) => Promise<void>
 }): Promise<Record<number, RailMetrics>> {
   const {
     page,
@@ -410,9 +530,11 @@ async function captureState(args: {
     themeEvidence = false,
     widths = VIEWPORT_WIDTHS,
     finalMessageId,
+    typingActivity,
   } = args
   const evidence: Record<number, RailMetrics> = {}
   for (const width of widths) {
+    await typingActivity?.(state, width)
     await setSettledViewport(page, width, width >= 768 ? 900 : 844, finalMessageId)
     const scrollRoot = page.getByTestId(tid.messageScroller)
     await scrollRoot.evaluate((element, showScrollControl) => {
@@ -438,6 +560,7 @@ async function captureState(args: {
       })
     }
     const metrics = await settledRailMetrics(page, finalMessageId)
+    await typingActivity?.(state, width)
     expectContained(metrics, state, width)
     expectCheckpoint(metrics, state, width, selection)
     if (center) {
@@ -564,6 +687,7 @@ test("composer accessory rail reallocates every occupied slot without overflow",
   const alice = await asUser("alice")
   const bob = await asUser("bob")
   const carol = await asUser("carol")
+  const typingActivity = observeContinuousTyping(actors, bob.page, alice.page, channelId, testInfo)
   await alice.page.setViewportSize({ width: 390, height: 844 })
   await bob.page.setViewportSize({ width: 390, height: 844 })
   await carol.page.setViewportSize({ width: 390, height: 844 })
@@ -629,10 +753,15 @@ test("composer accessory rail reallocates every occupied slot without overflow",
   await bob.page.keyboard.press("ControlOrMeta+A")
   await bob.page.keyboard.press("Backspace")
   await bob.page.keyboard.type("typing occupancy")
+  typingActivity.start()
   await expect(alice.page.getByTestId(tid.typingIndicator))
     .toContainText(LONG_TYPING_NAME, { timeout: 20_000 })
   const afterTyping = await settledRailMetrics(alice.page, finalMessageId)
   expectStableScrollerViewport(beforeTyping, afterTyping)
+  await expect.poll(async () => {
+    await typingActivity.check()
+    return typingActivity.receivedSpan()
+  }, { timeout: 20_000 }).toBeGreaterThan(8_000)
 
   await captureState({
     page: alice.page,
@@ -642,6 +771,7 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     center: true,
     typing: true,
     finalMessageId,
+    typingActivity: typingActivity.check,
   })
 
   await alice.page.getByTestId(tid.typingIndicator).evaluate((element) => {
@@ -649,11 +779,13 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     element.querySelector("span > span")?.setAttribute("data-e2e-dot-identity", "dot-survived")
   })
 
+  await typingActivity.check("scroll-to-present")
   await alice.page.getByTestId(tid.scrollToPresent).click()
   await expect(alice.page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
   await expect(alice.page.locator("[data-e2e-node-identity='typing-survived']")).toHaveCount(1)
   await expect(alice.page.locator("[data-e2e-dot-identity='dot-survived']")).toHaveCount(1)
   for (const width of [639, 640]) {
+    await typingActivity.check("breakpoint-transition", width)
     await alice.page.setViewportSize({ width, height: 844 })
     await expect.poll(() => scrollRoot.evaluate((element) =>
       Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop),
@@ -669,11 +801,13 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     center: false,
     typing: true,
     finalMessageId,
+    typingActivity: typingActivity.check,
   })
   for (const width of VIEWPORT_WIDTHS) {
     expect(leftOnly[width].rail).not.toBeNull()
     expect(leftOnly[width].typing).not.toBeNull()
   }
+  await typingActivity.stop()
 
   finalMessageId = await sendExactMessage(
     bob.page,

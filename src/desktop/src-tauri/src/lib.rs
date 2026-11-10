@@ -21,9 +21,18 @@ mod native_command_guard;
 mod native_geometry;
 mod native_oauth;
 mod native_oauth_runtime;
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux"))]
+mod public_probe_input;
+#[cfg(any(windows, test))]
+mod startup_assets;
+mod startup_log;
 #[cfg(desktop)]
 mod system_notifications;
 mod webview_recovery;
+#[cfg(windows)]
+mod windows_startup;
+#[cfg(any(windows, test))]
+mod windows_startup_state;
 
 #[cfg(desktop)]
 mod updater;
@@ -32,13 +41,22 @@ mod updater;
 mod zoom;
 
 #[cfg(target_os = "macos")]
+mod macos_single_instance;
+#[cfg(target_os = "macos")]
 mod macos_window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    startup_log::mark(startup_log::Phase::RustEntry);
+
     let builder = webview_recovery::register_protocol(tauri::Builder::default());
-    #[cfg(desktop)]
+    #[cfg(all(desktop, not(target_os = "macos")))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        system_notifications::intake_args(app, &args);
+        commands::show_main_window(app);
+    }));
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(macos_single_instance::init(|app, args, _cwd| {
         system_notifications::intake_args(app, &args);
         commands::show_main_window(app);
     }));
@@ -115,17 +133,22 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
     ]);
 
     builder = builder.setup(|app| {
+        startup_log::mark(startup_log::Phase::SetupEnter);
+        startup_log::install(app.handle());
         if file_save_runtime::setup(app.handle()).is_err() {
             eprintln!("file save storage unavailable");
         }
         if let Some(window) = app.get_webview_window("main") {
             webview_recovery::attach(&window);
+            webview_recovery::watch_bootstrap(&window);
             #[cfg(target_os = "ios")]
             webview_recovery::finish_native_creation(&window);
         }
         if native_oauth_runtime::setup(app.handle()).is_err() {
             eprintln!("native OAuth storage unavailable");
         }
+        startup_log::mark(startup_log::Phase::SetupReturned);
+        startup_log::publish();
         Ok(())
     });
 
@@ -144,14 +167,16 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
 
 #[cfg(desktop)]
 fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
-
-    builder = builder.register_uri_scheme_protocol("splash", |_ctx, _req| {
-        let html = commands::splash_html();
-        tauri::http::Response::builder()
-            .header("content-type", "text/html; charset=utf-8")
-            .body(html.into_bytes())
-            .unwrap()
-    });
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    {
+        builder = builder.register_uri_scheme_protocol("splash", |_ctx, _req| {
+            let html = commands::splash_html();
+            tauri::http::Response::builder()
+                .header("content-type", "text/html; charset=utf-8")
+                .body(html.into_bytes())
+                .unwrap()
+        });
+    }
 
     builder = builder.invoke_handler(tauri::generate_handler![
         file_save_runtime::file_save_begin,
@@ -183,14 +208,24 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
     ]);
 
     builder = builder.setup(|app| {
+        startup_log::mark(startup_log::Phase::SetupEnter);
+        startup_log::install(app.handle());
+        #[cfg(windows)]
+        windows_startup::begin(app.handle());
+
         #[cfg(all(target_os = "macos", debug_assertions))]
-        commands::create_qa_main_window(app)?;
-        commands::create_splash_window(app)?;
+        {
+            commands::create_qa_main_window(app)?;
+            if system_notifications::notification_diagnostics_enabled(app.handle()) {
+                commands::create_splash_window(app)?;
+            }
+        }
         if file_save_runtime::setup(app.handle()).is_err() {
             eprintln!("file save storage unavailable");
         }
         if let Some(window) = app.get_webview_window("main") {
             webview_recovery::attach(&window);
+            webview_recovery::watch_bootstrap(&window);
         }
         if native_oauth_runtime::setup(app.handle()).is_err() {
             eprintln!("native OAuth storage unavailable");
@@ -222,6 +257,10 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
             webview_recovery::finish_native_creation(&window);
         }
 
+        #[cfg(windows)]
+        windows_startup::setup_complete(app.handle());
+        startup_log::mark(startup_log::Phase::SetupReturned);
+        startup_log::publish();
         Ok(())
     });
 
@@ -237,6 +276,11 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
     });
 
     builder = builder.on_window_event(|window, event| {
+        if window.label() == "main" {
+            if let tauri::WindowEvent::Focused(focused) = event {
+                webview_recovery::set_foreground(*focused);
+            }
+        }
         if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
             native_oauth_runtime::retire_listener(window.app_handle());
             file_save_runtime::retire(window.app_handle());
@@ -266,9 +310,11 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
 }
 
 fn run_app(builder: tauri::Builder<tauri::Wry>) {
+    startup_log::mark(startup_log::Phase::BuilderBegin);
+    #[allow(unused_mut)]
+    let mut context = tauri::generate_context!();
     #[cfg(all(target_os = "macos", debug_assertions))]
-    let app = {
-        let mut context = tauri::generate_context!();
+    {
         if context.config().identifier == "ai.alook.desktop.qa.madox.notification208" {
             let main = context
                 .config_mut()
@@ -280,15 +326,43 @@ fn run_app(builder: tauri::Builder<tauri::Wry>) {
             main.create = false;
             main.data_store_identifier = Some(commands::QA_NOTIFICATION_STORE_ID);
         }
-        builder.build(context)
     }
-    .expect("error while building tauri application");
-    #[cfg(not(all(target_os = "macos", debug_assertions)))]
+    #[cfg(windows)]
+    windows_startup::configure(context.config_mut());
     let app = builder
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application");
 
+    startup_log::mark(startup_log::Phase::BuilderReturned);
+
     app.run(|app, event| {
+        #[cfg(windows)]
+        if matches!(
+            event,
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+        ) {
+            windows_startup::cancel();
+        }
+        if matches!(event, tauri::RunEvent::Exit) {
+            startup_log::mark(startup_log::Phase::ProcessExit);
+            startup_log::publish();
+        }
+        #[cfg(mobile)]
+        if let tauri::RunEvent::WindowEvent { label, event, .. } = &event {
+            if label == "main" {
+                match event {
+                    tauri::WindowEvent::Suspended => {
+                        webview_recovery::set_foreground(false);
+                        startup_log::lifecycle(false);
+                    }
+                    tauri::WindowEvent::Resumed => {
+                        webview_recovery::set_foreground(true);
+                        startup_log::lifecycle(true);
+                    }
+                    _ => {}
+                }
+            }
+        }
         if should_notify_native_oauth(&event) {
             native_oauth_runtime::notify_listener(app);
         }
@@ -297,6 +371,18 @@ fn run_app(builder: tauri::Builder<tauri::Wry>) {
             commands::show_main_window(app);
         }
     });
+}
+
+#[cfg(windows)]
+pub(crate) fn finish_windows_main_creation(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    webview_recovery::attach(window);
+    webview_recovery::watch_bootstrap(window);
+    zoom::apply_restored(window)?;
+    if let Ok(theme) = window.theme() {
+        commands::set_window_theme(window.clone(), theme == tauri::Theme::Dark, None);
+    }
+    webview_recovery::finish_native_creation(window);
+    Ok(())
 }
 
 fn should_notify_native_oauth(event: &tauri::RunEvent) -> bool {

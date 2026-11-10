@@ -1,4 +1,13 @@
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("ios") {
+        println!("cargo:rerun-if-changed=src/startup_log_ios.c");
+        let ios_minimum =
+            std::env::var("IPHONEOS_DEPLOYMENT_TARGET").unwrap_or_else(|_| "15.0".to_owned());
+        cc::Build::new()
+            .env("IPHONEOS_DEPLOYMENT_TARGET", ios_minimum)
+            .file("src/startup_log_ios.c")
+            .compile("alook_startup_log_ios");
+    }
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "file_save_begin",
