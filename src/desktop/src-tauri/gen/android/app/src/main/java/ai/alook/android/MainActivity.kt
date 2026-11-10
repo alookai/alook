@@ -5,6 +5,9 @@ import android.graphics.Rect
 import android.os.Build
 import android.graphics.Color
 import android.os.Bundle
+import android.transition.ChangeBounds
+import android.transition.Transition
+import android.transition.TransitionManager
 import android.view.View
 import android.view.ViewGroup
 import android.view.Gravity
@@ -17,7 +20,6 @@ import androidx.core.graphics.Insets
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -35,12 +37,15 @@ class MainActivity : TauriActivity() {
     @Volatile private var geometryJson = "null"
     private var geometryInsets: WindowInsetsCompat? = null
     private var availableInsets: WindowInsetsCompat? = null
+    private class WebViewTransition(val parent: ViewGroup) {
+        var started = false
+    }
+    private var webViewTransition: WebViewTransition? = null
     private var insetsHost: View? = null
     private val hostLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         resizeWebView()
         syncGeometry()
     }
-    private val imeAnimations = mutableSetOf<WindowInsetsAnimationCompat>()
     private val gestureLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         syncSystemGestureRegion()
         syncGeometry()
@@ -114,44 +119,19 @@ class MainActivity : TauriActivity() {
         val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         applyWindowTheme(isDark)
 
-        var latestInsets: WindowInsetsCompat? = null
         insetsHost = rootView
         rootView.addOnLayoutChangeListener(hostLayoutListener)
-        fun publishInsets(insets: WindowInsetsCompat, holdKeyboard: Boolean = false) {
+        ViewCompat.setOnApplyWindowInsetsListener(rootView) { _, insets ->
+            val previousIme = availableInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom
+            val nextIme = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
             geometryInsets = insets
             systemGestureInsets = insets.getInsets(WindowInsetsCompat.Type.systemGestures())
-            if (!holdKeyboard) {
-                availableInsets = insets
-            }
-            resizeWebView()
+            availableInsets = insets
+            resizeWebView(animate = previousIme != null && previousIme != nextIme)
             syncGeometry()
             syncSystemGestureRegion()
-        }
-        ViewCompat.setOnApplyWindowInsetsListener(rootView) { _, insets ->
-            latestInsets = insets
-            publishInsets(insets, holdKeyboard = imeAnimations.isNotEmpty())
             insets
         }
-        ViewCompat.setWindowInsetsAnimationCallback(rootView,
-            object : WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_STOP) {
-                override fun onPrepare(animation: WindowInsetsAnimationCompat) {
-                    if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0) imeAnimations.add(animation)
-                }
-                override fun onProgress(
-                    insets: WindowInsetsCompat,
-                    runningAnimations: MutableList<WindowInsetsAnimationCompat>,
-                ): WindowInsetsCompat {
-                    if (runningAnimations.any { it.typeMask and WindowInsetsCompat.Type.ime() != 0 }) {
-                        publishInsets(insets)
-                    }
-                    return insets
-                }
-                override fun onEnd(animation: WindowInsetsAnimationCompat) {
-                    if (imeAnimations.remove(animation) && imeAnimations.isEmpty()) {
-                        latestInsets?.let { publishInsets(it) }
-                    }
-                }
-            })
     }
 
     override fun onResume() {
@@ -160,8 +140,14 @@ class MainActivity : TauriActivity() {
     }
 
     override fun onPause() {
+        finishWebViewTransition()
         StartupLog.foregroundChanged(false)
         super.onPause()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        finishWebViewTransition()
+        super.onConfigurationChanged(newConfig)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -170,6 +156,7 @@ class MainActivity : TauriActivity() {
     }
 
     override fun onDestroy() {
+        finishWebViewTransition()
         clearStartupAttachListener()
         mainWebView?.removeOnLayoutChangeListener(gestureLayoutListener)
         mainWebView = null
@@ -181,10 +168,8 @@ class MainActivity : TauriActivity() {
         insetsHost?.let {
             it.removeOnLayoutChangeListener(hostLayoutListener)
             ViewCompat.setOnApplyWindowInsetsListener(it, null)
-            ViewCompat.setWindowInsetsAnimationCallback(it, null)
         }
         insetsHost = null
-        imeAnimations.clear()
         mobileShareImageDocumentOwner.detach()
         super.onDestroy()
     }
@@ -192,6 +177,7 @@ class MainActivity : TauriActivity() {
     override fun onWebViewCreate(webView: WebView) {
         StartupLog.webViewCreated()
         super.onWebViewCreate(webView)
+        finishWebViewTransition()
         clearStartupAttachListener()
         clearStartupBackdrop()
         mainWebView?.removeOnLayoutChangeListener(gestureLayoutListener)
@@ -293,7 +279,40 @@ class MainActivity : TauriActivity() {
         return Rect(0, 0, window.decorView.width, window.decorView.height)
     }
 
-    private fun resizeWebView() {
+    private fun finishWebViewTransition() {
+        val current = webViewTransition ?: return
+        webViewTransition = null
+        TransitionManager.endTransitions(current.parent)
+    }
+
+    private fun beginWebViewTransition(webView: WebView, parent: ViewGroup) {
+        val current = webViewTransition
+        if (current != null && current.parent === parent && !current.started) return
+        val owner = WebViewTransition(parent)
+        webViewTransition = owner
+        val transition = ChangeBounds().apply {
+            addTarget(webView)
+            resizeClip = false
+            addListener(object : Transition.TransitionListener {
+                override fun onTransitionStart(transition: Transition) { owner.started = true }
+                override fun onTransitionEnd(transition: Transition) {
+                    transition.removeListener(this)
+                    if (webViewTransition !== owner) return
+                    webViewTransition = null
+                    if (mainWebView === webView && webView.parent === parent) {
+                        syncGeometry()
+                        syncSystemGestureRegion()
+                    }
+                }
+                override fun onTransitionCancel(transition: Transition) {}
+                override fun onTransitionPause(transition: Transition) {}
+                override fun onTransitionResume(transition: Transition) {}
+            })
+        }
+        TransitionManager.beginDelayedTransition(parent, transition)
+    }
+
+    private fun resizeWebView(animate: Boolean = false) {
         val webView = mainWebView ?: return
         val parent = webView.parent as? ViewGroup ?: return
         val insets = availableInsets ?: ViewCompat.getRootWindowInsets(webView) ?: return
@@ -306,10 +325,14 @@ class MainActivity : TauriActivity() {
         ) ?: return
         val params = webView.layoutParams
         if (params.height != height) {
+            if (animate && webView.isAttachedToWindow && webView.isLaidOut && webView.height > 0 && webView.height != height) {
+                beginWebViewTransition(webView, parent)
+            } else {
+                finishWebViewTransition()
+            }
             params.height = height
             webView.layoutParams = params
         }
-        if (webView.height != height) webView.layout(webView.left, webView.top, webView.right, webView.top + height)
     }
 
     private fun syncGeometry() {

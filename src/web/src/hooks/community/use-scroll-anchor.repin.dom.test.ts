@@ -476,7 +476,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
   })
-  it("uses auto for loaded-tail Present and waits without polling until an actual viewport change or user takeover", () => {
+  it("uses auto for reduced-motion Present and waits without polling until an actual viewport change or user takeover", () => {
     const h = mount()
     h.move(0)
     const native = scrollFixture.latest.virtualizer
@@ -816,6 +816,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(offset).not.toHaveBeenCalled()
   })
   it("keeps quote smooth on the native index command without a per-frame offset rewrite", () => {
+    vi.spyOn(window, "matchMedia").mockReturnValue({ ...window.matchMedia("(prefers-reduced-motion: reduce)"), matches: false })
     const h = mount()
     const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
     const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
