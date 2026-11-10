@@ -45,14 +45,16 @@ function isDeadInvite(err: unknown): boolean {
  * Fetches invite info, displays server preview, and joins on button click.
  */
 export function InviteAcceptClient({ token }: { token: string }) {
-  return <PublicQueryProvider><InviteAcceptInner token={token} /></PublicQueryProvider>
+  const autojoinIntent = useMemo(() => createStore(false), [token])
+  return <PublicQueryProvider><InviteAcceptInner token={token} autojoinIntent={autojoinIntent} /></PublicQueryProvider>
 }
 
-function InviteAcceptInner({ token }: { token: string }) {
+function InviteAcceptInner({ token, autojoinIntent }: { token: string; autojoinIntent: ReturnType<typeof createStore<boolean>> }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const source = useApplicationViewSource(`community-invite:${token}`)
   const { owner } = source
+  const canJoin = owner.userId !== "__pending__"
   useEffect(() => { void captureProductAnalytics({ event: "invitation_link_visit", token }) }, [token])
   const query = useQuery({ queryKey: applicationKey(owner, "community-invite", token), retry: false,
     queryFn: ({ signal }) => runApplicationRequest(owner, (options) => apiFetch<InviteInfo>(`/api/community/invites/${token}/info`, {
@@ -100,7 +102,9 @@ function InviteAcceptInner({ token }: { token: string }) {
   const joining = command.isPending
   const mutateJoin = command.mutateAsync
   const handleJoin = useCallback(async () => {
+    if (!canJoin) return
     const original = source.capture()
+    autojoinIntent.setState(() => true)
     try {
       const result = await mutateJoin(original)
       original.assert()
@@ -115,21 +119,13 @@ function InviteAcceptInner({ token }: { token: string }) {
       try { original.assert() } catch { return }
       if (!(error instanceof DOMException && error.name === "AbortError")) toast(error instanceof Error ? error.message : "Couldn't join the server — try the invite again")
     }
-  }, [source, mutateJoin, router, token])
-  // Returning from the login wall (`?autojoin=1`) → resume the Join the visitor
-  // already clicked. A ref latch fires it EXACTLY once per landing: a bare
-  // `!joining` guard isn't enough because `info`'s reference can change (a
-  // refetch / parent re-render) and re-run the effect before `joining` state
-  // has settled, double-firing the join (a real member-row insert). The ref
-  // flips synchronously on first fire and never resets, so re-renders are inert.
+  }, [source, mutateJoin, router, token, canJoin, autojoinIntent])
   const autojoin = searchParams.get("autojoin") === "1"
-  const autojoinIntent = useMemo(() => ({ scope: [owner, token], store: createStore<AbortSignal | null>(null) }), [owner, token]).store
   useEffect(() => {
-    if (autojoin && info && autojoinIntent.get() !== source.signal) {
-      autojoinIntent.setState(() => source.signal)
+    if (autojoin && info && canJoin && !autojoinIntent.get()) {
       void handleJoin()
     }
-  }, [autojoin, info, handleJoin, source.signal, autojoinIntent])
+  }, [autojoin, info, canJoin, handleJoin, autojoinIntent])
 
   if (loading) {
     return (
@@ -211,7 +207,7 @@ function InviteAcceptInner({ token }: { token: string }) {
         </div>
       )}
 
-      <Button className="mt-6 h-11 w-full rounded-xl text-base" onClick={handleJoin} disabled={joining}>
+      <Button className="mt-6 h-11 w-full rounded-xl text-base" onClick={handleJoin} disabled={!canJoin || joining}>
         {joining ? "Joining…" : "Join server"}
       </Button>
 
