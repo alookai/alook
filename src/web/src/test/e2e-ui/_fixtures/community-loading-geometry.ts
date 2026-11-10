@@ -773,12 +773,13 @@ export async function runDesktopPersistedPendingGeometry(
           cost.mark("sample-and-assert")
           assertionsComplete = true
         } finally {
-          scripts?.release()
-          communityReads?.release()
           try { await context.close(); contextClosed = true } catch (error) {
             onCleanup(async () => { throw error })
+          } finally {
+            scripts?.release()
+            communityReads?.release()
           }
-          cost.mark("release-and-close")
+          cost.mark("context-close-held-and-release")
           cost.finish({ assertionsComplete, contextClosed })
         }
       })

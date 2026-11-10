@@ -47,6 +47,8 @@ type Visit = {
   events: string[]
   closed: boolean
   closeAttempts: number
+  held: Set<"script" | "read">
+  closeEvidence: Array<{ held: string[]; liveReads: number }>
 }
 type RequestRoute = { request: () => { url: () => string; method: () => string }; continue: () => Promise<void> }
 
@@ -55,27 +57,29 @@ function fixtureRun(failure?: "navigation" | "overflow" | "empty" | "ssr-duplica
   const originalFailure = new Error("original navigation failure")
   const closeFailures = { dave: new Error("original dave context close failure"), geometry: new Error("original geometry context close failure") }
   const contexts: Array<{ visit: Visit; context: BrowserContext }> = []
+  const routeOperations: Promise<void>[] = []
   const cleanupOperations: Array<() => Promise<unknown>> = []
   const onCleanup: Parameters<typeof runDesktopPersistedPendingGeometry>[2] = vi.fn(operation => { cleanupOperations.push(operation) })
   const asUser: Parameters<typeof runDesktopPersistedPendingGeometry>[1] = async (account, options) => {
     expect(active.has(account), "one mutable context per account").toBe(false)
     active.add(account)
-    const visit: Visit = { account, scale: options?.deviceScaleFactor ?? 1, width: 0, sidebar: null, waits: [], events: [], closed: false, closeAttempts: 0 }
+    const visit: Visit = { account, scale: options?.deviceScaleFactor ?? 1, width: 0, sidebar: null, waits: [], events: [], closed: false, closeAttempts: 0, held: new Set(), closeEvidence: [] }
     visits.push(visit)
     let sidebarWidth = 317
     const handlers = new Map<string, (route: RequestRoute) => Promise<void>>()
     const listeners = new Map<string, (event: { url: () => string }) => void>()
-    const pending: Promise<void>[] = []
     const request = (kind: "script" | "read") => {
       const url = () => kind === "script" ? "https://fixture.test/_next/app.js" : "https://fixture.test/api/community/servers"
       listeners.get("request")?.({ url })
       const handler = handlers.get(kind === "script" ? "**/_next/**" : "**/api/community/**")!
+      visit.held.add(kind)
       const operation = handler({ request: () => ({ url, method: () => "GET" }), continue: async () => {
+        if (visit.closed) { visit.events.push(`${kind}.retired`); return }
         visit.events.push(`${kind}.continue`)
         listeners.get("response")?.({ url })
         if (kind === "script") request("read")
-      } })
-      pending.push(operation)
+      } }).finally(() => { visit.held.delete(kind) })
+      routeOperations.push(operation)
     }
     const locator = (count = 1) => ({
       fixtureLocator: true, visible: true, count,
@@ -118,7 +122,8 @@ function fixtureRun(failure?: "navigation" | "overflow" | "empty" | "ssr-duplica
     } as unknown as Page
     const context = { close: async () => {
       visit.closeAttempts += 1
-      await Promise.all(pending)
+      await Promise.resolve()
+      visit.closeEvidence.push({ held: [...visit.held], liveReads: visit.events.filter(event => event === "read.continue").length })
       const laneVisits = visits.filter(value => value.account === account)
       const shouldReject = closeFailure === "first" ? visits[0] === visit
         : (closeFailure === "last" || closeFailure === "last-both") && laneVisits.length === 24
@@ -142,6 +147,11 @@ function fixtureRun(failure?: "navigation" | "overflow" | "empty" | "ssr-duplica
       if (visit.closed) continue
       try { await context.close() } catch (error) { errors.push(error) }
     }
+    for (let index = 0; index < routeOperations.length;) {
+      const batch = routeOperations.slice(index)
+      index += batch.length
+      for (const result of await Promise.allSettled(batch)) if (result.status === "rejected") errors.push(result.reason)
+    }
     return errors
   }
   return { visits, active, originalFailure, closeFailures, onCleanup, cleanup,
@@ -161,7 +171,13 @@ describe("geometry fixture account lanes and resource release", () => {
     expect(steps).toHaveBeenCalledTimes(48)
     for (const visit of fixture.visits) {
       expect(visit.waits).toEqual([250])
-      expect(visit.events).toEqual(["navigation", "script.continue", "sample.wait", "samples", "read.continue", "close"])
+      expect(visit.events).toContain("script.continue")
+      expect(visit.events).toContain("samples")
+      expect(visit.events.indexOf("close")).toBeGreaterThan(visit.events.indexOf("samples"))
+      expect(visit.closeEvidence[0]).toEqual({ held: ["read"], liveReads: 0 })
+      expect(visit.events).not.toContain("read.continue")
+      expect(visit.events).toContain("read.retired")
+      expect(visit.held.size).toBe(0)
       expect(visit.closed).toBe(true)
     }
     expect(fixture.active.size).toBe(0)
@@ -172,7 +188,7 @@ describe("geometry fixture account lanes and resource release", () => {
     await fixture.run()
     expect(await fixture.cleanup()).toEqual([])
     expect(fixture.visits).toHaveLength(48)
-    expect(fixture.visits.every(visit => visit.closed && visit.waits.length === 1 && visit.waits[0] === 250)).toBe(true)
+    expect(fixture.visits.every(visit => visit.closed && visit.waits.length === 1 && visit.waits[0] === 250 && visit.held.size === 0 && !visit.events.includes("read.continue"))).toBe(true)
     expect(fixture.active.size).toBe(0)
   })
 
@@ -188,7 +204,12 @@ describe("geometry fixture account lanes and resource release", () => {
     if (failure === "ssr-size") expect(error.message).toContain("width")
     expect(fixture.visits.filter(v => v.account === "geometry")).toHaveLength(24)
     expect(fixture.visits.filter(v => v.account === "dave")).toHaveLength(1)
-    expect(fixture.visits.every(v => v.closed && v.events.includes("script.continue") && v.events.includes("read.continue"))).toBe(true)
+    expect(fixture.visits.every(v => v.closed && v.held.size === 0 && !v.events.includes("read.continue") && v.events.some(event => event === "read.retired" || event === "script.retired"))).toBe(true)
+    if (failure === "navigation" || failure.startsWith("ssr-")) {
+      expect(fixture.visits[0].events).toContain("script.retired")
+      expect(fixture.visits[0].events).not.toContain("script.continue")
+      expect(fixture.visits[0].events).not.toContain("read.retired")
+    }
     expect(fixture.active.size).toBe(0)
   })
 
@@ -202,6 +223,7 @@ describe("geometry fixture account lanes and resource release", () => {
     expect(fixture.active.size).toBe(1)
     expect(await fixture.cleanup()).toEqual([fixture.closeFailures.dave])
     expect(failed[0].closeAttempts).toBe(2)
+    expect(failed[0].events).toContain("read.continue")
     expect(fixture.visits).toHaveLength(48)
     expect(fixture.visits.every(visit => visit.closed)).toBe(true)
     expect(fixture.active.size).toBe(0)
@@ -214,8 +236,10 @@ describe("geometry fixture account lanes and resource release", () => {
     expect(fixture.onCleanup).toHaveBeenCalledTimes(1)
     expect(fixture.visits[0].closed).toBe(false)
     expect(fixture.visits.filter(visit => visit.account === "geometry")).toHaveLength(24)
-    expect(fixture.visits.every(visit => visit.events.includes("script.continue") && visit.events.includes("read.continue"))).toBe(true)
     expect(await fixture.cleanup()).toEqual([fixture.closeFailures.dave])
+    expect(fixture.visits[0].events).toContain("script.continue")
+    expect(fixture.visits[0].events).toContain("read.continue")
+    expect(fixture.visits.every(visit => visit.held.size === 0)).toBe(true)
     expect(fixture.visits.every(visit => visit.closed)).toBe(true)
     expect(fixture.active.size).toBe(0)
   })
