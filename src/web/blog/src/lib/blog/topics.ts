@@ -41,6 +41,7 @@ export const blogTopics = [
     pillarSlug: "claude-code-and-codex-same-team",
     entries: [
       { slug: "cursor-vs-claude-code", userJob: "Choose Cursor or Claude Code by editing workflow, models, pricing and first-project needs" },
+      { slug: "claude-code-vs-codex", userJob: "Choose Claude Code or Codex by patch review, permissions, runtime and plan usage" },
       { slug: "claude-code-codex-cursor-grok-which-to-choose", userJob: "Choose a coding or personal-agent harness for a concrete task using reported strengths and weaknesses" },
       { slug: "ai-team-vs-ai-tools", userJob: "Stop being the copy-paste layer between coding agents" },
       {
