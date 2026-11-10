@@ -5,7 +5,6 @@ import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRe
 import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import { useNativeKeyboard } from "@/hooks/use-native-keyboard"
 import { useConversationPresentation } from "@/contexts/view-activity"
-import styles from "./conversation-footer-shell.module.css"
 
 type ConversationFooterSlot = {
   target: HTMLDivElement | null
@@ -97,7 +96,7 @@ export function ConversationFooterShell({
       ref={rootRef}
       data-slot="community-conversation-footer"
       data-selection-active={selectionActive ? "true" : "false"}
-      className={`${styles.surface} relative z-20 shrink-0 ${overlay ? "pointer-events-none" : ""}${className ? ` ${className}` : ""}`}
+      className={`relative z-20 shrink-0 before:pointer-events-none before:absolute before:inset-x-0 before:-top-10 before:bottom-0 before:-z-10 before:bg-[linear-gradient(to_bottom,transparent,var(--background)_40px)] before:content-[''] ${overlay ? "pointer-events-none" : ""}${className ? ` ${className}` : ""}`}
       style={{
         ...style,
         ...(overlay ? { marginTop: -overlayHeight } : {}),
