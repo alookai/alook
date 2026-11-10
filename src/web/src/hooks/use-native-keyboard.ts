@@ -4,7 +4,8 @@ import { useSyncExternalStore } from "react"
 import { isTauri } from "@alook/shared"
 
 type KeyboardSnapshot = { bottomInset: number; viewportWidth: number; isAnimating?: boolean }
-type KeyboardBridge = { postMessage: (command: "snapshot") => Promise<KeyboardSnapshot> }
+type KeyboardPacket = KeyboardSnapshot | { resizesViewport: true }
+type KeyboardBridge = { postMessage: (command: "snapshot") => Promise<KeyboardPacket> }
 type KeyboardWindow = Window & {
   AlookNative?: { getKeyboardSnapshot?: () => string }
   webkit?: { messageHandlers?: { alookKeyboard?: KeyboardBridge } }
@@ -14,7 +15,7 @@ function keyboardBridge() {
   if (!isTauri()) return
   const nativeWindow = window as KeyboardWindow
   if (nativeWindow.AlookNative?.getKeyboardSnapshot) {
-    return { postMessage: async () => JSON.parse(nativeWindow.AlookNative!.getKeyboardSnapshot!()) as KeyboardSnapshot }
+    return { postMessage: async () => JSON.parse(nativeWindow.AlookNative!.getKeyboardSnapshot!()) as KeyboardPacket }
   }
   return nativeWindow.webkit?.messageHandlers?.alookKeyboard
 }
@@ -38,6 +39,7 @@ function createKeyboardOwner() {
     let active = true
     let animating = false
     let initialized = false
+    let resizesViewport = false
     const valid = (next: KeyboardSnapshot | undefined): next is KeyboardSnapshot => !!next
       && Number.isFinite(next.bottomInset) && next.bottomInset >= 0
       && Number.isFinite(next.viewportWidth) && next.viewportWidth > 0
@@ -50,24 +52,33 @@ function createKeyboardOwner() {
       else root.setProperty("--alook-keyboard-progress", `max(0px, calc(${inset} - var(--app-safe-area-bottom)))`)
     }
     const sync = async () => {
-      if (!active || animating) return
+      if (!active || animating || resizesViewport) return
       const request = ++revision
       const bridge = keyboardBridge()
       if (!bridge) { clearProjection(); settle(null); return }
       try {
         const next = await bridge.postMessage("snapshot")
+        if (active && typeof next === "object" && next !== null && "resizesViewport" in next && next.resizesViewport === true) {
+          resizesViewport = true
+          animating = false
+          revision++
+          clearProjection()
+          settle(null)
+          return
+        }
         if (active && request === revision) {
-          initialized = valid(next)
-          if (initialized) project(next)
+          initialized = valid(next as KeyboardSnapshot)
+          const legacy = next as KeyboardSnapshot
+          if (initialized) project(legacy)
           else clearProjection()
-          settle(initialized ? { bottomInset: next.bottomInset, viewportWidth: next.viewportWidth } : null)
+          settle(initialized ? { bottomInset: legacy.bottomInset, viewportWidth: legacy.viewportWidth } : null)
         }
       } catch {
         if (active && request === revision) { clearProjection(); settle(null) }
       }
     }
     const change = (event: Event) => {
-      if (!active || !keyboardBridge()) return
+      if (!active || resizesViewport || !keyboardBridge()) return
       const detail = (event as CustomEvent<KeyboardSnapshot>).detail
       if (!valid(detail)) { void sync(); return }
       revision++
@@ -80,7 +91,7 @@ function createKeyboardOwner() {
         settle({ bottomInset: detail.bottomInset, viewportWidth: detail.viewportWidth })
       }
     }
-    const hide = () => { active = false; animating = false; revision++; clearProjection(); settle(null) }
+    const hide = () => { active = false; animating = false; resizesViewport = false; revision++; clearProjection(); settle(null) }
     const show = (event: PageTransitionEvent) => { if (event.persisted) { active = true; void sync() } }
     window.addEventListener("alook:keyboard-change", change)
     window.addEventListener("alook:geometry-change", sync)

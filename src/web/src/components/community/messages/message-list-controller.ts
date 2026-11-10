@@ -11,6 +11,7 @@ import type { ResolvedMessageListProps } from "./message-list-types"
 import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
 import { hashKey } from "@tanstack/react-query"
 import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
+import { messageScrollBehavior } from "@/lib/community/message-scroll-behavior"
 import { READ_VISIBILITY_THRESHOLD } from "@/hooks/community/use-read-observer"
 
 export function useMessageListController({
@@ -294,7 +295,7 @@ export function useMessageListController({
 
   const jumpClearTimerRef = useRef<number | null>(null)
   const jumpVisibilityFrameRef = useRef<number | null>(null)
-  const jumpTo = useCallback((id: string, behavior: ScrollBehavior = "smooth") => {
+  const jumpTo = useCallback((id: string, behavior: ScrollBehavior = messageScrollBehavior()) => {
     if (!messages.some(message => message.id === id)) { onOpenContextId?.(id); return }
     setJumped(id)
     setJumpRevision((value) => value + 1)

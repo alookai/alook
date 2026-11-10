@@ -49,6 +49,40 @@ function documentOwner(query: () => unknown = () => packet(), options: { android
 const settle = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() }
 
 describe('native document geometry publication', () => {
+  it('keeps full-window geometry stable while native available height changes and clears it for legacy documents', async () => {
+    let next = packet({ windowHeight: 1000, windowBottom: 30 })
+    const owner = documentOwner(() => next)
+    await settle()
+    expect(owner.values.get('--app-native-window-height')).toBe('100vw')
+    expect(owner.values.get('--app-native-window-safe-bottom')).toBe('3vw')
+    expect(owner.root.dataset.alookNativeResize).toBe('true')
+    next = packet({ viewportHeight: 400, bottom: 0, windowHeight: 1000, windowBottom: 30 })
+    owner.window.fire('resize')
+    await settle()
+    expect(owner.window.__alookNativeGeometry!.getSnapshot().insets).toEqual(next)
+    expect(owner.values.get('--app-safe-area-bottom')).toBe('0vw')
+    expect(owner.values.get('--app-native-window-height')).toBe('100vw')
+    next = packet({ viewportWidth: 600, viewportHeight: 700, windowHeight: 1200, windowBottom: 20 })
+    owner.window.fire('resize')
+    await settle()
+    expect(owner.values.get('--app-native-window-height')).toBe('200vw')
+    next = packet()
+    owner.window.fire('alook:geometry-change')
+    await settle()
+    expect(owner.root.dataset.alookNativeResize).toBeUndefined()
+    expect(owner.values.has('--app-native-window-height')).toBe(false)
+    expect(owner.values.has('--app-native-window-safe-bottom')).toBe(false)
+  })
+
+  it.each([{ windowHeight: 700, windowBottom: 30 }, { windowHeight: 1000 }, { windowBottom: 30 },
+    { windowHeight: 1000, windowBottom: -1 }])('rejects inconsistent optional window geometry: %j', async extra => {
+    const owner = documentOwner(() => packet(extra))
+    await settle()
+    expect(owner.window.__alookNativeGeometry!.getSnapshot().status).toBe('error')
+    expect(owner.root.dataset.alookNativeResize).toBeUndefined()
+    expect(owner.values.has('--app-native-window-height')).toBe(false)
+  })
+
   it('initializes after the public API arrives later than plugin injection', async () => {
     const owner = documentOwner(() => packet({ top: 32, right: 0, bottom: 0, left: 0, viewportWidth: 1200, caption: true }), { desktop: true, noBridge: true, publicApiLate: true })
     expect(owner.window.__alookNativeGeometry).toBeUndefined()

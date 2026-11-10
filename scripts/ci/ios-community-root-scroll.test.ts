@@ -8,26 +8,12 @@ const runtime = readFileSync(resolve(import.meta.dirname,
   "../../src/desktop/src-tauri/gen/apple/Sources/alook-desktop/main.mm"), "utf8")
 const start = runtime.indexOf("@interface AlookCommunityRootScrollDelegate")
 const end = runtime.indexOf("static void alookInstallCommunityRootScrollLock(", start)
-const delegate = runtime.slice(start, end)
 const implementation = runtime.slice(start, runtime.indexOf("\n}\n", end) + 3)
+const rootControllerCheck = runtime.match(/static BOOL alookIsTauriRootController\(UIViewController \*viewController\) \{[\s\S]*?\n\}/)?.[0]
 const ownerKeys = runtime.match(/^static const void \*kAlookCommunityRoot(?:ScrollDelegateKey|URLObserversKey) = .*;$/gm)?.join("\n")
 
-it("installs the public delegate only on the verified Tauri root and retains its weak forwarding owner", () => {
-  expect(start).toBeGreaterThan(0)
-  expect(end).toBeGreaterThan(start)
-  const layout = runtime.split("- (void)alook_viewDidLayoutSubviews {")[1]?.split("\n}\n")[0] ?? ""
-  expect(layout.replace(/\/\/[^\n]*/g, "")).toMatch(/WKWebView \*webView = \(WKWebView \*\)subview;\s+if \(isTauriRoot\) \{\s+webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;\s+alookInstallCommunityRootScrollLock\(self.view, webView\);/)
-  const install = runtime.slice(end).split("\n}\n")[0]
-  expect(install).toContain("webView.superview != host")
-  expect(install).toContain("if (observing) return")
-  expect(install).toContain("delegate.previousDelegate = webView.scrollView.delegate")
-  expect(install).toContain("OBJC_ASSOCIATION_RETAIN_NONATOMIC")
-  expect(install).toContain("webView.scrollView.delegate = delegate")
-  expect(delegate).toContain("weak) WKWebView *webView")
-  expect(delegate).toContain("weak) id<UIScrollViewDelegate> previousDelegate")
-})
-
-it.runIf(process.platform === "darwin")("executes the production ObjC delegate against host scroll and WebView doubles", () => {
+it.runIf(process.platform === "darwin")("executes root installation policy, inset ownership and production delegate lifecycle against native doubles", () => {
+  expect(rootControllerCheck).toBeDefined()
   const directory = mkdtempSync(join(tmpdir(), "alook-root-scroll-"))
   try {
     const source = join(directory, "delegate.mm")
@@ -39,6 +25,10 @@ it.runIf(process.platform === "darwin")("executes the production ObjC delegate a
 #include <cassert>
 #include <cstdio>
 
+typedef NS_ENUM(NSInteger, UIScrollViewContentInsetAdjustmentBehavior) {
+    UIScrollViewContentInsetAdjustmentAutomatic = 0,
+    UIScrollViewContentInsetAdjustmentNever = 2
+};
 @class UIScrollView;
 @protocol UIScrollViewDelegate <NSObject>
 @optional
@@ -50,6 +40,7 @@ it.runIf(process.platform === "darwin")("executes the production ObjC delegate a
 @interface UIScrollView : NSObject
 @property (nonatomic, weak) id<UIScrollViewDelegate> delegate;
 @property (nonatomic) CGPoint contentOffset;
+@property (nonatomic) UIScrollViewContentInsetAdjustmentBehavior contentInsetAdjustmentBehavior;
 @property (nonatomic) NSUInteger writes;
 @property (nonatomic, copy) void (^onScroll)(void);
 @end
@@ -67,6 +58,16 @@ it.runIf(process.platform === "darwin")("executes the production ObjC delegate a
 @property (nonatomic, weak) UIView *superview;
 @end
 @implementation UIView
+@end
+
+@interface UIViewController : NSObject
+@property (nonatomic, strong) UIView *view;
+@end
+@implementation UIViewController
+@end
+@interface TaoUIViewController : UIViewController
+@end
+@implementation TaoUIViewController
 @end
 
 @interface WKWebView : UIView
@@ -87,6 +88,7 @@ it.runIf(process.platform === "darwin")("executes the production ObjC delegate a
 @end
 
 ${ownerKeys}
+${rootControllerCheck}
 ${implementation}
 
 @interface RecordingDelegate : NSObject <UIScrollViewDelegate>
@@ -109,6 +111,8 @@ ${implementation}
 int main() {
     @autoreleasepool {
         UIView *host = [UIView new];
+        TaoUIViewController *controller = [TaoUIViewController new];
+        controller.view = host;
         WKWebView *webView = [WKWebView new];
         webView.superview = host;
         webView.scrollView = [UIScrollView new];
@@ -117,19 +121,36 @@ int main() {
         root.delegate = previous;
         webView.URL = [NSURL URLWithString:@"https://example.test/c"];
         root.contentOffset = CGPointMake(0, 271);
+        UIViewController *foreignController = [UIViewController new];
+        foreignController.view = host;
+        alookInstallCommunityRootScrollLock(foreignController, webView);
+        assert(root.delegate == previous && webView.observers == 0 && root.writes == 0);
+        assert(root.contentInsetAdjustmentBehavior == UIScrollViewContentInsetAdjustmentAutomatic);
+        UIView *otherHost = [UIView new];
+        webView.superview = otherHost;
+        alookInstallCommunityRootScrollLock(controller, webView);
+        assert(root.delegate == previous && webView.observers == 0 && root.writes == 0);
+        assert(root.contentInsetAdjustmentBehavior == UIScrollViewContentInsetAdjustmentAutomatic);
+        webView.superview = nil;
+        TaoUIViewController *unloaded = [TaoUIViewController new];
+        alookInstallCommunityRootScrollLock(unloaded, webView);
+        assert(root.delegate == previous && webView.observers == 0);
+        assert(root.contentInsetAdjustmentBehavior == UIScrollViewContentInsetAdjustmentAutomatic);
+        webView.superview = host;
         __block NSUInteger reentry = 0;
         root.onScroll = ^{
             reentry++;
-            alookInstallCommunityRootScrollLock(host, webView);
+            alookInstallCommunityRootScrollLock(controller, webView);
         };
-        alookInstallCommunityRootScrollLock(host, webView);
+        alookInstallCommunityRootScrollLock(controller, webView);
         root.onScroll = nil;
         assert(reentry == 1 && webView.observers == 1);
+        assert(root.contentInsetAdjustmentBehavior == UIScrollViewContentInsetAdjustmentNever);
         AlookCommunityRootScrollDelegate *owner = (AlookCommunityRootScrollDelegate *)root.delegate;
         assert(owner.webView == webView && owner.previousDelegate == previous);
         assert(CGPointEqualToPoint(root.contentOffset, CGPointZero) && root.writes == 1);
         assert([previous.positions isEqualToArray:(@[@0])]);
-        alookInstallCommunityRootScrollLock(host, webView);
+        alookInstallCommunityRootScrollLock(controller, webView);
         assert(root.delegate == owner && webView.observers == 1);
 
         webView.URL = [NSURL URLWithString:@"https://example.test/sign-in"];
@@ -180,7 +201,7 @@ int main() {
         assert(inner.contentOffset.y == 156 && inner.writes == 1);
 
         root.delegate = previous;
-        alookInstallCommunityRootScrollLock(host, webView);
+        alookInstallCommunityRootScrollLock(controller, webView);
         assert(root.delegate == previous);
         root.contentOffset = CGPointMake(0, 71);
         root.writes = 0;
@@ -219,10 +240,12 @@ int main() {
         __weak AlookCommunityRootScrollDelegate *weakOwner;
         @autoreleasepool {
             UIView *temporaryHost = [UIView new];
+            TaoUIViewController *temporaryController = [TaoUIViewController new];
+            temporaryController.view = temporaryHost;
             WKWebView *temporary = [WKWebView new];
             temporary.superview = temporaryHost;
             temporary.scrollView = [UIScrollView new];
-            alookInstallCommunityRootScrollLock(temporaryHost, temporary);
+            alookInstallCommunityRootScrollLock(temporaryController, temporary);
             weakOwner = (AlookCommunityRootScrollDelegate *)temporary.scrollView.delegate;
             assert(weakOwner != nil && temporary.scrollView.delegate == weakOwner);
         }
@@ -232,8 +255,10 @@ int main() {
         retained.scrollView = [UIScrollView new];
         @autoreleasepool {
             UIView *temporaryHost = [UIView new];
+            TaoUIViewController *temporaryController = [TaoUIViewController new];
+            temporaryController.view = temporaryHost;
             retained.superview = temporaryHost;
-            alookInstallCommunityRootScrollLock(temporaryHost, retained);
+            alookInstallCommunityRootScrollLock(temporaryController, retained);
             assert(retained.observers == 1);
         }
         assert(retained.observers == 0 && retained.superview == nil);
@@ -245,9 +270,9 @@ int main() {
         replacement.scrollView = [UIScrollView new];
         replacement.superview = host;
         webView.superview = nil;
-        @autoreleasepool { alookInstallCommunityRootScrollLock(host, replacement); }
+        @autoreleasepool { alookInstallCommunityRootScrollLock(controller, replacement); }
         assert(webView.observers == 0 && replacement.observers == 1);
-        std::puts("PASS routes, repeated offsets, forwarding, reentrancy, inner scroll and retired ownership");
+        std::puts("PASS root scope, inset policy, routes, forwarding, reentrancy, inner scroll and retired ownership");
     }
 }
 `)
@@ -255,7 +280,7 @@ int main() {
       "-framework", "Foundation", "-framework", "CoreGraphics", source, "-o", binary],
     { timeout: 30_000, stdio: "pipe" })
     const output = execFileSync(binary, [], { timeout: 5000, encoding: "utf8" })
-    expect(output).toContain("PASS routes, repeated offsets, forwarding, reentrancy, inner scroll and retired ownership")
+    expect(output).toContain("PASS root scope, inset policy, routes, forwarding, reentrancy, inner scroll and retired ownership")
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

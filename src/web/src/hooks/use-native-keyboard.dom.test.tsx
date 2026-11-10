@@ -237,3 +237,58 @@ it("shares one document listener/query owner and keeps projection alive for the 
   footer.unmount()
   expect(document.documentElement.style.getPropertyValue("--alook-keyboard-bottom")).toBe("")
 })
+
+
+it.each(["ios", "android"])("lets the %s native viewport own keyboard height without Web projection or resize queries", async platform => {
+  const read = vi.fn(async () => ({ resizesViewport: true }))
+  install(read)
+  const android = vi.fn(() => JSON.stringify({ resizesViewport: true }))
+  if (platform === "android") Object.defineProperty(window, "AlookNative", { configurable: true, value: { getKeyboardSnapshot: android } })
+  document.documentElement.style.setProperty("--alook-keyboard-bottom", "60vw")
+  document.documentElement.style.setProperty("--alook-keyboard-progress", "50vw")
+  const view = renderHook(useNativeKeyboard)
+  await act(async () => {})
+  expect(view.result.current).toBeNull()
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("")
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-bottom")).toBe("")
+  act(() => {
+    window.dispatchEvent(new Event("resize"))
+    window.dispatchEvent(new Event("alook:geometry-change"))
+    window.dispatchEvent(new CustomEvent("alook:keyboard-change", { detail: { ...snapshot(300), isAnimating: true } }))
+  })
+  expect(view.result.current).toBeNull()
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-bottom")).toBe("")
+  expect(platform === "android" ? android : read).toHaveBeenCalledTimes(1)
+  act(() => window.dispatchEvent(new PageTransitionEvent("pagehide")))
+  act(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })))
+  await act(async () => {})
+  expect(platform === "android" ? android : read).toHaveBeenCalledTimes(2)
+  expect(view.result.current).toBeNull()
+})
+
+it("does not let a pending legacy read restore compensation after resize capability arrives", async () => {
+  let release!: (value: ReturnType<typeof snapshot>) => void
+  const post = vi.fn().mockImplementationOnce(() => new Promise(resolve => { release = resolve }))
+    .mockResolvedValue({ resizesViewport: true })
+  install(post)
+  const view = renderHook(useNativeKeyboard)
+  act(() => window.dispatchEvent(new Event("alook:geometry-change")))
+  await act(async () => {})
+  await act(async () => release(snapshot(300)))
+  expect(view.result.current).toBeNull()
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-bottom")).toBe("")
+})
+
+
+it("gives native resize capability priority over an earlier legacy animation event", async () => {
+  let release!: (value: { resizesViewport: true }) => void
+  install(() => new Promise(resolve => { release = resolve }))
+  const view = renderHook(useNativeKeyboard)
+  act(() => window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+    detail: { ...snapshot(300), isAnimating: true },
+  })))
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-bottom")).not.toBe("")
+  await act(async () => release({ resizesViewport: true }))
+  expect(view.result.current).toBeNull()
+  expect(document.documentElement.style.getPropertyValue("--alook-keyboard-bottom")).toBe("")
+})
