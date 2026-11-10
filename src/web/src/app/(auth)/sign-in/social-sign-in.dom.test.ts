@@ -72,12 +72,15 @@ describe("social sign-in stack and native boundary", () => {
     await setupUser().click(selected)
 
     expect(selected).toHaveAttribute("aria-busy", "true")
-    expect(selected.querySelector(".animate-spin")).toHaveAttribute("aria-hidden", "true")
+    const iconSlot = screen.getByTestId(`native-oauth-${provider}-content`).firstElementChild!
+    expect(iconSlot.querySelector(".animate-spin")).toHaveAttribute("aria-hidden", "true")
+    expect(selected.querySelectorAll("svg")).toHaveLength(1)
     for (const item of screen.getAllByRole("button")) {
       expect(item).toBeDisabled()
       if (item !== selected) {
         expect(item).toHaveAttribute("aria-busy", "false")
         expect(item.querySelector(".animate-spin")).not.toBeInTheDocument()
+        expect(item.querySelectorAll("svg")).toHaveLength(1)
       }
     }
     await setupUser().click(selected)
@@ -111,14 +114,17 @@ describe("social sign-in stack and native boundary", () => {
   it.each(["preparing", "waiting", "exchanging", "checking_status"] as const)("shows the native provider's progress while %s and clears it on cancellation", async (phase) => {
     mocks.tauri = true
     render(createElement(SocialSignIn, { postLoginUrl: "/c/me", appleEnabled: true }))
+    const providerIcon = button("native-oauth-google").querySelector("svg")!.outerHTML
     await setupUser().click(button("native-oauth-google"))
     act(() => mocks.emit!({ phase, attempt: phase === "preparing" ? null : attempt }))
     expect(button("native-oauth-google")).toHaveAttribute("aria-busy", "true")
-    expect(button("native-oauth-google").querySelector(".animate-spin")).toBeInTheDocument()
+    expect(screen.getByTestId("native-oauth-google-content").firstElementChild?.querySelector(".animate-spin")).toBeInTheDocument()
+    expect(button("native-oauth-google").querySelectorAll("svg")).toHaveLength(1)
     expect(button("native-oauth-apple")).toHaveAttribute("aria-busy", "false")
     act(() => mocks.emit!({ phase: "idle", attempt: null }))
     expect(button("native-oauth-google")).toHaveAttribute("aria-busy", "false")
     expect(button("native-oauth-google").querySelector(".animate-spin")).not.toBeInTheDocument()
+    expect(button("native-oauth-google").querySelector("svg")!.outerHTML).toBe(providerIcon)
   })
 
   it("spins the newly clicked native provider while preparation still carries the old attempt", async () => {
@@ -158,12 +164,13 @@ describe("social sign-in stack and native boundary", () => {
     },
   )
 
-  it.each(["google", "github"])(
+  it.each(["google", "github", "apple"])(
     "forwards %s rejection details and does not count successful starts as failures",
     async (provider) => {
       const error = { code: "PROVIDER_NOT_FOUND", message: "Provider not found", status: 404 }
       mocks.social.mockResolvedValueOnce({ error })
-      render(createElement(SocialSignIn, { postLoginUrl: "/c/me" }))
+      render(createElement(SocialSignIn, { postLoginUrl: "/c/me", appleEnabled: true }))
+      const providerIcon = button(`native-oauth-${provider}`).querySelector("svg")!.outerHTML
       await setupUser().click(button(`native-oauth-${provider}`))
       expect(mocks.capture).toHaveBeenCalledExactlyOnceWith({
         event: "sign_in_failed",
@@ -172,6 +179,7 @@ describe("social sign-in stack and native boundary", () => {
         error,
       })
       expect(button(`native-oauth-${provider}`)).toBeEnabled()
+      expect(button(`native-oauth-${provider}`).querySelector("svg")!.outerHTML).toBe(providerIcon)
       expect(screen.getByRole("alert")).toHaveTextContent("Couldn't open sign-in")
       await setupUser().click(button(`native-oauth-${provider}`))
       expect(screen.queryByRole("alert")).not.toBeInTheDocument()

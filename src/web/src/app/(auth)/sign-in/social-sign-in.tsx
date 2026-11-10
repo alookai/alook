@@ -189,15 +189,14 @@ export function SocialSignIn({
                 onClick={() => start(provider.id)}
               >
                 <span
-                  className="flex min-w-0 flex-1 items-center gap-2"
+                  className="flex min-w-0 items-center gap-2"
                   data-testid={`native-oauth-${provider.id}-content`}
                 >
                   <span className="grid h-9 w-6 shrink-0 place-items-center" aria-hidden>
-                    {provider.icon}
+                    {pending ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : provider.icon}
                   </span>
                   <span className="truncate">{provider.label}</span>
                 </span>
-                {pending && <Loader2 className="size-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden />}
               </Button>
               {isLastUsed ? (
                 <span
