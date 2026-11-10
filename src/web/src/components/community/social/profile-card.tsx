@@ -28,6 +28,7 @@ import {
 } from "@/lib/community/bot-activity-status"
 import { BotMarkSticker } from "./bot-mark-sticker"
 import { ProfileRunningBotsCard } from "./profile-running-bots-card"
+import styles from "./profile-card.module.css"
 import { useRunningOwnedBots } from "@/hooks/community/use-running-owned-bots"
 import { useBots } from "@/hooks/community/use-bots"
 import {
@@ -204,7 +205,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
               same ratio it had at 64px), `-mt-10` (~half of 77, rounded to
               the nearest Tailwind step) keeps the same banner-overlap
               proportion the 64px avatar had at `-mt-8`. */}
-          <div className="relative">
+          <div className={`relative ${styles.profileAvatar}`}>
             <div className="rounded-full ring-[5px] ring-popover">
               <Avatar label={avatar} seed={data.userId} size={77} presence={presence} ringColor="var(--popover)" />
             </div>

@@ -1,0 +1,46 @@
+.profileAvatar {
+  --profile-online-face: linear-gradient(155deg,
+    color-mix(in oklab, var(--status-online) 60%, white),
+    var(--status-online) 60%,
+    color-mix(in oklab, var(--status-online) 80%, black));
+  --profile-online-rim: color-mix(in oklab, var(--status-online) 68%, black);
+  --profile-online-depth:
+    inset 0 1px 1px color-mix(in oklab, white 75%, transparent),
+    inset 0 -2px 2px color-mix(in oklab, black 24%, transparent),
+    0 1px 1px color-mix(in oklab, black 16%, transparent);
+  --profile-online-highlight: radial-gradient(ellipse at 34% 22%,
+    color-mix(in oklab, white 80%, transparent), transparent 54%);
+}
+
+:global(.dark) .profileAvatar:not(:global([data-tn-mode="light"]) *),
+:global([data-tn-mode="dark"]) .profileAvatar {
+  --profile-online-face: radial-gradient(circle at 38% 32%,
+    color-mix(in oklab, var(--status-online) 48%, white),
+    color-mix(in oklab, var(--status-online) 85%, white) 48%,
+    var(--status-online));
+  --profile-online-rim: var(--status-online);
+  --profile-online-depth:
+    0 0 4px color-mix(in oklab, var(--status-online) 80%, transparent),
+    0 0 10px color-mix(in oklab, var(--status-online) 38%, transparent);
+  --profile-online-highlight: none;
+}
+
+.profileAvatar :global([data-slot="avatar-badge"][data-presence="online"])::before,
+.profileAvatar :global([data-slot="avatar-badge"][data-presence="online"])::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.profileAvatar :global([data-slot="avatar-badge"][data-presence="online"])::before {
+  border: 1px solid var(--profile-online-rim);
+  background: var(--profile-online-face);
+  box-shadow: var(--profile-online-depth);
+}
+
+.profileAvatar :global([data-slot="avatar-badge"][data-presence="online"])::after {
+  inset: 2px;
+  background: var(--profile-online-highlight);
+}
