@@ -22,7 +22,7 @@ export function CreateCategoryDialog({ onClose, onCreate, canTogglePrivate = tru
   const submit = () => {
     const trimmed = name.trim()
     if (!trimmed) return
-    onCreate(trimmed.toUpperCase(), { private: isPrivate })
+    onCreate(trimmed, { private: isPrivate })
     onClose()
   }
   return (
