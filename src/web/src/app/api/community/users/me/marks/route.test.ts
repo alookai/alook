@@ -189,7 +189,7 @@ describe("GET /api/community/users/me/marks", () => {
       id: "m1", authorId: "u-alice", channelId: "c1", seq: 42,
       content: "task", createdAt: "2026-06-25T09:00:00Z", replyToId: "m0",
     }
-    mockListMarksForUser.mockResolvedValue([{ mark: { id: "mk1", channelId: "c1" }, message, author: {} }])
+    mockListMarksForUser.mockResolvedValue([{ mark: { id: "mk1", channelId: "c1", note: "QA pending" }, message, author: {} }])
     mockListByMessageIds.mockResolvedValue([{ id: "att1", messageId: "m1", filename: "proof.png", contentType: "image/png", size: 12 }])
     mockToAgentMessages.mockResolvedValue([{ seq: "#42", channel: "/s#0001/c", content: { text: "task" } }])
 
@@ -197,7 +197,7 @@ describe("GET /api/community/users/me/marks", () => {
       headers: { "x-test-actor": "bot" },
     }))
     expect(await res.json()).toEqual({
-      marked: [{ seq: "#42", channel: "/s#0001/c", content: { text: "task" } }],
+      marked: [{ seq: "#42", channel: "/s#0001/c", content: { text: "task" }, note: "QA pending" }],
     })
     expect(mockListMarksForUser).toHaveBeenCalledWith({}, "bot_1", {
       visibleChannelIds: ["c1"],
@@ -210,6 +210,24 @@ describe("GET /api/community/users/me/marks", () => {
       "bot_1",
       expect.any(Map),
     )
+  })
+
+  it("keeps each note with its message and includes null for an unannotated mark", async () => {
+    const messages = [{ id: "m2", content: "second" }, { id: "m1", content: "first" }]
+    mockListMarksForUser.mockResolvedValue(messages.map((message, index) => ({
+      mark: { id: `mark${index}`, channelId: "c1", note: index === 0 ? "second progress" : null },
+      message, author: {},
+    })))
+    mockToAgentMessages.mockResolvedValue(messages.map((message, index) => ({
+      seq: `#${2 - index}`, channel: "/s#0001/c", content: { text: message.content },
+    })))
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/marks", {
+      headers: { "x-test-actor": "bot" },
+    }))
+    expect((await res.json()).marked).toEqual([
+      { seq: "#2", channel: "/s#0001/c", content: { text: "second" }, note: "second progress" },
+      { seq: "#1", channel: "/s#0001/c", content: { text: "first" }, note: null },
+    ])
   })
 
   it("bot list fails strictly when its marks query fails", async () => {

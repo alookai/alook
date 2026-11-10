@@ -62,7 +62,7 @@ export const GET = withAuth(communityActorPolicy(), async (req, ctx) => {
       ),
       { route: "community/users/me/marks:hydrate" },
     )
-    return writeJSON({ marked })
+    return writeJSON({ marked: marked.map((message, index) => ({ ...message, note: rows[index].mark.note ?? null })) })
   }
 
   const url = new URL(req.url)

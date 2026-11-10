@@ -425,7 +425,7 @@ export type SendResponse =
 export type MessagePropertyMutation =
   | { type: "tag"; value: string[] }
   | { type: "emoji"; value: string }
-  | { type: "mark"; value: true };
+  | { type: "mark"; value: true; note?: string | null };
 
 export interface MessagePropertyRequest {
   channel: ChannelRef;
@@ -446,7 +446,7 @@ export interface MessagePropertyEmojiEntry {
 export type MessagePropertyValue =
   | { type: "tag"; value: string[] }
   | { type: "emoji"; value: MessagePropertyEmojiEntry[] }
-  | { type: "mark"; value: boolean };
+  | { type: "mark"; value: boolean; note: string | null };
 
 export interface MessagePropertyListResult {
   capabilities: Array<MessagePropertyMutation["type"]>;
@@ -454,7 +454,7 @@ export interface MessagePropertyListResult {
 }
 
 export interface MessageMarkListResponse {
-  marked: Message[];
+  marked: Array<Message & { note: string | null }>;
 }
 
 export interface ReadRequest {

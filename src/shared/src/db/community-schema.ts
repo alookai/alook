@@ -628,6 +628,7 @@ export const communityMessageMark = sqliteTable(
     messageId: text("message_id")
       .notNull()
       .references(() => communityMessage.id, { onDelete: "cascade" }),
+    note: text("note"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
