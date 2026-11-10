@@ -1564,6 +1564,16 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
+  "src/web/src/components/community/settings/appearance-settings.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-product-compositions--user-and-server-settings",
+        "region": "UserSettings > Appearance: actual Theme selection controls"
+      }
+    ],
+    "reason": "UserSettings mounts the original AppearanceSettings controls. Theme selection is local; operating-system resolution requires separate runtime evidence."
+  },
   "src/web/src/components/community/settings/user-settings.tsx": {
     "kind": "composition",
     "examples": [

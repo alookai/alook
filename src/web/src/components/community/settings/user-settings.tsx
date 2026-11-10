@@ -8,8 +8,7 @@ import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
 import { useEffect, useLayoutEffect } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toastApiError } from "@/lib/api/client"
-import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera, Shield, CreditCard, FileText, KeyRound } from "lucide-react"
-import { useTheme } from "next-themes"
+import { User, LogOut, Palette, Database, Camera, Shield, CreditCard, FileText, KeyRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -22,7 +21,6 @@ import {
 } from "@/lib/query-persister"
 import { tid } from "@/lib/community/testids"
 import { Avatar } from "../avatar"
-import { Field } from "./field"
 import { StatusEditor, hasStatus } from "../social/status-editor"
 import {
   SETTINGS_LOGOUT_CLASS,
@@ -33,12 +31,7 @@ import { useBilling, type BillingReturn } from "@/hooks/community/use-billing"
 import { AutomationSettings } from "./automation-settings"
 import { AccountDeletionFlow } from "./account-deletion-flow"
 import { Input } from "@/components/ui/input"
-
-const THEME_OPTIONS = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "System", icon: Monitor },
-] as const
+import { AppearanceSettings } from "./appearance-settings"
 
 type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy" | "terms" | "billing" | "automation"
 
@@ -51,37 +44,6 @@ const USER_SETTINGS_TABS: SettingsShellTab<UserSettingsTab>[] = [
   { value: "privacy", label: "Privacy", icon: Shield },
   { value: "terms", label: "Terms", icon: FileText },
 ]
-
-function AppearanceSettings() {
-  const { theme, setTheme } = useTheme()
-  const [mounted, setMounted] = useAtom(useCreateAtom(false))
-  useEffect(() => setMounted(true), [setMounted])
-  const active = mounted ? theme ?? "system" : undefined
-
-  return (
-    <div className="w-full space-y-4">
-      <Field label="Theme">
-        <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted/60 p-1">
-          {THEME_OPTIONS.map(({ value, label, icon: Icon }) => {
-            const selected = active === value
-            return (
-              <Button
-                key={value}
-                variant={selected ? "secondary" : "ghost"}
-                onClick={() => setTheme(value)}
-                aria-pressed={selected}
-                className="h-auto min-h-16 flex-col gap-2 px-2 text-sm"
-              >
-                <Icon className="size-5" />
-                {label}
-              </Button>
-            )
-          })}
-        </div>
-      </Field>
-    </div>
-  )
-}
 
 const CACHE_SIZE_QUERY_KEY = ["device", "cache", "size"] as const
 

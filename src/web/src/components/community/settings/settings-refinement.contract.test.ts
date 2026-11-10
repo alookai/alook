@@ -37,7 +37,6 @@ describe("settings refinement", () => {
     expect(server).toContain("w-full space-y-8")
     expect(user).toContain('className="h-11 sm:h-8"')
     expect(server).toContain('className="h-11 sm:h-8"')
-    expect(user).toContain("rounded-xl bg-muted/60 p-1")
     expect(user).not.toContain("rounded-lg border p-4")
   })
 

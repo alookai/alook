@@ -22,7 +22,15 @@ export function BotPiiPlayground({ value, onValueChange, result, triggeredFilter
   return (
     <section className="flex min-w-0 flex-col gap-3" aria-label="Playground">
       <div className={`${styles.workspace} overflow-hidden rounded-xl border border-input`} data-phase={phase}>
-        <div className="flex flex-col gap-4 bg-muted/30 p-4 sm:p-6" aria-live="polite" aria-busy={pending}>
+        <form className="flex flex-col gap-4 p-4" onSubmit={event => { event.preventDefault(); if (!pending && !disabled && !tooLong && value.trim()) onRun() }}>
+          <label htmlFor="pii-playground-input" className="text-sm font-medium">Original message</label>
+          <Textarea aria-describedby="pii-playground-notice" id="pii-playground-input" data-testid="pii-playground-input" value={value} onChange={event => onValueChange(event.target.value)} placeholder="Enter text to test your filters…" className="max-h-64 min-h-28 resize-y overflow-y-auto thin-scrollbar rounded-sm border-0 bg-transparent p-0 text-base leading-relaxed shadow-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 dark:bg-transparent sm:text-base" disabled={pending} />
+          <div className="flex justify-end">
+            <Button type="submit" disabled={pending || disabled || tooLong || !value.trim()} variant="outline" className="min-h-11 gap-2 px-4" data-testid="pii-playground-run"><Play className="size-4" />{pending ? "Running…" : "Run test"}</Button>
+          </div>
+          {tooLong ? <p role="alert" className="text-sm text-destructive">Use {PII_TEXT_MAX_BYTES.toLocaleString("en-US")} UTF-8 bytes or fewer.</p> : null}
+        </form>
+        <div className="flex flex-col gap-4 border-t border-border bg-muted/30 p-4" aria-live="polite" aria-busy={pending}>
           <div className="flex items-center justify-between gap-3">
             <h4 id="pii-output-label" className="text-sm font-medium">Public message</h4>
             {phase === "complete" ? <Check aria-hidden="true" className="size-5 text-muted-foreground" /> : null}
@@ -43,14 +51,6 @@ export function BotPiiPlayground({ value, onValueChange, result, triggeredFilter
             {triggeredFilters.length ? <>Matched filters: {triggeredFilters.map(filter => filter.name).join(", ")}</> : "No filters matched."}
           </p> : null}
         </div>
-        <form className="flex flex-col gap-4 p-4 sm:p-6" onSubmit={event => { event.preventDefault(); if (!pending && !disabled && !tooLong && value.trim()) onRun() }}>
-          <label htmlFor="pii-playground-input" className="text-sm font-medium">Original message</label>
-          <Textarea aria-describedby="pii-playground-notice" id="pii-playground-input" data-testid="pii-playground-input" value={value} onChange={event => onValueChange(event.target.value)} placeholder="Enter text to test your filters…" className="max-h-64 min-h-28 resize-y overflow-y-auto rounded-sm border-0 bg-transparent p-0 text-base leading-relaxed shadow-none focus-visible:ring-0 dark:bg-transparent sm:text-base" disabled={pending} />
-          <div className="flex justify-end">
-            <Button type="submit" disabled={pending || disabled || tooLong || !value.trim()} className="min-h-11 gap-2 px-4" data-testid="pii-playground-run"><Play className="size-4" />{pending ? "Running…" : "Run test"}</Button>
-          </div>
-          {tooLong ? <p role="alert" className="text-sm text-destructive">Use {PII_TEXT_MAX_BYTES.toLocaleString("en-US")} UTF-8 bytes or fewer.</p> : null}
-        </form>
       </div>
       <p id="pii-playground-notice" className="text-sm leading-relaxed text-muted-foreground">We don’t store this message. It is sent to your computer for testing.</p>
     </section>
