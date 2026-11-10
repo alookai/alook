@@ -73,13 +73,14 @@ describe("PATCH /api/community/servers/[id]/categories/[catId] — unique name",
     mockFanOut.mockResolvedValue(undefined)
   })
 
-  it("renames a category", async () => {
-    mockUpdateCategory.mockResolvedValue({ id: "cat1", name: "GENERAL" })
-
-    const res = await PATCH(patchReq({ name: "General" }), ctx)
+  it.each(["  work  ", "DevOps", "中文 Mix"])("preserves case when renaming to %s", async input => {
+    const name = input.trim()
+    mockUpdateCategory.mockResolvedValue({ id: "cat1", serverId: "s1", name })
+    const res = await PATCH(patchReq({ name: input }), ctx)
     expect(res.status).toBe(200)
-    // Category names are stored uppercased (matches the client's optimistic rename).
-    expect(mockUpdateCategory).toHaveBeenCalledWith(expect.anything(), "cat1", { name: "GENERAL" })
+    expect(mockUpdateCategory).toHaveBeenCalledWith(expect.anything(), "cat1", { name })
+    expect(await res.json()).toEqual({ id: "cat1", serverId: "s1", name })
+    expect(mockFanOut).toHaveBeenCalledWith("s1", expect.objectContaining({ serverId: "s1", categoryId: "cat1", changes: { name } }))
   })
 
   it("returns 409 when renaming onto a name already used by another category in the server", async () => {
@@ -132,8 +133,7 @@ describe("PATCH /categories/[catId] — permission + immutable privacy", () => {
     mockGetMember.mockResolvedValue({ id: "m1", role: "admin" })
     const res = await PATCH(patchReq({ name: "New", private: true }), ctx)
     expect(res.status).toBe(200)
-    // Category names are stored uppercased (matches the client's optimistic rename).
-    expect(mockUpdateCategory).toHaveBeenCalledWith(expect.anything(), "cat1", { name: "NEW" })
+    expect(mockUpdateCategory).toHaveBeenCalledWith(expect.anything(), "cat1", { name: "New" })
   })
 })
 
