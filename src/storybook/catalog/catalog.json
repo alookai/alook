@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 335,
+    "composition": 336,
     "environment": 10,
     "nonvisual": 30,
     "direct": 40
@@ -2358,6 +2358,23 @@
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/community/channels/forum-post-count.tsx",
+      "application": "Web",
+      "candidates": [
+        "ForumPostCount",
+        "ForumPostCounts",
+        "ForumPostCountsProvider"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-navigation--forum-counts",
+          "region": "Forum row secondary count, including pending, zero and narrow width states."
+        }
+      ],
+      "reason": "The navigation composition renders ForumPostCount through real sidebar rows with illustrative counts. The asynchronous provider requires separate authenticated runtime QA."
     },
     {
       "source": "src/web/src/components/community/channels/forum-post-list.tsx",
@@ -7256,6 +7273,12 @@
       "id": "web-business-navigation--forum-threads",
       "title": "Web/Business/Navigation",
       "name": "Forum Threads",
+      "source": "src/storybook/stories/business/navigation.stories.tsx"
+    },
+    {
+      "id": "web-business-navigation--forum-counts",
+      "title": "Web/Business/Navigation",
+      "name": "Forum Counts",
       "source": "src/storybook/stories/business/navigation.stories.tsx"
     },
     {

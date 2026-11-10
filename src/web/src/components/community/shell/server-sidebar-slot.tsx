@@ -23,6 +23,7 @@ import {
   normalizeCommunityHref,
 } from "@/lib/community/community-route"
 import { useBreakpoint } from "@/hooks/use-mobile"
+import { ForumPostCountsProvider } from "@/components/community/channels/forum-post-count"
 import { ChannelSidebarRevealBoundary } from "@/components/community/channels/channel-sidebar-tree-owner"
 import { useServerSettingsEditor } from "@/components/community/settings/server-settings-editor"
 import { ServerSettings } from "@/components/community/settings/server-settings"
@@ -494,6 +495,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
   const closeSettings = () => { settingsView.retire(); setServerSettingsOpen(false); setSettingsSection("overview") }
 
   const sidebar = useCallback((opts: { noHeader?: boolean } = {}) => (
+    <ForumPostCountsProvider serverId={serverId} enabled={sidebarDataReady && forumSidebar.projectionReady}>
     <ChannelSidebarRevealBoundary
       key={channelTreeScopeKey}
       scopeKey={channelTreeScopeKey}
@@ -504,6 +506,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
       {...channelProps}
       {...opts}
     />
+    </ForumPostCountsProvider>
   ), [
     categories,
     channelProps,

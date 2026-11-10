@@ -1,4 +1,5 @@
 "use client"
+import { refreshForumPostCounts } from "../use-forum-post-counts"
 import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import type { CommunityMessagePosted } from "@alook/shared"
@@ -70,6 +71,7 @@ export function useCreateForumThread() {
       )
       assert()
       const parent = origin.registry!.collections.channels.get(channelId)
+      if (parent?.serverId) refreshForumPostCounts(queryClient, parent.serverId)
       if (parent && structure.message) {
         await publishCommunityMessages(queryClient, { channelId, profiles: structure.profiles, relatedMessages: structure.relatedMessages, messages: [projectPostedMessage(structure.message, `${nonce}:opener`, channelId)], proof: { token, signal: assertActive?.signal } })
         const child = await origin.request<CommunityChannelResource>(token, `/api/community/channels/${structure.threadId}`, { method: "GET", signal: assertActive?.signal, assertActive })
@@ -140,6 +142,7 @@ export function useUpdatePostTags() {
         result = await origin.request<{ tags: string[] }>(token, `/api/community/messages/${args.openerMessageId}/tags`, { method: "PUT", signal, assertActive: assert, body: JSON.stringify({ tags }) })
         assert()
         result = { tags: [...new Set(result.tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))] }
+        refreshForumPostCounts(queryClient, args.serverId)
         const child = registry.collections.channels.get(args.threadId)
         if (currentCommand(args) && child?.serverId === args.serverId && child.parentChannelId === args.forumChannelId && child.parentMessageId === args.openerMessageId
           && await completeCommunityPublication(queryClient, () => publishCommunityForumTags(queryClient, args.threadId, result.tags, { token, signal })) && previousArchived !== result.tags.includes(FORUM_ARCHIVE_TAG)) {

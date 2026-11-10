@@ -4113,5 +4113,15 @@
       }
     ],
     "reason": "Both stories mount the original public account frame. These are visual declarations; session lookup, private-cache admission and retry behavior require the real SDK and application environment."
+  },
+  "src/web/src/components/community/channels/forum-post-count.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-navigation--forum-counts",
+        "region": "Forum row secondary count, including pending, zero and narrow width states."
+      }
+    ],
+    "reason": "The navigation composition renders ForumPostCount through real sidebar rows with illustrative counts. The asynchronous provider requires separate authenticated runtime QA."
   }
 }

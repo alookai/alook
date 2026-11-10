@@ -1,3 +1,4 @@
+import { refreshForumPostCounts } from "../use-forum-post-counts"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 import type {
   CommunityCategoryCreate,
@@ -46,7 +47,10 @@ import {
 export function handleChildChannelCreate(event: CommunityChildChannelCreate, { queryClient, projection }: StructureTreeEventContext) {
   invalidateChannelRefTargets(projection, { channelId: event.channel.id })
   const parent = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && supportsSidebarThreads(row.type))
-  if (parent?.serverId) invalidateForumSidebar(projection, parent.serverId)
+  if (parent?.serverId) {
+    invalidateForumSidebar(projection, parent.serverId)
+    if (parent.type === "forum") refreshForumPostCounts(queryClient, parent.serverId)
+  }
   projection.fence("threads", { queryKey: communityKeys.threads(event.parentChannelId) })
   if (event.parentMessageId) invalidateChannelMessages(projection, event.parentChannelId)
 }
@@ -57,6 +61,10 @@ export function handleChildChannelUpdate(
 ) {
   invalidateThreads(projection, event.parentChannelId)
   const changes = event.changes
+  if (changes.archived !== undefined || changes.tags !== undefined) {
+    const parent = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && row.type === "forum")
+    if (parent?.serverId) refreshForumPostCounts(queryClient, parent.serverId)
+  }
   if (changes.name !== undefined || changes.archived !== undefined || changes.tags !== undefined) invalidateChannelRefTargets(projection, { channelId: event.channelId })
   if (changes.tags !== undefined) {
     projection.fence("threads", {
@@ -176,6 +184,7 @@ export function handleChannelEvent(
       invalidateThreads(projection, event.parentChannelId)
     }
   }
+  refreshForumPostCounts(queryClient, event.serverId)
   invalidateServerDetail(projection, event.serverId)
 }
 

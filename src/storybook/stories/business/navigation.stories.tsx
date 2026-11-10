@@ -42,3 +42,27 @@ function ForumNavigationExample() {
 }
 
 export const ForumThreads: Story = { render: () => <ForumNavigationExample /> }
+
+function ForumCountExample() {
+  const [active, setActive] = useState("selected-forum")
+  const categories = [{ id: "review", name: "Workspace", channels: [
+    { id: "general", name: "general", type: "text" as const, active: false, unread: true },
+    { id: "read-forum", name: "design", type: "forum" as const, active: false, unread: false, unarchivedPostCount: 12 },
+    { id: "unread-forum", name: "issues", type: "forum" as const, active: false, unread: true, unarchivedPostCount: 12 },
+    { id: "selected-forum", name: "planning", type: "forum" as const, active: false, unread: false, unarchivedPostCount: 8 },
+    { id: "loading-forum", name: "backlog", type: "forum" as const, active: false, unread: false },
+    { id: "empty-forum", name: "releases", type: "forum" as const, active: false, unread: false, unarchivedPostCount: 0 },
+    { id: "long-forum", name: "项目讨论与产品反馈", type: "forum" as const, active: false, unread: true, unarchivedPostCount: 1482 },
+    { id: "muted-forum", name: "research", type: "forum" as const, active: false, unread: true, muted: true, unarchivedPostCount: 24 },
+  ] }]
+  return <div className="flex flex-wrap items-start gap-8" data-forum-count-review>
+    {[256, 152].map(width => <div key={width}>
+      <p className="mb-4 text-sm text-muted-foreground">{width === 256 ? "Standard sidebar" : "Minimum sidebar"}</p>
+      <div style={{ width }} className="h-96 bg-sidebar" data-forum-count-width={width}>
+        <ChannelSidebarTreeOwner scopeKey={`count-review:${width}`} categories={categories} serverName="Studio"
+          activeChannel={active} setActiveChannel={setActive} isAdmin={false} currentUserId="demo-gus" />
+      </div>
+    </div>)}
+  </div>
+}
+export const ForumCounts: Story = { render: () => <ForumCountExample /> }

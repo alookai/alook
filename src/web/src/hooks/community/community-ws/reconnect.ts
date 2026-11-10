@@ -1,3 +1,4 @@
+import { refreshForumPostCounts } from "../use-forum-post-counts"
 import { reconcileCommunityServerRail } from "./server-rail-reconciliation"
 
 import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/community/runtime"
@@ -233,6 +234,7 @@ function policyExecutors(
     "server-rail": () => reconcileCommunityServerRail(queryClient),
     "all-cached-servers": async () => {
       const serverIds = cachedServerIds(queryClient, queryKeys)
+      for (const serverId of serverIds) refreshForumPostCounts(queryClient, serverId)
       const settled = await Promise.allSettled([
         queryClient.invalidateQueries({
           queryKey: communityKeys.servers(),
