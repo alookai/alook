@@ -16,7 +16,7 @@ import { BotActivityModal } from "@/components/community/bots/bot-activity-modal
 import { BotActivityHeatmap } from "@/components/community/bots/bot-activity-heatmap"
 import { BotTokenUsageHeatmap } from "@/components/community/bots/bot-token-usage-chart"
 import { BotMembershipsSheet } from "@/components/community/bots/bot-memberships-sheet"
-import { BotPiiPanel } from "@/components/community/bots/bot-pii-panel"
+import { BotPiiPanel, BotPiiWorkspace } from "@/components/community/bots/bot-pii-panel"
 import { BotPiiList } from "@/components/community/bots/bot-pii-list"
 import { BotPiiPlayground } from "@/components/community/bots/bot-pii-playground"
 import { BugReportDialog } from "@/components/community/bots/bug-report-dialog"
@@ -320,19 +320,17 @@ function PiiSpecimen() {
     <Specimen label="Privacy filters" note="Panel, list, playground. Pick Claudette for the empty list.">
       <div style={{ width: "100%", height: 1080, display: "flex", minHeight: 0 }}>
         <BotPiiPanel bots={bots} selectedId={selected} onSelect={setSelected}>
-          <section style={stack}>
-            <h3 className="text-base font-medium">PII steps</h3>
+          <BotPiiWorkspace action={<Button className="min-h-11">Add filter with bot</Button>}
+            reload={<Button variant="outline" className="min-h-11">Reload filters</Button>}
+            playground={<BotPiiPlayground value={input} onValueChange={(v) => { setInput(v); setResult(undefined) }} result={result}
+              triggeredFilters={result ? [{ id: "email", name: "Email addresses" }, { id: "phone", name: "Phone numbers" }] : undefined}
+              pending={false} disabled={empty || selected === "demo-cecilia"} onRun={() => setResult(PII_OUTPUT)} />}
+          >
             <BotPiiList botName={name} plugins={empty ? [] : plugins} pending={false}
               unavailable={selected === "demo-cecilia" ? "Cecilia's machine is offline. Filters load when it reconnects." : undefined}
               onSetEnabled={(id, enabled) => setPlugins((xs) => xs.map((x) => x.id === id ? { ...x, enabled } : x))}
               onDelete={async (id) => { setPlugins((xs) => xs.filter((x) => x.id !== id)); return true }} />
-          </section>
-          <section style={stack}>
-            <h3 className="text-base font-medium">Playground</h3>
-            <BotPiiPlayground value={input} onValueChange={(v) => { setInput(v); setResult(undefined) }} result={result}
-              triggeredFilters={result ? [{ id: "email", name: "Email addresses" }, { id: "phone", name: "Phone numbers" }] : undefined}
-              pending={false} disabled={empty} onRun={() => setResult(PII_OUTPUT)} />
-          </section>
+          </BotPiiWorkspace>
         </BotPiiPanel>
       </div>
     </Specimen>

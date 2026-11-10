@@ -11,7 +11,7 @@ import { useMachines } from "@/hooks/community/use-machines"
 import { useBotPii } from "@/hooks/community/use-bot-pii"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { BotPiiPanel } from "./bot-pii-panel"
+import { BotPiiPanel, BotPiiWorkspace } from "./bot-pii-panel"
 import { useCommunityModuleLocation } from "@/contexts/community/module-route"
 import { useUiHandlers } from "@/stores/community"
 import { BotPiiList } from "./bot-pii-list"
@@ -25,28 +25,18 @@ function BotPipeline({ botId, botName, machineId, online }: { botId: string; bot
   const { clearPreview } = pii
   useEffect(() => { if (!active) { setInput(""); clearPreview() } }, [active, setInput, clearPreview])
   return (
-    <>
-      <section className="flex min-w-0 flex-col gap-4" aria-labelledby="pii-filters-heading">
-        <div className="flex flex-col">
-        <div className="flex items-center gap-2">
-            <h3 id="pii-filters-heading" className="text-base font-medium">PII steps</h3>
-            <Button variant="ghost" size="icon" className="size-11 sm:size-8" aria-label="Reload filters" aria-busy={pii.pending && !pii.previewPending} title="Reload filters" disabled={pii.pending || !online} onClick={() => { void pii.reload() }}><RefreshCw aria-hidden="true" className={pii.pending && !pii.previewPending ? "animate-spin motion-reduce:animate-none" : undefined} /></Button>
-        </div>
-        <p className="text-xs leading-relaxed text-muted-foreground">Our servers don’t store your PII workflow data. Each request loads it from your computer to your screen, so loading may take a moment.</p>
-        <BotPiiChatAction botId={botId} />
-        </div>
-        {pii.snapshot ? <BotPiiList botName={botName} plugins={pii.snapshot.plugins} pending={pii.pending} error={pii.error} unavailable={pii.unavailable}
-          onSetEnabled={(id, enabled) => { void pii.setEnabled(id, enabled) }} onDelete={pii.remove} />
-          : pii.unavailable || pii.error ? <p role={pii.error ? "alert" : "status"} className="text-sm text-muted-foreground">{pii.unavailable ?? pii.error}</p>
-          : <div role="status" aria-label="Loading filters" className="flex flex-col gap-4">{[0, 1, 2].map(id => <Skeleton key={id} className="h-20 w-full rounded-md" />)}</div>}
-      </section>
-      <section className="flex min-w-0 flex-col gap-4" aria-labelledby="pii-playground-heading">
-      <h3 id="pii-playground-heading" className="text-base font-medium">Playground</h3>
-      <BotPiiPlayground value={input} onValueChange={value => { setInput(value); pii.clearPreview() }}
+    <BotPiiWorkspace
+      action={<BotPiiChatAction botId={botId} />}
+      reload={<Button variant="outline" className="min-h-11 gap-2" aria-busy={pii.pending && !pii.previewPending} disabled={pii.pending || !online} onClick={() => { void pii.reload() }}><RefreshCw aria-hidden="true" className={pii.pending && !pii.previewPending ? "animate-spin motion-reduce:animate-none" : undefined} />Reload filters</Button>}
+      playground={<BotPiiPlayground value={input} onValueChange={value => { setInput(value); pii.clearPreview() }}
         result={pii.output} triggeredFilters={pii.triggeredFilters} pending={pii.previewPending} error={pii.previewError ?? pii.unavailable}
-        disabled={pii.pending || !pii.snapshot || Boolean(pii.unavailable)} onRun={() => { void pii.preview(input) }} />
-      </section>
-    </>
+        disabled={pii.pending || !pii.snapshot || Boolean(pii.unavailable)} onRun={() => { void pii.preview(input) }} />}
+    >
+      {pii.snapshot ? <BotPiiList botName={botName} plugins={pii.snapshot.plugins} pending={pii.pending} error={pii.error} unavailable={pii.unavailable}
+        onSetEnabled={(id, enabled) => { void pii.setEnabled(id, enabled) }} onDelete={pii.remove} />
+        : pii.unavailable || pii.error ? <p role={pii.error ? "alert" : "status"} className="text-sm text-muted-foreground">{pii.unavailable ?? pii.error}</p>
+        : <div role="status" aria-label="Loading filters" className="flex flex-col gap-4">{[0, 1, 2].map(id => <Skeleton key={id} className="h-24 w-full rounded-md" />)}</div>}
+    </BotPiiWorkspace>
   )
 }
 

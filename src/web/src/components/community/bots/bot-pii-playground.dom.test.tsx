@@ -79,3 +79,13 @@ it("keeps the empty filtered result explicit and renders no badge", () => {
   expect(screen.getByText("The filtered message is empty.")).toBeVisible()
   expect(screen.queryByRole("img", { name: "redacted" })).toBeNull()
 })
+
+
+it("keeps the test in input, action, output reading order", () => {
+  render(<BotPiiPlayground value="sample" onValueChange={vi.fn()} onRun={vi.fn()} pending={false} result="filtered" />)
+  const input = screen.getByLabelText("Original message")
+  const run = screen.getByRole("button", { name: "Run test" })
+  const output = screen.getByRole("status")
+  expect(input.compareDocumentPosition(run) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(run.compareDocumentPosition(output) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})

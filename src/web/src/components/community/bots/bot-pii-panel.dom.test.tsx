@@ -57,3 +57,12 @@ it("keeps pointer selection valid when opening waits for the browser animation f
     request.mockRestore()
   }
 })
+
+
+it("retains the privacy category switch while exposing only available tools", () => {
+  render(<BotPiiPanel bots={[]} selectedId="" onSelect={vi.fn()}><p>Filters</p></BotPiiPanel>)
+  expect(screen.getByRole("tablist", { name: "Privacy tools" })).toHaveAttribute("data-single-tab", "switch")
+  expect(screen.getAllByRole("tab")).toHaveLength(1)
+  expect(screen.getByRole("tab", { name: "PII Filters" })).toHaveAttribute("aria-selected", "true")
+  expect(screen.getByRole("heading", { name: "Create a bot first" })).toBeVisible()
+})

@@ -15,7 +15,7 @@ beforeEach(() => {
   mocks.create.mockResolvedValue({ conversation: { id: "dm-selected" } })
   mocks.accept.mockReturnValue({ accepted: true, committed: Promise.resolve({ ok: true }) })
 })
-const click = () => fireEvent.click(screen.getByRole("button", { name: "Ask your bot to add a PII filter." }))
+const click = () => fireEvent.click(screen.getByTestId("pii-ask-bot"))
 it("sends the requirements-first request to the selected bot before navigating", async () => {
   render(<BotPiiChatAction botId="selected-bot" />)
   click()
