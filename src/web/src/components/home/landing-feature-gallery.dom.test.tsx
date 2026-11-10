@@ -7,6 +7,7 @@ vi.mock("./landing-shell-motion-timeline", () => ({ sceneDurationMs: duration })
 vi.mock("./landing-feature-scene", () => ({ default: ({ feature }: { feature: string }) => <div data-testid="active-feature">{feature}</div> }))
 vi.mock("@/lib/analytics", () => ({ trackLandingCtaClicked: vi.fn() }))
 let intersect: IntersectionObserverCallback
+let observedTarget: Element
 let reduced = false
 const disconnect = vi.fn()
 
@@ -17,7 +18,7 @@ beforeEach(() => {
   duration.mockReturnValue(1000)
   vi.stubGlobal("IntersectionObserver", class {
     constructor(callback: IntersectionObserverCallback) { intersect = callback }
-    observe() {}
+    observe(target: Element) { observedTarget = target }
     disconnect = disconnect
   })
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} })
@@ -41,11 +42,44 @@ aroundEach(async run => {
 })
 
 async function show(visible = true) {
-  await act(async () => { intersect([{ isIntersecting: visible, intersectionRatio: visible ? 1 : 0 } as IntersectionObserverEntry], {} as IntersectionObserver) })
+  await act(async () => { intersect([{ target: observedTarget, time: performance.now(), isIntersecting: visible, intersectionRatio: visible ? 1 : 0 } as IntersectionObserverEntry], {} as IntersectionObserver) })
 }
 async function advance(time = 30000) { await act(async () => { vi.advanceTimersByTime(time) }) }
 
 describe("feature gallery", () => {
+  it.each([1, 0.3])("loads Remote control when the last queued record enters view at ratio%s", async ratio => {
+    render(<LandingFeatureGallery isLoggedIn={false} />)
+    fireEvent.click(screen.getByRole("tab", { name: "Remote control" }))
+    await act(async () => {
+      intersect([
+        { target: observedTarget, time: 1, isIntersecting: false, intersectionRatio: 0 },
+        { target: observedTarget, time: 2, isIntersecting: true, intersectionRatio: ratio },
+      ] as IntersectionObserverEntry[], {} as IntersectionObserver)
+    })
+    expect(screen.getByTestId("active-feature")).toHaveTextContent("reach")
+  })
+
+  it.each([
+    { state: "leaves view", isIntersecting: false, intersectionRatio: 0 },
+    { state: "falls below the threshold", isIntersecting: true, intersectionRatio: 0.29 },
+  ])("retains the scene and defers changes when the last queued record $state", async ({ isIntersecting, intersectionRatio }) => {
+    render(<LandingFeatureGallery isLoggedIn={false} />)
+    await show()
+    await act(async () => {
+      intersect([
+        { target: observedTarget, time: 1, isIntersecting: true, intersectionRatio: 1 },
+        { target: observedTarget, time: 2, isIntersecting, intersectionRatio },
+      ] as IntersectionObserverEntry[], {} as IntersectionObserver)
+    })
+    await advance()
+    expect(screen.getByRole("tab", { selected: true })).toHaveTextContent("Collaboration")
+    expect(screen.getByTestId("active-feature")).toHaveTextContent("product")
+    fireEvent.click(screen.getByRole("tab", { name: "Remote control" }))
+    expect(screen.queryByTestId("active-feature")).toBeNull()
+    await show()
+    expect(screen.getByTestId("active-feature")).toHaveTextContent("reach")
+  })
+
   it("loads only after entering view and keeps the selected layout offscreen", async () => {
     const view = render(<LandingFeatureGallery isLoggedIn={false} />)
     expect(screen.queryByTestId("active-feature")).toBeNull()
