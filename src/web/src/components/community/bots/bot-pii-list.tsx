@@ -41,14 +41,15 @@ export function BotPiiList({
         </div>
       ) : (
         <>
-          <ul className="flex flex-col gap-4">
-            {plugins.map((plugin) => (
-              <li key={plugin.id} className="group/pii-node relative flex flex-col gap-1 pl-6" data-testid={`pii-plugin-${plugin.id}`}>
-                <span aria-hidden="true" className="absolute -bottom-10 left-1 top-6 w-px bg-border group-last/pii-node:hidden" />
-                <span aria-hidden="true" className={`absolute left-0 top-5 size-2 rounded-full border ${plugin.enabled ? "border-muted-foreground bg-muted-foreground" : "border-muted-foreground bg-background"}`} />
+          <ol className="divide-y divide-border rounded-xl border border-border" aria-label="Filter execution order">
+            {plugins.map((plugin, index) => (
+              <li key={plugin.id} className="flex min-w-0 gap-4 p-4" data-testid={`pii-plugin-${plugin.id}`}>
+                <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm tabular-nums text-muted-foreground">{index + 1}</span>
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
                 <div className="flex min-w-0 items-center gap-2">
                 <div className="min-w-0 flex-1">
-                  <h4 className="wrap-break-word text-base font-medium">{plugin.name}</h4>
+                  <h4 className="wrap-break-word text-sm font-medium">{plugin.name}</h4>
+                  <p className="text-xs text-muted-foreground">{plugin.enabled ? "Enabled" : "Disabled"}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <div className="flex size-11 items-center justify-center">
@@ -65,9 +66,10 @@ export function BotPiiList({
                 </div>
                 </div>
                 <p id={`pii-description-${plugin.id}`} className="max-w-prose wrap-break-word text-sm leading-relaxed text-muted-foreground">{plugin.description}</p>
+                </div>
               </li>
             ))}
-          </ul>
+          </ol>
         </>
       )}
       <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open && !pending) setDeletingId(null) }}>

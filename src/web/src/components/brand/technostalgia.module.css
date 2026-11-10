@@ -1862,20 +1862,25 @@
   padding-block: 2px 4px;
 }
 
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-single-tab="switch"] [data-slot="tabs-trigger"] {
+  min-height: 44px;
+  padding-inline: 16px !important;
+}
+
 /* A tab list with one tab is not a switch: no tray, no key, just its label (#2273) */
-.theme [data-slot="tabs-list"]:has(> button[data-slot="tabs-trigger"]:only-of-type),
-.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"]:has(> button[data-slot="tabs-trigger"]:only-of-type) {
+.theme [data-slot="tabs-list"]:not([data-single-tab="switch"]):has(> button[data-slot="tabs-trigger"]:only-of-type),
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"]:not([data-single-tab="switch"]):has(> button[data-slot="tabs-trigger"]:only-of-type) {
   background: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
   margin-inline: 0 !important;
 }
-.theme [data-slot="tabs-list"]:has(> button[data-slot="tabs-trigger"]:only-of-type) > [data-slot="tabs-indicator"] {
+.theme [data-slot="tabs-list"]:not([data-single-tab="switch"]):has(> button[data-slot="tabs-trigger"]:only-of-type) > [data-slot="tabs-indicator"] {
   display: none !important;
 }
 /* Its label starts on the page's text edge, under the page title (Gus #2364). */
-.theme [data-slot="tabs-list"]:has(> button[data-slot="tabs-trigger"]:only-of-type) > [data-slot="tabs-trigger"],
-.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"]:has(> button[data-slot="tabs-trigger"]:only-of-type) > [data-slot="tabs-trigger"] {
+.theme [data-slot="tabs-list"]:not([data-single-tab="switch"]):has(> button[data-slot="tabs-trigger"]:only-of-type) > [data-slot="tabs-trigger"],
+.theme [data-slot="tabs"]:not([data-orientation="vertical"]) [data-slot="tabs-list"][data-variant="line"]:not([data-single-tab="switch"]):has(> button[data-slot="tabs-trigger"]:only-of-type) > [data-slot="tabs-trigger"] {
   padding-inline: 0 !important;
   color: var(--tn-text) !important;
   font-weight: 600;

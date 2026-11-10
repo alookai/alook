@@ -45,7 +45,7 @@ import { prepareCommunityImageUpload } from "./imageThumbnail.js";
  * offset, so the agent sees timestamps in its own timezone throughout the CLI
  * envelope. Server truth stays untouched — we only reformat at the boundary.
  */
-function messagesInLocalTime(messages: Message[]): Message[] {
+function messagesInLocalTime<T extends Message>(messages: T[]): T[] {
   return messages.map((m) => ({ ...m, time: toLocalISO(m.time) }));
 }
 

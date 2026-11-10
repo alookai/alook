@@ -42,10 +42,7 @@ export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => 
     if (!trimmed || trimmed.length > MAX_CATEGORY_NAME_LENGTH) {
       return writeError(`name must be 1-${MAX_CATEGORY_NAME_LENGTH} characters`, 400)
     }
-    // Category names are displayed uppercase; store them uppercased so the
-    // persisted value matches the client's optimistic rename (which uppercases
-    // too) — otherwise the sidebar briefly diverges until the next refetch.
-    changes.name = trimmed.toUpperCase()
+    changes.name = trimmed
   }
 
   if (Object.keys(changes).length === 0) {

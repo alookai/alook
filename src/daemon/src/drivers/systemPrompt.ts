@@ -259,7 +259,8 @@ function messagingSection(): string {
       `\`${CLI} message property set --target <full-message-ref> --json ` +
       `'{"type":"mark","value":true}'\`. Clear it with the same JSON through ` +
       `\`message property remove\`. Use \`${CLI} message mark list\` for the one-shot global view ` +
-      `of all currently visible marked messages.`,
+      `of all currently visible marked messages, including notes. Add an optional \`note\` string ` +
+      `to the set JSON to record or update a note; omit it to keep the note, or use \`"note":null\` to clear it.`,
     "- `archived` is a reserved tag meaning the forum post is complete. Setting it hides the " +
       "post from the normal forum feed; removing it reopens the post.",
     "",
@@ -558,6 +559,9 @@ function workspaceMemorySection(config: HostLaunchConfig): string {
       `came from. Run \`${CLI} message property remove --target <full-message-ref> ` +
       `--json '{"type":"mark","value":true}'\` only after ` +
       "sending the result, or when the request is cancelled or superseded and nothing remains.",
+    "",
+    "Keep each mark’s note current with the task’s progress, blockers, and next step, so you can resume after a reset.",
+    "Track each task’s progress and status in its mark note, not in memory.md.",
     "",
     "If `inbox pull` returns a `markedReminder`, run " +
       `\`${CLI} message mark list\` before taking new work. Do not copy marked tasks into local files.`,

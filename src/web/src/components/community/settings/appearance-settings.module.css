@@ -1,0 +1,21 @@
+.switch {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--tn-recessed-background, var(--muted));
+  box-shadow: var(--tn-recessed-shadow, none);
+}
+
+.switch [data-slot="button"] {
+  min-width: 0;
+  min-height: 44px;
+  height: auto;
+  flex: 1;
+  gap: 8px;
+  padding-inline: 12px;
+  border-radius: 999px !important;
+}

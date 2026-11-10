@@ -76,7 +76,10 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
     const element = section.current
     if (!element) return
     if (!("IntersectionObserver" in window)) { setVisible(true); return }
-    const observer = new IntersectionObserver(([entry]) => setVisible(Boolean(entry?.isIntersecting && entry.intersectionRatio >= 0.3)), { threshold: 0.3 })
+    const observer = new IntersectionObserver(entries => {
+      const entry = entries[entries.length - 1]
+      setVisible(Boolean(entry?.isIntersecting && entry.intersectionRatio >= 0.3))
+    }, { threshold: 0.3 })
     observer.observe(element)
     return () => observer.disconnect()
   }, [])

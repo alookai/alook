@@ -22,7 +22,7 @@ export function CategorySettingsDialog({ name, isPrivate, onClose, onSave }: {
   const trimmedName = nameDraft.trim()
   const save = () => {
     if (!trimmedName) return
-    onSave(trimmedName.toUpperCase())
+    onSave(trimmedName)
     onClose()
   }
   return (

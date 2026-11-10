@@ -1501,13 +1501,22 @@ describe("message property", () => {
   });
 });
 
+describe("mark note JSON", () => {
+  it.each(["进度：等待 QA\n下一步：评审", "", null])("passes nullable note through property set: %j", async (note) => {
+    const messagePropertySet = vi.fn(async () => ({ type: "mark" as const, value: true as const, changed: true }));
+    setApiForTesting(stubApi({ messagePropertySet }));
+    await main(["message", "property", "set", "--target", "/demo#0042/general#42", "--json", JSON.stringify({ type: "mark", value: true, note })]);
+    expect(messagePropertySet).toHaveBeenCalledWith({ channel: "/demo#0042/general", seq: 42, property: { type: "mark", value: true, note } });
+  });
+});
+
 describe("message mark", () => {
   it.each(["set", "remove"])("does not expose standalone message mark %s", async (command) => {
     await main(["message", "mark", command, "--target", "/demo#0042/general#42"]);
     expect(parseEnvelope(cap.lines()).error).toBeDefined();
   });
 
-  it("list returns all messages through the same local-time projection as inbox", async () => {
+  it.each(["已完成接口，等待验收", null])("list preserves note %j through the local-time projection", async (note) => {
     setApiForTesting(stubApi({
       listMarks: async () => ({
         marked: [{
@@ -1515,14 +1524,16 @@ describe("message mark", () => {
           channel: "/demo#0042/general",
           sender: "@alice#0001",
           content: { text: "task" },
+          note,
           time: "2026-08-13T04:00:00.000Z",
         }],
       }),
     }));
     await main(["message", "mark", "list"]);
-    const env = parseEnvelope(cap.lines()) as { success: { marked: Array<{ time: string }> } };
+    const env = parseEnvelope(cap.lines()) as { success: { marked: Array<{ time: string; note: string | null }> } };
     expect(env.success.marked).toHaveLength(1);
     expect(env.success.marked[0].time).toMatch(/[+-]\d{2}:\d{2}$/);
+    expect(env.success.marked[0].note).toBe(note);
   });
 });
 

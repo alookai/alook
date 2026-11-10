@@ -17,20 +17,28 @@ import { queries } from "@alook/shared"
 type PropertyType = MessagePropertyMutation["type"]
 
 function parseProperty(raw: unknown):
-  | { ok: true; property: { type: PropertyType; value: unknown } }
+  | { ok: true; property: { type: PropertyType; value: unknown; note?: unknown } }
   | { ok: false; response: Response } {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, response: writeError("property must be an object", 400) }
   }
-  const keys = Object.keys(raw).sort()
-  if (keys.length !== 2 || keys[0] !== "type" || keys[1] !== "value") {
-    return { ok: false, response: writeError("property must contain exactly type and value", 400) }
-  }
-  const property = raw as { type?: unknown; value?: unknown }
+  const property = raw as { type?: unknown; value?: unknown; note?: unknown }
   if (property.type !== "tag" && property.type !== "emoji" && property.type !== "mark") {
     return { ok: false, response: writeError("unknown property type", 400) }
   }
-  return { ok: true, property: { type: property.type, value: property.value } }
+  const keys = Object.keys(raw)
+  const allowed = property.type === "mark" ? ["type", "value", "note"] : ["type", "value"]
+  if (!keys.includes("value") || keys.some((key) => !allowed.includes(key))) {
+    return { ok: false, response: writeError("invalid property fields", 400) }
+  }
+  return {
+    ok: true,
+    property: {
+      type: property.type,
+      value: property.value,
+      ...(keys.includes("note") ? { note: property.note } : {}),
+    },
+  }
 }
 
 function hasExactMutationKeys(raw: unknown): raw is {
@@ -100,12 +108,12 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
       if (!result.ok) return writeError(result.error, result.status)
       properties.push({ type: "emoji" as const, value: result.value })
     } else {
-      const marked = await queries.communityMessageMark.isMessageMarked(
+      const mark = await queries.communityMessageMark.getMessageMark(
         db,
         gate.bot.userId,
         target.messageId,
       )
-      properties.push({ type: "mark" as const, value: marked })
+      properties.push({ type: "mark" as const, value: mark !== null, note: mark?.note ?? null })
     }
   }
   return writeJSON({ capabilities, properties })
@@ -160,11 +168,16 @@ async function mutate(req: NextRequest, ctx: Parameters<CommunityActorHandler>[1
     if (parsed.property.value !== true) {
       return writeError("mark value must be true", 400)
     }
+    const hasNote = Object.hasOwn(parsed.property, "note")
+    if (hasNote && (action !== "set" || (parsed.property.note !== null && typeof parsed.property.note !== "string"))) {
+      return writeError(action === "set" ? "mark note must be a string or null" : "note is only supported when setting a mark", 400)
+    }
     const changed = action === "set"
       ? await queries.communityMessageMark.markMessage(db, {
           userId: gate.bot.userId,
           channelId: target.channelId,
           messageId: target.messageId,
+          ...(hasNote ? { note: parsed.property.note as string | null } : {}),
         }) !== null
       : await queries.communityMessageMark.unmarkMessage(db, {
           userId: gate.bot.userId,

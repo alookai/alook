@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 334,
+    "composition": 335,
     "environment": 10,
     "nonvisual": 30,
     "direct": 40
@@ -1835,7 +1835,8 @@
       "source": "src/web/src/components/community/bots/bot-pii-panel.tsx",
       "application": "Web",
       "candidates": [
-        "BotPiiPanel"
+        "BotPiiPanel",
+        "BotPiiWorkspace"
       ],
       "kind": "composition",
       "examples": [
@@ -3916,6 +3917,21 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
+      "source": "src/web/src/components/community/settings/appearance-settings.tsx",
+      "application": "Web",
+      "candidates": [
+        "AppearanceSettings"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-product-compositions--user-and-server-settings",
+          "region": "UserSettings > Appearance: actual Theme selection controls"
+        }
+      ],
+      "reason": "UserSettings mounts the original AppearanceSettings controls. Theme selection is local; operating-system resolution requires separate runtime evidence."
+    },
+    {
       "source": "src/web/src/components/community/settings/automation-settings.tsx",
       "application": "Web",
       "candidates": [
@@ -4109,7 +4125,6 @@
       "application": "Web",
       "candidates": [
         "AdvancedSettings",
-        "AppearanceSettings",
         "UserSettings"
       ],
       "kind": "composition",
