@@ -44,6 +44,7 @@ export type Channel = {
   active: boolean
   unread: boolean
   muted?: boolean
+  unarchivedPostCount?: number
   type?: ChannelType
   tags?: string[]
   creatorId?: string | null

@@ -1,5 +1,6 @@
 "use client"
 
+import { ForumPostCount } from "./forum-post-count"
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
@@ -84,9 +85,12 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
       <span className="pointer-events-none grid size-5 shrink-0 place-items-center opacity-70">
       <EntityIcon kind={ch.type} className="size-4" />
       </span>
-      <span className="pointer-events-none truncate font-semibold">{ch.name}</span>
+      <span className="flex h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden">
+        <span className="pointer-events-none max-w-full shrink-0 truncate font-semibold">{ch.name}</span>
+        {ch.type === "forum" ? <ForumPostCount channelId={ch.id} previewCount={ch.unarchivedPostCount} /> : null}
+      </span>
       {ch.muted ? (
-      <BellOff className="pointer-events-none ml-auto size-4 shrink-0 opacity-70" />
+      <BellOff className="pointer-events-none size-4 shrink-0 opacity-70" />
       ) : null}
     </>
   )

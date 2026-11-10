@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, exists, gt, inArray, isNotNull, lt, lte, notExists, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, exists, gt, inArray, isNotNull, lt, lte, notExists, or, sql } from "drizzle-orm";
 import { communityChannel, communityChannelMember, communityMessageTag } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -447,4 +447,20 @@ export async function listParticipatingForumThreads(
     retained,
     retainedDisposition,
   };
+}
+
+export async function countUnarchivedForumPosts(db: Database, serverId: string, parentChannelIds: string[]) {
+  const counts: Record<string, number> = Object.fromEntries(parentChannelIds.map(id => [id, 0]));
+  for (const ids of chunk([...new Set(parentChannelIds)], D1_MAX_IN_PARAMS)) {
+    const archived = db.select({ messageId: communityMessageTag.messageId }).from(communityMessageTag)
+      .where(and(eq(communityMessageTag.messageId, communityChannel.parentMessageId), eq(communityMessageTag.tag, FORUM_ARCHIVE_TAG)));
+    const rows = await db.select({ parentId: communityChannel.parentChannelId, total: count() })
+      .from(communityChannel)
+      .where(and(eq(communityChannel.serverId, serverId), inArray(communityChannel.parentChannelId, ids),
+        eq(communityChannel.type, "thread"), eq(communityChannel.archived, 0),
+        isNotNull(communityChannel.parentMessageId), notExists(archived)))
+      .groupBy(communityChannel.parentChannelId);
+    for (const row of rows) if (row.parentId) counts[row.parentId] = row.total;
+  }
+  return counts;
 }

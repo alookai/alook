@@ -1,3 +1,4 @@
+import { refreshForumPostCounts } from "../use-forum-post-counts"
 
 
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -65,6 +66,7 @@ export function handleChannelMembershipChange(event: CommunityChannelMembershipC
   projection.invalidate("channel-addable-members", { queryKey: communityKeys.channelAddableMembers(event.channelId) })
   if (event.relation === "notify") projection.invalidate("thread-participants", { queryKey: communityKeys.threadParticipants(event.channelId) })
   if (event.userId !== viewerUserIdRef.current) return
+  if (event.serverId && event.relation === "access") refreshForumPostCounts(queryClient, event.serverId)
   invalidateInbox(projection)
   invalidateServersList(projection)
   if (event.serverId && !isKnownNonForumSidebarChannel(queryClient, event.serverId, event.channelId)) {

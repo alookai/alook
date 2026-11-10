@@ -1,3 +1,4 @@
+import { refreshForumPostCounts } from "../use-forum-post-counts"
 
 import { getCommunityRuntime } from "@/stores/community/runtime"
 import type { Query,QueryClient } from "@tanstack/react-query"
@@ -76,6 +77,7 @@ export function applyForumPostUnitClientEffects(
     } else purgeCommunityForumPost(registry, unit)
   }
   evictForumPostUnitQueryCaches(queryClient, unit, options?.queries)
+  refreshForumPostCounts(queryClient, unit.serverId)
   getCommunityRuntime(queryClient).messageStream.actions.dispatch({
     kind: "channel",
     id: unit.forumChannelId,

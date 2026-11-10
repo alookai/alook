@@ -15,6 +15,7 @@ import type { MessagesPageParam } from "./community/models/message"
  */
 export const communityKeys = {
   all: ["community"] as const,
+  forumPostCounts: (serverId: string) => [...communityKeys.all, "forum-post-counts", serverId] as const,
   selfProfile: () => [...communityKeys.all, "self-profile"] as const,
   communityDb: (accountId: string) =>
     [...communityKeys.all, "db", accountId] as const,
