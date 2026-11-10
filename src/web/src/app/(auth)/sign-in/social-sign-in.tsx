@@ -7,6 +7,7 @@ import { useEffect, useRef } from "react"
 import { safeRedirectPath } from "@/lib/safe-redirect"
 import { isTauri, type NativeOauthProvider } from "@alook/shared"
 import { SiApple, SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
+import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Field } from "@/components/ui/field"
 import { signIn } from "@/lib/auth-client"
@@ -39,7 +40,25 @@ export function SocialSignIn({
   const observed = useRef<Action | undefined>(undefined)
   const controller = useRef<ReturnType<typeof createNativeOauthController> | null>(null)
   const [native, setNative] = useAtom(useCreateAtom<NativeOauthView | null>(null))
-  const lastProvider = useRef<NativeOauthProvider>("github")
+  const browserState = useCreateAtom<{ provider: NativeOauthProvider | null; failed: boolean }>({ provider: null, failed: false })
+  const [browser, setBrowser] = useAtom(browserState)
+  const [lastProvider, setLastProvider] = useAtom(useCreateAtom<NativeOauthProvider>("github"))
+
+  useEffect(() => {
+    if (isTauri()) return
+    const restore = (event: PageTransitionEvent) => {
+      if (!event.persisted) return
+      finishAction(observed.current, "cancelled")
+      observed.current = undefined
+      setBrowser({ provider: null, failed: false })
+    }
+    window.addEventListener("pageshow", restore)
+    return () => {
+      window.removeEventListener("pageshow", restore)
+      observed.current = undefined
+      setBrowser({ provider: null, failed: false })
+    }
+  }, [setBrowser])
 
   useEffect(() => {
     if (!isTauri()) return
@@ -61,12 +80,16 @@ export function SocialSignIn({
   }, [setNative])
 
   const start = (provider: NativeOauthProvider) => {
+    if (!isTauri() && browserState.get().provider) return
     finishAction(observed.current, "superseded")
     observed.current = startAction("auth_social", { capability: "limited", phase: "auth" })
-    lastProvider.current = provider
+    setLastProvider(provider)
     const action = observed.current
     if (!isTauri()) {
+      const pending = { provider, failed: false }
+      setBrowser(pending)
       const failed = (error: unknown) => {
+        if (browserState.get() === pending) setBrowser({ provider: null, failed: true })
         void captureProductAnalytics({
           event: "sign_in_failed",
           method: provider,
@@ -90,13 +113,21 @@ export function SocialSignIn({
   }
 
   const busy =
-    native?.phase === "initializing"
+    browser.provider !== null
+    || native?.phase === "initializing"
     || native?.phase === "preparing"
     || native?.phase === "exchanging"
     || native?.phase === "checking_status"
+  const pendingProvider = browser.provider ?? (
+    native && ["preparing", "waiting", "exchanging", "checking_status"].includes(native.phase)
+      ? native.phase === "preparing" ? lastProvider : native.attempt?.provider ?? lastProvider
+      : null
+  )
   const unsupported = native?.phase === "unsupported"
   const appleUpdateRequired = native?.message === "apple_update_required"
-  const text = unsupported
+  const text = browser.failed
+    ? messages.start_failed
+    : unsupported
     ? "Update Alook to use social sign-in. You can still use email."
     : native?.message
     ? messages[native.message]
@@ -142,6 +173,7 @@ export function SocialSignIn({
     <>
       <Field className="flex flex-col gap-3">
         {providers.map((provider) => {
+          const pending = pendingProvider === provider.id
           const isLastUsed = lastUsedMethod === provider.id
           const badgeId = `last-used-${provider.id}-badge`
           return (
@@ -150,6 +182,7 @@ export function SocialSignIn({
                 size="lg"
                 type="button"
                 disabled={provider.disabled}
+                aria-busy={pending}
                 aria-describedby={isLastUsed ? badgeId : undefined}
                 className="peer h-11 w-full justify-start border-0 bg-apple-signin px-4 text-sm font-medium text-apple-signin-foreground hover:bg-apple-signin hover:opacity-90"
                 data-testid={`native-oauth-${provider.id}`}
@@ -160,7 +193,7 @@ export function SocialSignIn({
                   data-testid={`native-oauth-${provider.id}-content`}
                 >
                   <span className="grid h-9 w-6 shrink-0 place-items-center" aria-hidden>
-                    {provider.icon}
+                    {pending ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : provider.icon}
                   </span>
                   <span className="truncate">{provider.label}</span>
                 </span>
@@ -180,7 +213,7 @@ export function SocialSignIn({
       </Field>
       {text && (
         <p
-          role={native?.phase === "error" || unsupported ? "alert" : "status"}
+          role={browser.failed || native?.phase === "error" || unsupported ? "alert" : "status"}
           className="text-center text-sm text-muted-foreground"
           data-testid="native-oauth-status"
         >
@@ -211,7 +244,7 @@ export function SocialSignIn({
               className="h-11 px-3 sm:h-8"
               disabled={busy}
               data-testid="native-oauth-retry"
-              onClick={() => start(native.attempt?.provider ?? lastProvider.current)}
+              onClick={() => start(native.attempt?.provider ?? lastProvider)}
             >
               Try again
             </Button>
