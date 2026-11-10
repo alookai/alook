@@ -1,29 +1,40 @@
-import { eq, and, count, inArray, desc } from "drizzle-orm";
+import { eq, ne, or, isNull, isNotNull, and, count, inArray, desc } from "drizzle-orm";
 import { communityMessageMark, communityMessage } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
-// Idempotent mark. UNIQUE(userId, messageId) makes a re-mark a no-op, so
-// `onConflictDoNothing` keeps the toggle safe to call twice without a 409
-// round-trip (contract: /Gus/working #1004). channelId is stored for cascade
-// and current-visibility filtering; messageId alone is globally unique.
 export async function markMessage(
   db: Database,
-  data: { userId: string; channelId: string; messageId: string }
+  data: { userId: string; channelId: string; messageId: string; note?: string | null }
 ) {
-  const [inserted] = await db
-    .insert(communityMessageMark)
-    .values({
-      userId: data.userId,
-      channelId: data.channelId,
-      messageId: data.messageId,
-    })
-    .onConflictDoNothing({
-      target: [communityMessageMark.userId, communityMessageMark.messageId],
-    })
-    .returning();
-  return inserted ?? null;
+  const insert = db.insert(communityMessageMark).values({
+    userId: data.userId,
+    channelId: data.channelId,
+    messageId: data.messageId,
+    note: data.note ?? null,
+  });
+  const target = [communityMessageMark.userId, communityMessageMark.messageId];
+  const mutation = data.note === undefined
+    ? insert.onConflictDoNothing({ target })
+    : insert.onConflictDoUpdate({
+        target,
+        set: { note: data.note },
+        setWhere: data.note === null
+          ? isNotNull(communityMessageMark.note)
+          : or(isNull(communityMessageMark.note), ne(communityMessageMark.note, data.note)),
+      });
+  const [changed] = await mutation.returning();
+  return changed ?? null;
+}
+
+export async function getMessageMark(db: Database, userId: string, messageId: string) {
+  const [mark] = await db
+    .select({ id: communityMessageMark.id, note: communityMessageMark.note })
+    .from(communityMessageMark)
+    .where(and(eq(communityMessageMark.userId, userId), eq(communityMessageMark.messageId, messageId)))
+    .limit(1);
+  return mark ?? null;
 }
 
 // Self-scoped: only the marking user's own row is deletable. A DELETE targeting

@@ -8,7 +8,7 @@ const mockMutateTags = vi.fn()
 const mockListReactions = vi.fn()
 const mockSetReaction = vi.fn()
 const mockRemoveReaction = vi.fn()
-const mockIsMessageMarked = vi.fn()
+const mockGetMessageMark = vi.fn()
 const mockMarkMessage = vi.fn()
 const mockUnmarkMessage = vi.fn()
 
@@ -35,7 +35,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMessageMark: {
         ...actual.queries.communityMessageMark,
-        isMessageMarked: (...args: unknown[]) => mockIsMessageMarked(...args),
+        getMessageMark: (...args: unknown[]) => mockGetMessageMark(...args),
         markMessage: (...args: unknown[]) => mockMarkMessage(...args),
         unmarkMessage: (...args: unknown[]) => mockUnmarkMessage(...args),
       },
@@ -100,7 +100,7 @@ describe("bot message property route", () => {
     mockListReactions.mockResolvedValue({ ok: true, value: [] })
     mockSetReaction.mockResolvedValue({ ok: true, value: { emoji: "👍", changed: true } })
     mockRemoveReaction.mockResolvedValue({ ok: true, value: { emoji: "👍", changed: false } })
-    mockIsMessageMarked.mockResolvedValue(false)
+    mockGetMessageMark.mockResolvedValue(null)
     mockMarkMessage.mockResolvedValue({ id: "mark1" })
     mockUnmarkMessage.mockResolvedValue({ id: "mark1" })
   })
@@ -112,7 +112,7 @@ describe("bot message property route", () => {
       capabilities: ["tag", "mark"],
       properties: [
         { type: "tag", value: ["archived", "bug"] },
-        { type: "mark", value: false },
+        { type: "mark", value: false, note: null },
       ],
     })
     expect(mockResolve).toHaveBeenCalledWith(replicaDb, "bot1", {
@@ -132,7 +132,7 @@ describe("bot message property route", () => {
       capabilities: ["emoji", "mark"],
       properties: [
         { type: "emoji", value: [{ emoji: "👍", actors: ["@a#0001"], me: true }] },
-        { type: "mark", value: false },
+        { type: "mark", value: false, note: null },
       ],
     })
   })
@@ -236,9 +236,9 @@ describe("bot message property route", () => {
       messageId: "m1",
     })
 
-    mockIsMessageMarked.mockResolvedValue(true)
+    mockGetMessageMark.mockResolvedValue({ id: "mark1", note: "waiting for QA" })
     const listRes = await GET(getRequest(), ctx)
-    expect((await listRes.json()).properties).toContainEqual({ type: "mark", value: true })
+    expect((await listRes.json()).properties).toContainEqual({ type: "mark", value: true, note: "waiting for QA" })
 
     const removeRes = await DELETE(mutationRequest("DELETE", { type: "mark", value: true }), ctx)
     expect(await removeRes.json()).toEqual({ type: "mark", value: true, changed: true })
@@ -248,8 +248,36 @@ describe("bot message property route", () => {
     })
   })
 
+  it.each(["接口完成，等验收\n下一步：合并", "", null])("writes a nullable note for the authenticated actor: %j", async (note) => {
+    const res = await PUT(mutationRequest("PUT", { type: "mark", value: true, note }), ctx)
+    expect(res.status).toBe(200)
+    expect(mockMarkMessage).toHaveBeenCalledWith(primaryDb, {
+      userId: "bot1", channelId: "c1", messageId: "m1", note,
+    })
+  })
+
+  it.each([false, 7, [], {}])("rejects an invalid note without writing: %j", async (note) => {
+    const res = await PUT(mutationRequest("PUT", { type: "mark", value: true, note }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockMarkMessage).not.toHaveBeenCalled()
+  })
+
+  it("rejects note on removal and on unrelated properties", async () => {
+    for (const property of [{ type: "mark", value: true, note: "keep" }, { type: "emoji", value: "👍", note: null }]) {
+      expect((await DELETE(mutationRequest("DELETE", property), ctx)).status).toBe(400)
+    }
+    expect(mockUnmarkMessage).not.toHaveBeenCalled()
+    expect(mockRemoveReaction).not.toHaveBeenCalled()
+  })
+
+  it("does not mutate a note if message access is denied", async () => {
+    mockResolve.mockResolvedValue({ ok: false, status: 404, error: "message not found" })
+    expect((await PUT(mutationRequest("PUT", { type: "mark", value: true, note: "private" }), ctx)).status).toBe(404)
+    expect(mockMarkMessage).not.toHaveBeenCalled()
+  })
+
   it("rejects false as a mark mutation value without writing", async () => {
-    const res = await PUT(mutationRequest("PUT", { type: "mark", value: false }), ctx)
+    const res = await PUT(mutationRequest("PUT", { type: "mark", value: false, note: null }), ctx)
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: "mark value must be true" })
     expect(mockMarkMessage).not.toHaveBeenCalled()

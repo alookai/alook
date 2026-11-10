@@ -18,7 +18,7 @@ function markDb(returning: unknown[]) {
 
 describe("community message marks", () => {
   it("returns the inserted row and reports an idempotent conflict as null", async () => {
-    const inserted = { id: "mark_1", userId: "u1", channelId: "c1", messageId: "m1" };
+    const inserted = { id: "mark_1", userId: "u1", channelId: "c1", messageId: "m1", note: null };
     const created = markDb([inserted]);
     await expect(markMessage(created.db, {
       userId: "u1",
@@ -29,6 +29,7 @@ describe("community message marks", () => {
       userId: "u1",
       channelId: "c1",
       messageId: "m1",
+      note: null,
     });
     expect(created.onConflictDoNothing).toHaveBeenCalledOnce();
     expect(created.returningMock).toHaveBeenCalledOnce();
