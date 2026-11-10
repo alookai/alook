@@ -46,7 +46,7 @@ export function useConversationFooterSlot(): ConversationFooterSlot | null {
   return useContext(ConversationFooterSlotContext)
 }
 
-/** The composer overlays the rail so messages remain visible through its empty gutters.
+/** The composer overlays the rail with a fading reading surface.
  * Its measured height also reserves tail space; selection keeps an in-flow footer.
  */
 export function ConversationFooterShell({
@@ -96,7 +96,7 @@ export function ConversationFooterShell({
       ref={rootRef}
       data-slot="community-conversation-footer"
       data-selection-active={selectionActive ? "true" : "false"}
-      className={`relative z-20 shrink-0 ${overlay ? "pointer-events-none" : ""}${className ? ` ${className}` : ""}`}
+      className={`relative z-20 shrink-0 before:pointer-events-none before:absolute before:inset-x-0 before:-top-10 before:bottom-0 before:-z-10 before:bg-[linear-gradient(to_bottom,transparent,var(--background)_40px)] before:content-[''] ${overlay ? "pointer-events-none" : ""}${className ? ` ${className}` : ""}`}
       style={{
         ...style,
         ...(overlay ? { marginTop: -overlayHeight } : {}),

@@ -1266,12 +1266,11 @@
 }
 .theme [data-testid^="community-category-header-"] svg { color: var(--tn-muted); }
 
-/* Channel rows: '/' set in mono; the open channel is a raised paper key */
-.theme [data-testid^="community-channel-row-"] {
+.theme :is([data-testid^="community-channel-row-"], [data-testid^="community-forum-sidebar-thread-"]) {
   border-radius: 10px !important;
   transition: background-color 140ms ease-out, box-shadow 140ms ease-out, transform 90ms ease-out;
 }
-.theme [data-testid^="community-channel-row-"]:active { transform: translateY(1px); }
+.theme :is([data-testid^="community-channel-row-"], [data-testid^="community-forum-sidebar-thread-"]):active { transform: translateY(1px); }
 .theme [data-testid^="community-channel-row-"][class~="bg-sidebar-accent"] {
   background: var(--tn-paper-raised) !important;
   color: var(--tn-text) !important;
@@ -1500,15 +1499,16 @@
   filter: brightness(0.94);
 }
 
-/* Open channel: pressed in, like the open server key, not raised (#2222) */
-.theme [data-testid^="community-channel-row-"][class~="bg-sidebar-accent"] {
+/* Selected channels and threads share the recessed material (#2222, issue243#428). */
+.theme :is([data-testid^="community-channel-row-"], [data-testid^="community-forum-sidebar-thread-"])[class~="bg-sidebar-accent"] {
   background: color-mix(in oklab, var(--tn-text) 6%, var(--sidebar)) !important;
+  color: var(--tn-text) !important;
   box-shadow:
     inset 0 1.5px 2px rgb(60 45 20 / 16%),
     inset 0 -1px 0 rgb(255 255 255 / 55%) !important;
 }
-.theme[data-tn-mode="dark"] [data-testid^="community-channel-row-"][class~="bg-sidebar-accent"],
-[data-tn-mode="dark"] .theme [data-testid^="community-channel-row-"][class~="bg-sidebar-accent"] {
+.theme[data-tn-mode="dark"] :is([data-testid^="community-channel-row-"], [data-testid^="community-forum-sidebar-thread-"])[class~="bg-sidebar-accent"],
+[data-tn-mode="dark"] .theme :is([data-testid^="community-channel-row-"], [data-testid^="community-forum-sidebar-thread-"])[class~="bg-sidebar-accent"] {
   background: var(--tn-recessed-background) !important;
   box-shadow: var(--tn-recessed-shadow) !important;
 }

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import type { BrowserContext, Page } from "@playwright/test"
 import { runDesktopPersistedPendingGeometry } from "./e2e-ui/_fixtures/community-loading-geometry"
 import { tid } from "./e2e-ui/_fixtures/testids"
+import { COMMUNITY_SIDEBAR_DEFAULT_WIDTH, COMMUNITY_SIDEBAR_MIN_WIDTH } from "@/components/community/shell/shell-frame-geometry"
 
 const steps = vi.hoisted(() => vi.fn())
 vi.mock("./e2e-ui/_fixtures/community-fixture", async () => {
@@ -65,7 +66,7 @@ function fixtureRun(failure?: "navigation" | "overflow" | "empty" | "ssr-duplica
     active.add(account)
     const visit: Visit = { account, scale: options?.deviceScaleFactor ?? 1, width: 0, sidebar: null, waits: [], events: [], closed: false, closeAttempts: 0, held: new Set(), closeEvidence: [] }
     visits.push(visit)
-    let sidebarWidth = 317
+    let sidebarWidth = COMMUNITY_SIDEBAR_DEFAULT_WIDTH
     const handlers = new Map<string, (route: RequestRoute) => Promise<void>>()
     const listeners = new Map<string, (event: { url: () => string }) => void>()
     const request = (kind: "script" | "read") => {
@@ -93,7 +94,7 @@ function fixtureRun(failure?: "navigation" | "overflow" | "empty" | "ssr-duplica
       emulateMedia: async () => {},
       addInitScript: async (_script: unknown, input: { persistedLayout: { sidebar: number } | null }) => {
         visit.sidebar = input.persistedLayout ? Math.round(input.persistedLayout.sidebar * (visit.width - 59) / 100) : null
-        sidebarWidth = visit.sidebar ?? 317
+        sidebarWidth = Math.max(COMMUNITY_SIDEBAR_MIN_WIDTH, visit.sidebar ?? COMMUNITY_SIDEBAR_DEFAULT_WIDTH)
       },
       goto: async () => {
         visit.events.push("navigation")
