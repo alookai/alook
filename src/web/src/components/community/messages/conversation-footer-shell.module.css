@@ -1,0 +1,8 @@
+.surface::before {
+  content: "";
+  position: absolute;
+  inset: -40px 0 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--background) 40px);
+}

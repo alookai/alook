@@ -6,6 +6,7 @@ import { CommunitySessionPendingFrame } from "./community-session-pending-frame"
 import { normalizeCommunityHref, resolveCommunityCheckpointPlan, type CommunityCheckpointPlan, type CommunitySurface } from "@/lib/community/community-route"
 import {
   COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE,
+  COMMUNITY_SIDEBAR_MIN_WIDTH,
   desktopUserBarInitialOverlayCssWidth,
 } from "./shell-frame-geometry"
 
@@ -522,7 +523,7 @@ describe("ShellFrameView", () => {
       id: "sidebar",
       disabled: false,
       defaultSize: 317,
-      minSize: 100,
+      minSize: COMMUNITY_SIDEBAR_MIN_WIDTH,
       maxSize: 360,
       groupResizeBehavior: "preserve-pixel-size",
     })
@@ -599,7 +600,7 @@ describe("ShellFrameView", () => {
     expect(renderer.container.querySelector<HTMLElement>(
       '[data-slot="community-user-bar-overlay"]',
     )!.style.getPropertyValue("--community-desktop-user-bar-width")).toBe(
-      "calc(clamp(100px, calc(18.75% - 0.5625px), 360px) + 58px)",
+      `calc(clamp(${COMMUNITY_SIDEBAR_MIN_WIDTH}px, calc(18.75% - 0.5625px), 360px) + 58px)`,
     )
   })
 
@@ -669,7 +670,7 @@ describe("ShellFrameView", () => {
     renderer.unmount()
   })
 
-  it.each([100, 160, 240, 350, 360])(
+  it.each([100, COMMUNITY_SIDEBAR_MIN_WIDTH, 160, 240, 350, 360])(
     "keeps session-pending and loaded shells at the saved %ipx width from the first animation frame",
     async (savedWidth) => {
       const savedPercentage = savedWidth / 10
@@ -679,7 +680,7 @@ describe("ShellFrameView", () => {
         main: 100 - savedPercentage,
       }
       mocks.panelGroupHandle.setLayout.mockImplementation((layout: { sidebar: number }) => {
-        const width = Math.min(360, Math.max(100, layout.sidebar * 10))
+        const width = Math.min(360, Math.max(COMMUNITY_SIDEBAR_MIN_WIDTH, layout.sidebar * 10))
         if (mocks.sidebarElement.current) {
           mocks.sidebarElement.current.style.width = `${width}px`
         }
@@ -729,11 +730,11 @@ describe("ShellFrameView", () => {
 
       expect(frames).toEqual([
         {
-          sidebar: savedWidth,
+          sidebar: Math.max(COMMUNITY_SIDEBAR_MIN_WIDTH, savedWidth),
           userBar: desktopUserBarInitialOverlayCssWidth(savedPercentage),
         },
         {
-          sidebar: savedWidth,
+          sidebar: Math.max(COMMUNITY_SIDEBAR_MIN_WIDTH, savedWidth),
           userBar: desktopUserBarInitialOverlayCssWidth(savedPercentage),
         },
       ])

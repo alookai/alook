@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRe
 import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import { useNativeKeyboard } from "@/hooks/use-native-keyboard"
 import { useConversationPresentation } from "@/contexts/view-activity"
+import styles from "./conversation-footer-shell.module.css"
 
 type ConversationFooterSlot = {
   target: HTMLDivElement | null
@@ -46,7 +47,7 @@ export function useConversationFooterSlot(): ConversationFooterSlot | null {
   return useContext(ConversationFooterSlotContext)
 }
 
-/** The composer overlays the rail so messages remain visible through its empty gutters.
+/** The composer overlays the rail with a fading reading surface.
  * Its measured height also reserves tail space; selection keeps an in-flow footer.
  */
 export function ConversationFooterShell({
@@ -96,7 +97,7 @@ export function ConversationFooterShell({
       ref={rootRef}
       data-slot="community-conversation-footer"
       data-selection-active={selectionActive ? "true" : "false"}
-      className={`relative z-20 shrink-0 ${overlay ? "pointer-events-none" : ""}${className ? ` ${className}` : ""}`}
+      className={`${styles.surface} relative z-20 shrink-0 ${overlay ? "pointer-events-none" : ""}${className ? ` ${className}` : ""}`}
       style={{
         ...style,
         ...(overlay ? { marginTop: -overlayHeight } : {}),
