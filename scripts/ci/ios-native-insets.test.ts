@@ -7,13 +7,13 @@ import { expect, it } from "vitest"
 const root = resolve(import.meta.dirname, "../..")
 const runtime = readFileSync(resolve(root, "src/desktop/src-tauri/gen/apple/Sources/alook-desktop/main.mm"), "utf8")
 
-it.runIf(process.platform === "darwin")("executes the real full frame, published geometry policy and keyboard helpers across system inset shapes", () => {
+it.runIf(process.platform === "darwin")("executes native frame and safe-area policy through available-height changes", () => {
   const frame = runtime.match(/static CGRect alookNativeContentFrame\([\s\S]*?\n\}/)?.[0]
   const geometry = runtime.match(/static UIEdgeInsets alookGeometryInsets\([\s\S]*?\n\}/)?.[0]
-  const keyboard = runtime.match(/static CGFloat alookKeyboardBottomInset\([\s\S]*?\n\}/)?.[0]
   expect(frame).toBeDefined()
   expect(geometry).toBeDefined()
-  expect(keyboard).toBeDefined()
+  const visibility = runtime.match(/static BOOL alookKeyboardGuideVisible\([\s\S]*?\n\}/)?.[0]
+  expect(visibility).toBeDefined()
   const directory = mkdtempSync(resolve(tmpdir(), "alook-native-insets-"))
   try {
     const source = resolve(directory, "insets.mm")
@@ -27,7 +27,7 @@ it.runIf(process.platform === "darwin")("executes the real full frame, published
 typedef struct { CGFloat top, left, bottom, right; } UIEdgeInsets;
 ${frame}
 ${geometry}
-${keyboard}
+${visibility}
 int main() {
   const CGRect host = CGRectMake(0, 0, 1200, 900);
   const CGFloat expectedTop[] = {10, 10, 10, 24, 59, 62};
@@ -44,20 +44,20 @@ int main() {
       assert(other.origin.y == top && CGRectGetMaxY(other) == 900 - bottom);
       CGRect bounds = CGRectMake(0, 0, app.size.width, app.size.height);
       CGRect safe = CGRectMake(12, top, 1171, 900 - top - bottom);
-      UIEdgeInsets published = alookGeometryInsets(bounds, safe);
+      assert(!alookKeyboardGuideVisible(CGRectZero, safe));
+      assert(!alookKeyboardGuideVisible(CGRectMake(0, 900 - bottom, 1200, bottom), safe));
+      assert(alookKeyboardGuideVisible(CGRectMake(0, 600, 1200, 300), safe));
+      assert(!alookKeyboardGuideVisible(CGRectMake(0, 900, 1200, 300), safe));
+      UIEdgeInsets published = alookGeometryInsets(bounds, safe, 0);
       assert(published.top == policyTop && published.bottom == 20);
       assert(published.left == 12 && published.right == 17);
-      CGRect hiddenGuide = CGRectMake(0, 900 - bottom, 1200, bottom);
-      CGRect hiddenInWeb = CGRectOffset(hiddenGuide, -app.origin.x, -app.origin.y);
-      assert(alookKeyboardBottomInset(bounds, hiddenInWeb, hiddenGuide, safe) == 0);
-      CGRect shownGuide = CGRectMake(0, 600, 1200, 300);
-      CGRect shownInWeb = CGRectOffset(shownGuide, -app.origin.x, -app.origin.y);
-      CGFloat overlap = alookKeyboardBottomInset(bounds, shownInWeb, shownGuide, safe);
-      assert(overlap == 300);
-      CGRect outside = CGRectOffset(shownInWeb, 2000, 0);
-      assert(alookKeyboardBottomInset(bounds, outside, shownGuide, safe) == 0);
-      CGRect covering = CGRectMake(0, -100, bounds.size.width, bounds.size.height + 100);
-      assert(alookKeyboardBottomInset(bounds, covering, shownGuide, safe) == bounds.size.height);
+      for (CGFloat reduction : {5.0, 20.0, 300.0}) {
+        CGRect available = CGRectMake(0, 0, bounds.size.width, bounds.size.height - reduction);
+        UIEdgeInsets resized = alookGeometryInsets(available, safe, reduction);
+        assert(resized.top == policyTop && resized.bottom == MAX(0, 20.0 - reduction));
+        assert(CGRectGetMaxY(available) - resized.bottom == 900 - MAX(20.0, reduction));
+        assert(resized.left == 12 && resized.right == 17);
+      }
     }
   }
   UIEdgeInsets inset = {0, 12, 34, 17};
@@ -65,22 +65,22 @@ int main() {
   assert(CGRectEqualToRect(tiny, CGRectMake(0, 0, 5, 5)));
   CGRect offset = CGRectMake(17, 21, 500, 400);
   assert(CGRectEqualToRect(alookNativeContentFrame(offset, inset, YES), offset));
-  UIEdgeInsets offsetPolicy = alookGeometryInsets(offset, CGRectMake(29, 21, 471, 366));
+  UIEdgeInsets offsetPolicy = alookGeometryInsets(offset, CGRectMake(29, 21, 471, 366), 0);
   assert(offsetPolicy.top == 10 && offsetPolicy.bottom == 20);
   assert(offsetPolicy.left == 12 && offsetPolicy.right == 17);
-  UIEdgeInsets tinyPolicy = alookGeometryInsets(tiny, CGRectMake(12, 0, 0, 0));
+  UIEdgeInsets tinyPolicy = alookGeometryInsets(tiny, CGRectMake(12, 0, 0, 0), 0);
   assert(tinyPolicy.top == 5 && tinyPolicy.bottom == 0);
   assert(tinyPolicy.left == 5 && tinyPolicy.right == 0);
-  UIEdgeInsets shortPolicy = alookGeometryInsets(CGRectMake(0, 0, 100, 15), CGRectMake(0, 0, 100, 15));
+  UIEdgeInsets shortPolicy = alookGeometryInsets(CGRectMake(0, 0, 100, 15), CGRectMake(0, 0, 100, 15), 0);
   assert(shortPolicy.top == 10 && shortPolicy.bottom == 5);
-  std::puts("PASS full root bounds, non-root insets, hidden guide, docked overlap and tiny bounds");
+  std::puts("PASS frame and safe-area policy through native available-height changes");
 }
 `)
     execFileSync("xcrun", ["--sdk", "macosx", "clang++", "-fobjc-arc", "-std=c++17",
       "-framework", "Foundation", "-framework", "CoreGraphics", source, "-o", binary],
     { timeout: 30_000, stdio: "pipe" })
     expect(execFileSync(binary, [], { timeout: 5000, encoding: "utf8" }))
-      .toContain("PASS full root bounds, non-root insets, hidden guide, docked overlap and tiny bounds")
+      .toContain("PASS frame and safe-area policy through native available-height changes")
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

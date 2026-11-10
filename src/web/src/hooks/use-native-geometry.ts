@@ -10,6 +10,8 @@ type Geometry = Readonly<{
   viewportWidth: number
   viewportHeight: number
   caption: boolean
+  windowHeight?: number
+  windowBottom?: number
 }>
 type GeometryState = Readonly<{ status: "pending" | "ready" | "error"; insets: Geometry | null }>
 type GeometryWindow = Window & {

@@ -17,12 +17,10 @@ static const void *kAlookWebBackgroundKey = &kAlookWebBackgroundKey;
 static const void *kAlookWebDarkThemeKey = &kAlookWebDarkThemeKey;
 static const void *kAlookThemeHandlerKey = &kAlookThemeHandlerKey;
 static const void *kAlookGeometryKey = &kAlookGeometryKey;
-static const void *kAlookKeyboardLayoutViewKey = &kAlookKeyboardLayoutViewKey;
+static const void *kAlookKeyboardLayoutKey = &kAlookKeyboardLayoutKey;
 static const void *kAlookCommunityRootScrollDelegateKey = &kAlookCommunityRootScrollDelegateKey;
 static const void *kAlookCommunityRootURLObserversKey = &kAlookCommunityRootURLObserversKey;
-static const void *kAlookPublishedKeyboardSnapshotKey = &kAlookPublishedKeyboardSnapshotKey;
 static const void *kAlookStartupOverlayKey = &kAlookStartupOverlayKey;
-static const void *kAlookStartupBackdropKey = &kAlookStartupBackdropKey;
 static const void *kAlookStartupCompletedKey = &kAlookStartupCompletedKey;
 static const NSInteger kAlookStartupLogoTag = 8738;
 static const NSInteger kAlookStartupErrorTag = 8739;
@@ -40,13 +38,17 @@ static CGRect alookNativeContentFrame(CGRect bounds, UIEdgeInsets systemInsets, 
         bounds.size.height - systemInsets.top - systemInsets.bottom);
 }
 
-static UIEdgeInsets alookGeometryInsets(CGRect bounds, CGRect safe) {
+static UIEdgeInsets alookGeometryInsets(CGRect bounds, CGRect safe, CGFloat bottomReduction) {
     UIEdgeInsets insets;
     insets.left = MIN(bounds.size.width, MAX(0, CGRectGetMinX(safe) - CGRectGetMinX(bounds)));
     insets.right = MIN(bounds.size.width - insets.left, MAX(0, CGRectGetMaxX(bounds) - CGRectGetMaxX(safe)));
     insets.top = MIN(bounds.size.height, MAX(10.0, CGRectGetMinY(safe) - CGRectGetMinY(bounds)));
-    insets.bottom = MIN(bounds.size.height - insets.top, 20.0);
+    insets.bottom = MIN(bounds.size.height - insets.top, MAX(0, 20.0 - bottomReduction));
     return insets;
+}
+
+static BOOL alookKeyboardGuideVisible(CGRect guideFrame, CGRect safeAreaFrame) {
+    return !CGRectIsEmpty(guideFrame) && CGRectGetMinY(guideFrame) < CGRectGetMaxY(safeAreaFrame);
 }
 
 static NSDictionary *alookMeasureGeometry(UIViewController *controller, WKWebView *webView) {
@@ -54,17 +56,12 @@ static NSDictionary *alookMeasureGeometry(UIViewController *controller, WKWebVie
         webView.window == nil || CGRectIsEmpty(webView.bounds)) return nil;
     CGRect bounds = webView.bounds;
     CGRect safe = [webView convertRect:controller.view.safeAreaLayoutGuide.layoutFrame fromView:controller.view];
-    UIEdgeInsets insets = alookGeometryInsets(bounds, safe);
+    CGFloat bottomReduction = MAX(0, CGRectGetMaxY(controller.view.bounds) - CGRectGetMaxY(webView.frame));
+    UIEdgeInsets insets = alookGeometryInsets(bounds, safe, bottomReduction);
     return @{ @"top": @(insets.top), @"right": @(insets.right), @"bottom": @(insets.bottom), @"left": @(insets.left),
-              @"viewportWidth": @(bounds.size.width), @"viewportHeight": @(bounds.size.height), @"caption": @NO };
-}
-
-static CGFloat alookKeyboardBottomInset(CGRect bounds, CGRect keyboardFrame,
-                                      CGRect keyboardGuideFrame, CGRect safeAreaFrame) {
-    if (CGRectGetMinY(keyboardGuideFrame) >= CGRectGetMaxY(safeAreaFrame)) return 0;
-    return CGRectIntersectsRect(bounds, keyboardFrame)
-        ? MIN(bounds.size.height, MAX(0, CGRectGetMaxY(bounds) - CGRectGetMinY(keyboardFrame)))
-        : 0;
+              @"viewportWidth": @(bounds.size.width), @"viewportHeight": @(bounds.size.height), @"caption": @NO,
+              @"windowHeight": @(controller.view.bounds.size.height),
+              @"windowBottom": @(MIN(20.0, MAX(0, controller.view.bounds.size.height - insets.top))) };
 }
 
 static BOOL alookIsTauriRootController(UIViewController *viewController) {
@@ -157,8 +154,11 @@ static BOOL alookIsTauriRootController(UIViewController *viewController) {
 
 @end
 
-static void alookInstallCommunityRootScrollLock(UIView *host, WKWebView *webView) {
-    if (webView.superview != host) return;
+static void alookInstallCommunityRootScrollLock(UIViewController *controller, WKWebView *webView) {
+    if (!alookIsTauriRootController(controller)) return;
+    UIView *host = controller.view;
+    if (host == nil || webView.superview != host) return;
+    webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     NSMutableArray<AlookCommunityRootURLObserver *> *observers = objc_getAssociatedObject(host, kAlookCommunityRootURLObserversKey);
     if (observers == nil) {
         observers = [NSMutableArray array];
@@ -185,127 +185,82 @@ static void alookInstallCommunityRootScrollLock(UIView *host, WKWebView *webView
     [observer startObserving];
 }
 
-static NSDictionary *alookMeasureKeyboardSnapshot(UIViewController *controller, WKWebView *webView) {
-    UIView *host = controller.view;
-    CGRect guideFrame = host.keyboardLayoutGuide.layoutFrame;
-    UIView *tracker = objc_getAssociatedObject(controller, kAlookKeyboardLayoutViewKey);
-    CALayer *presentation = tracker.layer.presentationLayer;
-    if (presentation != nil) {
-        CGFloat top = CGRectGetMaxY(presentation.frame);
-        guideFrame = CGRectMake(guideFrame.origin.x, top, guideFrame.size.width,
-                                MAX(0, CGRectGetMaxY(host.bounds) - top));
-    }
-    CGRect keyboardFrame = [webView convertRect:guideFrame fromView:host];
-    CGRect bounds = webView.bounds;
-    CGFloat bottomInset = alookKeyboardBottomInset(bounds, keyboardFrame,
-        guideFrame, host.safeAreaLayoutGuide.layoutFrame);
-    return @{
-        @"bottomInset": @(bottomInset),
-        @"viewportWidth": @(bounds.size.width)
-    };
-}
-
-static void alookPublishKeyboardSnapshots(UIViewController *controller, BOOL animating) {
-    if (!alookIsTauriRootController(controller) || !controller.isViewLoaded) return;
-    for (UIView *subview in controller.view.subviews) {
-        if (![subview isKindOfClass:[WKWebView class]]) continue;
-        WKWebView *webView = (WKWebView *)subview;
-        NSMutableDictionary *snapshot = [alookMeasureKeyboardSnapshot(controller, webView) mutableCopy];
-        snapshot[@"isAnimating"] = @(animating);
-        NSDictionary *published = objc_getAssociatedObject(webView, kAlookPublishedKeyboardSnapshotKey);
-        if (![snapshot isEqualToDictionary:published]) {
-            objc_setAssociatedObject(webView, kAlookPublishedKeyboardSnapshotKey, snapshot, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            NSData *json = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:nil];
-            NSString *detail = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
-            NSString *script = [NSString stringWithFormat:
-                @"window.dispatchEvent(new CustomEvent('alook:keyboard-change',{detail:%@}))", detail];
-            [webView evaluateJavaScript:script completionHandler:nil];
-        }
-    }
-}
-
-@interface AlookKeyboardLayoutView : UIView
-@property (nonatomic, weak) UIViewController *viewController;
-@property (nonatomic, strong) CADisplayLink *displayLink;
-@property (nonatomic) CFTimeInterval animationDeadline;
-@property (nonatomic) CFTimeInterval animationTimeout;
+@interface AlookKeyboardLayout : NSObject
+@property (nonatomic, weak) UIView *hostView;
+@property (nonatomic, weak) WKWebView *webView;
+@property (nonatomic, strong) NSArray<NSLayoutConstraint *> *constraints;
+@property (nonatomic, strong) NSLayoutConstraint *bottomConstraint;
+@property (nonatomic) BOOL keyboardVisible;
+- (void)updateSafeArea;
 - (void)keyboardWillChange:(NSNotification *)notification;
 @end
 
-@implementation AlookKeyboardLayoutView
+@implementation AlookKeyboardLayout
+
+- (void)updateSafeArea {
+    if (@available(iOS 17.0, *)) return;
+    CGFloat correction = self.keyboardVisible ? 0 : self.hostView.safeAreaInsets.bottom;
+    if (self.bottomConstraint.constant != correction) self.bottomConstraint.constant = correction;
+}
 
 - (void)keyboardWillChange:(NSNotification *)notification {
+    UIView *host = self.hostView;
+    if (host.window == nil || self.webView.superview != host) return;
+    NSNumber *local = notification.userInfo[UIKeyboardIsLocalUserInfoKey];
+    if (local != nil && !local.boolValue) return;
+    CGRect frame = [host.window.screen.coordinateSpace
+        convertRect:[notification.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue] toCoordinateSpace:host];
+    self.keyboardVisible = alookKeyboardGuideVisible(frame, host.safeAreaLayoutGuide.layoutFrame)
+        && CGRectGetMaxY(frame) >= CGRectGetMaxY(host.bounds)
+        && CGRectGetWidth(frame) >= CGRectGetWidth(host.bounds);
+    [self updateSafeArea];
     NSTimeInterval duration = [notification.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
-    self.animationDeadline = CACurrentMediaTime() + duration;
-    self.animationTimeout = self.animationDeadline + 1.0;
-    if (self.displayLink == nil) {
-        self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(sampleKeyboard:)];
-        [self.displayLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
-    }
-}
-
-- (void)sampleKeyboard:(CADisplayLink *)link {
-    UIViewController *controller = self.viewController;
-    CALayer *presentation = self.layer.presentationLayer;
-    BOOL settled = presentation == nil || fabs(CGRectGetMaxY(presentation.frame) - CGRectGetMaxY(self.frame)) < 0.25;
-    BOOL animating = controller != nil && self.window != nil
-        && (link.timestamp < self.animationDeadline || (!settled && link.timestamp < self.animationTimeout));
-    alookPublishKeyboardSnapshots(controller, animating);
-    if (!animating) {
-        [self.displayLink invalidate];
-        self.displayLink = nil;
-    }
-}
-
-- (void)didMoveToWindow {
-    [super didMoveToWindow];
-    if (self.window == nil) {
-        [self.displayLink invalidate];
-        self.displayLink = nil;
-    }
+    UIViewAnimationOptions curve = (UIViewAnimationOptions)([notification.userInfo[UIKeyboardAnimationCurveUserInfoKey] unsignedIntegerValue] << 16);
+    [UIView animateWithDuration:duration delay:0
+        options:curve | UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
+        animations:^{ [host layoutIfNeeded]; } completion:nil];
 }
 
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
-    [self.displayLink invalidate];
-}
-
-- (void)layoutSubviews {
-    [super layoutSubviews];
-    UIViewController *controller = self.viewController;
-    if (controller != nil && self.superview == controller.view && self.displayLink == nil) alookPublishKeyboardSnapshots(controller, NO);
+    [NSLayoutConstraint deactivateConstraints:_constraints];
 }
 
 @end
 
-static void alookInstallKeyboardLayout(UIViewController *controller) {
-    if (!alookIsTauriRootController(controller)) return;
+static void alookInstallKeyboardLayout(UIViewController *controller, WKWebView *webView) {
+    if (!alookIsTauriRootController(controller) || webView.superview != controller.view) return;
     UIView *host = controller.view;
-    AlookKeyboardLayoutView *previous = objc_getAssociatedObject(controller, kAlookKeyboardLayoutViewKey);
-    if (previous.superview == host) return;
-    [previous removeFromSuperview];
-    AlookKeyboardLayoutView *content = [[AlookKeyboardLayoutView alloc] init];
-    content.viewController = controller;
-    [NSNotificationCenter.defaultCenter addObserver:content selector:@selector(keyboardWillChange:)
-        name:UIKeyboardWillChangeFrameNotification object:nil];
-    content.accessibilityIdentifier = @"alook.keyboard-layout";
-    content.accessibilityElementsHidden = YES;
-    content.userInteractionEnabled = NO;
-    content.opaque = NO;
-    content.backgroundColor = UIColor.clearColor;
-    content.translatesAutoresizingMaskIntoConstraints = NO;
-    [host insertSubview:content atIndex:0];
-    NSLayoutConstraint *bottom = [content.bottomAnchor constraintEqualToAnchor:host.keyboardLayoutGuide.topAnchor];
-    bottom.priority = UILayoutPriorityRequired - 1;
-    [NSLayoutConstraint activateConstraints:@[
-        [content.topAnchor constraintEqualToAnchor:host.safeAreaLayoutGuide.topAnchor],
-        [content.leadingAnchor constraintEqualToAnchor:host.safeAreaLayoutGuide.leadingAnchor],
-        [content.trailingAnchor constraintEqualToAnchor:host.safeAreaLayoutGuide.trailingAnchor],
-        [content.heightAnchor constraintGreaterThanOrEqualToConstant:0],
-        bottom
-    ]];
-    objc_setAssociatedObject(controller, kAlookKeyboardLayoutViewKey, content, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [host setNeedsLayout];
+    AlookKeyboardLayout *previous = objc_getAssociatedObject(webView, kAlookKeyboardLayoutKey);
+    if (previous.hostView == host) {
+        [previous updateSafeArea];
+        return;
+    }
+    if (previous != nil) [NSLayoutConstraint deactivateConstraints:previous.constraints];
+    AlookKeyboardLayout *layout = [[AlookKeyboardLayout alloc] init];
+    layout.hostView = host;
+    layout.webView = webView;
+    if (@available(iOS 17.0, *)) {
+        host.keyboardLayoutGuide.usesBottomSafeArea = NO;
+    } else {
+        layout.keyboardVisible = alookKeyboardGuideVisible(host.keyboardLayoutGuide.layoutFrame,
+            host.safeAreaLayoutGuide.layoutFrame);
+        [NSNotificationCenter.defaultCenter addObserver:layout selector:@selector(keyboardWillChange:)
+            name:UIKeyboardWillChangeFrameNotification object:nil];
+    }
+    webView.translatesAutoresizingMaskIntoConstraints = NO;
+    layout.bottomConstraint = [webView.bottomAnchor constraintEqualToAnchor:host.keyboardLayoutGuide.topAnchor];
+    layout.bottomConstraint.priority = UILayoutPriorityRequired - 1;
+    [layout updateSafeArea];
+    layout.constraints = @[
+        [webView.topAnchor constraintEqualToAnchor:host.topAnchor],
+        [webView.leadingAnchor constraintEqualToAnchor:host.leadingAnchor],
+        [webView.trailingAnchor constraintEqualToAnchor:host.trailingAnchor],
+        [webView.heightAnchor constraintGreaterThanOrEqualToConstant:0],
+        layout.bottomConstraint
+    ];
+    [NSLayoutConstraint activateConstraints:layout.constraints];
+    objc_setAssociatedObject(webView, kAlookKeyboardLayoutKey, layout, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 static UIView *alookStartupHostView(UIViewController *viewController) {
@@ -425,25 +380,10 @@ static void alookPrepareStartupOverlay(UIViewController *viewController) {
     if (overlay != nil) alookLayoutStartupOverlay(viewController, overlay);
 }
 
-static void alookLayoutStartupBackdrop(UIViewController *viewController) {
-    UIView *backdrop = objc_getAssociatedObject(viewController, kAlookStartupBackdropKey);
-    if (backdrop == nil) return;
-    backdrop.frame = viewController.view.bounds;
-    UIView *logo = [backdrop viewWithTag:kAlookStartupLogoTag];
-    logo.frame = CGRectMake(CGRectGetMidX(backdrop.bounds) - 53.0,
-                            CGRectGetMidY(backdrop.bounds) - 53.0, 106.0, 106.0);
-}
-
-static void alookFinishStartupOverlay(UIViewController *viewController, WKWebView *webView) {
+static void alookFinishStartupOverlay(UIViewController *viewController) {
     if (viewController == nil || gAlookStartupFailed) return;
     UIView *overlay = objc_getAssociatedObject(viewController, kAlookStartupOverlayKey);
     [overlay removeFromSuperview];
-    if (overlay != nil && webView.superview == viewController.view) {
-        overlay.backgroundColor = UIColor.clearColor;
-        [viewController.view insertSubview:overlay belowSubview:webView];
-        objc_setAssociatedObject(viewController, kAlookStartupBackdropKey, overlay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        alookLayoutStartupBackdrop(viewController);
-    }
     if (overlay == gAlookStartupOverlay) gAlookStartupOverlay = nil;
     gAlookStartupCompleted = YES;
     objc_setAssociatedObject(viewController, kAlookStartupOverlayKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -593,7 +533,7 @@ static void alookInstallThemeObserver(UIViewController *controller, WKWebView *w
         replyHandler(nil, @"Invalid keyboard command");
         return;
     }
-    replyHandler(alookMeasureKeyboardSnapshot(controller, webView), nil);
+    replyHandler(@{ @"resizesViewport": @YES }, nil);
 }
 
 @end
@@ -631,7 +571,7 @@ static void alookInstallThemeObserver(UIViewController *controller, WKWebView *w
                                    webView:(WKWebView *)webView {
     if (![NSThread isMainThread] || !gAlookNativeCreationReady) return NO;
     if (!alookIsTauriRootController(controller) || ![controller.view.subviews containsObject:webView]) return NO;
-    alookFinishStartupOverlay(controller, webView);
+    alookFinishStartupOverlay(controller);
     return YES;
 }
 
@@ -699,9 +639,7 @@ static void alookInstallThemeObserver(UIViewController *controller, WKWebView *w
     [self alook_viewDidLayoutSubviews];
     BOOL isTauriRoot = alookIsTauriRootController(self);
     if (isTauriRoot) {
-        alookInstallKeyboardLayout(self);
         alookPrepareStartupOverlay(self);
-        alookLayoutStartupBackdrop(self);
     }
     UIEdgeInsets insets = self.view.safeAreaInsets;
     for (UIView *subview in self.view.subviews) {
@@ -711,8 +649,8 @@ static void alookInstallThemeObserver(UIViewController *controller, WKWebView *w
 
             WKWebView *webView = (WKWebView *)subview;
             if (isTauriRoot) {
-                webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
-                alookInstallCommunityRootScrollLock(self.view, webView);
+                alookInstallKeyboardLayout(self, webView);
+                alookInstallCommunityRootScrollLock(self, webView);
                 NSDictionary *previousGeometry = objc_getAssociatedObject(webView, kAlookGeometryKey);
                 if (previousGeometry == nil) {
                     AlookGeometryHandler *handler = [[AlookGeometryHandler alloc] init];
@@ -732,13 +670,18 @@ static void alookInstallThemeObserver(UIViewController *controller, WKWebView *w
                     objc_setAssociatedObject(webView, kAlookGeometryKey, @{}, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                 }
             }
-            if (!CGRectEqualToRect(webView.frame, contentFrame)) webView.frame = contentFrame;
+            if (!isTauriRoot && !CGRectEqualToRect(webView.frame, contentFrame)) webView.frame = contentFrame;
             if (isTauriRoot) {
                 NSDictionary *geometry = alookMeasureGeometry(self, webView);
                 NSDictionary *previousGeometry = objc_getAssociatedObject(webView, kAlookGeometryKey);
                 if (geometry != nil && ![geometry isEqualToDictionary:previousGeometry]) {
                     objc_setAssociatedObject(webView, kAlookGeometryKey, geometry, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                    [webView evaluateJavaScript:@"window.dispatchEvent(new Event('alook:geometry-change'))" completionHandler:nil];
+                    if (![geometry[@"top"] isEqual:previousGeometry[@"top"]]
+                        || ![geometry[@"right"] isEqual:previousGeometry[@"right"]]
+                        || ![geometry[@"bottom"] isEqual:previousGeometry[@"bottom"]]
+                        || ![geometry[@"left"] isEqual:previousGeometry[@"left"]]) {
+                        [webView evaluateJavaScript:@"window.dispatchEvent(new Event('alook:geometry-change'))" completionHandler:nil];
+                    }
                 }
             }
             alookInstallThemeObserver(self, webView);
@@ -746,8 +689,6 @@ static void alookInstallThemeObserver(UIViewController *controller, WKWebView *w
             alookApplyTheme(self, alookEffectiveDarkTheme(self));
         }
     }
-    AlookKeyboardLayoutView *tracker = objc_getAssociatedObject(self, kAlookKeyboardLayoutViewKey);
-    if (isTauriRoot && tracker.displayLink == nil) alookPublishKeyboardSnapshots(self, NO);
 }
 
 @end

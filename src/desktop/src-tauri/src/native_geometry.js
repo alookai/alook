@@ -15,6 +15,10 @@ desktop => {
       && edges.every(key => Number.isFinite(value[key]) && value[key] >= 0 && Number.isFinite(value[key] / value.viewportWidth * 100))
       && value.left + value.right <= value.viewportWidth
       && value.top + value.bottom <= value.viewportHeight
+      && (value.windowHeight === undefined && value.windowBottom === undefined
+        || Number.isFinite(value.windowHeight) && value.windowHeight >= value.viewportHeight
+          && Number.isFinite(value.windowBottom) && value.windowBottom >= 0 && value.windowBottom <= value.windowHeight
+          && Number.isFinite(value.windowHeight / value.viewportWidth * 100))
     const project = () => {
       const root = document.documentElement
       if (!root) return
@@ -24,6 +28,13 @@ desktop => {
         else root.style.removeProperty('--app-safe-area-' + edge)
       }
       root.dataset.alookNativeCaption = String(state.insets?.caption === true)
+      const hasWindow = state.insets?.windowHeight !== undefined
+      if (hasWindow) root.dataset.alookNativeResize = 'true'
+      else delete root.dataset.alookNativeResize
+      for (const [field, property] of [['windowHeight', '--app-native-window-height'], ['windowBottom', '--app-native-window-safe-bottom']]) {
+        if (hasWindow) root.style.setProperty(property, `${state.insets[field] / state.insets.viewportWidth * 100}vw`)
+        else root.style.removeProperty(property)
+      }
     }
     const publish = (status, insets = null) => {
       if (state.status === status && state.insets === insets) return
@@ -34,7 +45,9 @@ desktop => {
     const accept = value => {
       if (!valid(value)) { publish('error'); return }
       const keys = [...edges, 'viewportWidth', 'viewportHeight', 'caption']
-      if (state.status === 'ready' && keys.every(key => state.insets[key] === value[key])) return
+      if (value.windowHeight !== undefined) keys.push('windowHeight', 'windowBottom')
+      if (state.status === 'ready' && keys.every(key => state.insets[key] === value[key])
+        && (state.insets.windowHeight === undefined) === (value.windowHeight === undefined)) return
       const insets = Object.freeze(Object.fromEntries(keys.map(key => [key, value[key]])))
       publish('ready', insets)
     }

@@ -3153,6 +3153,25 @@ body {
   transform: translateZ(0);
 }
 
+@media (min-width: 640px) {
+  html[data-alook-native-resize="true"] .community-shell-extended[data-slot="community-shell-root"] {
+    --community-native-full-safe-height: calc(var(--app-native-window-height) - var(--app-safe-area-top) - var(--app-native-window-safe-bottom));
+  }
+
+  html[data-alook-native-resize="true"] .community-shell-extended[data-slot="community-shell-root"] > [data-community-rail] {
+    height: var(--community-native-full-safe-height);
+  }
+
+  html[data-alook-native-resize="true"] .community-shell-extended[data-slot="community-shell-root"] [data-slot="resizable-panel"][data-testid="sidebar"] > div {
+    height: calc(100% + var(--community-native-full-safe-height) - var(--app-safe-height));
+    max-height: none !important;
+  }
+
+  html[data-alook-native-resize="true"] .community-shell-extended[data-slot="community-shell-root"] [data-slot="community-user-bar-overlay"] {
+    bottom: calc(var(--app-safe-height) - var(--community-native-full-safe-height));
+  }
+}
+
 .community-shell-extended {
   overflow: visible;
   z-index: 1;
