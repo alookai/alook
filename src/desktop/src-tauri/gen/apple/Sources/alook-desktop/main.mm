@@ -203,6 +203,42 @@ static NSDictionary *alookMeasureKeyboardSnapshot(UIViewController *controller, 
     };
 }
 
+@interface AlookKeyboardSnapshotPublisher : NSObject
+@property (nonatomic, weak) WKWebView *webView;
+@property (nonatomic, strong) NSDictionary *pendingSnapshot;
+@property (nonatomic, strong) NSDictionary *publishedSnapshot;
+@property (nonatomic) BOOL evaluating;
+- (void)enqueueSnapshot:(NSDictionary *)snapshot;
+- (void)deliverLatest;
+@end
+
+@implementation AlookKeyboardSnapshotPublisher
+
+- (void)enqueueSnapshot:(NSDictionary *)snapshot {
+    self.pendingSnapshot = [snapshot isEqualToDictionary:self.publishedSnapshot] ? nil : snapshot;
+    [self deliverLatest];
+}
+
+- (void)deliverLatest {
+    WKWebView *webView = self.webView;
+    if (self.evaluating || self.pendingSnapshot == nil || webView == nil) return;
+    NSDictionary *snapshot = self.pendingSnapshot;
+    self.pendingSnapshot = nil;
+    self.publishedSnapshot = snapshot;
+    self.evaluating = YES;
+    NSData *json = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:nil];
+    NSString *detail = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
+    NSString *script = [NSString stringWithFormat:
+        @"window.dispatchEvent(new CustomEvent('alook:keyboard-change',{detail:%@}))", detail];
+    [webView evaluateJavaScript:script completionHandler:^(id result, NSError *error) {
+        self.evaluating = NO;
+        if (error != nil) self.publishedSnapshot = nil;
+        [self deliverLatest];
+    }];
+}
+
+@end
+
 static void alookPublishKeyboardSnapshots(UIViewController *controller, BOOL animating) {
     if (!alookIsTauriRootController(controller) || !controller.isViewLoaded) return;
     for (UIView *subview in controller.view.subviews) {
@@ -210,15 +246,13 @@ static void alookPublishKeyboardSnapshots(UIViewController *controller, BOOL ani
         WKWebView *webView = (WKWebView *)subview;
         NSMutableDictionary *snapshot = [alookMeasureKeyboardSnapshot(controller, webView) mutableCopy];
         snapshot[@"isAnimating"] = @(animating);
-        NSDictionary *published = objc_getAssociatedObject(webView, kAlookPublishedKeyboardSnapshotKey);
-        if (![snapshot isEqualToDictionary:published]) {
-            objc_setAssociatedObject(webView, kAlookPublishedKeyboardSnapshotKey, snapshot, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            NSData *json = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:nil];
-            NSString *detail = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
-            NSString *script = [NSString stringWithFormat:
-                @"window.dispatchEvent(new CustomEvent('alook:keyboard-change',{detail:%@}))", detail];
-            [webView evaluateJavaScript:script completionHandler:nil];
+        AlookKeyboardSnapshotPublisher *publisher = objc_getAssociatedObject(webView, kAlookPublishedKeyboardSnapshotKey);
+        if (publisher == nil) {
+            publisher = [[AlookKeyboardSnapshotPublisher alloc] init];
+            publisher.webView = webView;
+            objc_setAssociatedObject(webView, kAlookPublishedKeyboardSnapshotKey, publisher, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
+        [publisher enqueueSnapshot:snapshot];
     }
 }
 

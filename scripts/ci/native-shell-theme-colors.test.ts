@@ -188,8 +188,10 @@ describe("native shell theme color contract", () => {
     expect(handler).toContain("webView.superview != controller.view")
     expect(handler).not.toContain("objc_getAssociatedObject")
     expect(publish).toContain("alookMeasureKeyboardSnapshot(controller, webView)")
-    expect(publish).toContain("isEqualToDictionary:published")
-    expect(publish).toContain("alook:keyboard-change")
+    const publisher = iosRuntime.split("@implementation AlookKeyboardSnapshotPublisher")[1]?.split("@end")[0] ?? ""
+    expect(publish).toContain("[publisher enqueueSnapshot:snapshot]")
+    expect(publisher).toContain("isEqualToDictionary:self.publishedSnapshot")
+    expect(publisher).toContain("alook:keyboard-change")
   })
   it("disables the iOS input accessory in all effective main-window definitions", () => {
     for (const file of ["tauri.conf.json", "tauri.dev.conf.json", "tauri.ios.release.conf.json"]) {
