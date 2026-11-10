@@ -41,4 +41,21 @@ describe("forum counts against SQLite", () => {
     expect(Object.keys(counts)).toHaveLength(181)
     expect(counts.f1).toBe(1)
   })
+  it.each<[number, number[]]>([
+    [1, [5]],
+    [90, [94]],
+    [91, [94, 5]],
+    [181, [94, 94, 5]],
+    [1500, [...Array<number>(16).fill(94), 64]],
+  ])("keeps actual emitted SQL below D1's bind limit for %i parents", async (size, expectedBinds) => {
+    const bindCounts: number[] = []
+    const measured = drizzle(sqlite, { logger: { logQuery: (_query, params) => { bindCounts.push(params.length) } } }) as unknown as Database
+    const ids = ["f1", ...Array.from({ length: size - 1 }, (_, index) => `extra-${index}`)]
+    const counts = await countUnarchivedForumPosts(measured, "s1", ids)
+    expect(bindCounts).toEqual(expectedBinds)
+    expect(bindCounts.every(value => value <= 100)).toBe(true)
+    expect(Object.keys(counts)).toHaveLength(size)
+    expect(counts.f1).toBe(1)
+  })
+
 })
