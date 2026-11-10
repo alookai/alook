@@ -3,7 +3,7 @@ import { expectInertBackground } from "./_fixtures/inert-background"
 import type { Locator, Page, Request, Route, TestInfo } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
-import { COMMUNITY_LAYOUT_STORAGE_KEY } from "@/components/community/shell/shell-frame-geometry"
+import { COMMUNITY_LAYOUT_STORAGE_KEY, COMMUNITY_SIDEBAR_MIN_WIDTH } from "@/components/community/shell/shell-frame-geometry"
 
 import { tid } from "./_fixtures/testids"
 import { expectUniqueSsrCommunityFrame } from "./_fixtures/community-ssr-frame"
@@ -609,20 +609,22 @@ test.describe("desktop default User Bar width", () => {
 
     const evidence: Array<{
       targetWidth: number
+      requestedWidth: number
       savedLayout: { sidebar: number; main: number }
       sequence: LayoutSample[]
     }> = []
 
-    for (const targetWidth of [100, 160, 240, 350, 360]) {
+    for (const requestedWidth of [0, 100, COMMUNITY_SIDEBAR_MIN_WIDTH, 160, 240, 350, 360]) {
+      const targetWidth = Math.max(COMMUNITY_SIDEBAR_MIN_WIDTH, requestedWidth)
       const session = await asUser("alice")
       const page = session.page
       await page.setViewportSize({ width: 1280, height: 900 })
       const availablePanelWidth = 1280 - 58
-      const sidebar = targetWidth === 100
+      const sidebar = requestedWidth === 0
         ? 0
-        : targetWidth === 360
+        : requestedWidth === 360
           ? 100
-          : targetWidth / availablePanelWidth * 100
+          : requestedWidth / availablePanelWidth * 100
       const savedLayout = { sidebar, main: 100 - sidebar }
       await installLayoutState(page, savedLayout, 2_000)
       const scripts = await holdApplicationScripts(page, caseResources)
@@ -644,7 +646,7 @@ test.describe("desktop default User Bar width", () => {
       const sequence = compactLayoutSamples(await page.evaluate(() => (
         Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
       )))
-      evidence.push({ targetWidth, savedLayout, sequence })
+      evidence.push({ targetWidth, requestedWidth, savedLayout, sequence })
       await caseResources.closeContext(session.context)
     }
 
@@ -786,7 +788,7 @@ test.describe("desktop default User Bar width", () => {
       Math.abs((await readShellGeometry(saved.page)).sidebar - expectedDefaultSidebarWidth)
     )).toBeGreaterThan(1)
     const restoredWidth = (await readShellGeometry(saved.page)).sidebar
-    expect(restoredWidth).toBeGreaterThanOrEqual(100)
+    expect(restoredWidth).toBeGreaterThanOrEqual(COMMUNITY_SIDEBAR_MIN_WIDTH)
     expect(restoredWidth).toBeLessThanOrEqual(360)
     await expectDesktopGeometry(saved.page, restoredWidth)
     const savedResizeSequence = [
@@ -824,7 +826,7 @@ test.describe("desktop default User Bar width", () => {
     )).not.toBeNull()
     const resizedWidth = (await readShellGeometry(interaction.page)).sidebar
     expect(Math.abs(resizedWidth - expectedDefaultSidebarWidth)).toBeGreaterThan(1)
-    expect(resizedWidth).toBeGreaterThanOrEqual(100)
+    expect(resizedWidth).toBeGreaterThanOrEqual(COMMUNITY_SIDEBAR_MIN_WIDTH)
     expect(resizedWidth).toBeLessThanOrEqual(360)
     const storedLayout = JSON.parse(await interaction.page.evaluate(
       (key) => localStorage.getItem(key)!,
@@ -877,7 +879,7 @@ test.describe("desktop default User Bar width", () => {
     })
   })
 
-  test("keeps a populated Inbox free of horizontal overflow at the 100px floor", async ({ caseActors }, testInfo) => {
+  test("keeps a populated Inbox free of horizontal overflow at the minimum sidebar width", async ({ caseActors }, testInfo) => {
     test.setTimeout(120_000)
 
     const actors = await caseActors(["alice", "bob", "carol"])
@@ -929,8 +931,8 @@ test.describe("desktop default User Bar width", () => {
       await bob.page.keyboard.press("Home")
       await expect.poll(async () => (
         (await sidebarPanel.boundingBox())?.width ?? 0
-      )).toBeCloseTo(100, 0)
-      await expectDesktopGeometry(bob.page, 100)
+      )).toBeCloseTo(COMMUNITY_SIDEBAR_MIN_WIDTH, 0)
+      await expectDesktopGeometry(bob.page, COMMUNITY_SIDEBAR_MIN_WIDTH)
 
       await bob.page.getByTestId(tid.inboxTrigger).click()
       const extension = bob.page.getByTestId(tid.userBarExtension)
@@ -1003,10 +1005,10 @@ test.describe("desktop default User Bar width", () => {
         await attachScreenshot(
           bob.page,
           testInfo,
-          `inbox-100-${tabKey}-no-horizontal-overflow`,
+          `inbox-min-width-${tabKey}-no-horizontal-overflow`,
         )
       }
-      await attachJson(testInfo, "inbox-100-no-horizontal-overflow", evidence)
+      await attachJson(testInfo, "inbox-min-width-no-horizontal-overflow", evidence)
     } finally {
       await seedCancelFriendRequest("carol", friendRequestId)
     }
