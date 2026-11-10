@@ -41,6 +41,8 @@ mod updater;
 mod zoom;
 
 #[cfg(target_os = "macos")]
+mod macos_single_instance;
+#[cfg(target_os = "macos")]
 mod macos_window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -48,8 +50,13 @@ pub fn run() {
     startup_log::mark(startup_log::Phase::RustEntry);
 
     let builder = webview_recovery::register_protocol(tauri::Builder::default());
-    #[cfg(desktop)]
+    #[cfg(all(desktop, not(target_os = "macos")))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        system_notifications::intake_args(app, &args);
+        commands::show_main_window(app);
+    }));
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(macos_single_instance::init(|app, args, _cwd| {
         system_notifications::intake_args(app, &args);
         commands::show_main_window(app);
     }));
