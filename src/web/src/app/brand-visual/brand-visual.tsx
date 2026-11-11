@@ -22,6 +22,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Avatar as AppAvatar } from "@/components/community/avatar"
 import { ProfileCard } from "@/components/community/social/profile-card"
+import { profileBannerBackground, profileBannerPattern } from "@/lib/avatar/profile-banner"
 import { LANDING_HUMAN_AVATARS } from "@/components/home/landing-human-avatars"
 import type { CommunityProfile } from "@/lib/community/models/people"
 import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
@@ -109,6 +110,9 @@ const PEOPLE = [
 
 const PREVIEW_PROFILES = new Map<string, CommunityProfile>(PEOPLE.map((p) => [p.id, { id: p.id, name: p.name, avatar: p.avatar, aboutMe: p.about, presence: p.presence, statusText: p.status || undefined }]))
 
+// Seeds picked so the specimen shows each comic pattern twice.
+const BANNER_SPECIMENS = ["gus", "Madox", "Jarvis", "Devin", "Claudette", "Cecilia"] as const
+
 function AvatarStudio() {
   const [open, setOpen] = useState("gus")
   const person = PEOPLE.find((p) => p.id === open) ?? PEOPLE[0]
@@ -130,6 +134,16 @@ function AvatarStudio() {
             ))}
           </div>
           <p className={s.hint}>Presence is a dot cut out of the avatar. Click to open the real profile card.</p>
+          <p className={s.panelLabel}>Profile banners · comic print</p>
+          <div className={s.bannerSwatches}>
+            {BANNER_SPECIMENS.map((seed) => (
+              <figure key={seed} className={s.bannerSwatch}>
+                <span style={{ background: profileBannerBackground(seed) }} aria-hidden />
+                <figcaption>{profileBannerPattern(seed)}</figcaption>
+              </figure>
+            ))}
+          </div>
+          <p className={s.hint}>Each person draws ink bands, a sunburst or Ben-Day dots, with their own inks, angle and proportions.</p>
         </Card>
         <div className={s.profileStage}>
           <div key={person.id} className={s.profileIn}>

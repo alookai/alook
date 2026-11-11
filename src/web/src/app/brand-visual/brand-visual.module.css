@@ -1147,3 +1147,28 @@
 /* 320px: the board's single column must not grow to its widest child */
 .wrap { grid-template-columns: minmax(0, 1fr); }
 .section, .intro { min-width: 0; }
+
+/* Profile banner specimen: the production comic-print banner at card height. */
+.bannerSwatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.bannerSwatch {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.bannerSwatch > span {
+  display: block;
+  height: 64px;
+  border-radius: 10px;
+}
+
+.bannerSwatch figcaption {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
