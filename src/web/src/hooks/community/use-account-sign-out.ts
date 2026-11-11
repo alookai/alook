@@ -2,6 +2,7 @@
 
 import { useCallback } from "react"
 import { useMutation, useQueryClient, type MutateOptions } from "@tanstack/react-query"
+import { sessionIdentityGeneration } from "@/lib/session-transport"
 import { signOutWithOrigin } from "@/lib/auth-client"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, assertCommunitySnapshotTokenCurrent } from "@/lib/community-db/sync"
@@ -23,6 +24,7 @@ export function useAccountSignOut() {
     const assertActive = () => (localOnly ? assertCommunitySnapshotTokenCurrent : assertCommunityLiveSnapshotTokenCurrent)(queryClient, token, undefined)
     assertActive()
     const generation = registry.authenticationView.get().generation
+    const identityGeneration = sessionIdentityGeneration()
     const controller = new AbortController()
     const subscription = registry.runtime.lifecycle.subscribe(() => { try { assertActive() } catch { controller.abort() } })
     try {
@@ -35,7 +37,7 @@ export function useAccountSignOut() {
         console.error("Account disk cache retirement failed", error)
       })
       const viewer = registry.sessionViewer()
-      return registry.authenticationView.get().active && registry.authenticationView.get().generation === generation && (viewer === undefined || viewer === null || viewer === registry.accountId)
+      return sessionIdentityGeneration() === identityGeneration && registry.authenticationView.get().active && registry.authenticationView.get().generation === generation && (viewer === undefined || viewer === null || viewer === registry.accountId)
     } catch (error) { assertActive(); throw error }
     finally { subscription.unsubscribe() }
   } })

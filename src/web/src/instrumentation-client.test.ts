@@ -34,7 +34,7 @@ it("starts optional client diagnostics without making app boot await them", asyn
 afterEach(() => vi.unstubAllGlobals())
 
 it.each(["", "v1.denied", "v0.granted", "v1.granted"])("initializes the real Web entry synchronously from %s before its existing consumers", async cookie => {
-  const browser = { location: new URL("https://alook.ai/?secret=query#hash"), dataLayer: [] as unknown[] }
+  const browser = { fetch: vi.fn(), location: new URL("https://alook.ai/?secret=query#hash"), dataLayer: [] as unknown[] }
   vi.stubGlobal("window", browser)
   vi.stubGlobal("document", { cookie: `alook_analytics_consent=${cookie}`, referrer: "https://alook.ai/c/me?secret=referrer" })
   bootstrapObservabilityMock.mockImplementation(() => {
@@ -57,7 +57,7 @@ it.each(["", "v1.denied", "v0.granted", "v1.granted"])("initializes the real Web
 })
 
 it("retains Native diagnostics and router telemetry without the Web bootstrap", async () => {
-  const browser = { __TAURI__: {}, location: new URL("https://alook.ai/"), dataLayer: [] as unknown[] }
+  const browser = { fetch: vi.fn(), __TAURI__: {}, location: new URL("https://alook.ai/"), dataLayer: [] as unknown[] }
   vi.stubGlobal("window", browser)
   const entry = await import("./instrumentation-client")
   entry.onRouterTransitionStart("/pricing")
