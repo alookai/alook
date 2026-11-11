@@ -24,18 +24,22 @@ export function MessageHeader({
   identity,
   actions,
   identityClassName,
+  fadeBelow = true,
 }: {
   testId?: string
   leading?: ReactNode
   identity: ReactNode
   actions?: ReactNode
   identityClassName?: string
+  fadeBelow?: boolean
 }) {
   return (
     <header
       role="banner"
       data-testid={testId}
-      className="relative z-20 flex h-12 shrink-0 items-center gap-1 bg-background px-3 after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-12 after:bg-[linear-gradient(to_bottom,var(--background)_16px,transparent)] after:content-['']"
+      className={cn("relative z-20 flex h-12 shrink-0 items-center gap-1 bg-background px-3",
+        fadeBelow && "after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-12 after:bg-[linear-gradient(to_bottom,var(--background)_16px,transparent)] after:content-['']",
+      )}
     >
       {leading}
       <div

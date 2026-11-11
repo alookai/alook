@@ -25,7 +25,7 @@ import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
-import { HorizontalOverflowFadeOverlays, useHorizontalOverflowRail } from "@/components/horizontal-overflow-rail"
+import { useHorizontalOverflowRail } from "@/components/horizontal-overflow-rail"
 
 const MAX_AVATARS = 5
 const MAX_VISIBLE_TAGS = 2
@@ -182,9 +182,7 @@ export function ForumView({
   ]
   const filterTagKey = filterTags.join("\0")
   const {
-    fades: tagFades,
     onKeyDown: onTagRailKeyDown,
-    onScroll: onTagRailScroll,
     scrollerRef: tagScrollerRef,
     selectedRef: activeFilterRef,
   } = useHorizontalOverflowRail<HTMLDivElement, HTMLButtonElement>({
@@ -229,9 +227,8 @@ export function ForumView({
               role="region"
               aria-label="Forum tag filters"
               tabIndex={0}
-              onScroll={onTagRailScroll}
               onKeyDown={onTagRailKeyDown}
-              className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar scrollbar-none"
+              className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain scroll-fade-x scroll-fade-4 scroll-px-4 px-4 thin-scrollbar scrollbar-none [&_button]:focus-visible:ring-inset"
             >
               {!tagsKnown ? tagsError ? (
                 <Button variant="ghost" size="sm" type="button" className="h-7 shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 text-muted-foreground hover:text-foreground" onClick={onRetryTags}>Retry tags</Button>
@@ -275,11 +272,6 @@ export function ForumView({
                 </>
               )}
             </div>
-            <HorizontalOverflowFadeOverlays
-              fades={tagFades}
-              leftTestId={tid.forumTagFadeLeft}
-              rightTestId={tid.forumTagFadeRight}
-            />
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <Button data-testid={tid.forumNewPost} size="sm" ref={newPostTriggerRef} onClick={() => setComposing(true)}><Plus className="size-4" /> New Post</Button>
@@ -482,7 +474,7 @@ export function ForumViewSkeleton() {
         <div className="relative min-w-0 flex-1">
           <div
             aria-hidden
-            className="pointer-events-none flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar scrollbar-none"
+            className="pointer-events-none flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain scroll-fade-x scroll-fade-4 scroll-px-4 px-4 thin-scrollbar scrollbar-none"
           >
             <Skeleton className="h-7 w-10 shrink-0 rounded-lg" />
             <Skeleton className="h-7 w-16 shrink-0 rounded-lg" />
@@ -494,7 +486,7 @@ export function ForumViewSkeleton() {
           <Skeleton className="h-8 w-25 rounded-md" />
         </div>
       </div>
-      <main className={`flex-1 overflow-y-auto thin-scrollbar ${FORUM_LIST_SPACING_CLASS}`}>
+      <main className={`flex-1 overflow-y-auto thin-scrollbar scroll-fade-y scroll-fade-4 ${FORUM_LIST_SPACING_CLASS}`}>
         <ForumListSkeleton />
       </main>
     </>

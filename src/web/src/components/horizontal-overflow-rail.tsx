@@ -1,10 +1,7 @@
 "use client"
 
-import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useLayoutEffect, useRef } from "react"
 import type React from "react"
-
-export type HorizontalOverflowFades = { left: boolean; right: boolean }
 
 export function shouldTranslateVerticalWheel({
   enabled,
@@ -26,25 +23,8 @@ export function shouldTranslateVerticalWheel({
   clientWidth: number
 }): boolean {
   if (!enabled || ctrlKey || shiftKey || deltaX !== 0 || deltaY === 0) return false
-  const fades = horizontalOverflowFades({ scrollLeft, scrollWidth, clientWidth })
-  return deltaY < 0 ? fades.left : fades.right
-}
-
-export function horizontalOverflowFades({
-  scrollLeft,
-  scrollWidth,
-  clientWidth,
-}: {
-  scrollLeft: number
-  scrollWidth: number
-  clientWidth: number
-}): HorizontalOverflowFades {
   const maxScrollLeft = Math.max(0, scrollWidth - clientWidth)
-  if (maxScrollLeft <= 1) return { left: false, right: false }
-  return {
-    left: scrollLeft > 1,
-    right: scrollLeft < maxScrollLeft - 1,
-  }
+  return maxScrollLeft > 1 && (deltaY < 0 ? scrollLeft > 1 : scrollLeft < maxScrollLeft - 1)
 }
 
 export function useHorizontalOverflowRail<
@@ -65,53 +45,42 @@ export function useHorizontalOverflowRail<
 }) {
   const scrollerRef = useRef<TScroller>(null)
   const selectedRef = useRef<TSelected>(null)
-  const [fades, setFades] = useAtom(useCreateAtom<HorizontalOverflowFades>({ left: false, right: false }))
-
-  const syncFades = useCallback(() => {
-    const scroller = scrollerRef.current
-    if (!scroller) return
-    const next = horizontalOverflowFades(scroller)
-    setFades((current) => current.left === next.left && current.right === next.right ? current : next)
-  }, [setFades])
-
   useLayoutEffect(() => {
     const scroller = scrollerRef.current
     const selected = selectedRef.current
     if (!scroller || !selected) return
-    const scrollerRect = scroller.getBoundingClientRect()
-    const selectedRect = selected.getBoundingClientRect()
-    if (selectedRect.left < scrollerRect.left) {
-      scroller.scrollLeft -= scrollerRect.left - selectedRect.left
-    } else if (selectedRect.right > scrollerRect.right) {
-      scroller.scrollLeft += selectedRect.right - scrollerRect.right
+    const reveal = () => {
+      const scrollerRect = scroller.getBoundingClientRect()
+      const selectedRect = selected.getBoundingClientRect()
+      const style = getComputedStyle(scroller)
+      const left = scrollerRect.left + (Number.parseFloat(style.scrollPaddingLeft) || 0)
+      const right = scrollerRect.right - (Number.parseFloat(style.scrollPaddingRight) || 0)
+      if (selectedRect.left < left) {
+        scroller.scrollLeft -= left - selectedRect.left
+      } else if (selectedRect.right > right) {
+        scroller.scrollLeft += selectedRect.right - right
+      }
     }
-    syncFades()
-  }, [contentKey, selectedKey, syncFades])
-
-  useLayoutEffect(() => {
-    const scroller = scrollerRef.current
-    if (!scroller) return
-    syncFades()
+    reveal()
     if (typeof ResizeObserver === "undefined") return
-    const observer = new ResizeObserver(syncFades)
+    const observer = new ResizeObserver(reveal)
     observer.observe(scroller)
+    observer.observe(selected)
     return () => observer.disconnect()
-  }, [contentKey, syncFades])
+  }, [contentKey, selectedKey])
 
   const onKeyDown = useCallback((event: React.KeyboardEvent<TScroller>) => {
     const childOwnsKeyboard = preserveChildKeyboard && event.target !== event.currentTarget
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       if (!childOwnsKeyboard) event.preventDefault()
       event.currentTarget.scrollLeft += event.key === "ArrowLeft" ? -scrollStep : scrollStep
-      syncFades()
     } else if (event.key === "Home" || event.key === "End") {
       if (!childOwnsKeyboard) event.preventDefault()
       event.currentTarget.scrollLeft = event.key === "Home"
         ? 0
         : event.currentTarget.scrollWidth - event.currentTarget.clientWidth
-      syncFades()
     }
-  }, [preserveChildKeyboard, scrollStep, syncFades])
+  }, [preserveChildKeyboard, scrollStep])
 
   useLayoutEffect(() => {
     const scroller = scrollerRef.current
@@ -129,43 +98,10 @@ export function useHorizontalOverflowRail<
       })) return
       event.preventDefault()
       scroller.scrollLeft += event.deltaY
-      syncFades()
     }
     scroller.addEventListener("wheel", onWheel, { passive: false })
     return () => scroller.removeEventListener("wheel", onWheel)
-  }, [mapVerticalWheelToHorizontal, syncFades])
+  }, [mapVerticalWheelToHorizontal])
 
-  return { fades, onKeyDown, onScroll: syncFades, scrollerRef, selectedRef }
-}
-
-export function HorizontalOverflowFadeOverlays({
-  fades,
-  leftTestId,
-  rightTestId,
-  surface = "background",
-}: {
-  fades: HorizontalOverflowFades
-  leftTestId?: string
-  rightTestId?: string
-  surface?: "background" | "popover"
-}) {
-  const fromSurface = surface === "popover" ? "from-popover" : "from-background"
-  return (
-    <>
-      {fades.left && (
-        <span
-          aria-hidden
-          data-testid={leftTestId}
-          className={`pointer-events-none absolute inset-y-0 left-0 z-10 w-3.5 bg-linear-to-r to-transparent ${fromSurface}`}
-        />
-      )}
-      {fades.right && (
-        <span
-          aria-hidden
-          data-testid={rightTestId}
-          className={`pointer-events-none absolute inset-y-0 right-0 z-10 w-3.5 bg-linear-to-l to-transparent ${fromSurface}`}
-        />
-      )}
-    </>
-  )
+  return { onKeyDown, scrollerRef, selectedRef }
 }

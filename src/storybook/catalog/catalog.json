@@ -5753,9 +5753,7 @@
     {
       "source": "src/web/src/components/horizontal-overflow-rail.tsx",
       "application": "Web",
-      "candidates": [
-        "HorizontalOverflowFadeOverlays"
-      ],
+      "candidates": [],
       "kind": "composition",
       "examples": [
         {
