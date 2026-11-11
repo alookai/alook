@@ -36,7 +36,6 @@ export function ChannelHeaderSkeleton({
   const actionCount = compactActions || kind === "forum" ? 2 : 3
   return (
     <MessageHeader
-      fadeBelow={kind !== "forum"}
       leading={(
         <div
           data-testid={tid.messageHeaderLeadingLoading}
@@ -171,7 +170,6 @@ export function ChannelHeader({
   )
   return (
     <MessageHeader
-      fadeBelow={kind !== "forum"}
       leading={leading}
       identity={identity}
       actions={actions}
