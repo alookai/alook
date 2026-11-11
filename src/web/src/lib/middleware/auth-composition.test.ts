@@ -1,3 +1,4 @@
+import { SESSION_ACCOUNT_HEADER, SESSION_ACCOUNT_MISMATCH_HEADER } from "@/lib/session-account"
 import { withAuth } from "./auth-policy"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
@@ -15,7 +16,7 @@ vi.mock("./response-cache", async original => {
 })
 
 const m = vi.hoisted(() => ({
-  session: vi.fn(), signOut: vi.fn(), user: vi.fn(), runner: vi.fn(), binding: vi.fn(), owned: vi.fn(), machine: vi.fn(),
+  settings: vi.fn(), session: vi.fn(), signOut: vi.fn(), user: vi.fn(), runner: vi.fn(), binding: vi.fn(), owned: vi.fn(), machine: vi.fn(),
   env: { DB: {}, CACHE_KV: {} }, execution: { waitUntil: vi.fn() },
 }))
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: vi.fn(async () => ({ env: m.env, ctx: m.execution })) }))
@@ -26,6 +27,7 @@ vi.mock("@alook/shared", async original => {
   const actual = await original<typeof import("@alook/shared")>()
   return { ...actual, withD1Retry: async (fn: () => Promise<unknown>) => fn(), queries: {
     ...actual.queries,
+    communityNotificationSetting: { ...actual.queries.communityNotificationSetting, getSettings: m.settings },
     user: { ...actual.queries.user, getUserInternal: m.user },
     communityMachine: { ...actual.queries.communityMachine, findActiveAgentRunnerKeyByBearer: m.runner, findActiveCredentialByBearer: m.machine },
     communityBot: { ...actual.queries.communityBot, getBotBinding: m.binding, getBotOwnedBy: m.owned },
@@ -137,4 +139,50 @@ describe("automation management composed with human auth", () => {
     expect(m.session).toHaveBeenCalledOnce()
     expect(responses.protectCommunityJsonResponse).toHaveBeenCalledOnce()
   })
+})
+
+describe("cookie session account constraint", () => {
+  const policies = cases.filter(({ name }) => ["human", "human actor", "delegated bot", "sensitive human", "optional human"].includes(name))
+  for (const { name, policy, headers } of policies) {
+    describe(name, () => {
+      it.each(["stale", "owner", undefined])("validates expected account %s before business code and preserves renewal", async expected => {
+        const handler = vi.fn(async () => NextResponse.json({ ok: true }))
+        const response = await withAuth(policy, handler)(request({ ...headers, ...(expected === undefined ? {} : { [SESSION_ACCOUNT_HEADER]: expected }) }))
+        expect(m.session).toHaveBeenCalledOnce()
+        expect(response.headers.getSetCookie()).toEqual(["better-auth.session_data=fresh; HttpOnly"])
+        if (expected === "stale") {
+          expect(response.status).toBe(409)
+          expect(response.headers.get(SESSION_ACCOUNT_MISMATCH_HEADER)).toBe("1")
+          expect(handler).not.toHaveBeenCalled()
+          expect(m.user).not.toHaveBeenCalled()
+          expect(m.owned).not.toHaveBeenCalled()
+          expect(await response.text()).not.toContain("owner")
+        } else {
+          expect(response.status).toBe(200)
+          expect(handler).toHaveBeenCalledOnce()
+        }
+      })
+    })
+  }
+
+  it.each([humanAuthPolicy, communityActorPolicy(), optionalAuthPolicy])("rejects stale GET reads through the shared resolver", async policy => {
+    const handler = vi.fn(async () => NextResponse.json({ settings: "private" }))
+    const response = await withAuth(policy, handler)(new NextRequest("https://alook.test/api/community/users/me/notifications", {
+      headers: { [SESSION_ACCOUNT_HEADER]: "stale", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
+    }))
+    expect(response.status).toBe(409)
+    expect(handler).not.toHaveBeenCalled()
+    expect(response.headers.getSetCookie()).toEqual(["better-auth.session_data=fresh; HttpOnly"])
+  })
+})
+
+it("rejects the actual notification route before it reads a different session's settings", async () => {
+  const { GET } = await import("@/app/api/community/users/me/notifications/route")
+  const response = await GET(new NextRequest("https://alook.test/api/community/users/me/notifications", {
+    headers: { [SESSION_ACCOUNT_HEADER]: "stale", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
+  }))
+  expect(response.status).toBe(409)
+  expect(m.settings).not.toHaveBeenCalled()
+  expect(m.session).toHaveBeenCalledOnce()
+  expect(response.headers.getSetCookie()).toEqual(["better-auth.session_data=fresh; HttpOnly"])
 })
