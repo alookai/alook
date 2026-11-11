@@ -3,6 +3,7 @@ import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture, dmConversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
+import { messageReadPageFixture } from "@/test/community-resource-fixtures"
 import { ingestReadStateSnapshot } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import { MessageList } from "@/components/community/messages/message-list"
@@ -146,12 +147,34 @@ it.each((["text", "dm"] as const).flatMap(kind => (["unchanged", "new messages",
       newBoundary={feed.newBoundary} latestSeq={feed.latestSeq} retiredNewTargetId={feed.retiredNewTargetId}
       onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary}
       hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
+      isFetchingNewer={feed.isFetchingNewer}
       onJumpToPresent={feed.jumpToPresent} presentVersion={feed.presentVersion} presentRequest={feed.presentRequest}
       onUserTakeover={feed.onUserTakeover} onRetryInitialLoad={feed.retryInitialLoad} retryingInitialLoad={feed.retryingInitialLoad} onOpenThread={() => {}} />
       <ConversationFooterShell><textarea aria-label="Draft" /></ConversationFooterShell>
     </div></ConversationFooterSlotProvider>
   }
   const view = render(<CommunityTestProvider {...owner}><Probe /></CommunityTestProvider>)
+  const tailPhases: Array<{ phase: string; clearance: number; trailingSize: number; footerHeight: number; paddingEnd: number; hasMoreNewer: boolean; positionDataState: string }> = []
+  const tailWrites: unknown[] = []
+  let tailPhase = "restored-pending"
+  const captureTail = (phase: string) => {
+    const root = view.getByTestId("community-message-scroller")
+    const body = root.querySelector<HTMLElement>('[data-msg-id="m40"]')!
+    const position = preCommand.latest as ScrollResult
+    const trailing = root.querySelector<HTMLElement>('[data-message-row-key="rail:trailing"]')?.closest<HTMLElement>("[data-index]")
+    const row = { phase, clearance: root.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom,
+      trailingSize: trailing?.getBoundingClientRect().height ?? 0,
+      footerHeight: view.container.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')?.getBoundingClientRect().height ?? 0,
+      paddingEnd: position.virtualizer.options.paddingEnd ?? 0, hasMoreNewer: feed.hasMoreNewer, positionDataState: feed.positionDataState,
+      hasMoreOlder: feed.hasMoreOlder, readReady: position.readPositionReady, positionOutcome: position.positionOutcome,
+      scrollTop: root.scrollTop, scrollHeight: root.scrollHeight, clientHeight: root.clientHeight,
+      nativeOffset: position.virtualizer.scrollOffset, total: position.virtualizer.getTotalSize(),
+      leadingEstimate: position.virtualizer.options.estimateSize(0),
+      leadingCachedSize: position.virtualizer.itemSizeCache.get(position.virtualizer.options.getItemKey(0)) ?? null,
+      leadingMeasurement: { ...position.virtualizer.measurementsCache[0] } }
+    tailPhases.push(row)
+    return row
+  }
   try {
     resize()
     const root = view.getByTestId("community-message-scroller")
@@ -162,6 +185,16 @@ it.each((["text", "dm"] as const).flatMap(kind => (["unchanged", "new messages",
     expect(feed.positionDataState).toBe("pending")
     expect(root).toHaveAttribute("data-pagination-enabled", "false")
     expect(view.queryByTestId("community-scroll-to-present")).toBeNull()
+    const cachedTail = result === "unchanged" ? captureTail("restored-pending") : null
+    if (cachedTail) {
+      const originalScrollTo = HTMLElement.prototype.scrollTo
+      vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(function(this: HTMLElement, ...args: [options?: ScrollToOptions] | [x: number, y: number]) {
+        const before = this.scrollTop
+        Reflect.apply(originalScrollTo, this, args)
+        if (this === root) tailWrites.push({ phase: tailPhase, before, requested: typeof args[0] === "number" ? args[1] : args[0]?.top, after: this.scrollTop,
+          nativeStack: new Error().stack?.split("\n").filter(line => /resizeItem|applyScrollAdjustment|_scrollToOffset|setOptions/.test(line)) })
+      })
+    }
     fireEvent.change(draft, { target: { value: "Local draft" } })
     expect(draft).toHaveValue("Local draft")
     let readerId: string | undefined, readerOffset = 0
@@ -188,8 +221,11 @@ it.each((["text", "dm"] as const).flatMap(kind => (["unchanged", "new messages",
       const fresh = { ...packet, channel: { ...packet.channel, messageCount: freshRows.length }, messages: freshRows,
         newBoundary: { afterSeq: 40, target: result === "unchanged" ? null : { id: "m41", channelId: "c1", seq: 41, authorId: "peer" } },
         page: { ...packet.page, latestSeq: freshRows.length } }
+      tailPhase = "entry-confirmation"
       await act(async () => { resolve(fresh); await vi.advanceTimersByTimeAsync(0) })
+      tailPhase = "confirmation-resize-and-frames"
       resize()
+      const confirmedTail = cachedTail ? captureTail("confirmed-unchanged") : null
       expect(view.getByTestId("community-message-scroller")).toBe(root)
       if (result === "takeover") {
         const reader = root.querySelector<HTMLElement>(`[data-msg-id="${readerId}"]`)!
@@ -201,9 +237,91 @@ it.each((["text", "dm"] as const).flatMap(kind => (["unchanged", "new messages",
         expect(feed.messages.at(-1)?.id).toBe(result === "unchanged" ? "m40" : "m60")
         expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBeLessThanOrEqual(1)
         expect(view.queryByTestId("community-scroll-to-present")).toBeNull()
+        if (cachedTail && confirmedTail) {
+          expect(confirmedTail.clearance).toBeCloseTo(40, 0)
+          expect(cachedTail.clearance).toBeCloseTo(confirmedTail.clearance, 0)
+        }
       }
     }
     expect(draft).toHaveValue("Local draft")
+  } finally {
+    if (tailPhases.length) console.info("tail-gap327", JSON.stringify({ kind, result, phases: tailPhases, writes: tailWrites }))
+    view.unmount(); owner.client.clear()
+  }
+})
+
+it.each(["text", "dm"] as const)("shows the $0 newer loading row through a real cursor request while retaining its boundary", async kind => {
+  scrollFixture.width = 390
+  const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+  const packet = kind === "dm" ? dmConversationEntryFixture() : conversationEntryFixture()
+  const rows = Array.from({ length: 80 }, (_, index) => ({ ...packet.messages[0], id: `m${index + 1}`, seq: index + 1,
+    createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString() }))
+  packet.messages = rows.slice(0, 40)
+  packet.channel.messageCount = 80
+  packet.readState = { ...packet.readState, lastReadMessageId: "m20", lastReadSeq: 20, lastReadAt: rows[19].createdAt }
+  packet.selection = { reason: "explicit_anchor", anchorMessageId: "m20" }
+  packet.newBoundary = { afterSeq: 20, target: { id: "m21", channelId: "c1", seq: 21, authorId: "peer" } }
+  const cursor = `${rows[39].createdAt}|m40`
+  packet.page = { olderCursor: null, newerCursor: cursor, hasMoreOlder: false, hasMoreNewer: true, latestSeq: 80 }
+  await seedConversationEntry(owner.client, packet, { channelId: "c1", serverId: packet.channel.serverId, anchorMessageId: "m20", newAfterSeq: 20 })
+  let release!: (value: ReturnType<typeof messageReadPageFixture>) => void
+  const newer = new Promise<ReturnType<typeof messageReadPageFixture>>(resolve => { release = resolve })
+  load.mockImplementation((url: string) => {
+    const search = new URL(url, "https://example.test").searchParams
+    if (search.has("entry")) return Promise.resolve(packet)
+    if (search.get("since") === cursor) return newer
+    throw new Error(`Unexpected message request ${url}`)
+  })
+  let feed!: ReturnType<typeof useMessages>
+  function Probe() {
+    const channel = useMessages(kind === "dm" ? null : "c1", { serverId: "s1", anchorMessageId: "m20" })
+    const dm = useDmMessages(kind === "dm" ? "c1" : null, { anchorMessageId: "m20" })
+    feed = kind === "dm" ? dm : channel
+    return <ConversationFooterSlotProvider><div data-slot="community-conversation-surface"><MessageList channel="Channel" variant={kind === "dm" ? "dm" : "channel"}
+      messages={feed.messages} loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
+      initialScrollReady={feed.initialDisplayReady} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
+      positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+      scrollToMessageId="m20" hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
+      isFetching={feed.isFetching} isFetchingNewer={feed.isFetchingNewer} onLoadNewer={feed.fetchNewer}
+      onUserTakeover={feed.onUserTakeover} onOpenThread={() => {}} />
+      <ConversationFooterShell><textarea aria-label="Draft" /></ConversationFooterShell>
+    </div></ConversationFooterSlotProvider>
+  }
+  const view = render(<CommunityTestProvider {...owner}><Probe /></CommunityTestProvider>)
+  const lastKey = () => {
+    const native = (preCommand.latest as ScrollResult).virtualizer
+    return native.options.getItemKey(native.options.count - 1)
+  }
+  try {
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    resize()
+    const root = view.getByTestId("community-message-scroller")
+    expect(feed.positionDataState).toBe("ready")
+    expect(feed.hasMoreNewer).toBe(true)
+    expect(feed.isFetchingNewer).toBe(false)
+    expect(lastKey()).not.toBe("rail:trailing")
+    fireEvent.wheel(root, { deltaY: root.scrollHeight })
+    act(() => root.scrollTo({ top: root.scrollHeight - root.clientHeight }))
+    resize()
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    resize()
+    expect(load.mock.calls.filter(([url]) => new URL(url, "https://example.test").searchParams.get("since") === cursor)).toHaveLength(1)
+    expect(feed.isFetchingNewer).toBe(true)
+    expect(feed.hasMoreNewer).toBe(true)
+    expect(lastKey()).toBe("rail:trailing")
+    expect(view.getByText("Loading newer messages…")).toBeVisible()
+    await act(async () => {
+      release(messageReadPageFixture({ messages: rows.slice(40, 60), profiles: packet.profiles, latestSeq: 80,
+        hasMoreOlder: true, hasMoreNewer: true, olderCursor: `${rows[40].createdAt}|m41`, newerCursor: `${rows[59].createdAt}|m60` }))
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    resize()
+    expect(feed.isFetchingNewer).toBe(false)
+    expect(feed.hasMoreNewer).toBe(true)
+    expect(feed.messages.at(-1)?.id).toBe("m60")
+    expect(feed.messageWindow?.pageParams).toEqual([{ mode: "newer", cursor }, { mode: "anchor", anchor: "m20" }])
+    expect(lastKey()).not.toBe("rail:trailing")
+    expect(view.queryByText("Loading newer messages…")).toBeNull()
   } finally { view.unmount(); owner.client.clear() }
 })
 

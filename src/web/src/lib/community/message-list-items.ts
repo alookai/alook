@@ -34,7 +34,7 @@ export function flattenMessageItems(
   messages: Msg[],
   newDividerBefore: string | undefined,
   hasMoreOlder = false,
-  hasMoreNewer = false,
+  showNewerLoading = false,
 ): FlatItem[] {
   const items: FlatItem[] = []
   if (messages.length > 0) items.push({ kind: "leading", key: "rail:leading" })
@@ -72,7 +72,7 @@ export function flattenMessageItems(
     seenFirstMessage = true
     prev = m
   }
-  if (messages.length > 0 && hasMoreNewer) items.push({ kind: "trailing", key: "rail:trailing" })
+  if (messages.length > 0 && showNewerLoading) items.push({ kind: "trailing", key: "rail:trailing" })
   return items
 }
 
@@ -111,8 +111,9 @@ function estimateAttachmentsHeight(m: Msg): number {
   return total
 }
 
-export function estimateRowHeight(item: FlatItem, hasMoreOlder = false): number {
-  if (item.kind === "leading") return hasMoreOlder ? 88 : 152
+export function estimateRowHeight(item: FlatItem): number {
+  // Confirming a boundary must not resize an unmeasured row with the same key.
+  if (item.kind === "leading") return 152
   if (item.kind === "trailing") return 56
   if (item.kind === "divider") return item.dateLabel ? DATE_DIVIDER_ESTIMATE_PX : NEW_DIVIDER_ESTIMATE_PX
   const m = item.m
