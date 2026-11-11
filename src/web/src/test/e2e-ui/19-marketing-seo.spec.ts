@@ -383,17 +383,46 @@ for (const width of [1440, 390]) {
     await expect(page).toHaveURL(/\/download$/)
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Good company.")
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", "https://alook.ai/download")
-    await expect(page.getByLabel("Store availability").getByText("Coming soon", { exact: true })).toHaveCount(2)
+    const destinations = [
+      { name: "App Store", url: "https://apps.apple.com/app/alook-ai/id6808140039" },
+      { name: "Google Play", url: "https://play.google.com/store/apps/details?id=ai.alook.android" },
+    ]
+    const stores = page.getByRole("group", { name: "Store availability" })
+    await expect(stores.getByRole("link")).toHaveCount(2)
+    for (const destination of destinations) {
+      const link = stores.getByRole("link", { name: destination.name, exact: true })
+      await expect(link).toBeVisible()
+      await expect(link).toHaveAttribute("href", destination.url)
+    }
     const beta = page.locator("#mobile").getByRole("link", { name: "iPhone & iPad Public beta", exact: true })
     await expect(beta).toHaveAttribute("href", "https://testflight.apple.com/join/4fHgVBVF")
     const betaBox = await beta.boundingBox()
     const apkBox = await page.getByRole("heading", { name: "Android APK", exact: true }).boundingBox()
     expect(betaBox!.y + betaBox!.height).toBeLessThanOrEqual(apkBox!.y)
 
-    await expect(page.getByRole("link", { name: "App Store", exact: true })).toHaveCount(0)
-    await expect(page.getByRole("link", { name: "Google Play", exact: true })).toHaveCount(0)
+    await stores.getByRole("link", { name: "App Store", exact: true }).focus()
+    await page.keyboard.press("Tab")
+    const googlePlay = stores.getByRole("link", { name: "Google Play", exact: true })
+    await expect(googlePlay).toBeFocused()
+    expect(await googlePlay.evaluate(element => element.matches(":focus-visible"))).toBe(true)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
     await page.screenshot({ path: testInfo.outputPath("download-shared-header.png"), fullPage: true })
+    for (const destination of destinations) {
+      await page.route(destination.url, route => route.fulfill({ status: 200, contentType: "text/html", body: "<title>Store navigation target</title>" }))
+      try {
+        const link = page.getByRole("link", { name: destination.name, exact: true })
+        await link.focus()
+        await expect(link).toBeFocused()
+        await page.keyboard.press("Enter")
+        await expect(page).toHaveURL(destination.url)
+        await expect(page).toHaveTitle("Store navigation target")
+        await page.goBack()
+        await expect(page).toHaveURL(/\/download$/)
+        await expect(page.getByRole("heading", { level: 1 })).toContainText("Good company.")
+      } finally {
+        await page.unroute(destination.url)
+      }
+    }
     await page.getByRole("navigation", { name: "Site navigation" }).getByRole("link", { name: "Contact", exact: true }).focus()
     await page.keyboard.press("Enter")
     await expect(page).toHaveURL(/\/contact$/)
