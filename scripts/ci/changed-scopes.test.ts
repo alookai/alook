@@ -1079,54 +1079,64 @@ describe("compatibility and CLI fail-closed behavior", () => {
     } finally { fixture.cleanup() }
   })
 
-  it.each([
-    ["pull_request", "change", "affected"],
-    ["merge_group", "change", "affected"],
-    ["push", "fix: localized user bar", "main-smoke"],
-    ["push", "release: v0.1.64", "full"],
-    ["workflow_dispatch", "change", "full"],
-  ])("runs the actual workflow scope entry for %s / %s", (event, message, mode) => {
-    const fixture = gitDiffFixture("src/web/src/components/community/shell/user-bar.tsx")
-    try {
-      const workflow = readFileSync(join(import.meta.dirname, "../../.github/workflows/ci.yml"), "utf8").replaceAll("\r\n", "\n")
-      const scope = workflow.slice(workflow.indexOf("\n  scope:\n"), workflow.indexOf("\n  auth-build:\n"))
-      const body = scope.slice(scope.indexOf("      - id: scope\n")).match(/        run: \|\n([\s\S]*?)(?=^      - uses:)/m)?.[1]
-      expect(body).toBeTruthy()
-      const script = body!.replace(/^ {10}/gm, "").replaceAll(
-        "node scripts/ci/changed-scopes.mjs", '"$CLASSIFIER_NODE" "$CLASSIFIER_SCRIPT" --ui-shards 1',
-      ).replaceAll(".ci/execution-plan.json", '"$SCOPE_PLAN_FILE"').replace("mkdir -p .ci", 'mkdir -p "$SCOPE_DIR"')
-      const workflowOutput = execFileSync("bash", ["-c", script], {
-        cwd: fixture.root,
-        env: {
-          ...cleanGitEnvironment(),
-          GIT_DIR: fixture.gitDir, GIT_WORK_TREE: fixture.root,
-          CLASSIFIER_NODE: process.execPath, CLASSIFIER_SCRIPT: realpathSync(join(fixture.root, "scripts/ci/changed-scopes.mjs")),
-          SCOPE_DIR: join(fixture.root, ".ci"), SCOPE_PLAN_FILE: join(fixture.root, ".ci/execution-plan.json"),
-          EVENT_NAME: event, EVENT_SHA: "HEAD", PR_BASE_SHA: "HEAD^", PR_HEAD_SHA: "HEAD",
-          MERGE_BASE_SHA: "HEAD^", PUSH_BASE_SHA: "HEAD^", HEAD_COMMIT_MESSAGE: message,
-          DISPATCH_MODE: "full", GITHUB_OUTPUT: join(fixture.root, "outputs"),
-          GITHUB_STEP_SUMMARY: join(fixture.root, "summary"),
-        },
-      })
-      expect(existsSync(join(fixture.root, ".ci/execution-plan.json")), workflowOutput.toString()).toBe(true)
-      const result = JSON.parse(readFileSync(join(fixture.root, ".ci/execution-plan.json"), "utf8"))
-      expect(result.execution_mode).toBe(mode)
-      expect(validateExecutionPlan(result)).toEqual(result)
-      if (mode === "full") {
-        expect(result.ui.specs).toEqual(["all"])
-        expect(result.suites.integration).toContain("web")
-      } else if (mode === "main-smoke") {
-        expect(result.suites.unit).toEqual([])
-        expect(result.suites.smoke).toEqual(loadScopeManifest().smoke_tests)
-        expect(result.ui.specs).toEqual([...loadScopeManifest().ui.contracts.smoke].sort())
-      } else {
-        expect(result.ui.specs).toContain("60-desktop-default-user-bar-width.spec.ts")
-        expect(result.ui.specs).not.toContain("all")
+  describe("workflow scope events", () => {
+    let fixture: ReturnType<typeof gitDiffFixture>
+    beforeAll(() => {
+      fixture = gitDiffFixture("src/web/src/components/community/shell/user-bar.tsx")
+    })
+    afterAll(() => { fixture?.cleanup() })
+
+    it.each([
+      ["pull_request", "change", "affected"],
+      ["merge_group", "change", "affected"],
+      ["push", "fix: localized user bar", "main-smoke"],
+      ["push", "release: v0.1.64", "full"],
+      ["workflow_dispatch", "change", "full"],
+    ])("runs the actual workflow scope entry for %s / %s", (event, message, mode) => {
+      try {
+        const workflow = readFileSync(join(import.meta.dirname, "../../.github/workflows/ci.yml"), "utf8").replaceAll("\r\n", "\n")
+        const scope = workflow.slice(workflow.indexOf("\n  scope:\n"), workflow.indexOf("\n  auth-build:\n"))
+        const body = scope.slice(scope.indexOf("      - id: scope\n")).match(/        run: \|\n([\s\S]*?)(?=^      - uses:)/m)?.[1]
+        expect(body).toBeTruthy()
+        const script = body!.replace(/^ {10}/gm, "").replaceAll(
+          "node scripts/ci/changed-scopes.mjs", '"$CLASSIFIER_NODE" "$CLASSIFIER_SCRIPT" --ui-shards 1',
+        ).replaceAll(".ci/execution-plan.json", '"$SCOPE_PLAN_FILE"').replace("mkdir -p .ci", 'mkdir -p "$SCOPE_DIR"')
+        const workflowOutput = execFileSync("bash", ["-c", script], {
+          cwd: fixture.root,
+          env: {
+            ...cleanGitEnvironment(),
+            GIT_DIR: fixture.gitDir, GIT_WORK_TREE: fixture.root,
+            CLASSIFIER_NODE: process.execPath, CLASSIFIER_SCRIPT: realpathSync(join(fixture.root, "scripts/ci/changed-scopes.mjs")),
+            SCOPE_DIR: join(fixture.root, ".ci"), SCOPE_PLAN_FILE: join(fixture.root, ".ci/execution-plan.json"),
+            EVENT_NAME: event, EVENT_SHA: "HEAD", PR_BASE_SHA: "HEAD^", PR_HEAD_SHA: "HEAD",
+            MERGE_BASE_SHA: "HEAD^", PUSH_BASE_SHA: "HEAD^", HEAD_COMMIT_MESSAGE: message,
+            DISPATCH_MODE: "full", GITHUB_OUTPUT: join(fixture.root, "outputs"),
+            GITHUB_STEP_SUMMARY: join(fixture.root, "summary"),
+          },
+        })
+        expect(existsSync(join(fixture.root, ".ci/execution-plan.json")), workflowOutput.toString()).toBe(true)
+        const result = JSON.parse(readFileSync(join(fixture.root, ".ci/execution-plan.json"), "utf8"))
+        expect(result.execution_mode).toBe(mode)
+        expect(validateExecutionPlan(result)).toEqual(result)
+        if (mode === "full") {
+          expect(result.ui.specs).toEqual(["all"])
+          expect(result.suites.integration).toContain("web")
+        } else if (mode === "main-smoke") {
+          expect(result.suites.unit).toEqual([])
+          expect(result.suites.smoke).toEqual(loadScopeManifest().smoke_tests)
+          expect(result.ui.specs).toEqual([...loadScopeManifest().ui.contracts.smoke].sort())
+        } else {
+          expect(result.ui.specs).toContain("60-desktop-default-user-bar-width.spec.ts")
+          expect(result.ui.specs).not.toContain("all")
+        }
+        expect(readFileSync(join(fixture.root, "outputs"), "utf8")).toContain(`execution_mode=${mode}\n`)
+      } finally {
+        for (const path of [".ci", "outputs", "summary"]) {
+          rmSync(join(fixture.root, path), { recursive: true, force: true })
+        }
       }
-      expect(readFileSync(join(fixture.root, "outputs"), "utf8")).toContain(`execution_mode=${mode}\n`)
-    } finally {
-      fixture.cleanup()
-    }
+    })
+
   })
 
   it("detects dependency changes from package manifests instead of branch names", () => {
