@@ -87,6 +87,51 @@ function composerAttachments(page: Page) {
   return page.getByTestId(tid.composerInput).locator("../..")
 }
 
+async function selectFromFocusedComposer(page: Page, pointer: "mouse" | "touch", file: { name: string; mimeType: string; buffer: Buffer }) {
+  const editable = composerEditable(page)
+  await expect(editable).toBeFocused()
+  const caret = await editable.evaluate(element => {
+    const text = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode()
+    const selection = element.ownerDocument.getSelection()
+    if (!text?.textContent || !selection) throw new Error("A focused nonempty draft is required")
+    const offset = Math.floor(text.textContent.length / 2)
+    selection.setBaseAndExtent(text, offset, text, offset)
+    return { text: text.textContent, anchor: offset, focus: offset, collapsed: true, inside: true }
+  })
+  expect(caret.anchor).toBeGreaterThan(0)
+  expect(caret.anchor).toBeLessThan(caret.text.length)
+  const readCaret = () => editable.evaluate(element => {
+    const selection = element.ownerDocument.getSelection()
+    return {
+      text: selection?.anchorNode?.textContent ?? null,
+      anchor: selection?.anchorOffset ?? null,
+      focus: selection?.focusOffset ?? null,
+      collapsed: selection?.isCollapsed ?? false,
+      inside: !!selection?.anchorNode && element.contains(selection.anchorNode) && !!selection.focusNode && element.contains(selection.focusNode),
+    }
+  })
+  let chooserCount = 0
+  const onChooser = () => { chooserCount++ }
+  page.on("filechooser", onChooser)
+  try {
+    const attach = page.getByTestId(tid.composerAttach)
+    const [chooser] = await Promise.all([
+      page.waitForEvent("filechooser"),
+      pointer === "touch" ? attach.tap() : attach.click(),
+    ])
+    expect(chooserCount).toBe(1)
+    expect(chooser.isMultiple()).toBe(true)
+    await expect(editable).toBeFocused()
+    expect(await readCaret()).toEqual(caret)
+    await chooser.setFiles(file)
+    await expect(editable).toBeFocused()
+    expect(await readCaret()).toEqual(caret)
+    expect(chooserCount).toBe(1)
+  } finally {
+    page.off("filechooser", onChooser)
+  }
+}
+
 test.describe("same-tab Community attachment drafts", () => {
   async function prepareCase1(actors: CaseActors) {
     const { userId } = actors
@@ -382,7 +427,7 @@ test.describe("same-tab Community attachment drafts", () => {
 
     const channelAText = `image draft ${Date.now()}`
     await composerEditable(page).fill(channelAText)
-    await page.getByTestId(tid.composerFileInput).setInputFiles({
+    await selectFromFocusedComposer(page, "mouse", {
       name: "scope-image.png",
       mimeType: "image/png",
       buffer: PNG_1X1,
@@ -516,7 +561,7 @@ test.describe("same-tab Community attachment drafts", () => {
     const { asUser } = actors
     const { serverId, channelAId, channelBId } = await prepareCase1(actors)
 
-    const { page } = await asUser("alice")
+    const { page } = await asUser("alice", { hasTouch: true })
     await installInputCapability(page, false)
     await page.setViewportSize({ width: 390, height: 844 })
     const channelA = `/c/channels/${serverId}/${channelAId}`
@@ -528,7 +573,7 @@ test.describe("same-tab Community attachment drafts", () => {
     }).toPass({ timeout: 20_000 })
     const body = `mobile restored image ${Date.now()}`
     await composerEditable(page).fill(body)
-    await page.getByTestId(tid.composerFileInput).setInputFiles({
+    await selectFromFocusedComposer(page, "touch", {
       name: "mobile-image.png",
       mimeType: "image/png",
       buffer: PNG_1X1,

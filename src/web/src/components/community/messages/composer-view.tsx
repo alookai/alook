@@ -228,6 +228,9 @@ export function ComposerView({
             data-testid={tid.composerAttach}
             className="absolute left-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
             aria-label="Add file"
+            onPointerDown={(event) => {
+              if (event.isPrimary && event.button === 0 && editor?.isFocused) event.preventDefault()
+            }}
             onClick={onUploadFile}
           >
             <PlusCircle className="size-5" />
