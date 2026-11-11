@@ -587,8 +587,8 @@ function workspaceMemorySection(config: HostLaunchConfig): string {
 
 export function buildCliSystemPrompt(config: HostLaunchConfig): string {
   const sections: string[] = [
-    communicationFirstSection(),
     identitySection(config),
+    communicationFirstSection(),
     goodMessageContentSection(),
     cliCommandsSection(),
     messagingSection(),
