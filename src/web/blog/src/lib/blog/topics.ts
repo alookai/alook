@@ -108,7 +108,7 @@ export const blogTopics = [
       },
       {
         slug: "alook-vs-grok-bot",
-        userJob: "Compare Alook and Grok Bot by setup, always-on work, and Bot sharing.",
+        userJob: "Choose an open-source Grok Bot alternative while keeping my team’s existing agents and projects",
       },
       { slug: "ask-coworker-codex-claude-code", userJob: "Let coworkers talk to the coding agents that did the work" },
       { slug: "why-we-built-alook", userJob: "Understand why Alook exists (founder narrative)" },

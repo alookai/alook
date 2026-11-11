@@ -1,69 +1,93 @@
 export const metadata = {
-  slug: "alook-vs-grok-bot",
-  title: "Alook vs Grok Bot: Local AI Agents and Cloud Work",
-  date: "2026-09-30",
-  author: "Alook Team",
-  excerpt: "Compare Alook and Grok Bot by setup, always-on work, and Bot sharing. Check which fits the tools and agents you want to use.",
-  readingTime: "5 min read",
-  image: "/blog/alook-vs-grok-bot/hero.webp",
+  "slug": "alook-vs-grok-bot",
+  "title": "Grok Bot Alternative for Teams With Their Own Agents",
+  "date": "2026-09-30",
+  "dateModified": "2026-11-11",
+  "author": "Alook Team",
+  "excerpt": "Looking for a Grok Bot alternative? See how Alook brings your existing agents into team conversations, and compare setup, sharing, and execution.",
+  "readingTime": "5 min read",
+  "image": "/blog/alook-vs-grok-bot/hero.webp"
 };
 
-![Conceptual UI illustration with a dark-blue document panel, two human participant cards, and one agent card.](/blog/alook-vs-grok-bot/hero.webp)
+Your colleague already uses Codex in a project. You use Claude Code or Cursor for your own work. Looking for a Grok Bot alternative shouldn't mean starting those setups again.
 
-**Grok Bot supplies a hosted computer for its Bots. Alook connects agents running on your machines to conversations with other people and agents.** Both support conversations involving several agents. The choice starts with the tools and files you want the agent to use, and where you want that work to run.
+Grok Bot comes with persistent Bots and a hosted computer. We built Alook for [multi agent collaboration](https://alook.ai/) with the agents your team already uses. Your coding bot works with the project on your computer. Your colleague talks to that bot in the same place you discuss the task.
 
-This comparison is by the Alook team, using public documentation checked September 29, 2026. We have not run a comparative performance test. Grok Bot here refers to the persistent Bot product, distinct from general Grok chat and the Grok Build CLI.
+![Official Grok Bot and Alook marks on a diagonal cream and blue cover, labeled Hosted Bots and Bring your agents.](/blog/alook-vs-grok-bot/hero.webp)
 
-## What needs setting up before work can start?
+## An open-source Grok Bot alternative for your existing agents
 
-Grok Bot gives you the computer; you connect the accounts and files the job needs. For Alook, you set up a supported agent runtime on your machine and connect it to the conversation.
+Alook is [open source](https://github.com/alookai/alook) and brings the agent setup that already works for you into the team's conversation.
 
-| Setup decision | Grok Bot | Alook |
-|---|---|---|
-| Execution machine | Hosted computer included | Your connected machine |
-| Task access | Sign in and connect the services needed | Configure access in your agent runtime |
-| Model selection | Managed by Cursor, per Grok Bot docs | Your connected runtime |
+<div className="overflow-x-auto thin-scrollbar">
+<div style={{ minWidth: "720px" }}>
 
-Grok Bot provides a browser and command-line tools for working with apps and files. You choose which services are available to the account. Within one account, all Bots share the same cloud computer, including browser sessions, files, and command-line credentials; installed connectors are account-wide. It can also run local tasks when enabled, subject to the applicable approval policy. [Computer and apps](https://docs.x.ai/grok-bot/computer-and-apps)
+| Your decision | Grok Bot | Alook |
+| --- | --- | --- |
+| Where the work runs | A persistent hosted computer, with optional local commands under your policy | The computer and supported agent software each bot's owner connects |
+| What the team shares | Team-shared Bots, group chats, and connected channels such as Slack | Conversations with people and their existing bots |
+| Who chooses the agent setup | Grok Bot manages the agent and model selection | Each owner configures their agent and tools |
+| What stays online | The hosted computer can work independently of your laptop | Each bot needs the computer running it to stay online |
 
-Grok Bot's [team documentation](https://docs.x.ai/grok-bot/teams-and-enterprises#architecture) says its computers run in Cursor's cloud and Cursor manages model selection. That is the arrangement documented on September 29, 2026. Some administrative controls are available only on the Enterprise plan.
+</div>
+</div>
 
-In Alook, the agent uses its owner's runtime and tools. You can use hosted Alook or self-host the collaboration service while the agent runs on its connected machine. [Local agent setups](https://alook.ai/blog/local-ai-agents)
+We wouldn't replace Grok Bot just to get a group chat; it already supports teamwork. What we want to keep is each person's agent, project setup, and control over its tools. Alook can host the conversation, or you can host it yourself. Your bots still work on the computers you connect.
 
-Suppose your agent already works with a project folder and a command-line tool you configured. Keeping that setup may save you from rebuilding it elsewhere. Moving to a provided computer means arranging access to that folder and tool there.
+Alook has a [free plan](https://alook.ai/pricing). Your agent and model costs stay with the tools you use.
 
-A local runtime may still send prompts to a hosted model. For material that must stay on your machine, the model provider and tool data paths matter too.
+## Review a launch announcement with your team’s existing AI agents
 
-## Can Alook and Grok Bot keep working after you leave?
+A marketing colleague has a launch announcement to finish. Their writing bot has prepared the draft, and an engineer's Codex already works with the product repository.
 
-Yes. Alook can stay available while its machine is powered on and connected, with the agent process running. Closing the chat does not end that process. A laptop can keep working with its lid closed if the machine keeps running. If the host actually sleeps or disconnects, the agent cannot execute tasks. [Alook availability](https://alook.ai/blog/local-ai-agents#what-happens-to-an-alook-agent-when-its-host-machine-is-offline)
+The marketing colleague posts the announcement in their shared Alook channel. The engineer asks Codex to check its feature claims against the code changes and PR status.
 
-Grok Bot's hosted work continues independently of the laptop used to access it. That is useful if you want to shut down your personal computer and leave execution elsewhere. [Hosted computer behavior](https://docs.x.ai/grok-bot/computer-and-apps)
+One sentence says a new feature is available. Codex finds the implementation, but its PR is still open. The code exists. The change hasn't been merged. Codex posts the PR beside the draft and flags the availability claim.
 
-You could chat from a laptop while your Alook agent works on a separate computer you leave running at home. An agent running on the laptop you carry around depends on that laptop's power and network connection throughout the task.
+The marketing colleague asks Codex whether that sentence needs to come out entirely or can describe something already released. After checking the answer with the engineer, they remove the promise and ask the writing bot to revise the surrounding paragraph.
 
-An online agent can still pause for your answer or a service login. Plan for those interruptions during a long task.
+**The announcement no longer promises a feature that hasn't shipped.** The marketing colleague has the evidence behind that change, and the engineer has checked the wording. The team can finish the announcement without treating unfinished code as a release.
 
-## What does sharing a Bot give your teammate?
+![Illustrative announcement review: a marketing colleague’s writing bot drafts an availability claim; an engineer’s Codex finds the PR is unmerged, and the colleague removes the claim in their shared Alook conversation.](/blog/alook-vs-grok-bot/announcement-review.webp)
 
-Grok Bot has group chats where Bots can pass work to one another. Sharing a Bot template is a separate action. [Groups and handoffs](https://docs.x.ai/grok-bot/chat-and-collaboration)
+*Illustrative workflow: check the PR before announcing availability.*
 
-A shared Grok Bot template creates a Bot in the recipient's account. A colleague who wants their own research assistant can start with that configuration, then connect their accounts and add their project material. [Share a Bot](https://docs.x.ai/grok-bot/bots#share-a-bot)
+## Can Grok Bot run locally?
 
-Alook lets a teammate address another owner's existing agent when both can access the same channel. Use this when you want to follow up with the agent already doing the work. Include the result you are asking about: the agent keeps its identity, but a different runtime session may need that context again. [How Alook participation works](https://alook.ai/blog/introducing-alook)
+For a local model, the first choice is which agent and model provider to run. Changing the chat space won't turn hosted inference into local inference. The word “local” on its own doesn't tell you enough.
 
-![Grok Bot copies an original Bot setup to a recipient's new Bot. In Alook, an owner and teammate speak with one original agent through a shared channel.](/blog/alook-vs-grok-bot/sharing.webp)
+### Run Grok Bot commands on your local computer
 
-*Two specific operations: a Grok Bot template copy and participation in an Alook channel. The template grants no access to the original computer, logins, or conversation history. Channel membership adds no tool permissions.*
+Grok Bot can [run commands on your computer](https://docs.x.ai/grok-bot/computer-and-apps#your-local-computer-is-separate) once local execution is enabled, with per-command approval as the default. It can work with local files. Reading a repository doesn't require a move to Alook.
 
-The Grok documentation reviewed does not establish whether two people can bring their existing Bots into the same group. If that exact interaction matters, ask for a demonstration before choosing. A demonstration of one person directing several Bots would answer a different question.
+### Can you self-host Grok Bot?
 
-## Try the setup with a task you know
+Running the whole product yourself is different. Grok Bot uses [Cursor-hosted computers](https://docs.x.ai/grok-bot/security); on-premises and bring-your-own-image deployment aren't supported. It also has no customer-facing model picker.
 
-Use a familiar task so you can spot missing access and mistakes in the result. We suggest the following checks; we have not run this trial:
+### Local AI agents and local models in Alook
 
-- Ask the agent to open the folder or service the task uses. Note anything you have to copy or connect first.
-- Leave the chat while keeping the execution machine available. Return later and check where the task progressed or waited for you.
-- Compare the result with the source material. Record the corrections you made before you could use it.
+Alook lets you keep the agent software you've set up beside your project. The model it calls still depends on that agent's configuration: a locally running agent can use a hosted model. Our [local AI agents guide](/blog/local-ai-agents) goes into the different setups.
 
-Start with Grok Bot if you want a provided computer. To keep working with your existing agent setup, [try Alook](https://alook.ai/) with a teammate.
+## Grok Bot Shared Bots and Alook group conversations
+
+Grok Bot's [Shared Bots](https://docs.x.ai/grok-bot/shared-bots) let Cursor teammates use the same Bot in group chats while keeping each person's private chat private. Shared Bots run in the cloud.
+
+Alook keeps [each owner's bot in the discussion](/blog/introducing-alook). The marketing colleague keeps their writing bot, the engineer keeps their coding bot, and teammates address either one directly in the project channel. A colleague questions the agent that supplied a finding, with its owner there to help explain it.
+
+While updating one of our comparison articles, we found tool names broken into fragments in the mobile tables. One bot had prepared the copy; another caught the layout problem in the mobile view. The fix was to give the tables room to scroll. We kept the problem, the correction, and the final check in the article's discussion.
+
+That's why we care about keeping the people and bots doing the work in the conversation. A finding needs somewhere to go, and someone needs to act on it.
+
+Alook lets the team keep its tools and project knowledge with the colleagues who already use them. When you need another bot for the work, an existing bot can request one for you to approve.
+
+## Keep working with your laptop closed: Grok Bot vs Alook
+
+A provided computer is a real advantage if you don't want to keep one running yourself. You can close your laptop and leave Grok Bot's cloud work going. For a team already using its mobile app and Slack connection, that's a good reason to stay.
+
+With Alook, the computer running a bot needs to stay online. You could leave a separate machine running and check its work from your phone. Put that bot on the laptop you carry around, though, and it stops executing when the laptop sleeps.
+
+## Keep the agent behind the answer in the conversation
+
+Our tutorial shows [how to connect Codex and Claude Code to Alook](/tutorials/codex-and-claude-code).
+
+When a claim comes from your engineer's Codex, your teammate can ask that same Codex what it checked. That's the exchange we built Alook to keep in the team's conversation.
