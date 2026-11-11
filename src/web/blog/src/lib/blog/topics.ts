@@ -31,6 +31,7 @@ export const blogTopics = [
       { slug: "ai-agent-collaboration-platforms", userJob: "Choose an agent collaboration platform by application, workflow, and workspace needs" },
       { slug: "multi-agent-workflow-patterns", userJob: "Pick a workflow pattern for my multi-agent setup" },
       { slug: "run-ai-agent-team-that-stays-on-track", userJob: "Keep a running agent team from drifting" },
+      { slug: "paperclip-alternatives", userJob: "Choose a Paperclip alternative for direct agent work, coding review, reusable research, or shared team conversations" },
     ],
   },
   {
