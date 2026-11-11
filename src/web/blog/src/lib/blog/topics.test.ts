@@ -47,14 +47,14 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 38 published slugs exactly once", () => {
+  it("covers all 35 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(38);
-    expect(new Set(slugs).size).toBe(38);
+    expect(slugs).toHaveLength(35);
+    expect(new Set(slugs).size).toBe(35);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -73,7 +73,6 @@ describe("blogTopics", () => {
         "cursor-vs-claude-code",
         "claude-code-vs-codex",
         "claude-code-codex-cursor-grok-which-to-choose",
-        "ai-team-vs-ai-tools",
         "claude-code-subagents-vs-independent-agents",
         "claude-code-and-codex-same-team",
         "claude-code-dynamic-workflow-alternative",
@@ -100,8 +99,6 @@ describe("blogTopics", () => {
       ],
       [
         "personal-ai-company",
-        "multi-agent-collaboration-without-code",
-        "no-code-automation-ai-agents",
       ],
     ]);
   });
@@ -147,8 +144,6 @@ describe("blogTopics", () => {
         "Keep a running agent team from drifting",
       "paperclip-alternatives":
         "Choose a Paperclip alternative for direct agent work, coding review, reusable research, or shared team conversations",
-      "ai-team-vs-ai-tools":
-        "Stop being the copy-paste layer between coding agents",
       "claude-code-subagents-vs-independent-agents":
         "Choose nested vs independent agents for my Claude Code work",
       "claude-code-and-codex-same-team":
@@ -181,10 +176,6 @@ describe("blogTopics", () => {
       "how-to-build-liquid-software":
         "Turn user feedback into code changes by putting my coding agent in my user community",
       "personal-ai-company": "Run a one-person company with AI agents",
-      "multi-agent-collaboration-without-code":
-        "Coordinate multiple agents without writing orchestration code",
-      "no-code-automation-ai-agents":
-        "Choose between trigger-action automation and agent teams",
     });
   });
 
@@ -198,14 +189,21 @@ describe("blogTopics", () => {
 
 describe("topic discovery", () => {
   it("returns posts in the locked topic order and filters missing posts", () => {
-    const topic = blogTopics[3];
+    const topic = blogTopics[0];
     const available = allPosts.filter(
-      (candidate) => candidate.slug !== "multi-agent-collaboration-without-code"
+      (candidate) => candidate.slug !== "ai-agent-orchestration"
     );
 
     expect(getPostsForTopic(topic, available).map((candidate) => candidate.slug)).toEqual([
-      "personal-ai-company",
-      "no-code-automation-ai-agents",
+      "ai-agent-vs-chatbot",
+      "grok-bot-vs-meta-muse-vs-manus-cue",
+      "personal-agents-vs-coding-agents",
+      "local-ai-agents",
+      "how-to-delegate-tasks-to-ai-agents",
+      "ai-agent-collaboration-platforms",
+      "multi-agent-workflow-patterns",
+      "run-ai-agent-team-that-stays-on-track",
+      "paperclip-alternatives",
     ]);
   });
 

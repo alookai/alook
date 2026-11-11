@@ -45,6 +45,42 @@ describe("Blog Worker entrypoint", () => {
 		expect(response.status).toBe(404);
 	});
 
+	it.each([
+		"ai-team-vs-ai-tools",
+		"multi-agent-collaboration-without-code",
+		"no-code-automation-ai-agents",
+	])("returns 410 directly for retired article %s", async (slug) => {
+		for (const suffix of ["", "/", "?utm_source=old-link", "/?utm_source=old-link"]) {
+			for (const method of ["GET", "HEAD"]) {
+				const response = await worker.fetch(new Request(`https://alook.ai/blog/${slug}${suffix}`, { method }));
+				expect(response.status).toBe(410);
+				expect(response.headers.get("Location")).toBeNull();
+				expect(response.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
+				expect(response.headers.get("X-Robots-Tag")).toBe("noindex");
+				expect(response.headers.get("Cache-Control")).toBe("public, max-age=0, must-revalidate");
+				const body = await response.text();
+				if (method === "HEAD") expect(body).toBe("");
+				else expect(body).toContain("This article has been removed.");
+			}
+		}
+		expect(mocks.openNextFetch).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"/blog/claude-code-and-codex-same-team",
+		"/blog/prevent-claude-code-codex-duplicating-work",
+		"/blog/prevent-codex-opencode-duplicating-work",
+		"/blog/prevent-claude-code-opencode-duplicating-work",
+		"/blog/ai-team-vs-ai-tools-extra",
+		"/blog/ai-team-vs-ai-tools/hero.webp",
+		"/blog/no-such-article",
+		"/blog/ai-agent-team",
+	])("delegates nonretired path %s unchanged", async (path) => {
+		const request = new Request(`https://alook.ai${path}`);
+		expect((await worker.fetch(request)).status).toBe(200);
+		expect(mocks.openNextFetch).toHaveBeenCalledWith(request, expect.anything(), expect.anything());
+	});
+
 	it.each(["/_next/static/chunks/app.js", "/blog-static/_next/static/chunks/app.js", "/blog/post/hero.webp", "/og/blog/post", "/unknown"])("does not apply document headers to %s", async (pathname) => {
 		const response = new Response("asset", { headers: { "Cache-Control": "public, max-age=31536000, immutable", "Content-Type": "image/webp" } });
 		mocks.openNextFetch.mockResolvedValueOnce(response);

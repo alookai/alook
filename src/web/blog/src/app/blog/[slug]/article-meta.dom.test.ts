@@ -7,8 +7,8 @@ import { BlogPostByline, buildBlogPostMetadata } from "./article-meta";
 
 
 const post: BlogPost = {
-  slug: "ai-team-vs-ai-tools",
-  image: "/blog/ai-team-vs-ai-tools/hero.webp",
+  slug: "multiple-ai-agents-edit-same-repository",
+  image: "/blog/multiple-ai-agents-edit-same-repository/hero.webp",
   title: "Visible article title",
   seoTitle: "Search article title",
   date: "2026-08-20",
@@ -29,7 +29,7 @@ describe("article metadata", () => {
       modifiedTime: "2026-09-01",
       images: [
         {
-          url: "/blog/ai-team-vs-ai-tools/hero.webp",
+          url: "/blog/multiple-ai-agents-edit-same-repository/hero.webp",
           width: 1536,
           height: 1024,
           alt: "Search article title",
@@ -39,7 +39,7 @@ describe("article metadata", () => {
   });
 
   it("uses the generated OG route dimensions without a custom image", () => {
-    expect(buildBlogPostMetadata({ ...post, image: undefined }).openGraph).toMatchObject({ images: [{ url: "/og/blog/ai-team-vs-ai-tools", width: 1200, height: 630 }] });
+    expect(buildBlogPostMetadata({ ...post, image: undefined }).openGraph).toMatchObject({ images: [{ url: "/og/blog/multiple-ai-agents-edit-same-repository", width: 1200, height: 630 }] });
     expect(() => buildBlogPostMetadata({ ...post, image: "/blog/missing.webp" })).toThrow("Unprepared");
   });
 

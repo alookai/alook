@@ -2,6 +2,10 @@
 
 Blog is an independently built Next.js/MDX app. Author articles in `src/content/<slug>.mdx` and keep their images in `public/blog/<slug>/`. Keep the existing article URL when revising a post; use the redirect registry for an intentional URL move.
 
+## Retiring an article
+
+An editorially approved deletion without a replacement belongs in `src/lib/blog/gone.json`. The Blog Worker returns HTTP 410 for the exact article path, including trailing-slash and query variants; HEAD has no body. Remove the MDX, topic entry and editorial links, then regenerate image metadata with the full build. Discovery, RSS and sitemap consume the remaining published set. Keep intentional URL moves in `redirects.json`; do not replace a deletion with a 200 error document or an unrelated redirect.
+
 ## Required article elements
 
 Use an exported JavaScript metadata object, **not YAML frontmatter**:
