@@ -101,7 +101,6 @@ export function useScrollAnchor({
   positionScope,
   onScrollTargetPositioned,
   onScrollTargetCancelled,
-  hasMoreOlder,
   hasMoreNewer,
   isFetchingOlder,
   isFetchingNewer,
@@ -186,6 +185,7 @@ export function useScrollAnchor({
   const entryActivationRef = useRef({ entry: positionEntry, seen: visible })
   const dataState = positionDataState ?? (initialScrollReady ? items.some(item => item.kind === "message") ? "ready" : "empty" : "pending")
   const targetDataState = targetPositionDataState ?? dataState
+  const previousDataStateRef = useRef(dataState)
   const [requestRevision, setRequestRevision] = useState(0)
   const newReadingRef = useRef(false)
   const [newDividerVisibility, setNewDividerVisibility] = useState<"above" | "visible" | "below" | "pending">("pending")
@@ -454,7 +454,7 @@ export function useScrollAnchor({
   const awaitingTarget = !!scrollToMessageId && positionedTargetRef.current !== scrollToMessageId
 
   const getItemKey = useCallback((index: number) => items[index].key, [items])
-  const estimateSize = useCallback((index: number) => estimateRowHeight(items[index], !!hasMoreOlder), [items, hasMoreOlder])
+  const estimateSize = useCallback((index: number) => estimateRowHeight(items[index]), [items])
   const scrollToFn = useCallback<ReactVirtualizer<HTMLDivElement, Element>["options"]["scrollToFn"]>((offset, options, native) => {
     const owner = positionOwnerRef.current
     const epoch = owner.epoch
@@ -1357,6 +1357,25 @@ export function useScrollAnchor({
       startIntent(initialPositionMessageId ? "target" : "end", initialPositionMessageId ?? null)
     } else scheduleInitialPositionSettled()
   }, [dataState, targetDataState, hasMessages, initialPositionMessageId, initialScrollReady, items, newDividerBefore, positionEntry, positionKind, releasePosition, scheduleInitialPositionSettled, setReadPositionReady, startIntent, virtualItems, visible])
+
+  useLayoutEffect(() => {
+    const previous = previousDataStateRef.current
+    previousDataStateRef.current = dataState
+    const owner = positionOwnerRef.current
+    const geometry = acceptedGeometryRef.current
+    const native = virtualizerRef.current
+    if (previous !== "pending" || dataState !== "ready" || !visible || !owner.active || entryChanged
+      || positionKind.get() !== "idle" || !readReady.get() || !initialScrollReady
+      || initialPositionMessageId || scrollToMessageId || pendingLocalSubmit || followSuspension.get()
+      || hasMoreNewer || isFetchingOlder || isFetchingNewer || paginationRef.current
+      || geometry?.epoch !== owner.epoch || !geometry.pinEligible || !native || native.isAtEnd(1)) return
+    // Synthetic prefix rows can hide an append-with-trim from native follow detection.
+    // Reuse the initial position owner for its already-pinned local tail confirmation.
+    claimPosition("initial")
+    startIntent("end", null, "auto")
+  }, [claimPosition, dataState, entryChanged, followSuspension, hasMoreNewer, initialPositionMessageId,
+    initialScrollReady, isFetchingNewer, isFetchingOlder, pendingLocalSubmit, positionKind, readReady,
+    scrollToMessageId, startIntent, visible])
 
   const scrollToBottom = useCallback(() => {
     if (!positionOwnerRef.current.active || !contextRef.current.visible) return

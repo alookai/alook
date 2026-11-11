@@ -2,7 +2,7 @@ import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse }
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
 import { readFileSync } from "node:fs"
-import { CONTROL_HEARTBEAT_CAPABILITY, DEV_PASSWORD, HostReadyMessageSchema } from "@alook/shared"
+import { CONTROL_HEARTBEAT_CAPABILITY, DEV_PASSWORD, HostReadyMessageSchema, CommunityConversationEntryReadSchema } from "@alook/shared"
 import { HostCommandSchema } from "@alook/shared/community-cli-contract"
 import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
 import type { APIResponse, Page, Request, TestInfo } from "@playwright/test"
@@ -11,6 +11,8 @@ import { expectPublicCommunityDocument, expectUniqueSsrCommunityFrame } from "./
 import { PERSIST_ACCOUNT_PREFIX, PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
 import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
+import { holdRoute } from "./_fixtures/held-route"
+import { waitForStableTail } from "./_fixtures/message-scroll-characterization"
 
 import { tid } from "./_fixtures/testids"
 import type { CaseResources } from "./_fixtures/case-fixture"
@@ -148,12 +150,45 @@ async function clearQueryPersistence(page: Page) {
   }))
 }
 
+type ReloadTailTarget = { channelId: string; messageId: string }
+
+async function readReloadTailGeometry(page: Page, target: ReloadTailTarget) {
+  const frame = await expectUniqueSsrCommunityFrame(page)
+  const surface = frame.locator(`[data-slot="community-conversation-surface"][data-channel-id="${target.channelId}"]`)
+  const scroller = surface.getByTestId(tid.messageScroller)
+  await waitForStableTail(scroller, "warm reload tail clearance")
+  const geometry = await scroller.getByTestId(tid.message(target.messageId)).evaluate((element, scrollerTestId) => {
+    const body = element as HTMLElement
+    const root = body.closest<HTMLElement>(`[data-testid="${scrollerTestId}"]`)
+    const footer = root?.closest('[data-slot="community-conversation-surface"]')
+      ?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
+    if (!root || !footer) throw new Error("Message tail and footer must share the actual conversation surface")
+    const message = body.getBoundingClientRect()
+    const composer = footer.getBoundingClientRect()
+    return {
+      messageId: body.dataset.msgId, clearance: composer.top - message.bottom,
+      bodyHeight: message.height, footerHeight: composer.height,
+      scrollHeight: root.scrollHeight, clientHeight: root.clientHeight,
+      readReady: root.querySelector('[data-read-position-ready]')?.getAttribute('data-read-position-ready'),
+      paginationEnabled: root.getAttribute('data-pagination-enabled'),
+    }
+  }, tid.messageScroller)
+  expect(geometry.messageId).toBe(target.messageId)
+  expect(geometry.bodyHeight).toBeGreaterThan(0)
+  expect(geometry.footerHeight).toBeGreaterThan(0)
+  expect(geometry.scrollHeight - geometry.clientHeight).toBeGreaterThan(1)
+  return geometry
+}
+
 async function expectCacheFirstReload(
   page: Page,
   assertEntryContent: () => Promise<void>,
   assertCachedContent: () => Promise<void>,
-  assertReconciledContent: () => Promise<void>, caseResources: CaseResources, independentParentEntry?: string
+  assertReconciledContent: () => Promise<void>, caseResources: CaseResources, independentParentEntry?: string,
+  tailTarget?: ReloadTailTarget,
 ): Promise<ReloadCapture> {
+  const tailSamples: Array<{ phase: string; geometry: Awaited<ReturnType<typeof readReloadTailGeometry>> }> = []
+  if (tailTarget) tailSamples.push({ phase: "before-reload", geometry: await readReloadTailGeometry(page, tailTarget) })
   await page.addInitScript((loadingSelectors) => {
     const state = {
       customBootstrapSeen: false,
@@ -227,6 +262,8 @@ async function expectCacheFirstReload(
     }
     await route.continue().catch(() => { })
   })
+  const entryGate = tailTarget ? await holdRoute(page, url => url.pathname === `/api/community/channels/${tailTarget.channelId}/messages`
+    && url.searchParams.get("entry") === "1", caseResources) : null
   let wsAttempts = 0
   await page.routeWebSocket((url) => url.pathname.endsWith("/user"), (socket) => {
     wsAttempts += 1
@@ -236,6 +273,12 @@ async function expectCacheFirstReload(
   try {
     await page.reload({ waitUntil: "commit" })
     await assertEntryContent()
+    if (entryGate && tailTarget) {
+      await expect.poll(entryGate.held).toBeGreaterThan(0)
+      const geometry = await readReloadTailGeometry(page, tailTarget)
+      tailSamples.push({ phase: "entry-held", geometry })
+      expect(Math.abs(geometry.clearance - tailSamples[0].geometry.clearance)).toBeLessThanOrEqual(1)
+    }
     if (independentParentEntry) {
       await expect.poll(() => parentEntryAttempts).toBe(1)
       expect(forwardedParentEntries).toBe(0)
@@ -281,13 +324,35 @@ async function expectCacheFirstReload(
     await assertCachedContent()
     if (independentParentEntry) expect(forwardedParentEntries).toBe(1)
     expect(forwardedMessages).toBe(0)
+    if (entryGate && tailTarget) {
+      const response = page.waitForResponse(response => response.request().method() === "GET"
+        && new URL(response.url()).pathname === `/api/community/channels/${tailTarget.channelId}/messages`
+        && new URL(response.url()).searchParams.get("entry") === "1")
+      await entryGate.release()
+      const received = await response
+      expect(received.status()).toBe(200)
+      const entry = CommunityConversationEntryReadSchema.parse(await received.json())
+      expect(entry.channelId).toBe(tailTarget.channelId)
+      expect(entry.messages.at(-1)?.id).toBe(tailTarget.messageId)
+    }
     releaseMessages()
     await assertReconciledContent()
+    if (tailTarget) {
+      const geometry = await readReloadTailGeometry(page, tailTarget)
+      tailSamples.push({ phase: "entry-confirmed", geometry })
+      expect(Math.abs(geometry.clearance - tailSamples[0].geometry.clearance)).toBeLessThanOrEqual(1)
+      expect(Math.abs(geometry.clearance - tailSamples[1].geometry.clearance)).toBeLessThanOrEqual(1)
+    }
     return capture
   } finally {
     releaseReads()
     releaseMessages()
-    await page.unroute("**/api/community/**")
+    try { await entryGate?.release() } finally {
+      await page.unroute("**/api/community/**")
+      if (tailSamples.length) await test.info().attach("warm-reload-tail-clearance", {
+        body: JSON.stringify(tailSamples, null, 2), contentType: "application/json",
+      })
+    }
   }
 }
 
@@ -355,6 +420,7 @@ test("a warm channel reload shows entry-qualified cached content while browser r
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `Warm channel ${suffix}`)
   const channelId = await seedChannel("alice", serverId, `warm-${suffix}`)
+  for (let index = 0; index < 40; index += 1) await seedMessage("alice", channelId, `Warm history ${index}\n\nSecond paragraph for a scrollable cached window.`)
   const body = `cached channel ${suffix}`
   const messageId = await seedMessage("alice", channelId, body)
   const { page } = await asUser("alice")
@@ -379,7 +445,7 @@ test("a warm channel reload shows entry-qualified cached content while browser r
   }, async () => {
     await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-  }, caseResources)
+  }, caseResources, undefined, { channelId, messageId })
 })
 
 test("a warm DM reload shows entry-qualified identity and history before browser reads", async ({ caseActors, caseResources }) => {
@@ -390,6 +456,7 @@ test("a warm DM reload shows entry-qualified identity and history before browser
   const { seedDm, seedDmMessage } = actors.seed
 
   const dmId = await seedDm("alice", userId("bob"))
+  for (let index = 0; index < 40; index += 1) await seedDmMessage("bob", dmId, `Warm DM history ${index}\n\nSecond paragraph for a scrollable cached window.`)
   const body = `cached dm ${Date.now()}`
   const messageId = await seedDmMessage("bob", dmId, body)
   const { page } = await asUser("alice")
@@ -422,7 +489,7 @@ test("a warm DM reload shows entry-qualified identity and history before browser
     const frame = await expectUniqueSsrCommunityFrame(page)
     await expect(frame.getByTestId(tid.message(messageId))).toBeVisible()
     await expect(frame.getByTestId(tid.composerInput)).toBeVisible()
-  }, caseResources)
+  }, caseResources, undefined, { channelId: dmId, messageId })
 })
 
 test("a warm desktop thread reload qualifies its child and independently reconciles its parent entry", async ({ caseActors, caseResources }) => {

@@ -1016,7 +1016,32 @@ describe("conversation entry return during accepted reading", () => {
     const entryRead = deferred<ReturnType<typeof fixture>>()
     const originalLoad = load.getMockImplementation()!
     let view: ReturnType<typeof mountReadingEntry> | undefined
+    const phases: unknown[] = [], writes: unknown[] = [], optionsTimeline: unknown[] = []
+    let phase = "mount-pending"
+    const capture = () => {
+      if (!view) return
+      const { feed, controller } = view.latest
+      const native = controller.virtualizer, root = view.root
+      const body = root.querySelector<HTMLElement>('[data-msg-id="m42"]')?.getBoundingClientRect()
+      phases.push({ phase, scrollTop: root.scrollTop, scrollHeight: root.scrollHeight, clientHeight: root.clientHeight,
+        nativeOffset: native.scrollOffset, total: native.getTotalSize(), anchorTo: native.options.anchorTo,
+        followOnAppend: native.options.followOnAppend,
+        readReady: controller.readPositionReady, contentVisible: controller.initialPosition.contentVisible,
+        positionDataState: feed.positionDataState, initialDisplayReady: feed.initialDisplayReady,
+        initialPositionKnown: feed.initialPositionKnown, initialTarget: feed.initialPositionMessageId,
+        first: feed.messages[0]?.id, last: feed.messages.at(-1)?.id, hasMoreOlder: feed.hasMoreOlder, hasMoreNewer: feed.hasMoreNewer,
+        visibleTail: view.visible("m42"), tailRect: body ? { top: body.top, bottom: body.bottom, height: body.height } : null,
+        leading: { ...native.measurementsCache[0] }, leadingCachedSize: native.itemSizeCache.get(native.options.getItemKey(0)) ?? null,
+        virtualFirst: native.getVirtualItems()[0], virtualLast: native.getVirtualItems().at(-1) })
+    }
     try {
+      const originalScrollTo = HTMLElement.prototype.scrollTo
+      vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(function(this: HTMLElement, ...args: [options?: ScrollToOptions] | [x: number, y: number]) {
+        const before = this.scrollTop
+        Reflect.apply(originalScrollTo, this, args)
+        writes.push({ phase, before, requested: typeof args[0] === "number" ? args[1] : args[0]?.top, after: this.scrollTop,
+          nativeStack: new Error().stack?.split("\n").filter(line => /resizeItem|applyScrollAdjustment|_scrollToOffset|setOptions/.test(line)) })
+      })
       expect(submitReadIntentGeneration(owner.lease, { kind: "timeline", channelId: "c1", messageId: "m42", seq: 42 })).not.toBeNull()
       owner.client.setQueryData(originalKey, { ...originalWindow, pages: originalWindow.pages.map(page => ({ ...page,
         messages: page.messages.filter(message => message.id !== "m42"), hasMoreNewer: true,
@@ -1026,8 +1051,19 @@ describe("conversation entry return during accepted reading", () => {
       expect(owner.registry.collections.messages.get("m42")?.seq).toBe(42)
       load.mockImplementation((url: string, options: unknown) => url.includes("/messages?entry=1") ? entryRead.promise : originalLoad(url, options))
       view = mountReadingEntry(owner)
+      capture()
+      const native = view.latest.controller.virtualizer
+      const setOptions = native.setOptions
+      vi.spyOn(native, "setOptions").mockImplementation(options => {
+        const before = { count: native.options.count, lastKey: native.options.getItemKey(native.options.count - 1), offset: native.scrollOffset }
+        setOptions(options)
+        optionsTimeline.push({ phase, before, nextCount: options.count, nextLastKey: native.options.getItemKey(native.options.count - 1),
+          anchorTo: options.anchorTo, followOnAppend: options.followOnAppend, afterOffset: native.scrollOffset })
+      })
       expect(view.latest.feed.initialPositionKnown).toBe(false)
       expect(view.latest.feed.initialPositionMessageId).toBeNull()
+      expect(view.latest.controller.readPositionReady).toBe(false)
+      expect(view.latest.controller.paginationEnabled).toBe(false)
       expect(load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1&window=tail&newAfterSeq=30")).toBe(true)
       const fresh = fixture()
       fresh.messages = Array.from({ length: 23 }, (_, index) => ({ ...fresh.messages[0], id: `m${index + 20}`, seq: index + 20,
@@ -1037,16 +1073,23 @@ describe("conversation entry return during accepted reading", () => {
       fresh.selection = { reason: "tail", anchorMessageId: null }
       fresh.newBoundary = { afterSeq: 30, target: { id: "m31", channelId: "c1", seq: 31, authorId: "peer" } }
       fresh.page = { ...fresh.page, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 42 }
+      phase = "entry-response"
       await act(async () => entryRead.resolve(fresh))
+      capture()
       expect(view.latest.feed.error).toBeNull()
+      phase = "response-resize-and-frames"
       resize()
+      capture()
       expect(view.latest.feed.initialPositionKnown).toBe(true)
       expect(view.latest.feed.initialPositionMessageId).toBeNull()
       expect(view.visible("m42")).toBe(true)
       expect(view.latest.feed.readSnapshot?.lastReadSeq).toBe(30)
       expect(owner.client.getQueryData(originalKey)).toBe(retainedWindow)
       expect(view.latest.feed.historyStartKnown).toBe(false)
-    } finally { view?.view.unmount(); releaseReadSurface(owner.lease); await owner.finish() }
+    } finally {
+      console.info("accepted-canonical-target327", JSON.stringify({ phases, writes, optionsTimeline }))
+      view?.view.unmount(); releaseReadSurface(owner.lease); await owner.finish()
+    }
   })
 
   async function evictOrdinaryEntryWithAlternateCoverage(owner: Awaited<ReturnType<typeof readingOwner>>) {

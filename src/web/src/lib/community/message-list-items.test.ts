@@ -277,7 +277,7 @@ describe("estimateRowHeight", () => {
     expect(estimateRowHeight({ kind: "divider", key: "date", messageId: "m1", dateLabel: "Today" })).toBe(32)
     expect(estimateRowHeight({ kind: "divider", key: "new", messageId: "m1", newDivider: true })).toBe(24)
     expect(estimateRowHeight({ kind: "divider", key: "both", messageId: "m1", dateLabel: "Today", newDivider: true })).toBe(32)
-    expect(estimateRowHeight({ kind: "leading", key: "leading" }, true)).toBe(88)
+    expect(estimateRowHeight({ kind: "leading", key: "leading" })).toBe(152)
     expect(estimateRowHeight({ kind: "trailing", key: "trailing" })).toBe(56)
   })
 

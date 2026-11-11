@@ -68,8 +68,8 @@ export function useMessageListController({
     : newBoundary !== undefined ? newBoundary.target?.id : newDividerBefore
 
   const items = useMemo(
-    () => flattenMessageItems(messages, dividerTarget, !!hasMore, !!hasMoreNewer),
-    [messages, dividerTarget, hasMore, hasMoreNewer],
+    () => flattenMessageItems(messages, dividerTarget, !!hasMore, !!hasMoreNewer && !!isFetchingNewer),
+    [messages, dividerTarget, hasMore, hasMoreNewer, isFetchingNewer],
   )
 
   const [selectMode, setSelectMode] = useAtom(useCreateAtom(false))
