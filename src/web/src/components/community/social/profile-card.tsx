@@ -10,7 +10,7 @@ import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/she
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Avatar } from "../avatar"
-import { seededStripeAngle, seededStripeColors } from "@/lib/avatar/backdrop"
+import { profileBannerBackground } from "@/lib/avatar/profile-banner"
 import { resolveAvatar } from "@/lib/avatar/resolve"
 import { StatusEditor, hasStatus } from "./status-editor"
 import type {
@@ -445,25 +445,6 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
   )
 }
 
-function hueOf(hex: string): number {
-  const n = Number.parseInt(hex.replace("#", "").slice(0, 6), 16)
-  const r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255
-  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
-  if (d === 0) return 0
-  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4
-  return (h * 60 + 360) % 360
-}
-
 function profileBannerStyle(seed: string): CSSProperties {
-  const base = hueOf(seededStripeColors(seed)[0])
-  const band = 26, line = 4, feather = 0.5, count = 7
-  const period = count * (band + line)
-  const stops = [`#1f1a15 0px ${line / 2 - feather}px`]
-  for (let i = 0; i < count; i++) {
-    const color = `oklch(0.8 0.15 ${((base + i * 30) % 360).toFixed(0)})`
-    const start = i * (band + line) + line / 2
-    stops.push(`${color} ${start + feather}px ${start + band - feather}px`,
-      `#1f1a15 ${start + band + feather}px ${Math.min(start + band + line - feather, period)}px`)
-  }
-  return { backgroundImage: `repeating-linear-gradient(${seededStripeAngle(seed)}deg, ${stops.join(", ")})` }
+  return { background: profileBannerBackground(seed) }
 }
