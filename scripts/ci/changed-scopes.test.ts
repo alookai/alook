@@ -1262,11 +1262,14 @@ describe("compatibility and CLI fail-closed behavior", () => {
     }
   })
 
-  it("enables the compatibility gate for an actual package-version diff", () => {
-    const fixture = gitDiffFixture("src/web/package.json")
-    const output = join(fixture.root, "projection")
-    const planFile = join(fixture.root, "plan.json")
-    try {
+  describe("actual package-version diff", () => {
+    let fixture: ReturnType<typeof gitDiffFixture>
+    beforeAll(() => { fixture = gitDiffFixture("src/web/package.json") })
+    afterAll(() => { fixture?.cleanup() })
+
+    it("enables the compatibility gate", () => {
+      const output = join(fixture.root, "projection")
+      const planFile = join(fixture.root, "plan.json")
       execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/changed-scopes.mjs")), "--ui-shards", "1", "--base", "HEAD^", "--head", "HEAD", "--output", output, "--plan-file", planFile], {
         cwd: fixture.root,
         env: cleanGitEnvironment(),
@@ -1275,9 +1278,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
       expect(result.compatibility.resizable_panels).toBe(true)
       expect(result.jobs.resizable_panels_compat).toBe(true)
       expect(readFileSync(output, "utf8")).toContain("run_resizable_panels_compat=true")
-    } finally {
-      fixture.cleanup()
-    }
+    })
   })
 
   it("fails closed when the CLI SHA boundary is omitted", () => {
