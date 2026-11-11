@@ -1379,6 +1379,19 @@ describe("channel history", () => {
 });
 
 describe("message property", () => {
+  it("preserves other bots' mark notes in set and property list", async () => {
+    const otherBotMarks = [{ botUserId: "peer", handle: "@Peer#0002", note: "QA" }];
+    setApiForTesting(stubApi({
+      messagePropertySet: async () => ({ type: "mark", value: true, changed: false, otherBotMarks }),
+      messagePropertyList: async () => ({ capabilities: ["mark"], properties: [{ type: "mark", value: false, note: null, otherBotMarks }] }),
+    }));
+    await main(["message", "property", "set", "--target", "/demo#0042/general#42", "--json", '{"type":"mark","value":true}']);
+    expect(parseEnvelope(cap.lines())).toMatchObject({ success: { changed: false, otherBotMarks } });
+    cap.lines().length = 0;
+    await main(["message", "property", "list", "--target", "/demo#0042/general#42"]);
+    expect(parseEnvelope(cap.lines())).toMatchObject({ success: { properties: [{ type: "mark", value: false, otherBotMarks }] } });
+  });
+
   it("set parses the full message ref and forwards parsed JSON without business filtering", async () => {
     const messagePropertySet = vi.fn(async () => ({ type: "emoji" as const, value: "👍", changed: true }));
     setApiForTesting(stubApi({ messagePropertySet }));
@@ -1525,6 +1538,7 @@ describe("message mark", () => {
           sender: "@alice#0001",
           content: { text: "task" },
           note,
+          otherBotMarks: [{ botUserId: "peer", handle: "@Peer#0002", note: "QA" }],
           time: "2026-08-13T04:00:00.000Z",
         }],
       }),
@@ -1534,6 +1548,7 @@ describe("message mark", () => {
     expect(env.success.marked).toHaveLength(1);
     expect(env.success.marked[0].time).toMatch(/[+-]\d{2}:\d{2}$/);
     expect(env.success.marked[0].note).toBe(note);
+    expect(env.success.marked[0]).toHaveProperty("otherBotMarks", [{ botUserId: "peer", handle: "@Peer#0002", note: "QA" }]);
   });
 });
 

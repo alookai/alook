@@ -3,6 +3,7 @@ import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import {
   isStoredChannelType,
+  MAX_MARK_NOTE_BYTES,
   messagePropertyCapabilities,
   type MessagePropertyMutation,
 } from "@alook/shared"
@@ -113,7 +114,8 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
         gate.bot.userId,
         target.messageId,
       )
-      properties.push({ type: "mark" as const, value: mark !== null, note: mark?.note ?? null })
+      const peers = await queries.communityMessageMark.listOtherBotMarks(db, gate.bot.userId, [target.messageId])
+      properties.push({ type: "mark" as const, value: mark !== null, note: mark?.note ?? null, otherBotMarks: peers.get(target.messageId) ?? [] })
     }
   }
   return writeJSON({ capabilities, properties })
@@ -172,6 +174,9 @@ async function mutate(req: NextRequest, ctx: Parameters<CommunityActorHandler>[1
     if (hasNote && (action !== "set" || (parsed.property.note !== null && typeof parsed.property.note !== "string"))) {
       return writeError(action === "set" ? "mark note must be a string or null" : "note is only supported when setting a mark", 400)
     }
+    if (typeof parsed.property.note === "string" && new TextEncoder().encode(parsed.property.note).byteLength > MAX_MARK_NOTE_BYTES) {
+      return writeError(`mark note must be at most ${MAX_MARK_NOTE_BYTES} UTF-8 bytes`, 400)
+    }
     const changed = action === "set"
       ? await queries.communityMessageMark.markMessage(db, {
           userId: gate.bot.userId,
@@ -183,7 +188,9 @@ async function mutate(req: NextRequest, ctx: Parameters<CommunityActorHandler>[1
           userId: gate.bot.userId,
           messageId: target.messageId,
         }) !== null
-    return writeJSON({ type: "mark", value: true, changed })
+    if (action === "remove") return writeJSON({ type: "mark", value: true, changed })
+    const peers = await queries.communityMessageMark.listOtherBotMarks(db, gate.bot.userId, [target.messageId])
+    return writeJSON({ type: "mark", value: true, changed, otherBotMarks: peers.get(target.messageId) ?? [] })
   }
 
   const result = action === "set"

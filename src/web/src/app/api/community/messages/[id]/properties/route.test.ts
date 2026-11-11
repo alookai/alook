@@ -9,6 +9,7 @@ const mockListReactions = vi.fn()
 const mockSetReaction = vi.fn()
 const mockRemoveReaction = vi.fn()
 const mockGetMessageMark = vi.fn()
+const mockOtherBotMarks = vi.fn()
 const mockMarkMessage = vi.fn()
 const mockUnmarkMessage = vi.fn()
 
@@ -35,6 +36,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMessageMark: {
         ...actual.queries.communityMessageMark,
+        listOtherBotMarks: (...args: unknown[]) => mockOtherBotMarks(...args),
         getMessageMark: (...args: unknown[]) => mockGetMessageMark(...args),
         markMessage: (...args: unknown[]) => mockMarkMessage(...args),
         unmarkMessage: (...args: unknown[]) => mockUnmarkMessage(...args),
@@ -93,6 +95,7 @@ function rawMutationRequest(method: "PUT" | "DELETE", body: unknown) {
 describe("bot message property route", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockOtherBotMarks.mockResolvedValue(new Map())
     mockResolve.mockResolvedValue({ ok: true, messageId: "m1", channelId: "c1" })
     mockGetChannelType.mockResolvedValue("forum")
     mockListTags.mockResolvedValue({ ok: true, value: ["archived", "bug"] })
@@ -112,7 +115,7 @@ describe("bot message property route", () => {
       capabilities: ["tag", "mark"],
       properties: [
         { type: "tag", value: ["archived", "bug"] },
-        { type: "mark", value: false, note: null },
+        { type: "mark", value: false, note: null, otherBotMarks: [] },
       ],
     })
     expect(mockResolve).toHaveBeenCalledWith(replicaDb, "bot1", {
@@ -132,7 +135,7 @@ describe("bot message property route", () => {
       capabilities: ["emoji", "mark"],
       properties: [
         { type: "emoji", value: [{ emoji: "👍", actors: ["@a#0001"], me: true }] },
-        { type: "mark", value: false, note: null },
+        { type: "mark", value: false, note: null, otherBotMarks: [] },
       ],
     })
   })
@@ -229,7 +232,7 @@ describe("bot message property route", () => {
 
   it("sets, lists, and removes the calling bot's universal mark", async () => {
     const setRes = await PUT(mutationRequest("PUT", { type: "mark", value: true }), ctx)
-    expect(await setRes.json()).toEqual({ type: "mark", value: true, changed: true })
+    expect(await setRes.json()).toEqual({ type: "mark", value: true, changed: true, otherBotMarks: [] })
     expect(mockMarkMessage).toHaveBeenCalledWith(primaryDb, {
       userId: "bot1",
       channelId: "c1",
@@ -238,7 +241,7 @@ describe("bot message property route", () => {
 
     mockGetMessageMark.mockResolvedValue({ id: "mark1", note: "waiting for QA" })
     const listRes = await GET(getRequest(), ctx)
-    expect((await listRes.json()).properties).toContainEqual({ type: "mark", value: true, note: "waiting for QA" })
+    expect((await listRes.json()).properties).toContainEqual({ type: "mark", value: true, note: "waiting for QA", otherBotMarks: [] })
 
     const removeRes = await DELETE(mutationRequest("DELETE", { type: "mark", value: true }), ctx)
     expect(await removeRes.json()).toEqual({ type: "mark", value: true, changed: true })
@@ -355,5 +358,43 @@ describe("bot message property route", () => {
     const mutation = await PUT(mutationRequest("PUT", { type: "mark", value: true }, true), ctx)
     expect(mutation.status).toBe(403)
     expect(mockResolve).not.toHaveBeenCalled()
+  })
+})
+
+
+describe("shared mark responses and note byte limit", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockResolve.mockResolvedValue({ ok: true, messageId: "m1", channelId: "c1" })
+    mockGetChannelType.mockResolvedValue("forum")
+    mockListTags.mockResolvedValue({ ok: true, value: [] })
+    mockGetMessageMark.mockResolvedValue(null)
+    mockMarkMessage.mockResolvedValue(null)
+    mockOtherBotMarks.mockResolvedValue(new Map([["m1", [{ botUserId: "bot2", handle: "@Peer#0002", note: "QA pending" }]]]))
+  })
+  it("returns other bots on unchanged set using the primary session, and permits read before marking", async () => {
+    const peers = [{ botUserId: "bot2", handle: "@Peer#0002", note: "QA pending" }]
+    const set = await PUT(mutationRequest("PUT", { type: "mark", value: true }), ctx)
+    expect(await set.json()).toEqual({ type: "mark", value: true, changed: false, otherBotMarks: peers })
+    expect(mockOtherBotMarks).toHaveBeenLastCalledWith(primaryDb, "bot1", ["m1"])
+    const read = await GET(getRequest(), ctx)
+    expect((await read.json()).properties).toContainEqual({ type: "mark", value: false, note: null, otherBotMarks: peers })
+  })
+  it.each(["a".repeat(10240), "界".repeat(3413) + "a"])("accepts exactly 10240 UTF-8 bytes", async note => {
+    expect((await PUT(mutationRequest("PUT", { type: "mark", value: true, note }), ctx)).status).toBe(200)
+    expect(mockMarkMessage).toHaveBeenCalledOnce()
+  })
+  it.each(["a".repeat(10241), "界".repeat(3414)])("rejects overflow before writing or returning shared notes", async note => {
+    const response = await PUT(mutationRequest("PUT", { type: "mark", value: true, note }), ctx)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "mark note must be at most 10240 UTF-8 bytes" })
+    expect(mockMarkMessage).not.toHaveBeenCalled()
+    expect(mockOtherBotMarks).not.toHaveBeenCalled()
+  })
+  it("does not read peers when target access is denied", async () => {
+    mockResolve.mockResolvedValue({ ok: false, status: 404, error: "message not found" })
+    expect((await GET(getRequest(), ctx)).status).toBe(404)
+    expect((await PUT(mutationRequest("PUT", { type: "mark", value: true }), ctx)).status).toBe(404)
+    expect(mockOtherBotMarks).not.toHaveBeenCalled()
   })
 })

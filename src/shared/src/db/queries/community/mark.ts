@@ -1,8 +1,12 @@
-import { eq, ne, or, isNull, isNotNull, and, count, inArray, desc } from "drizzle-orm";
-import { communityMessageMark, communityMessage } from "../../community-schema";
+import { eq, ne, or, isNull, isNotNull, and, count, inArray, desc, asc } from "drizzle-orm";
+import { communityMessageMark, communityMessage, communityChannel } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
-import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { channelReadableSql } from "./channel";
+import { dmPeerReadableSql } from "./dm";
+import { formatHandle } from "../../../lib/discriminator";
+import type { OtherBotMark } from "../../../community-cli-contract";
+import { chunk, D1_MAX_IN_PARAMS, maxInParams } from "../_chunk";
 
 export async function markMessage(
   db: Database,
@@ -150,4 +154,45 @@ export async function countMarksForUser(
     })
   );
   return counts.reduce((total, count) => total + count, 0);
+}
+
+export async function listOtherBotMarks(
+  db: Database,
+  viewerId: string,
+  messageIds: string[],
+): Promise<Map<string, OtherBotMark[]>> {
+  const result = new Map<string, OtherBotMark[]>();
+  const channel = {
+    id: communityChannel.id,
+    type: communityChannel.type,
+    serverId: communityChannel.serverId,
+    parentChannelId: communityChannel.parentChannelId,
+  };
+  for (const ids of chunk([...new Set(messageIds)], maxInParams(14))) {
+    const rows = await db.select({
+      messageId: communityMessageMark.messageId,
+      botUserId: user.id,
+      name: user.name,
+      discriminator: user.discriminator,
+      note: communityMessageMark.note,
+    }).from(communityMessageMark)
+      .innerJoin(user, eq(user.id, communityMessageMark.userId))
+      .innerJoin(communityMessage, eq(communityMessage.id, communityMessageMark.messageId))
+      .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+      .where(and(
+        inArray(communityMessageMark.messageId, ids),
+        ne(user.id, viewerId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt),
+        channelReadableSql(viewerId, channel),
+        channelReadableSql(user.id, channel),
+        or(ne(communityChannel.type, "dm"), dmPeerReadableSql(db, viewerId, communityChannel.id)),
+      )).orderBy(asc(user.id));
+    for (const row of rows) {
+      const entries = result.get(row.messageId) ?? [];
+      entries.push({ botUserId: row.botUserId, handle: `@${formatHandle(row.name, row.discriminator)}`, note: row.note });
+      result.set(row.messageId, entries);
+    }
+  }
+  return result;
 }

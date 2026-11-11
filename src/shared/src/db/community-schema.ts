@@ -634,6 +634,7 @@ export const communityMessageMark = sqliteTable(
   (t) => [
     unique("uq_mark_user_message").on(t.userId, t.messageId),
     index("idx_mark_user_created").on(t.userId, t.createdAt),
+    index("idx_mark_message_user").on(t.messageId, t.userId),
   ]
 );
 
