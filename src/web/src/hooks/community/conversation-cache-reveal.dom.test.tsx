@@ -8,6 +8,9 @@ import { communityKeys } from "@/lib/query-keys"
 import { MessageList } from "@/components/community/messages/message-list"
 import { ConversationFooterShell, ConversationFooterSlotProvider } from "@/components/community/messages/conversation-footer-shell"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
+import { dehydrate } from "@tanstack/react-query"
+import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-persister"
+import { restoreConversationDisplayWindows } from "@/lib/community/restored-conversation-window"
 import { useDmMessages, useMessages } from "./use-messages"
 import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 
@@ -66,13 +69,15 @@ it.each(["text", "dm"] as const)("reveals the qualified $0 history cache while o
     const dm = useDmMessages(kind === "dm" ? "c1" : null)
     feed = kind === "dm" ? dm : channel
     const newBoundary = feed.newBoundary
-    return <MessageList channel="Channel" variant={kind === "dm" ? "dm" : "channel"} messages={feed.messages}
+    return <ConversationFooterSlotProvider><div data-slot="community-conversation-surface"><MessageList channel="Channel" variant={kind === "dm" ? "dm" : "channel"} messages={feed.messages}
       loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
       initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
       positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
       newBoundary={newBoundary} latestSeq={feed.latestSeq} retiredNewTargetId={feed.retiredNewTargetId}
         onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary} hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
       onUserTakeover={feed.onUserTakeover} onRetryInitialLoad={feed.retryInitialLoad} retryingInitialLoad={feed.retryingInitialLoad} onOpenThread={() => {}} />
+      <ConversationFooterShell><textarea aria-label="Draft" /></ConversationFooterShell>
+    </div></ConversationFooterSlotProvider>
   }
   const view = render(<CommunityTestProvider {...owner}><Probe /></CommunityTestProvider>)
   const phases: unknown[] = []
@@ -89,6 +94,8 @@ it.each(["text", "dm"] as const)("reveals the qualified $0 history cache while o
     expect(feed.readSnapshotFetching).toBe(true)
     expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
     expect(root).toHaveAttribute("data-pagination-enabled", "false")
+    expect(view.getByRole("textbox", { name: "Draft" })).toBeVisible()
+    expect(view.queryByTestId("community-scroll-to-present")).toBeNull()
     const fresh = { ...packet, messages: rows.slice(34), readState: read, readStateRevision: 5,
       selection: { reason: "tail" as const, anchorMessageId: null }, newBoundary: { afterSeq: 80, target: null },
       page: { olderCursor: `${rows[34].createdAt}|m35`, newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 80 } }
@@ -104,6 +111,100 @@ it.each(["text", "dm"] as const)("reveals the qualified $0 history cache while o
     console.info("ordinary-cache-tail-phases", JSON.stringify({ kind, phases }))
     view.unmount(); owner.client.clear()
   }
+})
+
+it.each((["text", "dm"] as const).flatMap(kind => (["unchanged", "new messages", "offline", "takeover"] as const)
+  .map(result => ({ kind, result }))))("keeps the restored $kind tail separate from historical jump admission through $result", async ({ kind, result }) => {
+  scrollFixture.width = 390
+  const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+  const packet = kind === "dm" ? dmConversationEntryFixture() : conversationEntryFixture()
+  const rows = Array.from({ length: 60 }, (_, index) => ({ ...packet.messages[0], id: `m${index + 1}`, seq: index + 1,
+    createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString() }))
+  packet.messages = rows.slice(0, 40)
+  packet.channel.messageCount = 40
+  packet.readState = { ...packet.readState, lastReadMessageId: "m40", lastReadSeq: 40, lastReadAt: rows[39].createdAt }
+  packet.selection = { reason: "tail", anchorMessageId: null }
+  packet.newBoundary = { afterSeq: 40, target: null }
+  packet.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 40 }
+  await seedConversationEntry(owner.client, packet)
+  const restored = readCommunityRestoredCollections({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(owner.client) }, "viewer")
+  owner.client.removeQueries({ queryKey: communityKeys.channelMessages("c1") })
+  owner.client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
+  restoreConversationDisplayWindows(owner.registry, restored)
+  let resolve!: (value: typeof packet) => void, reject!: (error: Error) => void
+  load.mockReturnValue(new Promise<typeof packet>((yes, no) => { resolve = yes; reject = no }))
+  let feed!: ReturnType<typeof useMessages>
+  function Probe() {
+    const channel = useMessages(kind === "dm" ? null : "c1", { serverId: "s1" })
+    const dm = useDmMessages(kind === "dm" ? "c1" : null)
+    feed = kind === "dm" ? dm : channel
+    return <ConversationFooterSlotProvider><div data-slot="community-conversation-surface"><MessageList channel="Channel" variant={kind === "dm" ? "dm" : "channel"}
+      messages={feed.messages} loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
+      initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation}
+      positionScope={feed.positionScope} positionEntry={feed.positionEntry} positionDataState={feed.positionDataState}
+      targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+      newBoundary={feed.newBoundary} latestSeq={feed.latestSeq} retiredNewTargetId={feed.retiredNewTargetId}
+      onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary}
+      hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
+      onJumpToPresent={feed.jumpToPresent} presentVersion={feed.presentVersion} presentRequest={feed.presentRequest}
+      onUserTakeover={feed.onUserTakeover} onRetryInitialLoad={feed.retryInitialLoad} retryingInitialLoad={feed.retryingInitialLoad} onOpenThread={() => {}} />
+      <ConversationFooterShell><textarea aria-label="Draft" /></ConversationFooterShell>
+    </div></ConversationFooterSlotProvider>
+  }
+  const view = render(<CommunityTestProvider {...owner}><Probe /></CommunityTestProvider>)
+  try {
+    resize()
+    const root = view.getByTestId("community-message-scroller")
+    const draft = view.getByRole("textbox", { name: "Draft" })
+    expect(root).toHaveAttribute("aria-busy", "false")
+    expect(root.querySelector('[data-msg-id="m40"]')).not.toBeNull()
+    expect(feed.hasMoreNewer).toBe(true)
+    expect(feed.positionDataState).toBe("pending")
+    expect(root).toHaveAttribute("data-pagination-enabled", "false")
+    expect(view.queryByTestId("community-scroll-to-present")).toBeNull()
+    fireEvent.change(draft, { target: { value: "Local draft" } })
+    expect(draft).toHaveValue("Local draft")
+    let readerId: string | undefined, readerOffset = 0
+    if (result === "takeover") {
+      fireEvent.wheel(root, { deltaY: -1500 })
+      act(() => root.scrollTo({ top: 1500 }))
+      resize()
+      const reader = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]")).find(row => row.getBoundingClientRect().bottom > root.getBoundingClientRect().top + 1)!
+      readerId = reader.dataset.msgId
+      readerOffset = reader.getBoundingClientRect().top - root.getBoundingClientRect().top
+      expect(view.getByRole("button", { name: "Jump to present" })).toBeVisible()
+      expect(root).toHaveAttribute("data-pagination-enabled", "false")
+    }
+    if (result === "offline") {
+      await act(async () => { reject(new Error("offline")); await vi.advanceTimersByTimeAsync(2000) })
+      resize()
+      expect(root).toHaveAttribute("aria-busy", "false")
+      expect(root.querySelector('[data-msg-id="m40"]')).not.toBeNull()
+      expect(feed.hasMoreNewer).toBe(true)
+      expect(root.querySelector('[data-read-position-ready="true"]')).toBeNull()
+      expect(view.queryByTestId("community-scroll-to-present")).toBeNull()
+    } else {
+      const freshRows = result === "unchanged" ? rows.slice(0, 40) : rows
+      const fresh = { ...packet, channel: { ...packet.channel, messageCount: freshRows.length }, messages: freshRows,
+        newBoundary: { afterSeq: 40, target: result === "unchanged" ? null : { id: "m41", channelId: "c1", seq: 41, authorId: "peer" } },
+        page: { ...packet.page, latestSeq: freshRows.length } }
+      await act(async () => { resolve(fresh); await vi.advanceTimersByTimeAsync(0) })
+      resize()
+      expect(view.getByTestId("community-message-scroller")).toBe(root)
+      if (result === "takeover") {
+        const reader = root.querySelector<HTMLElement>(`[data-msg-id="${readerId}"]`)!
+        expect(reader).not.toBeNull()
+        expect(Math.abs(reader.getBoundingClientRect().top - root.getBoundingClientRect().top - readerOffset)).toBeLessThanOrEqual(1)
+        expect(view.getByTestId("community-scroll-to-present")).toBeVisible()
+      } else {
+        expect(feed.hasMoreNewer).toBe(false)
+        expect(feed.messages.at(-1)?.id).toBe(result === "unchanged" ? "m40" : "m60")
+        expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBeLessThanOrEqual(1)
+        expect(view.queryByTestId("community-scroll-to-present")).toBeNull()
+      }
+    }
+    expect(draft).toHaveValue("Local draft")
+  } finally { view.unmount(); owner.client.clear() }
 })
 
 it.each(kinds.flatMap(kind => [

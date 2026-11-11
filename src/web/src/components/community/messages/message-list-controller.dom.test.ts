@@ -42,7 +42,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@/hooks/community/use-scroll-anchor", () => ({
-  useScrollAnchor: (input: { tailPaddingEnd?: number; scrollToMessageId?: string | null; items: Array<{ kind: string; m?: { id: string } }>; onScrollTargetPositioned: (id: string) => void }) => {
+  useScrollAnchor: (input: { tailPaddingEnd?: number; hasMoreNewer?: boolean; scrollToMessageId?: string | null; items: Array<{ kind: string; m?: { id: string } }>; onScrollTargetPositioned: (id: string) => void }) => {
     const [positionOutcome, setPositionOutcome] = React.useState<"pending" | "success">("pending")
     mocks.finishPosition = setPositionOutcome
     const consumed = React.useRef<string | null>(null)
@@ -66,6 +66,7 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
       readPositionReady: mocks.readPositionReady,
       paginationEnabled: mocks.paginationEnabled,
       followingTail: mocks.followingTail,
+      jumpToPresentVisible: !!input.hasMoreNewer,
       requestNewPosition: mocks.requestNewPosition,
       newDividerVisibility: mocks.newDividerVisibility,
       captureOlderPageAnchor: mocks.captureOlderPageAnchor,

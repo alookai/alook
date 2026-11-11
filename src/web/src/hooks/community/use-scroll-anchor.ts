@@ -1434,6 +1434,7 @@ export function useScrollAnchor({
     scrollRef, virtualizer, onRowsLayoutCommit, readPositionReady: active && visible && dataState !== "pending" && dataState !== "error" && resumeValidated && !entryChanged && readPositionReady, paginationEnabled: active && visible && dataState !== "pending" && dataState !== "error" && !entryChanged && ownerKind === "idle" && !awaitingTarget, belowCount,
     paginationRequestPending,
     positionOutcome,
+    jumpToPresentVisible: !!hasMoreNewer && (dataState === "ready" || followSuspended || !!scrollToMessageId || !!initialPositionMessageId),
     scrollToBottom, requestPresentPosition, requestNewPosition, jumpTo, newDividerVisibility,
     followingTail: !hasMoreNewer && !followSuspended && acceptedGeometryRef.current?.pinEligible === true,
     captureOlderPageAnchor, captureNewerPageAnchor,

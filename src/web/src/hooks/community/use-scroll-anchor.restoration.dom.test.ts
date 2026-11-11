@@ -9,6 +9,28 @@ beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
 describe("ordinary reconstruction and one-shot late unread ownership", () => {
+  it.each(["read", "reference"] as const)("keeps the historical jump available for a pending %s target", source => {
+    const h = mount({ items: Array.from({ length: 80 }, (_, index) => message(`m${index}`)), hasMoreNewer: true,
+      positionDataState: "pending", targetPositionDataState: "pending",
+      ...(source === "read" ? { initialPositionMessageId: "m30" } : { scrollToMessageId: "m30" }),
+    })
+    expect(h.root.querySelector("[data-msg-id]")).not.toBeNull()
+    expect(scrollFixture.latest.jumpToPresentVisible).toBe(true)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(scrollFixture.latest.paginationEnabled).toBe(false)
+  })
+
+  it("retires a reader's historical jump when the next entry is only confirming its tail", () => {
+    const h = mount({ items: Array.from({ length: 80 }, (_, index) => message(`m${index}`)), hasMoreNewer: true,
+      positionEntry: {}, positionDataState: "pending" })
+    expect(scrollFixture.latest.jumpToPresentVisible).toBe(false)
+    h.move(1500)
+    expect(scrollFixture.latest.jumpToPresentVisible).toBe(true)
+    h.update({ positionEntry: {} })
+    expect(scrollFixture.latest.jumpToPresentVisible).toBe(false)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+  })
+
   it.each([false, true])("uses normal entry rules after deep browsing (StrictMode=%s)", async strict => {
     const { client } = await createCommunityQueryOwner()
     const positionScope: ConversationListScope = { proof: captureChannelMetadataToken(client, "A"), tag: null }
