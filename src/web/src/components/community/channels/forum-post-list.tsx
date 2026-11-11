@@ -56,7 +56,7 @@ export function ForumPostList(props: Props) {
 function ForumPostListEntry(props: Props) {
   const [admitted, setAdmitted] = useState(false)
   if (!props.loading && !admitted || props.posts.length > 0 && !admitted) setAdmitted(true)
-  if (!admitted && props.loading && !props.posts.length) return <div data-testid={tid.forumPostList} aria-label="Loading forum" aria-busy="true" data-community-conversation-subtype="forum" className={`flex-1 overflow-y-auto thin-scrollbar ${FORUM_LIST_SPACING_CLASS}`}>{props.loadingContent}</div>
+  if (!admitted && props.loading && !props.posts.length) return <div data-testid={tid.forumPostList} aria-label="Loading forum" aria-busy="true" data-community-conversation-subtype="forum" className={`flex-1 overflow-y-auto thin-scrollbar scroll-fade-y scroll-fade-4 ${FORUM_LIST_SPACING_CLASS}`}>{props.loadingContent}</div>
   return <ForumPostListOwner {...props} />
 }
 
@@ -137,7 +137,7 @@ function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore,
   return <div className="relative flex min-h-0 flex-1 flex-col">
     <div ref={bindScrollRoot} role="main" data-testid={tid.forumPostList} data-community-conversation-subtype="forum"
       aria-busy={presentation.showSkeleton || undefined} aria-label={presentation.showSkeleton ? "Loading forum" : undefined}
-      className={`flex-1 overflow-y-auto thin-scrollbar [overflow-anchor:none] ${FORUM_LIST_SPACING_CLASS}`}>
+      className={`flex-1 overflow-y-auto thin-scrollbar scroll-fade-y scroll-fade-4 [overflow-anchor:none] ${FORUM_LIST_SPACING_CLASS}`}>
     {!posts.length && loading ? <div data-message-list-content aria-hidden="true" inert data-read-position-ready="false" />
       : !posts.length ? <div data-message-list-content aria-hidden="false" data-read-position-ready="true"><EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." /></div>
       : <VirtualRows directDomUpdatesMode="position" items={posts} virtualizer={virtualizer}

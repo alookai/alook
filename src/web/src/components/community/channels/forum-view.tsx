@@ -474,7 +474,7 @@ export function ForumViewSkeleton() {
         <div className="relative min-w-0 flex-1">
           <div
             aria-hidden
-            className="pointer-events-none flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar scrollbar-none"
+            className="pointer-events-none flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain scroll-fade-x scroll-fade-4 scroll-px-4 px-4 thin-scrollbar scrollbar-none"
           >
             <Skeleton className="h-7 w-10 shrink-0 rounded-lg" />
             <Skeleton className="h-7 w-16 shrink-0 rounded-lg" />
@@ -486,7 +486,7 @@ export function ForumViewSkeleton() {
           <Skeleton className="h-8 w-25 rounded-md" />
         </div>
       </div>
-      <main className={`flex-1 overflow-y-auto thin-scrollbar ${FORUM_LIST_SPACING_CLASS}`}>
+      <main className={`flex-1 overflow-y-auto thin-scrollbar scroll-fade-y scroll-fade-4 ${FORUM_LIST_SPACING_CLASS}`}>
         <ForumListSkeleton />
       </main>
     </>
