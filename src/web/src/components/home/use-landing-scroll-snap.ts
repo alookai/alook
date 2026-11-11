@@ -45,7 +45,7 @@ export function attachLandingScrollSnap(root: HTMLElement) {
     const points = Array.from(root.querySelectorAll<HTMLElement>(ANCHORS))
       .filter(element => element.getClientRects().length > 0)
       .map(element => {
-        const section = element.closest("section") ?? element
+        const section = element.closest<HTMLElement>("[data-landing-scroll-unit], section") ?? element
         const top = landingScrollTop(element)
         const bottom = window.scrollY + section.getBoundingClientRect().bottom - (parseFloat(getComputedStyle(section).paddingBottom) || 0)
         return { top, end: Math.max(top, Math.min(max, bottom - window.innerHeight + 24)) }

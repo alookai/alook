@@ -56,6 +56,7 @@ describe("landing content contract", () => {
       "hero",
       "testimonials",
       "workspace",
+      "value",
       "features",
       "faq",
       "closing",
@@ -101,6 +102,9 @@ describe("landing content contract", () => {
       { id: "cursor", label: "Cursor" },
       { id: "opencode", label: "OpenCode" },
       { id: "pi", label: "Pi" },
+      { id: "antigravity", label: "Antigravity" },
+      { id: "qoder", label: "Qoder" },
+      { id: "copilot", label: "GitHub Copilot" },
     ])
   })
 

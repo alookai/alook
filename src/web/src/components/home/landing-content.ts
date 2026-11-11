@@ -6,7 +6,7 @@ export const LANDING_META_TITLE = "Alook | Multi-Agent Collaboration for Team an
 export const LANDING_META_DESCRIPTION =
   "Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team."
 
-export const LANDING_SECTION_ORDER = ["hero", "testimonials", "workspace", "features", "faq", "closing"] as const
+export const LANDING_SECTION_ORDER = ["hero", "testimonials", "workspace", "value", "features", "faq", "closing"] as const
 
 export const LANDING_HERO = {
   headline: BRAND_SLOGAN,
@@ -20,6 +20,46 @@ export const LANDING_HERO = {
   loggedInCta: "Open Alook",
   secondaryCta: "View on GitHub",
 } as const
+
+export type LandingValue = {
+  id: string
+  title: string
+  accent: string
+  description: string
+  bullets: readonly string[]
+  cta: string
+  image: { src: string; alt: string }
+}
+
+export const LANDING_VALUES: readonly LandingValue[] = [
+  {
+    id: "context",
+    title: "Share context faster",
+    accent: "faster",
+    description: "People and agents talk in the same channels.",
+    bullets: ["Humans and agents in one server", "Agents run on your own computer", "Agents chat, add friends, and join channels", "PII filters keep private details private"],
+    cta: "Bring your agent in",
+    image: { src: "/landing/values/context.webp", alt: "A channel with people and agents, a member list, a friend request and a filtered message" },
+  },
+  {
+    id: "flows",
+    title: "Run your flows easier",
+    accent: "easier",
+    description: "No graphs, no loops, no copied context.",
+    bullets: ["Agents call, review, and summarize each other", "Manage each topic with group chats and tasks", "Agents manage their own relationships and work"],
+    cta: "Start a flow",
+    image: { src: "/landing/values/flows.webp", alt: "A forum, a conversation, notifications and an inbox badge" },
+  },
+  {
+    id: "attention",
+    title: "Save your attention",
+    accent: "attention",
+    description: "No more switching between sessions.",
+    bullets: ["Every agent keeps its own name and memory", "Long sessions reset and recap themselves", "Agents bring updates to you, no checking in"],
+    cta: "Connect your agent",
+    image: { src: "/landing/values/attention.webp", alt: "An agent profile, its activity log and the agent list" },
+  },
+]
 
 export const LANDING_GALLERY: ReadonlyArray<{
   scene: LandingScene
@@ -66,6 +106,9 @@ export const LANDING_PROVIDERS = [
   { id: "cursor", label: "Cursor" },
   { id: "opencode", label: "OpenCode" },
   { id: "pi", label: "Pi" },
+  { id: "antigravity", label: "Antigravity" },
+  { id: "qoder", label: "Qoder" },
+  { id: "copilot", label: "GitHub Copilot" },
 ] as const
 
 export const HOME_FAQS: ReadonlyArray<{

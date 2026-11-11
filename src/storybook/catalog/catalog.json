@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 336,
+    "composition": 337,
     "environment": 10,
     "nonvisual": 30,
     "direct": 40
@@ -2793,6 +2793,7 @@
       "application": "Web",
       "candidates": [
         "MachineRuntimes",
+        "RuntimeBadge",
         "RuntimeChip"
       ],
       "kind": "composition",
@@ -5614,6 +5615,22 @@
         {
           "story": "web-pages-public-pages--home",
           "region": "Original current homepage; scroll to the matching hero/feature/interactive workspace/testimonial/FAQ/footer section and use its real controls"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/home/landing-value-sections.tsx",
+      "application": "Web",
+      "candidates": [
+        "LandingValueSections",
+        "Title"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-public-pages--home",
+          "region": "Original current homepage; scroll to the value sections between the interactive workspace and the feature gallery"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."

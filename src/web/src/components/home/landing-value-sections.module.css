@@ -1,0 +1,125 @@
+.section {
+  display: grid;
+  gap: clamp(96px, 10vw, 160px);
+  padding: var(--landing-section-space) 0;
+  background:
+    radial-gradient(ellipse 100% 100% at 50% 0%, var(--landing-bg) 0%, var(--landing-bg) 46%, color-mix(in oklab, var(--landing-bg) 99.1%, transparent) 51.4%, color-mix(in oklab, var(--landing-bg) 94.2%, transparent) 56.8%, color-mix(in oklab, var(--landing-bg) 83.7%, transparent) 62.2%, color-mix(in oklab, var(--landing-bg) 68.3%, transparent) 67.6%, color-mix(in oklab, var(--landing-bg) 50.0%, transparent) 73.0%, color-mix(in oklab, var(--landing-bg) 31.7%, transparent) 78.4%, color-mix(in oklab, var(--landing-bg) 16.3%, transparent) 83.8%, color-mix(in oklab, var(--landing-bg) 5.8%, transparent) 89.2%, color-mix(in oklab, var(--landing-bg) 0.9%, transparent) 94.6%, transparent 100.0%) top / 100% var(--landing-section-fade, 128px) no-repeat,
+    var(--landing-section-bg, var(--landing-surface));
+  color: var(--landing-text);
+  scroll-margin-top: 72px;
+}
+
+.row {
+  display: grid;
+  width: calc(100% - var(--landing-page-gutter) * 2);
+  max-width: var(--landing-content-max);
+  margin-inline: auto;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  align-items: center;
+  gap: clamp(40px, 6vw, 104px);
+}
+
+.copy {
+  position: relative;
+  isolation: isolate;
+  padding: clamp(32px, 4vw, 56px);
+}
+
+.copy::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: color-mix(in oklch, var(--landing-bg), transparent 28%);
+  mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%20preserveAspectRatio%3D%22none%22%3E%3Cpolygon%20points%3D%226%2C9%2095%2C3%2097%2C89%209%2C97%203%2C82%22%20fill%3D%22white%22%20stroke%3D%22white%22%20stroke-width%3D%226%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E") center / 100% 100% no-repeat;
+  content: "";
+  transform: rotate(-0.6deg);
+}
+
+.row:nth-child(even) {
+  grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+}
+
+.row:nth-child(even) .copy {
+  order: 2;
+}
+
+.row:nth-child(even) .copy::before {
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%20preserveAspectRatio%3D%22none%22%3E%3Cpolygon%20points%3D%223%2C7%2092%2C3%2097%2C84%2092%2C97%207%2C94%22%20fill%3D%22white%22%20stroke%3D%22white%22%20stroke-width%3D%226%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E");
+  transform: rotate(0.5deg);
+}
+
+.copy h2 {
+  font-family: var(--font-crt);
+  font-size: clamp(2.5rem, 4vw, 4.25rem);
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  line-height: 0.96;
+  text-wrap: balance;
+}
+
+.description {
+  max-width: 560px;
+  margin-top: 20px;
+  color: var(--landing-text-muted);
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.bullets {
+  display: grid;
+  gap: 12px;
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bullets li {
+  position: relative;
+  padding-left: 32px;
+  line-height: 1.5;
+}
+
+.bullets li::before {
+  position: absolute;
+  top: 0.2em;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--landing-border);
+  border-radius: 5px;
+  background:
+    radial-gradient(circle at 50% 50%, var(--landing-accent) 0 3px, transparent 3.5px),
+    var(--landing-surface);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 18%), 0 1px 0 rgb(255 255 255 / 45%);
+  content: "";
+}
+
+.art {
+  --sticker-head-unit: 0px;
+  --sticker-body-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20360%20200%22%20preserveAspectRatio%3D%22none%22%3E%3Cpath%20fill%3D%22white%22%20d%3D%22M26%203L47%205L66%202L89%204L108%202L131%204L152%203L171%205L193%202L214%204L236%202L255%204L277%203L298%205L318%202L339%204Q357%204%20357%2022L358%2041L356%2060L358%2081L357%20101L359%20121L357%20142L358%20160L356%20178Q358%20196%20338%20197L321%20196L307%20199L284%20197L269%20199L249%20197L227%20199L208%20197L189%20198L173%20196L151%20199L133%20197L111%20199L92%20197L73%20198L55%20196L34%20198Q4%20199%202%20180L3%20162L1%20146L3%20128L1%20110L3%2090L2%2072L4%2054L2%2036L3%2020Q4%203%2026%203Z%22%2F%3E%3C%2Fsvg%3E");
+  --sticker-body-face-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20360%20200%22%20preserveAspectRatio%3D%22none%22%3E%3Cdefs%3E%3Cmask%20id%3D%22f%22%20maskUnits%3D%22userSpaceOnUse%22%20x%3D%220%22%20y%3D%220%22%20width%3D%22360%22%20height%3D%22200%22%3E%3Cpath%20fill%3D%22white%22%20d%3D%22M26%203L47%205L66%202L89%204L108%202L131%204L152%203L171%205L193%202L214%204L236%202L255%204L277%203L298%205L318%202L339%204Q357%204%20357%2022L358%2041L356%2060L358%2081L357%20101L359%20121L357%20142L358%20160L356%20178Q358%20196%20338%20197L321%20196L307%20199L284%20197L269%20199L249%20197L227%20199L208%20197L189%20198L173%20196L151%20199L133%20197L111%20199L92%20197L73%20198L55%20196L34%20198Q4%20199%202%20180L3%20162L1%20146L3%20128L1%20110L3%2090L2%2072L4%2054L2%2036L3%2020Q4%203%2026%203Z%22%2F%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%2214%22%20vector-effect%3D%22non-scaling-stroke%22%20d%3D%22M26%203L47%205L66%202L89%204L108%202L131%204L152%203L171%205L193%202L214%204L236%202L255%204L277%203L298%205L318%202L339%204Q357%204%20357%2022L358%2041L356%2060L358%2081L357%20101L359%20121L357%20142L358%20160L356%20178Q358%20196%20338%20197L321%20196L307%20199L284%20197L269%20199L249%20197L227%20199L208%20197L189%20198L173%20196L151%20199L133%20197L111%20199L92%20197L73%20198L55%20196L34%20198Q4%20199%202%20180L3%20162L1%20146L3%20128L1%20110L3%2090L2%2072L4%2054L2%2036L3%2020Q4%203%2026%203Z%22%2F%3E%3C%2Fmask%3E%3C%2Fdefs%3E%3Crect%20width%3D%22360%22%20height%3D%22200%22%20fill%3D%22white%22%20mask%3D%22url%28%23f%29%22%2F%3E%3C%2Fsvg%3E");
+  padding: 18px;
+}
+
+.art img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1120 / 800;
+}
+
+@media (max-width: 900px) {
+  .row,
+  .row:nth-child(even) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+
+  .row:nth-child(even) .copy {
+    order: 0;
+  }
+
+  .copy {
+    padding: 32px 24px;
+  }
+}

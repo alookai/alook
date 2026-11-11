@@ -45,8 +45,15 @@ describe("landing testimonials", () => {
     }
     expect(screen.getAllByRole("listitem")).toHaveLength(20)
     expect(container.querySelector("button, details, iframe, script")).toBeNull()
-    expect(container.querySelectorAll("blockquote")).toHaveLength(20)
-    expect(container.querySelectorAll('[aria-hidden="true"] a')).toHaveLength(0)
-    expect(container.querySelectorAll("[data-message-author-line]")).toHaveLength(20)
+    // The loop copy repeats each lane once for the seamless pan; it stays out of reach.
+    const copies = Array.from(container.querySelectorAll("li[data-loop-copy]"))
+    expect(copies).toHaveLength(20)
+    for (const copy of copies) {
+      expect(copy.getAttribute("aria-hidden")).toBe("true")
+      expect(copy.hasAttribute("inert")).toBe(true)
+    }
+    expect(container.querySelectorAll("li:not([data-loop-copy]) blockquote")).toHaveLength(20)
+    expect(container.querySelectorAll('li:not([data-loop-copy]) [aria-hidden="true"] a')).toHaveLength(0)
+    expect(container.querySelectorAll("li:not([data-loop-copy]) [data-message-author-line]")).toHaveLength(20)
   })
 })

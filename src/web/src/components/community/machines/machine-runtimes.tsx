@@ -37,6 +37,16 @@ function runtimeStickerTilt(name: string): CSSProperties {
   return { "--runtime-badge-tilt": `${angle.toFixed(1)}deg` } as CSSProperties
 }
 
+/** The machine-row runtime sticker without status; the landing runtime list shows the same badge (Gus #3214). */
+export function RuntimeBadge({ id, label = runtimeLabel(id) }: { id: string; label?: string }) {
+  return (
+    <Badge style={runtimeStickerTilt(label)} variant="ghost" data-machine-runtime className={chipBase}>
+      <ProviderLogo provider={id} className="size-3.5 shrink-0" />
+      <span className="truncate font-medium">{label}</span>
+    </Badge>
+  )
+}
+
 function RuntimeChip({ runtime }: { runtime: CommunityMachineRuntime }) {
   const unhealthy = runtime.status === "unhealthy"
   const stickerStyle = runtimeStickerTilt(runtimeLabel(runtime.id))
