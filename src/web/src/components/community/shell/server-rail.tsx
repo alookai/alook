@@ -76,7 +76,7 @@ function ServerRailFrame({
     >
       <div className="flex w-full shrink-0 flex-col items-center gap-2">
         {home}
-        <div className="my-1 w-6 border-t border-border/50" />
+        {items && <div className="my-1 w-6 border-t border-border/50" />}
       </div>
 
       <div
@@ -86,7 +86,7 @@ function ServerRailFrame({
         <div
           ref={scrollRef}
           data-testid={tid.serverRailScroll}
-          className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip pt-2 pb-1 thin-scrollbar scrollbar-none"
+          className={`min-h-0 w-full shrink overflow-y-auto overflow-x-clip ${items ? "pt-2 pb-1 " : ""}thin-scrollbar scrollbar-none`}
         >
           {items}
         </div>
@@ -370,7 +370,7 @@ function ServerRailContent({
       dnd={dnd} dragDescriptionId={dragInstructionsId}
     />
   )
-  const items = serverListPending ? <ServerRailSkeleton /> : (
+  const items = serverListPending ? <ServerRailSkeleton /> : railTopLevel(renderState).length === 0 ? null : (
     <div className="flex w-full flex-col items-center gap-2">
       {railTopLevel(renderState).map((entry, index, entries) => {
         if (entry.kind === "server") {

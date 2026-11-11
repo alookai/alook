@@ -4,6 +4,7 @@ import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 
 import { tid } from "./_fixtures/testids"
+import { expectScrollFade } from "./_fixtures/scroll-fade"
 import type { CaseActors } from "./_fixtures/case-fixture"
 
 const HOVER_QUERY = "(hover: hover) and (pointer: fine)"
@@ -245,8 +246,7 @@ test.describe("mobile reaction details", () => {
     expect(initial.flexWrap).toBe("nowrap")
     expect(initial.overflowX).toBe("auto")
     expect(initial.scrollWidth).toBeGreaterThan(initial.clientWidth)
-    await expect(alice.page.getByTestId(tid.reactionFadeLeft(messageId))).toHaveCount(0)
-    await expect(alice.page.getByTestId(tid.reactionFadeRight(messageId))).toBeVisible()
+    await expectScrollFade(rail, "start")
 
     const first = alice.page.getByTestId(tid.reactionTab(OVERFLOW_EMOJIS[0]))
     const last = alice.page.getByTestId(tid.reactionTab(OVERFLOW_EMOJIS.at(-1)!))
@@ -256,8 +256,7 @@ test.describe("mobile reaction details", () => {
       left: element.scrollLeft,
       max: element.scrollWidth - element.clientWidth,
     }))).toEqual(expect.objectContaining({ left: initial.scrollWidth - initial.clientWidth }))
-    await expect(alice.page.getByTestId(tid.reactionFadeLeft(messageId))).toBeVisible()
-    await expect(alice.page.getByTestId(tid.reactionFadeRight(messageId))).toHaveCount(0)
+    await expectScrollFade(rail, "end")
 
     await rail.evaluate((element) => {
       element.scrollLeft = 0
@@ -272,14 +271,12 @@ test.describe("mobile reaction details", () => {
       element.scrollLeft = (element.scrollWidth - element.clientWidth) / 2
       element.dispatchEvent(new Event("scroll"))
     })
-    await expect(alice.page.getByTestId(tid.reactionFadeLeft(messageId))).toBeVisible()
-    await expect(alice.page.getByTestId(tid.reactionFadeRight(messageId))).toBeVisible()
+    await expectScrollFade(rail, "middle")
 
     await last.focus()
     await last.press("Home")
     await expect.poll(() => rail.evaluate((element) => element.scrollLeft)).toBe(0)
-    await expect(alice.page.getByTestId(tid.reactionFadeLeft(messageId))).toHaveCount(0)
-    await expect(alice.page.getByTestId(tid.reactionFadeRight(messageId))).toBeVisible()
+    await expectScrollFade(rail, "start")
     await first.click()
     await expect(first).toHaveAttribute("data-active", "")
     await expect(alice.page.getByTestId(tid.reactionMember(userId("bob")))).toBeVisible()
@@ -290,22 +287,23 @@ test.describe("mobile reaction details", () => {
     })
     await alice.page.emulateMedia({ colorScheme: "dark" })
     await expect(alice.page.locator("html")).toHaveClass(/dark/)
-    const themeSurface = await alice.page.getByTestId(tid.reactionDialog(messageId)).evaluate((element, fadeTestId) => {
-      const fade = element.querySelector(`[data-testid="${fadeTestId}"]`)
-      const fadeStyle = fade ? getComputedStyle(fade) : null
+    const themeSurface = await alice.page.getByTestId(tid.reactionDialog(messageId)).evaluate((element, railTestId) => {
+      const scroller = element.querySelector(`[data-testid="${railTestId}"]`)
+      const railStyle = scroller ? getComputedStyle(scroller) : null
       const close = element.querySelector<HTMLElement>("[data-slot=dialog-close]")
       return {
         background: getComputedStyle(element).backgroundColor,
         color: getComputedStyle(element).color,
         closeColor: close ? getComputedStyle(close).color : "",
         closeTransitionProperty: close ? getComputedStyle(close).transitionProperty : "",
-        fadeEndpoint: fadeStyle?.getPropertyValue("--tw-gradient-from").trim() ?? "",
-        fade: fadeStyle?.backgroundImage ?? "",
+        railBackground: railStyle?.backgroundColor ?? "",
+        mask: railStyle?.maskImage ?? "",
         transitionProperty: getComputedStyle(element).transitionProperty,
       }
-    }, tid.reactionFadeRight(messageId))
-    expect(themeSurface.background).toBe(themeSurface.fadeEndpoint)
-    expect(themeSurface.fade).toContain(themeSurface.fadeEndpoint)
+    }, tid.reactionScroller(messageId))
+    expect(themeSurface.background).not.toBe("rgba(0, 0, 0, 0)")
+    expect(themeSurface.railBackground).toBe("rgba(0, 0, 0, 0)")
+    expect(themeSurface.mask).toContain("linear-gradient")
     expect(themeSurface.transitionProperty).toBe("none")
     expect(themeSurface.closeColor).toBe(themeSurface.color)
     expect(themeSurface.closeTransitionProperty).toBe("none")

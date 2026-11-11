@@ -7,7 +7,6 @@ import { useEffect, useMemo, type Ref } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
-  HorizontalOverflowFadeOverlays,
   useHorizontalOverflowRail,
 } from "@/components/horizontal-overflow-rail";
 import { useHoverCapable } from "@/hooks/use-hover-capable";
@@ -63,8 +62,6 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
     [topics],
   );
   const {
-    fades,
-    onScroll,
     scrollerRef,
     selectedRef,
   } = useHorizontalOverflowRail<HTMLDivElement, HTMLButtonElement>({
@@ -99,8 +96,7 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
         <div
           ref={scrollerRef}
           data-testid="blog-topic-scroller"
-          onScroll={onScroll}
-          className="thin-scrollbar scrollbar-none overflow-x-auto"
+          className="thin-scrollbar scrollbar-none overflow-x-auto scroll-fade-x scroll-fade-4 scroll-px-4 px-4"
         >
           <nav
             aria-label="Filter recent posts"
@@ -125,11 +121,6 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
             ))}
           </nav>
         </div>
-        <HorizontalOverflowFadeOverlays
-          fades={fades}
-          leftTestId="blog-topic-fade-left"
-          rightTestId="blog-topic-fade-right"
-        />
       </div>
 
       {visiblePosts.length > 0 ? (

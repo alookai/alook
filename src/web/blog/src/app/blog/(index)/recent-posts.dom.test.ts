@@ -183,7 +183,7 @@ describe("RecentPosts", () => {
     }
   });
 
-  it("uses the shared rail owner for directional fades and desktop wheel ownership", () => {
+  it("uses the shared rail owner for desktop wheel ownership", () => {
     const posts = [recentPost("newest", "foundations", "Foundations")];
     const topics = [
       { id: "foundations", label: "Foundations" },
@@ -204,8 +204,6 @@ describe("RecentPosts", () => {
     });
     fireEvent.scroll(scroller);
 
-    expect(screen.queryByTestId("blog-topic-fade-left")).not.toBeInTheDocument();
-    expect(screen.getByTestId("blog-topic-fade-right")).toBeVisible();
 
     const translated = new WheelEvent("wheel", {
       bubbles: true,
@@ -215,7 +213,6 @@ describe("RecentPosts", () => {
     fireEvent(scroller, translated);
     expect(scroller.scrollLeft).toBe(40);
     expect(translated.defaultPrevented).toBe(true);
-    expect(screen.getByTestId("blog-topic-fade-left")).toBeVisible();
 
     scroller.scrollLeft = 200;
     const boundary = new WheelEvent("wheel", {
