@@ -3,7 +3,7 @@
 import { useCallback } from "react"
 import { useMutation, useQueryClient, type MutateOptions } from "@tanstack/react-query"
 import { sessionIdentityGeneration } from "@/lib/session-transport"
-import { signOutWithOrigin } from "@/lib/auth-client"
+import { authClient, signOutWithOrigin } from "@/lib/auth-client"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, assertCommunitySnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
@@ -40,6 +40,11 @@ export function useAccountSignOut() {
       return sessionIdentityGeneration() === identityGeneration && registry.authenticationView.get().active && registry.authenticationView.get().generation === generation && (viewer === undefined || viewer === null || viewer === registry.accountId)
     } catch (error) {
       assertActive()
+      // A queued identity request may start when the logout lease releases.
+      // Confirm the cookie-bound account before restoring any old-owner reads.
+      const session = await authClient.getSession()
+      assertActive()
+      if (session.data?.user?.id !== registry.accountId) throw error
       // Pause rejects new reads. Cancel unfinished attempts before refetching so
       // even retry-disabled queries recover after the transport lease releases.
       await queryClient.cancelQueries()

@@ -12,11 +12,12 @@ import { attentionSnapshotScenarioFixture } from "@/test/community-resource-fixt
 import { useAccountSignOut } from "./community/use-account-sign-out"
 
 const sdk = vi.hoisted(() => vi.fn())
+const sessionCheck = vi.hoisted(() => vi.fn())
 const read = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => read(...args) }))
-vi.mock("@/lib/auth-client", () => ({ signOutWithOrigin: sdk }))
+vi.mock("@/lib/auth-client", () => ({ signOutWithOrigin: sdk, authClient: { getSession: sessionCheck } }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }))
-beforeEach(() => { sdk.mockReset() })
+beforeEach(() => { sdk.mockReset(); sessionCheck.mockReset().mockResolvedValue({ data: { user: { id: "viewer" } } }) })
 function deferred() {
   let resolve!: () => void
   const promise = new Promise<void>((done) => { resolve = done })
@@ -71,6 +72,19 @@ describe.each(["community"] as const)("Native %s sign-out facade", (domain) => {
     expect(owner.retired()).toBe(false)
     expect(owner.retireDisk).not.toHaveBeenCalled()
     readers.unmount()
+  })
+  it("does not restore A reads while queued B identity is unresolved or after B succeeds", async () => {
+    const owner = await setup(domain), held = deferred()
+    const invalidate = vi.spyOn(owner.community.client, "invalidateQueries")
+    sdk.mockResolvedValue({ error: { message: "Logout failed" } })
+    sessionCheck.mockImplementation(async () => { await held.promise; return { data: { user: { id: "B" } } } })
+    let request!: Promise<unknown>
+    act(() => { request = owner.view.result.current.mutateAsync().catch(error => error) })
+    await waitFor(() => expect(sessionCheck).toHaveBeenCalledOnce())
+    expect(invalidate).not.toHaveBeenCalled()
+    await act(async () => { held.resolve(); expect(await request).toMatchObject({ message: "Logout failed" }) })
+    expect(invalidate).not.toHaveBeenCalled()
+    expect(owner.retireDisk).not.toHaveBeenCalled()
   })
   it("retires an unconfirmed cached owner without invoking a cookie-bound remote logout", async () => {
     const owner = await setup(domain, Promise.resolve(), { viewer: undefined }), onSuccess = vi.fn()
