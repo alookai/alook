@@ -154,6 +154,7 @@ describe("session transport sign-out ordering", () => {
     const transport = createSessionTransport(native, origin)
     const controller = new AbortController()
     const login = transport.fetch("/api/auth/sign-in/email", { method: "POST", signal: controller.signal })
+    await vi.waitFor(() => expect(native).toHaveBeenCalledTimes(1))
     controller.abort()
     await expect(login).rejects.toMatchObject({ name: "AbortError" })
     const session = transport.fetch("/api/auth/get-session")
@@ -172,6 +173,41 @@ describe("session transport sign-out ordering", () => {
     response.resolve(Response.json({ user: "B" }))
     await login
     transport.beginSignOut(() => {}).release()
+  })
+
+  it("drains a recovery response before a later login and fences new reads and writes", async () => {
+    const old = deferred<Response>(), loginResponse = deferred<Response>()
+    const native = vi.fn<typeof fetch>().mockImplementation(input => String(input).includes("get-session") ? old.promise : String(input).includes("sign-in") ? loginResponse.promise : Promise.resolve(Response.json({ fresh: true })))
+    const transport = createSessionTransport(native, origin)
+    const recovery = transport.fetch("/api/auth/get-session")
+    const login = transport.fetch("/api/auth/sign-in/email", { method: "POST" })
+    const pageRead = transport.fetch("/api/community/users/me/read-state")
+    await expect(transport.fetch("/api/community/messages", { method: "POST", body: "A intent" })).rejects.toMatchObject({ name: "AbortError" })
+    expect(native).toHaveBeenCalledTimes(1)
+    old.resolve(Response.json({ user: "A" }))
+    await recovery
+    await vi.waitFor(() => expect(native).toHaveBeenCalledTimes(2))
+    expect(native.mock.calls[1][0]).toBe("/api/auth/sign-in/email")
+    loginResponse.resolve(Response.json({ user: "B" }))
+    await login
+    expect(await (await pageRead).json()).toEqual({ fresh: true })
+    expect(native.mock.calls[2][0]).toBe("/api/community/users/me/read-state")
+  })
+
+  it("resumes waiting reads after a failed identity and cancels a waiting read promptly", async () => {
+    const response = deferred<Response>()
+    const native = vi.fn<typeof fetch>().mockImplementation(input => String(input).includes("sign-in") ? response.promise : Promise.resolve(Response.json({ user: "A" })))
+    const transport = createSessionTransport(native, origin), controller = new AbortController()
+    const login = transport.fetch("/api/auth/sign-in/email", { method: "POST" })
+    await vi.waitFor(() => expect(native).toHaveBeenCalledTimes(1))
+    const canceled = transport.fetch("/api/community/servers", { signal: controller.signal })
+    controller.abort()
+    await expect(canceled).rejects.toMatchObject({ name: "AbortError" })
+    const reader = transport.fetch("/api/community/users/me/attention")
+    response.resolve(Response.json({ error: "bad credentials" }, { status: 401 }))
+    await login
+    expect(await (await reader).json()).toEqual({ user: "A" })
+    expect(native).toHaveBeenCalledTimes(2)
   })
 
 })

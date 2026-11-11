@@ -81,26 +81,29 @@ export function createSessionTransport(nativeFetch: typeof fetch, origin: string
       }
       if (identityRequest) {
         identityGeneration += 1
+        const earlierIdentities = [...identities]
         let finish!: () => void
         const identity = new Promise<void>(resolve => { finish = resolve })
         identities.add(identity)
         const finishIdentity = () => { identities.delete(identity); finish() }
         let dispatched = false
         try {
-          if (activeLease) {
-            const signal = cancellation()
-            do {
-              if (activeLease) await waitFor(activeLease.released, signal)
-              await waitFor(Promise.all([...pending]), signal)
-            } while (activeLease)
-            if (signal.aborted) throw signal.reason
-          }
+          const signal = cancellation()
+          await waitFor(Promise.all(earlierIdentities), signal)
+          do {
+            if (activeLease) await waitFor(activeLease.released, signal)
+            await waitFor(Promise.all([...pending]), signal)
+          } while (activeLease)
+          if (signal.aborted) throw signal.reason
           dispatched = true
           return await execute(input, init, undefined, finishIdentity)
         } finally { if (!dispatched) finishIdentity() }
       }
-      if (carriesSession(input, init) && url.pathname === "/api/auth/get-session" && identities.size) {
-        await waitFor(Promise.all([...identities]), cancellation())
+      if (carriesSession(input, init) && identities.size) {
+        // Never replay a mutation under the account that is about to replace it.
+        if (!["GET", "HEAD"].includes(method.toUpperCase())) throw aborted()
+        const signal = cancellation()
+        do { await waitFor(Promise.all([...identities]), signal) } while (identities.size)
       }
       return execute(input, init)
     }) as typeof fetch,
