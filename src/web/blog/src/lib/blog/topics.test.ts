@@ -47,14 +47,14 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 37 published slugs exactly once", () => {
+  it("covers all 38 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(37);
-    expect(new Set(slugs).size).toBe(37);
+    expect(slugs).toHaveLength(38);
+    expect(new Set(slugs).size).toBe(38);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -67,6 +67,7 @@ describe("blogTopics", () => {
         "ai-agent-collaboration-platforms",
         "multi-agent-workflow-patterns",
         "run-ai-agent-team-that-stays-on-track",
+        "paperclip-alternatives",
       ],
       [
         "cursor-vs-claude-code",
@@ -144,6 +145,8 @@ describe("blogTopics", () => {
         "Pick a workflow pattern for my multi-agent setup",
       "run-ai-agent-team-that-stays-on-track":
         "Keep a running agent team from drifting",
+      "paperclip-alternatives":
+        "Choose a Paperclip alternative for direct agent work, coding review, reusable research, or shared team conversations",
       "ai-team-vs-ai-tools":
         "Stop being the copy-paste layer between coding agents",
       "claude-code-subagents-vs-independent-agents":
