@@ -1,3 +1,4 @@
+import { visibleRuntimes } from "./runtime-label"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { queryOptions, type QueryClient } from "@tanstack/react-query"
 import { CommunityResourceError } from "@/lib/errors"
@@ -92,7 +93,7 @@ export type BotRuntimeOption = Pick<CommunityMachineRuntime, "id" | "reasoning">
 
 // Persisted caches can contain missing runtimes or bare string entries.
 // Keep unhealthy options visible so the picker can explain their disabled state.
-export function normalizeRuntimes(machine: MachineSummary | undefined): BotRuntimeOption[] {
+export function normalizeRuntimes(machine: MachineSummary | undefined, selectedRuntime?: string): BotRuntimeOption[] {
   const rt = machine?.availableRuntimes ?? []
   const normalized = rt.map((r) =>
     typeof r === "string"
@@ -103,7 +104,7 @@ export function normalizeRuntimes(machine: MachineSummary | undefined): BotRunti
           unhealthy: r.status === "unhealthy",
         },
   )
-  return normalized.sort((a, b) => Number(a.unhealthy) - Number(b.unhealthy))
+  return visibleRuntimes(normalized, selectedRuntime).sort((a, b) => Number(a.unhealthy) - Number(b.unhealthy))
 }
 
 export function firstHealthyRuntimeId(options: BotRuntimeOption[]): string {

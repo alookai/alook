@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { probeCliRuntime } from "../../internal/probe.js";
 import { resolveCodexCommand } from "./command.js";
 
 const roots: string[] = [];
@@ -67,4 +68,55 @@ describe("Codex App command discovery", () => {
   it("returns unavailable when no runnable candidate exists", () => {
     expect(resolveCodexCommand(undefined, fixture().deps, "darwin")).toBeUndefined();
   });
+});
+
+
+describe("explicit Codex sources", () => {
+  it("finds two independent programs when PATH and App are installed", () => {
+    const f = fixture();
+    const app = f.install("Codex");
+    f.deps.which.mockReturnValue("/cli/codex");
+    expect(resolveCodexCommand(undefined, f.deps, "darwin", "codex-app")).toBe(app);
+    expect(f.deps.which).not.toHaveBeenCalled();
+    expect(resolveCodexCommand(undefined, f.deps, "darwin", "codex-cli")).toBe("/cli/codex");
+  });
+
+  it("does not use the App when the CLI is missing", () => {
+    const f = fixture();
+    f.install("Codex");
+    expect(resolveCodexCommand(undefined, f.deps, "darwin", "codex-cli")).toBeUndefined();
+  });
+
+  it("does not use PATH when the App is missing", () => {
+    const f = fixture();
+    f.deps.which.mockReturnValue("/cli/codex");
+    expect(resolveCodexCommand(undefined, f.deps, "darwin", "codex-app")).toBeUndefined();
+    expect(f.deps.which).not.toHaveBeenCalled();
+  });
+
+  it.each(["linux", "win32"] as const)("does not use PATH as an App on %s", (platform) => {
+    const f = fixture();
+    f.install("Codex");
+    f.deps.which.mockReturnValue("/cli/codex");
+    expect(resolveCodexCommand(undefined, f.deps, platform, "codex-app")).toBeUndefined();
+  });
+
+  it.each(["codex-app", "codex-cli"] as const)("honors an explicit override for %s", (backend) => {
+    const f = fixture();
+    expect(resolveCodexCommand(" /custom/codex ", f.deps, "linux", backend)).toBe("/custom/codex");
+    expect(f.deps.which).not.toHaveBeenCalled();
+  });
+});
+
+it.skipIf(process.platform === "win32")("executes the selected App and CLI version programs independently", () => {
+  const f = fixture();
+  const app = f.install("Codex");
+  const cli = join(f.deps.homeDir, "standalone-codex");
+  mkdirSync(dirname(cli), { recursive: true });
+  writeFileSync(app, "#!/bin/sh\nprintf 'codex-app 1.2.3\\n'\n");
+  writeFileSync(cli, "#!/bin/sh\nprintf 'codex-cli 4.5.6\\n'\n");
+  chmodSync(cli, 0o755);
+  f.deps.which.mockReturnValue(cli);
+  expect(probeCliRuntime("codex", {}, resolveCodexCommand(undefined, f.deps, "darwin", "codex-app"))).toEqual({ status: "healthy", version: "codex-app 1.2.3" });
+  expect(probeCliRuntime("codex", {}, resolveCodexCommand(undefined, f.deps, "darwin", "codex-cli"))).toEqual({ status: "healthy", version: "codex-cli 4.5.6" });
 });

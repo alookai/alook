@@ -7,7 +7,7 @@ import { ProviderLogo } from "@/components/provider-logo"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { runtimeLabel } from "@/lib/community/runtime-label"
+import { runtimeLabel, visibleRuntimes } from "@/lib/community/runtime-label"
 
 const chipBase =
   "h-auto max-w-40 gap-2 px-2 py-1 text-[11px]"
@@ -15,7 +15,7 @@ const chipBase =
 export function MachineRuntimes({ runtimes }: { runtimes: CommunityMachineRuntime[] | undefined }) {
   // Nullish guard — a legacy CommunityMachineSummary cached client-side may
   // still be missing this field. Do not throw; render nothing.
-  const list = runtimes ?? []
+  const list = visibleRuntimes(runtimes ?? [])
   if (list.length === 0) return null
 
   const sorted = list.toSorted((a, b) =>

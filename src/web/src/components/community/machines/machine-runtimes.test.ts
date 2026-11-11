@@ -50,7 +50,7 @@ describe("MachineRuntimes", () => {
     const inner = Children.toArray(fragment.props.children) as any[]
     // [0] logo, [1] id text
     expect(inner).toHaveLength(2)
-    expect(inner[1].props.children).toBe("codex")
+    expect(inner[1].props.children).toBe("Codex (automatic)")
   })
 
   it("with a version, the chip is wrapped in a Tooltip carrying the version", () => {
@@ -104,7 +104,7 @@ describe("MachineRuntimes", () => {
     expect(triggerRender.props.render.type).toBe("button")
     expect(triggerRender.props.className as string).toContain("opacity-40")
     // aria-label reflects unhealthy state, not a version.
-    expect(triggerRender.props["aria-label"]).toBe("codex unavailable")
+    expect(triggerRender.props["aria-label"]).toBe("Codex (automatic) unavailable")
   })
 
   it("sorts unhealthy runtimes after healthy ones, preserving relative order within each group", () => {

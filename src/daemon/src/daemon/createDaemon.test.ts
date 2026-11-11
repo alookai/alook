@@ -522,7 +522,7 @@ describe("createDaemon", () => {
     }
   });
 
-  it.each(["codex", "grok", "antigravity"] as const)("re-emits enriched idle when terminal %s telemetry arrives after turn completion", async (backendId) => {
+  it.each(["codex", "codex-app", "codex-cli", "grok", "antigravity"] as const)("re-emits enriched idle when terminal %s telemetry arrives after turn completion", async (backendId) => {
     const sockets: FakeSocket[] = [];
     const sessions: DaemonFakeSession[] = [];
     const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-provider-telemetry-"));

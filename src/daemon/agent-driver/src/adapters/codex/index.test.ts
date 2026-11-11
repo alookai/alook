@@ -89,7 +89,7 @@ function probingProcess(
 }
 
 describe("CodexDriver reasoning catalog probe", () => {
-  it("uses the discovered App binary for the version probe, catalog, and session launch", async () => {
+  it.each(["codex", "codex-app", "codex-cli"] as const)("uses the resolved %s binary for the version probe, catalog, and session launch", async (backend) => {
     const command = "/Applications/Codex.app/Contents/Resources/codex";
     runtimeMocks.resolveCodexCommand.mockReturnValue(command);
     const catalog = probingProcess((request) => ({
@@ -97,7 +97,7 @@ describe("CodexDriver reasoning catalog probe", () => {
       result: request.method === "model/list" ? { data: [{ id: "native-model" }], nextCursor: null } : {},
     }));
     runtimeMocks.spawnAgentProcess.mockReturnValueOnce(catalog);
-    const driver = new CodexDriver();
+    const driver = new CodexDriver(backend);
     expect(await driver.probe()).toMatchObject({ status: "healthy", reasoning: { models: [{ id: "native-model" }] } });
     expect(runtimeMocks.probeCliRuntime).toHaveBeenCalledWith("codex", {}, command);
     expect(runtimeMocks.spawnAgentProcess).toHaveBeenNthCalledWith(1, command, ["app-server", "--listen", "stdio://"], expect.any(Object));
@@ -893,4 +893,17 @@ it("keeps CLI installation healthy but discards a successful catalog after clean
   runtimeMocks.killProcessTree.mockRejectedValueOnce(new Error("cleanup rejected"));
   await expect(new CodexDriver().probe()).resolves.toMatchObject({ status: "healthy", reasoning: undefined });
   expect(runtimeMocks.killProcessTree).toHaveBeenCalledWith(42_424, { graceMs: 250 });
+});
+
+
+describe("Codex source isolation", () => {
+  it.each(["codex-app", "codex-cli"] as const)("does not probe or launch a fallback for missing %s", async (backend) => {
+    const driver = new CodexDriver(backend);
+    expect(await driver.probe()).toEqual({ status: "unhealthy", lastError: "not_installed" });
+    expect(runtimeMocks.probeCliRuntime).not.toHaveBeenCalled();
+    await expect(driver.spawn(baseCtx())).rejects.toMatchObject({ code: "not_installed" });
+    expect(runtimeMocks.spawnAgentProcess).not.toHaveBeenCalled();
+    expect(runtimeMocks.resolveCodexCommand).toHaveBeenCalledWith(undefined, {}, process.platform, backend);
+  });
+
 });

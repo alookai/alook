@@ -18,6 +18,8 @@ describe("builtin adapter protocol conformance", () => {
       "pi-durable": ["session", "stdio_rpc", "pi-durable.sdk-worker.v1", "steer", "prompt_invocation"],
       claude: ["session", "stdio_stream", "claude.stream-json.v1", "steer", "vendor_message"],
       codex: ["session", "stdio_rpc", "codex.app-server.v1", "steer", "transport_request"],
+      "codex-app": ["session", "stdio_rpc", "codex.app-server.v1", "steer", "transport_request"],
+      "codex-cli": ["session", "stdio_rpc", "codex.app-server.v1", "steer", "transport_request"],
       cursor: ["session", "stdio_rpc", "cursor.acp.v1", "steer", "transport_request"],
       agy: ["session", "stdio_stream", "agy.stream-json.v1", "next_turn_queue", "vendor_message"],
       antigravity: ["session", "stdio_rpc", "antigravity.acp.v1", "next_turn_queue", "transport_request"],
@@ -89,8 +91,8 @@ describe("builtin adapter protocol conformance", () => {
     });
   });
 
-  it("runs the real Codex adapter and keeps off-root completion/output outside root authority", () => {
-    const events = runAgentBackendAdapterConformance(registry.get("codex"), {
+  it.each(["codex", "codex-app", "codex-cli"] as const)("runs the real %s adapter and keeps off-root completion/output outside root authority", (backend) => {
+    const events = runAgentBackendAdapterConformance(registry.get(backend), {
       exercise(adapter) {
         const rootThread = "codex-root";
         const rootTurn = "root-turn";

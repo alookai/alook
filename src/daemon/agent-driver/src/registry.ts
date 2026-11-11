@@ -190,7 +190,12 @@ export function assertAdapterCompatibility(
   }
 }
 
-export const BUILTIN_BACKEND_IDS = ["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"] as const;
+export const BUILTIN_BACKEND_IDS = ["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"] as const;
+
+const codexCapabilities = {
+  modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true,
+  disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
+} as const;
 
 const capabilities = {
   qoder: {
@@ -221,10 +226,9 @@ const capabilities = {
     modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true,
     disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
   },
-  codex: {
-    modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true,
-    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
-  },
+  codex: codexCapabilities,
+  "codex-app": codexCapabilities,
+  "codex-cli": codexCapabilities,
   cursor: {
     modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false,
     disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
@@ -247,6 +251,8 @@ export function createBuiltinAgentDriverRegistry(): AgentDriverRegistry<BuiltinB
   return createAgentDriverRegistry<BuiltinBackendSpecs>([
     { id: "claude", contractVersion: 2, capabilities: capabilities.claude, createAdapter: () => new ClaudeDriver() },
     { id: "codex", contractVersion: 2, capabilities: capabilities.codex, createAdapter: () => new CodexDriver() },
+    { id: "codex-app", contractVersion: 2, capabilities: capabilities["codex-app"], createAdapter: () => new CodexDriver("codex-app") },
+    { id: "codex-cli", contractVersion: 2, capabilities: capabilities["codex-cli"], createAdapter: () => new CodexDriver("codex-cli") },
     { id: "cursor", contractVersion: 2, capabilities: capabilities.cursor, createAdapter: () => new CursorDriver() },
     { id: "grok", contractVersion: 2, capabilities: capabilities.grok, createAdapter: () => new GrokDriver() },
     { id: "opencode", contractVersion: 2, capabilities: capabilities.opencode, createAdapter: () => new OpenCodeDriver() },

@@ -173,6 +173,8 @@ export function ProviderLogo({
     case "claude":
       return <ClaudeLogo className={className} />;
     case "codex":
+    case "codex-app":
+    case "codex-cli":
       return <OpenAILogo className={className} />;
     case "opencode":
       return <OpenCodeLogo className={className} />;

@@ -14,10 +14,11 @@ export const ONBOARDING_HARNESSES = [
     provider: "claude",
   },
   {
-    value: "codex",
+    value: "codex-app",
     label: "Codex",
-    provider: "codex",
+    provider: "codex-app",
   },
+  { value: "codex-cli", label: "Codex CLI", provider: "codex-cli" },
   {
     value: "grok",
     label: "Grok Build",

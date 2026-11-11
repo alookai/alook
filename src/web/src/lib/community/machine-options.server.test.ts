@@ -4,7 +4,7 @@ vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return { ...actual, queries: { ...actual.queries, communityMachine: { ...actual.queries.communityMachine, listMachinesForUser: mocks.list } } }
 })
-import { readPlatformMachines, projectModelOptions } from "./machine-options.server"
+import { readPlatformMachines, projectModelOptions, projectMachineBackends } from "./machine-options.server"
 
 beforeEach(() => vi.clearAllMocks())
 it("scopes the machine list to the owner and projects both online and offline targets", async () => {
@@ -25,4 +25,12 @@ it.each([["qoder", false], ["copilot", false], ["cursor-sdk", true], ["pi-durabl
   expect(projectModelOptions("m1", { id: backendId, reasoning: { updateMode: "unsupported", models: [{ id: "provider/model", supportedReasoningEfforts: [{ value: "high" }] }] } })).toMatchObject({
     backendId, modelRequired, models: [{ id: "provider/model", reasoningEfforts: [{ value: "high" }] }],
   })
+})
+
+it("keeps App and CLI versions and model catalogs separate without offering the legacy alias", () => {
+  const app = { id: "codex-app", status: "healthy" as const, version: "0.1", reasoning: { updateMode: "live_next_turn" as const, defaultModelId: "app-model", models: [{ id: "app-model", supportedReasoningEfforts: [] }] } }
+  const cli = { id: "codex-cli", status: "healthy" as const, version: "0.2", reasoning: { updateMode: "live_next_turn" as const, models: [{ id: "cli-model", supportedReasoningEfforts: [] }] } }
+  expect(projectMachineBackends([{ id: "codex", status: "healthy" }, app, cli]).map(({ id, version }) => ({ id, version }))).toEqual([{ id: "codex-app", version: "0.1" }, { id: "codex-cli", version: "0.2" }])
+  expect(projectModelOptions("m1", app)).toMatchObject({ backendId: "codex-app", defaultModelId: "app-model", models: [{ id: "app-model" }] })
+  expect(projectModelOptions("m1", cli)).toMatchObject({ backendId: "codex-cli", models: [{ id: "cli-model" }] })
 })

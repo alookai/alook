@@ -10,6 +10,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { runtimeLabel } from "@/lib/community/runtime-label"
 import { timeAgo } from "@/lib/time"
 import { tid } from "@/lib/community/testids"
 import type { MachineBackendQuota } from "@/hooks/community/use-machines"
@@ -143,6 +144,7 @@ function quotaPlaceholder(entries: MachineBackendQuota[] | undefined): string | 
 }
 
 function backendLabel(backendId: string): string {
+  if (backendId === "codex-app" || backendId === "codex-cli") return runtimeLabel(backendId)
   return backendId
     .split(/[-_]/)
     .filter(Boolean)

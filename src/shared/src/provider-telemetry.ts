@@ -1,13 +1,13 @@
 import { z } from "zod";
 
 export const DAILY_TOKEN_USAGE_WINDOW_DAYS = 30;
-export const PROVIDER_QUOTA_BACKENDS = ["claude", "codex", "grok", "antigravity"] as const;
+export const PROVIDER_QUOTA_BACKENDS = ["claude", "codex", "codex-app", "codex-cli", "grok", "antigravity"] as const;
 export const ProviderQuotaBackendSchema = z.enum(PROVIDER_QUOTA_BACKENDS);
 export type ProviderQuotaBackend = z.infer<typeof ProviderQuotaBackendSchema>;
 export type TelemetryCapability = "supported" | "unsupported" | "unknown";
 
 const tokenUsageBackends: ReadonlySet<string> = new Set([
-  "claude", "codex", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable",
+  "claude", "codex", "codex-app", "codex-cli", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable",
 ]);
 const quotaUnsupportedBackends: ReadonlySet<string> = new Set([
   "cursor", "opencode", "pi", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable",
