@@ -35,7 +35,7 @@ export const LANDING_TESTIMONIALS: readonly LandingTestimonial[] = [
     "followers": 76562,
     "checkedAt": "2026-10-21T12:46:00+08:00",
     "lang": "en",
-    "avatar": "https://pbs.twimg.com/profile_images/2035538789037420544/yWyu20U2.jpg"
+    "avatar": "https://pbs.twimg.com/profile_images/2113040165023432704/FzUj667P.jpg"
   },
   {
     "id": "x-2108256188689527102",
@@ -145,7 +145,7 @@ export const LANDING_TESTIMONIALS: readonly LandingTestimonial[] = [
     "followers": 2363,
     "checkedAt": "2026-10-21T12:46:00+08:00",
     "lang": "en",
-    "avatar": "https://pbs.twimg.com/profile_images/2112619770923347968/MRkyanyc.jpg"
+    "avatar": "https://pbs.twimg.com/profile_images/2119514735381303296/RhHeHhCs.jpg"
   },
   {
     "id": "x-2108296688720855151",
