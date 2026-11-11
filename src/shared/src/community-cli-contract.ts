@@ -438,11 +438,13 @@ export const MAX_MARK_NOTE_BYTES = 10 * 1024;
 export interface OtherBotMark {
   handle: string;
   note: string | null;
+  updatedAt: string | null;
 }
 
 export type MessagePropertyMutationResult = MessagePropertyMutation & {
   changed: boolean;
   otherBotMarks?: OtherBotMark[];
+  updatedAt?: string | null;
 };
 
 export interface MessagePropertyEmojiEntry {
@@ -454,7 +456,7 @@ export interface MessagePropertyEmojiEntry {
 export type MessagePropertyValue =
   | { type: "tag"; value: string[] }
   | { type: "emoji"; value: MessagePropertyEmojiEntry[] }
-  | { type: "mark"; value: boolean; note: string | null; otherBotMarks: OtherBotMark[] };
+  | { type: "mark"; value: boolean; note: string | null; updatedAt: string | null; otherBotMarks: OtherBotMark[] };
 
 export interface MessagePropertyListResult {
   capabilities: Array<MessagePropertyMutation["type"]>;
@@ -462,7 +464,7 @@ export interface MessagePropertyListResult {
 }
 
 export interface MessageMarkListResponse {
-  marked: Array<Message & { note: string | null; otherBotMarks: OtherBotMark[] }>;
+  marked: Array<Message & { note: string | null; updatedAt: string | null; otherBotMarks: OtherBotMark[] }>;
 }
 
 export interface ReadRequest {

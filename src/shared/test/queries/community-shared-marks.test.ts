@@ -1,7 +1,7 @@
 import Sqlite from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { readFileSync, readdirSync } from "node:fs"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Database } from "../../src/db"
 import { user } from "../../src/db/schema"
 import { communityChannel, communityChannelMember, communityCategory, communityMessage, communityServer, communityServerMember, communityFriendship } from "../../src/db/community-schema"
@@ -14,6 +14,8 @@ describe("shared bot progress with real SQLite permissions", () => {
   let seed: ReturnType<typeof drizzle>
   let queryParams: unknown[][]
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date(createdAt))
     sqlite = new Sqlite(":memory:")
     sqlite.pragma("foreign_keys = ON")
     const migrations = new URL("../../../web/migrations/", import.meta.url)
@@ -34,15 +36,15 @@ describe("shared bot progress with real SQLite permissions", () => {
     for (const channelId of ["public", "private", "thread", "dm"]) seed.insert(communityMessage).values({ id: channelId, channelId, authorId: "human", seq: 1, content: "task", createdAt }).run()
     queryParams = []
   })
-  afterEach(() => sqlite?.close())
-  const entry = { handle: "@b#0001", note: "QA" }
+  afterEach(() => { sqlite?.close(); vi.useRealTimers() })
+  const entry = { handle: "@b#0001", note: "QA", updatedAt: createdAt }
   async function mark(userId: string, messageId: string, note: string | null = "QA") {
     return markMessage(db, { userId, messageId, channelId: messageId, note })
   }
   it("shares existing notes, excludes self/humans/deleted bots, and needs no own mark", async () => {
     for (const id of ["a", "b", "human", "gone"]) await mark(id, "public")
     expect((await listOtherBotMarks(db, "a", ["public"])).get("public")).toEqual([entry])
-    expect(Object.keys((await listOtherBotMarks(db, "a", ["public"])).get("public")![0]).sort()).toEqual(["handle", "note"])
+    expect(Object.keys((await listOtherBotMarks(db, "a", ["public"])).get("public")![0]).sort()).toEqual(["handle", "note", "updatedAt"])
     await unmarkMessage(db, { userId: "a", messageId: "public" })
     expect((await listOtherBotMarks(db, "a", ["public"])).get("public")).toEqual([entry])
     await mark("b", "public", null)

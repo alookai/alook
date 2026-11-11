@@ -605,16 +605,9 @@ export const communityBotDailyTokenUsage = sqliteTable(
   ]
 );
 
-// 23. community_message_mark
-// Per-user private bookmark ("mark") on a message. Unlike community_pin (15),
-// which is channel-shared (everyone sees the same set), a mark is keyed by the
-// marking USER and visible only to them. Powers the Marked inbox tab. Like
-// pins, no denormalized seq: the marked-list read joins communityMessage for
-// the jump key (communityMessage.seq). channelId is stored for the cascade and
-// the phase-2 per-channel markedIds read (inline glyph, cut from phase-1 per
-// Gus /Gus/working #992); the INDEX(userId, channelId) that read needs is
-// deferred with it. UNIQUE(userId, messageId) makes the toggle idempotent
-// (messageId is globally unique, so channelId is not needed for uniqueness).
+// Each user owns one mark per message. Human marks remain private; bot marks
+// and notes are shared with bots that can read the original message.
+// A null updatedAt means the historical last-change time is unknown.
 export const communityMessageMark = sqliteTable(
   "community_message_mark",
   {
@@ -629,6 +622,7 @@ export const communityMessageMark = sqliteTable(
       .notNull()
       .references(() => communityMessage.id, { onDelete: "cascade" }),
     note: text("note"),
+    updatedAt: text("updated_at"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [

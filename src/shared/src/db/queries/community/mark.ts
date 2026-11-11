@@ -12,18 +12,20 @@ export async function markMessage(
   db: Database,
   data: { userId: string; channelId: string; messageId: string; note?: string | null }
 ) {
+  const updatedAt = new Date().toISOString();
   const insert = db.insert(communityMessageMark).values({
     userId: data.userId,
     channelId: data.channelId,
     messageId: data.messageId,
     note: data.note ?? null,
+    updatedAt,
   });
   const target = [communityMessageMark.userId, communityMessageMark.messageId];
   const mutation = data.note === undefined
     ? insert.onConflictDoNothing({ target })
     : insert.onConflictDoUpdate({
         target,
-        set: { note: data.note },
+        set: { note: data.note, updatedAt },
         setWhere: data.note === null
           ? isNotNull(communityMessageMark.note)
           : or(isNull(communityMessageMark.note), ne(communityMessageMark.note, data.note)),
@@ -34,7 +36,7 @@ export async function markMessage(
 
 export async function getMessageMark(db: Database, userId: string, messageId: string) {
   const [mark] = await db
-    .select({ id: communityMessageMark.id, note: communityMessageMark.note })
+    .select({ id: communityMessageMark.id, note: communityMessageMark.note, updatedAt: communityMessageMark.updatedAt })
     .from(communityMessageMark)
     .where(and(eq(communityMessageMark.userId, userId), eq(communityMessageMark.messageId, messageId)))
     .limit(1);
@@ -43,7 +45,7 @@ export async function getMessageMark(db: Database, userId: string, messageId: st
 
 // Self-scoped: only the marking user's own row is deletable. A DELETE targeting
 // someone else's mark on the same message matches 0 rows (no-op) — never touches
-// another user's private mark.
+// another user's mark.
 export async function unmarkMessage(
   db: Database,
   data: { userId: string; messageId: string }
@@ -60,10 +62,8 @@ export async function unmarkMessage(
   return deleted ?? null;
 }
 
-// Single-row presence check for the ⋯-menu Mark/Unmark label. Self-scoped
-// (WHERE userId): answers "did *I* mark this", never "did anyone" — reading
-// another user's mark state would leak their private marks. Hits
-// UNIQUE(userId, messageId), so it's a one-row index lookup.
+// The Mark/Unmark menu checks only the caller's own row. Shared bot progress
+// uses listOtherBotMarks and its message-access predicates instead.
 export async function isMessageMarked(
   db: Database,
   userId: string,
@@ -174,6 +174,7 @@ export async function listOtherBotMarks(
       name: user.name,
       discriminator: user.discriminator,
       note: communityMessageMark.note,
+      updatedAt: communityMessageMark.updatedAt,
     }).from(communityMessageMark)
       .innerJoin(user, eq(user.id, communityMessageMark.userId))
       .innerJoin(communityMessage, eq(communityMessage.id, communityMessageMark.messageId))
@@ -189,7 +190,7 @@ export async function listOtherBotMarks(
       )).orderBy(asc(user.id));
     for (const row of rows) {
       const entries = result.get(row.messageId) ?? [];
-      entries.push({ handle: `@${formatHandle(row.name, row.discriminator)}`, note: row.note });
+      entries.push({ handle: `@${formatHandle(row.name, row.discriminator)}`, note: row.note, updatedAt: row.updatedAt });
       result.set(row.messageId, entries);
     }
   }

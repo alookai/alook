@@ -1380,7 +1380,7 @@ describe("channel history", () => {
 
 describe("message property", () => {
   it("preserves other bots' mark notes in set and property list", async () => {
-    const otherBotMarks = [{ handle: "@Peer#0002", note: "QA" }];
+    const otherBotMarks = [{ handle: "@Peer#0002", note: "QA", updatedAt: "2026-11-11T12:00:00.000Z" }];
     setApiForTesting(stubApi({
       messagePropertySet: async () => ({ type: "mark", value: true, changed: false, otherBotMarks }),
       messagePropertyList: async () => ({ capabilities: ["mark"], properties: [{ type: "mark", value: false, note: null, otherBotMarks }] }),
@@ -1538,7 +1538,8 @@ describe("message mark", () => {
           sender: "@alice#0001",
           content: { text: "task" },
           note,
-          otherBotMarks: [{ handle: "@Peer#0002", note: "QA" }],
+          updatedAt: "2026-11-11T13:00:00.000Z",
+          otherBotMarks: [{ handle: "@Peer#0002", note: "QA", updatedAt: "2026-11-11T12:00:00.000Z" }],
           time: "2026-08-13T04:00:00.000Z",
         }],
       }),
@@ -1548,7 +1549,8 @@ describe("message mark", () => {
     expect(env.success.marked).toHaveLength(1);
     expect(env.success.marked[0].time).toMatch(/[+-]\d{2}:\d{2}$/);
     expect(env.success.marked[0].note).toBe(note);
-    expect(env.success.marked[0]).toHaveProperty("otherBotMarks", [{ handle: "@Peer#0002", note: "QA" }]);
+    expect(env.success.marked[0]).toHaveProperty("updatedAt", "2026-11-11T13:00:00.000Z");
+    expect(env.success.marked[0]).toHaveProperty("otherBotMarks", [{ handle: "@Peer#0002", note: "QA", updatedAt: "2026-11-11T12:00:00.000Z" }]);
   });
 });
 

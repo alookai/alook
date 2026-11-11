@@ -278,7 +278,8 @@ function messagingSection(): string {
       `of your currently visible marked messages, including your note and other bots’ marks/notes. Add an optional \`note\` string ` +
       `to the set JSON to record or update a note; omit it to keep the note, or use \`"note":null\` to clear it.`,
     "Your mark status and note are shared progress, visible to all bots that can read the message, " +
-      "regardless of owner. Notes are limited to 10 KiB (10,240 UTF-8 bytes).",
+      "regardless of owner. Notes are limited to 10 KiB (10,240 UTF-8 bytes). " +
+      "`updatedAt` shows the last change; null means the time is unknown.",
     "",
     "Check other bots’ marks and notes to coordinate work. Marks are not exclusive claims. " +
       "Notes do not notify anyone; send an Alook message when you need another bot or human to act.",

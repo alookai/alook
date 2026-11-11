@@ -115,7 +115,7 @@ describe("bot message property route", () => {
       capabilities: ["tag", "mark"],
       properties: [
         { type: "tag", value: ["archived", "bug"] },
-        { type: "mark", value: false, note: null, otherBotMarks: [] },
+        { type: "mark", value: false, note: null, updatedAt: null, otherBotMarks: [] },
       ],
     })
     expect(mockResolve).toHaveBeenCalledWith(replicaDb, "bot1", {
@@ -135,7 +135,7 @@ describe("bot message property route", () => {
       capabilities: ["emoji", "mark"],
       properties: [
         { type: "emoji", value: [{ emoji: "👍", actors: ["@a#0001"], me: true }] },
-        { type: "mark", value: false, note: null, otherBotMarks: [] },
+        { type: "mark", value: false, note: null, updatedAt: null, otherBotMarks: [] },
       ],
     })
   })
@@ -232,7 +232,7 @@ describe("bot message property route", () => {
 
   it("sets, lists, and removes the calling bot's universal mark", async () => {
     const setRes = await PUT(mutationRequest("PUT", { type: "mark", value: true }), ctx)
-    expect(await setRes.json()).toEqual({ type: "mark", value: true, changed: true, otherBotMarks: [] })
+    expect(await setRes.json()).toEqual({ type: "mark", value: true, changed: true, updatedAt: null, otherBotMarks: [] })
     expect(mockMarkMessage).toHaveBeenCalledWith(primaryDb, {
       userId: "bot1",
       channelId: "c1",
@@ -241,7 +241,7 @@ describe("bot message property route", () => {
 
     mockGetMessageMark.mockResolvedValue({ id: "mark1", note: "waiting for QA" })
     const listRes = await GET(getRequest(), ctx)
-    expect((await listRes.json()).properties).toContainEqual({ type: "mark", value: true, note: "waiting for QA", otherBotMarks: [] })
+    expect((await listRes.json()).properties).toContainEqual({ type: "mark", value: true, note: "waiting for QA", updatedAt: null, otherBotMarks: [] })
 
     const removeRes = await DELETE(mutationRequest("DELETE", { type: "mark", value: true }), ctx)
     expect(await removeRes.json()).toEqual({ type: "mark", value: true, changed: true })
@@ -370,15 +370,24 @@ describe("shared mark responses and note byte limit", () => {
     mockListTags.mockResolvedValue({ ok: true, value: [] })
     mockGetMessageMark.mockResolvedValue(null)
     mockMarkMessage.mockResolvedValue(null)
-    mockOtherBotMarks.mockResolvedValue(new Map([["m1", [{ handle: "@Peer#0002", note: "QA pending" }]]]))
+    mockOtherBotMarks.mockResolvedValue(new Map([["m1", [{ handle: "@Peer#0002", note: "QA pending", updatedAt: "2026-11-11T12:00:00.000Z" }]]]))
   })
   it("returns other bots on unchanged set using the primary session, and permits read before marking", async () => {
-    const peers = [{ handle: "@Peer#0002", note: "QA pending" }]
+    const peers = [{ handle: "@Peer#0002", note: "QA pending", updatedAt: "2026-11-11T12:00:00.000Z" }]
     const set = await PUT(mutationRequest("PUT", { type: "mark", value: true }), ctx)
-    expect(await set.json()).toEqual({ type: "mark", value: true, changed: false, otherBotMarks: peers })
+    expect(await set.json()).toEqual({ type: "mark", value: true, changed: false, updatedAt: null, otherBotMarks: peers })
     expect(mockOtherBotMarks).toHaveBeenLastCalledWith(primaryDb, "bot1", ["m1"])
     const read = await GET(getRequest(), ctx)
-    expect((await read.json()).properties).toContainEqual({ type: "mark", value: false, note: null, otherBotMarks: peers })
+    expect((await read.json()).properties).toContainEqual({ type: "mark", value: false, note: null, updatedAt: null, otherBotMarks: peers })
+  })
+  it("returns the stored own timestamp in set and property list", async () => {
+    const updatedAt = "2026-11-11T13:00:00.000Z"
+    mockGetMessageMark.mockResolvedValue({ id: "internal", note: "working", updatedAt })
+    const set = await PUT(mutationRequest("PUT", { type: "mark", value: true }), ctx)
+    expect(await set.json()).toMatchObject({ updatedAt, changed: false })
+    expect(mockGetMessageMark).toHaveBeenLastCalledWith(primaryDb, "bot1", "m1")
+    const read = await GET(getRequest(), ctx)
+    expect((await read.json()).properties).toContainEqual({ type: "mark", value: true, note: "working", updatedAt, otherBotMarks: [{ handle: "@Peer#0002", note: "QA pending", updatedAt: "2026-11-11T12:00:00.000Z" }] })
   })
   it.each(["a".repeat(10240), "界".repeat(3413) + "a"])("accepts exactly 10240 UTF-8 bytes", async note => {
     expect((await PUT(mutationRequest("PUT", { type: "mark", value: true, note }), ctx)).status).toBe(200)

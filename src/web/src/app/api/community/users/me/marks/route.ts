@@ -69,6 +69,7 @@ export const GET = withAuth(communityActorPolicy(), async (req, ctx) => {
     return writeJSON({ marked: marked.map((message, index) => ({
       ...message,
       note: rows[index].mark.note ?? null,
+      updatedAt: rows[index].mark.updatedAt ?? null,
       otherBotMarks: peers.get(rows[index].message.id) ?? [],
     })) })
   }

@@ -115,7 +115,7 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
         target.messageId,
       )
       const peers = await queries.communityMessageMark.listOtherBotMarks(db, gate.bot.userId, [target.messageId])
-      properties.push({ type: "mark" as const, value: mark !== null, note: mark?.note ?? null, otherBotMarks: peers.get(target.messageId) ?? [] })
+      properties.push({ type: "mark" as const, value: mark !== null, note: mark?.note ?? null, updatedAt: mark?.updatedAt ?? null, otherBotMarks: peers.get(target.messageId) ?? [] })
     }
   }
   return writeJSON({ capabilities, properties })
@@ -190,7 +190,8 @@ async function mutate(req: NextRequest, ctx: Parameters<CommunityActorHandler>[1
         }) !== null
     if (action === "remove") return writeJSON({ type: "mark", value: true, changed })
     const peers = await queries.communityMessageMark.listOtherBotMarks(db, gate.bot.userId, [target.messageId])
-    return writeJSON({ type: "mark", value: true, changed, otherBotMarks: peers.get(target.messageId) ?? [] })
+    const mark = await queries.communityMessageMark.getMessageMark(db, gate.bot.userId, target.messageId)
+    return writeJSON({ type: "mark", value: true, changed, updatedAt: mark?.updatedAt ?? null, otherBotMarks: peers.get(target.messageId) ?? [] })
   }
 
   const result = action === "set"
