@@ -359,7 +359,7 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
         const geometry = Object.fromEntries(Object.entries({
           shell: rect(shell, '[data-slot="community-shell-root"]'),
           surface: expectedSurface === "detail" ? detailGeometry : rect(shell, '[data-slot="community-app-surface"]'),
-          rail: expectedSurface === "detail" ? null : rect(shell, '[data-slot="community-server-rail-viewport"]'),
+          rail: expectedSurface === "detail" ? null : rect(shell, '[data-community-rail]'),
           sidebar: expectedSurface === "detail" ? null : rect(shell, activePanel),
           main: expectedSurface === "detail" ? detailGeometry : rect(shell, hiddenPanel),
           userBar: expectedSurface === "detail" ? null : rect(shell, '[data-slot="community-user-bar-overlay"]'),
@@ -670,6 +670,16 @@ export async function runAndroidLoadingGeometry(actors: CaseActors, resources: C
               ? page.getByRole("link", { name: "Friends", exact: true })
               : page.getByTestId(tid.machinePairOpen),
           ).toBeVisible({ timeout: 30_000 })
+          if (surface === "list") {
+            await expect(page.getByTestId(tid.serverAdd)).toBeVisible()
+            const [home, add] = await Promise.all([
+              page.getByTestId(tid.homeButton).boundingBox(),
+              page.getByTestId(tid.serverAdd).boundingBox(),
+            ])
+            expect(home).not.toBeNull()
+            expect(add).not.toBeNull()
+            expect(add!.y - home!.y - home!.height).toBeCloseTo(8, 1)
+          }
           if (pendingHeading) {
             const loadedHeading = await expectMachinesHeadingSpacing(page)
             expectSameGeometry({ heading: pendingHeading }, { heading: loadedHeading })
