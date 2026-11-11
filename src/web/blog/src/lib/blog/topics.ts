@@ -44,7 +44,6 @@ export const blogTopics = [
       { slug: "cursor-vs-claude-code", userJob: "Choose Cursor or Claude Code by editing workflow, models, pricing and first-project needs" },
       { slug: "claude-code-vs-codex", userJob: "Choose Claude Code or Codex by patch review, permissions, runtime and plan usage" },
       { slug: "claude-code-codex-cursor-grok-which-to-choose", userJob: "Choose a coding or personal-agent harness for a concrete task using reported strengths and weaknesses" },
-      { slug: "ai-team-vs-ai-tools", userJob: "Stop being the copy-paste layer between coding agents" },
       {
         slug: "claude-code-subagents-vs-independent-agents",
         userJob: "Choose nested vs independent agents for my Claude Code work",
@@ -127,14 +126,6 @@ export const blogTopics = [
     pillarSlug: "personal-ai-company",
     entries: [
       { slug: "personal-ai-company", userJob: "Run a one-person company with AI agents" },
-      {
-        slug: "multi-agent-collaboration-without-code",
-        userJob: "Coordinate multiple agents without writing orchestration code",
-      },
-      {
-        slug: "no-code-automation-ai-agents",
-        userJob: "Choose between trigger-action automation and agent teams",
-      },
     ],
   },
 ] as const satisfies readonly BlogTopic[];
