@@ -4,7 +4,7 @@
   --gallery-surface: var(--landing-section-bg);
   padding: var(--landing-section-space, 128px) var(--landing-page-gutter);
   background:
-    radial-gradient(ellipse 100% 100% at 50% 0%, var(--landing-bg) 0%, var(--landing-bg) 46%, color-mix(in oklab, var(--landing-bg) 99.1%, transparent) 51.4%, color-mix(in oklab, var(--landing-bg) 94.2%, transparent) 56.8%, color-mix(in oklab, var(--landing-bg) 83.7%, transparent) 62.2%, color-mix(in oklab, var(--landing-bg) 68.3%, transparent) 67.6%, color-mix(in oklab, var(--landing-bg) 50.0%, transparent) 73.0%, color-mix(in oklab, var(--landing-bg) 31.7%, transparent) 78.4%, color-mix(in oklab, var(--landing-bg) 16.3%, transparent) 83.8%, color-mix(in oklab, var(--landing-bg) 5.8%, transparent) 89.2%, color-mix(in oklab, var(--landing-bg) 0.9%, transparent) 94.6%, transparent 100.0%) top / 100% var(--landing-section-fade, 128px) no-repeat,
+    /* Value sections above share this surface, so only the bottom edge fades (Gus #3204). */
     radial-gradient(ellipse 100% 100% at 50% 100%, var(--landing-bg) 0%, var(--landing-bg) 46%, color-mix(in oklab, var(--landing-bg) 99.1%, transparent) 51.4%, color-mix(in oklab, var(--landing-bg) 94.2%, transparent) 56.8%, color-mix(in oklab, var(--landing-bg) 83.7%, transparent) 62.2%, color-mix(in oklab, var(--landing-bg) 68.3%, transparent) 67.6%, color-mix(in oklab, var(--landing-bg) 50.0%, transparent) 73.0%, color-mix(in oklab, var(--landing-bg) 31.7%, transparent) 78.4%, color-mix(in oklab, var(--landing-bg) 16.3%, transparent) 83.8%, color-mix(in oklab, var(--landing-bg) 5.8%, transparent) 89.2%, color-mix(in oklab, var(--landing-bg) 0.9%, transparent) 94.6%, transparent 100.0%) bottom / 100% var(--landing-section-fade, 128px) no-repeat,
     var(--gallery-surface);
   color: var(--gallery-ink);
@@ -113,15 +113,7 @@
 .runtimeBadges {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 20px;
-  color: var(--gallery-ink);
-  font-family: var(--font-sans);
-  font-size: 14px;
-}
-.runtimeBadges > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 @media (max-width: 639px) {
   .section {

@@ -2483,8 +2483,9 @@
   border: 1px solid color-mix(in oklab, var(--tn-text) 14%, transparent) !important;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%) !important;
 }
+/* Hover tints the badge face; it stays opaque so it reads on dark surfaces too (Gus #3223). */
 .theme [data-slot="badge"][data-machine-runtime]:hover {
-  background: color-mix(in oklab, var(--tn-text) 4%, transparent) !important;
+  background: color-mix(in oklab, var(--tn-text) 7%, var(--card)) !important;
 }
 @media (prefers-reduced-motion: reduce) {
   .theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has([data-slot="radio-group-item"])) { transition: none !important; }

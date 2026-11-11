@@ -35,7 +35,7 @@ export function MessageHeader({
     <header
       role="banner"
       data-testid={testId}
-      className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3"
+      className="relative z-20 flex h-12 shrink-0 items-center gap-1 bg-background px-3 after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-12 after:bg-[linear-gradient(to_bottom,var(--background)_16px,transparent)] after:content-['']"
     >
       {leading}
       <div

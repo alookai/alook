@@ -73,15 +73,22 @@ export function LandingTestimonials() {
       <div className={`${styles.wall} thin-scrollbar`}>
         <div className={styles.wallSurface}>
           {lanes.map((lane, index) => (
-            <ul className={styles.messages} key={index}>
-              {lane.map((post) => {
+            // Each lane repeats once and pans by one copy, so the loop never reverses (Gus #3196).
+            <ul className={styles.messages} key={index} style={{ "--lane-count": lane.length } as CSSProperties}>
+              {[0, 1].flatMap((copy) => lane.map((post) => {
                 const sticker = stickerPlacement(post.name)
                 return (
-                  <li key={post.id} style={{ "--sticker-jitter": `${sticker.jitter}px` } as CSSProperties}>
+                  <li
+                    key={`${copy}:${post.id}`}
+                    data-loop-copy={copy ? "" : undefined}
+                    aria-hidden={copy ? true : undefined}
+                    inert={copy ? true : undefined}
+                    style={{ "--sticker-jitter": `${sticker.jitter}px` } as CSSProperties}
+                  >
                     <TestimonialSticker post={post} />
                   </li>
                 )
-              })}
+              }))}
             </ul>
           ))}
         </div>

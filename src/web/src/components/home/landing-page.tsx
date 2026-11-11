@@ -15,6 +15,7 @@ import { LandingTestimonials } from "./landing-testimonials"
 import { LandingFeatureGallery } from "./landing-feature-gallery"
 import { MarketingNav } from "./marketing-nav"
 import { LandingInteractiveDemo } from "./landing-interactive-demo"
+import { LandingValueSections } from "./landing-value-sections"
 import { LandingFooter } from "./landing-footer"
 import { LANDING_HERO } from "./landing-content"
 import { HandAccent } from "@/components/brand/hand-accent"
@@ -91,6 +92,8 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
       <LandingTestimonials />
 
       <LandingInteractiveDemo heroReady={heroReady} />
+
+      <LandingValueSections isLoggedIn={isLoggedIn} />
 
       <LandingFeatureGallery isLoggedIn={isLoggedIn} />
 

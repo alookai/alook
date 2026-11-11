@@ -52,20 +52,22 @@
   gap: 20px;
   padding-block: 36px;
   border-radius: 0;
-  animation: wallPan 180s linear infinite alternate;
 }
 
 .messages {
   display: flex;
   align-items: flex-start;
   width: max-content;
-  gap: 40px;
+  --lane-gap: 40px;
+  gap: var(--lane-gap);
   margin: 0;
-  padding: 34px 40px;
+  padding: 34px 0;
   list-style: none;
+  /* Two identical copies: moving by one copy plus one gap lands on the same frame. */
+  animation: wallPan calc(var(--lane-count, 8) * 16s) linear infinite;
 }
 
-.messages:nth-child(2) { padding-left: 200px; }
+.messages:nth-child(2) { animation-delay: calc(var(--lane-count, 8) * -5s); }
 
 .messages > li {
   width: 360px;
@@ -147,15 +149,15 @@
 }
 
 @keyframes wallPan {
-  to { transform: translateX(min(0px, calc(100cqw - 100%))); }
+  to { transform: translateX(calc(-50% - var(--lane-gap) / 2)); }
 }
 
-.wall:hover .wallSurface,
-.wall:active .wallSurface {
+.wall:hover .messages,
+.wall:active .messages {
   animation-play-state: paused;
 }
 
-.wall:has(:focus-visible) .wallSurface {
+.wall:has(:focus-visible) .messages {
   animation: none;
 }
 
@@ -178,8 +180,7 @@
 @media (max-width: 639px) {
   .intro { margin-bottom: 32px; }
   .wallSurface { gap: 12px; padding-block: 24px; }
-  .messages { gap: 20px; padding: 22px 24px; }
-  .messages:nth-child(2) { padding-left: 120px; }
+  .messages { --lane-gap: 20px; padding: 22px 0; }
   .messages > li { width: clamp(224px, 66cqw, 280px); }
   .sticker { padding: calc(40px + 32 * var(--sticker-head-unit)) 16px 18px; }
   .sticker .author,
@@ -190,6 +191,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wallSurface { animation: none; }
+  .messages { animation: none; padding-inline: 24px; }
+  .messages > [data-loop-copy] { display: none; }
   .wall { overflow-x: auto; }
 }

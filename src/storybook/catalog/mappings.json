@@ -2764,6 +2764,16 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
+  "src/web/src/components/home/landing-value-sections.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-public-pages--home",
+        "region": "Original current homepage; scroll to the value sections between the interactive workspace and the feature gallery"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
   "src/web/src/components/home/landing-workspace-home.tsx": {
     "kind": "composition",
     "examples": [

@@ -1,7 +1,7 @@
 "use client"
 
 import { lazy, useRef, type PointerEvent as ReactPointerEvent } from "react"
-import { ProviderLogo } from "@/components/provider-logo"
+import { RuntimeBadge } from "@/components/community/machines/machine-runtimes"
 import { tid } from "@/lib/community/testids"
 import { LandingReachMotion } from "./landing-reach-motion"
 const LandingShellMotion = lazy(() => import("./landing-shell-motion").then(module => ({ default: module.LandingShellMotion })))
@@ -44,12 +44,7 @@ function RuntimeBadges() {
       aria-label="Supported local runtimes"
       data-testid="landing-runtime-badges"
     >
-      {LANDING_PROVIDERS.map((provider) => (
-        <span key={provider.id}>
-          <ProviderLogo provider={provider.id} className="size-4" />
-          {provider.label}
-        </span>
-      ))}
+      {LANDING_PROVIDERS.map((provider) => <RuntimeBadge key={provider.id} id={provider.id} label={provider.label} />)}
     </div>
   )
 }
