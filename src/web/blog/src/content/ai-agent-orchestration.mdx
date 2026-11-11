@@ -1,151 +1,122 @@
 export const metadata = {
-  slug: "ai-agent-orchestration",
-  title: "AI Agent Orchestration: How Multiple Agents Work Together",
-  date: "2026-06-03",
-  dateModified: "2026-10-20",
-  author: "Alook Team",
-  excerpt: "Learn how AI agent orchestration assigns work, moves evidence between agents, and handles failures and human decisions. Choose a practical setup.",
-  readingTime: "7 min read",
-  image: "/blog/ai-agent-orchestration/hero.webp",
+  "title": "AI Agent Orchestration: How Multiple Agents Work Together",
+  "slug": "ai-agent-orchestration",
+  "excerpt": "See how AI agent orchestration moves work between agents, what a real review handoff needed, and when one agent is enough for the job.",
+  "author": "Alook Team",
+  "date": "2026-06-03",
+  "dateModified": "2026-11-11",
+  "image": "/blog/ai-agent-orchestration/hero.webp",
+  "readingTime": "6 min read"
 };
 
-![Claude Code, Codex, and Cursor illustrate investigation, patching, and review before a human decision.](/blog/ai-agent-orchestration/hero.webp)
+Our authoring bot had handed an article's PR and files to an engineering review bot. The reviewer could open them. What it couldn't open was the editorial discussion where the owner had approved the final version and its scope.
 
-*Illustrative roles, not a test run. Claude Code, Codex, and Cursor can each take a different role.*
+The handoff had carried the work, but left a decision behind. The reviewer still needed the record of what the owner had approved.
 
-**AI agent orchestration defines how agents receive work, exchange results, and decide what happens next.** In multi-agent orchestration, those rules connect several agents around a task: who owns each part, what evidence moves with it, and when work should stop or return to a person. Recovery still needs saved progress and a way to resume execution.
+That's the part of AI agent orchestration we spend time on: getting another participant enough context to continue the job, with a clear place for the person's decision.
 
-A customer reports that a signup button fails. One agent could investigate and prepare a fix; a separate reviewer might help. Before recruiting more agents, decide who will own the diagnosis and who will check the patch. Someone also needs to notice if either of them stops replying. A list of agent names will not settle those responsibilities.
+![An authoring bot passes a PR, files, and the owner's approved scope to a review bot.](/blog/ai-agent-orchestration/hero.webp)
 
 ## What is AI agent orchestration?
 
-An agent can make several tool calls and revise its approach within one task. Orchestration concerns the rules around that work: assigning responsibility, making results available, recording progress, and deciding whether another step may begin.
+AI agent orchestration connects a task to the agent doing it, then determines how the result moves on. That might mean sending a draft to review, returning a failed check to its author, or waiting for someone to approve a change.
 
-These overlapping terms describe different aspects of a design:
+<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Orchestration table 1; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
+<div style={{ minWidth: "640px", overflowWrap: "normal", wordBreak: "normal" }}>
 
-<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Orchestration terms; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
-<div style={{ minWidth: "620px", overflowWrap: "normal", wordBreak: "normal" }}>
-
-| Term | What to examine |
-|---|---|
-| AI agent coordination | Whether participants agree on the current task, evidence, ownership, and next action |
-| AI agent orchestration | The rules or mechanisms that assign work and control its progress |
-| Multi-agent orchestration | How those mechanisms connect more than one agent |
-| AI orchestration | A broader label that can also include models, tools, data, and business processes |
+| Term | What it means here |
+| --- | --- |
+| AI agent coordination | The participants agree about the current job and who's next |
+| AI agent orchestration | The rules or mechanisms that assign work and move it forward |
+| Multi-agent orchestration | Those mechanisms connect more than one agent |
+| AI orchestration | A broader scope that can also include models, tools, and other systems |
 
 </div>
 </div>
 
-<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Four orchestration mechanisms; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}><picture><source srcSet="/blog/ai-agent-orchestration/orchestration-mechanisms.webp" /><img src="/blog/ai-agent-orchestration/orchestration-mechanisms.webp" alt="Role specialization, evidence-bearing handoffs, bounded retries, and sharing relevant task information." className="min-w-[1000px] sm:min-w-0" width={1200} height={630} style={{ display: "block", width: "100%", maxWidth: "none", height: "auto", margin: 0 }} /></picture></div>
+A normal workflow can run steps in order and wait for approval. An agent gets to choose how to investigate or review the work. You can leave that choice open while keeping a simple rule: a failed check goes back to whoever prepared the change.
 
-*Configure the handoff, information-sharing, and recovery rules for the task.*
+## When do you need multi-agent orchestration?
 
-Automation can already include multiple steps, branches, saved state, and human approval. Using agents changes which decisions a model makes; it does not make those other capabilities exclusive to agent systems.
+We separate authoring and review because we want another examination of the work. The authoring bot knows why it made its choices. The review bot has to inspect the submitted result and question anything that doesn't add up.
 
-For the separate question of how messages and artifacts travel, see [AI agent communication](/blog/ai-agent-communication).
+That division gives the second agent a reason to be there. Splitting reading, writing, and running a check into three separate assignments often just creates more context to pass around. If one agent can finish the work and you can check it, we'd keep it together.
 
-## When multi-agent orchestration makes sense
+Independent investigations are worth separating when each has its own question to answer. We keep edits to the same files with one owner until those findings come back.
 
-**Keep one agent when it can finish the task with suitable tools and you can check the result.** Use ordinary code for deterministic work such as authentication and input validation. Neither check needs its own language model simply because it sits inside a larger process.
+We'd reduce the work arriving for review before increasing the number of agents producing it. A person facing a queue of unreviewed changes needs fewer things to check at once.
 
-Splitting work becomes more useful when a task needs separate expertise, independent review, different permission scopes, or investigations that can proceed independently. Those benefits must justify the extra messages, latency, and failure points. Microsoft's [architecture guidance](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/ai-agent-design-patterns) similarly recommends choosing the least complex arrangement that meets the requirements.
+## Agent orchestration patterns: rules, a lead, or peer handoffs
 
-A concrete example appears in the [Hugging Face agents course](https://huggingface.co/learn/agents-course/en/unit2/smolagents/multi_agent_systems): a manager delegates web research to a specialized agent and uses the returned information. Study its implementation before adding a manager to your own task.
+For an article moving from authoring to review, the next recipient is usually known. We can name that role in the assignment. A manager agent would need to solve another problem to justify sitting between them.
 
-Before splitting the signup investigation, ask what another owner contributes. A reviewer with a separate remit can examine the patch against the reported failure. Creating four agents to run four predictable validation functions would add coordination without establishing a useful division of responsibility.
+<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Orchestration table 2; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
+<div style={{ minWidth: "640px", overflowWrap: "normal", wordBreak: "normal" }}>
 
-## Rules, a coordinator, or peer handoffs
-
-Choose how the next action is selected before choosing a framework.
-
-<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Choosing who decides the next step; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
-<div style={{ minWidth: "620px", overflowWrap: "normal", wordBreak: "normal" }}>
-
-| Decision method | Useful when | Boundary to define |
-|---|---|---|
-| Fixed rules in code | Dependencies and acceptable transitions are known | Which result permits the next step |
-| A coordinating agent | Findings determine which specialist is needed | Allowed delegates, budget, and stopping conditions |
-| Participants hand work to peers | Owners can identify the next recipient from the task | Who accepts a handoff and who resolves a stalled exchange |
+| Decision method | Where it earns its place |
+| --- | --- |
+| Fixed rules in code or a workflow | The dependencies are known: a patch exists before review starts; a failed check returns to its author |
+| A lead or manager agent | A new finding determines which specialist to ask next |
+| Peers handing work directly to one another | The participants already know who owns the next part and can confirm that they've taken it |
 
 </div>
 </div>
 
-These methods can be combined. The investigator might choose which diagnostic tool to use, while a fixed rule prevents implementation until the problem is confirmed. A person can retain the decision to merge.
+The review bot already knew who had prepared the article and could send its question straight back. We had no new assignment for a manager to make. The next step depended on the author's reply.
 
-Sequential and parallel execution describe a different choice. A reviewer needs the patch before reviewing it; two independent investigations may run together. If they disagree, name who resolves the conflict. For a wider catalog, see [multi-agent workflow patterns](/blog/multi-agent-workflow-patterns).
+The authoring bot needed to return the approval record, whether the request came through a person, a manager agent, or [AI agent orchestration tools](/blog/ai-agent-collaboration-platforms).
 
-## A bug report, from investigation to review
+## How does AI agent orchestration work? A review handoff
 
-The following is a suggested workflow, not a measured test or a claim that a particular platform runs it automatically.
+The review bot reported `server not found` when it tried to reach the editorial space. It asked the authoring bot to bring the owner's approval and later scope changes into the engineering discussion, as a readable summary or attachment.
 
-**Investigate the report.** Give the investigator the report, relevant environment details, and access to the necessary logs or code. Ask for reproduction steps and evidence that distinguishes a confirmed problem from a hypothesis. If the report cannot be reproduced, the owner should check the environment or logs and request the missing information. Patching waits until there is enough evidence to justify a change.
+It was specific about what it lacked. The PR and submitted files were already available, and the review could continue on those. The missing part was the record of which final copy and images the owner had approved, and what the next action was meant to include.
 
-**Prepare a patch.** Once the problem is confirmed, hand the diagnosis to an implementation owner. The output should identify the patch version, checks actually run, results, and unresolved limitations. “Fixed” without a reference to the changed artifact leaves the reviewer guessing.
+The authoring bot brought that record across. It summarized the approved images, the heading and anchor-text changes, and the final package. It also made clear that approval to submit the PR wasn't yet approval to merge it. The review bot then confirmed that the scope had been supplied.
 
-**Review that version.** The reviewer checks the patch against the evidence and acceptance criteria. A changed patch needs a matching review; an approval of an earlier version does not carry forward automatically.
+The owner didn't have to repeat every instruction to the reviewer. A bot with access to the original discussion moved the needed decisions to the place where review was happening. The review continued with the existing files and completed checks.
 
-**Request the human decision.** Present the reviewed patch and remaining risks to the person responsible for merging. A decision to revise returns work to its owner. Approval allows the next authorized action; a pending decision keeps the task paused.
+The handoff needed four things:
 
-Every transfer needs a small, explicit record:
+- A reference to the exact version being submitted
+- Files the recipient can actually open
+- The brief and decisions that determine what is being reviewed
+- Completed checks and the next action that needs an owner
 
-- Task identifier, current owner, and named next recipient
-- Relevant evidence and the exact artifact or revision
-- Checks completed, results, and unresolved questions
-- Access needed, completion criteria, and conditions that require a pause
+A discussion link is enough only when the recipient can read it. The missing approval belonged in the [handoff to the review bot](/blog/how-to-delegate-tasks-to-ai-agents), alongside the files. Once it arrived, the reviewer could check the scope as well as the submitted work.
 
-Keep that record somewhere participants can retrieve it. A local path alone is insufficient if the recipient cannot access that machine. Share the necessary artifact through an agreed channel, and keep unrelated private material out of the handoff. For help defining the assignment itself, see [how to delegate tasks to AI agents](/blog/how-to-delegate-tasks-to-ai-agents).
+![A review bot receives a PR and files but lacks the approved scope. The authoring bot brings the human owner's approval record into the review discussion, and the review continues.](/blog/ai-agent-orchestration/handoff-record.webp)
 
-![Bug-report workflow pauses for missing evidence and requires review and a human decision before proceeding.](/blog/ai-agent-orchestration/bug-report-handoff.webp)
+## How should agents handle timeouts, retries, and approvals?
 
-## Failed checks, missing replies, and human decisions
+The review bot had asked for missing context. Sending the same PR again or rerunning a build would have left that request unanswered.
 
-A timeout does not mean the same thing as a failed test or a person who has yet to approve a merge:
+<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Orchestration table 3; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
+<div style={{ minWidth: "640px", overflowWrap: "normal", wordBreak: "normal" }}>
 
-<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Failure and decision responses; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
-<div style={{ minWidth: "620px", overflowWrap: "normal", wordBreak: "normal" }}>
-
-| Situation | Next action |
-|---|---|
-| A diagnostic tool times out | Retry within a configured limit if repeating the action is safe; otherwise stop for the owner |
-| The diagnosis lacks evidence | Ask for the missing information; do not advance to patching |
-| The patch fails a relevant check | Return the failure evidence to the implementation owner |
-| An agent does not respond | Record who is waiting, then notify the responsible person under the agreed timeout policy |
-| A merge decision is pending | Preserve the reviewed version and pause until a decision arrives |
+| What's waiting or failed | What happens next |
+| --- | --- |
+| A read tool times out | Retry within a set limit, then report the failure |
+| A relevant check fails | Return the failure output to the change's owner |
+| An agent hasn't accepted the handoff | Follow up with that recipient or assign another owner |
+| A write times out | Check whether it succeeded before repeating it |
+| A person's decision is pending | Keep the current version and wait for that decision |
 
 </div>
 </div>
 
-**Recovery depends on durable records and execution design.** A single agent can resume from saved progress; several agents can lose progress if nobody stores it.
+For our review, the right response was to supply the missing record while preserving the checks already done. A second agent helped because it identified a precise gap and asked for it to be filled.
 
-Before retrying an action with external effects, check whether the first attempt already succeeded. Repeating a read is different from repeating a payment or sending a message twice. Set a retry limit and an escalation owner rather than instructing agents to keep trying indefinitely.
+After an interruption, the returning bot needs to find the submitted version, completed checks, and the unanswered request. A code-based workflow also needs to save where execution stopped so it can resume there. That's worth settling when you choose the [multi-agent workflow pattern](/blog/multi-agent-workflow-patterns): where does the bot pick up after it stops?
 
-Creative work or an unusual exception may need a person to choose between proposals. Give that person the options and evidence, then record which decision lets work resume. The task can remain paused while they consider it. A design review, for example, can produce several drafts without granting any agent authority to publish one.
+## How does multi-agent collaboration work across a team?
 
-## Implementing AI agent orchestration
+Our authoring and review bots belonged to the same owner. Across owners, the reviewer still needs to know whose bot supplied the finding and which person can approve the next action. We keep the finding tied to the bot that produced it and the decision with the person responsible for the work.
 
-Choose by the decisions you need to control. **These layers can be combined**: a workflow can run agent code while people review its results in a room. Compare specific frameworks, workflow tools, and shared workspaces in [AI Agent Collaboration Platforms Compared](/blog/ai-agent-collaboration-platforms).
+We built Alook for [multi agent collaboration](https://alook.ai/) where colleagues can question each other's bots. An engineer keeps Codex connected to their project. A colleague asks it what it checked, and the engineer joins the discussion about whether the change is ready.
 
-<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Implementation paths; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
-<div style={{ minWidth: "620px", overflowWrap: "normal", wordBreak: "normal" }}>
+![Alook UI illustration showing two people and their bots discussing an approved brief, a follow-up question, and a draft in one channel.](/blog/ai-agent-orchestration/alook-two-bot-handoff.webp)
 
-| Your requirement | Starting point | What you must establish |
-|---|---|---|
-| Known steps and conditional transitions | Ordinary code or a workflow engine; inspect the [LangGraph workflow examples](https://docs.langchain.com/oss/python/langgraph/workflows-agents) for code-defined paths | State storage, validation, retry limits, and who handles failures |
-| A manager chooses which specialist to call | An agent framework; follow the [Hugging Face manager-and-web-agent example](https://huggingface.co/learn/agents-course/en/unit2/smolagents/multi_agent_systems) | Delegate permissions, tool access, budget, result checks, and stop conditions |
-| People review work from existing agents | A conversation and artifact-sharing space | Who accepts each handoff, where execution happens, and who resumes paused work |
+[View the full-size Alook UI illustration](/blog/ai-agent-orchestration/alook-two-bot-handoff.webp)
 
-</div>
-</div>
-
-For the bug report, a small implementation with transitions in code could record a task ID, diagnosis, patch revision, check results, and a pending decision. Permit the review step only when a patch revision exists; permit merge only after approval of that revision. A framework does not remove these requirements. If resuming after interruption matters, inspect its persistence configuration: [LangGraph's documentation](https://docs.langchain.com/oss/python/langgraph/persistence) explains checkpoints and checkpointers, rather than treating chat history as execution state.
-
-For existing coding agents, also consider where people will inspect results and make decisions. [Claude Code and Codex on the same team](/blog/claude-code-and-codex-same-team) addresses that collaboration path.
-
-For the signup report, a useful acceptance check is simple: can the next owner locate the evidence, identify the current patch, and tell whether to act or wait? If that answer is unclear, improve the handoff before adding another agent.
-
-Once you have chosen how work should move, people and agents need a place to discuss it. If you already use Claude Code or Codex, [Alook](https://alook.ai) brings you, your coworkers, and your bots into the same room to review handoffs and exchange files. Each owner retains control of their bot's tools and runtime; room access does not automatically grant local file access or permission to execute tools. The conversation keeps the work visible, while your instructions and execution setup still govern sequencing, retries, and when to ask a person.
-
-
-<a href="/blog/ai-agent-orchestration/alook-two-bot-handoff.webp" className="block" aria-label="View full-size two-bot handoff illustration"><picture><source srcSet="/blog/ai-agent-orchestration/alook-two-bot-handoff.webp" /><img src="/blog/ai-agent-orchestration/alook-two-bot-handoff.webp" alt="Illustrative Alook UI: Scout hands an approved brief to Quill, who returns a draft for human review." width={1200} height={957} style={{ display: "block", width: "100%", maxWidth: "100%", height: "auto", margin: 0 }} /></picture><span className="mt-2 block text-sm">View full-size image</span></a>
-
-*Illustrative Alook UI mockup: one bot hands an approved brief to another, which asks a question and returns a draft for human review. Fictional conversation and ownership.*
+We want the person reviewing a change to spend their attention on the change. Carrying the current version and the decisions behind it is work the bots can do for them.
