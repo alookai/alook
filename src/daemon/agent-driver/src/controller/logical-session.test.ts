@@ -35,6 +35,8 @@ const configs: Record<BuiltinBackendId, unknown> = {
   "pi-durable": { model: { kind: "named", name: "openai/fixture" }, provider: { kind: "default" } },
   claude: { model: { kind: "default" }, provider: { kind: "default" }, mode: "default" },
   codex: { model: { kind: "default" }, mode: "default" },
+  "codex-app": { model: { kind: "default" }, mode: "default" },
+  "codex-cli": { model: { kind: "default" }, mode: "default" },
   cursor: { model: { kind: "default" } },
   agy: { model: { kind: "default" } },
   antigravity: { model: { kind: "default" } },

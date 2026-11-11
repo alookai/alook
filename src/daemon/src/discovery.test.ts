@@ -12,7 +12,7 @@ import {
 } from "./discovery";
 import * as drivers from "./drivers/index";
 
-const EXPECTED_RUNTIMES = ["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"];
+const EXPECTED_RUNTIMES = ["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"];
 
 const tmpDirs: string[] = [];
 function mkTmp(): string {

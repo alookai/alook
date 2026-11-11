@@ -1,3 +1,4 @@
+import { visibleRuntimes } from "./runtime-label"
 import { queries, requiresExplicitModel, type CommunityMachineRuntime, type RuntimeReasoningCatalog } from "@alook/shared"
 import type { Database } from "@alook/shared"
 
@@ -7,7 +8,7 @@ export async function readPlatformMachines(db: Database, ownerId: string, reques
 }
 
 export function projectMachineBackends(runtimes: CommunityMachineRuntime[], options: { includeCatalogMetadata?: boolean } = {}) {
-  return runtimes.map((runtime) => ({
+  return visibleRuntimes(runtimes).map((runtime) => ({
     id: runtime.id, version: runtime.version, health: runtime.status, modelRequired: requiresExplicitModel(runtime.id),
     ...(options.includeCatalogMetadata === false ? {} : { catalogState: runtime.reasoning ? "reported" : "not_reported", catalogOrigin: runtime.reasoning?.catalogOrigin ?? "unknown" }),
   }))

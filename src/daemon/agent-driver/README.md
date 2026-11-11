@@ -439,3 +439,11 @@ and do not establish default Keychain access or acceptance on other platforms.
 `probe({ backend, includeModels: false })` checks installation and native protocol compatibility without discovering model catalogs. The daemon uses this mode at machine startup. Antigravity ACP initializes and exits without authenticating or creating/loading a catalog session; Grok also stops after its compatibility handshake.
 
 Opening a model list requests the selected machine and backend through the owner-scoped API and machine control WebSocket. The default SDK probe retains each backend's native catalog discovery. The result is correlated by request ID and saved in the existing machine runtime report. Backends without a native catalog return no catalog; their custom model entry remains available. Discovery does not wake or reset a Bot, and catalog errors do not change installed runtime health. Native catalog discovery may require the user's existing vendor login.
+
+## Codex installation sources
+
+`codex-app` (Codex) discovers the executable bundled in Codex.app, with the legacy ChatGPT.app bundle supported on macOS. It supports the current nested `Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex` layout and the earlier `Contents/Resources/codex` layout. `codex-cli` (Codex CLI) discovers `codex` on PATH. Neither source falls back to the other. Health, native model discovery and session launch use the selected source. Both reuse the native persistent app-server protocol and native account/history configuration. Native model discovery has a bounded 10-second deadline, including process startup, and releases its child on completion or timeout.
+
+The existing `codex` ID retains PATH-first, then App discovery for previously saved bot bindings. It is hidden from new selections when explicit source IDs are reported, and remains available when editing an existing binding or using an older daemon. Existing bot bindings are not rewritten. Explicit command overrides remain supported.
+
+Apply migration `0113_community_machine_backend_quota_codex_sources.sql` before the updated daemon reports source-specific quotas. It preserves existing observations and adds independent App/CLI keys.

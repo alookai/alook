@@ -76,7 +76,7 @@ export function EditBotSheet({
   const { machines } = useMachines()
   const selectedMachine = machines.find((machine) => machine.id === bot?.machineId)
   const runtimeOptions = useMemo(() => {
-    const options = normalizeRuntimes(selectedMachine)
+    const options = normalizeRuntimes(selectedMachine, runtime)
     if (runtime && !options.some((option) => option.id === runtime)) {
       options.push({ id: runtime, unhealthy: true })
     }

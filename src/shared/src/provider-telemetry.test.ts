@@ -19,8 +19,8 @@ function quotaLimit() {
 }
 
 describe("provider telemetry schemas", () => {
-  it("accepts Antigravity quota without a schema or DB migration", () => {
-    expect(ProviderQuotaSnapshotSchema.safeParse({ agentBackendId: "antigravity", observation: { status: "error", sourceEpoch: "A".repeat(22), code: "unauthorized", retryable: false } }).success).toBe(true)
+  it.each(["antigravity", "codex-app", "codex-cli"])("accepts %s quota identity", (agentBackendId) => {
+    expect(ProviderQuotaSnapshotSchema.safeParse({ agentBackendId, observation: { status: "error", sourceEpoch: "A".repeat(22), code: "unauthorized", retryable: false } }).success).toBe(true)
   })
 
   it("accepts exact zero and unavailable usage without conflating them", () => {

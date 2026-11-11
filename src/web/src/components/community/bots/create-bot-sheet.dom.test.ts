@@ -581,3 +581,9 @@ describe("actual create-sheet avatar ownership", () => {
     }
   })
 })
+
+it("offers explicit sources for new bots and retains a healthy legacy binding during edit", () => {
+  const m = machine({ availableRuntimes: [{ id: "codex", status: "healthy" }, { id: "codex-app", status: "unhealthy" }, { id: "codex-cli", status: "healthy" }] })
+  expect(normalizeRuntimes(m)).toEqual([{ id: "codex-cli", unhealthy: false }, { id: "codex-app", unhealthy: true }])
+  expect(normalizeRuntimes(m, "codex")).toContainEqual({ id: "codex", unhealthy: false })
+})

@@ -107,8 +107,8 @@ describe("BotRuntimeFields", () => {
     const selected = renderer.getByRole("radio", { name: /claude/ })
     act(() => selected.focus())
     fireEvent.keyDown(selected, { key: "ArrowDown" })
-    await waitFor(() => expect(renderer.getByRole("radio", { name: "codex" })).toHaveFocus())
-    expect(renderer.getByRole("radio", { name: "codex" })).toHaveFocus()
+    await waitFor(() => expect(renderer.getByRole("radio", { name: "Codex (automatic)" })).toHaveFocus())
+    expect(renderer.getByRole("radio", { name: "Codex (automatic)" })).toHaveFocus()
     expect(onRuntimeChange).toHaveBeenCalledWith("codex")
     expect(onModelChange).toHaveBeenCalledWith(null)
     expect(onReasoningEffortChange).toHaveBeenCalledWith(null)
@@ -119,4 +119,16 @@ describe("BotRuntimeFields", () => {
     expect(screen.getByTestId("reasoning-effort-field"))
       .toHaveAttribute("data-daemon-version", "0.1.24")
   })
+})
+
+it("selects Codex App and CLI as separate backends and clears incompatible model settings", () => {
+  const { renderer, onRuntimeChange, onModelChange, onReasoningEffortChange } = renderFields({
+    options: [{ id: "codex-app", unhealthy: false }, { id: "codex-cli", unhealthy: false }],
+    runtime: "codex-app",
+  })
+  expect(renderer.getByRole("radio", { name: "Codex", exact: true })).toBeChecked()
+  fireEvent.click(renderer.getByRole("radio", { name: "Codex CLI", exact: true }))
+  expect(onRuntimeChange).toHaveBeenCalledExactlyOnceWith("codex-cli")
+  expect(onModelChange).toHaveBeenCalledExactlyOnceWith(null)
+  expect(onReasoningEffortChange).toHaveBeenCalledExactlyOnceWith(null)
 })

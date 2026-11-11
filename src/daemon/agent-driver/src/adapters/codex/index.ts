@@ -23,11 +23,11 @@ import {
   normalizeRuntimeModelId,
   RUNTIME_MODEL_CATALOG_MAX,
 } from "../../internal/modelCatalog.js";
-import { resolveCodexCommand } from "./command.js";
+import { resolveCodexCommand, type CodexBackendId } from "./command.js";
 import { discoverCodexRecentContext } from "./recent-context.js";
 
 const SETTINGS_UPDATE_TIMEOUT_MS = 5_000;
-const MODEL_LIST_TIMEOUT_MS = 5_000;
+const MODEL_LIST_TIMEOUT_MS = 10_000;
 const MODEL_LIST_OUTPUT_MAX_BYTES = 1024 * 1024;
 const MODEL_LIST_MAX = RUNTIME_MODEL_CATALOG_MAX;
 const MODEL_EFFORT_MAX = 16;
@@ -42,8 +42,8 @@ function isCodexMissingRolloutError(message: string): boolean {
   );
 }
 
-export class CodexDriver implements BackendAdapter {
-  readonly id = "codex";
+export class CodexDriver<Id extends CodexBackendId = "codex"> implements BackendAdapter {
+  constructor(readonly id: Id = "codex" as Id) {}
   readonly modelCatalogOrigin = "native_report" as const;
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
   readonly execution = {
@@ -117,7 +117,8 @@ export class CodexDriver implements BackendAdapter {
     // package resolves but the aarch64 blob is absent) fails there even
     // though resolveCommandOnPath returned a JS wrapper; probing the resolved
     // command keeps runtime health tied to what can actually execute.
-    const selected = resolveCodexCommand(command);
+    const selected = resolveCodexCommand(command, {}, process.platform, this.id);
+    if (!selected && this.id !== "codex") return { status: "unhealthy" as const, lastError: "not_installed" };
     const result = await probeCliRuntime("codex", {}, selected);
     if (result.status !== "healthy") return result;
     if (!includeModels) return result;
@@ -251,11 +252,11 @@ export class CodexDriver implements BackendAdapter {
   }
 
   async spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess> {
+    const override = resolveCodexCommand(resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command, {}, process.platform, this.id);
+    if (!override && this.id !== "codex") throw Object.assign(new Error(`${this.id} is not installed`), { code: "not_installed" });
     const { spawnEnv } = await prepareCliTransport(ctx);
 
     this.codexHomeRoot = resolveCodexHomeRootFromEnv(spawnEnv, { cwd: ctx.workingDirectory });
-    // Cross-platform spawn: on Windows the codex entry is often a `.cmd` shim.
-    const override = resolveCodexCommand(resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command);
     const spec = resolveSpawnSpec("codex", ["app-server", "--listen", "stdio://"], override);
     const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,

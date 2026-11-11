@@ -2,7 +2,7 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
 export type JsonObject = { readonly [key: string]: JsonValue };
 
-export type BuiltinBackendId = "claude" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "antigravity" | "agy" | "qoder" | "copilot" | "cursor-sdk" | "pi-durable";
+export type BuiltinBackendId = "claude" | "codex" | "codex-app" | "codex-cli" | "cursor" | "grok" | "opencode" | "pi" | "antigravity" | "agy" | "qoder" | "copilot" | "cursor-sdk" | "pi-durable";
 export type ReasoningEffort =
   | "minimal"
   | "low"
@@ -166,6 +166,8 @@ export interface BuiltinBackendSpecs {
   readonly agy: BackendTypeSpec<AgyConfig, AgyCapabilities, {}, never>;
   readonly claude: BackendTypeSpec<ClaudeConfig, ClaudeCapabilities, {}, never>;
   readonly codex: BackendTypeSpec<CodexConfig, CodexCapabilities, {}, never>;
+  readonly "codex-app": BackendTypeSpec<CodexConfig, CodexCapabilities, {}, never>;
+  readonly "codex-cli": BackendTypeSpec<CodexConfig, CodexCapabilities, {}, never>;
   readonly cursor: BackendTypeSpec<CursorConfig, CursorCapabilities, {}, never>;
   readonly grok: BackendTypeSpec<GrokConfig, GrokCapabilities, {}, never>;
   readonly opencode: BackendTypeSpec<OpenCodeConfig, OpenCodeCapabilities, {}, never>;

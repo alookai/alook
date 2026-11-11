@@ -58,7 +58,7 @@ function sdkTestLane(receipt = "fresh-receipt") {
 
 describe("createAgentDriverSdk", () => {
   it("exposes the built-ins with default options", () => {
-    expect(createAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"]);
+    expect(createAgentDriverSdk().backendIds).toEqual(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"]);
     expect(SESSION_FILE_DISCOVERY_CAPABILITIES).toEqual(["supported", "unavailable"]);
   });
 
@@ -100,7 +100,7 @@ describe("createAgentDriverSdk", () => {
     });
   });
 
-  it.each(["claude", "codex", "cursor", "grok", "opencode"] as const)(
+  it.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "opencode"] as const)(
     "forwards an explicit command override through the real %s probe",
     async (backend) => {
       const result = await createAgentDriverSdk().probe({ backend, command: process.execPath });
@@ -128,10 +128,10 @@ describe("createAgentDriverSdk", () => {
   });
 
   it("public SDK factory delegates to the built-in logical SDK", () => {
-    expect(createPublicAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"]);
+    expect(createPublicAgentDriverSdk().backendIds).toEqual(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"]);
   });
 
-  it.each(["claude", "codex", "cursor", "grok", "opencode", "pi"] as const)(
+  it.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "opencode", "pi"] as const)(
     "dispatches zero-bound discovery through the built-in %s adapter",
     async (backend) => {
       await expect(createAgentDriverSdk().discoverRecentContext({

@@ -40,6 +40,8 @@ import { createFakeAgentDriverHost } from "./fake-host.js";
 import { capabilitiesFor, createAgentDriverRegistry, createBuiltinAgentDriverRegistry } from "../registry.js";
 import { createAgentDriverSdkWithRegistry } from "../sdk.js";
 
+const isCodexBackend = (backend: string) => ["codex", "codex-app", "codex-cli"].includes(backend);
+
 const configs: { [Id in BuiltinBackendId]: ConfigOf<BuiltinBackendSpecs, Id> } = {
   qoder: { model: { kind: "default" } },
   copilot: { model: { kind: "default" } },
@@ -47,6 +49,8 @@ const configs: { [Id in BuiltinBackendId]: ConfigOf<BuiltinBackendSpecs, Id> } =
   "pi-durable": { model: { kind: "named", name: "openai/fixture" }, provider: { kind: "default" } },
   claude: { model: { kind: "default" }, provider: { kind: "default" }, mode: "default" },
   codex: { model: { kind: "default" }, mode: "default" },
+  "codex-app": { model: { kind: "default" }, mode: "default" },
+  "codex-cli": { model: { kind: "default" }, mode: "default" },
   cursor: { model: { kind: "default" } },
   agy: { model: { kind: "default" } },
   antigravity: { model: { kind: "default" } },
@@ -177,7 +181,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
       return lane;
     });
   } else {
-    const classes = { agy: AgyDriver, claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, grok: GrokDriver, antigravity: AntigravityDriver };
+    const classes = { agy: AgyDriver, claude: ClaudeDriver, codex: CodexDriver, "codex-app": CodexDriver, "codex-cli": CodexDriver, cursor: CursorDriver, grok: GrokDriver, antigravity: AntigravityDriver };
     if (backend === "claude") {
       const beginTurn = ClaudeDriver.prototype.beginTurn;
       vi.spyOn(ClaudeDriver.prototype, "beginTurn").mockImplementation(function (this: ClaudeDriver) {
@@ -294,6 +298,8 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           write({ type: "system", subtype: "init", session_id: "claude-resumed" });
           break;
         case "codex":
+        case "codex-app":
+        case "codex-cli":
           if (turn === 1) write({ jsonrpc: "2.0", id: 2, result: { thread: { id: "codex-resumed" } } });
           write({ jsonrpc: "2.0", method: "turn/started", params: {
             threadId: "codex-resumed", turn: { id: `codex-turn-${turn}`, status: "inProgress" },
@@ -319,6 +325,8 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           write(claudeTerminal(turn));
           break;
         case "codex":
+        case "codex-app":
+        case "codex-cli":
           write({ jsonrpc: "2.0", method: "turn/completed", params: {
             threadId: "codex-resumed", turn: { id: `codex-turn-${turn}`, status: "completed" },
           } });
@@ -351,6 +359,8 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           write(claudeTerminal(turn, overrides));
           break;
         case "codex":
+        case "codex-app":
+        case "codex-cli":
           write({ jsonrpc: "2.0", method: "turn/completed", params: {
             threadId: "codex-resumed", turn: { id: `codex-turn-${turn}`, status: "completed" },
           } });
@@ -425,7 +435,7 @@ async function settlePromptAdmission<T>(
   turn: number,
   pending: Promise<T>,
 ): Promise<T> {
-  if (backend === "codex") {
+  if (isCodexBackend(backend)) {
     await vi.waitFor(() => expect(harness.processes).toHaveLength(1));
     harness.sessionReady(turn);
   }
@@ -463,7 +473,7 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   expect(await session.send({ id: "early", kind: "user", text: "early" })).toMatchObject({ status: "rejected", reason: "not_started" });
   const first = session.start({ id: "first", kind: "user", text: "first" });
   expect(await settlePromptAdmission(backend, harness, 1, first)).toMatchObject({ status: "accepted" });
-  if (backend !== "codex") harness.sessionReady(1);
+  if (!isCodexBackend(backend)) harness.sessionReady(1);
   await settle();
   expect(harness.contexts[0]!.config.sessionId).toBe(`${backend}-resume-input`);
   expect(harness.contexts[0]!.prepared.environmentLayers).toMatchObject({
@@ -472,7 +482,7 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   });
 
   const busy = await session.send({ id: "busy", kind: "user", text: "busy" });
-  expect(busy.status).toBe(backend === "pi" || backend === "opencode" || backend === "cursor" || backend === "claude" || backend === "codex" ? "accepted" : "queued");
+  expect(busy.status).toBe(backend === "pi" || backend === "opencode" || backend === "cursor" || backend === "claude" || isCodexBackend(backend) ? "accepted" : "queued");
   const interrupted = await session.interrupt({ requestId: "interrupt-1", reason: "conformance" });
   expect(interrupted.status).toBe("accepted");
   if (backend === "claude") {
@@ -487,7 +497,7 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
       request: { subtype: "interrupt" },
     });
     expect(harness.processes[0]!.kill).not.toHaveBeenCalled();
-  } else if (backend === "codex") {
+  } else if (isCodexBackend(backend)) {
     expect(harness.stdinMessages).toContainEqual(expect.objectContaining({
       method: "turn/interrupt",
       params: { threadId: "codex-resumed", turnId: "codex-turn-1" },
@@ -508,19 +518,19 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
     harness.sessionReady(3);
     await settle();
     harness.completeTurn(3);
-  } else if (backend === "pi" || backend === "claude" || backend === "codex" || backend === "opencode") {
+  } else if (backend === "pi" || backend === "claude" || isCodexBackend(backend) || backend === "opencode") {
     const reuse = session.send({ id: "reuse", kind: "user", text: "reuse" });
     expect(await settlePromptAdmission(backend, harness, 2, reuse)).toMatchObject({ status: "accepted" });
     if (backend === "pi") harness.handles[0]!.isStreaming = true;
   }
   if (backend !== "cursor" && backend !== "grok" && backend !== "antigravity") {
-    if (backend !== "codex") harness.sessionReady(2);
+    if (!isCodexBackend(backend)) harness.sessionReady(2);
     await settle();
     harness.completeTurn(2);
     await settle();
   }
 
-  if (backend === "claude" || backend === "codex" || backend === "grok" || backend === "antigravity") {
+  if (backend === "claude" || isCodexBackend(backend) || backend === "grok" || backend === "antigravity") {
     expect(harness.processes).toHaveLength(1);
     expect(harness.processes[0]!.kill).not.toHaveBeenCalled();
   }
@@ -597,13 +607,13 @@ describe("native primitive regressions through registered public sessions", () =
     });
   });
 
-  it.each(["codex", "cursor", "grok", "antigravity"] as const)("preserves provider-originated %s cancellation and permits the next turn", async (backend) => {
+  it.each(["codex", "codex-app", "codex-cli", "cursor", "grok", "antigravity"] as const)("preserves provider-originated %s cancellation and permits the next turn", async (backend) => {
     const fixture = await openRegisteredHarness(backend, "native-cancel");
     try {
       const first = fixture.session.start({ id: "first", kind: "user", text: "first" });
       await settlePromptAdmission(backend, fixture.harness, 1, first);
       const cancel = () => {
-        if (backend === "codex") {
+        if (isCodexBackend(backend)) {
           fixture.harness.emitProvider({ jsonrpc: "2.0", method: "turn/completed", params: {
             threadId: "codex-resumed", turn: { id: "codex-turn-1", status: "interrupted" },
           } });
@@ -667,7 +677,7 @@ describe("native primitive regressions through registered public sessions", () =
   });
 });
 
-describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity"] as const)(
+describe.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "opencode", "pi", "antigravity"] as const)(
   "%s shared persistent stress conformance",
   (backend) => {
     it("runs ten sequential public turns through one physical open", async () => {
@@ -677,7 +687,7 @@ describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravi
           ? fixture.session.start({ id: `turn-${turn}`, kind: "user", text: `turn ${turn}` })
           : fixture.session.send({ id: `turn-${turn}`, kind: "user", text: `turn ${turn}` });
         expect(await settlePromptAdmission(backend, fixture.harness, turn, pending)).toMatchObject({ status: "accepted" });
-        if (backend !== "codex") fixture.harness.sessionReady(turn);
+        if (!isCodexBackend(backend)) fixture.harness.sessionReady(turn);
         fixture.harness.completeTurn(turn);
         await vi.waitFor(() => expect(fixture.session.snapshot().activeTurn).toBeUndefined());
       }
@@ -695,7 +705,7 @@ describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravi
       const ids = Array.from({ length: 10 }, (_, index) => `command-${index}`);
       const first = fixture.session.start({ id: ids[0]!, kind: "user", text: ids[0]! });
       await settlePromptAdmission(backend, fixture.harness, 1, first);
-      if (backend !== "codex") fixture.harness.sessionReady(1);
+      if (!isCodexBackend(backend)) fixture.harness.sessionReady(1);
 
       const busy = ids.slice(1, 6).map((id) => fixture.session.send({ id, kind: "user", text: id }));
       await Promise.all(busy);
@@ -703,12 +713,12 @@ describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravi
       await settle();
 
       const idleBurst = ids.slice(6).map((id) => fixture.session.send({ id, kind: "user", text: id }));
-      if (backend === "codex") {
+      if (isCodexBackend(backend)) {
         await vi.waitFor(() => expect(fixture.session.snapshot().diagnostics.deliveryPhase).toBe("admission_wait"));
         fixture.harness.sessionReady(2);
       }
       await Promise.all(idleBurst);
-      if (backend !== "codex" && backend !== "cursor") fixture.harness.sessionReady(2);
+      if (!isCodexBackend(backend) && backend !== "cursor") fixture.harness.sessionReady(2);
       let turn = backend === "cursor" ? 10 : 2;
       let staleTerminalEmitted = false;
       let completedTurnId: string | undefined;
@@ -721,7 +731,7 @@ describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravi
           expect(activeTurnId).toBeDefined();
           expect(activeTurnId).not.toBe(completedTurnId);
         });
-        if (backend === "codex" && fixture.session.snapshot().diagnostics.deliveryPhase === "admission_wait") {
+        if (isCodexBackend(backend) && fixture.session.snapshot().diagnostics.deliveryPhase === "admission_wait") {
           fixture.harness.sessionReady(turn);
           await vi.waitFor(() => expect(fixture.session.snapshot().diagnostics.deliveryPhase).not.toBe("admission_wait"));
         }
@@ -754,7 +764,7 @@ describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravi
   },
 );
 
-describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity"] as const)(
+describe.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "opencode", "pi", "antigravity"] as const)(
   "%s registered public-session lifecycle conformance",
   (backend) => {
     it("runs resume, busy admission, interrupt reuse, environment, release, and requested stop through sdk.open", async () => {
@@ -771,7 +781,7 @@ describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravi
         ? PiDriver.prototype
         : backend === "opencode"
           ? OpenCodeDriver.prototype
-        : ({ claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, grok: GrokDriver, antigravity: AntigravityDriver, opencode: OpenCodeDriver } as const)[backend].prototype;
+        : ({ claude: ClaudeDriver, codex: CodexDriver, "codex-app": CodexDriver, "codex-cli": CodexDriver, cursor: CursorDriver, grok: GrokDriver, antigravity: AntigravityDriver, opencode: OpenCodeDriver } as const)[backend].prototype;
       const existing = (prototype as unknown as Record<string, ReturnType<typeof vi.fn>>)[method]!;
       existing.mockImplementationOnce(async (...args: unknown[]) => {
         await openGate;
@@ -822,7 +832,7 @@ describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravi
         ? PiDriver.prototype
         : backend === "opencode"
           ? OpenCodeDriver.prototype
-          : ({ claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, grok: GrokDriver, antigravity: AntigravityDriver } as const)[backend].prototype;
+          : ({ claude: ClaudeDriver, codex: CodexDriver, "codex-app": CodexDriver, "codex-cli": CodexDriver, cursor: CursorDriver, grok: GrokDriver, antigravity: AntigravityDriver } as const)[backend].prototype;
       (prototype as unknown as Record<string, ReturnType<typeof vi.fn>>)[method]!.mockRejectedValueOnce(
         new Error("apiKey=supersecret failed at /Users/Alice Smith/private key.json"),
       );

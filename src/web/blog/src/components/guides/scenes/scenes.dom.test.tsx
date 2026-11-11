@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@/test/react-dom-harness";
+import { runtimeLabel } from "@/lib/community/runtime-label";
 import { stepGuides } from "@/lib/step-guides";
 import { ConnectDemo, BotsDemo } from "../mock-scenes";
 import { createScene as connectScene } from "./connect";
@@ -41,10 +42,10 @@ describe("tutorial action sequences", () => {
     expect(Array.from(forms[0].querySelectorAll('[data-testid="bot-provider-picker"] input')).map(node => (node as HTMLInputElement).value)).toEqual(agents);
     const result = root.querySelectorAll("[data-demo-frame]")[2];
     expect(result.textContent).toContain("Milo");
-    expect(result.textContent).toContain(agents[0]);
+    expect(result.textContent).toContain(runtimeLabel(agents[0]));
     if (index === 1) {
       expect(result.textContent).toContain("Nova");
-      expect(result.textContent).toContain(agents[1]);
+      expect(result.textContent).toContain(runtimeLabel(agents[1]));
     }
     expect(root.querySelectorAll('[data-demo-frame]')).toHaveLength(3);
     const timeline = botScene(root, vi.fn());

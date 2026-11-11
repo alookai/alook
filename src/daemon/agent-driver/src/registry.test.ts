@@ -21,6 +21,8 @@ const EXPECTED: Record<BuiltinBackendId, BackendCapabilities> = {
   antigravity: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: true },
   claude: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true, disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
   codex: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
+  "codex-app": { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
+  "codex-cli": { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
   cursor: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
   grok: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
   opencode: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
@@ -88,7 +90,7 @@ describe("driver.capabilities", () => {
     for (const id of BUILTIN_BACKEND_IDS) {
       const registration = registry.get(id);
       expect(registration.contractVersion).toBe(2);
-      expect(registration.createAdapter().execution).toEqual(expected[id]);
+      expect(registration.createAdapter().execution).toEqual(({ ...expected, "codex-app": expected.codex, "codex-cli": expected.codex })[id]);
     }
   });
 });

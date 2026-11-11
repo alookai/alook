@@ -44,8 +44,10 @@ export function toBuiltinBackendSelection(config: BuiltinRuntimeConfigInput): Bu
         },
       };
     case "codex":
+    case "codex-app":
+    case "codex-cli":
       return {
-        backend: "codex",
+        backend: config.runtime,
         config: { ...base, reasoningEffort: config.reasoningEffort, mode: config.mode.kind },
       };
     case "agy":

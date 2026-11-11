@@ -32,7 +32,7 @@ describe("builtin config boundary", () => {
     });
   });
 
-  it.each(["codex", "cursor", "grok", "opencode", "pi", "agy"])("maps %s without daemon-side switches", (runtime) => {
+  it.each(["codex", "codex-app", "codex-cli", "cursor", "grok", "opencode", "pi", "agy"])("maps %s without daemon-side switches", (runtime) => {
     expect(toBuiltinBackendSelection(config(runtime))).toMatchObject({ backend: runtime });
   });
 
@@ -71,3 +71,7 @@ describe("builtin config boundary", () => {
     },
   );
 });
+
+it.each(["codex-app", "codex-cli"] as const)("preserves all native settings for %s", (runtime) => {
+  expect(toBuiltinBackendSelection({ runtime, model: { kind: "named", name: "native-model" }, mode: { kind: "fast" }, reasoningEffort: "high", command: "/custom/codex", envVars: { CODEX_HOME: "/custom/home" } })).toEqual({ backend: runtime, config: { model: { kind: "named", name: "native-model" }, command: "/custom/codex", environment: { CODEX_HOME: "/custom/home" }, mode: "fast", reasoningEffort: "high" } })
+})

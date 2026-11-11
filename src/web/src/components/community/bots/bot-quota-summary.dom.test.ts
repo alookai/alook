@@ -266,3 +266,17 @@ describe("MachineQuotaSummary", () => {
     }]).container)).toContain("Quota pending")
   })
 })
+
+it("keeps Codex App and CLI quota observations separate under their picker names", () => {
+  const renderer = render([
+    quotaEntry([limit({ usedPercent: 20 })], "available", "codex-app"),
+    quotaEntry([limit({ usedPercent: 70 })], "available", "codex-cli"),
+  ])
+  const trigger = renderer.getByTestId("community-machine-quota-m1")
+  expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex 80% left"))
+  expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex CLI 30% left"))
+  fireEvent.click(trigger)
+  const detail = renderer.getByTestId("community-machine-quota-detail-m1")
+  expect(text(detail.querySelector('[data-quota-backend="codex-app"]')!)).toContain("Codex")
+  expect(text(detail.querySelector('[data-quota-backend="codex-cli"]')!)).toContain("Codex CLI")
+})
