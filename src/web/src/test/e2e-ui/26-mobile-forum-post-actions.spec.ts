@@ -5,6 +5,7 @@ import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 
 import { tid } from "./_fixtures/testids"
+import { expectScrollFade } from "./_fixtures/scroll-fade"
 import { WEB_URL } from "./_setup/paths"
 import type { CaseActors } from "./_fixtures/case-fixture"
 
@@ -223,7 +224,7 @@ async function expectNewPostGeometry(
   state: string,
   expected?: Rect,
 ): Promise<Rect> {
-  const geometry = await page.evaluate(([barId, railId, newPostId, fadeLeftId, fadeRightId]) => {
+  const geometry = await page.evaluate(([barId, railId, newPostId]) => {
     const bar = document.querySelector(`[data-testid="${barId}"]`) as HTMLElement
     const rail = document.querySelector(`[data-testid="${railId}"]`) as HTMLElement
     const newPost = document.querySelector(`[data-testid="${newPostId}"]`) as HTMLElement
@@ -246,17 +247,11 @@ async function expectNewPostGeometry(
       button,
       centerTarget,
       chips: Array.from(rail.querySelectorAll("button")).map(toRect),
-      fades: [fadeLeftId, fadeRightId]
-        .map((id) => document.querySelector(`[data-testid="${id}"]`))
-        .filter((element): element is Element => element !== null)
-        .map(toRect),
     }
   }, [
     tid.forumFilterBar,
     tid.forumTagScroller,
     tid.forumNewPost,
-    tid.forumTagFadeLeft,
-    tid.forumTagFadeRight,
   ] as const)
   const label = `filter rail@${width}/${state}`
   expect(geometry.documentScrollWidth, `${label}: document containment`).toBe(geometry.viewport.right)
@@ -285,9 +280,7 @@ async function expectNewPostGeometry(
       expect(intersects(geometry.button, visibleChip), `${label}: New Post/visible chip overlap`).toBe(false)
     }
   }
-  for (const fade of geometry.fades) {
-    expect(intersects(geometry.button, fade), `${label}: New Post/fade overlap`).toBe(false)
-  }
+  expect(intersects(geometry.button, geometry.rail), `${label}: New Post/masked rail overlap`).toBe(false)
   if (expected) {
     for (const edge of ["left", "right", "top", "bottom", "width", "height"] as const) {
       expect(Math.abs(geometry.button[edge] - expected[edge]), `${label}: stable ${edge}`).toBeLessThanOrEqual(0.5)
@@ -453,8 +446,6 @@ async function expectFilterRail(
   const rail = page.getByTestId(tid.forumTagScroller)
   const all = page.getByTestId(tid.forumTagAll)
   const last = page.getByTestId(tid.forumTagChip(LAST_FILTER_TAG))
-  const fadeLeft = page.getByTestId(tid.forumTagFadeLeft)
-  const fadeRight = page.getByTestId(tid.forumTagFadeRight)
   const originalColorScheme = await page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
   await page.emulateMedia({ colorScheme: "light" })
   await expect(page.locator("html")).not.toHaveClass(/dark/)
@@ -476,20 +467,13 @@ async function expectFilterRail(
   expect(initial.flexWrap, `filter rail@${width}: single line`).toBe("nowrap")
   expect(initial.overflowX, `filter rail@${width}: horizontal scroll`).toBe("auto")
   expect(initial.scrollWidth, `filter rail@${width}: owns overflow`).toBeGreaterThan(initial.clientWidth)
-  await expect(fadeLeft).toHaveCount(0)
-  await expect(fadeRight).toBeVisible()
-  const startFadeStyle = await fadeRight.evaluate((element) => {
+  await expectScrollFade(rail, "start")
+  const startFadeStyle = await rail.evaluate((element) => {
     const style = getComputedStyle(element)
-    return {
-      width: element.getBoundingClientRect().width,
-      backgroundImage: style.backgroundImage,
-      pointerEvents: style.pointerEvents,
-    }
+    return { depth: Number.parseFloat(style.getPropertyValue("--scroll-fade-e")), mask: style.maskImage }
   })
-  expect(startFadeStyle.width, `filter rail@${width}: fade width`).toBeGreaterThanOrEqual(12)
-  expect(startFadeStyle.width, `filter rail@${width}: fade width`).toBeLessThanOrEqual(16)
-  expect(startFadeStyle.backgroundImage, `filter rail@${width}: fade gradient`).toContain("linear-gradient")
-  expect(startFadeStyle.pointerEvents, `filter rail@${width}: pointer transparency`).toBe("none")
+  expect(startFadeStyle.depth, `filter rail@${width}: fade depth`).toBeGreaterThanOrEqual(12)
+  expect(startFadeStyle.depth, `filter rail@${width}: fade depth`).toBeLessThanOrEqual(16)
   const initialNewPostRect = await expectNewPostGeometry(page, width, "start-light")
   await testInfo.attach(`author-${width}-filter-rail-start-light.png`, {
     body: await page.screenshot(),
@@ -507,13 +491,13 @@ async function expectFilterRail(
   await rail.evaluate((element) => {
     element.scrollLeft = (element.scrollWidth - element.clientWidth) / 2
   })
-  await expect(fadeLeft).toBeVisible()
-  await expect(fadeRight).toBeVisible()
+  await expectScrollFade(rail, "middle")
   await expectNewPostGeometry(page, width, "middle-light", initialNewPostRect)
-  const pointerHit = await page.evaluate(([railId, fadeId]) => {
+  const pointerHit = await page.evaluate((railId) => {
     const railElement = document.querySelector(`[data-testid="${railId}"]`) as HTMLElement
-    const fadeElement = document.querySelector(`[data-testid="${fadeId}"]`) as HTMLElement
-    const fadeRect = fadeElement.getBoundingClientRect()
+    const railRect = railElement.getBoundingClientRect()
+    const depth = Number.parseFloat(getComputedStyle(railElement).getPropertyValue("--scroll-fade-e"))
+    const fadeRect = { left: railRect.right - depth, right: railRect.right }
     const candidates = Array.from(railElement.querySelectorAll<HTMLButtonElement>("button"))
       .map((button) => {
         const buttonRect = button.getBoundingClientRect()
@@ -531,19 +515,19 @@ async function expectFilterRail(
       expected: candidate.button.dataset.testid ?? null,
       actual: document.elementFromPoint(x, y)?.closest("button")?.getAttribute("data-testid") ?? null,
     }
-  }, [tid.forumTagScroller, tid.forumTagFadeRight] as const)
+  }, tid.forumTagScroller)
   expect(pointerHit, `filter rail@${width}: chip beneath fade`).not.toBeNull()
   expect(pointerHit!.actual, `filter rail@${width}: fade pointer pass-through`).toBe(pointerHit!.expected)
-  const lightGradient = await fadeRight.evaluate((element) => getComputedStyle(element).backgroundImage)
+  const lightGradient = await rail.evaluate((element) => getComputedStyle(element).maskImage)
   await testInfo.attach(`author-${width}-filter-rail-middle-light.png`, {
     body: await page.screenshot(),
     contentType: "image/png",
   })
   await page.emulateMedia({ colorScheme: "dark" })
   await expect(page.locator("html")).toHaveClass(/dark/)
-  const darkGradient = await fadeRight.evaluate((element) => getComputedStyle(element).backgroundImage)
+  const darkGradient = await rail.evaluate((element) => getComputedStyle(element).maskImage)
   expect(darkGradient, `filter rail@${width}: dark fade gradient`).toContain("linear-gradient")
-  expect(darkGradient, `filter rail@${width}: theme-aware fade`).not.toBe(lightGradient)
+  expect(darkGradient, `filter rail@${width}: surface-independent fade`).toBe(lightGradient)
   await expectNewPostGeometry(page, width, "middle-dark", initialNewPostRect)
   await testInfo.attach(`author-${width}-filter-rail-middle-dark.png`, {
     body: await page.screenshot(),
@@ -561,8 +545,7 @@ async function expectFilterRail(
   await expect.poll(() => rail.evaluate((element) => (
     element.scrollWidth - element.clientWidth - element.scrollLeft
   ))).toBeLessThanOrEqual(1)
-  await expect(fadeLeft).toBeVisible()
-  await expect(fadeRight).toHaveCount(0)
+  await expectScrollFade(rail, "end")
   const [railAtEnd, lastAtEnd] = await Promise.all([rect(rail), rect(last)])
   expect(lastAtEnd!.left, `filter rail@${width}: last chip left`).toBeGreaterThanOrEqual(railAtEnd!.left - 0.5)
   expect(lastAtEnd!.right, `filter rail@${width}: last chip right`).toBeLessThanOrEqual(railAtEnd!.right + 0.5)
@@ -590,8 +573,7 @@ async function expectFilterRail(
   expect(activeLast!.right).toBeLessThanOrEqual(railWithLastActive!.right + 0.5)
   await rail.press("Home")
   await expect.poll(() => rail.evaluate((element) => element.scrollLeft)).toBe(0)
-  await expect(fadeLeft).toHaveCount(0)
-  await expect(fadeRight).toBeVisible()
+  await expectScrollFade(rail, "start")
   await all.click()
   await expect(all).toHaveClass(/bg-accent/)
   const [railAtStart, allAtStart] = await Promise.all([rect(rail), rect(all)])
@@ -637,8 +619,7 @@ async function expectNoOverflowFilterRail(
   await expect(rail.getByRole("status", { name: "Loading tag filters" })).toHaveCount(0)
   const geometry = await rail.evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }))
   expect(geometry.scrollWidth, `no-overflow rail@${width}`).toBe(geometry.clientWidth)
-  await expect(page.getByTestId(tid.forumTagFadeLeft)).toHaveCount(0)
-  await expect(page.getByTestId(tid.forumTagFadeRight)).toHaveCount(0)
+  await expectScrollFade(rail, "none")
   await expectNewPostGeometry(page, width, "no-overflow-light", expectedNewPost)
   await testInfo.attach(`author-${width}-filter-rail-no-overflow.png`, {
     body: await page.screenshot(),
@@ -646,8 +627,7 @@ async function expectNoOverflowFilterRail(
   })
   await page.emulateMedia({ colorScheme: "dark" })
   await expect(page.locator("html")).toHaveClass(/dark/)
-  await expect(page.getByTestId(tid.forumTagFadeLeft)).toHaveCount(0)
-  await expect(page.getByTestId(tid.forumTagFadeRight)).toHaveCount(0)
+  await expectScrollFade(rail, "none")
   await expectNewPostGeometry(page, width, "no-overflow-dark", expectedNewPost)
   await page.emulateMedia({ colorScheme: originalColorScheme })
   if (originalColorScheme === "dark") {

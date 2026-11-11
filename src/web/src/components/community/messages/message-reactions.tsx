@@ -22,7 +22,6 @@ import {
 } from "@/hooks/community/use-reaction-details"
 import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import {
-  HorizontalOverflowFadeOverlays,
   useHorizontalOverflowRail,
 } from "@/components/horizontal-overflow-rail"
 import { MemberIdentityRow } from "../members/member-identity-row"
@@ -207,9 +206,7 @@ function ReactionDetailsDialog({
   const actors = new Map(details.data?.actors.map((actor) => [actor.userId, actor]))
   const reactionRailKey = reactions.map((reaction) => `${reaction.emoji}\0${reaction.count}`).join("\0")
   const {
-    fades: reactionFades,
     onKeyDown: onReactionRailKeyDown,
-    onScroll: onReactionRailScroll,
     scrollerRef: reactionScrollerRef,
     selectedRef: selectedReactionRef,
   } = useHorizontalOverflowRail<HTMLDivElement, HTMLButtonElement>({
@@ -237,9 +234,8 @@ function ReactionDetailsDialog({
               variant="line"
               data-testid={tid.reactionScroller(messageId)}
               aria-label="Reaction types"
-              onScroll={onReactionRailScroll}
               onKeyDown={onReactionRailKeyDown}
-              className="h-11! min-h-11 w-full max-w-full flex-nowrap gap-1 overflow-x-auto overflow-y-hidden rounded-none bg-transparent! p-0! overscroll-x-contain thin-scrollbar scrollbar-none"
+              className="h-11! min-h-11 w-full max-w-full flex-nowrap gap-1 overflow-x-auto overflow-y-hidden rounded-none bg-transparent! px-4! py-0! overscroll-x-contain scroll-fade-x scroll-fade-4 scroll-px-4 thin-scrollbar scrollbar-none"
             >
               {reactions.map((reaction) => (
                 <TabsTrigger
@@ -250,19 +246,13 @@ function ReactionDetailsDialog({
                   data-testid={tid.reactionTab(reaction.emoji)}
                   aria-label={`${reaction.emoji}, ${reaction.count}`}
                   aria-controls={`${tid.reactionDialog(messageId)}-panel`}
-                  className="h-11! min-h-11 min-w-11 data-active:bg-accent! data-active:text-foreground! after:hidden"
+                  className="h-11! min-h-11 min-w-11 data-active:bg-accent! data-active:text-foreground! after:hidden focus-visible:ring-inset focus-visible:-outline-offset-1"
                 >
                   <span aria-hidden="true">{reaction.emoji}</span>
                   <span>{reaction.count}</span>
                 </TabsTrigger>
               ))}
             </TabsList>
-            <HorizontalOverflowFadeOverlays
-              fades={reactionFades}
-              leftTestId={tid.reactionFadeLeft(messageId)}
-              rightTestId={tid.reactionFadeRight(messageId)}
-              surface="popover"
-            />
           </div>
         </Tabs>
       )}

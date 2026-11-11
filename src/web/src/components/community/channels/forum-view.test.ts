@@ -440,8 +440,6 @@ describe("ForumView filter bar / composer swap", () => {
     expect(railMarkup).not.toContain("sm:flex-wrap")
     expect(railMarkup).not.toContain("sm:overflow-x-visible")
     expect(railMarkup).toContain('tabindex="0"')
-    expect(html).not.toContain(tid.forumTagFadeLeft)
-    expect(html).not.toContain(tid.forumTagFadeRight)
     expect(listMarkup).toContain("p-0")
     expect(listMarkup).not.toContain("sm:px-4")
   })

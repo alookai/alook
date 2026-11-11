@@ -87,6 +87,8 @@ Message navigation and qualified tail following share one smooth-scroll policy: 
 
 Fullscreen dialog, alert and sheet edge fades consume the same visible-surface publication, with the current app canvas as the pre-publication fallback. Onboarding locally overrides the edge color with its own paper background. The UserBar lower fade preserves separate frame and navigation regions at the existing rail boundary. Keep edge dimensions, transparency curves and input/layout ownership unchanged; clipping-mask colors and landing section palettes retain their separate roles.
 
+Forum tag filters, reaction-detail tabs and Blog topic filters use the installed shadcn horizontal scroll-fade mask on their actual scrollers, with four spacing units of fade depth and matching inline content/scroll padding. Surrounding backgrounds retain their own paint. Selection and resize reveal keep a fitting selected item inside the padded reading area; keyboard navigation and Blog wheel-boundary release remain application-owned. Forum chip and reaction-tab focus paint stays inside its clipped row. Supported engines remove fades at the corresponding scroll boundary and without overflow; older engines retain the utility's static two-edge fallback. Fixed dialog, footer and UserBar background gradients retain their separate purposes.
+
 Message date and New dividers remain 1px. Date lines use a dedicated token with white at 36% in Dark; New retains its destructive color. Default separator styling must preserve explicitly selected semantic paint.
 
 Rules:
