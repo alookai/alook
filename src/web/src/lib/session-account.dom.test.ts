@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest"
+import { waitFor } from "@/test/react-dom-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { serversProjectedQueryFn } from "@/hooks/community/use-servers"
 import { communityKeys } from "@/lib/query-keys"
@@ -27,7 +28,7 @@ it.each(["A", "B"])("qualifies queued A servers publication when cookie identity
   vi.stubGlobal("fetch", transport.fetch)
   try {
     const identity = transport.fetch("/api/auth/sign-in/email", { method: "POST" })
-    await vi.waitFor(() => expect(native).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(native).toHaveBeenCalledTimes(1))
     const read = client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(client), staleTime: 0 }).catch(error => error)
     await Promise.resolve()
     expect(native).toHaveBeenCalledTimes(1)

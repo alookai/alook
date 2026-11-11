@@ -33,6 +33,8 @@ beforeAll(async () => {
     if (path.endsWith("/sign-out")) { selected = null; return Response.json({ success: true }) }
     throw new Error(`Unexpected public SDK request ${path} ${init?.method}`)
   })
+  const { installSessionTransport } = await import("./session-transport")
+  installSessionTransport()
   auth = await import("./auth-client")
   Application = await import("./application-owner")
   Community = await import("@/app/c/QueryProvider")

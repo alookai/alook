@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest"
+import { act } from "@/test/react-dom-harness"
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules() })
 
@@ -12,6 +13,6 @@ it("fences an SDK created before installation and resumes its real get-session t
   await expect(authClient.getSession()).rejects.toMatchObject({ name: "AbortError" })
   expect(backend).not.toHaveBeenCalled()
   lease.release()
-  expect((await authClient.getSession()).data).toBeNull()
+  await act(async () => { expect((await authClient.getSession()).data).toBeNull() })
   expect(backend).toHaveBeenCalledOnce()
 })
