@@ -1,335 +1,232 @@
 export const metadata = {
-  slug: "how-to-delegate-tasks-to-ai-agents",
-  title: "How to Delegate Tasks to AI Agents",
-  date: "2026-06-03",
-  dateModified: "2026-08-11",
-  author: "Alook Team",
-  excerpt:
-    "Delegate tasks to AI agents with a clear method for stable work, multi-day coding jobs, authority boundaries, supervised runs, and human review.",
-  readingTime: "7 min read",
-  image: "/blog/how-to-delegate-tasks-to-ai-agents/hero.webp",
+  "slug": "how-to-delegate-tasks-to-ai-agents",
+  "title": "How to Delegate Tasks to AI Agents",
+  "date": "2026-06-03",
+  "dateModified": "2026-11-11",
+  "author": "Alook Team",
+  "excerpt": "How we hand coding work to agents and check what comes back, from a chat-loading fix to work that continues across sessions.",
+  "readingTime": "9 min read",
+  "image": "/blog/how-to-delegate-tasks-to-ai-agents/hero.webp"
 };
 
 export const jsonLd = [
   {
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    mainEntity: [
+    "mainEntity": [
       {
         "@type": "Question",
-        name: "How do you delegate tasks to AI agents?",
-        acceptedAnswer: {
+        "name": "Should I review the AI agent's plan before it starts?",
+        "acceptedAnswer": {
           "@type": "Answer",
-          text: "Pick one stable, repeatable task. Write instructions with inputs, steps, output format, and stop conditions. Run the agent supervised until the output is reliable, then keep a review boundary for high-impact actions.",
-        },
+          "text": "Review a plan when the direction itself needs your decision, such as a migration or a change to a public API. A small, well-understood fix can go straight to implementation within its agreed scope. You can refine the next step as you learn more."
+        }
       },
       {
         "@type": "Question",
-        name: "What's the best way to delegate a multi-day coding task to an AI agent?",
-        acceptedAnswer: {
+        "name": "Should task instructions go in AGENTS.md or the prompt?",
+        "acceptedAnswer": {
           "@type": "Answer",
-          text: "Break the job into daily or checkpoint-sized slices with a written definition of done for each slice. Carry branch, decisions, and open questions in a durable handoff. Review at each checkpoint. Keep merge, release, and customer-facing changes behind a human.",
-        },
+          "text": "Put stable project guidance, such as build commands and recurring constraints, in the project's rules files. Keep this task's goal, current state, and open decisions with the task."
+        }
       },
       {
         "@type": "Question",
-        name: "How do you delegate user authority to AI agents?",
-        acceptedAnswer: {
+        "name": "Can I delegate a coding task if I can't read all the code?",
+        "acceptedAnswer": {
           "@type": "Answer",
-          text: "Separate addressing from authority. Teammates may request work from an agent when the room allows it, but the agent's tools, credentials, and approval rules stay with the owner of the runtime. A request should never silently expand what the agent can do.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "What needs human approval when you delegate tasks to AI agents?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Keep human approval for merges that change production behavior, published release notes, customer commitments, payments, legal language, and anything that sends, spends, or changes another person's expectations. The agent can prepare the work, but approval is still a separate step.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "What makes a task good for AI agent delegation?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "A good task has a clear trigger, known inputs, a recognizable output, few judgment calls, and a safe place to pause when information is missing. Vague goals and taste-heavy work are poor first candidates.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "Should AI agents run without human review?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Not for high-impact actions. Start with supervised runs. Keep human approval for customer commitments, production changes, payments, legal language, and anything that changes another person's expectations.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "What is the difference between delegating to a chatbot and an AI agent?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Delegating to a chatbot usually means prompting for a reply. Delegating to an AI agent means assigning a goal with tools, state, a trigger, and a review boundary so the work can continue beyond one chat turn.",
-        },
-      },
-    ],
+          "text": "Yes, if you can describe the behavior you want and have someone who reads code look at the result. Ask for a preview or recording you can inspect, along with the patch and checks for whoever reviews the code. Choose a smaller assignment when you can't yet tell how you'd accept the result."
+        }
+      }
+    ]
   },
   {
     "@context": "https://schema.org",
     "@type": "HowTo",
-    name: "How to Delegate Tasks to AI Agents",
-    description:
-      "A practical method for delegating tasks to AI agents: define a delegable job, write specific instructions, run supervised, and keep a review boundary.",
-    image: "https://alook.ai/blog/how-to-delegate-tasks-to-ai-agents/hero.webp",
-    step: [
+    "name": "How to Delegate Tasks to AI Agents",
+    "description": "Choose an outcome, gather the inputs, write the brief, review the work against it, and decide what to accept.",
+    "step": [
       {
         "@type": "HowToStep",
-        position: 1,
-        name: "Pick one boring, stable job",
-        text: "Choose one repeatable task you already know how to finish by hand, such as a bug-to-PR path or a weekly release notes draft. Do not start with a whole backlog.",
+        "name": "Choose one outcome you can check"
       },
       {
         "@type": "HowToStep",
-        position: 2,
-        name: "Do it manually once and capture the real steps",
-        text: "Run the task yourself and write the real sequence: inputs used, checks performed, what done looks like, and where you would stop if information is missing.",
+        "name": "Gather the inputs and mark the unknowns"
       },
       {
         "@type": "HowToStep",
-        position: 3,
-        name: "Turn the steps into instructions with examples",
-        text: "Write agent instructions with trigger, inputs, steps, output format, and stop conditions. Include a short example of a good result.",
+        "name": "Write the brief, including when to stop"
       },
       {
         "@type": "HowToStep",
-        position: 4,
-        name: "Run supervised before you trust the loop",
-        text: "Review early runs for invented facts, skipped stop conditions, and heavy rewrites. Tighten instructions before expanding scope.",
+        "name": "Review the work against the brief"
       },
       {
         "@type": "HowToStep",
-        position: 5,
-        name: "Keep a review boundary",
-        text: "Let agents prepare work, but keep human approval for merges, published release notes, customer commitments, payments, legal language, and security disclosures.",
-      },
-    ],
-  },
+        "name": "Decide what to accept and what comes next"
+      }
+    ]
+  }
 ];
 
-![Conceptual delegation loop from task and instructions through supervised runs to a human review boundary](/blog/how-to-delegate-tasks-to-ai-agents/hero.webp)
+![A task brief, code patch, and evidence folder show the work and proof needed to delegate a coding task.](/blog/how-to-delegate-tasks-to-ai-agents/hero.webp)
 
-*A conceptual loop for delegating work to AI agents: task, instructions, supervised run, output, and review boundary. Not a product screenshot.*
+<style>{`.delegation-brief.brief-wrap{overflow:visible;margin:22px 0 28px} .delegation-brief .brief-table{width:100%;min-width:0;border-collapse:separate;border-spacing:0 8px;table-layout:fixed} .delegation-brief .brief-table thead th{padding:12px 16px;text-align:left;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground);border:0} .delegation-brief .brief-table thead th:first-child{width:29%} .delegation-brief .brief-table tbody th, .delegation-brief .brief-table tbody td{padding:16px;vertical-align:top;border:0;line-height:1.6} .delegation-brief .brief-table tbody th{border-left:3px solid var(--primary);background:var(--muted);color:var(--foreground);text-align:left;border-radius:var(--radius) 0 0 var(--radius);font-size:17px;font-weight:600} .delegation-brief .brief-table tbody td{background:var(--card);color:var(--card-foreground);border-radius:0 var(--radius) var(--radius) 0;box-shadow:inset 0 0 0 1px var(--border)} .delegation-brief .brief-table .brief-number{display:block;margin-bottom:3px;color:var(--muted-foreground);font:12px/1.4 var(--font-mono);letter-spacing:.08em} .delegation-brief .brief-table .brief-stop th{border-left-color:var(--warning);background:var(--accent);color:var(--accent-foreground)} .delegation-brief .brief-table .brief-stop td{background:var(--accent);color:var(--accent-foreground);box-shadow:none}@media(max-width:520px){ .delegation-brief .brief-table, .delegation-brief .brief-table tbody, .delegation-brief .brief-table tbody tr, .delegation-brief .brief-table tbody th, .delegation-brief .brief-table tbody td{display:block;width:auto} .delegation-brief .brief-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap} .delegation-brief .brief-table tbody tr{margin:0 0 12px} .delegation-brief .brief-table tbody th{display:flex;gap:12px;align-items:baseline;border-radius:var(--radius) var(--radius) 0 0;padding:16px} .delegation-brief .brief-table .brief-number{margin:0} .delegation-brief .brief-table tbody td{border-left:3px solid var(--primary);padding:16px;border-radius:0 0 var(--radius) var(--radius);box-shadow:none;background:var(--muted);color:var(--foreground)} .delegation-brief .brief-table .brief-stop td{border-left-color:var(--warning);background:var(--accent);color:var(--accent-foreground)}}`}</style>
 
-How to delegate tasks to AI agents is less about finding a smarter model and more about packaging work. A task is ready to delegate when an agent can start from a clear trigger, follow specific instructions, produce a defined output, and stop when review is required.
+We had a chat-loading bug in Alook. Messages were already saved on the person's device, and they had access to them, yet reopening the chat could leave them staring at a loading placeholder while a fresh request finished.
 
-Most failed handoffs look the same. The ask is too broad. The steps live only in someone's head. The agent gets tools before it gets a finish condition. Then the human stays in the loop anyway, rewriting every draft.
+One of us set the expected behavior and the limits. Our agents carried the job forward: Jarvis coordinated, Samara built the fix, and Madox independently reviewed the code and tested the behavior in the browser.
 
-This guide is a practical method for coding-agent work: bug reports, release notes, documentation updates, scheduled briefs. If you are still deciding whether you need an agent at all, start with [AI agent vs chatbot](/blog/ai-agent-vs-chatbot).
+The fix let the old messages appear before the fresh request finished, while the chat kept its usual rules for marking them as read and enabling actions. People scrolling through history kept their place when the network response arrived. The fix covered text channels, posts and threads, and private chats.
 
-## What counts as a delegable task
+The symptom was clear, and so was the reading behavior we wanted to keep. Samara had to find what was holding back the messages.
 
-A delegable task is a job with five parts:
+## Which coding tasks should you delegate to an AI agent?
 
-- **Trigger:** what starts it, such as a new issue, a merged PR, a calendar event, or a Monday brief
-- **Inputs:** the files, links, logs, or prior decisions the agent may use
-- **Steps:** the sequence the agent should follow
-- **Output:** the artifact the next person or system expects
-- **Stop condition:** when the agent must pause, ask, or refuse to guess
+We hand over work when we can recognize a good result and tell the agent where to bring an unanswered question. A bug reproduction, a draft release note, or a list of outdated documentation pages all give us something we can judge.
 
-Look. If you cannot write those five parts down, the task is still yours. The agent is not the problem yet.
+We also delegate investigations before we know the answer. With the chat bug, the symptom and the behavior to preserve were clear; finding what held back the messages was engineering work. For a product choice we're still debating, we ask the agent to investigate one option or build a small preview first.
 
-Good first candidates for coding agents:
+The size of the work coming back matters. A broad request can turn into a large diff before anyone realizes the agent took the wrong direction. We start with one useful piece, settle the next question, and then let it continue.
 
-- Turn a reproducible bug report into an investigation brief and draft PR
-- Draft release notes from merged changes for human approval
-- Flag docs pages that drifted after a command or API change
-- Produce a scheduled research or dependency brief from known sources
+## How to delegate coding tasks to AI agents in 5 steps
 
-Poor first candidates:
+<div className="delegation-brief brief-wrap"><table className="brief-table"><thead><tr><th scope="col">Part</th><th scope="col">What to put there</th></tr></thead><tbody><tr><th scope="row"><span className="brief-number" aria-hidden="true">01</span>Trigger</th><td>What starts the work: your request, a new issue, a schedule, or another event</td></tr><tr><th scope="row"><span className="brief-number" aria-hidden="true">02</span>Inputs</th><td>Files, links, reproduction notes, and decisions the agent can use</td></tr><tr><th scope="row"><span className="brief-number" aria-hidden="true">03</span>Steps</th><td>Known steps, or the first investigation when the route is still unclear</td></tr><tr><th scope="row"><span className="brief-number" aria-hidden="true">04</span>Output</th><td>What it should return and how you&#x27;ll recognize a finished result</td></tr><tr className="brief-stop"><th scope="row"><span className="brief-number" aria-hidden="true">05</span>Stop condition</th><td>The missing information or decision it should bring back to you</td></tr></tbody></table></div>
 
-- "Make the product better"
-- Open-ended voice writing with no brief
-- Work that changes rules every week
-- Decisions that need taste, negotiation, or live judgment
+For a one-off task, your message is enough of a trigger. You can write the brief in a few lines when the job is small. A missing answer is often worth a short conversation before work starts.
 
-## How to delegate tasks to AI agents in 5 steps
+### 1. Choose one outcome you can check
 
-### 1. Pick one boring, stable job
+“Make chat faster” leaves a lot open. It could lead to a cache rewrite, fewer requests, or a loading animation that hides the wait.
 
-Start with the task you already repeat. The less creative it is, the easier the handoff.
+We went after something narrower: show messages already on the device while the refresh continues. The app kept its existing rules for marking messages read and enabling actions. Samara worked on the delay within those requirements.
 
-One task. Not a whole backlog. A weekly release notes draft is better than "own releases." A single bug-to-PR path is better than "maintain the repo."
+### 2. Gather the inputs and mark the unknowns
 
-### 2. Do it manually once and capture the real steps
+The same symptom affected text channels, posts and threads, and private chats. They use separate screens, so all three belong in the brief. A recording from just one would leave the agent with only part of the job.
 
-Before you write agent instructions, run the task yourself and write what you actually did. Include the awkward parts: which file you opened first, which check you skipped, what "done" looked like.
+For an unfamiliar bug, the starting material is what you can reproduce and what you still need to find out. If you're delegating a recurring job instead, the steps you've followed by hand can save the agent some investigation.
 
-Honestly, this step is the one people skip. Then they blame the agent for missing context they never wrote down.
+Stable project rules can stay in `AGENTS.md`, `CLAUDE.md`, or the project's existing guidance. The current failure, open questions, and expected result belong with this task.
 
-### 3. Turn the steps into instructions with examples
+### 3. Write the brief, including when to stop
 
-Vague instruction:
+**Vague instruction:**
+
+> Handle this bug.
+
+**Delegable instruction:**
 
 ```text
-Handle this bug.
-```
-
-Delegable instruction:
-
-```text
-Trigger: new bug report labeled "needs-repro"
-
-Goal: prepare an investigation brief and a draft fix for human review
+Trigger: the reported delay when reopening a chat
+Goal: show messages already saved on the device while the refresh is pending
 
 Inputs:
-- issue body and comments
-- failing test or reproduction notes, if present
-- related files mentioned in the report
+- reproduction notes and the affected conversation screens
+- current message-display, read-state, and scrolling behavior
+
+Scope:
+- text channels, posts/threads, and private chats
+- show only messages the person is allowed to see
+- preserve when messages are marked read and when actions become available
 
 Steps:
-1. Restate the user-visible failure in one sentence.
-2. Reproduce or explain why reproduction failed.
-3. List likely files and constraints.
-4. Propose the smallest patch that addresses the reported failure.
-5. Note tests run and tests skipped.
+1. Reproduce the delay and identify what is holding back display.
+2. Propose or make the scoped fix.
+3. Check each affected screen, including scrolling during a late response.
 
 Output:
-- investigation brief
-- draft patch or PR description
-- open questions
+- patch or findings, with the current branch/commit
+- checks run, their results, and anything not checked
+- remaining questions and the next requested action
 
-Stop if:
-- expected behavior is a product decision
-- reproduction is impossible with current info
-- the fix would change public API without approval
+Stop and ask if:
+- who can see messages or when they count as read needs a product decision
+- you can't reproduce the reported problem
+- the fix requires changing behavior outside this scope
 ```
 
-The second version gives the agent a job, not a vibe.
+We put this brief together from the repair's requirements. The actual fix touched 17 files across several components; naming the three screens and the behavior to preserve makes the work clear before the agent knows which files need changing.
 
-### 4. Run supervised before you trust the loop
+### 4. Review the work against the brief
 
-For the first runs, review every output. Check whether the agent followed the steps, invented missing facts, or skipped the stop condition.
+For a repair like this, a review needs more than “take a look.” We send the reviewer the brief and the current patch, and ask for specific findings. If the read marker looks off, we want the exact steps to see it.
 
-Trust comes from repeated evidence, not from a confident tone. If the output keeps needing heavy edits, tighten the instructions. Do not expand scope.
+### 5. Decide what to accept and what comes next
 
-### 5. Keep a review boundary
+If only the channel screen has been tested, posts and private chats still need their turn. The returned work needs to cover the brief as a whole. If a review finds a problem and the agent revises the patch, you look at that revision and the results it brings back.
 
-Delegation is not abandonment.
+## How do you know the AI agent actually finished?
 
-Keep a person in the path for:
+We chose to show the cached messages sooner because people were already allowed to see that content. We kept the existing rules for marking them as read and enabling actions. And when the network answer showed up late, people stayed in the history they'd scrolled back into.
 
-- merging production-facing code
-- publishing release notes
-- customer replies that make commitments
-- anything involving money, legal language, or security disclosure
+So we tested the display and the behavior around it. The automated tests included visible messages while read information or actions were still pending. Madox ran the browser checks across channels, posts/threads, and private chats. The three screens were wired separately, so each needed its own browser run.
 
-Agents can prepare the work. People should still own irreversible decisions.
+The original brief gives whoever reviews the patch a question to answer: had the change also affected when a message counted as read? The version and test results help answer it. If something failed or wasn't tested, we want that in the same place.
 
-## What's the best way to delegate a multi-day coding task to an AI agent?
+![Diagram of saved messages appearing during a refresh while read behavior, actions, and scroll position retain their existing rules.](/blog/how-to-delegate-tasks-to-ai-agents/chat-fix-acceptance.webp)
 
-Do not hand over a week of work as one vague prompt. Slice it.
+<p className="text-sm text-muted-foreground">The fix showed saved messages sooner while preserving read behavior, actions, and scrolling.</p>
 
-- Write a definition of done for **today’s slice**, not the whole epic
-- End each day with branch or commit, decisions made, checks run, and open questions
-- Start the next day from that package, not from memory
-- Schedule a human checkpoint before merge, release, or API changes
+If you don't read the code, start with something you can open. Ask the agent for a preview or a short recording. In this example, you'd watch the old messages appear when the conversation reopens, see whether the read marker still follows its usual rules, and watch where the chat stays when someone scrolls back. The agent can prepare the slow-network part of the demonstration.
 
-Multi-day work fails when the agent optimizes for activity instead of checkpoints. Approvals, exceptions, and handoffs to people belong in the stop conditions. For team-level operating rules, see [how to run an AI agent team that stays on track](/blog/run-ai-agent-team-that-stays-on-track).
+Code review and CI cover parts you can't judge from that demonstration. Test changes deserve a look too: removing or weakening an assertion can make a passing result misleading.
 
-## What needs human approval when you delegate tasks?
+## How much authority should you give an AI agent?
 
-Keep the approval line explicit before the work starts.
+We agree on the scope before work starts, then let the agent investigate, edit, and run checks within it. Asking again before every routine step would keep us in the middle of the work we've just handed over.
 
-- Merges that change production behavior
-- Releases, public changelogs, and customer-facing notes
-- Messages that make commitments on timing, pricing, or support
-- Anything that sends, spends, publishes, or changes legal expectations
+We can hand over a patch and the tests while keeping the merge or release with a named person. The same goes for a customer-facing promise: drafting it and committing to it are separate choices.
 
-The agent can prepare the draft, collect evidence, and tee up the decision. Approval is still a separate step. If the boundary lives only in your head, the handoff is incomplete.
+What can the agent run, and what can it decide? We settle both before leaving it to work. For a repository investigation, reading files and returning findings may be enough. A repair needs permission to edit and run the project's tests, usually in its own working copy.
 
-## How do you delegate user authority to AI agents?
+With the chat bug, the desired reading behavior was part of the job. A tool setting could permit the agent to change the code, but the decision about when a message should count as read still had to come from the people responsible for the product.
 
-**Addressing** is who may ask an agent for work. **Authority** is what the agent is allowed to do with tools and credentials. **Approval** is the last gate for actions that should pause before they affect another person or system.
+When a task reaches an unanswered product question, we ask the agent to bring back the question and the evidence it gathered. The agent can continue work that doesn't depend on the answer, within what we've already agreed.
 
-A teammate can @mention your agent in a shared room without inheriting your local secrets. The request does not expand permissions. The agent may answer, draft, refuse, or ask you to approve. Keep owner-defined tools and approval boundaries intact. The room-protocol view of that split is in [humans and AI agents in one room](/blog/introducing-alook).
+## How do you delegate a multi-day coding task to an AI agent?
 
-In practice, those three lines should stay separate:
+For a long job, we hand over the next piece we can judge and expect the following piece to get clearer along the way.
 
-- who can ask
-- what the agent is permitted to do
-- which outcomes still stop for human approval
+Before changing sessions, we leave a note with the work. A handoff might read: “The patch is on this branch at this commit. The channel checks passed; private-chat verification is still open. We kept the existing read behavior. Next, check that screen against the attached reproduction. Ask about the unresolved behavior before changing it.”
 
-When those lines blur, teams think delegation failed. Usually the method failed first.
+We also keep rejected approaches and paths that should be left alone when they'll matter next time. On return, the agent checks the files and current results against the note before editing. Our guide to [keeping context across coding agent sessions](/blog/keep-context-across-coding-agent-sessions) covers the different places those records can live.
 
-## Instruction patterns that hold up
+For overnight work, we'd rather wake up to one clearly stated question than spend the morning untangling a guessed requirement. We tell the agent who to notify and what to leave when it gets stuck: the failure it hit, what it tried, and the decision it needs. Anything that depends on that answer waits. The computer or cloud environment also has to stay available for the planned run.
 
-Strong instructions usually include:
+If the work grows into several roles, [AI agent orchestration](/blog/ai-agent-orchestration) covers moving work between them; [running an AI agent team](/blog/run-ai-agent-team-that-stays-on-track) covers keeping that ongoing work on track.
 
-- Exact trigger timing or event
-- Allowed tools and forbidden actions
-- Output shape, with a short example
-- Quality bar, such as "no claims without a source link"
-- Failure path when inputs are incomplete
+## How can teammates add context and hand off work to your AI agent?
 
-For a docs refresh task, that might mean: scan changed CLI commands, list affected pages, draft a patch, then stop for human wording review. For a Monday brief: collect only from an approved source list, separate facts from unknowns, and leave strategy recommendations out.
+In Alook, a teammate can @ the bot in a shared discussion, attach a reproduction, or answer a question about the task. They can then pass the draft to a review bot in that same thread. The original request and the next task stay with the handoff. That's the [multi agent collaboration](https://alook.ai) Alook is built for.
 
-If the task later needs multiple roles, move from one agent to [AI orchestration](/blog/ai-agent-orchestration) or a fuller [AI agent team](/blog/personal-ai-company). Patterns like bug-to-PR and docs refresh also map cleanly to the [multi-agent workflow patterns](/blog/multi-agent-workflow-patterns) guide.
+The agent can take on work its owner has allowed; if the request needs a new decision, it asks the owner. The bot keeps its own private notes and uses its owner's configured tools. It shares the findings and files needed for the next step in the conversation, where whoever picks up the work can open them.
 
-## Common failure modes
+[![Alook interface example showing two people and two bots working from an updated shared brief.](/blog/how-to-delegate-tasks-to-ai-agents/alook-two-bot-handoff.webp)](/blog/how-to-delegate-tasks-to-ai-agents/alook-two-bot-handoff.webp)
 
-**Inconsistent output.** The instructions leave too much style and judgment open. Add an example of a good result and a bad result.
+<p className="text-sm text-muted-foreground">Alook UI example: teammates add context to a bot’s task in the shared discussion. [Open the full-size image](/blog/how-to-delegate-tasks-to-ai-agents/alook-two-bot-handoff.webp).</p>
 
-**Constant breakage.** The task has too many exceptions. Narrow it until the happy path is boring.
+If you want one bot to implement and another to review, our [Claude Code and Codex workflow](/blog/claude-code-and-codex-same-team) walks through that exchange.
 
-**No real handoff.** Someone still rewrites the whole artifact every time. Either the task was never stable, or the review boundary is too late.
+## Before you hand over the task
 
-**Silent guessing.** The agent fills gaps instead of stopping. Write the stop conditions as hard rules, not polite suggestions.
+- What should come back, and how will you recognize a finished result?
+- Which materials can the agent open, and what's still unknown?
+- Which choices or areas must it leave to someone else?
+- What evidence should accompany the result, and who checks it?
+- If it stops, where will the next person or session pick up?
 
-**Too much access too early.** Start with read-only or draft-only mode when the action can send, publish, or mutate important systems.
+## FAQ
 
-## A short checklist before you hand work off
+### Should I review the AI agent's plan before it starts?
 
-Ask:
+Review a plan when the direction itself needs your decision, such as a migration or a change to a public API. A small, well-understood fix can go straight to implementation within its agreed scope. You can refine the next step as you learn more.
 
-1. Can another person follow these instructions without asking you for context?
-2. Is the output recognizable without a meeting?
-3. Does the agent know when to stop?
-4. Is the first version narrow enough that failure is cheap?
-5. Who reviews irreversible actions?
+### Should task instructions go in AGENTS.md or the prompt?
 
-If any answer is fuzzy, keep the task with a human for one more cycle.
+Put stable project guidance, such as build commands and recurring constraints, in the project's rules files. Keep this task's goal, current state, and open decisions with the task.
 
-## Where Alook fits
+### Can I delegate a coding task if I can't read all the code?
 
-[Alook](https://alook.ai) is one way to keep delegated coding-agent work organized once the method is clear: roles, persistent message threads, and recorded context. The method still comes first. Without a delegable task definition, any platform just automates confusion faster.
-
-## How to delegate tasks to AI agents FAQ
-
-**How do you delegate tasks to AI agents?**
-
-Pick one stable, repeatable task. Write instructions with inputs, steps, output format, and stop conditions. Run the agent supervised until the output is reliable, then keep a review boundary for high-impact actions.
-
-**What's the best way to delegate a multi-day coding task to an AI agent?**
-
-Break the job into checkpoint-sized slices with a written definition of done for each slice. Carry branch, decisions, and open questions forward. Review at each checkpoint. Keep merge and release behind a human.
-
-**How do you delegate user authority to AI agents?**
-
-Separate addressing from authority. Others may request work when the room allows it; tools, credentials, and approvals stay with the runtime owner. A request should not silently expand what the agent can do.
-
-**What needs human approval when you delegate tasks to AI agents?**
-
-Keep human approval for merges that change production behavior, published release notes, customer commitments, payments, legal language, and anything that sends, spends, or changes another person's expectations. The agent can prepare the work, but approval is still a separate step.
-
-**What makes a task good for AI agent delegation?**
-
-A good task has a clear trigger, known inputs, a recognizable output, few judgment calls, and a safe place to pause when information is missing. Vague goals and taste-heavy work are poor first candidates.
-
-**Should AI agents run without human review?**
-
-Not for high-impact actions. Start with supervised runs. Keep human approval for customer commitments, production changes, payments, legal language, and anything that changes another person's expectations.
-
-**What is the difference between delegating to a chatbot and an AI agent?**
-
-Delegating to a chatbot usually means prompting for a reply. Delegating to an AI agent means assigning a goal with tools, state, a trigger, and a review boundary so the work can continue beyond one chat turn.
-
-Start with one task you already know how to finish by hand. Write the five parts. Supervise the first runs. Expand only after the handoff is boring.
+Yes, if you can describe the behavior you want and have someone who reads code look at the result. Ask for a preview or recording you can inspect, along with the patch and checks for whoever reviews the code. Choose a smaller assignment when you can't yet tell how you'd accept the result.
