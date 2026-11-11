@@ -5,9 +5,6 @@ import android.graphics.Rect
 import android.os.Build
 import android.graphics.Color
 import android.os.Bundle
-import android.transition.ChangeBounds
-import android.transition.Transition
-import android.transition.TransitionManager
 import android.view.View
 import android.view.ViewGroup
 import android.view.Gravity
@@ -37,10 +34,6 @@ class MainActivity : TauriActivity() {
     @Volatile private var geometryJson = "null"
     private var geometryInsets: WindowInsetsCompat? = null
     private var availableInsets: WindowInsetsCompat? = null
-    private class WebViewTransition(val parent: ViewGroup) {
-        var started = false
-    }
-    private var webViewTransition: WebViewTransition? = null
     private var insetsHost: View? = null
     private val hostLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         resizeWebView()
@@ -122,12 +115,10 @@ class MainActivity : TauriActivity() {
         insetsHost = rootView
         rootView.addOnLayoutChangeListener(hostLayoutListener)
         ViewCompat.setOnApplyWindowInsetsListener(rootView) { _, insets ->
-            val previousIme = availableInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom
-            val nextIme = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
             geometryInsets = insets
             systemGestureInsets = insets.getInsets(WindowInsetsCompat.Type.systemGestures())
             availableInsets = insets
-            resizeWebView(animate = previousIme != null && previousIme != nextIme)
+            resizeWebView()
             syncGeometry()
             syncSystemGestureRegion()
             insets
@@ -140,14 +131,8 @@ class MainActivity : TauriActivity() {
     }
 
     override fun onPause() {
-        finishWebViewTransition()
         StartupLog.foregroundChanged(false)
         super.onPause()
-    }
-
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        finishWebViewTransition()
-        super.onConfigurationChanged(newConfig)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -156,7 +141,6 @@ class MainActivity : TauriActivity() {
     }
 
     override fun onDestroy() {
-        finishWebViewTransition()
         clearStartupAttachListener()
         mainWebView?.removeOnLayoutChangeListener(gestureLayoutListener)
         mainWebView = null
@@ -177,14 +161,12 @@ class MainActivity : TauriActivity() {
     override fun onWebViewCreate(webView: WebView) {
         StartupLog.webViewCreated()
         super.onWebViewCreate(webView)
-        finishWebViewTransition()
         clearStartupAttachListener()
         clearStartupBackdrop()
         mainWebView?.removeOnLayoutChangeListener(gestureLayoutListener)
         mainWebView = webView
         webView.setBackgroundColor(Color.TRANSPARENT)
         webView.addOnLayoutChangeListener(gestureLayoutListener)
-        // Consume only at the WebView leaf, after the root animation callback sees the original insets.
         ViewCompat.setOnApplyWindowInsetsListener(webView) { _, insets ->
             val chromeTypes = WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             val imeType = WindowInsetsCompat.Type.ime()
@@ -279,40 +261,7 @@ class MainActivity : TauriActivity() {
         return Rect(0, 0, window.decorView.width, window.decorView.height)
     }
 
-    private fun finishWebViewTransition() {
-        val current = webViewTransition ?: return
-        webViewTransition = null
-        TransitionManager.endTransitions(current.parent)
-    }
-
-    private fun beginWebViewTransition(webView: WebView, parent: ViewGroup) {
-        val current = webViewTransition
-        if (current != null && current.parent === parent && !current.started) return
-        val owner = WebViewTransition(parent)
-        webViewTransition = owner
-        val transition = ChangeBounds().apply {
-            addTarget(webView)
-            resizeClip = false
-            addListener(object : Transition.TransitionListener {
-                override fun onTransitionStart(transition: Transition) { owner.started = true }
-                override fun onTransitionEnd(transition: Transition) {
-                    transition.removeListener(this)
-                    if (webViewTransition !== owner) return
-                    webViewTransition = null
-                    if (mainWebView === webView && webView.parent === parent) {
-                        syncGeometry()
-                        syncSystemGestureRegion()
-                    }
-                }
-                override fun onTransitionCancel(transition: Transition) {}
-                override fun onTransitionPause(transition: Transition) {}
-                override fun onTransitionResume(transition: Transition) {}
-            })
-        }
-        TransitionManager.beginDelayedTransition(parent, transition)
-    }
-
-    private fun resizeWebView(animate: Boolean = false) {
+    private fun resizeWebView() {
         val webView = mainWebView ?: return
         val parent = webView.parent as? ViewGroup ?: return
         val insets = availableInsets ?: ViewCompat.getRootWindowInsets(webView) ?: return
@@ -325,11 +274,6 @@ class MainActivity : TauriActivity() {
         ) ?: return
         val params = webView.layoutParams
         if (params.height != height) {
-            if (animate && webView.isAttachedToWindow && webView.isLaidOut && webView.height > 0 && webView.height != height) {
-                beginWebViewTransition(webView, parent)
-            } else {
-                finishWebViewTransition()
-            }
             params.height = height
             webView.layoutParams = params
         }

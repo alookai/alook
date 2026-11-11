@@ -6,7 +6,7 @@ import org.junit.Test
 
 class WebViewAvailableHeightTest {
     @Test
-    fun followsInsetProgressAndRestoresTheFullHostWithoutMovingTheTop() {
+    fun appliesCurrentImeInsetsAndRestoresTheFullHostWithoutMovingTheTop() {
         val heights = listOf(0, 100, 500, 800, 500, 0).map {
             WebViewAvailableHeight.fromWindow(2400, 2400, 0, 0, it)
         }
