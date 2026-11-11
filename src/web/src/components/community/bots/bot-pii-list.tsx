@@ -82,7 +82,7 @@ export function BotPiiList({
           {unavailable ? <p role="status" className="text-sm text-muted-foreground">{unavailable}</p> : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction disabled={disabled} variant="outline" className="border-destructive text-foreground hover:text-foreground" onClick={async () => { if (deleting && await onDelete(deleting.id)) setDeletingId(null) }}>
+            <AlertDialogAction disabled={disabled} variant="destructive" onClick={async () => { if (deleting && await onDelete(deleting.id)) setDeletingId(null) }}>
               {pending ? "Deleting…" : "Delete filter"}
             </AlertDialogAction>
           </AlertDialogFooter>

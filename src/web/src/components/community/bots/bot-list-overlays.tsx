@@ -79,7 +79,7 @@ export function renderBotListOverlaySlots(
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={controller.deleteConfirmedBot}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
             >
               Delete
             </AlertDialogAction>
@@ -103,6 +103,7 @@ export function renderBotListOverlaySlots(
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               data-testid="bot-reset-confirm"
               onClick={controller.resetConfirmedBot}
             >
@@ -132,6 +133,7 @@ export function renderBotListOverlaySlots(
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               data-testid="machine-reset-all-confirm"
               onClick={controller.resetConfirmedMachine}
             >

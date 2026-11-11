@@ -31,7 +31,7 @@ export function MachineRefreshDialog({ machine, onOpenChange, onConfirm }: {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction data-testid={tid.machineRefreshConfirm} onClick={() => machine && onConfirm(machine)}>
+          <AlertDialogAction variant="destructive" data-testid={tid.machineRefreshConfirm} onClick={() => machine && onConfirm(machine)}>
             Refresh machine
           </AlertDialogAction>
         </AlertDialogFooter>

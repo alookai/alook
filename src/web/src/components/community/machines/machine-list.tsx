@@ -183,6 +183,7 @@ export function MachineUpdateDialog({
         <AlertDialogFooter>
           <AlertDialogCancel onClick={() => onOpenChange(false)}>Cancel</AlertDialogCancel>
           <AlertDialogAction
+            variant="destructive"
             data-testid={tid.machineUpdateConfirm}
             onClick={() => machine && onConfirm(machine)}
           >
@@ -582,7 +583,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={onConfirmDelete}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  variant="destructive"
                 >
                   Delete
                 </AlertDialogAction>
