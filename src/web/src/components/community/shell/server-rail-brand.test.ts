@@ -18,21 +18,6 @@ describe("ServerRail Home brand mark", () => {
     expect(source).not.toContain("alook-dark.svg")
   })
 
-  it("pins Add while the server list shrinks only when its content exceeds the remaining space", () => {
-    const source = rawContractInput0
-
-    const scrollViewport =
-      'className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip pt-2 pb-1 thin-scrollbar scrollbar-none"'
-
-
-    expect(source).toContain("data-testid={tid.serverRailScroll}")
-    expect(source).toContain(scrollViewport)
-    expect(source).toContain('"--community-rail-bottom-inset": `${bottomInset ?? 0}px`')
-    expect(scrollViewport).toContain("shrink")
-    expect(scrollViewport).not.toContain("flex-1")
-    expect(source).not.toContain("pb-2 overflow-y-auto overflow-x-clip thin-scrollbar")
-  })
-
   it("keeps an explicit active server controlled until the route commits", () => {
     const source = rawContractInput0
 

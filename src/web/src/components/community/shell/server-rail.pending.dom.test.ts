@@ -355,6 +355,23 @@ describe("ServerRail one-in-flight structural guard", () => {
       .toHaveLength(1)
   })
 
+  it("pins Add while the server list shrinks only when its content exceeds the remaining space", () => {
+    const { container } = render(createElement(ServerRail, {
+      servers,
+      folders: [],
+      view: "server",
+      bottomInset: 24,
+      onHome: vi.fn(),
+    }))
+    const scroll = container.querySelector(`[data-testid="${tid.serverRailScroll}"]`)
+    expect(scroll).toHaveClass("min-h-0", "w-full", "shrink", "overflow-y-auto", "overflow-x-clip", "thin-scrollbar", "scrollbar-none", "pt-2", "pb-1")
+    expect(scroll).not.toHaveClass("flex-1")
+    expect(scroll).not.toHaveClass("pb-2")
+    const add = container.querySelector<HTMLElement>('[data-slot="community-server-rail-add"]')
+    expect(add).toHaveClass("shrink-0", "pb-[calc(var(--community-rail-bottom-inset)+0.5rem)]")
+    expect(add?.style.getPropertyValue("--community-rail-bottom-inset")).toBe("24px")
+  })
+
   it("omits Add for unresolved empty data and keeps it for nonempty revalidation", async () => {
     const renderer = render(createElement(ServerRail, {
       servers: [],
