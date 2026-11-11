@@ -174,7 +174,7 @@ describe("blogTopics", () => {
       "alook-vs-buzz":
         "Choose between Alook and Buzz by Block for shared agent work",
       "alook-vs-grok-bot":
-        "Compare Alook and Grok Bot by setup, always-on work, and Bot sharing.",
+        "Choose an open-source Grok Bot alternative while keeping my team’s existing agents and projects",
       "why-we-built-alook": "Understand why Alook exists (founder narrative)",
       "ai-agent-identity":
         "Evaluate whether an agent stays addressable across rooms and servers",
