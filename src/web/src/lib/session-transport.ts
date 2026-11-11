@@ -107,7 +107,7 @@ export function createSessionTransport(nativeFetch: typeof fetch, origin: string
     identityGeneration: () => identityGeneration,
     beginSignOut(assertActive: () => void): SignOutLease {
       assertActive()
-      if (activeLease !== undefined) throw aborted()
+      if (activeLease !== undefined || identities.size) throw aborted()
       const lease = Symbol()
       let release!: () => void
       activeLease = { key: lease, released: new Promise<void>(resolve => { release = resolve }), release }

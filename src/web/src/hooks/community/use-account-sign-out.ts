@@ -38,7 +38,15 @@ export function useAccountSignOut() {
       })
       const viewer = registry.sessionViewer()
       return sessionIdentityGeneration() === identityGeneration && registry.authenticationView.get().active && registry.authenticationView.get().generation === generation && (viewer === undefined || viewer === null || viewer === registry.accountId)
-    } catch (error) { assertActive(); throw error }
+    } catch (error) {
+      assertActive()
+      // Pause rejects new reads. Cancel unfinished attempts before refetching so
+      // even retry-disabled queries recover after the transport lease releases.
+      await queryClient.cancelQueries()
+      assertActive()
+      void queryClient.invalidateQueries().catch(() => undefined)
+      throw error
+    }
     finally { subscription.unsubscribe() }
   } })
   const qualify = useCallback((options?: MutateOptions<boolean, Error, void, unknown>): MutateOptions<boolean, Error, ReturnType<typeof capture>, unknown> | undefined => {

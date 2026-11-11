@@ -49,7 +49,10 @@ test.describe("eject, navigation & logout", () => {
       expect(response.headers.getSetCookie().some(value => value.startsWith("better-auth.session_data="))).toBe(true)
       ready()
       await released
-      await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body })
+      const headers = Object.fromEntries(response.headers)
+      delete headers["content-encoding"]
+      delete headers["content-length"]
+      await route.fulfill({ status: response.status, headers, body })
     })
     try {
       await page.goto("/c")

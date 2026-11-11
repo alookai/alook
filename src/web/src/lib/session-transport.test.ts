@@ -164,4 +164,14 @@ describe("session transport sign-out ordering", () => {
     expect(native).toHaveBeenCalledTimes(2)
   })
 
+  it("does not start an old-account logout over an already accepted identity request", async () => {
+    const response = deferred<Response>()
+    const transport = createSessionTransport(() => response.promise, origin)
+    const login = transport.fetch("/api/auth/sign-in/email", { method: "POST" })
+    expect(() => transport.beginSignOut(() => {})).toThrow()
+    response.resolve(Response.json({ user: "B" }))
+    await login
+    transport.beginSignOut(() => {}).release()
+  })
+
 })
