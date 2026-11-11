@@ -225,12 +225,12 @@ describe("GET /api/community/users/me/marks", () => {
     mockToAgentMessages.mockResolvedValue(messages.map((message, index) => ({
       seq: `#${2 - index}`, channel: "/s#0001/c", content: { text: message.content },
     })))
-    mockOtherBotMarks.mockResolvedValue(new Map([["m2", [{ botUserId: "b", handle: "@B#0002", note: "review" }]]]))
+    mockOtherBotMarks.mockResolvedValue(new Map([["m2", [{ handle: "@B#0002", note: "review" }]]]))
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/marks", {
       headers: { "x-test-actor": "bot" },
     }))
     expect((await res.json()).marked).toEqual([
-      { seq: "#2", channel: "/s#0001/c", content: { text: "second" }, note: "second progress", otherBotMarks: [{ botUserId: "b", handle: "@B#0002", note: "review" }] },
+      { seq: "#2", channel: "/s#0001/c", content: { text: "second" }, note: "second progress", otherBotMarks: [{ handle: "@B#0002", note: "review" }] },
       { seq: "#1", channel: "/s#0001/c", content: { text: "first" }, note: null, otherBotMarks: [] },
     ])
   })

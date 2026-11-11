@@ -35,13 +35,14 @@ describe("shared bot progress with real SQLite permissions", () => {
     queryParams = []
   })
   afterEach(() => sqlite?.close())
-  const entry = { botUserId: "b", handle: "@b#0001", note: "QA" }
+  const entry = { handle: "@b#0001", note: "QA" }
   async function mark(userId: string, messageId: string, note: string | null = "QA") {
     return markMessage(db, { userId, messageId, channelId: messageId, note })
   }
   it("shares existing notes, excludes self/humans/deleted bots, and needs no own mark", async () => {
     for (const id of ["a", "b", "human", "gone"]) await mark(id, "public")
     expect((await listOtherBotMarks(db, "a", ["public"])).get("public")).toEqual([entry])
+    expect(Object.keys((await listOtherBotMarks(db, "a", ["public"])).get("public")![0]).sort()).toEqual(["handle", "note"])
     await unmarkMessage(db, { userId: "a", messageId: "public" })
     expect((await listOtherBotMarks(db, "a", ["public"])).get("public")).toEqual([entry])
     await mark("b", "public", null)

@@ -436,7 +436,6 @@ export interface MessagePropertyRequest {
 export const MAX_MARK_NOTE_BYTES = 10 * 1024;
 
 export interface OtherBotMark {
-  botUserId: string;
   handle: string;
   note: string | null;
 }

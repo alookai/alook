@@ -171,7 +171,6 @@ export async function listOtherBotMarks(
   for (const ids of chunk([...new Set(messageIds)], maxInParams(14))) {
     const rows = await db.select({
       messageId: communityMessageMark.messageId,
-      botUserId: user.id,
       name: user.name,
       discriminator: user.discriminator,
       note: communityMessageMark.note,
@@ -190,7 +189,7 @@ export async function listOtherBotMarks(
       )).orderBy(asc(user.id));
     for (const row of rows) {
       const entries = result.get(row.messageId) ?? [];
-      entries.push({ botUserId: row.botUserId, handle: `@${formatHandle(row.name, row.discriminator)}`, note: row.note });
+      entries.push({ handle: `@${formatHandle(row.name, row.discriminator)}`, note: row.note });
       result.set(row.messageId, entries);
     }
   }

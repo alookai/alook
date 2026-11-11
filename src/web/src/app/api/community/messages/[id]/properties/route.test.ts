@@ -370,10 +370,10 @@ describe("shared mark responses and note byte limit", () => {
     mockListTags.mockResolvedValue({ ok: true, value: [] })
     mockGetMessageMark.mockResolvedValue(null)
     mockMarkMessage.mockResolvedValue(null)
-    mockOtherBotMarks.mockResolvedValue(new Map([["m1", [{ botUserId: "bot2", handle: "@Peer#0002", note: "QA pending" }]]]))
+    mockOtherBotMarks.mockResolvedValue(new Map([["m1", [{ handle: "@Peer#0002", note: "QA pending" }]]]))
   })
   it("returns other bots on unchanged set using the primary session, and permits read before marking", async () => {
-    const peers = [{ botUserId: "bot2", handle: "@Peer#0002", note: "QA pending" }]
+    const peers = [{ handle: "@Peer#0002", note: "QA pending" }]
     const set = await PUT(mutationRequest("PUT", { type: "mark", value: true }), ctx)
     expect(await set.json()).toEqual({ type: "mark", value: true, changed: false, otherBotMarks: peers })
     expect(mockOtherBotMarks).toHaveBeenLastCalledWith(primaryDb, "bot1", ["m1"])
