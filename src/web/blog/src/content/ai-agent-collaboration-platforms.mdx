@@ -2,10 +2,10 @@ export const metadata = {
   slug: "ai-agent-collaboration-platforms",
   title: "AI Agent Collaboration Platforms Compared",
   date: "2026-10-21",
-  dateModified: "2026-11-06",
+  dateModified: "2026-11-11",
   author: "Alook Team",
   excerpt: "Compare 10 AI agent collaboration platforms, from frameworks to workflows and shared workspaces. Find the tools that fit your team.",
-  readingTime: "13 min read",
+  readingTime: "19 min read",
   image: "/blog/ai-agent-collaboration-platforms/hero.png",
 };
 
@@ -36,13 +36,19 @@ export const jsonLd = [
 
 When agents pass work to one another, someone must make sure the right input reaches the next agent. **AI agent collaboration platforms give you ways to organize that work.** Choosing one starts with deciding how much of the coordination you want to build.
 
-You might need execution paths in application code, or a workflow that connects your business tools and waits for approval. If colleagues already have agents, a shared place to assign work and discuss results may be enough. We compare ten options using official documentation; we have not run a shared performance benchmark.
+We compare **10 tools in three categories:**
+
+- Multi-agent frameworks (5): LangGraph, OpenAI Agents SDK, Google ADK, CrewAI, and Microsoft Agent Framework.
+- Business workflow platforms (2): n8n and Relevance AI.
+- Three options for an [ai agent collaboration platform](https://alook.ai/): OpenAgents, Alook, and Paperclip.
+
+You might need execution paths in application code, a workflow that connects business tools and waits for approval, or a shared place for colleagues and their agents to work together.
 
 ![LangGraph, n8n and Paperclip logos in separate framework, workflow and workspace columns, with the Alook logo in the bottom-right corner.](/blog/ai-agent-collaboration-platforms/hero.png)
 
 ## What is AI agent collaboration?
 
-AI agent collaboration means agents work toward a common task and use one another's contributions. Take a research task: one agent collects source material, a second drafts a report from it, and a third checks whether the claims match the sources. A person decides whether to use the report. In this illustrative workflow, the draft depends on the research, and the review can send it back for revision.
+AI agent collaboration means agents work toward a common task and use one another's contributions. Take a research task: one agent collects source material, a second drafts a report from it, and a third checks whether the claims match the sources. A person decides whether to use the report. The draft depends on the research, and the review can send it back for revision.
 
 Three unrelated chats leave that coordination to you. Someone still has to combine the answers and decide what happens next.
 
@@ -58,7 +64,7 @@ Start with the work you need to organize:
 <div style={{ minWidth: "640px" }}>
 
 | Your requirement | Options to examine | What you still need to define |
-|---|---|---|
+| --- | --- | --- |
 | Build a multi-agent application | LangGraph, OpenAI Agents SDK, Google ADK, CrewAI, Microsoft Agent Framework | Agent responsibilities, tools, execution logic, and deployment |
 | Connect agents to business processes | n8n, Relevance AI | Connections, credentials, routing, and review points |
 | Work with colleagues and existing bots | OpenAgents, Alook, Paperclip | Conversation or task model, agent connections, and execution permissions |
@@ -66,7 +72,7 @@ Start with the work you need to organize:
 </div>
 </div>
 
-The numbers identify the ten products in this comparison, not their rank.
+The ten products are grouped by the work they help you organize.
 
 ## Multi-agent frameworks compared
 
@@ -82,7 +88,7 @@ That control comes with work: your team builds the graph and its integrations. I
 
 The [OpenAI Agents SDK](https://developers.openai.com/api/docs/guides/agents/sdk) makes you answer a useful ownership question: should one agent remain responsible for the reply, or should a specialist take over?
 
-In the SDK's [orchestration patterns](https://developers.openai.com/api/docs/guides/agents/orchestration), a manager can call specialists as tools and assemble their contributions into its answer. A handoff transfers control to another agent instead. A research assistant that needs a specialist's findings may keep the manager in charge; a conversation that should continue with the specialist may call for a handoff. Choose the pattern according to which agent should own the response. You run the SDK inside your application. OpenAI's managed Agents API is a separate hosting choice.
+In the SDK's [orchestration patterns](https://developers.openai.com/api/docs/guides/agents/orchestration), a manager can call specialists as tools and assemble their contributions into its answer. A handoff transfers control to another agent instead. A research assistant that needs a specialist's findings may keep the manager in charge; a conversation that should continue with the specialist may call for a handoff. Choose the pattern according to which agent should own the response. You run the SDK inside your application.
 
 ### 3. Google ADK: agents and workflow nodes
 
@@ -112,11 +118,9 @@ n8n can connect the business applications involved in a task. Its main agent del
 
 ### 7. Relevance AI: agent teams on a visual canvas
 
-[Relevance AI Workforces](https://relevanceai.com/docs/get-started/core-concepts/workforces) puts specialist handoffs on a canvas you can edit and inspect. A required next step always passes work onward when an agent finishes. An AI connection leaves the handoff decision to the agent, while conditional routing follows rules you set.
+[Relevance AI Workforces](https://relevanceai.com/docs/get-started/core-concepts/workforces) connects specialists on an editable canvas. A required next step passes work onward when an agent finishes; an AI connection leaves that decision to the agent. Conditional routing follows rules you set.
 
-A required review should sit on a required path, rather than depend on the drafting agent deciding it needs help. In n8n, you place agent calls inside a broader application workflow. In Relevance, you connect the specialists directly on the Workforce canvas. Its execution view lets you inspect what each agent received and passed on when a handoff goes wrong.
-
-For concrete processes to try, see [multi-agent workflow patterns](/blog/multi-agent-workflow-patterns). The examples can help you define the input and expected output before choosing a tool.
+That distinction matters for review: a required check belongs on a required path. Its execution view shows what each agent received and passed on, helping you locate a failed handoff. Compare this with n8n when the work is primarily a chain of specialists rather than a broader application workflow.
 
 ## Collaboration platforms for people and existing bots
 
@@ -124,21 +128,21 @@ Colleagues may already have agents they want to work with. The choice then turns
 
 ### 8. OpenAgents: cloud and local agents in a workspace
 
-[OpenAgents](https://openagents.org/docs/en/getting-started/overview) puts the conversation and the work in one browser workspace. A colleague can discuss a result in a thread and refer to files the agents have produced, rather than receive only the final answer from someone else's private chat.
+[OpenAgents](https://openagents.org/docs/en/getting-started/overview) brings people and agents into shared threads with files, knowledge, and tasks alongside the conversation. Colleagues can inspect a result and discuss it with the agent that produced it.
 
-Teams can begin with hosted agents without connecting a local machine. The Launcher or CLI connects local agents when the work needs their environment. Those choices change where the agent runs, while the shared workspace remains the place teammates follow the work. This is a different starting point from building an agent application in an SDK.
+Start with cloud agents when you don't want to connect a machine. Use its Launcher or CLI when the agent needs a local environment. The workspace coordinates the conversation while the chosen agent environment runs the work.
 
 ### 9. Alook: people and bots with connected runtimes
 
-[Alook](https://alook.ai/), which publishes this guide, lets colleagues bring their existing bots into the same channel. Someone reviewing a result can ask the bot that produced it a follow-up there, with the other participants able to see the exchange. The bot has its own identity and visible owner.
+[Alook](https://alook.ai/) lets teammates bring the bots they already use into a shared channel. A researcher can ask a developer's coding bot about a result, and the developer can bring the researcher's bot into the discussion. People and bots can follow the exchange without someone relaying each answer between private chats.
 
-Each bot still runs on its owner's connected machine. Joining the discussion does not give a colleague access to that machine or expand the bot's tool permissions. Colleagues can work with one another's agents while keeping their existing setups, but the connected machine and runtime must be available. The [collaboration without code guide](/blog/multi-agent-collaboration-without-code) explains the workflow.
+Each bot runs on its owner's connected machine with its existing tools and permissions. Joining a channel gives colleagues a way to work with the bot; it does not give them access to its computer. The [collaboration without code guide](/blog/multi-agent-collaboration-without-code) shows how to bring people and bots together.
 
 ### 10. Paperclip: goals and assigned work for an agent team
 
-[Paperclip](https://paperclip.ing/) makes a task the place where agent work is assigned and followed up. The task stays tied to a goal, with its owner and discussion available to the person supervising it. That helps when the question is “what should this agent work on next?” rather than “which specialist should answer this message?”
+[Paperclip](https://paperclip.ing/) organizes agent work around goals and assigned tasks. A supervisor can follow the task's owner, status, and discussion, then decide what should happen next.
 
-Agents can wake on a schedule or a task notification, so the board can organize ongoing work beyond a single conversation. For recurring work, the budget dashboard helps you follow spending alongside the tasks you have assigned. These controls manage the work your agents are assigned; the connected runtimes still need their own tool permissions. The handoff example below shows what changing a task's owner actually does.
+Scheduled wakes and task notifications organize ongoing work beyond a single conversation. The budget dashboard follows spending alongside assignments. This is a useful starting point when ownership and follow-up are the main problem; the connected agent runtimes still need the tools to perform their jobs.
 
 ## Which AI agent collaboration platform fits your team?
 
@@ -146,37 +150,130 @@ Building an application means maintaining its execution logic. Connecting busine
 
 ### Shortlists for application and business teams
 
-Use these documentation-based shortlists to plan a trial:
+**Choose around the coordination your team can maintain.** A framework gives you control over execution; a workflow platform connects a process; a shared workspace lets people participate with agents.
 
 <div className="overflow-x-auto thin-scrollbar">
 <div style={{ minWidth: "640px" }}>
 
 | Your constraint | Start by comparing | What should decide the choice |
-|---|---|---|
-| You are building an application with explicit execution requirements | LangGraph, OpenAI Agents SDK, Google ADK | Which state, delegation, and workflow model fits the code you will maintain? |
-| Roles and task outputs are the main design unit | CrewAI and LangGraph | Is a role-and-task process sufficient, or do you need explicit graph state and paths? |
-| You are extending an AutoGen or Semantic Kernel application | Assess Microsoft Agent Framework through the relevant migration guide first | Which tools, sessions, and workflows can you carry forward, and which need changes? |
-| The work connects business tools and needs review points | n8n, Relevance AI | Which connections and control choices can your workflow owner maintain? |
-| You need a workspace for existing agents | OpenAgents, Alook, Paperclip | Do shared discussions or assigned tasks better fit how your team coordinates work? |
+| --- | --- | --- |
+| You need explicit application state and execution paths | LangGraph, OpenAI Agents SDK, Google ADK | Which control and delegation model fits the code you will maintain? |
+| Roles and task outputs are the main design unit | CrewAI, LangGraph | Is a role-and-task process sufficient, or do you need explicit graph state and paths? |
+| You are extending AutoGen or Semantic Kernel | Microsoft Agent Framework | Which existing tools and workflows can you carry forward? |
+| Several departments pass work through business applications | n8n, Relevance AI | Can the workflow owner maintain the connections, handoffs, and review points? |
+| Teammates bring existing bots and need to discuss results together | OpenAgents, Alook | Can the right people and bots participate in the same conversation? |
+| Ongoing agent work needs an assignee, status, and follow-up | Paperclip | Does each task stay with a clear owner until the next handoff? |
 
 </div>
 </div>
 
-For an existing Microsoft-stack application, start by inventorying the implementation and reviewing the official [AutoGen migration guide](https://learn.microsoft.com/en-us/agent-framework/migration-guide/from-autogen/) or [Semantic Kernel migration guide](https://learn.microsoft.com/en-us/agent-framework/migration-guide/from-semantic-kernel/). Compare another SDK only if you have a reason to rebuild and can assess that work; the table does not imply a direct replacement.
+For an existing Microsoft-stack application, inventory the implementation and review the official [AutoGen](https://learn.microsoft.com/en-us/agent-framework/migration-guide/from-autogen/) or [Semantic Kernel](https://learn.microsoft.com/en-us/agent-framework/migration-guide/from-semantic-kernel/) migration guide first. A move to another SDK brings a different amount of rebuilding.
+
+### Cross-department work needs shared inputs and a next owner
+
+Suppose marketing needs evidence for a website change, and development needs a clear request before implementing it. A research agent can gather sources, an analyst can turn them into a recommendation, and a person can approve the brief that goes to development. The handoff needs the current document, its review result, and the next person's or agent's responsibility.
+
+For a custom application, CrewAI expresses those jobs as roles and tasks; LangGraph expresses the paths and state that connect them. Both require your team to implement the process. n8n is a closer fit when the work moves through business tools. Relevance AI makes the specialist routes visible on its Workforce canvas. Alook and OpenAgents suit the discussion between colleagues and their agents; Paperclip suits work that needs an assigned task and follow-up.
+
+Departments may also need to reuse a specialist rather than recreate one for every workflow. [Relevance AI's agent organization](https://relevanceai.com/docs/get-started/core-concepts/agents) supports folders by department or purpose. You can configure a specialist's instructions, tools, and knowledge, then reuse the same agent in multiple Workforces. Under Enterprise RBAC, give colleagues permission to run the Workforce and each agent it uses. This provides a shared specialist with a defined job, rather than just a persona name copied into unrelated chats.
+
+### Comparing automation and collaboration for enterprise project management
+
+Use a project your team already understands, with the same brief and acceptance criteria for each candidate. We would separate an enterprise PM comparison into three practical questions:
+
+<div className="overflow-x-auto thin-scrollbar">
+<div style={{ minWidth: "640px" }}>
+
+| Project need | Candidates to examine | Evidence to collect |
+| --- | --- | --- |
+| Actions across business applications | n8n, Relevance AI | What starts the work, which credentials it uses, and where a person can approve an action |
+| Work assigned to an accountable owner | Paperclip | Project, assignee, status, review result, and the next action |
+| People discussing results with existing agents | OpenAgents, Alook | Who can reach the conversation, inspect the output, and direct the next step |
+
+</div>
+</div>
+
+An approval button and a task status do different jobs. n8n can pause selected tool calls and send their proposed parameters for review through channels such as Slack. Paperclip's task assignee determines who owns the next piece of work. Shared conversations let teammates challenge a result before they decide what to do with it.
+
+Have an administrator check access to the project material and the credentials used for actions. Then change the assignee, reject a proposed action, and interrupt the trial. Your team should still be able to identify what completed, what is waiting, and who must act next. The recovery section below explains what to inspect when the run itself stops.
+
+### Connecting agents across tools and platforms
+
+“Agent connectivity” can mean connecting business tools, bringing different agents into one conversation, or passing work between separate platforms. Start with the connection you need:
+
+<div className="overflow-x-auto thin-scrollbar">
+<div style={{ minWidth: "640px" }}>
+
+| Connection | Options to examine | What your team sets up |
+| --- | --- | --- |
+| An agent calls a business application | n8n, Relevance AI | Tools, credentials, inputs, and review points |
+| Colleagues use different agent runtimes together | OpenAgents, Alook | Agent connections, shared conversations, and access |
+| One platform calls a service hosted elsewhere | n8n HTTP Request, Relevance AI API integration | An authenticated endpoint and a contract for inputs, results, and failures |
+| Several model-backed specialists contribute to one application | OpenAI Agents SDK, LangGraph, CrewAI | Which specialist runs, what it receives, and who assembles the answer |
+
+</div>
+</div>
+
+For software vendors connecting several AI platforms, compare n8n and Relevance AI around the APIs you actually need. [n8n's HTTP Request node](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.httprequest/) can call a REST endpoint as a workflow step or an agent tool. [Relevance AI's API integration](https://relevanceai.com/docs/get-started/core-concepts/api-integration) supports custom services and programmatic platform access. This gives your integration a route to another service; your team defines how a returned result becomes the next agent's input.
+
+An enterprise using several agent platforms should include a failed request in its comparison: which task remains open, who retries it, and how duplicate actions are prevented? A team that mainly needs Claude Code, Cursor, and Codex users to work together may instead want a shared workspace. Compare OpenAgents and Alook around that conversation, without first rebuilding the agents into one application.
+
+For model collaboration inside your own application, the OpenAI SDK's manager-and-specialists pattern keeps one agent responsible for combining contributions. LangGraph makes the control paths explicit, while CrewAI organizes the specialist roles and outputs. Choose according to how you want to coordinate the contributions, then compare models on the actual task.
 
 ### Which platforms handle shared business tasks?
 
-A report that must collect data from business applications points toward n8n. Relevance AI makes the specialist handoffs visible when the report passes through several agents. Ongoing work also needs someone to follow up: Paperclip keeps that work on a task board, where you can check progress and reassign a task.
+n8n and Relevance AI are the most relevant starting points here when the task must move between applications or specialists. Paperclip addresses the ongoing assignment around that work. For example, a report can follow an n8n workflow while a supervisor tracks its requested revision as a Paperclip task.
+
+The n8n-versus-Paperclip choice turns on which problem you need to solve first: configure the calls that produce the report, or assign an agent the job and follow its progress. Paperclip's agent still needs an implementation and tools; n8n's workflow still needs someone to own its outcome.
+
+#### Try a research-to-analysis-to-deliverable workflow
+
+Use one brief across your candidates:
+
+```text
+Task: Recommend one change to our website's product page.
+Input: Current page, target audience, and the source documents provided.
+Researcher: Return findings with source links and unresolved questions.
+Analyst: Use those findings to recommend one change and explain the tradeoff.
+Reviewer: Check the recommendation against the sources and the brief.
+If revision is needed: Return the specific issue to its current owner.
+Deliverable: A reviewed brief with sources, decision, owner, and next action.
+Human decision: Approve the brief before implementation starts.
+```
+
+In a configured workflow, pass the research output to the analyst and make review a required step. In a shared workspace, put the brief and revision discussion where both colleagues and agents can reach them. For a task board, make each handoff update the assignee and carry the current output.
+
+If you want a ready-made starting point, n8n's gallery includes a [community competitor-research template](https://n8n.io/workflows/2354-automate-competitor-research-with-exaai-notion-and-ai-agents). It sends a company to Exa, uses three agents to gather company, product, and review information, then compiles a report in Notion. It needs OpenAI, Exa, SerpAPI, Firecrawl, and Notion accounts. Add the analysis and human review your own brief requires.
+
+[Relevance AI's Marketplace](https://relevanceai.com/docs/get-started/marketplace/introduction) offers agents and tools you can clone and customize. Relevance AI also offers prebuilt Workforces through its platform. Compare a listing's actual steps and connections with the job you need done. A research component can save setup work without supplying your whole review process.
 
 ### Which platforms make task handoffs and progress clear?
 
 [Paperclip’s task handoffs](https://docs.paperclip.ing/guides/day-to-day/issues/) give you a direct answer to “who has this now?”: look at the task's assignee. Assign it to another agent and Paperclip queues work for that agent. Hand it to a person and the task waits on that person. A name in a comment alone is not a handoff.
 
-In a Relevance AI research-to-review workflow, a required review should be visible in the path between the two specialists. In Alook, colleagues can discuss the result with their own bots before deciding what happens next. The exchange stays in a shared channel or thread, and each bot still works within its owner's tool and file permissions. OpenAgents also keeps people and agents in shared threads, with a Tasks board alongside the conversation.
+A task handoff and a review request should carry the current result and the next action. In a shared conversation, name who is taking the next step and keep the reply with the relevant material. OpenAgents also provides a Tasks board beside its threads.
+
+### Working with agents in real time
+
+Compare OpenAgents and Alook when teammates need to question an agent's result while the work is being discussed. Both put people and agents in shared conversations.
+
+The [OpenAgents workspace](https://openagents.org/docs/en/workspace/what-is-workspace) includes a live browser where a person can watch an agent work and take over. That is useful when following the browser activity is part of review. Alook centers the conversation with teammates and the bots they already use: one person can ask another's bot a question, and everyone in the channel can follow the exchange.
+
+Try two people and two agents on one task. Have one agent produce a result, the other review it, and a person redirect the next step in the conversation. If simultaneous document editing is essential, test that operation too. The collaboration you need should determine the shortlist.
+
+### Continuing on mobile and desktop
+
+Alook and OpenAgents both give teams ways to return to the same work from a phone or desktop. Compare what you need to do away from your desk: read the output, send a correction, or manage the agent's local environment.
+
+[Alook's downloads](https://alook.ai/download) cover macOS, Windows, Linux, and Android; its [iPhone and iPad app](https://apps.apple.com/us/app/alook-ai/id6808140039) continues the same conversations. You can check a bot's updates and reply from your phone while its connected computer runs the work. Keep that computer awake and online.
+
+[OpenAgents](https://openagents.org/download) provides a browser workspace, macOS and Windows desktop apps, and iOS and Android apps. The same account opens your workspaces across devices. Its desktop app also manages local agents; those agents need their execution device online.
+
+For a team bringing existing bots into shared conversations, Alook is a candidate to try across those devices. Compare OpenAgents when its workspace and desktop agent management fit the work you need to follow. Start on desktop, open the conversation on your phone, send a correction, and return to the revised output. Check that your colleague can follow the same exchange.
 
 ### How do hosted platforms compare for cross-company projects?
 
-Partners can join an [OpenAgents workspace](https://openagents.org/docs/en/workspace/getting-started) by email invitation. Hosted agents let them begin without connecting a local machine. They can discuss a task alongside its files, and a Viewer can follow the work without editing it. Everyone invited sees the workspace's shared material, so put only the joint project's material there.
+Partners can join an [OpenAgents workspace](https://openagents.org/docs/en/tutorials/your-first-workspace) by email invitation. Hosted agents let them begin without connecting a local machine. The host chooses a workspace role for each invitee, and teammates can follow the same threads, files, and agents. Everyone invited sees the workspace's shared material, so put only the joint project's material there.
 
 [Relevance AI’s Enterprise Chat role](https://relevanceai.com/docs/enterprise/rbac) lets partners run agents they have permission to use without opening the main builder app. Enterprise RBAC and the Chat role are still being rolled out, and a user running a Workforce also needs permission to run its agents. There is a further catch if each partner must connect their own service account through dynamic OAuth in MCP: Chat does not support that setup. That setup requires a Member role in a dedicated project instead. In both products, the partners join a shared space managed by a host organization. Their separate company accounts do not automatically share access.
 
@@ -214,7 +311,7 @@ With ADK's [resume feature](https://adk.dev/runtime/resume/), a tool interrupted
 
 A “memory supported” checkbox hides these differences. Record how each candidate saves execution state and where recovery stops being reliable.
 
-Try one task that produces a reviewable output from a requirements document. Pause it before a business action, then interrupt the run. On recovery, check whether it uses the right input version and still waits for approval. Look for any tool calls that ran twice. This is a proposed evaluation, not a test performed for this guide.
+Try one task that produces a reviewable output from a requirements document. Pause it before a business action, then interrupt the run. On recovery, check whether it uses the right input version and still waits for approval. Look for any tool calls that ran twice.
 
 ## Multi-agent platform FAQs
 
