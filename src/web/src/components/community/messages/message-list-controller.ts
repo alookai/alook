@@ -132,6 +132,7 @@ export function useMessageListController({
     requestNewPosition,
     newDividerVisibility,
     followingTail,
+    jumpToPresentVisible,
   } = useScrollAnchor({
     items,
     newDividerBefore: dividerTarget,
@@ -348,7 +349,7 @@ export function useMessageListController({
     }
   }, [jumped, jumpRevision, scrollRef, setJumped])
 
-  const jumpMode = !!hasMoreNewer
+  const jumpMode = jumpToPresentVisible
   const pillCount = jumpMode ? unreadCount : belowCount
   const jumpToPresent = useCallback(() => {
     requestPresentPosition(onJumpToPresent?.())

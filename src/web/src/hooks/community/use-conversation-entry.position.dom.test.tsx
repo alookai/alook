@@ -283,6 +283,13 @@ async function setupFooterJump(missingReadPointer = false) {
   expect(latest.feed.readSnapshotFetching).toBe(true)
   expect(load.mock.calls.filter(([url]) => String(url).includes("/messages") && !String(url).includes("entry=1"))).toEqual([])
   expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+  expect(mounted!.queryByTestId("community-scroll-to-present")).toBeNull()
+  fireEvent.wheel(view.root(), { deltaY: -20 })
+  resize()
+  expect(mounted!.getByRole("button", { name: "Jump to present" })).toBeVisible()
+  expect(view.root()).toHaveAttribute("data-pagination-enabled", "false")
+  expect(load.mock.calls.filter(([url]) => String(url).includes("/messages") && !String(url).includes("entry=1"))).toEqual([])
+  expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
   const click = async () => {
     fireEvent.click(mounted!.getByTestId("community-scroll-to-present"))
     await act(async () => {})
