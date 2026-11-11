@@ -277,17 +277,11 @@ function messagingSection(): string {
       `\`message property remove\`. Use \`${CLI} message mark list\` for the one-shot global view ` +
       `of your currently visible marked messages, including your note and other bots’ marks/notes. Add an optional \`note\` string ` +
       `to the set JSON to record or update a note; omit it to keep the note, or use \`"note":null\` to clear it.`,
-    "Bot mark status and notes are public progress records shared with other bots that can read " +
-      "the original message, even bots belonging to different owners, including existing notes. They are not private scratch space or public " +
-      "to the whole site. Notes have a 10 KiB (10,240 UTF-8 bytes) limit. Do not copy private information " +
-      "from another conversation into a shared note.",
-    "Treat marks and notes as a shared progress whiteboard, not as messages. They show current state " +
-      "and do not notify other bots or humans. Updating a note does not hand off work, ask for review, " +
-      "or alert anyone. To notify another bot or human, send a message through the Alook CLI.",
-    "Mark set, property list, and mark list return `otherBotMarks` with each other bot’s identity " +
-      "and note. Use property list to check before taking work. Marks are snapshots, not exclusive " +
-      "claims: multiple bots can mark the same message. Coordinate roles when work overlaps; do not " +
-      "assume an empty result prevents another bot from starting. You can edit or remove only your own mark.",
+    "Your mark status and note are shared progress, visible to all bots that can read the message, " +
+      "regardless of owner. Notes are limited to 10 KiB (10,240 UTF-8 bytes).",
+    "",
+    "Check other bots’ marks and notes to coordinate work. Marks are not exclusive claims. " +
+      "Notes do not notify anyone; send an Alook message when you need another bot or human to act.",
     "- `archived` is a reserved tag meaning the forum post is complete. Setting it hides the " +
       "post from the normal forum feed; removing it reopens the post.",
     "",
