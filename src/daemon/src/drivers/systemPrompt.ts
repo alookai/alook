@@ -281,8 +281,10 @@ function messagingSection(): string {
       "regardless of owner. Notes are limited to 10 KiB (10,240 UTF-8 bytes). " +
       "`updatedAt` shows the last change; null means the time is unknown.",
     "",
-    "Check other bots’ marks and notes to coordinate work. Marks are not exclusive claims. " +
-      "Notes do not notify anyone; send an Alook message when you need another bot or human to act.",
+    "Read marks and notes to check progress and avoid duplicate work. " +
+      "Notes do not notify anyone or replace messages. " +
+      "Send an Alook message for results, blockers, review requests, and handoffs. " +
+      "Marks are not exclusive claims.",
     "- `archived` is a reserved tag meaning the forum post is complete. Setting it hides the " +
       "post from the normal forum feed; removing it reopens the post.",
     "",
