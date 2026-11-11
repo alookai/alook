@@ -1,3 +1,4 @@
+import { SESSION_ACCOUNT_HEADER, SESSION_ACCOUNT_MISMATCH_HEADER } from "@/lib/session-account"
 import { withAuth } from "./auth-policy"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
@@ -41,6 +42,23 @@ describe("communityActorPolicy", () => {
   })
 
   const wrapped = withAuth(communityActorPolicy(), handler)
+
+  it.each(["GET", "POST"])("rejects a stale expected account before %s business code", async method => {
+    const response = await wrapped(new NextRequest("http://localhost/api/community/servers", {
+      method, headers: { [SESSION_ACCOUNT_HEADER]: "old_account" },
+    }))
+    expect(response.status).toBe(409)
+    expect(response.headers.get(SESSION_ACCOUNT_MISMATCH_HEADER)).toBe("1")
+    expect(handler).not.toHaveBeenCalled()
+    expect(mockResolveOwnedBotActor).not.toHaveBeenCalled()
+    expect(await response.text()).not.toContain("human_1")
+  })
+
+  it("keeps a matching expected account eligible", async () => {
+    const response = await wrapped(new NextRequest("http://localhost/api/community/servers", { headers: { [SESSION_ACCOUNT_HEADER]: "human_1" } }))
+    expect(response.status).toBe(200)
+    expect(handler).toHaveBeenCalledOnce()
+  })
 
   it("resolves a crk_ bearer to a bot actor (kind:bot, userId=botUserId)", async () => {
     mockResolveBotActor.mockResolvedValue({

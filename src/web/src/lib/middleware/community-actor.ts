@@ -1,3 +1,4 @@
+import { SESSION_ACCOUNT_HEADER, SESSION_ACCOUNT_MISMATCH_HEADER } from "@/lib/session-account"
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { getDb } from "@/lib/db"
@@ -92,6 +93,13 @@ export function communityActorPolicy(
       const human = await resolveHumanAuth(req)
       if (human instanceof Response) return human
       const humanCtx = human.context
+      const expectedAccount = req.headers.get(SESSION_ACCOUNT_HEADER)
+      if (expectedAccount !== null && expectedAccount !== humanCtx.userId) {
+        const response = NextResponse.json({ error: "Request account no longer matches session" }, {
+          status: 409, headers: { [SESSION_ACCOUNT_MISMATCH_HEADER]: "1" },
+        })
+        return human.finish ? human.finish(response) : response
+      }
       const selectedBotId = req.headers.get(COMMUNITY_BOT_ACTOR_HEADER)
       if (selectedBotId !== null) {
         const resolved = await resolveOwnedBotActor(getDb(humanCtx.env.DB), selectedBotId, humanCtx.userId, { allowInactive: options.allowInactiveBot })
