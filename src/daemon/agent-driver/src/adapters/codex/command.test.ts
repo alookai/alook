@@ -12,8 +12,8 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "codex app discovery "));
   roots.push(root);
   const deps = { homeDir: join(root, "user"), applicationsDirectory: join(root, "Applications"), which: vi.fn((): string | null => null) };
-  const install = (app: string, user = false, executable = true) => {
-    const binary = join(user ? join(deps.homeDir, "Applications") : deps.applicationsDirectory, `${app}.app`, "Contents", "Resources", "codex");
+  const install = (app: string, user = false, executable = true, nested = false) => {
+    const binary = join(user ? join(deps.homeDir, "Applications") : deps.applicationsDirectory, `${app}.app`, "Contents", "Resources", ...(nested ? ["codex-cli", "CodexCLI.app", "Contents", "MacOS", "codex"] : ["codex"]));
     mkdirSync(dirname(binary), { recursive: true });
     writeFileSync(binary, "#!/bin/sh\nexit 0\n");
     chmodSync(binary, executable ? 0o755 : 0o644);
@@ -119,4 +119,27 @@ it.skipIf(process.platform === "win32")("executes the selected App and CLI versi
   f.deps.which.mockReturnValue(cli);
   expect(probeCliRuntime("codex", {}, resolveCodexCommand(undefined, f.deps, "darwin", "codex-app"))).toEqual({ status: "healthy", version: "codex-app 1.2.3" });
   expect(probeCliRuntime("codex", {}, resolveCodexCommand(undefined, f.deps, "darwin", "codex-cli"))).toEqual({ status: "healthy", version: "codex-cli 4.5.6" });
+});
+
+
+describe("nested CodexCLI.app layout", () => {
+  it.each(["Codex", "ChatGPT"])("finds the current %s executable in both Applications roots", (app) => {
+    const f = fixture();
+    const user = f.install(app, true, true, true);
+    f.deps.which.mockReturnValue("/standalone/codex");
+    expect(resolveCodexCommand(undefined, f.deps, "darwin", "codex-app")).toBe(user);
+    const system = f.install(app, false, true, true);
+    expect(resolveCodexCommand(undefined, f.deps, "darwin", "codex-app")).toBe(system);
+    expect(resolveCodexCommand(undefined, f.deps, "darwin", "codex-cli")).toBe("/standalone/codex");
+    f.deps.which.mockReturnValue(null);
+    expect(resolveCodexCommand(undefined, f.deps, "darwin", "codex-cli")).toBeUndefined();
+    expect(resolveCodexCommand(undefined, f.deps, "darwin")).toBe(system);
+  });
+
+  it.skipIf(process.platform === "win32")("uses the compatible flat layout when the nested binary cannot execute", () => {
+    const f = fixture();
+    f.install("Codex", false, false, true);
+    const flat = f.install("Codex");
+    expect(resolveCodexCommand(undefined, f.deps, "darwin", "codex-app")).toBe(flat);
+  });
 });

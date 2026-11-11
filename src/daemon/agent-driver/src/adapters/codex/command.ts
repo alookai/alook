@@ -26,12 +26,14 @@ export function resolveCodexCommand(
   const roots = [deps.applicationsDirectory ?? "/Applications", join(deps.homeDir ?? homedir(), "Applications")];
   for (const app of ["Codex.app", "ChatGPT.app"]) {
     for (const root of roots) {
-      const candidate = join(root, app, "Contents", "Resources", "codex");
-      try {
-        accessSync(candidate, constants.X_OK);
-        if (statSync(candidate).isFile()) return candidate;
-      } catch {
-        continue;
+      for (const binary of [["codex-cli", "CodexCLI.app", "Contents", "MacOS", "codex"], ["codex"]]) {
+        const candidate = join(root, app, "Contents", "Resources", ...binary);
+        try {
+          accessSync(candidate, constants.X_OK);
+          if (statSync(candidate).isFile()) return candidate;
+        } catch {
+          continue;
+        }
       }
     }
   }

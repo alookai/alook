@@ -442,7 +442,7 @@ Opening a model list requests the selected machine and backend through the owner
 
 ## Codex installation sources
 
-`codex-app` (Codex) discovers the executable bundled in Codex.app, with the legacy ChatGPT.app bundle supported on macOS. `codex-cli` (Codex CLI) discovers `codex` on PATH. Neither source falls back to the other. Health, native model discovery and session launch use the selected source. Both reuse the native persistent app-server protocol and native account/history configuration.
+`codex-app` (Codex) discovers the executable bundled in Codex.app, with the legacy ChatGPT.app bundle supported on macOS. It supports the current nested `Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex` layout and the earlier `Contents/Resources/codex` layout. `codex-cli` (Codex CLI) discovers `codex` on PATH. Neither source falls back to the other. Health, native model discovery and session launch use the selected source. Both reuse the native persistent app-server protocol and native account/history configuration. Native model discovery has a bounded 10-second deadline, including process startup, and releases its child on completion or timeout.
 
 The existing `codex` ID retains PATH-first, then App discovery for previously saved bot bindings. It is hidden from new selections when explicit source IDs are reported, and remains available when editing an existing binding or using an older daemon. Existing bot bindings are not rewritten. Explicit command overrides remain supported.
 

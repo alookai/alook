@@ -379,6 +379,28 @@ describe("CodexDriver reasoning catalog probe", () => {
     });
   });
 
+  it.each(["codex-app", "codex-cli"] as const)("accepts a native catalog arriving after five seconds for %s", async (backend) => {
+    vi.useFakeTimers();
+    try {
+      runtimeMocks.resolveCodexCommand.mockReturnValueOnce("/selected/codex");
+      const proc = probingProcess(() => ({ id: -1 }));
+      proc.stdin.write = vi.fn((line: string) => {
+        const request = JSON.parse(line.trim()) as { id: number; method: string };
+        setTimeout(() => proc.stdout.emit("data", Buffer.from(JSON.stringify({ id: request.id,
+          result: request.method === "initialize" ? {} : { data: [{ id: "native-model", supportedReasoningEfforts: [] }], nextCursor: null },
+        }) + "\n")), request.method === "initialize" ? 0 : 5_200);
+        return true;
+      });
+      runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+      const pending = new CodexDriver(backend).probe();
+      await vi.advanceTimersByTimeAsync(5_201);
+      await expect(pending).resolves.toMatchObject({ status: "healthy", reasoning: { models: [{ id: "native-model" }] } });
+      expect(proc.kill).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("times out a silent catalog process", async () => {
     vi.useFakeTimers();
     try {
@@ -387,9 +409,10 @@ describe("CodexDriver reasoning catalog probe", () => {
       runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
 
       const pending = new CodexDriver().probe();
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(10_000);
 
       await expect(pending).resolves.toMatchObject({ status: "healthy", reasoning: undefined });
+      expect(proc.kill).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }

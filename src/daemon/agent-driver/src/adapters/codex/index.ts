@@ -27,7 +27,7 @@ import { resolveCodexCommand, type CodexBackendId } from "./command.js";
 import { discoverCodexRecentContext } from "./recent-context.js";
 
 const SETTINGS_UPDATE_TIMEOUT_MS = 5_000;
-const MODEL_LIST_TIMEOUT_MS = 5_000;
+const MODEL_LIST_TIMEOUT_MS = 10_000;
 const MODEL_LIST_OUTPUT_MAX_BYTES = 1024 * 1024;
 const MODEL_LIST_MAX = RUNTIME_MODEL_CATALOG_MAX;
 const MODEL_EFFORT_MAX = 16;
