@@ -26,14 +26,13 @@ function MeSidebar({ pathname, routeCommitted }: { pathname: string; routeCommit
   const communityRuntime = useCommunityRuntime()
   const {
     dms,
-    isPending: dmsLoading,
-    data,
-    isError,
+    isDisplayReady,
+    isInitialError: initialError,
     isFetching,
     refetch,
   } = useDms()
   const { blocked } = useFriends({ enabled: false })
-  const initialError = isError && data === undefined
+  const dmsLoading = !isDisplayReady && !initialError
   useObservedRegion("sidebar", !dmsLoading && !initialError, dms.length)
   const friendRequestCount = useInboxUnreads().friendRequests.length
   const main = resolveCommunityModulePlan(pathname).main
