@@ -61,7 +61,7 @@ export function BotMembershipsSheet({ bot, open, onOpenChange }: {
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <AlertDialogFooter>
           <AlertDialogCancel className="min-h-11 sm:min-h-0" disabled={memberships.pending}>Cancel</AlertDialogCancel>
-          <AlertDialogAction data-testid={tid.botMembershipsConfirm} disabled={memberships.pending} onClick={() => void confirm()} className="min-h-11 bg-destructive text-destructive-foreground hover:bg-destructive/90 sm:min-h-0">{memberships.pending && <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />}{memberships.pending ? "Leaving…" : target?.kind === "server" ? "Leave server" : "Leave channel"}</AlertDialogAction>
+          <AlertDialogAction variant="destructive" data-testid={tid.botMembershipsConfirm} disabled={memberships.pending} onClick={() => void confirm()} className="min-h-11 sm:min-h-0">{memberships.pending && <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />}{memberships.pending ? "Leaving…" : target?.kind === "server" ? "Leave server" : "Leave channel"}</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

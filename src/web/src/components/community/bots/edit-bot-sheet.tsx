@@ -255,6 +255,7 @@ export function EditBotSheet({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               onClick={() => {
                 setConfirmProviderSwitch(false)
                 void performSubmit()
