@@ -650,7 +650,8 @@ jobs:
         uses: taiki-e/install-action@d9585d8b553a3309cc2e7a695952297e311e4c10 # cargo-machete
       - if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
+          printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttps://security.ubuntu.com/ubuntu/\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt
+          sudo apt-get -o APT::Update::Error-Mode=any update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
       - if: runner.os == 'Linux'
         run: cargo test --locked
