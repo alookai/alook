@@ -121,6 +121,52 @@ describe("ComposerView", () => {
     expect(onUploadFile).toHaveBeenCalledOnce()
   })
 
+  it.each([
+    { input: "standalone mouse", touch: false },
+    { input: "touch compatibility mouse", touch: true },
+  ])("cancels $input focus transfer while retaining the middle caret and one click", ({ touch }) => {
+    const onUploadFile = vi.fn()
+    const view = render(createElement(ComposerView, baseProps({
+      editor: { isFocused: true } as Editor,
+      editorContent: createElement("div", { contentEditable: true, role: "textbox", "aria-label": "Draft", suppressContentEditableWarning: true }, "alpha beta gamma"),
+      onUploadFile,
+    })))
+    const editable = view.getByRole("textbox", { name: "Draft" })
+    editable.focus()
+    const text = editable.firstChild!
+    const selection = window.getSelection()!
+    selection.setBaseAndExtent(text, 6, text, 6)
+    const attach = view.getByRole("button", { name: "Add file" })
+    const expectCaret = () => {
+      expect(editable).toHaveFocus()
+      expect(selection.anchorNode).toBe(text)
+      expect(selection.focusNode).toBe(text)
+      expect(selection.anchorOffset).toBe(6)
+      expect(selection.focusOffset).toBe(6)
+      expect(selection.isCollapsed).toBe(true)
+      expect(editable).toHaveTextContent("alpha beta gamma")
+    }
+    if (touch) {
+      const press = new PointerEvent("pointerdown", { pointerType: "touch", isPrimary: true, button: 0, bubbles: true, cancelable: true })
+      expect(fireEvent(attach, press)).toBe(false)
+      expect(press.defaultPrevented).toBe(true)
+      fireEvent.pointerUp(attach, { pointerType: "touch", isPrimary: true, button: 0 })
+      expectCaret()
+    }
+    for (let press = 0; press < 2; press++) {
+      const mouseDown = new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true })
+      expect(mouseDown.defaultPrevented).toBe(false)
+      expect(fireEvent(attach, mouseDown)).toBe(false)
+      expect(mouseDown.defaultPrevented).toBe(true)
+      expectCaret()
+      expect(onUploadFile).not.toHaveBeenCalled()
+    }
+    fireEvent.mouseUp(attach, { button: 0 })
+    fireEvent.click(attach)
+    expect(onUploadFile).toHaveBeenCalledOnce()
+    expectCaret()
+  })
+
   it("cancels a primary pen press while retaining the caret and click activation", () => {
     const onUploadFile = vi.fn()
     const view = render(createElement(ComposerView, baseProps({
@@ -157,6 +203,11 @@ describe("ComposerView", () => {
       onUploadFile,
     })))
     const attach = view.getByRole("button", { name: "Add file" })
+    const mouseDown = new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true })
+    expect(mouseDown.defaultPrevented).toBe(false)
+    expect(fireEvent(attach, mouseDown)).toBe(true)
+    expect(mouseDown.defaultPrevented).toBe(false)
+    expect(onUploadFile).not.toHaveBeenCalled()
     await user.click(attach)
     expect(attach).toHaveFocus()
     expect(view.getByRole("textbox", { name: "Draft" })).not.toHaveFocus()
@@ -189,6 +240,17 @@ describe("ComposerView", () => {
     const view = render(createElement(ComposerView, baseProps({ editor: { isFocused: true } as Editor, onUploadFile })))
     const attach = view.getByRole("button", { name: "Add file" })
     expect(fireEvent.pointerDown(attach, { ...pointer, bubbles: true, cancelable: true })).toBe(true)
+    expect(onUploadFile).not.toHaveBeenCalled()
+  })
+
+  it.each([1, 2])("leaves mouse button %s defaults unchanged", (button) => {
+    const onUploadFile = vi.fn()
+    const view = render(createElement(ComposerView, baseProps({ editor: { isFocused: true } as Editor, onUploadFile })))
+    const attach = view.getByRole("button", { name: "Add file" })
+    const mouseDown = new MouseEvent("mousedown", { button, bubbles: true, cancelable: true })
+    expect(mouseDown.defaultPrevented).toBe(false)
+    expect(fireEvent(attach, mouseDown)).toBe(true)
+    expect(mouseDown.defaultPrevented).toBe(false)
     expect(onUploadFile).not.toHaveBeenCalled()
   })
 
