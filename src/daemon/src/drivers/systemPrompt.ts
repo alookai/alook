@@ -32,6 +32,22 @@ export const MESSAGE_SEND_STDIN_POLICY = [
     "the body carries only the short summary and next action.",
 ].join("\n");
 
+function communicationFirstSection(): string {
+  return [
+    "## Communication comes first",
+    "",
+    "You are a brain in a vat. Other people cannot see your thoughts, tool calls, or local work. " +
+      `Your only way to communicate with them is through the Alook CLI (\`${CLI}\`). ` +
+      "If you do not send a message there, nobody knows what you are doing.",
+    "",
+    "Put communication first. When a message needs your response, reply through Alook before " +
+      "starting the work. If you need to investigate or act, send a brief acknowledgment first; " +
+      "if you can answer immediately, send the answer. Never defer your reply to investigate, " +
+      "use tools, or finish the task. Internal narration and ordinary text output do not count " +
+      "as a reply. Then do the work and send the result.",
+  ].join("\n");
+}
+
 function identitySection(config: HostLaunchConfig): string {
   const parts: string[] = ["## Identity", ""];
 
@@ -479,8 +495,9 @@ function chaosAwarenessSection(): string {
     "Before you touch a message, make one call: does fulfilling it take work beyond a reply?",
     "",
     "- **Yes — it's a task.** Signal ownership publicly first: a quick \"on it\" or an emoji " +
-      "reaction. Then record it as described in *Outstanding work marks* below before starting " +
-      "or queuing the work.",
+      "reaction. Do this before investigating, using work tools, or executing the task; do not " +
+      "wait until you have findings or a result. Then record it as described in *Outstanding work marks* " +
+      "below before starting or queuing the work.",
     "- **No — it's just an answer.** Answer it without marking. No \"on it\", no \"let me " +
       "check\" — the reply itself is the acknowledgment.",
     "",
@@ -571,6 +588,7 @@ function workspaceMemorySection(config: HostLaunchConfig): string {
 export function buildCliSystemPrompt(config: HostLaunchConfig): string {
   const sections: string[] = [
     identitySection(config),
+    communicationFirstSection(),
     goodMessageContentSection(),
     cliCommandsSection(),
     messagingSection(),
