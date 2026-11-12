@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto"
 import { spawnSync } from "node:child_process"
+import { createRequire } from "node:module"
 import { fileURLToPath } from "node:url"
 
 const webRoot = fileURLToPath(new URL("../", import.meta.url))
-const result = spawnSync(process.execPath, [fileURLToPath(import.meta.resolve("next/dist/bin/next")), "build"], {
+const result = spawnSync(process.execPath, [createRequire(import.meta.url).resolve("next/dist/bin/next"), "build"], {
   cwd: webRoot,
   stdio: "inherit",
   env: { ...process.env, ALOOK_WEB_BUILD_ID: randomUUID() },
