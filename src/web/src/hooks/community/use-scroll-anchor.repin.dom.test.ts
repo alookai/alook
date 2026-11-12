@@ -1134,14 +1134,14 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     expect(offset).not.toHaveBeenCalled()
   })
-  it.each([0, 2, 100, 300])("retains the existing footer policy at %ipx and consumes duplicate delivery", distance => {
+  it.each([0, 2, 100, 300])("preserves historical top or qualified tail at %ipx and consumes duplicate delivery", distance => {
     const h = mount()
     h.move(h.root.scrollHeight - scrollFixture.height - distance)
     const before = h.root.scrollTop
     const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
     scrollFixture.height -= 100
     resize()
-    expect(h.root.scrollTop).toBe(before + (distance <= 100 ? 100 : 0))
+    expect(h.root.scrollTop).toBe(before + (distance === 0 ? 100 : 0))
     const calls = offset.mock.calls.length
     resize()
     expect(offset).toHaveBeenCalledTimes(calls)
@@ -1152,16 +1152,17 @@ describe("locked native adapter and existing message scroll owner", () => {
     const before = h.root.scrollTop
     scrollFixture.height += 200
     resize()
-    expect(h.root.scrollTop).toBe(before - (distance <= 100 ? 200 : 0))
-    if (distance <= 100) expect(h.root.scrollHeight - scrollFixture.height - h.root.scrollTop).toBe(distance)
+    expect(h.root.scrollTop).toBe(distance === 0 ? before - 200 : Math.min(before, h.root.scrollHeight - h.root.clientHeight))
+    if (distance === 0) expect(h.root.scrollHeight - scrollFixture.height - h.root.scrollTop).toBe(0)
   })
-  it("preserves a current two-pixel tail distance when the footer grows before the scroll quiet period", () => {
+  it("keeps historical reading within bounds when the footer grows before the scroll quiet period", () => {
     const h = mount()
     act(() => h.root.scrollTo({ top: h.root.scrollHeight - scrollFixture.height - 2 }))
     runFrames(2)
     scrollFixture.height += 200
     resize()
-    expect(h.root.scrollHeight - scrollFixture.height - h.root.scrollTop).toBe(2)
+    expect(h.root.scrollHeight - scrollFixture.height - h.root.scrollTop).toBe(0)
+    expect(scrollFixture.latest.followingTail).toBe(false)
   })
   it.each([0, 2, 100, 101])("preserves the footer policy at %ipx across native mobile/desktop tail padding", distance => {
     const h = mount({ tailPaddingEnd: 40 })
@@ -1169,7 +1170,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     const before = h.root.scrollTop
     const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
     h.update({ tailPaddingEnd: 48 })
-    expect(h.root.scrollTop).toBe(before + (distance <= 100 ? 8 : 0))
+    expect(h.root.scrollTop).toBe(before + (distance === 0 ? 8 : 0))
     const calls = offset.mock.calls.length
     h.update({ items: [...h.input.items] })
     expect(offset).toHaveBeenCalledTimes(calls)
@@ -1333,7 +1334,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(end).toHaveBeenCalledTimes(commands)
     expect(scrollFixture.latest.paginationEnabled).toBe(true)
   })
-  it("preserves a two-pixel DM tail distance through consecutive composer resizes", () => {
+  it("keeps DM historical reading within bounds through consecutive composer resizes", () => {
     const h = mount()
     scrollFixture.height -= 100
     resize(2)
@@ -1341,7 +1342,8 @@ describe("locked native adapter and existing message scroll owner", () => {
     runFrames(2)
     scrollFixture.height += 100
     resize()
-    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
+    expect(scrollFixture.latest.followingTail).toBe(false)
   })
   it.each([0, 2, 8, 100, 300])("preserves the %ipx footer policy in the first two resize frames", distance => {
     const h = mount()
@@ -1349,8 +1351,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     const before = h.root.scrollTop
     scrollFixture.height += 200
     resize(2)
-    if (distance <= 100) expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(distance)
-    else expect(h.root.scrollTop).toBe(before)
+    expect(h.root.scrollTop).toBe(distance === 0 ? before - 200 : Math.min(before, h.root.scrollHeight - h.root.clientHeight))
   })
   it.each([[40, 48], [48, 40]])("retains an explicit present scroll after padding changes from %i to %i", (from, to) => {
     const h = mount({ tailPaddingEnd: from })
@@ -1393,7 +1394,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     fireEvent(target === "document" ? document : footer, release)
     scrollFixture.height += 100
     resize(2)
-    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
   })
   it("keeps a real scroller pointer protected when released outside the scroller", () => {
     const h = mount()
@@ -1424,7 +1425,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     resize(2)
     expect(offset).not.toHaveBeenCalled()
   })
-  it.each([0, 1])("preserves a settled viewport tail distance after ResizeObserver and %i later RAFs", frames => {
+  it.each([0, 1])("preserves a historical reading within scroll bounds after ResizeObserver and %i later RAFs", frames => {
     const h = mount()
     h.move(h.root.scrollHeight - scrollFixture.height - 2)
     scrollFixture.height += 100
@@ -1434,7 +1435,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     })
     resize(0)
     runFrames(frames)
-    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
   })
   it.each([0, 2, 8, 100, 300])("preserves the %ipx footer policy in the first RAF before native ResizeObserver", distance => {
     const h = mount()
@@ -1442,21 +1443,21 @@ describe("locked native adapter and existing message scroll owner", () => {
     const before = h.root.scrollTop
     scrollFixture.height += 200
     runFrames(1)
-    expect(h.root.scrollTop).toBe(before - (distance <= 100 ? 200 : 0))
+    expect(h.root.scrollTop).toBe(distance === 0 ? before - 200 : Math.min(before, h.root.scrollHeight - h.root.clientHeight))
     resize(0)
-    expect(h.root.scrollTop).toBe(before - (distance <= 100 ? 200 : 0))
+    expect(h.root.scrollTop).toBe(distance === 0 ? before - 200 : Math.min(before, h.root.scrollHeight - h.root.clientHeight))
   })
-  it("retains a settled viewport owner through successive first-RAF composer clamps", () => {
+  it("retains a historical viewport owner through successive first-RAF composer clamps", () => {
     const h = mount()
     h.move(h.root.scrollHeight - scrollFixture.height - 2)
     for (let i = 0; i < 3; i++) {
       scrollFixture.height += 50
       runFrames(1)
-      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
       resize(0)
-      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
       runFrames(1)
-      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
     }
   })
   it("keeps a registered pointer cancellation protected outside the scroller", () => {
@@ -1483,7 +1484,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     runFrames(13)
     scrollFixture.height += 100
     resize(2)
-    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
   })
   it("rejects an unrelated native rectangle during a first-RAF viewport handoff", () => {
     const h = mount()
@@ -1500,9 +1501,9 @@ describe("locked native adapter and existing message scroll owner", () => {
     h.move(h.root.scrollHeight - scrollFixture.height - 2)
     scrollFixture.height += 100
     runFrames(1)
-    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
     resize(0)
-    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
   })
   it.each([0, 2, 8, 100, 300])("preserves the %ipx footer policy before native RO when composer growth does not clamp", async distance => {
     const h = mount()
@@ -1515,9 +1516,9 @@ describe("locked native adapter and existing message scroll owner", () => {
       footer.textContent = "growing draft"
     })
     runFrames(1)
-    expect(h.root.scrollTop).toBe(before + (distance <= 100 ? 100 : 0))
+    expect(h.root.scrollTop).toBe(before + (distance === 0 ? 100 : 0))
     resize(0)
-    expect(h.root.scrollTop).toBe(before + (distance <= 100 ? 100 : 0))
+    expect(h.root.scrollTop).toBe(before + (distance === 0 ? 100 : 0))
   })
   it("fills a true single short message through native padding and crosses short/long normally", () => {
     const h = mount({ items: [message("m0")] })

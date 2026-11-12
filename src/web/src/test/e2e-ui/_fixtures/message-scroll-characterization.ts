@@ -424,14 +424,16 @@ export function expectResizeAnchorPreserved(
   distance: number,
   label: string,
 ): void {
-  if (distance <= 100) {
+  if (distance <= 1) {
     expect(
       Math.abs(after.distanceToEnd - before.distanceToEnd),
       `${label}: distance to tail`,
     ).toBeLessThanOrEqual(1)
     return
   }
-  expectViewportAnchorPreserved(before, after, label)
+  const expectedTop = Math.min(before.scrollTop, Math.max(0, after.scrollHeight - after.clientHeight))
+  expect(Math.abs(after.scrollTop - expectedTop), `${label}: historical top within physical bounds`).toBeLessThanOrEqual(1)
+  if (Math.abs(expectedTop - before.scrollTop) <= 1) expectViewportAnchorPreserved(before, after, label)
 }
 
 export function expectContinuousResizeAnchorPreserved(
@@ -449,7 +451,7 @@ export function expectContinuousResizeAnchorPreserved(
   expect(frames.length, `${segmentName}: continuous frames`).toBeGreaterThan(1)
 
   const baseline = frames[0]!
-  if (distance <= 100) {
+  if (distance <= 1) {
     for (const frame of frames) {
       expect(
         Math.abs(frame.distanceToEnd - baseline.distanceToEnd),
@@ -460,12 +462,13 @@ export function expectContinuousResizeAnchorPreserved(
   }
 
   for (const frame of frames) {
-    expect(frame.firstVisibleId, `${segmentName}: frame ${frame.frame} visible row`)
-      .toBe(baseline.firstVisibleId)
-    expect(
-      Math.abs((frame.firstVisibleOffset ?? 0) - (baseline.firstVisibleOffset ?? 0)),
-      `${segmentName}: frame ${frame.frame} visible-anchor drift`,
-    ).toBeLessThanOrEqual(1)
+    const expectedTop = Math.min(baseline.scrollTop, frame.browserMax)
+    expect(Math.abs(frame.scrollTop - expectedTop), `${segmentName}: frame ${frame.frame} historical top`).toBeLessThanOrEqual(1)
+    const anchor = frame.rows.find(row => row.id === baseline.firstVisibleId)
+    expect(anchor, `${segmentName}: frame ${frame.frame} retained body`).toBeDefined()
+    const expectedBodyOffset = (baseline.firstVisibleOffset ?? 0) + baseline.scrollTop - expectedTop
+    expect(Math.abs(anchor!.top - (frame.scrollerRect?.top ?? 0) - expectedBodyOffset),
+      `${segmentName}: frame ${frame.frame} body offset within physical bounds`).toBeLessThanOrEqual(1)
   }
 }
 

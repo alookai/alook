@@ -107,12 +107,11 @@ it.each([false, true])("uses the same policy after an accepted local send (reduc
 it("keeps viewport correction immediate even when navigation uses smooth", () => {
   reducedMotion(false)
   const h = mount()
-  h.move(h.root.scrollHeight - h.root.clientHeight - 2)
   const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
-  scrollFixture.height += 100
+  scrollFixture.height -= 100
   resize(2)
   expect(offset).toHaveBeenCalledWith(expect.any(Number), { behavior: "auto" })
-  expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+  expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
 })
 
 it.each([[false, 0], [true, 0], [false, 2], [false, 100], [false, 300]] as const)("keeps consecutive viewport shrinks aligned (reduced=%s, distance=%ipx)", (reduced, distance) => {
@@ -123,7 +122,7 @@ it.each([[false, 0], [true, 0], [false, 2], [false, 100], [false, 300]] as const
   for (let frame = 0; frame < 3; frame++) {
     scrollFixture.height -= 20
     resize(2)
-    if (distance <= 100) expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(distance)
+    if (distance === 0) expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(distance)
     else expect(h.root.scrollTop).toBe(before)
   }
 })

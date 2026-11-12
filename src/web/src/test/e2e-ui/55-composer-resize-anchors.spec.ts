@@ -90,7 +90,7 @@ test("overlay composer resizes preserve semantic anchors and interaction boundar
         .toBe(before.readableHeight)
       const grown = await waitForCommittedGeometry(scroller)
       expectComposerOverlayGeometry(grown, `resize-${distance}-grown`)
-      expectResizeAnchorPreserved(before, grown, distance, `resize-${distance}-grown`)
+      expectResizeAnchorPreserved(shrunk, grown, distance, `resize-${distance}-grown`)
       await endScrollTraceAnalysis(alice.page, `composer-grow-${distance}`)
       await advanceScrollTraceFrame(scroller)
     }

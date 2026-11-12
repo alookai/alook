@@ -63,6 +63,8 @@ describe("MessageList continuous input through an accepted page", () => {
     const renderer = render(view())
     resize()
     const root = renderer.getByTestId(tid.messageScroller)
+    expect(anchorState.current!.virtualizer.measurementsCache[0].size).toBe(0)
+    expect(root.querySelector('[data-message-row-key="rail:leading"]')).toBeNull()
     fireEvent.wheel(root, { deltaY: -20 })
     act(() => root.scrollTo({ top: root.clientHeight }))
     resize(0)

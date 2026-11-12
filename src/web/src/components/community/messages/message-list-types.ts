@@ -56,6 +56,10 @@ export type MessageListProps = {
   preserveInitialPresentation?: boolean
   onScrollTargetConsumed?: (id: string) => void
   onUserTakeover?: () => void
+  olderLoadError?: Error | null
+  newerLoadError?: Error | null
+  presentPending?: boolean
+  presentError?: Error | null
   hasMore?: boolean
   historyStartKnown?: boolean
   isFetching?: boolean

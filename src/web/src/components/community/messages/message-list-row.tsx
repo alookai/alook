@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button"
 import { DateDivider, NewDivider } from "../dividers"
 import { tid } from "@/lib/community/testids"
 import { ChannelIcon } from "../channels/channel-icon"
@@ -26,12 +27,18 @@ export function renderMessageListRow(
   controller: MessageListController,
 ) {
   if (item.kind === "leading") {
+    if (item.hidden) return null
     return (
       <div className="flow-root" data-message-row-key={item.key}>
         <div className="flex flex-col gap-2 py-4">
           {!props.historyStartKnown ? (
             <div className="flex h-8 items-center justify-center text-xs text-muted-foreground">
-              {props.isFetchingOlder ? "Loading older messages…" : ""}
+              {props.isFetchingOlder ? <span role="status">Loading older messages…</span> : props.olderLoadError ? (
+                <div role="alert" className="flex items-center gap-2">
+                  <span>Could not load older messages.</span>
+                  <Button variant="outline" size="sm" onClick={controller.retryOlder}>Retry</Button>
+                </div>
+              ) : null}
             </div>
           ) : renderMessageListHero(props)}
         </div>
@@ -42,7 +49,12 @@ export function renderMessageListRow(
     return (
       <div className="flow-root py-4" data-message-row-key={item.key}>
         <div className="flex h-8 items-center justify-center text-xs text-muted-foreground">
-          {props.isFetchingNewer ? "Loading newer messages…" : ""}
+          {props.isFetchingNewer ? <span role="status">Loading newer messages…</span> : props.newerLoadError ? (
+            <div role="alert" className="flex items-center gap-2">
+              <span>Could not load newer messages.</span>
+              <Button variant="outline" size="sm" onClick={controller.retryNewer}>Retry</Button>
+            </div>
+          ) : null}
         </div>
       </div>
     )

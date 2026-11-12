@@ -2,7 +2,7 @@ import { createElement, StrictMode, useLayoutEffect, useMemo } from "react"
 import { vi } from "vitest"
 import { act, render, fireEvent, type RenderOptions } from "@/test/react-dom-harness"
 import { VirtualRows } from "@/components/community/messages/virtual-cursor-list"
-import type { FlatItem } from "@/lib/community/message-list-items"
+import { MESSAGE_ROW_VERTICAL_PADDING_PX, type FlatItem } from "@/lib/community/message-list-items"
 import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 
 type FixtureMessage = Extract<FlatItem, { kind: "message" }> & { dateLabel?: string; newDivider?: boolean }
@@ -93,6 +93,8 @@ function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) 
             "data-fixture-kind": item.kind,
             "data-fixture-date": String(item.kind === "divider" && !!item.dateLabel),
             "data-message-divider-for": item.kind === "divider" ? item.messageId : undefined,
+            style: item.kind === "message" && (item.paddingTop !== undefined || item.paddingBottom !== undefined)
+              ? { paddingBlock: `${item.paddingTop ?? MESSAGE_ROW_VERTICAL_PADDING_PX}px ${item.paddingBottom ?? MESSAGE_ROW_VERTICAL_PADDING_PX}px` } : undefined,
           },
             item.kind === "divider" && item.newDivider ? createElement("div", { "data-new-divider": "" }) : null,
             item.kind === "message" ? createElement("div", { "data-msg-id": item.m.id, style: { overflowY: overflowModes.get(item.m.id) } }) : null,

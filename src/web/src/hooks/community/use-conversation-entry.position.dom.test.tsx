@@ -619,10 +619,17 @@ describe("conversation entry positioning through real reading owners", () => {
     expect(latest.feed.readSnapshot?.lastReadSeq).toBe(40)
     expect(view.root()).toBe(originalRoot)
     expect(view.visible("m42")).toBe(true)
-    const landed = view.root().scrollTop
+    const landed = view.root().querySelector<HTMLElement>('[data-msg-id="m42"]')!.getBoundingClientRect()
+    const landedTailGap = originalRoot.scrollHeight - originalRoot.clientHeight - originalRoot.scrollTop
+    const landedEntry = latest.feed.positionEntry
     await view.canonical(42)
     expect(latest.feed.readSnapshot?.lastReadSeq).toBe(40)
-    expect(view.root().scrollTop).toBe(landed)
+    expect(view.root()).toBe(originalRoot)
+    expect(latest.feed.positionEntry).toBe(landedEntry)
+    const body = originalRoot.querySelector<HTMLElement>('[data-msg-id="m42"]')!.getBoundingClientRect()
+    expect({ top: body.top, bottom: body.bottom,
+      tailGap: originalRoot.scrollHeight - originalRoot.clientHeight - originalRoot.scrollTop,
+    }).toEqual({ top: landed.top, bottom: landed.bottom, tailGap: landedTailGap })
     expect(messageOrReadRequests().filter(([, options]) => options?.method === "PUT")).toEqual([])
     expect(messageOrReadRequests().filter(([url]) => String(url).includes("entry=1"))).toHaveLength(1)
   })

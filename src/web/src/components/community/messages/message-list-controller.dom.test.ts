@@ -126,6 +126,21 @@ function Probe({
 }
 
 describe("useMessageListController", () => {
+  it("keeps the idle unknown sentinel at zero size and projects real loading, error or known-start content", () => {
+    const input = props({ historyStartKnown: false, hasMore: true })
+    const view = rtlRender(React.createElement(Probe, { value: input }))
+    expect(latest.items[0]).toMatchObject({ kind: "leading", hidden: true })
+    view.rerender(React.createElement(Probe, { value: { ...input, isFetchingOlder: true } }))
+    expect(latest.items[0]).toMatchObject({ kind: "leading" })
+    expect(latest.items[0]).not.toHaveProperty("hidden")
+    view.rerender(React.createElement(Probe, { value: { ...input, olderLoadError: new Error("offline") } }))
+    expect(latest.items[0]).toMatchObject({ kind: "leading" })
+    expect(latest.items[0]).not.toHaveProperty("hidden")
+    view.rerender(React.createElement(Probe, { value: { ...input, historyStartKnown: true, hasMore: false } }))
+    expect(latest.items[0]).toMatchObject({ kind: "leading" })
+    expect(latest.items[0]).not.toHaveProperty("hidden")
+  })
+
   let resizeCallback: ((entries: Array<{ borderBoxSize?: Array<{ blockSize: number }> }>) => void) | null
   let nextFrameId: number
   let frameCallbacks: Map<number, FrameRequestCallback>

@@ -38,6 +38,11 @@ export function useMessageListController({
   initialScrollReady,
   preserveInitialPresentation,
   hasMore,
+  historyStartKnown,
+  olderLoadError,
+  newerLoadError,
+  presentPending,
+  presentError,
   hasMoreNewer,
   isFetching,
   isFetchingOlder,
@@ -68,8 +73,9 @@ export function useMessageListController({
     : newBoundary !== undefined ? newBoundary.target?.id : newDividerBefore
 
   const items = useMemo(
-    () => flattenMessageItems(messages, dividerTarget, !!hasMore, !!hasMoreNewer && !!isFetchingNewer),
-    [messages, dividerTarget, hasMore, hasMoreNewer, isFetchingNewer],
+    () => flattenMessageItems(messages, dividerTarget, !!hasMore, !!hasMoreNewer && (!!isFetchingNewer || !!newerLoadError),
+      !!historyStartKnown || !!isFetchingOlder || !!olderLoadError),
+    [messages, dividerTarget, hasMore, hasMoreNewer, isFetchingNewer, newerLoadError, historyStartKnown, isFetchingOlder, olderLoadError],
   )
 
   const [selectMode, setSelectMode] = useAtom(useCreateAtom(false))
@@ -126,6 +132,7 @@ export function useMessageListController({
     readPositionReady,
     paginationEnabled,
     paginationRequestPending,
+    presentPositionPending,
     captureOlderPageAnchor,
     captureNewerPageAnchor,
     positionOutcome,
@@ -135,6 +142,7 @@ export function useMessageListController({
     jumpToPresentVisible,
   } = useScrollAnchor({
     items,
+    messageRows: messages,
     newDividerBefore: dividerTarget,
     newDividerSeq: lookback.initialized ? lookback.targetSeq : newBoundary?.target?.seq,
     initialScrollReady,
@@ -266,27 +274,27 @@ export function useMessageListController({
     return () => onScrollRoot(null)
   }, [onScrollRoot, scrollRef])
 
-  useVirtualCursorPagination({
+  const retryOlder = useVirtualCursorPagination({
     virtualizer,
     count: items.length,
-    enabled: paginationEnabled && !paginationRequestPending,
+    enabled: paginationEnabled && !paginationRequestPending && !initialLoadError,
     hasMore,
     isFetching: isFetching || isFetchingOlder || isFetchingNewer,
-    isError: !!initialLoadError,
+    isError: !!olderLoadError,
     onBeforeLoad: captureOlderPageAnchor,
     onLoad: onLoadOlder,
     edge: "start",
     requestKey: messageWindow,
     preloadWithinViewport: true,
   })
-  useVirtualCursorPagination({
+  const retryNewer = useVirtualCursorPagination({
     virtualizer,
     count: items.length,
-    enabled: paginationEnabled && !paginationRequestPending,
+    enabled: paginationEnabled && !paginationRequestPending && !initialLoadError,
     hasMore: hasMoreNewer,
     hasMoreAtStart: hasMore,
     isFetching: isFetching || isFetchingOlder || isFetchingNewer,
-    isError: !!initialLoadError,
+    isError: !!newerLoadError,
     onBeforeLoad: captureNewerPageAnchor,
     onLoad: onLoadNewer,
     edge: "end",
@@ -354,7 +362,7 @@ export function useMessageListController({
   const jumpToPresent = useCallback(() => {
     requestPresentPosition(onJumpToPresent?.())
   }, [onJumpToPresent, requestPresentPosition])
-  const pillOnClick = jumpMode && onJumpToPresent ? jumpToPresent : scrollToBottom
+  const pillOnClick = (jumpMode || !!presentError) && onJumpToPresent ? jumpToPresent : scrollToBottom
 
   const closeShare = useCallback(() => {
     setShareOpen(false)
@@ -384,6 +392,9 @@ export function useMessageListController({
     pillCount,
     pillMode: jumpMode ? "jump" as const : "scroll" as const,
     pillOnClick,
+    pillPending: !!presentPending || presentPositionPending,
+    pillError: !!presentError,
+    retryOlder, retryNewer,
     newJumpVisible: !!dividerTarget && !lookback.used && newDividerVisibility === "above"
       && (!!onLoadNewTarget || messages.some(message => message.id === dividerTarget)),
     newJumpPending: lookback.pending,

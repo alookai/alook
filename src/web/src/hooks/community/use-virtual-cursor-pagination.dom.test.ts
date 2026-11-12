@@ -1,13 +1,14 @@
 import { createElement } from "react"
 import { describe, expect, it, vi } from "vitest"
+import type { MessageRequestResult } from "@/lib/community/message-position"
 import type { VirtualItem } from "@tanstack/react-virtual"
-import { fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { useVirtualCursorPagination } from "./use-virtual-cursor-pagination"
 
 type Props = Parameters<typeof useVirtualCursorPagination>[0]
 function Harness(props: Props) {
-  useVirtualCursorPagination(props)
-  return null
+  const retry = useVirtualCursorPagination(props)
+  return createElement("button", { onClick: retry }, "Retry page")
 }
 const range = (...indices: number[]): VirtualItem[] => indices.map(index => ({
   index, key: index, start: index * 100, end: (index + 1) * 100, size: 100, lane: 0,
@@ -37,6 +38,42 @@ describe.each(["start", "end"] as const)("native virtual cursor pagination (%s)"
     const f = fixture({ preloadWithinViewport: true, virtualizer: { getVirtualItems: () => range(...indices), scrollElement: root }, ...overrides })
     return { ...f, root, move }
   }
+
+  it("retries a failed same-window receipt once and recaptures before loading", async () => {
+    const completions: Array<(result: MessageRequestResult) => void> = []
+    const onLoad = vi.fn(() => ({ accepted: true as const,
+      completed: new Promise<MessageRequestResult>(resolve => completions.push(resolve)) }))
+    const receive = vi.fn()
+    const onBeforeLoad = vi.fn(() => receive)
+    const f = viewportFixture(400, [4, 5], { requestKey: {}, onLoad, onBeforeLoad })
+    expect(onLoad).toHaveBeenCalledOnce()
+    await act(async () => completions[0]({ status: "error" }))
+    f.rerender({ isError: true })
+    f.move(300)
+    expect(onLoad).toHaveBeenCalledOnce()
+    fireEvent.click(f.view.getByRole("button", { name: "Retry page" }))
+    fireEvent.click(f.view.getByRole("button", { name: "Retry page" }))
+    expect(onLoad).toHaveBeenCalledTimes(2)
+    expect(onBeforeLoad).toHaveBeenCalledTimes(2)
+    expect(receive).toHaveBeenCalledTimes(2)
+    expect(onBeforeLoad.mock.invocationCallOrder[1]).toBeLessThan(onLoad.mock.invocationCallOrder[1])
+    await act(async () => completions[1]({ status: "success", window: {} }))
+    f.rerender({ isError: false })
+    f.move(200)
+    expect(onLoad).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps retry subject to admission, physical distance and short-window priority", () => {
+    const f = viewportFixture(400, [4, 5], { isError: true, enabled: false, hasMoreAtStart: true }, 700)
+    fireEvent.click(f.view.getByRole("button", { name: "Retry page" }))
+    expect(f.onLoad).not.toHaveBeenCalled()
+    f.rerender({ isError: true, enabled: true, isFetching: true })
+    fireEvent.click(f.view.getByRole("button", { name: "Retry page" }))
+    expect(f.onLoad).not.toHaveBeenCalled()
+    f.rerender({ isError: true, enabled: true, hasMoreAtStart: true })
+    fireEvent.click(f.view.getByRole("button", { name: "Retry page" }))
+    expect(f.onLoad).toHaveBeenCalledTimes(edge === "start" ? 1 : 0)
+  })
 
   it("preloads one viewport away while the virtual range stays inside one tall row", () => {
     const f = viewportFixture(501)

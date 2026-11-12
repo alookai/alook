@@ -187,6 +187,10 @@ export function TextChannelSurface({
                   onJumpToPresent={feed.jumpToPresent}
                   presentVersion={feed.presentVersion}
                   presentRequest={feed.presentRequest}
+                  olderLoadError={feed.olderLoadError}
+                  newerLoadError={feed.newerLoadError}
+                  presentPending={feed.presentPending}
+                  presentError={feed.presentError}
                   localSubmitVersion={controller.localSubmitVersion}
                   unreadCount={feed.unreadCount}
                   typingUsers={controller.typingUsers}

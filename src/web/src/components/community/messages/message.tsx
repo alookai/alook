@@ -239,6 +239,9 @@ function MessageImpl({
   const visibleContent = m.content ?? ""
   const htmlPreviews = selectHtmlPreviews(m.approval || m.botCreation ? "" : visibleContent, m.attachments)
 
+  const visibleAttachments = m.attachments?.map((attachment, index) => ({ attachment, index }))
+    .filter(({ attachment }) => !attachment.id || !htmlPreviews.has(attachment.id)) ?? []
+
   const pageSwipe = usePageSwipeStart()
   const [toolbarOpen, setToolbarOpen] = useAtom(useCreateAtom(false))
 
@@ -745,10 +748,9 @@ function MessageImpl({
             )
           )}
 
-          {m.attachments && m.attachments.length > 0 && (
+          {visibleAttachments.length > 0 && (
             <div className="flex flex-col gap-2">
-              {m.attachments.map((a, i) => {
-                if (a.id && htmlPreviews.has(a.id)) return null
+              {visibleAttachments.map(({ attachment: a, index: i }) => {
                 if (a.kind === "image") {
                   const frameStyle = attachmentImageFrameStyle(a.width, a.height)
                   return (
