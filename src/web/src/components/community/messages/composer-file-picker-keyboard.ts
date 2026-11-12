@@ -29,7 +29,7 @@ export function createComposerFilePickerKeyboard(
       let returned = false
       let restoring = false
       const current = () => live && !editor.isDestroyed && isCurrent() && readOwnerVersion() === ownerVersion &&
-        editor.view.dom.isConnected && editor.view.hasFocus() && editor.isFocused &&
+        editor.view.dom.isConnected && editor.view.hasFocus() &&
         editor.state.doc === doc && editor.state.selection.eq(selection)
       const command = (command: PickerCommand["command"]) => {
         try { return Promise.resolve(bridge.postMessage({ command, token })).catch(() => undefined) }
