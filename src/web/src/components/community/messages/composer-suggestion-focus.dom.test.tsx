@@ -17,11 +17,12 @@ import { TextChannelSurface } from "../channels/text-channel-surface"
 import { ThreadChannelSurface } from "../channels/thread-channel-surface"
 import { NATIVE_MOBILE_BACK_EVENT, useNativeMobileBack } from "@/hooks/community/use-native-mobile-back"
 import type { MessageChannelControllerValue } from "./message-channel-controller"
+import { COMPOSER_PICKER_RETURN_EVENT } from "./composer-file-picker-keyboard"
 
 const files = vi.hoisted(() => ({
   pendingFiles: [], readPendingFiles: () => [], clearPendingFiles: vi.fn(),
   transferPendingFiles: vi.fn(), awaitPendingFiles: async () => [], addPendingFiles: vi.fn(),
-  fileInputRef: { current: null }, handleFileSelect: vi.fn(), removePendingFile: vi.fn(),
+  fileInputRef: { current: null as HTMLInputElement | null }, handleFileSelect: vi.fn(), removePendingFile: vi.fn(),
   dragging: false, handleDragEnter: vi.fn(), handleDragLeave: vi.fn(),
   handleDragOver: vi.fn(), handleDrop: vi.fn(),
 }))
@@ -124,6 +125,69 @@ function BackListener({ replacePath }: { replacePath: (path: string) => void }) 
 }
 
 describe("composer suggestion focus with installed TipTap", () => {
+  it.each(["same editor", "activity", "scope", "Send", "unmount", "imperative original path"])("qualifies an actual controller picker lease on %s", async (takeover) => {
+    const originalNative = Object.getOwnPropertyDescriptor(window, "webkit")
+    const originalTauri = Object.getOwnPropertyDescriptor(window, "__TAURI__")
+    const post = vi.fn(async (command: { command: string; token: string } | string) =>
+      typeof command === "string" ? { resizesViewport: true } : { captured: true, restoring: true })
+    Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { alookKeyboard: { postMessage: post } } } })
+    const input = document.createElement("input")
+    input.type = "file"
+    document.body.appendChild(input)
+    files.fileInputRef.current = input
+    const click = vi.spyOn(input, "click").mockImplementation(() => {})
+    const probeRef: Probe = { current: null }, handle = createRef<ComposerHandle>()
+    const node = (active = true, channel = "general") => <ConversationActivityContext value={active}>
+      <Harness {...props} probeRef={probeRef} handle={handle} channel={channel} />
+    </ConversationActivityContext>
+    const view = render(node())
+    try {
+      const editor = await editorOf(probeRef)
+      await type(editor, "alpha beta gamma")
+      await act(async () => { editor.commands.setTextSelection({ from: 6, to: 10 }) })
+      if (takeover === "imperative original path") {
+        await act(async () => { handle.current!.openFilePicker(); input.dispatchEvent(new Event("cancel")) })
+        expect(click).toHaveBeenCalledOnce()
+        expect(post.mock.calls.filter(([command]) => typeof command !== "string" && command.command === "capturePicker")).toHaveLength(0)
+        view.rerender(node(false))
+        await act(async () => { handle.current!.openFilePicker(); probeRef.current!.onUploadFile() })
+        expect(click).toHaveBeenCalledOnce()
+        return
+      }
+      await act(async () => { probeRef.current!.onUploadFile() })
+      expect(click).toHaveBeenCalledOnce()
+      const capture = post.mock.calls.find(([command]) => typeof command !== "string" && command.command === "capturePicker")?.[0]
+      if (!capture || typeof capture === "string") throw new Error("Expected native picker capture")
+      await act(async () => { input.dispatchEvent(new Event("cancel")) })
+      const token = capture.token
+      expect(post).toHaveBeenCalledWith({ command: "restorePicker", token })
+      const focus = vi.spyOn(editor.view, "focus")
+      const doc = editor.getJSON(), selection = editor.state.selection.toJSON()
+      if (takeover === "activity") view.rerender(node(false))
+      if (takeover === "scope") view.rerender(node(true, "other-channel"))
+      if (takeover === "Send") await act(async () => { handle.current!.submitNow() })
+      if (takeover === "unmount") view.unmount()
+      const before = focus.mock.calls.length
+      await act(async () => { window.dispatchEvent(new CustomEvent(COMPOSER_PICKER_RETURN_EVENT, { detail: token })) })
+      expect(focus.mock.calls.length).toBe(before + (takeover === "same editor" ? 1 : 0))
+      if (takeover === "same editor") {
+        expect(editor.getJSON()).toEqual(doc)
+        expect(editor.state.selection.toJSON()).toEqual(selection)
+        expect(editor.view.hasFocus()).toBe(true)
+      }
+      expect(post).toHaveBeenCalledWith({ command: "cancelPicker", token })
+    } finally {
+      view.unmount()
+      files.fileInputRef.current = null
+      input.remove()
+      if (originalNative) Object.defineProperty(window, "webkit", originalNative)
+      else Reflect.deleteProperty(window, "webkit")
+      if (originalTauri) Object.defineProperty(window, "__TAURI__", originalTauri)
+      else Reflect.deleteProperty(window, "__TAURI__")
+    }
+  })
+
   it.each([
     ["text", false], ["text", true], ["thread", false], ["thread", true],
   ] as const)("keeps a %s editor and draft through window qualification with embedded=%s", async (kind, embedded) => {

@@ -65,6 +65,7 @@ export function createComposerAttachmentInputHandlers(
   isActive: () => boolean,
   attachments: AttachmentInputOwner,
   focusAfterDrop: () => void,
+  beforeFilePicker?: (input: HTMLInputElement) => void,
 ): AttachmentViewHandlers {
   const guardDrag = (handler: ComposerViewProps["onDrop"]): ComposerViewProps["onDrop"] => (event) => {
     if (!isActive()) {
@@ -94,7 +95,11 @@ export function createComposerAttachmentInputHandlers(
       if (isActive()) attachments.removePendingFile(index)
     },
     onUploadFile: () => {
-      if (isActive()) attachments.fileInputRef.current?.click()
+      if (!isActive()) return
+      const input = attachments.fileInputRef.current
+      if (!input) return
+      beforeFilePicker?.(input)
+      input.click()
     },
   }
 }

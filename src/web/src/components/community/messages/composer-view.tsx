@@ -231,6 +231,9 @@ export function ComposerView({
             onPointerDown={(event) => {
               if (event.isPrimary && event.button === 0 && editor?.isFocused) event.preventDefault()
             }}
+            onMouseDown={(event) => {
+              if (event.button === 0 && editor?.isFocused) event.preventDefault()
+            }}
             onClick={onUploadFile}
           >
             <PlusCircle className="size-5" />
