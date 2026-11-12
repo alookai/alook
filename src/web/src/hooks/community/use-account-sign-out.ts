@@ -2,7 +2,8 @@
 
 import { useCallback } from "react"
 import { useMutation, useQueryClient, type MutateOptions } from "@tanstack/react-query"
-import { signOutWithOrigin } from "@/lib/auth-client"
+import { sessionIdentityGeneration } from "@/lib/session-transport"
+import { authClient, signOutWithOrigin } from "@/lib/auth-client"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, assertCommunitySnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
@@ -23,6 +24,7 @@ export function useAccountSignOut() {
     const assertActive = () => (localOnly ? assertCommunitySnapshotTokenCurrent : assertCommunityLiveSnapshotTokenCurrent)(queryClient, token, undefined)
     assertActive()
     const generation = registry.authenticationView.get().generation
+    const identityGeneration = sessionIdentityGeneration()
     const controller = new AbortController()
     const subscription = registry.runtime.lifecycle.subscribe(() => { try { assertActive() } catch { controller.abort() } })
     try {
@@ -35,8 +37,21 @@ export function useAccountSignOut() {
         console.error("Account disk cache retirement failed", error)
       })
       const viewer = registry.sessionViewer()
-      return registry.authenticationView.get().active && registry.authenticationView.get().generation === generation && (viewer === undefined || viewer === null || viewer === registry.accountId)
-    } catch (error) { assertActive(); throw error }
+      return sessionIdentityGeneration() === identityGeneration && registry.authenticationView.get().active && registry.authenticationView.get().generation === generation && (viewer === undefined || viewer === null || viewer === registry.accountId)
+    } catch (error) {
+      assertActive()
+      // A queued identity request may start when the logout lease releases.
+      // Confirm the cookie-bound account before restoring any old-owner reads.
+      const session = await authClient.getSession()
+      assertActive()
+      if (session.data?.user?.id !== registry.accountId) throw error
+      // Pause rejects new reads. Cancel unfinished attempts before refetching so
+      // even retry-disabled queries recover after the transport lease releases.
+      await queryClient.cancelQueries()
+      assertActive()
+      void queryClient.invalidateQueries().catch(() => undefined)
+      throw error
+    }
     finally { subscription.unsubscribe() }
   } })
   const qualify = useCallback((options?: MutateOptions<boolean, Error, void, unknown>): MutateOptions<boolean, Error, ReturnType<typeof capture>, unknown> | undefined => {

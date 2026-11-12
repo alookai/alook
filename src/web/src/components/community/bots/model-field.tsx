@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select"
 import { BotSelectMenuContent, BotSelectMenuItem } from "./bot-select-menu"
 import { cn } from "@/lib/utils"
+import { tid } from "@/lib/community/testids"
 import { runtimeLabel } from "@/lib/community/runtime-label"
 
 /**
@@ -135,7 +136,7 @@ export function ModelField({
         disabled={disabled}
       >
         <SelectTrigger
-          data-testid="bot-model-select"
+          data-testid={tid.botModelSelect}
           aria-label="Model"
           aria-required={required}
           aria-describedby={required || error ? hintId : undefined}

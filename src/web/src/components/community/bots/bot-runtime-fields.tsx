@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { FieldLabel } from "@/components/ui/field"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { cn } from "@/lib/utils"
+import { tid } from "@/lib/community/testids"
 import { runtimeLabel } from "@/lib/community/runtime-label"
 import { ModelField } from "./model-field"
 import { ReasoningEffortField } from "./reasoning-effort-field"
@@ -80,7 +81,7 @@ export function BotRuntimeFields({
             onValueChange={(value) => selectRuntime(value as string)}
             className="flex flex-col gap-2"
             aria-label="Runtime"
-            data-testid="bot-provider-picker"
+            data-testid={tid.botProviderPicker}
           >
             {options.map((option) => {
               const selected = runtime === option.id

@@ -1,5 +1,5 @@
 import type { Locator, Page, Response, TestInfo } from "@playwright/test"
-import { CommunityConversationEntryReadSchema, CommunityMessagesReadSchema } from "@alook/shared"
+import { CommunityConversationEntryReadSchema, CommunityMessagesReadSchema, communityReadSchemas } from "@alook/shared"
 import { test, expect, type CaseActors } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { communityFixtureFetch, confirmCommunityFixtureApiResponse, currentCommunityFixtureError, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
@@ -10,7 +10,7 @@ import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
 
 async function prepare(actors: CaseActors, kind: "channel" | "dm", html = false) {
-  const opened = await actors.asUser("alice")
+  let opened = kind === "channel" ? await actors.asUser("alice") : undefined
   let serverId: string | undefined
   let channelId: string
   if (kind === "channel") {
@@ -22,6 +22,7 @@ async function prepare(actors: CaseActors, kind: "channel" | "dm", html = false)
   let preview: Awaited<ReturnType<typeof seedResizableHtmlPreview>> | undefined
   for (let index = 0; index < 300; index++) {
     if (html && index === 145) {
+      if (!opened) throw new Error("HTML preparation requires the existing channel actor")
       preview = await seedResizableHtmlPreview(opened.page, channelId)
       ids.push(preview.messageId)
     } else ids.push(await actors.seed.seedMessage("bob", channelId,
@@ -29,6 +30,18 @@ async function prepare(actors: CaseActors, kind: "channel" | "dm", html = false)
   }
   const path = kind === "channel" ? `/c/channels/${serverId}/${channelId}` : `/c/me/${channelId}`
   const endpoint = `/api/community/channels/${channelId}/messages`
+  let checkpointSeq: number | null = null
+  if (kind === "dm") {
+    const response = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
+      method: "PUT", headers: { Cookie: actors.sessionCookie("alice"), "Content-Type": "application/json", Origin: WEB_URL },
+      body: JSON.stringify({ lastReadMessageId: ids[149] }),
+    })
+    expect(response.status).toBe(200)
+    const checkpoint = communityReadSchemas().readAdvance.parse(await response.json())
+    expect(checkpoint.channelId).toBe(channelId)
+    expect(checkpoint.targetSeq).toBe(150)
+    checkpointSeq = checkpoint.targetSeq
+  }
   const response = await communityFixtureFetch(`${WEB_URL}${endpoint}?entry=1&anchor=${ids[150]}`, {
     headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL },
   })
@@ -37,7 +50,100 @@ async function prepare(actors: CaseActors, kind: "channel" | "dm", html = false)
   expect(middle.selection.anchorMessageId).toBe(ids[150])
   expect(middle.page.hasMoreOlder).toBe(true)
   expect(middle.page.hasMoreNewer).toBe(true)
-  return { ...opened, channelId, serverId, ids, path, endpoint, preview }
+  opened ??= await actors.asUser("alice")
+  return { ...opened, channelId, serverId, ids, path, endpoint, preview, kind, checkpointSeq }
+}
+
+type ReadingCase = Awaited<ReturnType<typeof prepare>>
+type ReadingPositions = Array<{ time: number; top: number; height: number; total: number; admission: string | undefined }>
+
+async function enterDmMiddle(actors: CaseActors, value: ReadingCase) {
+  const { page, path, endpoint, channelId, ids, checkpointSeq } = value
+  if (checkpointSeq === null) throw new Error("A qualified DM checkpoint is required")
+  const entryResponse = confirmCommunityFixtureApiResponse(page.waitForResponse(response => {
+    const url = new URL(response.url())
+    return response.request().method() === "GET" && url.pathname === endpoint
+      && url.searchParams.get("entry") === "1" && url.searchParams.get("window") === "tail"
+      && url.searchParams.get("newAfterSeq") === String(checkpointSeq)
+  }))
+  void entryResponse.catch(() => undefined)
+  await gotoAfterUserWsAuth(page, path)
+  const entryRead = await entryResponse
+  expect(entryRead.status()).toBe(200)
+  const entry = CommunityConversationEntryReadSchema.parse(await entryRead.json())
+  expect(entry.channelId).toBe(channelId)
+  expect(entry.viewerId).toBe(actors.userId("alice"))
+  expect(entry.selection).toEqual({ reason: "tail", anchorMessageId: null })
+  expect(entry.newBoundary.afterSeq).toBe(checkpointSeq)
+  expect(entry.newBoundary.target?.id).toBe(ids[150])
+  const root = page.getByTestId(tid.messageScroller)
+  await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+  const button = page.getByTestId(tid.scrollToNew)
+  await expect(button).toBeVisible()
+  await expect(button).toBeEnabled()
+  const anchorResponse = confirmCommunityFixtureApiResponse(page.waitForResponse(response => {
+    const url = new URL(response.url())
+    return response.request().method() === "GET" && url.pathname === endpoint
+      && !url.searchParams.has("entry") && url.searchParams.get("anchor") === ids[150]
+  }))
+  void anchorResponse.catch(() => undefined)
+  await button.click()
+  const anchorRead = await anchorResponse
+  expect(anchorRead.status()).toBe(200)
+  const middle = CommunityMessagesReadSchema.parse(await anchorRead.json())
+  expect(middle.channelId).toBe(channelId)
+  expect(middle.messages.some(message => message.id === ids[150])).toBe(true)
+  expect(middle.page.hasMoreOlder).toBe(true)
+  expect(middle.page.hasMoreNewer).toBe(true)
+  expect(middle.page.olderCursor).toEqual(expect.any(String))
+  expect(middle.page.newerCursor).toEqual(expect.any(String))
+  await expect(page.getByTestId(tid.message(ids[150]))).toBeInViewport()
+  await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+  await waitForCommittedGeometry(root)
+}
+
+async function returnToDmMiddle(value: ReadingCase, fast: boolean): Promise<ReadingPositions> {
+  const { page, ids } = value
+  const root = page.getByTestId(tid.messageScroller)
+  const positions: ReadingPositions = []
+  await root.hover()
+  for (let step = 0; step < 100; step++) {
+    const current = await root.evaluate((element, ids) => {
+      const viewport = element.getBoundingClientRect()
+      const bottom = viewport.bottom - Number((element as HTMLElement).dataset.composerOcclusion ?? 0)
+      const rows = Array.from(element.querySelectorAll<HTMLElement>("[data-msg-id]"))
+      const body = rows.find(row => row.dataset.msgId === ids[150])
+      const rect = body?.getBoundingClientRect()
+      const first = rows.find(row => row.getBoundingClientRect().bottom > viewport.top + 1)
+      return { visible: !!rect && rect.height > 0 && rect.bottom > viewport.top + 1 && rect.top < bottom - 1,
+        targetOffset: rect && rect.height > 0 ? rect.top - viewport.top : null,
+        firstIndex: ids.indexOf(first?.dataset.msgId ?? ""), height: element.clientHeight }
+    }, ids)
+    if (current.visible) break
+    expect(current.height).toBeGreaterThan(0)
+    const limit = current.height * (fast ? 3 : 0.35)
+    const delta = current.targetOffset === null ? (current.firstIndex > 150 ? -limit : limit)
+      : Math.max(-limit, Math.min(limit, current.targetOffset - current.height * 0.25))
+    await page.mouse.wheel(0, delta)
+    positions.push(await root.evaluate(element => ({ time: Date.now(), top: element.scrollTop,
+      height: element.clientHeight, total: element.scrollHeight, admission: (element as HTMLElement).dataset.paginationEnabled })))
+    await page.waitForTimeout(fast ? 8 : 32)
+  }
+  await expect(page.getByTestId(tid.message(ids[150]))).toBeInViewport()
+  await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+  await waitForCommittedGeometry(root)
+  return positions
+}
+
+async function readAuthoritativeState(actors: CaseActors, value: ReadingCase) {
+  const response = await communityFixtureFetch(`${WEB_URL}${value.endpoint}?entry=1&window=tail`, {
+    headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL },
+  })
+  expect(response.status).toBe(200)
+  const entry = CommunityConversationEntryReadSchema.parse(await response.json())
+  expect(entry.channelId).toBe(value.channelId)
+  expect(entry.viewerId).toBe(actors.userId("alice"))
+  return { state: entry.readState, revision: entry.readStateRevision }
 }
 
 type PageReceipt = { direction: "older" | "newer"; cursor: string; status: number; time: number; timing: ReturnType<ReturnType<Response["request"]>["timing"]>; ids: string[] }
@@ -72,10 +178,12 @@ async function bodyOffset(root: Locator, id: string) {
   }, tid.messageScroller)
 }
 
-async function twoPages(page: Page, root: Locator, receipts: PageReceipt[], direction: "older" | "newer", fast: boolean) {
-  const initial = receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length
+async function twoPages(page: Page, root: Locator, receipts: PageReceipt[], direction: "older" | "newer", fast: boolean,
+  phase?: { initial: number; startedAt: number; returnToMiddle: () => Promise<ReadingPositions> }) {
+  const initial = phase?.initial ?? receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length
   const positions: Array<{ time: number; top: number; height: number; total: number; admission: string | undefined }> = []
   await beginScrollTraceAnalysis(page, `${direction}-two-real-pages`, { dataTransitionSource: direction === "older" ? "older-page" : "newer-page", commandDirection: direction === "older" ? "backward" : "forward" })
+  if (phase) positions.push(...await phase.returnToMiddle())
   await root.hover()
   for (let step = 0; step < 100; step++) {
     if (receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length >= initial + 2) break
@@ -86,6 +194,7 @@ async function twoPages(page: Page, root: Locator, receipts: PageReceipt[], dire
   }
   await expect.poll(() => receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length).toBeGreaterThanOrEqual(initial + 2)
   const accepted = receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).slice(initial)
+  if (phase) expect(accepted.every(receipt => receipt.timing.startTime >= phase.startedAt)).toBe(true)
   expect(new Set(accepted.map(receipt => receipt.cursor)).size).toBe(accepted.length)
   expect(new Set(accepted.flatMap(receipt => receipt.ids)).size).toBeGreaterThan(50)
   await expect(root).toHaveAttribute("data-pagination-enabled", "true")
@@ -99,8 +208,9 @@ async function trace(actors: CaseActors, page: Page, info: TestInfo, channelId: 
   await installScrollTraceInCurrentDocument(page)
   await startScrollTrace(page, { scenario: info.title, identity: identity(channelId) })
   await markScrollTrace(page, "clock-calibration", { detail: await page.evaluate(() => ({ timeOrigin: performance.timeOrigin, performanceNow: performance.now(), epoch: Date.now() })) })
+  await beginScrollTraceAnalysis(page, "reading-continuity-journey")
   let active = true
-  const finish = async () => { if (active && !page.isClosed()) { active = false; await finishAndAttach(page, info) } }
+  const finish = async () => { if (active && !page.isClosed()) { active = false; await endScrollTraceAnalysis(page, "reading-continuity-journey"); await finishAndAttach(page, info) } }
   actors.onCleanup(finish)
   return finish
 }
@@ -116,20 +226,40 @@ for (const kind of ["channel", "dm"] as const) {
         await page.setViewportSize(narrow ? { width: 390, height: 844 } : { width: 1280, height: 800 })
         const receipts = observePages(actors, page, endpoint)
         const proxy = await proxyCommunityWebSockets(context)
-        await gotoAfterUserWsAuth(page, `${path}?msg=${ids[150]}`)
-        const finishOlderTrace = await trace(actors, page, info, channelId)
+        if (kind === "dm") await enterDmMiddle(actors, value)
+        else await gotoAfterUserWsAuth(page, `${path}?msg=${ids[150]}`)
         const root = page.getByTestId(tid.messageScroller)
         await expect(page.getByTestId(tid.message(ids[150]))).toBeInViewport()
         await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+        const finishOlderTrace = await trace(actors, page, info, channelId)
         const draft = `retained ${kind} ${narrow} ${fast}`
         await composerEditable(page).fill(draft)
         const olderPositions = await twoPages(page, root, receipts, "older", fast)
         await finishOlderTrace()
-        await page.goto(`${path}?msg=${ids[150]}`, { waitUntil: "commit" })
-        await expect(page.getByTestId(tid.message(ids[150]))).toBeInViewport()
-        await expect(composerEditable(page)).toHaveText(draft)
-        await trace(actors, page, info, channelId)
-        const newerPositions = await twoPages(page, root, receipts, "newer", fast)
+        let newerPositions: ReadingPositions
+        let finishNewerTrace: Awaited<ReturnType<typeof trace>>
+        let newerPhase: { initial: number; startedAt: number } | undefined
+        if (kind === "channel") {
+          await page.goto(`${path}?msg=${ids[150]}`, { waitUntil: "commit" })
+          await expect(page.getByTestId(tid.message(ids[150]))).toBeInViewport()
+          await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+          await expect(composerEditable(page)).toHaveText(draft)
+          finishNewerTrace = await trace(actors, page, info, channelId)
+          newerPositions = await twoPages(page, root, receipts, "newer", fast)
+        } else {
+          await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+          await expect(composerEditable(page)).toHaveText(draft)
+          newerPhase = Object.freeze({ initial: receipts.filter(receipt => receipt.direction === "newer" && receipt.status === 200).length, startedAt: Date.now() })
+          finishNewerTrace = await trace(actors, page, info, channelId)
+          newerPositions = await twoPages(page, root, receipts, "newer", fast, {
+            ...newerPhase,
+            returnToMiddle: async () => {
+              const positions = await returnToDmMiddle(value, fast)
+              await expect(composerEditable(page)).toHaveText(draft)
+              return positions
+            },
+          })
+        }
         await root.hover()
         const returnLatestHeight = await root.evaluate(element => element.clientHeight)
         expect(returnLatestHeight).toBeGreaterThan(0)
@@ -165,7 +295,34 @@ for (const kind of ["channel", "dm"] as const) {
           event.type === "community:message.create" && event.message?.id === hiddenPeer)).toBe(true)
         await expect.poll(async () => Math.abs(await bodyOffset(root, before.firstVisibleId!) - before.firstVisibleOffset!)).toBeLessThanOrEqual(1)
         await expect(composerEditable(page)).toHaveText(draft)
-        await info.attach("reading-cursor-stages.json", { body: JSON.stringify({ kind, narrow, fast, receipts, olderPositions, newerPositions, returnLatestBefore, before }, null, 2), contentType: "application/json" })
+        let dmReentry: unknown
+        if (kind === "dm") {
+          await finishNewerTrace()
+          const readBefore = await readAuthoritativeState(actors, value)
+          const reentryResponse = confirmCommunityFixtureApiResponse(page.waitForResponse(response => {
+            const url = new URL(response.url())
+            return response.request().method() === "GET" && url.pathname === endpoint
+              && url.searchParams.get("entry") === "1" && url.searchParams.get("window") === "tail"
+          }))
+          void reentryResponse.catch(() => undefined)
+          await page.goto(path, { waitUntil: "commit" })
+          const reloaded = await reentryResponse
+          expect(reloaded.status()).toBe(200)
+          const entry = CommunityConversationEntryReadSchema.parse(await reloaded.json())
+          expect(entry.channelId).toBe(channelId)
+          expect(entry.viewerId).toBe(actors.userId("alice"))
+          expect(entry.selection).toEqual({ reason: "tail", anchorMessageId: null })
+          expect(entry.readState.lastReadSeq).toBeGreaterThanOrEqual(readBefore.state.lastReadSeq)
+          await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+          await expect(composerEditable(page)).toHaveText(draft)
+          await expect(page.getByTestId(tid.message(hiddenPeer))).toBeVisible()
+          await waitForStableTail(root, "DM-hard-reentry-tail")
+          const readAfter = await readAuthoritativeState(actors, value)
+          expect(readAfter.state.lastReadSeq).toBeGreaterThanOrEqual(readBefore.state.lastReadSeq)
+          dmReentry = { readBefore, selection: entry.selection, cutoff: entry.newBoundary.afterSeq,
+            readAfter, geometry: await waitForCommittedGeometry(root) }
+        }
+        await info.attach("reading-cursor-stages.json", { body: JSON.stringify({ kind, narrow, fast, receipts, olderPositions, newerPositions, newerPhase, returnLatestBefore, before, dmReentry }, null, 2), contentType: "application/json" })
       })
     }
   }
@@ -185,9 +342,9 @@ test("channel older failure retries in the same window after a held real page", 
   const { page, path, ids, endpoint, channelId } = await prepare(actors, "channel")
   const receipts = observePages(actors, page, endpoint)
   await gotoAfterUserWsAuth(page, `${path}?msg=${ids[150]}`)
-  await trace(actors, page, info, channelId)
   const root = page.getByTestId(tid.messageScroller)
   await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+  await trace(actors, page, info, channelId)
   await composerEditable(page).fill("keep older draft")
   const held = await holdNextRequest(actors, page, `**${endpoint}**`, url => url.searchParams.has("cursor"))
   let olderGets = 0
@@ -225,16 +382,17 @@ test("channel older failure retries in the same window after a held real page", 
 test("DM newer and present recovery keep readable rows and retire a late present result", async ({ caseActors }, info) => {
   test.setTimeout(240_000)
   const actors = await caseActors(["alice", "bob"])
-  const { page, path, ids, endpoint, channelId } = await prepare(actors, "dm")
+  const value = await prepare(actors, "dm")
+  const { page, ids, endpoint, channelId } = value
   let failNewer = true
   await page.route(`**${endpoint}**`, async route => {
     if (failNewer && new URL(route.request().url()).searchParams.has("since")) await route.fulfill(currentCommunityFixtureError("bounded newer failure", 503))
     else await route.fallback()
   })
-  await gotoAfterUserWsAuth(page, `${path}?msg=${ids[150]}`)
-  const finishTrace = await trace(actors, page, info, channelId)
+  await enterDmMiddle(actors, value)
   const root = page.getByTestId(tid.messageScroller)
   await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+  const finishTrace = await trace(actors, page, info, channelId)
   await composerEditable(page).fill("keep DM draft")
   await moveToEdge(root, "end")
   const retry = page.getByRole("alert").filter({ hasText: "Could not load newer messages." }).getByRole("button", { name: "Retry" })
@@ -281,9 +439,9 @@ test("history preserves real HTML body geometry while an older receipt is pendin
   const { page, path, ids, endpoint, channelId, preview } = await prepare(actors, "channel", true)
   expect(preview).toBeDefined()
   await gotoAfterUserWsAuth(page, `${path}?msg=${ids[150]}`)
-  await trace(actors, page, info, channelId)
   const root = page.getByTestId(tid.messageScroller)
   await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+  await trace(actors, page, info, channelId)
   await composerEditable(page).fill("keep HTML draft")
   const held = await holdNextRequest(actors, page, `**${endpoint}**`, url => url.searchParams.has("cursor"))
   await moveToEdge(root, "start")

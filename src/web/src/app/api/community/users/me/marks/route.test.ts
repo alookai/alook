@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const mockListMarksForUser = vi.fn()
+const mockOtherBotMarks = vi.fn()
 const mockGetChannelsByIds = vi.fn()
 const mockGetServersByIds = vi.fn()
 const mockListAccessVisibleChannelIds = vi.fn()
@@ -23,6 +24,7 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       communityMessageMark: {
+        listOtherBotMarks: (...args: unknown[]) => mockOtherBotMarks(...args),
         listMarksForUser: (...args: unknown[]) => mockListMarksForUser(...args),
       },
       communityAgentInbox: {
@@ -84,6 +86,7 @@ import { GET } from "./route"
 describe("GET /api/community/users/me/marks", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockOtherBotMarks.mockResolvedValue(new Map())
     mockGetChannelsByIds.mockResolvedValue([])
     mockGetServersByIds.mockResolvedValue([])
     mockListAccessVisibleChannelIds.mockResolvedValue(["c1"])
@@ -97,6 +100,7 @@ describe("GET /api/community/users/me/marks", () => {
     await GET(new NextRequest("http://localhost/api/community/users/me/marks"))
     const opts = mockListMarksForUser.mock.calls[0][2]
     expect(opts.visibleChannelIds).toEqual(["c1"])
+    expect(mockOtherBotMarks).not.toHaveBeenCalled()
   })
 
   it("unions the viewer's DM channels into scope so marked DM messages are not filtered out", async () => {
@@ -197,7 +201,7 @@ describe("GET /api/community/users/me/marks", () => {
       headers: { "x-test-actor": "bot" },
     }))
     expect(await res.json()).toEqual({
-      marked: [{ seq: "#42", channel: "/s#0001/c", content: { text: "task" }, note: "QA pending" }],
+      marked: [{ seq: "#42", channel: "/s#0001/c", content: { text: "task" }, note: "QA pending", updatedAt: null, otherBotMarks: [] }],
     })
     expect(mockListMarksForUser).toHaveBeenCalledWith({}, "bot_1", {
       visibleChannelIds: ["c1"],
@@ -215,18 +219,19 @@ describe("GET /api/community/users/me/marks", () => {
   it("keeps each note with its message and includes null for an unannotated mark", async () => {
     const messages = [{ id: "m2", content: "second" }, { id: "m1", content: "first" }]
     mockListMarksForUser.mockResolvedValue(messages.map((message, index) => ({
-      mark: { id: `mark${index}`, channelId: "c1", note: index === 0 ? "second progress" : null },
+      mark: { id: `mark${index}`, channelId: "c1", note: index === 0 ? "second progress" : null, updatedAt: index === 0 ? "2026-11-11T13:00:00.000Z" : null },
       message, author: {},
     })))
     mockToAgentMessages.mockResolvedValue(messages.map((message, index) => ({
       seq: `#${2 - index}`, channel: "/s#0001/c", content: { text: message.content },
     })))
+    mockOtherBotMarks.mockResolvedValue(new Map([["m2", [{ handle: "@B#0002", note: "review", updatedAt: "2026-11-11T12:00:00.000Z" }]]]))
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/marks", {
       headers: { "x-test-actor": "bot" },
     }))
     expect((await res.json()).marked).toEqual([
-      { seq: "#2", channel: "/s#0001/c", content: { text: "second" }, note: "second progress" },
-      { seq: "#1", channel: "/s#0001/c", content: { text: "first" }, note: null },
+      { seq: "#2", channel: "/s#0001/c", content: { text: "second" }, note: "second progress", updatedAt: "2026-11-11T13:00:00.000Z", otherBotMarks: [{ handle: "@B#0002", note: "review", updatedAt: "2026-11-11T12:00:00.000Z" }] },
+      { seq: "#1", channel: "/s#0001/c", content: { text: "first" }, note: null, updatedAt: null, otherBotMarks: [] },
     ])
   })
 

@@ -62,7 +62,16 @@ export const GET = withAuth(communityActorPolicy(), async (req, ctx) => {
       ),
       { route: "community/users/me/marks:hydrate" },
     )
-    return writeJSON({ marked: marked.map((message, index) => ({ ...message, note: rows[index].mark.note ?? null })) })
+    const peers = await withD1Retry(
+      () => queries.communityMessageMark.listOtherBotMarks(db, userId, rows.map(row => row.message.id)),
+      { route: "community/users/me/marks:peers" },
+    )
+    return writeJSON({ marked: marked.map((message, index) => ({
+      ...message,
+      note: rows[index].mark.note ?? null,
+      updatedAt: rows[index].mark.updatedAt ?? null,
+      otherBotMarks: peers.get(rows[index].message.id) ?? [],
+    })) })
   }
 
   const url = new URL(req.url)

@@ -1,3 +1,4 @@
+import { SESSION_ACCOUNT_HEADER, SESSION_ACCOUNT_MISMATCH_HEADER } from "@/lib/session-account"
 import { isCookieHumanSameOrigin } from "@/lib/server/request-security"
 import type { AuthPolicy, AuthResolution } from "./auth-policy"
 import { observeWorkerOperation } from "@/lib/observability/worker"
@@ -69,7 +70,7 @@ type SessionResolution =
 async function resolveSession(
   req: NextRequest,
   cloudflareEnv: Env,
-): Promise<SessionResolution> {
+): Promise<SessionResolution | Response> {
   const auth = getAuth(cloudflareEnv)
   let sessionResult: { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> } | null = null
   let lastErr: unknown
@@ -102,6 +103,14 @@ async function resolveSession(
       // ignore — signOut best-effort
     }
     return { kind: "invalid" }
+  }
+
+  const expectedAccount = req.headers.get(SESSION_ACCOUNT_HEADER)
+  if (expectedAccount !== null && expectedAccount !== sessionResult.response.user.id) {
+    const response = NextResponse.json({ error: "Request account no longer matches session" }, {
+      status: 409, headers: { [SESSION_ACCOUNT_MISMATCH_HEADER]: "1" },
+    })
+    return varyPrivateResponseByCredentials(forwardSetCookies(response, sessionResult.headers.getSetCookie()))
   }
 
   return {
@@ -176,6 +185,7 @@ async function resolveCookieHuman(req: NextRequest): Promise<AuthResolution<Cook
   const cloudflare = await getCloudflareContext({ async: true })
   const cloudflareEnv = cloudflare.env as Env
   const resolved = await resolveSession(req, cloudflareEnv)
+  if (resolved instanceof Response) return resolved
   if (resolved.kind === "error") {
     return accountDeletionAuthError("SESSION_VALIDATION_FAILED", 503)
   }
@@ -224,6 +234,7 @@ export async function resolveHumanAuth(req: NextRequest): Promise<AuthResolution
   const { env } = await getCloudflareContext({ async: true })
   const cloudflareEnv = env as Env
   const session = await resolveSession(req, cloudflareEnv)
+  if (session instanceof Response) return session
 
   if (session.kind === "error") {
     return NextResponse.json({ error: "session validation failed" }, { status: 503 })
@@ -290,6 +301,7 @@ async function resolveOptionalHuman(req: NextRequest): Promise<AuthResolution<Op
   const cloudflareEnv = env as Env
 
   const session = await resolveSession(req, cloudflareEnv)
+  if (session instanceof Response) return session
 
   if (session.kind !== "ok") {
     return {

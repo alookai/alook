@@ -178,6 +178,8 @@ export const tid = {
   botReportProblemSubmit: "bot-report-problem-submit",
   botReportProblemStatus: "bot-report-problem-status",
   botAvatarPickerTrigger: "community-bot-avatar-picker-trigger",
+  botProviderPicker: "bot-provider-picker",
+  botModelSelect: "bot-model-select",
   botReasoningEffort: "community-bot-reasoning-effort",
   botCardModel: "bot-card-model",
   myBotsPlanSummary: "my-bots-plan-summary",

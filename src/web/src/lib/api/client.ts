@@ -1,3 +1,4 @@
+import { SESSION_ACCOUNT_HEADER, SESSION_ACCOUNT_MISMATCH_HEADER } from "@/lib/session-account"
 import { BusinessSchemaMismatch, requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
 import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, CommunityReadErrorSchema } from "@alook/shared"
 import { decodeCommunityReadResponse } from "@/lib/community/read-response"
@@ -119,7 +120,10 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
   try {
     assertEligible();
     const headers = new Headers(request.headers);
-    if (path.startsWith("/api/community/")) headers.set(COMMUNITY_CONTRACT_HEADER, String(COMMUNITY_CONTRACT_VERSION));
+    if (path.startsWith("/api/community/")) {
+      headers.set(COMMUNITY_CONTRACT_HEADER, String(COMMUNITY_CONTRACT_VERSION));
+      if (authenticationAccount) headers.set(SESSION_ACCOUNT_HEADER, authenticationAccount);
+    }
     if (!headers.has("Content-Type") && !(typeof FormData !== "undefined" && request.body instanceof FormData)) headers.set("Content-Type", "application/json");
     res = await runObservedFetch(observation, () => fetch(API_BASE + path, {
       ...request,
@@ -137,6 +141,10 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
 
   requestHeaders(observation, res);
   assertEligible();
+
+  if (res.status === 409 && res.headers.get(SESSION_ACCOUNT_MISMATCH_HEADER) === "1") {
+    throw new DOMException("Request account no longer matches session", "AbortError");
+  }
 
   if (res.status === 401) {
     if (hasAccountDeletionAuthTransition(authenticationAccount)) throw new ApiError("Unauthorized", 401);

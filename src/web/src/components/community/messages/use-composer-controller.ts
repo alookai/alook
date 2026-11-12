@@ -7,6 +7,7 @@ import {
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
+  useMemo,
   useRef,
   type ForwardedRef,
 } from "react"
@@ -36,6 +37,7 @@ import { mentionNodesForCaretInsertion, textNodeForCaretInsertion } from "./care
 import type { ComposerViewProps } from "./composer-view"
 import { useComposerSuggestions } from "./use-composer-suggestions"
 import { useComposerReplyMention } from "./use-composer-reply-mention"
+import { createComposerFilePickerKeyboard } from "./composer-file-picker-keyboard"
 
 export function useComposerController(
   {
@@ -307,7 +309,15 @@ export function useComposerController(
       resetPopups()
     },
   })
+  const pickerKeyboard = useMemo(() => createComposerFilePickerKeyboard(editor,
+    () => protocol.get().active && protocol.get().scope === scope,
+    () => suppressSuggestions(() => { editor?.view.dom.blur(); editor?.view.focus() }),
+    () => { const current = protocol.get(); return `${current.generation}:${current.scopeVersion}` },
+  ), [editor, protocol, scope, suppressSuggestions])
+  useLayoutEffect(() => () => pickerKeyboard.retire(), [active, pickerKeyboard])
+
   const send = () => {
+    pickerKeyboard.retire()
     if (!editor || client.isMutating({ mutationKey: sendKey, exact: true })) return
     const current = protocol.get()
     if (!current.active) return
@@ -317,6 +327,13 @@ export function useComposerController(
   useLayoutEffect(() => {
     sendRef.current = send
   })
+
+  const attachmentInputHandlers = createComposerAttachmentInputHandlers(
+    () => protocol.get().active,
+    attachments,
+    () => suppressSuggestions(() => editor?.commands.focus()),
+    pickerKeyboard.prepare,
+  )
 
   useImperativeHandle(ref, () => ({
     focusEditor: () => {
@@ -336,6 +353,7 @@ export function useComposerController(
     },
     resetAfterSubmit: () => {
       if (!protocol.get().active || !editor) return
+      pickerKeyboard.retire()
       editor.commands.clearContent()
       setEditorHasContent(false)
       clearPendingFiles()
@@ -356,12 +374,6 @@ export function useComposerController(
   }, [active, autoFocus, editor, channel, isForumThreadBody, suppressSuggestions])
 
   useComposerReplyMention({ editor, channelType, isForumThreadBody, replyingTo, members, suppressSuggestions })
-
-  const attachmentInputHandlers = createComposerAttachmentInputHandlers(
-    () => protocol.get().active,
-    attachments,
-    () => suppressSuggestions(() => editor?.commands.focus()),
-  )
 
   return {
     ...attachmentInputHandlers,

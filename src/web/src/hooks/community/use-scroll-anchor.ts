@@ -1165,9 +1165,14 @@ export function useScrollAnchor({
         }
       }
       offset = Math.max(0, Math.min(offset, max))
+      const correctingPinnedTail = viewportResized && previous?.epoch === owner.epoch && previous.pinEligible
+        && readReady.get() && !input.handover && !native.isScrolling && !readingPositionRef.current
+        && !followSuspension.get() && nativeOrigin.get() !== currentItemsRef.current[0]?.key
+        && native.scrollElement === root && Math.abs(root.scrollTop - previous.scrollTop) <= 1
+        && Math.abs(offset - root.scrollTop) > 0.5
       if (readingViewportRef.current?.epoch === owner.epoch) readingViewportRef.current.offset = offset
       acceptedGeometryRef.current = {
-        ...next, scrollTop: offset, pinEligible: !originHeld && next.pinEligible && max - offset <= 1,
+        ...next, scrollTop: offset, pinEligible: !originHeld && (next.pinEligible || correctingPinnedTail) && max - offset <= 1,
         isScrolling: (clampedByResize || ownCorrection) && previous ? previous.isScrolling : next.isScrolling,
       }
       holdNativeOrigin(originHeld || (offset <= 1 && !acceptedGeometryRef.current.pinEligible) ? currentItemsRef.current[0]?.key ?? null : null)
@@ -1181,7 +1186,7 @@ export function useScrollAnchor({
       } else if (readReady.get()) setResumeValidated(true)
     }
     return false
-  }, [claimPosition, clearMeasurementAnchor, hasCommittedRows, holdNativeOrigin, observeGeometry, positionKind, preserveInitialPresentation, readGeometry, readPageMessageGeometry, readReady, reconcilePage, retireInitialPosition, setFollowSuspended, setReadPositionReady, setShortGap, startIntent])
+  }, [claimPosition, clearMeasurementAnchor, followSuspension, hasCommittedRows, holdNativeOrigin, nativeOrigin, observeGeometry, positionKind, preserveInitialPresentation, readGeometry, readPageMessageGeometry, readReady, reconcilePage, retireInitialPosition, setFollowSuspended, setReadPositionReady, setShortGap, startIntent])
   const reconcileViewport = useCallback(() => {
     const intent = semanticIntentRef.current
     const root = scrollRef.current

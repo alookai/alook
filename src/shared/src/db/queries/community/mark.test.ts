@@ -30,6 +30,7 @@ describe("community message marks", () => {
       channelId: "c1",
       messageId: "m1",
       note: null,
+      updatedAt: expect.any(String),
     });
     expect(created.onConflictDoNothing).toHaveBeenCalledOnce();
     expect(created.returningMock).toHaveBeenCalledOnce();
