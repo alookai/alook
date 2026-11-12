@@ -413,6 +413,22 @@ test("DM newer and present recovery keep readable rows and retire a late present
   await moveToEdge(root, "end")
   const retry = page.getByRole("alert").filter({ hasText: "Could not load newer messages." }).getByRole("button", { name: "Retry" })
   await expect(retry).toBeVisible()
+  await retry.scrollIntoViewIfNeeded()
+  await expect(retry).toBeEnabled()
+  await expect.poll(() => retry.evaluate((button, scrollerId) => {
+    const scroller = button.closest<HTMLElement>(`[data-testid="${scrollerId}"]`)
+    if (!scroller) return { readable: false, hit: false }
+    const rect = button.getBoundingClientRect(), viewport = scroller.getBoundingClientRect()
+    const top = viewport.top + scroller.clientTop, left = viewport.left + scroller.clientLeft
+    const right = left + scroller.clientWidth
+    const bottom = top + scroller.clientHeight - Math.max(0, Number(scroller.dataset.composerOcclusion ?? 0))
+    return {
+      readable: rect.width > 0 && rect.height > 0 && rect.top >= top && rect.bottom <= bottom && rect.left >= left && rect.right <= right,
+      hit: button.contains(button.ownerDocument.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
+      bounds: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+      viewport: { top, bottom, left, right },
+    }
+  }, tid.messageScroller)).toMatchObject({ readable: true, hit: true })
   const before = await waitForCommittedGeometry(root)
   failNewer = false
   await retry.click()
@@ -707,6 +723,24 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
   expect((await readSecondPeer).status()).toBe(200)
   await root.hover()
   await page.mouse.wheel(0, -400)
+  await expect.poll(() => root.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeGreaterThan(1)
+  const oldNewAway = await waitForCommittedGeometry(root)
+  expect(oldNewAway.distanceToEnd).toBeGreaterThan(1)
+  await expect.poll(() => root.evaluate((element, id) => {
+    const divider = element.querySelector<HTMLElement>(`[data-message-divider-for="${id}"] [data-new-divider]`)
+    const rect = divider?.getBoundingClientRect(), viewport = element.getBoundingClientRect()
+    const top = viewport.top + element.clientTop, left = viewport.left + element.clientLeft
+    const right = left + element.clientWidth
+    const bottom = top + element.clientHeight - Math.max(0, Number(element.dataset.composerOcclusion ?? 0))
+    return {
+      away: element.scrollHeight - element.clientHeight - element.scrollTop > 1,
+      oldNewReadable: !!rect && rect.width > 0 && rect.height > 0 && rect.bottom > top && rect.top < bottom && rect.right > left && rect.left < right,
+      oldNewMounted: !!divider?.isConnected,
+      oldNewMeasured: !!rect && rect.width > 0 && rect.height > 0,
+      divider: rect ? { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right } : null,
+      readable: { top, bottom, left, right },
+    }
+  }, secondPeer)).toMatchObject({ away: true, oldNewMounted: true, oldNewMeasured: true, oldNewReadable: false })
   const oldLookup = await holdNextRequest(actors, page, `**/api/community/channels/${dmId}/messages**`, url => url.searchParams.has("newAfterSeq"))
   const retiredPeer = await actors.seed.seedMessage("bob", dmId, "retired New lookup")
   await expect.poll(() => proxy.frames.flatMap(communityFrameEvents).some(event =>
