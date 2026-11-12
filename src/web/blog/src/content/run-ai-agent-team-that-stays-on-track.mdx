@@ -1,241 +1,112 @@
 export const metadata = {
-  slug: "run-ai-agent-team-that-stays-on-track",
-  title: "How to Run an AI Agent Team That Stays on Track",
-  date: "2026-07-29",
-  dateModified: "2026-08-12",
-  author: "Alook Team",
-  excerpt:
-    "Keep an AI agent team on track with clear jobs, proof of work, approval gates, and an always-on runtime that still waits for human review.",
-  readingTime: "7 min read",
-  image: "/blog/run-ai-agent-team-that-stays-on-track/hero.webp",
+  "slug": "run-ai-agent-team-that-stays-on-track",
+  "title": "Human in the Loop AI: Keep Your Agent Team on Track",
+  "date": "2026-07-29",
+  "dateModified": "2026-11-12",
+  "author": "Alook Team",
+  "excerpt": "Keep a running AI agent team on track: stop affected work, choose a repair, notify the right bots, and check that the correction changed the result.",
+  "readingTime": "9 min read",
+  "image": "/blog/run-ai-agent-team-that-stays-on-track/hero.webp"
 };
 
-export const jsonLd = [
-  {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: [
-      {
-        "@type": "Question",
-        name: "How many AI agents should I start with?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Start with two to four roles that have clear jobs. Add another role when a real handoff needs an owner, not because the org chart looks incomplete.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "What should always stay behind human approval?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Actions that send, spend, publish, change prices, create legal commitments, or make irreversible production changes should wait for a human decision.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "What counts as proof of work for an AI agent?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Proof of work is a reviewable artifact: a pull request, test output, screenshot, dated note, or deploy link that shows what changed and what remains open. A long chat thread is activity, not proof.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "What is an always-on AI agent runtime?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "An always-on runtime keeps agents available across hours and days so scheduled work, unread messages, and catch-up can continue after a chat session closes. Always-on does not mean unsupervised. High-impact actions still wait for approval.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "What should an AI agent handoff include?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "A useful handoff names the objective, the current state, the artifact produced so far, the checks already run, the open questions, and the requested next action. The next owner should not have to reconstruct a thread to know what to do.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "What should happen when an AI agent hits an exception?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "The workflow should pause, return the exception with context, and route it to the person or role that owns the decision. Silent guessing is worse than a visible stop.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "Do I need Alook to use these rules?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "No. These rules work with any agent stack. A coordination layer becomes useful when work crosses agents, sessions, and days, and you need roles, threads, and handoffs to remain visible.",
-        },
-      },
-    ],
-  },
-];
+![A blue pencil crosses out part of an AI team task draft and redirects it to revised work.](/blog/run-ai-agent-team-that-stays-on-track/hero.webp)
 
-An AI agent team stays on track when each role has one clear job, handoffs leave proof of work a person can review, high-impact actions wait for approval, and an always-on runtime does not become unsupervised work. The fix is usually a short set of operating rules, not another agent.
+One agent is working from the new decision. Another is still carrying out the old one. Both can produce reasonable results, and the team can still be heading in two directions.
 
-You can see the failure mode quickly. Give three agents the same project on Monday. By Wednesday, one has drafted a plan, another has started a different version, and a third has reopened a question the group settled on Monday afternoon. The work is moving. Nobody can say where it is going.
+At that point, another reminder to “stay focused” gives neither agent much to work with. The immediate problem is the work still being built on that decision. Until the affected agents change course, even a corrected plan can leave the team producing the wrong thing.
 
-That second-stage mess is common once agents start producing useful drafts. Useful output without ownership, reviewable artifacts, and a stop path turns into old conclusions and unanswered requests.
+A clear [brief for the agent](/blog/how-to-delegate-tasks-to-ai-agents) helps at the start. Once several agents are already working, a changed decision has to reach the work in progress, too.
 
-![Agent team workflow moving from noisy drafts to clear jobs, named ownership, and easy review](/blog/run-ai-agent-team-that-stays-on-track/hero.webp)
+## When should a human step in to redirect an AI agent team?
 
-## Give each agent one job and a "never do" list
+You don't have to read every message to spot this split. An agent may cite a plan you replaced, deliver something outside the agreed scope, or start rewriting work another agent still owns. Those are reasons to intervene before the next handoff turns the mistake into somebody else's starting point.
 
-Start with a job, not a character.
+When two agents are following different decisions, human in the loop AI means having a person settle which one applies before they continue. The team can keep doing routine work under its existing instructions; a person steps in when those instructions no longer give it a clear answer.
 
-"Own engineering" is too broad to evaluate. "Investigate failed webhook deliveries, return reproduction steps, and name the likely files" gives an agent a result another person can check.
+The first draft or working change gives you something to judge before another agent builds on it. A changed goal is another reason to look again. A short, reversible research task needs a different level of attention from a task that can change production. What the next action could affect is a better guide than checking every few minutes by habit.
 
-Give each role two small documents:
+A teammate may spot an error and supply the missing fact; a change to the goal belongs to whoever has authority over that goal. Without an agreed person to settle changes, the latest message can become the plan simply because it arrived last.
 
-- a durable description of its job, inputs, outputs, and limits
-- a "never do" list for actions outside its remit
+## How to pause AI agents without losing good work
 
-This is especially important for review. An agent that wrote a draft should not be the only agent deciding whether the draft is good. A separate reviewer can check the evidence, ask where an assumption came from, or return the work with a concrete gap.
+A draft based on a rejected conclusion can keep growing while someone investigates the error. More output makes the repair larger. The useful pause is around that draft and anything about to use it; unrelated source gathering may still be worth continuing.
 
-You do not need a miniature department chart on day one. Begin with two to four responsibilities that already recur in your work: research, implementation, review, or monitoring. Add another role only when the existing handoff works without you repairing it every morning.
+A pause message alone isn't enough for work already in progress. Use the stop or interrupt control in the tool running the work, then confirm that the affected action has stopped before repairing it. A job running separately may need to be stopped separately. Knowing what is still active matters more here than receiving a polite acknowledgment.
 
-Some teams also run different models behind those roles. A researcher using Claude may frame a problem differently from a reviewer using Codex or a local model. That can create useful disagreement. It is a supplement to clear roles, though. Three vague agents running three models still produce vague work.
+After it stops, what has the agent already made, and what was it about to do? Those answers show how far the error has traveled. Another agent may still be working on something that looks wrong simply because it isn't finished. An incomplete result is not an invitation for a second agent to replace it.
 
-## Write the brief so the team knows when to stop
+We want to keep the good work on the near side of the mistake. In a repository, that means looking at the changes and saving a recoverable version before repairing them. For research or writing, the useful starting point is the last sound draft or report, together with the decision it followed. Wiping everything loses that distinction.
 
-A short brief can still be precise.
+A pause also needs a clear reason to end. Someone needs to answer the question that stopped the work, and the team needs to know who that is. Their answer will determine whether the agent can continue or needs a new start. Anything already sent or published has to be dealt with separately: stopping the next action doesn't undo the previous one.
 
-State the goal, the expected output, the relevant constraints, and what "done" looks like. If you want a pull request, say so. If you want a recommendation with sources and no code changes, say that too.
+## Correct, roll back, or restart: choosing a repair for the team
 
-Anthropic's guide to [building effective agents](https://www.anthropic.com/engineering/building-effective-agents) makes the underlying case for explicit steps and checks: a workflow works best when tasks can be cleanly decomposed and intermediate results can be checked. A request such as "look into pricing" leaves the agent to choose the task. "Compare the current public pricing pages, flag material changes, and return a dated table for review" gives it a finish line.
+The latest bad result is where the problem became visible. It may have begun earlier, when a tentative finding became an accepted fact or a temporary restriction became a permanent rule.
 
-The same rule prevents long threads from becoming a substitute for a decision. When the brief has no definition of done, every update sounds plausible and none of them closes the work.
+The last decision you can still support gives you a place to start looking. What changed after that? Did the goal change? Was the agent using information you'd already replaced? Did it understand the goal but carry out one step incorrectly? Each answer points to a different repair.
 
-## Keep external actions behind a human decision
+<div className="overflow-x-auto thin-scrollbar [&_table]:min-w-[680px]">
 
-An agent can prepare an email, a campaign, a deployment plan, or an invoice draft. Preparation and release are different jobs.
+| What you find | A useful next move | What to carry forward |
+| --- | --- | --- |
+| The error or goal adjustment affects one identifiable step; the rest remains valid | Correct the affected step in the current task, then check it | Work still worth using, what went wrong, and what needs to change |
+| A known wrong turn affected everything after it | Return to a reliable state if the recovery method covers the affected work | A saved current version and a clear account of what will be restored |
+| The abandoned premise runs through the work, or repeated corrections still leave the agent following it | End the current run and start a new task or session with a corrected brief | Useful sources and saved work, the new goal, and the abandoned approach |
 
-Set the boundary before the task starts:
+</div>
 
-- internal research and drafts can proceed
-- messages to customers, public posts, payments, price changes, and irreversible production changes wait for approval
-- the approval request should say exactly what will happen if you say yes
-- review the queue at predictable times, so drafts do not sit there for a week
+<p className="text-sm text-muted-foreground">On small screens, scroll the table sideways to compare all three columns.</p>
 
-This is less glamorous than full autonomy. It is also easier to trust. A team that knows where to pause gives you fewer surprises than one that treats every finished draft as permission to act.
+A usable result is worth keeping. There's no need to redo it just to get a clean conversation. Once you are spending every message arguing against the session's original premise, though, a new start can be easier to inspect. The next run needs the correct starting point, including which earlier conclusion to leave behind.
 
-The same principle applies to experiments. Give a quick exploration an expiry: validate the idea in a short window, then archive its notes if it does not earn a permanent place. The point is to stop every passing idea from becoming permanent work for someone else to untangle.
+Starting a session, restarting a task, and restoring files do different things. In Claude Code, for example, you can restore a conversation while leaving the code as it is. File recovery has its own limits, covered in the [checkpoint documentation](https://code.claude.com/docs/en/checkpointing). Before restoring shared files, other contributors' changes need to be saved somewhere recoverable. A clean-looking conversation is not evidence that their work is safe.
 
-## Turn corrections into standing rules
+## How to send new instructions to running AI agents
 
-Chat is a bad place for a correction that should last.
+A corrected plan on disk can coexist with an agent still following the version it read earlier. Updating the record and delivering the correction are separate jobs.
 
-Suppose you tell an outreach agent, "Do not make customer claims without a source." If that instruction stays buried in a Thursday thread, it will be rediscovered only after the next bad draft. Put the correction in a small standing-rules note instead.
+![The owner notifies both bots of decision v2. Bot A corrects the sources and sends them to Bot B, which revises the draft before the new result is checked.](/blog/run-ai-agent-team-that-stays-on-track/decision-delivery.webp)
 
-Keep stable rules separate from working notes. Stable rules describe the job, approved language, escalation points, and things the agent must avoid. Working notes hold a current task, a temporary link, or a fact that may change next week. Claude Code's [memory documentation](https://code.claude.com/docs/en/memory) makes a related distinction between persistent instructions and automatically accumulated memory.
+Both bots need the new decision. The writer also needs the corrected sources before revising the draft. [View original image](/blog/run-ai-agent-team-that-stays-on-track/decision-delivery.webp)
 
-This distinction matters because always-loaded context has a cost. A huge rules file makes important instructions harder to notice. Keep the core short, date facts that may expire, and link to deeper references when they are needed.
+Everyone working on the task needs a place to find the current decision, along with what it replaces and which work is still useful. The agents following the old version also need the change sent to the conversation or tool they're working in. A message waiting for a later turn can't stop an action happening now. When the change can't wait, the affected work needs to stop before the new instructions go out.
 
-For the wider question of what can survive a session change, see [How to Keep Context Across Multiple Coding Agent Sessions](/blog/keep-context-across-coding-agent-sessions). This article is narrower: how to run the team once those notes and handoffs exist.
+What the agent plans to do next tells you more than an acknowledgment. “Received” tells you the message arrived. “I will use the revised source list and replace the unsupported comparison” gives you something to check. And a corrected researcher doesn’t automatically repair the draft already handed to a writer. The writer needs the change, too.
 
-![Six operating rules for an AI agent team: one job per agent, clear briefs, approval gates, standing rules, history checks, and easy review](/blog/run-ai-agent-team-that-stays-on-track/operating-rules.webp)
+In Alook, people and bots running through Claude Code, Cursor, or Codex can take part in the same discussion. The people and bots allowed into that discussion can see the new decision and the drafts or files shared with it. You can address the affected bots there and keep their replies beside the correction. That makes [multi agent collaboration](https://alook.ai/) less dependent on one person repeating the same update in separate terminals.
 
-## Check history first, then make the result easy to review
+The person responsible for the goal can settle the change in that discussion. Someone else supplying a missing fact doesn't, by itself, give them permission to direct another person's bot.
 
-Before assigning a new task, ask a boring question: has this already been discussed, attempted, closed, or rejected?
+For recurring work, [planning how agents coordinate](/blog/ai-agent-orchestration) covers who passes work to whom ahead of time. A changed decision still needs to reach the agents already in the middle of that work.
 
-That question can prevent a second attempt at a problem with an existing answer. Anthropic's guide to [effective context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) describes a related practice: keep lightweight references, then retrieve the relevant records when the task needs them. The useful outcome is concrete: start from the earlier conclusion instead of reopening the same work from scratch.
+## Why do AI agents repeat mistakes after a correction?
 
-Once the task is complete, make the result easy to judge. A long thread is evidence of activity, not necessarily evidence of a usable result.
+Some corrections belong only to the current task. “Use this revised source list” should replace an input for this job. It doesn't need to become a rule for every future session.
 
-Require a short verification path. Depending on the work, that might be:
+Other corrections describe a repeatable failure. If an agent keeps treating a search summary as a verified source, a rule can name the check: open the source and confirm it supports the claim before using it. That is easier to apply and verify than “be more careful with research.”
 
-- a pull request with the changed files and checks run
-- screenshots or a deploy link
-- a concise walkthrough of what changed and what remains open
-- a dated research note with the source links
+A new rule can leave an older, conflicting instruction in place. Keeping both leaves the next agent to choose between them. Reusable instructions need an owner who revisits them when the workflow changes or the same failure comes back. A rule written for an old approval process can block today's authorized work just as effectively as it once prevented a mistake.
 
-The next reviewer should not have to reconstruct a day of chat to work out whether the task is complete. If they do, the handoff is still unfinished.
+When a correction doesn't stick, did the agent receive it at all? It may still be working from an older set of instructions. Or the new rule may conflict with one that's still in place. Adding a stronger adjective to the same reminder will not resolve those problems. The guide to [carrying decisions across coding sessions](/blog/keep-context-across-coding-agent-sessions) covers where durable instructions and handoff records belong.
 
-## What counts as proof of work for an AI agent
+Some limits need to stop an action, even when the model decides it should go ahead. Writing a sentence in a file won't do that on its own. In Claude Code, written instructions guide the model, while a hook can block an action, as its [memory guidance](https://code.claude.com/docs/en/memory) explains. Permissions and required checks are worth using when a reminder isn't enough.
 
-That is the difference between activity and **proof of work**. A useful agent result should leave something a person can inspect quickly: the artifact, the checks, the remaining questions, and the requested next action. "Still working" is not proof. Neither is a transcript dump.
+## How to check that an AI agent followed a correction
 
-Proof can be small. A pull request with checks run. A screenshot. A dated note with sources. A deploy link plus what remains open. The test is whether a reviewer can judge the result without rereading the whole thread.
+The correction is done when the next result follows the new decision. A revised rules file, a fresh session, or a confident acknowledgment is an intermediate step.
 
-## Always-on runtime is not unsupervised runtime
+For a stale source list, the evidence is in the sources used by the new result. An agent can repeat the corrected instruction perfectly and still hand over a comparison built from the old material. That is the gap this check needs to catch.
 
-An always-on AI agent runtime keeps the team available after a chat window closes. Scheduled checks can fire. Unread messages can wait in the inbox until the agent reconnects and catches up. A local daemon can pick work back up when the machine is online.
+When an agent has changed more than it was asked to, the revised files or draft show whether it now does only what was agreed. After one agent overwrites another's work, the missing contribution needs to be back in place, with someone clearly responsible for continuing it. The original failure tells you where to look. Repeating unrelated checks just to appear thorough adds little.
 
-That is useful. It is not the same as letting agents spend, publish, or merge without you.
+Even a repaired draft can leave an old copy in someone else's task. The next person needs to know which version to use and which one to put aside. A link in the original discussion keeps that decision beside the work, instead of leaving someone to reconstruct it from scattered messages.
 
-Keep the distinction explicit:
+A short record is enough to carry this forward:
 
-- **Always-on** means the runtime can continue work across hours and days.
-- **Unsupervised** means high-impact actions proceed without a human gate.
+- **Decision and owner:** what applies now, and who settled it.
+- **Affected work:** what paused and what can resume.
+- **Valid material:** the drafts, files, and findings still worth using.
+- **Recipients:** who needs the correction before continuing.
+- **Result:** the new draft or files and the check that shows the correction worked.
 
-Approval still sits in front of customer commitments, payments, legal language, and production changes. For the message-based handoff pattern behind that runtime, see [how to build an AI agent team](/blog/personal-ai-company).
-
-## Give exceptions an owner and a stop path
-
-Exception handling is where neat workflows usually break.
-
-An agent hits a missing requirement, a contradictory instruction, a failing check that changes the scope, or a decision that belongs to product or legal. That is not the moment to "be helpful" and guess through it.
-
-Write the stop path into the team rules:
-
-- name who owns the exception
-- state what context must be returned
-- say whether the work pauses, reroutes, or expires
-- make the next reviewer visible
-
-A useful exception report is short. It says what blocked progress, what evidence the agent gathered, and what decision is needed next. That keeps the handoff inside the workflow instead of turning it into another drifting thread.
-
-## Let one brief travel through a clear structure
-
-Rules become much easier to follow when people and agents know who owns the next step.
-
-![One brief traveling through clear roles from scope to spec to build to monitoring](/blog/run-ai-agent-team-that-stays-on-track/one-brief-travels.webp)
-
-[Akshay Pachaar's public Alook walkthrough](https://x.com/akshay_pachaar/status/2073050056299835736) shows a compact example: a human gives one competitive-intelligence brief to a lead role; the work moves through a product role to a builder and then to an operations role that watches the recurring result. The point is not the four names. It is that each handoff has an owner, a purpose, and a record.
-
-For the business roles and setup behind this pattern, see [building a one-person company with an AI agent team](/blog/personal-ai-company). The practical lesson here is smaller: a team does not need every agent talking to every other agent. Clear reporting lines reduce the number of places a task can disappear.
-
-That is the kind of structure Alook is built to hold for agents that run on your own machine: roles, persistent message threads, task handoffs, an always-on local runtime, and a history you can inspect later. You can take the open-source, self-hosted route through [GitHub](https://github.com/alookai/alook). Or register at [alook.ai](https://alook.ai), then connect the local agents and runtime you already use. In both paths, the agents continue to run in your environment.
-
-## Keep the team usable
-
-An agent team stays on track when you can answer six questions without reading every message:
-
-1. Who owns this job?
-2. What does done look like?
-3. What must wait for approval?
-4. Which correction should the team remember next time?
-5. Has this problem already been worked on?
-6. How can someone verify the result quickly?
-
-More agents can give you more coverage. They also create more places for a decision to blur. Start with work that is clear enough to check, keep the approval boundary obvious, and add complexity only after the current handoff feels routine.
-
-Related: [How to Build a One-Person Company With an AI Agent Team](/blog/personal-ai-company) · [How to Keep Context Across Multiple Coding Agent Sessions](/blog/keep-context-across-coding-agent-sessions) · [How to Delegate Tasks to AI Agents](/blog/how-to-delegate-tasks-to-ai-agents)
-
-## FAQ
-
-**How many AI agents should I start with?**  
-Start with two to four roles that have clear jobs. Add another role when a real handoff needs an owner, not because the org chart looks incomplete.
-
-**What should always stay behind human approval?**  
-Actions that send, spend, publish, change prices, create legal commitments, or make irreversible production changes should wait for a human decision.
-
-**What counts as proof of work for an AI agent?**  
-A reviewable artifact: a pull request, test output, screenshot, dated note, or deploy link that shows what changed and what remains open. A long chat thread is activity, not proof.
-
-**What is an always-on AI agent runtime?**  
-It keeps agents available across hours and days so scheduled work, unread messages, and catch-up can continue after a chat session closes. Always-on does not mean unsupervised. High-impact actions still wait for approval.
-
-**What should an AI agent handoff include?**  
-Include the objective, the current state, the artifact produced so far, the checks already run, the open questions, and the requested next action. The next owner should not have to reconstruct a thread to know what to do.
-
-**What should happen when an AI agent hits an exception?**  
-Pause the workflow, return the exception with context, and route it to the person or role that owns the decision. Silent guessing is worse than a visible stop.
-
-**Do I need Alook to use these rules?**  
-No. These rules work with any agent stack. A coordination layer becomes useful when work crosses agents, sessions, and days, and you need roles, threads, and handoffs to remain visible.
+The next agent can then see which decision applies to its work, and the result that shows the team is following it.
