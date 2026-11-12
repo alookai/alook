@@ -91,7 +91,7 @@ vi.mock("@/hooks/community/community-ws/read-state-reconciliation", () => ({
 vi.mock("@/hooks/community/read-coordinator", () => ({
   disposeReadCoordinator: mocks.disposeCoordinator,
 }))
-vi.mock("@/lib/auth-client", () => ({ signOutWithOrigin: async (assert: () => void, options: unknown) => { assert(); const result = await mocks.signOut(options); assert(); return result } }))
+vi.mock("@/lib/auth-client", () => ({ authClient: { getSession: async () => ({ data: { user: { id: "self" } }, error: null }) }, signOutWithOrigin: async (assert: () => void, options: unknown) => { assert(); const result = await mocks.signOut(options); assert(); return result } }))
 
 type Result = ReturnType<typeof useShellProfileController>
 

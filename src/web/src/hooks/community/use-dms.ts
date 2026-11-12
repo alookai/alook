@@ -26,6 +26,7 @@ import {
   publishCommunityLiveSnapshot,
 } from "@/lib/community-db/sync"
 import { sortDmsByActivity } from "@/lib/community/dm-order"
+import { useCommunityOnlineAccount } from "./community-origin"
 
 const EMPTY_DMS: readonly DM[] = Object.freeze([])
 
@@ -57,8 +58,9 @@ export const dmsProjectedQueryFn = (
   return { ids: data.conversations.map((dm) => dm.id) }
 }
 
-export function useDms(enabled = true, subscribed = enabled): UseQueryResult<{ ids: string[] }> & { dms: DM[] } {
+export function useDms(enabled = true, subscribed = enabled): UseQueryResult<{ ids: string[] }> & { dms: DM[]; isDisplayReady: boolean; isInitialError: boolean } {
   const dbDms = useDmProjection()
+  const onlineAccount = useCommunityOnlineAccount()
   const queryClient = useQueryClient()
   const queryFn = useMemo(
     () => dmsProjectedQueryFn(queryClient),
@@ -67,7 +69,7 @@ export function useDms(enabled = true, subscribed = enabled): UseQueryResult<{ i
   const query = useQuery({
     queryKey: communityKeys.dms(),
     queryFn,
-    enabled,
+    enabled: enabled && onlineAccount,
     subscribed,
     // Reuse recent projected DMs across layout mounts; WS/reconnect invalidate explicitly.
     staleTime: 30_000,
@@ -89,8 +91,11 @@ export function useDms(enabled = true, subscribed = enabled): UseQueryResult<{ i
       }
     }))
   }, [dbDms, profilesByUserId])
+  const isDisplayReady = dbDms !== undefined && (dbDms.length > 0 || query.data?.ids?.length === 0)
   return {
     ...query,
     dms,
+    isDisplayReady,
+    isInitialError: onlineAccount && query.isError && !isDisplayReady,
   }
 }

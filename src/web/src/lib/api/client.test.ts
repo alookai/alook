@@ -1,3 +1,4 @@
+import { SESSION_ACCOUNT_HEADER, SESSION_ACCOUNT_MISMATCH_HEADER } from "@/lib/session-account"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { ApiError } from "@/lib/errors"
 
@@ -150,4 +151,17 @@ describe("account-qualified deletion auth transition", () => {
     try { await expect(apiFetch("/private", { authenticationAccount: "A", onUnauthorized: exit })).rejects.toMatchObject({ status: 401 }); expect(exit).not.toHaveBeenCalled(); expect(assign).not.toHaveBeenCalled() }
     finally { cancelAccountDeletionAuthTransition(current); vi.unstubAllGlobals() }
   })
+})
+
+it("binds a community read to its account and cancels an explicit mismatch without navigation", async () => {
+  const native = vi.fn().mockResolvedValue(Response.json({ error: "account changed" }, { status: 409, headers: { [SESSION_ACCOUNT_MISMATCH_HEADER]: "1" } }))
+  const assign = vi.fn()
+  vi.stubGlobal("fetch", native)
+  vi.stubGlobal("window", { location: { origin: "https://alook.test", assign } })
+  try {
+    const { apiFetch } = await import("./client")
+    await expect(apiFetch("/api/community/servers", { authenticationAccount: "A" })).rejects.toMatchObject({ name: "AbortError" })
+    expect(new Headers(native.mock.calls[0][1].headers).get(SESSION_ACCOUNT_HEADER)).toBe("A")
+    expect(assign).not.toHaveBeenCalled()
+  } finally { vi.unstubAllGlobals() }
 })

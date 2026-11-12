@@ -66,7 +66,14 @@ it("real auth and community sign-out preserve failure/B ownership and clear only
   let oldResult!: Promise<unknown>
   act(() => { oldResult = logout().catch(error => error) })
   await waitFor(() => expect(release).toBeTypeOf("function"))
-  await act(async () => { const result = await auth.authClient.signIn.email({ email: "b@example.test", password: "fixture-password" }); expect(result.error).toBeNull() })
+  await act(async () => {
+    selected = "account-b"
+    const current = auth.authClient.$store.atoms.session.get()
+    auth.authClient.$store.atoms.session.set({
+      ...current, isPending: false, isRefetching: false, error: null,
+      data: { user: { ...current.data!.user, id: selected }, session: { ...current.data!.session, userId: selected } },
+    })
+  })
   await waitFor(() => expect(auth.currentSessionViewer()).toBe("account-b"))
   await act(async () => mounted!.rerender(<Root id="account-b" />))
   await waitFor(() => expect(owner.accountId).toBe("account-b"))
@@ -76,6 +83,7 @@ it("real auth and community sign-out preserve failure/B ownership and clear only
   await act(async () => { release(Response.json({ success: true })); expect(await oldResult).toMatchObject({ name: "AbortError" }) })
   expect(owner.runtime.lifecycle.get().active).toBe(true)
   expect(VolatileSessionsManager.fetchUserSession()!.sessionId).toBe(bSession)
+  await act(async () => { const result = await auth.authClient.signIn.email({ email: "b@example.test", password: "fixture-password" }); expect(result.error).toBeNull() })
   emitTelemetry("business.result", { outcome: "success" })
   await waitFor(() => expect(sent.some(body => body.meta.session.id === bSession && body.meta.user?.id === "account-b")).toBe(true), { timeout: 5000 })
   mode = "success"

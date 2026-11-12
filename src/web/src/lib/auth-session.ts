@@ -1,5 +1,6 @@
 "use client"
 
+import { sessionFetch } from "./session-transport"
 import { createAuthClient } from "better-auth/react"
 import { emailOTPClient, lastLoginMethodClient } from "better-auth/client/plugins"
 import { LAST_LOGIN_METHOD_COOKIE } from "@/lib/last-login-method"
@@ -33,6 +34,7 @@ async function retireRequestAccount(request: { signal: AbortSignal }) {
 export const authClient = createAuthClient({
   baseURL: process.env.NEXT_PUBLIC_APP_URL || "",
   fetchOptions: {
+    customFetchImpl: sessionFetch(fetch),
     onRequest: async request => {
       if (!isSessionRequest(request.url)) return
       const origin = await capturePersistedAccountIdentity().catch(() => undefined)

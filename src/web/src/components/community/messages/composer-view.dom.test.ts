@@ -1,9 +1,10 @@
 import resolvedRawInput0 from "../../../app/globals.css?raw"
 import { createElement, type ReactNode } from "react"
+import type { Editor } from "@tiptap/react"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { act, fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent, render, setupUser } from "@/test/react-dom-harness"
 
 const mocks = vi.hoisted(() => ({
   mentionProps: vi.fn(),
@@ -86,6 +87,136 @@ function baseProps(
 }
 
 describe("ComposerView", () => {
+  it.each([
+    { pointer: "mouse", key: "MouseLeft" },
+    { pointer: "touch", key: "TouchA" },
+  ])("preserves the focused draft and caret through a primary $pointer attachment press", async ({ key }) => {
+    const user = setupUser()
+    const onUploadFile = vi.fn()
+    const view = render(createElement(ComposerView, baseProps({
+      editor: { isFocused: true } as Editor,
+      editorContent: createElement("div", { contentEditable: true, role: "textbox", "aria-label": "Draft", suppressContentEditableWarning: true }, "Keep this draft"),
+      onUploadFile,
+    })))
+    const editable = view.getByRole("textbox", { name: "Draft" })
+    const text = editable.firstChild!
+    editable.focus()
+    const selection = window.getSelection()!
+    selection.setBaseAndExtent(text, 6, text, 6)
+    const expectCaret = () => {
+      expect(editable).toHaveFocus()
+      expect(selection.anchorNode).toBe(text)
+      expect(selection.focusNode).toBe(text)
+      expect(selection.anchorOffset).toBe(6)
+      expect(selection.focusOffset).toBe(6)
+      expect(selection.isCollapsed).toBe(true)
+      expect(editable).toHaveTextContent("Keep this draft")
+    }
+    const attach = view.getByRole("button", { name: "Add file" })
+    await user.pointer({ keys: `[${key}>]`, target: attach })
+    expectCaret()
+    expect(onUploadFile).not.toHaveBeenCalled()
+    await user.pointer({ keys: `[/${key}]`, target: attach })
+    expectCaret()
+    expect(onUploadFile).toHaveBeenCalledOnce()
+  })
+
+  it("cancels a primary pen press while retaining the caret and click activation", () => {
+    const onUploadFile = vi.fn()
+    const view = render(createElement(ComposerView, baseProps({
+      editor: { isFocused: true } as Editor,
+      editorContent: createElement("div", { contentEditable: true, role: "textbox", "aria-label": "Draft", suppressContentEditableWarning: true }, "Pen draft"),
+      onUploadFile,
+    })))
+    const editable = view.getByRole("textbox", { name: "Draft" })
+    editable.focus()
+    const text = editable.firstChild!
+    const selection = window.getSelection()!
+    selection.setBaseAndExtent(text, 4, text, 4)
+    const attach = view.getByRole("button", { name: "Add file" })
+    const press = new PointerEvent("pointerdown", { pointerType: "pen", isPrimary: true, button: 0, bubbles: true, cancelable: true })
+    expect(fireEvent(attach, press)).toBe(false)
+    expect(press.defaultPrevented).toBe(true)
+    expect(onUploadFile).not.toHaveBeenCalled()
+    fireEvent.pointerUp(attach, { pointerType: "pen", isPrimary: true, button: 0 })
+    fireEvent.click(attach)
+    expect(onUploadFile).toHaveBeenCalledOnce()
+    expect(editable).toHaveFocus()
+    expect(selection.anchorNode).toBe(text)
+    expect(selection.anchorOffset).toBe(4)
+    expect(selection.focusOffset).toBe(4)
+    expect(selection.isCollapsed).toBe(true)
+  })
+
+  it.each([false, null])("does not focus an unfocused editor when its focus state is %s", async (focused) => {
+    const user = setupUser()
+    const onUploadFile = vi.fn()
+    const view = render(createElement(ComposerView, baseProps({
+      editor: focused === null ? null : { isFocused: focused } as Editor,
+      editorContent: createElement("div", { contentEditable: true, role: "textbox", "aria-label": "Draft", suppressContentEditableWarning: true }, "Unfocused draft"),
+      onUploadFile,
+    })))
+    const attach = view.getByRole("button", { name: "Add file" })
+    await user.click(attach)
+    expect(attach).toHaveFocus()
+    expect(view.getByRole("textbox", { name: "Draft" })).not.toHaveFocus()
+    expect(onUploadFile).toHaveBeenCalledOnce()
+  })
+
+  it("retains Tab, Enter and Space activation of Add file", async () => {
+    const user = setupUser()
+    const onUploadFile = vi.fn()
+    const view = render(createElement(ComposerView, baseProps({
+      editor: { isFocused: true } as Editor,
+      editorContent: createElement("div", { contentEditable: true, role: "textbox", "aria-label": "Draft", suppressContentEditableWarning: true }, "Keyboard draft"),
+      onUploadFile,
+    })))
+    view.getByRole("textbox", { name: "Draft" }).focus()
+    await user.tab()
+    const attach = view.getByRole("button", { name: "Add file" })
+    expect(attach).toHaveFocus()
+    await user.keyboard("{Enter}")
+    expect(onUploadFile).toHaveBeenCalledTimes(1)
+    await user.keyboard(" ")
+    expect(onUploadFile).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    { isPrimary: false, button: 0, pointerType: "touch" },
+    { isPrimary: true, button: 2, pointerType: "mouse" },
+  ])("leaves non-activation pointer defaults unchanged for %o", async (pointer) => {
+    const onUploadFile = vi.fn()
+    const view = render(createElement(ComposerView, baseProps({ editor: { isFocused: true } as Editor, onUploadFile })))
+    const attach = view.getByRole("button", { name: "Add file" })
+    expect(fireEvent.pointerDown(attach, { ...pointer, bubbles: true, cancelable: true })).toBe(true)
+    expect(onUploadFile).not.toHaveBeenCalled()
+  })
+
+  it("leaves Send and outside controls free to take focus", async () => {
+    const user = setupUser()
+    const onSend = vi.fn()
+    const onUploadFile = vi.fn()
+    const view = render(createElement("div", null,
+      createElement(ComposerView, baseProps({
+        editor: { isFocused: true } as Editor,
+        editorContent: createElement("div", { contentEditable: true, role: "textbox", "aria-label": "Draft", suppressContentEditableWarning: true }, "Send this draft"),
+        showSend: true, sendDisabled: false, onSend, onUploadFile,
+      })),
+      createElement("button", null, "Outside"),
+    ))
+    const editable = view.getByRole("textbox", { name: "Draft" })
+    editable.focus()
+    const send = view.getByRole("button", { name: "Send message" })
+    await user.click(send)
+    expect(send).toHaveFocus()
+    expect(onSend).toHaveBeenCalledOnce()
+    editable.focus()
+    const outside = view.getByRole("button", { name: "Outside" })
+    await user.click(outside)
+    expect(outside).toHaveFocus()
+    expect(onUploadFile).not.toHaveBeenCalled()
+  })
+
   it("shows preparation feedback without replacing the editor and keeps removal available", () => {
     const file = new File(["image"], "preparing.png", { type: "image/png" })
     const removePendingFile = vi.fn()

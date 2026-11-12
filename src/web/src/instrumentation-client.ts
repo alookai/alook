@@ -1,8 +1,10 @@
+import { installSessionTransport } from "@/lib/session-transport"
 import { installReactScan } from "@/lib/perf/react-scan-install"
 import { bootstrapObservability, onObservedRouterTransition } from "@/lib/observability/client"
 import { isTauri } from "@alook/shared"
 import { bootstrapGoogleAnalytics, updateGooglePageFields } from "@/lib/analytics-consent"
 
+installSessionTransport()
 if (!isTauri()) bootstrapGoogleAnalytics()
 bootstrapObservability("web")
 export function onRouterTransitionStart(url: string) {

@@ -11,17 +11,35 @@ import { DownloadPageView } from "./download-page"
 import { DOWNLOAD_TARGETS, IOS_TESTFLIGHT_URL } from "@/lib/download-platforms"
 import { PublicSiteHeader } from "../home/public-site-header"
 
+function expectStoreDestinations(document: Document) {
+  const group = document.querySelector('[role="group"][aria-label="Store availability"]')
+  expect(group).not.toBeNull()
+  const links = Array.from(group!.querySelectorAll<HTMLAnchorElement>("a[href]"))
+  expect(links.map(link => link.getAttribute("href"))).toEqual([
+    "https://apps.apple.com/app/alook-ai/id6808140039",
+    "https://play.google.com/store/apps/details?id=ai.alook.android",
+  ])
+  expect(links.map(link => link.tabIndex)).toEqual([0, 0])
+  expect(links.map(link => link.getAttribute("aria-disabled"))).not.toContain("true")
+}
+
 describe("complete server-rendered download page", () => {
   it("provides every actual installer before JavaScript and uses real Alook preview modules", () => {
     const installers = DOWNLOAD_TARGETS.map(target => ({ id: target.id, version: "1.0.0", bytes: 1000, url: `https://github.com/alookai/alook/releases/download/v1.0.0/${target.id}` }))
     const html = renderToStaticMarkup(createElement(DownloadPageView, { catalog: { installers, unavailable: false } }))
     for (const item of installers) expect(html).toContain(`href="${item.url}"`)
     expect(html.match(/<h1\b/g)).toHaveLength(1)
-    const document = new JSDOM(html).window.document
-    const devices = document.querySelector('[role="group"][aria-label="Alook on desktop and mobile"]')!
-    expect(devices.querySelectorAll('img[src^="/download/character-"]')).toHaveLength(4)
-    expect(document.querySelectorAll('img[src^="/download/character-"]')).toHaveLength(4)
-    expect(devices.querySelector('[aria-label="The same Alook room updating on desktop and mobile"]')).not.toBeNull()
+    const { window } = new JSDOM(html)
+    try {
+      const document = window.document
+      const devices = document.querySelector('[role="group"][aria-label="Alook on desktop and mobile"]')!
+      expect(devices.querySelectorAll('img[src^="/download/character-"]')).toHaveLength(4)
+      expect(document.querySelectorAll('img[src^="/download/character-"]')).toHaveLength(4)
+      expect(devices.querySelector('[aria-label="The same Alook room updating on desktop and mobile"]')).not.toBeNull()
+      expectStoreDestinations(document)
+    } finally {
+      window.close()
+    }
 
     expect(html).toContain('/landing/posters/machine.webp')
     expect(html).toContain('/landing/posters/mobile.webp')
@@ -43,17 +61,20 @@ describe("complete server-rendered download page", () => {
     expect(html).toContain('id="macos" open=""')
     expect(html).toContain('id="windows" open=""')
     expect(html).toContain('id="linux" open=""')
-    expect(html.match(/Coming soon/g)).toHaveLength(2)
-    expect(html).not.toMatch(/href="[^\"]*(?:apps\.apple|play\.google)/)
     expect(html).toContain('href="/c/me"')
     expect(html).toContain('href="https://github.com/alookai/alook/releases"')
   })
 
-  it("keeps browsing/release fallbacks and store status when the catalog cannot load", () => {
+  it("keeps browsing/release fallbacks and store links when the catalog cannot load", () => {
     const html = renderToStaticMarkup(createElement(DownloadPageView, { catalog: { installers: [], unavailable: true } }))
     expect(html).toContain("We couldn’t load the download list.")
     expect(html.match(/Not available right now/g)).toHaveLength(8)
-    expect(html.match(/Coming soon/g)).toHaveLength(2)
+    const { window } = new JSDOM(html)
+    try {
+      expectStoreDestinations(window.document)
+    } finally {
+      window.close()
+    }
     expect(html).not.toContain("/releases/download/")
     expect(html).toContain('href="/c/me"')
   })
