@@ -73,8 +73,8 @@ export function DownloadPageView({ catalog, initialEnvironment }: { catalog: Dow
           <h2 id="mobile-heading">The conversation comes <HandAccent>with you.</HandAccent></h2>
           <p>Check in with your people and agents, pick up a conversation, and stay in the loop from your phone.</p>
           <div className={styles.stores} role="group" aria-label="Store availability">
-            <span className={styles.store}><SiApple size={24} aria-hidden="true" /><span>App Store<small>Coming soon</small></span></span>
-            <span className={styles.store}><SiGoogleplay size={24} aria-hidden="true" /><span>Google Play<small>Coming soon</small></span></span>
+            <a className={styles.store} href="https://apps.apple.com/app/alook-ai/id6808140039"><SiApple size={24} aria-hidden="true" /><span>App Store</span></a>
+            <a className={styles.store} href="https://play.google.com/store/apps/details?id=ai.alook.android"><SiGoogleplay size={24} aria-hidden="true" /><span>Google Play</span></a>
           </div>
           <div className={styles.mobileDownload}><h3><Image src="/download/testflight.png" width={21} height={21} alt="" />TestFlight</h3><ul className={styles.installers}><li><a data-variant="secondary" className={`${INSTALLER} ${styles.installer}`} href={IOS_TESTFLIGHT_URL}><span><strong>iPhone &amp; iPad</strong><small>Public beta</small></span><ArrowUpRight size={18} aria-hidden="true" /></a></li></ul></div>
           <div id="android" className={styles.mobileDownload}><h3><SiAndroid size={21} aria-hidden="true" />Android APK</h3><InstallerChoices platform="android" catalog={catalog} /></div>

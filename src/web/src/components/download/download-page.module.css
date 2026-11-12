@@ -36,7 +36,6 @@
 .mobileCopy { min-width: 0; }
 .stores { display: flex; flex-wrap: wrap; gap: 16px; margin-block: 32px; }
 .store { display: flex; min-height: 64px; align-items: center; gap: 16px; padding: 12px 16px; border: 1px solid var(--landing-border); color: var(--landing-text); }
-.store small { display: block; margin-top: 4px; color: var(--landing-text-muted); font-family: var(--font-mono); font-size: 11px; }
 .mobileDownload { max-width: 420px; margin-bottom: 24px; scroll-margin-top: 24px; }
 .mobileDownload h3 { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; }
 .browser { padding-block: 64px; text-align: center; background: var(--landing-section-bg); }

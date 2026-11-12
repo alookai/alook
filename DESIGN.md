@@ -235,7 +235,7 @@ Component-only extension metadata and a self-contained source-row preview are re
 
 ### Public download and contact pages
 
-Download and Contact share the Contact-style header and existing landing footer. Their public links have one owner, including Download, Pricing, Blog and Contact. Preserve the current landing green/CRT tokens and responsive gutter. The download page uses a lead action followed by desktop and mobile sections, with actual existing Alook product preview modules. Platform, architecture and installer format are explicit; all available links exist in server HTML. App Store and Google Play show noninteractive Coming soon states, while Android offers the actual APK. Keep the browser entrance visible and do not infer a Mac chip or automatically start a download.
+Download and Contact share the Contact-style header and existing landing footer. Their public links have one owner, including Download, Pricing, Blog and Contact. Preserve the current landing green/CRT tokens and responsive gutter. The download page uses a lead action followed by desktop and mobile sections, with actual existing Alook product preview modules. Platform, architecture and installer format are explicit; all available links exist in server HTML. App Store and Google Play link to the published Alook AI listings; TestFlight and the actual Android APK remain separate entrances. Keep the browser entrance visible and do not infer a Mac chip or automatically start a download.
 
 ### Progressive disclosure
 

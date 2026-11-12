@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server"
+import { JSDOM } from "jsdom"
 import { afterEach, expect, it, vi } from "vitest"
 import { DOWNLOAD_TARGETS } from "@/lib/download-platforms"
 import DownloadPage from "./page"
@@ -33,6 +34,16 @@ it("offers the same real TestFlight beta from the iPhone hero and above Android 
   const html = renderToStaticMarkup(await DownloadPage())
   const hero = html.slice(html.indexOf('aria-labelledby="download-heading"'), html.indexOf('id="desktop"'))
   expect(hero).toContain('href="https://testflight.apple.com/join/4fHgVBVF"')
-  expect(html.match(/Coming soon/g)).toHaveLength(2)
+  const { window } = new JSDOM(html)
+  try {
+    const group = window.document.querySelector('[role="group"][aria-label="Store availability"]')
+    expect(group).not.toBeNull()
+    expect(Array.from(group!.querySelectorAll("a"), link => link.getAttribute("href"))).toEqual([
+      "https://apps.apple.com/app/alook-ai/id6808140039",
+      "https://play.google.com/store/apps/details?id=ai.alook.android",
+    ])
+  } finally {
+    window.close()
+  }
   expect(html.match(/href="https:\/\/testflight.apple.com\/join\/4fHgVBVF"/g)).toHaveLength(2)
 })
