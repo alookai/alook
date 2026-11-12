@@ -512,12 +512,57 @@ static void alookInstallThemeObserver(UIViewController *controller, WKWebView *w
 }
 @end
 
+static BOOL alookViewContainsFirstResponder(UIView *view) {
+    if (view.isFirstResponder) return YES;
+    for (UIView *child in view.subviews) {
+        if (alookViewContainsFirstResponder(child)) return YES;
+    }
+    return NO;
+}
+
 @interface AlookKeyboardHandler : NSObject <WKScriptMessageHandlerWithReply>
 @property (nonatomic, weak) WKWebView *webView;
 @property (nonatomic, weak) UIViewController *viewController;
+@property (nonatomic, copy) NSString *pickerToken;
+@property (nonatomic) BOOL pickerReturning;
 @end
 
 @implementation AlookKeyboardHandler
+
+- (BOOL)hasForegroundView {
+    WKWebView *webView = self.webView;
+    UIViewController *controller = self.viewController;
+    return webView != nil && controller != nil && webView.superview == controller.view &&
+        webView.window != nil && webView.window.windowScene != nil &&
+        webView.window.windowScene.activationState == UISceneActivationStateForegroundActive;
+}
+
+- (BOOL)softwareKeyboardVisible {
+    UIView *host = self.viewController.view;
+    return alookKeyboardGuideVisible(host.keyboardLayoutGuide.layoutFrame, host.safeAreaLayoutGuide.layoutFrame);
+}
+
+- (void)finishPickerReturn:(NSString *)token cancelled:(BOOL)cancelled
+             replyHandler:(void (^)(id, NSString *))replyHandler {
+    if (![self.pickerToken isEqual:token] || !self.pickerReturning) {
+        replyHandler(@{ @"restoring": @NO }, nil);
+        return;
+    }
+    self.pickerToken = nil;
+    self.pickerReturning = NO;
+    UIViewController *presented = self.viewController.presentedViewController;
+    if (cancelled || ![self hasForegroundView] || (presented != nil && !presented.isBeingDismissed) ||
+        [self softwareKeyboardVisible]) {
+        replyHandler(@{ @"restoring": @NO }, nil);
+        return;
+    }
+    NSData *json = [NSJSONSerialization dataWithJSONObject:@[token] options:0 error:nil];
+    NSString *encoded = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
+    NSString *script = [NSString stringWithFormat:
+        @"window.dispatchEvent(new CustomEvent('alook:composer-picker-return',{detail:%@[0]}))", encoded];
+    [self.webView evaluateJavaScript:script completionHandler:nil];
+    replyHandler(@{ @"restoring": @YES }, nil);
+}
 
 - (void)userContentController:(WKUserContentController *)userContentController
       didReceiveScriptMessage:(WKScriptMessage *)message
@@ -529,11 +574,48 @@ static void alookInstallThemeObserver(UIViewController *controller, WKWebView *w
         replyHandler(nil, @"Keyboard view unavailable");
         return;
     }
-    if (![message.body isEqual:@"snapshot"]) {
+    if ([message.body isEqual:@"snapshot"]) {
+        replyHandler(@{ @"resizesViewport": @YES }, nil);
+        return;
+    }
+    NSDictionary *body = [message.body isKindOfClass:NSDictionary.class] ? message.body : nil;
+    NSString *command = [body[@"command"] isKindOfClass:NSString.class] ? body[@"command"] : nil;
+    NSString *token = [body[@"token"] isKindOfClass:NSString.class] ? body[@"token"] : nil;
+    if (token == nil || [[NSUUID alloc] initWithUUIDString:token] == nil) {
         replyHandler(nil, @"Invalid keyboard command");
         return;
     }
-    replyHandler(@{ @"resizesViewport": @YES }, nil);
+    if ([command isEqual:@"capturePicker"]) {
+        BOOL captured = [self hasForegroundView] && [self softwareKeyboardVisible] &&
+            alookViewContainsFirstResponder(webView);
+        self.pickerToken = captured ? token : nil;
+        self.pickerReturning = NO;
+        replyHandler(@{ @"captured": @(captured) }, nil);
+    } else if ([command isEqual:@"cancelPicker"]) {
+        if ([self.pickerToken isEqual:token]) { self.pickerToken = nil; self.pickerReturning = NO; }
+        replyHandler(@{ @"restoring": @NO }, nil);
+    } else if ([command isEqual:@"restorePicker"]) {
+        if (![self.pickerToken isEqual:token] || self.pickerReturning) {
+            replyHandler(@{ @"restoring": @NO }, nil);
+            return;
+        }
+        self.pickerReturning = YES;
+        UIViewController *presented = controller.presentedViewController;
+        id<UIViewControllerTransitionCoordinator> coordinator = presented.transitionCoordinator;
+        if (presented != nil && presented.isBeingDismissed && coordinator != nil) {
+            __weak AlookKeyboardHandler *weakSelf = self;
+            BOOL registered = [coordinator animateAlongsideTransition:nil
+                completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+                    AlookKeyboardHandler *handler = weakSelf;
+                    if (handler == nil) { replyHandler(@{ @"restoring": @NO }, nil); return; }
+                    [handler finishPickerReturn:token cancelled:context.isCancelled replyHandler:replyHandler];
+                }];
+            if (registered) return;
+        }
+        [self finishPickerReturn:token cancelled:presented != nil replyHandler:replyHandler];
+    } else {
+        replyHandler(nil, @"Invalid keyboard command");
+    }
 }
 
 @end
