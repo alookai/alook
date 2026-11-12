@@ -1079,6 +1079,9 @@ export function useScrollAnchor({
             native.scrollToOffset(offset, { behavior: "auto" })
             return true
           }
+          if (readingPositionRef.current && Math.abs(body.viewportOffset - projection.viewportOffset) <= 1) {
+            readingViewportRef.current = { epoch: owner.epoch, width: root.clientWidth, height: root.clientHeight, offset: root.scrollTop }
+          }
           retire()
         }
       }

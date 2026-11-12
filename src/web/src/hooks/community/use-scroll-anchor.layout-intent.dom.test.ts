@@ -1,6 +1,7 @@
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { flattenMessageItems } from "@/lib/community/message-list-items"
+import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 import type { Msg } from "@/lib/community/models/message"
 import { bodyTop, installMessageScrollFixture, mount, resize, restoreMessageScrollFixture, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 
@@ -19,6 +20,58 @@ function visibleBody(root: HTMLElement) {
     .find(element => element.getBoundingClientRect().bottom > 0 && element.getBoundingClientRect().top < root.clientHeight)
   if (!body?.dataset.msgId) throw new Error("A visible message body is required")
   return { id: body.dataset.msgId, top: body.getBoundingClientRect().top }
+}
+
+function tailGeometry(h: ReturnType<typeof mount>, phase: string) {
+  const native = scrollFixture.latest.virtualizer
+  const body = h.root.querySelector<HTMLElement>('[data-msg-id="m30"]')
+  return { phase, bodyTop: body?.getBoundingClientRect().top ?? null,
+    scrollTop: h.root.scrollTop, scrollHeight: h.root.scrollHeight,
+    clientHeight: h.root.clientHeight, clientWidth: h.root.clientWidth,
+    tailDistance: h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop,
+    nativeRootMatches: native.scrollElement === h.root,
+    nativeWidth: native.scrollRect?.width ?? null, nativeHeight: native.scrollRect?.height ?? null,
+    nativeOffset: native.scrollOffset ?? null, nativeScrolling: native.isScrolling, nativeAtEnd: native.isAtEnd(1),
+    readReady: scrollFixture.latest.readPositionReady, followingTail: scrollFixture.latest.followingTail,
+    paginationEnabled: scrollFixture.latest.paginationEnabled,
+    paginationPending: scrollFixture.latest.paginationRequestPending,
+    presentPending: scrollFixture.latest.presentPositionPending, localSubmitVersion: h.input.localSubmitVersion }
+}
+
+function qualifyRawTailAfterHistory(h: ReturnType<typeof mount>, rows: Msg[], projectNew: boolean) {
+  const index = h.input.items.findIndex(item => item.kind === "message" && item.m.id === "m30")
+  const item = h.input.items[index]
+  const measured = scrollFixture.latest.virtualizer.measurementsCache[index]
+  if (!item || item.kind !== "message" || !measured) throw new Error("Expected the measured historical message")
+  h.move(measured.start + (item.paddingTop ?? 0))
+  const body = bodyTop(h.root, "m30")
+  const samples = [tailGeometry(h, "historical-before-New")]
+  expect(scrollFixture.latest.followingTail).toBe(false)
+  expect(scrollFixture.latest.virtualizer.isScrolling).toBe(false)
+  if (projectNew) {
+    h.update({ items: flattenMessageItems(rows, "m30"), newDividerBefore: "m30" })
+    samples.push(tailGeometry(h, "historical-after-New"))
+    expect(h.root.querySelector('[data-message-divider-for="m30"] [data-new-divider]')).not.toBeNull()
+    expect(Math.abs(bodyTop(h.root, "m30") - body), JSON.stringify(samples)).toBeLessThanOrEqual(1)
+  }
+  act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight }))
+  runFrames()
+  const native = scrollFixture.latest.virtualizer
+  samples.push(tailGeometry(h, "settled-raw-tail"))
+  const detail = JSON.stringify(samples)
+  expect(native.scrollElement, detail).toBe(h.root)
+  expect(native.scrollRect?.width, detail).toBe(h.root.clientWidth)
+  expect(native.scrollRect?.height, detail).toBe(h.root.clientHeight)
+  expect(native.isScrolling, detail).toBe(false)
+  expect(native.scrollOffset, detail).toBeCloseTo(h.root.scrollTop, 1)
+  expect(native.isAtEnd(1), detail).toBe(true)
+  expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop), detail).toBeLessThanOrEqual(1)
+  expect(scrollFixture.latest.readPositionReady, detail).toBe(true)
+  expect(scrollFixture.latest.paginationEnabled, detail).toBe(true)
+  expect(scrollFixture.latest.paginationRequestPending, detail).toBe(false)
+  expect(scrollFixture.latest.presentPositionPending, detail).toBe(false)
+  expect(h.input.localSubmitVersion, detail).toBe(0)
+  return samples
 }
 
 it.each([
@@ -241,6 +294,97 @@ it.each(["bottom", "send"] as const)("restores tail following after a historical
     expect(scrollFixture.latest.followingTail).toBe(true)
     h.update({ items: flattenMessageItems([...rows, { ...rows.at(-1)!, id: "next", seq: 51 }], undefined) })
     expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop)).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  } finally { h.view.unmount() }
+})
+
+
+it.each([false, true])("follows passive self append after a qualified raw tail arrival with New projection=%s", projectNew => {
+  const rows = messages()
+  const h = mount({ items: flattenMessageItems(rows, undefined), hasMoreOlder: false, hasMoreNewer: false,
+    positionEntry: {}, newBoundaryOwner: {}, localSubmitVersion: 0,
+    tailPaddingEnd: MESSAGE_RAIL_TAIL_PADDING_END_PX, viewportInsetEnd: 0 })
+  try {
+    const samples = qualifyRawTailAfterHistory(h, rows, projectNew)
+    const height = h.root.scrollHeight
+    const appended: Msg = { ...rows[rows.length - 1], id: "passive-self", seq: 51, authorId: "self",
+      content: "Passive self append", createdAt: new Date(Date.UTC(2026, 0, 1, 12, 50)).toISOString() }
+    h.update({ items: flattenMessageItems([...rows, appended], projectNew ? "m30" : undefined) })
+    samples.push(tailGeometry(h, "passive-self-append"))
+    expect(h.input.localSubmitVersion).toBe(0)
+    expect(h.root.scrollHeight).toBeGreaterThan(height)
+    expect(h.root.querySelector('[data-msg-id="passive-self"]')).not.toBeNull()
+    expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop), JSON.stringify(samples)).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  } finally { h.view.unmount() }
+})
+
+it.each([false, true])("keeps exact tail through overlay shrink and grow after a raw tail arrival with New projection=%s", projectNew => {
+  const rows = messages()
+  const h = mount({ items: flattenMessageItems(rows, undefined), hasMoreOlder: false, hasMoreNewer: false,
+    positionEntry: {}, newBoundaryOwner: {}, localSubmitVersion: 0,
+    tailPaddingEnd: MESSAGE_RAIL_TAIL_PADDING_END_PX, viewportInsetEnd: 0 })
+  try {
+    const samples = qualifyRawTailAfterHistory(h, rows, projectNew)
+    const initialHeight = h.root.scrollHeight, viewportHeight = h.root.clientHeight
+    h.update({ tailPaddingEnd: MESSAGE_RAIL_TAIL_PADDING_END_PX + 228, viewportInsetEnd: 228 })
+    samples.push(tailGeometry(h, "first-overlay-growth"))
+    expect(h.root.clientHeight).toBe(viewportHeight)
+    expect(h.root.scrollHeight).toBeGreaterThan(initialHeight)
+    expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop), JSON.stringify(samples)).toBeLessThanOrEqual(1)
+    const grownHeight = h.root.scrollHeight
+    h.update({ tailPaddingEnd: MESSAGE_RAIL_TAIL_PADDING_END_PX + 60, viewportInsetEnd: 60 })
+    samples.push(tailGeometry(h, "overlay-shrink"))
+    expect(h.root.clientHeight).toBe(viewportHeight)
+    expect(h.root.scrollHeight).toBeLessThan(grownHeight)
+    expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop), JSON.stringify(samples)).toBeLessThanOrEqual(1)
+    const shrunkHeight = h.root.scrollHeight
+    h.update({ tailPaddingEnd: MESSAGE_RAIL_TAIL_PADDING_END_PX + 228, viewportInsetEnd: 228 })
+    samples.push(tailGeometry(h, "overlay-regrowth"))
+    expect(h.root.clientHeight).toBe(viewportHeight)
+    expect(h.root.scrollHeight).toBeGreaterThan(shrunkHeight)
+    expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop), JSON.stringify(samples)).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  } finally { h.view.unmount() }
+})
+
+
+it.each([0, 1])("does not let New's own layout compensation restore following after upward takeover at %spx", distance => {
+  const rows = messages()
+  const h = mount({ items: flattenMessageItems(rows, undefined), hasMoreOlder: false, hasMoreNewer: false,
+    positionEntry: {}, newBoundaryOwner: {}, localSubmitVersion: 0 })
+  try {
+    h.move(h.root.scrollHeight - h.root.clientHeight - distance)
+    fireEvent.wheel(h.root, { deltaY: -20 })
+    runFrames()
+    expect(scrollFixture.latest.followingTail).toBe(false)
+    expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop - distance)).toBeLessThanOrEqual(1)
+    const body = visibleBody(h.root), beforeOffset = h.root.scrollTop
+    const sample = (phase: string) => ({ ...tailGeometry(h, phase), heldMessage: body.id, heldTop: bodyTop(h.root, body.id) })
+    const samples = [sample("upward-takeover-before-New")]
+    h.update({ items: flattenMessageItems(rows, "m40"), newDividerBefore: "m40" })
+    samples.push(sample("own-New-compensation-settled"))
+    expect(h.root.querySelector('[data-message-divider-for="m40"] [data-new-divider]')).not.toBeNull()
+    expect(h.root.scrollTop, JSON.stringify(samples)).toBeGreaterThan(beforeOffset + 1)
+    expect(Math.abs(bodyTop(h.root, body.id) - body.top), JSON.stringify(samples)).toBeLessThanOrEqual(1)
+    expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop), JSON.stringify(samples)).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.virtualizer.isScrolling).toBe(false)
+    const compensatedOffset = h.root.scrollTop
+    act(() => h.root.scrollTo({ top: compensatedOffset }))
+    runFrames()
+    samples.push(sample("same-offset-scroll-after-compensation"))
+    expect(scrollFixture.latest.followingTail, JSON.stringify(samples)).toBe(false)
+    const appended: Msg = { ...rows[rows.length - 1], id: "held-passive-self", seq: 51, authorId: "self",
+      content: "Passive self append after takeover", createdAt: new Date(Date.UTC(2026, 0, 1, 12, 50)).toISOString() }
+    h.update({ items: flattenMessageItems([...rows, appended], "m40") })
+    samples.push(sample("passive-append-after-own-compensation"))
+    expect(h.input.localSubmitVersion).toBe(0)
+    expect(h.root.scrollTop, JSON.stringify(samples)).toBeCloseTo(compensatedOffset, 1)
+    expect(Math.abs(bodyTop(h.root, body.id) - body.top), JSON.stringify(samples)).toBeLessThanOrEqual(1)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeGreaterThan(1)
+    expect(scrollFixture.latest.followingTail, JSON.stringify(samples)).toBe(false)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   } finally { h.view.unmount() }
 })
