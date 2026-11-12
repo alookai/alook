@@ -2,6 +2,7 @@ import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
 import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
+import { waitForCommittedGeometry } from "./_fixtures/message-scroll-characterization"
 import { solidPngFixture } from "../fixtures/media"
 import type { Locator } from "@playwright/test"
 
@@ -63,8 +64,15 @@ test("grouped message toolbar stays above text and remains reachable", async ({ 
   for (const theme of ["light", "dark"]) {
     await page.evaluate((value) => { localStorage.setItem("theme", value) }, theme)
     await page.reload({ waitUntil: "commit" })
+    const scroller = page.getByTestId(tid.messageScroller)
+    await expect(scroller.locator('[data-read-position-ready="true"]')).toBeVisible()
+    for (const id of [firstId, groupedId, portraitId]) await expect(scroller.getByTestId(tid.message(id))).toBeVisible()
+    const portraitImage = scroller.getByTestId(tid.messageImage(portraitId, 0))
+    await expect(portraitImage).toHaveAttribute("data-remote-image-state", "ready")
+    await expect.poll(() => portraitImage.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0 && image.naturalHeight > 0)).toBe(true)
     await expect(grouped.locator("[data-community-message-body]")).toBeVisible()
     await expect(page.getByTestId(tid.channelRow(channelId))).toBeVisible()
+    await waitForCommittedGeometry(scroller)
     await grouped.hover()
     const more = grouped.getByRole("button", { name: "More actions", exact: true })
     const toolbar = more.locator("..")

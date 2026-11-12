@@ -74,8 +74,10 @@ function estimatePlainMessage(content: string): number {
   return 24 + Math.min(Math.max(1, Math.ceil(content.length / 55)) * 20, 400)
 }
 
-export async function seedResizableHtmlPreview(page: Page, channelId: string) {
-  const html = '<!doctype html><html><body><div id="content" style="height:160px">Asynchronous content</div><script>addEventListener("message",event=>{if(event.source===parent&&event.data?.type==="scroll-fixture-height"&&Number.isFinite(event.data.height))document.getElementById("content").style.height=event.data.height+"px"})</script></body></html>'
+export async function seedResizableHtmlPreview(page: Page, channelId: string, options?: { measuredResize?: boolean }) {
+  const html = options?.measuredResize
+    ? '<!doctype html><html><body><div id="content" style="height:160px">Asynchronous content</div><script>addEventListener("message",event=>{if(event.source!==parent||event.data?.type!=="scroll-fixture-height"||!Number.isFinite(event.data.height))return;const content=document.getElementById("content");content.style.height=event.data.height+"px";parent.postMessage({type:"alook-html-height",height:content.getBoundingClientRect().height},"*")})</script></body></html>'
+    : '<!doctype html><html><body><div id="content" style="height:160px">Asynchronous content</div><script>addEventListener("message",event=>{if(event.source===parent&&event.data?.type==="scroll-fixture-height"&&Number.isFinite(event.data.height))document.getElementById("content").style.height=event.data.height+"px"})</script></body></html>'
   const upload = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/attachments`, {
     headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
     multipart: { file: { name: "scroll-resize.html", mimeType: "text/html", buffer: Buffer.from(html) } },

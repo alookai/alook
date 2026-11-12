@@ -9,7 +9,7 @@ import { finishAndAttach, holdNextRequest, identity, seedResizableHtmlPreview, w
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
 
-async function prepare(actors: CaseActors, kind: "channel" | "dm", html = false) {
+async function prepare(actors: CaseActors, kind: "channel" | "dm", html = false, htmlOptions?: { measuredResize: true }) {
   let opened = kind === "channel" ? await actors.asUser("alice") : undefined
   let serverId: string | undefined
   let channelId: string
@@ -23,7 +23,8 @@ async function prepare(actors: CaseActors, kind: "channel" | "dm", html = false)
   for (let index = 0; index < 300; index++) {
     if (html && index === 145) {
       if (!opened) throw new Error("HTML preparation requires the existing channel actor")
-      preview = await seedResizableHtmlPreview(opened.page, channelId)
+      if (htmlOptions) preview = await seedResizableHtmlPreview(opened.page, channelId, htmlOptions)
+      else preview = await seedResizableHtmlPreview(opened.page, channelId)
       ids.push(preview.messageId)
     } else ids.push(await actors.seed.seedMessage("bob", channelId,
       `reading ${index}\n\ncontext ${index}\n\nthird line${index % 7 === 0 ? "\n\nvariable fourth line" : ""}`))
@@ -64,7 +65,6 @@ async function enterDmMiddle(actors: CaseActors, value: ReadingCase) {
     const url = new URL(response.url())
     return response.request().method() === "GET" && url.pathname === endpoint
       && url.searchParams.get("entry") === "1" && url.searchParams.get("window") === "tail"
-      && url.searchParams.get("newAfterSeq") === String(checkpointSeq)
   }))
   void entryResponse.catch(() => undefined)
   await gotoAfterUserWsAuth(page, path)
@@ -366,6 +366,22 @@ test("channel older failure retries in the same window after a held real page", 
   await moveToEdge(root, "start")
   const retry = page.getByRole("alert").filter({ hasText: "Could not load older messages." }).getByRole("button", { name: "Retry" })
   await expect(retry).toBeVisible()
+  await retry.scrollIntoViewIfNeeded()
+  await expect(retry).toBeEnabled()
+  await expect.poll(() => retry.evaluate((button, scrollerId) => {
+    const scroller = button.closest<HTMLElement>(`[data-testid="${scrollerId}"]`)
+    if (!scroller) return { readable: false, hit: false }
+    const rect = button.getBoundingClientRect(), viewport = scroller.getBoundingClientRect()
+    const top = viewport.top + scroller.clientTop, left = viewport.left + scroller.clientLeft
+    const right = left + scroller.clientWidth
+    const bottom = top + scroller.clientHeight - Math.max(0, Number(scroller.dataset.composerOcclusion ?? 0))
+    return {
+      readable: rect.width > 0 && rect.height > 0 && rect.top >= top && rect.bottom <= bottom && rect.left >= left && rect.right <= right,
+      hit: button.contains(button.ownerDocument.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
+      bounds: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+      viewport: { top, bottom, left, right },
+    }
+  }, tid.messageScroller)).toMatchObject({ readable: true, hit: true })
   const before = await waitForCommittedGeometry(root)
   const count = olderGets
   await page.waitForTimeout(250)
@@ -436,7 +452,7 @@ test("DM newer and present recovery keep readable rows and retire a late present
 test("history preserves real HTML body geometry while an older receipt is pending", async ({ caseActors }, info) => {
   test.setTimeout(240_000)
   const actors = await caseActors(["alice", "bob"])
-  const { page, path, ids, endpoint, channelId, preview } = await prepare(actors, "channel", true)
+  const { page, path, ids, endpoint, channelId, preview } = await prepare(actors, "channel", true, { measuredResize: true })
   expect(preview).toBeDefined()
   await gotoAfterUserWsAuth(page, `${path}?msg=${ids[150]}`)
   const root = page.getByTestId(tid.messageScroller)
@@ -461,14 +477,41 @@ test("history preserves real HTML body geometry while an older receipt is pendin
   }, ids[150])
   const frame = page.getByTestId(tid.htmlPreviewFrame(preview!.attachmentId))
   await expect(frame).toBeAttached()
+  await expect(page.getByTestId(tid.htmlPreview(preview!.attachmentId))).toHaveAttribute("data-html-preview-status", "ready")
   const before = await waitForCommittedGeometry(root)
   const box = await frame.boundingBox()
   expect(box).not.toBeNull()
   expect(box!.y + box!.height).toBeLessThanOrEqual(before.scrollerRect.top + 1)
+  const resizeFromMeasuredChild = async (height: number) => {
+    const receipt = await frame.evaluate((element, requestedHeight) => new Promise<{ sameFrame: boolean; origin: string; height: number; trusted: boolean }>((resolve, reject) => {
+      const source = (element as HTMLIFrameElement).contentWindow
+      if (!source) { reject(new Error("The measuring iframe must have its real WindowProxy")); return }
+      const receive = (event: MessageEvent<unknown>) => {
+        const data = event.data
+        if (event.source !== source || event.origin !== "null" || typeof data !== "object" || data === null
+          || !("type" in data) || data.type !== "alook-html-height" || !("height" in data)
+          || typeof data.height !== "number" || data.height !== requestedHeight) return
+        window.removeEventListener("message", receive)
+        window.clearTimeout(timer)
+        resolve({ sameFrame: event.source === source, origin: event.origin, height: data.height, trusted: event.isTrusted })
+      }
+      const timer = window.setTimeout(() => {
+        window.removeEventListener("message", receive)
+        reject(new Error("The real sandboxed child did not publish its measured height"))
+      }, 10_000)
+      window.addEventListener("message", receive)
+      source.postMessage({ type: "scroll-fixture-height", height: requestedHeight }, "*")
+    }), height)
+    const measured = await frame.contentFrame().locator("#content").evaluate(element => element.getBoundingClientRect().height)
+    expect(receipt).toEqual({ sameFrame: true, origin: "null", height: measured, trusted: true })
+    await info.attach(`html-measured-receipt-${height}`, { body: JSON.stringify({ requested: height, measured, receipt }), contentType: "application/json" })
+  }
   for (const height of [600, 160]) {
     await markScrollTrace(page, `html-above-fold-${height}-before`, { detail: await waitForCommittedGeometry(root) })
-    await frame.evaluate((element, nextHeight) => (element as HTMLIFrameElement).contentWindow?.postMessage({ type: "scroll-fixture-height", height: nextHeight }, "*"), height)
+    const measurement = resizeFromMeasuredChild(height)
+    void measurement.catch(() => undefined)
     await expect(frame).toHaveCSS("height", `${height}px`)
+    await measurement
     await expect.poll(async () => Math.abs(await bodyOffset(root, before.firstVisibleId!) - before.firstVisibleOffset!)).toBeLessThanOrEqual(1)
   }
   await root.evaluate((element, id) => {
@@ -479,8 +522,10 @@ test("history preserves real HTML body geometry while an older receipt is pendin
     element.dispatchEvent(new Event("scroll"))
   }, preview!.messageId)
   const spanningTop = await bodyOffset(root, preview!.messageId)
-  await frame.evaluate(element => (element as HTMLIFrameElement).contentWindow?.postMessage({ type: "scroll-fixture-height", height: 1200 }, "*"))
+  const spanningMeasurement = resizeFromMeasuredChild(1200)
+  void spanningMeasurement.catch(() => undefined)
   await expect(frame).toHaveCSS("height", "1200px")
+  await spanningMeasurement
   await expect.poll(async () => Math.abs(await bodyOffset(root, preview!.messageId) - spanningTop)).toBeLessThanOrEqual(1)
   held.release()
   await expect(root).toHaveAttribute("data-pagination-enabled", "true")
@@ -517,11 +562,33 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
   })
   expect(checkpoint.status).toBe(200)
   const warmDocument = await page.evaluate(() => performance.timeOrigin)
-  await page.getByRole("link", { name: "Friends", exact: true }).click()
-  await expect(page).toHaveURL(/\/c\/me\/friends$/)
+  await root.hover()
+  await page.mouse.wheel(0, -180)
+  await expect.poll(() => root.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeGreaterThan(1)
+  await waitForCommittedGeometry(root)
   const unread = await actors.seed.seedMessage("bob", dmId, "late peer boundary")
   await expect.poll(() => proxy.frames.flatMap(communityFrameEvents).some(event =>
     event.type === "community:message.create" && event.channelId === dmId && event.message?.id === unread)).toBe(true)
+  const unreadBody = root.getByTestId(tid.message(unread)).locator("[data-community-message-body]")
+  await expect(unreadBody).toBeVisible()
+  await expect.poll(() => unreadBody.evaluate((body, scrollerId) => {
+    const scroller = body.closest<HTMLElement>(`[data-testid="${scrollerId}"]`)
+    if (!scroller) return { mounted: false, belowReadable: false }
+    const rect = body.getBoundingClientRect(), viewport = scroller.getBoundingClientRect()
+    const bottom = viewport.top + scroller.clientTop + scroller.clientHeight - Math.max(0, Number(scroller.dataset.composerOcclusion ?? 0))
+    return { mounted: body.isConnected && rect.width > 0 && rect.height > 0, belowReadable: rect.top >= bottom,
+      bodyTop: rect.top, bodyBottom: rect.bottom, readableBottom: bottom }
+  }, tid.messageScroller)).toMatchObject({ mounted: true, belowReadable: true })
+  const unreadStateResponse = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${dmId}/messages?entry=1`, {
+    headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL },
+  })
+  expect(unreadStateResponse.status).toBe(200)
+  const unreadState = CommunityConversationEntryReadSchema.parse(await unreadStateResponse.json())
+  expect(unreadState.channelId).toBe(dmId)
+  expect(unreadState.viewerId).toBe(actors.userId("alice"))
+  expect(unreadState.readState.lastReadMessageId).toBe(readBob)
+  await page.getByRole("link", { name: "Friends", exact: true }).click()
+  await expect(page).toHaveURL(/\/c\/me\/friends$/)
   const held = await holdNextRequest(actors, page, `**/api/community/channels/${dmId}/messages**`, url => url.searchParams.get("entry") === "1")
   await page.locator(`a[href="${path}"]`).first().click()
   await expect(page).toHaveURL(new RegExp(`${dmId}$`))
@@ -589,11 +656,34 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
   await expect.poll(async () => Math.abs(await bodyOffset(root, history.firstVisibleId!) - history.firstVisibleOffset!)).toBeLessThanOrEqual(1)
   await page.setViewportSize(viewport)
   await expect.poll(async () => Math.abs(await bodyOffset(root, history.firstVisibleId!) - history.firstVisibleOffset!)).toBeLessThanOrEqual(1)
-  await page.getByRole("link", { name: "Friends", exact: true }).click()
-  await expect(page).toHaveURL(/\/c\/me\/friends$/)
+  await expect.poll(() => root.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeGreaterThan(1)
+  const readHistoryCheckpoint = async () => {
+    const response = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${dmId}/messages?entry=1`, {
+      headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL },
+    })
+    expect(response.status).toBe(200)
+    const entry = CommunityConversationEntryReadSchema.parse(await response.json())
+    expect(entry.channelId).toBe(dmId)
+    expect(entry.viewerId).toBe(actors.userId("alice"))
+    return entry.readState
+  }
+  const historyReadBefore = await readHistoryCheckpoint()
   const secondPeer = await actors.seed.seedMessage("bob", dmId, "late New during manual history")
   await expect.poll(() => proxy.frames.flatMap(communityFrameEvents).some(event =>
     event.type === "community:message.create" && event.message?.id === secondPeer)).toBe(true)
+  const secondBody = root.getByTestId(tid.message(secondPeer)).locator("[data-community-message-body]")
+  await expect(secondBody).toBeVisible()
+  await expect.poll(() => secondBody.evaluate((body, scrollerId) => {
+    const scroller = body.closest<HTMLElement>(`[data-testid="${scrollerId}"]`)
+    if (!scroller) return { mounted: false, belowReadable: false }
+    const rect = body.getBoundingClientRect(), viewport = scroller.getBoundingClientRect()
+    const bottom = viewport.top + scroller.clientTop + scroller.clientHeight - Math.max(0, Number(scroller.dataset.composerOcclusion ?? 0))
+    return { mounted: body.isConnected && rect.width > 0 && rect.height > 0, belowReadable: rect.top >= bottom,
+      bodyTop: rect.top, bodyBottom: rect.bottom, readableBottom: bottom }
+  }, tid.messageScroller)).toMatchObject({ mounted: true, belowReadable: true })
+  expect(await readHistoryCheckpoint()).toEqual(historyReadBefore)
+  await page.getByRole("link", { name: "Friends", exact: true }).click()
+  await expect(page).toHaveURL(/\/c\/me\/friends$/)
   const historyEntry = await holdNextRequest(actors, page, `**/api/community/channels/${dmId}/messages**`, url =>
     url.searchParams.get("entry") === "1" && !url.searchParams.has("newAfterSeq"))
   await page.locator(`a[href="${path}"]`).first().click()
