@@ -31,12 +31,42 @@ test.describe("eject, navigation & logout", () => {
     await prepareCase1(actors)
 
     const { page } = await asUser("logout")
-    await page.goto("/c")
-    await page.waitForURL(/\/c/, { timeout: 20_000 , waitUntil: "commit" })
-
-    // Drive the real logout: User settings → Log Out → redirect to sign-in.
-    await page.getByRole("button", { name: "User settings" }).click()
-    await page.getByRole("button", { name: "Log Out" }).click()
+    let release!: () => void
+    const released = new Promise<void>(resolve => { release = resolve })
+    let ready!: () => void
+    const held = new Promise<void>(resolve => { ready = resolve })
+    let intercepted = false
+    let signOutStarted = false
+    page.on("request", request => {
+      if (new URL(request.url()).pathname === "/api/auth/sign-out") signOutStarted = true
+    })
+    await page.route("**/api/community/friends/pending", async route => {
+      if (intercepted) { await route.continue(); return }
+      intercepted = true
+      const response = await fetch(route.request().url(), { headers: await route.request().allHeaders() })
+      const body = Buffer.from(await response.arrayBuffer())
+      expect(response.status).toBe(200)
+      expect(response.headers.getSetCookie().some(value => value.startsWith("better-auth.session_data="))).toBe(true)
+      ready()
+      await released
+      const headers = Object.fromEntries(response.headers)
+      delete headers["content-encoding"]
+      delete headers["content-length"]
+      await route.fulfill({ status: response.status, headers, body })
+    })
+    try {
+      await page.goto("/c")
+      await page.waitForURL(/\/c/, { timeout: 20_000 , waitUntil: "commit" })
+      await held
+      await page.getByRole("button", { name: "User settings" }).click()
+      await page.getByRole("button", { name: "Log Out" }).click()
+      const admission = await page.evaluate(async () => {
+        const paths = ["/api/auth/get-session", "/api/ws/token?refresh=1", "/api/community/servers", "/api/community/notifications/devices"]
+        return Promise.all(paths.map(path => fetch(path).then(() => "sent", error => error.name)))
+      })
+      expect(admission).toEqual(["AbortError", "AbortError", "AbortError", "AbortError"])
+      expect(signOutStarted).toBe(false)
+    } finally { release() }
     await page.waitForURL(/\/sign-in/, { timeout: 20_000 , waitUntil: "commit" })
 
     await expect.poll(async () => (await page.context().cookies())

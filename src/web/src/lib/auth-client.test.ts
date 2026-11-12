@@ -72,4 +72,13 @@ describe("auth client sign out", () => {
     await expect(signOut()).rejects.toBe(error)
     expect(mocks.resume).toHaveBeenCalledOnce()
   })
+  it("preserves both SDK option positions while using the logout transport", async () => {
+    const onSuccess = vi.fn()
+    await signOut({ fetchOptions: { onSuccess } }, { headers: { "x-request-id": "fixture" } })
+    const options = mocks.underlyingSignOut.mock.calls[0][0].fetchOptions
+    expect(options.onSuccess).toBe(onSuccess)
+    expect(options.headers).toEqual({ "x-request-id": "fixture" })
+    expect(options.customFetchImpl).toBeTypeOf("function")
+  })
+
 })
