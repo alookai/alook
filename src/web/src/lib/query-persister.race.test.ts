@@ -19,6 +19,40 @@ const blobKey = (user: string) => `${PERSIST_CACHE_PREFIX}:${user}:client`
 afterEach(() => vi.restoreAllMocks())
 
 describe("native IDB persistence retirement", () => {
+  it("stops an already queued payload and later empty cleanup without changing compatible cache epochs", async () => {
+    const user = "build-retired-writer"
+    await clearPersistedCache(user)
+    const native = createIdbPersister(user), source = new QueryClient()
+    source.setQueryData(communityKeys.communityDbCollection(user, "profiles"), [
+      { id: user, name: "Retained profile", discriminator: "0042", avatar: null, avatarVersion: 0 },
+    ])
+    const original = { timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(source) }
+    await native.persistClient(original)
+    const before = await get(blobKey(user))
+    const queued = native.persistClient({ ...original, clientState: { queries: [], mutations: [] } })
+    native.stopPersisting()
+    await queued
+    await native.removeClient()
+    await native.persistClient({ ...client, timestamp: 999 })
+    expect(await get(blobKey(user))).toBe(before)
+    expect(await native.isCurrent()).toBe(true)
+    expect(await createIdbPersister(user).restoreClient()).toEqual(original)
+    source.clear()
+  })
+
+  it("keeps real account retirement authoritative after payload persistence stops", async () => {
+    const user = "build-retired-account"
+    const native = createIdbPersister(user)
+    await native.persistClient(client)
+    native.stopPersisting()
+    const reader = createIdbPersister(user)
+    expect(await reader.isCurrent()).toBe(true)
+    await native.retireAccount()
+    expect(await reader.isCurrent()).toBe(false)
+    expect(await reader.restoreClient()).toBeUndefined()
+    await native.persistClient(client)
+    expect(await get(blobKey(user))).toBeUndefined()
+  })
   it("never imports an old-version bare write after device clear", async () => {
     const user = "u_old_version_tab"
     const { clearAllPersistedCaches } = await import("./query-persister")

@@ -249,7 +249,7 @@ function publishCacheInvalidation() {
   cacheInvalidation.setState((version) => version + 1)
   try { if (typeof localStorage !== "undefined") localStorage.setItem(CACHE_INVALIDATION_STORAGE_KEY, crypto.randomUUID()) } catch {}
 }
-export type QualifiedPersister = Persister & { rememberAccountIdentity: (identity: PersistedAccountIdentity, assertCurrent: () => void) => Promise<void>; isCurrent: () => Promise<boolean>; retireAccount: () => Promise<void>; retireChannels: (ids: Iterable<string>, deleted?: boolean) => Promise<void> }
+export type QualifiedPersister = Persister & { stopPersisting: () => void; rememberAccountIdentity: (identity: PersistedAccountIdentity, assertCurrent: () => void) => Promise<void>; isCurrent: () => Promise<boolean>; retireAccount: () => Promise<void>; retireChannels: (ids: Iterable<string>, deleted?: boolean) => Promise<void> }
 function isPersistedCacheBlobKey(key: IDBValidKey): key is string {
   return typeof key === "string" && /^alook:(?:qc:[^:]+|business:v\d+):[^:]+(?::application)?:client$/.test(key)
 }
@@ -379,6 +379,7 @@ async function withEligiblePersister<T>(
 /** Native TanStack persister, qualified against durable device/account epochs. */
 export function createIdbPersister(userId: string | null): QualifiedPersister {
   const key = blobKeyFor(userId)
+  let persisting = true
   let initialSnapshot: { raw: string; decoded: NonNullable<ReturnType<typeof decodeDiskSnapshot>> } | undefined
   let captureInitialSnapshot = true
   const discardInitialSnapshot = () => { captureInitialSnapshot = false; initialSnapshot = undefined }
@@ -391,22 +392,23 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
       getItem: (get<string>).bind(undefined, key, cacheStore),
       setItem: (_k: string, value: string) => withEligiblePersister(
         key, userId, eligibility, "readwrite", undefined, async (store, current, expected) => {
+          if (!persisting) return
           const snapshot = scrubDehydratedClient(JSON.parse(value) as PersistedClient, userId, changedChannelFences(current, expected))
           const { device, account } = await eligibility
-          store.put(JSON.stringify({ ...snapshot, version: PERSIST_VERSION, ownerEpochs: { device, account }, channelFences: [...current] }), key)
+          if (persisting) store.put(JSON.stringify({ ...snapshot, version: PERSIST_VERSION, ownerEpochs: { device, account }, channelFences: [...current] }), key)
         },
       ),
       // Expiry/buster removal removes only this payload. It does not retire
       // the owner, so its subsequent fresh network results can persist.
       removeItem: () => withEligiblePersister(
-        key, userId, eligibility, "readwrite", undefined, async (store) => { store.delete(key) },
+        key, userId, eligibility, "readwrite", undefined, async (store) => { if (persisting) store.delete(key) },
       ),
     },
     key: "alook-query-cache",
     serialize: (client) => JSON.stringify(scrubDehydratedClient(client, userId)),
   })
   const persister: Persister = {
-    persistClient: (client) => { discardInitialSnapshot(); return writer.persistClient(client) },
+    persistClient: (client) => { if (!persisting) return; discardInitialSnapshot(); return writer.persistClient(client) },
     restoreClient: async () => {
       try {
         const input = await observeRestoreRead(() => withEligiblePersister(key, userId, eligibility, "readwrite", undefined, async (store, current) => {
@@ -426,9 +428,10 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
         }, PERSIST_BUSTER, PERSIST_MAX_AGE_MS)
       } finally { discardInitialSnapshot() }
     },
-    removeClient: () => { discardInitialSnapshot(); return writer.removeClient() },
+    removeClient: () => { if (!persisting) return; discardInitialSnapshot(); return writer.removeClient() },
   }
   return Object.assign(persister, {
+    stopPersisting: () => { persisting = false },
     rememberAccountIdentity: (identity: PersistedAccountIdentity, assertCurrent: () => void) => withEligiblePersister(
       key, userId, eligibility, "readwrite", undefined, async store => {
         assertCurrent()

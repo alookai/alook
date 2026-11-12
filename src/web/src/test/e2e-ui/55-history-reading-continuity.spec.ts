@@ -336,6 +336,67 @@ async function moveToEdge(root: Locator, edge: "start" | "end") {
   }, edge)
 }
 
+async function prepareReadableRetry(actors: CaseActors, page: Page, root: Locator, retry: Locator, info: TestInfo, direction: "older" | "newer") {
+  await retry.scrollIntoViewIfNeeded()
+  await expect(retry).toBeEnabled()
+  const read = () => retry.evaluate((button, scrollerId) => {
+    const scroller = button.closest<HTMLElement>(`[data-testid="${scrollerId}"]`)
+    if (!scroller) return { readable: false, hit: false, root: null }
+    const rect = button.getBoundingClientRect(), viewport = scroller.getBoundingClientRect()
+    const top = viewport.top + scroller.clientTop, left = viewport.left + scroller.clientLeft
+    const right = left + scroller.clientWidth
+    const capsuleHeight = Math.max(0, Number(scroller.dataset.composerOcclusion ?? 0))
+    const bottom = top + scroller.clientHeight - capsuleHeight
+    const hit = button.ownerDocument.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+    return {
+      readable: button.isConnected && rect.width > 0 && rect.height > 0 && rect.top >= top && rect.bottom <= bottom && rect.left >= left && rect.right <= right,
+      hit: button.contains(hit),
+      bounds: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, width: rect.width, height: rect.height },
+      viewport: { top, bottom, left, right },
+      hitElement: hit ? { tag: hit.tagName, testId: hit.getAttribute("data-testid"), slot: hit.getAttribute("data-slot"),
+        role: hit.getAttribute("role"), ownerTestId: hit.closest(`[data-testid="${scrollerId}"]`)?.getAttribute("data-testid") ?? null } : null,
+      root: { tag: scroller.tagName, testId: scroller.dataset.testid, connected: scroller.isConnected,
+        scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight, clientHeight: scroller.clientHeight,
+        clientWidth: scroller.clientWidth, clientTop: scroller.clientTop, clientLeft: scroller.clientLeft, capsuleHeight,
+        ready: scroller.querySelector("[data-read-position-ready]")?.getAttribute("data-read-position-ready"),
+        pagination: scroller.dataset.paginationEnabled },
+    }
+  }, tid.messageScroller)
+  let sample: Awaited<ReturnType<typeof read>> | undefined
+  actors.onCleanup(async () => { await info.attach(`${direction}-retry-preparation.json`, {
+    body: JSON.stringify(sample ?? null, null, 2), contentType: "application/json",
+  }) })
+  sample = await read()
+  if (sample.bounds && sample.viewport) {
+    const delta = sample.bounds.bottom > sample.viewport.bottom ? Math.ceil(sample.bounds.bottom - sample.viewport.bottom)
+      : sample.bounds.top < sample.viewport.top ? Math.floor(sample.bounds.top - sample.viewport.top) : 0
+    if (delta !== 0) {
+      await root.hover()
+      await page.mouse.wheel(0, delta)
+    }
+  }
+  await expect.poll(async () => { sample = await read(); return sample }).toMatchObject({ readable: true, hit: true })
+}
+
+async function lateNewGeometry(root: Locator, id: string) {
+  return root.evaluate((element, target) => {
+    const rootRect = element.getBoundingClientRect()
+    const body = element.querySelector<HTMLElement>(`[data-msg-id="${target}"] [data-community-message-body]`)
+    const divider = element.querySelector<HTMLElement>(`[data-message-divider-for="${target}"] [data-new-divider]`)
+    const box = (node: HTMLElement | null) => {
+      if (!node) return null
+      const rect = node.getBoundingClientRect()
+      return { connected: node.isConnected, width: rect.width, height: rect.height,
+        top: rect.top, bottom: rect.bottom, offset: rect.top - rootRect.top }
+    }
+    return { top: element.scrollTop, height: element.scrollHeight,
+      ids: Array.from(element.querySelectorAll<HTMLElement>("[data-msg-id]")).map(body => body.dataset.msgId),
+      keys: Array.from(element.querySelectorAll<HTMLElement>("[data-message-row-key]")).map(row => row.dataset.messageRowKey),
+      ready: element.querySelector('[data-read-position-ready]')?.getAttribute("data-read-position-ready"),
+      body: box(body), divider: box(divider), dividerFor: divider?.closest("[data-message-divider-for]")?.getAttribute("data-message-divider-for") }
+  }, id)
+}
+
 test("channel older failure retries in the same window after a held real page", async ({ caseActors }, info) => {
   test.setTimeout(240_000)
   const actors = await caseActors(["alice", "bob"])
@@ -366,22 +427,7 @@ test("channel older failure retries in the same window after a held real page", 
   await moveToEdge(root, "start")
   const retry = page.getByRole("alert").filter({ hasText: "Could not load older messages." }).getByRole("button", { name: "Retry" })
   await expect(retry).toBeVisible()
-  await retry.scrollIntoViewIfNeeded()
-  await expect(retry).toBeEnabled()
-  await expect.poll(() => retry.evaluate((button, scrollerId) => {
-    const scroller = button.closest<HTMLElement>(`[data-testid="${scrollerId}"]`)
-    if (!scroller) return { readable: false, hit: false }
-    const rect = button.getBoundingClientRect(), viewport = scroller.getBoundingClientRect()
-    const top = viewport.top + scroller.clientTop, left = viewport.left + scroller.clientLeft
-    const right = left + scroller.clientWidth
-    const bottom = top + scroller.clientHeight - Math.max(0, Number(scroller.dataset.composerOcclusion ?? 0))
-    return {
-      readable: rect.width > 0 && rect.height > 0 && rect.top >= top && rect.bottom <= bottom && rect.left >= left && rect.right <= right,
-      hit: button.contains(button.ownerDocument.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
-      bounds: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
-      viewport: { top, bottom, left, right },
-    }
-  }, tid.messageScroller)).toMatchObject({ readable: true, hit: true })
+  await prepareReadableRetry(actors, page, root, retry, info, "older")
   const before = await waitForCommittedGeometry(root)
   const count = olderGets
   await page.waitForTimeout(250)
@@ -413,22 +459,7 @@ test("DM newer and present recovery keep readable rows and retire a late present
   await moveToEdge(root, "end")
   const retry = page.getByRole("alert").filter({ hasText: "Could not load newer messages." }).getByRole("button", { name: "Retry" })
   await expect(retry).toBeVisible()
-  await retry.scrollIntoViewIfNeeded()
-  await expect(retry).toBeEnabled()
-  await expect.poll(() => retry.evaluate((button, scrollerId) => {
-    const scroller = button.closest<HTMLElement>(`[data-testid="${scrollerId}"]`)
-    if (!scroller) return { readable: false, hit: false }
-    const rect = button.getBoundingClientRect(), viewport = scroller.getBoundingClientRect()
-    const top = viewport.top + scroller.clientTop, left = viewport.left + scroller.clientLeft
-    const right = left + scroller.clientWidth
-    const bottom = top + scroller.clientHeight - Math.max(0, Number(scroller.dataset.composerOcclusion ?? 0))
-    return {
-      readable: rect.width > 0 && rect.height > 0 && rect.top >= top && rect.bottom <= bottom && rect.left >= left && rect.right <= right,
-      hit: button.contains(button.ownerDocument.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
-      bounds: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
-      viewport: { top, bottom, left, right },
-    }
-  }, tid.messageScroller)).toMatchObject({ readable: true, hit: true })
+  await prepareReadableRetry(actors, page, root, retry, info, "newer")
   const before = await waitForCommittedGeometry(root)
   failNewer = false
   await retry.click()
@@ -611,10 +642,11 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(warmDocument)
   await held.matched
   await expect(page.getByTestId(tid.message(unread))).toBeVisible()
-  const before = await root.evaluate(element => ({ top: element.scrollTop, height: element.scrollHeight,
-    ids: Array.from(element.querySelectorAll<HTMLElement>("[data-msg-id]")).map(body => body.dataset.msgId),
-    keys: Array.from(element.querySelectorAll<HTMLElement>("[data-message-row-key]")).map(row => row.dataset.messageRowKey),
-    ready: element.querySelector('[data-read-position-ready]')?.getAttribute("data-read-position-ready") }))
+  const before = await lateNewGeometry(root, unread)
+  expect(before.body).not.toBeNull()
+  expect(before.body!.connected).toBe(true)
+  expect(before.body!.width).toBeGreaterThan(0)
+  expect(before.body!.height).toBeGreaterThan(0)
   expect(before.height - await root.evaluate(element => element.clientHeight) - before.top).toBeLessThanOrEqual(1)
   const finishTrace = await trace(actors, page, info, dmId)
   const entryResponse = page.waitForResponse(response => new URL(response.url()).pathname === `/api/community/channels/${dmId}/messages`
@@ -625,15 +657,23 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
   expect(confirmed.messages.map(message => message.id)).toEqual([...ids, html.messageId, readBob, unread])
   await held.dispose()
   await expect(page.getByTestId(tid.newDivider)).toBeAttached()
+  await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
   await waitForStableTail(root, "late-new-fixed-tail")
-  const after = await root.evaluate(element => ({ ids: Array.from(element.querySelectorAll<HTMLElement>("[data-msg-id]")).map(body => body.dataset.msgId),
-    keys: Array.from(element.querySelectorAll<HTMLElement>("[data-message-row-key]")).map(row => row.dataset.messageRowKey),
-    height: element.scrollHeight }))
+  const after = await lateNewGeometry(root, unread)
   expect(after.ids.at(-1)).toBe(before.ids.at(-1))
   expect(after.ids.at(-1)).toBe(unread)
   expect(after.keys).not.toEqual(before.keys)
-  expect(after.height).toBeGreaterThan(before.height)
-  await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+  expect(after.dividerFor).toBe(unread)
+  expect(after.divider).not.toBeNull()
+  expect(after.divider!.connected).toBe(true)
+  expect(after.divider!.width).toBeGreaterThan(0)
+  expect(after.divider!.height).toBeGreaterThan(0)
+  expect(after.body).not.toBeNull()
+  expect(after.body!.connected).toBe(true)
+  expect(after.body!.width).toBeGreaterThan(0)
+  expect(after.body!.height).toBeGreaterThan(0)
+  expect(after.body!.top).toBeGreaterThanOrEqual(after.divider!.bottom - 1)
+  expect(Math.abs(after.body!.offset - before.body!.offset)).toBeLessThanOrEqual(1)
   await frame.evaluate(element => (element as HTMLIFrameElement).contentWindow?.postMessage({ type: "scroll-fixture-height", height: 420 }, "*"))
   await expect(frame).toHaveCSS("height", "420px")
   await waitForStableTail(root, "following-html-growth")

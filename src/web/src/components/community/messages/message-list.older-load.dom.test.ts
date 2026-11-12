@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { MessageList } from "./message-list"
+import { ConversationFooterShell, ConversationFooterSlotProvider } from "./conversation-footer-shell"
 import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames } from "@/test/message-scroll-fixture"
 import type { MessageRequestResult } from "@/lib/community/message-position"
 
@@ -126,7 +127,10 @@ describe("MessageList native range pagination", () => {
   it.each([["mobile", 40], ["desktop", 40]] as const)("keeps %s body-to-viewport clearance at %ipx with symmetric row padding", (stage, gap) => {
     breakpoint.value = stage
     const messages = Array.from({ length: 14 }, (_, i) => ({ id: `m${i}`, authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }))
-    const renderer = render(React.createElement(MessageList, { channel: "general", messages, loading: false, hasMore: false, onOpenThread: vi.fn() }))
+    const renderer = render(React.createElement(ConversationFooterSlotProvider, null,
+      React.createElement(MessageList, { channel: "general", messages, loading: false, hasMore: false, onOpenThread: vi.fn() }),
+      React.createElement(ConversationFooterShell, null, React.createElement("textarea")),
+    ))
     resize()
     runFrames()
     const scroller = renderer.getByTestId(tid.messageScroller)

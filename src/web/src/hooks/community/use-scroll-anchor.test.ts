@@ -7,7 +7,7 @@ import {
   resolveViewportResizeAnchor,
 } from "./use-scroll-anchor"
 import { MESSAGE_ROW_VERTICAL_PADDING_PX, type FlatItem } from "@/lib/community/message-list-items"
-import { COMPOSER_ACCESSORY_ROW_HEIGHT_PX, CONVERSATION_TAIL_SPACE_PX, MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
+import { COMPOSER_ACCESSORY_ROW_HEIGHT_PX, CONVERSATION_TAIL_SPACE_PX, MESSAGE_RAIL_TAIL_PADDING_END_PX, messageRailTailPaddingEnd } from "@/lib/community/conversation-layout"
 
 describe("message rail tail geometry", () => {
   it("counts the final row's 8px once in the shared 40px clearance", () => {
@@ -16,6 +16,19 @@ describe("message rail tail geometry", () => {
     expect(MESSAGE_RAIL_TAIL_PADDING_END_PX + MESSAGE_ROW_VERTICAL_PADDING_PX).toBe(CONVERSATION_TAIL_SPACE_PX)
     expect(CONVERSATION_TAIL_SPACE_PX).toBe(40)
     expect(COMPOSER_ACCESSORY_ROW_HEIGHT_PX).toBe(32)
+  })
+
+  it("subtracts only the actual final message padding from the capsule reservation", () => {
+    const last: FlatItem = { kind: "message", key: "last", m: { id: "last", type: "chat" } }
+    expect(messageRailTailPaddingEnd(last, 40)).toBe(32)
+    expect(messageRailTailPaddingEnd({ ...last, paddingBottom: 12 }, 40)).toBe(28)
+    expect(messageRailTailPaddingEnd(last, 0)).toBe(0)
+  })
+
+  it("keeps the full capsule reservation after a nonmessage tail or an empty list", () => {
+    expect(messageRailTailPaddingEnd({ kind: "trailing", key: "rail:trailing" }, 40)).toBe(40)
+    expect(messageRailTailPaddingEnd(undefined, 40)).toBe(40)
+    expect(messageRailTailPaddingEnd({ kind: "trailing", key: "rail:trailing" }, 0)).toBe(0)
   })
 })
 

@@ -1761,6 +1761,7 @@ it("preserves a qualified tail through grow-first raw away/end then composer shr
   try {
     const native = scrollFixture.latest.virtualizer
     const railPadding = native.options.paddingEnd ?? 0
+    const baseHeight = h.root.clientHeight
     const samples: Array<Record<string, unknown>> = []
     const sample = (phase: string) => {
       const value = { phase, top: h.root.scrollTop, height: h.root.scrollHeight,
@@ -1795,42 +1796,45 @@ it("preserves a qualified tail through grow-first raw away/end then composer shr
       })
       runFrames()
     }
-    h.update({ tailPaddingEnd: railPadding + 228, viewportInsetEnd: 228 })
+    h.update({ tailPaddingEnd: railPadding, viewportInsetEnd: 40 })
+    scrollFixture.height = baseHeight - 168
+    resize()
     rawDistance(8)
     admit("grown-raw-away8", 8)
     rawDistance(0)
     const pinned = admit("grown-raw-tail0", 0)
     expect(pinned.followingTail, JSON.stringify(samples)).toBe(true)
-    h.stage({ tailPaddingEnd: railPadding + 60, viewportInsetEnd: 60 })
+    scrollFixture.height = baseHeight
     resize()
     const shrunk = admit("shrunk-clamped-tail0", 0)
-    expect(shrunk.clientHeight, JSON.stringify(samples)).toBe(pinned.clientHeight)
+    expect(shrunk.clientHeight, JSON.stringify(samples)).toBe(pinned.clientHeight + 168)
     expect(pinned.max - shrunk.max, JSON.stringify(samples)).toBe(168)
     expect(shrunk.top, JSON.stringify(samples)).toBe(shrunk.max)
     expect(shrunk.followingTail, JSON.stringify(samples)).toBe(true)
-    h.stage({ tailPaddingEnd: railPadding + 228, viewportInsetEnd: 228 })
+    scrollFixture.height = baseHeight - 168
     resize()
     const grown = admit("regrown-original-tail-oracle", 0)
-    expect(grown.clientHeight, JSON.stringify(samples)).toBe(shrunk.clientHeight)
+    expect(grown.clientHeight, JSON.stringify(samples)).toBe(shrunk.clientHeight - 168)
+    expect(native.options.paddingEnd, JSON.stringify(samples)).toBe(railPadding)
+    expect(native.options.scrollPaddingEnd, JSON.stringify(samples)).toBe(40)
     expect(grown.max - shrunk.max, JSON.stringify(samples)).toBe(168)
     expect(Math.abs(grown.tailDistance - shrunk.tailDistance), JSON.stringify(samples)).toBeLessThanOrEqual(1)
     expect(grown.followingTail, JSON.stringify(samples)).toBe(true)
   } finally { h.view.unmount() }
 })
 
-it("preserves a qualified tail when natural footer height precedes root resize and overlay publication", () => {
+it("preserves a qualified tail when in-flow footer growth precedes the native root resize", () => {
   const h = mount()
   const native = scrollFixture.latest.virtualizer
   const items = h.input.items
   const baseHeight = scrollFixture.height
   const railPadding = native.options.paddingEnd ?? 0
   let naturalFooter = 60
-  let publishedOverlay = 60
   const samples: Array<Record<string, unknown>> = []
   const sample = (phase: string) => {
     const value = {
-      phase, naturalFooter, publishedOverlay,
-      derivedRootHeight: baseHeight - (naturalFooter - publishedOverlay),
+      phase, naturalFooter,
+      derivedRootHeight: baseHeight - (naturalFooter - 60),
       top: h.root.scrollTop, height: h.root.scrollHeight,
       clientHeight: h.root.clientHeight, clientWidth: h.root.clientWidth,
       max: Math.max(0, h.root.scrollHeight - h.root.clientHeight),
@@ -1852,7 +1856,9 @@ it("preserves a qualified tail when natural footer height precedes root resize a
     expect(native.scrollElement, detail).toBe(h.root)
     expect(h.input.items, detail).toBe(items)
     expect(value.clientHeight, detail).toBeGreaterThan(0)
-    expect(value.clientHeight, detail).toBe(baseHeight)
+    expect(value.clientHeight, detail).toBe(value.derivedRootHeight)
+    expect(value.paddingEnd, detail).toBe(railPadding)
+    expect(value.readableInset, detail).toBe(40)
     expect(value.nativeHeight, detail).toBe(value.clientHeight)
     expect(value.nativeWidth, detail).toBe(value.clientWidth)
     expect(Math.abs((value.nativeOffset ?? -1) - value.top), detail).toBeLessThanOrEqual(1)
@@ -1865,19 +1871,15 @@ it("preserves a qualified tail when natural footer height precedes root resize a
     expect(Math.abs(value.tailDistance), JSON.stringify(samples)).toBeLessThanOrEqual(1)
     expect(value.followingTail, JSON.stringify(samples)).toBe(true)
   }
-  const naturalThenPublished = (phase: string, next: number) => {
+  const naturalThenObserved = (phase: string, next: number) => {
     naturalFooter = next
-    scrollFixture.height = baseHeight - (naturalFooter - publishedOverlay)
+    scrollFixture.height = baseHeight - (naturalFooter - 60)
     sample(`${phase}-natural-before-frame`)
     runFrames(1)
     sample(`${phase}-physical-frame-before-root-observer`)
     resize(0)
-    sample(`${phase}-root-observer-before-publication`)
-    publishedOverlay = next
-    scrollFixture.height = baseHeight
-    h.stage({ tailPaddingEnd: railPadding + publishedOverlay, viewportInsetEnd: publishedOverlay })
-    sample(`${phase}-published-before-observer`)
-    resize()
+    sample(`${phase}-root-observer`)
+    runFrames()
     return sample(`${phase}-stable`)
   }
   const rawDistance = (distance: number) => {
@@ -1889,21 +1891,21 @@ it("preserves a qualified tail when natural footer height precedes root resize a
     return sample(`grown-raw-distance${distance}`)
   }
   try {
-    h.update({ tailPaddingEnd: railPadding + publishedOverlay, viewportInsetEnd: publishedOverlay })
+    h.update({ tailPaddingEnd: railPadding, viewportInsetEnd: 40 })
     qualifiedTail(sample("stable-small-admission"))
-    qualifiedTail(naturalThenPublished("first-growth", 228))
+    qualifiedTail(naturalThenObserved("first-growth", 228))
     const away = rawDistance(8)
     stableGeometry(away)
     expect(Math.abs(away.tailDistance - 8), JSON.stringify(samples)).toBeLessThanOrEqual(1)
     qualifiedTail(rawDistance(0))
-    const shrunk = naturalThenPublished("natural-shrink", 60)
-    const regrown = naturalThenPublished("natural-regrowth", 228)
+    const shrunk = naturalThenObserved("natural-shrink", 60)
+    const regrown = naturalThenObserved("natural-regrowth", 228)
     stableGeometry(shrunk)
     stableGeometry(regrown)
     expect(Math.abs(regrown.tailDistance), JSON.stringify(samples)).toBeLessThanOrEqual(1)
     expect(regrown.followingTail, JSON.stringify(samples)).toBe(true)
   } finally {
-    console.info("footer-producer173-samples " + JSON.stringify(samples))
+    console.info("footer-flex291-samples " + JSON.stringify(samples))
     h.view.unmount()
   }
 })

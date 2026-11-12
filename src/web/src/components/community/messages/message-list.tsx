@@ -36,7 +36,7 @@ function MessageListEntry({
 
 function PendingMessageListSkeleton({ variant }: { variant: "channel" | "dm" }) {
   const footerSlot = useConversationFooterSlot()
-  return <MessageListSkeleton variant={variant} overlayHeight={footerSlot?.overlayHeight ?? 0} />
+  return <MessageListSkeleton variant={variant} capsuleHeight={footerSlot?.capsuleHeight ?? 0} />
 }
 
 function MessageListOwner({ variant, initialScrollReady, ...props }: MessageListProps & {
@@ -56,8 +56,8 @@ function MessageListOwner({ variant, initialScrollReady, ...props }: MessageList
     positioningActive: conversationPresented && (props.positioningActive ?? props.active) !== false,
   }
   const footerSlot = useConversationFooterSlot()
-  const overlayHeight = footerSlot?.overlayHeight ?? 0
-  const controller = useMessageListController(resolvedProps, overlayHeight)
+  const capsuleHeight = footerSlot?.capsuleHeight ?? 0
+  const controller = useMessageListController(resolvedProps, capsuleHeight)
   const visible = visibleVirtualItems(controller.virtualizer).flatMap(item => { const row = controller.items[item.index]; return row?.kind === "message" ? [row.m] : [] })
   useObservedRegion("messages", controller.initialPosition.contentVisible && controller.initialPosition.contentInteractive && !resolvedProps.initialLoadError && (!props.messages.length || visible.length > 0), visible.length, { ...props.observation, wait_reason: props.observation?.wait_reason === "none" && !(controller.initialPosition.contentVisible && controller.initialPosition.contentInteractive) ? "position" : props.observation?.wait_reason })
   const setSelectionActive = footerSlot?.setSelectionActive
@@ -73,5 +73,5 @@ function MessageListOwner({ variant, initialScrollReady, ...props }: MessageList
       onLayoutCommit={controller.onRowsLayoutCommit}
       renderItem={(item) => renderMessageListRow(item, resolvedProps, controller)}
     />
-  ), footerSlot?.target ?? null, footerSlot?.accessoryTarget ?? null, overlayHeight)
+  ), footerSlot?.target ?? null, footerSlot?.accessoryTarget ?? null, capsuleHeight)
 }

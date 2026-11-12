@@ -1,7 +1,7 @@
 "use client"
 
 import { useAtom, useCreateAtom, type Atom } from "@tanstack/react-store";
-import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, type HTMLAttributes, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useMemo, type HTMLAttributes, type ReactNode } from "react"
 import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import { useNativeKeyboard } from "@/hooks/use-native-keyboard"
 import { useConversationPresentation } from "@/contexts/view-activity"
@@ -11,8 +11,7 @@ type ConversationFooterSlot = {
   setTarget: Atom<HTMLDivElement | null>["set"]
   accessoryTarget: HTMLDivElement | null
   setAccessoryTarget: Atom<HTMLDivElement | null>["set"]
-  overlayHeight: number
-  setOverlayHeight: Atom<number>["set"]
+  capsuleHeight: number
   selectionActive: boolean
   setSelectionActive: Atom<boolean>["set"]
 }
@@ -22,8 +21,9 @@ const ConversationFooterSlotContext = createContext<ConversationFooterSlot | nul
 export function ConversationFooterSlotProvider({ children }: { children: ReactNode }) {
   const [target, setTarget] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
   const [accessoryTarget, setAccessoryTarget] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
-  const [overlayHeight, setOverlayHeight] = useAtom(useCreateAtom(0))
   const [selectionActive, setSelectionActive] = useAtom(useCreateAtom(false))
+  const presented = useConversationPresentation()
+  const capsuleHeight = accessoryTarget && presented && !selectionActive ? CONVERSATION_TAIL_SPACE_PX : 0
   const value = useMemo(() => ({
     target,
     setTarget,
@@ -31,9 +31,8 @@ export function ConversationFooterSlotProvider({ children }: { children: ReactNo
     setAccessoryTarget,
     selectionActive,
     setSelectionActive,
-    overlayHeight,
-    setOverlayHeight,
-  }), [accessoryTarget, overlayHeight, setOverlayHeight, selectionActive, setAccessoryTarget, setSelectionActive, setTarget, target])
+    capsuleHeight,
+  }), [accessoryTarget, capsuleHeight, selectionActive, setAccessoryTarget, setSelectionActive, setTarget, target])
 
   return (
     <ConversationFooterSlotContext.Provider value={value}>
@@ -46,9 +45,6 @@ export function useConversationFooterSlot(): ConversationFooterSlot | null {
   return useContext(ConversationFooterSlotContext)
 }
 
-/** The composer overlays the rail with a fading reading surface.
- * Its measured height also reserves tail space; selection keeps an in-flow footer.
- */
 export function ConversationFooterShell({
   children,
   className,
@@ -60,8 +56,6 @@ export function ConversationFooterShell({
   const keyboard = useNativeKeyboard()
   const presented = useConversationPresentation()
   const footerSlot = useConversationFooterSlot()
-  const rootRef = useRef<HTMLDivElement>(null)
-  const setOverlayHeight = footerSlot?.setOverlayHeight
   const setFooterTarget = footerSlot?.setTarget
   const setAccessoryTarget = footerSlot?.setAccessoryTarget
   const bindFooterTarget = useCallback((target: HTMLDivElement | null) => {
@@ -71,35 +65,15 @@ export function ConversationFooterShell({
     setAccessoryTarget?.(target)
   }, [setAccessoryTarget])
   const selectionActive = footerSlot?.selectionActive ?? false
-  const overlay = !!footerSlot && presented && !selectionActive
-  const overlayHeight = overlay ? footerSlot.overlayHeight : 0
-  useLayoutEffect(() => {
-    if (!setOverlayHeight) return
-    const root = rootRef.current
-    if (!overlay || !root) {
-      setOverlayHeight(0)
-      return
-    }
-    const measure = () => setOverlayHeight(root.getBoundingClientRect().height)
-    measure()
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure)
-    observer?.observe(root)
-    return () => {
-      observer?.disconnect()
-      setOverlayHeight(0)
-    }
-  }, [overlay, setOverlayHeight])
 
   return (
     <div
       {...props}
-      ref={rootRef}
       data-slot="community-conversation-footer"
       data-selection-active={selectionActive ? "true" : "false"}
-      className={`relative z-20 shrink-0 before:pointer-events-none before:absolute before:inset-x-0 before:-top-12 before:bottom-0 before:-z-10 before:bg-[linear-gradient(to_bottom,transparent,var(--background)_32px)] before:content-[''] ${overlay ? "pointer-events-none" : ""}${className ? ` ${className}` : ""}`}
+      className={`relative z-20 shrink-0 before:pointer-events-none before:absolute before:inset-x-0 before:-top-12 before:bottom-0 before:-z-10 before:bg-[linear-gradient(to_bottom,transparent,var(--background)_32px)] before:content-['']${className ? ` ${className}` : ""}`}
       style={{
         ...style,
-        ...(overlay ? { marginTop: -overlayHeight } : {}),
         ...(presented && keyboard
           ? { marginBottom: `var(--alook-keyboard-progress, ${typeof style?.marginBottom === "number" ? `${style.marginBottom}px` : style?.marginBottom ?? "0px"})` }
           : {}),

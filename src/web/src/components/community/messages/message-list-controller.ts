@@ -10,7 +10,7 @@ import { useInitialPositionTransition } from "./initial-position-transition"
 import type { ResolvedMessageListProps } from "./message-list-types"
 import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
 import { hashKey } from "@tanstack/react-query"
-import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
+import { messageRailTailPaddingEnd } from "@/lib/community/conversation-layout"
 import { messageScrollBehavior } from "@/lib/community/message-scroll-behavior"
 import { READ_VISIBILITY_THRESHOLD } from "@/hooks/community/use-read-observer"
 
@@ -57,7 +57,7 @@ export function useMessageListController({
   onScrollRoot,
   onScrollTargetConsumed,
   onUserTakeover,
-}: ResolvedMessageListProps, overlayHeight = 0) {
+}: ResolvedMessageListProps, capsuleHeight = 0) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
   const scopeKey = positionScope ? hashKey(conversationListScopeKey(positionScope)) : null
@@ -166,8 +166,8 @@ export function useMessageListController({
     presentRequest,
     localSubmitVersion,
     hasMoreOlder: hasMore,
-    tailPaddingEnd: MESSAGE_RAIL_TAIL_PADDING_END_PX + overlayHeight,
-    viewportInsetEnd: overlayHeight,
+    tailPaddingEnd: messageRailTailPaddingEnd(items.at(-1), capsuleHeight),
+    viewportInsetEnd: capsuleHeight,
     newBoundaryOwner: lookback.owner,
     onNewBoundaryReached: consumeReachedNew,
   })
@@ -193,12 +193,12 @@ export function useMessageListController({
       const seq = peers.get(body.dataset.msgId ?? "")
       if (!seq || seq <= through) continue
       const rect = body.getBoundingClientRect()
-      const visibleArea = Math.max(0, Math.min(rect.bottom, viewport.bottom - overlayHeight) - Math.max(rect.top, viewport.top))
+      const visibleArea = Math.max(0, Math.min(rect.bottom, viewport.bottom - capsuleHeight) - Math.max(rect.top, viewport.top))
         * Math.max(0, Math.min(rect.right, viewport.right) - Math.max(rect.left, viewport.left))
       if (rect.width > 0 && rect.height > 0 && visibleArea / (rect.width * rect.height) >= READ_VISIBILITY_THRESHOLD) through = seq
     }
     return through
-  }, [active, messages, overlayHeight, readPositionReady, scrollRef, viewerUserId])
+  }, [active, messages, capsuleHeight, readPositionReady, scrollRef, viewerUserId])
   const lookbackView = useRef<{ owner: object; throughSeq: number; followingTail: boolean; readable: boolean; dividerVisibility: typeof newDividerVisibility; visiblePeerSeq: () => number } | null>(null)
   useLayoutEffect(() => {
     lookbackView.current = { owner: lookback.owner, throughSeq: observedSeq, followingTail,

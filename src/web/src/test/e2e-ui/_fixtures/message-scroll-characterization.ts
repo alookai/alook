@@ -269,6 +269,7 @@ type MessageViewportGeometry = {
   clientHeight: number
   readableHeight: number
   composerOcclusion: number
+  selectionActive: boolean
   composerGutterReachesScroller: boolean
   distanceToEnd: number
   firstVisibleId: string | null
@@ -312,6 +313,7 @@ async function readMessageViewportGeometry(scroller: Locator): Promise<MessageVi
       clientHeight: root.clientHeight,
       readableHeight: root.clientHeight - composerOcclusion,
       composerOcclusion,
+      selectionActive: composer?.getAttribute("data-selection-active") === "true",
       composerGutterReachesScroller: !!gutterTarget && root.contains(gutterTarget),
       distanceToEnd: Math.max(0, root.scrollHeight - root.clientHeight - root.scrollTop),
       firstVisibleId: firstVisible?.dataset.msgId ?? null,
@@ -361,22 +363,23 @@ export async function expectSkeletonTailGeometry(
     const footer = scroller?.closest('[data-slot="community-conversation-surface"]')
       ?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
     const footerRect = footer?.getBoundingClientRect()
-    const overlayHeight = footerRect && scrollerRect && footer?.dataset.selectionActive !== "true"
-      && Math.abs(footerRect.bottom - scrollerRect.bottom) <= 1 ? footerRect.height : 0
+    const capsuleHeight = Number(scroller?.dataset.composerOcclusion ?? 0)
     return {
-      overlayHeight,
+      capsuleHeight,
       tailHeight: tailRect.height,
       tailBottom: tailRect.bottom,
       scrollerBottom: scrollerRect?.bottom ?? null,
+      footerTop: footerRect?.top ?? null,
       contentPaddingBottom: content
         ? Number.parseFloat(getComputedStyle(content).paddingBottom)
         : null,
     }
   }, tid.messageScroller)
-  const expectedTail = 40 + geometry.overlayHeight
   expect(geometry.contentPaddingBottom, `${label}: outer padding`).toBe(0)
-  expect(geometry.tailHeight, `${label}: placeholder height`).toBe(expectedTail)
+  expect(geometry.tailHeight, `${label}: single capsule placeholder height`).toBe(geometry.capsuleHeight)
   expect(geometry.scrollerBottom, `${label}: scroller boundary`).not.toBeNull()
+  expect(geometry.footerTop, `${label}: input body boundary`).not.toBeNull()
+  expect(Math.abs(geometry.scrollerBottom! - geometry.footerTop!), `${label}: input body occupies its own space`).toBeLessThanOrEqual(1)
   expect(
     Math.abs(geometry.tailBottom - geometry.scrollerBottom!),
     `${label}: placeholder ends at scroller bottom`,
@@ -477,10 +480,15 @@ export function expectContinuousResizeAnchorPreserved(
 export function expectComposerOverlayGeometry(geometry: MessageViewportGeometry, label: string): void {
   expect(geometry.contentPaddingBottom, `${label}: outer tail padding removed`).toBe(0)
   expect(geometry.composerRect, `${label}: scoped composer`).not.toBeNull()
-  expect(geometry.composerOcclusion, `${label}: positive overlay reservation`).toBeGreaterThan(0)
-  expect(Math.abs(geometry.scrollerRect.bottom - geometry.composerRect!.bottom), `${label}: scroller extends behind composer`).toBeLessThanOrEqual(1)
-  expect(Math.abs(geometry.composerRect!.bottom - geometry.composerRect!.top - geometry.composerOcclusion), `${label}: reserved composer height`).toBeLessThanOrEqual(1)
-  expect(geometry.composerGutterReachesScroller, `${label}: transparent gutter hit target`).toBe(true)
+  const capsuleHeight = geometry.selectionActive ? 0 : 40
+  expect(geometry.composerOcclusion, `${label}: capsule-only reservation`).toBe(capsuleHeight)
+  expect(Math.abs(geometry.scrollerRect.bottom - geometry.composerRect!.top), `${label}: scroller ends above input body`).toBeLessThanOrEqual(1)
+  expect(geometry.composerGutterReachesScroller, `${label}: input body stays outside message hit area`).toBe(false)
+  expect(geometry.accessoryRect, `${label}: accessory slot`).not.toBeNull()
+  expect(geometry.accessoryRect!.height, `${label}: single capsule height`).toBe(capsuleHeight)
+  if (capsuleHeight > 0) {
+    expect(Math.abs(geometry.accessoryRect!.bottom - geometry.composerRect!.top), `${label}: capsule ends at input body`).toBeLessThanOrEqual(1)
+  }
   if (geometry.railRect) {
     expect(geometry.railPosition, `${label}: rail position`).toBe("static")
     expect(geometry.railInFooter, `${label}: Footer owns rail`).toBe(true)

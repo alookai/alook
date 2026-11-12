@@ -14,6 +14,7 @@ import { ServiceWorkerRegistration } from "@/components/service-worker-registrat
 import { siteMetadata, siteStructuredData, siteViewport } from "@/lib/seo/site-metadata";
 import { communityShellLayoutBootstrapScript } from "@/components/community/shell/shell-frame-geometry";
 import { businessDocumentVersionBootstrapScript } from "@/lib/service-worker/business-upgrade";
+import { WEB_BUILD_ID } from "@/lib/web-build";
 import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "./fonts";
 import "./globals.css";
 
@@ -32,6 +33,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
+        <meta name="alook-web-build" content={WEB_BUILD_ID} />
         <script dangerouslySetInnerHTML={{ __html: businessDocumentVersionBootstrapScript }} />
         <script dangerouslySetInnerHTML={{ __html: communityShellLayoutBootstrapScript }} />
         <link rel="manifest" href="/manifest.json" />

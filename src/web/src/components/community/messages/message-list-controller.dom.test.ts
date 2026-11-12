@@ -108,11 +108,13 @@ function assignRef<T>(ref: { current: T | null }, value: T | null) {
 function Probe({
   value,
   attachHero = true,
+  capsuleHeight = 0,
 }: {
   value: ResolvedMessageListProps
   attachHero?: boolean
+  capsuleHeight?: number
 }) {
-  const controller = useMessageListController(value)
+  const controller = useMessageListController(value, capsuleHeight)
   const attachScrollNode = React.useCallback((node: HTMLDivElement | null) => {
     assignRef(controller.scrollRef, node ? currentScrollNode : null)
   }, [controller.scrollRef])
@@ -555,7 +557,7 @@ describe("useMessageListController", () => {
 
   it("delegates the shared tail padding to the original virtualizer hook", () => {
     act(() => {
-      rtlRender(React.createElement(Probe, { value: props() }))
+      rtlRender(React.createElement(Probe, { value: props(), capsuleHeight: 40 }))
     })
     expect(mocks.scrollInputs.at(-1)).toEqual(expect.objectContaining({
       tailPaddingEnd: 32,
@@ -567,6 +569,7 @@ describe("useMessageListController", () => {
     act(() => {
       renderer = rtlRender(React.createElement(Probe, {
         value: props({ typingUsers: [] }),
+        capsuleHeight: 40,
       }))
     })
     const withoutTyping = mocks.scrollInputs.at(-1) as { tailPaddingEnd: number }
@@ -574,12 +577,23 @@ describe("useMessageListController", () => {
     act(() => {
       renderer!.rerender(React.createElement(Probe, {
         value: props({ typingUsers: ["Alice"] }),
+        capsuleHeight: 40,
       }))
     })
     const withTyping = mocks.scrollInputs.at(-1) as { tailPaddingEnd: number }
 
     expect(withoutTyping.tailPaddingEnd).toBe(32)
     expect(withTyping.tailPaddingEnd).toBe(withoutTyping.tailPaddingEnd)
+  })
+
+  it("uses one capsule reservation for a loading tail and removes it when hidden", () => {
+    const value = props({ hasMoreNewer: true, isFetchingNewer: true })
+    const view = rtlRender(React.createElement(Probe, { value, capsuleHeight: 40 }))
+    expect(mocks.scrollInputs.at(-1)).toMatchObject({ tailPaddingEnd: 40, viewportInsetEnd: 40 })
+    view.rerender(React.createElement(Probe, { value, capsuleHeight: 0 }))
+    expect(mocks.scrollInputs.at(-1)).toMatchObject({ tailPaddingEnd: 0, viewportInsetEnd: 0 })
+    view.rerender(React.createElement(Probe, { value: props(), capsuleHeight: 40 }))
+    expect(mocks.scrollInputs.at(-1)).toMatchObject({ tailPaddingEnd: 32, viewportInsetEnd: 40 })
   })
 
   it("reveals an authoritative empty window immediately and skips positioning effects", () => {
@@ -659,7 +673,7 @@ describe("useMessageListController", () => {
       isFetchingNewer: true,
       presentVersion: 7,
       hasMoreOlder: true,
-      tailPaddingEnd: 32,
+      tailPaddingEnd: 0,
       onScrollTargetPositioned: expect.any(Function),
     })
     expect(mocks.paginationInputs.slice(-2)).toEqual([

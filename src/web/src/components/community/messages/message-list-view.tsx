@@ -4,7 +4,6 @@ import { ConversationResolutionErrorFrame } from "../channels/conversation-resol
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
-import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import { renderMessageListHero } from "./message-list-row"
 import { ComposerAccessoryRail, MessageSelectionFooter } from "./composer-accessory-rail"
 import dynamic from "next/dynamic"
@@ -19,7 +18,7 @@ export function renderMessageListView(
   renderRows: () => ReactNode,
   footerSlot: HTMLDivElement | null = null,
   accessoryFooterSlot: HTMLDivElement | null = null,
-  overlayHeight = 0,
+  capsuleHeight = 0,
 ) {
   const showError = props.messages.length === 0 && !!props.initialLoadError
   const showSkeleton = controller.initialPosition.showSkeleton && !showError
@@ -65,7 +64,7 @@ export function renderMessageListView(
         <div
           ref={controller.scrollRef}
           data-testid={tid.messageScroller}
-          data-composer-occlusion={overlayHeight}
+          data-composer-occlusion={capsuleHeight}
           data-pagination-enabled={controller.paginationEnabled ? "true" : "false"}
           aria-busy={showSkeleton}
           tabIndex={showSkeleton ? 0 : undefined}
@@ -84,13 +83,13 @@ export function renderMessageListView(
             <ConversationResolutionErrorFrame as="div" retrying={!!props.retryingInitialLoad}
               onRetry={props.onRetryInitialLoad ?? (() => {})} />
           ) : controller.initialPosition.phase === "skeleton" ? (
-            <MessageListSkeletonContent variant={props.variant} overlayHeight={overlayHeight} />
+            <MessageListSkeletonContent variant={props.variant} capsuleHeight={capsuleHeight} />
           ) : (
             <>
               {props.messages.length === 0
                 ? <>
                     {props.historyStartKnown && <div className="mb-6">{renderMessageListHero(props)}</div>}
-                    <div aria-hidden="true" data-message-empty-tail className="shrink-0" style={{ height: CONVERSATION_TAIL_SPACE_PX + overlayHeight }} />
+                    <div aria-hidden="true" data-message-empty-tail className="shrink-0" style={{ height: capsuleHeight }} />
                   </>
                 : renderRows()}
             </>
@@ -105,7 +104,7 @@ export function renderMessageListView(
             className="pointer-events-none absolute inset-0 z-20 overflow-hidden bg-background"
           >
             <div className="flex min-h-full flex-col justify-end pt-8 pl-(--community-composer-inline-start) pr-(--community-composer-inline-end)">
-              <MessageListSkeletonContent variant={props.variant} overlayHeight={overlayHeight} />
+              <MessageListSkeletonContent variant={props.variant} capsuleHeight={capsuleHeight} />
             </div>
           </div>
         )}
@@ -114,7 +113,7 @@ export function renderMessageListView(
   )
 }
 
-export function MessageListSkeleton({ variant = "channel", overlayHeight = 0 }: { variant?: "channel" | "dm"; overlayHeight?: number }) {
+export function MessageListSkeleton({ variant = "channel", capsuleHeight = 0 }: { variant?: "channel" | "dm"; capsuleHeight?: number }) {
   return (
     <div
       aria-busy="true"
@@ -124,6 +123,7 @@ export function MessageListSkeleton({ variant = "channel", overlayHeight = 0 }: 
       <div data-message-scroller-boundary className="relative isolate min-h-0 flex-1">
         <div
           data-testid={tid.messageScroller}
+          data-composer-occlusion={capsuleHeight}
           data-pagination-enabled="false"
           className="relative z-10 h-full overflow-x-clip overflow-y-auto thin-scrollbar"
         >
@@ -131,7 +131,7 @@ export function MessageListSkeleton({ variant = "channel", overlayHeight = 0 }: 
             data-message-list-content
             className="flex min-h-full flex-col justify-end pl-(--community-composer-inline-start) pr-(--community-composer-inline-end) pt-8"
           >
-            <MessageListSkeletonContent variant={variant} overlayHeight={overlayHeight} />
+            <MessageListSkeletonContent variant={variant} capsuleHeight={capsuleHeight} />
           </div>
         </div>
       </div>
@@ -139,7 +139,7 @@ export function MessageListSkeleton({ variant = "channel", overlayHeight = 0 }: 
   )
 }
 
-function MessageListSkeletonContent({ variant, overlayHeight = 0 }: { variant: "channel" | "dm"; overlayHeight?: number }) {
+function MessageListSkeletonContent({ variant, capsuleHeight = 0 }: { variant: "channel" | "dm"; capsuleHeight?: number }) {
   const clusters: number[][] = [
     [220, 140],
     [180],
@@ -184,7 +184,7 @@ function MessageListSkeletonContent({ variant, overlayHeight = 0 }: { variant: "
         aria-hidden="true"
         data-message-list-skeleton-tail
         className="shrink-0"
-        style={{ height: CONVERSATION_TAIL_SPACE_PX + overlayHeight }}
+        style={{ height: capsuleHeight }}
       />
     </>
   )

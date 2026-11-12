@@ -320,30 +320,33 @@ it.each([false, true])("follows passive self append after a qualified raw tail a
   } finally { h.view.unmount() }
 })
 
-it.each([false, true])("keeps exact tail through overlay shrink and grow after a raw tail arrival with New projection=%s", projectNew => {
+it.each([false, true])("keeps exact tail through in-flow composer shrink and grow after a raw tail arrival with New projection=%s", projectNew => {
   const rows = messages()
   const h = mount({ items: flattenMessageItems(rows, undefined), hasMoreOlder: false, hasMoreNewer: false,
     positionEntry: {}, newBoundaryOwner: {}, localSubmitVersion: 0,
-    tailPaddingEnd: MESSAGE_RAIL_TAIL_PADDING_END_PX, viewportInsetEnd: 0 })
+    tailPaddingEnd: MESSAGE_RAIL_TAIL_PADDING_END_PX, viewportInsetEnd: 40 })
   try {
     const samples = qualifyRawTailAfterHistory(h, rows, projectNew)
     const initialHeight = h.root.scrollHeight, viewportHeight = h.root.clientHeight
-    h.update({ tailPaddingEnd: MESSAGE_RAIL_TAIL_PADDING_END_PX + 228, viewportInsetEnd: 228 })
-    samples.push(tailGeometry(h, "first-overlay-growth"))
-    expect(h.root.clientHeight).toBe(viewportHeight)
-    expect(h.root.scrollHeight).toBeGreaterThan(initialHeight)
+    scrollFixture.height = viewportHeight - 168
+    resize()
+    samples.push(tailGeometry(h, "first-composer-growth"))
+    expect(h.root.clientHeight).toBe(viewportHeight - 168)
+    expect(h.root.scrollHeight).toBe(initialHeight)
     expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop), JSON.stringify(samples)).toBeLessThanOrEqual(1)
-    const grownHeight = h.root.scrollHeight
-    h.update({ tailPaddingEnd: MESSAGE_RAIL_TAIL_PADDING_END_PX + 60, viewportInsetEnd: 60 })
-    samples.push(tailGeometry(h, "overlay-shrink"))
+    scrollFixture.height = viewportHeight
+    resize()
+    samples.push(tailGeometry(h, "composer-shrink"))
     expect(h.root.clientHeight).toBe(viewportHeight)
-    expect(h.root.scrollHeight).toBeLessThan(grownHeight)
+    expect(h.root.scrollHeight).toBe(initialHeight)
     expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop), JSON.stringify(samples)).toBeLessThanOrEqual(1)
-    const shrunkHeight = h.root.scrollHeight
-    h.update({ tailPaddingEnd: MESSAGE_RAIL_TAIL_PADDING_END_PX + 228, viewportInsetEnd: 228 })
-    samples.push(tailGeometry(h, "overlay-regrowth"))
-    expect(h.root.clientHeight).toBe(viewportHeight)
-    expect(h.root.scrollHeight).toBeGreaterThan(shrunkHeight)
+    scrollFixture.height = viewportHeight - 168
+    resize()
+    samples.push(tailGeometry(h, "composer-regrowth"))
+    expect(h.root.clientHeight).toBe(viewportHeight - 168)
+    expect(h.root.scrollHeight).toBe(initialHeight)
+    expect(scrollFixture.latest.virtualizer.options.paddingEnd).toBe(MESSAGE_RAIL_TAIL_PADDING_END_PX)
+    expect(scrollFixture.latest.virtualizer.options.scrollPaddingEnd).toBe(40)
     expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop), JSON.stringify(samples)).toBeLessThanOrEqual(1)
     expect(scrollFixture.latest.followingTail).toBe(true)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
