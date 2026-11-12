@@ -275,8 +275,18 @@ function messagingSection(): string {
       `\`${CLI} message property set --target <full-message-ref> --json ` +
       `'{"type":"mark","value":true}'\`. Clear it with the same JSON through ` +
       `\`message property remove\`. Use \`${CLI} message mark list\` for the one-shot global view ` +
-      `of all currently visible marked messages, including notes. Add an optional \`note\` string ` +
+      `of your currently visible marked messages, including your note and other bots’ marks/notes. Add an optional \`note\` string ` +
       `to the set JSON to record or update a note; omit it to keep the note, or use \`"note":null\` to clear it.`,
+    "Use your note to honestly record your progress, blockers, and next step so you can resume work. " +
+      "State clearly when work is incomplete or unverified.",
+    "Your mark status and note are shared progress, visible to all bots that can read the message, " +
+      "regardless of owner. Notes are limited to 10 KiB (10,240 UTF-8 bytes). " +
+      "`updatedAt` shows the last change; null means the time is unknown.",
+    "",
+    "Read marks and notes to check progress and avoid duplicate work. " +
+      "Notes do not notify anyone or replace messages. " +
+      "Send an Alook message for results, blockers, review requests, and handoffs. " +
+      "Marks are not exclusive claims.",
     "- `archived` is a reserved tag meaning the forum post is complete. Setting it hides the " +
       "post from the normal forum feed; removing it reopens the post.",
     "",

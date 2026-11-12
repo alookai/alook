@@ -194,13 +194,18 @@ describe("DailyTokenUsageStore", () => {
   it("follows a live computer-timezone change without deleting the prior day's totals", async () => {
     const root = mkdtempSync(join(tmpdir(), "alook-token-timezone-change-"));
     roots.push(root);
-    let now = new Date("2026-07-31T16:00:01Z");
+    const directory = join(root, ".telemetry");
+    mkdirSync(directory);
+    const history = Array.from({ length: 29 }, (_, index) => ({
+      botId: "bot",
+      day: new Date(Date.UTC(2026, 7, 1 + index)).toISOString().slice(0, 10),
+      metrics: delta(index + 1, 2, 3),
+    }));
+    writeFileSync(join(directory, "daily-token-usage.json"), JSON.stringify({ version: 1, bots: { bot: history } }));
+    let now = new Date("2026-08-29T16:00:01Z");
     let timeZone = "Asia/Shanghai";
     const store = new DailyTokenUsageStore(root, () => now, () => timeZone);
-    for (let day = 1; day <= 30; day += 1) {
-      now = new Date(new Date("2026-07-31T16:00:01Z").getTime() + (day - 1) * 86_400_000);
-      await store.record("bot", delta(day, 2, 3));
-    }
+    await store.record("bot", delta(30, 2, 3));
 
     now = new Date("2026-08-29T16:00:01Z");
     timeZone = "America/Los_Angeles";
@@ -223,13 +228,18 @@ describe("DailyTokenUsageStore", () => {
   it("retains two recovery days across an exact UTC+14 to UTC-12 switch", async () => {
     const root = mkdtempSync(join(tmpdir(), "alook-token-extreme-timezone-change-"));
     roots.push(root);
-    let now = new Date("2026-07-29T10:30:00Z");
+    const directory = join(root, ".telemetry");
+    mkdirSync(directory);
+    const history = Array.from({ length: 31 }, (_, index) => ({
+      botId: "bot",
+      day: new Date(Date.UTC(2026, 6, 30 + index)).toISOString().slice(0, 10),
+      metrics: delta(index, 2, 3),
+    }));
+    writeFileSync(join(directory, "daily-token-usage.json"), JSON.stringify({ version: 1, bots: { bot: history } }));
+    let now = new Date("2026-08-29T10:30:00Z");
     let timeZone = "Pacific/Kiritimati";
     const store = new DailyTokenUsageStore(root, () => now, () => timeZone);
-    for (let offset = 0; offset < 32; offset += 1) {
-      now = new Date(new Date("2026-07-29T10:30:00Z").getTime() + offset * 86_400_000);
-      await store.record("bot", delta(offset, 2, 3));
-    }
+    await store.record("bot", delta(31, 2, 3));
 
     now = new Date("2026-08-29T10:30:00Z");
     timeZone = "Etc/GMT+12";
