@@ -33,7 +33,7 @@ it("resolves ownership and ordinary bot eligibility before invoking the existing
   expect(mocks.owned).toHaveBeenCalledWith({ primary: true }, "owner", "Helper#0001")
   expect(mocks.actor).toHaveBeenCalledWith({ primary: true }, "ownbot", "owner")
   expect(mocks.bot).toHaveBeenCalledExactlyOnceWith({ primary: true }, "ownbot", ctx.env,
-    { channel: "/.dm/Alice#0002", content: { text: body.content }, nonce: "n1" })
+    { channel: "/.dm/Alice#0002", content: { text: body.content }, nonce: "n1" }, { requireAlignment: false })
   expect(mocks.human).not.toHaveBeenCalled()
 })
 it("rejects foreign/deleted/human handles and ineligible bot bindings without spending a send or calling a sender", async () => {
@@ -46,7 +46,7 @@ it("rejects foreign/deleted/human handles and ineligible bot bindings without sp
   expect(mocks.bot).not.toHaveBeenCalled()
 })
 it("rejects invalid identity/target/content and spoofed body fields before any actor lookup", async () => {
-  for (const input of [null, {}, { ...body, as: "owner" }, { ...body, as: "Helper#0001" }, { ...body, as: "@Helper" }, { ...body, target: "channel-id" }, { ...body, content: " " }, { ...body, content: "x".repeat(4001) }, { ...body, userId: "foreign" }, { ...body, seenUpToSeq: 999 }]) {
+  for (const input of [null, {}, { ...body, as: "owner" }, { ...body, as: "Helper#0001" }, { ...body, as: "@Helper" }, { ...body, target: "channel-id" }, { ...body, content: " " }, { ...body, content: "x".repeat(4001) }, { ...body, userId: "foreign" }, { ...body, seenUpToSeq: 999 }, { ...body, requireAlignment: false }]) {
     expect((await sendAutomationMessage(req(input), ctx)).status).toBe(400)
   }
   expect(mocks.owned).not.toHaveBeenCalled()

@@ -111,7 +111,9 @@ export async function handleBotSend(
   botUserId: string,
   env: RuntimeEnv,
   raw: unknown,
+  options: { requireAlignment?: boolean } = {},
 ): Promise<NextResponse> {
+  const requireAlignment = options.requireAlignment !== false
   const parsed = CommunityAgentSendRequestSchema.safeParse(raw)
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid payload", details: flattenError(parsed.error) }, { status: 400 })
@@ -200,19 +202,24 @@ export async function handleBotSend(
   }
 
   const scopeTarget = { channelId }
-  const [latestSeq, readState] = await Promise.all([
-    withD1Retry(() => queries.communityAgentInbox.getLatestSeqForScope(db, channelId), { route: "community/messages:latest-seq" }),
-    withD1Retry(() => queries.communityReadState.getReadState(db, { userId: botUserId, ...scopeTarget }), { route: "community/messages:read-state" }),
-  ])
-  const seen = body.seenUpToSeq ?? readState?.lastReadSeq ?? 0
-  const hasUnread = await withD1Retry(
-    () => queries.communityAgentInbox.hasDeliverableUnreadForAgentScope(db, botUserId, channelId, seen),
-    { route: "community/messages:has-unread" },
-  )
-  if (hasUnread) {
-    const replay = await replayResponse()
-    if (replay) return replay
-    return NextResponse.json({ state: "blocked", reason: "unaligned", unreadCount: Math.max(0, latestSeq - seen), latestSeq })
+  let latestSeq: number | undefined
+  let seen = 0
+  if (requireAlignment) {
+    const [currentLatestSeq, readState] = await Promise.all([
+      withD1Retry(() => queries.communityAgentInbox.getLatestSeqForScope(db, channelId), { route: "community/messages:latest-seq" }),
+      withD1Retry(() => queries.communityReadState.getReadState(db, { userId: botUserId, ...scopeTarget }), { route: "community/messages:read-state" }),
+    ])
+    latestSeq = currentLatestSeq
+    seen = body.seenUpToSeq ?? readState?.lastReadSeq ?? 0
+    const hasUnread = await withD1Retry(
+      () => queries.communityAgentInbox.hasDeliverableUnreadForAgentScope(db, botUserId, channelId, seen),
+      { route: "community/messages:has-unread" },
+    )
+    if (hasUnread) {
+      const replay = await replayResponse()
+      if (replay) return replay
+      return NextResponse.json({ state: "blocked", reason: "unaligned", unreadCount: Math.max(0, latestSeq - seen), latestSeq })
+    }
   }
 
   if (!body.force && target.kind !== "dm" && await isDuplicateBotMessage({
@@ -227,7 +234,7 @@ export async function handleBotSend(
   if (target.kind === "forum") {
     const created = await createForumOpener(target.serverId, latestSeq)
     if (!created.ok) {
-      if (created.status === 409) {
+      if (requireAlignment && created.status === 409) {
         const freshLatestSeq = await withD1Retry(
           () => queries.communityAgentInbox.getLatestSeqForScope(db, channelId),
           { route: "community/messages:forum-fresh-latest-seq" },
@@ -269,7 +276,7 @@ export async function handleBotSend(
     target,
     body: { content: body.content.text, replyToId },
     source: "cli",
-    expectedSeq: latestSeq,
+    ...(latestSeq !== undefined ? { expectedSeq: latestSeq } : {}),
     attachmentIds: body.attachments.length > 0 ? body.attachments : undefined,
     clientNonce: body.nonce,
     extraStatements: [
@@ -277,7 +284,7 @@ export async function handleBotSend(
     ],
   })
   if (!result.ok) {
-    if (result.status === 409) {
+    if (requireAlignment && result.status === 409) {
       const freshLatestSeq = await withD1Retry(
         () => queries.communityAgentInbox.getLatestSeqForScope(db, channelId),
         { route: "community/messages:fresh-latest-seq" },

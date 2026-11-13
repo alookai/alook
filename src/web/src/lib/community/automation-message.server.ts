@@ -19,7 +19,7 @@ export async function sendAutomationMessage(req: NextRequest, ctx: { env: Env; u
   }
   const denied = await ctx.beforeCreate()
   if (denied) return denied
-  const response = botId ? await handleBotSend(db, botId, ctx.env, { channel: body.target, content: { text: body.content }, nonce: body.nonce })
+  const response = botId ? await handleBotSend(db, botId, ctx.env, { channel: body.target, content: { text: body.content }, nonce: body.nonce }, { requireAlignment: false })
     : await handleHumanSend(db, ctx.userId, ctx.env, { ref: body.target, createDmIfMissing: true, createThreadIfMissing: true }, { content: body.content, nonce: body.nonce }, COMMUNITY_RESOURCE_CONTRACT_VERSION)
   if (!response.ok) return response
   const result = await response.json() as { state?: string; message: { seq: number | string }; deduped?: boolean; threadId?: string }

@@ -20,6 +20,9 @@ vi.mock("@/lib/middleware/community-actor", () => ({
 vi.mock("@/lib/community/message-door", () => ({
   resolveMessageTarget: async () => ({ ok: true, value: { target: { kind: targetKind, channelId: "channel", serverId: "server" } } }),
 }))
+vi.mock("@/lib/middleware/community-agent-runner-auth", () => ({
+  resolveOwnedBotActor: async () => ({ kind: "bot", actor: { botUserId: "author" } }),
+}))
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: async () => ({ allowed: true }) }))
 vi.mock("@/lib/community/fanout", () => ({
   broadcastToUserSafe: vi.fn(), fanOutToChannel: vi.fn(), fanOutToServerMembers: vi.fn(),
@@ -28,6 +31,7 @@ vi.mock("@/lib/community/message-dispatcher", () => ({ dispatchCommittedMessage:
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return { ...actual, queries: { ...actual.queries,
+    automation: { ...actual.queries.automation, getOwnedBotByHandle: async () => ({ id: "author" }) },
     communityChannel: { ...actual.queries.communityChannel, isChannelPrivate: async () => false },
     communityMessage: { ...actual.queries.communityMessage,
       getMessageByAuthorAndNonce: async (...args: Parameters<typeof actual.queries.communityMessage.getMessageByAuthorAndNonce>) => {
@@ -44,12 +48,13 @@ vi.mock("@alook/shared", async () => {
     communityAgentInbox: { ...actual.queries.communityAgentInbox,
       getLatestSeqForScope: async () => (fixture.sqlite.prepare("SELECT next_seq FROM community_message_seq").get() as any)?.next_seq ?? 0,
       hasDeliverableUnreadForAgentScope: async () => beforeUnread ? beforeUnread() : false,
-      toAgentMessage: async (_db: unknown, row: unknown, _userId: unknown, attachments: unknown) => ({ ...row as object, attachments }),
+      toAgentMessage: async (_db: unknown, row: { seq: number }, _userId: unknown, attachments: unknown) => ({ ...row, seq: `#${row.seq}`, attachments }),
     },
   } }
 })
 
 import { POST } from "./route"
+import { sendAutomationMessage } from "@/lib/community/automation-message.server"
 import { queries } from "@alook/shared"
 import { dispatchCommittedMessage } from "@/lib/community/message-dispatcher"
 
@@ -116,6 +121,31 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
     expect(fixture.sqlite.prepare("SELECT id FROM community_attachment").get()).toEqual({ id: "a" })
     expect(fixture.sqlite.prepare("SELECT * FROM community_message_attachment").all()).toEqual([])
     expect(fixture.sqlite.prepare("SELECT sent_count FROM community_bot_daily_activity").get()).toEqual({ sent_count: 1 })
+  })
+
+  it.each(["channel", "forum"] as const)("Automation %s sends with unread messages and concurrent nonce persist once", async (kind) => {
+    targetKind = kind
+    await queries.communityMessage.createMessage(fixture.db, {
+      authorId: "peer", content: "unread incoming message", channelId: "channel",
+    })
+    beforeUnread = async () => { throw new Error("Automation must not query alignment") }
+    const send = () => sendAutomationMessage(new NextRequest("http://localhost/api/community/automation/messages", {
+      method: "POST", body: JSON.stringify({ target: "/test#1234/general", as: "@Author#0042", content: "scheduled report", nonce: "job-nonce" }),
+    }), { env: { DB: {} } as Env, userId: "owner", beforeCreate: async () => null })
+    const responses = await Promise.all([send(), send()])
+    const bodies = await Promise.all(responses.map((response) => response.json()))
+    expect(responses.map((response) => response.status)).toEqual([200, 200])
+    expect(bodies[0]).toMatchObject({ state: "sent", seq: "#2" })
+    expect(bodies[1]).toMatchObject({ state: "sent", seq: "#2" })
+    expect(bodies.filter((body) => body.deduped)).toHaveLength(1)
+    expect(fixture.sqlite.prepare("SELECT count(*) AS count FROM community_message WHERE author_id='author'").get()).toEqual({ count: 1 })
+    expect(fixture.sqlite.prepare("SELECT sent_count FROM community_bot_daily_activity").get()).toEqual({ sent_count: 1 })
+    expect(dispatchCommittedMessage).toHaveBeenCalledOnce()
+    if (kind === "forum") {
+      expect(bodies[0].threadId).toBeTruthy()
+      expect(bodies[0].threadId).toBe(bodies[1].threadId)
+      expect(fixture.sqlite.prepare("SELECT count(*) AS count FROM community_channel WHERE type='thread'").get()).toEqual({ count: 1 })
+    }
   })
 
   it("a nonce committed during the unread gate is returned instead of blocked", async () => {
