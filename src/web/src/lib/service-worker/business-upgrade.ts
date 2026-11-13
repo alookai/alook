@@ -71,7 +71,7 @@ export function businessUpdateUrl(href: string, version: number, buildId?: strin
   return url.href
 }
 
-export async function upgradeBusinessWindow(client: MessageTarget & { url: string; navigate(url: string): Promise<unknown> }, origin: string, force = false, explicitRetry = false): Promise<boolean> {
+export async function upgradeBusinessWindow(client: MessageTarget & { url: string; navigate(url: string): Promise<unknown> }, origin: string, force = false, explicitRetry = false, completion: "navigation" | "request" = "navigation"): Promise<boolean> {
   const url = new URL(client.url)
   if (url.origin !== origin || !isBusinessDocumentPath(url.pathname)) return false
   if (!force) {
@@ -85,5 +85,10 @@ export async function upgradeBusinessWindow(client: MessageTarget & { url: strin
   if (explicitRetry) url.searchParams.delete(BUSINESS_UPDATE_MARKER)
   const next = businessUpdateUrl(url.href, BUSINESS_SCHEMA_VERSION, WEB_BUILD_ID)
   if (!next) return false
-  return Boolean(await client.navigate(next))
+  const navigation = client.navigate(next)
+  if (completion === "request") {
+    void navigation.catch(() => undefined)
+    return true
+  }
+  return Boolean(await navigation)
 }

@@ -1,12 +1,65 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { CacheFirst, NavigationRoute, NetworkFirst, Serwist, Strategy } from "serwist"
 import { publicWorkerRuntimeCacheNames } from "../lib/service-worker/cache-identity"
+import { setImmediate as nextEventTurn } from "node:timers/promises"
 
 const shellUrl = `/community-shell/${"a".repeat(64)}`
+type WorkerListener = (event: MessageEvent & { waitUntil: (promise: Promise<unknown>) => void }) => unknown
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.resetModules() })
 
+async function workerWithLegacyWindow(navigate: (url: string) => Promise<unknown>) {
+  const { BUSINESS_SCHEMA_VERSION } = await import("@alook/shared/business-schema-version")
+  const location = new URL("https://example.test/sw.js")
+  const listeners = new Map<string, WorkerListener[]>()
+  const client = { id: "legacy-document", url: "https://example.test/c/me", navigate: vi.fn(navigate),
+    postMessage: vi.fn((_message: unknown, ports: MessagePort[]) => ports[0]?.postMessage({ schemaVersion: BUSINESS_SCHEMA_VERSION })) }
+  const storage = { keys: vi.fn(async () => [] as string[]), delete: vi.fn(async () => true),
+    open: vi.fn(async () => ({ keys: async () => [] as Request[] })) }
+  const worker = { location, skipWaiting: vi.fn(async () => undefined), registration: { scope: `${location.origin}/` },
+    caches: storage, clients: { claim: vi.fn(async () => undefined), matchAll: vi.fn(async () => [client]) },
+    __SW_MANIFEST: [{ url: shellUrl, revision: null }],
+    addEventListener: (type: string, listener: WorkerListener) => {
+      listeners.set(type, [...listeners.get(type) ?? [], listener])
+    } }
+  vi.spyOn(Serwist.prototype, "matchPrecache").mockResolvedValue(new Response("cached current shell"))
+  vi.stubGlobal("self", worker)
+  vi.stubGlobal("location", location)
+  vi.stubGlobal("caches", storage)
+  await import("./sw")
+  return { worker, client, listeners }
+}
+
 describe("public worker activation", () => {
+  it.each(["completed", "refused", "rejected"] as const)("finishes prepared activation while legacy navigation is pending, then %s", async outcome => {
+    const { BUSINESS_SCHEMA_VERSION } = await import("@alook/shared/business-schema-version")
+    const { WEB_BUILD_ID } = await import("../lib/web-build")
+    let started!: () => void
+    const navigationStarted = new Promise<void>(resolve => { started = resolve })
+    let finish!: (value: unknown) => void, reject!: (error: Error) => void
+    const navigation = new Promise<unknown>((resolve, fail) => { finish = resolve; reject = fail })
+    const { worker, client, listeners } = await workerWithLegacyWindow(() => { started(); return navigation })
+    const pending: Promise<unknown>[] = []
+    for (const listener of listeners.get("activate") ?? []) listener({ waitUntil: promise => { pending.push(promise) } } as never)
+    let activated = false
+    const activation = Promise.all(pending).then(() => { activated = true })
+    try {
+      await navigationStarted
+      await nextEventTurn()
+      expect(worker.clients.claim).toHaveBeenCalledOnce()
+      expect(client.postMessage).toHaveBeenCalledOnce()
+      expect(client.navigate).toHaveBeenCalledOnce()
+      const destination = new URL(client.navigate.mock.calls[0][0] as string)
+      expect(destination.origin + destination.pathname).toBe("https://example.test/c/me")
+      expect(destination.searchParams.get("__alook_schema_update")).toBe(`${BUSINESS_SCHEMA_VERSION}:${WEB_BUILD_ID}`)
+      expect(activated).toBe(true)
+    } finally {
+      if (outcome === "rejected") reject(new Error("Legacy navigation failed"))
+      else finish(outcome === "refused" ? null : { id: "new-document" })
+      await activation
+      await nextEventTurn()
+    }
+  })
   it("registers actual Blog strategies while keeping precache and sensitive request boundaries", async () => {
     vi.stubEnv("NODE_ENV", "production")
     const listeners = vi.spyOn(Serwist.prototype, "addEventListeners")
@@ -152,6 +205,32 @@ describe("public worker activation", () => {
     expect(storage.open).toHaveBeenCalledWith("alook-public-precache-v1")
     expect(listeners.has("fetch")).toBe(true)
   })
+})
+
+it.each(["completed", "refused"] as const)("holds the actual forced-update completion reply until navigation is %s", async outcome => {
+  const { BUSINESS_SCHEMA_VERSION } = await import("@alook/shared/business-schema-version")
+  const { CURRENT_DOCUMENT_REQUEST } = await import("../lib/service-worker/business-upgrade")
+  const { WEB_BUILD_ID } = await import("../lib/web-build")
+  let started!: () => void
+  const navigationStarted = new Promise<void>(resolve => { started = resolve })
+  let finish!: (value: unknown) => void
+  const navigation = new Promise<unknown>(resolve => { finish = resolve })
+  const { client, listeners } = await workerWithLegacyWindow(() => { started(); return navigation })
+  const reply = vi.fn(), pending: Promise<unknown>[] = []
+  for (const listener of listeners.get("message") ?? []) listener({ data: { type: CURRENT_DOCUMENT_REQUEST,
+    schemaVersion: BUSINESS_SCHEMA_VERSION, buildId: WEB_BUILD_ID }, source: { id: client.id },
+    ports: [{ postMessage: reply }], waitUntil: promise => { pending.push(promise) } } as never)
+  const processing = Promise.all(pending)
+  try {
+    await navigationStarted
+    await nextEventTurn()
+    expect(client.navigate).toHaveBeenCalledOnce()
+    expect(reply).not.toHaveBeenCalled()
+  } finally {
+    finish(outcome === "refused" ? null : { id: "new-document" })
+    await processing
+  }
+  expect(reply).toHaveBeenCalledExactlyOnceWith({ navigating: outcome === "completed" })
 })
 
 it.each(["probe", "probe-no-port", "unrelated", "missing-source", "source-without-id", "wrong-version", "wrong-build", "missing-shell", "missing-client", "public-client", "current-marker", "navigate", "legacy-request", "retry-marker", "navigation-refused"])("handles the actual worker message lifecycle: %s", async scenario => {

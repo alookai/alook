@@ -64,7 +64,7 @@ self.addEventListener("activate", event => event.waitUntil((async () => {
   if (!await serwist.matchPrecache(shellUrl)) throw new Error("Current community shell unavailable")
   await self.clients.claim()
   const clients = await self.clients.matchAll({ type: "window" })
-  await Promise.allSettled(clients.map(client => upgradeBusinessWindow(client, self.location.origin)))
+  await Promise.allSettled(clients.map(client => upgradeBusinessWindow(client, self.location.origin, false, false, "request")))
 })()))
 
 self.addEventListener("message", event => {
