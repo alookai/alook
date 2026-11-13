@@ -23,11 +23,25 @@ describe("CLI prompt ref examples — tokenizer contract", () => {
       agentId: "agent_1",
       workspacePath: "/tmp/workspace",
     } as Parameters<typeof buildCliSystemPrompt>[0])
-    const examples = prompt.split("\n").filter((line) =>
-      line.startsWith("/Alook#1234") || line.startsWith("/.dm/alice#0042"),
-    )
+    const examples = prompt.split("\n").flatMap((line) => {
+      const ref = /^\| (\/(?:<server>|\.dm\/<peer>)[^|]*) \|/.exec(line)?.[1]?.trim()
+      return ref ? [ref
+        .replaceAll("<server>", "Alook#1234")
+        .replaceAll("<channel>", "general")
+        .replaceAll("<peer>", "alice#0042")
+        .replaceAll("#N", "#28")
+        .replaceAll("#M", "#5")] : []
+    })
 
-    expect(examples).toHaveLength(6)
+    expect(examples).toEqual([
+      "/Alook#1234/general",
+      "/Alook#1234/general#28",
+      "/Alook#1234/general/#28",
+      "/Alook#1234/general/#28#5",
+      "/Alook#1234",
+      "/.dm/alice#0042",
+      "/.dm/alice#0042#28",
+    ])
     for (const example of examples) {
       const children = paragraphChildren(parse(example))
       expect(children).toHaveLength(1)
