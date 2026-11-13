@@ -1296,6 +1296,7 @@ export function parseRef(ref: ChannelRef): ParsedRef {
   const body = ref.slice(1);
   const parts = body.split("/");
   if (parts.length < 2) throw new Error(`ref needs /<server>/<channel>: ${ref}`);
+  if (parts.length > 3) throw new Error(`ref has too many segments: ${ref}`);
   const server = parts[0];
   if (server !== DM_SERVER && !parseNameAndTag(server)) {
     throw new Error(`server ref must use a name#discriminator handle: ${ref}`);
@@ -1306,15 +1307,15 @@ export function parseRef(ref: ChannelRef): ParsedRef {
   // Thread form: /server/channel/#N or /server/channel/#N#M  → last part
   // starts with "#". `#M` (when present) is the message seq WITHIN the
   // thread channel's own seq space.
-  if (parts.length >= 3 && parts[parts.length - 1].startsWith("#")) {
-    const tail = parseThreadTail(parts[parts.length - 1]);
+  if (parts.length === 3 && parts[2].startsWith("#")) {
+    const tail = parseThreadTail(parts[2]);
     return { server, channel: parts[1], ...tail };
   }
 
   // Any other 3+ segment shape (the old forum-post form's territory) no
   // longer names a valid ref — reject rather than silently truncate to the
   // first two segments.
-  if (parts.length >= 3 && server !== DM_SERVER) {
+  if (parts.length >= 3) {
     throw new Error(`ref has too many segments: ${ref}`);
   }
 

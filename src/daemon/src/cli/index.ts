@@ -264,6 +264,7 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
   const agent = agentId(opts);
   const channel = opts.target as string;
   if (!channel) throw new CliError("message send: --target <ref> is required (e.g. /demo-workspace#1234/general)");
+  parseRef(channel);
 
   const literalText = await readLiteralInput({
     command: "message send",
@@ -672,6 +673,7 @@ async function cmdChannelMember(opts: Record<string, unknown>): Promise<unknown>
   const agent = agentId(opts);
   const channel = opts.channel as string;
   if (!channel) throw new CliError("channel member: --channel <ref> is required");
+  parseRef(channel);
   return await api.channelMember({ agentId: agent, channel });
 }
 
@@ -701,6 +703,7 @@ async function cmdChannelHistory(opts: Record<string, unknown>): Promise<unknown
   const agent = agentId(opts);
   const channel = opts.channel as string;
   if (!channel) throw new CliError("channel history: --channel <ref> is required");
+  parseRef(channel);
   const toSeq = (v: unknown): number | undefined => (v === undefined ? undefined : Number(v));
   const { items, hasMore, latestSeq } = await api.read({
     agentId: agent,

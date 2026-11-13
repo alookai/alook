@@ -35,6 +35,19 @@ describe("agent running-turn interrupt contract", () => {
 });
 
 describe("parseRef", () => {
+  it.each([
+    "/studio#0042/general/#12/#34",
+    "/studio#0042/general/ignored/#34",
+    "/studio#0042/general/#12/#34#5",
+    "/studio#0042/general/#12/",
+    "/.dm/gusye#1231/#12/#34",
+    "/.dm/gusye#1231/ignored/#34",
+    "/.dm/gusye#1231/ignored",
+    "/.dm/gusye#1231/",
+  ])("rejects surplus path segments: %s", (ref) => {
+    expect(() => parseRef(ref)).toThrow("ref has too many segments");
+  });
+
   it('parses "/studio#0042/general" as a plain channel ref', () => {
     expect(parseRef("/studio#0042/general")).toEqual({ server: "studio#0042", channel: "general" });
   });
