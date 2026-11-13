@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useMessageListController, type MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
 import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
+import { ConversationFooterShell, ConversationFooterSlotProvider, useConversationFooterSlot } from "./conversation-footer-shell"
 
 type ScrollInput = Parameters<typeof import("@/hooks/community/use-scroll-anchor").useScrollAnchor>[0]
 function notifyReached(input: ScrollInput, id: string) {
@@ -128,6 +129,43 @@ function Probe({
 }
 
 describe("useMessageListController", () => {
+  it("commits selection, footer and tail reservation together through dialog close and owner replacement", () => {
+    const samples: Array<{ selected: boolean; footerSelected: boolean; capsule: number }> = []
+    function SelectionOwner() {
+      const slot = useConversationFooterSlot()!
+      const controller = useMessageListController(props(), slot.capsuleHeight)
+      React.useLayoutEffect(() => {
+        latest = controller
+        samples.push({ selected: controller.selectMode, footerSelected: slot.selectionActive, capsule: slot.capsuleHeight })
+      })
+      return null
+    }
+    const scene = (present: boolean) => React.createElement(ConversationFooterSlotProvider, null,
+      present && React.createElement(SelectionOwner),
+      React.createElement(ConversationFooterShell, null, React.createElement("input", { "aria-label": "Shared draft", defaultValue: "Keep draft" })),
+    )
+    const view = rtlRender(scene(true))
+    const draft = view.getByRole("textbox", { name: "Shared draft" })
+    draft.focus()
+    samples.length = 0
+    act(() => latest.onEnterSelectId("m1"))
+    expect(samples.length).toBeGreaterThan(0)
+    expect(samples.every(sample => sample.selected && sample.footerSelected && sample.capsule === 0)).toBe(true)
+    act(() => latest.setShareOpen(true))
+    samples.length = 0
+    act(() => latest.closeShare())
+    expect(samples.every(sample => !sample.selected && !sample.footerSelected && sample.capsule === 40)).toBe(true)
+    expect(latest.shareOpen).toBe(false)
+    expect(latest.selectedIds.size).toBe(0)
+    expect(view.getByRole("textbox", { name: "Shared draft" })).toBe(draft)
+    expect(draft).toHaveValue("Keep draft")
+    act(() => latest.onEnterSelectId("m1"))
+    view.rerender(scene(false))
+    view.rerender(scene(true))
+    expect(latest.selectMode).toBe(false)
+    expect(view.getByRole("textbox", { name: "Shared draft" })).toBe(draft)
+  })
+
   it("keeps the idle unknown sentinel at zero size and projects real loading, error or known-start content", () => {
     const input = props({ historyStartKnown: false, hasMore: true })
     const view = rtlRender(React.createElement(Probe, { value: input }))

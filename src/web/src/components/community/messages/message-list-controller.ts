@@ -13,6 +13,7 @@ import { hashKey } from "@tanstack/react-query"
 import { messageRailTailPaddingEnd } from "@/lib/community/conversation-layout"
 import { messageScrollBehavior } from "@/lib/community/message-scroll-behavior"
 import { READ_VISIBILITY_THRESHOLD } from "@/hooks/community/use-read-observer"
+import { useConversationFooterSlot } from "./conversation-footer-shell"
 
 export function useMessageListController({
   messages,
@@ -78,7 +79,10 @@ export function useMessageListController({
     [messages, dividerTarget, hasMore, hasMoreNewer, isFetchingNewer, newerLoadError, historyStartKnown, isFetchingOlder, olderLoadError],
   )
 
-  const [selectMode, setSelectMode] = useAtom(useCreateAtom(false))
+  const footerSlot = useConversationFooterSlot()
+  const localSelection = useCreateAtom(false)
+  const [selectMode, setSelectMode] = useAtom(footerSlot?.selection ?? localSelection)
+  useLayoutEffect(() => () => setSelectMode(false), [setSelectMode])
   const [selectedIds, setSelectedIds] = useAtom(useCreateAtom<Set<string>>(useMemo<Set<string>>(() => new Set<string>(), [])))
   const [shareOpen, setShareOpen] = useAtom(useCreateAtom(false))
   const onEnterSelectId = useCallback((id: string) => {
@@ -164,6 +168,8 @@ export function useMessageListController({
     isFetchingNewer,
     presentVersion,
     presentRequest,
+    presentPending,
+    onJumpToPresent,
     localSubmitVersion,
     hasMoreOlder: hasMore,
     tailPaddingEnd: messageRailTailPaddingEnd(items.at(-1), capsuleHeight),

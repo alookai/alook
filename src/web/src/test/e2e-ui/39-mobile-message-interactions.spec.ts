@@ -858,13 +858,13 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   expect(geometry.contentPaddingBottom).toBe(0)
   const readableBottom = geometry.scroller!.bottom - geometry.occlusion
   expect(geometry.occlusion).toBeGreaterThan(0)
-  expect(Math.abs(geometry.scroller!.bottom - geometry.composer!.bottom)).toBeLessThanOrEqual(1)
-  expect(Math.abs(readableBottom - geometry.composer!.top)).toBeLessThanOrEqual(1)
-  expect(geometry.rail!.bottom).toBeLessThanOrEqual(readableBottom + 1)
+  expect(Math.abs(geometry.scroller!.bottom - geometry.composer!.top)).toBeLessThanOrEqual(1)
+  expect(Math.abs(readableBottom - (geometry.composer!.top - 40))).toBeLessThanOrEqual(1)
+  expect(geometry.rail!.bottom).toBeLessThanOrEqual(geometry.composer!.top + 1)
   expect(geometry.indicator!.height).toBe(32)
-  expect(Math.abs(readableBottom - geometry.indicator!.bottom - 4)).toBeLessThanOrEqual(1)
-  expect(readableBottom - geometry.finalMessage!.bottom).toBeGreaterThanOrEqual(39)
-  expect(readableBottom - geometry.finalMessage!.bottom).toBeLessThanOrEqual(41)
+  expect(Math.abs(geometry.composer!.top - geometry.indicator!.bottom - 4)).toBeLessThanOrEqual(1)
+  expect(geometry.composer!.top - geometry.finalMessage!.bottom).toBeGreaterThanOrEqual(39)
+  expect(geometry.composer!.top - geometry.finalMessage!.bottom).toBeLessThanOrEqual(41)
   expect(geometry.finalMessage!.bottom).toBeLessThanOrEqual(readableBottom + 1)
   expect(geometry.horizontalOverflow).toBeLessThanOrEqual(0)
 
@@ -889,10 +889,9 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     scroll: tid.scrollToPresent,
     indicator: tid.typingIndicator,
   })
-  const scrollReadableBottom = scrollTypingGeometry.scroller!.bottom - scrollTypingGeometry.occlusion
-  expect(scrollTypingGeometry.rail!.bottom).toBeLessThanOrEqual(scrollReadableBottom + 1)
-  expect(scrollTypingGeometry.scroll!.bottom).toBeLessThanOrEqual(scrollReadableBottom + 1)
-  expect(Math.abs(scrollReadableBottom - scrollTypingGeometry.indicator!.bottom - 4))
+  expect(scrollTypingGeometry.rail!.bottom).toBeLessThanOrEqual(scrollTypingGeometry.scroller!.bottom + 1)
+  expect(scrollTypingGeometry.scroll!.bottom).toBeLessThanOrEqual(scrollTypingGeometry.scroller!.bottom + 1)
+  expect(Math.abs(scrollTypingGeometry.scroller!.bottom - scrollTypingGeometry.indicator!.bottom - 4))
     .toBeLessThanOrEqual(1)
 
   await alice.page.getByTestId(tid.scrollToPresent).click()
@@ -1077,11 +1076,11 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   expect(dmGeometry.contentPaddingBottom).toBe(0)
   const dmReadableBottom = dmGeometry.scroller!.bottom - dmGeometry.occlusion
   expect(dmGeometry.occlusion).toBeGreaterThan(0)
-  expect(Math.abs(dmGeometry.scroller!.bottom - dmGeometry.composer!.bottom)).toBeLessThanOrEqual(1)
-  expect(Math.abs(dmReadableBottom - dmGeometry.composer!.top)).toBeLessThanOrEqual(1)
-  expect(dmGeometry.rail!.bottom).toBeLessThanOrEqual(dmReadableBottom + 1)
+  expect(Math.abs(dmGeometry.scroller!.bottom - dmGeometry.composer!.top)).toBeLessThanOrEqual(1)
+  expect(Math.abs(dmReadableBottom - (dmGeometry.composer!.top - 40))).toBeLessThanOrEqual(1)
+  expect(dmGeometry.rail!.bottom).toBeLessThanOrEqual(dmGeometry.composer!.top + 1)
   expect(dmGeometry.indicator!.height).toBe(32)
-  expect(Math.abs(dmReadableBottom - dmGeometry.indicator!.bottom - 4)).toBeLessThanOrEqual(1)
+  expect(Math.abs(dmGeometry.composer!.top - dmGeometry.indicator!.bottom - 4)).toBeLessThanOrEqual(1)
   expect(dmGeometry.horizontalOverflow).toBeLessThanOrEqual(0)
   await bobDmEditable.fill("")
   await expect(alice.page.getByTestId(tid.typingIndicator)).toBeHidden({ timeout: 15_000 })

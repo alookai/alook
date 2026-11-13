@@ -12,6 +12,7 @@ type ConversationFooterSlot = {
   accessoryTarget: HTMLDivElement | null
   setAccessoryTarget: Atom<HTMLDivElement | null>["set"]
   capsuleHeight: number
+  selection: Atom<boolean>
   selectionActive: boolean
   setSelectionActive: Atom<boolean>["set"]
 }
@@ -21,7 +22,8 @@ const ConversationFooterSlotContext = createContext<ConversationFooterSlot | nul
 export function ConversationFooterSlotProvider({ children }: { children: ReactNode }) {
   const [target, setTarget] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
   const [accessoryTarget, setAccessoryTarget] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
-  const [selectionActive, setSelectionActive] = useAtom(useCreateAtom(false))
+  const selection = useCreateAtom(false)
+  const [selectionActive, setSelectionActive] = useAtom(selection)
   const presented = useConversationPresentation()
   const capsuleHeight = accessoryTarget && presented && !selectionActive ? CONVERSATION_TAIL_SPACE_PX : 0
   const value = useMemo(() => ({
@@ -29,10 +31,11 @@ export function ConversationFooterSlotProvider({ children }: { children: ReactNo
     setTarget,
     accessoryTarget,
     setAccessoryTarget,
+    selection,
     selectionActive,
     setSelectionActive,
     capsuleHeight,
-  }), [accessoryTarget, capsuleHeight, selectionActive, setAccessoryTarget, setSelectionActive, setTarget, target])
+  }), [accessoryTarget, capsuleHeight, selection, selectionActive, setAccessoryTarget, setSelectionActive, setTarget, target])
 
   return (
     <ConversationFooterSlotContext.Provider value={value}>

@@ -7,7 +7,7 @@ import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 
 type FixtureMessage = Extract<FlatItem, { kind: "message" }> & { dateLabel?: string; newDivider?: boolean }
 export const message = (id: string, authorId = "peer"): FixtureMessage => ({ kind: "message", key: `msg:${id}`, m: { id, type: "chat", authorId, grouped: false } })
-type Input = Parameters<typeof useScrollAnchor>[0]
+type Input = Parameters<typeof useScrollAnchor>[0] & { scrollRootKey?: string }
 type Result = ReturnType<typeof useScrollAnchor>
 let latest: Result
 let height: number
@@ -37,6 +37,10 @@ function deliverScrollEvents() {
   }
   pendingScrollEvents.clear()
 }
+function listOffset(container: HTMLElement | null, root: HTMLElement | null | undefined) {
+  return container?.parentElement?.matches('[data-message-list-content].justify-end')
+    ? Math.max(0, (root?.clientHeight ?? 0) - (Number.parseFloat(container.style.height) || 0)) : 0
+}
 function rowGeometry(node: HTMLElement) {
   const wrapper = node.matches('[data-index]') ? node : node.closest<HTMLElement>('[data-index]')
   const root = rootFor(node)
@@ -54,7 +58,11 @@ function rowGeometry(node: HTMLElement) {
   const bottomPadding = padding.length > 1 ? padding[1] : topPadding
   const translation = wrapper?.style.transform.match(/translate3d\(0,\s*(-?[\d.]+)px/)
   const start = Number.parseFloat(translation?.[1] ?? wrapper?.style.top ?? "0") || 0
-  const y = start - (root?.scrollTop ?? 0)
+  const y = start + listOffset(wrapper?.parentElement ?? null, root) + (root?.clientTop ?? 0) - (root?.scrollTop ?? 0)
+  if (node.style.position === "relative" && node.parentElement?.matches('[data-message-list-content]')) {
+    return DOMRect.fromRect({ y: listOffset(node, root) + (root?.clientTop ?? 0) - (root?.scrollTop ?? 0), width,
+      height: Number.parseFloat(node.style.height) || 0 })
+  }
   if (node.matches('[data-msg-id]')) return DOMRect.fromRect({ y: y + topPadding, width, height: size })
   if (node.matches('[data-new-divider]')) return DOMRect.fromRect({ y, width, height: decoration })
   return DOMRect.fromRect({ y, width, height: size + decoration + topPadding + bottomPadding })
@@ -83,8 +91,8 @@ function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) 
   const result = useScrollAnchor({ ...input, items })
   useLayoutEffect(() => { latest = result; onLayout?.(result) })
   return createElement("div", { "data-slot": "community-conversation-surface" },
-    createElement("div", { ref: result.scrollRef, "data-testid": "scroll" },
-      createElement("div", { "data-message-list-content": "", "data-read-position-ready": String(result.readPositionReady) },
+    createElement("div", { key: input.scrollRootKey, ref: result.scrollRef, "data-testid": "scroll" },
+      createElement("div", { "data-message-list-content": "", "className": "flex min-h-full flex-col justify-end", "data-read-position-ready": String(result.readPositionReady) },
         createElement(VirtualRows<FlatItem>, {
           items, virtualizer: result.virtualizer, reactLayout: true,
           onLayoutCommit: result.onRowsLayoutCommit,
@@ -203,6 +211,9 @@ export function installMessageScrollFixture() {
   })
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
     return isScrollRoot(this) ? Math.max(0, height - (Number.parseFloat(this.style.borderTopWidth) || 0) - (Number.parseFloat(this.style.borderBottomWidth) || 0)) : rowGeometry(this).height
+  })
+  vi.spyOn(HTMLElement.prototype, "clientTop", "get").mockImplementation(function (this: HTMLElement) {
+    return isScrollRoot(this) ? Number.parseFloat(this.style.borderTopWidth) || 0 : 0
   })
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return isScrollRoot(this) ? height : this.clientHeight })
   vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(() => width)

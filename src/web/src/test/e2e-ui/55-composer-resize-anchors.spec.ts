@@ -120,7 +120,7 @@ test("overlay composer resizes preserve semantic anchors and interaction boundar
     const selectionOpen = await waitForCommittedGeometry(scroller)
     expect(selectionOpen.readableHeight).toBeGreaterThan(selectionBase.readableHeight)
     expect(selectionOpen.composerOcclusion).toBe(0)
-    expect(Math.abs(selectionBase.scrollHeight - selectionOpen.scrollHeight - selectionBase.composerOcclusion)).toBeLessThanOrEqual(1)
+    expect(Math.abs(selectionBase.scrollHeight - selectionOpen.scrollHeight - (40 - 8))).toBeLessThanOrEqual(1)
     expectViewportAnchorPreserved(selectionBase, selectionOpen, "selection-open-away")
     await expect(editable).toContainText("selection-draft line 0")
     await alice.page.getByRole("button", { name: "Cancel message selection" }).click()

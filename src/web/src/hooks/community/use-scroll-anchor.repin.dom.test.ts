@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
 import { createElement, Suspense, startTransition, use, type PropsWithChildren } from "react"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { bodyTop, installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 
 beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
@@ -1520,15 +1521,22 @@ describe("locked native adapter and existing message scroll owner", () => {
     resize(0)
     expect(h.root.scrollTop).toBe(before + (distance === 0 ? 100 : 0))
   })
-  it("fills a true single short message through native padding and crosses short/long normally", () => {
+  it("aligns a true single short message through CSS physical offset and crosses short/long normally", () => {
     const h = mount({ items: [message("m0")] })
+    const shortList = () => {
+      const native = scrollFixture.latest.virtualizer
+      expect(native.getTotalSize()).toBeLessThan(scrollFixture.height)
+      expect(native.getTotalSize() + native.options.scrollMargin).toBe(scrollFixture.height)
+      expect(native.options.paddingStart).toBe(0)
+      expect(h.root.querySelector<HTMLElement>('[data-msg-id="m0"]')!.getBoundingClientRect().bottom)
+        .toBe(scrollFixture.height - MESSAGE_RAIL_TAIL_PADDING_END_PX)
+    }
     expect(h.root.scrollTop).toBe(0)
-    expect(scrollFixture.latest.virtualizer.getTotalSize()).toBe(scrollFixture.height)
+    shortList()
     h.update({ items: Array.from({ length: 14 }, (_, i) => message(`m${i}`)) })
     expect(scrollFixture.latest.virtualizer.getTotalSize()).toBeGreaterThan(scrollFixture.height)
     h.update({ items: [message("m0")] })
-    expect(scrollFixture.latest.virtualizer.getTotalSize()).toBe(scrollFixture.height)
-    expect(scrollFixture.latest.virtualizer.options.paddingStart).toBeGreaterThan(0)
+    shortList()
   })
   it("keeps a genuinely empty list free of message keys and positions the first actual message", () => {
     const h = mount({ items: [] })
@@ -1538,7 +1546,10 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     expect(scrollFixture.latest.virtualizer.getVirtualItems().map(item => item.key)).toEqual(["rail:leading", "msg:first"])
     expect(h.root.scrollTop).toBe(0)
-    expect(scrollFixture.latest.virtualizer.getTotalSize()).toBe(scrollFixture.height)
+    expect(scrollFixture.latest.virtualizer.getTotalSize()).toBeLessThan(scrollFixture.height)
+    expect(scrollFixture.latest.virtualizer.getTotalSize() + scrollFixture.latest.virtualizer.options.scrollMargin).toBe(scrollFixture.height)
+    expect(h.root.querySelector<HTMLElement>('[data-msg-id="first"]')!.getBoundingClientRect().bottom)
+      .toBe(scrollFixture.height - MESSAGE_RAIL_TAIL_PADDING_END_PX)
   })
   it("stops idle geometry frames when the last message is removed", () => {
     const h = mount()

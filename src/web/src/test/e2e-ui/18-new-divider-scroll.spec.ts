@@ -331,7 +331,7 @@ test("New reading near the tail survives peer and remote-self messages until the
   await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
   await expect.poll(() => page.getByTestId(tid.message(lastUnreadId)).evaluate((body, scrollerTestId) => {
     const root = body.closest<HTMLElement>(`[data-testid="${scrollerTestId}"]`)!
-    return Math.abs(root.getBoundingClientRect().bottom - Number(root.dataset.composerOcclusion ?? 0) - body.getBoundingClientRect().bottom - 40)
+    return Math.abs(root.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom - 40)
   }, tid.messageScroller)).toBeLessThanOrEqual(1)
   await scroller.evaluate(element => {
     element.scrollTop = element.scrollHeight - element.clientHeight - 20

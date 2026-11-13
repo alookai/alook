@@ -15,6 +15,37 @@ function messages(): Msg[] {
   }))
 }
 
+it("keeps a short list at its CSS bottom with native physical coordinates through selection and footer changes", () => {
+  const rows = flattenMessageItems(messages().slice(0, 1), undefined, false, false, true)
+  const h = mount({ items: rows, positionEntry: {}, tailPaddingEnd: 32, viewportInsetEnd: 40 })
+  try {
+    const native = scrollFixture.latest.virtualizer
+    const assertCoordinates = (tailGap: number) => {
+      const body = h.root.querySelector<HTMLElement>('[data-msg-id="m0"]')!
+      const wrapper = body.closest<HTMLElement>('[data-index]')!
+      const row = native.getVirtualItems().find(item => item.index === rows.findIndex(item => item.kind === "message" && item.m.id === "m0"))!
+      expect(native.options.paddingStart).toBe(0)
+      expect(native.options.scrollMargin).toBeCloseTo(h.root.clientHeight - native.getTotalSize(), 1)
+      expect(Math.abs(wrapper.getBoundingClientRect().top - h.root.getBoundingClientRect().top
+        - h.root.clientTop + h.root.scrollTop - row.start)).toBeLessThanOrEqual(1)
+      expect(Math.abs(h.root.clientHeight - body.getBoundingClientRect().bottom - tailGap)).toBeLessThanOrEqual(1)
+      expect(scrollFixture.latest.readPositionReady).toBe(true)
+      const top = body.getBoundingClientRect().top
+      runFrames()
+      resize()
+      expect(Math.abs(body.getBoundingClientRect().top - top)).toBeLessThanOrEqual(1)
+    }
+    assertCoordinates(40)
+    h.update({ tailPaddingEnd: 0, viewportInsetEnd: 0 })
+    assertCoordinates(8)
+    h.update({ tailPaddingEnd: 32, viewportInsetEnd: 40 })
+    assertCoordinates(40)
+    scrollFixture.height -= 80
+    resize()
+    assertCoordinates(40)
+  } finally { h.view.unmount() }
+})
+
 function visibleBody(root: HTMLElement) {
   const body = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
     .find(element => element.getBoundingClientRect().bottom > 0 && element.getBoundingClientRect().top < root.clientHeight)

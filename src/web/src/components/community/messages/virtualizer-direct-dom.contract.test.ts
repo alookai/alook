@@ -37,7 +37,8 @@ describe("community virtualizer direct DOM contract", () => {
 
     expect(messageList).toContain("<VirtualRows")
     expect(scrollAnchor).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
-    expect(virtualRows).toContain("ref={virtualizer.containerRef}")
+    expect(virtualRows).toContain("ref={bindContainer}")
+    expect(virtualRows).toContain("virtualizer.containerRef(node)")
     expect(virtualRows).toContain("ref={virtualizer.measureElement}")
     expect(messageList).toMatch(/<VirtualRows\s+reactLayout/)
     expect(scrollAnchor).toMatch(/\.\.\.COMMUNITY_VIRTUALIZER_REACT_OPTIONS,\s+directDomUpdates: false/)
@@ -84,7 +85,8 @@ describe("community virtualizer direct DOM contract", () => {
     expect(forumView).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
     expect(forumView).toContain("<VirtualRows")
     expect(forumView).not.toContain("reactLayout")
-    expect(virtualRows).toContain("ref={virtualizer.containerRef}")
+    expect(virtualRows).toContain("ref={bindContainer}")
+    expect(virtualRows).toContain("virtualizer.containerRef(node)")
     expect(virtualRows).toContain("ref={virtualizer.measureElement}")
   })
 
