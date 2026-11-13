@@ -1,3 +1,5 @@
+import { LOCAL_MEMORY_COMMIT_PATH } from "../memory/commit.js";
+import { handleLocalMemoryCommit, type LocalCommitResult } from "../memory/proxy.js";
 import { resolveProxyCapability, resolveProxyRoute } from "./route-policy.js";
 /**
  * Credential proxy — zero-trust credential isolation for spawned agents.
@@ -257,6 +259,8 @@ export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = resolveProxyCapab
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
 
 export interface CredentialProxyOptions {
+  onMemoryCommit?: (identity: { agentId: string; launchId: string }, input: { log: string; reset: boolean }) => LocalCommitResult;
+  onMemoryCommitResetError?: (agentId: string, error: unknown) => void;
   pii?: PiiProxy;
   /** Bind host (default loopback). Keep it loopback in production. */
   host?: string;
@@ -487,6 +491,15 @@ export async function startCredentialProxy(
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url ?? "/", "http://placeholder");
     const pathname = requestUrl.pathname;
+    if (pathname === LOCAL_MEMORY_COMMIT_PATH) {
+      if (req.method !== "POST" || req.url !== LOCAL_MEMORY_COMMIT_PATH) {
+        writeJson(res, 405, { error: "method not allowed" }); req.resume(); return;
+      }
+      const verdict = broker.check(req.headers["authorization"], "send");
+      if (!verdict.ok) { writeJson(res, verdict.status, { error: verdict.error, code: verdict.code }); req.resume(); return; }
+      await handleLocalMemoryCommit(req, res, verdict.reg, options.onMemoryCommit, options.onMemoryCommitResetError);
+      return;
+    }
     if (pathname === LOCAL_PII_PATH && (req.method === "GET" || req.method === "POST")) {
       const localVerdict = broker.check(req.headers["authorization"], req.method === "GET" ? "read" : "send");
       if (!localVerdict.ok) { writeJson(res, localVerdict.status, { error: localVerdict.error, code: localVerdict.code }); req.resume(); return; }
@@ -551,6 +564,11 @@ export async function startCredentialProxy(
       return;
     }
 
+    if (/^\/api\/community\/bots\/me\/nap(?:\/|$)/.test(pathname)) {
+      writeJson(res, 410, { error: "nap was removed; use local commit to record a memory review", code: "command_removed" });
+      req.resume();
+      return;
+    }
     const reg = verdict.reg;
     if (/^\/api\/community\/bots\/[^/]+\/pii\/?$/.test(pathname)) {
       writeJson(res, 403, { error: "PII management requires a human owner session", code: "forbidden" });

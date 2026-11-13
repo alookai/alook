@@ -56,6 +56,7 @@ const timelineSweepHarness = vi.hoisted(() => {
 });
 
 const credentialProxyHarness = vi.hoisted(() => ({
+  onMemoryCommit: undefined as import("../credentials/credentialProxy.js").CredentialProxyOptions["onMemoryCommit"],
   pii: undefined as import("../pii/proxy.js").PiiProxy | undefined,
   onInboxPullStart: undefined as ((agentId: string) => unknown) | undefined,
   onInboxPullResponse: undefined as (
@@ -107,6 +108,7 @@ vi.mock("../credentials/index.js", async (importOriginal) => {
     startCredentialProxy: (
       ...args: Parameters<typeof actual.startCredentialProxy>
     ): ReturnType<typeof actual.startCredentialProxy> => {
+      credentialProxyHarness.onMemoryCommit = args[1]?.onMemoryCommit;
       credentialProxyHarness.pii = args[1]?.pii;
       credentialProxyHarness.onInboxPullStart = args[1]?.onInboxPullStart;
       credentialProxyHarness.onInboxPullResponse = args[1]?.onInboxPullResponse as
@@ -3363,5 +3365,54 @@ describe("AgentProcessManager.auditContext", () => {
     mgr.deliver("a1", { seq: 1, text: "hi" } as never);
     await session.fire("runtime_event", { kind: "session_init", sessionId: "s_ABC" });
     expect(mgr.auditContext("a1")).toEqual({ sessionId: "s_ABC", launchId: "l_XYZ" });
+  });
+});
+
+
+describe("local memory commit daemon wiring", () => {
+  it("records commit without resetting, then records a separate reset and wakes only on new work", async () => {
+    const sockets: FakeSocket[] = [];
+    const sessions: DaemonFakeSession[] = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-memory-commit-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    mkdirSync(join(workingDirectoryBase, "bot_1"), { recursive: true });
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      if (String(input).includes("/enroll-agent")) return Response.json({ runnerKey: "runner_test" });
+      if (String(input).includes("/daemon/bots")) return Response.json({ bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }] });
+      return Response.json({ attempted: 0 });
+    }));
+    const daemon = await createDaemon({
+      machineKey: "cmk_commit", serverUrl: "http://server.invalid", serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never, runtimeReport: [{ id: "codex" }],
+      driverFor: () => fullFakeDriver("codex"), sessionFactory: () => { const session = daemonFakeSession(); sessions.push(session); return session; },
+      providerQuotaReader: async () => null, capabilities: [], workingDirectoryBase,
+    });
+    const wake = (launchId: string, latestSeq: number) => sockets[0]!.emit("message", JSON.stringify({
+      type: "agent:wake", agentId: "bot_1", config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId, unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq },
+    }));
+    try {
+      sockets[0]!.emit("open"); wake("launch_1", 1);
+      await vi.waitFor(() => expect(sessions).toHaveLength(1));
+      wake("later-wake-same-process", 2);
+      await vi.waitFor(() => expect(sockets[0]!.sent.some((frame) => JSON.parse(frame).type === "agent_wake_ack" && JSON.parse(frame).launchId === "later-wake-same-process")).toBe(true));
+      expect(sessions).toHaveLength(1);
+      const commit = credentialProxyHarness.onMemoryCommit!;
+      expect(() => commit({ agentId: "bot_1", launchId: "old" }, { log: "I reviewed.", reset: false })).toThrow("no longer current");
+      const oldGeneration = credentialProxyHarness.onInboxAckStart!("bot_1");
+      const onlyCommit = commit({ agentId: "bot_1", launchId: "launch_1" }, { log: "I reviewed the first source.", reset: false });
+      expect(onlyCommit.resetSession).toBeUndefined();
+      expect(credentialProxyHarness.onInboxAckStart!("bot_1")).toBe(oldGeneration);
+      const timelineDir = join(workingDirectoryBase, "bot_1", ".context_timeline");
+      expect(readRecentEntries(timelineDir).filter((entry) => entry.system).map((entry) => entry.system?.type)).toEqual(["commit"]);
+      const withReset = commit({ agentId: "bot_1", launchId: "launch_1" }, { log: "I completed the review.", reset: true });
+      await withReset.resetSession!();
+      expect(credentialProxyHarness.onInboxAckStart!("bot_1")).toBe((oldGeneration as number) + 1);
+      expect(readRecentEntries(timelineDir).filter((entry) => entry.system).map((entry) => entry.system?.type)).toEqual(["commit", "commit", "reset_session"]);
+      expect(sessions).toHaveLength(1);
+      await expect(withReset.resetSession!()).rejects.toThrow("replaced");
+      wake("launch_3", 3);
+      await vi.waitFor(() => expect(sessions).toHaveLength(2));
+    } finally { await daemon.stop(); }
   });
 });

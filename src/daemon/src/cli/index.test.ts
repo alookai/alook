@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Readable } from "node:stream";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const mockDaemonStart = vi.hoisted(() => vi.fn(async () => {}));
 const mockDaemonStartById = vi.hoisted(() => vi.fn(async () => {}));
@@ -87,7 +89,7 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
       ...(req.bio !== undefined ? { bio: req.bio } : {}),
       ...(req.avatar ? { avatarUrl: "/api/community/bots/agent_test/avatar" } : {}),
     }),
-    nap: async () => ({ napped: true }),
+    commit: async (req) => ({ committed: true, no: 0, reset: req.reset }),
     ...over,
   } as ServerApi;
 }
@@ -2284,83 +2286,60 @@ describe("message send — required bounded stdin body contract", () => {
   });
 });
 
-describe("nap", () => {
-  it("sends an absent handoff when no file is supplied", async () => {
-    const napSpy = vi.fn(async () => ({ napped: true }));
-    setApiForTesting(stubApi({ nap: napSpy }));
-    await main(["nap"]);
-    expect(parseEnvelope(cap.lines())).toEqual({ success: { napped: true } });
-    expect(napSpy).toHaveBeenCalledWith({});
+describe("commit", () => {
+  it.each([false, true])("records the literal piped log with no-reset=%s", async (noReset) => {
+    const commit = vi.fn(async (req: Parameters<ServerApi["commit"]>[0]) => ({ committed: true as const, no: 3, reset: req.reset }));
+    setApiForTesting(stubApi({ commit }));
+    const log = "  I reviewed corrections.\nNext: finish the remaining source. 🎉\n";
+    await mainWithStdin(["commit", "--stdin", ...(noReset ? ["--no-reset"] : [])], log);
+    expect(commit).toHaveBeenCalledWith({ log, reset: !noReset });
+    expect(parseEnvelope(cap.lines())).toEqual({ success: { committed: true, no: 3, reset: !noReset } });
   });
-
-  it("errors on a whitespace-only handoff file", async () => {
-    const fs = await import("fs");
-    const os = await import("os");
-    const path = await import("path");
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nap-empty-"));
-    const file = path.join(dir, "handoff.md");
-    fs.writeFileSync(file, "   \n");
-    const napSpy = vi.fn(async () => ({ napped: true }));
-    setApiForTesting(stubApi({ nap: napSpy }));
-    await main(["nap", "--handoff", file]);
-    fs.rmSync(dir, { recursive: true, force: true });
-    const env = parseEnvelope(cap.lines());
-    expect(typeof env.error).toBe("string");
-    expect(napSpy).not.toHaveBeenCalled();
+  it("reads a literal file and rejects conflicting sources", async () => {
+    const fs = await import("node:fs");
+    const dir = fs.mkdtempSync(join(tmpdir(), "commit-cli-"));
+    const file = `${dir}/log.md`;
+    const log = "  I checked € and emoji 🎉.\n";
+    fs.writeFileSync(file, log);
+    const commit = vi.fn(async (req: Parameters<ServerApi["commit"]>[0]) => ({ committed: true as const, no: 0, reset: req.reset }));
+    setApiForTesting(stubApi({ commit }));
+    try {
+      await main(["commit", "--file", file]);
+      expect(commit).toHaveBeenCalledWith({ log, reset: true });
+      cap.lines().length = 0;
+      commit.mockClear();
+      await mainWithStdin(["commit", "--file", file, "--stdin"], log);
+      expect(parseEnvelope(cap.lines()).error).toContain("mutually exclusive");
+      expect(commit).not.toHaveBeenCalled();
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
-
-  it("reads the handoff from --handoff <file> without trimming", async () => {
-    const fs = await import("fs");
-    const os = await import("os");
-    const path = await import("path");
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nap-"));
-    const file = path.join(dir, "handoff.md");
-    const literal = "  Was mid-review of PR #42; next: run QA.\\\\n\n€€ 🎉  \n";
-    fs.writeFileSync(file, literal);
-    let handoff: string | undefined;
-    setApiForTesting(
-      stubApi({
-        nap: async (r: Parameters<ServerApi["nap"]>[0]) => {
-          handoff = r.handoff;
-          return { napped: true };
-        },
-      }),
-    );
-    await main(["nap", "--handoff", file]);
-    fs.rmSync(dir, { recursive: true, force: true });
-    expect(handoff).toBe(literal);
+  it.each(["", " \n", "x".repeat(24577), "🎉".repeat(6145)])("rejects an invalid log without invoking the daemon (%#)", async (log) => {
+    const commit = vi.fn();
+    setApiForTesting(stubApi({ commit }));
+    await mainWithStdin(["commit", "--stdin"], log);
+    expect(parseEnvelope(cap.lines()).error).toBeTypeOf("string");
+    expect(commit).not.toHaveBeenCalled();
   });
-
-  it("rejects --stdin and an unreadable handoff file", async () => {
-    const os = await import("os");
-    const path = await import("path");
-    const napSpy = vi.fn();
-    setApiForTesting(stubApi({ nap: napSpy }));
-    await main(["nap", "--stdin"]);
-    expect(parseEnvelope(cap.lines()).error).toContain("unknown option '--stdin'");
-    expect(napSpy).not.toHaveBeenCalled();
-
+  it("accepts exactly 24576 UTF-8 bytes", async () => {
+    const commit = vi.fn(async () => ({ committed: true as const, no: 0, reset: false }));
+    setApiForTesting(stubApi({ commit }));
+    await mainWithStdin(["commit", "--stdin", "--no-reset"], "🎉".repeat(6144));
+    expect(commit).toHaveBeenCalledOnce();
+  });
+  it.each([["commit"], ["commit", "--file", "/nonexistent/commit-log"], ["commit", "--handoff", "legacy"], ["nap"]])("rejects missing input, unavailable files and removed commands: %j", async (args) => {
+    const commit = vi.fn(); setApiForTesting(stubApi({ commit }));
+    await main(args);
+    expect(parseEnvelope(cap.lines()).error).toBeTypeOf("string");
+    expect(commit).not.toHaveBeenCalled();
+  });
+  it("documents commit and its input limit without the old command", async () => {
+    await main(["commit", "-h"]);
+    expect(cap.lines().join("")).toContain("--no-reset");
+    expect(cap.lines().join("")).toContain("24 KiB");
+    expect(cap.lines().join("")).not.toContain("--handoff");
     cap.lines().length = 0;
-    const missing = path.join(os.tmpdir(), `alook-missing-handoff-${Date.now()}-${Math.random()}.md`);
-    await main(["nap", "--handoff", missing]);
-    expect(parseEnvelope(cap.lines()).error).toContain("cannot read file");
-    expect(napSpy).not.toHaveBeenCalled();
-  });
-
-  it("removes --text from the public parser", async () => {
-    const napSpy = vi.fn();
-    setApiForTesting(stubApi({ nap: napSpy }));
-    await main(["nap", "--text", "legacy"]);
-    expect(parseEnvelope(cap.lines()).error).toContain("unknown option '--text'");
-    expect(napSpy).not.toHaveBeenCalled();
-  });
-
-  it("documents only --handoff and removes --stdin/--text from nap help", async () => {
-    await main(["nap", "-h"]);
-    const help = cap.lines().join("");
-    expect(help).toContain("--handoff <file>");
-    expect(help).not.toContain("--stdin");
-    expect(help).not.toContain("--text");
+    await main(["-h"]);
+    expect(cap.lines().join("")).not.toMatch(/\bnap\b/);
   });
 });
 

@@ -39,6 +39,7 @@ import type { Message } from "../server/contract.js";
 // Stall recovery uses durable attempt/clear markers plus a final barrier so a
 // daemon restart cannot replenish the same poisoned session's retry allowance.
 export type SystemEntryType =
+  | "commit"
   | "reset_session"
   | "nap"
   | "stall_recovery_attempt"
@@ -52,6 +53,7 @@ export interface SystemEntry {
   time: string;
   /** Exact backend session associated with a stall-recovery row. */
   backend_session_id?: string;
+  no?: number;
 }
 
 export interface ContextTimelineEntry {

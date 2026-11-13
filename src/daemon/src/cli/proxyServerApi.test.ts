@@ -488,21 +488,16 @@ describe("createProxyServerApi — inbox trinity pull/snapshot/ack (retargeted t
   });
 });
 
-describe("createProxyServerApi — nap (retargeted to bots/me/nap)", () => {
-  it("nap POSTs bots/me/nap with {handoff}, agentId stripped (bot-self lifecycle)", async () => {
-    const seen: Array<{ url: string; init?: RequestInit }> = [];
-    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
-      seen.push({ url, init });
-      return jsonBody(JSON.stringify({ napped: true }), { status: 200 });
-    });
+describe("createProxyServerApi — local commit", () => {
+  it("sends only log and reset to the authenticated local endpoint", async () => {
+    const fetchImpl = vi.fn(async () => jsonBody(JSON.stringify({ committed: true, no: 0, reset: false }), { status: 200 }));
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const out = await api.nap({ agentId: "a1", handoff: "see you" } as never);
-    expect(seen[0].url).toBe("http://proxy.test/api/community/bots/me/nap");
-    expect(seen[0].init?.method).toBe("POST");
-    const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
-    expect(body.handoff).toBe("see you");
-    expect(body.agentId).toBeUndefined();
-    expect(out).toEqual({ napped: true });
+    expect(await api.commit({ log: "I reviewed the source.", reset: false, agentId: "foreign" } as never)).toEqual({ committed: true, no: 0, reset: false });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    const [url, init] = (fetchImpl.mock.calls as unknown as Array<[string, RequestInit]>)[0];
+    expect(url).toBe("http://proxy.test/__alook/local/commit");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ log: "I reviewed the source.", reset: false });
   });
 });
 

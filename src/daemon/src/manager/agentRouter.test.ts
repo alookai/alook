@@ -575,55 +575,6 @@ describe("AgentRouter — machine:reset_all (batch reset)", () => {
   });
 });
 
-describe("AgentRouter — agent:nap", () => {
-  const CFG = { version: 1 as const, runtime: "mock", model: { kind: "default" as const }, mode: { kind: "default" as const } };
-
-  it("reports no-handoff completion only after cleanup, without inventing a running agent", async () => {
-    const { mgr } = fakeManager();
-    let finish!: () => void;
-    const resetSession = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
-    mgr.resetSession = resetSession;
-    const { ch, fire } = fakeChannel();
-    ch.reportStoppedAck = vi.fn(async () => {});
-    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }] });
-    await router.start();
-    const pending = fire({ type: "agent:nap", agentId: "a1", config: CFG, launchId: "l1" });
-    await Promise.resolve();
-    expect(ch.reportStoppedAck).not.toHaveBeenCalled();
-    finish();
-    await pending;
-    expect(resetSession).toHaveBeenCalledWith("a1", { runtimeConfig: CFG, launchId: "l1", barrierType: "nap", rewakePrompt: undefined });
-    expect(ch.reportStoppedAck).toHaveBeenCalledWith({ agentId: "a1", launchId: "l1", status: "ok" });
-    expect(router.buildReady().runningAgents).not.toContain("a1");
-  });
-
-  it("onBeforeAgent then resetSession with the handoff spliced into the rewake prompt + nap barrier, adds to running", async () => {
-    const { mgr, resets, order } = fakeManager();
-    const { ch, fire } = fakeChannel();
-    const beforeCalls: string[] = [];
-    const router = new AgentRouter({
-      manager: mgr,
-      channel: ch,
-      runtimeReport: [{ id: "mock" }],
-      onBeforeAgent: async (id) => { beforeCalls.push(id); order.push(`before:${id}`); },
-    });
-    await router.start();
-
-    const handoff = "  Was mid-review of PR #42; next: run the QA suite.  \n";
-    await fire({ type: "agent:nap", agentId: "a1", config: CFG, launchId: "l1", handoff });
-
-    expect(beforeCalls).toEqual(["a1"]);
-    expect(resets).toHaveLength(1);
-    expect(resets[0]).toMatchObject({ agentId: "a1", launchId: "l1", barrierType: "nap" });
-    // The agent's own handoff is carried inline in the rewake prompt (not a file, not a message).
-    expect(resets[0].rewakePrompt).toContain(handoff);
-    expect(resets[0].rewakePrompt).not.toContain("todo.md");
-    expect(resets[0].rewakePrompt).toContain("$ALOOK_CLI message mark list");
-    expect(order[0]).toBe("before:a1");
-    expect(order[1]).toBe("reset:a1");
-    expect(router.buildReady().runningAgents).toContain("a1");
-  });
-});
 
 describe("AgentRouter — agent:model_switch", () => {
   const CFG = {
@@ -738,7 +689,7 @@ describe("AgentRouter — agent:runtime_config_update", () => {
   });
 });
 
-// B2 convergence: the RESTART-FAMILY commands (reset / nap / model_switch) all
+// B2 convergence: the RESTART-FAMILY commands (reset / model_switch) all
 // route through the shared `runRestartCommand` handler. This pins that every
 // restart-family command is handled (none silently missing an arm) AND handled
 // via the shared path (enroll → manager call → running-set add + ready resend).
@@ -753,7 +704,6 @@ describe("AgentRouter — restart-family command dispatch (B2 table)", () => {
 
   const RESTART_CMDS = [
     { type: "agent:reset" as const, extra: {} },
-    { type: "agent:nap" as const, extra: { handoff: "did X; next Y" } },
     { type: "agent:model_switch" as const, extra: {} },
   ];
 
@@ -1428,3 +1378,15 @@ describe("runtime model query ownership", () => {
     expect(report.mock.calls.map(([frame]) => frame.result.status)).toEqual(["error", "complete"]);
   });
 })
+
+
+it("rejects removed nap wire commands explicitly without resetting or carrying a handoff", async () => {
+  const { mgr, resets, delivers } = fakeManager();
+  const { ch, fire } = fakeChannel();
+  const ack = vi.spyOn(ch, "reportWakeAck");
+  const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }] });
+  await router.start();
+  await fire({ type: "agent:nap", agentId: "a1", launchId: "old", config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } }, handoff: "obsolete" });
+  expect(ack).toHaveBeenCalledWith({ agentId: "a1", launchId: "old", status: "error", error: expect.objectContaining({ code: "command_removed" }) });
+  expect(resets).toEqual([]); expect(delivers).toEqual([]);
+});

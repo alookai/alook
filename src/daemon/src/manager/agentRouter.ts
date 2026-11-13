@@ -114,27 +114,17 @@ function defaultFormatUnreadNoticeText(): string {
   return "You have unread messages.";
 }
 
-const REWAKE_PROMPT = `Your session was reset by your owner. Prior conversation context is gone. Read @memory.md and your .context_timeline for durable context, then pull your inbox. If it reports marked messages, run \`$ALOOK_CLI message mark list\` to identify outstanding work. Before continuing work, review memory.md and experiences:
+export const REWAKE_PROMPT = `Your session was reset by your owner. Prior conversation context is gone. Read recent .commits.jsonl entries and @memory.md for durable context, then pull your inbox. Read .context_timeline only when you need to check the original exchanges. If it reports marked messages, run \`$ALOOK_CLI message mark list\` to identify outstanding work. Before continuing work, review memory.md and experiences:
 
 ${MEMORY_REVIEW_STEPS}
 
 Edit only your own memory files. This review is internal maintenance; perform it silently. Do not proactively send the owner, users, or channels progress updates, completion notices, or details about your memory state. Communicate task-relevant results, questions, and blockers normally. If nothing needs a user-facing response, send no message.
 
-After completing the review and any needed edits, resume outstanding work and handle your inbox messages.`;
+After completing the review and any needed edits, you must run \`$ALOOK_CLI commit --file <log-file> --no-reset\` (or --stdin --no-reset) to record this review. The log must be at most 24 KiB (24,576 UTF-8 bytes). A written reply is not a commit; do not edit .commits.jsonl directly. Do not reset again. After a successful commit, resume outstanding work and handle your inbox messages.`;
 
 const MODEL_SWITCH_REWAKE_PROMPT =
   "You were just switched to a different model. Continue any unfinished work.";
 
-function buildNapRewakePrompt(handoff: string): string {
-  return (
-    "You took a nap: you reset your own session, so prior conversation context " +
-    "is gone. Before sleeping you left yourself this handoff —\n\n" +
-    handoff +
-    "\n\nThen read @memory.md and your .context_timeline for durable context, and pull " +
-    "your inbox before doing anything else. If it reports marked messages, run `$ALOOK_CLI " +
-    "message mark list` and resume that outstanding work."
-  );
-}
 
 export class AgentRouter {
   private readonly running = new Set<string>();
@@ -282,22 +272,10 @@ export class AgentRouter {
     });
   }
 
-  /**
-   * Shared handler for the restart-family commands (`agent:reset` / `agent:nap`
-   * / `agent:model_switch`). Post-B1 these three are isomorphic: enroll
-   * (`onBeforeAgent`) → the manager restart call (`run`, which differs only in
-   * which `restartAgent` params it passes) → join running-set +
-   * `scheduleReadyFrameResend` on success; on failure, `UnknownRuntimeError` →
-   * `session.error` frame, any other throw → error `reportWakeAck`. `opName` is
-   * the wire command type, used verbatim in the existing per-command log lines
-   * so the log output is byte-identical to the pre-table arms. `wake` and
-   * `stop` are deliberately NOT routed here — their shapes differ materially
-   * (typing/DM tracking + richer acks; stopped-ack + no enroll).
-   */
   private async runRestartCommand(
     agentId: AgentId,
     launchId: string,
-    opName: "agent:reset" | "agent:nap" | "agent:model_switch",
+    opName: "agent:reset" | "agent:model_switch",
     run: () => Promise<void>,
     rewake = true,
   ): Promise<void> {
@@ -589,15 +567,10 @@ export class AgentRouter {
         }
         break;
       case "agent:nap":
-        await this.runRestartCommand(cmd.agentId, cmd.launchId, "agent:nap", () =>
-          this.opts.manager.resetSession(cmd.agentId, {
-            runtimeConfig: cmd.config,
-            launchId: cmd.launchId,
-            rewakePrompt: cmd.handoff === undefined ? undefined : buildNapRewakePrompt(cmd.handoff),
-            barrierType: "nap",
-          }),
-          cmd.handoff !== undefined,
-        );
+        await this.opts.channel.reportWakeAck?.({
+          agentId: cmd.agentId, launchId: cmd.launchId, status: "error",
+          error: { code: "command_removed", message: "nap was removed; memory reviews use local commit" },
+        });
         break;
       case "agent:model_switch":
         // `switchModel` preserves the session (no forget, no barrier); onBeforeAgent

@@ -224,6 +224,10 @@ export class WsControlChannel implements HostControlChannel {
     return true;
   }
 
+  invalidateAgentWakeCoverage(agentId: string): void {
+    this.wakeCoordinator.invalidate(agentId, true);
+  }
+
   modelSeenGeneration(agentId: string): number {
     return this.wakeCoordinator.modelSeenGeneration(agentId);
   }
@@ -589,7 +593,7 @@ export class WsControlChannel implements HostControlChannel {
     }
     if (cmd.type === "agent:stop" || cmd.type === "agent:model_switch") {
       this.wakeCoordinator.invalidate(cmd.agentId, false);
-    } else if (cmd.type === "agent:reset" || cmd.type === "agent:nap") {
+    } else if (cmd.type === "agent:reset") {
       this.wakeCoordinator.invalidate(cmd.agentId, true);
     } else if (cmd.type === "bot:removed") {
       this.wakeCoordinator.invalidate(cmd.botId, true);

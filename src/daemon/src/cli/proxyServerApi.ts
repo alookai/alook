@@ -1,3 +1,4 @@
+import { LOCAL_MEMORY_COMMIT_PATH } from "../memory/commit.js";
 import { communityProxyRoutes } from "../credentials/route-policy.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
 import { type BotFeedbackInput, type PlatformMachineRequest, type PlatformBotRequest } from "@alook/shared";
@@ -414,18 +415,13 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<FriendRequestResult>(res, "friendRequest");
   }
 
-  async function callNap(req: { handoff?: string }): Promise<{ napped: boolean }> {
-    // The credential selects the bot's own session, never a supplied target.
-    const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
-    const res = await fetchImpl(`${base}/api/community/bots/me/nap`, {
+  async function callCommit(req: Parameters<ServerApi["commit"]>[0]): ReturnType<ServerApi["commit"]> {
+    const res = await fetchImpl(`${base}${LOCAL_MEMORY_COMMIT_PATH}`, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.voucher}`,
-      },
-      body: JSON.stringify(wire),
+      headers: { "content-type": "application/json", authorization: `Bearer ${config.voucher}` },
+      body: JSON.stringify({ log: req.log, reset: req.reset }),
     });
-    return parseJsonResponse<{ napped: boolean }>(res, "nap");
+    return parseJsonResponse<Awaited<ReturnType<ServerApi["commit"]>>>(res, "commit");
   }
 
   async function callUpdateProfile(req: UpdateProfileRequest): Promise<UpdateProfileResult> {
@@ -657,6 +653,6 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     listMarks: (_r: { agentId: AgentId }) => callListMarks(),
     friendRequest: callFriendRequest,
     listFriends: (_r: { agentId: AgentId }) => callListFriends(),
-    nap: callNap,
+    commit: callCommit,
   };
 }

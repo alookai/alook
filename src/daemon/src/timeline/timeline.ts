@@ -84,7 +84,7 @@ export type TimelineTrackedWriteResult =
     };
 
 function isBarrier(entry: ContextTimelineEntry): boolean {
-  return entry.system !== undefined;
+  return entry.system !== undefined && entry.system.type !== "commit";
 }
 
 function canonicalTimelineEntry(value: unknown): ContextTimelineEntry | null {
@@ -93,12 +93,14 @@ function canonicalTimelineEntry(value: unknown): ContextTimelineEntry | null {
   if (entry.system) {
     if (
       (
-        entry.system.type !== "reset_session"
+        entry.system.type !== "commit"
+        && entry.system.type !== "reset_session"
         && entry.system.type !== "nap"
         && entry.system.type !== "stall_recovery_attempt"
         && entry.system.type !== "stall_recovery_clear"
         && entry.system.type !== "stall_recovery"
       )
+      || (entry.system.type === "commit" && (!Number.isSafeInteger(entry.system.no) || entry.system.no! < 0))
       || typeof entry.system.time !== "string"
       || (
         entry.system.backend_session_id !== undefined
@@ -109,6 +111,7 @@ function canonicalTimelineEntry(value: unknown): ContextTimelineEntry | null {
       entry.system.type,
       entry.system.time,
       entry.system.backend_session_id,
+      entry.system.no,
     );
   }
   if (entry.session_id !== null && typeof entry.session_id !== "string") return null;
@@ -125,7 +128,7 @@ function canonicalTimelineEntry(value: unknown): ContextTimelineEntry | null {
 
 function timelineLine(entry: ContextTimelineEntry): TimelineLine | null {
   const boundedEntry = entry.system
-    ? createSystemEntry(entry.system.type, entry.system.time, entry.system.backend_session_id)
+    ? createSystemEntry(entry.system.type, entry.system.time, entry.system.backend_session_id, entry.system.no)
     : { ...entry, agent_responses: entry.agent_responses.slice(-TIMELINE_MAX_AGENT_RESPONSES) };
   const text = JSON.stringify(boundedEntry);
   const bytes = Buffer.byteLength(text, "utf8") + 1;
@@ -772,6 +775,7 @@ export function createSystemEntry(
   type: SystemEntryType,
   time: string,
   backendSessionId?: string,
+  no?: number,
 ): ContextTimelineEntry {
   return {
     session_id: null,
@@ -782,6 +786,7 @@ export function createSystemEntry(
       type,
       time,
       ...(backendSessionId ? { backend_session_id: backendSessionId } : {}),
+      ...(type === "commit" ? { no } : {}),
     },
   };
 }
@@ -825,6 +830,7 @@ export function resolveResumableSession(
   for (let i = rows.length - 1; i >= 0; i--) {
     const e = rows[i];
     if (e.system) {
+      if (e.system.type === "commit") continue;
       if (e.system.type === "stall_recovery_attempt") {
         if (!recoveryMarkerSeen) {
           recoveryMarkerSeen = true;
