@@ -31,3 +31,14 @@ it("posts cached and model-specific requests with a new correlation ID by defaul
   expect(bodies[0]).toEqual({ requestId: expect.any(String), runtimeId: "custom/backend" })
   expect(bodies[0].requestId).not.toBe(bodies[1].requestId)
 })
+
+
+it("returns feedback throttling evidence without retrying", async () => {
+  const fetchImpl = vi.fn(async () => Response.json({
+    error: "Feedback limit reached (10 submissions per owner per hour)",
+    code: "RATE_LIMIT_EXCEEDED", hint: "Try again in 37 seconds.",
+  }, { status: 429, headers: { "Retry-After": "37" } }));
+  const api = createProxyServerApi({ proxyUrl: "http://proxy", voucher: "voucher", fetchImpl });
+  await expect(api.platformFeedback!({ text: "feedback" })).rejects.toMatchObject({ status: 429, code: "RATE_LIMIT_EXCEEDED", hint: "Try again in 37 seconds." });
+  expect(fetchImpl).toHaveBeenCalledOnce();
+});

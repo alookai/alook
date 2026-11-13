@@ -1,6 +1,6 @@
 import { communityProxyRoutes } from "../credentials/route-policy.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
-import { type PlatformMachineRequest, type PlatformBotRequest } from "@alook/shared";
+import { type BotFeedbackInput, type PlatformMachineRequest, type PlatformBotRequest } from "@alook/shared";
 /**
  * Proxy-routed `ServerApi` client — the agent's REAL data-plane path.
  *
@@ -632,6 +632,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   }
 
   return {
+    platformFeedback: (req: BotFeedbackInput) => platformCall("/platform/feedback", "POST", req),
     platformMachine: callPlatformMachine,
     platformBot: callPlatformBot,
     listServers: (_r: { agentId: AgentId }) => callListServers(),

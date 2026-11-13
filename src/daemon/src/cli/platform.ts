@@ -1,12 +1,23 @@
 import type { Command } from "commander"
 import { randomUUID } from "node:crypto"
-import { BotCreationSubmitSchema, BOT_CREATION_BODY_MAX_BYTES } from "@alook/shared"
+import { BotCreationSubmitSchema, BOT_CREATION_BODY_MAX_BYTES, BotFeedbackSchema, BOT_FEEDBACK_MAX_BYTES } from "@alook/shared"
 import type { ServerApi } from "../server/contract.js"
 
 const failure = (message: string, code: string, details?: Record<string, unknown>) => Object.assign(new Error(message), { code, platformDetails: details })
 
-export function registerPlatformCommands(program: Command, getApi: () => ServerApi, output: (value: { success: unknown }) => void) {
+export function registerPlatformCommands(program: Command, getApi: () => ServerApi, output: (value: { success: unknown }) => void, readFeedbackInput?: () => Promise<string | undefined>) {
   const platform = program.command("platform").description("owner-scoped platform capabilities").exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+  const feedback = platform.command("feedback").description("send product feedback to Alook (max 10 KiB UTF-8)").exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .requiredOption("--stdin", "read feedback text from non-TTY stdin")
+  feedback.action(async () => {
+    const text = await readFeedbackInput?.()
+    if (typeof text === "string" && Buffer.byteLength(text, "utf8") > BOT_FEEDBACK_MAX_BYTES) throw failure("Feedback must be at most 10 KiB of UTF-8 text", "FEEDBACK_TOO_LARGE")
+    const parsed = BotFeedbackSchema.safeParse({ text })
+    if (!parsed.success) throw failure("Provide non-empty feedback through --stdin", "INVALID_FEEDBACK")
+    const api = getApi()
+    if (!api.platformFeedback) throw failure("Platform feedback is unavailable", "UPGRADE_REQUIRED")
+    output({ success: await api.platformFeedback(parsed.data) })
+  })
   const machine = platform.command("machine").description("read machines, backends, models and model-specific effort").exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .option("--list", "list your owner's machines")
     .option("--backends", "show backends on --id")

@@ -2351,3 +2351,24 @@ describe("platform main CLI envelopes", () => {
     expect(parseEnvelope(cap.lines())).toEqual({ error: "Target machine is offline", code: "MACHINE_OFFLINE", machineId: "machine" })
   })
 })
+
+
+describe("platform feedback stdin", () => {
+  it("preserves split Unicode bytes and literal whitespace", async () => {
+    const text = "  中文😀\n\\n  ";
+    const bytes = Buffer.from(text);
+    const platformFeedback = vi.fn(async () => ({ id: "feedback", createdAt: "now" }));
+    setApiForTesting(stubApi({ platformFeedback }));
+    const stdin = Readable.from([bytes.subarray(0, 4), bytes.subarray(4, 9), bytes.subarray(9)]) as CliInputStream;
+    await main(["platform", "feedback", "--stdin"], { stdin });
+    expect(platformFeedback).toHaveBeenCalledWith({ text });
+    expect(parseEnvelope(cap.lines())).toEqual({ success: { id: "feedback", createdAt: "now" } });
+  });
+  it.each([["", false], [" \n", false], ["😀".repeat(2560) + "a", false], ["feedback", true]])("rejects invalid stdin before transport", async (text, tty) => {
+    const platformFeedback = vi.fn();
+    setApiForTesting(stubApi({ platformFeedback }));
+    await mainWithStdin(["platform", "feedback", "--stdin"], text, tty);
+    expect(platformFeedback).not.toHaveBeenCalled();
+    expect(parseEnvelope(cap.lines()).error).toBeTypeOf("string");
+  });
+});

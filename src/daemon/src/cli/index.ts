@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { BOT_FEEDBACK_MAX_BYTES } from "@alook/shared";
 import { savedDaemonMachineIds } from "./daemonState.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
 import { daemonRefreshFromIpc } from "./daemonRefresh.js";
@@ -164,6 +165,7 @@ async function readLiteralInput(args: {
   stdin?: CliInputStream;
   filePath?: string;
   fileOption?: string;
+  maxBytes?: number;
 }): Promise<string | undefined> {
   const { command, stdinSelected, stdin, filePath, fileOption } = args;
   if (stdinSelected && filePath !== undefined) {
@@ -178,8 +180,12 @@ async function readLiteralInput(args: {
     }
     try {
       const chunks: Buffer[] = [];
+      let byteCount = 0;
       for await (const chunk of stdin) {
-        chunks.push(typeof chunk === "string" ? Buffer.from(chunk, "utf8") : Buffer.from(chunk));
+        const bytes = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : Buffer.from(chunk);
+        byteCount += bytes.byteLength;
+        if (args.maxBytes !== undefined && byteCount > args.maxBytes) throw new CliError(`${command}: feedback exceeds ${args.maxBytes} UTF-8 bytes`);
+        chunks.push(bytes);
       }
       return Buffer.concat(chunks).toString("utf8");
     } catch (err) {
@@ -749,7 +755,7 @@ function buildProgram(stdin: CliInputStream): Command {
     })
     .option("--agent <id>", "agent identity (or ALOOK_AGENT_ID env)");
 
-  registerPlatformCommands(program, getApi, printEnvelope);
+  registerPlatformCommands(program, getApi, printEnvelope, () => readLiteralInput({ command: "platform feedback", stdinSelected: true, stdin, maxBytes: BOT_FEEDBACK_MAX_BYTES }));
   registerUseCommands(program, printEnvelope);
 
   registerPiiCommands(program, printEnvelope);

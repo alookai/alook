@@ -65,6 +65,7 @@ export const apiRoutes = [
   "/api/community/bots/[id]/notifications/channel/[scopeId]",
   "/api/community/bots/[id]/notifications/server/[scopeId]",
   "/api/community/bots/[id]/reset-session",
+  "/api/community/platform/feedback",
   "/api/community/bots/creation-requests",
   "/api/community/bots/creation-requests/[id]",
   "/api/community/bots/me/nap",

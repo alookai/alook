@@ -30,6 +30,7 @@ export const RATE_LIMITS = {
    */
   "auth:otpSend": { windowMs: 60_000, max: 5 },
   "auth:nativeAttempt": { windowMs: 60_000, max: 10 },
+  "community:feedback": { windowMs: 3_600_000, max: 10, failClosed: true },
   "community:upload": { windowMs: 60_000, max: 30, failClosed: true },
 } as const
 

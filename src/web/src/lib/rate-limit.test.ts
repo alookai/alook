@@ -74,3 +74,16 @@ it("fails closed only for upload admission when the rate limiter is unavailable"
   expect(await checkRateLimit({} as Env, "community:upload", "owner")).toEqual({ allowed: false, retryAfterSec: 60 })
   expect(await checkRateLimit({} as Env, "community:msgSend", "owner")).toEqual({ allowed: true })
 })
+
+
+it("uses the feedback owner policy and fails closed when quota cannot be checked", async () => {
+  mockWsDoFetch.mockResolvedValueOnce(Response.json({ allowed: true }));
+  expect(await checkRateLimit({} as Env, "community:feedback", "owner")).toEqual({ allowed: true });
+  const [, path, init] = mockWsDoFetch.mock.calls.at(-1)!;
+  expect(path).toBe("/rate-limit/check");
+  expect(JSON.parse(init.body)).toEqual({ name: "community:feedback", key: "owner", windowMs: 3_600_000, max: 10 });
+  mockWsDoFetch.mockRejectedValueOnce(new Error("unavailable"));
+  expect(await checkRateLimit({} as Env, "community:feedback", "owner")).toEqual({ allowed: false, retryAfterSec: 60 });
+  mockWsDoFetch.mockResolvedValueOnce(new Response("unavailable", { status: 503 }));
+  expect(await checkRateLimit({} as Env, "community:feedback", "owner")).toEqual({ allowed: false, retryAfterSec: 60 });
+});
