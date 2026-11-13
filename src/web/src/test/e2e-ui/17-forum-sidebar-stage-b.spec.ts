@@ -235,7 +235,14 @@ test.describe("forum sidebar Stage B request shape", () => {
     const { page } = await asUser("bob")
     await installRouteStabilityProbe(page)
     const successfulResponses: string[] = []
-    const sidebarResponses: Array<{ url: string; retainedChannel: unknown }> = []
+    const retainedRequests: string[] = []
+    page.on("request", (request) => {
+      if (request.method() === "GET"
+        && isSidebarRequest(request.url(), serverId)
+        && new URL(request.url()).searchParams.get("retainId") === threadId) {
+        retainedRequests.push(request.url())
+      }
+    })
     await page.route(`**/api/community/servers/${serverId}/channels?**`, async (route) => {
       if (!isSidebarRequest(route.request().url(), serverId)) {
         await route.continue()
@@ -244,28 +251,29 @@ test.describe("forum sidebar Stage B request shape", () => {
       await new Promise((resolve) => setTimeout(resolve, 750))
       await route.continue()
     })
-    page.on("response", async (response) => {
-      if (response.request().method() !== "GET" || !response.ok()) return
-      successfulResponses.push(response.url())
-      if (!isSidebarRequest(response.url(), serverId)) return
-      const payload = await response.json() as { retainedChannel: unknown }
-      sidebarResponses.push({ url: response.url(), retainedChannel: payload.retainedChannel })
+    page.on("response", (response) => {
+      if (response.request().method() === "GET" && response.ok()) successfulResponses.push(response.url())
     })
 
     expect(await participantUserIds(page, threadId)).not.toContain(userId("bob"))
-    await page.goto(`/c/channels/${serverId}/${threadId}`)
+    const [retainedPayload] = await Promise.all([
+      page.waitForResponse(response =>
+        response.request().method() === "GET" && response.ok()
+        && isSidebarRequest(response.url(), serverId)
+        && new URL(response.url()).searchParams.get("retainId") === threadId,
+      ).then(response => response.json() as Promise<{ retainedChannel: unknown }>),
+      page.goto(`/c/channels/${serverId}/${threadId}`),
+    ])
     await expect(childPanel(page).getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 20_000 })
     await expect(childPanel(page).getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
-    await expect.poll(() => sidebarResponses.some(({ url }) =>
-      new URL(url).searchParams.get("retainId") === threadId,
-    )).toBe(true)
     await page.waitForTimeout(2_000)
 
-    const retainedResponses = sidebarResponses.filter(({ url }) =>
-      new URL(url).searchParams.get("retainId") === threadId
+    const retainedResponses = successfulResponses.filter(url =>
+      isSidebarRequest(url, serverId) && new URL(url).searchParams.get("retainId") === threadId
     )
+    expect(retainedRequests).toHaveLength(1)
     expect(retainedResponses).toHaveLength(1)
-    expect(retainedResponses[0]?.retainedChannel).toBeNull()
+    expect(retainedPayload.retainedChannel).toBeNull()
     expect(successfulResponses.filter((url) => isConversationEntryRequest(url, threadId))).toHaveLength(1)
     expect(await routeStability(page)).toEqual({ mounts: 1, losses: 0, present: true })
     expect(await participantUserIds(page, threadId)).not.toContain(userId("bob"))
@@ -284,13 +292,16 @@ test.describe("forum sidebar Stage B request shape", () => {
     const { page } = await asUser("carol")
     await installRouteStabilityProbe(page)
     const successfulResponses: string[] = []
-    const sidebarResponses: Array<{ url: string; retainedChannel: unknown }> = []
-    page.on("response", async (response) => {
-      if (response.request().method() !== "GET" || !response.ok()) return
-      successfulResponses.push(response.url())
-      if (!isSidebarRequest(response.url(), serverId)) return
-      const payload = await response.json() as { retainedChannel: unknown }
-      sidebarResponses.push({ url: response.url(), retainedChannel: payload.retainedChannel })
+    const retainedRequests: string[] = []
+    page.on("request", (request) => {
+      if (request.method() === "GET"
+        && isSidebarRequest(request.url(), serverId)
+        && new URL(request.url()).searchParams.get("retainId") === threadId) {
+        retainedRequests.push(request.url())
+      }
+    })
+    page.on("response", (response) => {
+      if (response.request().method() === "GET" && response.ok()) successfulResponses.push(response.url())
     })
 
     await page.goto(`/c/channels/${serverId}/${forumId}`)
@@ -300,25 +311,30 @@ test.describe("forum sidebar Stage B request shape", () => {
     await expect(card).not.toHaveAttribute("aria-busy", "true")
     await expect(card.getByText(forumTitle, { exact: true })).toBeVisible()
     await page.waitForTimeout(300)
-    sidebarResponses.length = 0
+    retainedRequests.length = 0
     successfulResponses.length = 0
 
-    await card.click()
+    const [retainedPayload] = await Promise.all([
+      page.waitForResponse(response =>
+        response.request().method() === "GET" && response.ok()
+        && isSidebarRequest(response.url(), serverId)
+        && new URL(response.url()).searchParams.get("retainId") === threadId,
+      ).then(response => response.json() as Promise<{ retainedChannel: unknown }>),
+      card.click(),
+    ])
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${threadId}`,
     )
     await expect(childPanel(page).getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 20_000 })
     await expect(childPanel(page).getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
-    await expect.poll(() => sidebarResponses.filter(({ url }) =>
-      new URL(url).searchParams.get("retainId") === threadId,
-    ).length).toBe(1)
     await page.waitForTimeout(2_000)
 
-    const retainedResponses = sidebarResponses.filter(({ url }) =>
-      new URL(url).searchParams.get("retainId") === threadId
+    const retainedResponses = successfulResponses.filter(url =>
+      isSidebarRequest(url, serverId) && new URL(url).searchParams.get("retainId") === threadId
     )
+    expect(retainedRequests).toHaveLength(1)
     expect(retainedResponses).toHaveLength(1)
-    expect(retainedResponses[0]?.retainedChannel).toBeNull()
+    expect(retainedPayload.retainedChannel).toBeNull()
     expect(successfulResponses.filter((url) => isConversationEntryRequest(url, threadId))).toHaveLength(1)
     expect(await routeStability(page)).toEqual({ mounts: 1, losses: 0, present: true })
     expect(await participantUserIds(page, threadId)).not.toContain(userId("carol"))
