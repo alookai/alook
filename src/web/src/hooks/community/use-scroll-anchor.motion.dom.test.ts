@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import type { MessageRequestResult, NewPositionRequest } from "@/lib/community/message-position"
 
 beforeEach(installMessageScrollFixture)
@@ -114,7 +115,7 @@ it("keeps viewport correction immediate even when navigation uses smooth", () =>
   expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
 })
 
-it.each([[false, 0], [true, 0], [false, 2], [false, 100], [false, 300]] as const)("keeps consecutive viewport shrinks aligned (reduced=%s, distance=%ipx)", (reduced, distance) => {
+it.each([[false, 0], [true, 0], [false, 2], [false, 40], [false, 41], [false, 100], [false, 300]] as const)("keeps consecutive viewport shrinks aligned (reduced=%s, distance=%ipx)", (reduced, distance) => {
   reducedMotion(reduced)
   const h = mount()
   if (distance > 0) h.move(h.root.scrollHeight - h.root.clientHeight - distance)
@@ -122,7 +123,7 @@ it.each([[false, 0], [true, 0], [false, 2], [false, 100], [false, 300]] as const
   for (let frame = 0; frame < 3; frame++) {
     scrollFixture.height -= 20
     resize(2)
-    if (distance === 0) expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(distance)
+    if (distance <= CONVERSATION_TAIL_SPACE_PX) expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(distance)
     else expect(h.root.scrollTop).toBe(before)
   }
 })

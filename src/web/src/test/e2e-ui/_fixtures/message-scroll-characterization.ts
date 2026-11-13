@@ -1,3 +1,4 @@
+import { CommunityConversationEntryReadSchema } from "@alook/shared"
 import { communityFixtureFetch, confirmCommunityFixtureApiResponse, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./business-contract"
 import type { Locator, Page, Route, TestInfo } from "@playwright/test"
 import { expect, type CaseActors } from "./case-fixture"
@@ -150,6 +151,18 @@ export async function setReadCheckpoint(actors: CaseActors, channelId: string, m
     body: JSON.stringify({ lastReadMessageId: messageId }),
   })
   expect(response.ok).toBe(true)
+}
+
+export async function readScrollEntry(actors: CaseActors, channelId: string, anchor: string) {
+  const response = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/messages?entry=1&anchor=${anchor}`, {
+    headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL },
+  })
+  expect(response.status).toBe(200)
+  const entry = CommunityConversationEntryReadSchema.parse(await response.json())
+  expect(entry.channelId).toBe(channelId)
+  expect(entry.selection.anchorMessageId).toBe(anchor)
+  expect(entry.messages.some(message => message.id === anchor)).toBe(true)
+  return entry
 }
 
 export function identity(channelId: string, viewport = VIEWPORT) {
@@ -546,7 +559,7 @@ export async function seedScrollServer(actors: CaseActors) {
   return serverId
 }
 
-export async function seedScrollCase(actors: CaseActors) {
+export async function seedScrollCase(actors: CaseActors, options: { loadingCount?: number } = {}) {
   const { seedChannel, seedDm } = actors.seed
   const { userId } = actors
   const stamp = Date.now()
@@ -556,7 +569,7 @@ export async function seedScrollCase(actors: CaseActors) {
   const upwardChannelId = await seedChannel("alice", serverId, `scroll-upward-${stamp}`)
   const composerChannelId = await seedChannel("alice", serverId, `scroll-composer-${stamp}`)
   const composerDmId = await seedDm("alice", userId("bob"))
-  const loadingProfile = await seedProfile(actors, loadingChannelId, 130, false, "rotate", 64)
+  const loadingProfile = await seedProfile(actors, loadingChannelId, options.loadingCount ?? 130, false, "rotate", 64)
   const upwardProfile = await seedProfile(actors, upwardChannelId, 72, false, "rotate", 23)
   const composerProfile = await seedProfile(actors, composerChannelId, 36, true, "alice")
   const composerDmProfile = await seedDmProfile(actors, composerDmId, 36)

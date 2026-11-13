@@ -36,6 +36,7 @@ describe("MessageList loading-to-loaded mount identity", () => {
       }, [active])
       return React.createElement(MessageList, {
         channel: "general", messages, onOpenThread: vi.fn(), positionEntry: entry, messageWindow, active,
+        messageNeighborhood: { page: entry, older: false, newer: hasMoreNewer },
         hasMore: false, hasMoreNewer, onLoadNewer: page, onJumpToPresent: present, positionDataState: "ready",
         presentPending, presentRequest: presentPending ? request : null, isFetchingNewer: presentPending,
       })
@@ -77,7 +78,7 @@ describe("MessageList loading-to-loaded mount identity", () => {
     const load = vi.fn(() => ({ accepted: true, completed }))
     const scene = (active: boolean, hasMoreNewer: boolean, messages = rows, messageWindow = before) => React.createElement(MessageList, {
       channel: "general", messages, onOpenThread: vi.fn(), positionEntry: entry, messageWindow,
-      active, hasMore: false, hasMoreNewer, onLoadNewer: load, positionDataState: "ready",
+      messageNeighborhood: { page: entry, older: false, newer: hasMoreNewer }, active, hasMore: false, hasMoreNewer, onLoadNewer: load, positionDataState: "ready",
     })
     const view = render(scene(true, false))
     resize()

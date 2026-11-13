@@ -1,14 +1,16 @@
+import { CommunityMessagesReadSchema } from "@alook/shared"
+import { confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 import { beginScrollTraceAnalysis, endScrollTraceAnalysis, installScrollTrace, installScrollTraceInCurrentDocument, markScrollTrace, scrollTraceSelfTest, startScrollTrace } from "./_fixtures/scroll-trace"
 import { tid } from "./_fixtures/testids"
-import { VIEWPORT, holdNextRequest, seedProfile, identity, finishAndAttach, expectSkeletonTailGeometry, seedScrollCase, tracedAsUser } from "./_fixtures/message-scroll-characterization"
+import { VIEWPORT, holdNextRequest, seedProfile, identity, finishAndAttach, expectSkeletonTailGeometry, seedScrollCase, readScrollEntry, tracedAsUser } from "./_fixtures/message-scroll-characterization"
 
 test.describe("message scroll characterization", () => {
 test("cold and warm loading, older prepend, and jump-to-present remain observable", async ({ caseActors }, testInfo) => {
     test.setTimeout(180_000)
     const actors = await caseActors(["alice", "bob", "carol"])
     const asUser = tracedAsUser(actors)
-    const { serverId, coldChannelId, loadingChannelId, upwardChannelId, loadingProfile } = await seedScrollCase(actors)
+    const { serverId, coldChannelId, loadingChannelId, upwardChannelId, loadingProfile } = await seedScrollCase(actors, { loadingCount: 201 })
 
     const alice = await asUser("alice")
     await alice.page.setViewportSize(VIEWPORT)
@@ -114,6 +116,17 @@ test("cold and warm loading, older prepend, and jump-to-present remain observabl
     const anchored = await asUser("alice")
     await anchored.page.setViewportSize(VIEWPORT)
     await installScrollTrace(anchored.page)
+    const anchorWindow = await readScrollEntry(actors, loadingChannelId, loadingProfile.ids[65])
+    expect(anchorWindow.page.olderCursor).toEqual(expect.any(String))
+    expect(anchorWindow.page.newerCursor).toEqual(expect.any(String))
+    const older = await holdNextRequest(actors, anchored.page,
+      `**/api/community/channels/${loadingChannelId}/messages**`, url => url.searchParams.get("cursor") === anchorWindow.page.olderCursor)
+    const newerNeighbor = confirmCommunityFixtureApiResponse(anchored.page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return response.request().method() === "GET" && url.pathname === `/api/community/channels/${loadingChannelId}/messages`
+        && url.searchParams.get("since") === anchorWindow.page.newerCursor
+    }))
+    void newerNeighbor.catch(() => undefined)
     await anchored.page.goto(`/c/channels/${serverId}/${loadingChannelId}`, { waitUntil: "commit" })
     const anchoredScroller = anchored.page.getByTestId(tid.messageScroller)
     await expect.poll(() => anchoredScroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
@@ -128,12 +141,7 @@ test("cold and warm loading, older prepend, and jump-to-present remain observabl
       expect(await anchoredNewDivider.count()).toBe(1)
       expect(await anchoredNewDivider.isVisible()).toBe(true)
     }).toPass({ timeout: 30_000 })
-    await expect(anchored.page.getByTestId(tid.messageScroller)).toHaveAttribute("data-pagination-enabled", "true")
-    const older = await holdNextRequest(actors,
-      anchored.page,
-      `**/api/community/channels/${loadingChannelId}/messages**`,
-      (url) => url.searchParams.has("cursor"),
-    )
+    await expect(anchored.page.getByTestId(tid.messageScroller)).toHaveAttribute("data-pagination-enabled", "false")
     await startScrollTrace(anchored.page, {
       scenario: "older-loading-prepend",
       identity: identity(loadingChannelId),
@@ -148,10 +156,11 @@ test("cold and warm loading, older prepend, and jump-to-present remain observabl
       element.scrollTop = 0
       element.dispatchEvent(new Event("scroll"))
     })
-    await older.matched
+    expect((await older.matched).searchParams.get("cursor")).toBe(anchorWindow.page.olderCursor)
     await expect(anchored.page.getByText("Loading older messages…", { exact: true })).toBeVisible()
     older.release()
     await expect(anchored.page.getByText("Loading older messages…", { exact: true })).toHaveCount(0)
+    await expect(anchoredScroller).toHaveAttribute("data-pagination-enabled", "true")
     await endScrollTraceAnalysis(anchored.page, "older-loading-prepend")
     const olderTrace = await finishAndAttach(anchored.page, testInfo)
     expect(olderTrace.marks.filter((mark) =>
@@ -160,6 +169,11 @@ test("cold and warm loading, older prepend, and jump-to-present remain observabl
     await older.dispose()
 
     await installScrollTraceInCurrentDocument(anchored.page)
+    const neighborRead = await newerNeighbor
+    expect(neighborRead.status()).toBe(200)
+    const neighbor = CommunityMessagesReadSchema.parse(await neighborRead.json())
+    expect(neighbor.page.hasMoreNewer).toBe(true)
+    expect([...anchorWindow.messages, ...neighbor.messages].map(message => message.id)).not.toContain(loadingProfile.ids.at(-1))
     const present = anchored.page.getByTestId(tid.scrollToPresent)
     await expect(present).toBeVisible({ timeout: 30_000 })
     let newestGets = 0

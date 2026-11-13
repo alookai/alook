@@ -125,6 +125,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     isFetchingNewer: isFetchingNewerMessages,
     fetchOlder: fetchOlderMessages,
     fetchNewer: fetchNewerMessages,
+    messageNeighborhood, onReadingMessage,
     jumpToPresent,
     presentVersion, presentRequest, olderLoadError, newerLoadError, presentPending, presentError, newBoundary, retiredNewTargetId, loadNewTarget, readNewBoundary,
     latestSeq,
@@ -443,6 +444,8 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             positionDataState={positionDataState}
             targetPositionDataState={targetPositionDataState}
             messageWindow={messageWindow}
+            messageNeighborhood={messageNeighborhood}
+            onReadingMessage={onReadingMessage}
             active={routeCommitted}
             positioningActive
             isFetching={messagesFetching}

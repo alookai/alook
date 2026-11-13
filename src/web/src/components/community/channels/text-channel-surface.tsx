@@ -178,6 +178,8 @@ export function TextChannelSurface({
                   positionScope={feed.positionScope}
                   positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState}
                   messageWindow={feed.messageWindow}
+                  messageNeighborhood={feed.messageNeighborhood}
+                  onReadingMessage={feed.onReadingMessage}
                   isFetching={feed.isFetching}
                   isFetchingOlder={feed.isFetchingOlder}
                   onLoadOlder={feed.fetchOlder}

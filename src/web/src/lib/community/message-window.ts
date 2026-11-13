@@ -1,5 +1,5 @@
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
-import { infiniteQueryOptions, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query"
+import { hashKey, infiniteQueryOptions, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import type { ApiRequestOptions } from "@/lib/api/client"
 import { COMMUNITY_CONTRACT_HEADER, type CommunityMessageSurfaceReceipt } from "@alook/shared"
 import { actionAttributes } from "@/lib/observability/context"
@@ -99,6 +99,24 @@ export const channelMessagesQueryFn =
 
 export type InitialMessageWindow = Extract<MessagesPageParam, { mode: "newest" | "anchor" | "since" }>
 export type MessageWindowData = InfiniteData<MessagesPage, MessagesPageParam>
+
+export function messagePageForReading(data: MessageWindowData, messageId: string, preferred?: string): string | undefined {
+  const existing = data.pageParams.findIndex(param => hashKey([param]) === preferred)
+  const index = existing >= 0 && data.pages[existing]?.messages.some(message => message.id === messageId)
+    ? existing : data.pages.findIndex(page => page.messages.some(message => message.id === messageId))
+  const param = data.pageParams[index]
+  return param ? hashKey([param]) : undefined
+}
+
+export function messagePageNeighbors(data: MessageWindowData, page: string) {
+  const index = data.pageParams.findIndex(param => hashKey([param]) === page)
+  const current = data.pages[index]
+  if (!current) return { older: false, newer: false }
+  return {
+    older: index === data.pages.length - 1 && !!(current.hasMoreOlder ?? current.hasMore) && !!(current.olderCursor ?? current.cursor),
+    newer: index === 0 && !!current.hasMoreNewer && !!current.newerCursor,
+  }
+}
 
 export function messageWindowIdentity(key: QueryKey): { channelId: string; initial: InitialMessageWindow; tag: string | null } | undefined {
   if (key[0] !== "community" || key[1] !== "channel" || typeof key[2] !== "string" || key[3] !== "messages") return

@@ -27,6 +27,17 @@ describe.each(["start", "end"] as const)("native virtual cursor pagination (%s)"
   }
   const boundary = edge === "start" ? [0, 1] : [8, 9]
 
+  it("loads an admitted neighbor away from either edge and leaves rejected live admission retryable", () => {
+    const receive = vi.fn()
+    const f = fixture({ loadWhenReady: true, requestKey: {}, hasMoreAtStart: true, onBeforeLoad: () => false })
+    expect(f.onLoad).not.toHaveBeenCalled()
+    f.rerender({ loadWhenReady: true, onBeforeLoad: () => receive })
+    expect(f.onLoad).toHaveBeenCalledOnce()
+    expect(receive).toHaveBeenCalledOnce()
+    f.rerender({ loadWhenReady: true, onBeforeLoad: () => receive, hasMore: false, count: 20 })
+    expect(f.onLoad).toHaveBeenCalledOnce()
+  })
+
   function viewportFixture(distance: number, indices = [4, 5], overrides: Partial<Props> = {}, contentHeight = 5000) {
     const root = document.createElement("div")
     Object.defineProperties(root, {

@@ -3165,7 +3165,8 @@
       "application": "Web",
       "candidates": [
         "ImageLightbox",
-        "PreviewFrame"
+        "PreviewFrame",
+        "PreviewGallery"
       ],
       "kind": "composition",
       "examples": [

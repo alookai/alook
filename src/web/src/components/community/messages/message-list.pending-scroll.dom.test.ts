@@ -49,6 +49,7 @@ function messageOffset(root: HTMLElement, id: string) {
 }
 
 describe("MessageList continuous input through an accepted page", () => {
+  const readingPage = {}
   it.each(["response-first", "rows-first"])("captures a first body reached after early prefetch (%s)", async order => {
     let messages = Array.from({ length: 50 }, (_, index) => message(index + 40))
     const before = {}, received = {}
@@ -58,7 +59,7 @@ describe("MessageList continuous input through an accepted page", () => {
     const view = (window = before, fetching = false) => React.createElement(MessageList, {
       channel: "general", messages, messageWindow: window, initialScrollReady: true,
       initialPositionMessageId: "m65", positionDataState: "ready", hasMore: true,
-      hasMoreNewer: true, isFetchingOlder: fetching, onLoadOlder: older, onOpenThread: vi.fn(),
+      hasMoreNewer: true, messageNeighborhood: { page: readingPage, older: messages.length === 50, newer: false }, isFetchingOlder: fetching, onLoadOlder: older, onOpenThread: vi.fn(),
     })
     const renderer = render(view())
     resize()
@@ -136,6 +137,7 @@ describe("MessageList continuous input through an accepted page", () => {
     const view = (window = before, fetching = false) => React.createElement(MessageList, {
       channel: "general", messages, messageWindow: window, initialScrollReady: true,
       initialPositionMessageId: "m65", positionDataState: "ready", hasMore: true, hasMoreNewer: true,
+      messageNeighborhood: { page: readingPage, older: direction === "older" && messages.length === 50, newer: direction === "newer" && messages.length === 50 },
       isFetchingOlder: fetching && direction === "older", isFetchingNewer: fetching && direction === "newer",
       onLoadOlder: older, onLoadNewer: newer, onOpenThread: vi.fn(),
     })
@@ -166,8 +168,8 @@ describe("MessageList continuous input through an accepted page", () => {
     })
     record("initial-ready")
     expect(root.querySelector('[data-read-position-ready="true"]')).not.toBeNull()
-    expect(older).not.toHaveBeenCalled()
-    expect(newer).not.toHaveBeenCalled()
+    expect(older).toHaveBeenCalledTimes(direction === "older" ? 1 : 0)
+    expect(newer).toHaveBeenCalledTimes(direction === "newer" ? 1 : 0)
     const edge = direction === "older" ? 0 : root.scrollHeight - root.clientHeight
     fireEvent.wheel(root, { deltaY: edge - root.scrollTop })
     act(() => root.scrollTo({ top: edge }))

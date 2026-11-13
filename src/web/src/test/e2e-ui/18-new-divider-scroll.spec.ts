@@ -1,5 +1,6 @@
+import { CommunityConversationEntryReadSchema, CommunityMessagesReadSchema } from "@alook/shared"
 import type { Response } from "@playwright/test"
-import { communityFixtureFetch } from "./_fixtures/business-contract"
+import { communityFixtureFetch, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import { communityFrameEvents, proxyCommunityWebSockets, type CapturedCommunityFrame } from "./_fixtures/community-ws-proxy"
@@ -147,13 +148,6 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
       }
     }
   })
-  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
-  await page.waitForURL(new RegExp(channelId), { timeout: 20_000, waitUntil: "commit" })
-  const scroller = page.getByTestId(tid.messageScroller)
-  await expect(scroller).toHaveCount(1)
-  await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
-  const jumpToNew = page.getByTestId(tid.scrollToNew)
-  await expect(jumpToNew).toBeVisible({ timeout: 30_000 })
   const preparation: { older: Response | null; issued: boolean; failure: { error: unknown } | null } = {
     older: null, issued: false, failure: null,
   }
@@ -164,9 +158,27 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
       preparation.older = response
     }
   }
+  page.on("response", observeOlderPage)
+  actors.onCleanup(async () => { page.off("response", observeOlderPage) })
+  const entryResponse = confirmCommunityFixtureApiResponse(page.waitForResponse(response => {
+    const url = new URL(response.url())
+    return response.request().method() === "GET" && url.pathname === `/api/community/channels/${channelId}/messages`
+      && url.searchParams.get("entry") === "1"
+  }))
+  void entryResponse.catch(() => undefined)
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+  await page.waitForURL(new RegExp(channelId), { timeout: 20_000, waitUntil: "commit" })
+  const scroller = page.getByTestId(tid.messageScroller)
+  await expect(scroller).toHaveCount(1)
+  await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
+  const jumpToNew = page.getByTestId(tid.scrollToNew)
+  await expect(jumpToNew).toBeVisible({ timeout: 30_000 })
   const preparationDeadline = Date.now() + 10_000
   const remainingPreparation = () => Math.max(1, preparationDeadline - Date.now())
-  page.on("response", observeOlderPage)
+  const entryRead = await entryResponse
+  expect(entryRead.status()).toBe(200)
+  const entry = CommunityConversationEntryReadSchema.parse(await entryRead.json())
+  expect(entry.page.olderCursor).toEqual(expect.any(String))
   try {
     await scroller.evaluate(element => element.scrollTo({ top: 0, behavior: "auto" }))
     await expect(page.getByTestId(tid.message(beforeNewId))).toBeInViewport({ timeout: remainingPreparation() })
@@ -176,6 +188,9 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
       if (!preparation.issued) {
         if (!preparation.older || Date.now() >= preparationDeadline) return Number.POSITIVE_INFINITY
         expect(preparation.older.status()).toBe(200)
+        expect(new URL(preparation.older.url()).searchParams.get("cursor")).toBe(entry.page.olderCursor)
+        const older = CommunityMessagesReadSchema.parse(await preparation.older.json())
+        expect([...entry.messages, ...older.messages].some(message => message.id === beforeNewId)).toBe(true)
         const ownerReleased = await scroller.evaluate(root => root.dataset.paginationEnabled === "true")
         if (!ownerReleased || Date.now() >= preparationDeadline) return Number.POSITIVE_INFINITY
         preparation.issued = true

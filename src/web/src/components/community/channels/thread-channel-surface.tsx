@@ -281,6 +281,8 @@ export function ThreadChannelSurface({
                   positionScope={controller.feed.positionScope}
                   positionDataState={controller.feed.positionDataState} targetPositionDataState={controller.feed.targetPositionDataState}
                   messageWindow={controller.feed.messageWindow}
+                  messageNeighborhood={controller.feed.messageNeighborhood}
+                  onReadingMessage={controller.feed.onReadingMessage}
                   isFetching={controller.feed.isFetching}
                   isFetchingOlder={controller.feed.isFetchingOlder}
                   onLoadOlder={controller.feed.fetchOlder}

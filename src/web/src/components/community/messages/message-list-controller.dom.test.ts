@@ -532,10 +532,11 @@ describe("useMessageListController", () => {
   })
 
   it("keeps loading, reading and both pagination directions tied to the current scroll owner", () => {
+    const messageNeighborhood = { page: {}, older: true, newer: true }
     let renderer: ReturnType<typeof rtlRender>
     act(() => {
       renderer = rtlRender(
-        React.createElement(Probe, { value: props({ loading: true }) })
+        React.createElement(Probe, { value: props({ loading: true, messageNeighborhood }) })
       )
     })
     expect(latest.isLoading).toBe(false)
@@ -549,7 +550,8 @@ describe("useMessageListController", () => {
         isError: false,
         onBeforeLoad: mocks.captureOlderPageAnchor,
         edge: "start",
-        preloadWithinViewport: true,
+        loadWhenReady: true,
+        requestKey: messageNeighborhood.page,
       }),
       expect.objectContaining({
         virtualizer: mocks.virtualizer,
@@ -558,7 +560,8 @@ describe("useMessageListController", () => {
         isError: false,
         onBeforeLoad: mocks.captureNewerPageAnchor,
         edge: "end",
-        preloadWithinViewport: true,
+        loadWhenReady: true,
+        requestKey: messageNeighborhood.page,
       }),
     ])
     expect(latest.scrollRef).toBe(mocks.scrollRef)
@@ -569,14 +572,14 @@ describe("useMessageListController", () => {
     expect(latest.pillOnClick).toBe(mocks.scrollToBottom)
     act(() => {
       renderer!.rerender(React.createElement(Probe, {
-        value: props({ loading: true, messages: [] }),
+        value: props({ loading: true, messages: [], messageNeighborhood }),
       }))
     })
     expect(latest.isLoading).toBe(true)
     act(() => mocks.finishPosition("success"))
     mocks.readPositionReady = true
     mocks.paginationEnabled = true
-    renderer!.rerender(React.createElement(Probe, { value: props({ loading: false }) }))
+    renderer!.rerender(React.createElement(Probe, { value: props({ loading: false, messageNeighborhood }) }))
     expect(latest.isLoading).toBe(false)
     expect(latest.readPositionReady).toBe(true)
     expect(mocks.paginationInputs.slice(-2)).toEqual([
@@ -585,7 +588,7 @@ describe("useMessageListController", () => {
     ])
     mocks.readPositionReady = false
     mocks.paginationEnabled = false
-    renderer!.rerender(React.createElement(Probe, { value: props({ loading: false }) }))
+    renderer!.rerender(React.createElement(Probe, { value: props({ loading: false, messageNeighborhood }) }))
     expect(latest.readPositionReady).toBe(false)
     expect(mocks.paginationInputs.slice(-2)).toEqual([
       expect.objectContaining({ edge: "start", enabled: false }),
@@ -681,6 +684,7 @@ describe("useMessageListController", () => {
   })
 
   it("preserves requested pagination callbacks and gives jump mode server-count precedence", () => {
+    const readingPage = {}
     const loadOlder = vi.fn()
     const loadNewer = vi.fn()
     const jumpToPresent = vi.fn()
@@ -690,6 +694,7 @@ describe("useMessageListController", () => {
           newDividerBefore: "m1",
           initialScrollReady: false,
           hasMore: true,
+          messageNeighborhood: { page: readingPage, older: true, newer: true },
           isFetchingOlder: true,
           onLoadOlder: loadOlder,
           hasMoreNewer: true,
@@ -725,7 +730,8 @@ describe("useMessageListController", () => {
         onBeforeLoad: mocks.captureOlderPageAnchor,
         onLoad: loadOlder,
         edge: "start",
-        preloadWithinViewport: true,
+        requestKey: readingPage,
+        loadWhenReady: true,
       }),
       expect.objectContaining({
         virtualizer: mocks.virtualizer,
@@ -738,7 +744,8 @@ describe("useMessageListController", () => {
         onBeforeLoad: mocks.captureNewerPageAnchor,
         onLoad: loadNewer,
         edge: "end",
-        preloadWithinViewport: true,
+        requestKey: readingPage,
+        loadWhenReady: true,
       }),
     ])
     expect(latest.pillCount).toBe(9)

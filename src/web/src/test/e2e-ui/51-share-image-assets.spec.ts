@@ -145,6 +145,8 @@ async function uploadServerIcon(page: Page, serverId: string): Promise<void> {
 }
 
 async function openShareDialog(page: Page, messageId: string): Promise<Locator> {
+  await expect(page.getByRole("dialog", { name: "Share message", includeHidden: true })).toHaveCount(0)
+  await expect(page.getByTestId(tid.messageSelectionToolbar)).toHaveCount(0)
   const row = page.getByTestId(tid.message(messageId))
   await expect(row).toBeVisible()
   await row.hover()

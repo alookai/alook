@@ -1,9 +1,11 @@
 "use client"
 
+import type { ImagePreview } from "@/lib/community/models/message"
+import { withImageGallery } from "./image-preview-gallery"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useObservedRegion } from "@/lib/observability/regions"
 import { visibleVirtualItems } from "@/lib/observability/virtual-window"
-import { useContext, useState } from "react"
+import { useCallback, useContext, useLayoutEffect, useRef, useState } from "react"
 import { hashKey } from "@tanstack/react-query"
 import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
 import { useMessageListController } from "./message-list-controller"
@@ -39,15 +41,26 @@ function PendingMessageListSkeleton({ variant }: { variant: "channel" | "dm" }) 
   return <MessageListSkeleton variant={variant} capsuleHeight={footerSlot?.capsuleHeight ?? 0} />
 }
 
+function useImageGalleryPreview(messages: MessageListProps["messages"], onPreviewImage: MessageListProps["onPreviewImage"]) {
+  const previewContext = useRef({ messages: messages, onPreviewImage: onPreviewImage })
+  useLayoutEffect(() => { previewContext.current = { messages: messages, onPreviewImage: onPreviewImage } }, [messages, onPreviewImage])
+  return useCallback((image: ImagePreview) => {
+    const current = previewContext.current
+    current.onPreviewImage?.(withImageGallery(image, current.messages))
+  }, [])
+}
+
 function MessageListOwner({ variant, initialScrollReady, ...props }: MessageListProps & {
   variant: "channel" | "dm"
   initialScrollReady: boolean
 }) {
+  const previewImage = useImageGalleryPreview(props.messages, props.onPreviewImage)
   const hoverCapable = useHoverCapable()
   const conversationActive = useConversationActivity()
   const conversationPresented = useContext(ConversationPresentationContext) ?? conversationActive
   const resolvedProps: ResolvedMessageListProps = {
     ...props,
+    onPreviewImage: props.onPreviewImage ? previewImage : undefined,
     messages: isConversationAccessError(props.initialLoadError) ? [] : props.messages,
     variant,
     initialScrollReady,

@@ -1,5 +1,7 @@
 "use client"
 
+import { withImageGallery } from "./image-preview-gallery"
+
 import { Button } from "@/components/ui/button"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
@@ -762,13 +764,14 @@ function MessageImpl({
                       width={a.width}
                       height={a.height}
                       loading="lazy"
-                      onActivate={() => onPreviewImage?.({
+                      onActivate={() => onPreviewImage?.(withImageGallery({
+                        key: `${m.id}:${i}`,
                         originalUrl: a.url,
                         thumbnailUrl: a.thumbnailUrl,
                         name: a.name,
                         width: a.width,
                         height: a.height,
-                      })}
+                      }, [m]))}
                       frameClassName="block max-w-full rounded-lg border border-border [--attachment-image-max-height:200px] transition-colors hover:border-primary/40 sm:[--attachment-image-max-height:240px]"
                       frameStyle={frameStyle}
                       imageClassName="block rounded-lg object-contain"

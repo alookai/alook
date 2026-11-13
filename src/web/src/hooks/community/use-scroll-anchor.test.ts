@@ -3,7 +3,6 @@ import {
   findMessageIndex,
   findMountScrollTargetIndex,
   measureMessageRow,
-  MESSAGE_LIST_DISPLAY_END_THRESHOLD_PX,
   resolveViewportResizeAnchor,
 } from "./use-scroll-anchor"
 import { MESSAGE_ROW_VERTICAL_PADDING_PX, type FlatItem } from "@/lib/community/message-list-items"
@@ -33,7 +32,7 @@ describe("message rail tail geometry", () => {
 })
 
 describe("resolveViewportResizeAnchor", () => {
-  it.each([0, 2, 100])("preserves a %ipx tail distance across footer growth", (distance) => {
+  it.each([0, 2, 40])("preserves a %ipx tail distance across footer growth", (distance) => {
     expect(resolveViewportResizeAnchor({
       previousClientHeight: 800,
       nextClientHeight: 608,
@@ -47,17 +46,17 @@ describe("resolveViewportResizeAnchor", () => {
     })
   })
 
-  it("preserves a 300px reading position across footer growth", () => {
+  it.each([41, 100, 300])("preserves a %ipx reading position outside the capsule distance across footer growth", distance => {
     expect(resolveViewportResizeAnchor({
       previousClientHeight: 800,
       nextClientHeight: 608,
       previousScrollHeight: 1_600,
       nextScrollHeight: 1_600,
-      previousScrollTop: 500,
+      previousScrollTop: 800 - distance,
     })).toEqual({
       anchor: "start",
-      scrollTop: 500,
-      distanceToEnd: 300,
+      scrollTop: 800 - distance,
+      distanceToEnd: distance,
     })
   })
 
@@ -73,12 +72,6 @@ describe("resolveViewportResizeAnchor", () => {
       scrollTop: 650,
       distanceToEnd: 150,
     })
-  })
-})
-
-describe("MESSAGE_LIST_DISPLAY_END_THRESHOLD_PX", () => {
-  it("keeps the 100px presentation and viewport policy separate from physical follow", () => {
-    expect(MESSAGE_LIST_DISPLAY_END_THRESHOLD_PX).toBe(100)
   })
 })
 

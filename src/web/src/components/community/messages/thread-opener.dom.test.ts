@@ -259,8 +259,9 @@ describe("ThreadOpener image attachment layout", () => {
     expect(image).toHaveAttribute("loading", "lazy")
     fireEvent.click(image.parentElement!)
     expect(onPreviewImage).toHaveBeenCalledWith({
-      originalUrl: "/original", thumbnailUrl: "/thumbnail", name: "photo.png",
+      key: "opener_1:0", originalUrl: "/original", thumbnailUrl: "/thumbnail", name: "photo.png",
       width: 640, height: 480,
+      images: [{ key: "opener_1:0", originalUrl: "/original", thumbnailUrl: "/thumbnail", name: "photo.png", width: 640, height: 480 }],
     })
   })
 

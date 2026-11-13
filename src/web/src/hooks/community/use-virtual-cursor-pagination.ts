@@ -6,7 +6,7 @@ import type { MessageRequest } from "@/lib/community/message-position"
 
 export function useVirtualCursorPagination({
   virtualizer, count, enabled = true, hasMore, hasMoreAtStart, isFetching, isError,
-  onBeforeLoad, onLoad, edge, requestKey, preloadWithinViewport = false,
+  onBeforeLoad, onLoad, edge, requestKey, preloadWithinViewport = false, loadWhenReady = false,
 }: {
   virtualizer: { getVirtualItems: () => VirtualItem[]; scrollElement?: HTMLElement | null }
   count: number
@@ -15,11 +15,12 @@ export function useVirtualCursorPagination({
   hasMoreAtStart?: boolean
   isFetching?: boolean
   isError?: boolean
-  onBeforeLoad?: () => void | ((request: MessageRequest | void) => void)
+  onBeforeLoad?: () => void | false | ((request: MessageRequest | void) => void)
   onLoad?: () => MessageRequest | void
   edge: "start" | "end"
   requestKey?: object
   preloadWithinViewport?: boolean
+  loadWhenReady?: boolean
 }) {
   const virtualItems = virtualizer.getVirtualItems()
   const scrollElement = virtualizer.scrollElement
@@ -31,7 +32,7 @@ export function useVirtualCursorPagination({
     if (isFetching && attempted.current?.legacy) attempted.current = null
     if (!enabled || !boundary || count === 0 || !hasMore || isFetching || isError && !retry || retry && !isError || !onLoad) return
     let atStart = rows[0]?.index === 0
-    let nearEdge = edge === "start" ? boundary.index === 0 : boundary.index === count - 1
+    let nearEdge = loadWhenReady || (edge === "start" ? boundary.index === 0 : boundary.index === count - 1)
     if (preloadWithinViewport) {
       if (!root || root.clientHeight <= 0) return
       const start = Math.max(0, root.scrollTop)
@@ -40,13 +41,14 @@ export function useVirtualCursorPagination({
       nearEdge = (edge === "start" ? start : end) <= root.clientHeight
     }
     if (!nearEdge) { if (!attempted.current?.pending) attempted.current = null; return }
-    if (edge === "end" && hasMoreAtStart && atStart) return
-    const key = preloadWithinViewport ? edge : boundary.key
+    if (!loadWhenReady && edge === "end" && hasMoreAtStart && atStart) return
+    const key = preloadWithinViewport || loadWhenReady ? edge : boundary.key
     if (attempted.current?.window === requestKey && attempted.current?.pending) return
     if (!retry && attempted.current?.count === count && attempted.current.key === key && attempted.current.window === requestKey) return
     const attempt = { count, key, window: requestKey, legacy: false, pending: true }
     attempted.current = attempt
     const receive = onBeforeLoad?.()
+    if (receive === false) { attempted.current = null; return }
     const request = onLoad()
     attempt.legacy = !request
     attempt.pending = !!request?.accepted
@@ -55,7 +57,7 @@ export function useVirtualCursorPagination({
       const settle = () => { attempt.pending = false }
       void request.completed.then(settle, settle)
     }
-  }, [count, edge, enabled, hasMore, hasMoreAtStart, isFetching, isError, onBeforeLoad, onLoad, preloadWithinViewport, requestKey, virtualizer])
+  }, [count, edge, enabled, hasMore, hasMoreAtStart, isFetching, isError, loadWhenReady, onBeforeLoad, onLoad, preloadWithinViewport, requestKey, virtualizer])
   useEffect(() => {
     const root = preloadWithinViewport ? scrollElement : null
     const onScroll = () => load()

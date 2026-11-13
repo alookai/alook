@@ -1035,7 +1035,7 @@ describe("Message image attachment layout", () => {
     expect(image).toHaveAttribute("loading", "lazy")
     fireEvent.click(image)
     expect(onPreviewImage).toHaveBeenCalledOnce()
-    expect(onPreviewImage).toHaveBeenCalledWith({ originalUrl: "/original", thumbnailUrl: "/thumbnail", name: "photo.png", width: 640, height: 480 })
+    expect(onPreviewImage).toHaveBeenCalledWith({ key: "m1:0", originalUrl: "/original", thumbnailUrl: "/thumbnail", name: "photo.png", width: 640, height: 480, images: [{ key: "m1:0", originalUrl: "/original", thumbnailUrl: "/thumbnail", name: "photo.png", width: 640, height: 480 }] })
   })
 
 
