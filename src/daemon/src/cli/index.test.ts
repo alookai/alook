@@ -286,6 +286,31 @@ describe("envelope contract", () => {
   });
 });
 
+describe("CLI ref path validation", () => {
+  it.each([
+    ["/studio#0042/general/#12/#34"],
+    ["/.dm/gusye#1231/#12/#34"],
+    ["/.dm/gusye#1231/ignored"],
+  ])("rejects malformed send targets before API calls: %s", async (target) => {
+    const send = vi.fn();
+    setApiForTesting(stubApi({ send }));
+    expect(await mainWithStdin(["message", "send", "--target", target, "--remind-after", "0", "--stdin"])).toBe(0);
+    expect(parseEnvelope(cap.lines()).error).toContain("ref has too many segments");
+    expect(send).not.toHaveBeenCalled();
+    expect(mockArmMessageReminder).not.toHaveBeenCalled();
+  });
+
+  it.each(["history", "member"])("rejects malformed channel %s before API calls", async (command) => {
+    const read = vi.fn();
+    const channelMember = vi.fn();
+    setApiForTesting(stubApi({ read, channelMember }));
+    expect(await main(["channel", command, "--channel", "/studio#0042/general/#12/#34"])).toBe(0);
+    expect(parseEnvelope(cap.lines()).error).toContain("ref has too many segments");
+    expect(read).not.toHaveBeenCalled();
+    expect(channelMember).not.toHaveBeenCalled();
+  });
+});
+
 describe("channel alignment (message send)", () => {
   it("blocked send requires reading new messages before deciding whether to resend", async () => {
     setApiForTesting(
@@ -1368,13 +1393,13 @@ describe("channel history", () => {
     setApiForTesting(
       stubApi({
         read: async () => {
-          throw new Error("channel not found: /s/nope");
+          throw new Error("channel not found: /studio#0042/nope");
         },
       }),
     );
-    await main(["channel", "history", "--channel", "/s/nope"]);
+    await main(["channel", "history", "--channel", "/studio#0042/nope"]);
     const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ error: "channel not found: /s/nope" });
+    expect(env).toEqual({ error: "channel not found: /studio#0042/nope" });
   });
 });
 
