@@ -8,10 +8,13 @@ import { communityShellDirectory, communityShellHash } from "../src/lib/service-
 import { dedupeServerChunks } from "./dedupe-server-chunks"
 
 export function stageCommunityShell(webRoot: string): string {
+  const buildId = readFileSync(resolve(webRoot, ".next/BUILD_ID"), "utf8").trim()
+  if (!buildId || buildId === "development" || !/^[a-zA-Z0-9_-]+$/.test(buildId)) throw new Error("Completed Web build identity is missing")
   const prerender = JSON.parse(readFileSync(resolve(webRoot, ".next/prerender-manifest.json"), "utf8")) as { routes: Record<string, unknown> }
   if (!Object.hasOwn(prerender.routes, "/c")) throw new Error("Community shell must be prerendered without request data")
   const html = readFileSync(resolve(webRoot, ".next/server/app/c.html"))
   if (!html.includes('data-community-shell="public"')) throw new Error("Generated community shell marker is missing")
+  if (!html.includes(`<meta name="alook-web-build" content="${buildId}"`)) throw new Error("Compiled document does not match the completed Web build identity")
   const hash = createHash("sha256").update(html).digest("hex")
   const filename = hash
   const directory = resolve(webRoot, `public${communityShellDirectory}`)
@@ -25,6 +28,7 @@ export function stageCommunityShell(webRoot: string): string {
 
 export async function stageServiceWorker(webRoot: string): Promise<void> {
   const shellUrl = stageCommunityShell(webRoot)
+  const buildId = readFileSync(resolve(webRoot, ".next/BUILD_ID"), "utf8").trim()
   const serviceWorker = createSerwistRoute({
     cwd: webRoot,
     swSrc: "src/app/sw.ts",
@@ -47,7 +51,10 @@ export async function stageServiceWorker(webRoot: string): Promise<void> {
       }),
       warnings: [],
     })],
-    esbuildOptions: { format: "iife", sourcemap: false, minify: true, define: { "process.env.NODE_ENV": JSON.stringify("production") } },
+    esbuildOptions: { format: "iife", sourcemap: false, minify: true, define: {
+      "process.env.NODE_ENV": JSON.stringify("production"),
+      "process.env.NEXT_PUBLIC_WEB_BUILD_ID": JSON.stringify(buildId),
+    } },
   })
   const response = await serviceWorker.GET(new Request("https://build.invalid/sw.js"), { params: Promise.resolve({ path: "sw.js" }) })
   if (response.status !== 200 || response.headers.get("Content-Type") !== "application/javascript"

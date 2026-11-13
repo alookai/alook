@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { CURRENT_DOCUMENT_REQUEST, WORKER_VERSION_PROBE } from "./service-worker/business-upgrade"
-import { businessSchemaLifecycle, registerBusinessSchemaOwner, requestBusinessSchemaUpdate, retryBusinessSchemaUpdate } from "./business-schema-lifecycle"
+import { businessSchemaLifecycle, registerBusinessSchemaOwner, requestBusinessSchemaUpdate, requestDocumentBuildUpdate, retryBusinessSchemaUpdate } from "./business-schema-lifecycle"
 
 beforeEach(() => businessSchemaLifecycle.setState(() => ({ phase: "current", expectedVersion: BUSINESS_SCHEMA_VERSION })))
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
@@ -75,7 +75,7 @@ it.each(["normal", "storage-denied", "public-path"])("bounds the no-worker docum
   const stored = new Map<string, string>()
   vi.stubGlobal("sessionStorage", { getItem: (key: string) => { if (mode === "storage-denied") throw new Error("denied"); return stored.get(key) ?? null }, setItem: (key: string, value: string) => { if (mode === "storage-denied") throw new Error("denied"); stored.set(key, value) } })
   requestBusinessSchemaUpdate()
-  if (mode === "public-path") await vi.waitFor(() => expect(businessSchemaLifecycle.get().phase).toBe("failed"))
+  if (mode === "public-path") expect(businessSchemaLifecycle.get().phase).toBe("current")
   else await vi.waitFor(() => expect(replace).toHaveBeenCalledWith(`https://alook.test/c/me?__alook_schema_update=${BUSINESS_SCHEMA_VERSION}`))
   if (mode === "normal") expect(stored.get("alook:business-schema-update-attempt")).toBe(String(BUSINESS_SCHEMA_VERSION))
   if (mode === "public-path") expect(replace).not.toHaveBeenCalled()
@@ -103,17 +103,17 @@ it("fails when a current worker explicitly refuses navigation and closes both re
   expect(vi.getTimerCount()).toBe(0)
 })
 
-function workerFixture(version = BUSINESS_SCHEMA_VERSION as number) {
+function workerFixture(version = BUSINESS_SCHEMA_VERSION as number, buildId?: string) {
   const ports: Array<ReturnType<typeof vi.fn>> = []
   class Channel {
     port1 = { onmessage: null as ((event: { data: unknown }) => void) | null, close: vi.fn() }
     port2 = { postMessage: (data: unknown) => this.port1.onmessage?.({ data }), close: vi.fn() }
     constructor() { ports.push(this.port1.close, this.port2.close) }
   }
-  const messages: Array<{ type: string; schemaVersion?: number }> = []
+  const messages: Array<{ type: string; schemaVersion?: number; buildId?: string }> = []
   const worker = { postMessage: (message: { type: string; schemaVersion?: number }, transfer: Array<{ postMessage(data: unknown): void }>) => {
     messages.push(message)
-    if (message.type === WORKER_VERSION_PROBE) transfer[0].postMessage({ schemaVersion: version })
+    if (message.type === WORKER_VERSION_PROBE) transfer[0].postMessage({ schemaVersion: version, ...(buildId ? { buildId } : {}) })
     if (message.type === CURRENT_DOCUMENT_REQUEST) transfer[0].postMessage({ navigating: true })
   } }
   const registration = Object.assign(new EventTarget(), { update: vi.fn(async () => {}), active: worker, waiting: null, installing: null })
@@ -125,8 +125,69 @@ function workerFixture(version = BUSINESS_SCHEMA_VERSION as number) {
   vi.stubGlobal("window", { location: { href: "https://alook.test/c/me", replace: vi.fn() } })
   vi.stubGlobal("navigator", { serviceWorker })
   vi.stubGlobal("sessionStorage", { getItem: () => null, setItem: vi.fn() })
-  return { registration, serviceWorker, messages, ports, setVersion: (value: number) => { version = value } }
+  return { registration, serviceWorker, messages, ports, setVersion: (value: number) => { version = value }, setBuild: (value: string) => { buildId = value } }
 }
+
+it("retires a compatible build without schema invalidation and admits its verified current controller", async () => {
+  const h = workerFixture(BUSINESS_SCHEMA_VERSION, "next-build")
+  const retire = vi.fn(async () => {}), unregister = registerBusinessSchemaOwner(retire)
+  try {
+    requestDocumentBuildUpdate("next-build")
+    requestDocumentBuildUpdate("next-build")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(retire).toHaveBeenCalledExactlyOnceWith(false)
+    expect(h.messages.filter(message => message.type === CURRENT_DOCUMENT_REQUEST)).toEqual([
+      { type: CURRENT_DOCUMENT_REQUEST, schemaVersion: BUSINESS_SCHEMA_VERSION, buildId: "next-build", explicitRetry: false },
+    ])
+    expect(h.registration.update).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { unregister() }
+})
+
+it("keeps a failed build bounded and retries a later distinct target without lexical ordering", async () => {
+  const h = workerFixture(BUSINESS_SCHEMA_VERSION, "z-build")
+  h.registration.update.mockRejectedValueOnce(new Error("Unavailable"))
+  requestDocumentBuildUpdate("z-build")
+  await vi.advanceTimersByTimeAsync(0)
+  expect(businessSchemaLifecycle.get().phase).toBe("failed")
+  requestDocumentBuildUpdate("a-build")
+  expect(h.registration.update).toHaveBeenCalledOnce()
+  h.setBuild("a-build")
+  retryBusinessSchemaUpdate()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(h.messages.filter(message => message.type === CURRENT_DOCUMENT_REQUEST)).toEqual([
+    { type: CURRENT_DOCUMENT_REQUEST, schemaVersion: BUSINESS_SCHEMA_VERSION, buildId: "a-build", explicitRetry: true },
+  ])
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it("performs schema retirement if protocol requirements escalate during a build-only retirement", async () => {
+  const h = workerFixture(BUSINESS_SCHEMA_VERSION, "next-build")
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const retire = vi.fn((invalidate: boolean) => invalidate ? Promise.resolve() : held)
+  const unregister = registerBusinessSchemaOwner(retire)
+  try {
+    requestDocumentBuildUpdate("next-build")
+    expect(retire).toHaveBeenCalledWith(false)
+    requestBusinessSchemaUpdate(BUSINESS_SCHEMA_VERSION + 1)
+    h.setVersion(BUSINESS_SCHEMA_VERSION + 1)
+    release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(retire.mock.calls).toEqual([[false], [true]])
+    expect(h.messages.filter(message => message.type === CURRENT_DOCUMENT_REQUEST)).toHaveLength(1)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { release(); unregister() }
+})
+
+it("rejects a worker without build authority for a requested same-protocol build", async () => {
+  const h = workerFixture()
+  requestDocumentBuildUpdate("next-build")
+  await vi.advanceTimersByTimeAsync(10_000)
+  expect(businessSchemaLifecycle.get()).toMatchObject({ phase: "failed", expectedBuildId: "next-build" })
+  expect(h.messages.some(message => message.type === CURRENT_DOCUMENT_REQUEST)).toBe(false)
+  expect(vi.getTimerCount()).toBe(0)
+})
 
 it("waits for required retirement past the old three-second cutoff before touching the worker", async () => {
   const h = workerFixture()
@@ -302,4 +363,64 @@ it("requalifies a controller replaced while a late owner's retirement is still p
     ])
     expect(vi.getTimerCount()).toBe(0)
   } finally { releaseUpdate(); releaseOwner(); unregister() }
+})
+
+it.each(["updating", "failed"])("retains an unmounted build owner for authoritative schema escalation after %s", async phase => {
+  const h = workerFixture(BUSINESS_SCHEMA_VERSION, "next-build")
+  if (phase === "failed") h.registration.update.mockRejectedValueOnce(new Error("offline"))
+  const retire = vi.fn(async () => {}), unregister = registerBusinessSchemaOwner(retire)
+  requestDocumentBuildUpdate("next-build")
+  await vi.advanceTimersByTimeAsync(0)
+  expect(businessSchemaLifecycle.get().phase).toBe(phase)
+  unregister()
+  requestBusinessSchemaUpdate(BUSINESS_SCHEMA_VERSION + 1)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(retire.mock.calls).toEqual([[false], [true]])
+  requestDocumentBuildUpdate("another-build")
+  await vi.advanceTimersByTimeAsync(0)
+  expect(retire.mock.calls).toEqual([[false], [true]])
+})
+
+it.each(["/", "/blog", "/blog/article"])("rejects business lifecycle entry on public %s before state or owners", async path => {
+  const h = workerFixture(BUSINESS_SCHEMA_VERSION, "new-main-build")
+  window.location.href = `https://alook.test${path}`
+  const retired = vi.fn(async () => {}), unregister = registerBusinessSchemaOwner(retired)
+  try {
+    requestDocumentBuildUpdate("new-main-build")
+    requestBusinessSchemaUpdate(BUSINESS_SCHEMA_VERSION + 1)
+    retryBusinessSchemaUpdate()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(businessSchemaLifecycle.get()).toEqual({ phase: "current", expectedVersion: BUSINESS_SCHEMA_VERSION })
+    expect(retired).not.toHaveBeenCalled()
+    expect(h.registration.update).not.toHaveBeenCalled()
+    expect(h.messages).toEqual([])
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { unregister() }
+})
+
+it.each(["update", "probe"])("requalifies a public route after the held %s returns and preserves its new owner", async stage => {
+  const h = workerFixture(BUSINESS_SCHEMA_VERSION, "new-main-build")
+  let release!: () => void, reply: { postMessage(value: unknown): void } | undefined
+  if (stage === "update") h.registration.update.mockImplementation(() => new Promise<void>(resolve => { release = resolve }))
+  else vi.spyOn(h.serviceWorker.controller, "postMessage").mockImplementation((message, ports) => {
+    h.messages.push(message)
+    reply = ports[0]
+  })
+  const oldRetired = vi.fn(async () => {}), unregisterOld = registerBusinessSchemaOwner(oldRetired)
+  requestDocumentBuildUpdate("new-main-build")
+  await vi.advanceTimersByTimeAsync(0)
+  expect(oldRetired).toHaveBeenCalledExactlyOnceWith(false)
+  if (stage === "update") expect(release).toBeTypeOf("function")
+  else expect(reply).toBeDefined()
+  window.location.href = "https://alook.test/blog"
+  const publicRetired = vi.fn(async () => {}), unregisterPublic = registerBusinessSchemaOwner(publicRetired)
+  try {
+    if (stage === "update") release()
+    else reply!.postMessage({ schemaVersion: BUSINESS_SCHEMA_VERSION, buildId: "new-main-build" })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(publicRetired).not.toHaveBeenCalled()
+    expect(businessSchemaLifecycle.get()).toEqual({ phase: "current", expectedVersion: BUSINESS_SCHEMA_VERSION })
+    expect(h.messages.filter(message => message.type === CURRENT_DOCUMENT_REQUEST)).toEqual([])
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { unregisterPublic(); unregisterOld() }
 })

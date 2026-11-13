@@ -13,17 +13,18 @@ const { build } = createRequire(import.meta.resolve("@serwist/turbopack"))("esbu
 const shell = `/community-shell/${"a".repeat(64)}`
 const options = {
   absWorkingDir: webRoot, bundle: true, write: false, metafile: true, platform: "browser", format: "iife", minify: true, sourcemap: false, logLevel: "silent",
-  define: { "process.env.NODE_ENV": JSON.stringify("production"), "self.__SW_MANIFEST": JSON.stringify([{ url: shell, revision: "unit-shell" }]) },
+  define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env.NEXT_PUBLIC_WEB_BUILD_ID": JSON.stringify("fixture-build"), "self.__SW_MANIFEST": JSON.stringify([{ url: shell, revision: "unit-shell" }]) },
 }
 function workerGlobal() {
   const listeners: string[] = []
-  const addEventListener = (type: string) => { listeners.push(type) }
+  const handlers = new Map<string, Array<(event: unknown) => void>>()
+  const addEventListener = (type: string, handler: (event: unknown) => void) => { listeners.push(type); handlers.set(type, [...handlers.get(type) ?? [], handler]) }
   const location = new URL("https://worker.example.test/sw.js")
   const worker = { location, addEventListener, removeEventListener: () => {}, skipWaiting: async () => {},
     registration: { scope: "https://worker.example.test/", navigationPreload: { enable: async () => {} } },
     clients: { claim: async () => {}, matchAll: async () => [] },
   }
-  return { listeners, context: { self: worker, location, addEventListener, URL, Request, Response, Headers, console, crypto: webcrypto, setTimeout, clearTimeout, caches: {} } }
+  return { listeners, handlers, context: { self: worker, location, addEventListener, URL, Request, Response, Headers, console, crypto: webcrypto, setTimeout, clearTimeout, caches: {} } }
 }
 
 describe("actual SW entry isolated browser dependency bundle", () => {
@@ -38,6 +39,10 @@ describe("actual SW entry isolated browser dependency bundle", () => {
     expect(fixture.context).not.toHaveProperty("Buffer")
     expect(() => runInNewContext(output.outputFiles[0]!.text, fixture.context, { timeout: 1000 })).not.toThrow()
     for (const name of ["install", "activate", "fetch", "message"]) expect(fixture.listeners).toContain(name)
+    const reply = { postMessage: (value: unknown) => { identity = value } }
+    let identity: unknown
+    for (const handler of fixture.handlers.get("message") ?? []) handler({ data: { type: "alook:worker-version" }, ports: [reply] })
+    expect(identity).toMatchObject({ buildId: "fixture-build" })
     console.info(JSON.stringify({ case: "isolated-actual-sw-entry-browser-global", bytes: output.outputFiles[0]!.text.length, listeners: fixture.listeners, sharedInputs: inputs.filter(path => path.includes("shared/src/")) }))
   })
   it("detects the old broad version dependency rather than supplying a process shim", async () => {

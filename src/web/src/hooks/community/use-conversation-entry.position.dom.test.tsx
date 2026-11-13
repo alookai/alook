@@ -75,6 +75,7 @@ function Conversation({ channelId, kind, anchorMessageId, fullFooter }: { channe
     preserveInitialPresentation: feed.preserveInitialPresentation,
     positionEntry: feed.positionEntry, positionScope: feed.positionScope,
     positionDataState: feed.positionDataState, messageWindow: feed.messageWindow, presentRequest: feed.presentRequest,
+    messageNeighborhood: feed.messageNeighborhood, onReadingMessage: feed.onReadingMessage,
     scrollToMessageId: channel.scrollTargetId, onScrollTargetConsumed: channel.consumeScrollTarget,
     hasMore: feed.hasMoreOlder, hasMoreNewer: feed.hasMoreNewer, historyStartKnown: feed.historyStartKnown,
     isFetching: feed.isFetching, isFetchingOlder: feed.isFetchingOlder, isFetchingNewer: feed.isFetchingNewer,
@@ -123,9 +124,13 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
   restoreAfterMount?: boolean
   fullFooter?: boolean
   missingReadPointer?: boolean
+  pageTransport?: (url: string) => unknown
+  initialAnchor?: string
 } = {}) {
   owner = await createCommunityQueryOwner()
-  await seedConversationEntry(owner.client, options.cached ?? entry(kind, "c1", ownTail))
+  if (options.initialAnchor) navigationMock.href = `/c/channels/s1/c1?msg=${options.initialAnchor}`
+  await seedConversationEntry(owner.client, options.cached ?? entry(kind, "c1", ownTail),
+    { channelId: "c1", serverId: "s1", ...(options.initialAnchor ? { anchorMessageId: options.initialAnchor } : {}) })
   await seedConversationEntry(owner.client, entry("channel", "c2"))
   let restoreWindow: (() => void) | undefined
   if (options.restored) {
@@ -156,6 +161,8 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
   const canonicalTransport = new Promise(resolve => { finishCanonical = resolve })
   releaseTransport = () => { finishPut({ changed: true, revision: 6, targetSeq: 42 }); finishCanonical({ revision: 6, readStates: [] }) }
   load.mockImplementation((url: string) => {
+    const pageResponse = options.pageTransport?.(url)
+    if (pageResponse !== undefined) return pageResponse
     if (url.startsWith("/api/community/channels/c1/messages?") && new URL(url, "https://test.invalid").searchParams.has("entry") && options.refresh) return options.refresh
     if (url === "/api/community/channels/c1/messages" && options.refreshWindow) return options.refreshWindow.then(value => ({
       ...value.page, profiles: value.profiles, messages: value.messages,
@@ -187,9 +194,9 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
     if (url === "/api/community/users/me/attention") return Promise.resolve({ scopes: [], items: [], limit: 100, truncated: false })
     throw new Error(`Unexpected entry-position transport: ${url}`)
   })
-  let channelId = "c1", active = options.initialActive ?? true, anchorMessageId: string | null = null
+  let channelId = "c1", active = options.initialActive ?? true, anchorMessageId: string | null = options.initialAnchor ?? null
   let restoring = options.restoreAfterMount ?? false
-  const navigation = { entryIntent: { href: "/c/channels/s1/c1" } as { href: string; resume?: boolean } }
+  const navigation = { entryIntent: { href: navigationMock.href } as { href: string; resume?: boolean } }
   const content = () => <QueryClientProvider client={owner.client}><IsRestoringProvider value={restoring}><CommunityDbProvider registry={owner.registry}>
     <CurrentUserProvider initialUser={viewer}>
       <CommunityRouteContext value={{ navigation } as never}>
@@ -324,6 +331,87 @@ afterEach(async () => {
 })
 
 describe("conversation entry positioning through real reading owners", () => {
+  it.each(["tail", "middle"] as const)("loads only the %s reading page neighbors, then replenishes after real user crossing", async mode => {
+    const full = entry("channel")
+    const cursor = (seq: number) => `${full.messages[seq - 1].createdAt}|m${seq}`
+    const page = (first: number, last: number) => ({ messages: full.messages.slice(first - 1, last), profiles: full.profiles,
+      hasMoreOlder: first > 1, olderCursor: first > 1 ? cursor(first) : null,
+      hasMoreNewer: last < 42, newerCursor: last < 42 ? cursor(last) : null, latestSeq: 42 })
+    const current = page(21, mode === "tail" ? 42 : 34)
+    const cached = { ...full, messages: current.messages, page: { olderCursor: current.olderCursor, newerCursor: current.newerCursor,
+      hasMoreOlder: current.hasMoreOlder, hasMoreNewer: current.hasMoreNewer, latestSeq: current.latestSeq },
+      selection: mode === "tail" ? full.selection : { reason: "explicit_anchor" as const, anchorMessageId: "m30" } }
+    let finishOlder!: (value: ReturnType<typeof page>) => void
+    let finishNewer!: (value: ReturnType<typeof page>) => void
+    let finishFurther!: (value: ReturnType<typeof page>) => void
+    const older = new Promise<ReturnType<typeof page>>(resolve => { finishOlder = resolve })
+    const newer = new Promise<ReturnType<typeof page>>(resolve => { finishNewer = resolve })
+    const further = new Promise<ReturnType<typeof page>>(resolve => { finishFurther = resolve })
+    const view = await setup("channel", false, false, { cached, initialAnchor: mode === "middle" ? "m30" : undefined, pageTransport: url => {
+      const search = new URL(url, "https://test.invalid").searchParams
+      if (search.get("cursor") === cursor(21)) return older
+      if (search.get("cursor") === cursor(11)) return further
+      if (search.get("since") === cursor(34)) return newer
+      return undefined
+    } })
+    resize()
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    const root = view.root()
+    const offset = (id: string) => root.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)!.getBoundingClientRect().top - root.getBoundingClientRect().top
+    const requests = () => load.mock.calls.map(([url]) => new URL(String(url), "https://test.invalid"))
+      .filter(url => url.pathname.endsWith("/messages") && (url.searchParams.has("cursor") || url.searchParams.has("since")))
+      .map(url => `${url.searchParams.has("cursor") ? "older" : "newer"}:${url.searchParams.get("cursor") ?? url.searchParams.get("since")}`)
+    const readingId = mode === "tail" ? "m42" : "m30"
+    expect(view.visible(readingId)).toBe(true)
+    expect(root.querySelector("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "true")
+    expect(latest.feed.messages.map(message => message.id)).toEqual(current.messages.map(message => message.id))
+    expect(requests()).toEqual([`older:${cursor(21)}`])
+    const before = offset(readingId), reading = latest.feed.messageNeighborhood!.page
+    await act(async () => { finishOlder(page(11, 20)); await older; await vi.advanceTimersByTimeAsync(0) })
+    resize()
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    resize()
+    expect(Math.abs(offset(readingId) - before)).toBeLessThanOrEqual(1)
+    expect(latest.feed.messageNeighborhood!.page).toBe(reading)
+    expect(latest.feed.messages.some(message => message.id === "m11")).toBe(true)
+    if (mode === "middle") {
+      expect(requests()).toEqual([`older:${cursor(21)}`, `newer:${cursor(34)}`])
+    }
+    const initialRequests = [...requests()]
+    resize(50)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(requests()).toEqual(initialRequests)
+    expect(latest.feed.messageNeighborhood!.page).toBe(reading)
+    expect(Math.abs(offset(readingId) - before)).toBeLessThanOrEqual(1)
+    fireEvent.wheel(root, { deltaY: -800 })
+    act(() => root.scrollTo({ top: 400 }))
+    resize()
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(latest.feed.messageNeighborhood!.page).not.toBe(reading)
+    expect(requests()).toEqual(mode === "middle" ? initialRequests : [...initialRequests, `older:${cursor(11)}`])
+    const visible = [...root.querySelectorAll<HTMLElement>("[data-msg-id]")].find(row => {
+      const rect = row.getBoundingClientRect(), viewport = root.getBoundingClientRect()
+      return rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1
+    })!
+    const id = visible.dataset.msgId!, point = offset(id), nextReading = latest.feed.messageNeighborhood!.page
+    if (mode === "middle") {
+      await act(async () => { finishNewer(page(35, 42)); await newer; await vi.advanceTimersByTimeAsync(0) })
+      resize()
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(latest.feed.messageNeighborhood!.page).toBe(nextReading)
+      expect(Math.abs(offset(id) - point)).toBeLessThanOrEqual(1)
+      expect(requests()).toEqual([...initialRequests, `older:${cursor(11)}`])
+    }
+    await act(async () => { finishFurther(page(1, 10)); await further; await vi.advanceTimersByTimeAsync(0) })
+    resize(50)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(latest.feed.messages.map(message => message.id)).toEqual(full.messages.map(message => message.id))
+    expect(latest.feed.messageNeighborhood!.page).toBe(nextReading)
+    expect(Math.abs(offset(id) - point)).toBeLessThanOrEqual(1)
+    expect(requests()).toEqual([...initialRequests, `older:${cursor(11)}`])
+    expect(root.querySelector("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "true")
+  })
+
   it("reveals an old restored thread window after mount without launching a second freshness owner while entry is held", async () => {
     const fresh = entry("thread")
     fresh.messages = fresh.messages.slice(0, 1)
@@ -619,10 +707,17 @@ describe("conversation entry positioning through real reading owners", () => {
     expect(latest.feed.readSnapshot?.lastReadSeq).toBe(40)
     expect(view.root()).toBe(originalRoot)
     expect(view.visible("m42")).toBe(true)
-    const landed = view.root().scrollTop
+    const landed = view.root().querySelector<HTMLElement>('[data-msg-id="m42"]')!.getBoundingClientRect()
+    const landedTailGap = originalRoot.scrollHeight - originalRoot.clientHeight - originalRoot.scrollTop
+    const landedEntry = latest.feed.positionEntry
     await view.canonical(42)
     expect(latest.feed.readSnapshot?.lastReadSeq).toBe(40)
-    expect(view.root().scrollTop).toBe(landed)
+    expect(view.root()).toBe(originalRoot)
+    expect(latest.feed.positionEntry).toBe(landedEntry)
+    const body = originalRoot.querySelector<HTMLElement>('[data-msg-id="m42"]')!.getBoundingClientRect()
+    expect({ top: body.top, bottom: body.bottom,
+      tailGap: originalRoot.scrollHeight - originalRoot.clientHeight - originalRoot.scrollTop,
+    }).toEqual({ top: landed.top, bottom: landed.bottom, tailGap: landedTailGap })
     expect(messageOrReadRequests().filter(([, options]) => options?.method === "PUT")).toEqual([])
     expect(messageOrReadRequests().filter(([url]) => String(url).includes("entry=1"))).toHaveLength(1)
   })

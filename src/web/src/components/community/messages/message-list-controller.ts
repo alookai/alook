@@ -10,9 +10,10 @@ import { useInitialPositionTransition } from "./initial-position-transition"
 import type { ResolvedMessageListProps } from "./message-list-types"
 import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
 import { hashKey } from "@tanstack/react-query"
-import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
+import { messageRailTailPaddingEnd } from "@/lib/community/conversation-layout"
 import { messageScrollBehavior } from "@/lib/community/message-scroll-behavior"
 import { READ_VISIBILITY_THRESHOLD } from "@/hooks/community/use-read-observer"
+import { useConversationFooterSlot } from "./conversation-footer-shell"
 
 export function useMessageListController({
   messages,
@@ -33,11 +34,18 @@ export function useMessageListController({
   positionDataState,
   targetPositionDataState,
   messageWindow,
+  messageNeighborhood,
+  onReadingMessage,
   active,
   positioningActive,
   initialScrollReady,
   preserveInitialPresentation,
   hasMore,
+  historyStartKnown,
+  olderLoadError,
+  newerLoadError,
+  presentPending,
+  presentError,
   hasMoreNewer,
   isFetching,
   isFetchingOlder,
@@ -52,7 +60,7 @@ export function useMessageListController({
   onScrollRoot,
   onScrollTargetConsumed,
   onUserTakeover,
-}: ResolvedMessageListProps, overlayHeight = 0) {
+}: ResolvedMessageListProps, capsuleHeight = 0) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
   const scopeKey = positionScope ? hashKey(conversationListScopeKey(positionScope)) : null
@@ -68,11 +76,15 @@ export function useMessageListController({
     : newBoundary !== undefined ? newBoundary.target?.id : newDividerBefore
 
   const items = useMemo(
-    () => flattenMessageItems(messages, dividerTarget, !!hasMore, !!hasMoreNewer && !!isFetchingNewer),
-    [messages, dividerTarget, hasMore, hasMoreNewer, isFetchingNewer],
+    () => flattenMessageItems(messages, dividerTarget, !!hasMore, !!hasMoreNewer && (!!isFetchingNewer || !!newerLoadError),
+      !!historyStartKnown || !!isFetchingOlder || !!olderLoadError),
+    [messages, dividerTarget, hasMore, hasMoreNewer, isFetchingNewer, newerLoadError, historyStartKnown, isFetchingOlder, olderLoadError],
   )
 
-  const [selectMode, setSelectMode] = useAtom(useCreateAtom(false))
+  const footerSlot = useConversationFooterSlot()
+  const localSelection = useCreateAtom(false)
+  const [selectMode, setSelectMode] = useAtom(footerSlot?.selection ?? localSelection)
+  useLayoutEffect(() => () => setSelectMode(false), [setSelectMode])
   const [selectedIds, setSelectedIds] = useAtom(useCreateAtom<Set<string>>(useMemo<Set<string>>(() => new Set<string>(), [])))
   const [shareOpen, setShareOpen] = useAtom(useCreateAtom(false))
   const onEnterSelectId = useCallback((id: string) => {
@@ -126,6 +138,7 @@ export function useMessageListController({
     readPositionReady,
     paginationEnabled,
     paginationRequestPending,
+    presentPositionPending,
     captureOlderPageAnchor,
     captureNewerPageAnchor,
     positionOutcome,
@@ -135,6 +148,7 @@ export function useMessageListController({
     jumpToPresentVisible,
   } = useScrollAnchor({
     items,
+    messageRows: messages,
     newDividerBefore: dividerTarget,
     newDividerSeq: lookback.initialized ? lookback.targetSeq : newBoundary?.target?.seq,
     initialScrollReady,
@@ -147,6 +161,7 @@ export function useMessageListController({
     positionDataState: positionDataState ?? (initialLoadError ? "error" : loading ? "pending" : undefined),
     targetPositionDataState,
     messageWindow,
+    onReadingMessage,
     active,
     positioningActive,
     onScrollTargetCancelled: onScrollTargetConsumed,
@@ -156,10 +171,12 @@ export function useMessageListController({
     isFetchingNewer,
     presentVersion,
     presentRequest,
+    presentPending,
+    onJumpToPresent,
     localSubmitVersion,
     hasMoreOlder: hasMore,
-    tailPaddingEnd: MESSAGE_RAIL_TAIL_PADDING_END_PX + overlayHeight,
-    viewportInsetEnd: overlayHeight,
+    tailPaddingEnd: messageRailTailPaddingEnd(items.at(-1), capsuleHeight),
+    viewportInsetEnd: capsuleHeight,
     newBoundaryOwner: lookback.owner,
     onNewBoundaryReached: consumeReachedNew,
   })
@@ -185,12 +202,12 @@ export function useMessageListController({
       const seq = peers.get(body.dataset.msgId ?? "")
       if (!seq || seq <= through) continue
       const rect = body.getBoundingClientRect()
-      const visibleArea = Math.max(0, Math.min(rect.bottom, viewport.bottom - overlayHeight) - Math.max(rect.top, viewport.top))
+      const visibleArea = Math.max(0, Math.min(rect.bottom, viewport.bottom - capsuleHeight) - Math.max(rect.top, viewport.top))
         * Math.max(0, Math.min(rect.right, viewport.right) - Math.max(rect.left, viewport.left))
       if (rect.width > 0 && rect.height > 0 && visibleArea / (rect.width * rect.height) >= READ_VISIBILITY_THRESHOLD) through = seq
     }
     return through
-  }, [active, messages, overlayHeight, readPositionReady, scrollRef, viewerUserId])
+  }, [active, messages, capsuleHeight, readPositionReady, scrollRef, viewerUserId])
   const lookbackView = useRef<{ owner: object; throughSeq: number; followingTail: boolean; readable: boolean; dividerVisibility: typeof newDividerVisibility; visiblePeerSeq: () => number } | null>(null)
   useLayoutEffect(() => {
     lookbackView.current = { owner: lookback.owner, throughSeq: observedSeq, followingTail,
@@ -266,32 +283,32 @@ export function useMessageListController({
     return () => onScrollRoot(null)
   }, [onScrollRoot, scrollRef])
 
-  useVirtualCursorPagination({
+  const retryOlder = useVirtualCursorPagination({
     virtualizer,
     count: items.length,
-    enabled: paginationEnabled && !paginationRequestPending,
-    hasMore,
+    enabled: paginationEnabled && !paginationRequestPending && !initialLoadError && !!messageNeighborhood,
+    hasMore: messageNeighborhood?.older,
     isFetching: isFetching || isFetchingOlder || isFetchingNewer,
-    isError: !!initialLoadError,
+    isError: !!olderLoadError,
     onBeforeLoad: captureOlderPageAnchor,
     onLoad: onLoadOlder,
     edge: "start",
-    requestKey: messageWindow,
-    preloadWithinViewport: true,
+    requestKey: messageNeighborhood?.page,
+    loadWhenReady: true,
   })
-  useVirtualCursorPagination({
+  const retryNewer = useVirtualCursorPagination({
     virtualizer,
     count: items.length,
-    enabled: paginationEnabled && !paginationRequestPending,
-    hasMore: hasMoreNewer,
+    enabled: paginationEnabled && !paginationRequestPending && !initialLoadError && !!messageNeighborhood,
+    hasMore: messageNeighborhood?.newer,
     hasMoreAtStart: hasMore,
     isFetching: isFetching || isFetchingOlder || isFetchingNewer,
-    isError: !!initialLoadError,
+    isError: !!newerLoadError,
     onBeforeLoad: captureNewerPageAnchor,
     onLoad: onLoadNewer,
     edge: "end",
-    requestKey: messageWindow,
-    preloadWithinViewport: true,
+    requestKey: messageNeighborhood?.page,
+    loadWhenReady: true,
   })
 
   const jumpClearTimerRef = useRef<number | null>(null)
@@ -354,7 +371,7 @@ export function useMessageListController({
   const jumpToPresent = useCallback(() => {
     requestPresentPosition(onJumpToPresent?.())
   }, [onJumpToPresent, requestPresentPosition])
-  const pillOnClick = jumpMode && onJumpToPresent ? jumpToPresent : scrollToBottom
+  const pillOnClick = (jumpMode || !!presentError) && onJumpToPresent ? jumpToPresent : scrollToBottom
 
   const closeShare = useCallback(() => {
     setShareOpen(false)
@@ -384,6 +401,9 @@ export function useMessageListController({
     pillCount,
     pillMode: jumpMode ? "jump" as const : "scroll" as const,
     pillOnClick,
+    pillPending: !!presentPending || presentPositionPending,
+    pillError: !!presentError,
+    retryOlder, retryNewer,
     newJumpVisible: !!dividerTarget && !lookback.used && newDividerVisibility === "above"
       && (!!onLoadNewTarget || messages.some(message => message.id === dividerTarget)),
     newJumpPending: lookback.pending,

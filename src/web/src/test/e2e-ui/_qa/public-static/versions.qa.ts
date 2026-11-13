@@ -1,9 +1,11 @@
 import { expect, test } from "../../_fixtures/case-fixture"
-import { gotoAfterUserWsAuth } from "../../_fixtures/actions"
+import { createHash } from "node:crypto"
+import { composerEditable } from "../../_fixtures/actions"
+import { tid } from "../../_fixtures/testids"
 import {
-  activateAfterClientExit, attachQa, createQaPhaseOwner, executingWorkerIdentity,
+  attachQa, createQaPhaseOwner, executingWorkerIdentity,
   expectReleasePrecache, observeCandidate, ownD1WsProbe, ownedBusiness,
-  readNativeResource, releaseAssets, releaseDelta, requiredQaManifest, rootStates,
+  readNativeResource, releaseAssets, releaseDelta, requiredQaManifest,
   rootWorker, updateRoot, withinQaDeadline,
 } from "../../_fixtures/public-static-qa"
 
@@ -28,86 +30,117 @@ test("@phase-capability Main and stable WS share bidirectional D1 and retain the
   await phase.close()
 })
 
-for (const [from, to] of [["N", "Nplus1"], ["Nplus1", "N"]] as const) {
-  test(`${from} to ${to} waits for real clients, activates naturally and preserves business facts`, async ({ caseActors, caseResources }, testInfo) => {
-    const phase = createQaPhaseOwner(caseResources, testInfo)
-    await phase.switchTo(from)
-    const actors = await caseActors(["alice"])
-    const business = await ownedBusiness(actors, "alice", caseResources)
-    const machine = await ownD1WsProbe(actors, caseResources, testInfo)
-    const message = await business.write(`${from} retained message`)
-    await rootWorker(business.page)
-    const me = await business.context.newPage()
-    await me.goto("/c/me")
-    const article = await business.context.newPage()
-    await article.goto("/blog")
-    const link = article.locator('a[href^="/blog/"]').first()
-    await expect(link).toBeVisible()
-    const href = await link.getAttribute("href")
-    expect(href).toMatch(/^\/blog\/.+/)
-    await article.goto(href!)
-    const manifest = requiredQaManifest()
-    const beforeIdentity = await executingWorkerIdentity(business.page, caseResources, testInfo, "activated")
-    expect(beforeIdentity.sha256).toBe(manifest.releases[from].swSha256)
-    const delta = releaseDelta(releaseAssets(from), releaseAssets(to))
-    const beforeNative = await expectReleasePrecache(business.page, from)
-    expect(delta.added.length + delta.deleted.length + delta.changed.length).toBeGreaterThan(0)
-    const selected = releaseAssets(from).find(asset => asset.precache && delta.unchanged.includes(asset.url))!
-    expect(selected).toBeTruthy()
-    const beforeResource = await readNativeResource(business.page, selected.url)
-    expect(beforeResource).toMatchObject({ bytes: selected.bytes, sha256: selected.sha256, fromServiceWorker: true })
-    const oldBranchResources = []
-    for (const url of [...delta.changed, ...delta.deleted.slice(0, 1)]) {
-      const asset = releaseAssets(from).find(asset => asset.url === url)!
-      const resource = await readNativeResource(business.page, url)
-      expect(resource).toMatchObject({ bytes: asset.bytes, sha256: asset.sha256, fromServiceWorker: true })
-      oldBranchResources.push(resource)
+test("real legacy N page adopts the verified same-protocol Nplus1 build without closing and retains text and mention draft", async ({ caseActors, caseResources }, testInfo) => {
+  const phase = createQaPhaseOwner(caseResources, testInfo)
+  await phase.switchTo("N")
+  const actors = await caseActors(["alice", "bob"])
+  const business = await ownedBusiness(actors, "alice", caseResources)
+  await actors.seed.seedJoinServer("alice", "bob", business.serverId)
+  const message = await business.write("legacy page retained message")
+  await rootWorker(business.page)
+  const manifest = requiredQaManifest()
+  const from = manifest.releases.N, to = manifest.releases.Nplus1
+  expect(to.mainBuildId).not.toBe(from.mainBuildId)
+  const beforeIdentity = await executingWorkerIdentity(business.page, caseResources, testInfo, "activated")
+  expect(beforeIdentity.sha256).toBe(from.swSha256)
+  const ownBuild = () => business.page.locator('meta[name="alook-web-build"]')
+  expect(await ownBuild().count()).toBe(0)
+  const probe = () => business.page.evaluate(() => new Promise<{ schemaVersion: number; buildId?: string } | null>(resolve => {
+    const controller = navigator.serviceWorker.controller
+    if (!controller) { resolve(null); return }
+    const channel = new MessageChannel()
+    const timer = setTimeout(() => finish(null), 1500)
+    const finish = (value: { schemaVersion: number; buildId?: string } | null) => {
+      clearTimeout(timer)
+      channel.port1.close()
+      channel.port2.close()
+      resolve(value)
     }
-    const beforeD1 = await machine.writeAndRead("before")
-    const connections = business.proxy.connectionCount()
-    const candidate = observeCandidate(business.context, caseResources)
-    await phase.switchTo(to)
-    await updateRoot(business.page)
-    await expect.poll(() => rootStates(business.page)).toMatchObject({ active: "activated", waiting: "installed" })
-    await withinQaDeadline(candidate.promise, caseResources.deadline)
-    const waiting = await executingWorkerIdentity(business.page, caseResources, testInfo, "installed")
-    expect(waiting.sha256).toBe(manifest.releases[to].swSha256)
-    const active = await executingWorkerIdentity(business.page, caseResources, testInfo, "activated")
-    expect(active.sha256).toBe(beforeIdentity.sha256)
-    expect(await readNativeResource(business.page, selected.url)).toEqual(beforeResource)
-    for (const resource of oldBranchResources) expect(await readNativeResource(business.page, resource.url)).toEqual(resource)
-    expect(await business.read(message.id)).toMatchObject({ id: message.id, seq: message.seq, content: message.content })
-    const next = await business.write(`${to} server with old controlled client`)
-    const afterD1 = await machine.writeAndRead("after")
-    expect(business.proxy.connectionCount()).toBe(connections)
-    await attachQa(testInfo, "retained-clients-and-waiting-worker", { from, to, delta, beforeIdentity, active, waiting, beforeD1, afterD1, messages: [message, next], connections, connectionFrames: business.proxy.connectionFrames })
-    await candidate.close()
-    const neutral = await activateAfterClientExit(business.context, caseResources, [business.page, me, article], waiting.versionId, testInfo)
-    const activated = await executingWorkerIdentity(neutral, caseResources, testInfo, "activated")
-    expect(activated.sha256).toBe(manifest.releases[to].swSha256)
-    expect(activated.versionId).not.toBe(beforeIdentity.versionId)
-    const afterNative = await expectReleasePrecache(neutral, to)
-    const nativeEntry = (snapshot: typeof beforeNative, url: string) => Object.entries(snapshot.caches).filter(([name]) => name.startsWith("alook-public-precache-")).flatMap(([, entries]) => entries).find(entry => new URL(entry.url).pathname === url)
-    const changedKeys = delta.changed.map(url => {
-      const before = nativeEntry(beforeNative, url)!, after = nativeEntry(afterNative, url)!
-      expect(after.url).not.toBe(before.url)
-      expect(after.sha256).not.toBe(before.sha256)
-      const previousRevision = releaseAssets(from).find(asset => asset.url === url)!.revision
-      const nextRevision = releaseAssets(to).find(asset => asset.url === url)!.revision
-      expect(nextRevision).not.toBe(previousRevision)
-      return { url, previousRevision, nextRevision, before, after }
-    })
-    for (const url of delta.unchanged) expect(nativeEntry(afterNative, url)?.url).toBe(nativeEntry(beforeNative, url)?.url)
-    for (const url of delta.deleted) expect(nativeEntry(afterNative, url)).toBeUndefined()
-    for (const path of [...delta.added.slice(0, 1), ...delta.changed, ...delta.unchanged.slice(0, 1)]) {
-      const asset = releaseAssets(to).find(asset => asset.url === path)!
-      expect(await readNativeResource(neutral, path)).toMatchObject({ bytes: asset.bytes, sha256: asset.sha256, fromServiceWorker: true })
-    }
-    await gotoAfterUserWsAuth(neutral, `/c/channels/${business.serverId}/${business.channelId}`)
-    await expect(neutral.getByText(message.content, { exact: true }).first()).toBeVisible()
-    expect(await business.read(message.id)).toMatchObject({ id: message.id, seq: message.seq })
-    await attachQa(testInfo, "naturally-activated-release", { from, to, activated, oldBranchResources, changedKeys, beforeNative, afterNative, changedRevisionStatus: changedKeys.length ? "actual emitted revisions, complete native keys and bound bytes differ" : "NOT_PROVEN: this real pair has no same-URL changed body", finalD1: await machine.writeAndRead("activated") })
-    await machine.close()
-    await phase.close()
+    channel.port1.onmessage = event => finish(event.data)
+    controller.postMessage({ type: "alook:worker-version" }, [channel.port2])
+  }))
+  const legacy = await probe()
+  expect(legacy?.schemaVersion).toBeGreaterThan(0)
+  expect(legacy?.buildId).toBeUndefined()
+  const editable = composerEditable(business.page)
+  await editable.click()
+  await editable.pressSequentially(`@${actors.userName("bob")}`)
+  await business.page.getByRole("option").filter({ hasText: actors.userName("bob") }).click()
+  await business.page.keyboard.type(" build draft")
+  await expect(editable.locator(".mention-highlight")).toHaveText(`@${actors.userName("bob")}`)
+  const draftKey = `c-composer-draft:${actors.userId("alice")}:${business.serverId}/${business.channelId}`
+  const readDraft = () => business.page.evaluate(key => localStorage.getItem(key), draftKey)
+  const draft = await readDraft()
+  expect(draft).toContain('"type":"mention"')
+  expect(draft).toContain(actors.userId("bob"))
+  expect(draft).toContain("build draft")
+  const me = await business.context.newPage()
+  await me.goto("/c/me")
+  expect(await me.locator('meta[name="alook-web-build"]').count()).toBe(0)
+  const beforeNative = await expectReleasePrecache(business.page, "N")
+  const delta = releaseDelta(releaseAssets("N"), releaseAssets("Nplus1"))
+  expect(delta.added.length + delta.deleted.length + delta.changed.length).toBeGreaterThan(0)
+  const unexpectedSends: string[] = []
+  const onRequest = (request: import("@playwright/test").Request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === `/api/community/channels/${business.channelId}/messages`) unexpectedSends.push(request.method())
+  }
+  business.context.on("request", onRequest)
+  const candidate = observeCandidate(business.context, caseResources)
+  await phase.switchTo("Nplus1")
+  await updateRoot(business.page)
+  await withinQaDeadline(candidate.promise, caseResources.deadline)
+  await expect(ownBuild()).toHaveAttribute("content", to.mainBuildId)
+  await expect(me.locator('meta[name="alook-web-build"]')).toHaveAttribute("content", to.mainBuildId)
+  const activated = await executingWorkerIdentity(business.page, caseResources, testInfo, "activated")
+  expect(activated.sha256).toBe(to.swSha256)
+  expect(activated.versionId).not.toBe(beforeIdentity.versionId)
+  const current = await probe()
+  expect(current).toEqual({ schemaVersion: legacy!.schemaVersion, buildId: to.mainBuildId })
+  expect(new URL(business.page.url()).pathname).toBe(`/c/channels/${business.serverId}/${business.channelId}`)
+  await expect(business.page.getByText(message.content, { exact: true }).first()).toBeVisible()
+  expect(await business.read(message.id)).toMatchObject({ id: message.id, seq: message.seq, content: message.content })
+  await expect(editable).toContainText("build draft")
+  await expect(editable.locator(".mention-highlight")).toHaveText(`@${actors.userName("bob")}`)
+  expect(await readDraft()).toBe(draft)
+  expect(unexpectedSends).toEqual([])
+  business.context.off("request", onRequest)
+  await business.page.getByTestId(tid.userSettingsOpen).click()
+  await business.page.getByTestId(tid.settingsTab("advanced")).click()
+  const version = business.page.getByTestId(tid.settingsWebVersion).locator("[data-web-build-id]")
+  await expect(version).toHaveAttribute("data-web-build-id", to.mainBuildId)
+  await expect(version).toHaveText(`Build ${to.mainBuildId}`)
+  const afterNative = await expectReleasePrecache(business.page, "Nplus1")
+  const nativeEntry = (snapshot: typeof beforeNative, url: string) => Object.entries(snapshot.caches).filter(([name]) => name.startsWith("alook-public-precache-")).flatMap(([, entries]) => entries).find(entry => new URL(entry.url).pathname === url)
+  const changedKeys = delta.changed.map(url => {
+    const before = nativeEntry(beforeNative, url)!, after = nativeEntry(afterNative, url)!
+    expect(after.url).not.toBe(before.url)
+    expect(after.sha256).not.toBe(before.sha256)
+    const previousRevision = releaseAssets("N").find(asset => asset.url === url)!.revision
+    const nextRevision = releaseAssets("Nplus1").find(asset => asset.url === url)!.revision
+    expect(nextRevision).not.toBe(previousRevision)
+    return { url, previousRevision, nextRevision, before, after }
   })
-}
+  for (const url of delta.unchanged) expect(nativeEntry(afterNative, url)?.url).toBe(nativeEntry(beforeNative, url)?.url)
+  for (const url of delta.deleted) expect(nativeEntry(afterNative, url)).toBeUndefined()
+  for (const path of [...delta.added.slice(0, 1), ...delta.changed, ...delta.unchanged.slice(0, 1)]) {
+    const asset = releaseAssets("Nplus1").find(asset => asset.url === path)!
+    expect(await readNativeResource(business.page, path)).toMatchObject({ bytes: asset.bytes, sha256: asset.sha256, fromServiceWorker: true })
+  }
+  const shell = releaseAssets("Nplus1").find(asset => asset.url.startsWith("/community-shell/"))
+  expect(shell).toBeTruthy()
+  const response = await business.page.request.get(new URL(shell!.url, business.page.url()).href)
+  expect(response.status()).toBe(200)
+  const cacheControl = response.headers()["cache-control"]
+  for (const value of ["public", "immutable", "no-transform"]) expect(cacheControl).toContain(value)
+  const shellBody = await response.body()
+  expect(createHash("sha256").update(shellBody).digest("hex")).toBe(shell!.url.split("/").at(-1))
+  await attachQa(testInfo, "real-legacy-open-page-build-update", {
+    from: { mainBuildId: from.mainBuildId, pageBuildField: "absent", worker: legacy, identity: beforeIdentity },
+    to: { mainBuildId: to.mainBuildId, pageBuildId: await ownBuild().getAttribute("content"), worker: current, identity: activated },
+    draftSha256: createHash("sha256").update(draft!).digest("hex"), unexpectedSends, message,
+    delta, changedKeys, beforeNative, afterNative, shell: { url: shell!.url, bytes: shellBody.length, cacheControl, sha256: createHash("sha256").update(shellBody).digest("hex") },
+    changedRevisionStatus: changedKeys.length ? "actual emitted revisions, complete native keys and bound bytes differ" : "NOT_PROVEN: this real pair has no same-URL changed body",
+  })
+  await candidate.close()
+  await phase.close()
+})

@@ -41,7 +41,7 @@
   Cache-Control: public, max-age=300, must-revalidate
 
 /community-shell/*
-  Cache-Control: public, max-age=31536000, immutable
+  Cache-Control: public, max-age=31536000, immutable, no-transform
   Content-Type: text/html; charset=utf-8
   X-Content-Type-Options: nosniff
   X-Robots-Tag: noindex

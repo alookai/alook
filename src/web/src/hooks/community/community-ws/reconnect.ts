@@ -14,6 +14,7 @@ import { clearAllTypingIndicators } from "@/lib/community/typing"
 import { communityWsReconnectPolicies } from "@/hooks/community/community-ws/registry"
 import { userProfileQueryFn } from "@/hooks/community/use-user-profile"
 import { reconcileFocusedMessageQueries } from "@/lib/community/message-reconcile"
+import { recoverActiveConversationEntries } from "@/lib/community/conversation-entry"
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 import {
   type CommunityWsReconcilePolicy,
@@ -144,6 +145,7 @@ export async function reconcileFocusedCommunityMessages(
 ) {
   const operations: Promise<unknown>[] = []
   if (sub.channelId) {
+    operations.push(recoverActiveConversationEntries(queryClient, sub.channelId))
     operations.push(reconcileFocusedMessageQueries(
       queryClient,
       "channel",
@@ -151,6 +153,7 @@ export async function reconcileFocusedCommunityMessages(
     ))
   }
   if (sub.secondaryChannelId) {
+    operations.push(recoverActiveConversationEntries(queryClient, sub.secondaryChannelId))
     operations.push(reconcileFocusedMessageQueries(
       queryClient,
       "channel",
@@ -158,6 +161,7 @@ export async function reconcileFocusedCommunityMessages(
     ))
   }
   if (sub.dmConversationId) {
+    operations.push(recoverActiveConversationEntries(queryClient, sub.dmConversationId))
     operations.push(reconcileFocusedMessageQueries(
       queryClient,
       "dm",

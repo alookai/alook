@@ -3,11 +3,10 @@ import {
   findMessageIndex,
   findMountScrollTargetIndex,
   measureMessageRow,
-  MESSAGE_LIST_DISPLAY_END_THRESHOLD_PX,
   resolveViewportResizeAnchor,
 } from "./use-scroll-anchor"
 import { MESSAGE_ROW_VERTICAL_PADDING_PX, type FlatItem } from "@/lib/community/message-list-items"
-import { COMPOSER_ACCESSORY_ROW_HEIGHT_PX, CONVERSATION_TAIL_SPACE_PX, MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
+import { COMPOSER_ACCESSORY_ROW_HEIGHT_PX, CONVERSATION_TAIL_SPACE_PX, MESSAGE_RAIL_TAIL_PADDING_END_PX, messageRailTailPaddingEnd } from "@/lib/community/conversation-layout"
 
 describe("message rail tail geometry", () => {
   it("counts the final row's 8px once in the shared 40px clearance", () => {
@@ -17,10 +16,23 @@ describe("message rail tail geometry", () => {
     expect(CONVERSATION_TAIL_SPACE_PX).toBe(40)
     expect(COMPOSER_ACCESSORY_ROW_HEIGHT_PX).toBe(32)
   })
+
+  it("subtracts only the actual final message padding from the capsule reservation", () => {
+    const last: FlatItem = { kind: "message", key: "last", m: { id: "last", type: "chat" } }
+    expect(messageRailTailPaddingEnd(last, 40)).toBe(32)
+    expect(messageRailTailPaddingEnd({ ...last, paddingBottom: 12 }, 40)).toBe(28)
+    expect(messageRailTailPaddingEnd(last, 0)).toBe(0)
+  })
+
+  it("keeps the full capsule reservation after a nonmessage tail or an empty list", () => {
+    expect(messageRailTailPaddingEnd({ kind: "trailing", key: "rail:trailing" }, 40)).toBe(40)
+    expect(messageRailTailPaddingEnd(undefined, 40)).toBe(40)
+    expect(messageRailTailPaddingEnd({ kind: "trailing", key: "rail:trailing" }, 0)).toBe(0)
+  })
 })
 
 describe("resolveViewportResizeAnchor", () => {
-  it.each([0, 2, 100])("preserves a %ipx tail distance across footer growth", (distance) => {
+  it.each([0, 2, 40])("preserves a %ipx tail distance across footer growth", (distance) => {
     expect(resolveViewportResizeAnchor({
       previousClientHeight: 800,
       nextClientHeight: 608,
@@ -34,17 +46,17 @@ describe("resolveViewportResizeAnchor", () => {
     })
   })
 
-  it("preserves a 300px reading position across footer growth", () => {
+  it.each([41, 100, 300])("preserves a %ipx reading position outside the capsule distance across footer growth", distance => {
     expect(resolveViewportResizeAnchor({
       previousClientHeight: 800,
       nextClientHeight: 608,
       previousScrollHeight: 1_600,
       nextScrollHeight: 1_600,
-      previousScrollTop: 500,
+      previousScrollTop: 800 - distance,
     })).toEqual({
       anchor: "start",
-      scrollTop: 500,
-      distanceToEnd: 300,
+      scrollTop: 800 - distance,
+      distanceToEnd: distance,
     })
   })
 
@@ -60,12 +72,6 @@ describe("resolveViewportResizeAnchor", () => {
       scrollTop: 650,
       distanceToEnd: 150,
     })
-  })
-})
-
-describe("MESSAGE_LIST_DISPLAY_END_THRESHOLD_PX", () => {
-  it("keeps the 100px presentation and viewport policy separate from physical follow", () => {
-    expect(MESSAGE_LIST_DISPLAY_END_THRESHOLD_PX).toBe(100)
   })
 })
 

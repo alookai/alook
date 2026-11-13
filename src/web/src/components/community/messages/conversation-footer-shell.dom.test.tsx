@@ -20,48 +20,39 @@ afterEach(() => {
 })
 
 describe("ConversationFooterShell", () => {
-  it("tracks a growing composer, restores selection flow, and retains the draft", () => {
-    let resize: ResizeObserverCallback | undefined
-    const disconnect = vi.fn()
-    vi.stubGlobal("ResizeObserver", class {
-      constructor(callback: ResizeObserverCallback) { resize = callback }
-      observe() {}
-      disconnect = disconnect
-    })
-    let height = 60
-    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      return { height: this.dataset.slot === "community-conversation-footer" ? height : 0 } as DOMRect
-    })
+  it("keeps a growing composer in flow and reserves only the retained capsule slot", () => {
     let slot: NonNullable<ReturnType<typeof useConversationFooterSlot>>
     function Controls() {
       slot = useConversationFooterSlot()!
       return <button onClick={() => slot.setSelectionActive(!slot.selectionActive)}>toggle</button>
     }
-    const view = render(<ConversationFooterSlotProvider>
+    const scene = (height: number) => <ConversationFooterSlotProvider>
       <Controls />
-      <ConversationFooterShell data-testid="overlay"><input defaultValue="Keep draft" /></ConversationFooterShell>
-    </ConversationFooterSlotProvider>)
-    try {
-      const footer = view.getByTestId("overlay")
-      const draft = view.getByRole("textbox")
-      expect(footer).toHaveStyle({ marginTop: "-60px" })
-      expect(slot!.overlayHeight).toBe(60)
-      height = 132
-      act(() => resize!([], {} as ResizeObserver))
-      expect(footer).toHaveStyle({ marginTop: "-132px" })
-      expect(slot!.overlayHeight).toBe(132)
-      fireEvent.click(view.getByRole("button"))
-      expect(slot!.overlayHeight).toBe(0)
-      expect(footer.style.marginTop).toBe("")
-      fireEvent.click(view.getByRole("button"))
-      expect(footer).toHaveStyle({ marginTop: "-132px" })
-      expect(view.getByRole("textbox")).toBe(draft)
-      expect(draft).toHaveValue("Keep draft")
-    } finally {
-      view.unmount()
-      rect.mockRestore()
-      vi.unstubAllGlobals()
-    }
+      <ConversationFooterShell data-testid="footer">
+        <textarea aria-label="Growing draft" style={{ height }} defaultValue="Keep draft" />
+      </ConversationFooterShell>
+    </ConversationFooterSlotProvider>
+    const view = render(scene(60))
+    const footer = view.getByTestId("footer")
+    const draft = view.getByRole("textbox", { name: "Growing draft" })
+    draft.focus()
+    expect(footer.style.marginTop).toBe("")
+    expect(slot!.capsuleHeight).toBe(40)
+    expect(document.activeElement).toBe(draft)
+    view.rerender(scene(132))
+    expect(view.getByTestId("footer")).toBe(footer)
+    expect(draft).toHaveStyle({ height: "132px" })
+    expect(footer.style.marginTop).toBe("")
+    expect(slot!.capsuleHeight).toBe(40)
+    expect(document.activeElement).toBe(draft)
+    fireEvent.click(view.getByRole("button"))
+    expect(slot!.capsuleHeight).toBe(0)
+    expect(footer).toHaveAttribute("data-selection-active", "true")
+    expect(footer.style.marginTop).toBe("")
+    fireEvent.click(view.getByRole("button"))
+    expect(slot!.capsuleHeight).toBe(40)
+    expect(view.getByRole("textbox", { name: "Growing draft" })).toBe(draft)
+    expect(draft).toHaveValue("Keep draft")
   })
 
   it("keeps one retained footer and draft while native keyboard geometry changes from cover to expanded", async () => {
@@ -232,6 +223,8 @@ describe("ConversationFooterShell", () => {
     const parent = slots.parent.accessoryTarget!
     const thread = slots.thread.accessoryTarget!
     expect(parent).not.toBe(thread)
+    expect(slots.parent.capsuleHeight).toBe(40)
+    expect(slots.thread.capsuleHeight).toBe(40)
     expect(slots.parent.target).not.toBe(slots.thread.target)
     expect(parent).toHaveTextContent("parent typing")
     expect(thread).toHaveTextContent("thread typing")
@@ -241,6 +234,8 @@ describe("ConversationFooterShell", () => {
     renderer.rerender(<><Scope id="parent" showFooter={false} /><Scope id="thread" /></>)
     expect(slots.parent.accessoryTarget).toBeNull()
     expect(slots.parent.target).toBeNull()
+    expect(slots.parent.capsuleHeight).toBe(0)
+    expect(slots.thread.capsuleHeight).toBe(40)
     expect(slots.thread.accessoryTarget).toBe(thread)
     expect(parent).not.toBeInTheDocument()
     expect(thread).toHaveTextContent("thread typing")

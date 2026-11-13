@@ -19,7 +19,7 @@ function start(id: string, load?: () => MessageRequest) {
 }
 const items = () => Array.from({ length: 50 }, (_, index) => ({ ...message(`m${index}`), newDivider: index === 5 }))
 
-it.each(["explicit", "present"] as const)("revokes manual arrival qualification when %s takes positioning and settles", action => {
+it.each(["explicit", "present"] as const)("qualifies New only from the current manual or explicit-present origin after %s settles", action => {
   const reached = vi.fn<BoundaryReached>(), entry = {}, owner = {}
   const rows = items().map((item, index) => ({ ...item, newDivider: index === 49 }))
   const h = mount({ items: rows, newDividerBefore: "m49", initialPositionMessageId: "m0", positionEntry: entry,
@@ -32,11 +32,69 @@ it.each(["explicit", "present"] as const)("revokes manual arrival qualification 
     resize()
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     expect(scrollFixture.latest.newDividerVisibility).toBe("visible")
-    expect(reached).not.toHaveBeenCalled()
+    if (action === "present") {
+      expect(reached).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "m49", entry, owner }))
+      resize()
+      expect(reached).toHaveBeenCalledOnce()
+    } else expect(reached).not.toHaveBeenCalled()
     h.move(h.root.scrollTop - 1)
     expect(reached.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({ id: "m49", entry, owner }))
     expect(reached.mock.calls.at(-1)?.[0].entry).toBe(entry)
     expect(reached.mock.calls.at(-1)?.[0].owner).toBe(owner)
+  } finally { h.view.unmount() }
+})
+
+it("does not consume visible New from initial placement, passive append or automatic pinned resume", () => {
+  const reached = vi.fn<BoundaryReached>(), entry = {}, owner = {}
+  const rows = items().map((item, index) => ({ ...item, newDivider: index === 49 }))
+  const h = mount({ items: rows, newDividerBefore: "m49", positionEntry: entry, newBoundaryOwner: owner, onNewBoundaryReached: reached })
+  try {
+    expect(scrollFixture.latest.newDividerVisibility).toBe("visible")
+    expect(reached).not.toHaveBeenCalled()
+    h.update({ items: [...rows, message("passive-append")] })
+    expect(reached).not.toHaveBeenCalled()
+    h.update({ active: false })
+    h.update({ items: [...rows, message("passive-append"), message("hidden-append")] })
+    h.update({ active: true })
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(reached).not.toHaveBeenCalled()
+  } finally { h.view.unmount() }
+})
+
+it("consumes a visible New once after the explicit present request commits its exact window", async () => {
+  const reached = vi.fn<BoundaryReached>(), entry = {}, owner = {}, window = {}
+  let finish!: (result: MessageRequestResult) => void
+  const completed = new Promise<MessageRequestResult>(resolve => { finish = resolve })
+  const h = mount({ items: items(), newDividerBefore: "m49", hasMoreNewer: true, positionEntry: entry,
+    newBoundaryOwner: owner, onNewBoundaryReached: reached })
+  try {
+    act(() => scrollFixture.latest.requestPresentPosition({ accepted: true, completed }))
+    await act(async () => { finish({ status: "success", window }) })
+    resize()
+    expect(reached).not.toHaveBeenCalled()
+    h.update({ items: items().map((item, index) => ({ ...item, newDivider: index === 49 })), hasMoreNewer: false, messageWindow: window })
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(reached).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "m49", entry, owner }))
+    resize()
+    expect(reached).toHaveBeenCalledOnce()
+  } finally { h.view.unmount() }
+})
+
+it("does not consume an offscreen New from a successful explicit tail placement or local submit", () => {
+  const reached = vi.fn<BoundaryReached>()
+  const h = mount({ items: items(), newDividerBefore: "m5", initialPositionMessageId: "m0", positionEntry: {},
+    newBoundaryOwner: {}, onNewBoundaryReached: reached })
+  try {
+    act(() => scrollFixture.latest.scrollToBottom())
+    resize()
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(scrollFixture.latest.newDividerVisibility).toBe("above")
+    expect(reached).not.toHaveBeenCalled()
+    h.update({ items: items().map((item, index) => ({ ...item, newDivider: index === 49 })), newDividerBefore: "m49", localSubmitVersion: 1 })
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(scrollFixture.latest.newDividerVisibility).toBe("visible")
+    expect(reached).not.toHaveBeenCalled()
   } finally { h.view.unmount() }
 })
 

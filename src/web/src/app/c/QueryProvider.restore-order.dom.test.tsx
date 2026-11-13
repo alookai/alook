@@ -26,6 +26,7 @@ import {
 } from "@/lib/community-db/projections"
 
 const persister = vi.hoisted(() => ({
+  stopPersisting: vi.fn(),
   persistClient: vi.fn(() => Promise.resolve()),
   restoreClient: vi.fn(),
   removeClient: vi.fn(() => Promise.resolve()),

@@ -94,7 +94,7 @@ function controller(overrides: Partial<MessageListController> = {}): MessageList
 describe("renderMessageListView", () => {
   let accessoryFooterSlot: HTMLDivElement
   function renderMessageListView(...args: Parameters<typeof renderView>) {
-    return renderView(args[0], args[1], args[2], args[3], accessoryFooterSlot)
+    return renderView(args[0], args[1], args[2], args[3], accessoryFooterSlot, args[5])
   }
   beforeEach(() => {
     vi.clearAllMocks()
@@ -133,7 +133,7 @@ describe("renderMessageListView", () => {
     expect(renderer.getByTestId("community-message-scroller")).toBeInTheDocument()
   })
 
-  it("keeps the same wrappers while true empty loading omits the interactive accessory rail", () => {
+  it.each([[undefined, 0], [40, 40]] as const)("keeps the same loading wrappers without the interactive rail for capsule input %s and %ipx tail", (capsuleHeight, expectedHeight) => {
     const listProps = props({ messages: [] })
     const state = controller({
       isLoading: true,
@@ -146,7 +146,8 @@ describe("renderMessageListView", () => {
       pillCount: 8,
     })
     const renderRows = vi.fn(() => React.createElement("virtual-rows"))
-    const renderer = render(renderMessageListView(listProps, state, renderRows))
+    const renderer = render(renderMessageListView(listProps, state, renderRows, null, null, capsuleHeight))
+    expect(renderer.getByTestId("community-message-scroller")).toHaveAttribute("data-composer-occlusion", String(expectedHeight))
     expect(renderer.container.firstElementChild).toHaveClass(
       "relative", "flex", "min-h-0", "flex-1", "flex-col",
     )
@@ -158,7 +159,7 @@ describe("renderMessageListView", () => {
     expect(content).not.toHaveClass("opacity-0")
     expect(content).not.toHaveClass("transition-opacity", "duration-300")
     expect(content.querySelector("[data-message-list-skeleton-tail]")).toHaveClass("shrink-0")
-    expect(content.querySelector("[data-message-list-skeleton-tail]")).toHaveStyle({ height: "40px" })
+    expect(content.querySelector("[data-message-list-skeleton-tail]")).toHaveStyle({ height: `${expectedHeight}px` })
     expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toBeNull()
     expect(renderer.queryByText(/Beginning of the channel/)).toBeNull()
   })
@@ -191,15 +192,16 @@ describe("renderMessageListView", () => {
     expect(mockedRail).not.toHaveBeenCalled()
   })
 
-  it("reserves the shared 40px rail tail in the standalone skeleton", () => {
-    const renderer = render(React.createElement(MessageListSkeleton))
+  it.each([[undefined, 0], [40, 40]] as const)("reserves the supplied capsule input %s as %ipx in the standalone skeleton", (capsuleHeight, expectedHeight) => {
+    const renderer = render(React.createElement(MessageListSkeleton, { capsuleHeight }))
+    expect(renderer.getByTestId("community-message-scroller")).toHaveAttribute("data-composer-occlusion", String(expectedHeight))
     const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
     const tail = content.querySelector("[data-message-list-skeleton-tail]")
 
     expect(content).not.toHaveClass("pb-4", "sm:pb-6", "pb-14", "sm:pb-18")
     expect(tail).toHaveAttribute("aria-hidden", "true")
     expect(tail).toHaveClass("shrink-0")
-    expect(tail).toHaveStyle({ height: "40px" })
+    expect(tail).toHaveStyle({ height: `${expectedHeight}px` })
     expect(content).toHaveClass("pl-(--community-composer-inline-start)", "pr-(--community-composer-inline-end)")
   })
 

@@ -1,5 +1,6 @@
 "use client"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+import { WEB_BUILD_ID } from "@/lib/web-build"
 import type { CommunityProfile } from "@/lib/community/models/people"
 
 import { useObservedRegion } from "@/lib/observability/regions"
@@ -135,6 +136,7 @@ export function AdvancedSettings() {
             className="mt-auto pt-8 font-mono text-xs tabular-nums text-muted-foreground"
           >
             Web v{webVersion}
+            <span className="block break-all select-text" data-web-build-id={WEB_BUILD_ID}>Build {WEB_BUILD_ID}</span>
           </footer>
         ) : null}
       </div>

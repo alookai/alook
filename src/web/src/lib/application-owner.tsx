@@ -67,11 +67,12 @@ function ScopedPublicQueryProvider({ userId, children }: { userId: string; child
   const [owner] = useState(() => createApplicationOwner(userId))
   const [persister] = useState(() => createIdbPersister(accountId))
   useLayoutEffect(() => { owner.bindAuthentication(currentSessionViewer, persister.retireAccount) }, [owner, persister])
-  useLayoutEffect(() => registerBusinessSchemaOwner(async () => {
+  useLayoutEffect(() => registerBusinessSchemaOwner(async invalidatePersisted => {
+    if (!invalidatePersisted) persister.stopPersisting()
     retireApplicationOwner(owner)
     owner.queryClient.clear()
-    await owner.retireDisk()
-  }), [owner])
+    if (invalidatePersisted) await owner.retireDisk()
+  }), [owner, persister])
   const onRetired = useCallback(() => {
     if (!owner.lifecycle.get().active) return
     retireApplicationOwner(owner)

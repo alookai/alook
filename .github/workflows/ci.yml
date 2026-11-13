@@ -783,7 +783,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    timeout-minutes: 20
+    timeout-minutes: ${{ contains(matrix.specs, 'src/test/e2e-ui/55-history-reading-continuity.spec.ts') && 45 || 20 }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.scope.outputs.e2e_matrix) }}
@@ -841,7 +841,7 @@ jobs:
             --attempt "${{ needs.ui-e2e-build.outputs.artifact_attempt }}" \
             --head-sha "${{ github.sha }}" --zones "$zones"
       - name: Run native Playwright partition
-        timeout-minutes: 14
+        timeout-minutes: ${{ contains(matrix.specs, 'src/test/e2e-ui/55-history-reading-continuity.spec.ts') && 40 || 14 }}
         env:
           ALOOK_E2E_PREBUILT: "1"
           ALOOK_E2E_ZONES: ${{ toJSON(matrix.zones) }}

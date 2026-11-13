@@ -57,7 +57,7 @@ test("DM composer clear preserves pinned and away viewport geometry", async ({ c
     expect(tailGeometry.paddingBottom).toBe(0)
     expect(tailGeometry.tailGap).toBeGreaterThanOrEqual(39)
     expect(tailGeometry.tailGap).toBeLessThanOrEqual(41)
-    expect(Math.abs(tailGeometry.scrollerBottom - tailGeometry.composerBottom)).toBeLessThanOrEqual(1)
+    expect(Math.abs(tailGeometry.scrollerBottom - tailGeometry.composerTop)).toBeLessThanOrEqual(1)
     await startScrollTrace(alice.page, {
       scenario: "dm-composer-clear-viewport",
       identity: identity(composerDmId),

@@ -8,6 +8,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { captureChannelMetadataToken } from "@/lib/community/conversation-qualification"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import { tid } from "@/lib/community/testids"
+import type { MessageRequestResult } from "@/lib/community/message-position"
 
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
 vi.mock("./message-row", () => ({ MessageRow: () => React.createElement("div") }))
@@ -16,6 +17,93 @@ vi.mock("@/components/ui/number-ticker", () => ({ NumberTicker: ({ value }: { va
 describe("MessageList loading-to-loaded mount identity", () => {
   beforeEach(installMessageScrollFixture)
   afterEach(restoreMessageScrollFixture)
+  it.each([false, true])("finishes a foreground tail beyond one-screen paging through the existing present request, already pending=%s", async pending => {
+    const entry = {}, before = {}, received = {}
+    const rows = Array.from({ length: 14 }, (_, index) => ({ id: `m${index}`, authorId: "peer", authorName: "Alice",
+      content: "Message", createdAt: new Date(index * 1000).toISOString() }))
+    let finish!: (result: MessageRequestResult) => void
+    const completed = new Promise<MessageRequestResult>(resolve => { finish = resolve })
+    const request = { accepted: true, completed }
+    let sourceCommitted = false
+    const present = vi.fn(() => sourceCommitted ? request : { accepted: false })
+    const page = vi.fn(() => ({ accepted: false }))
+    function Source({ active, hasMoreNewer, messages, messageWindow, presentPending }: {
+      active: boolean; hasMoreNewer: boolean; messages: typeof rows; messageWindow: object; presentPending: boolean
+    }) {
+      React.useLayoutEffect(() => {
+        sourceCommitted = active
+        return () => { sourceCommitted = false }
+      }, [active])
+      return React.createElement(MessageList, {
+        channel: "general", messages, onOpenThread: vi.fn(), positionEntry: entry, messageWindow, active,
+        messageNeighborhood: { page: entry, older: false, newer: hasMoreNewer },
+        hasMore: false, hasMoreNewer, onLoadNewer: page, onJumpToPresent: present, positionDataState: "ready",
+        presentPending, presentRequest: presentPending ? request : null, isFetchingNewer: presentPending,
+      })
+    }
+    const scene = (active: boolean, hasMoreNewer: boolean, messages = rows, messageWindow = before, presentPending = false) =>
+      React.createElement(Source, { active, hasMoreNewer, messages, messageWindow, presentPending })
+    const view = render(scene(true, false))
+    resize()
+    const root = view.getByTestId(tid.messageScroller)
+    view.rerender(scene(false, false))
+    resize()
+    const partial = [...rows, ...Array.from({ length: 60 }, (_, index) => ({ ...rows[0], id: `partial${index}` }))]
+    view.rerender(scene(false, true, partial, before, pending))
+    resize()
+    expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBeGreaterThan(root.clientHeight)
+    view.rerender(scene(true, true, partial, before, pending))
+    resize()
+    expect(present).toHaveBeenCalledTimes(pending ? 0 : 1)
+    expect(page).not.toHaveBeenCalled()
+    expect(root.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "false")
+    await act(async () => { finish({ status: "success", window: received }); await completed })
+    expect(root.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "false")
+    const tail = [{ ...rows[0], id: "qualified-present-tail" }]
+    view.rerender(scene(true, false, tail, received))
+    resize()
+    expect(view.getByTestId(tid.messageScroller)).toBe(root)
+    expect(present).toHaveBeenCalledTimes(pending ? 0 : 1)
+    expect(page).not.toHaveBeenCalled()
+    expect(root.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
+    expect(Math.abs(root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
+  })
+
+  it("keeps the existing newer paginator live while a pinned foreground resume waits for its tail", async () => {
+    const entry = {}, before = {}, received = {}
+    const rows = Array.from({ length: 14 }, (_, index) => ({ id: `m${index}`, authorId: "peer", authorName: "Alice",
+      content: "Message", createdAt: new Date(index * 1000).toISOString() }))
+    let finish!: (result: MessageRequestResult) => void
+    const completed = new Promise<MessageRequestResult>(resolve => { finish = resolve })
+    const load = vi.fn(() => ({ accepted: true, completed }))
+    const scene = (active: boolean, hasMoreNewer: boolean, messages = rows, messageWindow = before) => React.createElement(MessageList, {
+      channel: "general", messages, onOpenThread: vi.fn(), positionEntry: entry, messageWindow,
+      messageNeighborhood: { page: entry, older: false, newer: hasMoreNewer }, active, hasMore: false, hasMoreNewer, onLoadNewer: load, positionDataState: "ready",
+    })
+    const view = render(scene(true, false))
+    resize()
+    const root = view.getByTestId(tid.messageScroller)
+    expect(root.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
+    view.rerender(scene(false, false))
+    resize()
+    const appended = [...rows, { ...rows[0], id: "hidden-append" }]
+    view.rerender(scene(false, true, appended))
+    resize()
+    expect(load).not.toHaveBeenCalled()
+    view.rerender(scene(true, true, appended))
+    resize()
+    expect(load).toHaveBeenCalledOnce()
+    expect(root.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "false")
+    await act(async () => { finish({ status: "success", window: received }) })
+    const current = [...appended, { ...rows[0], id: "newer-page-tail" }]
+    view.rerender(scene(true, false, current, received))
+    resize()
+    expect(view.getByTestId(tid.messageScroller)).toBe(root)
+    expect(load).toHaveBeenCalledOnce()
+    expect(root.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
+    expect(Math.abs(root.scrollHeight - root.clientHeight - root.scrollTop)).toBeLessThanOrEqual(1)
+  })
+
   it("keeps the scroller and settles the first real row once across the prop transition", () => {
     const messages = [{ id: "m1", authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }]
     const view = (loading: boolean) => React.createElement(MessageList, { channel: "general", messages: loading ? [] : messages, loading, newDividerBefore: "m1", onOpenThread: vi.fn() })
@@ -58,7 +146,10 @@ describe("MessageList loading-to-loaded mount identity", () => {
     expect(renderer.container.querySelector('[data-message-empty-tail]')).toBeNull()
     expect(renderer.container.querySelectorAll('[data-index]')).toHaveLength(3)
     expect(renderer.container.querySelectorAll('[data-msg-id]')).toHaveLength(1)
-    expect(root.querySelector<HTMLElement>('[data-message-list-content] > div')?.style.height).toBe("500px")
+    const rows = root.querySelector<HTMLElement>('[data-message-list-content] > div')!
+    expect(Number.parseFloat(rows.style.height)).toBeLessThan(root.clientHeight)
+    expect(rows.getBoundingClientRect().bottom).toBe(root.getBoundingClientRect().bottom)
+    expect(root.querySelector<HTMLElement>('[data-msg-id="m1"]')!.getBoundingClientRect().bottom).toBe(root.clientHeight - 40)
     expect(root.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
   })
 

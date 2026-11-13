@@ -1,3 +1,4 @@
+import { CommunityConversationEntryReadSchema } from "@alook/shared"
 import { communityFixtureFetch, confirmCommunityFixtureApiResponse, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./business-contract"
 import type { Locator, Page, Route, TestInfo } from "@playwright/test"
 import { expect, type CaseActors } from "./case-fixture"
@@ -74,8 +75,10 @@ function estimatePlainMessage(content: string): number {
   return 24 + Math.min(Math.max(1, Math.ceil(content.length / 55)) * 20, 400)
 }
 
-export async function seedResizableHtmlPreview(page: Page, channelId: string) {
-  const html = '<!doctype html><html><body><div id="content" style="height:160px">Asynchronous content</div><script>addEventListener("message",event=>{if(event.source===parent&&event.data?.type==="scroll-fixture-height"&&Number.isFinite(event.data.height))document.getElementById("content").style.height=event.data.height+"px"})</script></body></html>'
+export async function seedResizableHtmlPreview(page: Page, channelId: string, options?: { measuredResize?: boolean }) {
+  const html = options?.measuredResize
+    ? '<!doctype html><html><body><div id="content" style="height:160px">Asynchronous content</div><script>addEventListener("message",event=>{if(event.source!==parent||event.data?.type!=="scroll-fixture-height"||!Number.isFinite(event.data.height))return;const content=document.getElementById("content");content.style.height=event.data.height+"px";parent.postMessage({type:"alook-html-height",height:content.getBoundingClientRect().height},"*")})</script></body></html>'
+    : '<!doctype html><html><body><div id="content" style="height:160px">Asynchronous content</div><script>addEventListener("message",event=>{if(event.source===parent&&event.data?.type==="scroll-fixture-height"&&Number.isFinite(event.data.height))document.getElementById("content").style.height=event.data.height+"px"})</script></body></html>'
   const upload = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/attachments`, {
     headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
     multipart: { file: { name: "scroll-resize.html", mimeType: "text/html", buffer: Buffer.from(html) } },
@@ -148,6 +151,18 @@ export async function setReadCheckpoint(actors: CaseActors, channelId: string, m
     body: JSON.stringify({ lastReadMessageId: messageId }),
   })
   expect(response.ok).toBe(true)
+}
+
+export async function readScrollEntry(actors: CaseActors, channelId: string, anchor: string) {
+  const response = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/messages?entry=1&anchor=${anchor}`, {
+    headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL },
+  })
+  expect(response.status).toBe(200)
+  const entry = CommunityConversationEntryReadSchema.parse(await response.json())
+  expect(entry.channelId).toBe(channelId)
+  expect(entry.selection.anchorMessageId).toBe(anchor)
+  expect(entry.messages.some(message => message.id === anchor)).toBe(true)
+  return entry
 }
 
 export function identity(channelId: string, viewport = VIEWPORT) {
@@ -267,6 +282,7 @@ type MessageViewportGeometry = {
   clientHeight: number
   readableHeight: number
   composerOcclusion: number
+  selectionActive: boolean
   composerGutterReachesScroller: boolean
   distanceToEnd: number
   firstVisibleId: string | null
@@ -310,6 +326,7 @@ async function readMessageViewportGeometry(scroller: Locator): Promise<MessageVi
       clientHeight: root.clientHeight,
       readableHeight: root.clientHeight - composerOcclusion,
       composerOcclusion,
+      selectionActive: composer?.getAttribute("data-selection-active") === "true",
       composerGutterReachesScroller: !!gutterTarget && root.contains(gutterTarget),
       distanceToEnd: Math.max(0, root.scrollHeight - root.clientHeight - root.scrollTop),
       firstVisibleId: firstVisible?.dataset.msgId ?? null,
@@ -359,22 +376,23 @@ export async function expectSkeletonTailGeometry(
     const footer = scroller?.closest('[data-slot="community-conversation-surface"]')
       ?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
     const footerRect = footer?.getBoundingClientRect()
-    const overlayHeight = footerRect && scrollerRect && footer?.dataset.selectionActive !== "true"
-      && Math.abs(footerRect.bottom - scrollerRect.bottom) <= 1 ? footerRect.height : 0
+    const capsuleHeight = Number(scroller?.dataset.composerOcclusion ?? 0)
     return {
-      overlayHeight,
+      capsuleHeight,
       tailHeight: tailRect.height,
       tailBottom: tailRect.bottom,
       scrollerBottom: scrollerRect?.bottom ?? null,
+      footerTop: footerRect?.top ?? null,
       contentPaddingBottom: content
         ? Number.parseFloat(getComputedStyle(content).paddingBottom)
         : null,
     }
   }, tid.messageScroller)
-  const expectedTail = 40 + geometry.overlayHeight
   expect(geometry.contentPaddingBottom, `${label}: outer padding`).toBe(0)
-  expect(geometry.tailHeight, `${label}: placeholder height`).toBe(expectedTail)
+  expect(geometry.tailHeight, `${label}: single capsule placeholder height`).toBe(geometry.capsuleHeight)
   expect(geometry.scrollerBottom, `${label}: scroller boundary`).not.toBeNull()
+  expect(geometry.footerTop, `${label}: input body boundary`).not.toBeNull()
+  expect(Math.abs(geometry.scrollerBottom! - geometry.footerTop!), `${label}: input body occupies its own space`).toBeLessThanOrEqual(1)
   expect(
     Math.abs(geometry.tailBottom - geometry.scrollerBottom!),
     `${label}: placeholder ends at scroller bottom`,
@@ -424,14 +442,16 @@ export function expectResizeAnchorPreserved(
   distance: number,
   label: string,
 ): void {
-  if (distance <= 100) {
+  if (distance <= 1) {
     expect(
       Math.abs(after.distanceToEnd - before.distanceToEnd),
       `${label}: distance to tail`,
     ).toBeLessThanOrEqual(1)
     return
   }
-  expectViewportAnchorPreserved(before, after, label)
+  const expectedTop = Math.min(before.scrollTop, Math.max(0, after.scrollHeight - after.clientHeight))
+  expect(Math.abs(after.scrollTop - expectedTop), `${label}: historical top within physical bounds`).toBeLessThanOrEqual(1)
+  if (Math.abs(expectedTop - before.scrollTop) <= 1) expectViewportAnchorPreserved(before, after, label)
 }
 
 export function expectContinuousResizeAnchorPreserved(
@@ -449,7 +469,7 @@ export function expectContinuousResizeAnchorPreserved(
   expect(frames.length, `${segmentName}: continuous frames`).toBeGreaterThan(1)
 
   const baseline = frames[0]!
-  if (distance <= 100) {
+  if (distance <= 1) {
     for (const frame of frames) {
       expect(
         Math.abs(frame.distanceToEnd - baseline.distanceToEnd),
@@ -460,22 +480,28 @@ export function expectContinuousResizeAnchorPreserved(
   }
 
   for (const frame of frames) {
-    expect(frame.firstVisibleId, `${segmentName}: frame ${frame.frame} visible row`)
-      .toBe(baseline.firstVisibleId)
-    expect(
-      Math.abs((frame.firstVisibleOffset ?? 0) - (baseline.firstVisibleOffset ?? 0)),
-      `${segmentName}: frame ${frame.frame} visible-anchor drift`,
-    ).toBeLessThanOrEqual(1)
+    const expectedTop = Math.min(baseline.scrollTop, frame.browserMax)
+    expect(Math.abs(frame.scrollTop - expectedTop), `${segmentName}: frame ${frame.frame} historical top`).toBeLessThanOrEqual(1)
+    const anchor = frame.rows.find(row => row.id === baseline.firstVisibleId)
+    expect(anchor, `${segmentName}: frame ${frame.frame} retained body`).toBeDefined()
+    const expectedBodyOffset = (baseline.firstVisibleOffset ?? 0) + baseline.scrollTop - expectedTop
+    expect(Math.abs(anchor!.top - (frame.scrollerRect?.top ?? 0) - expectedBodyOffset),
+      `${segmentName}: frame ${frame.frame} body offset within physical bounds`).toBeLessThanOrEqual(1)
   }
 }
 
 export function expectComposerOverlayGeometry(geometry: MessageViewportGeometry, label: string): void {
   expect(geometry.contentPaddingBottom, `${label}: outer tail padding removed`).toBe(0)
   expect(geometry.composerRect, `${label}: scoped composer`).not.toBeNull()
-  expect(geometry.composerOcclusion, `${label}: positive overlay reservation`).toBeGreaterThan(0)
-  expect(Math.abs(geometry.scrollerRect.bottom - geometry.composerRect!.bottom), `${label}: scroller extends behind composer`).toBeLessThanOrEqual(1)
-  expect(Math.abs(geometry.composerRect!.bottom - geometry.composerRect!.top - geometry.composerOcclusion), `${label}: reserved composer height`).toBeLessThanOrEqual(1)
-  expect(geometry.composerGutterReachesScroller, `${label}: transparent gutter hit target`).toBe(true)
+  const capsuleHeight = geometry.selectionActive ? 0 : 40
+  expect(geometry.composerOcclusion, `${label}: capsule-only reservation`).toBe(capsuleHeight)
+  expect(Math.abs(geometry.scrollerRect.bottom - geometry.composerRect!.top), `${label}: scroller ends above input body`).toBeLessThanOrEqual(1)
+  expect(geometry.composerGutterReachesScroller, `${label}: input body stays outside message hit area`).toBe(false)
+  expect(geometry.accessoryRect, `${label}: accessory slot`).not.toBeNull()
+  expect(geometry.accessoryRect!.height, `${label}: single capsule height`).toBe(capsuleHeight)
+  if (capsuleHeight > 0) {
+    expect(Math.abs(geometry.accessoryRect!.bottom - geometry.composerRect!.top), `${label}: capsule ends at input body`).toBeLessThanOrEqual(1)
+  }
   if (geometry.railRect) {
     expect(geometry.railPosition, `${label}: rail position`).toBe("static")
     expect(geometry.railInFooter, `${label}: Footer owns rail`).toBe(true)
@@ -533,7 +559,7 @@ export async function seedScrollServer(actors: CaseActors) {
   return serverId
 }
 
-export async function seedScrollCase(actors: CaseActors) {
+export async function seedScrollCase(actors: CaseActors, options: { loadingCount?: number } = {}) {
   const { seedChannel, seedDm } = actors.seed
   const { userId } = actors
   const stamp = Date.now()
@@ -543,7 +569,7 @@ export async function seedScrollCase(actors: CaseActors) {
   const upwardChannelId = await seedChannel("alice", serverId, `scroll-upward-${stamp}`)
   const composerChannelId = await seedChannel("alice", serverId, `scroll-composer-${stamp}`)
   const composerDmId = await seedDm("alice", userId("bob"))
-  const loadingProfile = await seedProfile(actors, loadingChannelId, 130, false, "rotate", 64)
+  const loadingProfile = await seedProfile(actors, loadingChannelId, options.loadingCount ?? 130, false, "rotate", 64)
   const upwardProfile = await seedProfile(actors, upwardChannelId, 72, false, "rotate", 23)
   const composerProfile = await seedProfile(actors, composerChannelId, 36, true, "alice")
   const composerDmProfile = await seedDmProfile(actors, composerDmId, 36)

@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowDown, ArrowUp, ImageIcon, X } from "lucide-react"
+import { ArrowDown, ArrowUp, LoaderCircle, ImageIcon, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -15,6 +15,8 @@ export function ComposerAccessoryRail({
   scrollCount,
   scrollMode,
   onScroll,
+  scrollPending = false,
+  scrollError = false,
   newVisible = false,
   newPending = false,
   onNew,
@@ -23,12 +25,14 @@ export function ComposerAccessoryRail({
   scrollCount: number | undefined
   scrollMode: "scroll" | "jump"
   onScroll: () => void
+  scrollPending?: boolean
+  scrollError?: boolean
   newVisible?: boolean
   newPending?: boolean
   onNew?: () => void
 }) {
   const hasTyping = typingNames.length > 0
-  const hasScroll = scrollMode === "jump" || (scrollCount ?? 0) > 0
+  const hasScroll = scrollPending || scrollError || scrollMode === "jump" || (scrollCount ?? 0) > 0
   const hasNew = newVisible && !newPending && !!onNew
   const layout = allocateComposerAccessoryRail({
     left: hasTyping,
@@ -60,7 +64,7 @@ export function ComposerAccessoryRail({
         )}
         {hasScroll && (
           <div className="col-start-2 h-full min-w-0 max-w-full justify-self-center">
-            <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} />
+            <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} pending={scrollPending} error={scrollError} />
           </div>
         )}
         {hasNew && (
@@ -156,10 +160,14 @@ function ScrollControl({
   count,
   mode,
   onClick,
+  pending,
+  error,
 }: {
   count: number | undefined
   mode: "scroll" | "jump"
   onClick: () => void
+  pending: boolean
+  error: boolean
 }) {
   const knownCount = count !== undefined && count > 0
   const aria = mode === "jump"
@@ -172,11 +180,14 @@ function ScrollControl({
       size="sm"
       data-testid={tid.scrollToPresent}
       onClick={onClick}
-      aria-label={aria}
+      disabled={pending}
+      aria-busy={pending}
+      aria-label={pending ? "Loading messages" : error ? "Could not load recent messages. Retry" : aria}
       className="pointer-events-auto h-full gap-1.5 justify-self-center rounded-full pl-2 pr-3 text-xs font-medium"
     >
-      <ArrowDown className="size-3.5 text-muted-foreground" />
-      {knownCount ? <NumberTicker value={count} /> : <span>Jump to present</span>}
+      {pending ? <LoaderCircle className="size-3.5 animate-spin" /> : <ArrowDown className="size-3.5 text-muted-foreground" />}
+      {pending ? <span role="status">Loading messages…</span> : error ? <span>Could not load. Retry</span>
+        : knownCount ? <NumberTicker value={count} /> : <span>Jump to present</span>}
     </Button>
   )
 }

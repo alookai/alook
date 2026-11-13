@@ -130,11 +130,12 @@ function ScopedQueryProvider({
     if (!communityDb.confirmAuthentication()) return
     void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "community" || query.queryKey[1] !== "db" }).catch(() => undefined)
   }, [communityDb, queryClient, session.data?.user.id, session.error, session.isPending])
-  useLayoutEffect(() => registerBusinessSchemaOwner(async () => {
+  useLayoutEffect(() => registerBusinessSchemaOwner(async invalidatePersisted => {
+    if (!invalidatePersisted) persister.stopPersisting()
     restoreGate.release()
     retireCommunityAccount(communityDb)
-    await communityDb.retireDisk()
-  }), [communityDb, restoreGate])
+    if (invalidatePersisted) await communityDb.retireDisk()
+  }), [communityDb, persister, restoreGate])
   const retireTelemetryIdentity = useRef<() => void>(() => undefined)
   useLayoutEffect(() => { setTelemetryUser(userId); retireTelemetryIdentity.current = captureTelemetryIdentityRetirement() }, [userId])
   const identityRetired = useRef(false)
