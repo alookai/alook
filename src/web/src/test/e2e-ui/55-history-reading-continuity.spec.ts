@@ -9,6 +9,7 @@ import { beginScrollTraceAnalysis, endScrollTraceAnalysis, withScrollTraceAnalys
 import { finishAndAttach, holdNextRequest, identity, seedResizableHtmlPreview, waitForCommittedGeometry, waitForStableTail } from "./_fixtures/message-scroll-characterization"
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
+import type { HistoricalRow } from "./_fixtures/historical-profile"
 
 async function prepare(actors: CaseActors, kind: "channel" | "dm", html = false, htmlOptions?: { measuredResize: true }) {
   let opened = kind === "channel" ? await actors.asUser("alice") : undefined
@@ -19,17 +20,15 @@ async function prepare(actors: CaseActors, kind: "channel" | "dm", html = false,
     await actors.seed.seedJoinServer("alice", "bob", serverId)
     channelId = await actors.seed.seedChannel("alice", serverId, "reading-continuity")
   } else channelId = await actors.seed.seedDm("alice", actors.userId("bob"))
-  const ids: string[] = []
   let preview: Awaited<ReturnType<typeof seedResizableHtmlPreview>> | undefined
-  for (let index = 0; index < 300; index++) {
-    if (html && index === 145) {
+  const profile: HistoricalRow[] = Array.from({ length: 300 }, (_, index) => html && index === 145
+    ? { author: "alice", create: async () => {
       if (!opened) throw new Error("HTML preparation requires the existing channel actor")
-      if (htmlOptions) preview = await seedResizableHtmlPreview(opened.page, channelId, htmlOptions)
-      else preview = await seedResizableHtmlPreview(opened.page, channelId)
-      ids.push(preview.messageId)
-    } else ids.push(await actors.seed.seedMessage("bob", channelId,
-      `reading ${index}\n\ncontext ${index}\n\nthird line${index % 7 === 0 ? "\n\nvariable fourth line" : ""}`))
-  }
+      preview = await seedResizableHtmlPreview(opened.page, channelId, htmlOptions)
+      return preview
+    } }
+    : { author: "bob", content: `reading ${index}\n\ncontext ${index}\n\nthird line${index % 7 === 0 ? "\n\nvariable fourth line" : ""}` })
+  const ids = await actors.seedHistory(channelId, profile)
   const path = kind === "channel" ? `/c/channels/${serverId}/${channelId}` : `/c/me/${channelId}`
   const endpoint = `/api/community/channels/${channelId}/messages`
   let checkpointSeq: number | null = null
@@ -231,8 +230,10 @@ async function settledPages(root: Locator, traffic: PageTraffic) {
 }
 
 async function twoPages(page: Page, root: Locator, traffic: PageTraffic, direction: "older" | "newer", fast: boolean,
-  phase?: { initial: number; startedAt: number; returnToMiddle: () => Promise<ReadingPositions> }) {
-  const stoppedBefore = await settledPages(root, traffic)
+  phase?: { initial: number; startedAt: number; returnToMiddle: () => Promise<ReadingPositions> },
+  settledBefore?: Awaited<ReturnType<typeof settledPages>>) {
+  const stoppedBefore = settledBefore ?? await settledPages(root, traffic)
+  expect(traffic.requests).toHaveLength(stoppedBefore.requestCount)
   const { receipts, requests } = traffic
   const requestBaseline = requests.length
   const initial = phase?.initial ?? receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length
@@ -317,7 +318,7 @@ for (const kind of ["channel", "dm"] as const) {
         await markScrollTrace(page, "initial-current-page-and-two-neighbors", { detail: { initialBody, initialNeighborhood,
           olderCursor: value.middle.page.olderCursor, newerCursor: value.middle.page.newerCursor } })
         await firstOlder.dispose()
-        const olderPositions = await twoPages(page, root, traffic, "older", fast)
+        const olderPositions = await twoPages(page, root, traffic, "older", fast, undefined, initialNeighborhood)
         await finishOlderTrace()
         let newerPositions: ReadingPositions
         let finishNewerTrace: Awaited<ReturnType<typeof trace>>
@@ -357,53 +358,57 @@ for (const kind of ["channel", "dm"] as const) {
         await page.getByTestId(tid.scrollToPresent).click()
         await expect(page.getByTestId(tid.message(ids.at(-1)!))).toBeVisible()
         await waitForStableTail(root, "return-latest")
-        const peer = await actors.seed.seedMessage("bob", channelId, `peer append ${info.title}`)
-        await expect.poll(() => proxy.frames.flatMap(communityFrameEvents).filter(event =>
-          event.type === "community:message.create" && event.channelId === channelId && event.message?.id === peer).length).toBe(1)
-        await expect(page.getByTestId(tid.message(peer))).toBeVisible()
-        await waitForStableTail(root, "peer-append")
-        const html = await seedResizableHtmlPreview(page, channelId)
-        const frame = page.getByTestId(tid.htmlPreviewFrame(html.attachmentId))
-        await expect(page.getByTestId(tid.htmlPreview(html.attachmentId))).toHaveAttribute("data-html-preview-status", "ready")
-        await frame.evaluate(element => (element as HTMLIFrameElement).contentWindow?.postMessage({ type: "scroll-fixture-height", height: 420 }, "*"))
-        await expect(frame).toHaveCSS("height", "420px")
-        await waitForStableTail(root, "real-html-growth")
-        await root.hover()
-        await page.mouse.wheel(0, -300)
-        await expect.poll(() => root.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeGreaterThan(1)
-        const before = await waitForCommittedGeometry(root)
-        expect(before.firstVisibleId).not.toBeNull()
-        const hiddenPeer = await actors.seed.seedMessage("bob", channelId, `history append ${info.title}`)
-        await expect.poll(() => proxy.frames.flatMap(communityFrameEvents).some(event =>
-          event.type === "community:message.create" && event.message?.id === hiddenPeer)).toBe(true)
-        await expect.poll(async () => Math.abs(await bodyOffset(root, before.firstVisibleId!) - before.firstVisibleOffset!)).toBeLessThanOrEqual(1)
-        await expect(composerEditable(page)).toHaveText(draft)
+        let before: Awaited<ReturnType<typeof waitForCommittedGeometry>> | undefined
         let dmReentry: unknown
-        if (kind === "dm") {
-          await finishNewerTrace()
-          const readBefore = await readAuthoritativeState(actors, value)
-          const reentryResponse = confirmCommunityFixtureApiResponse(page.waitForResponse(response => {
-            const url = new URL(response.url())
-            return response.request().method() === "GET" && url.pathname === endpoint
-              && url.searchParams.get("entry") === "1" && url.searchParams.get("window") === "tail"
-          }))
-          void reentryResponse.catch(() => undefined)
-          await page.goto(path, { waitUntil: "commit" })
-          const reloaded = await reentryResponse
-          expect(reloaded.status()).toBe(200)
-          const entry = CommunityConversationEntryReadSchema.parse(await reloaded.json())
-          expect(entry.channelId).toBe(channelId)
-          expect(entry.viewerId).toBe(actors.userId("alice"))
-          expect(entry.selection).toEqual({ reason: "tail", anchorMessageId: null })
-          expect(entry.readState.lastReadSeq).toBeGreaterThanOrEqual(readBefore.state.lastReadSeq)
-          await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+        if (!fast) {
+          const peer = await actors.seed.seedMessage("bob", channelId, `peer append ${info.title}`)
+          await expect.poll(() => proxy.frames.flatMap(communityFrameEvents).filter(event =>
+            event.type === "community:message.create" && event.channelId === channelId && event.message?.id === peer).length).toBe(1)
+          await expect(page.getByTestId(tid.message(peer))).toBeVisible()
+          await waitForStableTail(root, "peer-append")
+          const html = await seedResizableHtmlPreview(page, channelId)
+          const frame = page.getByTestId(tid.htmlPreviewFrame(html.attachmentId))
+          await expect(page.getByTestId(tid.htmlPreview(html.attachmentId))).toHaveAttribute("data-html-preview-status", "ready")
+          await frame.evaluate(element => (element as HTMLIFrameElement).contentWindow?.postMessage({ type: "scroll-fixture-height", height: 420 }, "*"))
+          await expect(frame).toHaveCSS("height", "420px")
+          await waitForStableTail(root, "real-html-growth")
+          await root.hover()
+          await page.mouse.wheel(0, -300)
+          await expect.poll(() => root.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeGreaterThan(1)
+          const passiveBody = await waitForCommittedGeometry(root)
+          before = passiveBody
+          expect(passiveBody.firstVisibleId).not.toBeNull()
+          const hiddenPeer = await actors.seed.seedMessage("bob", channelId, `history append ${info.title}`)
+          await expect.poll(() => proxy.frames.flatMap(communityFrameEvents).some(event =>
+            event.type === "community:message.create" && event.message?.id === hiddenPeer)).toBe(true)
+          await expect.poll(async () => Math.abs(await bodyOffset(root, passiveBody.firstVisibleId!) - passiveBody.firstVisibleOffset!)).toBeLessThanOrEqual(1)
           await expect(composerEditable(page)).toHaveText(draft)
-          await expect(page.getByTestId(tid.message(hiddenPeer))).toBeVisible()
-          await waitForStableTail(root, "DM-hard-reentry-tail")
-          const readAfter = await readAuthoritativeState(actors, value)
-          expect(readAfter.state.lastReadSeq).toBeGreaterThanOrEqual(readBefore.state.lastReadSeq)
-          dmReentry = { readBefore, selection: entry.selection, cutoff: entry.newBoundary.afterSeq,
-            readAfter, geometry: await waitForCommittedGeometry(root) }
+          if (kind === "dm") {
+            await finishNewerTrace()
+            const readBefore = await readAuthoritativeState(actors, value)
+            const reentryResponse = confirmCommunityFixtureApiResponse(page.waitForResponse(response => {
+              const url = new URL(response.url())
+              return response.request().method() === "GET" && url.pathname === endpoint
+                && url.searchParams.get("entry") === "1" && url.searchParams.get("window") === "tail"
+            }))
+            void reentryResponse.catch(() => undefined)
+            await page.goto(path, { waitUntil: "commit" })
+            const reloaded = await reentryResponse
+            expect(reloaded.status()).toBe(200)
+            const entry = CommunityConversationEntryReadSchema.parse(await reloaded.json())
+            expect(entry.channelId).toBe(channelId)
+            expect(entry.viewerId).toBe(actors.userId("alice"))
+            expect(entry.selection).toEqual({ reason: "tail", anchorMessageId: null })
+            expect(entry.readState.lastReadSeq).toBeGreaterThanOrEqual(readBefore.state.lastReadSeq)
+            await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+            await expect(composerEditable(page)).toHaveText(draft)
+            await expect(page.getByTestId(tid.message(hiddenPeer))).toBeVisible()
+            await waitForStableTail(root, "DM-hard-reentry-tail")
+            const readAfter = await readAuthoritativeState(actors, value)
+            expect(readAfter.state.lastReadSeq).toBeGreaterThanOrEqual(readBefore.state.lastReadSeq)
+            dmReentry = { readBefore, selection: entry.selection, cutoff: entry.newBoundary.afterSeq,
+              readAfter, geometry: await waitForCommittedGeometry(root) }
+          }
         }
         await info.attach("reading-cursor-stages.json", { body: JSON.stringify({ kind, narrow, fast, receipts, requests: traffic.requests, olderPositions, newerPositions, newerPhase, returnLatestBefore, before, dmReentry }, null, 2), contentType: "application/json" })
       })

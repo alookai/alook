@@ -6,13 +6,14 @@ import { createHash } from "crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
 import { resolve } from "path"
 import { loginAndSaveState, signIn } from "../_setup/auth"
-import { AUTH_DIR, SERVICE_STATE_PATH, WEB_URL } from "../_setup/paths"
+import { AUTH_DIR, REPO_ROOT, SERVICE_STATE_PATH, WEB_URL } from "../_setup/paths"
 import { readLifecycleState } from "../_setup/service-lifecycle"
 import { USER_KEYS, type SeededUser, type UserKey } from "../_setup/users"
 import { test as base } from "./community-fixture"
 import { manifest } from "./manifest"
 import { createSeed, type CaseSeed } from "./seed"
 import { retrySeedRequest } from "./seed-retry"
+import type { HistoricalRow } from "./historical-profile"
 
 export type CaseActors = {
   asUser: (key: UserKey, options?: Omit<BrowserContextOptions, "storageState">) => Promise<{ context: BrowserContext; page: Page }>
@@ -22,6 +23,7 @@ export type CaseActors = {
   userName: (key: UserKey) => string
   sessionCookie: (key: UserKey) => string
   seed: CaseSeed
+  seedHistory: (channelId: string, rows: readonly HistoricalRow[]) => Promise<string[]>
   onCleanup: (operation: () => Promise<unknown>) => void
   confirmSignedOut: (role: UserKey, evidence: SignedOutEvidence) => Promise<void>
   recordServerDeletion: (role: UserKey, serverId: string, evidence: ServerDeletionEvidence) => Promise<void>
@@ -313,6 +315,8 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
         allocated = true
         const state = readLifecycleState(SERVICE_STATE_PATH)
         if (state?.status !== "healthy" || state.services.length === 0) throw new Error("Case actors require this run's managed test database; the current stack is not owned")
+        const historyLifecycle = readFileSync(SERVICE_STATE_PATH, "utf8")
+        const historyConfigSHA256 = createHash("sha256").update(readFileSync(resolve(REPO_ROOT, "src/web/wrangler.toml"))).digest("hex")
         if (roles.length === 0 || new Set(roles).size !== roles.length || roles.some((key) => !USER_KEYS.includes(key))) throw new Error("Case actors require a nonempty unique role list")
         mkdirSync(directory, { recursive: true, mode: 0o700 })
         for (const key of roles) {
@@ -412,6 +416,20 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
           userName: (key) => user(key).name,
           sessionCookie,
           seed,
+          seedHistory: async (channelId, rows) => {
+            const startedAt = new Date().toISOString()
+            const started = performance.now()
+            if (exiting || !resources.has(`channel:${channelId}`)) throw new Error("History channel belongs to a different case owner")
+            for (const row of rows) { user(row.author); businessRoles.add(row.author) }
+            const { seedLocalHistory } = await import("./local-history")
+            const result = await seedLocalHistory({
+              channelId, rows, idPrefix: `history_${stamp}`, resources: caseResources, lifecycle: historyLifecycle, configSHA256: historyConfigSHA256,
+              actors: roles.map(role => ({ role, id: user(role).userId, email: user(role).email })),
+              register: id => { resources.add(`message:${id}`) },
+            })
+            await testInfo.attach("historical-profile", { body: JSON.stringify({ identity, channelId, count: result.count, firstSeq: result.firstSeq, lastSeq: result.lastSeq, transport: "local canonical D1", proxyDisposed: true, startedAt, finishedAt: new Date().toISOString(), durationMs: performance.now() - started }), contentType: "application/json" })
+            return result.ids
+          },
           onCleanup: (operation) => { own(operation, async (captured) => { await captured() }) },
           confirmSignedOut,
           recordServerDeletion,

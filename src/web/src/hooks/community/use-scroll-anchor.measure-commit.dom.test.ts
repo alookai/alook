@@ -137,6 +137,60 @@ describe("manual reading waits for the real matching row commit", () => {
       return rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1
     })?.dataset.msgId
   }
+  it("wakes the first moved reading after a simultaneous real measurement with no page owner", () => {
+    const reading = vi.fn()
+    const h = mount({ items: Array.from({ length: 120 }, (_, index) => message(`m${index}`)), onReadingMessage: reading })
+    h.move(600)
+    reading.mockClear()
+    const native = scrollFixture.latest.virtualizer
+    const below = native.getVirtualItems().find(row => row.start > h.root.scrollTop + h.root.clientHeight)
+    if (!below) throw new Error("A measured below-fold row is required")
+    expect(scrollFixture.latest.paginationRequestPending).toBe(false)
+    const before = { total: native.getTotalSize(), height: h.root.scrollHeight }
+    commitGate.hold = true
+    fireEvent.wheel(h.root, { deltaY: -600 })
+    scrollFixture.bodyHeights.set(String(below.key).slice(4), below.size + 80)
+    resize(0)
+    expect(native.getTotalSize()).toBeGreaterThan(before.total)
+    expect(h.root.scrollHeight).toBeGreaterThan(before.height)
+    act(() => h.root.scrollTo({ top: 0 }))
+    runFrames(40)
+    expect(h.root.scrollTop).toBe(0)
+    expect(reading).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.paginationRequestPending).toBe(false)
+    expect(scrollFixture.frames.size).toBe(0)
+    publishRows()
+    runFrames(2)
+    expect(actualReadingBody(h.root)).toBe("m0")
+    expect(reading).toHaveBeenCalledExactlyOnceWith("m0")
+    runFrames(40)
+    expect(reading).toHaveBeenCalledOnce()
+    expect(scrollFixture.frames.size).toBe(0)
+  })
+  it.each(["above", "below"] as const)("does not turn passive %s-fold measurement after wheel intent into a reading move", location => {
+    const reading = vi.fn()
+    const h = mount({ items: Array.from({ length: 120 }, (_, index) => message(`m${index}`)), onReadingMessage: reading })
+    h.move(600)
+    reading.mockClear()
+    const native = scrollFixture.latest.virtualizer
+    const row = native.getVirtualItems().find(row => String(row.key).startsWith("msg:")
+      && (location === "above" ? row.end <= h.root.scrollTop : row.start > h.root.scrollTop + h.root.clientHeight))
+    if (!row) throw new Error("An actual measured row is required")
+    const id = actualReadingBody(h.root)!
+    const before = { offset: h.root.scrollTop, body: bodyTop(h.root, id), total: native.getTotalSize() }
+    commitGate.hold = true
+    fireEvent.wheel(h.root, { deltaY: -600 })
+    scrollFixture.bodyHeights.set(String(row.key).slice(4), row.size + 80)
+    resize(0)
+    publishRows()
+    runFrames(40)
+    expect(native.getTotalSize()).toBeGreaterThan(before.total)
+    expect(h.root.scrollTop).toBe(location === "above" ? before.offset + 80 : before.offset)
+    expect(bodyTop(h.root, id)).toBe(before.body)
+    expect(actualReadingBody(h.root)).toBe(id)
+    expect(reading).not.toHaveBeenCalled()
+    expect(scrollFixture.frames.size).toBe(0)
+  })
   it("stays dormant without a commit and wakes once from the real callback without pagination or another movement", () => {
     const { h, reading } = pendingReader()
     try {

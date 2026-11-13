@@ -112,6 +112,27 @@ describe("locked native adapter and existing message scroll owner", () => {
     runFrames(140)
     expect(end).toHaveBeenCalledOnce()
   })
+  it("does not complete an issued end command 24px short inside near-tail eligibility", () => {
+    let held = true
+    const scrollTo = HTMLElement.prototype.scrollTo
+    vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(function (this: HTMLElement, options: ScrollToOptions) {
+      const max = Math.max(0, this.scrollHeight - this.clientHeight)
+      scrollTo.call(this, held && (options.top ?? 0) >= max && max > 24 ? { ...options, top: max - 24 } : options)
+    })
+    const settled = vi.fn()
+    const h = mount({ onInitialPositionSettled: settled }, false, undefined, undefined, 0)
+    runFrames(26)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(24)
+    expect(scrollFixture.latest.virtualizer.isAtEnd(CONVERSATION_TAIL_SPACE_PX)).toBe(true)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(settled).not.toHaveBeenCalled()
+    held = false
+    act(() => scrollFixture.latest.virtualizer.scrollToEnd())
+    runFrames()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(settled).toHaveBeenCalledOnce()
+  })
   it("lands against a changed client rect without requiring a rect-only React commit", () => {
     scrollFixture.bodyHeights.set("m0", 3000)
     let layouts = 0

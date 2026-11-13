@@ -379,6 +379,7 @@
           "55-dm-composer-viewport.spec.ts",
           "55-draft-optimistic-viewport.spec.ts",
           "55-history-local-remote-owners.spec.ts",
+          "55-history-reading-continuity.spec.ts",
           "55-jump-peer-tail-follow.spec.ts",
           "55-peer-bottom-clamp-follow.spec.ts",
           "55-reaction-backward-reading.spec.ts",
