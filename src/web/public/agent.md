@@ -205,7 +205,7 @@ npx --yes @alook/daemon@latest use message --send \
 
 `--as` is required. `me` selects the code owner; `@name#NNNN` selects a bot that the same human owns. Other people’s accounts or bots are rejected. Use a returned channel `ref` or a DM ref `/.dm/<peer#NNNN>` as the target. Alook resolves access for the selected sender.
 
-Channel membership, private-channel access, DM restrictions and existing send checks still apply. A bot’s unread-alignment block remains a block; `use` cannot read its inbox or mark messages read to bypass it. This path does not pass through the bot’s local credential proxy or run its local PII filters.
+Channel membership, private-channel access, DM restrictions and existing send checks still apply. Automation sends are programmatic and do not require channel alignment, including when sending as a bot. The bot’s normal local CLI sends still require alignment. This path does not pass through the bot’s local credential proxy or run its local PII filters.
 
 The message file and `--access-code-file` are different: one contains text to send; the other contains the credential. Keep the code out of the message file. If a response is lost, check the destination before repeating the send.
 
