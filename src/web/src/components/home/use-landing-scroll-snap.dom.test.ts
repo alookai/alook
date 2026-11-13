@@ -16,8 +16,8 @@ function move(top: number) {
   y = top
   window.dispatchEvent(new Event("scroll"))
 }
-function wheel(deltaY = 100, target: Element = root) {
-  const event = new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true })
+function wheel(deltaY = 100, target: Element = root, deltaMode = 1) {
+  const event = new WheelEvent("wheel", { deltaY, deltaMode, bubbles: true, cancelable: true })
   fireEvent(target, event)
   return event
 }
@@ -81,11 +81,39 @@ describe("desktop landing section transitions", () => {
     frameAt(440)
     expect(y).toBe(912)
   })
-  it("requires 20px intent rather than accidental tiny trackpad input", () => {
+  it("requires 20px intent for discrete wheel input", () => {
     point(0, 900, true); point(1000, 1600)
     dispose = attachLandingScrollSnap(root)
-    wheel(5); expect(frames.size).toBe(0)
-    wheel(15); expect(frames.size).toBe(1)
+    wheel(0.5); expect(frames.size).toBe(0)
+    wheel(1); expect(frames.size).toBe(1)
+  })
+  it("keeps pixel gestures native and waits for momentum to settle", () => {
+    point(0, 900, true); point(1000, 1600); point(1900, 2500)
+    dispose = attachLandingScrollSnap(root)
+    for (let i = 0; i < 20; i++) {
+      clock += 16
+      expect(wheel(5, root, 0).defaultPrevented).toBe(false)
+      move(y + 5)
+      vi.advanceTimersByTime(16)
+      expect(frames.size).toBe(0)
+    }
+    vi.advanceTimersByTime(100)
+    move(y + 2)
+    vi.advanceTimersByTime(100)
+    expect(frames.size).toBe(0)
+    vi.advanceTimersByTime(80)
+    expect(frames.size).toBe(1)
+    frameAt(clock + 440)
+    expect(y).toBe(912)
+    expect(wheel(5, root, 0).defaultPrevented).toBe(false)
+  })
+  it("cancels an active snap on fresh pixel input without swallowing it", () => {
+    point(0, 900, true); point(1000, 1600)
+    dispose = attachLandingScrollSnap(root)
+    wheel(); frameAt(100)
+    expect(frames.size).toBe(1)
+    expect(wheel(2, root, 0).defaultPrevented).toBe(false)
+    expect(frames.size).toBe(0)
   })
   it("lets tall section content scroll before transitioning to the next core", () => {
     point(0, 900, true); point(1000, 3000); point(3300, 3900)
