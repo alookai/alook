@@ -1,5 +1,7 @@
 "use client"
 
+import { withImageGallery } from "./image-preview-gallery"
+
 import { Button } from "@/components/ui/button"
 import { messagePreviewText } from "@alook/shared"
 import { useAtom, useCreateAtom, useSelector } from "@tanstack/react-store"
@@ -412,8 +414,8 @@ function MessageContextSheetContent({
   }, [type, router, serverId, onOpenChange, uiHandlers])
 
   const onPreviewImage = useCallback((image: ImagePreview) => {
-    uiHandlers.previewImage?.(image)
-  }, [uiHandlers])
+    uiHandlers.previewImage?.(withImageGallery(image, renderRows))
+  }, [uiHandlers, renderRows])
 
   const onPreviewAttachment = useCallback((attachment: FileAttachment) => {
     uiHandlers.previewAttachment?.(attachment)

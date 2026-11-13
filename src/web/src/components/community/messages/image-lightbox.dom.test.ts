@@ -354,6 +354,81 @@ describe("ImageLightbox", () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
+  const gallery = [
+    { key: "a:0", originalUrl: "/a", name: "first" },
+    { key: "a:1", originalUrl: "/b", name: "second" },
+    { key: "b:0", originalUrl: "/c", name: "third" },
+  ]
+
+  it("opens the selected image, switches in order, and stops at both ends", () => {
+    const { renderer, onClose } = renderLightbox({ ...gallery[1], images: gallery })
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveAttribute("src", "/b")
+    fireEvent.click(renderer.getByRole("button", { name: "Previous image" }))
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveAttribute("src", "/a")
+    expect(renderer.getByRole("button", { name: "Previous image" })).toBeDisabled()
+    fireEvent.click(renderer.getByRole("button", { name: "Next image" }))
+    fireEvent.click(renderer.getByRole("button", { name: "Next image" }))
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveAttribute("src", "/c")
+    expect(renderer.getByRole("status", { name: "Image 3 of 3" })).toBeVisible()
+    expect(renderer.getByRole("button", { name: "Next image" })).toBeDisabled()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+  it("hides navigation for a standalone image", () => {
+    const { renderer } = renderLightbox(gallery[0])
+    expect(renderer.queryByRole("button", { name: "Next image" })).toBeNull()
+  })
+  it("supports consecutive keyboard navigation while originals load", () => {
+    const { renderer } = renderLightbox({ ...gallery[0], images: gallery })
+    let frame = renderer.getByTestId(tid.imageLightbox)
+    frame.focus()
+    fireEvent.keyDown(frame, { key: "ArrowRight" })
+    frame = renderer.getByTestId(tid.imageLightbox)
+    expect(frame).toHaveFocus()
+    fireEvent.keyDown(frame, { key: "ArrowRight" })
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveAttribute("src", "/c")
+  })
+  it("preserves zoomed keyboard pan and resets zoom when the image changes", async () => {
+    const { renderer } = renderLightbox({ ...gallery[0], images: gallery })
+    const frame = renderer.getByTestId(tid.imageLightbox)
+    mockElementGeometry(frame, { left: 100, top: 100, width: 400, height: 300 })
+    await loadImage(image(renderer, tid.imageLightboxOriginal), 800, 600, () => Promise.resolve())
+    fireEvent.click(renderer.getByRole("button", { name: "Zoom in" }))
+    fireEvent.keyDown(frame, { key: "ArrowRight" })
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveAttribute("src", "/a")
+    expect(frame.dataset.zoomScale).toBe("1.5")
+    fireEvent.click(renderer.getByRole("button", { name: "Next image" }))
+    expect(renderer.getByTestId(tid.imageLightbox).dataset.zoomScale).toBe("1")
+  })
+  it("swipes fitted images but never treats a pinch or cancellation as navigation", async () => {
+    const { renderer, onClose } = renderLightbox({ ...gallery[0], images: gallery })
+    let frame = renderer.getByTestId(tid.imageLightbox)
+    pointer(frame, "pointerdown", 1, 300, 200)
+    pointer(frame, "pointermove", 1, 200, 205)
+    pointer(frame, "pointerup", 1, 200, 205)
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveAttribute("src", "/b")
+    frame = renderer.getByTestId(tid.imageLightbox)
+    pointer(frame, "pointerdown", 1, 300, 200)
+    pointer(frame, "pointerdown", 2, 350, 200)
+    pointer(frame, "pointermove", 1, 200, 200)
+    pointer(frame, "pointerup", 1, 200, 200)
+    pointer(frame, "pointerup", 2, 350, 200)
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveAttribute("src", "/b")
+    pointer(frame, "pointerdown", 1, 300, 200)
+    pointer(frame, "pointercancel", 1, 200, 200)
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveAttribute("src", "/b")
+    expect(onClose).not.toHaveBeenCalled()
+  })
+  it("can leave an errored image and ignores the previous image's late load", () => {
+    const { renderer } = renderLightbox({ ...gallery[0], images: gallery })
+    const old = image(renderer, tid.imageLightboxOriginal)
+    fireEvent.error(old)
+    expect(renderer.getByTestId(tid.imageLightboxError)).toBeVisible()
+    fireEvent.click(renderer.getByRole("button", { name: "Next image" }))
+    fireEvent.load(old)
+    expect(renderer.queryByTestId(tid.imageLightboxError)).toBeNull()
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveAttribute("src", "/b")
+  })
+
   async function readyPreview(width = 800, height = 600, legacy = false) {
     const result = renderLightbox({ originalUrl: "/zoom-original", thumbnailUrl: "/zoom-thumbnail", name: "detail", ...(legacy ? {} : { width, height }) })
     const frame = result.renderer.getByTestId(tid.imageLightbox)
