@@ -1,278 +1,105 @@
 export const metadata = {
-  slug: "multi-agent-workflow-patterns",
-  title: "7 Multi-Agent Workflow Patterns for AI Coding Agents",
-  date: "2026-06-11",
-  dateModified: "2026-10-16",
-  author: "Alook Team",
-  excerpt:
-    "Seven multi-agent workflow patterns for AI coding agents, with a worked bug-to-PR example covering inputs, handoffs, acceptance, and failure returns.",
-  readingTime: "9 min read",
-  image: "/blog/multi-agent-workflow-patterns/hero.webp",
+  "slug": "multi-agent-workflow-patterns",
+  "title": "Multi-Agent Workflow Patterns: 4 Ways to Organize the Work",
+  "date": "2026-06-11",
+  "dateModified": "2026-11-13",
+  "author": "Alook Team",
+  "excerpt": "Choose when agents should work in sequence or parallel, route tasks, and return failed work. Includes a worked bug-to-PR workflow and six more examples.",
+  "readingTime": "8 min read",
+  "image": "/blog/multi-agent-workflow-patterns/hero.webp"
 };
 
-export const jsonLd = [
-  {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: [
-      {
-        "@type": "Question",
-        name: "What is a multi-agent workflow?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "A multi-agent workflow splits a repeatable task into roles, assigns each role to an agent, and defines how work moves between those agents. The workflow should include inputs, outputs, review points, and a failure path.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "When should you use multiple AI coding agents?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Use multiple AI coding agents when a task has separate stages that need different instructions, permissions, context, or review standards. Keep one agent when the task is short, low risk, and has one clear output.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "How many agents should a workflow start with?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Start with the smallest workflow that has a real handoff. Many teams begin with one execution agent and one review step, then add more roles only when a new stage needs different context or permissions.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "Which agents does Alook support?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Alook currently supports Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi.",
-        },
-      },
-    ],
-  },
-];
+[![Task cards split into parallel work, rejoin at a review card, and return along a revision path.](/blog/multi-agent-workflow-patterns/hero.webp)](/blog/multi-agent-workflow-patterns/hero.webp)
 
-![Conceptual multi-agent workflow map with triggers, agent roles, handoffs, review points, and stop conditions](/blog/multi-agent-workflow-patterns/hero.webp)
+*Parallel work can rejoin for review and return for revision.* [View original image](/blog/multi-agent-workflow-patterns/hero.webp)
 
-*A conceptual workflow map showing triggers, agent roles, handoffs, review points, and stop conditions. Not a product screenshot.*
+When several agents take on a job, starting them all at once can leave one waiting for another's findings—or building on a guess. A useful workflow lets independent work advance while keeping those dependencies clear.
 
-Multi-agent workflows work best when they are designed like operating procedures, not brainstorming sessions. Each agent needs a role. Each handoff needs an expected output. Each risky step needs a review boundary.
+A bug report, a release, and a research brief need different routes to a usable result. Adding more agents helps only when there is work worth separating; one coding agent can already investigate, edit, and run checks.
 
-That sounds less exciting than "autonomous AI team." Good. The practical version is more useful.
+## How should the work move between agents?
 
-A single coding agent can handle a lot. It can investigate a bug, make a patch, write tests, and summarize the change. The trouble starts when you ask it to hold every constraint, remember every decision, and police its own mistakes across a long-running workflow. Splitting the work across agents can help, but only when the split matches the shape of the task.
+### 1. Sequential work: wait for the input you need
 
-The seven multi-agent workflow examples below are concrete enough to build around. Use them as templates, not laws. Pattern 1 walks through a bug report that becomes a pull request, with roles and handoffs written out.
+If the next stage needs a result that doesn't exist yet, starting it early may mean guessing or redoing work.
 
-## What makes a workflow multi-agent?
+If an agent is changing a schema while another builds the screen that reads it, agreeing on the interface first can give both something stable to work from. Without that agreement, doing the schema first is often simpler. You can also develop schema changes in parallel, but someone will need to order the migrations, resolve conflicts, and check each change against the code being merged. The guide to [multiple agents working in one repository](/blog/multiple-ai-agents-edit-same-repository) covers how to isolate the changes and handle their merge order.
 
-A multi-agent workflow has more than one role contributing to one outcome. Those roles may run in sequence, in parallel, or on a schedule. The important part is the contract between them: who owns each stage, what they must hand off, where review happens, and when the run should stop. Deeper platform orchestration stays in the linked guide.
+### 2. Parallel work: split independent tasks
 
-Every useful workflow should define:
+For a research brief, one agent can examine current documentation while another checks independent user reports. Neither needs the other's findings to begin.
 
-- **The trigger:** what starts the work, such as a new issue, a scheduled check, or a release task.
-- **The roles:** which agent owns each stage.
-- **The handoff:** what one role must pass to the next.
-- **The review point:** where a person or reviewer agent checks the result.
-- **The stop condition:** when the workflow should pause instead of guessing.
+### 3. Review and revision: return work that fails
 
-For the coordination layer behind these patterns, read the guide to [AI orchestration](/blog/ai-agent-orchestration). For team design, start with [AI agent team roles and handoffs](/blog/personal-ai-company).
+A check may uncover a problem that sends the work back to its author. Allow for that return before the next person starts using the result. A failed result needs a correction, while a disagreement about what counts as success may need a decision first.
 
-## When should AI coding agents run in parallel instead of in sequence?
+### 4. Task routing: choose where each item goes
 
-Say one agent is changing a schema while another builds the UI that consumes it. Starting both does not save time. The UI agent either guesses, waits, or rewrites the work later. Run the schema change first. Use parallel agents when they can finish without waiting on each other or touching the same files.
+A support question may go straight to an answer, while a bug report goes to investigation. Sending all bugs to the same queue still leaves a second question: who has taken this particular report? One owner needs to claim it before two agents start the same work.
 
-Give every task its own branch. When several branches run from the same local clone, use a separate worktree for each one. Write down path ownership before the agents start, then track the branch or pull request, completed checks, and any blocker. The work can happen in parallel. Review and merge still follow dependency order. See [how multiple AI agents edit the same repository](/blog/multiple-ai-agents-edit-same-repository) for the full merge loop.
+In the checkout example below, a bug goes to investigation before development begins. Later, review can send the patch back. A workflow can combine these choices; you don't have to choose one arrangement for the whole job.
 
-Alook keeps the assignment, status, and handoff in one room. It does not create Git worktrees, run CI, or decide which pull request merges next.
+## Worked example: a bug report becomes a PR
 
-## Pattern 1: Bug report to PR
+Consider a hypothetical checkout bug: a cart has a **$100.00 subtotal before tax**, and applying **SAVE10** should subtract **$10.00**. Instead of showing **$90.00**, the order summary shows **$0.00**. The issue is reported in staging by a logged-in user with one paid item. The repair must leave tax calculation, payment capture, and unrelated promotion rules alone.
 
-This AI agent coding workflow has four stages: reproduce, patch, review, and merge.
+An investigator, a developer, and a reviewer have different responsibilities here. That doesn't require three new bots. One agent could investigate and implement, then a second agent could review. What matters is that the review examines the work rather than simply accepting the author's conclusion.
 
-### Worked example: checkout total wrong after coupon
+### From investigation to a patch
 
-The whole scene below is **hypothetical**, including the issue text, file paths, log lines, and test names. Keep your own repo's paths and checks.
+The developer starts from the reproduction steps and repair scope established during investigation. In this hypothetical repository, the investigation produces the following:
 
-**Input (trigger artifact)**
+- Add `SKU-100`, apply `SAVE10`, then open the order summary to reproduce the zero total.
+- The suspected area is discount application order in `src/checkout/coupon.ts`.
+- A staging log contains `coupon.apply amount=null`, and `checkout.coupon.spec.ts` has a failing case.
 
-- Issue title: `Checkout shows $0 after applying SAVE10`
-- Cart math before tax: subtotal **`$100.00`**, coupon `SAVE10` takes **`$10.00`** off, expected total **`$90.00`**
-- Actual: after the coupon applies, the order summary shows total **`$0.00`**
-- Environment: staging, logged-in user, cart with one paid item
-- Constraints: do not change pricing rules outside coupon application; do not touch payment capture or tax calculation
+With the failure reproduced and the likely cause identified, the developer can work on the coupon fix. An unrelated documentation update can continue separately; starting the patch before those findings are ready would leave the developer guessing.
 
-**Roles**
+The patch is ready for review when the original cart shows **$100.00 − $10.00 = $90.00**, a regression test covers the failure, and the relevant checks pass. Its scope should still be the coupon problem. Changing payment capture or refactoring checkout as a whole would give the reviewer a different job from the one the issue described.
 
-1. Investigator agent — reproduce and diagnose only
-2. Developer agent — patch from the diagnosis artifact
-3. Reviewer agent — check the diff against the issue and test evidence
-4. Human — merge or send the work back
+### Review can move the work forward or send it back
 
-**Handoff artifact (investigator → developer)**
+The reviewer checks the actual diff, repeats the reproduction on the branch, and examines the cited test and its result. If the patch breaks another coupon case, fixing the reported bug isn't enough.
 
-The investigator must not say "fix checkout." Pass a short **diagnosis note**:
+If review finds a problem, send the work back to the person or agent who can resolve it:
 
-- **User-visible bug:** total drops to `$0.00` after `SAVE10` instead of `$90.00` on a `$100.00` pre-tax subtotal
-- **Reproduction:** add SKU `SKU-100` → apply `SAVE10` → open order summary
-- **Likely area** (hypothetical path): `src/checkout/coupon.ts` discount application order
-- **Evidence** (hypothetical): staging log line `coupon.apply amount=null`; failing test `checkout.coupon.spec.ts`
-- **Do not change:** tax calculation, payment capture, or non-coupon promo codes
+- **The bug cannot be reproduced:** return to the issue author for better steps or a recording.
+- **The diagnosis points to the wrong code:** return to investigation and revise the explanation before building another fix on it.
+- **A different coupon case now fails:** return the patch to its developer with that failing case.
+- **The expected discount is a product decision:** return to someone who can decide the rule.
 
-**Developer acceptance before handoff to review**
+If one agent owns investigation and development, the second path takes it back to investigation. If separate agents own them, the findings go back to the investigator.
 
-- Branch or worktree owns only coupon/checkout paths named in the diagnosis
-- Patch restores **`$100.00 − $10.00 = $90.00`** for `SAVE10` on this cart
-- Existing coupon test updated or new regression test added and passing locally
-- Summary lists files touched and what was not changed
+Once that revision passes review, whoever is already allowed to merge can take the next step. If the patch changes again, the affected checks may need to run again before it goes further.
 
-**Reviewer acceptance before human merge**
+[![A hypothetical checkout workflow moves from investigation through development and review to authorized merge. A regression test failure returns to development; an unclear rule requires a human decision.](/blog/multi-agent-workflow-patterns/checkout-path.webp)](/blog/multi-agent-workflow-patterns/checkout-path.webp)
 
-- **Diff matches the diagnosis scope** (no drive-by refactors)
-- Reproduction steps in the issue no longer fail on the branch
-- Tests cited by the developer are present and green
-- Open questions flagged for a person (pricing policy, ambiguous expected behavior)
+*These stages describe responsibilities. One agent can carry out more than one stage.* [View original image](/blog/multi-agent-workflow-patterns/checkout-path.webp)
 
-**Failure return**
+## Six more workflows you can adapt
 
-- Cannot reproduce → **human** (issue author). Pause and ask for better steps or a recording.
-- Diagnosis names the wrong files → **investigator**. Developer does not guess a second patch.
-- Patch fixes the total but breaks another coupon path → **developer**. Reviewer rejects and includes the new failing case in the next handoff.
-- Expected behavior is a product call → **human**. No speculative PR.
+In the checkout example, development waits for the investigation, and review waits for the patch. Other tasks need different arrangements, even when some of the same agents do them.
 
-Each role waits on a named artifact. A failed check returns the work to a specific owner instead of looping inside one chat. This workflow breaks down when the bug report is vague or the expected behavior is a product decision. In that case, ask for clarification instead of opening a speculative PR.
+### Release preparation and documentation changes
 
-## Pattern 2: Release preparation
+Release notes and compatibility checks can happen in parallel once the release scope is fixed. Both are reading the same set of changes for different reasons. They meet again before release: a breaking change found by one reviewer may require the notes to change. If another commit enters the release, the earlier results need to be checked against that new scope. The release owner can then ship the agreed version at the agreed time.
 
-Release work is repetitive, detail-heavy, and easy to half-finish. That makes it a good candidate for agents, as long as final approval stays with a person.
+A command example needs to match the behavior that actually lands, not an earlier proposal. An agent can identify affected pages while code is being written, but the final example should be checked against the implementation. If the example fails, the next move is to resolve that mismatch with the relevant author. Rewriting more pages won't settle which behavior is correct.
 
-A release notes agent reads merged changes and drafts user-facing notes. A compatibility agent checks breaking changes, required version bumps, and migration notes. A QA agent verifies the release checklist. A final approval step decides whether the release is ready.
+### Maintainer queues and incident investigation
 
-Keep the output boring. That is the point.
+An open-source queue begins with sorting, not a chain that every item must traverse. A question with an existing answer may go straight to a suggested response; a bug report may need reproduction. After that routing decision, one owner takes the specific item so two agents don't both start it. A roadmap request can reach the maintainer without first being treated as a code defect.
 
-The release notes agent should produce sections such as "Added," "Changed," "Fixed," and "Known issues." The compatibility agent should call out anything that affects CLI versions, desktop builds, mobile builds, or deployment steps. The QA agent should report what was checked and what was skipped.
+An incident can justify the opposite shape: several investigations start from one alert. One agent checks recent deployments while another looks at logs. Before choosing a repair from a diagnosis, those findings need to be compared: two plausible summaries can still point to conflicting causes. An immediate response already authorized by a runbook can proceed while that investigation continues. An action outside that authority goes to the person responsible for the system. An incident brief can help someone choose the next response; it doesn't mean the incident is over.
 
-Do not let this workflow publish automatically until your release process is mature. Agents can gather evidence and prepare the work. A person should still approve the version, changelog, and deployment timing.
+### Research briefs and customer follow-up
 
-## Pattern 3: Open-source maintainer queue
+Different agents can examine separate sources, but the findings need to be compared before they become a single conclusion. Repeated coverage of the same announcement isn't independent confirmation. A contradiction sends the work back to the source in question, while an unresolved gap stays visible in the brief. There's no need to assign collection, deduplication, and writing to three agents if one can handle them well.
 
-Open-source projects accumulate issues, discussions, stale PRs, and support requests. The hard part is not reading one item. The hard part is keeping the queue moving without losing context.
+A customer follow-up may use that research, but it ends with a different decision. Before a prepared reply goes out, someone needs to check what it promises. If a draft offers a pricing exception that nobody has authorized, the next move is a decision by someone with that authority, not another round of wording changes. Routine messages that already have permission can still go out the usual way. The writer can finish the draft while the pricing decision waits for the person who can make it.
 
-Use a triage agent to classify incoming items. A reproducer agent can try to reproduce bug reports. A docs agent can identify whether an answer already exists. A maintainer-review step decides what deserves a label, a reply, a task, or a close.
+## Keep the next owner and result visible
 
-The workflow should preserve traceability. A maintainer needs to know why an issue was labeled as a bug, why a PR was considered blocked, or why a support answer was suggested.
+Back at the checkout patch, “in review,” “returned to development,” and “ready for merge” mean different work should happen next. Everyone involved needs to see the patch's current status.
 
-Good outputs include:
-
-- Issue category and confidence
-- Missing information
-- Related issues or docs
-- Suggested next action
-- Whether a human should reply
-
-This pattern should avoid pretending to be the maintainer. Let agents prepare the queue. Keep community commitments, roadmap decisions, and sensitive replies under human review.
-
-## Pattern 4: DevOps monitoring loop
-
-Monitoring workflows are not only about alerts. A useful loop turns an event into context, then into a recommended action.
-
-An alert agent receives the signal. An investigation agent checks recent deploys, logs, traces, or known incidents. A summary agent prepares a short incident brief. A human or escalation agent decides what happens next.
-
-The output should answer a few plain questions:
-
-- What changed?
-- What is affected?
-- What evidence supports the diagnosis?
-- What action is safe to take now?
-- What requires human approval?
-
-Do not give agents unrestricted production access because a workflow looks routine. Restarting a service, rolling back a deploy, or changing infrastructure can be safe in one system and risky in another. The workflow should encode those boundaries.
-
-Alook's message-based model fits this kind of loop because every agent has its own inbox and handoffs happen through recorded messages in channels and DMs. The point is not chatty agents. It is a traceable trail of what each role saw and decided.
-
-## Pattern 5: Daily research brief
-
-Research workflows are useful when the sources are known and the output format is stable. They are weaker when the task requires original judgment from thin evidence.
-
-A source agent collects updates from defined places. A filtering agent removes duplicates and low-signal items. A summarizer agent writes the brief. A reviewer step checks whether any claim needs a source, caveat, or removal.
-
-This pattern works for product monitoring, dependency updates, ecosystem news, and routine technical research. It should not invent market conclusions from a handful of headlines.
-
-The workflow becomes more reliable when the brief has a fixed format:
-
-- What changed
-- Why it might matter
-- Source links
-- Suggested follow-up
-- Unknowns
-
-The "unknowns" section is important. It keeps the agent from smoothing over missing evidence.
-
-## Pattern 6: Documentation refresh
-
-Documentation goes stale because code changes faster than the docs review loop. A multi-agent workflow can make the drift visible.
-
-A scanner agent watches changed files, API routes, commands, or configuration. A docs agent identifies which pages may need edits. An examples agent checks whether snippets still match the current behavior. A reviewer approves the final wording.
-
-This workflow should distinguish facts from interpretation. Agents are good at spotting that a command changed or a parameter disappeared. They are less reliable at explaining why a design decision was made unless that context is recorded somewhere.
-
-Useful outputs include:
-
-- Changed behavior
-- Affected docs
-- Suggested patch
-- Missing product context
-- Review questions
-
-Do not let this become a rewrite machine. Most docs tasks should be small and grounded in a concrete code or product change.
-
-## Pattern 7: Lead or customer follow-up
-
-Some follow-up workflows are safe to prepare with agents. Others should stay human-led.
-
-A research agent gathers context about the person or company. A drafting agent prepares a reply or next-step note. A policy agent checks whether the draft mentions unsupported promises, pricing, legal claims, or commitments the team has not approved. A person sends the message.
-
-This pattern is useful for routine follow-ups, template-based replies, onboarding reminders, and internal handoffs. It should pause for refunds, angry customers, legal language, pricing exceptions, security disclosures, and anything that changes a customer's expectations.
-
-The review boundary is the workflow.
-
-## How to choose your first pattern
-
-Start with a workflow that already exists. If you cannot describe the current manual process, an agent team will not make it clearer.
-
-Good first candidates share a few traits:
-
-- The task repeats often.
-- Inputs come from known places.
-- The desired output has a recognizable format.
-- A failed run can pause safely.
-- Human approval can be placed at a specific step.
-
-Avoid starting with strategy, taste, negotiation, or live production decisions. Those tasks may still use agent assistance, but they do not make good first automation targets.
-
-## How Alook fits
-
-[Alook](https://alook.ai) is an open-source communication platform for local AI coding agents, available hosted or self-hosted. It gives agents roles, a persistent inbox, channels and DMs, and recorded communication so they can work more like a coordinated team.
-
-The important part is state. A workflow is hard to trust when every agent starts from a blank chat. Alook is designed around persistent context and traceability, so the investigator's findings, the developer's patch, the reviewer report, and the human decision can stay connected.
-
-Alook currently supports Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi. It is built for indie developers, solopreneurs, one-person companies, open-source maintainers, and indie hackers who want their local agents to keep working without turning every handoff into manual copy-paste.
-
-## Multi-agent workflow FAQ
-
-**What is a multi-agent workflow?**
-
-A multi-agent workflow splits a repeatable task into roles, assigns each role to an agent, and defines how work moves between those agents. The workflow should include inputs, outputs, review points, and a failure path.
-
-**When should you use multiple AI coding agents?**
-
-Use multiple AI coding agents when a task has separate stages that need different instructions, permissions, context, or review standards. Keep one agent when the task is short, low risk, and has one clear output.
-
-**How many agents should a workflow start with?**
-
-Start with the smallest workflow that has a real handoff. Many teams begin with one execution agent and one review step, then add more roles only when a new stage needs different context or permissions.
-
-**Which agents does Alook support?**
-
-Alook currently supports Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi.
-
-Want to apply these patterns to a larger operating model? Read how a [personal AI company](/blog/personal-ai-company) can be structured around coordinated agents.
+Alook gives them a shared place for [multi agent collaboration](https://alook.ai), where an agent can post its result and the next owner can pick it up. Git handles the code changes and CI checks the candidate; shared communication keeps the chosen route visible. For how those handoffs happen, see [AI agent orchestration](/blog/ai-agent-orchestration).
