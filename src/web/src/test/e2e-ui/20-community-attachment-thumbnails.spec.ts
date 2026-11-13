@@ -140,7 +140,16 @@ async function previewLayout(page: Page) {
   expect(controls.y + controls.height).toBeLessThan(container.y)
   expect(container.x).toBeCloseTo(dialog.x, 1)
   expect(container.width).toBeCloseTo(dialog.width, 1)
-  expect(container.y + container.height).toBeCloseTo(dialog.y + dialog.height, 1)
+  const navigation = page.getByRole("toolbar", { name: "Image navigation" })
+  if (await navigation.count()) {
+    const footer = await boundingRect(navigation)
+    const gap = await navigation.evaluate(element => Number.parseFloat(getComputedStyle(element.parentElement!).rowGap))
+    expectWithinRect(footer, viewport)
+    expect(container.y + container.height + gap).toBeCloseTo(footer.y, 1)
+    expect(footer.y + footer.height).toBeCloseTo(dialog.y + dialog.height, 1)
+  } else {
+    expect(container.y + container.height).toBeCloseTo(dialog.y + dialog.height, 1)
+  }
   const surfaces = await page.getByTestId(tid.imageLightbox).evaluate((element) => {
     const result = []
     for (let node: Element | null = element; node; node = node.parentElement) {
@@ -940,6 +949,50 @@ test("image previews keep one frame through loading, decode, failure, retry, and
     buttonName: "extreme-portrait.png",
     screenshotName: "mobile-extreme-portrait-failed",
   })
+
+  const navigationResponses: Array<{ path: string; status: number }> = []
+  const galleryPaths = [landscape.originalPath, portrait.originalPath, extremeLandscape.originalPath, extremePortrait.originalPath]
+  page.on("response", response => {
+    const path = new URL(response.url()).pathname
+    if (galleryPaths.includes(path)) navigationResponses.push({ path, status: response.status() })
+  })
+  const navigationSession = await page.context().newCDPSession(page)
+  await navigationSession.send("Network.enable")
+  await navigationSession.send("Network.setCacheDisabled", { cacheDisabled: true })
+  await navigationSession.send("Network.clearBrowserCache")
+  await page.reload()
+  await page.getByTestId(tid.messageImage(portrait.messageId, 0)).click()
+  const galleryOriginal = page.getByTestId(tid.imageLightboxOriginal)
+  await expect(page.getByRole("status", { name: "Image 2 of 4" })).toBeVisible()
+  await expect(galleryOriginal).toHaveAttribute("src", portrait.originalPath)
+  await expectImageLayer(galleryOriginal, true)
+  await page.getByRole("button", { name: "Previous image", exact: true }).click()
+  await expect(page.getByRole("status", { name: "Image 1 of 4" })).toBeVisible()
+  await expect(galleryOriginal).toHaveAttribute("src", landscape.originalPath)
+  await expect(page.getByRole("button", { name: "Previous image", exact: true })).toBeDisabled()
+  await expectImageLayer(galleryOriginal, true)
+  await page.getByRole("button", { name: "Zoom in", exact: true }).click()
+  await expect(page.getByTestId(tid.imageLightbox)).toHaveAttribute("data-zoom-scale", "1.5")
+  await page.getByRole("button", { name: "Next image", exact: true }).click()
+  await expect(page.getByRole("status", { name: "Image 2 of 4" })).toBeVisible()
+  await expect(galleryOriginal).toHaveAttribute("src", portrait.originalPath)
+  await expectImageLayer(galleryOriginal, true)
+  await expect(page.getByTestId(tid.imageLightbox)).toHaveAttribute("data-zoom-scale", "1")
+  for (const [index, attachment] of [extremeLandscape, extremePortrait].entries()) {
+    await page.getByRole("button", { name: "Next image", exact: true }).click()
+    await expect(page.getByRole("status", { name: `Image ${index + 3} of 4` })).toBeVisible()
+    await expect(galleryOriginal).toHaveAttribute("src", attachment.originalPath)
+    await expectImageLayer(galleryOriginal, true)
+  }
+  await expect(page.getByRole("button", { name: "Next image", exact: true })).toBeDisabled()
+  await expect.poll(() => galleryPaths.every(path => navigationResponses.some(response => response.path === path && response.status === 200))).toBe(true)
+  await attachScreenshot(testInfo, "desktop-gallery-last-image", page)
+  await page.keyboard.press("Escape")
+  await expect(page.getByTestId(tid.imageLightbox)).toHaveCount(0)
+  await expect(page).toHaveURL(channelUrl)
+  expect(messagePostCount).toBe(4)
+  await navigationSession.detach()
+  await testInfo.attach("image-navigation-responses.json", { body: Buffer.from(JSON.stringify(navigationResponses)), contentType: "application/json" })
 
   await testInfo.attach("image-preview-rects.json", {
     body: Buffer.from(JSON.stringify({

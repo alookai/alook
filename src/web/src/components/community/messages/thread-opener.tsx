@@ -1,5 +1,7 @@
 "use client"
 
+import { withImageGallery } from "./image-preview-gallery"
+
 import { MessagesSquare, ArrowUpRight } from "lucide-react"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
@@ -170,13 +172,14 @@ export function ThreadOpener({
                       width={a.width}
                       height={a.height}
                       loading="lazy"
-                      onActivate={() => onPreviewImage?.({
+                      onActivate={() => onPreviewImage?.(withImageGallery({
+                        key: `${msg.id}:${i}`,
                         originalUrl: a.url,
                         thumbnailUrl: a.thumbnailUrl,
                         name: a.name,
                         width: a.width,
                         height: a.height,
-                      })}
+                      }, [msg]))}
                       frameClassName="block max-w-full rounded-lg border border-border [--attachment-image-max-height:200px] transition-colors hover:border-primary/40 sm:[--attachment-image-max-height:240px]"
                       frameStyle={frameStyle}
                       imageClassName="block rounded-lg object-contain"

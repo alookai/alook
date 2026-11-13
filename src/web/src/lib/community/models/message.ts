@@ -16,13 +16,16 @@ export type Attachment =
   | (AttachmentMetadata & { kind: "image"; thumbnailUrl?: string; width?: number; height?: number })
   | FileAttachment
 
-export type ImagePreview = {
+export type ImagePreviewItem = {
+  key?: string
   originalUrl: string
   thumbnailUrl?: string
   name: string
   width?: number
   height?: number
 }
+
+export type ImagePreview = ImagePreviewItem & { images?: readonly ImagePreviewItem[] }
 
 const optionalString = z.string().optional().catch(undefined)
 const optionalNumber = z.number().optional().catch(undefined)
