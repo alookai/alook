@@ -30,6 +30,7 @@ export function attachLandingScrollSnap(root: HTMLElement) {
   let lastY = window.scrollY
   let locked = false
   let intent = false
+  let continuous = false
 
   const cancel = () => {
     window.cancelAnimationFrame(frame)
@@ -78,21 +79,25 @@ export function attachLandingScrollSnap(root: HTMLElement) {
     }
     frame = window.requestAnimationFrame(tick)
   }
-  const scroll = () => {
-    const delta = window.scrollY - lastY
-    lastY = window.scrollY
-    if (frame || !intent || !media.matches || Math.abs(delta) < 1) return
-    direction = Math.sign(delta)
+  const settle = () => {
     window.clearTimeout(fallback)
     fallback = window.setTimeout(() => {
       if (!media.matches || document.hidden || frame || !intent) return
       const top = destination(direction)
       if (top !== null) animate(top)
-    }, 48)
+    }, continuous ? 180 : 48)
+  }
+  const scroll = () => {
+    const delta = window.scrollY - lastY
+    lastY = window.scrollY
+    if (frame || !intent || !media.matches || Math.abs(delta) < 1) return
+    direction = Math.sign(delta)
+    settle()
   }
   const wheel = (event: WheelEvent) => {
     if (!media.matches || document.hidden || event.defaultPrevented || event.ctrlKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return
     if (!(event.target instanceof Node) || !root.contains(event.target)) return
+    if (event.deltaMode === 0) cancel()
     let element = event.target instanceof HTMLElement ? event.target : event.target.parentElement
     while (element && element !== root) {
       if (/(auto|scroll)/.test(getComputedStyle(element).overflowY) && element.scrollHeight > element.clientHeight + 1) {
@@ -104,6 +109,13 @@ export function attachLandingScrollSnap(root: HTMLElement) {
       element = element.parentElement
     }
     const sign = Math.sign(event.deltaY)
+    continuous = event.deltaMode === 0
+    if (continuous) {
+      intent = true
+      direction = sign
+      settle()
+      return
+    }
     const now = performance.now()
     if (frame && sign === activeDirection) { event.preventDefault(); lastWheel = now; return }
     if (frame) cancel()
@@ -127,6 +139,7 @@ export function attachLandingScrollSnap(root: HTMLElement) {
     if (!sign) { cancel(); return }
     if (frame && sign === activeDirection) { event.preventDefault(); return }
     cancel()
+    continuous = false
     intent = true
     direction = sign
     const top = destination(sign)
