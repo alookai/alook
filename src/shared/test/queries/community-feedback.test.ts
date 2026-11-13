@@ -10,16 +10,21 @@ const migration = readFileSync(new URL("../../../web/migrations/0116_community_b
 describe("bot feedback migration, validation and persistence", () => {
   let sqlite: Sqlite.Database;
   let db: Database;
+  let queries: { sql: string; params: unknown[] }[];
   beforeEach(() => {
     sqlite = new Sqlite(":memory:");
     sqlite.pragma("foreign_keys = ON");
     sqlite.exec("CREATE TABLE user (id TEXT PRIMARY KEY); INSERT INTO user VALUES ('owner'), ('bot');");
     sqlite.exec(migration);
-    db = drizzle(sqlite) as unknown as Database;
+    queries = [];
+    db = drizzle(sqlite, { logger: { logQuery(sql, params) { queries.push({ sql, params }); } } }) as unknown as Database;
   });
   afterEach(() => sqlite.close());
   it.each(["a".repeat(10240), "😀".repeat(2560), "中".repeat(3413) + "a", "a" + "\u0000".repeat(10239)])("stores a full 10 KiB body with literal text and server identity", async (text) => {
     const result = await submitFeedback(db, "owner", "bot", { text });
+    expect(queries).toHaveLength(1);
+    expect(queries[0]!.sql).toContain('insert into "community_bot_feedback"');
+    expect(queries[0]!.params).toEqual([expect.any(String), "owner", "bot", text, result.createdAt]);
     expect(sqlite.prepare("SELECT * FROM community_bot_feedback").get()).toEqual({
       id: expect.any(String), owner_id: "owner", bot_id: "bot", text, created_at: result.createdAt,
     });
