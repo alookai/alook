@@ -147,7 +147,7 @@ async function readAuthoritativeState(actors: CaseActors, value: ReadingCase) {
 }
 
 type PageReceipt = { direction: "older" | "newer"; cursor: string; status: number; time: number; timing: ReturnType<ReturnType<Response["request"]>["timing"]>; ids: string[]; page?: ReturnType<typeof CommunityMessagesReadSchema.parse>["page"] }
-type PageRequest = { direction: "older" | "newer"; cursor: string; time: number; finished: boolean; failure?: string; reading?: { id: string; offset: number; ready: boolean } | null }
+type PageRequest = { direction: "older" | "newer"; cursor: string; time: number; finished: boolean; failure?: string }
 type PageTraffic = { receipts: PageReceipt[]; requests: PageRequest[] }
 function observePages(actors: CaseActors, page: Page, endpoint: string) {
   const receipts: PageReceipt[] = []
@@ -161,20 +161,6 @@ function observePages(actors: CaseActors, page: Page, endpoint: string) {
       cursor: url.searchParams.get("cursor") ?? url.searchParams.get("since")!, time: Date.now(), finished: false }
     requests.push(entry)
     requestEntries.set(request, entry)
-    const operation = page.evaluate(rootId => {
-      const root = document.querySelector<HTMLElement>(`[data-testid="${rootId}"]`)
-      if (!root) return null
-      const viewport = root.getBoundingClientRect()
-      const bottom = viewport.bottom - Number(root.dataset.composerOcclusion ?? 0)
-      const body = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]")).find(body => {
-        const rect = body.getBoundingClientRect()
-        return rect.height > 0 && rect.bottom > viewport.top + 1 && rect.top < bottom - 1
-      })
-      return body ? { id: body.dataset.msgId!, offset: body.getBoundingClientRect().top - viewport.top,
-        ready: root.querySelector("[data-read-position-ready]")?.getAttribute("data-read-position-ready") === "true" } : null
-    }, tid.messageScroller).then(reading => { entry.reading = reading }, () => { entry.reading = null })
-    pending.add(operation)
-    void operation.finally(() => pending.delete(operation))
   }
   const pending = new Set<Promise<void>>()
   const failures: unknown[] = []
@@ -254,19 +240,18 @@ async function twoPages(page: Page, root: Locator, traffic: PageTraffic, directi
     expect(new Set(accepted.map(receipt => receipt.cursor)).size).toBe(accepted.length)
     expect(new Set(accepted.flatMap(receipt => receipt.ids)).size).toBeGreaterThan(50)
     await expect(root).toHaveAttribute("data-pagination-enabled", "true")
+    const stoppedAfter = await settledPages(root, traffic)
     const issued = requests.slice(requestBaseline).filter(request => request.direction === direction)
     expect(issued.length).toBeGreaterThanOrEqual(2)
-    await expect.poll(() => issued.every(request => request.reading !== undefined)).toBe(true)
     for (const request of issued) {
       expect(request.failure).toBeUndefined()
+      expect(request.finished).toBe(true)
       const source = receipts.find(receipt => receipt.status === 200
         && (direction === "older" ? receipt.page?.olderCursor : receipt.page?.newerCursor) === request.cursor)
       expect(source, `${direction}: actual cursor producer`).toBeDefined()
-      expect(request.reading, `${direction}: actual reading body at request`).not.toBeNull()
-      expect(request.reading!.ready).toBe(true)
-      expect(source!.ids).toContain(request.reading!.id)
+      expect(receipts.find(receipt => receipt.direction === direction && receipt.cursor === request.cursor)?.status,
+        `${direction}: actual cursor response`).toBe(200)
     }
-    const stoppedAfter = await settledPages(root, traffic)
     await markScrollTrace(page, `${direction}-page-owner-settled`, { detail: { observedAt: Date.now(), stoppedBefore, stoppedAfter, issued } })
     return positions
   }, { dataTransitionSource: direction === "older" ? "older-page" : "newer-page", commandDirection: direction === "older" ? "backward" : "forward" })

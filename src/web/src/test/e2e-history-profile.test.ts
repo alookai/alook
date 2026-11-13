@@ -1,6 +1,9 @@
 import { readD1Migrations } from "@cloudflare/vitest-plugin"
 import { randomUUID } from "crypto"
-import { mkdtempSync, rmSync } from "fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
+import { execFile } from "child_process"
+import { promisify } from "util"
+import { pathToFileURL } from "url"
 import { tmpdir } from "os"
 import { resolve } from "path"
 import { createRequire } from "module"
@@ -72,6 +75,38 @@ async function fixture() {
 }
 
 describe("case historical profile through native local D1", () => {
+  it("loads the actual fixture and its D1 module through the native Playwright worker", async () => {
+    const directory = resolve(root, "worker-loader")
+    mkdirSync(directory)
+    const fixture = resolve(import.meta.dirname, "e2e-ui/_fixtures/case-fixture.ts")
+    const history = pathToFileURL(resolve(import.meta.dirname, "e2e-ui/_fixtures/local-history.ts")).href
+    const requireFromTest = createRequire(import.meta.url)
+    const playwrightTest = requireFromTest.resolve("@playwright/test")
+    const shared = requireFromTest.resolve("@alook/shared")
+    writeFileSync(resolve(directory, "playwright.config.ts"), 'export default { testDir: ".", testMatch: "loader.spec.ts", workers: 1, retries: 0, timeout: 10000, reporter: "json" }\n')
+    writeFileSync(resolve(directory, "loader.spec.ts"), `
+      import { test, expect } from ${JSON.stringify(playwrightTest)}
+      import { CommunityMessagesReadSchema } from ${JSON.stringify(shared)}
+      import { test as actualCaseTest } from ${JSON.stringify(fixture)}
+      test("actual D1 fixture worker load", async () => {
+        expect(typeof CommunityMessagesReadSchema.parse).toBe("function")
+        expect(actualCaseTest).toBeDefined()
+        const module = await import(${JSON.stringify(history)})
+        expect(typeof module.seedLocalHistory).toBe("function")
+      })
+    `)
+    const { stdout } = await promisify(execFile)(process.execPath, [requireFromTest.resolve("@playwright/test/cli"), "test", "--config", resolve(directory, "playwright.config.ts"), "--tsconfig", resolve(import.meta.dirname, "../../tsconfig.json")], {
+      cwd: resolve(import.meta.dirname, "../.."), timeout: 20_000,
+    }).catch(error => {
+      console.error(error.stdout)
+      throw error
+    })
+    const report = JSON.parse(stdout)
+    expect(report.errors).toEqual([])
+    expect(report.stats.expected).toBe(1)
+    expect(report.stats.unexpected).toBe(0)
+    expect(report.suites[0].specs[0].tests[0].results[0].workerIndex).toBe(0)
+  })
   it("preserves 300 ordered canonical rows and a nonauthor's unread state across binding consumers", async () => {
     const input = await fixture()
     const result = await fillHistoricalProfile(db, input)

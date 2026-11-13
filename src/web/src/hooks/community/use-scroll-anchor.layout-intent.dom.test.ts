@@ -145,6 +145,67 @@ it("keeps the qualified tail when late New inserts a real divider inside the vis
   } finally { h.view.unmount() }
 })
 
+it("keeps the cached exact tail when pending entry becomes ready with real New and regrouping", () => {
+  const rows = messages(), before = flattenMessageItems(rows, undefined), after = flattenMessageItems(rows, "m48")
+  const prior = before.find(item => item.kind === "message" && item.m.id === "m48")!
+  const next = after.find(item => item.kind === "message" && item.m.id === "m48")!
+  expect(prior.kind === "message" && prior.m.grouped).toBe(true)
+  expect(next.kind === "message" && next.m.grouped).toBe(false)
+  expect(after.at(-1)?.key).toBe(before.at(-1)?.key)
+  const h = mount({ items: before, hasMoreOlder: false, positionEntry: {}, newBoundaryOwner: {}, positionDataState: "ready" })
+  try {
+    const sample = (phase: string) => ({ ...tailGeometry(h, phase), nativeDistance: scrollFixture.latest.virtualizer.getDistanceFromEnd() })
+    const samples = [sample("qualified-cached-tail")]
+    expect(Math.abs(samples[0].tailDistance)).toBeLessThanOrEqual(1)
+    expect(samples[0].nativeAtEnd).toBe(true)
+    h.update({ positionDataState: "pending" })
+    samples.push(sample("pending-entry-cached-tail"))
+    expect(Math.abs(samples[1].tailDistance)).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    const height = h.root.scrollHeight
+    h.update({ positionDataState: "ready", items: after, newDividerBefore: "m48" })
+    samples.push(sample("ready-entry-New-measured"))
+    expect(h.root.querySelector('[data-message-divider-for="m48"] [data-new-divider]')).not.toBeNull()
+    expect(h.root.scrollHeight).toBeGreaterThan(height)
+    expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop), JSON.stringify(samples)).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.virtualizer.isAtEnd(1)).toBe(true)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    runFrames(40)
+    expect(scrollFixture.frames.size).toBe(0)
+  } finally { h.view.unmount() }
+})
+
+it("does not issue another tail command when pending entry confirms the unchanged exact layout", () => {
+  const h = mount({ items: flattenMessageItems(messages(), undefined), hasMoreOlder: false, positionEntry: {}, positionDataState: "ready" })
+  try {
+    const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
+    h.update({ positionDataState: "pending" })
+    h.update({ positionDataState: "ready" })
+    expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop)).toBeLessThanOrEqual(1)
+    expect(end).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  } finally { h.view.unmount() }
+})
+
+it("keeps manual history ownership when pending entry becomes ready with New", () => {
+  const rows = messages()
+  const h = mount({ items: flattenMessageItems(rows, undefined), hasMoreOlder: false, positionEntry: {}, newBoundaryOwner: {}, positionDataState: "ready" })
+  try {
+    h.update({ positionDataState: "pending" })
+    h.move(h.root.scrollHeight - h.root.clientHeight - 60)
+    const body = visibleBody(h.root)
+    expect(scrollFixture.latest.followingTail).toBe(false)
+    h.update({ positionDataState: "ready", items: flattenMessageItems(rows, "m48"), newDividerBefore: "m48" })
+    expect(h.root.querySelector('[data-message-divider-for="m48"] [data-new-divider]')).not.toBeNull()
+    expect(Math.abs(bodyTop(h.root, body.id) - body.top)).toBeLessThanOrEqual(1)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeGreaterThan(1)
+    expect(scrollFixture.latest.followingTail).toBe(false)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  } finally { h.view.unmount() }
+})
+
 it("preserves the historical body when New changes its same-author grouping and padding", () => {
   const rows = messages()
   const before = flattenMessageItems(rows, undefined)

@@ -14,6 +14,7 @@ import { manifest } from "./manifest"
 import { createSeed, type CaseSeed } from "./seed"
 import { retrySeedRequest } from "./seed-retry"
 import type { HistoricalRow } from "./historical-profile"
+import { seedLocalHistory } from "./local-history"
 
 export type CaseActors = {
   asUser: (key: UserKey, options?: Omit<BrowserContextOptions, "storageState">) => Promise<{ context: BrowserContext; page: Page }>
@@ -421,7 +422,6 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
             const started = performance.now()
             if (exiting || !resources.has(`channel:${channelId}`)) throw new Error("History channel belongs to a different case owner")
             for (const row of rows) { user(row.author); businessRoles.add(row.author) }
-            const { seedLocalHistory } = await import("./local-history")
             const result = await seedLocalHistory({
               channelId, rows, idPrefix: `history_${stamp}`, resources: caseResources, lifecycle: historyLifecycle, configSHA256: historyConfigSHA256,
               actors: roles.map(role => ({ role, id: user(role).userId, email: user(role).email })),

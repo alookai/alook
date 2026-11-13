@@ -137,6 +137,122 @@ describe("manual reading waits for the real matching row commit", () => {
       return rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1
     })?.dataset.msgId
   }
+  function movedBeforeWheelReader(offset = 0) {
+    const reading = vi.fn()
+    const h = mount({ items: Array.from({ length: 120 }, (_, index) => message(`m${index}`)), onReadingMessage: reading })
+    h.move(600)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(scrollFixture.latest.paginationRequestPending).toBe(false)
+    reading.mockClear()
+    commitGate.hold = true
+    act(() => h.root.scrollTo({ top: offset }))
+    expect(h.root.scrollTop).toBe(offset)
+    fireEvent.wheel(h.root, { deltaY: offset - 600 })
+    runFrames(1)
+    expect(commitGate.publish).toBeDefined()
+    expect(reading).not.toHaveBeenCalled()
+    return { h, reading }
+  }
+  it.each([[0, "m0"], [350, "m2"]] as const)("reports the first reading at %s when root moves before wheel samples the input", (offset, id) => {
+    const { h, reading } = movedBeforeWheelReader(offset)
+    try {
+      runFrames(40)
+      expect(reading).not.toHaveBeenCalled()
+      expect(scrollFixture.frames.size).toBe(0)
+      publishRows()
+      runFrames(2)
+      expect(actualReadingBody(h.root)).toBe(id)
+      expect(reading).toHaveBeenCalledExactlyOnceWith(id)
+      runFrames(40)
+      expect(reading).toHaveBeenCalledOnce()
+      expect(scrollFixture.frames.size).toBe(0)
+    } finally { commitGate.hold = false; h.view.unmount() }
+  })
+  it("does not report wheel intent followed by a same-position scroll", () => {
+    const reading = vi.fn()
+    const h = mount({ items: Array.from({ length: 120 }, (_, index) => message(`m${index}`)), onReadingMessage: reading })
+    h.move(600)
+    const before = { offset: h.root.scrollTop, id: actualReadingBody(h.root) }
+    reading.mockClear()
+    fireEvent.wheel(h.root, { deltaY: -600 })
+    fireEvent.scroll(h.root)
+    resize(40)
+    expect(h.root.scrollTop).toBe(before.offset)
+    expect(actualReadingBody(h.root)).toBe(before.id)
+    expect(reading).not.toHaveBeenCalled()
+    expect(scrollFixture.frames.size).toBe(0)
+  })
+  it.each(["above", "below"] as const)("does not borrow a movement from passive %s-fold measurement before wheel intent", location => {
+    const reading = vi.fn()
+    const h = mount({ items: Array.from({ length: 120 }, (_, index) => message(`m${index}`)), onReadingMessage: reading })
+    h.move(600)
+    reading.mockClear()
+    const native = scrollFixture.latest.virtualizer
+    const row = native.getVirtualItems().find(row => String(row.key).startsWith("msg:")
+      && (location === "above" ? row.end <= h.root.scrollTop : row.start > h.root.scrollTop + h.root.clientHeight))
+    if (!row) throw new Error("An actual measured row is required")
+    const id = actualReadingBody(h.root)!
+    const before = { offset: h.root.scrollTop, body: bodyTop(h.root, id), total: native.getTotalSize() }
+    commitGate.hold = true
+    scrollFixture.bodyHeights.set(String(row.key).slice(4), row.size + 80)
+    act(() => native.resizeItem(row.index, row.size + 80))
+    expect(native.getTotalSize()).toBeGreaterThan(before.total)
+    expect(h.root.scrollTop).toBe(location === "above" ? before.offset + 80 : before.offset)
+    fireEvent.wheel(h.root, { deltaY: -600 })
+    resize(0)
+    publishRows()
+    runFrames(40)
+    expect(bodyTop(h.root, id)).toBe(before.body)
+    expect(actualReadingBody(h.root)).toBe(id)
+    expect(reading).not.toHaveBeenCalled()
+    expect(scrollFixture.frames.size).toBe(0)
+  })
+  it.each(["entry", "window", "items"] as const)("does not reuse the old %s baseline when movement precedes input", scope => {
+    const reading = vi.fn()
+    const h = mount({ items: Array.from({ length: 120 }, (_, index) => message(`m${index}`)), messageWindow: {}, onReadingMessage: reading })
+    h.move(600)
+    reading.mockClear()
+    commitGate.hold = true
+    if (scope === "entry") h.stage({ positionEntry: {} })
+    else if (scope === "window") h.stage({ messageWindow: {} })
+    else h.stage({ items: [...h.input.items] })
+    act(() => h.root.scrollTo({ top: 0 }))
+    fireEvent.wheel(h.root, { deltaY: -600 })
+    runFrames(1)
+    publishRows()
+    runFrames(40)
+    expect(h.root.scrollTop).toBe(0)
+    expect(reading).not.toHaveBeenCalled()
+    expect(scrollFixture.frames.size).toBe(0)
+  })
+  it.each(["target", "present", "hidden"] as const)("retires movement sampled after displacement through %s", async retirement => {
+    const { h, reading } = movedBeforeWheelReader()
+    let finishPresent: ((result: MessageRequestResult) => void) | undefined
+    try {
+      if (retirement === "target") h.stage({ scrollToMessageId: "m20" })
+      else if (retirement === "present") {
+        const completed = new Promise<MessageRequestResult>(resolve => { finishPresent = resolve })
+        act(() => scrollFixture.latest.requestPresentPosition({ accepted: true, completed }))
+        expect(scrollFixture.latest.presentPositionPending).toBe(true)
+      }
+      else { h.stage({ active: false }); h.stage({ active: true }) }
+      fireEvent.wheel(h.root, { deltaY: -800 })
+      publishRows()
+      runFrames(40)
+      expect(h.root.scrollTop).toBe(0)
+      expect(reading).not.toHaveBeenCalled()
+      expect(scrollFixture.frames.size).toBe(0)
+      fireEvent.wheel(h.root, { deltaY: 800 })
+      act(() => h.root.scrollTo({ top: 500 }))
+      resize(40)
+      expect(actualReadingBody(h.root)).toBeDefined()
+      expect(reading).toHaveBeenCalledExactlyOnceWith(actualReadingBody(h.root))
+    } finally {
+      if (finishPresent) await act(async () => finishPresent?.({ status: "cancelled" }))
+      commitGate.hold = false
+      h.view.unmount()
+    }
+  })
   it("wakes the first moved reading after a simultaneous real measurement with no page owner", () => {
     const reading = vi.fn()
     const h = mount({ items: Array.from({ length: 120 }, (_, index) => message(`m${index}`)), onReadingMessage: reading })

@@ -1,7 +1,7 @@
 import { messageProfilesFixture } from "@/test/community-resource-fixtures"
 import { resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { StrictMode, useLayoutEffect } from "react"
+import { StrictMode, useCallback, useLayoutEffect } from "react"
 import { useChannelMessageFeed } from "./use-channel-message-feed"
 import { useMessageChannelController } from "@/components/community/messages/message-channel-controller-state"
 import { MessageList } from "@/components/community/messages/message-list"
@@ -9,7 +9,7 @@ import { ConversationFooterShell, ConversationFooterSlotProvider } from "@/compo
 import { CurrentUserProvider } from "@/contexts/community/current-user"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { ConversationActivityContext } from "@/contexts/view-activity"
-import { dehydrate, IsRestoringProvider, QueryClientProvider } from "@tanstack/react-query"
+import { dehydrate, hashKey, IsRestoringProvider, QueryClientProvider, type Query } from "@tanstack/react-query"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture } from "@/test/conversation-entry-fixtures"
@@ -23,6 +23,7 @@ import { disposeAccountReadStateReconciliation, type AccountReadStateSnapshot } 
 import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-persister"
 import { restoreConversationDisplayWindows } from "@/lib/community/restored-conversation-window"
 import { communityKeys } from "@/lib/query-keys"
+import type { MessageWindowData } from "@/lib/community/message-window"
 import { writeCommunityCollectionChanges } from "@/lib/community-db/write"
 
 const navigationMock = vi.hoisted(() => ({ href: "/c/channels/s1/c1", replace: vi.fn() }))
@@ -52,6 +53,7 @@ let observers: Observer[]
 let owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
 let mounted: ReturnType<typeof render> | undefined
 let releaseTransport: () => void
+let releasePageObserver: (() => void) | undefined
 let visibility: DocumentVisibilityState
 type Kind = "channel" | "post" | "thread"
 const viewer = { id: "viewer", name: "Viewer", email: "viewer@example.test", avatar: "V" }
@@ -60,8 +62,10 @@ let latest: {
   channel: ReturnType<typeof useMessageChannelController>
 }
 
-function Conversation({ channelId, kind, anchorMessageId, fullFooter }: { channelId: string; kind: Kind; anchorMessageId: string | null; fullFooter?: boolean }) {
+type ReadingObserver = (id: string, feed: ReturnType<typeof useChannelMessageFeed>) => void
+function Conversation({ channelId, kind, anchorMessageId, fullFooter, onReading }: { channelId: string; kind: Kind; anchorMessageId: string | null; fullFooter?: boolean; onReading?: ReadingObserver }) {
   const feed = useChannelMessageFeed({ channelId, serverId: "s1", viewerUserId: viewer.id, anchorMessageId })
+  const reading = useCallback((id: string) => { onReading?.(id, feed); feed.onReadingMessage(id) }, [feed, onReading])
   const channel = useMessageChannelController({ channelId, serverId: "s1", serverParam: "s1", channelName: "Conversation",
     viewer, anchorMessageId, feed, uiHandlers: {}, onOpenThread: () => {}, onOpenPinned: () => {}, resolveUserName: id => id,
     forumParentChannelId: kind === "post" ? "parent" : undefined,
@@ -75,7 +79,7 @@ function Conversation({ channelId, kind, anchorMessageId, fullFooter }: { channe
     preserveInitialPresentation: feed.preserveInitialPresentation,
     positionEntry: feed.positionEntry, positionScope: feed.positionScope,
     positionDataState: feed.positionDataState, messageWindow: feed.messageWindow, presentRequest: feed.presentRequest,
-    messageNeighborhood: feed.messageNeighborhood, onReadingMessage: feed.onReadingMessage,
+    messageNeighborhood: feed.messageNeighborhood, onReadingMessage: onReading ? reading : feed.onReadingMessage,
     scrollToMessageId: channel.scrollTargetId, onScrollTargetConsumed: channel.consumeScrollTarget,
     hasMore: feed.hasMoreOlder, hasMoreNewer: feed.hasMoreNewer, historyStartKnown: feed.historyStartKnown,
     isFetching: feed.isFetching, isFetchingOlder: feed.isFetchingOlder, isFetchingNewer: feed.isFetchingNewer,
@@ -126,8 +130,15 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
   missingReadPointer?: boolean
   pageTransport?: (url: string) => unknown
   initialAnchor?: string
+  onReading?: ReadingObserver
+  onPageAccepted?: (query: Query, direction: "forward" | "backward") => void
 } = {}) {
   owner = await createCommunityQueryOwner()
+  releasePageObserver = options.onPageAccepted && owner.client.getQueryCache().subscribe(event => {
+    if (event.type === "updated" && event.action.type === "fetch" && event.action.meta?.fetchMore) {
+      options.onPageAccepted?.(event.query, event.action.meta.fetchMore.direction)
+    }
+  })
   if (options.initialAnchor) navigationMock.href = `/c/channels/s1/c1?msg=${options.initialAnchor}`
   await seedConversationEntry(owner.client, options.cached ?? entry(kind, "c1", ownTail),
     { channelId: "c1", serverId: "s1", ...(options.initialAnchor ? { anchorMessageId: options.initialAnchor } : {}) })
@@ -201,7 +212,7 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
     <CurrentUserProvider initialUser={viewer}>
       <CommunityRouteContext value={{ navigation } as never}>
         <ConversationActivityContext value={active}>
-          <Conversation key={channelId} channelId={channelId} kind={channelId === "c1" ? kind : "channel"} anchorMessageId={anchorMessageId} fullFooter={options.fullFooter} />
+          <Conversation key={channelId} channelId={channelId} kind={channelId === "c1" ? kind : "channel"} anchorMessageId={anchorMessageId} fullFooter={options.fullFooter} onReading={options.onReading} />
         </ConversationActivityContext>
       </CommunityRouteContext>
     </CurrentUserProvider>
@@ -310,6 +321,7 @@ beforeEach(() => {
   observers = []
   mounted = undefined
   load.mockReset()
+  releasePageObserver = undefined
   navigationMock.href = "/c/channels/s1/c1"
   visibility = "visible"
   navigationMock.replace.mockImplementation((href: string) => { navigationMock.href = href })
@@ -324,6 +336,7 @@ beforeEach(() => {
   })
 })
 afterEach(async () => {
+  releasePageObserver?.()
   mounted?.unmount()
   if (owner) { disposeReadCoordinator(owner.client); disposeAccountReadStateReconciliation(owner.client) }
   await act(async () => releaseTransport?.())
@@ -331,7 +344,7 @@ afterEach(async () => {
 })
 
 describe("conversation entry positioning through real reading owners", () => {
-  async function readingPageNeighbors(mode: "tail" | "middle", variable = false) {
+  async function readingPageNeighbors(mode: "tail" | "middle", variable = false, crossAfterAccept = false) {
     const full = entry("channel")
     const cursor = (seq: number) => `${full.messages[seq - 1].createdAt}|m${seq}`
     const page = (first: number, last: number) => ({ messages: full.messages.slice(first - 1, last), profiles: full.profiles,
@@ -339,6 +352,18 @@ describe("conversation entry positioning through real reading owners", () => {
       hasMoreNewer: last < 42, newerCursor: last < 42 ? cursor(last) : null, latestSeq: 42 })
     if (variable) for (let seq = 11; seq <= 20; seq++) scrollFixture.bodyHeights.set(`m${seq}`, 170 + seq)
     const current = page(21, mode === "tail" ? 42 : 34)
+    const initial = mode === "middle" ? { mode: "anchor" as const, anchor: "m30" } : { mode: "newest" as const }
+    const fixturePages = [
+      { param: initial, packet: current },
+      { param: { mode: "older" as const, cursor: cursor(21) }, packet: page(11, 20) },
+      ...(mode === "middle" ? [{ param: { mode: "newer" as const, cursor: cursor(34) }, packet: page(35, 42) }] : []),
+      { param: { mode: "older" as const, cursor: cursor(11) }, packet: page(1, 10) },
+    ]
+    let readingAtCallback: { id: string; body: string | undefined; readable: boolean; dataReady: boolean; snapshotFetching: boolean; query: Query | undefined } | undefined
+    const accepted: Array<{
+      reading: typeof readingAtCallback; query: Query; direction: "forward" | "backward"; sourceKey: string | undefined
+      ids: string[]; cursor: string | null | undefined; fetchStatus: string
+    }> = []
     const cached = { ...full, messages: current.messages, page: { olderCursor: current.olderCursor, newerCursor: current.newerCursor,
       hasMoreOlder: current.hasMoreOlder, hasMoreNewer: current.hasMoreNewer, latestSeq: current.latestSeq },
       selection: mode === "tail" ? full.selection : { reason: "explicit_anchor" as const, anchorMessageId: "m30" } }
@@ -348,7 +373,28 @@ describe("conversation entry positioning through real reading owners", () => {
     const older = new Promise<ReturnType<typeof page>>(resolve => { finishOlder = resolve })
     const newer = new Promise<ReturnType<typeof page>>(resolve => { finishNewer = resolve })
     const further = new Promise<ReturnType<typeof page>>(resolve => { finishFurther = resolve })
-    const view = await setup("channel", false, false, { cached, initialAnchor: mode === "middle" ? "m30" : undefined, pageTransport: url => {
+    const view = await setup("channel", false, false, { cached, initialAnchor: mode === "middle" ? "m30" : undefined,
+      onReading: (id, feed) => {
+        const root = document.querySelector<HTMLElement>('[data-testid="community-message-scroller"]')
+        const viewport = root?.getBoundingClientRect()
+        const body = viewport && [...root!.querySelectorAll<HTMLElement>("[data-msg-id]")].find(body => {
+          const rect = body.getBoundingClientRect()
+          return rect.height > 0 && rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1
+        })
+        readingAtCallback = { id, body: body?.dataset.msgId,
+          readable: root?.querySelector("[data-read-position-ready]")?.getAttribute("data-read-position-ready") === "true",
+          dataReady: feed.positionDataState === "ready", snapshotFetching: feed.readSnapshotFetching,
+          query: owner.client.getQueryCache().find({ queryKey: communityKeys.channelMessagesWindow("c1", initial), exact: true }) }
+      },
+      onPageAccepted: (query, direction) => {
+        if (query.queryKey[2] !== "c1" || query.queryKey[3] !== "messages") return
+        const data = query.state.data as MessageWindowData | undefined
+        const index = direction === "forward" ? (data?.pages.length ?? 0) - 1 : 0
+        const source = data?.pages[index], param = data?.pageParams[index]
+        accepted.push({ query, direction, reading: readingAtCallback && { ...readingAtCallback },
+          sourceKey: param && hashKey([param]), ids: source?.messages.map(message => message.id) ?? [],
+          cursor: direction === "forward" ? source?.olderCursor : source?.newerCursor, fetchStatus: query.state.fetchStatus })
+      }, pageTransport: url => {
       const search = new URL(url, "https://test.invalid").searchParams
       if (search.get("cursor") === cursor(21)) return older
       if (search.get("cursor") === cursor(11)) return further
@@ -399,6 +445,19 @@ describe("conversation entry positioning through real reading owners", () => {
       return rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1
     })!
     const id = visible.dataset.msgId!, point = offset(id), nextReading = latest.feed.messageNeighborhood!.page
+    if (crossAfterAccept) {
+      const pendingNewer = accepted.find(request => request.direction === "backward")!
+      expect(pendingNewer).toBeDefined()
+      expect(pendingNewer.query.state.fetchStatus).toBe("fetching")
+      expect(pendingNewer.reading?.query).toBe(pendingNewer.query)
+      expect(current.messages.map(message => message.id)).toContain(pendingNewer.reading?.id)
+      expect(page(11, 20).messages.map(message => message.id)).toContain(id)
+      expect(readingAtCallback?.id).toBe(id)
+      expect(readingAtCallback?.id).not.toBe(pendingNewer.reading?.id)
+      expect(pendingNewer.ids).not.toContain(id)
+      expect(pendingNewer.sourceKey).toBe(hashKey([initial]))
+      expect(pendingNewer.cursor).toBe(cursor(34))
+    }
     if (mode === "middle") {
       await act(async () => { finishNewer(page(35, 42)); await newer; await vi.advanceTimersByTimeAsync(0) })
       resize()
@@ -415,12 +474,31 @@ describe("conversation entry positioning through real reading owners", () => {
     expect(Math.abs(offset(id) - point)).toBeLessThanOrEqual(1)
     expect(requests()).toEqual([...initialRequests, `older:${cursor(11)}`])
     expect(root.querySelector("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "true")
+    expect(accepted).toHaveLength(initialRequests.length + 1)
+    for (const request of accepted) {
+      expect(request.reading).toBeDefined()
+      expect(request.reading!.id).toBe(request.reading!.body)
+      expect(request.reading!.readable).toBe(true)
+      expect(request.reading!.dataReady).toBe(true)
+      expect(request.reading!.snapshotFetching).toBe(false)
+      expect(request.reading!.query).toBe(request.query)
+      expect(request.fetchStatus).toBe("fetching")
+      const expected = fixturePages.filter(value => value.packet.messages.some(message => message.id === request.reading!.id))
+      expect(expected).toHaveLength(1)
+      expect(request.sourceKey).toBe(hashKey([expected[0].param]))
+      expect(request.ids).toEqual(expected[0].packet.messages.map(message => message.id))
+      expect(request.cursor).toBe(request.direction === "forward" ? expected[0].packet.olderCursor : expected[0].packet.newerCursor)
+      expect(requests()).toContain(`${request.direction === "forward" ? "older" : "newer"}:${request.cursor}`)
+    }
   }
   it.each(["tail", "middle"] as const)("loads only the %s reading page neighbors, then replenishes after real user crossing", async mode => {
     await readingPageNeighbors(mode)
   })
   it.each(["tail", "middle"] as const)("completes a manual %s page crossing after variable native rows commit at the edge", async mode => {
     await readingPageNeighbors(mode, true)
+  })
+  it("keeps Query acceptance attribution when the viewport crosses pages before its response", async () => {
+    await readingPageNeighbors("middle", true, true)
   })
 
   it("reveals an old restored thread window after mount without launching a second freshness owner while entry is held", async () => {

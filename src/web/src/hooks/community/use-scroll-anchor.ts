@@ -166,8 +166,14 @@ export function useScrollAnchor({
   }
   type Geometry = {
     epoch: number
+    root: HTMLDivElement
+    native: ReactVirtualizer<HTMLDivElement, Element>
+    entry: typeof positionEntry
+    window?: object
+    items: FlatItem[]
     key: string | number | bigint
     itemStart: number
+    itemSize: number
     clientHeight: number
     clientWidth: number
     scrollHeight: number
@@ -639,8 +645,9 @@ export function useScrollAnchor({
       || Math.abs((item.kind === "message" ? measureMessageRow(wrapper) : wrapperRect.height) - fold.size) > 1
       || Math.abs(wrapperRect.top - viewport.top - root.clientTop + root.scrollTop - fold.start) > 1) return null
     return {
-      epoch: owner.epoch, key: fold.key,
-      itemStart: fold.start, clientHeight: root.clientHeight, clientWidth: root.clientWidth,
+      epoch: owner.epoch, root, native, entry: positionEntryRef.current,
+      window: contextRef.current.messageWindow, items: currentItemsRef.current, key: fold.key,
+      itemStart: fold.start, itemSize: fold.size, clientHeight: root.clientHeight, clientWidth: root.clientWidth,
       scrollHeight: root.scrollHeight, scrollTop: root.scrollTop,
       total, paddingEnd: native.options.paddingEnd ?? 0,
       pinEligible: native.isAtEnd(CONVERSATION_TAIL_SPACE_PX) && !followSuspension.get()
@@ -1492,11 +1499,34 @@ export function useScrollAnchor({
       const carry = previousReading?.pending && owner.active && contextRef.current.active && contextRef.current.visible
         && positionKind.get() === "idle" && owner.manualEpoch === owner.epoch && previousReading.epoch === owner.epoch
         ? previousReading : null
+      const previous = acceptedGeometryRef.current, native = virtualizerRef.current, context = contextRef.current
+      const fold = previous && native?.getVirtualItemForOffset(previous.scrollTop + 1)
+      const moved = previous && owner.active && context.active && context.visible && context.dataState === "ready"
+        && !context.entryChanged && positionKind.get() === "idle" && readReady.get() && previous.epoch === owner.epoch
+        && previous.root === root && previous.native === native && previous.entry === positionEntryRef.current
+        && previous.window === context.messageWindow && previous.items === currentItemsRef.current
+        && previous.clientHeight === root.clientHeight && previous.clientWidth === root.clientWidth
+        && previous.scrollHeight === root.scrollHeight && previous.total === native?.getTotalSize()
+        && previous.paddingEnd === (native?.options.paddingEnd ?? 0)
+        && fold?.key === previous.key && fold.start === previous.itemStart && fold.size === previous.itemSize
+        && Math.abs(previous.scrollTop - root.scrollTop) > 1
+        && !viewportCorrectionRef.current && !projectionAnchorRef.current && !semanticIntentRef.current
+        && !(paginationRef.current?.phase === "settling" && paginationRef.current.restoringBody) ? previous : null
       releasePosition(true)
       const current = readingInput()
       if (current && carry && carry.root === root && carry.window === current.window && carry.items === current.items
         && carry.height === current.height && carry.width === current.width
         && carry.paddingEnd === current.paddingEnd) { current.pending = true; current.messageId = carry.messageId }
+      else if (current && moved && moved.root === current.root && moved.native === virtualizerRef.current
+        && moved.entry === positionEntryRef.current && moved.window === current.window && moved.items === current.items
+        && moved.clientHeight === current.height && moved.clientWidth === current.width
+        && moved.scrollHeight === current.scrollHeight && moved.total === current.total && moved.paddingEnd === current.paddingEnd
+        && Math.abs(moved.scrollTop - current.offset) > 1) {
+        const item = moved.items.find(item => item.key === moved.key)
+        current.pending = true
+        current.offset = moved.scrollTop
+        current.messageId = item?.kind === "message" ? item.m.id : null
+      }
       inputOwner.reading = current && positionOwnerRef.current.manualEpoch === current.epoch ? current : null
       setFollowSuspended(true)
       if (root.scrollTop <= 1) holdNativeOrigin(currentItemsRef.current[0]?.key ?? null)
@@ -1698,11 +1728,13 @@ export function useScrollAnchor({
     const owner = positionOwnerRef.current
     const geometry = acceptedGeometryRef.current
     const native = virtualizerRef.current
+    const root = scrollRef.current
     if (previous !== "pending" || dataState !== "ready" || !visible || !owner.active || entryChanged
       || positionKind.get() !== "idle" || !readReady.get() || !initialScrollReady
       || initialPositionMessageId || scrollToMessageId || pendingLocalSubmit || followSuspension.get()
       || hasMoreNewer || isFetchingOlder || isFetchingNewer || paginationRef.current
-      || geometry?.epoch !== owner.epoch || !geometry.pinEligible || !native || native.isAtEnd(CONVERSATION_TAIL_SPACE_PX)) return
+      || geometry?.epoch !== owner.epoch || !geometry.pinEligible || !native || !root
+      || (native.isAtEnd(1) && Math.abs(Math.max(0, root.scrollHeight - root.clientHeight) - root.scrollTop) <= 1)) return
     // Synthetic prefix rows can hide an append-with-trim from native follow detection.
     // Reuse the initial position owner for its already-pinned local tail confirmation.
     claimPosition("initial")
