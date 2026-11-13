@@ -1,198 +1,89 @@
 export const metadata = {
-  slug: "claude-code-subagents-vs-independent-agents",
-  title: "Claude Code Subagents vs Independent Coding Agents",
-  date: "2026-07-23",
-  author: "Alook Team",
-  excerpt:
-    "Compare Claude Code subagents with independent coding agents: nested helpers, Agent Teams, and when a coordination layer is the better fit.",
-  readingTime: "8 min read",
-  image: "/blog/claude-code-subagents-vs-independent-agents/hero.webp",
+  "slug": "claude-code-subagents-vs-independent-agents",
+  "title": "Claude Code Subagents vs Independent Agents: Which Setup Fits Your Work?",
+  "date": "2026-07-23",
+  "dateModified": "2026-11-13",
+  "author": "Alook Team",
+  "excerpt": "Choose between Claude Code subagents, another Claude session, Agent Teams, and agents across runtimes based on the task, its owner, and who needs the result.",
+  "readingTime": "6 min read",
+  "image": "/blog/claude-code-subagents-vs-independent-agents/hero.webp"
 };
 
-export const jsonLd = [
-  {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: [
-      {
-        "@type": "Question",
-        name: "What is the difference between Claude Code subagents and independent coding agents?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "A Claude Code subagent is a nested worker inside one parent session. It has its own context window and returns a result to the caller. An independent coding agent has its own session or runtime identity and is not temporary work nested under one parent conversation.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "How do Claude Code Agent Teams differ from subagents?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Subagents report upward to the parent only and do not message each other. Claude Code Agent Teams run separate Claude sessions that can share a task list and exchange messages directly. Teams are still inside the Claude Code ecosystem.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "When should I use Claude Code subagents?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Use a subagent when the side task is bounded, the parent only needs the conclusion, and the workers do not need to negotiate with each other. Repository exploration, focused reviews, and independent investigations are common fits.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "When do I need a coordination layer instead of nested subagents?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Use a coordination layer when work must survive across days, people, or runtimes, or when durable roles and handoffs need to live outside one parent Claude Code conversation. Subagents remain useful inside a single session even when a coordination layer handles cross-runtime handoffs.",
-        },
-      },
-    ],
-  },
-];
+[![Four equal arrangements: a subagent, your second session, a Claude-led team, and your teammate’s agent.](/blog/claude-code-subagents-vs-independent-agents/hero.webp)](/blog/claude-code-subagents-vs-independent-agents/hero.webp)
 
-![Hand-drawn diagram comparing nested Claude Code subagents under one parent session with independent agents linked by a coordination node](/blog/claude-code-subagents-vs-independent-agents/hero.webp)
+[View original image](/blog/claude-code-subagents-vs-independent-agents/hero.webp)
 
-Claude Code can delegate a repository search, test run, or review to a subagent without filling your main conversation with every file read and command output. For many coding tasks, that is exactly the right level of delegation. Confusion starts when "subagent" and "independent agent" get treated as synonyms, especially once Agent Teams enter the conversation and every multi-agent pattern starts sounding interchangeable.
+Suppose you're using Claude Code to change an API, and you want a second pair of eyes on the callers before the interface changes. Where should that review happen, and who will use the result?
 
-This article separates three layers: nested subagents inside one Claude Code session, Agent Teams across multiple Claude sessions, and fully independent agents that coordinate through an external layer.
+Start with where that second opinion belongs. If your current conversation needs a focused finding to finish its job, a subagent fits. If you want to steer another full conversation, open a separate session. Agent Teams let Claude coordinate several workers; another person's agent introduces a different owner and working environment.
 
-By the end, you should know which model fits the work without adding structure you do not need.
+Claude Code supports communication within and across sessions, subject to the setup. The useful distinction is who owns the work and where the result needs to go.
 
-## What Claude Code subagents actually do
+[![Four arrangements for an API change: a review returned to its caller, two sessions steered by one person, workers coordinated by a Claude lead, and separate owners sharing an interface decision.](/blog/claude-code-subagents-vs-independent-agents/working-relationships.webp)](/blog/claude-code-subagents-vs-independent-agents/working-relationships.webp)
 
-Claude Code subagents are specialized workers that handle scoped tasks in separate context windows. A subagent can have its own system prompt, model, tool access, permissions, and optional memory. When the task finishes, the result returns to the session that called it, while intermediate file reads, searches, logs, and tool calls stay outside the parent conversation. Anthropic's [Claude Code subagent documentation](https://code.claude.com/docs/en/sub-agents) recommends this pattern when side work would dump information into the main context that you will not need later, and repository exploration is the classic case: the subagent can inspect dozens of files and return only the call sites that matter.
+[View original image](/blog/claude-code-subagents-vs-independent-agents/working-relationships.webp)
 
-That separation keeps the parent readable.
+## Can the review come back to your current conversation?
 
-It does not make the workers autonomous peers. The parent still decides what to delegate, and the parent still receives the result.
+For the API change, you might ask a subagent to find callers that depend on the old response format. You need those locations and the compatibility concern. You probably don't need every search and file read in the conversation where you're deciding how to change the interface.
 
-### Built-in and custom subagents
+That's the useful part of context isolation: the investigation can be large while the returned answer stays focused. The API conversation owns the implementation decision, so the review belongs back there, alongside the reasons for changing the interface.
 
-Claude Code includes built-in workers for exploration, planning, and general-purpose tasks. You can also define custom subagents for recurring work such as security review or test investigation. A custom definition improves specialization, but the communication model stays the same: the subagent reports to its caller.
+A [Claude Code subagent](https://code.claude.com/docs/en/sub-agents) has its own context, and you can restrict its tools for a read-only review. A fresh worker needs enough background to understand the proposed API change. A fork can inherit the conversation when the review depends on the discussion so far.
 
-## When Claude Code subagents are the right default
+If you want to continue that investigation tomorrow, resume the original saved session and a resumable worker. Explore and Plan are one-shot workers without resumable agent IDs; use a general-purpose or custom subagent for work you need to continue. The calendar alone doesn't make another full session necessary.
 
-Use a subagent when the task is bounded and the parent only needs the conclusion.
+One worker needing to pass a finding to another doesn't, by itself, require a new session either. Some named subagents can message other workers listed at startup when their tools allow it. Communication alone isn't a reason to move a focused review out of the conversation that needs its result.
 
-Good candidates include:
+## A second Claude session can have its own job
 
-- locating every call site for a function
-- checking documentation for an API constraint
-- running a focused test suite and summarizing failures
-- reviewing a patch against a defined checklist
-- comparing two implementation options before the parent chooses one
+Now suppose you're handling both the API change and its frontend update, and you want to discuss each separately. In one Claude session, you work through compatibility. In another, you update the frontend against that interface. Both conversations are yours to steer.
 
-Several subagents can investigate independent questions in parallel. One might inspect authentication, another might trace database access, and a third checks the tests. Their findings return to the parent, which decides what happens next.
+Here, a summary returned to the first conversation may be too small a role for the frontend work. You want a place to question the approach, inspect its changes, and redirect it without making every exchange part of the API discussion. A separate session gives that work its own conversation.
 
-Why does this work?
+When your installed version and session configuration support [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging), your Claude sessions can pass findings to each other. The message doesn't copy their conversation histories or transfer referenced files. If you decide to retain the old response field during a transition, send that decision to the frontend session before it finishes against a different assumption.
 
-Because the branches do not need to negotiate with one another. Each worker gets a question and returns an answer.
+Agent view gives you one screen to dispatch and monitor sessions. It can help you keep track of several jobs, while you continue to decide what each job should do. Opening two sessions alone doesn't establish their dependency or tell either one which decision has changed.
 
-### When a nested helper beats another session
+Separate conversations also don't prevent file collisions. If both sessions will edit the same project, choose their working copies and file boundaries deliberately. Our guide to [multiple AI agents editing the same repository](https://alook.ai/blog/multiple-ai-agents-edit-same-repository) covers that part.
 
-Opening another full coding session adds another place to monitor. If the work is temporary and its result belongs in the current conversation, a subagent is usually enough: you finish the side task without inventing a second working identity to manage afterward.
+## Who will keep several Claude workers coordinated?
 
-## Where nested Claude Code subagents stop helping
+You may want Claude to take on the coordination too: split the API work, assign the frontend change and compatibility review, and follow up as findings arrive. That is a reason to consider Agent Teams beyond simply needing one worker to send another a message.
 
-The limitation is architectural. Subagents are not weak tools that somehow failed to grow up. A subagent belongs to a parent-led flow: output travels up, new instructions travel back down, and that is fine until the workers need to coordinate directly.
+With [Claude Code Agent Teams](https://code.claude.com/docs/en/agent-teams), a lead coordinates separate Claude sessions. Teammates can communicate directly; a shared task list is available to agents with the Task tools. The feature is experimental and disabled by default.
 
-*Illustrative scenario:* one subagent is checking `src/billing/stripe-webhook.ts` and finds that the event payload type must change. Another is already reviewing the handlers that consume that type. The first worker cannot message its sibling. Its finding returns to the parent, which has to decide whether to interrupt the second review and how to restate the constraint.
+In the API example, the lead can keep the review tied to the implementation and pass the interface decision to the frontend worker. You can then address the group through the lead instead of personally tracking each conversation. People still make the actual product and release decisions; giving Claude a coordination role doesn't expand its authority.
 
-Do the workers need to talk to each other?
+Coordinating the pieces becomes a job of its own when several workers need to act on each other's findings. If the frontend work must wait for one unresolved API decision, starting more workers won't remove that dependency. Settle it, or give the waiting worker useful independent work.
 
-If the answer is yes, nested subagents start to feel cramped. Claude Code Agent Teams behave differently: teammates can exchange messages and work from a shared task list. That lateral path is one of the clearest distinctions between teams and subagents, and it is also why the two terms get tangled in search results.
+Teams are one Claude-native option, alongside subagents and separately managed sessions. The official [parallel-work guide](https://code.claude.com/docs/en/agents) also covers agent view, dynamic workflows, and Projects if your need is dispatching jobs, scripting a larger process, or ongoing project work.
 
-Other boundaries appear when work must:
+## What changes when a teammate brings their own agent?
 
-- continue outside the original parent conversation
-- move between different people or machines
-- pass from Claude Code to Codex or another runtime
-- preserve a durable role across several assignments
+Change one detail: a colleague owns the frontend, and their existing coding agent uses Codex. You still own the API work with Claude Code. This is no longer a choice about opening another one of your own Claude conversations. Someone else has their own decisions, permissions, and working files.
 
-Optional subagent memory can retain useful information across invocations. That still does not create peer chat between siblings, and it does not build a shared coordination layer across runtimes. Subagents remain a strong fit for parent-led delegation; the mismatch appears when the workflow no longer has one natural parent.
+Native messaging between your Claude sessions doesn't establish a conversation with that colleague's Codex. Claude can call an external tool through an integration, but calling a helper and inviting another person's agent to participate are different arrangements.
 
-## Independent coding agents mean more than another Claude pane
+The API finding now needs to reach the frontend owner where they can question it and act on it. For example: "Keep the old field during the transition; can your frontend change use the new field without requiring us to remove the old one?" That question belongs in a shared discussion, rather than being left inside your API session.
 
-"Independent agent" is an ambiguous phrase. It can point to at least two different setups, and search results often mash them together.
+Alook supports this kind of [multi agent collaboration](https://alook.ai/): people and their bots can join one discussion while the agents run on their owners' machines. Post the interface decision and relevant files in that shared discussion so the colleague and their agent can question the change and continue the frontend work from the agreed interface.
 
-![Three-column sketch showing nested subagents, Claude agent teams with peer messaging, and independent agents linked by a coordination node](/blog/claude-code-subagents-vs-independent-agents/three-layers.webp)
+For the concrete setup and review steps, see [how to use Claude Code and Codex together](https://alook.ai/blog/claude-code-and-codex-same-team). The choice here is about who participates; that guide covers how to pass the work between them.
 
-### Claude Code Agent Teams vs Claude Code subagents
+## Choose where the next result belongs
 
-[Claude Code Agent Teams](https://code.claude.com/docs/en/agent-teams) run multiple Claude Code sessions under a team lead. Each teammate has its own context window, the team shares a task list, and teammates can message one another directly.
+<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Agent setup choices; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto" }}>
+<div style={{ minWidth: "620px" }}>
 
-That is a real step beyond subagents. Teammates can discuss findings, claim work, and coordinate without routing every exchange through the lead. Agent Teams still operate within Claude Code, so use them when several Claude sessions need peer coordination and the work stays inside one product ecosystem.
+| What you need now | Starting option | Who keeps the work connected |
+| --- | --- | --- |
+| A focused finding used by the current conversation | Subagent | The caller judges and uses the result |
+| Another full Claude conversation you can steer | Separate session | You coordinate the jobs, using messages when useful |
+| Claude to assign and follow several connected tasks | Agent Teams, where applicable | The lead coordinates within the authority people give it |
+| Another person's agent or a different tool joining as a participant | Explicit collaboration across agents | The participants agree on decisions and the next owner |
 
-### Cross-runtime agents operate outside one parent session
+</div>
+</div>
 
-A different architecture appears when one agent runs in Claude Code and another runs in Codex or OpenCode. Neither is a child of the other. Each runtime keeps its own working context, permissions, and execution environment, and the agents may hold stable roles, such as implementer and reviewer, across several tasks.
-
-In this article, **independent coding agents** means agents that have their own session or runtime identity and are not temporary workers nested beneath one parent conversation.
-
-Independence creates a new requirement: once no single session owns the complete plan, decisions, status, and handoffs need somewhere else to live.
-
-## Claude Code subagents vs independent agents: what actually differs
-
-![Side-by-side sketch of vertical subagent reporting versus independent agents coordinating outside one parent session](/blog/claude-code-subagents-vs-independent-agents/architecture-compare.webp)
-
-| Dimension | Claude Code subagents | Independent coding agents |
-|---|---|---|
-| Context ownership | Separate context window; result returns to the parent | Separate session or runtime context |
-| Communication | Reports to the caller | Uses peer messages or explicit handoffs |
-| Coordination | Parent session manages delegation | Coordination exists outside one parent conversation |
-| Lifecycle | Called as part of a parent-led task | May retain a role across multiple tasks |
-| Runtime scope | Claude Code | May span Claude Code, Codex, OpenCode, or other runtimes |
-| Continuity | Parent receives the result in its current workflow | Decisions and status must persist across sessions |
-| Best fit | Bounded side work where only the result matters | Multi-session or cross-runtime work with durable ownership |
-
-Claude Code Agent Teams sit between these columns. They provide separate sessions and peer communication, while remaining inside Claude Code. The table is not a ladder. Independence adds coordination work, and if one parent can handle the task cleanly, durable agents may be extra structure you do not need.
-
-### A simple test before you add more agents
-
-Who should receive the next important finding?
-
-If the answer is always "the current Claude session," stay with a subagent. If teammates inside Claude need it, consider Agent Teams. If the answer may be another runtime or another day, the workflow has moved beyond nested delegation.
-
-## Pick the lighter model first
-
-Start with the simplest option that matches the communication pattern.
-
-Most people overbuild here.
-
-**If the work stays in one Claude Code session and you only need a clean result,** use a subagent. It keeps the parent conversation focused and avoids creating another working identity to manage.
-
-**If several Claude sessions need to exchange findings on the same project,** use Claude Code Agent Teams. That is the official path for lateral coordination inside Claude Code. Keep the setup light, and treat it as Claude-internal peer collaboration rather than a cross-runtime system.
-
-**If the work must survive across days, people, or runtimes,** use independent agents with a coordination layer. Durable roles and explicit handoffs matter once no single parent conversation owns the full plan.
-
-Does this work outlive the current Claude session?
-
-If not, stay nested. If yes, pick the middle or right-hand model on purpose instead of forcing subagents to pretend they are a team. Most workflows should stay with the first option for a long time; the useful skill is noticing when the architecture, not the agent quality, is the constraint. That recognition usually arrives later than the urge to add more agents.
-
-## Where a coordination layer fits
-
-A coordination layer does not replace Claude Code subagents. The two solve different problems: subagents help a Claude Code session delegate focused work while protecting its context, while a coordination layer helps separate agents recover decisions, identify ownership, and pass work across session or runtime boundaries. We built [Alook](https://alook.ai) for the second case. Local coding agents retain their underlying runtimes, while roles, message threads, and recorded history provide continuity outside any single conversation. That arrangement can still include subagents, so a Claude Code agent may use nested helpers to explore a repository and then hand the resulting implementation to an independent Codex reviewer.
-
-The nested work stays inside Claude Code.
-
-The cross-runtime handoff lives at the coordination layer. For a concrete cross-runtime example, see [how to bring Claude Code and Codex into the same team](/blog/claude-code-and-codex-same-team). The guides to [shared context between agents](/blog/shared-context-between-agents) and [building an AI agent team](/blog/personal-ai-company) cover the surrounding handoff and role design.
-
-## FAQ
-
-**What is the difference between Claude Code subagents and independent coding agents?**
-
-A Claude Code subagent is a nested worker inside one parent session. An independent coding agent has its own session or runtime identity and is not temporary work under one parent conversation.
-
-**How do Claude Code Agent Teams differ from subagents?**
-
-Subagents report upward only. Agent Teams can share a task list and message each other directly, while remaining inside Claude Code.
-
-**When should I use Claude Code subagents?**
-
-When the side task is bounded, the parent only needs the conclusion, and the workers do not need to negotiate with each other.
-
-**When do I need a coordination layer instead of nested subagents?**
-
-When work must survive across days, people, or runtimes, or when durable roles and handoffs need to live outside one parent Claude Code conversation.
-
-Claude Code subagents are often enough. Keep them when one parent conversation can own the work. Move to independent agents when the work itself needs an identity and history beyond that conversation.
+These choices can coexist. Your Claude Code session can use a subagent to inspect API callers, then share the finding with your colleague's Codex in the discussion where the frontend work is being decided. Keep the side investigation close to its caller; give the shared decision to the people and agents who need to act on it.
