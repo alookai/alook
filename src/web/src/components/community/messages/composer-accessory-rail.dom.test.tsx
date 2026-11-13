@@ -11,6 +11,30 @@ vi.mock("@/components/ui/number-ticker", () => ({
 }))
 
 describe("ComposerAccessoryRail geometry", () => {
+  it("keeps pending and failure feedback in the existing row and permits one retry after failure", () => {
+    const onScroll = vi.fn(), onNew = vi.fn()
+    const view = (pending: boolean, error: boolean) => <ComposerAccessoryRail typingNames={[]}
+      scrollCount={0} scrollMode="scroll" onScroll={onScroll} scrollPending={pending} scrollError={error}
+      newVisible onNew={onNew} />
+    const renderer = render(view(true, false))
+    const rail = renderer.getByTestId(tid.composerAccessoryRail)
+    const pending = renderer.getByRole("button", { name: "Loading messages" })
+    expect(pending).toBeDisabled()
+    expect(pending).toHaveAttribute("aria-busy", "true")
+    expect(renderer.getByRole("status")).toHaveTextContent("Loading messages…")
+    fireEvent.click(pending)
+    expect(onScroll).not.toHaveBeenCalled()
+    renderer.rerender(view(false, true))
+    expect(renderer.getByTestId(tid.composerAccessoryRail)).toBe(rail)
+    expect(rail).toHaveStyle({ height: "32px" })
+    fireEvent.click(renderer.getByRole("button", { name: "Could not load recent messages. Retry" }))
+    expect(onScroll).toHaveBeenCalledOnce()
+    fireEvent.click(renderer.getByRole("button", { name: "Jump to New" }))
+    expect(onNew).toHaveBeenCalledOnce()
+    renderer.rerender(view(false, false))
+    expect(renderer.queryByTestId(tid.scrollToPresent)).toBeNull()
+  })
+
   it("retains the typing status and independent actions while the center joins and leaves New", () => {
     const onNew = vi.fn(), onScroll = vi.fn()
     const view = (count: number, pending = false) => <ComposerAccessoryRail typingNames={["Alice"]} scrollCount={count}

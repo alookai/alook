@@ -238,6 +238,21 @@ export function knownConversationLatestSeq(client: QueryClient, channelId: strin
     .map(scope => Math.max(scope.lastUnreadSeq, scope.lastAttentionSeq ?? 0)))
 }
 
+export function recoverActiveConversationEntries(client: QueryClient, channelId: string) {
+  const token = captureCommunityLiveSnapshotToken(client, channelId)
+  const prefix = communityKeys.conversationEntries(channelId)
+  return client.refetchQueries({ queryKey: prefix, type: "active", predicate: query => {
+    const intent = query.queryKey[prefix.length] as Parameters<typeof communityKeys.conversationEntry>[1]
+    if (!intent || query.queryHash !== hashKey(communityKeys.conversationEntry(channelId, intent, {
+      accountEpoch: token.accountEpoch, accessEpoch: token.accessEpoch,
+      channelGeneration: token.channelScopes.get(channelId)?.generation ?? 0,
+    }))) return false
+    const resource = query.state.data as ConversationEntryResource | undefined
+    return query.state.status !== "success" || query.state.fetchStatus !== "idle"
+      || !resource || !isChannelMetadataTokenCurrent(resource.proof)
+  } }, { cancelRefetch: false, throwOnError: true })
+}
+
 export function conversationEntryOptions(client: QueryClient, target: ConversationEntryTarget, observation?: ApiRequestOptions["observation"]) {
   const qualification = captureCommunityLiveSnapshotToken(client, target.channelId)
   const queryKey = communityKeys.conversationEntry(target.channelId, target, {

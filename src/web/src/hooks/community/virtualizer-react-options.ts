@@ -3,6 +3,8 @@ import type { VirtualItem } from "@tanstack/react-virtual"
 export type VirtualRowsLayoutSnapshot = {
   totalSize: number
   scrollMargin: number
+  physicalScrollMargin: number
+  container: HTMLDivElement | null
   rows: VirtualItem[]
 }
 

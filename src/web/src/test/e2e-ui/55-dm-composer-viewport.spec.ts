@@ -1,3 +1,5 @@
+import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
+import { CommunityConversationEntryReadSchema } from "@alook/shared"
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
@@ -25,7 +27,17 @@ test("DM composer clear preserves pinned and away viewport geometry", async ({ c
         && new URL(request.url()).pathname === `/api/community/channels/${composerDmId}/messages`
       ) messagePosts += 1
     })
+    const entryResponse = alice.page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return response.request().method() === "GET" && url.pathname === `/api/community/channels/${composerDmId}/messages`
+        && url.searchParams.get("entry") === "1"
+    })
+    void entryResponse.catch(() => undefined)
     await gotoAfterUserWsAuth(alice.page, `/c/me/${composerDmId}`)
+    const entryRead = await entryResponse
+    expect(entryRead.status()).toBe(200)
+    const entry = CommunityConversationEntryReadSchema.parse(await entryRead.json())
+    expect(entry.page.hasMoreNewer).toBe(false)
     const scroller = alice.page.getByTestId(tid.messageScroller)
     const editable = composerEditable(alice.page)
     await expect(editable).toBeVisible()
@@ -57,7 +69,7 @@ test("DM composer clear preserves pinned and away viewport geometry", async ({ c
     expect(tailGeometry.paddingBottom).toBe(0)
     expect(tailGeometry.tailGap).toBeGreaterThanOrEqual(39)
     expect(tailGeometry.tailGap).toBeLessThanOrEqual(41)
-    expect(Math.abs(tailGeometry.scrollerBottom - tailGeometry.composerBottom)).toBeLessThanOrEqual(1)
+    expect(Math.abs(tailGeometry.scrollerBottom - tailGeometry.composerTop)).toBeLessThanOrEqual(1)
     await startScrollTrace(alice.page, {
       scenario: "dm-composer-clear-viewport",
       identity: identity(composerDmId),
@@ -69,7 +81,7 @@ test("DM composer clear preserves pinned and away viewport geometry", async ({ c
       (_, line) => `${prefix} line ${line} ${"content ".repeat(8)}`,
     ).join("\n")
 
-    for (const distance of [0, 2, 100, 300]) {
+    for (const distance of [0, 2, CONVERSATION_TAIL_SPACE_PX, CONVERSATION_TAIL_SPACE_PX + 1, 100, 300]) {
       await editable.fill(composerLines(`dm-${distance}`))
       const precondition = distance === 0
         ? await establishExactPinnedPrecondition(scroller, `dm-composer-${distance}`, 0)
@@ -90,7 +102,7 @@ test("DM composer clear preserves pinned and away viewport geometry", async ({ c
         .toBeGreaterThan(before.readableHeight)
       const after = await waitForCommittedGeometry(scroller)
       expectComposerOverlayGeometry(after, `dm-${distance}-after`)
-      expectResizeAnchorPreserved(before, after, distance, `dm-${distance}-after`)
+      expectResizeAnchorPreserved(before, after, distance <= CONVERSATION_TAIL_SPACE_PX ? "tail" : "reading", `dm-${distance}-after`)
       await endScrollTraceAnalysis(alice.page, `dm-composer-shrink-${distance}`)
       await advanceScrollTraceFrame(scroller)
     }
@@ -99,10 +111,10 @@ test("DM composer clear preserves pinned and away viewport geometry", async ({ c
     const segments = new Map(
       summarizeScrollTrace(trace).analysisSegments.map((segment) => [segment.name, segment]),
     )
-    for (const distance of [0, 2, 100, 300]) {
+    for (const distance of [0, 2, CONVERSATION_TAIL_SPACE_PX, CONVERSATION_TAIL_SPACE_PX + 1, 100, 300]) {
       const segmentName = `dm-composer-shrink-${distance}`
       expect(segments.get(segmentName)).toBeDefined()
-      expectContinuousResizeAnchorPreserved(trace, segmentName, distance)
+      expectContinuousResizeAnchorPreserved(trace, segmentName, distance <= CONVERSATION_TAIL_SPACE_PX ? "tail" : "reading")
     }
     expect(messagePosts).toBe(0)
     expect(proxy.frames.flatMap(communityFrameEvents).filter((event) =>

@@ -1,4 +1,5 @@
-import { communityFixtureFetch } from "./_fixtures/business-contract"
+import { CommunityConversationEntryReadSchema, CommunityMessagesReadSchema } from "@alook/shared"
+import { communityFixtureFetch, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 
 import { tid } from "./_fixtures/testids"
@@ -17,7 +18,7 @@ test("anchored channel jumps to the newest tail with one request", async ({ case
   const channelId = await seedChannel("alice", serverId, `jump-present-${Date.now()}`)
   const anchorId = await seedMessage("alice", channelId, "jump anchor")
   let latestId = ""
-  for (let index = 1; index <= 36; index++) {
+  for (let index = 1; index <= 120; index++) {
     latestId = await seedMessage(index % 2 === 0 ? "bob" : "carol", channelId, `newer message ${index}`)
   }
   const readResponse = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
@@ -32,8 +33,26 @@ test("anchored channel jumps to the newest tail with one request", async ({ case
   expect(readResponse.ok).toBe(true)
 
   const { page } = await asUser("alice")
+  const endpoint = `/api/community/channels/${channelId}/messages`
+  const entryResponse = confirmCommunityFixtureApiResponse(page.waitForResponse(response => response.request().method() === "GET"
+    && new URL(response.url()).pathname === endpoint && new URL(response.url()).searchParams.get("entry") === "1"))
+  const neighborResponse = confirmCommunityFixtureApiResponse(page.waitForResponse(response => response.request().method() === "GET"
+    && new URL(response.url()).pathname === endpoint && new URL(response.url()).searchParams.has("since")))
+  void entryResponse.catch(() => undefined)
+  void neighborResponse.catch(() => undefined)
   await page.goto(`/c/channels/${serverId}/${channelId}?msg=${anchorId}`)
   await expect(page.getByTestId(tid.message(anchorId))).toBeVisible({ timeout: 30_000 })
+  const entryRead = await entryResponse
+  expect(entryRead.status()).toBe(200)
+  const entry = CommunityConversationEntryReadSchema.parse(await entryRead.json())
+  expect(entry.selection.anchorMessageId).toBe(anchorId)
+  expect(entry.page.hasMoreNewer).toBe(true)
+  const neighborRead = await neighborResponse
+  expect(neighborRead.status()).toBe(200)
+  expect(new URL(neighborRead.url()).searchParams.get("since")).toBe(entry.page.newerCursor)
+  const neighbor = CommunityMessagesReadSchema.parse(await neighborRead.json())
+  expect(neighbor.page.hasMoreNewer).toBe(true)
+  expect([...entry.messages, ...neighbor.messages].map(message => message.id)).not.toContain(latestId)
   const jumpButton = page.getByRole("button", { name: "Jump to present", exact: true })
   await expect(jumpButton).toBeVisible({ timeout: 20_000 })
   await expect(jumpButton).toHaveText("Jump to present")

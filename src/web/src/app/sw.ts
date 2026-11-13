@@ -10,6 +10,7 @@ import { clearOutdatedPublicWorkerCaches } from "../lib/service-worker/public-ca
 import { communityShellHash, isCommunityShellAssetRequest, isCommunityShellNavigation, isCommunityShellResponse } from "../lib/service-worker/community-shell"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared/business-schema-version"
 import { CURRENT_DOCUMENT_REQUEST, WORKER_VERSION_PROBE, upgradeBusinessWindow } from "../lib/service-worker/business-upgrade"
+import { WEB_BUILD_ID } from "../lib/web-build"
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -68,13 +69,14 @@ self.addEventListener("activate", event => event.waitUntil((async () => {
 
 self.addEventListener("message", event => {
   if (event.data?.type === WORKER_VERSION_PROBE) {
-    event.ports[0]?.postMessage({ schemaVersion: BUSINESS_SCHEMA_VERSION })
+    event.ports[0]?.postMessage({ schemaVersion: BUSINESS_SCHEMA_VERSION, buildId: WEB_BUILD_ID })
     return
   }
   if (event.data?.type !== CURRENT_DOCUMENT_REQUEST) return
   event.waitUntil((async () => {
     const source = event.source
-    if (!source || !("id" in source) || event.data.schemaVersion !== BUSINESS_SCHEMA_VERSION || !await serwist.matchPrecache(shellUrl)) {
+    if (!source || !("id" in source) || event.data.schemaVersion !== BUSINESS_SCHEMA_VERSION
+      || event.data.buildId !== undefined && event.data.buildId !== WEB_BUILD_ID || !await serwist.matchPrecache(shellUrl)) {
       event.ports[0]?.postMessage({ navigating: false })
       return
     }

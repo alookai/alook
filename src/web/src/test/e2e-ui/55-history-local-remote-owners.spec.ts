@@ -1,3 +1,4 @@
+import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import { communityFixtureFetch } from "./_fixtures/business-contract"
 import { CommunityMessagesReadSchema, type CommunityConversationEntryRead } from "@alook/shared"
 import { test, expect } from "./_fixtures/case-fixture"
@@ -68,6 +69,10 @@ test("local history submission and passive remote append use distinct owners", a
       const url = new URL(request.url())
       if (request.method() === "GET" && url.pathname === `/api/community/channels/${channelId}/messages` && url.search === "") newestGets += 1
     })
+    const newestResponse = alice.page.waitForResponse(response => response.request().method() === "GET"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
+      && new URL(response.url()).search === "")
+    void newestResponse.catch(() => undefined)
     const newest = await holdNextRequest(actors, alice.page, `**/api/community/channels/${channelId}/messages**`, url => url.search === "")
     await startScrollTrace(alice.page, {
       scenario: "local-history-submission",
@@ -94,6 +99,9 @@ test("local history submission and passive remote append use distinct owners", a
       await sendMessage(alice.page, localContent)
       await newest.matched
       newest.release()
+      const latest = await newestResponse
+      expect(latest.status()).toBe(200)
+      expect(CommunityMessagesReadSchema.parse(await latest.json()).page.hasMoreNewer).toBe(false)
       const response = await localPost
       expect(response.status()).toBe(201)
       const nonce = response.request().postDataJSON().nonce as string
@@ -121,7 +129,7 @@ test("local history submission and passive remote append use distinct owners", a
     }
     actors.onCleanup(attachPassiveTrace)
     for (const author of ["bob", "alice"] as const) {
-      for (const distance of [0, 1, 2, 20, 100, 101]) {
+      for (const distance of [0, 1, 2, 20, CONVERSATION_TAIL_SPACE_PX, CONVERSATION_TAIL_SPACE_PX + 1, 100, 101]) {
         await markScrollTrace(alice.page, `${author}-${distance}-admission-start`)
         await establishScrollDistancePrecondition(scroller, `${author}-${distance}`, distance, 0.01)
         const before = await waitForCommittedGeometry(scroller)
@@ -142,7 +150,7 @@ test("local history submission and passive remote append use distinct owners", a
           event.type === "community:message.create" && event.channelId === channelId && event.message?.id === result.message.id,
         )).length).toBe(1)
         await expectMessageCreateIdentity(proxy.frames, channelId, result.message, nonce)
-        if (distance <= 1) {
+        if (distance <= CONVERSATION_TAIL_SPACE_PX) {
           await expect(alice.page.getByTestId(tid.message(result.message.id))).toBeVisible()
           await waitForStableTail(scroller, `${author}-${distance}-received`)
         } else {

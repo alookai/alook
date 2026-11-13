@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { InfiniteQueryObserver } from "@tanstack/react-query"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
-import { messageWindowIdentity, messageWindowOptions } from "./message-window"
+import { messagePageForReading, messagePageNeighbors, messageWindowIdentity, messageWindowOptions } from "./message-window"
 
 const load = vi.hoisted(() => vi.fn())
 vi.mock("./account-cache-lifecycle", async (original) => ({
@@ -43,13 +43,24 @@ describe("native message window identity", () => {
       .mockResolvedValueOnce({ profiles: [profileResourceFixture()], messages: [row("m3", 3)], hasMoreOlder: true, hasMoreNewer: false, olderCursor: "m2", latestSeq: 3 })
     const options = messageWindowOptions(client, "c1", { mode: "anchor", anchor: "m2" }, "tag")
     await client.infiniteQuery({ ...options, select: undefined })
+    const initial = client.getQueryData(options.queryKey)!
+    const reading = messagePageForReading(initial, "m2")!
+    expect(messagePageNeighbors(initial, reading)).toEqual({ older: true, newer: true })
     const observer = new InfiniteQueryObserver(client, { ...options, enabled: false })
     const unsubscribe = observer.subscribe(() => {})
     await observer.fetchNextPage()
+    expect(messagePageForReading(client.getQueryData(options.queryKey)!, "m2")).toBe(reading)
+    expect(messagePageNeighbors(client.getQueryData(options.queryKey)!, reading)).toEqual({ older: false, newer: true })
     await observer.fetchPreviousPage()
     const data = client.getQueryData(options.queryKey)!
     expect(data.pageParams).toEqual([{ mode: "newer", cursor: "newer" }, { mode: "anchor", anchor: "m2" }, { mode: "older", cursor: "older" }])
     expect(data.pages.map((page) => page.messages)).toEqual([[{ id: "m3", seq: 3 }], [{ id: "m2", seq: 2 }], [{ id: "m1", seq: 1 }]])
+    const middle = messagePageForReading(data, "m2")!
+    expect(messagePageNeighbors(data, middle)).toEqual({ older: false, newer: false })
+    expect(messagePageForReading(data, "m1")).not.toBe(middle)
+    expect(messagePageNeighbors(data, messagePageForReading(data, "m1")!)).toEqual({ older: false, newer: false })
+    expect(messagePageNeighbors(data, messagePageForReading(data, "m3")!)).toEqual({ older: false, newer: false })
+    expect(messagePageForReading(data, "reply-target-only")).toBeUndefined()
     expect(load.mock.calls.map(([url]) => url)).toEqual([
       "/api/community/channels/c1/messages?tag=tag&anchor=m2",
       "/api/community/channels/c1/messages?tag=tag&cursor=older",

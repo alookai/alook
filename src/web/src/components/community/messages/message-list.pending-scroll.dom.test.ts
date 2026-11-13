@@ -49,6 +49,7 @@ function messageOffset(root: HTMLElement, id: string) {
 }
 
 describe("MessageList continuous input through an accepted page", () => {
+  const readingPage = {}
   it.each(["response-first", "rows-first"])("captures a first body reached after early prefetch (%s)", async order => {
     let messages = Array.from({ length: 50 }, (_, index) => message(index + 40))
     const before = {}, received = {}
@@ -58,11 +59,13 @@ describe("MessageList continuous input through an accepted page", () => {
     const view = (window = before, fetching = false) => React.createElement(MessageList, {
       channel: "general", messages, messageWindow: window, initialScrollReady: true,
       initialPositionMessageId: "m65", positionDataState: "ready", hasMore: true,
-      hasMoreNewer: true, isFetchingOlder: fetching, onLoadOlder: older, onOpenThread: vi.fn(),
+      hasMoreNewer: true, messageNeighborhood: { page: readingPage, older: messages.length === 50, newer: false }, isFetchingOlder: fetching, onLoadOlder: older, onOpenThread: vi.fn(),
     })
     const renderer = render(view())
     resize()
     const root = renderer.getByTestId(tid.messageScroller)
+    expect(anchorState.current!.virtualizer.measurementsCache[0].size).toBe(0)
+    expect(root.querySelector('[data-message-row-key="rail:leading"]')).toBeNull()
     fireEvent.wheel(root, { deltaY: -20 })
     act(() => root.scrollTo({ top: root.clientHeight }))
     resize(0)
@@ -134,6 +137,7 @@ describe("MessageList continuous input through an accepted page", () => {
     const view = (window = before, fetching = false) => React.createElement(MessageList, {
       channel: "general", messages, messageWindow: window, initialScrollReady: true,
       initialPositionMessageId: "m65", positionDataState: "ready", hasMore: true, hasMoreNewer: true,
+      messageNeighborhood: { page: readingPage, older: direction === "older" && messages.length === 50, newer: direction === "newer" && messages.length === 50 },
       isFetchingOlder: fetching && direction === "older", isFetchingNewer: fetching && direction === "newer",
       onLoadOlder: older, onLoadNewer: newer, onOpenThread: vi.fn(),
     })
@@ -164,8 +168,8 @@ describe("MessageList continuous input through an accepted page", () => {
     })
     record("initial-ready")
     expect(root.querySelector('[data-read-position-ready="true"]')).not.toBeNull()
-    expect(older).not.toHaveBeenCalled()
-    expect(newer).not.toHaveBeenCalled()
+    expect(older).toHaveBeenCalledTimes(direction === "older" ? 1 : 0)
+    expect(newer).toHaveBeenCalledTimes(direction === "newer" ? 1 : 0)
     const edge = direction === "older" ? 0 : root.scrollHeight - root.clientHeight
     fireEvent.wheel(root, { deltaY: edge - root.scrollTop })
     act(() => root.scrollTo({ top: edge }))
@@ -249,4 +253,89 @@ describe("MessageList continuous input through an accepted page", () => {
     expect(root.scrollTop).toBeCloseTo(settled, 0)
     expect(load).toHaveBeenCalledOnce()
   })
+  it("completes real manual reading after takeover of a settling older body anchor", async () => {
+    let messages = Array.from({ length: 50 }, (_, index) => message(index + 40))
+    const before = {}, received = {}, reading = vi.fn()
+    let complete!: (result: MessageRequestResult) => void
+    const completed = new Promise<MessageRequestResult>(resolve => { complete = resolve })
+    const older = vi.fn(() => ({ accepted: true as const, completed }))
+    const view = (window = before, fetching = false) => React.createElement(MessageList, {
+      channel: "general", messages, messageWindow: window, initialScrollReady: true,
+      initialPositionMessageId: "m65", positionDataState: "ready", hasMore: true,
+      hasMoreNewer: true, messageNeighborhood: { page: readingPage, older: messages.length === 50, newer: false },
+      isFetchingOlder: fetching, onLoadOlder: older, onReadingMessage: reading, onOpenThread: vi.fn(),
+    })
+    const renderer = render(view())
+    resize()
+    expect(older).toHaveBeenCalledOnce()
+    renderer.rerender(view(before, true))
+    const root = renderer.getByTestId(tid.messageScroller)
+    fireEvent.wheel(root, { deltaY: -800 })
+    act(() => root.scrollTo({ top: 0 }))
+    resize()
+    const point = messageOffset(root, "m40")!
+    expect(point).not.toBeNull()
+    await act(async () => { complete({ status: "success", window: received }) })
+    messages = [...Array.from({ length: 39 }, (_, index) => message(index + 1)), ...messages]
+    renderer.rerender(view(received))
+    resize(0)
+    runFrames(1)
+    expect(anchorState.current!.paginationRequestPending).toBe(true)
+    expect(Math.abs(messageOffset(root, "m40")! - point)).toBeLessThanOrEqual(1)
+    reading.mockClear()
+    fireEvent.wheel(root, { deltaY: -800 })
+    act(() => root.scrollTo({ top: 0 }))
+    runFrames(1)
+    fireEvent.wheel(root, { deltaY: -800 })
+    resize(50)
+    expect(reading).toHaveBeenCalledWith("m1")
+    expect(anchorState.current!.paginationRequestPending).toBe(false)
+    expect(root.scrollTop).toBe(0)
+    expect(older).toHaveBeenCalledOnce()
+  })
+
+  it.each(["response-first", "rows-first"] as const)("retains a stopped body when the initial newer neighbor reaches latest (%s)", async order => {
+    let messages = Array.from({ length: 50 }, (_, index) => message(index + 40))
+    const before = {}, received = {}
+    let complete!: (result: MessageRequestResult) => void
+    const completed = new Promise<MessageRequestResult>(resolve => { complete = resolve })
+    const newer = vi.fn(() => ({ accepted: true as const, completed }))
+    const view = (window = before, fetching = false) => React.createElement(MessageList, {
+      channel: "general", messages, messageWindow: window, initialScrollReady: true,
+      initialPositionMessageId: "m65", positionDataState: "ready", hasMore: true,
+      hasMoreNewer: messages.length === 50, messageNeighborhood: { page: readingPage, older: false, newer: messages.length === 50 },
+      isFetchingNewer: fetching, onLoadNewer: newer, onOpenThread: vi.fn(),
+    })
+    const renderer = render(view())
+    resize()
+    expect(newer).toHaveBeenCalledOnce()
+    renderer.rerender(view(before, true))
+    const root = renderer.getByTestId(tid.messageScroller)
+    act(() => root.scrollTo({ top: root.scrollHeight }))
+    resize()
+    const body = visibleMessage(root)!
+    expect(body).toBeDefined()
+    const id = body.dataset.msgId!, point = messageOffset(root, id)!
+    expect(point).not.toBeNull()
+    expect(anchorState.current!.virtualizer.options.scrollEndThreshold).toBe(-1)
+    const publish = () => { messages = [...messages, ...Array.from({ length: 39 }, (_, index) => message(index + 90))] }
+    if (order === "rows-first") {
+      publish()
+      renderer.rerender(view(before, true))
+      resize()
+      expect(messageOffset(root, id)).not.toBeNull()
+      expect(Math.abs(messageOffset(root, id)! - point)).toBeLessThanOrEqual(1)
+    }
+    await act(async () => { complete({ status: "success", window: received }) })
+    if (order === "response-first") publish()
+    renderer.rerender(view(received))
+    resize(50)
+    expect(messageOffset(root, id)).not.toBeNull()
+    expect(Math.abs(messageOffset(root, id)! - point)).toBeLessThanOrEqual(1)
+    expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBeGreaterThan(40)
+    expect(newer).toHaveBeenCalledOnce()
+    expect(anchorState.current!.paginationRequestPending).toBe(false)
+    expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+  })
+
 })

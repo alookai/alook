@@ -14,10 +14,10 @@ import { useMessageWindowProjection } from "@/lib/community-db/projections"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 import { useMessageOverlayIds } from "@/stores/community/message-stream"
 import { materializeMessageStream, type MessageScope } from "@/lib/community/message-stream"
-import { messageWindowOptions, type InitialMessageWindow, type MessageWindowData } from "@/lib/community/message-window"
+import { messagePageForReading, messagePageNeighbors, messageWindowOptions, type InitialMessageWindow, type MessageWindowData } from "@/lib/community/message-window"
 import { conversationEntryOptions, knownConversationLatestSeq, type findConversationEntryWindow } from "@/lib/community/conversation-entry"
 import type { Msg } from "@/lib/community/models/message"
-import type { MessagePositionState, MessageRequest, MessageRequestResult } from "@/lib/community/message-position"
+import type { MessageNeighborhood, MessagePositionState, MessageRequest, MessageRequestResult } from "@/lib/community/message-position"
 import { ConversationReadTimeoutError, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { isFailedMessageRepair, messageReconcileOptions, reconcileWindow } from "@/lib/community/message-reconcile"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
@@ -74,7 +74,7 @@ type MessagesOpts = {
 
 type ChannelMessagesOpts = MessagesOpts & { serverId: string }
 type DisplayWindow = NonNullable<ReturnType<typeof findConversationEntryWindow>>
-type PresentSelection = { attempt: number; pending: boolean; window: DisplayWindow | null; version: number; error: Error | null; request: MessageRequest | null }
+type PresentSelection = { attempt: number; pending: boolean; window: DisplayWindow | null; version: number; error: Error | null; request: MessageRequest | null; reading: { query: object; key: string } | null }
 
 export function useMessages(channelId: string | null, opts: ChannelMessagesOpts) {
   return useMessageSurface(channelId, opts, opts.serverId)
@@ -96,7 +96,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const viewKey = hashKey([channelId, serverId, anchorMessageId, tag, proof?.accountEpoch ?? -1, proof?.accessEpoch ?? -1,
     channelId ? proof?.channelScopes.get(channelId)?.generation ?? 0 : 0])
   const present = useMemo(() => ({ viewKey, intent: entry.intent,
-    state: createStore<PresentSelection>({ attempt: 0, pending: false, window: null, version: 0, error: null, request: null }),
+    state: createStore<PresentSelection>({ attempt: 0, pending: false, window: null, version: 0, error: null, request: null, reading: null }),
   }), [viewKey, entry.intent]).state
   const selection = useSelector(present, (state) => state)
   const retries = useMemo(() => ({ client, channelId, serverId, anchorMessageId, tag, intent: entry.intent,
@@ -181,6 +181,19 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const hasMoreOlder = (oldest?.hasMoreOlder ?? oldest?.hasMore) ?? false
   const historyStartKnown = !!selectedWindow && (oldest?.hasMoreOlder ?? oldest?.hasMore) === false
   const hasMoreNewer = newest?.hasMoreNewer ?? false
+  const reading = selection.reading?.query === originalQuery ? selection.reading : null
+  const messageNeighborhood = useMemo<MessageNeighborhood | undefined>(() => reading && query.data
+    ? { page: reading, ...messagePageNeighbors(query.data, reading.key) } : undefined, [query.data, reading])
+  const onReadingMessage = useCallback((messageId: string) => {
+    const original = committed.current
+    if (!original?.enabled || original !== owner || !original.query || !committedWindowReady.current) return
+    const data = original.query.state.data as MessageWindowData | undefined
+    if (!data) return
+    const current = present.get().reading
+    const key = messagePageForReading(data, messageId, current?.query === original.query ? current.key : undefined)
+    if (!key || current?.query === original.query && current.key === key) return
+    present.setState(state => ({ ...state, reading: { query: original.query!, key } }))
+  }, [owner, present])
   const fetchPage = useCallback((direction: "older" | "newer"): MessageRequest => {
     const original = committed.current
     if (!channelId || !original?.enabled || !original.query || original !== owner || !committedWindowReady.current) return { accepted: false }
@@ -314,9 +327,12 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     latestSeq, hasMoreOlder, hasMoreNewer, historyStartKnown, hasMore: hasMoreOlder,
     isLoading: loading, isPending: loading, isError: !!initialLoadError && !query.data,
     error, initialLoadError, targetLoadError, isFetching: entry.isFetching || query.isFetching,
+    olderLoadError: query.isFetchNextPageError ? query.error : null,
+    newerLoadError: query.isFetchPreviousPageError ? query.error : null,
+    presentPending: selection.pending, presentError: selection.error,
     isFetchingOlder: query.isFetchingNextPage,
     isFetchingNewer: query.isFetchingPreviousPage || selection.pending,
-    fetchOlder, fetchNewer, jumpToPresent, loadNewTarget, readNewBoundary, newBoundary: entry.newBoundary, retiredNewTargetId: entry.retiredNewTargetId, presentVersion: selection.version, presentRequest: selection.request,
+    fetchOlder, fetchNewer, messageNeighborhood, onReadingMessage, jumpToPresent, loadNewTarget, readNewBoundary, newBoundary: entry.newBoundary, retiredNewTargetId: entry.retiredNewTargetId, presentVersion: selection.version, presentRequest: selection.request,
     anchorReconciled: entry.targetCovered || !!selection.window,
     navigationBlocked: !selectedWindowReady,
     readSnapshot: entry.snapshot, readSnapshotFetching,

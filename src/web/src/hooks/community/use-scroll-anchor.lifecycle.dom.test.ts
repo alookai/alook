@@ -13,6 +13,179 @@ function request() {
 }
 
 describe("qualified positioning lifecycle", () => {
+  it("keeps automatic present-window resume neutral to a truly visible New boundary", async () => {
+    const window = {}, reached = vi.fn()
+    let finish!: (result: MessageRequestResult) => void
+    const completed = new Promise<MessageRequestResult>(resolve => { finish = resolve })
+    const present = vi.fn(() => ({ accepted: true, completed }))
+    const rows = Array.from({ length: 14 }, (_, index) => ({ ...message(`m${index}`), newDivider: index === 13 }))
+    const h = mount({ positionEntry: {}, items: rows, newDividerBefore: "m13", newBoundaryOwner: {}, onNewBoundaryReached: reached, onJumpToPresent: present })
+    try {
+      h.update({ active: false })
+      h.update({ hasMoreNewer: true, items: [...rows, ...Array.from({ length: 60 }, (_, index) => message(`partial${index}`))] })
+      h.update({ active: true })
+      expect(present).toHaveBeenCalledOnce()
+      expect(scrollFixture.latest.readPositionReady).toBe(false)
+      await act(async () => finish({ status: "success", window }))
+      h.update({ items: rows.slice(-2), messageWindow: window, hasMoreNewer: false })
+      expect(scrollFixture.latest.readPositionReady).toBe(true)
+      expect(scrollFixture.latest.newDividerVisibility).toBe("visible")
+      expect(reached).not.toHaveBeenCalled()
+      expect(present).toHaveBeenCalledOnce()
+    } finally { h.view.unmount() }
+  })
+
+  it.each(["coverage", "fetching"] as const)("retains the original pinned resume while first foreground still waits for newer %s", pending => {
+    const commits: Array<{ ready: boolean; distance: number }> = []
+    const h = mount({ positionEntry: {} }, false, result => {
+      const root = result.scrollRef.current
+      if (root) commits.push({ ready: result.readPositionReady, distance: root.scrollHeight - root.clientHeight - root.scrollTop })
+    })
+    try {
+      const native = scrollFixture.latest.virtualizer
+      const end = vi.spyOn(native, "scrollToEnd")
+      h.update({ active: false, hasMoreNewer: pending === "coverage", isFetchingNewer: pending === "fetching" })
+      h.update({ items: [...h.input.items, message("hidden-append")] })
+      commits.length = 0
+      h.update({ active: true })
+      expect(end).not.toHaveBeenCalled()
+      expect(scrollFixture.latest.readPositionReady).toBe(false)
+      expect(scrollFixture.latest.paginationEnabled).toBe(true)
+      scrollFixture.height -= 40
+      resize()
+      expect(scrollFixture.latest.readPositionReady).toBe(false)
+      expect(scrollFixture.latest.paginationEnabled).toBe(true)
+      expect(end).not.toHaveBeenCalled()
+      h.update({ hasMoreNewer: false, isFetchingNewer: false })
+      expect(end).toHaveBeenCalledOnce()
+      expect(scrollFixture.latest.virtualizer).toBe(native)
+      expect(scrollFixture.latest.readPositionReady).toBe(true)
+      expect(scrollFixture.latest.paginationEnabled).toBe(true)
+      expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop)).toBeLessThanOrEqual(1)
+      expect(commits.filter(commit => commit.ready).every(commit => Math.abs(commit.distance) <= 1)).toBe(true)
+    } finally { h.view.unmount() }
+  })
+
+  it.each(["user", "entry", "root", "error", "empty", "retired"] as const)("cancels pending pinned resume on %s before a later complete tail", cancellation => {
+    const presentPhases: boolean[] = []
+    const h = mount({ positionEntry: {} }, false, result => { presentPhases.push(result.presentPositionPending) })
+    const rows = [...h.input.items, message("hidden-append")]
+    try {
+      const native = scrollFixture.latest.virtualizer
+      const end = vi.spyOn(native, "scrollToEnd")
+      h.update({ active: false })
+      h.update({ items: rows, hasMoreNewer: true })
+      h.update({ active: true })
+      expect(end).not.toHaveBeenCalled()
+      expect(scrollFixture.latest.readPositionReady).toBe(false)
+      if (cancellation === "user") h.move(200)
+      else if (cancellation === "entry") h.update({ positionEntry: {}, initialPositionMessageId: "m3" })
+      else if (cancellation === "root") h.update({ scrollRootKey: "replacement" })
+      else if (cancellation === "error") h.update({ positionDataState: "error" })
+      else if (cancellation === "empty") h.update({ items: [], positionDataState: "empty" })
+      else {
+        h.view.unmount()
+        runFrames()
+        const fresh = mount({ items: rows, positionEntry: {}, initialPositionMessageId: "m3" })
+        try { expect(scrollFixture.latest.virtualizer).not.toBe(native) } finally { fresh.view.unmount() }
+        expect(end).not.toHaveBeenCalled()
+        return
+      }
+      const root = h.view.getByTestId("scroll")
+      const anchor = root.querySelector<HTMLElement>('[data-msg-id="m3"]')?.getBoundingClientRect().top
+      presentPhases.length = 0
+      h.update({ items: rows, hasMoreNewer: false, positionDataState: "ready" })
+      if (cancellation === "empty") {
+        expect(end).toHaveBeenCalledOnce()
+        expect(presentPhases.some(Boolean)).toBe(false)
+      } else expect(end).not.toHaveBeenCalled()
+      if (cancellation === "root") {
+        expect(root).not.toBe(h.root)
+        expect(scrollFixture.latest.virtualizer.scrollElement).toBe(root)
+      }
+      if ((cancellation === "user" || cancellation === "entry") && anchor !== undefined) {
+        expect(root.querySelector<HTMLElement>('[data-msg-id="m3"]')!.getBoundingClientRect().top).toBeCloseTo(anchor, 1)
+      }
+    } finally { h.view.unmount() }
+  })
+
+  it("keeps a history anchor through incomplete newer coverage on foreground return", () => {
+    const h = mount({ positionEntry: {} })
+    try {
+      h.move(200)
+      const top = bodyTop(h.root, "m3")
+      const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
+      h.update({ active: false })
+      h.update({ items: [...h.input.items, message("hidden-append")], hasMoreNewer: true })
+      h.update({ active: true })
+      h.update({ hasMoreNewer: false })
+      expect(bodyTop(h.root, "m3")).toBeCloseTo(top, 1)
+      expect(end).not.toHaveBeenCalled()
+      expect(scrollFixture.latest.followingTail).toBe(false)
+    } finally { h.view.unmount() }
+  })
+
+  it.each(["inactive", "document-hidden"] as const)("restores a pinned follower after a hidden append through %s before reopening reads", mode => {
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible")
+    const commits: Array<{ ready: boolean; distance: number }> = []
+    const entry = {}
+    const h = mount({ positionEntry: entry }, false, result => {
+      const root = result.scrollRef.current
+      if (root) commits.push({ ready: result.readPositionReady, distance: root.scrollHeight - root.clientHeight - root.scrollTop })
+    })
+    try {
+      expect(scrollFixture.latest.followingTail).toBe(true)
+      const native = scrollFixture.latest.virtualizer
+      const end = vi.spyOn(native, "scrollToEnd")
+      if (mode === "inactive") h.update({ active: false })
+      else { visibility.mockReturnValue("hidden"); fireEvent(document, new Event("visibilitychange")); resize() }
+      const offset = h.root.scrollTop
+      h.update({ items: [...h.input.items, message("hidden-append")] })
+      expect(h.root.scrollTop).toBe(offset)
+      expect(scrollFixture.latest.readPositionReady).toBe(false)
+      commits.length = 0
+      if (mode === "inactive") h.update({ active: true })
+      else { visibility.mockReturnValue("visible"); fireEvent(document, new Event("visibilitychange")); resize() }
+      expect(scrollFixture.latest.virtualizer).toBe(native)
+      expect(end).toHaveBeenCalledOnce()
+      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+      expect(scrollFixture.latest.readPositionReady).toBe(true)
+      expect(commits.filter(commit => commit.ready).every(commit => Math.abs(commit.distance) <= 1)).toBe(true)
+    } finally { h.view.unmount() }
+  })
+
+  it("retains a history body after hidden append without issuing a tail command", () => {
+    const h = mount({ positionEntry: {} })
+    try {
+      h.move(200)
+      const top = bodyTop(h.root, "m3")
+      const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
+      h.update({ active: false })
+      h.update({ items: [...h.input.items, message("hidden-append")] })
+      h.update({ active: true })
+      expect(bodyTop(h.root, "m3")).toBeCloseTo(top, 1)
+      expect(end).not.toHaveBeenCalled()
+      expect(scrollFixture.latest.followingTail).toBe(false)
+      expect(scrollFixture.latest.readPositionReady).toBe(true)
+    } finally { h.view.unmount() }
+  })
+
+  it("keeps resumed tail reads closed until its current data and row commit qualify", () => {
+    const h = mount({ positionEntry: {} })
+    try {
+      h.update({ active: false })
+      h.update({ items: [...h.input.items, message("hidden-append")], positionDataState: "pending" })
+      const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
+      h.update({ active: true })
+      expect(scrollFixture.latest.readPositionReady).toBe(false)
+      expect(end).not.toHaveBeenCalled()
+      h.update({ positionDataState: "ready" })
+      expect(end).toHaveBeenCalledOnce()
+      expect(scrollFixture.latest.readPositionReady).toBe(true)
+      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    } finally { h.view.unmount() }
+  })
+
   it.each(["visible", "inactive", "document-hidden", "size-change"])("measures a laid-out row on first activation from %s", mode => {
     scrollFixture.firstPrefix = 120
     const visibility = vi.spyOn(document, "visibilityState", "get")

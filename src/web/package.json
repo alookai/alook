@@ -46,7 +46,7 @@
     "test:auth:runtime": "vitest run --config auth/vitest.runtime.config.mts",
     "test:contracts": "vitest run --config vitest.contracts.config.ts",
     "test:tooling": "vitest run --config vitest.tooling.config.ts",
-    "build:next": "next build && NODE_ENV=production tsx scripts/stage-service-worker.ts"
+    "build:next": "tsx scripts/build-web.ts"
   },
   "dependencies": {
     "@alook/shared": "workspace:*",

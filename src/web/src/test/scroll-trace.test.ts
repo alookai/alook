@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest"
+import type { Page } from "@playwright/test"
+import { describe, expect, it, vi } from "vitest"
 import baseline from "./fixtures/message-scroll-baseline.json"
 import {
+  withScrollTraceAnalysis,
   classifyTracePair,
   coalesceWriterCalls,
   nativeMargin,
@@ -376,5 +378,46 @@ describe("matched Web and Desktop classification", () => {
       classification: "unclassified",
       reasons: ["scroller:width", "input-cadence", "writer-sequence", "measurement-sequence"],
     })
+  })
+})
+
+describe("scroll analysis exceptional lifetime", () => {
+  function pageProbe() {
+    const evaluate = vi.fn().mockResolvedValue({ name: "mark" })
+    return { page: { evaluate } as unknown as Page, evaluate }
+  }
+  it("returns the body value and closes its own child window once", async () => {
+    const { page, evaluate } = pageProbe()
+    await expect(withScrollTraceAnalysis(page, "child", async () => 42)).resolves.toBe(42)
+    expect(evaluate).toHaveBeenCalledTimes(3)
+    expect(evaluate.mock.calls[0][1]).toMatchObject({ mark: "analysis-start:child" })
+    expect(evaluate.mock.calls[2][1]).toMatchObject({ mark: "analysis-end:child" })
+  })
+  it("closes the child before propagating the original assertion", async () => {
+    const { page, evaluate } = pageProbe(), failure = new Error("original assertion")
+    await expect(withScrollTraceAnalysis(page, "child", async () => { throw failure })).rejects.toBe(failure)
+    expect(evaluate).toHaveBeenCalledTimes(3)
+    expect(evaluate.mock.calls[2][1]).toMatchObject({ mark: "analysis-end:child" })
+  })
+  it("preserves the first assertion and a real cleanup failure in order", async () => {
+    const { page, evaluate } = pageProbe(), body = new Error("original assertion"), cleanup = new Error("page closed")
+    evaluate.mockResolvedValueOnce({}).mockResolvedValueOnce(undefined).mockRejectedValueOnce(cleanup)
+    const failure = await withScrollTraceAnalysis(page, "child", async () => { throw body }).catch(error => error as AggregateError)
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect(failure.errors).toEqual([body, cleanup])
+    expect(evaluate).toHaveBeenCalledTimes(3)
+  })
+  it("reports cleanup failure after a successful body", async () => {
+    const { page, evaluate } = pageProbe(), cleanup = new Error("page closed")
+    evaluate.mockResolvedValueOnce({}).mockResolvedValueOnce(undefined).mockRejectedValueOnce(cleanup)
+    await expect(withScrollTraceAnalysis(page, "child", async () => 42)).rejects.toBe(cleanup)
+    expect(evaluate).toHaveBeenCalledTimes(3)
+  })
+  it("does not run the body or close an analysis that never opened", async () => {
+    const { page, evaluate } = pageProbe(), failure = new Error("probe absent"), body = vi.fn()
+    evaluate.mockRejectedValueOnce(failure)
+    await expect(withScrollTraceAnalysis(page, "child", body)).rejects.toBe(failure)
+    expect(body).not.toHaveBeenCalled()
+    expect(evaluate).toHaveBeenCalledOnce()
   })
 })
