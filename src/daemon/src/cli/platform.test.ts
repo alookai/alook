@@ -3,10 +3,10 @@ import { Command } from "commander"
 import { registerPlatformCommands } from "./platform"
 import { createProxyServerApi } from "./proxyServerApi"
 
-async function run(args: string[], fetchImpl = vi.fn(async () => Response.json({ machines: [] }))) {
+async function run(args: string[], fetchImpl = vi.fn(async () => Response.json({ machines: [] })), text?: string) {
   const output = vi.fn()
   const program = new Command("alook").exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
-  registerPlatformCommands(program, () => createProxyServerApi({ proxyUrl: "http://proxy", voucher: "vch_private", fetchImpl }), output)
+  registerPlatformCommands(program, () => createProxyServerApi({ proxyUrl: "http://proxy", voucher: "vch_private", fetchImpl }), output, async () => text)
   await program.parseAsync(args, { from: "user" })
   return { output, fetchImpl }
 }
@@ -52,3 +52,25 @@ describe("platform command registration through the real proxy API client", () =
     expect(JSON.parse(init.body as string)).toEqual({ requestId: expect.any(String), runtimeId: "codex" })
   })
 })
+
+
+describe("platform feedback transport", () => {
+  it("posts the literal body with no caller-supplied owner or bot", async () => {
+    const text = "  中文 😀\n\\n\n";
+    const result = await run(["platform", "feedback", "--stdin"], undefined, text);
+    const [url, init] = result.fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://proxy/api/community/platform/feedback");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ text });
+  });
+  it("accepts exact Unicode limit and rejects overflow, whitespace and absent stdin before transport", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ id: "feedback" }));
+    await run(["platform", "feedback", "--stdin"], fetchImpl, "😀".repeat(2560));
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    fetchImpl.mockClear();
+    await expect(run(["platform", "feedback", "--stdin"], fetchImpl, "😀".repeat(2560) + "a")).rejects.toMatchObject({ code: "FEEDBACK_TOO_LARGE" });
+    await expect(run(["platform", "feedback", "--stdin"], fetchImpl, " \n")).rejects.toMatchObject({ code: "INVALID_FEEDBACK" });
+    await expect(run(["platform", "feedback"], fetchImpl)).rejects.toThrow("required option");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});

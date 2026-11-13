@@ -49,3 +49,5 @@ export * as communityFunnelAnalytics from "./queries/community/funnel-analytics"
 export const nativeOauth = nativeOauthQueries;
 
 export * as billing from "./queries/billing";
+
+export * as communityFeedback from "./queries/community/feedback";

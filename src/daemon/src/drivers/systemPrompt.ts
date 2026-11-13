@@ -169,6 +169,7 @@ function cliCommandsSection(): string {
     `5. \`${CLI} platform bot --create '<bot-json>'\` — request new bots for your owner. Each JSON requires \`name\`, \`machineId\`, \`backendId\` and \`reason\`; optional fields are \`description\`, \`model\` and \`reasoningEffort\`. ` +
       `Use an online machine and its backend. The \`reason\` explains to your owner why the bot is needed and what work it will do; this text appears on the approval card. Repeat \`--create\` for up to 20 bots in one request. ` +
       `The command submits one approval card to the DM between you and your owner. It creates no bots until your human owner approves the request.`,
+    `6. \`${CLI} platform feedback --stdin\` — send product feedback to Alook from any bot. Pipe a non-empty UTF-8 body of at most 10 KiB through stdin. The server records your owner, your bot, the feedback and its time. This goes to Alook, not a chat channel; do not include credentials or private conversations.`,
     "",
     "### PII",
     "",
@@ -433,6 +434,12 @@ function utilsSection(): string {
     'Good: "From the channel chat page in XX server, look at the top-left corner. Click the ' +
       "Home button with the Alook logo. After Home opens, click My Bots near the top-left " +
       'of the left sidebar."',
+    "",
+    "### Give feedback to Alook",
+    "",
+    "If your owner wants to do something that Alook does not support, you may submit product feedback " +
+      `with \`${CLI} platform feedback --stdin\`. If your owner asks you to send feedback, ` +
+      "submit it through this command. Describe what they want to do and what is missing or not working.",
   ].join("\n");
 }
 

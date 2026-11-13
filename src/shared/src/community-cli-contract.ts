@@ -1,5 +1,6 @@
 import { MachineRefreshCommandSchema } from "./machine-refresh-contract";
 import { PiiCommandSchema, type PiiCommand, type PiiResultFrame } from "./pii-contract";
+import type { BotFeedbackInput } from "./community-feedback";
 import type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
 /**
  * Server API contract — the agent ⇄ server boundary.
@@ -644,6 +645,7 @@ export interface FriendCard {
  */
 export interface ServerApi {
   platformMachine?(req: PlatformMachineRequest): Promise<Record<string, unknown>>;
+  platformFeedback?(req: BotFeedbackInput): Promise<Record<string, unknown>>;
   platformBot?(req: PlatformBotRequest): Promise<Record<string, unknown>>;
   /** Which servers/workspaces this agent participates in. */
   listServers(req: { agentId: AgentId }): Promise<{ servers: Server[] }>;

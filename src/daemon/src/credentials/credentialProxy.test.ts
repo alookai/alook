@@ -295,6 +295,7 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
       ["GET", "/api/community/machines/m1/models?runtimeId=codex"],
       ["POST", "/api/community/machines/m1/discover-models"],
       ["POST", "/api/community/bots/creation-requests"],
+      ["POST", "/api/community/platform/feedback"],
     ];
     for (const [method, path] of allowed) {
       const response = await fetch(`${proxy.url}${path}`, { method, headers: { authorization: `Bearer ${reg.voucher}` } });

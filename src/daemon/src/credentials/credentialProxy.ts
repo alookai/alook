@@ -543,7 +543,7 @@ export async function startCredentialProxy(
       writeJson(res, 403, { error: "Machine management is not available to bots", code: "forbidden" });
       return;
     }
-    const canonicalCommunityDoor = /^\/api\/community\/(channels|messages|servers|invites|friends|users|bots|machines)(\/|$)/.test(pathname);
+    const canonicalCommunityDoor = pathname === "/api/community/platform/feedback" || /^\/api\/community\/(channels|messages|servers|invites|friends|users|bots|machines)(\/|$)/.test(pathname);
     if (pathname === "/api" || (pathname.startsWith("/api/") && !canonicalCommunityDoor)) {
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "unknown API route", code: "not_found" }));
