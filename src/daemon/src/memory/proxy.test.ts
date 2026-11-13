@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -43,7 +43,7 @@ describe("authenticated local memory commit", () => {
     let output = "";
     const reset = vi.fn(async () => { expect(JSON.parse(output)).toEqual({ success: { committed: true, no: 0, reset: true } }); });
     const s = await setup(reset);
-    const child = spawn(process.execPath, ["--import", createRequire(import.meta.url).resolve("tsx/esm"), fileURLToPath(new URL("../cli/index.ts", import.meta.url)), "commit", "--stdin", ...(resetMode ? [] : ["--no-reset"])], {
+    const child = spawn(process.execPath, ["--import", pathToFileURL(createRequire(import.meta.url).resolve("tsx/esm")).href, fileURLToPath(new URL("../cli/index.ts", import.meta.url)), "commit", "--stdin", ...(resetMode ? [] : ["--no-reset"])], {
       env: { ...process.env, ALOOK_PROXY_URL: s.proxy.url, ALOOK_PROXY_TOKEN_FILE: s.tokenFile },
       stdio: ["pipe", "pipe", "pipe"],
     });
