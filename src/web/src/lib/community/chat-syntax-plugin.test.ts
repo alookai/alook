@@ -23,18 +23,28 @@ describe("CLI prompt ref examples — tokenizer contract", () => {
       agentId: "agent_1",
       workspacePath: "/tmp/workspace",
     } as Parameters<typeof buildCliSystemPrompt>[0])
-    const examples = prompt.split("\n").filter((line) =>
-      line.startsWith("/Alook#1234") || line.startsWith("/.dm/alice#0042"),
-    )
+    const syntaxes = prompt.split("\n")
+      .filter((line) => line.startsWith("| /"))
+      .map((line) => line.split("|")[1].trim())
+    const expected = new Map<string, { type: "channelRef" | "serverRef"; value: string }>([
+      ["/<server>/<channel>", { type: "channelRef", value: "/Alook#1234/general" }],
+      ["/<server>/<channel>#N", { type: "channelRef", value: "/Alook#1234/general#37" }],
+      ["/<server>/<channel>/#N", { type: "channelRef", value: "/Alook#1234/general/#37" }],
+      ["/<server>/<channel>/#N#M", { type: "channelRef", value: "/Alook#1234/general/#37#9" }],
+      ["/<server>", { type: "serverRef", value: "/Alook#1234" }],
+      ["/.dm/<peer>", { type: "channelRef", value: "/.dm/alice#0042" }],
+      ["/.dm/<peer>#N", { type: "channelRef", value: "/.dm/alice#0042#37" }],
+    ])
 
-    expect(examples).toHaveLength(6)
-    for (const example of examples) {
+    expect(syntaxes).toHaveLength(7)
+    expect([...syntaxes].sort()).toEqual([...expected.keys()].sort())
+    for (const syntax of syntaxes) {
+      const example = syntax.replaceAll("<server>", "Alook#1234")
+        .replaceAll("<channel>", "general").replaceAll("<peer>", "alice#0042")
+        .replaceAll("#N", "#37").replaceAll("#M", "#9")
       const children = paragraphChildren(parse(example))
-      expect(children).toHaveLength(1)
-      expect(children[0]).toMatchObject({
-        type: example === "/Alook#1234" ? "serverRef" : "channelRef",
-        value: example,
-      })
+      expect(children, syntax).toHaveLength(1)
+      expect(children[0], syntax).toMatchObject(expected.get(syntax))
     }
   })
 })

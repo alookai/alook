@@ -1,3 +1,4 @@
+import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import { CommunityConversationEntryReadSchema } from "@alook/shared"
 import { communityFixtureFetch, confirmCommunityFixtureApiResponse, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./business-contract"
 import type { Locator, Page, Route, TestInfo } from "@playwright/test"
@@ -236,10 +237,7 @@ export async function establishExactPinnedPrecondition(
   label: string,
   targetDistanceToEnd: 0 | 1,
 ): Promise<{ scrollTop: number; scrollHeight: number; clientHeight: number; distanceToEnd: number }> {
-  // The resize latch is intentionally monotonic: same-position/clamp events
-  // at the end cannot recover false. Exercise its one valid recovery path by
-  // first establishing away geometry, then scrolling forward into <=1px.
-  await establishScrollDistancePrecondition(scroller, `${label}-away-first`, 8)
+  await establishScrollDistancePrecondition(scroller, `${label}-away-first`, CONVERSATION_TAIL_SPACE_PX + 1)
   return establishScrollDistancePrecondition(scroller, label, targetDistanceToEnd)
 }
 
@@ -439,10 +437,10 @@ export function expectViewportAnchorPreserved(
 export function expectResizeAnchorPreserved(
   before: MessageViewportGeometry,
   after: MessageViewportGeometry,
-  distance: number,
+  ownership: "tail" | "reading",
   label: string,
 ): void {
-  if (distance <= 1) {
+  if (ownership === "tail") {
     expect(
       Math.abs(after.distanceToEnd - before.distanceToEnd),
       `${label}: distance to tail`,
@@ -457,7 +455,7 @@ export function expectResizeAnchorPreserved(
 export function expectContinuousResizeAnchorPreserved(
   trace: ScrollTraceResult,
   segmentName: string,
-  distance: number,
+  ownership: "tail" | "reading",
 ): void {
   const start = trace.marks.find((mark) => mark.name === `analysis-start:${segmentName}`)
   const end = trace.marks.find((mark) => mark.name === `analysis-end:${segmentName}`)
@@ -469,7 +467,7 @@ export function expectContinuousResizeAnchorPreserved(
   expect(frames.length, `${segmentName}: continuous frames`).toBeGreaterThan(1)
 
   const baseline = frames[0]!
-  if (distance <= 1) {
+  if (ownership === "tail") {
     for (const frame of frames) {
       expect(
         Math.abs(frame.distanceToEnd - baseline.distanceToEnd),

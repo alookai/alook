@@ -15,7 +15,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture } from "@/test/conversation-entry-fixtures"
 import { seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
-import { installMessageScrollFixture, restoreMessageScrollFixture, resize, scrollFixture } from "@/test/message-scroll-fixture"
+import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 import { captureCommunityLiveSnapshotToken, ingestReadStateSnapshot, publishAccountAttentionSnapshot } from "@/lib/community-db/sync"
 import { currentConversationReadState } from "@/lib/community/conversation-entry"
 import { disposeReadCoordinator, getLocalReadingPosition, getReadCoordinator, READ_COORDINATOR_DEBOUNCE_MS } from "./read-coordinator"
@@ -331,12 +331,13 @@ afterEach(async () => {
 })
 
 describe("conversation entry positioning through real reading owners", () => {
-  it.each(["tail", "middle"] as const)("loads only the %s reading page neighbors, then replenishes after real user crossing", async mode => {
+  async function readingPageNeighbors(mode: "tail" | "middle", variable = false) {
     const full = entry("channel")
     const cursor = (seq: number) => `${full.messages[seq - 1].createdAt}|m${seq}`
     const page = (first: number, last: number) => ({ messages: full.messages.slice(first - 1, last), profiles: full.profiles,
       hasMoreOlder: first > 1, olderCursor: first > 1 ? cursor(first) : null,
       hasMoreNewer: last < 42, newerCursor: last < 42 ? cursor(last) : null, latestSeq: 42 })
+    if (variable) for (let seq = 11; seq <= 20; seq++) scrollFixture.bodyHeights.set(`m${seq}`, 170 + seq)
     const current = page(21, mode === "tail" ? 42 : 34)
     const cached = { ...full, messages: current.messages, page: { olderCursor: current.olderCursor, newerCursor: current.newerCursor,
       hasMoreOlder: current.hasMoreOlder, hasMoreNewer: current.hasMoreNewer, latestSeq: current.latestSeq },
@@ -384,7 +385,11 @@ describe("conversation entry positioning through real reading owners", () => {
     expect(latest.feed.messageNeighborhood!.page).toBe(reading)
     expect(Math.abs(offset(readingId) - before)).toBeLessThanOrEqual(1)
     fireEvent.wheel(root, { deltaY: -800 })
-    act(() => root.scrollTo({ top: 400 }))
+    act(() => root.scrollTo({ top: variable ? 0 : 400 }))
+    if (variable) {
+      runFrames(1)
+      fireEvent.wheel(root, { deltaY: -800 })
+    }
     resize()
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(latest.feed.messageNeighborhood!.page).not.toBe(reading)
@@ -410,6 +415,12 @@ describe("conversation entry positioning through real reading owners", () => {
     expect(Math.abs(offset(id) - point)).toBeLessThanOrEqual(1)
     expect(requests()).toEqual([...initialRequests, `older:${cursor(11)}`])
     expect(root.querySelector("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "true")
+  }
+  it.each(["tail", "middle"] as const)("loads only the %s reading page neighbors, then replenishes after real user crossing", async mode => {
+    await readingPageNeighbors(mode)
+  })
+  it.each(["tail", "middle"] as const)("completes a manual %s page crossing after variable native rows commit at the edge", async mode => {
+    await readingPageNeighbors(mode, true)
   })
 
   it("reveals an old restored thread window after mount without launching a second freshness owner while entry is held", async () => {

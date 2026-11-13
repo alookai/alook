@@ -1,10 +1,11 @@
+import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import type { Locator, Page, Request, Response, TestInfo } from "@playwright/test"
 import { CommunityConversationEntryReadSchema, CommunityMessagesReadSchema, communityReadSchemas } from "@alook/shared"
 import { test, expect, type CaseActors } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { communityFixtureFetch, confirmCommunityFixtureApiResponse, currentCommunityFixtureError, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import { proxyCommunityWebSockets, communityFrameEvents } from "./_fixtures/community-ws-proxy"
-import { beginScrollTraceAnalysis, endScrollTraceAnalysis, installScrollTrace, installScrollTraceInCurrentDocument, startScrollTrace, markScrollTrace } from "./_fixtures/scroll-trace"
+import { beginScrollTraceAnalysis, endScrollTraceAnalysis, withScrollTraceAnalysis, installScrollTrace, installScrollTraceInCurrentDocument, startScrollTrace, markScrollTrace } from "./_fixtures/scroll-trace"
 import { finishAndAttach, holdNextRequest, identity, seedResizableHtmlPreview, waitForCommittedGeometry, waitForStableTail } from "./_fixtures/message-scroll-characterization"
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
@@ -236,38 +237,38 @@ async function twoPages(page: Page, root: Locator, traffic: PageTraffic, directi
   const requestBaseline = requests.length
   const initial = phase?.initial ?? receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length
   const positions: Array<{ time: number; top: number; height: number; total: number; admission: string | undefined }> = []
-  await beginScrollTraceAnalysis(page, `${direction}-two-real-pages`, { dataTransitionSource: direction === "older" ? "older-page" : "newer-page", commandDirection: direction === "older" ? "backward" : "forward" })
-  if (phase) positions.push(...await phase.returnToMiddle())
-  await root.hover()
-  for (let step = 0; step < 100; step++) {
-    if (receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length >= initial + 2) break
-    const height = await root.evaluate(element => element.clientHeight)
-    await page.mouse.wheel(0, (direction === "older" ? -1 : 1) * height * (fast ? 3 : 0.35))
-    positions.push(await root.evaluate(element => ({ time: Date.now(), top: element.scrollTop, height: element.clientHeight, total: element.scrollHeight, admission: (element as HTMLElement).dataset.paginationEnabled })))
-    await page.waitForTimeout(fast ? 8 : 32)
-  }
-  await expect.poll(() => receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length).toBeGreaterThanOrEqual(initial + 2)
-  const accepted = receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).slice(initial)
-  if (phase) expect(accepted.every(receipt => receipt.timing.startTime >= phase.startedAt)).toBe(true)
-  expect(new Set(accepted.map(receipt => receipt.cursor)).size).toBe(accepted.length)
-  expect(new Set(accepted.flatMap(receipt => receipt.ids)).size).toBeGreaterThan(50)
-  await expect(root).toHaveAttribute("data-pagination-enabled", "true")
-  const issued = requests.slice(requestBaseline).filter(request => request.direction === direction)
-  expect(issued.length).toBeGreaterThanOrEqual(2)
-  await expect.poll(() => issued.every(request => request.reading !== undefined)).toBe(true)
-  for (const request of issued) {
-    expect(request.failure).toBeUndefined()
-    const source = receipts.find(receipt => receipt.status === 200
-      && (direction === "older" ? receipt.page?.olderCursor : receipt.page?.newerCursor) === request.cursor)
-    expect(source, `${direction}: actual cursor producer`).toBeDefined()
-    expect(request.reading, `${direction}: actual reading body at request`).not.toBeNull()
-    expect(request.reading!.ready).toBe(true)
-    expect(source!.ids).toContain(request.reading!.id)
-  }
-  const stoppedAfter = await settledPages(root, traffic)
-  await markScrollTrace(page, `${direction}-page-owner-settled`, { detail: { observedAt: Date.now(), stoppedBefore, stoppedAfter, issued } })
-  await endScrollTraceAnalysis(page, `${direction}-two-real-pages`)
-  return positions
+  return withScrollTraceAnalysis(page, `${direction}-two-real-pages`, async () => {
+    if (phase) positions.push(...await phase.returnToMiddle())
+    await root.hover()
+    for (let step = 0; step < 100; step++) {
+      if (receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length >= initial + 2) break
+      const height = await root.evaluate(element => element.clientHeight)
+      await page.mouse.wheel(0, (direction === "older" ? -1 : 1) * height * (fast ? 3 : 0.35))
+      positions.push(await root.evaluate(element => ({ time: Date.now(), top: element.scrollTop, height: element.clientHeight, total: element.scrollHeight, admission: (element as HTMLElement).dataset.paginationEnabled })))
+      await page.waitForTimeout(fast ? 8 : 32)
+    }
+    await expect.poll(() => receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length).toBeGreaterThanOrEqual(initial + 2)
+    const accepted = receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).slice(initial)
+    if (phase) expect(accepted.every(receipt => receipt.timing.startTime >= phase.startedAt)).toBe(true)
+    expect(new Set(accepted.map(receipt => receipt.cursor)).size).toBe(accepted.length)
+    expect(new Set(accepted.flatMap(receipt => receipt.ids)).size).toBeGreaterThan(50)
+    await expect(root).toHaveAttribute("data-pagination-enabled", "true")
+    const issued = requests.slice(requestBaseline).filter(request => request.direction === direction)
+    expect(issued.length).toBeGreaterThanOrEqual(2)
+    await expect.poll(() => issued.every(request => request.reading !== undefined)).toBe(true)
+    for (const request of issued) {
+      expect(request.failure).toBeUndefined()
+      const source = receipts.find(receipt => receipt.status === 200
+        && (direction === "older" ? receipt.page?.olderCursor : receipt.page?.newerCursor) === request.cursor)
+      expect(source, `${direction}: actual cursor producer`).toBeDefined()
+      expect(request.reading, `${direction}: actual reading body at request`).not.toBeNull()
+      expect(request.reading!.ready).toBe(true)
+      expect(source!.ids).toContain(request.reading!.id)
+    }
+    const stoppedAfter = await settledPages(root, traffic)
+    await markScrollTrace(page, `${direction}-page-owner-settled`, { detail: { observedAt: Date.now(), stoppedBefore, stoppedAfter, issued } })
+    return positions
+  }, { dataTransitionSource: direction === "older" ? "older-page" : "newer-page", commandDirection: direction === "older" ? "backward" : "forward" })
 }
 
 async function trace(actors: CaseActors, page: Page, info: TestInfo, channelId: string) {
@@ -346,10 +347,10 @@ for (const kind of ["channel", "dm"] as const) {
         const returnLatestHeight = await root.evaluate(element => element.clientHeight)
         expect(returnLatestHeight).toBeGreaterThan(0)
         await page.mouse.wheel(0, -returnLatestHeight)
-        await expect.poll(() => root.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeGreaterThan(1)
+        await expect.poll(() => root.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeGreaterThan(CONVERSATION_TAIL_SPACE_PX)
         const returnLatestBefore = await waitForCommittedGeometry(root)
         expect(returnLatestBefore.firstVisibleId).not.toBeNull()
-        expect(returnLatestBefore.distanceToEnd).toBeGreaterThan(1)
+        expect(returnLatestBefore.distanceToEnd).toBeGreaterThan(CONVERSATION_TAIL_SPACE_PX)
         await expect(page.getByTestId(tid.scrollToPresent)).toBeVisible()
         await expect(page.getByTestId(tid.scrollToPresent)).toBeEnabled()
         await markScrollTrace(page, "return-latest-premise", { detail: { geometry: returnLatestBefore } })

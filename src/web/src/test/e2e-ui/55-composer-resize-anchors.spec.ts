@@ -1,3 +1,5 @@
+import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
+import { CommunityConversationEntryReadSchema } from "@alook/shared"
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
@@ -35,7 +37,17 @@ test("overlay composer resizes preserve semantic anchors and interaction boundar
         && (pathname.endsWith("/messages") || pathname.includes("/attachments"))
       ) mutationPosts += 1
     })
+    const entryResponse = alice.page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return response.request().method() === "GET" && url.pathname === `/api/community/channels/${composerChannelId}/messages`
+        && url.searchParams.get("entry") === "1"
+    })
+    void entryResponse.catch(() => undefined)
     await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${composerChannelId}`)
+    const entryRead = await entryResponse
+    expect(entryRead.status()).toBe(200)
+    const entry = CommunityConversationEntryReadSchema.parse(await entryRead.json())
+    expect(entry.page.hasMoreNewer).toBe(false)
     await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${composerChannelId}`)
     const scroller = alice.page.getByTestId(tid.messageScroller)
     const editable = composerEditable(alice.page)
@@ -53,7 +65,7 @@ test("overlay composer resizes preserve semantic anchors and interaction boundar
       (_, line) => `${prefix} line ${line} ${"content ".repeat(8)}`,
     ).join("\n")
 
-    for (const distance of [0, 2, 100, 300]) {
+    for (const distance of [0, 2, CONVERSATION_TAIL_SPACE_PX, CONVERSATION_TAIL_SPACE_PX + 1, 100, 300]) {
       await editable.fill(composerLines(`boundary-${distance}`, 8))
       const precondition = distance === 0
         ? await establishExactPinnedPrecondition(scroller, `composer-resize-${distance}`, 0)
@@ -80,7 +92,7 @@ test("overlay composer resizes preserve semantic anchors and interaction boundar
         .toBeGreaterThan(before.readableHeight)
       const shrunk = await waitForCommittedGeometry(scroller)
       expectComposerOverlayGeometry(shrunk, `resize-${distance}-shrunk`)
-      expectResizeAnchorPreserved(before, shrunk, distance, `resize-${distance}-shrunk`)
+      expectResizeAnchorPreserved(before, shrunk, distance <= CONVERSATION_TAIL_SPACE_PX ? "tail" : "reading", `resize-${distance}-shrunk`)
       await endScrollTraceAnalysis(alice.page, `composer-shrink-${distance}`)
       await advanceScrollTraceFrame(scroller)
 
@@ -90,7 +102,7 @@ test("overlay composer resizes preserve semantic anchors and interaction boundar
         .toBe(before.readableHeight)
       const grown = await waitForCommittedGeometry(scroller)
       expectComposerOverlayGeometry(grown, `resize-${distance}-grown`)
-      expectResizeAnchorPreserved(shrunk, grown, distance, `resize-${distance}-grown`)
+      expectResizeAnchorPreserved(shrunk, grown, distance <= CONVERSATION_TAIL_SPACE_PX ? "tail" : "reading", `resize-${distance}-grown`)
       await endScrollTraceAnalysis(alice.page, `composer-grow-${distance}`)
       await advanceScrollTraceFrame(scroller)
     }
@@ -155,14 +167,14 @@ test("overlay composer resizes preserve semantic anchors and interaction boundar
     const replyOpen = await waitForCommittedGeometry(scroller)
     expect(replyOpen.readableHeight).toBeLessThan(replyBase.readableHeight)
     expect(replyOpen.distanceToEnd).toBeLessThanOrEqual(1)
-    expectResizeAnchorPreserved(replyBase, replyOpen, 0, "reply-open")
+    expectResizeAnchorPreserved(replyBase, replyOpen, "tail", "reply-open")
     expectComposerOverlayGeometry(replyOpen, "reply-open")
     await alice.page.getByRole("button", { name: "Cancel reply" }).click()
     await expect(alice.page.locator('[data-slot="composer-reply-preview"]')).toHaveCount(0)
     const replyClosed = await waitForCommittedGeometry(scroller)
     expect(replyClosed.readableHeight).toBe(replyBase.readableHeight)
     expect(replyClosed.distanceToEnd).toBeLessThanOrEqual(1)
-    expectResizeAnchorPreserved(replyBase, replyClosed, 0, "reply-closed")
+    expectResizeAnchorPreserved(replyBase, replyClosed, "tail", "reply-closed")
     await endScrollTraceAnalysis(alice.page, "reply-banner-pinned")
     await advanceScrollTraceFrame(scroller)
 
@@ -209,16 +221,16 @@ test("overlay composer resizes preserve semantic anchors and interaction boundar
     const resizeSegments = new Map(
       summarizeScrollTrace(trace).analysisSegments.map((segment) => [segment.name, segment]),
     )
-    for (const distance of [0, 2, 100, 300]) {
+    for (const distance of [0, 2, CONVERSATION_TAIL_SPACE_PX, CONVERSATION_TAIL_SPACE_PX + 1, 100, 300]) {
       const grow = resizeSegments.get(`composer-grow-${distance}`)
       const shrink = resizeSegments.get(`composer-shrink-${distance}`)
       expect(grow, `missing composer-grow-${distance}`).toBeDefined()
       expect(shrink, `missing composer-shrink-${distance}`).toBeDefined()
-      expectContinuousResizeAnchorPreserved(trace, `composer-grow-${distance}`, distance)
-      expectContinuousResizeAnchorPreserved(trace, `composer-shrink-${distance}`, distance)
+      expectContinuousResizeAnchorPreserved(trace, `composer-grow-${distance}`, distance <= CONVERSATION_TAIL_SPACE_PX ? "tail" : "reading")
+      expectContinuousResizeAnchorPreserved(trace, `composer-shrink-${distance}`, distance <= CONVERSATION_TAIL_SPACE_PX ? "tail" : "reading")
     }
     expect(resizeSegments.get("typing-rail-away")?.writerCount).toBe(0)
-    expectContinuousResizeAnchorPreserved(trace, "selection-footer-away", 300)
+    expectContinuousResizeAnchorPreserved(trace, "selection-footer-away", "reading")
     expect(mutationPosts).toBe(0)
     expect(proxy.frames.flatMap(communityFrameEvents).filter((event) =>
       event.type === "community:message.create" && event.channelId === composerChannelId)).toHaveLength(0)

@@ -20,6 +20,19 @@ function failedInitialReader(onInitialPositionSettled?: () => void) {
 }
 
 describe("locked native adapter and existing message scroll owner", () => {
+  it("reports the actual manual body after newly rendered variable rows commit", () => {
+    for (let index = 0; index < 90; index++) scrollFixture.bodyHeights.set(`m${index}`, 160 + index)
+    const reading = vi.fn()
+    const h = mount({ items: Array.from({ length: 120 }, (_, index) => message(`m${index}`)), onReadingMessage: reading })
+    reading.mockClear()
+    fireEvent.wheel(h.root, { deltaY: -800 })
+    act(() => h.root.scrollTo({ top: 0 }))
+    runFrames(1)
+    fireEvent.wheel(h.root, { deltaY: -800 })
+    resize()
+    expect(reading).toHaveBeenCalledWith("m0")
+    expect(h.root.scrollTop).toBe(0)
+  })
   it.each([0, 0.5, 1, 2, 40, 41])("does not follow a tail resize after upward takeover at %spx from the end", distance => {
     const h = mount()
     h.move(h.root.scrollHeight - h.root.clientHeight - distance)

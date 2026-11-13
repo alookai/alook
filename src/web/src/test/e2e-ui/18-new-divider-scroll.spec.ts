@@ -4,6 +4,7 @@ import { communityFixtureFetch, confirmCommunityFixtureApiResponse } from "./_fi
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import { communityFrameEvents, proxyCommunityWebSockets, type CapturedCommunityFrame } from "./_fixtures/community-ws-proxy"
+import { holdNextRequest } from "./_fixtures/message-scroll-characterization"
 import { tid } from "./_fixtures/testids"
 
 import { WEB_URL } from "./_setup/paths"
@@ -148,6 +149,8 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
       }
     }
   })
+  const firstOlder = await holdNextRequest(actors, page, `**/api/community/channels/${channelId}/messages**`,
+    url => url.searchParams.has("cursor"))
   const preparation: { older: Response | null; issued: boolean; failure: { error: unknown } | null } = {
     older: null, issued: false, failure: null,
   }
@@ -183,6 +186,10 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
     await scroller.evaluate(element => element.scrollTo({ top: 0, behavior: "auto" }))
     await expect(page.getByTestId(tid.message(beforeNewId))).toBeInViewport({ timeout: remainingPreparation() })
     await expect(jumpToNew).toBeHidden({ timeout: remainingPreparation() })
+    expect(entry.messages[0]?.id).toBe(beforeNewId)
+    await expect.poll(() => firstOlder.hasMatched(), { timeout: remainingPreparation() }).toBe(true)
+    expect((await firstOlder.matched).searchParams.get("cursor")).toBe(entry.page.olderCursor)
+    firstOlder.release()
     await expect.poll(async () => {
       if (preparation.failure) throw preparation.failure.error
       if (!preparation.issued) {
@@ -205,6 +212,7 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
     }, { timeout: remainingPreparation() }).toBeLessThanOrEqual(1)
   } finally {
     page.off("response", observeOlderPage)
+    await firstOlder.dispose()
   }
   await expect(jumpToNew).toBeVisible()
   await jumpToNew.click()
