@@ -244,7 +244,7 @@ function PreviewFrame({ image, onClose, onNavigate, focusOnMount }: {
           </Button>
         </div>
       )}
-      {downloadText && <p role={download.state.status === "error" ? "alert" : "status"} className="relative z-20 self-center rounded-md bg-background p-2 text-xs text-foreground">{downloadText}</p>}
+      {downloadText && <p role={download.state.status === "error" ? "alert" : "status"} className="pointer-events-none absolute bottom-3 left-1/2 z-20 max-w-full -translate-x-1/2 rounded-md bg-background p-2 text-xs text-foreground">{downloadText}</p>}
     </div>
   )
 }

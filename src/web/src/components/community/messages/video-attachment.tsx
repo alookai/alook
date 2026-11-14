@@ -82,7 +82,7 @@ function VideoPlayback({ attachment }: { attachment: FileAttachment }) {
     {(status === "blocked" || status === "error") && <div role="alert" data-testid={tid.mediaStatus(attachment.name)}
       className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-background/95 p-4 text-center text-sm">
       <p>{status === "blocked" ? "Playback was blocked. Try playing again." : "Couldn’t play this file. Retry or download the original."}</p>
-      <Button variant="secondary" data-testid={tid.mediaRetry(attachment.name)} onClick={() => {
+      <Button variant="secondary" className="min-h-11 min-w-11" data-testid={tid.mediaRetry(attachment.name)} onClick={() => {
         if (status === "blocked" && playerRef.current) play(playerRef.current)
         else { playOnAttachRef.current = true; setStatus("loading"); setAttempt(value => value + 1) }
       }}><RefreshCw />{status === "blocked" ? "Try playing" : "Retry video"}</Button>

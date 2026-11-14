@@ -145,7 +145,7 @@ test.describe("same-tab Community attachment drafts", () => {
     return { serverId, channelAId, channelBId, openerId, threadId, dmId }
   }
 
-  test("desktop isolates external file events and accepts input while real image workers prepare attachments", async ({ caseActors }, testInfo) => {
+  test("desktop isolates external file events and accepts input with unchanged image originals", async ({ caseActors }, testInfo) => {
     test.setTimeout(120_000)
     const actors = await caseActors(["alice", "bob"])
     const { serverId, channelAId, channelBId } = await prepareCase1(actors)
@@ -210,13 +210,6 @@ test.describe("same-tab Community attachment drafts", () => {
     await expect(composerEditable(page)).toHaveText("")
     const workers: string[] = []
     page.on("worker", worker => workers.push(worker.url()))
-    const workerScriptResponses: { path: string; status: number; contentType: string | null; fromServiceWorker: boolean }[] = []
-    const recordWorkerScriptResponse = (response: import("@playwright/test").Response) => {
-      const path = new URL(response.url()).pathname
-      if (path.startsWith("/_next/static/chunks/") && path.endsWith(".js")) workerScriptResponses.push({ path, status: response.status(), contentType: response.headers()["content-type"] ?? null, fromServiceWorker: response.fromServiceWorker() })
-    }
-    page.on("response", recordWorkerScriptResponse)
-    const serviceWorkerController = await page.evaluate(() => ({ script: navigator.serviceWorker.controller!.scriptURL, state: navigator.serviceWorker.controller!.state }))
     const imageData = await page.evaluateHandle(async () => {
       const canvas = document.createElement("canvas")
       canvas.width = 6000
@@ -232,57 +225,55 @@ test.describe("same-tab Community attachment drafts", () => {
         pixels.data[index + 3] = 255
       }
       context.putImageData(pixels, 0, 0)
-      const blob = await new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob!), "image/jpeg", 0.94))
+      const blob = await new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob!), "image/jpeg", 0.85))
       canvas.width = 0
       canvas.height = 0
       const data = new DataTransfer()
       for (let index = 0; index < 10; index++) data.items.add(new File([blob], `large-${index}.jpg`, { type: "image/jpeg" }))
       return data
     })
+    const originalFiles = await imageData.evaluate(data => Array.from(data.files, file => ({ name: file.name, bytes: file.size })))
+    expect(originalFiles).toHaveLength(10)
+    for (const file of originalFiles) {
+      expect(file.bytes).toBeGreaterThan(0)
+      expect(file.bytes).toBeLessThanOrEqual(20_000_000)
+    }
     for (const name of ["dropped.txt", "pasted.txt"]) await composer.getByText(name, { exact: true }).locator("..").getByRole("button", { name: "Remove file" }).click()
     await composerEditable(page).focus()
-    const workerResults = await page.evaluateHandle(() => {
-      const results: { width: number; height: number; size: number; type: string }[] = []
-      const messages: { worker: number; kind: string; keys: string[]; unsupported: boolean; error: string | null; blob: { constructor: string; tag: string; mainRealmBlob: boolean; bytes: number | null; type: string | null } | null }[] = []
-      const failures: { worker: number; event: string; message: string; filename: string; line: number; column: number }[] = []
-      const instances: { worker: number; url: string; type: string }[] = []
-      const capabilities = { Worker: typeof Worker, createImageBitmap: typeof createImageBitmap, OffscreenCanvas: typeof OffscreenCanvas }
-      let nextWorker = 0
-      const NativeWorker = window.Worker
-      window.Worker = class extends NativeWorker {
-        constructor(url: string | URL, options?: WorkerOptions) {
-          super(url, options)
-          const worker = ++nextWorker
-          instances.push({ worker, url: String(url), type: options?.type ?? "classic" })
-          this.addEventListener("error", event => {
-            failures.push({ worker, event: event.type, message: event.message, filename: event.filename, line: event.lineno, column: event.colno })
-          })
-          this.addEventListener("messageerror", event => {
-            failures.push({ worker, event: event.type, message: "Worker message deserialization failed", filename: "", line: 0, column: 0 })
-          })
-          this.addEventListener("message", ({ data }) => {
-            const object = data && typeof data === "object" ? data : null
-            const blob = object?.result?.blob
-            messages.push({
-              worker,
-              kind: object && "result" in object ? "result" : object && "error" in object ? "error" : object?.unsupported === true ? "unsupported" : "unknown",
-              keys: object ? Object.keys(object) : [],
-              unsupported: object?.unsupported === true,
-              error: typeof object?.error === "string" ? object.error : null,
-              blob: blob == null ? null : { constructor: blob.constructor?.name ?? "unknown", tag: Object.prototype.toString.call(blob), mainRealmBlob: blob instanceof Blob, bytes: typeof blob.size === "number" ? blob.size : null, type: typeof blob.type === "string" ? blob.type : null },
-            })
-            if (data?.result?.blob instanceof Blob) results.push({ width: data.result.width, height: data.result.height, size: data.result.blob.size, type: data.result.blob.type })
-          })
-        }
+    const imageProbe = await page.evaluateHandle((data) => {
+      const originals = new Set(Array.from(data.files))
+      const create = URL.createObjectURL
+      const revoke = URL.revokeObjectURL
+      const NativeImage = window.Image
+      const sources = new Map<string, { name: string; bytes: number; type: string; original: boolean }>()
+      const revoked: string[] = []
+      const loaded: { name: string; width: number; height: number }[] = []
+      URL.createObjectURL = function (value) {
+        const url = create.call(URL, value)
+        if (value instanceof File) sources.set(url, { name: value.name, bytes: value.size, type: value.type, original: originals.has(value) })
+        return url
       }
-      return { results, messages, failures, instances, capabilities }
-    })
+      URL.revokeObjectURL = function (url) { revoked.push(url); revoke.call(URL, url) }
+      window.Image = new Proxy(NativeImage, { construct(target, args, newTarget) {
+        const image = Reflect.construct(target, args, newTarget) as HTMLImageElement
+        image.addEventListener("load", () => {
+          const source = sources.get(image.currentSrc || image.src)
+          if (source) loaded.push({ name: source.name, width: image.naturalWidth, height: image.naturalHeight })
+        })
+        return image
+      } })
+      return {
+        snapshot: () => ({ sources: Array.from(sources, ([url, source]) => ({ url, ...source })), revoked, loaded }),
+        restore: () => { URL.createObjectURL = create; URL.revokeObjectURL = revoke; window.Image = NativeImage },
+      }
+    }, imageData)
     const inputProbe = await composerEditable(page).evaluateHandle((element, inputId) => {
       const host = element.closest(`[data-testid="${inputId}"]`)?.parentElement?.parentElement
       const busy = () => !!host?.querySelector('[aria-busy="true"]')
+      const attached = () => !!host?.querySelector('button[aria-label="Remove file"]')
       const started = performance.now()
-      const keys: { at: number; eventToHandlerMs: number; trusted: boolean; preparing: boolean }[] = []
-      const inputs: { at: number; keyToInputMs: number | null; eventToHandlerMs: number; nextFrameMs: number | null; trusted: boolean; preparing: boolean }[] = []
+      const keys: { at: number; eventToHandlerMs: number; trusted: boolean; preparing: boolean; attached: boolean }[] = []
+      const inputs: { at: number; keyToInputMs: number | null; eventToHandlerMs: number; nextFrameMs: number | null; trusted: boolean; preparing: boolean; attached: boolean }[] = []
       const timerGaps: number[] = []
       const longTasks: { at: number; durationMs: number }[] = []
       let lastKey: number | null = null
@@ -290,11 +281,11 @@ test.describe("same-tab Community attachment drafts", () => {
       const keydown = (event: Event) => {
         const at = performance.now()
         lastKey = at
-        keys.push({ at: at - started, eventToHandlerMs: Math.max(0, at - event.timeStamp), trusted: event.isTrusted, preparing: busy() })
+        keys.push({ at: at - started, eventToHandlerMs: Math.max(0, at - event.timeStamp), trusted: event.isTrusted, preparing: busy(), attached: attached() })
       }
       const input = (event: Event) => {
         const at = performance.now()
-        const sample = { at: at - started, keyToInputMs: lastKey === null ? null : at - lastKey, eventToHandlerMs: Math.max(0, at - event.timeStamp), nextFrameMs: null as number | null, trusted: event.isTrusted, preparing: busy() }
+        const sample = { at: at - started, keyToInputMs: lastKey === null ? null : at - lastKey, eventToHandlerMs: Math.max(0, at - event.timeStamp), nextFrameMs: null as number | null, trusted: event.isTrusted, preparing: busy(), attached: attached() }
         inputs.push(sample)
         requestAnimationFrame(() => { sample.nextFrameMs = performance.now() - at })
       }
@@ -323,37 +314,47 @@ test.describe("same-tab Community attachment drafts", () => {
       }, imageData)
       expect(admission.constructor).toBe("ClipboardEvent")
       expect(admission.files).toHaveLength(10)
+      expect(admission.files).toEqual(originalFiles)
       expect(admission.consumed).toBe(true)
       expect(admission.focused).toBe(true)
-      await expect(composer.getByRole("status").first()).toBeVisible()
       await expect(composer.getByRole("button", { name: "Remove file" })).toHaveCount(10)
       acceptedFiles = await composer.locator('[aria-label="Remove file"]').evaluateAll(buttons => buttons.map(button => button.parentElement!.querySelector("span")!.textContent!))
       expect(acceptedFiles).toEqual(admission.files.map(file => file.name))
       await composer.getByText("large-9.jpg", { exact: true }).locator("..").getByRole("button", { name: "Remove file" }).click()
       await expect(composer.getByRole("button", { name: "Remove file" })).toHaveCount(9)
-      await composerEditable(page).pressSequentially("typing while image files prepare", { delay: 5 })
-      await expect(composerEditable(page)).toHaveText("typing while image files prepare")
-      await expect.poll(() => inputProbe.evaluate(probe => probe.snapshot().inputs.some(input => input.trusted && input.preparing))).toBe(true)
+      await composerEditable(page).pressSequentially("typing with original image files", { delay: 5 })
+      await expect(composerEditable(page)).toHaveText("typing with original image files")
+      await expect.poll(() => inputProbe.evaluate(probe => probe.snapshot().inputs.some(input => input.trusted && input.attached))).toBe(true)
       await expect(composer.getByRole("status")).toHaveCount(0, { timeout: 30_000 })
       await expect(composer.getByText("large-9.jpg", { exact: true })).toHaveCount(0)
       await expect(composer.getByRole("button", { name: "Remove file" })).toHaveCount(9)
       survivingFiles = await composer.locator('[aria-label="Remove file"]').evaluateAll(buttons => buttons.map(button => button.parentElement!.querySelector("span")!.textContent!))
       expect(survivingFiles).toEqual(acceptedFiles.slice(0, 9))
-      expect(workers.length).toBeGreaterThan(0)
-      const prepared = await workerResults.evaluate(probe => probe.results)
-      expect(prepared.length).toBeGreaterThan(0)
-      expect(prepared).toHaveLength(survivingFiles.length)
-      for (const result of prepared) {
-        expect(result).toMatchObject({ width: 6000, height: 4000, type: "image/jpeg" })
-        expect(result.size).toBeLessThanOrEqual(256 * 1024)
+      const previews = composer.locator("img")
+      await expect(previews).toHaveCount(9)
+      await expect.poll(() => previews.evaluateAll(images => images.map(image => ({
+        ready: (image as HTMLImageElement).complete,
+        width: (image as HTMLImageElement).naturalWidth,
+        height: (image as HTMLImageElement).naturalHeight,
+      })))).toEqual(Array.from({ length: 9 }, () => ({ ready: true, width: 6000, height: 4000 })))
+      const observed = await imageProbe.evaluate(probe => probe.snapshot())
+      for (const source of observed.sources) {
+        expect(source.original).toBe(true)
+        expect(admission.files).toContainEqual({ name: source.name, bytes: source.bytes })
+        expect(source.type).toBe("image/jpeg")
       }
+      for (const name of survivingFiles) {
+        expect(observed.loaded).toContainEqual({ name, width: 6000, height: 4000 })
+      }
+      const removed = observed.sources.filter(source => source.name === "large-9.jpg")
+      for (const source of removed) expect(observed.revoked).toContain(source.url)
+      expect(workers).toEqual([])
     } finally {
-      page.off("response", recordWorkerScriptResponse)
       const input = await inputProbe.evaluate(probe => { probe.stop(); return probe.snapshot() })
-      const workerObservation = await workerResults.jsonValue()
-      await testInfo.attach("image-preparation-input.json", { body: JSON.stringify({ admission, acceptedFiles, survivingFiles, workers, prepared: workerObservation.results, workerObservation, serviceWorkerController, workerScriptResponses, input, fixture: { width: 6000, height: 4000, files: 10 }, removedBeforePreparation: "large-9.jpg", timingBoundary: "Trusted page event delivery and next-frame opportunities; not compositor timestamps or a statistical performance gate" }), contentType: "application/json" })
+      const imageObservation = await imageProbe.evaluate(probe => { const snapshot = probe.snapshot(); probe.restore(); return snapshot })
+      await testInfo.attach("image-preparation-input.json", { body: JSON.stringify({ admission, acceptedFiles, survivingFiles, workers, imageObservation, input, fixture: { width: 6000, height: 4000, files: 10 }, removedFile: "large-9.jpg", timingBoundary: "Trusted input with admitted originals and real native image loads; advisory metadata may already have completed. No artificial preparation delay or statistical performance gate" }), contentType: "application/json" })
       await imageData.dispose()
-      await workerResults.dispose()
+      await imageProbe.dispose()
       await inputProbe.dispose()
     }
     while (await composer.getByRole("button", { name: "Remove file" }).count()) await composer.getByRole("button", { name: "Remove file" }).first().click()
@@ -380,7 +381,7 @@ test.describe("same-tab Community attachment drafts", () => {
     await navigateChannel(page, serverId, channelBId)
     await navigateChannel(page, serverId, channelAId)
     await expect(composer.getByRole("button", { name: "Remove file" })).toHaveCount(0)
-    await expect(composerEditable(page)).toHaveText("typing while image files prepare")
+    await expect(composerEditable(page)).toHaveText("typing with original image files")
   })
 
   test("desktop restores scoped real image/file drafts, rebuilds URLs, and removal never revives", async ({ caseActors }) => {

@@ -166,7 +166,7 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
   holdNextAliceIdentity = true
   const first = await uploadSolidAvatar(uploader.page, "#e5484d")
   expect(first.status).toBe(200)
-  expect(first.url).toBe(`/api/community/users/${aliceId}/avatar?v=${first.avatarVersion}`)
+  expect(first.url).toBe(`/api/community/users/${aliceId}/avatar?v=${first.avatarVersion}&image=1`)
   await expect.poll(() => observerWs.heldCount(), { timeout: 20_000 }).toBe(1)
 
   const avatarGate = deferred(caseResources)

@@ -4,6 +4,7 @@ import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { WEB_URL } from "./_setup/paths"
 import { connectMachine } from "./_fixtures/community-machine"
 import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
+import { solidPngFixture } from "../fixtures/media"
 
 async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
   const { sessionCookie } = actors
@@ -79,8 +80,7 @@ async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
   return { aliceHeaders, pairMachine, createBot }
 }
 
-const ONE_PIXEL_PNG_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nL8AAAAASUVORK5CYII="
+const ONE_PIXEL_PNG_BASE64 = solidPngFixture(1, 1, [255, 255, 255]).toString("base64")
 
 async function uploadAvatar(
   page: import("@playwright/test").Page,

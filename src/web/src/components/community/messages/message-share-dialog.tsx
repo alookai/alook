@@ -24,6 +24,7 @@ import { formatMessageTime } from "@/lib/community/format-time"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
+import { attachmentImagePreviewUrl } from "@/lib/community/storage"
 import { AnimatedAlookLogo } from "@/components/community/shell/animated-alook-logo"
 import {
   capturePreparedShareImage,
@@ -349,7 +350,7 @@ export function MessageShareDialog({ m, open, onClose }: {
                             >
                               <img
                                 data-testid={tid.messageShareImage(msg.id, index)}
-                                data-share-image-src={attachment.url}
+                                data-share-image-src={attachmentImagePreviewUrl(attachment.url)}
                                 alt={attachment.name}
                                 width={attachment.width}
                                 height={attachment.height}

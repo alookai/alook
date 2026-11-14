@@ -418,17 +418,18 @@ describe("MessageShareDialog message projection", () => {
     )
   })
 
-  it("renders attached originals at intrinsic ratio and omits files", async () => {
+  it("prepares the Images display at intrinsic ratio while preserving the original attachment and omitting files", async () => {
+    const photo = {
+      kind: "image" as const,
+      name: "photo.png",
+      url: "/api/community/channels/c1/attachments/a1",
+      thumbnailUrl: "/api/community/channels/c1/attachments/a1/thumbnail?image=1",
+      width: 1200,
+      height: 800,
+    }
     const renderer = await renderReady(message({
       attachments: [
-        {
-          kind: "image",
-          name: "photo.png",
-          url: "/original-photo.png",
-          thumbnailUrl: "/thumbnail-photo.jpg",
-          width: 1200,
-          height: 800,
-        },
+        photo,
         { kind: "file", name: "notes.txt", url: "/notes.txt", size: "1 KB" },
       ],
     }))
@@ -437,7 +438,8 @@ describe("MessageShareDialog message projection", () => {
       `[data-testid="${tid.messageShareImage("m1", 0)}"]`,
     )!
     expect(image.getAttribute("src")).toBeNull()
-    expect(image.getAttribute("data-share-image-src")).toBe("/original-photo.png")
+    expect(image.getAttribute("data-share-image-src")).toBe("/api/community/channels/c1/attachments/a1/thumbnail?image=1&variant=preview")
+    expect(photo.url).toBe("/api/community/channels/c1/attachments/a1")
     expect(image.alt).toBe("photo.png")
     expect(image.width).toBe(1200)
     expect(image.height).toBe(800)
