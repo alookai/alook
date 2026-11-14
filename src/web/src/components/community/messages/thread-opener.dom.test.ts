@@ -335,7 +335,7 @@ describe("ThreadOpener image attachment layout", () => {
     expect(renderer!.getByTestId("community-media-block-clip.webm"))
       .toHaveAttribute("data-media-kind", "video")
     const preview = renderer!.getByTestId("community-video-preview-clip.webm") as HTMLVideoElement
-    expect(preview).toHaveAttribute("src", "/clip")
+    expect(preview).toHaveAttribute("src", "/clip#t=0")
     expect(preview.muted).toBe(true)
     expect(preview.paused).toBe(true)
     expect(preview).not.toHaveAttribute("controls")

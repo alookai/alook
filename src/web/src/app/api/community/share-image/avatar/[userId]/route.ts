@@ -1,12 +1,15 @@
-import { createCommunityImageResponse } from "@/lib/community/image-processing"
 import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { queries, communityExternalAvatarSource } from "@alook/shared"
+import { queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { withPrivateMediaCache } from "@/lib/middleware/private-media-cache"
 import { writeError } from "@/lib/middleware/helpers"
 
+const ALLOWED_AVATAR_HOSTS = new Set([
+  "avatars.githubusercontent.com",
+  "lh3.googleusercontent.com",
+])
 const ALLOWED_IMAGE_TYPES = new Set([
   "image/avif",
   "image/gif",
@@ -17,7 +20,22 @@ const ALLOWED_IMAGE_TYPES = new Set([
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024
 const AVATAR_FETCH_TIMEOUT_MS = 5_000
 
-export const allowedExternalAvatarUrl = communityExternalAvatarSource
+export function allowedExternalAvatarUrl(value: string): URL | null {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return null
+  }
+  if (
+    url.protocol !== "https:"
+    || url.username
+    || url.password
+    || (url.port && url.port !== "443")
+    || !ALLOWED_AVATAR_HOSTS.has(url.hostname.toLowerCase())
+  ) return null
+  return url
+}
 
 async function readLimitedImage(response: Response): Promise<{ bytes: Uint8Array; type: string }> {
   if (!response.ok || response.status >= 300) throw new Error("avatar request failed")
@@ -56,7 +74,7 @@ async function readLimitedImage(response: Response): Promise<{ bytes: Uint8Array
   return { bytes, type }
 }
 
-export const GET = withPrivateMediaCache(withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
+export const GET = withPrivateMediaCache(withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) => {
   const userId = ctx.params?.userId
   if (!userId) return writeError("missing user id", 400)
 
@@ -82,12 +100,13 @@ export const GET = withPrivateMediaCache(withAuth(humanAuthPolicy, async (req: N
     const image = await readLimitedImage(response)
     const body = new ArrayBuffer(image.bytes.byteLength)
     new Uint8Array(body).set(image.bytes)
-    clearTimeout(timer)
-    const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", body)), byte => byte.toString(16).padStart(2, "0")).join("")
-    return await createCommunityImageResponse({
-      request: req, env: ctx.env, sourceKey: `external-avatar:${source.href}`, variant: "identity",
-      source: { body: new Response(body).body!, size: body.byteLength, httpEtag: `"${digest}"` },
-      cacheControl: "private, max-age=300",
+    return new Response(body, {
+      headers: {
+        "Content-Type": image.type,
+        "Content-Length": String(image.bytes.byteLength),
+        "Cache-Control": "private, max-age=300",
+        "X-Content-Type-Options": "nosniff",
+      },
     })
   } catch {
     return writeError(

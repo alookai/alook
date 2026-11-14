@@ -36,7 +36,7 @@ afterEach(() => {
 })
 
 describe("remote image state adapters", () => {
-  it("offers one accessible retry for failed identity images without changing their parent action", async () => {
+  it("offers one accessible retry for processed server icons while retaining original avatar behavior", async () => {
     const openProfile = vi.fn()
     const view = render(React.createElement(React.Fragment, null,
       React.createElement("button", { onClick: openProfile, "aria-label": "Open profile" },
@@ -46,7 +46,9 @@ describe("remote image state adapters", () => {
     ))
     const photo = view.getByAltText("Peer photo") as HTMLImageElement
     const icon = view.getByAltText("Server icon") as HTMLImageElement
-    fireEvent.error(photo); fireEvent.error(icon)
+    fireEvent.error(photo)
+    expect(screen.queryByRole("button", { name: "Retry images" })).toBeNull()
+    fireEvent.error(icon)
     await waitFor(() => expect(screen.getAllByRole("button", { name: "Retry images" })).toHaveLength(1))
     expect(view.container.querySelector("button button")).toBeNull()
     fireEvent.click(view.getByRole("button", { name: "Open profile" }))
@@ -55,24 +57,28 @@ describe("remote image state adapters", () => {
     const retry = screen.getByRole("button", { name: "Retry images" })
     retry.focus()
     await user.keyboard("{Enter}")
-    expect(photo).toHaveAttribute("data-remote-image-state", "pending")
+    expect(photo).toHaveAttribute("data-remote-image-state", "error")
     expect(icon).toHaveAttribute("data-remote-image-state", "pending")
-    setImageMetrics(photo); setImageMetrics(icon)
-    fireEvent.load(photo); fireEvent.load(icon)
+    setImageMetrics(icon)
+    fireEvent.load(icon)
     await waitFor(() => {
-      expect(photo).toHaveAttribute("data-remote-image-state", "ready")
+      expect(photo).toHaveAttribute("data-remote-image-state", "error")
       expect(icon).toHaveAttribute("data-remote-image-state", "ready")
     })
     await waitFor(() => expect(screen.queryByRole("button", { name: "Retry images" })).toBeNull())
     expect(openProfile).toHaveBeenCalledOnce()
   })
-  it("adopts the new representation for cached private image and avatar URLs", () => {
+  it("adopts private image and server-icon representations while preserving avatar URLs", () => {
     const view = render(React.createElement(React.Fragment, null,
       React.createElement(RemoteContentImage, { src: "/api/community/channels/c1/attachments/a1/thumbnail", alt: "Photo" }),
       React.createElement(RemoteIdentityImage, { src: "/api/community/users/u1/avatar?v=4", alt: "Peer" }),
+      React.createElement(RemoteIdentityImage, { src: "https://cdn.example.test/avatar.png?original=1#photo", alt: "External peer" }),
+      React.createElement(RemoteIdentityImage, { src: "/api/community/servers/s1/icon?v=one", alt: "Server" }),
     ))
     expect(view.getByAltText("Photo")).toHaveAttribute("src", "/api/community/channels/c1/attachments/a1/thumbnail?image=1")
-    expect(view.getByAltText("Peer")).toHaveAttribute("src", "/api/community/users/u1/avatar?v=4&image=1")
+    expect(view.getByAltText("Peer")).toHaveAttribute("src", "/api/community/users/u1/avatar?v=4")
+    expect(view.getByAltText("External peer")).toHaveAttribute("src", "https://cdn.example.test/avatar.png?original=1#photo")
+    expect(view.getByAltText("Server")).toHaveAttribute("src", "/api/community/servers/s1/icon?v=one&image=1")
   })
   const identityElement = (src: string, identityKey = "peer") => React.createElement(RemoteIdentityImage, {
     src, identityKey, alt: "Peer", profilePhoto: true, "data-testid": "identity-photo",
@@ -727,5 +733,72 @@ describe("remote image state adapters", () => {
     const wrapper = rendered.container.querySelector<HTMLElement>('[data-streamdown="image-wrapper"]')!
     expect(wrapper.style.aspectRatio).toBe("4/3")
     expect(rendered.container.querySelector('[data-streamdown="image"]')).not.toHaveAttribute("width")
+  })
+
+  it.each([[800, 400], [400, 800]])("fits a decoded dimensionless Markdown image at %sx%s without keeping the placeholder ratio", async (width, height) => {
+    const rendered = renderCommunity(React.createElement(RemoteMarkdownImage, { src: "/natural.png", alt: "Natural" }))
+    const frame = rendered.container.querySelector<HTMLElement>('[data-streamdown="image-wrapper"]')!
+    expect(frame.style.aspectRatio).toBe("4/3")
+    const image = contentImage(rendered.container)
+    setImageMetrics(image, () => Promise.resolve(), width, height)
+    fireEvent.load(image)
+    await waitFor(() => expect(image).toHaveAttribute("data-remote-image-state", "ready"))
+    expect(frame.style.aspectRatio).toBe(`${width}/${height}`)
+    rendered.unmount()
+  })
+
+  it("displays private Markdown attachments through Images and never falls back to their original", () => {
+    const rendered = render(React.createElement(RemoteMarkdownImage, {
+      src: "/api/community/channels/c1/attachments/a1", alt: "Private original",
+    }))
+    const image = contentImage(rendered.container)
+    expect(image).toHaveAttribute("src", "/api/community/channels/c1/attachments/a1/thumbnail?image=1")
+    fireEvent.error(image)
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(contentImage(rendered.container)).toHaveAttribute("src", "/api/community/channels/c1/attachments/a1/thumbnail?image=1")
+    rendered.unmount()
+  })
+
+  it.each([
+    "//example.test/api/community/channels/c1/attachments/a1?image=0#image",
+    "/\\example.test/api/community/channels/c1/attachments/a1",
+    "https://example.test/api/community/channels/c1/attachments/a1?image=0#image",
+  ])("preserves the external Markdown consumer source across retry: %s", source => {
+    const rendered = render(React.createElement(RemoteMarkdownImage, { src: source, alt: "External image" }))
+    expect(contentImage(rendered.container)).toHaveAttribute("src", source)
+    fireEvent.error(contentImage(rendered.container))
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(contentImage(rendered.container)).toHaveAttribute("src", source)
+    rendered.unmount()
+  })
+
+  it("projects the current decoded content frame and never adopts a retired decode's geometry", async () => {
+    let resolveOld!: () => void
+    const oldDecode = new Promise<void>(resolve => { resolveOld = resolve })
+    const fit = vi.fn((image: HTMLImageElement) => ({ aspectRatio: `${image.naturalWidth}/${image.naturalHeight}` }))
+    const tree = (src: string) => React.createElement(RemoteContentImage, {
+      src, alt: "Natural", frameStyle: { width: 300, aspectRatio: "4/3" }, loadedFrameStyle: fit,
+    })
+    const rendered = render(tree("/retired.png"))
+    const old = contentImage(rendered.container)
+    setImageMetrics(old, () => oldDecode, 900, 100)
+    fireEvent.load(old)
+    expect(fit).not.toHaveBeenCalled()
+    rendered.rerender(tree("/current.png"))
+    const current = contentImage(rendered.container)
+    const frame = current.closest<HTMLElement>("[data-remote-image-frame]")!
+    await act(async () => { resolveOld(); await oldDecode })
+    expect(frame.style.aspectRatio).toBe("4/3")
+    expect(fit).not.toHaveBeenCalled()
+    setImageMetrics(current, () => Promise.resolve(), 200, 500)
+    fireEvent.load(current)
+    await waitFor(() => expect(current).toHaveAttribute("data-remote-image-state", "ready"))
+    expect(frame.style.aspectRatio).toBe("200/500")
+    expect(fit).toHaveBeenCalledWith(current)
+    rendered.rerender(tree("/failed.png"))
+    const failed = contentImage(rendered.container)
+    fireEvent.error(failed)
+    expect(failed.closest<HTMLElement>("[data-remote-image-frame]")!.style.aspectRatio).toBe("4/3")
+    rendered.unmount()
   })
 })

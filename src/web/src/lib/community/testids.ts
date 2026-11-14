@@ -237,6 +237,7 @@ export const tid = {
   mediaStatus: (name: string) => `community-media-status-${name}`,
   videoPreview: (name: string) => `community-video-preview-${name}`,
   videoDialog: (name: string) => `community-video-dialog-${name}`,
+  videoFullscreen: (name: string) => `community-video-fullscreen-${name}`,
   codePreview: "community-code-preview",
   codePreviewLanguage: "community-code-preview-language",
   codePreviewCopy: "community-code-preview-copy",

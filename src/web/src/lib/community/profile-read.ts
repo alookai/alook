@@ -1,6 +1,5 @@
 import { avatarInitial } from "@/lib/community/avatar"
 import type { CommunityProfile } from "@/lib/community/models/people"
-import { canonicalCommunityUserImage } from "@alook/shared"
 
 export function readCommunityProfile(
   profile: CommunityProfile | undefined,
@@ -11,7 +10,7 @@ export function readCommunityProfile(
     id: userId,
     name,
     discriminator: profile?.discriminator ?? "",
-    avatar: canonicalCommunityUserImage(userId, profile?.avatar ?? avatarInitial(name), profile?.avatarVersion ?? 0) ?? "",
+    avatar: profile?.avatar ?? avatarInitial(name),
     avatarVersion: profile?.avatarVersion ?? 0,
     aboutMe: profile?.aboutMe ?? "",
     statusEmoji: profile?.statusEmoji,

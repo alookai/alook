@@ -32,7 +32,6 @@ export type {
 export * from "./diagnostics-contract";
 export * from "./community-attention";
 export { compareAsciiSqliteBinary } from "./lib/sqlite-binary";
-export { communityExternalAvatarSource } from "./community-avatar"
 export {
   isUserWsConnectionPing,
   isUserWsConnectionPong,

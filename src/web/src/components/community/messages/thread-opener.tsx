@@ -182,6 +182,7 @@ export function ThreadOpener({
                       }, [msg]))}
                       frameClassName="block max-w-full rounded-lg border border-border [--attachment-image-max-height:200px] transition-colors hover:border-primary/40 sm:[--attachment-image-max-height:240px]"
                       frameStyle={frameStyle}
+                      loadedFrameStyle={image => attachmentImageFrameStyle(a.width, a.height, { width: image.naturalWidth, height: image.naturalHeight })}
                       imageClassName="block rounded-lg object-contain"
                       errorLabel="Image cannot be processed"
                     />

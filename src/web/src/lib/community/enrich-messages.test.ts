@@ -222,7 +222,7 @@ describe("enrichMessages attachment projection", () => {
         firstMessageId: "body-1",
         participants: [{
           id: "u2",
-          avatar: "/api/community/users/u2/avatar?v=4&image=1",
+          avatar: "/api/community/users/u2/avatar?v=4",
           avatarVersion: 4,
         }],
         participantCount: 1,

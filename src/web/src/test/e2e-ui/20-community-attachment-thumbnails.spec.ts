@@ -1,4 +1,5 @@
 import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
+import type { CommunityMessageResource } from "@alook/shared"
 import { readFileSync } from "node:fs"
 import type { Locator, Page, TestInfo } from "@playwright/test"
 import sharp from "sharp"
@@ -1004,6 +1005,55 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await navigationSession.detach()
   await testInfo.attach("image-navigation-responses.json", { body: Buffer.from(JSON.stringify(navigationResponses)), contentType: "application/json" })
 
+  const dimensionlessFrames: unknown[] = []
+  for (const fixture of [
+    { name: "dimensionless-landscape.png", bytes: LANDSCAPE_FIXTURE, ratio: 800 / 450 },
+    { name: "dimensionless-portrait.png", bytes: PORTRAIT_FIXTURE, ratio: 450 / 800 },
+  ]) {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    const uploaded = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/attachments`, {
+      headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+      multipart: { file: { name: fixture.name, mimeType: "image/png", buffer: fixture.bytes } },
+    }))
+    expect(uploaded.status()).toBe(200)
+    const upload = await uploaded.json() as { id: string; width?: number; height?: number }
+    expect(upload.id).toBeTruthy()
+    expect(upload.width).toBeUndefined()
+    expect(upload.height).toBeUndefined()
+    const held = await holdRoute(page, url => url.pathname === `/api/community/channels/${channelId}/attachments/${upload.id}/thumbnail`, caseResources)
+    const posted = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/messages`, {
+      headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, data: { content: fixture.name, attachments: [upload.id] },
+    }))
+    expect(posted.status()).toBe(201)
+    const { message } = await posted.json() as { message: Pick<CommunityMessageResource, "id" | "attachments"> }
+    expect(message.attachments).toHaveLength(1)
+    expect(message.attachments[0]!.id).toBe(upload.id)
+    expect(message.attachments[0]!.width).toBeNull()
+    expect(message.attachments[0]!.height).toBeNull()
+    await page.reload()
+    const image = page.getByTestId(tid.messageImage(message.id, 0))
+    await image.scrollIntoViewIfNeeded()
+    const frame = image.locator("xpath=ancestor::*[@data-remote-image-frame]")
+    await expect.poll(held.held).toBeGreaterThan(0)
+    await expect(frame).toHaveAttribute("data-remote-image-state", "pending")
+    const reserved = await boundingRect(frame)
+    expect(reserved.height).toBeCloseTo(240, 0)
+    expect(reserved.width / reserved.height).toBeCloseTo(4 / 3, 2)
+    await held.release()
+    await expect(frame).toHaveAttribute("data-remote-image-state", "ready")
+    for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(viewport)
+      await frame.scrollIntoViewIfNeeded()
+      await expect.poll(async () => { const rect = await boundingRect(frame); return rect.width / rect.height }).toBeCloseTo(fixture.ratio, 2)
+      const fitted = await boundingRect(frame)
+      expect(fitted.height).toBeLessThanOrEqual((viewport.width === 390 ? 200 : 240) + 0.5)
+      expectWithinRect(fitted, { x: 0, y: 0, ...viewport })
+      dimensionlessFrames.push({ name: fixture.name, viewport, reserved, fitted,
+        pixels: await image.evaluate((element: HTMLImageElement) => ({ width: element.naturalWidth, height: element.naturalHeight })) })
+    }
+  }
+  await testInfo.attach("dimensionless-image-frames.json", { body: JSON.stringify(dimensionlessFrames), contentType: "application/json" })
+
   await testInfo.attach("image-preview-rects.json", {
     body: Buffer.from(JSON.stringify({
       desktopLandscapeLoading,
@@ -1561,9 +1611,9 @@ test("media attachments play, stop, recover and download through reachable mobil
     ready: element.readyState >= 2, muted: element.muted, paused: element.paused,
   }))).toEqual({ ready: true, muted: true, paused: true })
   const previewMetadata = await preview.evaluate((element: HTMLVideoElement) => ({ duration: element.duration, time: element.currentTime }))
-  if (Number.isFinite(previewMetadata.duration) && previewMetadata.duration > 0) {
-    expect(previewMetadata.time).toBeGreaterThan(0)
-  }
+  expect(previewMetadata.time).toBe(0)
+  expect(previewMetadata.duration).toBeGreaterThan(0)
+  await expect(preview).toHaveAttribute("src", `${video.path}#t=0`)
   expect(await preview.evaluate((element: HTMLVideoElement) => ({ width: element.videoWidth, height: element.videoHeight })))
     .toEqual({ width: 320, height: 180 })
   const previewRect = await boundingRect(preview)
@@ -1590,6 +1640,19 @@ test("media attachments play, stop, recover and download through reachable mobil
   const ownedRoute = caseResources.own(corruptVideo, async handler => { await page.unroute(videoPattern, handler) })
   await videoPlay.tap()
   const dialog = page.getByRole("dialog", { name: `Video preview: ${videoName}`, exact: true })
+  await expect(dialog).toHaveCount(0)
+  const inlineRetry = video.block.getByTestId(tid.mediaRetry(videoName))
+  await expect(inlineRetry).toBeVisible()
+  await expect(video.block.getByRole("alert")).toContainText("Couldn’t play this file")
+  await reachable(inlineRetry, video.block)
+  await reachable(video.block.getByTestId(tid.mediaDownload(videoName)), video.block)
+  expect(badResponses).toBeGreaterThan(0)
+  const beforeInlineRetry = badResponses
+  await inlineRetry.tap()
+  await expect.poll(() => badResponses).toBeGreaterThan(beforeInlineRetry)
+  const fullscreen = video.block.getByTestId(tid.videoFullscreen(videoName))
+  await reachable(fullscreen, video.block)
+  await fullscreen.tap()
   await expect(dialog).toBeVisible()
   const retry = dialog.getByTestId(tid.mediaRetry(videoName))
   const videoDownload = dialog.getByTestId(tid.mediaDownload(videoName))
@@ -1598,14 +1661,17 @@ test("media attachments play, stop, recover and download through reachable mobil
   await expect(dialog.getByRole("alert")).toContainText("Couldn’t play this file")
   await reachable(retry, dialog)
   await reachable(videoDownload, dialog)
+  const beforeFullscreenRetry = badResponses
   await retry.tap()
-  await expect.poll(() => badResponses).toBeGreaterThan(1)
+  await expect.poll(() => badResponses).toBeGreaterThan(beforeFullscreenRetry)
   await expect(retry).toBeVisible()
   corrupt = false
   await retry.tap()
   const videoPlayer = dialog.getByTestId(tid.mediaPlayer(videoName))
   await expect(videoPlayer).toHaveAttribute("controls", "")
   await expect.poll(async () => (await state(videoPlayer)).time).toBeGreaterThan(0.1)
+  await videoPlayer.press("Space")
+  await expect.poll(async () => (await state(videoPlayer)).paused).toBe(true)
   const videoBeforeClose = await state(videoPlayer)
   const capturedPlayer = await videoPlayer.elementHandle()
   expect(capturedPlayer).not.toBeNull()
@@ -1621,15 +1687,33 @@ test("media attachments play, stop, recover and download through reachable mobil
   await expect(dialog).toBeHidden()
   expect(await capturedPlayer!.evaluate((element: HTMLVideoElement) => ({ paused: element.paused, source: element.getAttribute("src") })))
     .toEqual({ paused: true, source: null })
-  await videoPlay.tap()
-  await expect.poll(async () => (await state(dialog.getByTestId(tid.mediaPlayer(videoName)))).time).toBeGreaterThan(0.1)
+  const inlinePlayer = video.block.getByTestId(tid.mediaPlayer(videoName))
+  await expect(inlinePlayer).toHaveAttribute("controls", "")
+  await expect.poll(async () => (await state(inlinePlayer)).ready).toBeGreaterThanOrEqual(2)
+  expect(await state(inlinePlayer)).toMatchObject({ paused: true })
+  expect((await state(inlinePlayer)).time).toBeCloseTo(videoBeforeClose.time, 1)
+  const inlineFrame = await boundingRect(inlinePlayer)
+  expectWithinRect(inlineFrame, await boundingRect(video.block))
+  await inlinePlayer.press("Space")
+  await expect.poll(async () => (await state(inlinePlayer)).time).toBeGreaterThan(videoBeforeClose.time)
+  const inlineBeforeExpand = await state(inlinePlayer)
+  const capturedInline = await inlinePlayer.elementHandle()
+  expect(capturedInline).not.toBeNull()
+  caseResources.own(capturedInline!, async handle => { await handle.dispose() })
+  await fullscreen.tap()
+  const expanded = dialog.getByTestId(tid.mediaPlayer(videoName))
+  await expect.poll(async () => (await state(expanded)).time).toBeGreaterThan(inlineBeforeExpand.time)
+  expect(await capturedInline!.evaluate((element: HTMLVideoElement) => ({ paused: element.paused, source: element.getAttribute("src") })))
+    .toEqual({ paused: true, source: null })
+  await expanded.press("Space")
+  await expect.poll(async () => (await state(expanded)).paused).toBe(true)
   await dialog.getByRole("button", { name: "Close video preview", exact: true }).tap()
   await expect(dialog).toBeHidden()
   await ownedRoute.close()
   await testInfo.attach("media-playback.json", { body: JSON.stringify({ serverId, channelId,
     wavBytes: wav.length, webmBytes: webm.length, badResponses,
-    audio: await state(audioPlayer), completion, videoBeforeClose,
+    audio: await state(audioPlayer), completion, videoBeforeClose, inlineBeforeExpand, inlineFrame,
     idleAudioHeight: idleRect.height, previewRect, previewMetadata,
-    input: "native touchscreen taps; browser download; no native OS save or native-shell claim",
+    input: "native touchscreen taps; native video Space transport; browser download; no native OS save or native-shell claim",
   }), contentType: "application/json" })
 })

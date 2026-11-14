@@ -59,8 +59,7 @@ describe("POST /api/community/invites/[token]/join", () => {
         nickname: null,
         joinedAt: "2026-07-03T00:00:00.000Z",
         userName: "Alice",
-        userImage: "https://avatars.githubusercontent.com/u/1?v=4",
-        userAvatarVersion: 0,
+        userImage: "https://avatars/alice.png",
       },
     })
 
@@ -74,7 +73,7 @@ describe("POST /api/community/invites/[token]/join", () => {
     expect(event.type).toBe("community:member.join")
     // The regression: name must be the joined user.name, NOT userId or nickname-fallback.
     expect(event.member.name).toBe("Alice")
-    expect(event.member.avatar).toBe("/api/community/share-image/avatar/u_caller?image=1&v=0")
+    expect(event.member.avatar).toBe("https://avatars/alice.png")
     // Other fields carry through.
     expect(event.member.id).toBe("mem_1")
     expect(event.member.userId).toBe("u_caller")

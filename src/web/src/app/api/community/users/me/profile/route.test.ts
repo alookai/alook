@@ -102,7 +102,7 @@ describe("GET /api/community/users/me/profile", () => {
     expect(await res.json()).toEqual({
       id: "u1",
       aboutMe: "",
-      avatar: "/api/community/users/u1/avatar?v=0&image=1",
+      avatar: "/api/community/users/u1/avatar",
       avatarVersion: 0,
       bannerColor: null,
       discriminator: "4242",
@@ -118,7 +118,7 @@ describe("GET /api/community/users/me/profile", () => {
     expect(await res.json()).toEqual({
       id: "u1",
       aboutMe: "hi",
-      avatar: "/api/community/users/u1/avatar?v=0&image=1",
+      avatar: "/api/community/users/u1/avatar",
       avatarVersion: 0,
       bannerColor: "#aabbcc",
       discriminator: "4242",

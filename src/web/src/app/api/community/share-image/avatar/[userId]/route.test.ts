@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
-import { createImagesBindingStub } from "@/test/fixtures/images-binding"
-const images = createImagesBindingStub()
 
 const routeMocks = vi.hoisted(() => ({
   getPublicProfileForViewer: vi.fn(),
@@ -20,7 +18,7 @@ vi.mock("@alook/shared", async () => ({
 vi.mock("@/lib/middleware/auth", () => ({
   humanAuthPolicy: { resolve: async (req: any) => {
 
-    return ({ context: { env: { DB: "database", IMAGES: images }, userId: "viewer-1" } })
+    return ({ context: { env: { DB: "database" }, userId: "viewer-1" } })
   } },
 }))
 
@@ -101,11 +99,10 @@ describe("GET /api/community/share-image/avatar/[userId]", () => {
     const headers = new Headers(init?.headers)
     expect(headers.get("authorization")).toBeNull()
     expect(headers.get("cookie")).toBeNull()
-    expect(response.headers.get("content-type")).toBe("image/webp")
+    expect(response.headers.get("content-type")).toBe("image/png")
     expect(response.headers.get("cache-control")).toBe("private, max-age=300")
     expect(response.headers.get("x-content-type-options")).toBe("nosniff")
-    expect(await response.text()).toBe("derived-image")
-    expect(images.input).toHaveBeenCalledOnce()
+    expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([1, 2, 3])
   })
 
   it.each([

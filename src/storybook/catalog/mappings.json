@@ -4139,7 +4139,7 @@
     "examples": [
       {
         "story": "web-business-attachments-and-rich-content--unavailable-video",
-        "region": "Image-like native video preview; activate Play to expose the expanded Dialog player, unsupported-media recovery and original download controls."
+        "region": "Image-like native video preview; Play exposes an inline native player and unsupported-media recovery. Fullscreen opens the large Dialog; original download remains available."
       }
     ],
     "reason": "The actual AttachmentCard mounts VideoAttachment in this missing-file story; its Play action reveals VideoPlayback. This declares the failure exposure only. Decoded-frame and successful playback evidence belongs to the actual browser/native media journeys."

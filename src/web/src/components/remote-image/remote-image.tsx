@@ -19,8 +19,8 @@ import {
   type RemoteImageStatus,
 } from "./remote-image-attempt"
 
-const IDENTITY_RETRY_EVENT = "alook:retry-identity-images"
-const IDENTITY_ERROR_NOTICE = "identity-image-recovery"
+const SERVER_ICON_RETRY_EVENT = "alook:retry-server-icon-images"
+const SERVER_ICON_ERROR_NOTICE = "server-icon-image-recovery"
 
 type IdentityImageProps = {
   src: string
@@ -41,6 +41,7 @@ function IdentityImageAttempt({
   "data-testid": testId,
 }: IdentityImageProps) {
   const sourceProps = useShareImageSource(communityImageDisplayUrl(src))
+  const processedIcon = /^\/api\/community\/servers\/[^/]+\/icon(?:[?#]|$)/.test(src)
   const [status, , usableImage, imageRef, onLoad, onError, retry] = useRemoteImageAttempt({ source: sourceProps.src, retainImage: true })
   const visible = Boolean(usableImage)
   const placeholderStatus = visible ? "ready" : status
@@ -48,29 +49,31 @@ function IdentityImageAttempt({
   const noticePosted = useRef(false)
 
   useEffect(() => {
+    if (!processedIcon) return
     const retryFailedImage = () => { if (status === "error") retry() }
-    window.addEventListener(IDENTITY_RETRY_EVENT, retryFailedImage)
-    return () => window.removeEventListener(IDENTITY_RETRY_EVENT, retryFailedImage)
-  }, [retry, status])
+    window.addEventListener(SERVER_ICON_RETRY_EVENT, retryFailedImage)
+    return () => window.removeEventListener(SERVER_ICON_RETRY_EVENT, retryFailedImage)
+  }, [processedIcon, retry, status])
 
   useEffect(() => {
+    if (!processedIcon) return
     const dismissIfRecovered = () => {
-      if (!document.querySelector('[data-remote-image-kind="identity"][data-remote-image-state="error"]')) toast.dismiss(IDENTITY_ERROR_NOTICE)
+      if (!document.querySelector('[data-remote-image-kind="identity"][data-processed-icon][data-remote-image-state="error"]')) toast.dismiss(SERVER_ICON_ERROR_NOTICE)
     }
     if (status === "error") {
       noticePosted.current = true
-      toast.error("Some avatars or icons couldn’t load", {
-        id: IDENTITY_ERROR_NOTICE,
+      toast.error("Some server icons couldn’t load", {
+        id: SERVER_ICON_ERROR_NOTICE,
         duration: Infinity,
         actionButtonStyle: { minHeight: 44, minWidth: 44 },
         action: { label: "Retry images", onClick: () => {
-          window.dispatchEvent(new Event(IDENTITY_RETRY_EVENT))
-          toast.dismiss(IDENTITY_ERROR_NOTICE)
+          window.dispatchEvent(new Event(SERVER_ICON_RETRY_EVENT))
+          toast.dismiss(SERVER_ICON_ERROR_NOTICE)
         } },
       })
     } else if (noticePosted.current) dismissIfRecovered()
     return () => { if (noticePosted.current) queueMicrotask(dismissIfRecovered) }
-  }, [status])
+  }, [processedIcon, status])
 
   return (
     <>
@@ -92,6 +95,7 @@ function IdentityImageAttempt({
         data-slot={profilePhoto ? "avatar-image" : undefined}
         data-avatar-photo-state={profilePhoto ? legacyStatus : undefined}
         data-remote-image-kind="identity"
+        data-processed-icon={processedIcon ? "" : undefined}
         data-remote-image-state={status}
         {...sourceProps}
         alt={alt}
@@ -120,6 +124,7 @@ type ContentImageProps = Omit<
   alt: string
   frameClassName?: string
   frameStyle?: CSSProperties
+  loadedFrameStyle?: (image: HTMLImageElement) => CSSProperties
   imageClassName?: string
   imageStyle?: CSSProperties
   loadingLabel?: string
@@ -137,6 +142,7 @@ function ContentImageAttempt({
   alt,
   frameClassName,
   frameStyle,
+  loadedFrameStyle,
   imageClassName,
   imageStyle,
   loading = "lazy",
@@ -200,7 +206,7 @@ function ContentImageAttempt({
       data-remote-image-frame
       data-remote-image-state={status}
       className={cn("relative overflow-hidden bg-muted/30", frameClassName)}
-      style={frameStyle}
+      style={status === "ready" && readyImage && loadedFrameStyle ? loadedFrameStyle(readyImage) : frameStyle}
     >
       {onActivate && status !== "error" ? (
         <button

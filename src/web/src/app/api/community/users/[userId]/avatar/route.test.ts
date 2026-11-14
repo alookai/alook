@@ -1,13 +1,11 @@
-import { createImagesBindingStub } from "@/test/fixtures/images-binding"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const mediaGet = vi.fn()
-const images = createImagesBindingStub()
 const mockGetLiveHumanAvatarState = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn(() => ({ env: { DB: {}, IMAGES: images, COMMUNITY_MEDIA: { get: (...a: unknown[]) => mediaGet(...a) } } })),
+  getCloudflareContext: vi.fn(() => ({ env: { DB: {}, COMMUNITY_MEDIA: { get: (...a: unknown[]) => mediaGet(...a) } } })),
 }))
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
@@ -36,7 +34,7 @@ vi.mock("@/lib/middleware/auth", () => ({
     }
 
     return ({ context: {
-      env: { DB: {}, IMAGES: images, COMMUNITY_MEDIA: { get: (...a: unknown[]) => mediaGet(...a) } },
+      env: { DB: {}, COMMUNITY_MEDIA: { get: (...a: unknown[]) => mediaGet(...a) } },
       userId: "caller",
       email: "u@t.com",
 
@@ -54,7 +52,7 @@ vi.mock("@/lib/middleware/helpers", () => {
 import { GET } from "./route"
 
 function getReq(version?: number) {
-  const suffix = `?v=${version ?? 0}&image=1`
+  const suffix = version === undefined ? "" : `?v=${version}`
   return new NextRequest(`http://localhost/api/community/users/u1/avatar${suffix}`, { method: "GET" })
 }
 function ctx(userId?: string) {
@@ -69,12 +67,11 @@ describe("GET /api/community/users/[userId]/avatar", () => {
       avatarVersion: 0,
       avatarObjectKey: null,
     })
-    mediaGet.mockImplementation(async () => ({
-      size: 8,
-      body: new Response("original").body,
+    mediaGet.mockResolvedValue({
+      body: new ReadableStream(),
       httpMetadata: { contentType: "image/webp" },
       httpEtag: '"etag-1"',
-    }))
+    })
   })
 
   it("returns 401 for anonymous callers", async () => {
@@ -129,7 +126,7 @@ describe("GET /api/community/users/[userId]/avatar", () => {
     const res = await GET(getReq(), ctx("u1"))
 
     expect(res.status).toBe(307)
-    expect(res.headers.get("Location")).toBe("/api/community/users/u1/avatar?v=3&image=1")
+    expect(res.headers.get("Location")).toBe("/api/community/users/u1/avatar?v=3")
     expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mediaGet).not.toHaveBeenCalled()
   })
@@ -148,45 +145,35 @@ describe("GET /api/community/users/[userId]/avatar", () => {
     expect(mediaGet).toHaveBeenCalledWith("user-avatar/u1/objects/object-3")
   })
 
-  it("redirects an old representation URL even when the source version is current", async () => {
-    mockGetLiveHumanAvatarState.mockResolvedValue({ avatarVersion: 3, avatarObjectKey: "user-avatar/u1/objects/object-3" })
-    const res = await GET(new NextRequest("http://localhost/api/community/users/u1/avatar?v=3"), ctx("u1"))
-    expect(res.status).toBe(307)
-    expect(res.headers.get("Location")).toBe("/api/community/users/u1/avatar?v=3&image=1")
-    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
-    expect(mediaGet).not.toHaveBeenCalled()
-  })
-
   it("redirects a version query away from a legacy alias", async () => {
     const res = await GET(getReq(3), ctx("u1"))
 
     expect(res.status).toBe(307)
     expect(res.headers.get("Cache-Control")).toBe("private, no-store")
-    expect(res.headers.get("Location")).toBe("/api/community/users/u1/avatar?v=0&image=1")
+    expect(res.headers.get("Location")).toBe("/api/community/users/u1/avatar")
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
   it("serves cached bytes while revalidating the deterministic URL in the background", async () => {
     const res = await GET(getReq(), ctx("u1"))
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=0, stale-while-revalidate=31536000")
-    expect(res.headers.get("ETag")).toMatch(/^"image-[a-f0-9]{64}"$/)
+    expect(res.headers.get("ETag")).toBe('"etag-1"')
   })
 
   it("returns 304 with no body when If-None-Match matches the current ETag", async () => {
-    const initial = await GET(getReq(), ctx("u1"))
-    const req = new NextRequest("http://localhost/api/community/users/u1/avatar?v=0&image=1", {
+    const req = new NextRequest("http://localhost/api/community/users/u1/avatar", {
       method: "GET",
-      headers: { "if-none-match": initial.headers.get("ETag")! },
+      headers: { "if-none-match": '"etag-1"' },
     })
     const res = await GET(req, ctx("u1"))
     expect(res.status).toBe(304)
     expect(res.headers.get("Vary")).toBe("Authorization")
-    expect(res.headers.get("ETag")).toMatch(/^"image-[a-f0-9]{64}"$/)
+    expect(res.headers.get("ETag")).toBe('"etag-1"')
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=0, stale-while-revalidate=31536000")
   })
 
   it("returns 200 with the full body when If-None-Match is stale", async () => {
-    const req = new NextRequest("http://localhost/api/community/users/u1/avatar?v=0&image=1", {
+    const req = new NextRequest("http://localhost/api/community/users/u1/avatar", {
       method: "GET",
       headers: { "if-none-match": '"stale-etag"' },
     })

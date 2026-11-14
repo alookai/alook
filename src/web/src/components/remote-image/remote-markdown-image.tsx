@@ -6,6 +6,7 @@ import { FileDownloadButton } from "@/components/file-download-button"
 import { cn } from "@/lib/utils"
 import { useShareImageSource } from "./share-image-context"
 import { useRemoteImageAttempt } from "./remote-image-attempt"
+import { communityImageDisplayUrl } from "@/lib/community/storage"
 
 function dimension(value: unknown): number | undefined {
   const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""))
@@ -29,14 +30,16 @@ function MarkdownImageAttempt({
   node,
   ...rest
 }: MarkdownImageProps) {
-  const sourceProps = useShareImageSource(src ?? "")
+  const sourceProps = useShareImageSource(communityImageDisplayUrl(src ?? ""))
   void node
-  const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt({ source: sourceProps.src })
+  const [status, attempt, readyImage, imageRef, onLoad, onError, retry] = useRemoteImageAttempt({ source: sourceProps.src })
   const imageWidth = dimension(width)
   const imageHeight = dimension(height)
-  const aspectRatio = imageWidth && imageHeight ? `${imageWidth}/${imageHeight}` : "4/3"
-  const frameWidth = imageWidth && imageHeight
-    ? Math.min(imageWidth, 300 * imageWidth / imageHeight)
+  const ratioWidth = status === "ready" && readyImage ? readyImage.naturalWidth : imageWidth
+  const ratioHeight = status === "ready" && readyImage ? readyImage.naturalHeight : imageHeight
+  const aspectRatio = ratioWidth && ratioHeight ? `${ratioWidth}/${ratioHeight}` : "4/3"
+  const frameWidth = ratioWidth && ratioHeight
+    ? Math.min(imageWidth ?? Infinity, 300 * ratioWidth / ratioHeight)
     : imageWidth ? Math.min(imageWidth, 300) : 300
 
   if (!src) return null

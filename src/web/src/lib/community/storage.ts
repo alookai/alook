@@ -16,12 +16,12 @@ export function attachmentImagePreviewUrl(originalUrl: string): string {
 }
 
 export function communityImageDisplayUrl(source: string, variant: "attachment" | "preview" = "attachment"): string {
-  if (!source.startsWith("/")) return source
+  if (!source.startsWith("/") || source.startsWith("//") || source.startsWith("/\\") || /[\t\r\n]/.test(source)) return source
   let url: URL
   try { url = new URL(source, "https://alook.invalid") } catch { return source }
+  if (url.origin !== "https://alook.invalid") return source
   const attachment = /^\/api\/community\/channels\/[^/]+\/attachments\/[^/]+(?:\/thumbnail)?$/.test(url.pathname)
-  const identity = /^\/api\/community\/(?:users|bots|servers)\/[^/]+\/(?:avatar|icon)$/.test(url.pathname)
-    || /^\/api\/community\/share-image\/avatar\/[^/]+$/.test(url.pathname)
+  const identity = /^\/api\/community\/servers\/[^/]+\/icon$/.test(url.pathname)
   if (!attachment && !identity) return source
   if (attachment && !url.pathname.endsWith("/thumbnail")) url.pathname += "/thumbnail"
   url.searchParams.set("image", String(COMMUNITY_IMAGE_REVISION))
