@@ -417,7 +417,6 @@ describe("message stream monotonic visibility", () => {
 
 describe("attachment ownership effects", () => {
   const retryFile = { name: "notes.txt", size: 1024, type: "text/plain" } as File
-  const retryThumbnail = new Blob(["thumbnail"], { type: "image/jpeg" })
   const settledAttachments: NonNullable<Msg["attachments"]> = [{
     kind: "image", contentType: "image/png",
     name: "photo.png",
@@ -429,18 +428,18 @@ describe("attachment ownership effects", () => {
   const settledResourceAttachments = [{ id: "photo", name: "photo.png", url: "/media/photo", thumbnailUrl: "/media/photo/thumbnail", contentType: "image/png", sizeBytes: null, width: 320, height: 240 }]
   const attachedIntent = () => intent("files", 1, {
     localUploads: [
-      { file: retryFile, thumbnailBlob: retryThumbnail, previewObjectUrl: "blob:a", width: 640, height: 480 },
+      { file: retryFile, previewObjectUrl: "blob:a", width: 640, height: 480 },
       { file: { name: "photo.png", size: 2048, type: "image/png" } as File, previewObjectUrl: "blob:b", width: 320, height: 240 },
       { file: { name: "copy.txt", size: 1024, type: "text/plain" } as File, previewObjectUrl: "blob:a" },
     ],
   })
 
   it("keeps upload intent without inventing an attachment URL when preview is absent", () => {
-    const local = { file: retryFile, thumbnailBlob: retryThumbnail }
+    const local = { file: retryFile }
     const state = submit(emptyMessageOverlay(), intent("no-preview", 1, { localUploads: [local] }))
     expect(materializeMessageStream([], state)[0].attachments).toBeUndefined()
     expect(getOutboxRetryPayload(state, "no-preview")?.localUploads[0].file).toBe(retryFile)
-    expect(getOutboxRetryPayload(state, "no-preview")?.localUploads[0].thumbnailBlob).toBe(retryThumbnail)
+    expect(getOutboxRetryPayload(state, "no-preview")?.localUploads[0].file).toBe(retryFile)
   })
   it("initializes lifecycle and retains immutable upload inputs through retry", () => {
     let state = submit(emptyMessageOverlay(), attachedIntent())
@@ -454,8 +453,8 @@ describe("attachment ownership effects", () => {
 
     const retried = state.outboxByNonce.get("files")
     expect(retried?.localUploads[0].file).toBe(retryFile)
-    expect(retried?.localUploads[0].thumbnailBlob).toBe(retryThumbnail)
-    expect(getOutboxRetryPayload(state, "files")?.localUploads[0].thumbnailBlob).toBe(retryThumbnail)
+    expect(retried?.localUploads[0].file).toBe(retryFile)
+    expect(getOutboxRetryPayload(state, "files")?.localUploads[0].file).toBe(retryFile)
     expect(retried?.localUploads[0].previewObjectUrl).toBe("blob:a")
     expect(retried?.localUploads[0].width).toBe(640)
     expect(retried?.localUploads[0].height).toBe(480)

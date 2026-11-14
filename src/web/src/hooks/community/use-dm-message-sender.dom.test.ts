@@ -91,19 +91,19 @@ describe("Native DM sender", () => {
     expect(owner.overlay().outboxByNonce.get("fresh_nonce")).toMatchObject({ uploadStatus: "failed", status: "failed" })
   })
 
-  it("retains the identical thumbnail Blob for both Native multipart attempts", async () => {
-    const thumbnailBlob = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: "image/jpeg" })
+  it("retains the identical original File for both Native multipart attempts", async () => {
     mocks.upload.mockRejectedValueOnce(new Error("upload failed")).mockResolvedValueOnce({ id: "att_thumb", filename: "photo.png", contentType: "image/png", size: 8, hasThumbnail: true })
     mocks.post.mockResolvedValueOnce(posted("server_thumb", 10, "photo"))
     const owner = await setup(), file = new File(["original"], "photo.png", { type: "image/png" })
-    const receipt = owner.accept({ content: "photo", attachments: [{ file, thumbnailBlob, previewObjectUrl: "blob:thumbnail", width: 640, height: 480 }] })
+    const receipt = owner.accept({ content: "photo", attachments: [{ file, previewObjectUrl: "blob:thumbnail", width: 640, height: 480 }] })
     expect(await owner.settle(receipt)).toEqual({ ok: false, error: expect.any(Error) })
-    expect(owner.overlay().outboxByNonce.get("fresh_nonce")?.localUploads[0].thumbnailBlob).toBe(thumbnailBlob)
+    expect(owner.overlay().outboxByNonce.get("fresh_nonce")?.localUploads[0].file).toBe(file)
     expect(await owner.retry()).toMatchObject({ ok: true, message: { id: "server_thumb", seq: 10 } })
     expect(mocks.upload).toHaveBeenCalledTimes(2)
     for (const [body] of mocks.upload.mock.calls) {
       expect(body).toBeInstanceOf(FormData)
-      expect(body.get("thumbnail")).toMatchObject({ size: 4, type: "image/jpeg" })
+      expect(body.get("file")).toBe(file)
+      expect(body.has("thumbnail")).toBe(false)
       expect(body.get("width")).toBe("640"); expect(body.get("height")).toBe("480")
     }
   })

@@ -79,7 +79,7 @@ describe("GET reaction details", () => {
     await expect(response.json()).resolves.toMatchObject({
       messageId: "message_1",
       actors: [
-        { userId: "user_1", profile: { avatar: "/api/community/users/user_1/avatar?v=7" } },
+        { userId: "user_1", profile: { avatar: "/api/community/users/user_1/avatar?v=7&image=1" } },
         { userId: "departed_1", profile: null },
       ],
     })

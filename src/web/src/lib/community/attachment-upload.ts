@@ -1,5 +1,3 @@
-import { MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES } from "@alook/shared"
-import { isInlineAttachmentContentType } from "./attachment-content-type"
 
 export type UploadTarget = {
   channelId?: string
@@ -13,7 +11,6 @@ export type UploadFileArgs = {
   assertCommand?: () => void
   target: UploadTarget
   file: File
-  thumbnailBlob?: Blob
   width?: number
   height?: number
 }
@@ -30,36 +27,13 @@ export type UploadFileResult = {
   height?: number
 }
 
-export function appendGeneratedThumbnail(
-  formData: FormData,
-  originalContentType: string,
-  thumbnailBlob?: Blob,
-): boolean {
-  if (
-    !isInlineAttachmentContentType(originalContentType) ||
-    !thumbnailBlob
-  ) return false
-  if (thumbnailBlob.type !== "image/jpeg") {
-    throw new Error("Generated thumbnail must be image/jpeg")
-  }
-  if (thumbnailBlob.size > MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES) {
-    throw new Error(
-      `Generated thumbnail exceeds ${MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES / 1024} KiB`,
-    )
-  }
-  formData.append("thumbnail", thumbnailBlob, "thumbnail.jpg")
-  return true
-}
-
 export function buildAttachmentUploadFormData({
   file,
-  thumbnailBlob,
   width,
   height,
-}: Pick<UploadFileArgs, "file" | "thumbnailBlob" | "width" | "height">): FormData {
+}: Pick<UploadFileArgs, "file" | "width" | "height">): FormData {
   const formData = new FormData()
   formData.append("file", file)
-  appendGeneratedThumbnail(formData, file.type, thumbnailBlob)
   if (width !== undefined) formData.append("width", String(width))
   if (height !== undefined) formData.append("height", String(height))
   return formData

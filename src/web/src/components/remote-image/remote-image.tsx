@@ -5,16 +5,22 @@ import {
   Fragment,
   useEffect,
   useEffectEvent,
+  useRef,
   type CSSProperties,
   type ImgHTMLAttributes,
   type MouseEvent,
 } from "react"
 import { cn } from "@/lib/utils"
+import { communityImageDisplayUrl } from "@/lib/community/storage"
+import { toast } from "sonner"
 import { useShareImageSource } from "./share-image-context"
 import {
   useRemoteImageAttempt,
   type RemoteImageStatus,
 } from "./remote-image-attempt"
+
+const IDENTITY_RETRY_EVENT = "alook:retry-identity-images"
+const IDENTITY_ERROR_NOTICE = "identity-image-recovery"
 
 type IdentityImageProps = {
   src: string
@@ -34,11 +40,37 @@ function IdentityImageAttempt({
   profilePhoto = false,
   "data-testid": testId,
 }: IdentityImageProps) {
-  const sourceProps = useShareImageSource(src)
-  const [status, , usableImage, imageRef, onLoad, onError] = useRemoteImageAttempt({ source: sourceProps.src, retainImage: true })
+  const sourceProps = useShareImageSource(communityImageDisplayUrl(src))
+  const [status, , usableImage, imageRef, onLoad, onError, retry] = useRemoteImageAttempt({ source: sourceProps.src, retainImage: true })
   const visible = Boolean(usableImage)
   const placeholderStatus = visible ? "ready" : status
   const legacyStatus = status === "error" ? "failed" : status
+  const noticePosted = useRef(false)
+
+  useEffect(() => {
+    const retryFailedImage = () => { if (status === "error") retry() }
+    window.addEventListener(IDENTITY_RETRY_EVENT, retryFailedImage)
+    return () => window.removeEventListener(IDENTITY_RETRY_EVENT, retryFailedImage)
+  }, [retry, status])
+
+  useEffect(() => {
+    const dismissIfRecovered = () => {
+      if (!document.querySelector('[data-remote-image-kind="identity"][data-remote-image-state="error"]')) toast.dismiss(IDENTITY_ERROR_NOTICE)
+    }
+    if (status === "error") {
+      noticePosted.current = true
+      toast.error("Some avatars or icons couldn’t load", {
+        id: IDENTITY_ERROR_NOTICE,
+        duration: Infinity,
+        actionButtonStyle: { minHeight: 44, minWidth: 44 },
+        action: { label: "Retry images", onClick: () => {
+          window.dispatchEvent(new Event(IDENTITY_RETRY_EVENT))
+          toast.dismiss(IDENTITY_ERROR_NOTICE)
+        } },
+      })
+    } else if (noticePosted.current) dismissIfRecovered()
+    return () => { if (noticePosted.current) queueMicrotask(dismissIfRecovered) }
+  }, [status])
 
   return (
     <>
@@ -118,7 +150,7 @@ function ContentImageAttempt({
   "data-testid": testId,
   ...imageProps
 }: ContentImageProps) {
-  const sourceProps = useShareImageSource(src)
+  const sourceProps = useShareImageSource(communityImageDisplayUrl(src))
   const [status, attempt, readyImage, imageRef, onLoad, onError, retry] = useRemoteImageAttempt({ source: sourceProps.src })
   const notifyReady = useEffectEvent((image: HTMLImageElement) => onReady?.(image))
 
@@ -193,6 +225,8 @@ function ContentImageAttempt({
           >
             {retryLabel}
           </Button>
+          {onActivate && <Button variant="ghost" size="sm" type="button" onClick={onActivate}
+            className="min-h-11 min-w-11">Open preview</Button>}
         </div>
       )}
     </div>

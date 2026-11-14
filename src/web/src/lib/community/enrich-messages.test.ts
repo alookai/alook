@@ -162,7 +162,7 @@ describe("enrichMessages attachment projection", () => {
           url: "/api/community/channels/c1/attachments/att_1",
           contentType: "image/png",
           sizeBytes: 100,
-          thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail",
+          thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail?image=1",
           width: 640,
           height: 480,
         }],
@@ -222,7 +222,7 @@ describe("enrichMessages attachment projection", () => {
         firstMessageId: "body-1",
         participants: [{
           id: "u2",
-          avatar: "/api/community/users/u2/avatar?v=4",
+          avatar: "/api/community/users/u2/avatar?v=4&image=1",
           avatarVersion: 4,
         }],
         participantCount: 1,

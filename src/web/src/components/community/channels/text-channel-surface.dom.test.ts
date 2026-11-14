@@ -312,8 +312,7 @@ describe("MessageChannelController scroll target ownership", () => {
     expect(firstOpenPinned).not.toHaveBeenCalled()
   })
 
-  it("retries a failed channel upload with the identical thumbnail Blob in multipart", async () => {
-    const thumbnailBlob = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: "image/jpeg" })
+  it("retries a failed channel upload with the identical original File in multipart", async () => {
     const file = new File(["original"], "photo.png", { type: "image/png" })
     mutationMocks.uploadFile
       .mockRejectedValueOnce(new Error("upload failed"))
@@ -334,7 +333,6 @@ describe("MessageChannelController scroll target ownership", () => {
     await act(async () => {
       firstController.acceptMessage("photo", [{
         file,
-        thumbnailBlob,
         previewObjectUrl: "blob:thumbnail",
         width: 640,
         height: 480,
@@ -357,8 +355,10 @@ describe("MessageChannelController scroll target ownership", () => {
 
     expect(mutationMocks.uploadFile).toHaveBeenCalledTimes(2)
     for (const [args] of mutationMocks.uploadFile.mock.calls) {
-      expect(args.thumbnailBlob).toBe(thumbnailBlob)
-      expect((buildAttachmentUploadFormData(args).get("thumbnail") as File).size).toBe(4)
+      expect(args.file).toBe(file)
+      expect(args).not.toHaveProperty("thumbnailBlob")
+      expect(buildAttachmentUploadFormData(args).get("file")).toBe(file)
+      expect(buildAttachmentUploadFormData(args).has("thumbnail")).toBe(false)
     }
   })
 })

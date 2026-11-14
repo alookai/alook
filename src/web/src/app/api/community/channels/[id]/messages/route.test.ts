@@ -622,7 +622,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
       authorAvatarVersion: 0,
       authorId: "u1",
       authorName: "Canonical Author",
-      authorImage: "https://avatar.test/u1.png",
+      authorImage: "https://avatars.githubusercontent.com/u/1?v=4",
       authorEmail: "u1@t.com",
       content: "canonical content",
       type: "default",
@@ -644,7 +644,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
       contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", deduped: false,
       message: {
         id: "m_full", channelId: "c1", seq: 42, clientNonce: "client-1",
-        authorId: "u1", authorName: "Canonical Author", authorAvatar: "https://avatar.test/u1.png", authorAvatarVersion: 0,
+        authorId: "u1", authorName: "Canonical Author", authorAvatar: "/api/community/share-image/avatar/u1?image=1&v=0", authorAvatarVersion: 0,
         content: "canonical content", type: "chat", mentionType: null, replyToId: null,
         attachments: [], embeds: [{ title: "Canonical embed" }], createdAt: "2026-08-07T10:00:00.000Z",
       },

@@ -16,6 +16,8 @@ const PORTRAIT_FIXTURE = solidPngFixture(450, 800, [225, 91, 142])
 const EXTREME_LANDSCAPE_FIXTURE = solidPngFixture(4000, 100, [91, 110, 225])
 const EXTREME_PORTRAIT_FIXTURE = solidPngFixture(100, 4000, [225, 91, 142])
 
+function mediaRequestPath(input: string) { const url = new URL(input); return `${url.pathname}${url.search}` }
+
 type Rect = { x: number; y: number; width: number; height: number }
 
 type NativeImageContextMenuProbe = {
@@ -384,8 +386,9 @@ async function uploadImage(args: {
 
   return {
     messageId: sent.message.id,
-    originalPath,
-    thumbnailPath: `${originalPath}/thumbnail`,
+    downloadPath: originalPath,
+    originalPath: `${originalPath}/thumbnail?image=1&variant=preview`,
+    thumbnailPath: `${originalPath}/thumbnail?image=1`,
   }
 }
 
@@ -405,7 +408,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   const observedGetPaths: string[] = []
   let messagePostCount = 0
   page.on("request", (request) => {
-    const pathname = new URL(request.url()).pathname
+    const pathname = mediaRequestPath(request.url())
     if (request.method() === "GET") observedGetPaths.push(pathname)
     if (request.method() === "POST" && pathname === `/api/community/channels/${channelId}/messages`) {
       messagePostCount++
@@ -418,9 +421,9 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   let holdColdThumbnail = true
   let coldThumbnailRequests = 0
   let coldThumbnailPath: string | null = null
-  const thumbnailPattern = "**/api/community/channels/**/attachments/**/thumbnail"
+  const thumbnailPattern = "**/api/community/channels/**/attachments/**/thumbnail?image=1"
   await page.route(thumbnailPattern, async (route) => {
-    const pathname = new URL(route.request().url()).pathname
+    const pathname = mediaRequestPath(route.request().url())
     if (
       holdColdThumbnail
       && route.request().method() === "GET"
@@ -464,7 +467,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   const landscapeGate = new Promise<void>((resolve) => { releaseLandscape = resolve })
   caseResources.own(releaseLandscape, async (captured) => { captured() })
   await page.route(`**${landscape.originalPath}`, async (route) => {
-    if (route.request().method() === "GET" && new URL(route.request().url()).pathname === landscape.originalPath) {
+    if (route.request().method() === "GET" && mediaRequestPath(route.request().url()) === landscape.originalPath) {
       await landscapeGate
     }
     await route.continue()
@@ -522,6 +525,13 @@ test("image previews keep one frame through loading, decode, failure, retry, and
     src: landscape.originalPath,
     testId: tid.imageLightboxOriginal,
   })
+  expect(observedGetPaths.filter(path => path === landscape.downloadPath)).toHaveLength(0)
+  const originalDownloadPromise = page.waitForEvent("download")
+  await page.getByRole("button", { name: "Download original image", exact: true }).click()
+  const originalDownload = await originalDownloadPromise
+  const originalFile = await originalDownload.path()
+  expect(originalFile).not.toBeNull()
+  expect(readFileSync(originalFile!)).toEqual(LANDSCAPE_FIXTURE)
   const desktopLandscapeLoaded = await previewRects(page, { width: 800, height: 450 })
   expectSameRect(desktopLandscapeLoaded.container, desktopLandscapeRestored.container)
   await expectSamePreviewNodes(page, desktopNodes)
@@ -615,7 +625,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expect(portraitListImage).toHaveAttribute("src", portrait.thumbnailPath)
   const portraitOriginalRequests: string[] = []
   page.on("request", (request) => {
-    if (request.method() === "GET" && new URL(request.url()).pathname === portrait.originalPath) {
+    if (request.method() === "GET" && mediaRequestPath(request.url()) === portrait.originalPath) {
       portraitOriginalRequests.push(request.url())
     }
   })
@@ -623,7 +633,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   const portraitFailureGate = new Promise<void>((resolve) => { releasePortraitFailure = resolve })
   caseResources.own(releasePortraitFailure, async (captured) => { captured() })
   await page.route(`**${portrait.originalPath}`, async (route) => {
-    if (route.request().method() !== "GET" || new URL(route.request().url()).pathname !== portrait.originalPath) {
+    if (route.request().method() !== "GET" || mediaRequestPath(route.request().url()) !== portrait.originalPath) {
       await route.continue()
       return
     }
@@ -694,7 +704,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   const { page: mobilePage } = await asUser("alice", { hasTouch: true })
   const mobilePortraitGetPaths: string[] = []
   mobilePage.on("request", (request) => {
-    const pathname = new URL(request.url()).pathname
+    const pathname = mediaRequestPath(request.url())
     if (request.method() === "GET" && (pathname === portrait.originalPath || pathname === portrait.thumbnailPath)) {
       mobilePortraitGetPaths.push(pathname)
     }
@@ -704,7 +714,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   caseResources.own(releaseMobileThumbnail, async (captured) => { captured() })
   let mobileThumbnailRequests = 0
   await mobilePage.route(`**${landscape.thumbnailPath}`, async (route) => {
-    if (route.request().method() === "GET" && new URL(route.request().url()).pathname === landscape.thumbnailPath) {
+    if (route.request().method() === "GET" && mediaRequestPath(route.request().url()) === landscape.thumbnailPath) {
       mobileThumbnailRequests++
       const response = await route.fetch()
       await mobileThumbnailGate
@@ -729,7 +739,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   caseResources.own(releaseMobileLandscape, async (captured) => { captured() })
   let mobileLandscapeRequests = 0
   await mobilePage.route(`**${landscape.originalPath}`, async (route) => {
-    if (route.request().method() === "GET" && new URL(route.request().url()).pathname === landscape.originalPath) {
+    if (route.request().method() === "GET" && mediaRequestPath(route.request().url()) === landscape.originalPath) {
       mobileLandscapeRequests++
       await mobileLandscapeGate
     }
@@ -796,7 +806,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   caseResources.own(releaseMobilePortrait, async (captured) => { captured() })
   let mobilePortraitRequests = 0
   await mobilePage.route(`**${portrait.originalPath}`, async (route) => {
-    if (route.request().method() === "GET" && new URL(route.request().url()).pathname === portrait.originalPath) {
+    if (route.request().method() === "GET" && mediaRequestPath(route.request().url()) === portrait.originalPath) {
       mobilePortraitRequests++
       await mobilePortraitGate
     }
@@ -904,7 +914,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
     const { attachment, buttonName, screenshotName } = args
     let requests = 0
     await mobilePage.route(`**${attachment.originalPath}`, async (route) => {
-      if (route.request().method() === "GET" && new URL(route.request().url()).pathname === attachment.originalPath) {
+      if (route.request().method() === "GET" && mediaRequestPath(route.request().url()) === attachment.originalPath) {
         requests++
         await route.fulfill({ status: 500, contentType: "text/plain", body: "forced extreme failure" })
         return
@@ -1328,8 +1338,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 
     const before = await rowState()
     const messageWrites: string[] = []
     page.on("request", request => {
-      if (request.method() !== "GET" && /\/api\/community\/(?:channels\/[^/]+\/messages|messages\/[^/]+)$/.test(new URL(request.url()).pathname)) {
-        messageWrites.push(`${request.method()} ${new URL(request.url()).pathname}`)
+      if (request.method() !== "GET" && /\/api\/community\/(?:channels\/[^/]+\/messages|messages\/[^/]+)$/.test(mediaRequestPath(request.url()))) {
+        messageWrites.push(`${request.method()} ${mediaRequestPath(request.url())}`)
       }
     })
     await table.hover()
@@ -1545,10 +1555,28 @@ test("media attachments play, stop, recover and download through reachable mobil
   const videoName = "playback.webm"
   const video = await upload(videoName, "video/webm", webm)
   const videoPlay = video.block.getByTestId(tid.mediaPlay(videoName))
-  const videoStop = video.block.getByTestId(tid.mediaCollapse(videoName))
-  const videoDownload = video.block.getByTestId(tid.mediaDownload(videoName))
-  for (const control of [videoPlay, videoDownload]) await reachable(control, video.block)
-  await reachable(videoStop, video.block, "disabled")
+  await reachable(videoPlay, video.block)
+  const preview = video.block.getByTestId(tid.videoPreview(videoName))
+  await expect.poll(() => preview.evaluate((element: HTMLVideoElement) => ({
+    ready: element.readyState >= 2, muted: element.muted, paused: element.paused,
+  }))).toEqual({ ready: true, muted: true, paused: true })
+  const previewMetadata = await preview.evaluate((element: HTMLVideoElement) => ({ duration: element.duration, time: element.currentTime }))
+  if (Number.isFinite(previewMetadata.duration) && previewMetadata.duration > 0) {
+    expect(previewMetadata.time).toBeGreaterThan(0)
+  }
+  expect(await preview.evaluate((element: HTMLVideoElement) => ({ width: element.videoWidth, height: element.videoHeight })))
+    .toEqual({ width: 320, height: 180 })
+  const previewRect = await boundingRect(preview)
+  const painted = await sharp(await page.screenshot({ clip: {
+    x: previewRect.x + previewRect.width / 4, y: previewRect.y + previewRect.height / 2,
+    width: 4, height: 4,
+  } })).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+  for (let index = 0; index < painted.data.length; index += painted.info.channels) {
+    expect(Math.abs(painted.data[index]! - 30)).toBeLessThan(30)
+    expect(Math.abs(painted.data[index + 1]! - 170)).toBeLessThan(30)
+    expect(Math.abs(painted.data[index + 2]! - 80)).toBeLessThan(30)
+  }
+
   let corrupt = true
   let badResponses = 0
   const videoPattern = (url: URL) => url.pathname === video.path
@@ -1561,49 +1589,47 @@ test("media attachments play, stop, recover and download through reachable mobil
   await page.route(videoPattern, corruptVideo)
   const ownedRoute = caseResources.own(corruptVideo, async handler => { await page.unroute(videoPattern, handler) })
   await videoPlay.tap()
-  const retry = video.block.getByRole("button", { name: `Retry ${videoName}`, exact: true })
+  const dialog = page.getByRole("dialog", { name: `Video preview: ${videoName}`, exact: true })
+  await expect(dialog).toBeVisible()
+  const retry = dialog.getByTestId(tid.mediaRetry(videoName))
+  const videoDownload = dialog.getByTestId(tid.mediaDownload(videoName))
   await expect(retry).toBeVisible()
   expect(badResponses).toBeGreaterThan(0)
-  await expect(video.block.getByRole("alert")).toHaveText("Couldn’t play this file")
-  await expect(videoStop).toBeDisabled()
-  await reachable(retry, video.block)
+  await expect(dialog.getByRole("alert")).toContainText("Couldn’t play this file")
+  await reachable(retry, dialog)
+  await reachable(videoDownload, dialog)
   await retry.tap()
   await expect.poll(() => badResponses).toBeGreaterThan(1)
   await expect(retry).toBeVisible()
   corrupt = false
   await retry.tap()
-  const videoPlayer = video.block.locator("video")
+  const videoPlayer = dialog.getByTestId(tid.mediaPlayer(videoName))
+  await expect(videoPlayer).toHaveAttribute("controls", "")
   await expect.poll(async () => (await state(videoPlayer)).time).toBeGreaterThan(0.1)
-  expect(await videoPlayer.evaluate((element: HTMLVideoElement) => ({ width: element.videoWidth, height: element.videoHeight })))
-    .toEqual({ width: 320, height: 180 })
-  await expect(videoPlay).toHaveAttribute("aria-label", `Pause ${videoName}`)
+  const videoBeforeClose = await state(videoPlayer)
+  const capturedPlayer = await videoPlayer.elementHandle()
+  expect(capturedPlayer).not.toBeNull()
+  caseResources.own(capturedPlayer!, async handle => { await handle.dispose() })
+  const videoDownloadPromise = page.waitForEvent("download")
+  await videoDownload.tap()
+  const downloadedVideo = await videoDownloadPromise
+  expect(downloadedVideo.suggestedFilename()).toBe(videoName)
+  const videoDownloadPath = await downloadedVideo.path()
+  expect(videoDownloadPath).not.toBeNull()
+  expect(readFileSync(videoDownloadPath!)).toEqual(webm)
+  await dialog.getByRole("button", { name: "Close video preview", exact: true }).tap()
+  await expect(dialog).toBeHidden()
+  expect(await capturedPlayer!.evaluate((element: HTMLVideoElement) => ({ paused: element.paused, source: element.getAttribute("src") })))
+    .toEqual({ paused: true, source: null })
   await videoPlay.tap()
-  expect((await state(videoPlayer)).paused).toBe(true)
-  for (const control of [videoPlay, videoStop, videoDownload]) {
-    await reachable(control, video.block)
-    const frame = await boundingRect(videoPlayer)
-    expect((await boundingRect(control)).y).toBeGreaterThanOrEqual(frame.y + frame.height)
-  }
-  await videoPlayer.scrollIntoViewIfNeeded()
-  const videoRect = await boundingRect(videoPlayer)
-  const painted = await sharp(await page.screenshot({ clip: {
-    x: videoRect.x + videoRect.width / 2 - 2, y: videoRect.y + videoRect.height / 2 - 2,
-    width: 4, height: 4,
-  } })).removeAlpha().raw().toBuffer({ resolveWithObject: true })
-  for (let index = 0; index < painted.data.length; index += painted.info.channels) {
-    expect(Math.abs(painted.data[index]! - 30)).toBeLessThan(30)
-    expect(Math.abs(painted.data[index + 1]! - 170)).toBeLessThan(30)
-    expect(Math.abs(painted.data[index + 2]! - 80)).toBeLessThan(30)
-  }
-  await videoStop.tap()
-  expect(await state(videoPlayer)).toMatchObject({ paused: true, time: 0, error: null })
-  await expect(videoStop).toBeDisabled()
-  await expect(videoPlay).toHaveAttribute("aria-label", `Play ${videoName}`)
+  await expect.poll(async () => (await state(dialog.getByTestId(tid.mediaPlayer(videoName)))).time).toBeGreaterThan(0.1)
+  await dialog.getByRole("button", { name: "Close video preview", exact: true }).tap()
+  await expect(dialog).toBeHidden()
   await ownedRoute.close()
   await testInfo.attach("media-playback.json", { body: JSON.stringify({ serverId, channelId,
     wavBytes: wav.length, webmBytes: webm.length, badResponses,
-    audio: await state(audioPlayer), completion, video: await state(videoPlayer),
-    idleAudioHeight: idleRect.height, finalVideoRect: videoRect,
-    input: "native touchscreen taps; browser download; no device capture or native OS save",
+    audio: await state(audioPlayer), completion, videoBeforeClose,
+    idleAudioHeight: idleRect.height, previewRect, previewMetadata,
+    input: "native touchscreen taps; browser download; no native OS save or native-shell claim",
   }), contentType: "application/json" })
 })

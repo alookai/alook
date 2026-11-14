@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { queries, createDb } from "@alook/shared"
 import { handleAttachmentUpload } from "../src/lib/community/upload"
 import { collectAttachmentObjects } from "../scripts/attachment-maintenance"
-import { structuredJpegFixture } from "../src/test/fixtures/media"
+import { solidPngFixture, structuredJpegFixture } from "../src/test/fixtures/media"
 import type { NextRequest } from "next/server"
 
 const bindings = env as unknown as CloudflareEnv
@@ -76,23 +76,68 @@ describe("file content storage on real D1/R2 bindings", () => {
     expect(b.r2Key).not.toContain("0".repeat(64))
   })
 
-  it("the same original with different valid thumbnails cannot overwrite either thumbnail", async () => {
-    const original = crypto.getRandomValues(new Uint8Array(10))
+  it("reuses exact image originals while keeping advisory dimensions and attachment ownership separate", async () => {
+    const color = crypto.getRandomValues(new Uint8Array(3))
+    const original = Uint8Array.from(solidPngFixture(10, 10, [color[0]!, color[1]!, color[2]!]))
     const make = (width: number) => {
       const form = new FormData()
       form.set("file", new File([original], "picture.png", { type: "image/png" }))
-      form.set("thumbnail", new File([structuredJpegFixture(width, 10)], "thumbnail.jpg", { type: "image/jpeg" }))
+      form.set("width", String(width))
+      form.set("height", "10")
       return new Request("https://example.test/upload", { method: "POST", body: form }) as NextRequest
     }
     const a = await handleAttachmentUpload(make(10), bindings)
     const b = await handleAttachmentUpload(make(20), bindings)
     expect(a.ok && b.ok).toBe(true)
     if (!a.ok || !b.ok) return
-    keys.add(a.r2Key); keys.add(a.thumbnailR2Key!); keys.add(b.thumbnailR2Key!)
+    keys.add(a.r2Key)
     expect(a.r2Key).toBe(b.r2Key)
-    expect(a.thumbnailR2Key).not.toBe(b.thumbnailR2Key)
-    expect(await (await bindings.COMMUNITY_MEDIA.get(a.thumbnailR2Key!))!.arrayBuffer()).toEqual(Uint8Array.from(structuredJpegFixture(10, 10)).buffer)
-    expect(await (await bindings.COMMUNITY_MEDIA.get(b.thumbnailR2Key!))!.arrayBuffer()).toEqual(Uint8Array.from(structuredJpegFixture(20, 10)).buffer)
+    expect([a, b].map(result => ({ width: result.width, height: result.height, hasThumbnail: result.hasThumbnail })))
+      .toEqual([{ width: 10, height: 10, hasThumbnail: true }, { width: 20, height: 10, hasThumbnail: true }])
+    const rows = await Promise.all([a, b].map(result => queries.communityAttachment.createAttachment(createDb(bindings.DB), {
+      uploaderId: uploader, filename: result.filename, r2Key: result.r2Key, size: result.size, contentType: result.contentType,
+      width: result.width, height: result.height,
+    })))
+    files.push(...rows.map(row => row.id))
+    expect(rows[0]!.id).not.toBe(rows[1]!.id)
+    const persisted = await createDb(bindings.DB).query.communityAttachment.findMany({
+      columns: { uploaderId: true, r2Key: true, thumbnailR2Key: true, width: true, height: true },
+      where: (attachment, { and, eq, inArray }) => and(
+        eq(attachment.uploaderId, uploader),
+        inArray(attachment.id, [rows[0]!.id, rows[1]!.id]),
+      ),
+      orderBy: (attachment, { asc }) => asc(attachment.width),
+    })
+    expect(persisted).toEqual([
+      { uploaderId: uploader, r2Key: a.r2Key, thumbnailR2Key: null, width: 10, height: 10 },
+      { uploaderId: uploader, r2Key: a.r2Key, thumbnailR2Key: null, width: 20, height: 10 },
+    ])
+    const stored = await bindings.COMMUNITY_MEDIA.get(a.r2Key)
+    expect(stored).not.toBeNull()
+    expect(new Uint8Array(await stored!.arrayBuffer())).toEqual(original)
+    expect(new Uint8Array(stored!.checksums.sha256!)).toEqual(new Uint8Array(await crypto.subtle.digest("SHA-256", original)))
+    expect((await bindings.COMMUNITY_MEDIA.list({ prefix: a.r2Key })).objects).toHaveLength(1)
+  })
+
+  it("rejects the removed thumbnail protocol without changing an existing original", async () => {
+    const original = crypto.getRandomValues(new Uint8Array(16))
+    const first = await handleAttachmentUpload(request("picture.png", original, "image/png"), bindings)
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    keys.add(first.r2Key)
+    const before = await bindings.COMMUNITY_MEDIA.list({ prefix: "attachments/" })
+    const form = new FormData()
+    form.set("file", new File([original], "picture.png", { type: "image/png" }))
+    form.set("thumbnail", new File([structuredJpegFixture(20, 10)], "thumbnail.jpg", { type: "image/jpeg" }))
+    const rejected = await handleAttachmentUpload(new Request("https://example.test/upload", { method: "POST", body: form }) as NextRequest, bindings)
+    expect(rejected.ok).toBe(false)
+    if (!rejected.ok) {
+      expect(rejected.response.status).toBe(400)
+      expect(await rejected.response.text()).toContain("update your client")
+    }
+    expect((await bindings.COMMUNITY_MEDIA.list({ prefix: "attachments/" })).objects.map(object => object.key))
+      .toEqual(before.objects.map(object => object.key))
+    expect(new Uint8Array(await (await bindings.COMMUNITY_MEDIA.get(first.r2Key))!.arrayBuffer())).toEqual(original)
   })
 
   it("preserves legacy keys and bytes, and collects only explicit unreferenced objects offline", async () => {

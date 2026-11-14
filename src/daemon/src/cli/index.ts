@@ -37,10 +37,11 @@ import {
   ALLOWED_ICON_MIME_TYPES,
   MAX_PROFILE_ABOUT_LENGTH,
   MAX_SERVER_ICON_SIZE_BYTES,
+  MAX_INLINE_IMAGE_SIZE_BYTES,
 } from "@alook/shared/constants/community";
 import { nowLocalISO, toLocalISO } from "../util/localTime.js";
 import { MESSAGE_SEND_STDIN_POLICY } from "../drivers/systemPrompt.js";
-import { prepareCommunityImageUpload } from "./imageThumbnail.js";
+import { readCommunityImageDimensions } from "./imageMetadata.js";
 
 /**
  * Rewrite every message's UTC `.time` (server-stamped) into local-tz ISO with
@@ -450,33 +451,16 @@ async function cmdAttachmentUpload(opts: Record<string, unknown>): Promise<unkno
   const filename = pathMod.basename(filePath);
   const contentType = contentTypeFromFilename(filename);
 
-  let thumbnail: { data: Uint8Array; filename: string; contentType: string } | undefined;
-  let width: number | undefined;
-  let height: number | undefined;
-  if (["image/png", "image/jpeg", "image/webp", "image/gif"].includes(contentType)) {
-    try {
-      const prepared = await prepareCommunityImageUpload(bytes, contentType);
-      width = prepared.width;
-      height = prepared.height;
-      if (prepared.thumbnail) {
-        thumbnail = {
-          data: prepared.thumbnail,
-          filename: "thumbnail.jpg",
-          contentType: "image/jpeg",
-        };
-      }
-    } catch (error) {
-      throw new CliError(
-        `message attachment upload: ${(error as Error).message}`,
-      );
-    }
+  const inlineImage = ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(contentType);
+  if (inlineImage && bytes.byteLength > MAX_INLINE_IMAGE_SIZE_BYTES) {
+    throw new CliError("message attachment upload: image too large — max 20 MB");
   }
+  const { width, height } = await readCommunityImageDimensions(bytes, contentType);
 
   const result = await api.attachmentUpload({
     agentId: agent,
     ...(target !== undefined ? { target } : {}),
     file: { data: new Uint8Array(bytes), filename, contentType },
-    ...(thumbnail ? { thumbnail } : {}),
     ...(width !== undefined ? { width } : {}),
     ...(height !== undefined ? { height } : {}),
   });

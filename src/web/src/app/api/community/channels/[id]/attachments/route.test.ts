@@ -110,12 +110,12 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
       filename: "hi.png",
       contentType: "image/png",
       size: 10,
-      hasThumbnail: false,
+      hasThumbnail: true,
     })
     mockHandleAttachmentUpload.mockResolvedValue({
       ok: true,
       r2Key: "channel/c1/uuid/hi.png",
-      thumbnailR2Key: null,
+      hasThumbnail: true,
       filename: "hi.png",
       contentType: "image/png",
       size: 10,
@@ -140,7 +140,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
   it("accepts target-free upload with the existing response and uploader identity", async () => {
     const res = await POST(botReq(null, { Authorization: "Bearer crk_abc" }), botCtx)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ id: "att_1", filename: "hi.png", contentType: "image/png", size: 10, hasThumbnail: false })
+    expect(await res.json()).toEqual({ id: "att_1", filename: "hi.png", contentType: "image/png", size: 10, hasThumbnail: true })
     expect(mockResolveServerByNameForMember).not.toHaveBeenCalled()
     expect(mockCreateAttachment).toHaveBeenCalledWith(primaryDb, expect.objectContaining({ uploaderId: "bot_1" }))
   })
@@ -170,7 +170,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
       filename: "hi.png",
       contentType: "image/png",
       size: 10,
-      hasThumbnail: false,
+      hasThumbnail: true,
     })
     // No leaked internals.
     expect(body.url).toBeUndefined()
@@ -202,7 +202,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     expect(mockCreateAttachment).not.toHaveBeenCalled()
   })
 
-  it("persists thumbnail key and dimensions, returning hasThumbnail true", async () => {
+  it("persists original dimensions and announces a derived preview without a stored thumbnail", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([
       { id: "c1", serverId: "srv_1", parentChannelId: null },
@@ -211,7 +211,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     mockHandleAttachmentUpload.mockResolvedValue({
       ok: true,
       r2Key: "channel/c1/uuid/hi.png",
-      thumbnailR2Key: "channel/c1/uuid/hi.png.thumbnail.jpg",
+      hasThumbnail: true,
       filename: "hi.png",
       contentType: "image/png",
       size: 10,
@@ -220,8 +220,8 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     })
     const response = await POST(botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }), botCtx)
     expect(await response.json()).toMatchObject({ hasThumbnail: true })
+    expect(mockCreateAttachment.mock.calls[0][1]).not.toHaveProperty("thumbnailR2Key")
     expect(mockCreateAttachment).toHaveBeenCalledWith(primaryDb, expect.objectContaining({
-      thumbnailR2Key: "channel/c1/uuid/hi.png.thumbnail.jpg",
       width: 640,
       height: 480,
     }))

@@ -282,7 +282,7 @@ describe("ComposerView", () => {
   it("shows preparation feedback without replacing the editor and keeps removal available", () => {
     const file = new File(["image"], "preparing.png", { type: "image/png" })
     const removePendingFile = vi.fn()
-    const pending = { draftId: "draft", file, preparing: true, thumbnailUrl: null, thumbnailBlob: null }
+    const pending = { draftId: "draft", file, preparing: true, thumbnailUrl: null }
     const view = render(createElement(ComposerView, baseProps({ pendingFiles: [pending], removePendingFile })))
     const editor = view.getByTestId(tid.composerInput)
     expect(view.getByRole("status").textContent).toBe("Preparing…")
@@ -298,7 +298,7 @@ describe("ComposerView", () => {
     const file = new File(["image"], "broken.png", { type: "image/png" })
     const removePendingFile = vi.fn()
     const view = render(createElement(ComposerView, baseProps({
-      pendingFiles: [{ file, preparationFailed: true, thumbnailUrl: null, thumbnailBlob: null }],
+      pendingFiles: [{ file, preparationFailed: true, thumbnailUrl: null }],
       removePendingFile,
     })))
     expect(view.getByText(file.name)).toBeVisible()
@@ -319,7 +319,7 @@ describe("ComposerView", () => {
       const props = baseProps({
         isForumThreadBody,
         showSend: true, sendDisabled: false, onCancelReply: vi.fn(), replyingTo: { authorName: "Alice", text: "Original reply" },
-        pendingFiles: [{ file: new File(["image"], "draft.png", { type: "image/png" }), thumbnailUrl: null, thumbnailBlob: null }],
+        pendingFiles: [{ file: new File(["image"], "draft.png", { type: "image/png" }), thumbnailUrl: null }],
         editorContent: createElement("div", { contentEditable: true, suppressContentEditableWarning: true }, "Unsent draft"),
       })
       const view = render(createElement(ComposerView, props))
@@ -447,7 +447,7 @@ describe("ComposerView", () => {
     const textFile = new File(["text"], "notes.txt", { type: "text/plain" })
     const pendingFiles = [
       { file: image, thumbnailUrl: "blob:image", width: 640, height: 480 },
-      { file: textFile, thumbnailUrl: null, thumbnailBlob: null },
+      { file: textFile, thumbnailUrl: null },
     ] as PendingFile[]
     const renderer = render(createElement(
       ComposerView,

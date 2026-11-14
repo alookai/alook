@@ -1,3 +1,5 @@
+import { COMMUNITY_IMAGE_REVISION } from "@alook/shared"
+import { createCommunityImageResponse } from "@/lib/community/image-processing"
 import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { CACHE_REVALIDATE, createLogger, queries } from "@alook/shared"
@@ -35,7 +37,7 @@ export const GET = withPrivateMediaCache(withAuth(humanAuthPolicy, async (req: N
   let cacheControl = CACHE_REVALIDATE
   if (versioned) {
     const requestedVersion = req.nextUrl.searchParams.get("v")
-    if (requestedVersion !== String(state.avatarVersion)) {
+    if (requestedVersion !== String(state.avatarVersion) || req.nextUrl.searchParams.get("image") !== String(COMMUNITY_IMAGE_REVISION)) {
       return new Response(null, {
         status: 307,
         headers: {
@@ -46,26 +48,15 @@ export const GET = withPrivateMediaCache(withAuth(humanAuthPolicy, async (req: N
     }
     key = state.avatarObjectKey!
     cacheControl = ATTACHMENT_PRIVATE_IMMUTABLE_CACHE
-  } else if (req.nextUrl.searchParams.has("v")) {
+  } else if (req.nextUrl.searchParams.get("v") !== "0" || req.nextUrl.searchParams.get("image") !== String(COMMUNITY_IMAGE_REVISION)) {
     return new Response(null, {
       status: 307,
-      headers: { Location: userAvatarUrl(userId), "Cache-Control": PRIVATE_NO_STORE },
+      headers: { Location: userAvatarUrl(userId, 0), "Cache-Control": PRIVATE_NO_STORE },
     })
   }
 
   const obj = await ctx.env.COMMUNITY_MEDIA.get(key)
   if (!obj) return writeError("not found", 404)
 
-  const etag = obj.httpEtag
-  if (etag && req.headers.get("if-none-match") === etag) {
-    return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": cacheControl } })
-  }
-
-  return new Response(obj.body, {
-    headers: {
-      "Content-Type": obj.httpMetadata?.contentType ?? "image/png",
-      "Cache-Control": cacheControl,
-      ...(etag ? { ETag: etag } : {}),
-    },
-  })
+  return createCommunityImageResponse({ request: req, env: ctx.env, source: obj, sourceKey: key, variant: "identity", cacheControl })
 }))

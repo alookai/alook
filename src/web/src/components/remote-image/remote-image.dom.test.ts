@@ -1,6 +1,7 @@
 import React from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
+import { act, fireEvent, render, screen, waitFor, setupUser } from "@/test/react-dom-harness"
+import { Toaster, toast } from "sonner"
 import { renderCommunity } from "@/test/community-owner-harness"
 import { RemoteContentImage, RemoteIdentityImage } from "./remote-image"
 import { RemoteMarkdownImage } from "./remote-markdown-image"
@@ -28,12 +29,51 @@ function contentImage(container: HTMLElement) {
 }
 
 afterEach(() => {
+  toast.dismiss()
   vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
 describe("remote image state adapters", () => {
+  it("offers one accessible retry for failed identity images without changing their parent action", async () => {
+    const openProfile = vi.fn()
+    const view = render(React.createElement(React.Fragment, null,
+      React.createElement("button", { onClick: openProfile, "aria-label": "Open profile" },
+        React.createElement(RemoteIdentityImage, { src: "/api/community/users/u1/avatar?v=1", alt: "Peer photo" })),
+      React.createElement(RemoteIdentityImage, { src: "/api/community/servers/s1/icon?v=one", alt: "Server icon" }),
+      React.createElement(Toaster),
+    ))
+    const photo = view.getByAltText("Peer photo") as HTMLImageElement
+    const icon = view.getByAltText("Server icon") as HTMLImageElement
+    fireEvent.error(photo); fireEvent.error(icon)
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Retry images" })).toHaveLength(1))
+    expect(view.container.querySelector("button button")).toBeNull()
+    fireEvent.click(view.getByRole("button", { name: "Open profile" }))
+    expect(openProfile).toHaveBeenCalledOnce()
+    const user = setupUser()
+    const retry = screen.getByRole("button", { name: "Retry images" })
+    retry.focus()
+    await user.keyboard("{Enter}")
+    expect(photo).toHaveAttribute("data-remote-image-state", "pending")
+    expect(icon).toHaveAttribute("data-remote-image-state", "pending")
+    setImageMetrics(photo); setImageMetrics(icon)
+    fireEvent.load(photo); fireEvent.load(icon)
+    await waitFor(() => {
+      expect(photo).toHaveAttribute("data-remote-image-state", "ready")
+      expect(icon).toHaveAttribute("data-remote-image-state", "ready")
+    })
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Retry images" })).toBeNull())
+    expect(openProfile).toHaveBeenCalledOnce()
+  })
+  it("adopts the new representation for cached private image and avatar URLs", () => {
+    const view = render(React.createElement(React.Fragment, null,
+      React.createElement(RemoteContentImage, { src: "/api/community/channels/c1/attachments/a1/thumbnail", alt: "Photo" }),
+      React.createElement(RemoteIdentityImage, { src: "/api/community/users/u1/avatar?v=4", alt: "Peer" }),
+    ))
+    expect(view.getByAltText("Photo")).toHaveAttribute("src", "/api/community/channels/c1/attachments/a1/thumbnail?image=1")
+    expect(view.getByAltText("Peer")).toHaveAttribute("src", "/api/community/users/u1/avatar?v=4&image=1")
+  })
   const identityElement = (src: string, identityKey = "peer") => React.createElement(RemoteIdentityImage, {
     src, identityKey, alt: "Peer", profilePhoto: true, "data-testid": "identity-photo",
   })

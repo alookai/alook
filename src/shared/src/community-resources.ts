@@ -3,7 +3,7 @@ export { CommunityResourceProfileSchema } from "./community-profile-resource"
 import { z } from "zod"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "./community-contract"
 import { FriendApprovalPayloadSchema } from "./community-friend-approval"
-import { PARTICIPANT_SOURCE } from "./constants/community"
+import { COMMUNITY_IMAGE_REVISION, PARTICIPANT_SOURCE } from "./constants/community"
 import { BotCreationPayloadSchema } from "./community-bot-creation"
 
 const id = z.string().min(1)
@@ -323,17 +323,18 @@ export function communityChannelResourceFromStorage(value: unknown): CommunityCh
 
 export function communityUserAvatarUrl(userId: string, avatarVersion?: number): string {
   const base = `/api/community/users/${userId}/avatar`
-  return avatarVersion && avatarVersion > 0 ? `${base}?v=${avatarVersion}` : base
+  return avatarVersion !== undefined ? `${base}?v=${Math.max(0, avatarVersion)}&image=${COMMUNITY_IMAGE_REVISION}` : base
 }
 
 export function communityBotAvatarUrl(botId: string, avatarVersion?: number): string {
   const base = `/api/community/bots/${botId}/avatar`
-  return avatarVersion && avatarVersion > 0 ? `${base}?v=${avatarVersion}` : base
+  return avatarVersion !== undefined ? `${base}?v=${Math.max(0, avatarVersion)}&image=${COMMUNITY_IMAGE_REVISION}` : base
 }
 
 export function canonicalCommunityUserImage(userId: string, image: string | null, avatarVersion: number): string | null {
   if (!image) return null
   if (image === communityUserAvatarUrl(userId)) return communityUserAvatarUrl(userId, avatarVersion)
   if (image === communityBotAvatarUrl(userId)) return communityBotAvatarUrl(userId, avatarVersion)
+  if (/^https?:\/\//i.test(image)) return `/api/community/share-image/avatar/${encodeURIComponent(userId)}?image=${COMMUNITY_IMAGE_REVISION}&v=${avatarVersion}`
   return image
 }

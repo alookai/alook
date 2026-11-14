@@ -1,3 +1,4 @@
+import { COMMUNITY_IMAGE_REVISION } from "@alook/shared"
 export { communityUserAvatarUrl as userAvatarUrl, communityBotAvatarUrl as botAvatarUrl, canonicalCommunityUserImage as canonicalUserImage } from "@alook/shared"
 
 export const ATTACHMENT_PRIVATE_IMMUTABLE_CACHE = "private, max-age=31536000, immutable"
@@ -7,7 +8,25 @@ export function attachmentUrl(targetId: string, attachmentId: string): string {
 }
 
 export function attachmentThumbnailUrl(targetId: string, attachmentId: string): string {
-  return `${attachmentUrl(targetId, attachmentId)}/thumbnail`
+  return `${attachmentUrl(targetId, attachmentId)}/thumbnail?image=${COMMUNITY_IMAGE_REVISION}`
+}
+
+export function attachmentImagePreviewUrl(originalUrl: string): string {
+  return communityImageDisplayUrl(originalUrl, "preview")
+}
+
+export function communityImageDisplayUrl(source: string, variant: "attachment" | "preview" = "attachment"): string {
+  if (!source.startsWith("/")) return source
+  let url: URL
+  try { url = new URL(source, "https://alook.invalid") } catch { return source }
+  const attachment = /^\/api\/community\/channels\/[^/]+\/attachments\/[^/]+(?:\/thumbnail)?$/.test(url.pathname)
+  const identity = /^\/api\/community\/(?:users|bots|servers)\/[^/]+\/(?:avatar|icon)$/.test(url.pathname)
+    || /^\/api\/community\/share-image\/avatar\/[^/]+$/.test(url.pathname)
+  if (!attachment && !identity) return source
+  if (attachment && !url.pathname.endsWith("/thumbnail")) url.pathname += "/thumbnail"
+  url.searchParams.set("image", String(COMMUNITY_IMAGE_REVISION))
+  if (attachment && variant === "preview") url.searchParams.set("variant", "preview")
+  return source.startsWith("/") ? `${url.pathname}${url.search}${url.hash}` : url.toString()
 }
 
 export function buildServerIconKey(serverId: string, fileId: string): string {
@@ -54,5 +73,5 @@ export function isOwnedBotAvatarObjectKey(key: string, botId: string): boolean {
 
 export function serverIconUrl(server: { id: string; icon: string | null }): string | null {
   if (!server.icon) return null
-  return `/api/community/servers/${server.id}/icon?v=${encodeURIComponent(server.icon)}`
+  return `/api/community/servers/${server.id}/icon?v=${encodeURIComponent(server.icon)}&image=${COMMUNITY_IMAGE_REVISION}`
 }

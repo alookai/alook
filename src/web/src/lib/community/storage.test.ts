@@ -1,10 +1,22 @@
 import { describe, it, expect } from "vitest"
-import { buildUserAvatarKey, buildUserAvatarObjectKey, buildBotAvatarKey, buildBotAvatarObjectKey, attachmentUrl, attachmentThumbnailUrl, ATTACHMENT_PRIVATE_IMMUTABLE_CACHE, userAvatarUrl, botAvatarUrl, isOwnedServerIconKey, isOwnedUserAvatarObjectKey, isOwnedBotAvatarObjectKey, canonicalUserImage, serverIconUrl } from "./storage"
+import { buildUserAvatarKey, buildUserAvatarObjectKey, buildBotAvatarKey, buildBotAvatarObjectKey, attachmentUrl, attachmentThumbnailUrl, ATTACHMENT_PRIVATE_IMMUTABLE_CACHE, userAvatarUrl, botAvatarUrl, isOwnedServerIconKey, isOwnedUserAvatarObjectKey, isOwnedBotAvatarObjectKey, canonicalUserImage, serverIconUrl, communityImageDisplayUrl } from "./storage"
+
+describe("cached image representation adoption", () => {
+  it.each([
+    ["/api/community/channels/c1/attachments/a1/thumbnail", "/api/community/channels/c1/attachments/a1/thumbnail?image=1"],
+    ["/api/community/channels/c1/attachments/a1", "/api/community/channels/c1/attachments/a1/thumbnail?image=1"],
+    ["/api/community/users/u1/avatar?v=4", "/api/community/users/u1/avatar?v=4&image=1"],
+    ["/api/community/servers/s1/icon?v=old&image=0", "/api/community/servers/s1/icon?v=old&image=1"],
+    ["https://external.test/photo.png", "https://external.test/photo.png"],
+  ])("adopts cached %s without changing its source identity", (source, expected) => {
+    expect(communityImageDisplayUrl(source)).toBe(expected)
+  })
+})
 
 describe("serverIconUrl", () => {
   it("uses the persisted object identity as a stable URL version", () => {
     const server = { id: "s1", icon: "server-icon/s1/object-one" }
-    expect(serverIconUrl(server)).toBe("/api/community/servers/s1/icon?v=server-icon%2Fs1%2Fobject-one")
+    expect(serverIconUrl(server)).toBe("/api/community/servers/s1/icon?v=server-icon%2Fs1%2Fobject-one&image=1")
     expect(serverIconUrl({ ...server, icon: "server-icon/s1/object-two" })).not.toBe(serverIconUrl(server))
     expect(serverIconUrl({ ...server, icon: null })).toBeNull()
   })
@@ -46,23 +58,23 @@ describe("bot avatar object ownership", () => {
 describe("userAvatarUrl", () => {
   it("has the correct format", () => {
     expect(userAvatarUrl("u1")).toBe("/api/community/users/u1/avatar")
-    expect(userAvatarUrl("u1", 2)).toBe("/api/community/users/u1/avatar?v=2")
+    expect(userAvatarUrl("u1", 2)).toBe("/api/community/users/u1/avatar?v=2&image=1")
   })
 })
 
 describe("botAvatarUrl", () => {
   it("has the correct format", () => {
     expect(botAvatarUrl("b1")).toBe("/api/community/bots/b1/avatar")
-    expect(botAvatarUrl("b1", 3)).toBe("/api/community/bots/b1/avatar?v=3")
+    expect(botAvatarUrl("b1", 3)).toBe("/api/community/bots/b1/avatar?v=3&image=1")
   })
 })
 
 describe("canonicalUserImage", () => {
-  it("versions owned avatar routes and leaves external images unchanged", () => {
+  it("versions owned avatars and routes external account avatars through the authorized proxy", () => {
     expect(canonicalUserImage("u1", userAvatarUrl("u1"), 4)).toBe(userAvatarUrl("u1", 4))
     expect(canonicalUserImage("b1", botAvatarUrl("b1"), 5)).toBe(botAvatarUrl("b1", 5))
     expect(canonicalUserImage("u1", "https://cdn.example/avatar.png", 6)).toBe(
-      "https://cdn.example/avatar.png",
+      "/api/community/share-image/avatar/u1?image=1&v=6",
     )
   })
 })
@@ -102,7 +114,7 @@ describe("attachmentUrl", () => {
 describe("attachment thumbnail addressing", () => {
   it("builds sibling canonical URLs", () => {
     expect(attachmentThumbnailUrl("c1", "att_1")).toBe(
-      "/api/community/channels/c1/attachments/att_1/thumbnail",
+      "/api/community/channels/c1/attachments/att_1/thumbnail?image=1",
     )
   })
 

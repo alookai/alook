@@ -53,25 +53,23 @@ describe("pendingFilesToSendAttachments", () => {
 
   it("preserves the exact thumbnail Blob with the file and dimensions", () => {
     const file = new File(["x"], "photo.png", { type: "image/png" })
-    const thumbnailBlob = new Blob(["thumbnail"], { type: "image/jpeg" })
     const pending: PendingFile[] = [
-      { file, thumbnailUrl: "blob:thumbnail", thumbnailBlob, width: 1920, height: 1080 },
+      { file, thumbnailUrl: "blob:thumbnail", width: 1920, height: 1080 },
     ]
     const result = pendingFilesToSendAttachments(pending)
     expect(result).toEqual([{
       file,
-      thumbnailBlob,
       previewObjectUrl: "blob:thumbnail",
       width: 1920,
       height: 1080,
     }])
-    expect(result?.[0].thumbnailBlob).toBe(thumbnailBlob)
+    expect(result?.[0].file).toBe(file)
   })
 
   it("carries width/height through as undefined for a non-image PendingFile", () => {
     const file = new File(["x"], "notes.txt", { type: "text/plain" })
     const pending: PendingFile[] = [
-      { file, thumbnailUrl: null, thumbnailBlob: null },
+      { file, thumbnailUrl: null },
     ]
     const result = pendingFilesToSendAttachments(pending)
     expect(result).toEqual([{ file, width: undefined, height: undefined }])
@@ -81,8 +79,8 @@ describe("pendingFilesToSendAttachments", () => {
     const a = new File(["a"], "a.png", { type: "image/png" })
     const b = new File(["b"], "b.png", { type: "image/png" })
     const pending: PendingFile[] = [
-      { file: a, thumbnailUrl: null, thumbnailBlob: null, width: 100, height: 200 },
-      { file: b, thumbnailUrl: null, thumbnailBlob: null, width: 300, height: 400 },
+      { file: a, thumbnailUrl: null, width: 100, height: 200 },
+      { file: b, thumbnailUrl: null, width: 300, height: 400 },
     ]
     const result = pendingFilesToSendAttachments(pending)
     expect(result).toEqual([

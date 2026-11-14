@@ -178,7 +178,7 @@ describe("POST /api/community/users/me/avatar", () => {
     const res = await POST(postReq(), {} as never)
     expect(res.status).toBe(200)
     const body = await res.json() as { url: string; avatarVersion: number }
-    expect(body).toEqual({ url: "/api/community/users/u1/avatar?v=1", avatarVersion: 1 })
+    expect(body).toEqual({ url: "/api/community/users/u1/avatar?v=1&image=1", avatarVersion: 1 })
 
     expect(mockHandleUserAvatarUpload).toHaveBeenCalledWith(expect.anything(), expect.anything(), "u1")
     expect(mockAuthUpdateUser).toHaveBeenCalledWith(expect.objectContaining({
@@ -204,7 +204,7 @@ describe("POST /api/community/users/me/avatar", () => {
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      url: "/api/community/users/u1/avatar?v=1",
+      url: "/api/community/users/u1/avatar?v=1&image=1",
       avatarVersion: 1,
     })
     expect(res.headers.getSetCookie()).toEqual([])
@@ -224,7 +224,7 @@ describe("POST /api/community/users/me/avatar", () => {
     const res = await POST(postReq(), {} as never)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      url: "/api/community/bots/b1/avatar?v=2",
+      url: "/api/community/bots/b1/avatar?v=2&image=1",
       avatarVersion: 2,
     })
     expect(mockHandleBotAvatarUpload).toHaveBeenCalledWith(expect.anything(), expect.anything(), "b1")
@@ -321,7 +321,7 @@ describe("POST /api/community/users/me/avatar", () => {
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      url: "/api/community/users/u1/avatar?v=3",
+      url: "/api/community/users/u1/avatar?v=3&image=1",
       avatarVersion: 3,
     })
     expect(mockCleanupAvatarCandidate).not.toHaveBeenCalled()
@@ -391,13 +391,13 @@ describe("POST /api/community/users/me/avatar", () => {
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      url: "/api/community/users/u1/avatar?v=1",
+      url: "/api/community/users/u1/avatar?v=1&image=1",
       avatarVersion: 1,
     })
     expect(mockScheduleAvatarMediaReconciliation).toHaveBeenCalledOnce()
     expect(mockFanOutIdentityUpdate).toHaveBeenCalledWith(
       "u1",
-      "/api/community/users/u1/avatar?v=1",
+      "/api/community/users/u1/avatar?v=1&image=1",
       1,
     )
   })

@@ -3285,10 +3285,10 @@ it("drops unmaterialized profile fields across the actual profile account epoch"
 })
 
 it.each([
-  { image: "/api/community/users/other/avatar", currentVersion: 1, expected: "/api/community/users/other/avatar?v=2", expectedVersion: 2 },
-  { image: "/api/community/bots/other/avatar", currentVersion: 1, expected: "/api/community/bots/other/avatar?v=2", expectedVersion: 2 },
+  { image: "/api/community/users/other/avatar", currentVersion: 1, expected: "/api/community/users/other/avatar?v=2&image=1", expectedVersion: 2 },
+  { image: "/api/community/bots/other/avatar", currentVersion: 1, expected: "/api/community/bots/other/avatar?v=2&image=1", expectedVersion: 2 },
   { image: null, currentVersion: 1, expected: null, expectedVersion: 2 },
-  { image: "https://images.example.test/other.png", currentVersion: 1, expected: "https://images.example.test/other.png", expectedVersion: 2 },
+  { image: "https://avatars.githubusercontent.com/u/1?v=4", currentVersion: 1, expected: "/api/community/share-image/avatar/other?image=1&v=2", expectedVersion: 2 },
   { image: "/api/community/users/other/avatar", currentVersion: 3, expected: "/current.png", expectedVersion: 3 },
 ])("canonicalizes actual approval image values through the message writer ($image, current=$currentVersion)", async ({ image, currentVersion, expected, expectedVersion }) => {
   const db = await registry()

@@ -56,7 +56,7 @@ describe("groupAttachments", () => {
       { id: "att-a", messageId: "m1", targetId: "c1", filename: "unknown.bin", r2Key: "legacy", thumbnailR2Key: null, contentType: null, size: null, width: null, height: null },
     ])
     expect(result.m1).toEqual([
-      { id: "att-b", name: "photo.png", url: "/api/community/channels/c1/attachments/att-b", thumbnailUrl: "/api/community/channels/c1/attachments/att-b/thumbnail", contentType: "image/png", sizeBytes: 1000, width: 1920, height: 1080 },
+      { id: "att-b", name: "photo.png", url: "/api/community/channels/c1/attachments/att-b", thumbnailUrl: "/api/community/channels/c1/attachments/att-b/thumbnail?image=1", contentType: "image/png", sizeBytes: 1000, width: 1920, height: 1080 },
       { id: "att-a", name: "unknown.bin", url: "/api/community/channels/c1/attachments/att-a", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null },
     ])
     expect(result.m1?.[0]).not.toHaveProperty("kind")
@@ -81,6 +81,6 @@ describe("groupAttachments", () => {
       { id: "att1", messageId: "m1", targetId: "c1", filename: "linked.png", r2Key: "linked", contentType: "image/png", size: 100, width: null, height: null },
     ])
     expect(Object.keys(result)).toEqual(["m1"])
-    expect(result.m1).toEqual([{ id: "att1", name: "linked.png", url: "/api/community/channels/c1/attachments/att1", thumbnailUrl: null, contentType: "image/png", sizeBytes: 100, width: null, height: null }])
+    expect(result.m1).toEqual([{ id: "att1", name: "linked.png", url: "/api/community/channels/c1/attachments/att1", thumbnailUrl: "/api/community/channels/c1/attachments/att1/thumbnail?image=1", contentType: "image/png", sizeBytes: 100, width: null, height: null }])
   })
 })

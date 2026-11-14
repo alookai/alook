@@ -148,13 +148,6 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
         ? new Blob([new Uint8Array(req.file.data)], { type: blobType })
         : req.file.data;
     form.append("file", bytes as Blob, req.file.filename);
-    if (req.thumbnail) {
-      const thumbnailType = req.thumbnail.contentType ?? "image/jpeg";
-      const thumbnailBytes = req.thumbnail.data instanceof Uint8Array
-        ? new Blob([new Uint8Array(req.thumbnail.data)], { type: thumbnailType })
-        : req.thumbnail.data;
-      form.append("thumbnail", thumbnailBytes as Blob, req.thumbnail.filename);
-    }
     if (req.width !== undefined) form.append("width", String(req.width));
     if (req.height !== undefined) form.append("height", String(req.height));
     // Keep the existing API path and optional target query for legacy callers.

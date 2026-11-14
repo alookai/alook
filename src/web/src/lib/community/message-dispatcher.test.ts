@@ -308,7 +308,7 @@ describe("planCommittedMessage", () => {
         id: "att_1",
         width: 1920,
         height: 1080,
-        thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail",
+        thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail?image=1",
       }),
     ])
   })

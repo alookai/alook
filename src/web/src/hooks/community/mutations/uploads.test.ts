@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { appendGeneratedThumbnail, buildAttachmentUploadFormData, zipUploadResultsWithDimensions } from "@/lib/community/attachment-upload"
+import { buildAttachmentUploadFormData, zipUploadResultsWithDimensions } from "@/lib/community/attachment-upload"
 import type { UploadFileResult } from "@/lib/community/attachment-upload"
 
 // The zip must happen BEFORE filtering out failed uploads (`null` results),
@@ -56,48 +56,13 @@ describe("zipUploadResultsWithDimensions", () => {
   })
 })
 
-describe("appendGeneratedThumbnail", () => {
-  it("appends an in-cap JPEG", () => {
-    const form = new FormData()
-    const blob = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: "image/jpeg" })
-    expect(appendGeneratedThumbnail(form, "image/png", blob)).toBe(true)
-    expect((form.get("thumbnail") as File).type).toBe("image/jpeg")
-  })
-
-  it("rejects a generated thumbnail over 256 KiB instead of silently dropping it", () => {
-    const form = new FormData()
-    const blob = new Blob([new Uint8Array(256 * 1024 + 1)], { type: "image/jpeg" })
-    expect(() => appendGeneratedThumbnail(form, "image/png", blob)).toThrow("256 KiB")
-    expect(form.has("thumbnail")).toBe(false)
-  })
-
-  it("rejects a non-JPEG generated thumbnail", () => {
-    const form = new FormData()
-    const blob = new Blob([new Uint8Array(1)], { type: "image/png" })
-    expect(() => appendGeneratedThumbnail(form, "image/png", blob)).toThrow("image/jpeg")
-    expect(form.has("thumbnail")).toBe(false)
-  })
-
-  it.each(["image/avif", "image/bmp"])(
-    "degrades a browser-decodable %s original to original-only",
-    (contentType) => {
-      const form = new FormData()
-      const blob = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: "image/jpeg" })
-      expect(appendGeneratedThumbnail(form, contentType, blob)).toBe(false)
-      expect(form.has("thumbnail")).toBe(false)
-    },
-  )
-
-  it.each([
-    ["channel", { channelId: "channel_1" }],
-    ["DM", { dmId: "dm_1" }],
-  ])("builds %s retry multipart with the generated thumbnail", (_label, _target) => {
+describe("original-only upload multipart", () => {
+  it("retains the original File and advisory dimensions without a thumbnail field", async () => {
     const file = new File(["original"], "photo.png", { type: "image/png" })
-    const thumbnailBlob = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: "image/jpeg" })
-    const form = buildAttachmentUploadFormData({ file, thumbnailBlob, width: 640, height: 480 })
-
+    const form = buildAttachmentUploadFormData({ file, width: 640, height: 480 })
     expect(form.get("file")).toBe(file)
-    expect(form.get("thumbnail")).toEqual(expect.objectContaining({ type: "image/jpeg", size: 4 }))
+    expect(await (form.get("file") as File).text()).toBe("original")
+    expect([...form.keys()]).toEqual(["file", "width", "height"])
     expect(form.get("width")).toBe("640")
     expect(form.get("height")).toBe("480")
   })

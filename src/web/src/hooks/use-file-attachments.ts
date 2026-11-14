@@ -2,8 +2,9 @@ import { createStore, useCreateStore, useSelector } from "@tanstack/react-store"
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import React, { useCallback, useLayoutEffect, useRef, useMemo } from "react";
 import { toast } from "sonner";
-import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared";
-import { prepareCommunityImage } from "../lib/image-thumbnail";
+import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_ATTACHMENT_SIZE_BYTES, MAX_INLINE_IMAGE_SIZE_BYTES } from "@alook/shared";
+import { readCommunityImageDimensions } from "../lib/image-metadata";
+import { isInlineAttachmentContentType } from "../lib/community/attachment-content-type";
 import {
   appendComposerAttachmentSession,
   clearComposerAttachmentSession,
@@ -17,7 +18,6 @@ export type PendingFile = {
   draftId?: string;
   file: File;
   thumbnailUrl: string | null;
-  thumbnailBlob: Blob | null;
   preparing?: boolean;
   preparationFailed?: boolean;
   width?: number;
@@ -38,7 +38,7 @@ function createDraftId() {
 function revokeThumbnailUrls(files: readonly PendingFile[]) { for (const file of files) if (file.thumbnailUrl) URL.revokeObjectURL(file.thumbnailUrl); }
 type PreparationLease = { generation: number; controller: AbortController };
 function cancelPreparations(queued: ReadonlyMap<string, PreparationLease>) { for (const lease of queued.values()) lease.controller.abort(); }
-function pendingDraft(draft: AttachmentDraftFile): PendingFile { return { ...draft, thumbnailUrl: null, thumbnailBlob: null, preparing: true }; }
+function pendingDraft(draft: AttachmentDraftFile): PendingFile { return { ...draft, thumbnailUrl: null, preparing: true }; }
 
 export function useFileAttachments(draftSessionScope?: string) {
   const client = useQueryClient();
@@ -50,7 +50,7 @@ export function useFileAttachments(draftSessionScope?: string) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
     protocol.setState((state) => ({ ...state, active: true, controller: state.controller.signal.aborted ? new AbortController() : state.controller, files: state.files.map((file) => {
-      const preview = file.thumbnailBlob ?? (file.width !== undefined && file.height !== undefined ? file.file : null);
+      const preview = file.width !== undefined && file.height !== undefined ? file.file : null;
       return preview && !file.thumbnailUrl ? { ...file, thumbnailUrl: URL.createObjectURL(preview) } : file;
     }) }));
     return () => {
@@ -72,21 +72,24 @@ export function useFileAttachments(draftSessionScope?: string) {
         const fileSignal = lease.controller.signal;
         let prepared: PendingFile | null = null;
         try {
-          const thumbnail = await new Promise<Awaited<ReturnType<typeof prepareCommunityImage>>>((resolve, reject) => {
+          const thumbnail = await new Promise<Awaited<ReturnType<typeof readCommunityImageDimensions>>>((resolve, reject) => {
             const decoding = new AbortController();
             const abort = () => { decoding.abort(); cleanup(); reject(new DOMException("Retired attachment preparation", "AbortError")); };
-            const timer = setTimeout(() => { decoding.abort(); cleanup(); reject(new Error("Image preparation timed out")); }, 30_000);
+            const timer = setTimeout(() => { cleanup(); resolve(null); decoding.abort(); }, 30_000);
             const cleanup = () => { clearTimeout(timer); fileSignal.removeEventListener("abort", abort); };
             fileSignal.addEventListener("abort", abort, { once: true });
             if (fileSignal.aborted) { abort(); return; }
-            void prepareCommunityImage(file, decoding.signal).then((value) => { cleanup(); resolve(value); }, (error) => { cleanup(); reject(error); });
+            void readCommunityImageDimensions(file, decoding.signal).then((value) => { cleanup(); resolve(value); }, (error) => {
+              cleanup();
+              if (fileSignal.aborted) reject(error);
+              else resolve(null);
+            });
           });
           if (!owns()) continue;
-          const blob = thumbnail?.blob ?? null;
-          const preview = blob ?? (thumbnail ? file : null);
-          prepared = { draftId, file, thumbnailUrl: preview ? URL.createObjectURL(preview) : null, thumbnailBlob: blob, width: thumbnail?.width, height: thumbnail?.height };
+          const preview = thumbnail ? file : null;
+          prepared = { draftId, file, thumbnailUrl: preview ? URL.createObjectURL(preview) : null, width: thumbnail?.width, height: thumbnail?.height };
         } catch {
-          if (owns()) { toast.error(`Could not prepare "${file.name}" for upload`); prepared = { draftId, file, thumbnailUrl: null, thumbnailBlob: null, preparationFailed: true }; }
+          if (owns()) prepared = { draftId, file, thumbnailUrl: null };
         }
         if (!owns()) { if (prepared) revokeThumbnailUrls([prepared]); continue; }
         protocol.setState((state) => {
@@ -120,6 +123,7 @@ export function useFileAttachments(draftSessionScope?: string) {
     if (!state.active) return;
     const { scope } = state;
     const valid = files.filter((file) => {
+      if (isInlineAttachmentContentType(file.type) && file.size > MAX_INLINE_IMAGE_SIZE_BYTES) { toast.error(`"${file.name}" exceeds the 20 MB image limit`); return false; }
       if (file.size <= MAX_ATTACHMENT_SIZE_BYTES) return true;
       toast.error(`"${file.name}" exceeds ${Math.floor(MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024)} MB limit`); return false;
     });
