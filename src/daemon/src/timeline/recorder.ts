@@ -134,6 +134,7 @@ function fitResponsesToRow(entry: ContextTimelineEntry, responses: readonly stri
 }
 
 export interface TimelineRecorderLike {
+  recordCommit(agentId: string, no: number): boolean;
   /** Current in-memory barrier epoch captured by pull-start owner snapshots. */
   barrierGeneration(agentId: string): number;
   /** Begin one exact root turn before any completed semantic output can arrive. */
@@ -550,6 +551,13 @@ export function createTimelineRecorder(opts: TimelineRecorderOptions): TimelineR
     },
     clearSessionStall(agentId, sessionId) {
       return appendStallMarker(agentId, "stall_recovery_clear", sessionId);
+    },
+    recordCommit(agentId, no) {
+      retryPending(agentId);
+      const stamp = now();
+      const result = appendTrackedEntry(dirFor(agentId), createSystemEntry("commit", stamp.toISOString(), undefined, no), stamp);
+      handleTrackedResult(agentId, null, result);
+      return result.status === "written";
     },
     forgetSession(agentId, barrierType = "reset_session", forgottenSessionId, pendingIdleResetEvent) {
       retryPending(agentId);

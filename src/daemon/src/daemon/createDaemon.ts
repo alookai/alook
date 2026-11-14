@@ -1,3 +1,4 @@
+import { appendMemoryCommit } from "../memory/commit.js";
 import { resolveProxyAuditOperation } from "../credentials/route-policy.js";
 import { scrubRuntimeErrorDiagnosticText } from "../runtime/errorDiagnostics.js";
 
@@ -444,6 +445,21 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
 
   const broker = new CredentialBroker({ upstreamBaseUrl: opts.serverUrl });
   const proxy = await startCredentialProxy(broker, {
+    onMemoryCommit: ({ agentId, launchId }, input) => {
+      if (!botsById.has(agentId) || !managerRef) throw new Error("commit: unknown or unavailable bot");
+      const resetSession = managerRef.prepareLocalReset(agentId, launchId, () => channelRef?.invalidateAgentWakeCoverage(agentId));
+      const entry = appendMemoryCommit(workdirFor(agentId), input);
+      if (!timeline.recordCommit(agentId, entry.no)) throw new Error(`commit: record ${entry.no} saved, but timeline write failed; session not reset`);
+      return { no: entry.no, reset: entry.reset, ...(entry.reset ? { resetSession: async () => {
+        await resetSession();
+        if (managerRef?.snapshot().agents[agentId]?.status === "idle") router?.markLocallyStopped(agentId);
+      } } : {}) };
+    },
+    onMemoryCommitResetError: (agentId, error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      log.error("memory commit saved but reset failed", { agentId, error: message });
+      emitBotAuditEvent(agentId, { kind: "error", payload: { scope: "reset", code: "commit_reset_failed", message, model: null } }, managerRef?.auditContext(agentId));
+    },
     pii: {
       filterWithResult: (botId, text) => localPiiStore.filterWithResult(botId, text),
       local: (botId, input) => localPiiStore.local(botId, input),

@@ -297,7 +297,7 @@ function bindFactorySession(
   return session;
 }
 
-function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeoutMs?: number; idleResetTimeoutMs?: number; staleThresholdMs?: number; resetStuckThresholdMs?: number; handshakeTimeoutMs?: number; now?: () => number; onBotAuditEvent?: (agentId: string, event: unknown, context: { sessionId: string | null; launchId: string | null }) => void } = {}) {
+function makeManager(opts: { timeline?: ConstructorParameters<typeof AgentProcessManager>[0]["timeline"]; logger?: Logger; tickIntervalMs?: number; idleTimeoutMs?: number; idleResetTimeoutMs?: number; staleThresholdMs?: number; resetStuckThresholdMs?: number; handshakeTimeoutMs?: number; now?: () => number; onBotAuditEvent?: (agentId: string, event: unknown, context: { sessionId: string | null; launchId: string | null }) => void } = {}) {
   const session = fakeSession();
   const factory = sessionFactoryFor(session);
   const onRuntimeSpawnFailed = vi.fn();
@@ -615,9 +615,9 @@ describe("AgentProcessManager — idle memory maintenance", () => {
     expect(deliveredPrompt).toContain("Do not proactively send the owner, users, or channels progress updates, completion notices, or details about your memory state");
     expect(deliveredPrompt).toContain("Communicate task-relevant results, questions, and blockers normally");
     expect(deliveredPrompt).toContain("If nothing needs a user-facing response, send no message");
-    expect(deliveredPrompt).toContain("If new work arrives, handle it first and defer nap");
-    expect(deliveredPrompt).toContain("without --handoff");
-    expect(deliveredPrompt).toContain("$ALOOK_CLI nap");
+    expect(deliveredPrompt).toContain("If new work arrives, finish it first, then resume this review");
+    expect(deliveredPrompt).not.toContain("--handoff");
+    expect(deliveredPrompt).toContain("$ALOOK_CLI commit --file <log-file>");
     expect(forgetSession).not.toHaveBeenCalled();
     expect(mgr.snapshot().agents.a1.sessionId).toBe("saved-session");
   });
@@ -6487,5 +6487,58 @@ describe("Codex root event ownership — subagent completion isolation", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+
+describe("local commit reset authority", () => {
+  const config = { version: 1 as const, runtime: "codex" as const, model: { kind: "default" as const }, mode: { kind: "default" as const } };
+  it.each([false, true])("invalidates coverage only after reset persistence succeeds (persisted=%s)", async (persisted) => {
+    const order: string[] = [];
+    const { mgr, session } = makeManager({ timeline: { ...exactTimelineLifecycleStub(), resumeSessionId: () => null, setSession: () => true, forgetSession: () => { order.push("persist"); return persisted; } } as never });
+    mgr.register("a1", { runtimeConfig: config, launchId: "launch" });
+    mgr.deliver("a1", { id: "first", text: "review" });
+    session.startResolver?.(); await Promise.resolve();
+    const stop = vi.spyOn(session, "stop");
+    const pending = mgr.prepareLocalReset("a1", "launch", () => { order.push("invalidate"); })();
+    if (persisted) {
+      await session.fire("exit", { reason: "requested", code: 0 });
+      await pending;
+      expect(order).toEqual(["persist", "invalidate"]);
+    } else {
+      await expect(pending).rejects.toThrow("could not be persisted");
+      expect(order).toEqual(["persist"]);
+      expect(stop).not.toHaveBeenCalled();
+    }
+    await mgr.stopAll();
+  });
+
+  it("rejects a foreign launch and a reset continuation after the session was replaced", async () => {
+    const { mgr } = makeManager();
+    mgr.register("a1", { runtimeConfig: config, launchId: "launch-A" });
+    mgr.deliver("a1", { id: "first", text: "review" });
+    expect(() => mgr.prepareLocalReset("a1", "foreign")).toThrow("no longer current");
+    const reset = mgr.prepareLocalReset("a1", "launch-A");
+    const spy = vi.spyOn(mgr, "resetSession").mockResolvedValue();
+    mgr.markResetting("a1");
+    await expect(reset()).rejects.toThrow("replaced");
+    expect(spy).not.toHaveBeenCalled();
+    await mgr.stopAll();
+  });
+  it("accepts the original process voucher after later wakes and resets without rewake", async () => {
+    const { mgr, session } = makeManager();
+    mgr.register("a1", { runtimeConfig: config, launchId: "launch" });
+    mgr.deliver("a1", { id: "first", text: "review" });
+    session.startResolver?.();
+    await Promise.resolve();
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "persisted" });
+    mgr.register("a1", { runtimeConfig: config, launchId: "later-wake" });
+    mgr.deliver("a1", { id: "second", text: "another message in the same process" });
+    const spy = vi.spyOn(mgr, "resetSession").mockResolvedValue();
+    const reset = mgr.prepareLocalReset("a1", "launch");
+    expect(spy).not.toHaveBeenCalled();
+    await reset();
+    expect(spy).toHaveBeenCalledWith("a1", { runtimeConfig: config, launchId: expect.any(String) });
+    await mgr.stopAll();
   });
 });

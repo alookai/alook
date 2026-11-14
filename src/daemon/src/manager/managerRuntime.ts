@@ -768,6 +768,20 @@ export class AgentProcessManager {
     const live = this.activeSpawnState.get(agentId);
     if (live) live.superseded = true;
   }
+  prepareLocalReset(agentId: string, launchId: string, onResetPersisted?: () => void): () => Promise<void> {
+    const owner = this.activeSpawnState.get(agentId);
+    if (!owner || !this.runtimeConfigs.has(agentId) || owner.launchIdSnapshot !== launchId || owner.superseded || this.shuttingDown) {
+      throw new Error("commit: the calling session is no longer current");
+    }
+    return async () => {
+      if (this.activeSpawnState.get(agentId) !== owner || owner.launchIdSnapshot !== launchId || owner.superseded || this.shuttingDown) {
+        throw new Error("commit: the calling session was replaced; reset skipped");
+      }
+      const runtimeConfig = this.runtimeConfigs.get(agentId);
+      if (!runtimeConfig) throw new Error("commit: runtime is no longer available");
+      await this.resetSession(agentId, { runtimeConfig, launchId: randomUUID(), ...(onResetPersisted ? { onResetPersisted } : {}) });
+    };
+  }
   async resetSession(
     agentId: string,
     opts: {
@@ -775,6 +789,7 @@ export class AgentProcessManager {
       launchId: string;
       rewakePrompt?: string;
       barrierType?: "reset_session" | "nap";
+      onResetPersisted?: () => void;
     },
   ): Promise<void> {
     await this.restartAgent(agentId, {
@@ -782,6 +797,7 @@ export class AgentProcessManager {
       launchId: opts.launchId,
       rewakePrompt: opts.rewakePrompt,
       forgetSession: true,
+      onResetPersisted: opts.onResetPersisted,
       barrierType: opts.barrierType ?? "reset_session",
       abortCause: opts.barrierType === "nap" ? "nap" : "reset",
       opName: "reset",
@@ -794,6 +810,7 @@ export class AgentProcessManager {
       launchId: string;
       rewakePrompt?: string;
       forgetSession: boolean;
+      onResetPersisted?: () => void;
       barrierType?: "reset_session" | "nap";
       abortCause: "reset" | "nap" | "model_switch";
       opName: string;
@@ -805,6 +822,7 @@ export class AgentProcessManager {
       this.emitErrorAudit(agentId, "reset", "resume_control_update_failed", "Reset aborted because resume control could not be persisted");
       throw new Error("Reset aborted because resume control could not be persisted");
     }
+    if (opts.forgetSession) opts.onResetPersisted?.();
     this.register(agentId, {
       runtimeConfig: opts.runtimeConfig,
       launchId: opts.launchId,

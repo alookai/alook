@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { MEMORY_COMMIT_MAX_BYTES, validateMemoryCommit } from "../memory/commit.js";
 import { BOT_FEEDBACK_MAX_BYTES } from "@alook/shared";
 import { savedDaemonMachineIds } from "./daemonState.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
@@ -184,7 +185,7 @@ async function readLiteralInput(args: {
       for await (const chunk of stdin) {
         const bytes = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : Buffer.from(chunk);
         byteCount += bytes.byteLength;
-        if (args.maxBytes !== undefined && byteCount > args.maxBytes) throw new CliError(`${command}: feedback exceeds ${args.maxBytes} UTF-8 bytes`);
+        if (args.maxBytes !== undefined && byteCount > args.maxBytes) throw new CliError(`${command}: input exceeds ${args.maxBytes} UTF-8 bytes`);
         chunks.push(bytes);
       }
       return Buffer.concat(chunks).toString("utf8");
@@ -196,6 +197,7 @@ async function readLiteralInput(args: {
   if (filePath !== undefined) {
     const fs = await import("fs/promises");
     try {
+      if (args.maxBytes !== undefined && (await fs.stat(filePath)).size > args.maxBytes) throw new CliError(`${command}: input exceeds ${args.maxBytes} UTF-8 bytes`);
       return await fs.readFile(filePath, "utf8");
     } catch (err) {
       throw new CliError(`${command}: cannot read file: ${(err as Error).message}`);
@@ -733,19 +735,17 @@ async function cmdFriendList(opts: Record<string, unknown>): Promise<unknown> {
   return await api.listFriends({ agentId: agent });
 }
 
-async function cmdNap(opts: Record<string, unknown>): Promise<unknown> {
-  const api = getApi();
-  const fileFlag = opts.handoff as string | undefined;
-  const handoff = await readLiteralInput({
-    command: "nap",
-    stdinSelected: false,
-    filePath: fileFlag,
-    fileOption: "--handoff <file>",
+async function cmdCommit(opts: Record<string, unknown>, stdin: CliInputStream): Promise<unknown> {
+  const log = await readLiteralInput({
+    command: "commit",
+    stdinSelected: opts.stdin === true,
+    stdin,
+    filePath: opts.file as string | undefined,
+    fileOption: "--file <file>",
+    maxBytes: MEMORY_COMMIT_MAX_BYTES,
   });
-  if (handoff !== undefined && handoff.trim().length === 0) {
-    throw new CliError("nap: handoff file must not be blank");
-  }
-  return await api.nap(handoff === undefined ? {} : { handoff });
+  const request = validateMemoryCommit({ log, reset: opts.reset !== false });
+  return await getApi().commit(request);
 }
 
 function buildProgram(stdin: CliInputStream): Command {
@@ -1048,15 +1048,15 @@ function buildProgram(stdin: CliInputStream): Command {
     });
 
   program
-    .command("nap")
-    .description("reset your session; optionally wake a fresh session with a handoff (read the nap rule first)")
-    .option("--handoff <file>", "path to your handoff note (your note to your reborn self)")
+    .command("commit")
+    .description("record memory review in .commits.jsonl, then reset; log max 10 KiB UTF-8")
+    .option("--file <file>", "read the required memory-review log from a UTF-8 file")
+    .option("--stdin", "read the required log from piped stdin (max 10 KiB UTF-8)")
+    .option("--no-reset", "record the review and continue the current session")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {
-      const localOpts = this.opts();
-      const globalOpts = program.opts();
-      const result = await cmdNap({ ...globalOpts, ...localOpts });
+      const result = await cmdCommit(this.opts(), stdin);
       printEnvelope({ success: result });
     });
 
@@ -1299,5 +1299,5 @@ try {
 }
 
 if (isMainModule) {
-  main().then((code) => process.exit(code));
+  main().then((code) => { process.stdout.write("", () => process.exit(code)); });
 }

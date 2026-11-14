@@ -793,6 +793,31 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
     expect(received.map((wake) => wake.unreadNotice.latestSeq)).toEqual([1, 2]);
   });
 
+  it("preserves coalesced wake coverage and model-seen observations when rejecting old nap", async () => {
+    const { ch } = makeChannel();
+    const received: number[] = [];
+    ch.onCommand(async (command) => {
+      if (command.type === "agent:wake") {
+        received.push(command.unreadNotice.latestSeq);
+        await ch.reportWakeAck({ agentId: command.agentId, launchId: command.launchId, status: "ok" });
+      } else if (command.type === "agent:nap") {
+        await ch.reportWakeAck({ agentId: command.agentId, launchId: command.launchId, status: "error", error: { code: "command_removed", message: "removed" } });
+      }
+    });
+    const wake = (seq: number): Extract<HostCommand, { type: "agent:wake" }> => ({ ...realWake, launchId: `wake-${seq}`, unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: seq } });
+    await ch.ingestCommand(wake(1));
+    ch.recordModelSeen("bot_1", [{ channel: "/demo#1234/general", seq: "#1" }]);
+    await ch.reportAgentActivity({ agentId: "bot_1", state: "running" });
+    await ch.ingestCommand(wake(2));
+    await ch.ingestCommand(wake(3));
+    expect(received).toEqual([1, 2]);
+    const generation = ch.modelSeenGeneration("bot_1");
+    await ch.ingestCommand(realNap);
+    expect(ch.modelSeenGeneration("bot_1")).toBe(generation);
+    expect(ch.recordModelSeen("bot_1", [{ channel: "/demo#1234/general", seq: "#2" }], generation)).toBe(true);
+    await vi.waitFor(() => expect(received).toEqual([1, 2, 3]));
+  });
+
   it("dispatches each valid arm unchanged (happy path — the transparent gate)", () => {
     for (const frame of [realWake, realEvent, realReset, realNap, realModelSwitch, realStop]) {
       const { sockets, received } = driven();

@@ -734,13 +734,7 @@ export interface ServerApi {
     pendingOutgoing: FriendCard[];
     pendingIncoming: FriendCard[];
   }>;
-  /**
-   * `alook nap` — the agent resets its own session, optionally carrying a
-   * `handoff` note to its reborn self. Self-scoped: the endpoint resolves the
-   * bot from the runner key, so `agentId` isn't sent. Returns `{ napped }` on
-   * delivery; throws (409) if the daemon is offline.
-   */
-  nap(req: { handoff?: string }): Promise<{ napped: boolean }>;
+  commit(req: { log: string; reset: boolean }): Promise<{ committed: true; no: number; reset: boolean }>;
 }
 
 /* ------------------------------------------------------------------ */
