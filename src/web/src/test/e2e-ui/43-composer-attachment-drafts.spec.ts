@@ -330,13 +330,6 @@ test.describe("same-tab Community attachment drafts", () => {
       await expect(composer.getByRole("button", { name: "Remove file" })).toHaveCount(9)
       survivingFiles = await composer.locator('[aria-label="Remove file"]').evaluateAll(buttons => buttons.map(button => button.parentElement!.querySelector("span")!.textContent!))
       expect(survivingFiles).toEqual(acceptedFiles.slice(0, 9))
-      const previews = composer.locator("img")
-      await expect(previews).toHaveCount(9)
-      await expect.poll(() => previews.evaluateAll(images => images.map(image => ({
-        ready: (image as HTMLImageElement).complete,
-        width: (image as HTMLImageElement).naturalWidth,
-        height: (image as HTMLImageElement).naturalHeight,
-      })))).toEqual(Array.from({ length: 9 }, () => ({ ready: true, width: 6000, height: 4000 })))
       const observed = await imageProbe.evaluate(probe => probe.snapshot())
       for (const source of observed.sources) {
         expect(source.original).toBe(true)

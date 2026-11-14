@@ -654,7 +654,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   const desktopPortraitLoading = await previewRects(page, { width: 450, height: 800 })
   await attachScreenshot(testInfo, "desktop-portrait-loading", page)
   releasePortraitFailure()
-  await expect(page.getByTestId(tid.imageLightboxError)).toContainText("Failed to load original image")
+  await expect(page.getByTestId(tid.imageLightboxError)).toContainText("Image cannot be processed. Retry or download the original.")
   const portraitThumbnail = page.getByTestId(tid.imageLightboxThumbnail)
   await expect(portraitThumbnail).toBeVisible()
   await expectImageLayer(portraitThumbnail, true)
@@ -963,7 +963,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   const navigationResponses: Array<{ path: string; status: number }> = []
   const galleryPaths = [landscape.originalPath, portrait.originalPath, extremeLandscape.originalPath, extremePortrait.originalPath]
   page.on("response", response => {
-    const path = new URL(response.url()).pathname
+    const path = mediaRequestPath(response.url())
     if (galleryPaths.includes(path)) navigationResponses.push({ path, status: response.status() })
   })
   const navigationSession = await page.context().newCDPSession(page)
