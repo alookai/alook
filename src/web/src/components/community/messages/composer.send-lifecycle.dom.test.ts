@@ -161,7 +161,7 @@ describe("Composer committed send lifecycle", () => {
     } satisfies ComposerProps))
 
     const file = new File(["keep me"], "rejected.txt", { type: "text/plain" })
-    pendingFiles = [{ file, thumbnailUrl: null, thumbnailBlob: null }]
+    pendingFiles = [{ file, thumbnailUrl: null }]
     renderer.rerender(React.createElement(Composer, {
       ...baseProps,
       replyingTo: { authorName: "Latest reply", text: "First target" },
@@ -253,8 +253,8 @@ describe("Composer committed send lifecycle", () => {
       const file = new File(["keep me"], "rejected.txt", { type: "text/plain" })
       const supplied = new File(["keep supplied"], "supplied.txt", { type: "text/plain" })
       pendingFiles = [
-        { file, thumbnailUrl: null, thumbnailBlob: null },
-        { file: supplied, thumbnailUrl: "blob:supplied", thumbnailBlob: null },
+        { file, thumbnailUrl: null },
+        { file: supplied, thumbnailUrl: "blob:supplied" },
       ]
       renderer.rerender(React.createElement(ConnectedComposer))
       await act(async () => {
@@ -279,15 +279,13 @@ describe("Composer committed send lifecycle", () => {
     } finally { renderer.unmount(); vi.unstubAllGlobals() }
   })
 
-  it("waits for same-tick file preparation and sends once with the exact thumbnail Blob", async () => {
+  it("waits for same-tick file preparation and sends once with the exact original File", async () => {
     let releasePreparation!: () => void
     const preparation = new Promise<void>((resolve) => { releasePreparation = resolve })
     const file = new File(["original"], "photo.png", { type: "image/png" })
-    const thumbnailBlob = new Blob(["thumbnail"], { type: "image/jpeg" })
     const prepared = [{
       file,
       thumbnailUrl: "blob:thumbnail",
-      thumbnailBlob,
       width: 640,
       height: 480,
     }]
@@ -327,12 +325,11 @@ describe("Composer committed send lifecycle", () => {
     expect(accept).toHaveBeenCalledOnce()
     expect(accept).toHaveBeenCalledWith("9. latest\n10. draft", [{
       file,
-      thumbnailBlob,
       previewObjectUrl: "blob:thumbnail",
       width: 640,
       height: 480,
     }], undefined)
-    expect(accept.mock.calls[0][1]?.[0].thumbnailBlob).toBe(thumbnailBlob)
+    expect(accept.mock.calls[0][1]?.[0].file).toBe(file)
     expect(clearContent).toHaveBeenCalledOnce()
     expect(transferPendingFiles).toHaveBeenCalledOnce()
   })
@@ -343,7 +340,7 @@ describe("Composer committed send lifecycle", () => {
     const file = new File(["original"], "photo.png", { type: "image/png" })
     awaitPendingFiles.mockImplementationOnce(async () => {
       await preparation
-      return [{ file, thumbnailUrl: null, thumbnailBlob: null }]
+      return [{ file, thumbnailUrl: null }]
     })
     const accept = vi.fn(() => true)
     const props = (draftKey: string) => ({
@@ -380,7 +377,7 @@ describe("Composer committed send lifecycle", () => {
     const oldFile = new File(["old"], "old.png", { type: "image/png" })
     awaitPendingFiles.mockImplementationOnce(async () => {
       await oldPreparation
-      pendingFiles = [{ file: oldFile, thumbnailUrl: null, thumbnailBlob: null }]
+      pendingFiles = [{ file: oldFile, thumbnailUrl: null }]
       return pendingFiles
     })
     const accept = vi.fn(() => true)
@@ -426,7 +423,7 @@ describe("Composer committed send lifecycle", () => {
     const file = new File(["old"], "old.png", { type: "image/png" })
     awaitPendingFiles.mockImplementationOnce(async () => {
       await preparation
-      return [{ file, thumbnailUrl: null, thumbnailBlob: null }]
+      return [{ file, thumbnailUrl: null }]
     })
     const accept = vi.fn(() => true)
     const renderer = render(React.createElement(Composer, {

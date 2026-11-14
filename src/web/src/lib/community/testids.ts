@@ -235,6 +235,8 @@ export const tid = {
   mediaDownload: (name: string) => `community-media-download-${name}`,
   mediaRetry: (name: string) => `community-media-retry-${name}`,
   mediaStatus: (name: string) => `community-media-status-${name}`,
+  videoPreview: (name: string) => `community-video-preview-${name}`,
+  videoDialog: (name: string) => `community-video-dialog-${name}`,
   codePreview: "community-code-preview",
   codePreviewLanguage: "community-code-preview-language",
   codePreviewCopy: "community-code-preview-copy",

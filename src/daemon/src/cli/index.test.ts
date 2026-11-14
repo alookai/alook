@@ -1597,7 +1597,7 @@ describe("message attachment upload", () => {
       filename: req.file.filename,
       contentType: req.file.contentType ?? "application/octet-stream",
       size: req.file.data instanceof Uint8Array ? req.file.data.byteLength : req.file.data.size,
-      hasThumbnail: req.thumbnail !== undefined,
+      hasThumbnail: true,
     }))
     setApiForTesting(stubApi({ attachmentUpload: uploadSpy }))
     try {
@@ -1608,11 +1608,11 @@ describe("message attachment upload", () => {
     const request = uploadSpy.mock.calls[0]![0]
     expect(request).toMatchObject({ width: 640, height: 480 })
     expect(request.target).toBe(target)
-    expect(request.thumbnail).toBeUndefined()
-    expect(parseEnvelope(cap.lines())).toMatchObject({ success: { hasThumbnail: false } })
+    expect(request).not.toHaveProperty("thumbnail")
+    expect(parseEnvelope(cap.lines())).toMatchObject({ success: { hasThumbnail: true } })
   })
 
-  it.each(["jpg", "webp", "gif"])("generates a thumbnail for dimension-oversized .%s raster input", async (extension) => {
+  it.each(["jpg", "webp", "gif"])("uploads dimension-oversized .%s originals without encoding a thumbnail", async (extension) => {
     const fs = await import("node:fs")
     const os = await import("node:os")
     const path = await import("node:path")
@@ -1633,11 +1633,11 @@ describe("message attachment upload", () => {
     }
     const request = uploadSpy.mock.calls[0]![0]
     expect(request).toMatchObject({ width: 721, height: 24 })
-    expect(request.thumbnail?.contentType).toBe("image/jpeg")
-    expect((request.thumbnail?.data as Uint8Array).byteLength).toBeLessThanOrEqual(256 * 1024)
+    expect(request).not.toHaveProperty("thumbnail")
+    expect(request.file.data).toBeInstanceOf(Uint8Array)
   })
 
-  it("generates a bounded JPEG when only the original byte limit is exceeded", async () => {
+  it("preserves an original larger than the retired JPEG threshold", async () => {
     const fs = await import("node:fs")
     const os = await import("node:os")
     const path = await import("node:path")
@@ -1652,7 +1652,7 @@ describe("message attachment upload", () => {
     fs.writeFileSync(file, source)
     const uploadSpy = vi.fn(async (req: Parameters<ServerApi["attachmentUpload"]>[0]) => ({
       id: "att", filename: "source.png", contentType: "image/png", size: source.byteLength,
-      hasThumbnail: req.thumbnail !== undefined,
+      hasThumbnail: true,
     }))
     setApiForTesting(stubApi({ attachmentUpload: uploadSpy }))
     try {
@@ -1662,7 +1662,8 @@ describe("message attachment upload", () => {
     }
     const request = uploadSpy.mock.calls[0]![0]
     expect(request).toMatchObject({ width: 640, height: 480 })
-    expect((request.thumbnail?.data as Uint8Array).byteLength).toBeLessThanOrEqual(256 * 1024)
+    expect(request).not.toHaveProperty("thumbnail")
+    expect(request.file.data).toEqual(new Uint8Array(source))
   })
 
   it("uploads corrupt declared raster input without thumbnail or dimensions", async () => {
@@ -1682,19 +1683,19 @@ describe("message attachment upload", () => {
       fs.rmSync(dir, { recursive: true, force: true })
     }
     const request = uploadSpy.mock.calls[0]![0]
-    expect(request.thumbnail).toBeUndefined()
+    expect(request).not.toHaveProperty("thumbnail")
     expect(request.width).toBeUndefined()
     expect(request.height).toBeUndefined()
     expect(parseEnvelope(cap.lines())).toMatchObject({ success: { hasThumbnail: false } })
   })
 
-  it("rejects corrupt declared raster input when its byte size requires a thumbnail", async () => {
+  it("rejects an inline image above 20 MB before calling the upload API", async () => {
     const fs = await import("node:fs")
     const os = await import("node:os")
     const path = await import("node:path")
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "alook-corrupt-large-image-"))
     const file = path.join(dir, "corrupt.png")
-    fs.writeFileSync(file, new Uint8Array(256 * 1024 + 1))
+    fs.writeFileSync(file, new Uint8Array(20_000_001))
     const uploadSpy = vi.fn()
     setApiForTesting(stubApi({ attachmentUpload: uploadSpy }))
     try {
@@ -1703,7 +1704,7 @@ describe("message attachment upload", () => {
       fs.rmSync(dir, { recursive: true, force: true })
     }
     expect(uploadSpy).not.toHaveBeenCalled()
-    expect(parseEnvelope(cap.lines())).toMatchObject({ error: expect.stringContaining("required image preview") })
+    expect(parseEnvelope(cap.lines())).toMatchObject({ error: expect.stringContaining("max 20 MB") })
   })
 
   it.each([

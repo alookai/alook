@@ -116,7 +116,6 @@ export type ForumThread = Thread & Required<Pick<CommunityMessageResource,
 
 export type SendAttachment = {
   file: File
-  thumbnailBlob?: Blob
   previewObjectUrl?: string
   width?: number
   height?: number

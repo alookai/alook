@@ -81,14 +81,14 @@ describe("GET user search through the real handler and Shared SQL", () => {
     expect(users.some(user => user.id === "viewer")).toBe(false)
   })
 
-  it("preserves a legitimate null image and canonicalizes only owned image URLs by the actual version", async () => {
+  it("preserves a legitimate null image and routes owned and provider avatars through Images by the actual version", async () => {
     seed("null", "Avatar null", "0042", null, 0)
     seed("owned", "Avatar owned", "0043", "/api/community/users/owned/avatar", 7)
-    seed("external", "Avatar external", "0044", "https://images.example.test/avatar.png", 3)
+    seed("external", "Avatar external", "0044", "https://avatars.githubusercontent.com/u/1?v=4", 3)
     const users = new Map((await result("Avatar")).map(user => [user.id, user]))
     expect(users.get("null")).toEqual({ id: "null", name: "Avatar null", discriminator: "0042", image: null, avatarVersion: 0 })
-    expect(users.get("owned")).toMatchObject({ image: "/api/community/users/owned/avatar?v=7", avatarVersion: 7 })
-    expect(users.get("external")).toMatchObject({ image: "https://images.example.test/avatar.png", avatarVersion: 3 })
+    expect(users.get("owned")).toMatchObject({ image: "/api/community/users/owned/avatar?v=7&image=1", avatarVersion: 7 })
+    expect(users.get("external")).toMatchObject({ image: "/api/community/share-image/avatar/external?image=1&v=3", avatarVersion: 3 })
   })
 
   it("returns the current Shared empty result when no user matches", async () => {

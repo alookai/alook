@@ -13,7 +13,7 @@ const baseRow: MessageRow = {
   authorId: "u_alice",
   authorAvatarVersion: 0,
   authorName: "Alice",
-  authorImage: "https://avatars/alice.png",
+  authorImage: "https://avatars.githubusercontent.com/u/1?v=4",
   content: "hello",
   type: null,
   mentionType: null,
@@ -36,7 +36,7 @@ describe("mapMessageForApi", () => {
     const out = mapMessageForApi(baseRow, emptyApiCtx, BUSINESS_SCHEMA_VERSION, "channel")
     expect(out.id).toBe("m1")
     expect(out.authorName).toBe("Alice")
-    expect(out.authorAvatar).toBe("https://avatars/alice.png")
+    expect(out.authorAvatar).toBe("/api/community/share-image/avatar/u_alice?image=1&v=0")
     expect(out.content).toBe("hello")
     expect(out.createdAt).toBe("2026-07-03T12:00:00.000Z")
   })

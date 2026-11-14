@@ -1,7 +1,8 @@
+import { renderCommunity as render } from "@/test/community-owner-harness"
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
-import { act, fireEvent, render, mockElementGeometry, type RenderResult } from "@/test/react-dom-harness"
+import { act, fireEvent, mockElementGeometry, type RenderResult } from "@/test/react-dom-harness"
 
 vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ children, onOpenChange }: {
@@ -22,6 +23,8 @@ vi.mock("@/components/ui/dialog", () => ({
 }))
 
 import { ImageLightbox } from "./image-lightbox"
+const saveOriginal = vi.hoisted(() => vi.fn().mockResolvedValue({ status: "started" }))
+vi.mock("@/lib/file-save", () => ({ downloadUrl: saveOriginal, fileSaveMessage: (result: { status: string }) => result.status }))
 
 function renderLightbox(image: React.ComponentProps<typeof ImageLightbox>["image"], onClose = vi.fn()) {
   return { renderer: render(React.createElement(ImageLightbox, { image, onClose })), onClose }
@@ -74,6 +77,14 @@ describe("ImageLightbox", () => {
     vi.useRealTimers()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it("uses Images for the large display while downloading the unchanged original identity", async () => {
+    const originalUrl = "/api/community/channels/c1/attachments/a1"
+    const { renderer } = renderLightbox({ originalUrl, thumbnailUrl: `${originalUrl}/thumbnail?image=1`, name: "photo.png" })
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveAttribute("src", `${originalUrl}/thumbnail?image=1&variant=preview`)
+    await act(async () => { fireEvent.click(renderer.getByRole("button", { name: "Download original image" })); await Promise.resolve() })
+    expect(saveOriginal).toHaveBeenCalledWith(originalUrl, "photo.png", expect.objectContaining({ signal: expect.any(AbortSignal) }))
   })
 
   it("enables cached-original controls immediately without decode or a scheduled reveal", () => {
@@ -153,7 +164,7 @@ describe("ImageLightbox", () => {
     expect(renderer.getByRole("button", { name: "Zoom in" })).toBeDisabled()
 
     expect(renderer.getByTestId(tid.imageLightboxLoading))
-      .toHaveTextContent("Loading original image")
+      .toHaveTextContent("Loading image preview")
 
     await loadThumbnail(renderer, 200, 112)
 
@@ -189,7 +200,7 @@ describe("ImageLightbox", () => {
     expect(image(renderer, tid.imageLightboxThumbnail)).toHaveAttribute("src", "/thumbnail")
 
     expect(renderer.getByTestId(tid.imageLightboxError))
-      .toHaveTextContent("Failed to load original image")
+      .toHaveTextContent("Image cannot be processed. Retry or download the original.")
     expect(renderer.getByTestId(tid.imageLightboxRetry)).toHaveTextContent("Retry")
 
     fireEvent.click(renderer.getByTestId(tid.imageLightboxRetry))
@@ -286,7 +297,7 @@ describe("ImageLightbox", () => {
   it("shows an explicit original-loading fallback when no thumbnail exists", () => {
     const { renderer } = renderLightbox({ originalUrl: "/original", name: "legacy" })
     expect(renderer.getByTestId(tid.imageLightboxLoading))
-      .toHaveTextContent("Loading original image")
+      .toHaveTextContent("Loading image preview")
     expect(renderer.getByTestId(tid.imageLightbox).style.aspectRatio).toBe("")
   })
 

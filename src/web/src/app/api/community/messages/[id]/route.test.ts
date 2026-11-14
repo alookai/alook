@@ -184,7 +184,7 @@ describe("GET /api/community/messages/[id]", () => {
     // id-addressed render URL (attachments fold), served by the canonical
     // channels/{targetId}/attachments/{attachmentId} door.
     expect(body.attachments).toEqual([
-      { id: "att_1", name: "photo.png", url: "/api/community/channels/c1/attachments/att_1", thumbnailUrl: null, contentType: "image/png", sizeBytes: 12345, width: null, height: null },
+      { id: "att_1", name: "photo.png", url: "/api/community/channels/c1/attachments/att_1", thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail?image=1", contentType: "image/png", sizeBytes: 12345, width: null, height: null },
     ])
     // Reactions came through with `me: true` since userId matches.
     expect(body.reactions).toEqual([

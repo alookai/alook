@@ -1,7 +1,6 @@
 vi.mock("./upload-body", () => ({ readUploadFormData: (req: Request) => req.formData(), UploadTooLargeError: class extends Error {} }))
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
-import { structuredJpegFixture } from "@/test/fixtures/media"
 
 vi.mock("@/lib/middleware/helpers", () => {
   const { NextResponse } = require("next/server")
@@ -54,7 +53,7 @@ import {
   handleBotAvatarUpload,
   runAttachmentUpload,
 } from "./upload"
-import { MAX_ATTACHMENT_SIZE_BYTES, MAX_SERVER_ICON_SIZE_BYTES } from "@alook/shared"
+import { MAX_ATTACHMENT_SIZE_BYTES, MAX_INLINE_IMAGE_SIZE_BYTES, MAX_SERVER_ICON_SIZE_BYTES } from "@alook/shared"
 
 function envWithR2(put: ReturnType<typeof vi.fn>, del = vi.fn().mockResolvedValue(undefined)) {
   return { COMMUNITY_MEDIA: {
@@ -94,8 +93,8 @@ function reqWithFile(file: unknown | null): NextRequest {
 function reqWithUpload(file: unknown, thumbnail: unknown, width = "640", height = "480"): NextRequest {
   const req = new NextRequest("http://localhost/u", { method: "POST" })
   req.formData = (async () => {
-    const values: Record<string, unknown> = { file, thumbnail, width, height }
-    return { keys: () => Object.keys(values), get: (key: string) => values[key] ?? null } as unknown as FormData
+    const values: Record<string, unknown> = { file, width, height, ...(thumbnail === null ? {} : { thumbnail }) }
+    return { keys: () => Object.keys(values), has: (key: string) => key in values, get: (key: string) => values[key] ?? null } as unknown as FormData
   }) as typeof req.formData
   return req
 }
@@ -121,50 +120,6 @@ function fakeFile(name: string, type: string, size: number) {
   }
 }
 
-function fakeJpegFile(width = 640, height = 360) {
-  const bytes = structuredJpegFixture(width, height)
-  return {
-    ...fakeFile("thumbnail.jpg", "image/jpeg", bytes.byteLength),
-    arrayBuffer: async () => Uint8Array.from(bytes).buffer,
-  }
-}
-
-function sofOnlyJpegFile(width = 640, height = 480) {
-  const bytes = Uint8Array.from([
-    0xff, 0xd8,
-    0xff, 0xc0, 0x00, 0x11, 0x08,
-    (height >> 8) & 0xff, height & 0xff,
-    (width >> 8) & 0xff, width & 0xff,
-    0x03,
-    0x01, 0x11, 0x00,
-    0x02, 0x11, 0x00,
-    0x03, 0x11, 0x00,
-    0xff, 0xd9,
-  ])
-  return {
-    ...fakeFile("thumbnail.jpg", "image/jpeg", bytes.byteLength),
-    arrayBuffer: async () => bytes.buffer,
-  }
-}
-
-function structuredJpegFile(bytes: number[]) {
-  const data = Uint8Array.from(bytes)
-  return {
-    ...fakeFile("thumbnail.jpg", "image/jpeg", data.byteLength),
-    arrayBuffer: async () => data.buffer,
-  }
-}
-
-function restartMarkerJpegFile() {
-  return structuredJpegFile([
-    0xff, 0xd8,
-    0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00,
-    0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00,
-    0x01, 0xff, 0xd0, 0x02,
-    0xff, 0xd9,
-  ])
-}
-
 describe("handleAttachmentUpload", () => {
   beforeEach(() => vi.clearAllMocks())
 
@@ -183,169 +138,45 @@ describe("handleAttachmentUpload", () => {
     expect(options).toMatchObject({ onlyIf: { etagDoesNotMatch: "*" }, sha256: expect.any(String) })
   })
 
-  it("accepts an original-only image at the exact policy boundaries", async () => {
+  it("accepts an original-only image at 20 MB and keeps its dimensions", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
-    const res = await handleAttachmentUpload(
-      reqWithUpload(fakeFile("edge.png", "image/png", 256 * 1024), null, "720", "540"),
-      envWithR2(put),
-    )
-
-    expect(res.ok).toBe(true)
-    if (!res.ok) return
-    expect(res.thumbnailR2Key).toBeNull()
+    const res = await handleAttachmentUpload(reqWithUpload(fakeFile("edge.png", "image/png", MAX_INLINE_IMAGE_SIZE_BYTES), null, "1920", "1080"), envWithR2(put))
+    expect(res).toMatchObject({ ok: true, hasThumbnail: true, width: 1920, height: 1080 })
+    expect(res).not.toHaveProperty("thumbnailR2Key")
     expect(put).toHaveBeenCalledOnce()
   })
 
-  it.each([
-    ["byte size", fakeFile("large.png", "image/png", 256 * 1024 + 1), "640", "480"],
-    ["width", fakeFile("wide.png", "image/png", 10), "721", "480"],
-    ["height", fakeFile("tall.png", "image/png", 10), "480", "721"],
-  ])("rejects a missing required thumbnail proved by %s before either R2 put", async (_label, file, width, height) => {
+  it.each(["image/png", "image/jpeg", "image/webp", "image/gif"])("rejects new %s originals above 20 MB before storage", async type => {
     const put = vi.fn()
-    const res = await handleAttachmentUpload(
-      reqWithUpload(file, null, width, height), envWithR2(put),
-    )
-
-    expect(res.ok).toBe(false)
-    if (res.ok) return
-    expect(res.response.status).toBe(400)
-    expect(await res.response.json()).toMatchObject({ error: "thumbnail required" })
-    expect(put).not.toHaveBeenCalled()
-  })
-
-  it("stores a validated JPEG thumbnail with its own content key", async () => {
-    const put = vi.fn().mockResolvedValue(undefined)
-    const file = fakeFile("hi.png", "image/png", 10)
-    const thumbnail = fakeJpegFile()
-    const res = await handleAttachmentUpload(
-      reqWithUpload(file, thumbnail), envWithR2(put),
-    )
-    expect(res.ok).toBe(true)
-    if (!res.ok) return
-    expect(res.thumbnailR2Key).toMatch(/^attachment-thumbnails\/sha256\/[0-9a-f]{64}$/)
-    expect(res).toMatchObject({ width: 640, height: 480 })
-    expect(put).toHaveBeenCalledTimes(2)
-    expect(put.mock.calls[1]).toEqual([res.thumbnailR2Key, thumbnail, expect.objectContaining({ onlyIf: { etagDoesNotMatch: "*" } })])
-  })
-
-  it("rejects malformed supplied thumbnails before either R2 put", async () => {
-    const put = vi.fn()
-    const thumbnail = {
-      ...fakeFile("thumbnail.jpg", "image/jpeg", 4),
-      arrayBuffer: async () => Uint8Array.from([0, 1, 2, 3]).buffer,
+    const result = await handleAttachmentUpload(reqWithFile(fakeFile("oversized", type, MAX_INLINE_IMAGE_SIZE_BYTES + 1)), envWithR2(put))
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.response.status).toBe(413)
+      expect(await result.response.json()).toEqual({ error: "image too large (max 20 MB)" })
     }
-    const res = await handleAttachmentUpload(
-      reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
-      envWithR2(put),
-    )
-    expect(res.ok).toBe(false)
     expect(put).not.toHaveBeenCalled()
   })
 
-  it("rejects a SOF-only JPEG-shaped thumbnail before either R2 put", async () => {
+  it("keeps the 25 MiB boundary for non-inline files", async () => {
     const put = vi.fn()
-    const res = await handleAttachmentUpload(
-      reqWithUpload(fakeFile("hi.png", "image/png", 10), sofOnlyJpegFile()),
-      envWithR2(put),
-    )
-
-    expect(res.ok).toBe(false)
-    if (res.ok) return
-    expect(await res.response.json()).toMatchObject({ error: "invalid jpeg thumbnail" })
-    expect(put).not.toHaveBeenCalled()
+    const result = await handleAttachmentUpload(reqWithFile(fakeFile("large.bin", "application/octet-stream", MAX_ATTACHMENT_SIZE_BYTES)), envWithR2(put))
+    expect(result).toMatchObject({ ok: true, hasThumbnail: false, size: MAX_ATTACHMENT_SIZE_BYTES })
+    expect(put).toHaveBeenCalledOnce()
   })
 
-  it.each([
-    {
-      label: "a mismatched SOF component length",
-      thumbnail: structuredJpegFile([
-        0xff, 0xd8,
-        0xff, 0xc0, 0x00, 0x0c, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0x00,
-        0xff, 0xd9,
-      ]),
-    },
-    {
-      label: "a mismatched SOS component length",
-      thumbnail: structuredJpegFile([
-        0xff, 0xd8,
-        0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00,
-        0xff, 0xda, 0x00, 0x09, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0x00,
-        0x01, 0xff, 0xd9,
-      ]),
-    },
-    {
-      label: "a segment stream without EOI",
-      thumbnail: structuredJpegFile([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x02]),
-    },
-  ])("rejects $label before either R2 put", async ({ thumbnail }) => {
+  it.each([new File(["jpeg"], "thumbnail.jpg", { type: "image/jpeg" }), "invalid"])("rejects retired thumbnail input before any storage write", async thumbnail => {
     const put = vi.fn()
-    const res = await handleAttachmentUpload(
-      reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
-      envWithR2(put),
-    )
-
-    expect(res.ok).toBe(false)
-    if (res.ok) return
-    expect(await res.response.json()).toMatchObject({ error: "invalid jpeg thumbnail" })
+    const result = await handleAttachmentUpload(reqWithUpload(fakeFile("photo.png", "image/png", 10), thumbnail), envWithR2(put))
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(await result.response.json()).toEqual({ error: "thumbnail uploads are no longer supported; update your client" })
     expect(put).not.toHaveBeenCalled()
   })
 
-  it("accepts entropy data containing a JPEG restart marker", async () => {
-    const put = vi.fn().mockResolvedValue(undefined)
-    const res = await handleAttachmentUpload(
-      reqWithUpload(fakeFile("hi.png", "image/png", 10), restartMarkerJpegFile()),
-      envWithR2(put),
-    )
-
-    expect(res.ok).toBe(true)
-    expect(put).toHaveBeenCalledTimes(2)
-  })
-
-  it("rejects a JPEG thumbnail over 720px before either R2 put", async () => {
-    const put = vi.fn()
-    const res = await handleAttachmentUpload(
-      reqWithUpload(fakeFile("hi.png", "image/png", 10), fakeJpegFile(721, 512)),
-      envWithR2(put),
-    )
-
-    expect(res.ok).toBe(false)
-    if (res.ok) return
-    expect(await res.response.json()).toMatchObject({ error: "thumbnail dimensions too large" })
-    expect(put).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    {
-      label: "non-raster original",
-      file: fakeFile("doc.pdf", "application/pdf", 10),
-      thumbnail: fakeJpegFile(),
-    },
-    {
-      label: "wrong thumbnail MIME",
-      file: fakeFile("photo.png", "image/png", 10),
-      thumbnail: { ...fakeJpegFile(), type: "image/png", name: "thumbnail.png" },
-    },
-    {
-      label: "oversized thumbnail",
-      file: fakeFile("photo.png", "image/png", 10),
-      thumbnail: { ...fakeFile("thumbnail.jpg", "image/jpeg", 256 * 1024 + 1), arrayBuffer: async () => new ArrayBuffer(0) },
-    },
-  ])("rejects $label before either R2 put", async ({ file, thumbnail }) => {
-    const put = vi.fn()
-    const res = await handleAttachmentUpload(
-      reqWithUpload(file, thumbnail), envWithR2(put),
-    )
-    expect(res.ok).toBe(false)
-    if (res.ok) return
-    expect(res.response.status).toBe(400)
-    expect(put).not.toHaveBeenCalled()
-  })
-
-  it("does not delete shared original content when thumbnail creation fails", async () => {
-    const failure = new Error("r2 thumbnail")
-    const put = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(failure)
+  it("retains shared original content when storage fails", async () => {
+    const failure = new Error("r2 original")
+    const put = vi.fn().mockRejectedValue(failure)
     const del = vi.fn()
-    await expect(handleAttachmentUpload(reqWithUpload(fakeFile("hi.png", "image/png", 10), fakeJpegFile()), envWithR2(put, del))).rejects.toBe(failure)
+    await expect(handleAttachmentUpload(reqWithFile(fakeFile("photo.png", "image/png", 10)), envWithR2(put, del))).rejects.toBe(failure)
     expect(del).not.toHaveBeenCalled()
   })
 
@@ -678,7 +509,6 @@ describe("runAttachmentUpload", () => {
   it("threads client-supplied image dimensions onto the file record (single source = upload)", async () => {
     surfaceChannel("text")
     const put = vi.fn().mockResolvedValue(undefined)
-    const thumbnail = fakeJpegFile()
             const req = reqWithFile(fakeFile("hi.png", "image/png", 10))
     req.formData = (async () => {
       const real = new FormData()
@@ -686,8 +516,6 @@ describe("runAttachmentUpload", () => {
         value: (key: string) =>
           key === "file"
             ? fakeFile("hi.png", "image/png", 10)
-            : key === "thumbnail"
-              ? thumbnail
             : key === "width"
               ? "1920"
               : key === "height"
@@ -779,7 +607,7 @@ describe("runAttachmentUpload", () => {
     mockCreateAttachment.mockRejectedValueOnce(new Error("d1"))
     const del = vi.fn()
     const response = await runAttachmentUpload(
-      reqWithUpload(fakeFile("hi.png", "image/png", 10), fakeJpegFile()),
+      reqWithUpload(fakeFile("hi.png", "image/png", 10), null),
       ctxWith(envWithR2(vi.fn().mockResolvedValue(undefined), del), { id: "c1" }),
     )
     expect(response.status).toBe(500)
@@ -803,7 +631,7 @@ it("rejects a string thumbnail before writing storage", async () => {
   const put = vi.fn()
   const result = await handleAttachmentUpload(reqWithUpload(fakeFile("a.png", "image/png", 10), "invalid"), envWithR2(put))
   expect(result.ok).toBe(false)
-  if (!result.ok) expect(await result.response.json()).toMatchObject({ error: "invalid thumbnail" })
+  if (!result.ok) expect(await result.response.json()).toMatchObject({ error: "thumbnail uploads are no longer supported; update your client" })
   expect(put).not.toHaveBeenCalled()
 })
 

@@ -1,3 +1,5 @@
+import { COMMUNITY_IMAGE_REVISION } from "@alook/shared"
+import { createCommunityImageResponse } from "@/lib/community/image-processing"
 import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
@@ -26,7 +28,7 @@ export const GET = withPrivateMediaCache(withAuth(humanAuthPolicy, async (req: N
   const server = await queries.communityServer.getServer(db, serverId)
   if (!server?.icon) return writeError("no icon", 404)
 
-  if (req.nextUrl.searchParams.get("v") !== server.icon) {
+  if (req.nextUrl.searchParams.get("v") !== server.icon || req.nextUrl.searchParams.get("image") !== String(COMMUNITY_IMAGE_REVISION)) {
     return new Response(null, {
       status: 307,
       headers: { Location: serverIconUrl(server)!, "Cache-Control": "private, no-store" },
@@ -36,18 +38,8 @@ export const GET = withPrivateMediaCache(withAuth(humanAuthPolicy, async (req: N
   const obj = await ctx.env.COMMUNITY_MEDIA.get(server.icon)
   if (!obj) return writeError("not found", 404)
 
-  const headers = new Headers({
-    "Content-Type": obj.httpMetadata?.contentType ?? "image/png",
-    "Cache-Control": ATTACHMENT_PRIVATE_IMMUTABLE_CACHE,
-  })
-  if (obj.httpEtag) headers.set("ETag", obj.httpEtag)
-  if (obj.httpEtag && req.headers.get("If-None-Match") === obj.httpEtag) {
-    return new Response(null, { status: 304, headers })
-  }
-
-  return new Response(obj.body, {
-    headers,
-  })
+  return createCommunityImageResponse({ request: req, env: ctx.env, source: obj, sourceKey: server.icon,
+    variant: "identity", cacheControl: ATTACHMENT_PRIVATE_IMMUTABLE_CACHE })
 }))
 
 export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {

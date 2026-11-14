@@ -13,9 +13,9 @@ vi.mock("@/components/ui/button", () => ({
 function attachment(overrides: Partial<FileAttachment> = {}): FileAttachment {
   return {
     kind: "file",
-    name: "clip.mp4",
+    name: "voice.ogg",
     url: "/attachments/video-1",
-    contentType: "video/mp4",
+    contentType: "audio/ogg",
     sizeBytes: 256,
     size: "256 B",
     ...overrides,
@@ -24,19 +24,19 @@ function attachment(overrides: Partial<FileAttachment> = {}): FileAttachment {
 
 function attachmentFor(mediaKind: "audio" | "video") {
   return attachment({
-    name: mediaKind === "audio" ? "voice.ogg" : "clip.mp4",
-    contentType: mediaKind === "audio" ? "audio/ogg" : "video/mp4",
+    name: mediaKind === "audio" ? "voice.ogg" : "voice.ogg",
+    contentType: mediaKind === "audio" ? "audio/ogg" : "audio/ogg",
   })
 }
 
 function renderMedia({
   item = attachment(),
-  mediaKind = "video",
+  mediaKind = "audio",
   play = vi.fn().mockResolvedValue(undefined),
   readyState = 4,
 }: {
   item?: FileAttachment
-  mediaKind?: "audio" | "video"
+  mediaKind?: "audio"
   play?: ReturnType<typeof vi.fn>
   readyState?: number
 } = {}) {
@@ -81,7 +81,7 @@ describe("MediaAttachmentBlock", () => {
     vi.restoreAllMocks()
   })
 
-  it.each(["audio", "video"] as const)("keeps %s idle with a visible disabled Stop and no mounted media", (mediaKind) => {
+  it.each(["audio"] as const)("keeps %s idle with a visible disabled Stop and no mounted media", (mediaKind) => {
     const item = attachmentFor(mediaKind)
     const { renderer, mediaNode, seek } = renderMedia({ item, mediaKind })
 
@@ -99,50 +99,21 @@ describe("MediaAttachmentBlock", () => {
     expect(seek).not.toHaveBeenCalled()
   })
 
-  it.each(["preview", "footer"] as const)("plays video from its %s and uses the footer button for pause and resume", async (entry) => {
-    const { renderer, mediaNode } = renderMedia()
-
-    const initialPlay = entry === "preview"
-      ? renderer.getByRole("button", { name: "Play video clip.mp4" })
-      : byTestId(renderer, tid.mediaPlay("clip.mp4"))
-    expect(renderer.queryAllByTestId(tid.mediaPlay("clip.mp4"))).toHaveLength(1)
-    await clickAndFlush(initialPlay)
-
-    expect(mediaNode.play).toHaveBeenCalledOnce()
-    const player = byTestId<HTMLVideoElement>(renderer, tid.mediaPlayer("clip.mp4"))
-    expect(player.tagName).toBe("VIDEO")
-    expect(player).toHaveAttribute("src", "/attachments/video-1")
-    expect(player).not.toHaveAttribute("controls")
-    expect(player).toHaveAttribute("playsinline")
-    expect(player).toHaveAttribute("preload", "metadata")
-    expect(player).not.toHaveAttribute("autoplay")
-
-    const pause = byTestId(renderer, tid.mediaPlay("clip.mp4"))
-    expect(pause).toHaveAttribute("aria-label", "Pause clip.mp4")
-    fireEvent.click(pause)
-    expect(mediaNode.pause).toHaveBeenCalledOnce()
-    expect(byTestId(renderer, tid.mediaPlay("clip.mp4")))
-      .toHaveAttribute("aria-label", "Play clip.mp4")
-
-    await clickAndFlush(byTestId(renderer, tid.mediaPlay("clip.mp4")))
-    expect(mediaNode.play).toHaveBeenCalledTimes(2)
-  })
-
   it("keeps the custom button synchronized with native play and pause events", async () => {
     const { renderer } = renderMedia()
-    await clickAndFlush(byTestId(renderer, tid.mediaPlay("clip.mp4")))
-    const player = renderer.container.querySelector("video")!
+    await clickAndFlush(byTestId(renderer, tid.mediaPlay("voice.ogg")))
+    const player = renderer.container.querySelector("audio")!
 
     fireEvent.pause(player)
-    expect(byTestId(renderer, tid.mediaPlay("clip.mp4")))
-      .toHaveAttribute("aria-label", "Play clip.mp4")
-    expect(byTestId(renderer, tid.mediaCollapse("clip.mp4"))).toBeEnabled()
+    expect(byTestId(renderer, tid.mediaPlay("voice.ogg")))
+      .toHaveAttribute("aria-label", "Play voice.ogg")
+    expect(byTestId(renderer, tid.mediaCollapse("voice.ogg"))).toBeEnabled()
     fireEvent.play(player)
-    expect(byTestId(renderer, tid.mediaPlay("clip.mp4")))
-      .toHaveAttribute("aria-label", "Pause clip.mp4")
+    expect(byTestId(renderer, tid.mediaPlay("voice.ogg")))
+      .toHaveAttribute("aria-label", "Pause voice.ogg")
   })
 
-  it.each(["audio", "video"] as const)("resets %s on natural completion and retains its media and disabled Stop", async (mediaKind) => {
+  it.each(["audio"] as const)("resets %s on natural completion and retains its media and disabled Stop", async (mediaKind) => {
     const item = attachmentFor(mediaKind)
     const { renderer, mediaNode } = renderMedia({ item, mediaKind })
     await clickAndFlush(byTestId(renderer, tid.mediaPlay(item.name)))
@@ -205,7 +176,7 @@ describe("MediaAttachmentBlock", () => {
     expect(stop).toBeEnabled()
   })
 
-  it.each(["audio", "video"] as const)("stops %s at the beginning and retains its media and disabled Stop", async (mediaKind) => {
+  it.each(["audio"] as const)("stops %s at the beginning and retains its media and disabled Stop", async (mediaKind) => {
     const item = attachmentFor(mediaKind)
     const { renderer, mediaNode, seek } = renderMedia({ item, mediaKind })
     const stop = byTestId(renderer, tid.mediaCollapse(item.name))
@@ -233,7 +204,7 @@ describe("MediaAttachmentBlock", () => {
   })
 
   it.each([
-    ["audio", "resolve"], ["audio", "reject"], ["video", "resolve"], ["video", "reject"],
+    ["audio", "resolve"], ["audio", "reject"],
   ] as const)("stops %s before metadata and ignores a late play %s", async (mediaKind, outcome) => {
     let resolvePlay!: () => void
     let rejectPlay!: (error: unknown) => void
@@ -270,7 +241,7 @@ describe("MediaAttachmentBlock", () => {
       .toHaveAttribute("aria-label", `Play ${item.name}`)
   })
 
-  it.each(["audio", "video"] as const)("keeps %s blocked-play retry and Stop reachable", async (mediaKind) => {
+  it.each(["audio"] as const)("keeps %s blocked-play retry and Stop reachable", async (mediaKind) => {
     const blocked = Object.assign(new Error("blocked"), { name: "NotAllowedError" })
     const play = vi.fn().mockRejectedValueOnce(blocked).mockResolvedValueOnce(undefined)
     const item = attachmentFor(mediaKind)
@@ -286,29 +257,6 @@ describe("MediaAttachmentBlock", () => {
     await clickAndFlush(byTestId(renderer, tid.mediaPlay(item.name)))
     expect(play).toHaveBeenCalledTimes(2)
     expect(renderer.queryAllByTestId(tid.mediaStatus(item.name))).toHaveLength(0)
-  })
-
-  it("shows codec errors and retry remounts and immediately plays", async () => {
-    const { renderer, mediaNode } = renderMedia()
-    await clickAndFlush(byTestId(renderer, tid.mediaPlay("clip.mp4")))
-    fireEvent.error(renderer.container.querySelector("video")!)
-
-    expect(renderer.container.querySelectorAll("video")).toHaveLength(0)
-    expect(byTestId(renderer, tid.mediaStatus("clip.mp4")))
-      .toHaveTextContent("Couldn’t play this file")
-    const stop = byTestId(renderer, tid.mediaCollapse("clip.mp4"))
-    expect(stop).toBeVisible()
-    expect(stop).toBeDisabled()
-    fireEvent.click(stop)
-    expect(mediaNode.pause).not.toHaveBeenCalled()
-    expect(mediaNode.play).toHaveBeenCalledOnce()
-    const retry = byTestId(renderer, tid.mediaRetry("clip.mp4"))
-    expect(retry).toHaveAttribute("aria-label", "Retry clip.mp4")
-    await clickAndFlush(retry)
-    expect(renderer.container.querySelectorAll("video")).toHaveLength(1)
-    expect(mediaNode.play).toHaveBeenCalledTimes(2)
-    expect(byTestId(renderer, tid.mediaCollapse("clip.mp4"))).toBe(stop)
-    expect(stop).toBeEnabled()
   })
 
   it("keeps audio retry reachable after a playback error", async () => {
@@ -344,7 +292,7 @@ describe("MediaAttachmentBlock", () => {
 
     const click = new MouseEvent("click", { bubbles: true })
     Object.defineProperty(click, "stopPropagation", { value: stopPropagation })
-    act(() => byTestId(renderer, tid.mediaDownload("clip.mp4")).dispatchEvent(click))
+    act(() => byTestId(renderer, tid.mediaDownload("voice.ogg")).dispatchEvent(click))
     await act(async () => {
       await Promise.resolve()
       await Promise.resolve()
@@ -359,7 +307,7 @@ describe("MediaAttachmentBlock", () => {
     expect(effectiveRequest.url).toBe(new NativeURL("/attachments/video-1", window.location.href).href)
     expect(effectiveRequest.credentials).toBe("same-origin")
     expect(init?.signal ?? (input instanceof Request ? input.signal : undefined)).toBeInstanceOf(AbortSignal)
-    expect(downloadClick.mock.contexts[0]).toEqual(expect.objectContaining({ href: "blob:media", download: "clip.mp4" }))
+    expect(downloadClick.mock.contexts[0]).toEqual(expect.objectContaining({ href: "blob:media", download: "voice.ogg" }))
     expect(downloadClick).toHaveBeenCalledOnce()
     expect(renderer.getByRole("status")).toHaveTextContent("Download started")
     expect(mediaNode.play).not.toHaveBeenCalled()

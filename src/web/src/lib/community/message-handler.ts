@@ -18,6 +18,7 @@ import type { Database } from "@alook/shared"
 import { nanoid } from "nanoid"
 import { dispatchCommittedMessage } from "./message-dispatcher"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
+import { isInlineAttachmentContentType } from "./attachment-content-type"
 import { broadcastToUserSafe, fanOutToChannel } from "./fanout"
 
 import { extractChatMentionedUserIds } from "./chat-markdown"
@@ -73,7 +74,7 @@ async function hydrateStoredAttachments(db: Database, messageId: string): Promis
     id: row.id,
     filename: row.filename,
     url: attachmentUrl(row.targetId, row.id),
-    ...(row.thumbnailR2Key ? { thumbnailUrl: attachmentThumbnailUrl(row.targetId, row.id) } : {}),
+    ...(isInlineAttachmentContentType(row.contentType) ? { thumbnailUrl: attachmentThumbnailUrl(row.targetId, row.id) } : {}),
     contentType: row.contentType,
     size: row.size,
     width: row.width,

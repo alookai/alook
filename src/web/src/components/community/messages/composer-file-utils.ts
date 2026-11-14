@@ -34,7 +34,6 @@ export function pendingFilesToSendAttachments(
   if (pendingFiles.length === 0) return undefined
   return pendingFiles.map((pendingFile) => ({
     file: pendingFile.file,
-    thumbnailBlob: pendingFile.thumbnailBlob ?? undefined,
     previewObjectUrl: pendingFile.thumbnailUrl ?? undefined,
     width: pendingFile.width,
     height: pendingFile.height,

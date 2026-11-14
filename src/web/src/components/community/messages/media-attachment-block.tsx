@@ -3,7 +3,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useRef, type MouseEvent } from "react"
 import { flushSync } from "react-dom"
-import { CircleCheck, Download, FileAudio, FileVideo, LoaderCircle, Pause, Play, RefreshCw, Square } from "lucide-react"
+import { CircleCheck, Download, FileAudio, LoaderCircle, Pause, Play, RefreshCw, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
 import type { FileAttachment } from "@/lib/community/models/message"
@@ -12,7 +12,7 @@ import {
   useFileDownload,
 } from "@/lib/file-download"
 
-type MediaKind = "audio" | "video"
+type MediaKind = "audio"
 type MediaStatus = "idle" | "loading" | "ready" | "blocked" | "error"
 
 export function MediaAttachmentBlock({
@@ -30,7 +30,7 @@ export function MediaAttachmentBlock({
   const playOnMountRef = useRef(false)
   const playbackAttemptRef = useRef(0)
   const playbackActiveRef = useRef(false)
-  const MediaIcon = mediaKind === "video" ? FileVideo : FileAudio
+  const MediaIcon = FileAudio
   const attachmentDownload = useFileDownload(attachment)
   const downloadStatusText = fileDownloadStatusText(attachmentDownload.state)
   const DownloadIcon = attachmentDownload.state.status === "downloading"
@@ -141,7 +141,7 @@ export function MediaAttachmentBlock({
 
   const canStop = mounted && status !== "idle" && status !== "error"
   const playbackLabel = `${isPlaying ? "Pause" : status === "blocked" ? "Try playing" : "Play"} ${attachment.name}`
-  const audioLoading = mediaKind === "audio" && status === "loading"
+  const audioLoading = status === "loading"
 
   return (
     <article
@@ -149,40 +149,13 @@ export function MediaAttachmentBlock({
       data-media-kind={mediaKind}
       className="w-full max-w-100 overflow-hidden rounded-lg border border-border bg-card text-card-foreground"
     >
-      {mediaKind === "video" && (
-        <div className="relative aspect-video bg-muted/40">
-          {mounted && status !== "error" ? (
-            <video key={playerKey} {...playerProps} playsInline className="size-full object-contain" />
-          ) : (
-            <button
-              data-testid={status === "error" ? tid.mediaRetry(attachment.name) : undefined}
-              type="button"
-              onClick={status === "error" ? retryPlayer : togglePlayback}
-              className="flex size-full flex-col items-center justify-center gap-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none"
-              aria-label={`${status === "error" ? "Retry" : "Play video"} ${attachment.name}`}
-            >
-              {status === "error" ? <RefreshCw className="size-7" /> : <Play className="size-8" />}
-              <span className="text-xs font-medium">{status === "error" ? "Retry playback" : "Play video"}</span>
-            </button>
-          )}
-          {mounted && status === "loading" && (
-            <span
-              data-testid={tid.mediaStatus(attachment.name)}
-              role="status"
-              className="absolute top-2 left-2 rounded-md bg-background/90 p-2 text-xs text-muted-foreground"
-            >
-              Loading media…
-            </span>
-          )}
-        </div>
-      )}
 
       <div className="flex min-h-14 items-center gap-2 p-2">
         <MediaIcon className="size-6 shrink-0 text-muted-foreground" />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="truncate text-sm font-medium text-foreground">{attachment.name}</div>
           <div className="text-xs text-muted-foreground">
-            {[mediaKind === "video" ? "Video" : "Audio", attachment.size].filter(Boolean).join(" · ")}
+            {["Audio", attachment.size].filter(Boolean).join(" · ")}
           </div>
           {downloadStatusText && (
             <p
@@ -225,7 +198,7 @@ export function MediaAttachmentBlock({
             ) : isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
           </Button>
         )}
-        {mediaKind === "audio" && status === "error" && (
+        {status === "error" && (
           <Button
             data-testid={tid.mediaRetry(attachment.name)}
             type="button"
@@ -268,7 +241,7 @@ export function MediaAttachmentBlock({
         </Button>
       </div>
 
-      {mediaKind === "audio" && mounted && status !== "error" && (
+      {mounted && status !== "error" && (
         <audio key={playerKey} {...playerProps} className="hidden" />
       )}
     </article>

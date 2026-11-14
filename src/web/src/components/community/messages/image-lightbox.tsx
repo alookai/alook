@@ -5,7 +5,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { ChevronLeftIcon, ChevronRightIcon, MinusIcon, PlusIcon, RotateCcwIcon, XIcon } from "lucide-react"
+import { ChevronLeftIcon, ChevronRightIcon, Download, MinusIcon, PlusIcon, RotateCcwIcon, XIcon } from "lucide-react"
 import type { ImagePreview } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import {
@@ -15,10 +15,15 @@ import {
 } from "./image-lightbox-layout"
 import { useRemoteImageAttempt } from "@/components/remote-image/remote-image-attempt"
 import { useImageLightboxZoom } from "./image-lightbox-zoom"
+import { attachmentImagePreviewUrl } from "@/lib/community/storage"
+import { fileDownloadStatusText, useFileDownload } from "@/lib/file-download"
 
 function PreviewFrame({ image, onClose, onNavigate, focusOnMount }: {
   image: ImagePreview; onClose: () => void; onNavigate?: (step: number, keyboard?: boolean) => void; focusOnMount?: boolean
 }) {
+  const displayUrl = attachmentImagePreviewUrl(image.originalUrl)
+  const download = useFileDownload({ name: image.name, url: image.originalUrl })
+  const downloadText = fileDownloadStatusText(download.state)
   const knownDimensions = useMemo(
     () => validImageDimensions(image.width, image.height),
     [image.height, image.width],
@@ -40,7 +45,7 @@ function PreviewFrame({ image, onClose, onNavigate, focusOnMount }: {
     onOriginalLoad,
     onOriginalError,
     retryOriginal,
-  ] = useRemoteImageAttempt({ source: image.originalUrl })
+  ] = useRemoteImageAttempt({ source: displayUrl })
 
   const thumbnailReady = !!image.thumbnailUrl && thumbnailStatus === "ready"
   const originalReady = originalStatus === "ready"
@@ -157,6 +162,8 @@ function PreviewFrame({ image, onClose, onNavigate, focusOnMount }: {
         <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Zoom out" title="Zoom out" disabled={!originalReady} onClick={zoomOut}><MinusIcon /></Button>
         <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Fit image" title="Fit image" disabled={!originalReady || (view.scale === 1 && view.x === 0 && view.y === 0)} onClick={reset}><RotateCcwIcon /></Button>
         <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Zoom in" title="Zoom in" disabled={!originalReady} onClick={zoomIn}><PlusIcon /></Button>
+        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label={download.state.status === "downloading" ? "Cancel image download" : "Download original image"}
+          onClick={() => download.state.status === "downloading" ? download.cancel() : void download.start()}><Download /></Button>
         <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Close image preview" title="Close" onClick={onClose}><XIcon /></Button>
       </div>
       <div
@@ -200,7 +207,7 @@ function PreviewFrame({ image, onClose, onNavigate, focusOnMount }: {
             role="status"
             className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-md bg-background px-3 py-2 text-sm text-muted-foreground motion-reduce:animate-none"
           >
-            Loading original image
+            Loading image preview
           </div>
         )}
         {originalStatus !== "error" && (
@@ -210,7 +217,7 @@ function PreviewFrame({ image, onClose, onNavigate, focusOnMount }: {
             data-testid={tid.imageLightboxOriginal}
             data-remote-image-kind="content"
             data-remote-image-state={originalStatus}
-            src={image.originalUrl}
+            src={displayUrl}
             alt={image.name}
             draggable={false}
             style={imageStyle}
@@ -226,7 +233,7 @@ function PreviewFrame({ image, onClose, onNavigate, focusOnMount }: {
           role="status"
           className="absolute bottom-3 left-1/2 z-10 flex min-h-11 w-max max-w-full -translate-x-1/2 items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm shadow-sm"
         >
-          <span>Failed to load original image</span>
+          <span>Image cannot be processed. Retry or download the original.</span>
           <Button variant="ghost" size="sm"
             type="button"
             data-testid={tid.imageLightboxRetry}
@@ -237,6 +244,7 @@ function PreviewFrame({ image, onClose, onNavigate, focusOnMount }: {
           </Button>
         </div>
       )}
+      {downloadText && <p role={download.state.status === "error" ? "alert" : "status"} className="relative z-20 self-center rounded-md bg-background p-2 text-xs text-foreground">{downloadText}</p>}
     </div>
   )
 }

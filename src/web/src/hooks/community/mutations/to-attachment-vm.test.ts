@@ -12,7 +12,7 @@ describe("toAttachmentVm", () => {
     expect(toAttachmentVm("c1", {
       id: "att_1", filename: "a.png", contentType: "image/png", size: 1000, hasThumbnail: true,
     })).toMatchObject({
-      thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail",
+      thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail?image=1",
     })
     expect(toAttachmentVm("c1", {
       id: "att_1", filename: "a.png", contentType: "image/png", size: 1000, hasThumbnail: false,

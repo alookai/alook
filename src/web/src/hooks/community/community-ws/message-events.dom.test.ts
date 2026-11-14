@@ -987,7 +987,7 @@ describe("useCommunityWs — message.updated", () => {
     expect(canonicalMessage("delayed-approval")?.approval).toMatchObject({ status: "denied", waitingOn: null })
     for (const [index, profile] of identities.entries()) expect(registry.collections.profiles.get(profile.id)).toMatchObject({
       name: `Renamed ${profile.id}`, discriminator: `009${index + 1}`, aboutMe: "Current bio",
-      avatar: currentVersion === 1 ? `${profile.image}?v=2` : `/known-${profile.id}.png`, avatarVersion: currentVersion === 1 ? 2 : 3,
+      avatar: currentVersion === 1 ? `${profile.image}?v=2&image=1` : `/known-${profile.id}.png`, avatarVersion: currentVersion === 1 ? 2 : 3,
     })
     expect(beginCommunityProfileSeed(registry).revision).toBe(revision)
   })

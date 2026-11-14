@@ -22,11 +22,11 @@ export function useUploadFile(options: { gcTime?: number } = {}) {
   type Intent = UploadFileArgs & { original: ReturnType<typeof origin.begin>["token"] }
   const native = useMutation<UploadFileResult, Error, Intent>({ meta: { observabilityAction: "attachment.upload" },
     mutationKey: ["community", "file-upload"], gcTime: options.gcTime ?? 0,
-    mutationFn: async ({ target, file, thumbnailBlob, width, height, original, assertActive, assertCommand }) => {
+    mutationFn: async ({ target, file, width, height, original, assertActive, assertCommand }) => {
       origin.assert(original); (assertCommand ?? assertActive)?.()
       const path = uploadPath(target)
       if (!path) throw new Error("Upload target requires channelId, dmId, or threadId")
-      const formData = buildAttachmentUploadFormData({ file, thumbnailBlob, width, height })
+      const formData = buildAttachmentUploadFormData({ file, width, height })
       return origin.request<UploadFileResult>(original, path, { method: "POST", body: formData, signal: assertCommand ? undefined : assertActive?.signal, assertActive: assertCommand ?? assertActive })
     },
   })

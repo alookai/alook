@@ -72,7 +72,6 @@ async function handleBotAttachmentUpload(
     const row = await queries.communityAttachment.createAttachment(db, {
       uploaderId: botUserId,
       r2Key: result.r2Key,
-      thumbnailR2Key: result.thumbnailR2Key,
       filename: result.filename,
       contentType: result.contentType,
       size: result.size,
@@ -85,7 +84,7 @@ async function handleBotAttachmentUpload(
       filename: row.filename,
       contentType: result.contentType || "application/octet-stream",
       size: result.size,
-      hasThumbnail: result.thumbnailR2Key !== null,
+      hasThumbnail: result.hasThumbnail,
     })
   } catch (err) {
     log.error("attachment_route_failure", {

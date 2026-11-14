@@ -40,6 +40,7 @@ describe("ThreadOpener image attachment layout", () => {
 
   afterEach(() => {
     profileState.name = "Alice"
+    vi.restoreAllMocks()
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
@@ -301,6 +302,8 @@ describe("ThreadOpener image attachment layout", () => {
   })
 
   it("renders opener media through the shared progressive-disclosure block", () => {
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined)
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => undefined)
     const media = {
       kind: "file" as const,
       name: "clip.webm",
@@ -331,7 +334,12 @@ describe("ThreadOpener image attachment layout", () => {
 
     expect(renderer!.getByTestId("community-media-block-clip.webm"))
       .toHaveAttribute("data-media-kind", "video")
-    expect(renderer!.container.querySelectorAll("video")).toHaveLength(0)
+    const preview = renderer!.getByTestId("community-video-preview-clip.webm") as HTMLVideoElement
+    expect(preview).toHaveAttribute("src", "/clip")
+    expect(preview.muted).toBe(true)
+    expect(preview.paused).toBe(true)
+    expect(preview).not.toHaveAttribute("controls")
+    expect(renderer!.queryByTestId("community-media-player-clip.webm")).toBeNull()
   })
 
   it("uses the shared mobile avatar long press without leaking cancelled clicks to profile", async () => {

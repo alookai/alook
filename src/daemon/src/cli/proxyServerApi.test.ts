@@ -634,7 +634,7 @@ describe("createProxyServerApi — callUpload via parseJsonResponse", () => {
     expect(seen[0].init?.method).toBe("POST");
   });
 
-  it("includes thumbnail and dimensions in the canonical multipart body", async () => {
+  it("uploads the original and dimensions without the retired thumbnail field", async () => {
     let form: FormData | undefined;
     const fetchImpl: FetchLike = vi.fn(async (_url: string, init?: RequestInit) => {
       form = init?.body as FormData;
@@ -647,12 +647,11 @@ describe("createProxyServerApi — callUpload via parseJsonResponse", () => {
       agentId: "a1",
       target: "/demo#1234/general",
       file: { data: new Uint8Array([1, 2, 3]), filename: "x.png", contentType: "image/png" },
-      thumbnail: { data: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), filename: "thumbnail.jpg", contentType: "image/jpeg" },
       width: 640,
       height: 480,
     });
     expect(out.hasThumbnail).toBe(true);
-    expect((form!.get("thumbnail") as File).type).toBe("image/jpeg");
+    expect(form!.has("thumbnail")).toBe(false);
     expect(form!.get("width")).toBe("640");
     expect(form!.get("height")).toBe("480");
   });

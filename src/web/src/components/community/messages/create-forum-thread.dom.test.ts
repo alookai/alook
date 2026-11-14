@@ -119,7 +119,6 @@ describe("CreateForumThread — copy + structure", () => {
       hasThumbnail: true,
     })
     const file = new File(["original"], "photo.png", { type: "image/png" })
-    const thumbnailBlob = new Blob(["thumbnail"], { type: "image/jpeg" })
     const renderer = renderDom(createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, createElement(CreateForumThread, {
       forumChannelId: "cha_forum",
       members: [],
@@ -128,7 +127,7 @@ describe("CreateForumThread — copy + structure", () => {
     })))
     fireEvent.change(renderer.getByPlaceholderText("New post"), { target: { value: "Post" } })
     act(() => (composerCapture.current?.onDirty as (dirty: boolean) => void)(true))
-    const attachments = [{ file, thumbnailBlob, width: 640, height: 480 }]
+    const attachments = [{ file, width: 640, height: 480 }]
     const submit = composerCapture.current?.onDeferredSubmit as (
       text: string,
       attachments: unknown[],
@@ -149,7 +148,8 @@ describe("CreateForumThread — copy + structure", () => {
 
     expect(uploadMock).toHaveBeenCalledTimes(1)
     expect(uploadMock).toHaveBeenCalledWith("/api/community/channels/cha_forum/attachments", expect.objectContaining({ body: expect.any(FormData), authenticationAccount: "viewer", signal: expect.any(AbortSignal) }))
-    expect(uploadMock.mock.calls[0][1].body.get("thumbnail")).toMatchObject({ size: thumbnailBlob.size, type: "image/jpeg" })
+    expect(uploadMock.mock.calls[0][1].body.get("file")).toBe(file)
+    expect(uploadMock.mock.calls[0][1].body.has("thumbnail")).toBe(false)
     expect(onCreatePost).toHaveBeenCalledTimes(2)
     for (const [post] of onCreatePost.mock.calls) {
       expect(post.attachments).toEqual([expect.objectContaining({ hasThumbnail: true })])

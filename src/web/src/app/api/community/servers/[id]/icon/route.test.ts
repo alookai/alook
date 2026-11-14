@@ -1,3 +1,4 @@
+import { createImagesBindingStub } from "@/test/fixtures/images-binding"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -9,6 +10,7 @@ const mockFanOut = vi.fn()
 const { warn } = vi.hoisted(() => ({ warn: vi.fn() }))
 
 const mediaGet = vi.fn()
+const images = createImagesBindingStub()
 const mediaDelete = vi.fn()
 const mediaList = vi.fn()
 const mediaPut = vi.fn()
@@ -23,6 +25,7 @@ function cloudflareContext() {
   return {
     env: {
       DB: {},
+      IMAGES: images,
       COMMUNITY_MEDIA: {
         get: (...a: unknown[]) => mediaGet(...a),
         put: (...a: unknown[]) => mediaPut(...a),
@@ -74,6 +77,7 @@ vi.mock("@/lib/middleware/auth", () => ({
     return ({ context: {
       env: {
         DB: {},
+        IMAGES: images,
         COMMUNITY_MEDIA: {
           get: (...a: unknown[]) => mediaGet(...a),
           put: (...a: unknown[]) => mediaPut(...a),
@@ -101,6 +105,7 @@ import { GET, POST } from "./route"
 function getReq(version: string | null = "server-icon/s1/abc", headers?: HeadersInit) {
   const url = new URL("http://localhost/api/community/servers/s1/icon")
   if (version !== null) url.searchParams.set("v", version)
+  url.searchParams.set("image", "1")
   return new NextRequest(url, { method: "GET", headers })
 }
 function postReq() {
@@ -124,11 +129,12 @@ describe("GET /api/community/servers/[id]/icon", () => {
     mockGetCloudflareContext.mockResolvedValue(cloudflareContext())
     isAuthed = true
     mockGetServer.mockResolvedValue({ id: "s1", icon: "server-icon/s1/abc" })
-    mediaGet.mockResolvedValue({
-      body: new ReadableStream(),
+    mediaGet.mockImplementation(async () => ({
+      size: 8,
+      body: new Response("original").body,
       httpMetadata: { contentType: "image/webp" },
       httpEtag: '"icon-abc"',
-    })
+    }))
   })
 
   it("returns 401 for anonymous callers", async () => {
@@ -145,7 +151,7 @@ describe("GET /api/community/servers/[id]/icon", () => {
     expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("Content-Type")).toBe("image/webp")
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
-    expect(res.headers.get("ETag")).toBe('"icon-abc"')
+    expect(res.headers.get("ETag")).toMatch(/^"image-[a-f0-9]{64}"$/)
     expect(mediaGet).toHaveBeenCalledWith("server-icon/s1/abc")
     expect(mediaList).not.toHaveBeenCalled()
   })
@@ -153,16 +159,17 @@ describe("GET /api/community/servers/[id]/icon", () => {
   it.each([null, "server-icon/s1/old"])("redirects alias version %s without caching or reading bytes", async (version) => {
     const res = await GET(getReq(version), ctx())
     expect(res.status).toBe(307)
-    expect(res.headers.get("Location")).toBe("/api/community/servers/s1/icon?v=server-icon%2Fs1%2Fabc")
+    expect(res.headers.get("Location")).toBe("/api/community/servers/s1/icon?v=server-icon%2Fs1%2Fabc&image=1")
     expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
   it("returns a private 304 for the current unchanged object", async () => {
-    const res = await GET(getReq("server-icon/s1/abc", { "If-None-Match": '"icon-abc"' }), ctx())
+    const initial = await GET(getReq(), ctx())
+    const res = await GET(getReq("server-icon/s1/abc", { "If-None-Match": initial.headers.get("ETag")! }), ctx())
     expect(res.status).toBe(304)
     expect(res.headers.get("Vary")).toBe("Authorization")
-    expect(res.headers.get("ETag")).toBe('"icon-abc"')
+    expect(res.headers.get("ETag")).toMatch(/^"image-[a-f0-9]{64}"$/)
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
     expect(await res.text()).toBe("")
   })
@@ -218,7 +225,7 @@ describe("POST /api/community/servers/[id]/icon", () => {
     const res = await POST(postReq(), ctx())
     expect(res.status).toBe(200)
     const body = await res.json() as { url: string }
-    expect(body.url).toBe("/api/community/servers/s1/icon?v=server-icon%2Fs1%2Fnew-id")
+    expect(body.url).toBe("/api/community/servers/s1/icon?v=server-icon%2Fs1%2Fnew-id&image=1")
     expect(mockFanOut).toHaveBeenCalledWith("s1", {
       type: "community:server.update",
       serverId: "s1",

@@ -11,7 +11,7 @@ import { renderCommunity as render } from "@/test/community-owner-harness"
 const mocks = vi.hoisted(() => ({
   useEditor: vi.fn(),
   useFileAttachments: vi.fn(),
-  prepareCommunityImage: vi.fn(),
+  readCommunityImageDimensions: vi.fn(),
   useSuggestions: vi.fn(),
   clearDraft: vi.fn(),
   readDraft: vi.fn(),
@@ -59,8 +59,8 @@ vi.mock("@/hooks/use-file-attachments", () => ({
   useFileAttachments: (...args: unknown[]) =>
     mocks.useFileAttachments(...args),
 }))
-vi.mock("@/lib/image-thumbnail", () => ({
-  prepareCommunityImage: (...args: unknown[]) => mocks.prepareCommunityImage(...args),
+vi.mock("@/lib/image-metadata", () => ({
+  readCommunityImageDimensions: (...args: unknown[]) => mocks.readCommunityImageDimensions(...args),
   generateThumbnail: vi.fn(),
 }))
 vi.mock("@/hooks/use-hover-capable", () => ({
@@ -329,7 +329,7 @@ describe("useComposerController", () => {
     expect(mocks.useFileAttachments).toHaveBeenCalledWith("viewer:server/channel")
   })
 
-  it.each(["before-send", "during-send"])("keeps selected files and text unsent when preparation fails %s", async (timing) => {
+  it.each(["before-send", "during-send"])("accepts the original once when advisory metadata rejects %s", async (timing) => {
     const { useFileAttachments: realHook } = await vi.importActual<typeof import("@/hooks/use-file-attachments")>("@/hooks/use-file-attachments")
     let files!: ReturnType<typeof realHook>
     mocks.useFileAttachments.mockImplementation((options: Parameters<typeof realHook>[0]) => {
@@ -337,31 +337,26 @@ describe("useComposerController", () => {
       return files
     })
     let fail!: (error: Error) => void
-    mocks.prepareCommunityImage.mockReturnValue(new Promise((_, reject) => { fail = reject }))
+    mocks.readCommunityImageDimensions.mockReturnValue(new Promise((_, reject) => { fail = reject }))
     const accept = vi.fn(() => true)
     render(createElement(Harness, acceptedProps(accept)))
     act(() => editorOptions.onUpdate({ editor }))
     const file = new File(["image"], "broken.png", { type: "image/png" })
     let preparation!: Promise<void>
     act(() => { preparation = files.addPendingFiles([file]) })
-    await waitFor(() => expect(mocks.prepareCommunityImage).toHaveBeenCalledOnce())
+    await waitFor(() => expect(mocks.readCommunityImageDimensions).toHaveBeenCalledOnce())
     if (timing === "during-send") await enter()
     await act(async () => { fail(new Error("decode failed")); await preparation })
     if (timing === "before-send") await enter()
     await waitFor(() => expect(controllerClient.isMutating({ mutationKey: ["community", "composer-accept"] })).toBe(0))
-    expect(controllerView.sendDisabled).toBe(true)
-    expect(accept).not.toHaveBeenCalled()
-    expect(clearContent).not.toHaveBeenCalled()
-    expect(mocks.clearDraft).not.toHaveBeenCalled()
-    expect(mocks.clearAttachmentSession).not.toHaveBeenCalled()
-    expect(mocks.transferAttachmentSession).not.toHaveBeenCalled()
-    expect(files.pendingFiles).toEqual([expect.objectContaining({ file, preparationFailed: true })])
-
-    act(() => files.removePendingFile(0))
-    await enter()
-    await waitFor(() => expect(accept).toHaveBeenCalledExactlyOnceWith("hello @everyone", undefined, "everyone"))
+    expect(accept).toHaveBeenCalledExactlyOnceWith("hello @everyone", [{
+      file, previewObjectUrl: undefined, width: undefined, height: undefined,
+    }], "everyone")
     expect(clearContent).toHaveBeenCalledOnce()
     expect(mocks.clearDraft).toHaveBeenCalledOnce()
+    expect(mocks.clearAttachmentSession).not.toHaveBeenCalled()
+    expect(mocks.transferAttachmentSession).toHaveBeenCalledOnce()
+    expect(files.pendingFiles).toEqual([])
   })
 
   it("forwards the optional channel source into suggestions and its presentation into the view", async () => {
@@ -382,7 +377,7 @@ describe("useComposerController", () => {
 
   it("retains everything after false/throw, unlocks, and clears only on accepted true", async () => {
     const file = new File(["x"], "notes.txt", { type: "text/plain" })
-    pendingFiles = [{ file, thumbnailUrl: null, thumbnailBlob: null }]
+    pendingFiles = [{ file, thumbnailUrl: null }]
     const reject = vi.fn(() => false)
     const renderer = render(createElement(Harness, acceptedProps(reject)))
     await enter()
@@ -622,7 +617,7 @@ describe("useComposerController", () => {
       type: "text/markdown",
     })
     pendingFiles = [
-      { file: existingFile, thumbnailUrl: null, thumbnailBlob: null },
+      { file: existingFile, thumbnailUrl: null },
     ]
     renderer.rerender(createElement(Harness, props))
 
@@ -763,7 +758,6 @@ describe("useComposerController", () => {
     pendingFiles = [{
       file: new File(["x"], "pending.txt", { type: "text/plain" }),
       thumbnailUrl: null,
-      thumbnailBlob: null,
     }]
     await act(async () => {
       renderer.rerender(createElement(Harness, props))
@@ -1194,7 +1188,6 @@ describe("useComposerController", () => {
       {
         file: new File(["x"], "pending.txt", { type: "text/plain" }),
         thumbnailUrl: null,
-        thumbnailBlob: null,
       },
     ]
     await act(async () => {

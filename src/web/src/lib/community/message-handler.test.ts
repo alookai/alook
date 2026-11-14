@@ -333,7 +333,7 @@ describe("createCommunityMessage — committed delivery handoff", () => {
       expect.objectContaining({
         width: 1920,
         height: 1080,
-        thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail",
+        thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail?image=1",
       }),
     ])
     expect(mockDispatchCommittedMessage).toHaveBeenCalledWith({}, "msg_1", {})
@@ -779,7 +779,7 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
       expect.objectContaining({
         id: "att_thumbnail",
         url: "/api/community/channels/c1/attachments/att_thumbnail",
-        thumbnailUrl: "/api/community/channels/c1/attachments/att_thumbnail/thumbnail",
+        thumbnailUrl: "/api/community/channels/c1/attachments/att_thumbnail/thumbnail?image=1",
       }),
     ])
   })
@@ -808,7 +808,7 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
       ok: true,
       deduped: true,
       attachments: [expect.objectContaining({
-        thumbnailUrl: "/api/community/channels/c1/attachments/att_thumbnail/thumbnail",
+        thumbnailUrl: "/api/community/channels/c1/attachments/att_thumbnail/thumbnail?image=1",
       })],
     }))
   })
@@ -930,7 +930,7 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
         // id-addressed render URL (attachments fold) — served by the canonical
         // channels/{targetId}/attachments/{attachmentId} door.
         url: "/api/community/channels/c1/attachments/att_1",
-        thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail",
+        thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail?image=1",
       }),
     ])
   })

@@ -32,6 +32,7 @@ export type {
 export * from "./diagnostics-contract";
 export * from "./community-attention";
 export { compareAsciiSqliteBinary } from "./lib/sqlite-binary";
+export { communityExternalAvatarSource } from "./community-avatar"
 export {
   isUserWsConnectionPing,
   isUserWsConnectionPong,
@@ -106,8 +107,8 @@ export {
   MAX_EMOJI_BYTES,
   MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_ATTACHMENT_SIZE_BYTES,
-  MAX_ATTACHMENT_THUMBNAIL_EDGE_PX,
-  MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES,
+  MAX_INLINE_IMAGE_SIZE_BYTES,
+  COMMUNITY_IMAGE_REVISION,
   MAX_SERVER_ICON_SIZE_BYTES,
   ALLOWED_ICON_MIME_TYPES,
   MAX_ICON_SOURCE_FILE_SIZE_BYTES,

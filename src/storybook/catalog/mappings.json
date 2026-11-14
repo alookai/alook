@@ -2229,7 +2229,7 @@
     "examples": [
       {
         "story": "web-business-attachments-and-rich-content--audio",
-        "region": "Local audio; missing video is the explicit error case"
+        "region": "The actual audio attachment and its custom play, pause, stop, retry and download controls; video now has its own explicit mapping."
       }
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -4133,5 +4133,15 @@
       }
     ],
     "reason": "The navigation composition renders ForumPostCount through real sidebar rows with illustrative counts. The asynchronous provider requires separate authenticated runtime QA."
+  },
+  "src/web/src/components/community/messages/video-attachment.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-attachments-and-rich-content--unavailable-video",
+        "region": "Image-like native video preview; activate Play to expose the expanded Dialog player, unsupported-media recovery and original download controls."
+      }
+    ],
+    "reason": "The actual AttachmentCard mounts VideoAttachment in this missing-file story; its Play action reveals VideoPlayback. This declares the failure exposure only. Decoded-frame and successful playback evidence belongs to the actual browser/native media journeys."
   }
 }

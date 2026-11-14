@@ -1,7 +1,9 @@
+import { createImagesBindingStub } from "@/test/fixtures/images-binding"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const mediaGet = vi.fn()
+const images = createImagesBindingStub()
 const mockGetBotOwnedBy = vi.fn()
 const mockGetLiveBotAvatar = vi.fn()
 const mockHandleBotAvatarUpload = vi.fn()
@@ -11,7 +13,7 @@ const mockScheduleAvatarMediaReconciliation = vi.fn()
 const mockFanOutIdentityUpdate = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn(() => ({ env: { DB: {}, COMMUNITY_MEDIA: { get: (...a: unknown[]) => mediaGet(...a) } } })),
+  getCloudflareContext: vi.fn(() => ({ env: { DB: {}, IMAGES: images, COMMUNITY_MEDIA: { get: (...a: unknown[]) => mediaGet(...a) } } })),
 }))
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
@@ -56,7 +58,7 @@ vi.mock("@/lib/middleware/auth", () => ({
     }
 
     return ({ context: {
-      env: { DB: {}, COMMUNITY_MEDIA: { get: (...a: unknown[]) => mediaGet(...a) } },
+      env: { DB: {}, IMAGES: images, COMMUNITY_MEDIA: { get: (...a: unknown[]) => mediaGet(...a) } },
       userId: "u1",
       email: "u@t.com",
 
@@ -75,12 +77,22 @@ vi.mock("@/lib/middleware/helpers", () => {
 import { GET, POST } from "./route"
 
 function getReq(version?: number) {
-  const suffix = version === undefined ? "" : `?v=${version}`
+  const suffix = `?v=${version ?? 0}&image=1`
   return new NextRequest(`http://localhost/api/community/bots/b1/avatar${suffix}`, { method: "GET" })
 }
 function postReq() {
   return new NextRequest("http://localhost/api/community/bots/b1/avatar", { method: "POST" })
 }
+
+it("adopts the Images representation for an already-current bot avatar version", async () => {
+  isAuthed = true
+  mockGetLiveBotAvatar.mockResolvedValue({ id: "b1", image: "/api/community/bots/b1/avatar", avatarVersion: 4, avatarObjectKey: "bot-avatar/b1/objects/object-4" })
+  mediaGet.mockClear()
+  const response = await GET(new NextRequest("http://localhost/api/community/bots/b1/avatar?v=4"), ctx("b1"))
+  expect(response.status).toBe(307)
+  expect(response.headers.get("Location")).toBe("/api/community/bots/b1/avatar?v=4&image=1")
+  expect(mediaGet).not.toHaveBeenCalled()
+})
 function ctx(id?: string) {
   return { params: Promise.resolve(id ? { id } : {}) } as any
 }
@@ -95,11 +107,12 @@ describe("GET /api/community/bots/[id]/avatar", () => {
       avatarVersion: 0,
       avatarObjectKey: null,
     })
-    mediaGet.mockResolvedValue({
-      body: new ReadableStream(),
+    mediaGet.mockImplementation(async () => ({
+      size: 8,
+      body: new Response("original").body,
       httpMetadata: { contentType: "image/webp" },
       httpEtag: '"etag-1"',
-    })
+    }))
   })
 
   it("returns 401 for anonymous callers", async () => {
@@ -181,7 +194,7 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     const res = await GET(getReq(), ctx("b1"))
 
     expect(res.status).toBe(307)
-    expect(res.headers.get("Location")).toBe("/api/community/bots/b1/avatar?v=4")
+    expect(res.headers.get("Location")).toBe("/api/community/bots/b1/avatar?v=4&image=1")
     expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mediaGet).not.toHaveBeenCalled()
   })
@@ -207,25 +220,26 @@ describe("GET /api/community/bots/[id]/avatar", () => {
 
     expect(res.status).toBe(307)
     expect(res.headers.get("Cache-Control")).toBe("private, no-store")
-    expect(res.headers.get("Location")).toBe("/api/community/bots/b1/avatar")
+    expect(res.headers.get("Location")).toBe("/api/community/bots/b1/avatar?v=0&image=1")
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
   it("serves cached bytes while revalidating the deterministic URL in the background", async () => {
     const res = await GET(getReq(), ctx("b1"))
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=0, stale-while-revalidate=31536000")
-    expect(res.headers.get("ETag")).toBe('"etag-1"')
+    expect(res.headers.get("ETag")).toMatch(/^"image-[a-f0-9]{64}"$/)
   })
 
   it("returns 304 with no body when If-None-Match matches the current ETag", async () => {
-    const req = new NextRequest("http://localhost/api/community/bots/b1/avatar", {
+    const initial = await GET(getReq(), ctx("b1"))
+    const req = new NextRequest("http://localhost/api/community/bots/b1/avatar?v=0&image=1", {
       method: "GET",
-      headers: { "if-none-match": '"etag-1"' },
+      headers: { "if-none-match": initial.headers.get("ETag")! },
     })
     const res = await GET(req, ctx("b1"))
     expect(res.status).toBe(304)
     expect(res.headers.get("Vary")).toBe("Authorization")
-    expect(res.headers.get("ETag")).toBe('"etag-1"')
+    expect(res.headers.get("ETag")).toMatch(/^"image-[a-f0-9]{64}"$/)
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=0, stale-while-revalidate=31536000")
   })
 })
@@ -283,7 +297,7 @@ describe("POST /api/community/bots/[id]/avatar", () => {
     const res = await POST(postReq(), ctx("b1"))
     expect(res.status).toBe(200)
     const body = await res.json() as { url: string; avatarVersion: number }
-    expect(body).toEqual({ url: "/api/community/bots/b1/avatar?v=2", avatarVersion: 2 })
+    expect(body).toEqual({ url: "/api/community/bots/b1/avatar?v=2&image=1", avatarVersion: 2 })
     expect(mockPersistUploadedBotAvatar).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
@@ -291,7 +305,7 @@ describe("POST /api/community/bots/[id]/avatar", () => {
     )
     expect(mockFanOutIdentityUpdate).toHaveBeenCalledWith(
       "b1",
-      "/api/community/bots/b1/avatar?v=2",
+      "/api/community/bots/b1/avatar?v=2&image=1",
       2,
       "u1",
     )

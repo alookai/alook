@@ -376,7 +376,6 @@ export interface AttachmentUploadRequest {
   agentId: AgentId;
   target?: ChannelRef;
   file: FileHandle;
-  thumbnail?: FileHandle;
   width?: number;
   height?: number;
 }

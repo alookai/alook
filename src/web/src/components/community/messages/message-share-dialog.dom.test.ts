@@ -335,7 +335,7 @@ describe("MessageShareDialog message projection", () => {
 
     expect(componentMocks.avatarProps).toHaveBeenCalledWith(expect.objectContaining({
       label: "Alice",
-      src: "/api/community/users/u1/avatar",
+      src: "/api/community/users/u1/avatar?v=0&image=1",
       seed: "u1",
     }))
   })

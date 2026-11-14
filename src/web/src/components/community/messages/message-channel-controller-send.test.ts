@@ -90,7 +90,6 @@ describe("message channel send helpers", () => {
   it("accepts synchronously with exact optimistic payload before fire-and-forget/reset/clear", () => {
     const order: string[] = []
     const file = new File(["abc"], "a.png", { type: "image/png" })
-    const thumbnailBlob = new Blob(["thumb"], { type: "image/jpeg" })
     mocks.accept.mockImplementation((acceptedScope, payload) => {
       order.push("accept")
       expect(acceptedScope).toEqual(scope)
@@ -108,7 +107,6 @@ describe("message channel send helpers", () => {
         },
         localUploads: [{
           file,
-          thumbnailBlob,
           previewObjectUrl: "blob:new",
           width: 10,
           height: 20,
@@ -123,7 +121,7 @@ describe("message channel send helpers", () => {
     expect(acceptChannelMessage({
       runtime,
       markdown: "hello",
-      attachments: [{ file, thumbnailBlob, width: 10, height: 20 }],
+      attachments: [{ file, width: 10, height: 20 }],
       mentionType: "user",
       messageScope: scope,
       viewer,
@@ -168,7 +166,6 @@ describe("message channel send helpers", () => {
       },
       localUploads: [{
         file,
-        thumbnailBlob: undefined,
         previewObjectUrl: "blob:provided",
         width: undefined,
         height: undefined,
@@ -207,7 +204,6 @@ describe("message channel send helpers", () => {
   it("reuses settled projections and dispatches all-or-nothing upload failure without sending", async () => {
     const local = {
       file: new File(["abc"], "a.png", { type: "image/png" }),
-      thumbnailBlob: new Blob(["thumb"], { type: "image/jpeg" }),
       previewObjectUrl: "blob:a",
       width: 10,
       height: 20,
@@ -263,7 +259,6 @@ describe("message channel send helpers", () => {
     const uploads = [
       {
         file: new File(["a"], "a.png", { type: "image/png" }),
-        thumbnailBlob: new Blob(["ta"], { type: "image/jpeg" }),
         previewObjectUrl: "blob:a",
         width: 10,
         height: 20,
@@ -323,7 +318,6 @@ describe("message channel send helpers", () => {
       assertCommand: expect.any(Function),
       target: { channelId: "channel_1" },
       file: uploads[0].file,
-      thumbnailBlob: uploads[0].thumbnailBlob,
       width: 10,
       height: 20,
     })
@@ -332,7 +326,6 @@ describe("message channel send helpers", () => {
       assertCommand: expect.any(Function),
       target: { channelId: "channel_1" },
       file: uploads[1].file,
-      thumbnailBlob: undefined,
       width: undefined,
       height: undefined,
     })

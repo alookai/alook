@@ -34,7 +34,6 @@ export function acceptMessageIntent(runtime: CommunityRuntime, scope: MessageSco
       if (!attachment.previewObjectUrl) createdPreviewUrls.push(previewObjectUrl)
       return {
         file: attachment.file,
-        thumbnailBlob: attachment.thumbnailBlob,
         previewObjectUrl,
         width: attachment.width,
         height: attachment.height,
@@ -95,7 +94,6 @@ export async function prepareMessageIntent<Target extends UploadFileArgs["target
           assertCommand,
           target,
           file: upload.file,
-          thumbnailBlob: upload.thumbnailBlob,
           width: upload.width,
           height: upload.height,
         }).catch((error) => {

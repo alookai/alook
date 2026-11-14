@@ -1,5 +1,6 @@
 import { DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE, type CommunityMessageAttachment, type CommunityMessageResource } from "@alook/shared"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
+import { isInlineAttachmentContentType } from "./attachment-content-type"
 
 export function parseCommunityMessageWindow(params: URLSearchParams) {
   const supplied = ["cursor", "since", "anchor"].filter((key) => params.has(key))
@@ -158,7 +159,7 @@ export function groupAttachments(
       id: a.id,
       name: a.filename,
       url: attachmentUrl(a.targetId, a.id),
-      thumbnailUrl: a.thumbnailR2Key ? attachmentThumbnailUrl(a.targetId, a.id) : null,
+      thumbnailUrl: isInlineAttachmentContentType(a.contentType) ? attachmentThumbnailUrl(a.targetId, a.id) : null,
       contentType: a.contentType,
       sizeBytes: a.size,
       width: a.width ?? null,
