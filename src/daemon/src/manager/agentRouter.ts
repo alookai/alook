@@ -1,4 +1,4 @@
-import { MEMORY_REVIEW_STEPS } from "./memoryReviewPrompt.js";
+import { MEMORY_COMMIT_LOG_PREPARATION, MEMORY_REVIEW_STEPS } from "./memoryReviewPrompt.js";
 
 import type { HostCommand, HostControlChannel, HostReady, HostReadyRuntime, UnreadNotice, AgentSessionReport, SessionErrorFrame, AgentId, HostAgentActivity } from "../server/contract.js";
 import { MACHINE_REFRESH_CAPABILITY, PII_CAPABILITY, type ProviderQuotaSnapshot } from "@alook/shared";
@@ -117,6 +117,7 @@ function defaultFormatUnreadNoticeText(): string {
 export const REWAKE_PROMPT = `Your session was reset by your owner. Prior conversation context is gone. Read recent .commits.jsonl entries and @memory.md for durable context, then pull your inbox. Read .context_timeline only when you need to check the original exchanges. If it reports marked messages, run \`$ALOOK_CLI message mark list\` to identify outstanding work. Before continuing work, review memory.md and experiences:
 
 ${MEMORY_REVIEW_STEPS}
+5. ${MEMORY_COMMIT_LOG_PREPARATION}
 
 Edit only your own memory files. This review is internal maintenance; perform it silently. Do not proactively send the owner, users, or channels progress updates, completion notices, or details about your memory state. Communicate task-relevant results, questions, and blockers normally. If nothing needs a user-facing response, send no message.
 
