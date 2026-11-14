@@ -2313,17 +2313,17 @@ describe("commit", () => {
       expect(commit).not.toHaveBeenCalled();
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
-  it.each(["", " \n", "x".repeat(24577), "🎉".repeat(6145)])("rejects an invalid log without invoking the daemon (%#)", async (log) => {
+  it.each(["", " \n", "x".repeat(10241), "🎉".repeat(2561)])("rejects an invalid log without invoking the daemon (%#)", async (log) => {
     const commit = vi.fn();
     setApiForTesting(stubApi({ commit }));
     await mainWithStdin(["commit", "--stdin"], log);
     expect(parseEnvelope(cap.lines()).error).toBeTypeOf("string");
     expect(commit).not.toHaveBeenCalled();
   });
-  it("accepts exactly 24576 UTF-8 bytes", async () => {
+  it("accepts exactly 10240 UTF-8 bytes", async () => {
     const commit = vi.fn(async () => ({ committed: true as const, no: 0, reset: false }));
     setApiForTesting(stubApi({ commit }));
-    await mainWithStdin(["commit", "--stdin", "--no-reset"], "🎉".repeat(6144));
+    await mainWithStdin(["commit", "--stdin", "--no-reset"], "🎉".repeat(2560));
     expect(commit).toHaveBeenCalledOnce();
   });
   it.each([["commit"], ["commit", "--file", "/nonexistent/commit-log"], ["commit", "--handoff", "legacy"], ["nap"]])("rejects missing input, unavailable files and removed commands: %j", async (args) => {
@@ -2335,7 +2335,7 @@ describe("commit", () => {
   it("documents commit and its input limit without the old command", async () => {
     await main(["commit", "-h"]);
     expect(cap.lines().join("")).toContain("--no-reset");
-    expect(cap.lines().join("")).toContain("24 KiB");
+    expect(cap.lines().join("")).toContain("10 KiB");
     expect(cap.lines().join("")).not.toContain("--handoff");
     cap.lines().length = 0;
     await main(["-h"]);

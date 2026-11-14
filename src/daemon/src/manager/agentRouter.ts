@@ -120,7 +120,7 @@ ${MEMORY_REVIEW_STEPS}
 
 Edit only your own memory files. This review is internal maintenance; perform it silently. Do not proactively send the owner, users, or channels progress updates, completion notices, or details about your memory state. Communicate task-relevant results, questions, and blockers normally. If nothing needs a user-facing response, send no message.
 
-After completing the review and any needed edits, you must run \`$ALOOK_CLI commit --file <log-file> --no-reset\` (or --stdin --no-reset) to record this review. The log must be at most 24 KiB (24,576 UTF-8 bytes). A written reply is not a commit; do not edit .commits.jsonl directly. Do not reset again. After a successful commit, resume outstanding work and handle your inbox messages.`;
+After the review and edits, run \`$ALOOK_CLI commit --file <log-file> --no-reset\` (or --stdin --no-reset) exactly once. This saves the log and keeps this session running. Do not reset again. After a successful commit, resume outstanding work and handle your inbox messages.`;
 
 const MODEL_SWITCH_REWAKE_PROMPT =
   "You were just switched to a different model. Continue any unfinished work.";

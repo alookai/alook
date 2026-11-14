@@ -1049,9 +1049,9 @@ function buildProgram(stdin: CliInputStream): Command {
 
   program
     .command("commit")
-    .description("record memory review in .commits.jsonl, then reset; log max 24 KiB UTF-8")
+    .description("record memory review in .commits.jsonl, then reset; log max 10 KiB UTF-8")
     .option("--file <file>", "read the required memory-review log from a UTF-8 file")
-    .option("--stdin", "read the required log from piped stdin (max 24 KiB UTF-8)")
+    .option("--stdin", "read the required log from piped stdin (max 10 KiB UTF-8)")
     .option("--no-reset", "record the review and continue the current session")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })

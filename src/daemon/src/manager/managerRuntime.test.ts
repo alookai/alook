@@ -615,7 +615,7 @@ describe("AgentProcessManager — idle memory maintenance", () => {
     expect(deliveredPrompt).toContain("Do not proactively send the owner, users, or channels progress updates, completion notices, or details about your memory state");
     expect(deliveredPrompt).toContain("Communicate task-relevant results, questions, and blockers normally");
     expect(deliveredPrompt).toContain("If nothing needs a user-facing response, send no message");
-    expect(deliveredPrompt).toContain("If new work arrives, handle it first and defer reset");
+    expect(deliveredPrompt).toContain("If new work arrives, finish it first, then resume this review");
     expect(deliveredPrompt).not.toContain("--handoff");
     expect(deliveredPrompt).toContain("$ALOOK_CLI commit --file <log-file>");
     expect(forgetSession).not.toHaveBeenCalled();
