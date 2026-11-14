@@ -281,6 +281,8 @@ export function ThreadChannelSurface({
                   positionScope={controller.feed.positionScope}
                   positionDataState={controller.feed.positionDataState} targetPositionDataState={controller.feed.targetPositionDataState}
                   messageWindow={controller.feed.messageWindow}
+                  messageNeighborhood={controller.feed.messageNeighborhood}
+                  onReadingMessage={controller.feed.onReadingMessage}
                   isFetching={controller.feed.isFetching}
                   isFetchingOlder={controller.feed.isFetchingOlder}
                   onLoadOlder={controller.feed.fetchOlder}
@@ -290,6 +292,10 @@ export function ThreadChannelSurface({
                   onJumpToPresent={controller.feed.jumpToPresent}
                   presentVersion={controller.feed.presentVersion}
                   presentRequest={controller.feed.presentRequest}
+                  olderLoadError={controller.feed.olderLoadError}
+                  newerLoadError={controller.feed.newerLoadError}
+                  presentPending={controller.feed.presentPending}
+                  presentError={controller.feed.presentError}
                   localSubmitVersion={controller.localSubmitVersion}
                   unreadCount={controller.feed.unreadCount}
                   typingUsers={controller.typingUsers}

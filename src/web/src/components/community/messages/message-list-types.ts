@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
-import type { MessagePositionState, MessageRequest } from "@/lib/community/message-position"
+import type { MessageNeighborhood, MessagePositionState, MessageRequest } from "@/lib/community/message-position"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import type { CommunityConversationEntryRead } from "@alook/shared"
 
@@ -46,6 +46,8 @@ export type MessageListProps = {
   positionDataState?: MessagePositionState
   targetPositionDataState?: MessagePositionState
   messageWindow?: object
+  messageNeighborhood?: MessageNeighborhood
+  onReadingMessage?: (messageId: string) => void
   active?: boolean
   positioningActive?: boolean
   hero?: ReactNode
@@ -56,6 +58,10 @@ export type MessageListProps = {
   preserveInitialPresentation?: boolean
   onScrollTargetConsumed?: (id: string) => void
   onUserTakeover?: () => void
+  olderLoadError?: Error | null
+  newerLoadError?: Error | null
+  presentPending?: boolean
+  presentError?: Error | null
   hasMore?: boolean
   historyStartKnown?: boolean
   isFetching?: boolean

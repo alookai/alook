@@ -4,6 +4,7 @@ import type { Page, Route } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 
 import { tid } from "./_fixtures/testids"
+import { readScrollEntry } from "./_fixtures/message-scroll-characterization"
 import { createScrollTraceIdentity } from "./_fixtures/scroll-trace"
 import { WEB_URL } from "./_setup/paths"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
@@ -159,7 +160,7 @@ async function readMessageOffset(page: Page, messageId: string): Promise<number 
   }, messageId)
 }
 
-async function holdNextPage(page: Page, channelId: string, param: "cursor" | "since" | "anchor", caseResources: CaseResources) {
+async function holdNextPage(page: Page, channelId: string, param: "cursor" | "since" | "anchor", caseResources: CaseResources, cursor?: string) {
   let release!: () => void
   let resolveMatched!: () => void
   let consumed = false
@@ -170,7 +171,7 @@ async function holdNextPage(page: Page, channelId: string, param: "cursor" | "si
   const pattern = `**/api/community/channels/${channelId}/messages**`
   const handler = async (route: Route) => {
     const url = new URL(route.request().url())
-    if (!consumed && url.searchParams.has(param)) {
+    if (!consumed && url.searchParams.has(param) && (cursor === undefined || url.searchParams.get(param) === cursor)) {
       consumed = true
       resolveMatched()
       await gate
@@ -225,6 +226,9 @@ test("older and newer pages preserve a real-message anchor and do not replay", a
   }
   await setReadCheckpoint(channelId, ids[64])
 
+  const window = await readScrollEntry(actors, channelId, ids[65])
+  expect(window.page.olderCursor).toEqual(expect.any(String))
+  expect(window.page.newerCursor).toEqual(expect.any(String))
   const olderUser = await asUser("alice")
   await olderUser.page.setViewportSize(VIEWPORT)
   const olderRequests: string[] = []
@@ -234,10 +238,10 @@ test("older and newer pages preserve a real-message anchor and do not replay", a
       olderRequests.push(url.search)
     }
   })
+  const olderPage = await holdNextPage(olderUser.page, channelId, "cursor", caseResources, window.page.olderCursor!)
   await olderUser.page.goto(`/c/channels/${serverId}/${channelId}?msg=${ids[65]}`, { waitUntil: "commit" })
   await expect(olderUser.page.getByTestId(tid.message(ids[65]))).toBeInViewport({ timeout: 30_000 })
   await expect(olderUser.page.getByTestId(tid.messageScroller).locator('[data-message-list-content][data-read-position-ready="true"][data-initial-position-phase="revealed"]')).toBeVisible()
-  const olderPage = await holdNextPage(olderUser.page, channelId, "cursor", caseResources)
   await moveToEdge(olderUser.page, "start")
   await olderPage.matched
   const olderBefore = await waitForStableGeometry(olderUser.page)
@@ -257,10 +261,10 @@ test("older and newer pages preserve a real-message anchor and do not replay", a
       newerRequests.push(url.search)
     }
   })
+  const newerPage = await holdNextPage(newerUser.page, channelId, "since", caseResources, window.page.newerCursor!)
   await newerUser.page.goto(`/c/channels/${serverId}/${channelId}?msg=${ids[65]}`, { waitUntil: "commit" })
   await expect(newerUser.page.getByTestId(tid.message(ids[65]))).toBeInViewport({ timeout: 30_000 })
   await expect(newerUser.page.getByTestId(tid.messageScroller).locator('[data-message-list-content][data-read-position-ready="true"][data-initial-position-phase="revealed"]')).toBeVisible()
-  const newerPage = await holdNextPage(newerUser.page, channelId, "since", caseResources)
   await moveToEdge(newerUser.page, "end")
   await newerPage.matched
   const newerBefore = await waitForStableGeometry(newerUser.page)
@@ -279,6 +283,8 @@ test("older and newer pages preserve a real-message anchor and do not replay", a
     contentType: "application/json",
   })
 
+  expect(new URLSearchParams(olderRequests[0]).get("cursor")).toBe(window.page.olderCursor)
+  expect(new URLSearchParams(newerRequests[0]).get("since")).toBe(window.page.newerCursor)
   expect(olderRequests).toHaveLength(1)
   expect(newerRequests).toHaveLength(1)
   expectAnchorPreserved(olderBefore, olderRetainedOffset, "older prepend")

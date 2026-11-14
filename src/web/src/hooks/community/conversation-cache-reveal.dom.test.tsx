@@ -74,6 +74,7 @@ it.each(["text", "dm"] as const)("reveals the qualified $0 history cache while o
       loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
       initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
       positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+      messageNeighborhood={feed.messageNeighborhood} onReadingMessage={feed.onReadingMessage}
       newBoundary={newBoundary} latestSeq={feed.latestSeq} retiredNewTargetId={feed.retiredNewTargetId}
         onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary} hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
       onUserTakeover={feed.onUserTakeover} onRetryInitialLoad={feed.retryInitialLoad} retryingInitialLoad={feed.retryingInitialLoad} onOpenThread={() => {}} />
@@ -144,6 +145,7 @@ it.each((["text", "dm"] as const).flatMap(kind => (["unchanged", "new messages",
       initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation}
       positionScope={feed.positionScope} positionEntry={feed.positionEntry} positionDataState={feed.positionDataState}
       targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+      messageNeighborhood={feed.messageNeighborhood} onReadingMessage={feed.onReadingMessage}
       newBoundary={feed.newBoundary} latestSeq={feed.latestSeq} retiredNewTargetId={feed.retiredNewTargetId}
       onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary}
       hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
@@ -281,6 +283,7 @@ it.each(["text", "dm"] as const)("shows the $0 newer loading row through a real 
       messages={feed.messages} loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
       initialScrollReady={feed.initialDisplayReady} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
       positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+      messageNeighborhood={feed.messageNeighborhood} onReadingMessage={feed.onReadingMessage}
       scrollToMessageId="m20" hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
       isFetching={feed.isFetching} isFetchingNewer={feed.isFetchingNewer} onLoadNewer={feed.fetchNewer}
       onUserTakeover={feed.onUserTakeover} onOpenThread={() => {}} />
@@ -293,13 +296,20 @@ it.each(["text", "dm"] as const)("shows the $0 newer loading row through a real 
     return native.options.getItemKey(native.options.count - 1)
   }
   try {
+    expect(feed.isFetchingNewer).toBe(false)
+    expect(lastKey()).not.toBe("rail:trailing")
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    resize()
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     resize()
     const root = view.getByTestId("community-message-scroller")
     expect(feed.positionDataState).toBe("ready")
     expect(feed.hasMoreNewer).toBe(true)
-    expect(feed.isFetchingNewer).toBe(false)
-    expect(lastKey()).not.toBe("rail:trailing")
+    expect(feed.isFetchingNewer).toBe(true)
+    expect(lastKey()).toBe("rail:trailing")
+    expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+    expect(load.mock.calls.filter(([url]) => new URL(url, "https://example.test").searchParams.get("since") === cursor)).toHaveLength(1)
+    const readingPage = feed.messageNeighborhood!.page
     fireEvent.wheel(root, { deltaY: root.scrollHeight })
     act(() => root.scrollTo({ top: root.scrollHeight - root.clientHeight }))
     resize()
@@ -322,6 +332,8 @@ it.each(["text", "dm"] as const)("shows the $0 newer loading row through a real 
     expect(feed.messageWindow?.pageParams).toEqual([{ mode: "newer", cursor }, { mode: "anchor", anchor: "m20" }])
     expect(lastKey()).not.toBe("rail:trailing")
     expect(view.queryByText("Loading newer messages…")).toBeNull()
+    expect(feed.messageNeighborhood!.page).toBe(readingPage)
+    expect(load.mock.calls.filter(([url]) => new URL(url, "https://example.test").searchParams.get("since") === cursor)).toHaveLength(1)
   } finally { view.unmount(); owner.client.clear() }
 })
 
@@ -362,6 +374,7 @@ it.each(kinds.flatMap(kind => [
         loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
         initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
         positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+      messageNeighborhood={feed.messageNeighborhood} onReadingMessage={feed.onReadingMessage}
         newBoundary={newBoundary} latestSeq={feed.latestSeq} retiredNewTargetId={feed.retiredNewTargetId}
         onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary} hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
         onUserTakeover={feed.onUserTakeover} onRetryInitialLoad={feed.retryInitialLoad} retryingInitialLoad={feed.retryingInitialLoad} onOpenThread={() => {}} />
@@ -480,6 +493,7 @@ it.each(kinds.flatMap(kind => (["success", "offline", "timeout"] as const).map(r
         loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
         initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
         positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+      messageNeighborhood={feed.messageNeighborhood} onReadingMessage={feed.onReadingMessage}
         newBoundary={newBoundary} latestSeq={feed.latestSeq} retiredNewTargetId={feed.retiredNewTargetId}
         onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary} scrollToMessageId="m60" hasMoreNewer={feed.hasMoreNewer}
         onRetryInitialLoad={feed.retryInitialLoad} retryingInitialLoad={feed.retryingInitialLoad} onOpenThread={() => {}} />
@@ -560,7 +574,8 @@ it.each(kinds)("keeps $0 display qualification separate from an unavailable cano
     return <MessageList channel="Conversation" variant={kind === "dm" ? "dm" : "channel"} messages={feed.messages}
       loading={feed.isLoading} initialLoadError={feed.initialLoadError} initialScrollReady={feed.initialDisplayReady}
       positionScope={feed.positionScope} positionEntry={feed.positionEntry} positionDataState={feed.positionDataState}
-      targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow} onOpenThread={() => {}} />
+      targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+      messageNeighborhood={feed.messageNeighborhood} onReadingMessage={feed.onReadingMessage} onOpenThread={() => {}} />
   }
   const view = render(<CommunityTestProvider {...owner}><Probe /></CommunityTestProvider>)
   try {
@@ -615,6 +630,7 @@ it.each([
       initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation}
       positionScope={feed.positionScope} positionEntry={feed.positionEntry}
       positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+      messageNeighborhood={feed.messageNeighborhood} onReadingMessage={feed.onReadingMessage}
       initialPositionMessageId={feed.initialPositionMessageId} newDividerBefore={newDivider}
       hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
       isFetching={feed.isFetching} isFetchingOlder={feed.isFetchingOlder} isFetchingNewer={feed.isFetchingNewer}

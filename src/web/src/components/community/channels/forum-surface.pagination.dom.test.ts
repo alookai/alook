@@ -45,6 +45,7 @@ vi.mock("@tanstack/react-virtual", async (load) => ({
   useVirtualizer: ({ count, getItemKey }: { count: number; getItemKey: (index: number) => string | number }) => ({
     range: count ? { startIndex: 0, endIndex: count - 1 } : null,
     options: { scrollMargin: 0 }, scrollToIndex: vi.fn(), getTotalSize: () => count * 160,
+    containerRef: vi.fn(),
     getVirtualItems: () => Array.from({ length: count }, (_, index) => ({
       key: getItemKey(index), index, start: index * 160, end: (index + 1) * 160, size: 160, lane: 0,
     })), measureElement: vi.fn(),

@@ -19,6 +19,7 @@ export type FlatItem = {
 } | {
   kind: "leading"
   key: string
+  hidden?: boolean
 } | {
   kind: "trailing"
   key: string
@@ -35,9 +36,10 @@ export function flattenMessageItems(
   newDividerBefore: string | undefined,
   hasMoreOlder = false,
   showNewerLoading = false,
+  showLeading = true,
 ): FlatItem[] {
   const items: FlatItem[] = []
-  if (messages.length > 0) items.push({ kind: "leading", key: "rail:leading" })
+  if (messages.length > 0) items.push({ kind: "leading", key: "rail:leading", ...(!showLeading ? { hidden: true } : {}) })
   let prev: Msg | null = null
   let seenFirstMessage = false
   for (const m of messages) {

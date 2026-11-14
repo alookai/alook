@@ -288,6 +288,15 @@ describe("canonical execution plan", () => {
       .toContain("src/test/e2e-ui/07-invite.spec.ts")
   })
 
+  it("selects the complete history continuity journey for ordinary message changes", () => {
+    const result = plan(["src/web/src/components/community/messages/composer-accessory-rail.tsx"])
+    expect(result.full).toBe(false)
+    expect(result.ui.specs).not.toContain("all")
+    expect(result.ui.specs).toContain("55-history-reading-continuity.spec.ts")
+    const matrix = JSON.parse(projectPlan(result).e2e_matrix).include
+    expect(matrix.flatMap(entry => entry.specs)).toContain("src/test/e2e-ui/55-history-reading-continuity.spec.ts")
+  })
+
   it("unions localized UI features with key journeys without selecting unrelated browser groups", () => {
     const source = "src/web/src/components/community/shell/user-bar.tsx"
     const result = plan([source])

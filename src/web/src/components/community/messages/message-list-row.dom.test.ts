@@ -74,6 +74,23 @@ const controller = {
 } as unknown as MessageListController
 
 describe("renderMessageListRow", () => {
+  it("renders no unknown idle history content while retaining real edge retry actions", () => {
+    const retryOlder = vi.fn(), retryNewer = vi.fn()
+    const state = { ...controller, retryOlder, retryNewer }
+    const view = render(renderMessageListRow({ kind: "leading", key: "rail:leading", hidden: true }, props, state))
+    expect(view.container).toBeEmptyDOMElement()
+    view.rerender(renderMessageListRow({ kind: "leading", key: "rail:leading" },
+      { ...props, olderLoadError: new Error("offline") }, state))
+    expect(view.getByRole("alert")).toHaveTextContent("Could not load older messages.")
+    view.getByRole("button", { name: "Retry" }).click()
+    expect(retryOlder).toHaveBeenCalledOnce()
+    view.rerender(renderMessageListRow({ kind: "trailing", key: "rail:trailing" },
+      { ...props, newerLoadError: new Error("offline") }, state))
+    expect(view.getByRole("alert")).toHaveTextContent("Could not load newer messages.")
+    view.getByRole("button", { name: "Retry" }).click()
+    expect(retryNewer).toHaveBeenCalledOnce()
+  })
+
   it("uses each adjacent row's half-gap and retains8px on the first and last sides", () => {
     const items = flattenMessageItems(Array.from({ length: 3 }, (_, i) => ({
       id: `m${i}`, type: "chat" as const, authorId: "same", createdAt: new Date(0).toISOString(),

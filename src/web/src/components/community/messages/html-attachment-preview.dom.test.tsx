@@ -203,6 +203,22 @@ describe("HTML marker rendering", () => {
 
 
 describe("HTML preview full message compositions", () => {
+  it("removes an all-consumed attachment group and keeps mixed image indices stable", () => {
+    const message = { id: "m1", type: "chat" as const, authorId: "viewer", grouped: false,
+      content: "[alook-html-preview](a1)", attachments: [file] }
+    const body = (mixed = false) => <Message m={{ ...message, attachments: mixed
+      ? [file, { kind: "image", name: "photo.png", url: "/photo.png", width: 80, height: 80 }] : [file] }}
+      onOpenThread={() => undefined} viewerUserId="viewer" />
+    const view = setup(body())
+    expect(view.getAllByTestId(tid.htmlPreview("a1"))).toHaveLength(1)
+    const content = view.container.querySelector('[data-community-message-body]')!.closest(".relative.flex.min-w-0.flex-1.flex-col.gap-2")!
+    expect(Array.from(content.children).filter(child => child.matches("div.flex.flex-col.gap-2") && child.childElementCount === 0)).toHaveLength(0)
+    view.rerender(view.tree(body(true)))
+    expect(view.getByTestId(tid.messageImage("m1", 1))).toBeInTheDocument()
+    expect(view.queryByTestId(tid.messageImage("m1", 0))).toBeNull()
+    expect(view.queryByTestId(tid.attachmentCard("demo.html"))).toBeNull()
+  })
+
   it.each(["row", "opener"])("deduplicates preview and attachment cards in the actual %s", (surface) => {
     const message = {
       id: "m1", type: "chat" as const, authorId: "viewer", authorName: "Viewer", createdAt: "2026-10-28T08:00:00Z", grouped: false,

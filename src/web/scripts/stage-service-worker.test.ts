@@ -19,10 +19,11 @@ type RouteOptions = Parameters<typeof createSerwistRoute>[0]
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 beforeEach(() => { mocks.status = 200; mocks.type = "application/javascript"; mocks.script = true; mocks.options = null })
-const html = '<html><main data-community-shell="public">Neutral</main></html>'
+const html = '<html><meta name="alook-web-build" content="fixture-build"><main data-community-shell="public">Neutral</main></html>'
 function fixture() {
   const root = mkdtempSync(resolve(tmpdir(), "alook-public-shell-")); roots.push(root)
   mkdirSync(resolve(root, ".next/server/app"), { recursive: true }); mkdirSync(resolve(root, "public"))
+  writeFileSync(resolve(root, ".next/BUILD_ID"), "fixture-build")
   writeFileSync(resolve(root, ".next/prerender-manifest.json"), JSON.stringify({ routes: { "/c": {} } }))
   writeFileSync(resolve(root, ".next/server/app/c.html"), html)
   writeFileSync(resolve(root, "public/sw.js"), "old-worker")
@@ -62,7 +63,9 @@ describe("complete build shell and worker staging", () => {
     ])
     expect(options?.modifyURLPrefix).toEqual({ "src/app/favicon.ico": "/favicon.ico" })
     expect(options?.maximumFileSizeToCacheInBytes).toBe(10 * 1024 * 1024)
-    expect(options?.esbuildOptions).toEqual({ format: "iife", sourcemap: false, minify: true, define: { "process.env.NODE_ENV": JSON.stringify("production") } })
+    expect(options?.esbuildOptions).toEqual({ format: "iife", sourcemap: false, minify: true, define: {
+      "process.env.NODE_ENV": JSON.stringify("production"), "process.env.NEXT_PUBLIC_WEB_BUILD_ID": JSON.stringify("fixture-build"),
+    } })
   })
   it("filters private documents and unknown assets while retaining only the exact current shell", async () => {
     await stageServiceWorker(fixture())
@@ -128,6 +131,14 @@ describe("complete build shell and worker staging", () => {
     if (mode === "missing-marker") writeFileSync(resolve(root, ".next/server/app/c.html"), "private document")
     await expect(stageServiceWorker(root)).rejects.toThrow()
     expect(readFileSync(resolve(root, "public/sw.js"), "utf8")).toBe("old-worker")
+  })
+  it.each(["missing", "empty", "development", "different-document"])("rejects a %s build identity before publishing a worker", async mode => {
+    const root = fixture()
+    if (mode === "missing") rmSync(resolve(root, ".next/BUILD_ID"))
+    else writeFileSync(resolve(root, ".next/BUILD_ID"), mode === "empty" ? "" : mode === "development" ? "development" : "another-build")
+    await expect(stageServiceWorker(root)).rejects.toThrow()
+    expect(readFileSync(resolve(root, "public/sw.js"), "utf8")).toBe("old-worker")
+    expect(mocks.options).toBeNull()
   })
   it.each(["status", "type", "empty-script"])("rejects bad worker %s before replacing the current script", async field => {
     const root = fixture()

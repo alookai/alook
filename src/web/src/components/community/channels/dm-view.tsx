@@ -125,8 +125,9 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     isFetchingNewer: isFetchingNewerMessages,
     fetchOlder: fetchOlderMessages,
     fetchNewer: fetchNewerMessages,
+    messageNeighborhood, onReadingMessage,
     jumpToPresent,
-    presentVersion, presentRequest, newBoundary, retiredNewTargetId, loadNewTarget, readNewBoundary,
+    presentVersion, presentRequest, olderLoadError, newerLoadError, presentPending, presentError, newBoundary, retiredNewTargetId, loadNewTarget, readNewBoundary,
     latestSeq,
     isPending: messagesPending,
     isError: messagesError,
@@ -443,6 +444,8 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             positionDataState={positionDataState}
             targetPositionDataState={targetPositionDataState}
             messageWindow={messageWindow}
+            messageNeighborhood={messageNeighborhood}
+            onReadingMessage={onReadingMessage}
             active={routeCommitted}
             positioningActive
             isFetching={messagesFetching}
@@ -454,6 +457,10 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             onJumpToPresent={jumpToPresent}
             presentVersion={presentVersion}
             presentRequest={presentRequest}
+            olderLoadError={olderLoadError}
+            newerLoadError={newerLoadError}
+            presentPending={presentPending}
+            presentError={presentError}
             localSubmitVersion={localSubmitVersion}
             unreadCount={unreadCount}
             typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}

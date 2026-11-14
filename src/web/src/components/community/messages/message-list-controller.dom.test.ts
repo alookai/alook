@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useMessageListController, type MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
 import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
+import { ConversationFooterShell, ConversationFooterSlotProvider, useConversationFooterSlot } from "./conversation-footer-shell"
 
 type ScrollInput = Parameters<typeof import("@/hooks/community/use-scroll-anchor").useScrollAnchor>[0]
 function notifyReached(input: ScrollInput, id: string) {
@@ -108,11 +109,13 @@ function assignRef<T>(ref: { current: T | null }, value: T | null) {
 function Probe({
   value,
   attachHero = true,
+  capsuleHeight = 0,
 }: {
   value: ResolvedMessageListProps
   attachHero?: boolean
+  capsuleHeight?: number
 }) {
-  const controller = useMessageListController(value)
+  const controller = useMessageListController(value, capsuleHeight)
   const attachScrollNode = React.useCallback((node: HTMLDivElement | null) => {
     assignRef(controller.scrollRef, node ? currentScrollNode : null)
   }, [controller.scrollRef])
@@ -126,6 +129,58 @@ function Probe({
 }
 
 describe("useMessageListController", () => {
+  it("commits selection, footer and tail reservation together through dialog close and owner replacement", () => {
+    const samples: Array<{ selected: boolean; footerSelected: boolean; capsule: number }> = []
+    function SelectionOwner() {
+      const slot = useConversationFooterSlot()!
+      const controller = useMessageListController(props(), slot.capsuleHeight)
+      React.useLayoutEffect(() => {
+        latest = controller
+        samples.push({ selected: controller.selectMode, footerSelected: slot.selectionActive, capsule: slot.capsuleHeight })
+      })
+      return null
+    }
+    const scene = (present: boolean) => React.createElement(ConversationFooterSlotProvider, null,
+      present && React.createElement(SelectionOwner),
+      React.createElement(ConversationFooterShell, null, React.createElement("input", { "aria-label": "Shared draft", defaultValue: "Keep draft" })),
+    )
+    const view = rtlRender(scene(true))
+    const draft = view.getByRole("textbox", { name: "Shared draft" })
+    draft.focus()
+    samples.length = 0
+    act(() => latest.onEnterSelectId("m1"))
+    expect(samples.length).toBeGreaterThan(0)
+    expect(samples.every(sample => sample.selected && sample.footerSelected && sample.capsule === 0)).toBe(true)
+    act(() => latest.setShareOpen(true))
+    samples.length = 0
+    act(() => latest.closeShare())
+    expect(samples.every(sample => !sample.selected && !sample.footerSelected && sample.capsule === 40)).toBe(true)
+    expect(latest.shareOpen).toBe(false)
+    expect(latest.selectedIds.size).toBe(0)
+    expect(view.getByRole("textbox", { name: "Shared draft" })).toBe(draft)
+    expect(draft).toHaveValue("Keep draft")
+    act(() => latest.onEnterSelectId("m1"))
+    view.rerender(scene(false))
+    view.rerender(scene(true))
+    expect(latest.selectMode).toBe(false)
+    expect(view.getByRole("textbox", { name: "Shared draft" })).toBe(draft)
+  })
+
+  it("keeps the idle unknown sentinel at zero size and projects real loading, error or known-start content", () => {
+    const input = props({ historyStartKnown: false, hasMore: true })
+    const view = rtlRender(React.createElement(Probe, { value: input }))
+    expect(latest.items[0]).toMatchObject({ kind: "leading", hidden: true })
+    view.rerender(React.createElement(Probe, { value: { ...input, isFetchingOlder: true } }))
+    expect(latest.items[0]).toMatchObject({ kind: "leading" })
+    expect(latest.items[0]).not.toHaveProperty("hidden")
+    view.rerender(React.createElement(Probe, { value: { ...input, olderLoadError: new Error("offline") } }))
+    expect(latest.items[0]).toMatchObject({ kind: "leading" })
+    expect(latest.items[0]).not.toHaveProperty("hidden")
+    view.rerender(React.createElement(Probe, { value: { ...input, historyStartKnown: true, hasMore: false } }))
+    expect(latest.items[0]).toMatchObject({ kind: "leading" })
+    expect(latest.items[0]).not.toHaveProperty("hidden")
+  })
+
   let resizeCallback: ((entries: Array<{ borderBoxSize?: Array<{ blockSize: number }> }>) => void) | null
   let nextFrameId: number
   let frameCallbacks: Map<number, FrameRequestCallback>
@@ -477,10 +532,11 @@ describe("useMessageListController", () => {
   })
 
   it("keeps loading, reading and both pagination directions tied to the current scroll owner", () => {
+    const messageNeighborhood = { page: {}, older: true, newer: true }
     let renderer: ReturnType<typeof rtlRender>
     act(() => {
       renderer = rtlRender(
-        React.createElement(Probe, { value: props({ loading: true }) })
+        React.createElement(Probe, { value: props({ loading: true, messageNeighborhood }) })
       )
     })
     expect(latest.isLoading).toBe(false)
@@ -494,7 +550,8 @@ describe("useMessageListController", () => {
         isError: false,
         onBeforeLoad: mocks.captureOlderPageAnchor,
         edge: "start",
-        preloadWithinViewport: true,
+        loadWhenReady: true,
+        requestKey: messageNeighborhood.page,
       }),
       expect.objectContaining({
         virtualizer: mocks.virtualizer,
@@ -503,7 +560,8 @@ describe("useMessageListController", () => {
         isError: false,
         onBeforeLoad: mocks.captureNewerPageAnchor,
         edge: "end",
-        preloadWithinViewport: true,
+        loadWhenReady: true,
+        requestKey: messageNeighborhood.page,
       }),
     ])
     expect(latest.scrollRef).toBe(mocks.scrollRef)
@@ -514,14 +572,14 @@ describe("useMessageListController", () => {
     expect(latest.pillOnClick).toBe(mocks.scrollToBottom)
     act(() => {
       renderer!.rerender(React.createElement(Probe, {
-        value: props({ loading: true, messages: [] }),
+        value: props({ loading: true, messages: [], messageNeighborhood }),
       }))
     })
     expect(latest.isLoading).toBe(true)
     act(() => mocks.finishPosition("success"))
     mocks.readPositionReady = true
     mocks.paginationEnabled = true
-    renderer!.rerender(React.createElement(Probe, { value: props({ loading: false }) }))
+    renderer!.rerender(React.createElement(Probe, { value: props({ loading: false, messageNeighborhood }) }))
     expect(latest.isLoading).toBe(false)
     expect(latest.readPositionReady).toBe(true)
     expect(mocks.paginationInputs.slice(-2)).toEqual([
@@ -530,7 +588,7 @@ describe("useMessageListController", () => {
     ])
     mocks.readPositionReady = false
     mocks.paginationEnabled = false
-    renderer!.rerender(React.createElement(Probe, { value: props({ loading: false }) }))
+    renderer!.rerender(React.createElement(Probe, { value: props({ loading: false, messageNeighborhood }) }))
     expect(latest.readPositionReady).toBe(false)
     expect(mocks.paginationInputs.slice(-2)).toEqual([
       expect.objectContaining({ edge: "start", enabled: false }),
@@ -540,7 +598,7 @@ describe("useMessageListController", () => {
 
   it("delegates the shared tail padding to the original virtualizer hook", () => {
     act(() => {
-      rtlRender(React.createElement(Probe, { value: props() }))
+      rtlRender(React.createElement(Probe, { value: props(), capsuleHeight: 40 }))
     })
     expect(mocks.scrollInputs.at(-1)).toEqual(expect.objectContaining({
       tailPaddingEnd: 32,
@@ -552,6 +610,7 @@ describe("useMessageListController", () => {
     act(() => {
       renderer = rtlRender(React.createElement(Probe, {
         value: props({ typingUsers: [] }),
+        capsuleHeight: 40,
       }))
     })
     const withoutTyping = mocks.scrollInputs.at(-1) as { tailPaddingEnd: number }
@@ -559,12 +618,23 @@ describe("useMessageListController", () => {
     act(() => {
       renderer!.rerender(React.createElement(Probe, {
         value: props({ typingUsers: ["Alice"] }),
+        capsuleHeight: 40,
       }))
     })
     const withTyping = mocks.scrollInputs.at(-1) as { tailPaddingEnd: number }
 
     expect(withoutTyping.tailPaddingEnd).toBe(32)
     expect(withTyping.tailPaddingEnd).toBe(withoutTyping.tailPaddingEnd)
+  })
+
+  it("uses one capsule reservation for a loading tail and removes it when hidden", () => {
+    const value = props({ hasMoreNewer: true, isFetchingNewer: true })
+    const view = rtlRender(React.createElement(Probe, { value, capsuleHeight: 40 }))
+    expect(mocks.scrollInputs.at(-1)).toMatchObject({ tailPaddingEnd: 40, viewportInsetEnd: 40 })
+    view.rerender(React.createElement(Probe, { value, capsuleHeight: 0 }))
+    expect(mocks.scrollInputs.at(-1)).toMatchObject({ tailPaddingEnd: 0, viewportInsetEnd: 0 })
+    view.rerender(React.createElement(Probe, { value: props(), capsuleHeight: 40 }))
+    expect(mocks.scrollInputs.at(-1)).toMatchObject({ tailPaddingEnd: 32, viewportInsetEnd: 40 })
   })
 
   it("reveals an authoritative empty window immediately and skips positioning effects", () => {
@@ -614,6 +684,7 @@ describe("useMessageListController", () => {
   })
 
   it("preserves requested pagination callbacks and gives jump mode server-count precedence", () => {
+    const readingPage = {}
     const loadOlder = vi.fn()
     const loadNewer = vi.fn()
     const jumpToPresent = vi.fn()
@@ -623,6 +694,7 @@ describe("useMessageListController", () => {
           newDividerBefore: "m1",
           initialScrollReady: false,
           hasMore: true,
+          messageNeighborhood: { page: readingPage, older: true, newer: true },
           isFetchingOlder: true,
           onLoadOlder: loadOlder,
           hasMoreNewer: true,
@@ -644,7 +716,7 @@ describe("useMessageListController", () => {
       isFetchingNewer: true,
       presentVersion: 7,
       hasMoreOlder: true,
-      tailPaddingEnd: 32,
+      tailPaddingEnd: 0,
       onScrollTargetPositioned: expect.any(Function),
     })
     expect(mocks.paginationInputs.slice(-2)).toEqual([
@@ -658,7 +730,8 @@ describe("useMessageListController", () => {
         onBeforeLoad: mocks.captureOlderPageAnchor,
         onLoad: loadOlder,
         edge: "start",
-        preloadWithinViewport: true,
+        requestKey: readingPage,
+        loadWhenReady: true,
       }),
       expect.objectContaining({
         virtualizer: mocks.virtualizer,
@@ -671,7 +744,8 @@ describe("useMessageListController", () => {
         onBeforeLoad: mocks.captureNewerPageAnchor,
         onLoad: loadNewer,
         edge: "end",
-        preloadWithinViewport: true,
+        requestKey: readingPage,
+        loadWhenReady: true,
       }),
     ])
     expect(latest.pillCount).toBe(9)

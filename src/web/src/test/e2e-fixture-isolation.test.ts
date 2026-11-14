@@ -40,6 +40,7 @@ vi.mock("./e2e-ui/_fixtures/community-fixture", () => ({
 
 vi.mock("./e2e-ui/_setup/auth", () => ({ loginAndSaveState: fixture.login }))
 vi.mock("./e2e-ui/_setup/paths", () => ({
+  REPO_ROOT: fixture.directory,
   AUTH_DIR: fixture.directory,
   SERVICE_STATE_PATH: `${fixture.directory}/service-state.json`,
   MANIFEST_PATH: `${fixture.directory}/manifest.json`,
@@ -235,6 +236,8 @@ describe("test-scoped case actors and cleanup", () => {
     serverListFault = undefined
     rmSync(fixture.directory, { force: true, recursive: true })
     mkdirSync(fixture.directory, { recursive: true })
+    mkdirSync(resolve(fixture.directory, "src/web"), { recursive: true })
+    writeFileSync(resolve(fixture.directory, "src/web/wrangler.toml"), 'name = "case-fixture-unit"\n')
     writeFileSync(resolve(fixture.directory, "manifest.json"), JSON.stringify({ stamp: "case-fixture-run", users: {} }))
     writeFileSync(resolve(fixture.directory, "service-state.json"), JSON.stringify({ status: "healthy", services: [{ name: "web" }], restorePending: false }))
     fixture.login.mockImplementation(async (_browser, key: string, stamp: string, storageState: string) => {

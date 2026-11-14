@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { MessageList } from "./message-list"
+import { ConversationFooterShell, ConversationFooterSlotProvider } from "./conversation-footer-shell"
 import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames } from "@/test/message-scroll-fixture"
 import type { MessageRequestResult } from "@/lib/community/message-position"
 
@@ -12,6 +13,7 @@ vi.mock("./message-row", () => ({ MessageRow: () => React.createElement("div") }
 vi.mock("@/components/ui/number-ticker", () => ({ NumberTicker: ({ value }: { value: number }) => React.createElement("span", null, value) }))
 
 describe("MessageList native range pagination", () => {
+  const readingPage = {}
   it.each(["response-first", "rows-first"] as const)("serializes accepted older requests through body settlement (%s)", async order => {
     const message = (i: number) => ({ id: `m${i}`, type: "chat" as const, authorId: "alice", authorName: "Alice", content: "hi", createdAt: new Date(i * 1000).toISOString() })
     let messages = Array.from({ length: 50 }, (_, i) => message(i + 40))
@@ -21,7 +23,7 @@ describe("MessageList native range pagination", () => {
     const onLoadOlder = vi.fn(() => ({ accepted: true as const, completed }))
     const view = (messageWindow = before, isFetchingOlder = false, positionDataState: "ready" | "pending" = "ready") => React.createElement(MessageList, {
       channel: "general", messages, messageWindow, initialScrollReady: true, positionDataState,
-      hasMore: true, onLoadOlder, isFetchingOlder, onOpenThread: vi.fn(),
+      hasMore: true, messageNeighborhood: { page: readingPage, older: messages.length === 50, newer: false }, onLoadOlder, isFetchingOlder, onOpenThread: vi.fn(),
     })
     const renderer = render(view())
     resize()
@@ -50,7 +52,7 @@ describe("MessageList native range pagination", () => {
   it("loads and settles ordinary older pages after explicit positioning failure while read remains closed", () => {
     const messages = Array.from({ length: 50 }, (_, i) => ({ id: `m${i}`, authorId: "alice", authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }))
     const onLoadOlder = vi.fn()
-    const view = (isFetchingOlder: boolean, positionDataState: "pending" | "ready" | "error" = "ready") => React.createElement(MessageList, { channel: "general", messages, initialScrollReady: true, positionDataState, scrollToMessageId: "not-loaded", hasMore: true, onLoadOlder, isFetchingOlder, onOpenThread: vi.fn() })
+    const view = (isFetchingOlder: boolean, positionDataState: "pending" | "ready" | "error" = "ready") => React.createElement(MessageList, { channel: "general", messages, initialScrollReady: true, positionDataState, scrollToMessageId: "not-loaded", hasMore: true, messageNeighborhood: { page: readingPage, older: true, newer: false }, onLoadOlder, isFetchingOlder, onOpenThread: vi.fn() })
     const renderer = render(view(false, "pending"))
     resize()
     const scroller = renderer.getByTestId(tid.messageScroller)
@@ -79,8 +81,9 @@ describe("MessageList native range pagination", () => {
   ] as const)("retains the first-window body at the %s fold with older author %s and pending move %s", (fold, olderAuthor, pendingMove) => {
     const message = (i: number) => ({ id: `m${i}`, type: "chat" as const, authorId: "alice", authorName: "Alice", content: "hi", createdAt: new Date(i * 1000).toISOString() })
     let messages = Array.from({ length: 50 }, (_, i) => message(i + 40))
+    let missingOlder = false
     const onLoadOlder = vi.fn()
-    const view = (isFetchingOlder: boolean, hasMore = true, positionDataState: "pending" | "ready" | "error" = "ready") => React.createElement(MessageList, { channel: "general", messages, initialScrollReady: true, positionDataState, scrollToMessageId: "not-loaded", hasMore, onLoadOlder, isFetchingOlder, onOpenThread: vi.fn() })
+    const view = (isFetchingOlder: boolean, hasMore = true, positionDataState: "pending" | "ready" | "error" = "ready") => React.createElement(MessageList, { channel: "general", messages, initialScrollReady: true, positionDataState, scrollToMessageId: "not-loaded", hasMore, messageNeighborhood: { page: readingPage, older: missingOlder && hasMore, newer: false }, onLoadOlder, isFetchingOlder, onOpenThread: vi.fn() })
     const renderer = render(view(false, fold === "header" || pendingMove, "pending"))
     resize()
     renderer.rerender(view(false, fold === "header" || pendingMove, "error"))
@@ -104,15 +107,18 @@ describe("MessageList native range pagination", () => {
     if (!pendingMove && fold !== "header") {
       expect(onLoadOlder).not.toHaveBeenCalled()
       moveToFold()
-      renderer.rerender(view(false))
-      resize()
+
     }
+    missingOlder = true
+    renderer.rerender(view(false))
+    resize()
     expect(onLoadOlder).toHaveBeenCalledOnce()
     renderer.rerender(view(true))
     resize()
     if (pendingMove) moveToFold()
     const before = body.getBoundingClientRect().top - root.getBoundingClientRect().top
     messages = [...Array.from({ length: 39 }, (_, i) => ({ ...message(i + 1), authorId: olderAuthor })), ...messages]
+    missingOlder = false
     renderer.rerender(view(false))
     resize()
     const after = renderer.getByTestId(tid.message("m40"))
@@ -126,7 +132,10 @@ describe("MessageList native range pagination", () => {
   it.each([["mobile", 40], ["desktop", 40]] as const)("keeps %s body-to-viewport clearance at %ipx with symmetric row padding", (stage, gap) => {
     breakpoint.value = stage
     const messages = Array.from({ length: 14 }, (_, i) => ({ id: `m${i}`, authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }))
-    const renderer = render(React.createElement(MessageList, { channel: "general", messages, loading: false, hasMore: false, onOpenThread: vi.fn() }))
+    const renderer = render(React.createElement(ConversationFooterSlotProvider, null,
+      React.createElement(MessageList, { channel: "general", messages, loading: false, hasMore: false, onOpenThread: vi.fn() }),
+      React.createElement(ConversationFooterShell, null, React.createElement("textarea")),
+    ))
     resize()
     runFrames()
     const scroller = renderer.getByTestId(tid.messageScroller)
@@ -141,7 +150,7 @@ describe("MessageList native range pagination", () => {
   it("stops automatic pagination on the existing Query error surface", () => {
     const messages = Array.from({ length: 50 }, (_, i) => ({ id: `m${i}`, authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }))
     const onLoadOlder = vi.fn()
-    const makeView = (error: Error | null) => React.createElement(MessageList, { channel: "general", messages, loading: false, hasMore: true, onLoadOlder, initialLoadError: error, onOpenThread: vi.fn() })
+    const makeView = (error: Error | null) => React.createElement(MessageList, { channel: "general", messages, loading: false, hasMore: true, messageNeighborhood: { page: readingPage, older: true, newer: false }, onLoadOlder, initialLoadError: error, onOpenThread: vi.fn() })
     const renderer = render(makeView(new Error("page failed after retries")))
     resize()
     runFrames()
@@ -156,33 +165,33 @@ describe("MessageList native range pagination", () => {
     expect(onLoadOlder).toHaveBeenCalledOnce()
   })
 
-  it("continues loading at the top after fetch settlement without a fresh gesture", () => {
+  it("does not chain settled neighbors until the reading page changes", () => {
     const messages = Array.from({ length: 50 }, (_, i) => ({ id: `m${i}`, authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }))
     const onLoadOlder = vi.fn()
-    const view = (isFetchingOlder: boolean, hasMore = true) => React.createElement(MessageList, { channel: "general", messages, loading: false, hasMore, onLoadOlder, isFetchingOlder, onOpenThread: vi.fn() })
+    let page = readingPage
+    let missingOlder = true
+    const view = (isFetchingOlder: boolean, hasMore = true) => React.createElement(MessageList, { channel: "general", messages, loading: false, hasMore, messageNeighborhood: { page, older: missingOlder && hasMore, newer: false }, onLoadOlder, isFetchingOlder, onOpenThread: vi.fn() })
     const renderer = render(view(false))
     resize()
     runFrames()
     const scroller = renderer.getByTestId(tid.messageScroller)
-    expect(onLoadOlder).not.toHaveBeenCalled()
-
-    fireEvent.wheel(scroller, { deltaY: -400 })
-    act(() => { scroller.scrollTo({ top: 0 }) })
-    runFrames()
-    resize()
     expect(onLoadOlder).toHaveBeenCalledOnce()
-
     renderer.rerender(view(true))
     fireEvent.wheel(scroller, { deltaY: -400 })
     act(() => { scroller.scrollTo({ top: 0 }) })
     runFrames()
     expect(onLoadOlder).toHaveBeenCalledOnce()
-
+    missingOlder = false
+    renderer.rerender(view(false))
+    runFrames()
+    resize()
+    expect(onLoadOlder).toHaveBeenCalledOnce()
+    page = {}
+    missingOlder = true
     renderer.rerender(view(false))
     runFrames()
     resize()
     expect(onLoadOlder).toHaveBeenCalledTimes(2)
-
     renderer.rerender(view(true))
     renderer.rerender(view(false, false))
     runFrames()

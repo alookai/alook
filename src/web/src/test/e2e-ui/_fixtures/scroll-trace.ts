@@ -295,6 +295,29 @@ export async function endScrollTraceAnalysis(page: Page, name: string): Promise<
   return markScrollTrace(page, `analysis-end:${name}`)
 }
 
+export async function withScrollTraceAnalysis<T>(
+  page: Page,
+  name: string,
+  operation: () => Promise<T>,
+  input?: Parameters<typeof beginScrollTraceAnalysis>[2],
+): Promise<T> {
+  await beginScrollTraceAnalysis(page, name, input)
+  let failure: { error: unknown } | undefined
+  try {
+    return await operation()
+  } catch (error) {
+    failure = { error }
+    throw error
+  } finally {
+    try {
+      await endScrollTraceAnalysis(page, name)
+    } catch (error) {
+      if (failure) throw new AggregateError([failure.error, error], `scroll analysis ${name}: body and cleanup failed`)
+      throw error
+    }
+  }
+}
+
 export async function finishScrollTrace(page: Page): Promise<ScrollTraceResult> {
   return page.evaluate(() => {
     const api = (globalThis as typeof globalThis & { __alookScrollTrace?: BrowserTraceApi })
