@@ -6,7 +6,10 @@ import { htmlPreviewPlugin, selectHtmlPreviews } from "@/lib/community/html-prev
 import { Streamdown } from "streamdown"
 import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from "rehype-sanitize"
 import { harden } from "rehype-harden"
-import type { PluggableList } from "unified"
+import type { PluggableList, Plugin } from "unified"
+import type { Element, Root } from "hast"
+import type { Image, ImageReference } from "mdast"
+import { defaultHandlers, type Handler, type Handlers } from "mdast-util-to-hast"
 import { chatSyntaxHandlers } from "@/lib/community/chat-syntax-plugin"
 import { CHAT_REMARK_PLUGINS } from "@/lib/community/chat-markdown"
 import {
@@ -70,6 +73,56 @@ const HARDEN_CONFIG = {
   allowDataImages: true,
 }
 
+function networkImageSource(source: unknown): source is string {
+  if (typeof source !== "string") return false
+  const normalized = source.replace(/[\t\r\n]/g, "")
+  return normalized.startsWith("//") || normalized.startsWith("/\\")
+}
+
+function preserveImageSource(image: ReturnType<Handler>, source: unknown): ReturnType<Handler> {
+  if (image && !Array.isArray(image) && image.type === "element" && image.tagName === "img" && networkImageSource(source)) {
+    image.properties.src = source
+  }
+  return image
+}
+
+const MESSAGE_HAST_HANDLERS: Handlers = {
+  ...chatSyntaxHandlers,
+  image: (state, node: Image) => preserveImageSource(defaultHandlers.image(state, node), node.url),
+  imageReference: (state, node: ImageReference) => preserveImageSource(
+    defaultHandlers.imageReference(state, node),
+    state.definitionById.get(String(node.identifier).toUpperCase())?.url,
+  ),
+}
+
+function visitImages(parent: Root | Element, visit: (image: Element) => void): void {
+  for (const child of parent.children) {
+    if (child.type !== "element") continue
+    if (child.tagName === "img") visit(child)
+    visitImages(child, visit)
+  }
+}
+
+const hardenMessageUrls: Plugin<[], Root> = () => {
+  const filter = harden(HARDEN_CONFIG)
+  return tree => {
+    const networkSources = new WeakMap<Element, string>()
+    visitImages(tree, image => {
+      const source = image.properties.src
+      if (!networkImageSource(source)) return
+      networkSources.set(image, source)
+      image.properties.src = `https:${source}`
+    })
+    filter(tree)
+    visitImages(tree, image => {
+      const source = networkSources.get(image)
+      if (source && typeof image.properties.src === "string" && image.properties.src.startsWith("https://")) {
+        image.properties.src = source
+      }
+    })
+  }
+}
+
 // Hand-rolled replacement for Streamdown's default `rehypePlugins` pipeline
 // (`[rehype-raw, [rehype-sanitize, schema], [rehype-harden, config]]`,
 // verified against the compiled source) with `rehype-raw` dropped — chat-
@@ -83,7 +136,7 @@ const HARDEN_CONFIG = {
 const REHYPE_PLUGINS: PluggableList = [
   redactedContentPlugin,
   [rehypeSanitize, SANITIZE_SCHEMA],
-  [harden, HARDEN_CONFIG],
+  hardenMessageUrls,
 ]
 
 // Message body renderer. Standard markdown (bold/italic/strike/code/codeblock/quote)
@@ -139,7 +192,7 @@ export function MessageBodyView({
           parseIncompleteMarkdown={false}
           plugins={plugins}
           remarkPlugins={remarkPlugins}
-          remarkRehypeOptions={{ handlers: chatSyntaxHandlers }}
+          remarkRehypeOptions={{ handlers: MESSAGE_HAST_HANDLERS }}
           rehypePlugins={REHYPE_PLUGINS}
           // Deliberately skips the AI-content confirm-before-navigating modal
           // — that feature exists for LLM-generated content where a model

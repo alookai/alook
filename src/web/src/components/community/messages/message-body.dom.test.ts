@@ -1,13 +1,15 @@
 import staticContractInput0 from "../../../app/globals.css?raw"
 import { describe, it, expect, vi } from "vitest"
 import React from "react"
-import { act, fireEvent } from "@/test/react-dom-harness"
+import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 import { resolve } from "node:path"
 
 import { extractTableDataFromElement } from "streamdown"
 import fullMessagePlugins from "./message-body-full"
 import { MessageBodyView } from "./message-body-view"
+import { MessageBody as MessageBodyConsumer } from "./message-body"
+import * as fileSave from "@/lib/file-save"
 
 function MessageBody(props: Omit<React.ComponentProps<typeof MessageBodyView>, "plugins">) {
   return React.createElement(MessageBodyView, { ...props, plugins: fullMessagePlugins })
@@ -109,6 +111,90 @@ describe("MessageBody — remote image geometry", () => {
     expect(css).toContain('[data-community-message-body] [data-streamdown="image-wrapper"]')
     expect(css).toMatch(/\[data-community-message-body\] \[data-streamdown="image-wrapper"\][^{]*\{[^}]*max-width: 100%;/s)
     expect(css).toMatch(/\[data-community-message-body\] \[data-streamdown="image"\][^{]*\{[^}]*width: 100%;[^}]*height: 100%;[^}]*max-width: 100%;[^}]*max-height: 100%;[^}]*object-fit: contain;/s)
+  })
+})
+
+describe("MessageBody — image authority through the complete Markdown consumer", () => {
+  async function decode(image: HTMLElement) {
+    Object.defineProperties(image, {
+      decode: { configurable: true, value: () => Promise.resolve() },
+      naturalWidth: { configurable: true, value: 800 },
+      naturalHeight: { configurable: true, value: 450 },
+    })
+    await act(async () => { fireEvent.load(image); await Promise.resolve() })
+  }
+
+  it.each([
+    ["inline", "//127.0.0.1:3000/api/community/channels/c1/attachments/a1?image=0#frame"],
+    ["inline", "//images.example.test:8443/api/community/channels/c1/attachments/a1?version=2#frame"],
+    ["inline", "//alook.invalid/api/community/channels/c1/attachments/a1?version=2#frame"],
+    ["inline", "//[::1]:3000/api/community/channels/c1/attachments/a1?version=2#frame"],
+    ["inline", String.raw`/\images.example.test/api/community/channels/c1/attachments/a1?image=0#frame`],
+    ["reference", "//images.example.test:8443/api/community/channels/c1/attachments/a1?version=2#frame"],
+    ["reference", String.raw`/\images.example.test/api/community/channels/c1/attachments/a1?image=0#frame`],
+  ])("preserves %s foreign image %s through parsing, Retry and original download", async (format, source) => {
+    const saved = vi.spyOn(fileSave, "downloadUrl").mockResolvedValue({ status: "started" })
+    try {
+      const text = format === "reference" ? `![Foreign][remote]\n\n[remote]: <${source}>\n\n$x^2$` : `![Foreign](<${source}>)\n\n$x^2$`
+      const view = render(React.createElement(MessageBodyConsumer, { text }))
+      await waitFor(() => expect(view.container.querySelector(".katex")).not.toBeNull())
+      expect(view.getByAltText("Foreign")).toHaveAttribute("src", source)
+      const resolved = new URL((view.getByAltText("Foreign") as HTMLImageElement).src)
+      expect(resolved.href).toBe(new URL(source, document.baseURI).href)
+      expect(resolved.origin).not.toBe(window.location.origin)
+      fireEvent.error(view.getByAltText("Foreign"))
+      fireEvent.click(view.getByRole("button", { name: "Retry", exact: true }))
+      expect(view.getByAltText("Foreign")).toHaveAttribute("src", source)
+      await decode(view.getByAltText("Foreign"))
+      fireEvent.click(await view.findByTitle("Download image"))
+      await waitFor(() => expect(saved).toHaveBeenCalledWith(source, "a1", expect.objectContaining({ signal: expect.any(AbortSignal) })))
+    } finally { saved.mockRestore() }
+  })
+
+  it("downloads a rooted private image from its original after the full display chain", async () => {
+    const saved = vi.spyOn(fileSave, "downloadUrl").mockResolvedValue({ status: "started" })
+    const source = "/api/community/channels/c1/attachments/a1"
+    try {
+      const view = render(React.createElement(MessageBodyConsumer, { text: `![Original](${source})` }))
+      expect(view.getByAltText("Original")).toHaveAttribute("src", `${source}/thumbnail?image=1`)
+      await decode(view.getByAltText("Original"))
+      fireEvent.click(await view.findByTitle("Download image"))
+      await waitFor(() => expect(saved).toHaveBeenCalledWith(source, "a1", expect.objectContaining({ signal: expect.any(AbortSignal) })))
+    } finally { saved.mockRestore() }
+  })
+
+  it("keeps an invalid slash-backslash image authority blocked after conversion", () => {
+    const source = String.raw`/\bad-host:invalid/api/community/channels/c1/attachments/a1`
+    const view = render(React.createElement(MessageBodyConsumer, { text: `![Invalid](<${source}>)` }))
+    expect(view.container.querySelector("img[src]")).toBeNull()
+  })
+
+  it.each([
+    ["http://127.0.0.1:3000/api/community/channels/c1/attachments/a1?version=2#frame", "http://127.0.0.1:3000/api/community/channels/c1/attachments/a1?version=2#frame"],
+    ["/api/community/channels/c1/attachments/a1?version=2#frame", "/api/community/channels/c1/attachments/a1/thumbnail?version=2&image=1#frame"],
+    ["/api/community/servers/s1/icon?v=one", "/api/community/servers/s1/icon?v=one&image=1"],
+    ["/api/community/users/u1/avatar?v=2", "/api/community/users/u1/avatar?v=2"],
+  ])("keeps the existing complete-body source policy for %s", async (source, expected) => {
+    const view = render(React.createElement(MessageBodyConsumer, { text: `![Control](${source})` }))
+    await waitFor(() => expect(view.getByAltText("Control")).toHaveAttribute("src", expected))
+  })
+
+  it.each([
+    "JaVaScRiPt:alert%281%29",
+    "vbscript:msgbox%281%29",
+    "file:///etc/hosts",
+    "data:text/html,%3Cscript%3Ealert%281%29%3C/script%3E",
+    "//[invalid]/api/community/channels/c1/attachments/a1",
+  ])("retains real protocol filtering for %s", source => {
+    const view = render(React.createElement(MessageBodyConsumer, { text: `![Unsafe](${source}) [Unsafe link](${source})` }))
+    expect(view.container.querySelector("img[src]")).toBeNull()
+    expect(view.container.querySelector("a[href]")).toBeNull()
+  })
+
+  it("keeps raw event-handler HTML inert through the real consumer", () => {
+    const view = render(React.createElement(MessageBodyConsumer, { text: "<img src=x onerror=alert(1)><script>alert(1)</script>" }))
+    expect(view.container.querySelector("img, script, [onerror]")).toBeNull()
+    expect(view.container.textContent).toContain("<img src=x onerror=alert(1)>")
   })
 })
 
