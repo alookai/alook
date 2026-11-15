@@ -30,7 +30,7 @@ export function VideoControls({ name, expanded, expandRef, onExpand, download, p
   expandRef: RefObject<HTMLButtonElement | null>
   onExpand: () => void
   download: ReturnType<typeof useFileDownload>
-  playback?: {
+  playback: {
     state: VideoControlState
     onToggle: () => void
     onSeek: (time: number) => void
@@ -44,12 +44,12 @@ export function VideoControls({ name, expanded, expandRef, onExpand, download, p
   const DownloadIcon = download.state.status === "downloading" ? LoaderCircle
     : download.state.status === "saved" || download.state.status === "started" ? CircleCheck
     : download.state.status === "error" ? RefreshCw : Download
-  const state = playback?.state
-  const seekable = state && Number.isFinite(state.duration) && state.duration > 0
+  const state = playback.state
+  const seekable = Number.isFinite(state.duration) && state.duration > 0
 
   return <div role="toolbar" aria-label={`Video controls: ${name}`} data-base-ui-swipe-ignore=""
-    className={`${playback ? "relative shrink-0" : "absolute inset-x-0 bottom-0"} z-10 bg-background/95 p-1 text-foreground`}>
-    {playback && state && <div className="flex min-h-8 items-center gap-2 px-2">
+    className="relative z-10 shrink-0 bg-background/95 p-1 text-foreground">
+    <div className="flex min-h-8 items-center gap-2 px-2">
       <Slider aria-label={`Seek ${name}`} className="min-w-0 flex-1" min={0} max={seekable ? state.duration : 1}
         step={0.1} value={seekable ? Math.min(state.time, state.duration) : 0} disabled={!seekable}
         onValueChange={value => playback.onSeek(value as number)}>
@@ -57,16 +57,14 @@ export function VideoControls({ name, expanded, expandRef, onExpand, download, p
           getAriaLabel={() => `Seek ${name}`} getAriaValueText={(_, value) => mediaTime(value)} /></SliderTrack></SliderControl>
       </Slider>
       <span className="shrink-0 text-xs tabular-nums">{mediaTime(state.time)} / {seekable ? mediaTime(state.duration) : "--:--"}</span>
-    </div>}
+    </div>
     <div className="flex items-center">
-      {playback && state && <>
         <Button variant="ghost" size="icon" className="size-11 shrink-0" aria-label={`${state.paused ? "Play" : "Pause"} ${name}`}
           onClick={playback.onToggle}>{state.paused ? <Play /> : <Pause />}</Button>
         <Button variant="ghost" size="icon" className="size-11 shrink-0" aria-label={`${state.muted || state.volume === 0 ? "Unmute" : "Mute"} ${name}`}
           onClick={playback.onMute}>{state.muted || state.volume === 0 ? <VolumeX /> : <Volume2 />}</Button>
-      </>}
       <div className="flex-1" />
-      {playback && state && <Popover>
+      <Popover>
         <PopoverTrigger render={<Button variant="ghost" size="icon" className="size-11 shrink-0" aria-label={`Video settings: ${name}`} />}><Settings2 /></PopoverTrigger>
         <PopoverContent side="top" align="end" className="w-60 space-y-3 p-3">
           {state.volumeAdjustable ? <><div className="text-sm">Volume</div>
@@ -80,7 +78,7 @@ export function VideoControls({ name, expanded, expandRef, onExpand, download, p
             {[0.5, 1, 1.25, 1.5, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
           </select>
         </PopoverContent>
-      </Popover>}
+      </Popover>
       <Button variant="ghost" size="icon" className="size-11 shrink-0" data-testid={tid.mediaDownload(name)}
         aria-label={`${download.state.status === "downloading" ? "Cancel download" : download.state.status === "error" ? "Retry download" : "Download"} ${name}`}
         aria-busy={download.state.status === "downloading"}

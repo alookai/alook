@@ -278,8 +278,6 @@ export function VideoAttachment({ attachment }: { attachment: FileAttachment }) 
         {previewStatus === "error" && <span className="rounded-md bg-background/90 px-2 py-1 text-xs text-foreground">Video preview unavailable</span>}
         <span className="sr-only">{attachment.name}</span>
       </button>}
-      {mode === "preview" && <VideoControls name={attachment.name} expanded={false} expandRef={expandRef}
-        onExpand={() => transition("expanded")} download={download} />}
     </div>
     <Dialog open={open} onOpenChange={value => { if (!value) transition("inline") }}>
       <DialogContent aria-label={`Video preview: ${attachment.name}`} data-testid={tid.videoDialog(attachment.name)}

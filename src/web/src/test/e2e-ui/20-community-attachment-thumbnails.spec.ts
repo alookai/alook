@@ -1606,6 +1606,9 @@ test("media attachments play, stop, recover and download through reachable mobil
   const video = await upload(videoName, "video/webm", webm)
   const videoPlay = video.block.getByTestId(tid.mediaPlay(videoName))
   await reachable(videoPlay, video.block)
+  await expect(video.block.getByRole("toolbar")).toHaveCount(0)
+  await expect(video.block.getByTestId(tid.mediaDownload(videoName))).toHaveCount(0)
+  await expect(video.block.getByTestId(tid.videoFullscreen(videoName))).toHaveCount(0)
   const preview = video.block.getByTestId(tid.videoPreview(videoName))
   await expect.poll(() => preview.evaluate((element: HTMLVideoElement) => ({
     ready: element.readyState >= 2, muted: element.muted, paused: element.paused,

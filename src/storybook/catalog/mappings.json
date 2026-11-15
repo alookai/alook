@@ -4139,7 +4139,7 @@
     "examples": [
       {
         "story": "web-business-attachments-and-rich-content--unavailable-video",
-        "region": "Image-like native video preview; Play reveals Alook controls and unsupported-media recovery. The same bar expands into the masked Dialog and shrinks back; original download remains available, with no system-fullscreen action."
+        "region": "The idle native first-frame preview has only central Play. Play reveals one Alook control bar and unsupported-media recovery; its expand/shrink stays in the masked Dialog, with original download available only after activation and no system-fullscreen action."
       }
     ],
     "reason": "The actual AttachmentCard mounts VideoAttachment in this missing-file story; its Play action reveals VideoPlayback. This declares the failure exposure only. Decoded-frame and successful playback evidence belongs to the actual browser/native media journeys."
@@ -4149,7 +4149,7 @@
     "examples": [
       {
         "story": "web-business-attachments-and-rich-content--unavailable-video",
-        "region": "VideoAttachment composes this original control bar for preview download/expansion and inline error recovery, with masked-preview shrink on the same bar."
+        "region": "After Play, VideoAttachment composes this one control bar for inline error recovery, original download and masked expand/shrink. It is absent from the idle preview."
       }
     ],
     "reason": "The actual AttachmentCard mounts VideoAttachment and its VideoControls child in the missing-file story. This declares the unavailable-media composition only; successful transport, seek, volume and state transfer require actual browser/native QA."

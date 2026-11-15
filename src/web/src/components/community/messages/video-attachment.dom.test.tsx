@@ -120,13 +120,20 @@ describe("image-like native video", () => {
     expect(pause).toHaveBeenCalledWith()
   })
 
-  it("expands an idle video without starting sound", async () => {
+  it("shows only Play before activation and admits one control bar after Play", async () => {
     const view = mount()
-    await click(view.getByTestId(tid.videoFullscreen(attachment.name)))
-    expect(view.getByRole("dialog")).toContainElement(view.getByTestId(tid.mediaPlayer(attachment.name)))
+    expect(view.getByRole("button", { name: `Play ${attachment.name}` })).toBeInTheDocument()
+    expect(view.queryByRole("toolbar")).toBeNull()
+    expect(view.queryByTestId(tid.mediaDownload(attachment.name))).toBeNull()
+    expect(view.queryByTestId(tid.videoFullscreen(attachment.name))).toBeNull()
     expect(play).not.toHaveBeenCalled()
-    await click(view.getByRole("button", { name: `Shrink ${attachment.name}` }))
-    expect(play).not.toHaveBeenCalled()
+    await click(view.getByTestId(tid.mediaPlay(attachment.name)))
+    const toolbar = view.getByRole("toolbar")
+    expect(view.getAllByRole("toolbar")).toHaveLength(1)
+    expect(toolbar).toContainElement(view.getByTestId(tid.mediaDownload(attachment.name)))
+    expect(toolbar).toContainElement(view.getByRole("button", { name: `Expand ${attachment.name}` }))
+    expect(view.queryByRole("dialog")).toBeNull()
+    expect(play).toHaveBeenCalledOnce()
   })
 
   it("drives play, pause, seek, sound and speed through the visible controls and native events", async () => {
