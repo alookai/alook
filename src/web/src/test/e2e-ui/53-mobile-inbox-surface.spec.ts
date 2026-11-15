@@ -1,3 +1,4 @@
+import { expectNoFocusOutline } from "./_fixtures/focus-appearance"
 import { communityFixtureFetch } from "./_fixtures/business-contract"
 import { expectInertBackground } from "./_fixtures/inert-background"
 import type { Page, Request } from "@playwright/test"
@@ -559,7 +560,8 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     await expect(inboxIcon).toHaveAttribute("fill", "none")
     await expect(inboxIcon).not.toHaveClass(/fill-current/)
     await expect.poll(readTriggerSurfaceStyle).toEqual(closedTriggerSurfaceStyle)
-    await expect.poll(readTriggerFocusRing).toContain("2px")
+    await expect.poll(readTriggerFocusRing).toBe(closedTriggerFocusRing)
+    await expectNoFocusOutline(inboxTrigger)
     await expect(bob.page).toHaveURL(new RegExp(`/c/channels/${serverId}$`))
     expect(writes.writes).toEqual([])
     expect(ws.frames).toHaveLength(wsBefore)
@@ -578,6 +580,8 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     await bob.page.keyboard.press("Escape")
     await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
     await expect(inboxTrigger).toBeFocused()
+    await expect.poll(readTriggerFocusRing).toBe(closedTriggerFocusRing)
+    await expectNoFocusOutline(inboxTrigger)
 
     await inboxTrigger.click()
     await bob.page.getByTestId(tid.userSettingsOpen).click()

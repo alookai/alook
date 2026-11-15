@@ -1730,10 +1730,24 @@ test("media attachments play, stop, recover and download through reachable mobil
   await expect(page.getByTestId(tid.videoFullscreen(videoName))).toHaveCount(1)
   await expect(dialog.getByTestId(tid.videoFullscreen(videoName))).toHaveAttribute("aria-label", `Shrink ${videoName}`)
   await expectMaskOnly()
-  await expect.poll(() => videoPlayer.locator("..").evaluate(element => ({
-    background: getComputedStyle(element).backgroundColor,
-    frameBorder: getComputedStyle(element, "::after").borderColor,
-  }))).toEqual({ background: "rgba(0, 0, 0, 0)", frameBorder: "rgba(0, 0, 0, 0)" })
+  await expect.poll(() => videoPlayer.locator("..").evaluate(element => {
+    const frame = getComputedStyle(element, "::after")
+    const canvas = document.createElement("canvas")
+    canvas.width = canvas.height = 1
+    const context = canvas.getContext("2d")
+    if (!context) throw new Error("Cannot measure computed frame color")
+    const borders = ["top", "right", "bottom", "left"].map(side => {
+      const width = Number.parseFloat(frame.getPropertyValue(`border-${side}-width`))
+      const style = frame.getPropertyValue(`border-${side}-style`)
+      const color = frame.getPropertyValue(`border-${side}-color`)
+      context.clearRect(0, 0, 1, 1)
+      context.fillStyle = color
+      context.fillRect(0, 0, 1, 1)
+      const alpha = context.getImageData(0, 0, 1, 1).data[3]
+      return { side, width, style, color, alpha, painted: width > 0 && style !== "none" && style !== "hidden" && alpha > 0 }
+    })
+    return { background: getComputedStyle(element).backgroundColor, borders }
+  })).toMatchObject({ background: "rgba(0, 0, 0, 0)", borders: [{ painted: false }, { painted: false }, { painted: false }, { painted: false }] })
   await expect.poll(async () => (await state(videoPlayer)).time).toBeGreaterThan(0.1)
   const playingToolbar = dialog.getByRole("toolbar", { name: `Video controls: ${videoName}`, exact: true })
   const readOutlines = (controls: Locator) => controls.evaluateAll(elements => {
