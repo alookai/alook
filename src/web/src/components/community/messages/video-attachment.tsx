@@ -164,12 +164,11 @@ function VideoPlayback({ attachment, initial, playerRef, expanded, expandRef, on
     syncControls(player)
   }
 
-  return <div className="relative flex min-h-0 flex-1 flex-col">
-    <div className="relative flex min-h-0 flex-1 items-center justify-center">
+  return <div className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto]">
     <video key={attempt} ref={attach} src={attachment.url} controls={false} playsInline preload="metadata" tabIndex={0}
       aria-label={`Video ${attachment.name}`}
       data-testid={tid.mediaPlayer(attachment.name)}
-      className="size-full min-h-0 object-contain"
+      className="absolute inset-0 size-full min-h-0 object-contain"
       onLoadedMetadata={event => { restorePosition(event.currentTarget); syncControls(event.currentTarget) }}
       onLoadedData={() => setStatus(value => value === "loading" ? "ready" : value)}
       onTimeUpdate={event => syncControls(event.currentTarget)} onDurationChange={event => syncControls(event.currentTarget)}
@@ -204,7 +203,7 @@ function VideoPlayback({ attachment, initial, playerRef, expanded, expandRef, on
     {status === "loading" && <span role="status" data-testid={tid.mediaStatus(attachment.name)}
       className="pointer-events-none absolute top-2 left-2 rounded-md bg-background/90 p-2 text-xs text-foreground">Loading video…</span>}
     {(status === "blocked" || status === "error") && <div role="alert" data-testid={tid.mediaStatus(attachment.name)}
-      className="absolute inset-0 flex items-center justify-center gap-2 rounded-lg bg-background/95 p-2 text-sm">
+      className="relative z-10 row-start-1 flex min-h-0 items-center justify-center gap-2 rounded-lg bg-background/95 p-2 text-sm">
       <p className="min-w-0">{status === "blocked" ? "Playback was blocked. Try playing again." : "Couldn’t play this file. Retry or download the original."}</p>
       <Button variant="secondary" size="icon" className="size-11 shrink-0" aria-label={status === "blocked" ? "Try playing" : "Retry video"}
         data-testid={tid.mediaRetry(attachment.name)} onClick={() => {
@@ -212,7 +211,6 @@ function VideoPlayback({ attachment, initial, playerRef, expanded, expandRef, on
         else { playOnAttachRef.current = true; setStatus("loading"); setAttempt(value => value + 1) }
       }}><RefreshCw /></Button>
     </div>}
-    </div>
     <VideoControls name={attachment.name} expanded={expanded} expandRef={expandRef} onExpand={onExpand} download={download}
       playback={{ state: { ...controls, paused: controls.paused && !playRequested }, onToggle: togglePlayback, onSeek: seek, onMute: mute, onVolume: volume, onRate: rate => {
         const player = playerRef.current

@@ -48,7 +48,7 @@ export function VideoControls({ name, expanded, expandRef, onExpand, download, p
   const seekable = Number.isFinite(state.duration) && state.duration > 0
 
   return <div role="toolbar" aria-label={`Video controls: ${name}`} data-base-ui-swipe-ignore=""
-    className="relative z-10 shrink-0 bg-background/95 p-1 text-foreground">
+    className="relative z-10 row-start-2 bg-background/95 p-1 text-foreground">
     <div className="flex min-h-8 items-center gap-2 px-2">
       <Slider aria-label={`Seek ${name}`} className="min-w-0 flex-1" min={0} max={seekable ? state.duration : 1}
         step={0.1} value={seekable ? Math.min(state.time, state.duration) : 0} disabled={!seekable}

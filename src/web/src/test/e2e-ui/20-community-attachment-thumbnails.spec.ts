@@ -1620,6 +1620,16 @@ test("media attachments play, stop, recover and download through reachable mobil
   expect(await preview.evaluate((element: HTMLVideoElement) => ({ width: element.videoWidth, height: element.videoHeight })))
     .toEqual({ width: 320, height: 180 })
   const previewRect = await boundingRect(preview)
+  const videoGeometry = (player: Locator) => player.evaluate((element: HTMLVideoElement) => {
+    const rect = element.getBoundingClientRect()
+    const style = getComputedStyle(element)
+    const scale = Math.min(rect.width / element.videoWidth, rect.height / element.videoHeight)
+    return { width: rect.width, height: rect.height, fit: style.objectFit,
+      sourceWidth: element.videoWidth, sourceHeight: element.videoHeight,
+      paintedWidth: element.videoWidth * scale, paintedHeight: element.videoHeight * scale }
+  })
+  const previewGeometry = await videoGeometry(preview)
+  expect(previewGeometry.fit).toBe("contain")
   const painted = await sharp(await page.screenshot({ clip: {
     x: previewRect.x + previewRect.width / 4, y: previewRect.y + previewRect.height / 2,
     width: 4, height: 4,
@@ -1649,6 +1659,9 @@ test("media attachments play, stop, recover and download through reachable mobil
   await expect(video.block.getByRole("alert")).toContainText("Couldn’t play this file")
   await reachable(inlineRetry, video.block)
   await reachable(video.block.getByTestId(tid.mediaDownload(videoName)), video.block)
+  const activatedFrame = await boundingRect(video.block.getByTestId(tid.mediaPlayer(videoName)))
+  expect(Math.abs(activatedFrame.width - previewRect.width)).toBeLessThanOrEqual(1)
+  expect(Math.abs(activatedFrame.height - previewRect.height)).toBeLessThanOrEqual(1)
   expect(badResponses).toBeGreaterThan(0)
   const beforeInlineRetry = badResponses
   await inlineRetry.tap()
@@ -1730,6 +1743,16 @@ test("media attachments play, stop, recover and download through reachable mobil
   expect(await readSettings(inlinePlayer)).toEqual(mediaSettings)
   const inlineFrame = await boundingRect(inlinePlayer)
   expectWithinRect(inlineFrame, await boundingRect(video.block))
+  const inlineGeometry = await videoGeometry(inlinePlayer)
+  expect(inlineGeometry.fit).toBe("contain")
+  expect(inlineGeometry.sourceWidth).toBe(previewGeometry.sourceWidth)
+  expect(inlineGeometry.sourceHeight).toBe(previewGeometry.sourceHeight)
+  for (const dimension of ["width", "height", "paintedWidth", "paintedHeight"] as const) {
+    expect(Math.abs(inlineGeometry[dimension] - previewGeometry[dimension])).toBeLessThanOrEqual(1)
+  }
+  const controlsRect = await boundingRect(video.block.getByRole("toolbar"))
+  expectWithinRect(controlsRect, inlineFrame)
+  expect(Math.abs(controlsRect.y + controlsRect.height - inlineFrame.y - inlineFrame.height)).toBeLessThanOrEqual(1)
   await inlinePlayer.press("Space")
   await expect.poll(async () => (await state(inlinePlayer)).time).toBeGreaterThan(videoBeforeClose.time)
   const inlineBeforeExpand = await state(inlinePlayer)
@@ -1753,7 +1776,7 @@ test("media attachments play, stop, recover and download through reachable mobil
   await testInfo.attach("media-playback.json", { body: JSON.stringify({ serverId, channelId,
     wavBytes: wav.length, webmBytes: webm.length, badResponses,
     audio: await state(audioPlayer), completion, videoBeforeClose, inlineBeforeExpand, inlineFrame,
-    idleAudioHeight: idleRect.height, previewRect, previewMetadata,
+    idleAudioHeight: idleRect.height, previewRect, previewMetadata, previewGeometry, activatedFrame, inlineGeometry, controlsRect,
     input: "touchscreen taps on Alook video controls; timeline tap; keyboard volume and Space; masked expand/shrink/Escape; browser download; no native OS save or native-shell claim",
   }), contentType: "application/json" })
 })
