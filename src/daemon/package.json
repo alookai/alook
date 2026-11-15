@@ -49,11 +49,11 @@
     "daemon": "tsx scripts/daemon.ts"
   },
   "dependencies": {
-    "commander": "^15.0.0",
+    "commander": "^15.1.0",
     "quickjs-emscripten": "^0.32.0",
     "sharp": "^0.35.5",
     "sucrase": "^3.35.1",
-    "ws": "^8.22.0"
+    "ws": "^8.22.2"
   },
   "devDependencies": {
     "@alook/agent-driver": "workspace:*",
@@ -63,7 +63,7 @@
     "eslint": "^9.39.5",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.72.0",
+    "typescript-eslint": "^8.72.2",
     "vitest": "5.1.0",
     "zod": "^4.6.7"
   }
