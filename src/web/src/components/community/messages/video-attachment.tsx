@@ -10,7 +10,8 @@ import { useFileDownload } from "@/lib/file-download"
 import type { FileAttachment } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import { attachmentImageFrameStyle } from "./attachment-layout"
-import { VideoControls, type VideoControlState } from "./video-controls"
+import { Video } from "@videojs/react/video"
+import { AttachmentVideoPlayer, VideoControls } from "./video-controls"
 
 type PlaybackStatus = "loading" | "ready" | "blocked" | "error"
 type PlaybackSnapshot = { time: number; playing: boolean; muted: boolean; volume: number; rate: number }
@@ -67,24 +68,14 @@ function VideoPlayback({ attachment, initial, playerRef, expanded, expandRef, on
   const playOnAttachRef = useRef(initial.playing)
   const positionRef = useRef(initial.time)
   const settingsRef = useRef(initial)
-  const volumeAdjustableRef = useRef(false)
-  const [playRequested, setPlayRequested] = useAtom(useCreateAtom(initial.playing))
-  const [controls, setControls] = useAtom(useCreateAtom<VideoControlState>({
-    time: initial.time, duration: 0, paused: !initial.playing, muted: initial.muted, volume: initial.volume, rate: initial.rate, volumeAdjustable: false,
-  }))
   const playbackAllowed = usePlaybackVisible(playerRef)
-  const syncControls = useCallback((player: HTMLVideoElement) => {
-    setControls({ time: player.currentTime, duration: player.duration, paused: player.paused || player.ended,
-      muted: player.muted, volume: player.volume, rate: player.playbackRate, volumeAdjustable: volumeAdjustableRef.current })
-  }, [setControls])
 
   useEffect(() => {
     if (playbackAllowed) return
     generationRef.current += 1
-    setPlayRequested(false)
     playerRef.current?.pause()
     setStatus(value => value === "loading" ? "ready" : value)
-  }, [playbackAllowed, playerRef, setPlayRequested, setStatus])
+  }, [playbackAllowed, playerRef, setStatus])
 
   const restorePosition = useCallback((player: HTMLVideoElement) => {
     if (positionRef.current > 0 && player.readyState >= 1) {
@@ -96,127 +87,61 @@ function VideoPlayback({ attachment, initial, playerRef, expanded, expandRef, on
   const play = useCallback((player: HTMLVideoElement) => {
     const generation = ++generationRef.current
     if (!playbackVisible(player)) { setStatus("ready"); return }
-    setPlayRequested(true)
     setStatus("loading")
     void player.play().then(() => {
       if (playerRef.current !== player) return
-      if (generationRef.current === generation) setPlayRequested(false)
       if (!playbackVisible(player)) { player.pause(); return }
       if (generationRef.current === generation) setStatus("ready")
     }).catch((error: unknown) => {
       if (playerRef.current !== player || generationRef.current !== generation) return
-      setPlayRequested(false)
       setStatus(typeof error === "object" && error !== null && "name" in error && error.name === "NotAllowedError" ? "blocked" : "error")
     })
-  }, [playerRef, setPlayRequested, setStatus])
+  }, [playerRef, setStatus])
 
   const attach = useCallback((player: HTMLVideoElement) => {
     playerRef.current = player
     if (player.getAttribute("src") !== attachment.url) player.src = attachment.url
     player.muted = settingsRef.current.muted
-    const probeVolume = settingsRef.current.volume === 0.5 ? 0.25 : 0.5
-    player.volume = probeVolume
-    volumeAdjustableRef.current = player.volume === probeVolume
     player.volume = settingsRef.current.volume
     player.playbackRate = settingsRef.current.rate
     restorePosition(player)
-    syncControls(player)
     if (playOnAttachRef.current) { playOnAttachRef.current = false; play(player) }
     return () => {
       generationRef.current += 1
-      setPlayRequested(false)
       positionRef.current = player.currentTime
       settingsRef.current = playbackSnapshot(player)
       if (playerRef.current === player) playerRef.current = null
       releaseVideo(player)
     }
-  }, [attachment.url, play, playerRef, restorePosition, setPlayRequested, syncControls])
+  }, [attachment.url, play, playerRef, restorePosition])
 
-  const togglePlayback = () => {
-    const player = playerRef.current
-    if (!player) return
-    if (!player.paused || playRequested) {
-      generationRef.current += 1
-      setPlayRequested(false)
-      player.pause()
-      setStatus(value => value === "loading" ? "ready" : value)
-    } else play(player)
-    syncControls(player)
-  }
-  const seek = (time: number) => {
-    const player = playerRef.current
-    if (!player || player.readyState < 1 || !Number.isFinite(player.duration) || player.duration <= 0) return
-    player.currentTime = Math.max(0, Math.min(time, player.duration))
-    syncControls(player)
-  }
-  const volume = (value: number) => {
-    const player = playerRef.current
-    if (!player || !volumeAdjustableRef.current) return
-    player.volume = value
-    player.muted = value === 0
-    syncControls(player)
-  }
-  const mute = () => {
-    const player = playerRef.current
-    if (!player) return
-    if (player.muted || player.volume === 0) { player.muted = false; if (player.volume === 0) player.volume = 1 }
-    else player.muted = true
-    syncControls(player)
-  }
-
-  return <div className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto]">
-    <video key={attempt} ref={attach} src={attachment.url} controls={false} playsInline preload="metadata" tabIndex={0}
-      aria-label={`Video ${attachment.name}`}
-      data-testid={tid.mediaPlayer(attachment.name)}
-      className="absolute inset-0 size-full min-h-0 object-contain"
-      onLoadedMetadata={event => { restorePosition(event.currentTarget); syncControls(event.currentTarget) }}
-      onLoadedData={() => setStatus(value => value === "loading" ? "ready" : value)}
-      onTimeUpdate={event => syncControls(event.currentTarget)} onDurationChange={event => syncControls(event.currentTarget)}
-      onVolumeChange={event => syncControls(event.currentTarget)} onRateChange={event => syncControls(event.currentTarget)}
-      onPause={event => {
-        if (playerRef.current !== event.currentTarget) return
-        generationRef.current += 1
-        setPlayRequested(false)
-        syncControls(event.currentTarget)
-      }} onEnded={event => syncControls(event.currentTarget)}
-      onClick={togglePlayback}
-      onKeyDown={event => {
-        const player = event.currentTarget
-        if (event.key === " " || event.key === "k") togglePlayback()
-        else if (event.key === "ArrowLeft") seek(player.currentTime - 5)
-        else if (event.key === "ArrowRight") seek(player.currentTime + 5)
-        else if (event.key === "ArrowUp") volume(Math.min(1, player.volume + 0.05))
-        else if (event.key === "ArrowDown") volume(Math.max(0, player.volume - 0.05))
-        else if (event.key === "m") mute()
-        else if (event.key === "f") onExpand()
-        else return
-        event.preventDefault()
-        event.stopPropagation()
-      }}
-      onPlay={event => {
-        if (!playbackVisible(event.currentTarget)) { generationRef.current += 1; event.currentTarget.pause() }
-        syncControls(event.currentTarget)
-        setStatus("ready")
-      }}
-      onError={event => { generationRef.current += 1; setPlayRequested(false); event.currentTarget.pause(); setStatus("error") }}
-    />
-    {status === "loading" && <span role="status" data-testid={tid.mediaStatus(attachment.name)}
-      className="pointer-events-none absolute top-2 left-2 rounded-md bg-background/90 p-2 text-xs text-foreground">Loading video…</span>}
-    {(status === "blocked" || status === "error") && <div role="alert" data-testid={tid.mediaStatus(attachment.name)}
-      className="relative z-10 row-start-1 flex min-h-0 items-center justify-center gap-2 rounded-lg bg-background/95 p-2 text-sm">
-      <p className="min-w-0">{status === "blocked" ? "Playback was blocked. Try playing again." : "Couldn’t play this file. Retry or download the original."}</p>
-      <Button variant="secondary" size="icon" className="size-11 shrink-0" aria-label={status === "blocked" ? "Try playing" : "Retry video"}
-        data-testid={tid.mediaRetry(attachment.name)} onClick={() => {
-        if (status === "blocked" && playerRef.current) play(playerRef.current)
-        else { playOnAttachRef.current = true; setStatus("loading"); setAttempt(value => value + 1) }
-      }}><RefreshCw /></Button>
-    </div>}
-    <VideoControls name={attachment.name} expanded={expanded} expandRef={expandRef} onExpand={onExpand} download={download}
-      playback={{ state: { ...controls, paused: controls.paused && !playRequested }, onToggle: togglePlayback, onSeek: seek, onMute: mute, onVolume: volume, onRate: rate => {
-        const player = playerRef.current
-        if (player) { player.playbackRate = rate; syncControls(player) }
-      } }} />
-  </div>
+  return <AttachmentVideoPlayer defaultPlaybackRates={[0.5, 1, 1.25, 1.5, 2]}>
+    <VideoControls name={attachment.name} expanded={expanded} expandRef={expandRef} playerRef={playerRef} onExpand={onExpand}
+      download={download} forceVisible={status !== "ready"}>
+      <Video key={attempt} ref={attach} src={attachment.url} fallback={null} controls={false} playsInline preload="metadata" tabIndex={0}
+        aria-label={`Video ${attachment.name}`} data-testid={tid.mediaPlayer(attachment.name)}
+        onLoadedMetadata={event => restorePosition(event.currentTarget)}
+        onLoadedData={() => setStatus(value => value === "loading" ? "ready" : value)}
+        onPause={() => { generationRef.current += 1; setStatus(value => value === "loading" ? "ready" : value) }}
+        onPlay={event => {
+          if (!playbackVisible(event.currentTarget)) { generationRef.current += 1; event.currentTarget.pause() }
+          setStatus("ready")
+        }}
+        onError={event => { generationRef.current += 1; event.currentTarget.pause(); setStatus("error") }}
+      />
+      {status === "loading" && <span role="status" data-testid={tid.mediaStatus(attachment.name)}
+        className="pointer-events-none absolute top-2 left-2 rounded-md bg-background/90 p-2 text-xs text-foreground">Loading video…</span>}
+      {(status === "blocked" || status === "error") && <div role="alert" data-testid={tid.mediaStatus(attachment.name)}
+        className="absolute inset-x-2 top-2 z-40 flex items-center justify-center gap-2 rounded-md bg-background/95 p-2 text-sm">
+        <p className="min-w-0">{status === "blocked" ? "Playback was blocked. Try playing again." : "Couldn’t play this file. Retry or download the original."}</p>
+        <Button variant="secondary" size="icon" className="size-11 shrink-0" aria-label={status === "blocked" ? "Try playing" : "Retry video"}
+          data-testid={tid.mediaRetry(attachment.name)} onClick={() => {
+          if (status === "blocked" && playerRef.current) play(playerRef.current)
+          else { playOnAttachRef.current = true; setStatus("loading"); setAttempt(value => value + 1) }
+        }}><RefreshCw /></Button>
+      </div>}
+    </VideoControls>
+  </AttachmentVideoPlayer>
 }
 
 export function VideoAttachment({ attachment }: { attachment: FileAttachment }) {

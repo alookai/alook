@@ -3625,7 +3625,12 @@
       "source": "src/web/src/components/community/messages/video-controls.tsx",
       "application": "Web",
       "candidates": [
+        "AttachmentVideoPlayer",
         "DownloadIcon",
+        "PlaybackButton",
+        "PlaybackSettings",
+        "PlayerInputs",
+        "SoundControls",
         "VideoControls"
       ],
       "kind": "composition",

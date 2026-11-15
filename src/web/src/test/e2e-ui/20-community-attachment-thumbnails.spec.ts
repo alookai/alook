@@ -1602,6 +1602,37 @@ test("media attachments play, stop, recover and download through reachable mobil
   expect((await state(audioPlayer)).paused).toBe(true)
   await expect(page.getByRole("menu")).toHaveCount(0)
 
+  const fullscreenProbeKey = "alook-media-fullscreen-probe"
+  await page.evaluate(key => {
+    const calls: string[] = []
+    const restores: Array<() => void> = []
+    for (const prototype of [Element.prototype, HTMLVideoElement.prototype]) {
+      for (const method of ["requestFullscreen", "webkitRequestFullscreen", "webkitEnterFullscreen", "webkitEnterFullScreen"]) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, method)
+        if (!descriptor || typeof descriptor.value !== "function") continue
+        const original = descriptor.value
+        Object.defineProperty(prototype, method, { ...descriptor, value: function (this: Element, ...args: unknown[]) {
+          calls.push(method)
+          return Reflect.apply(original, this, args)
+        } })
+        restores.push(() => Object.defineProperty(prototype, method, descriptor))
+      }
+    }
+    Reflect.set(window, key, { calls, restore: () => { for (const restore of restores.reverse()) restore() } })
+  }, fullscreenProbeKey)
+  caseResources.own(fullscreenProbeKey, async key => { await page.evaluate(key => {
+    const probe = Reflect.get(window, key) as { restore: () => void }
+    probe.restore()
+    Reflect.deleteProperty(window, key)
+  }, key) })
+  const expectMaskOnly = async () => {
+    expect(await page.evaluate(key => ({
+      calls: (Reflect.get(window, key) as { calls: string[] }).calls,
+      fullscreen: document.fullscreenElement !== null,
+      native: [...document.querySelectorAll("video")].some(player => Reflect.get(player, "webkitDisplayingFullscreen") === true
+        || Reflect.get(player, "webkitPresentationMode") === "fullscreen"),
+    }), fullscreenProbeKey)).toEqual({ calls: [], fullscreen: false, native: false })
+  }
   const videoName = "playback.webm"
   const video = await upload(videoName, "video/webm", webm)
   const videoPlay = video.block.getByTestId(tid.mediaPlay(videoName))
@@ -1688,8 +1719,18 @@ test("media attachments play, stop, recover and download through reachable mobil
   await expect(videoPlayer).toHaveAttribute("playsinline", "")
   await expect(page.getByTestId(tid.videoFullscreen(videoName))).toHaveCount(1)
   await expect(dialog.getByTestId(tid.videoFullscreen(videoName))).toHaveAttribute("aria-label", `Shrink ${videoName}`)
-  expect(await page.evaluate(() => document.fullscreenElement === null)).toBe(true)
+  await expectMaskOnly()
   await expect.poll(async () => (await state(videoPlayer)).time).toBeGreaterThan(0.1)
+  const playingToolbar = dialog.getByRole("toolbar", { name: `Video controls: ${videoName}`, exact: true })
+  const playingFrame = await boundingRect(videoPlayer)
+  await expect(playingToolbar).toBeHidden()
+  const hiddenPlayback = await state(videoPlayer)
+  expect(hiddenPlayback.paused).toBe(false)
+  expect(hiddenPlayback.ended).toBe(false)
+  expect(await boundingRect(videoPlayer)).toEqual(playingFrame)
+  await videoPlayer.tap({ position: { x: playingFrame.width / 2, y: playingFrame.height / 4 } })
+  await expect(playingToolbar).toBeVisible()
+  expect((await state(videoPlayer)).paused).toBe(false)
   const pauseVideo = dialog.getByRole("button", { name: `Pause ${videoName}`, exact: true })
   await reachable(pauseVideo, dialog)
   await pauseVideo.tap()
@@ -1708,12 +1749,13 @@ test("media attachments play, stop, recover and download through reachable mobil
   await expect.poll(() => videoPlayer.evaluate((element: HTMLVideoElement) => element.muted)).toBe(false)
   const settings = dialog.getByRole("button", { name: `Video settings: ${videoName}`, exact: true })
   await reachable(settings, dialog)
-  await settings.tap()
+  await muteVideo.tap()
   await page.getByRole("slider", { name: `Volume ${videoName}`, exact: true }).focus()
   await page.getByRole("slider", { name: `Volume ${videoName}`, exact: true }).press("Home")
   await page.getByRole("slider", { name: `Volume ${videoName}`, exact: true }).press("ArrowRight")
-  await page.getByLabel("Playback speed", { exact: true }).selectOption("1.5")
   await settings.tap()
+  await page.getByRole("menuitemradio", { name: "1.5×", exact: true }).tap()
+  if (await settings.getAttribute("aria-expanded") === "true") await settings.press("Escape")
   const mediaSettings = { muted: false, volume: 0.05, rate: 1.5 }
   const readSettings = (player: Locator) => player.evaluate((element: HTMLVideoElement) => ({ muted: element.muted, volume: element.volume, rate: element.playbackRate }))
   await expect.poll(() => readSettings(videoPlayer)).toEqual(mediaSettings)
@@ -1753,6 +1795,29 @@ test("media attachments play, stop, recover and download through reachable mobil
   const controlsRect = await boundingRect(video.block.getByRole("toolbar"))
   expectWithinRect(controlsRect, inlineFrame)
   expect(Math.abs(controlsRect.y + controlsRect.height - inlineFrame.y - inlineFrame.height)).toBeLessThanOrEqual(1)
+  const activateMask = async (player: Locator, input: "key" | "mouse" | "touch") => {
+    if (input === "key") await player.press("f")
+    else {
+      const rect = await boundingRect(player)
+      const position = { x: rect.width / 2, y: rect.height / 4 }
+      if (input === "mouse") await player.dblclick({ position })
+      else { await player.tap({ position }); await player.tap({ position }) }
+    }
+  }
+  for (const input of ["key", "mouse", "touch"] as const) {
+    await activateMask(inlinePlayer, input)
+    await expect(dialog).toBeVisible()
+    await expectMaskOnly()
+    const masked = dialog.getByTestId(tid.mediaPlayer(videoName))
+    await expect.poll(async () => (await state(masked)).ready).toBeGreaterThanOrEqual(2)
+    expect((await state(masked)).paused).toBe(true)
+    expect(await readSettings(masked)).toEqual(mediaSettings)
+    await activateMask(masked, input)
+    await expect(dialog).toBeHidden()
+    await expectMaskOnly()
+    await expect.poll(async () => (await state(inlinePlayer)).ready).toBeGreaterThanOrEqual(2)
+    expect((await state(inlinePlayer)).time).toBeCloseTo(videoBeforeClose.time, 1)
+  }
   await inlinePlayer.press("Space")
   await expect.poll(async () => (await state(inlinePlayer)).time).toBeGreaterThan(videoBeforeClose.time)
   const inlineBeforeExpand = await state(inlinePlayer)
@@ -1763,7 +1828,7 @@ test("media attachments play, stop, recover and download through reachable mobil
   const expanded = dialog.getByTestId(tid.mediaPlayer(videoName))
   await expect(expanded).not.toHaveAttribute("controls")
   expect(await readSettings(expanded)).toEqual(mediaSettings)
-  expect(await page.evaluate(() => document.fullscreenElement === null)).toBe(true)
+  await expectMaskOnly()
   await expect.poll(async () => (await state(expanded)).time).toBeGreaterThan(inlineBeforeExpand.time)
   expect(await capturedInline!.evaluate((element: HTMLVideoElement) => ({ paused: element.paused, source: element.getAttribute("src") })))
     .toEqual({ paused: true, source: null })
@@ -1772,10 +1837,11 @@ test("media attachments play, stop, recover and download through reachable mobil
   await dialog.getByTestId(tid.videoFullscreen(videoName)).press("Escape")
   await expect(dialog).toBeHidden()
   await expect(fullscreen).toBeFocused()
+  await expectMaskOnly()
   await ownedRoute.close()
   await testInfo.attach("media-playback.json", { body: JSON.stringify({ serverId, channelId,
     wavBytes: wav.length, webmBytes: webm.length, badResponses,
-    audio: await state(audioPlayer), completion, videoBeforeClose, inlineBeforeExpand, inlineFrame,
+    audio: await state(audioPlayer), completion, videoBeforeClose, inlineBeforeExpand, inlineFrame, hiddenPlayback, playingFrame,
     idleAudioHeight: idleRect.height, previewRect, previewMetadata, previewGeometry, activatedFrame, inlineGeometry, controlsRect,
     input: "touchscreen taps on Alook video controls; timeline tap; keyboard volume and Space; masked expand/shrink/Escape; browser download; no native OS save or native-shell claim",
   }), contentType: "application/json" })
