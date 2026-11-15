@@ -50,6 +50,14 @@ async function boundingRect(locator: Locator): Promise<Rect> {
   return rect!
 }
 
+async function expectFramelessPreview(dialog: Locator) {
+  await expect.poll(() => dialog.evaluate(element => {
+    const style = getComputedStyle(element)
+    return { background: style.backgroundColor, padding: style.padding,
+      borders: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth], shadow: style.boxShadow }
+  })).toEqual({ background: "rgba(0, 0, 0, 0)", padding: "0px", borders: ["0px", "0px", "0px", "0px"], shadow: "none" })
+}
+
 async function expectNativeImageContextMenu(
   page: Page,
   target: Locator,
@@ -113,6 +121,7 @@ async function previewLayout(page: Page) {
   const container = await boundingRect(page.getByTestId(tid.imageLightbox))
   const controls = await boundingRect(page.getByRole("toolbar", { name: "Image controls" }))
   const dialog = await boundingRect(page.locator("[data-slot='dialog-content']").filter({ has: page.getByTestId(tid.imageLightbox) }))
+  await expectFramelessPreview(page.locator("[data-slot='dialog-content']").filter({ has: page.getByTestId(tid.imageLightbox) }))
   const { viewport, inset } = await page.evaluate(() => {
     const probe = document.createElement("div")
     probe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)"
@@ -1701,6 +1710,7 @@ test("media attachments play, stop, recover and download through reachable mobil
   await reachable(fullscreen, video.block)
   await fullscreen.tap()
   await expect(dialog).toBeVisible()
+  await expectFramelessPreview(dialog)
   const retry = dialog.getByTestId(tid.mediaRetry(videoName))
   const videoDownload = dialog.getByTestId(tid.mediaDownload(videoName))
   await expect(retry).toBeVisible()
@@ -1720,6 +1730,10 @@ test("media attachments play, stop, recover and download through reachable mobil
   await expect(page.getByTestId(tid.videoFullscreen(videoName))).toHaveCount(1)
   await expect(dialog.getByTestId(tid.videoFullscreen(videoName))).toHaveAttribute("aria-label", `Shrink ${videoName}`)
   await expectMaskOnly()
+  await expect.poll(() => videoPlayer.locator("..").evaluate(element => ({
+    background: getComputedStyle(element).backgroundColor,
+    frameBorder: getComputedStyle(element, "::after").borderColor,
+  }))).toEqual({ background: "rgba(0, 0, 0, 0)", frameBorder: "rgba(0, 0, 0, 0)" })
   await expect.poll(async () => (await state(videoPlayer)).time).toBeGreaterThan(0.1)
   const playingToolbar = dialog.getByRole("toolbar", { name: `Video controls: ${videoName}`, exact: true })
   const readOutlines = (controls: Locator) => controls.evaluateAll(elements => {
@@ -1745,11 +1759,48 @@ test("media attachments play, stop, recover and download through reachable mobil
   expect(containerOutlines).toHaveLength(1)
   expect(containerOutlines.filter(control => !control.focusVisible).every(control => !control.painted)).toBe(true)
   const playingFrame = await boundingRect(videoPlayer)
+  await videoPlayer.focus()
   await expect(playingToolbar).toBeHidden()
   const hiddenPlayback = await state(videoPlayer)
   expect(hiddenPlayback.paused).toBe(false)
   expect(hiddenPlayback.ended).toBe(false)
   expect(await boundingRect(videoPlayer)).toEqual(playingFrame)
+  await page.keyboard.press("Tab")
+  const tabbedPause = dialog.getByRole("button", { name: `Pause ${videoName}`, exact: true })
+  await expect(tabbedPause).toBeFocused()
+  await expect(playingToolbar).toBeVisible()
+  expect((await state(videoPlayer)).paused).toBe(false)
+  await tabbedPause.tap()
+  const restartSeek = dialog.getByRole("slider", { name: `Seek ${videoName}`, exact: true })
+  await restartSeek.focus()
+  await restartSeek.press("Home")
+  await expect.poll(async () => (await state(videoPlayer)).time).toBeLessThan(0.1)
+  await videoPlayer.focus()
+  await page.keyboard.press("Tab")
+  const keyboardStart = dialog.getByRole("button", { name: `Play ${videoName}`, exact: true })
+  await expect(keyboardStart).toBeFocused()
+  await page.keyboard.press("Space")
+  const statusAnnouncement = dialog.locator('[data-status-announcer-content]').locator("..")
+  await expect(statusAnnouncement).toHaveAttribute("role", "status")
+  await expect.poll(async () => (await statusAnnouncement.textContent())?.trim().length ?? 0).toBeGreaterThan(0)
+  await expect.poll(() => statusAnnouncement.evaluate(element => {
+    const style = getComputedStyle(element)
+    const rect = element.getBoundingClientRect()
+    return { width: rect.width, height: rect.height, clip: style.clipPath, overflow: style.overflow, visibility: style.visibility, display: style.display }
+  })).toEqual({ width: 1, height: 1, clip: "inset(50%)", overflow: "hidden", visibility: "visible", display: "block" })
+  await expect.poll(async () => (await state(videoPlayer)).time).toBeGreaterThan(2.1)
+  await expect(dialog.getByRole("button", { name: `Pause ${videoName}`, exact: true })).toBeFocused()
+  await expect(playingToolbar).toBeVisible()
+  expect((await state(videoPlayer)).paused).toBe(false)
+  await dialog.getByRole("button", { name: `Pause ${videoName}`, exact: true }).tap()
+  await restartSeek.focus()
+  await restartSeek.press("Home")
+  await expect.poll(async () => (await state(videoPlayer)).time).toBeLessThan(0.1)
+  await dialog.getByRole("button", { name: `Play ${videoName}`, exact: true }).tap()
+  await videoPlayer.focus()
+  await expect(playingToolbar).toBeHidden()
+  expect((await state(videoPlayer)).paused).toBe(false)
+  expect((await state(videoPlayer)).ended).toBe(false)
   await videoPlayer.tap({ position: { x: playingFrame.width / 2, y: playingFrame.height / 4 } })
   await expect(playingToolbar).toBeVisible()
   expect((await state(videoPlayer)).paused).toBe(false)
@@ -1763,8 +1814,7 @@ test("media attachments play, stop, recover and download through reachable mobil
   await expect(keyboardPlayback).toBeFocused()
   const keyboardOutline = await readOutlines(keyboardPlayback)
   expect(keyboardOutline).toHaveLength(1)
-  expect(keyboardOutline[0]).toMatchObject({ focusVisible: true, painted: true })
-  expect(keyboardOutline[0].width).toBeGreaterThanOrEqual(2)
+  expect(keyboardOutline[0]).toMatchObject({ focusVisible: true, painted: false, style: "none" })
   const seek = dialog.getByTestId(tid.videoSeek(videoName))
   await reachable(seek, dialog)
   const seekRect = await boundingRect(seek)

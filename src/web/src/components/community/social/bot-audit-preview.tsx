@@ -49,7 +49,7 @@ export function BotAuditPreview({
       className={[
         "relative flex w-full shrink-0 flex-col overflow-hidden rounded-xl border bg-card text-left shadow-(--e1) transition-[border-color] duration-150",
         "after:pointer-events-none after:absolute after:inset-0 after:z-10 after:rounded-[inherit] after:opacity-0 after:ring-2 after:ring-inset after:ring-ring/50 after:transition-opacity after:duration-150 after:content-[''] hover:after:opacity-100 active:after:ring-ring/70",
-        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        "  ",
         active
           ? "bot-audit-active-heartbeat border-primary/35 before:pointer-events-none before:absolute before:inset-0 before:z-20 before:rounded-[inherit] before:ring-2 before:ring-inset before:ring-primary/60 before:content-['']"
           : "border-border",

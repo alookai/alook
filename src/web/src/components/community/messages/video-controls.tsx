@@ -135,12 +135,12 @@ export function VideoControls({ name, expanded, expandRef, playerRef, onExpand, 
     : download.state.status === "error" ? RefreshCw : Download
 
   return <Container className="media-skin media-container video-skin alook-video-player"
-    data-theme="neutral" data-preset="video" data-base-ui-swipe-ignore="" tabIndex={0}
+    data-theme="neutral" data-preset="video" data-expanded={expanded ? "" : undefined} data-base-ui-swipe-ignore="" tabIndex={0}
     onPointerDownCapture={() => { keyboardRef.current = false; setKeyboardFocus(false) }}
     onKeyDownCapture={event => {
       keyboardRef.current = true
       setKeyboardFocus(controlsRef.current?.contains(event.target as Node) ?? false)
-      if (event.key === "Tab") flushSync(() => store.toggleControls(true))
+      if (event.key === "Tab") flushSync(() => { setKeyboardFocus(true); store.toggleControls(true) })
     }}
     onFocusCapture={event => {
       if (movingFocusRef.current) { event.stopPropagation(); return }
@@ -190,6 +190,6 @@ export function VideoControls({ name, expanded, expandRef, playerRef, onExpand, 
       </Controls.Content>
     </Controls.Root>
     <PlayerInputs onExpand={onExpand} />
-    <StatusAnnouncer />
+    <StatusAnnouncer className="media-status-announcer" />
   </Container>
 }

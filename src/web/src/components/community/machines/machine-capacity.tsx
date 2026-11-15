@@ -14,7 +14,7 @@ export function MachineCapacityUsage({ summary, onViewPlan }: { summary: Machine
   return <Popover>
     <PopoverTrigger openOnHover delay={150} render={<button type="button" data-testid="machine-plan-summary" disabled={!summary}
       aria-label={summary ? `Online machines: ${online} of ${limit} allowed, ${summary.ownedCount} owned, ${name} plan` : "Machine usage loading"}
-      className="flex min-h-11 w-fit items-center gap-2 rounded-sm text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-6">
+      className="flex min-h-11 w-fit items-center gap-2 rounded-sm text-sm text-muted-foreground hover:text-foreground    sm:min-h-6">
       Online machines
       <svg aria-hidden="true" className="size-4 -rotate-90" viewBox="0 0 20 20" fill="none">
         <circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="2" className="text-border" />

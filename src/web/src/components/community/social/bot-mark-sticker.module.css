@@ -79,7 +79,6 @@
   .thoughtTime, .stop { min-height: 44px; }
   .footer { min-height: 60px; }
 }
-.tab:focus-visible, .thoughtTime:focus-visible, .stop:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .scrollbar { scrollbar-color: var(--note-rule) transparent; }
 .scrollbar:hover { scrollbar-color: var(--note-muted) transparent; }
 .notebook ::selection { background: color-mix(in srgb, var(--note-ink) 15%, var(--note-paper)); }

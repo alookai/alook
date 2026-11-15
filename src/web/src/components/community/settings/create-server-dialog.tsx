@@ -149,7 +149,7 @@ export function CreateServerDialog({ onClose, onCreateServer, previewName }: {
               type="button"
               onClick={pickIcon}
               aria-label="Upload server icon"
-              className="group relative grid size-16 shrink-0 place-items-center overflow-hidden rounded-xl text-white ring-1 ring-border/40 outline-none transition-[box-shadow,filter] hover:brightness-105 focus-visible:ring-2 focus-visible:ring-ring [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]"
+              className="group relative grid size-16 shrink-0 place-items-center overflow-hidden rounded-xl text-white ring-1 ring-border/40 outline-none transition-[box-shadow,filter] hover:brightness-105   [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]"
             >
               {iconPreview ? (
                 <img src={iconPreview} alt="" className="size-full object-cover" />
@@ -181,7 +181,7 @@ export function CreateServerDialog({ onClose, onCreateServer, previewName }: {
                 autoFocus={previewName === undefined}
                 aria-label="Server name"
                 data-testid={tid.createServerName}
-                className="w-full border-0 bg-transparent p-0 text-[26px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/35 focus-visible:ring-0"
+                className="w-full border-0 bg-transparent p-0 text-[26px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/35 "
               />
               <SlugHint {...namePreview} />
             </div>

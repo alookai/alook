@@ -3,6 +3,7 @@ import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { confirmCommunityFixtureApiResponse, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import { tid } from "./_fixtures/testids"
+import { expectNoFocusOutline } from "./_fixtures/focus-appearance"
 
 const HTML = '<!doctype html><html><body><p>Renderer action theme fixture</p><button style="position:absolute;right:6px;top:6px;width:24px;height:24px;padding:0" aria-label="Use preview" onclick="document.querySelector(\'output\').textContent=Number(document.querySelector(\'output\').textContent)+1">+</button><output>0</output></body></html>'
 const TABLE_ACTIONS = ':scope > div:first-child:not(:has([data-streamdown="table"]))'
@@ -61,6 +62,7 @@ async function inspectControl(page: Page, group: Locator, control: Locator, inli
   await page.keyboard.press("Tab")
   await control.focus()
   await expect(control).toBeFocused()
+  await expectNoFocusOutline(control)
   await expect.poll(() => control.evaluate(element => element.matches(":focus-visible"))).toBe(true)
   await expect(group).toHaveCSS("opacity", "1")
   await activeColors(control, group)

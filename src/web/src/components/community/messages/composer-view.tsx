@@ -189,7 +189,7 @@ export function ComposerView({
         className={`pointer-events-auto relative ${
           isForumThreadBody
             ? "bg-transparent ring-0"
-            : "bg-muted shadow-(--e1) ring-1 ring-border/40 transition-shadow focus-within:ring-2 focus-within:ring-ring/60"
+            : "bg-muted shadow-(--e1) ring-1 ring-border/40 transition-shadow  "
         } ${composerRadius}`}
       >
         {dragging && (

@@ -213,7 +213,7 @@ function ContentImageAttempt({
           type="button"
           aria-label={activateLabel ?? `Open ${alt}`}
           onClick={onActivate}
-          className="absolute inset-0 z-1 block size-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          className="absolute inset-0 z-1 block size-full cursor-pointer    "
         >
           {media}
         </button>
@@ -227,7 +227,7 @@ function ContentImageAttempt({
           <Button variant="ghost" size="sm"
             type="button"
             onClick={retry}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 font-medium text-foreground transition-colors hover:bg-accent   "
           >
             {retryLabel}
           </Button>

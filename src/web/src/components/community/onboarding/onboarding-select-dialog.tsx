@@ -217,7 +217,7 @@ export function OnboardingSelectDialog({
                       data-disabled={option.disabled || locked || undefined}
                       data-selected={selected || undefined}
                       className={cn(
-                        "min-h-14 cursor-pointer justify-center rounded-lg border-0 bg-transparent px-2 py-3 text-left shadow-none transition-colors duration-150 has-[>[data-slot=field]]:rounded-lg has-[>[data-slot=field]]:border-0 *:data-[slot=field]:p-0 hover:bg-accent/50 active:bg-accent has-focus-visible:ring-3 has-focus-visible:ring-ring/40 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:bg-muted/40 data-[disabled=true]:text-muted-foreground",
+                        "min-h-14 cursor-pointer justify-center rounded-lg border-0 bg-transparent px-2 py-3 text-left shadow-none transition-colors duration-150 has-[>[data-slot=field]]:rounded-lg has-[>[data-slot=field]]:border-0 *:data-[slot=field]:p-0 hover:bg-accent/50 active:bg-accent   data-[disabled=true]:cursor-not-allowed data-[disabled=true]:bg-muted/40 data-[disabled=true]:text-muted-foreground",
                         selected && "bg-accent",
                       )}
                     >
@@ -285,7 +285,7 @@ export function OnboardingSelectDialog({
                       disabled={locked}
                       aria-invalid={(customSelected && invalid) || undefined}
                       className={cn(
-                        "h-9 min-w-0 max-w-xs flex-1 rounded-none border-0 border-b bg-transparent px-0 shadow-none focus-visible:border-foreground focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent",
+                        "h-9 min-w-0 max-w-xs flex-1 rounded-none border-0 border-b bg-transparent px-0 shadow-none   disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent",
                         customSelected ? "border-foreground" : "border-input",
                       )}
                     />

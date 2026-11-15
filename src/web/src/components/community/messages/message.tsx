@@ -636,24 +636,24 @@ function MessageImpl({
           )}
           {onReact && (
             <EmojiPickerPopover side="bottom" align="end" onPick={(e) => onReact(e)} onOpenChange={setToolbarOpen}>
-              <Button variant="ghost" size="icon-sm" data-testid={tid.reactionAdd(m.id)} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" aria-label="Add reaction">
+              <Button variant="ghost" size="icon-sm" data-testid={tid.reactionAdd(m.id)} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground    aria-expanded:text-foreground" aria-label="Add reaction">
                 <SmilePlus className="size-4" />
               </Button>
             </EmojiPickerPopover>
           )}
           {onReply && (
-            <Button variant="ghost" size="icon-sm" onClick={onReply} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Reply">
+            <Button variant="ghost" size="icon-sm" onClick={onReply} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground   " aria-label="Reply">
               <Reply className="size-4" />
             </Button>
           )}
           {canShare && (onEnterSelect || onShareSingle) && (
-            <Button variant="ghost" size="icon-sm" data-testid={tid.messageShare(m.id)} onClick={onEnterSelect ?? onShareSingle} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Share as image">
+            <Button variant="ghost" size="icon-sm" data-testid={tid.messageShare(m.id)} onClick={onEnterSelect ?? onShareSingle} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground   " aria-label="Share as image">
               <Share className="size-4" />
             </Button>
           )}
           <DropdownMenu onOpenChange={setToolbarOpen}>
             <DropdownMenuTrigger
-              render={<Button variant="ghost" size="icon-sm" aria-label="More actions" className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" />}
+              render={<Button variant="ghost" size="icon-sm" aria-label="More actions" className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground    aria-expanded:text-foreground" />}
             >
               <MoreHorizontal className="size-4" />
             </DropdownMenuTrigger>

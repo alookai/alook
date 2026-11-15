@@ -69,7 +69,7 @@ Inspired by vintage Macintosh product photography — a warm cream object on a d
 | `secondary` / `secondary-foreground` | Secondary surfaces and controls. |
 | `muted` / `muted-foreground` | De-emphasized surfaces and supporting text. `muted-foreground` is the metadata/caption color. |
 | `accent` / `accent-foreground` | Hover tint and gentle emphasis. |
-| `border` / `input` / `ring` | Dividers, field outlines, and the focus ring. |
+| `border` / `input` / `ring` | Dividers, field borders, and state-ring tokens; focus adds no ring. |
 | `destructive` | Errors and irreversible actions only. Warm red — never repurpose it for emphasis. |
 | `status-online` / `status-offline` | Presence dots only (green online / deep gray offline). Reserved — do not use as UI accents. |
 | `warning` | Recoverable degraded states that need attention without implying failure. Muted amber. |
@@ -89,7 +89,7 @@ Message navigation and qualified tail following share one smooth-scroll policy: 
 
 Fullscreen dialog, alert and sheet edge fades consume the same visible-surface publication, with the current app canvas as the pre-publication fallback. Onboarding locally overrides the edge color with its own paper background. The UserBar lower fade preserves separate frame and navigation regions at the existing rail boundary. Keep edge dimensions, transparency curves and input/layout ownership unchanged; clipping-mask colors and landing section palettes retain their separate roles.
 
-Forum tag filters, reaction-detail tabs and Blog topic filters use the installed shadcn horizontal scroll-fade mask on their actual scrollers, with four spacing units of fade depth and matching inline content/scroll padding. Surrounding backgrounds retain their own paint. Selection and resize reveal keep a fitting selected item inside the padded reading area; keyboard navigation and Blog wheel-boundary release remain application-owned. Forum chip and reaction-tab focus paint stays inside its clipped row. Supported engines remove fades at the corresponding scroll boundary and without overflow; older engines retain the utility's static two-edge fallback. Fixed dialog, footer and UserBar background gradients retain their separate purposes.
+Forum tag filters, reaction-detail tabs and Blog topic filters use the installed shadcn horizontal scroll-fade mask on their actual scrollers, with four spacing units of fade depth and matching inline content/scroll padding. Surrounding backgrounds retain their own paint. Selection and resize reveal keep a fitting selected item inside the padded reading area; keyboard navigation and Blog wheel-boundary release remain application-owned. Forum chip and reaction-tab selected-state paint stays inside its clipped row; keyboard focus adds no outline or ring. Supported engines remove fades at the corresponding scroll boundary and without overflow; older engines retain the utility's static two-edge fallback. Fixed dialog, footer and UserBar background gradients retain their separate purposes.
 
 Forum's post list owns a separate vertical scroll-fade mask with the same depth. Message headers end at their solid lower edge without a downward backdrop, including channel, DM, thread, loading and unavailable-title states. The chat composer keeps its existing upward background fade. Forum title and New Post remain outside both scroll masks; post-list row spacing and virtualization retain their existing owners.
 
@@ -152,7 +152,7 @@ Rules:
 - **JS and CSS boundaries are the same 640px.** Use the hook for behavior (which zone to render, whether to show a back button); use Tailwind's `sm:` prefix for pure layout fit at the mobile ↔ desktop split. Both share the same 640px pivot so a mobile page never renders desktop CSS at the same width.
 - **`md:` is banned. `lg:` is allowed only for desktop-internal fit** — e.g. an issue sheet that can float a timeline panel beside its body once the viewport clears ~1024px, or a stats grid that reflows from 1 col to 2 cols when there's room. This is not a third tier; it's a content-fit fallback that happens *within* desktop. If the switch changes navigation or a user-visible zone, it belongs in the JS hook, not in `lg:`.
 - **Touch targets on mobile are non-negotiable.** Interactive elements ≥ 44×44px (`h-11`). On desktop the same control may collapse to `h-9`/`h-10`.
-- **UserBar keeps compact visuals inside its touch targets.** Below 640px, square buttons use fixed 44×44px targets and centered 28×28px visual surfaces; at 640px and above both are 28×28px. The name trigger is 44px high below the checkpoint and 28px high above it. Background, hover and expanded tint belong to the visual surface, while focus belongs to the native button. Preserve icon, avatar, unread and running-ring sizes. Keep the bar 48px high and reserve matching slots in both skeletons, including the homepage document with its 14px root font.
+- **UserBar keeps compact visuals inside its touch targets.** Below 640px, square buttons use fixed 44×44px targets and centered 28×28px visual surfaces; at 640px and above both are 28×28px. The name trigger is 44px high below the checkpoint and 28px high above it. Background, hover and expanded tint belong to the visual surface, while keyboard focus belongs to the native button without added focus decoration. Preserve icon, avatar, unread and running-ring sizes. Keep the bar 48px high and reserve matching slots in both skeletons, including the homepage document with its 14px root font.
 - **Don't introduce a third stage.** If a design "needs a tablet mode," either the mobile layout should stretch gracefully or the desktop layout should reflow inside — not a new tier.
 
 ### Dots & Indicators
@@ -205,7 +205,7 @@ State must be *visible*, and it must come from tokens — not ad-hoc tweaks. Eve
 - **Hover** → `accent` tint (or one step lighter/darker surface). 150ms transition.
 - **Active / pressed** → one step beyond hover, so a click feels like it landed.
 - **Disabled** → muted surface + `muted-foreground` text + `not-allowed` cursor. Never just lowered opacity on the whole control.
-- **Focus** → a visible focus ring on `:focus-visible` using `ring`. Never remove an outline without a visible replacement — this is an accessibility requirement, not a style choice.
+- **Focus** → preserve Tab, native DOM focus, arrow navigation, activation and control reveal without adding outlines, rings, glows or focus-only border colors. This applies across main Web, Blog, OAuth pages and embedded player controls; error and selected-state paint remain separate.
 
 ### Buttons & inputs
 
@@ -213,7 +213,7 @@ State must be *visible*, and it must come from tokens — not ad-hoc tweaks. Eve
 - **Secondary** — `background`/`secondary` surface with a `border`. The default workhorse.
 - **Tertiary / ghost** — transparent, tints to `accent` on hover. For low-emphasis and inline actions.
 - **Destructive** — `destructive` fill, reserved for irreversible actions; confirm before firing.
-- Inputs use `input` for the border and `ring` for focus. Match the control's radius to the Shape scale.
+- Inputs use `input` for their normal border; focus retains the normal border and shadow. Match the control's radius to the Shape scale.
 
 ### Landing testimonials
 
@@ -225,7 +225,7 @@ A landing-only extension of the inherited green/CRT world, immediately after the
 
 **The Native Attribution Rule.** Keep the source arrow beside the name, with both vertically centered in the author row and an 8px gap. The handle sits below; quote text follows with 8px separation and a maximum of three visible lines with CSS ellipsis. Preserve the full exact quotation in the document. The entire row opens the original in a new tab and includes an accessible source notice; the icon is decorative. There is no visible source label or separate source control.
 
-**The Readable Motion Rule.** Preserve both opposing lanes (100s forward and 110s reverse, linear and continuous). Hover or an active press on the wall pauses the current transform; it does not replace the pressed link. Keyboard-visible focus removes animation, hides loop copies and enables manual horizontal lane scrolling with the shared thin scrollbar. Reduced motion uses the same static manual-reading layout. Focused rows retain a visible landing-text outline (2px, offset 4px). No Pause/Resume control or reading disclosure is present.
+**The Readable Motion Rule.** Preserve both opposing lanes (100s forward and 110s reverse, linear and continuous). Hover or an active press on the wall pauses the current transform; it does not replace the pressed link. Keyboard-visible focus removes animation, hides loop copies and enables manual horizontal lane scrolling with the shared thin scrollbar. Reduced motion uses the same static manual-reading layout. Focused rows keep their static keyboard-reading layout without an added outline. No Pause/Resume control or reading disclosure is present.
 
 **The Single Reading Copy Rule.** Expose the 20 original source links once to assistive technology and keyboard navigation. Repeated loop groups are `aria-hidden`, with their links outside the tab order; originals remain accessible in the moving lanes. These are attributed community comments, not a new claim of verified customers.
 
@@ -285,7 +285,7 @@ Words are part of the interface. They should sound like the brand: **warm, sharp
 
 - **Do** pick tokens by intent (`muted` because it's secondary), not by how the color looks.
 - **Do** keep WCAG AA contrast (4.5:1 for body text) in both light and dark.
-- **Do** show a visible focus ring on every interactive element at `:focus-visible`.
+- **Do** preserve keyboard focus and navigation without adding focus outlines or rings.
 - **Do** desaturate any new accent 20–30% toward gray before shipping.
 - **Do** pair `overflow-y-auto` / `overflow-x-auto` with `thin-scrollbar` — always.
 - **Don't** introduce a saturated or off-palette color. Template leftovers (e.g. a blue-violet sidebar token) are bugs to fix, not values to keep.

@@ -362,7 +362,7 @@ export function FriendsPage({
                       >
                         <div className="flex items-center gap-3">
                           <button
-                            className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-0"
+                            className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none   sm:min-h-0"
                             onClick={(event) => onOpenProfile?.(p.name, event, undefined, p.userId)}
                           >
                             <Avatar label={p.avatar} seed={p.userId} size={32} />

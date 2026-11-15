@@ -522,7 +522,7 @@ describe("ComposerView", () => {
       ).toBeGreaterThan(0)
     }
     expect(
-      renderer.container.querySelector('[class*="focus-within:ring-2"]')?.className,
+      renderer.container.querySelector('[data-slot="community-composer-base"]')?.className,
     ).toContain("rounded-b-xl")
     expect(
       renderer.container.querySelector('[class*="flex-wrap"]')?.className,
@@ -553,7 +553,7 @@ describe("ComposerView", () => {
     expect(onUploadFile).toHaveBeenCalledOnce()
     expect(onEmojiPick).toHaveBeenCalledWith("🌱")
     expect(
-      renderer.container.querySelector('[class*="focus-within:ring-2"]')?.className,
+      renderer.container.querySelector('[data-slot="community-composer-base"]')?.className,
     ).toContain("rounded-(--community-composer-top-radius)")
     expect(renderer.container.querySelector("[data-editor-content]")?.className).toContain(
       "max-h-48",

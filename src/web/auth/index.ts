@@ -259,7 +259,7 @@ const PAGE_STYLE = `
   }
   button:hover { background: var(--button-hover); transform: translateY(-1px); }
   button:active { transform: translateY(0); }
-  button:focus-visible { outline: 3px solid var(--ring); outline-offset: 3px; }
+  :focus { outline: none !important; }
   @keyframes avatar-drift {
     from { transform: translate3d(0, 0, 0) rotate(0); }
     to { transform: translate3d(var(--dx), var(--dy), 0) rotate(var(--turn)); }

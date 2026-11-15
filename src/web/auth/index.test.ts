@@ -2,6 +2,7 @@ import rawContractInput0 from "../public/alook.svg?raw"
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import { JSDOM } from "jsdom";
 import { renderFaceSvg } from "../src/lib/avatar/face";
 import handler, {
   ANDROID_ASSET_LINKS,
@@ -112,7 +113,13 @@ describe("alook-auth Worker", () => {
     expect(body).toMatch(/\.avatar-field \{[\s\S]*?pointer-events: none;[\s\S]*?\}/);
     expect(body).toMatch(/\.avatar \{ animation: none; transform: none; will-change: auto; \}/);
     expect(body).toContain("min-height: 48px");
-    expect(body).toContain("button:focus-visible");
+    const dom = new JSDOM(body);
+    try {
+      const button = dom.window.document.querySelector("button")!;
+      button.focus();
+      expect(dom.window.document.activeElement).toBe(button);
+      expect(dom.window.getComputedStyle(button).outline).toBe("none");
+    } finally { dom.window.close(); }
     expect(body.match(/<script>/g)).toHaveLength(1);
     expect(body).not.toMatch(/<(?:img|link)\b/i);
   });

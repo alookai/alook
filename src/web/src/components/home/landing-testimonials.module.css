@@ -93,11 +93,6 @@
   padding: 50px 22px 24px;
 }
 
-.message:focus-visible {
-  outline: 2px solid var(--landing-text);
-  outline-offset: 4px;
-}
-
 .avatar {
   align-self: flex-start;
 }

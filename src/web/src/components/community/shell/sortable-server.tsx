@@ -111,7 +111,7 @@ function SortableServerImpl({
           aria-describedby={dragDescriptionId}
           onActivate={() => { if (!active) onClick() }}
           className={[
-            "group/server absolute left-1/2 top-1/2 z-1 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing [-webkit-touch-callout:none]",
+            "group/server absolute left-1/2 top-1/2 z-1 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center    active:cursor-grabbing [-webkit-touch-callout:none]",
             active ? "cursor-default" : "cursor-pointer",
           ].join(" ")}
         >

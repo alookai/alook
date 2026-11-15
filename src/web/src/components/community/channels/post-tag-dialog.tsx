@@ -86,7 +86,7 @@ function PostTagEditorBody({
                 title={`#${tag}`}
                 style={tagColorStyle(tag)}
                 className={cn(
-                  "inline-flex max-w-full min-w-0 items-center rounded-lg px-2 py-1 text-xs outline-none transition-opacity active:translate-y-px focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40",
+                  "inline-flex max-w-full min-w-0 items-center rounded-lg px-2 py-1 text-xs outline-none transition-opacity active:translate-y-px   disabled:cursor-not-allowed disabled:opacity-40",
                   tagColorClassName,
                   active ? "opacity-100 ring-1 ring-current/20" : "opacity-55 hover:opacity-80",
                 )}
@@ -110,7 +110,7 @@ function PostTagEditorBody({
                 onKeyDown={onEnterSubmit(onAddDraft)}
                 maxLength={MAX_FORUM_TAG_LENGTH}
                 placeholder="Add a tag…"
-                className="h-11 border-0 bg-transparent px-1 pr-16 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
+                className="h-11 border-0 bg-transparent px-1 pr-16 text-sm shadow-none   disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
                 disabled={busy || atTagLimit}
               />
               <span className="pointer-events-none absolute inset-y-0 right-1 flex items-center text-[11px] text-muted-foreground">

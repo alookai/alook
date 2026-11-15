@@ -36,7 +36,7 @@ function RailFolderImpl({ folderId, name, open, active, unread, onToggle, folder
         <button ref={buttonRef} data-testid={tid.serverRailFolder(folderId)} aria-label={name} aria-expanded={open}
           aria-describedby={dragDescriptionId} data-dragging={dragging || undefined}
           onClick={onToggle} onContextMenu={(event) => event.preventDefault()} style={{ opacity: dragging ? 0.3 : 1 }}
-          className="absolute left-1/2 top-1/2 grid size-11 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-xl text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing [-webkit-touch-callout:none]">
+          className="absolute left-1/2 top-1/2 grid size-11 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-xl text-muted-foreground    active:cursor-grabbing [-webkit-touch-callout:none]">
           <RailFolderIcon open={open} folderServers={folderServers} />
         </button>
       </TooltipTrigger>

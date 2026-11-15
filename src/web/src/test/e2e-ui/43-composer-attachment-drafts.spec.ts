@@ -1,3 +1,4 @@
+import { expectNoFocusOutline, expectUnchangedFocusDecoration, readFocusAppearance } from "./_fixtures/focus-appearance"
 import { currentCommunityFixtureError } from "./_fixtures/business-contract"
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
@@ -156,6 +157,13 @@ test.describe("same-tab Community attachment drafts", () => {
     await expect(composerEditable(page)).toBeVisible()
     await rootWorker(page)
     const composer = composerAttachments(page)
+    const focusSurface = page.locator('[data-slot="community-composer-base"]')
+    await composerEditable(page).evaluate(element => (element as HTMLElement).blur())
+    const composerDefaultPaint = await readFocusAppearance(focusSurface)
+    await composerEditable(page).focus()
+    await expect(composerEditable(page)).toBeFocused()
+    await expectNoFocusOutline(composerEditable(page))
+    await expectUnchangedFocusDecoration(focusSurface, composerDefaultPaint)
     const transfer = await page.evaluateHandle(() => {
       const data = new DataTransfer()
       data.items.add(new File(["dropped document"], "dropped.txt", { type: "text/plain" }))

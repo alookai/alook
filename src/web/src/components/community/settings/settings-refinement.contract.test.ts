@@ -40,7 +40,7 @@ describe("settings refinement", () => {
     expect(user).not.toContain("rounded-lg border p-4")
   })
 
-  it("keeps each form action group on its intended axis and preserves focus and contrast", () => {
+  it("keeps each form action group on its intended axis and preserves contrast", () => {
     const user = readSettings("user-settings.tsx")
     const server = readSettings("server-settings.tsx")
 
@@ -50,9 +50,7 @@ describe("settings refinement", () => {
     expect(server).toContain("items-center justify-start gap-2")
     expect(server).not.toContain("items-center justify-end gap-2")
     for (const source of [user, server]) {
-      expect(source).toContain("focus-visible:ring-2")
       expect(source).not.toContain("placeholder:text-muted-foreground/40")
-      expect(source).not.toContain("focus-visible:ring-0")
     }
     expect(user).not.toContain("text-muted-foreground/60\">Set a status")
     expect(user).not.toContain("text-muted-foreground/70")

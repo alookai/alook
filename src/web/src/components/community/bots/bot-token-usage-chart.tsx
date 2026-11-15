@@ -214,7 +214,7 @@ export function BotTokenUsageHeatmap({
               aria-haspopup="dialog"
               data-testid={tid.botUsageTrigger(botId)}
               className={[
-                "grid min-h-11 place-items-center rounded-md px-1 outline-none active:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                "grid min-h-11 place-items-center rounded-md px-1 outline-none active:bg-accent   ",
                 className ?? "",
               ].join(" ")}
             />

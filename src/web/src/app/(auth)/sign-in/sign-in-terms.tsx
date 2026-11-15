@@ -4,7 +4,7 @@ import { handleMessageExternalLinkClick } from "@/components/community/messages/
 
 export function SignInTermsNotice() {
   const linkClass =
-    "rounded-xs underline underline-offset-3 transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+    "rounded-xs underline underline-offset-3 transition-colors hover:text-foreground   "
 
   return (
     <p

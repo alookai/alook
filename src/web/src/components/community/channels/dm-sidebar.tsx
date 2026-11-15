@@ -67,7 +67,7 @@ export const DmSidebar = memo(function DmSidebar({
               active={shortcut.active}
               onActivate={shortcut.onActivate}
               className={[
-                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium transition-[color,background-color,transform] duration-150 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
+                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium transition-[color,background-color,transform] duration-150 active:scale-[0.98]    motion-reduce:transition-none",
                 shortcut.active ? "text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
               ].join(" ")}
             >
@@ -110,7 +110,7 @@ export const DmSidebar = memo(function DmSidebar({
               active={active}
               onActivate={() => onPickDm(d.id)}
               className={[
-                "flex w-full items-center gap-3 rounded-md px-2 py-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                "flex w-full items-center gap-3 rounded-md px-2 py-2   ",
                 active ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
               ].join(" ")}
             >

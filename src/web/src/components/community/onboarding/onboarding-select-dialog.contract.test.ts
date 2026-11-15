@@ -35,11 +35,10 @@ describe("OnboardingSelectDialog contract", () => {
     expect(source).not.toContain("<PencilLineIcon")
   })
 
-  it("includes visible async, error, success, disabled, focus, and mobile touch states", () => {
+  it("includes visible async, error, success, disabled, and mobile touch states", () => {
     expect(source).toContain('"loading"')
     expect(source).toContain('"error"')
     expect(source).toContain('"success"')
-    expect(source).toContain("focus-visible")
     expect(source).toContain("disabled")
     expect(source).toContain("h-11")
     expect(source).toContain('aria-live="polite"')

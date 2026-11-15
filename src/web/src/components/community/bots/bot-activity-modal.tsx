@@ -156,14 +156,14 @@ export function BotActivityModal({
           type="button"
           onClick={loadOlder}
           disabled={isFetching}
-          className="min-h-11 rounded-md px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8"
+          className="min-h-11 rounded-md px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-accent hover:text-foreground    disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8"
         >
           Retry older
         </Button>
       ) : undefined}
       contentTestId={tid.botActivityModal}
       bodyRef={setLogBody}
-      bodyClassName="bg-background p-0 [overflow-anchor:none] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none"
+      bodyClassName="bg-background p-0 [overflow-anchor:none]    "
     >
       {isLoading && chronological.length === 0 ? (
         <SkeletonRows />

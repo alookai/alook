@@ -58,7 +58,7 @@ export function BotFormFields({
             autoFocus
             aria-invalid={Boolean(nameError)}
             aria-describedby={nameError ? "bot-name-error" : undefined}
-            className="w-full border-0 bg-transparent px-0 py-1 text-2xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:text-muted-foreground/40 placeholder:font-normal focus-visible:ring-0"
+            className="w-full border-0 bg-transparent px-0 py-1 text-2xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:text-muted-foreground/40 placeholder:font-normal "
           />
           <Button variant="ghost" size="icon"
             type="button"
@@ -84,7 +84,7 @@ export function BotFormFields({
         onChange={(e) => setDescription(e.target.value)}
         placeholder="What is this bot for?"
         rows={1}
-        className="w-full border-0 bg-transparent px-0 py-1 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+        className="w-full border-0 bg-transparent px-0 py-1 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 "
       />
     </div>
   )

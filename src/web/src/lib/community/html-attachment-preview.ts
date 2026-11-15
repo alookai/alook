@@ -51,7 +51,7 @@ export async function readHtmlPreview(body: ReadableStream<Uint8Array>, signal?:
 const CSS_SOURCE = /<!--[\s\S]*?(?:-->|$)|<style\b[^>]*(?:>|$)([\s\S]*?)(?:<\/style\s*>|$)|\sstyle\s*=\s*(?:"([^"]*)(?:"|$)|'([^']*)(?:'|$)|([^\s>]+))/gi
 const VIEWPORT_HEIGHT = /(?<![\w.+/])(?:\d+(?:\.\d+)?|\.\d+)[sld]?vh(?![\w-])/i
 
-const BASE_CSS = "html{background:transparent;color:var(--foreground);font-family:var(--font-sans,system-ui);font-size:15px;line-height:1.6;color-scheme:light dark}body{margin:0;background:transparent}code,pre,kbd,samp{font-family:var(--font-mono,monospace)}:focus-visible{outline:2px solid var(--ring);outline-offset:-2px}"
+const BASE_CSS = "html{background:transparent;color:var(--foreground);font-family:var(--font-sans,system-ui);font-size:15px;line-height:1.6;color-scheme:light dark}body{margin:0;background:transparent}code,pre,kbd,samp{font-family:var(--font-mono,monospace)}"
 const BOOTSTRAP = String.raw`(() => {
   const framed = window.parent !== window;
   const themeStyle = document.getElementById("alook-preview-theme");

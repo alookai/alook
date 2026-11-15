@@ -73,7 +73,7 @@ export function StatusEditor({
               pressing Enter on the text field would silently discard it. */}
           <EmojiPickerPopover side="top" align="start" onPick={(e) => onChange(e, draftTextTrimmed() || null)}>
             <Button variant="ghost" size="icon"
-              className="grid size-8 shrink-0 place-items-center rounded-md border border-border text-base hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              className="grid size-8 shrink-0 place-items-center rounded-md border border-border text-base hover:bg-accent   "
               aria-label="Choose emoji"
             >
               {emoji || "🙂"}
@@ -96,7 +96,7 @@ export function StatusEditor({
         {hasStatus(emoji, text) && (
           <Button variant="ghost" size="sm"
             onClick={() => { onChange(null, null); setBoth(false) }}
-            className="h-auto justify-start p-0 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none rounded"
+            className="h-auto justify-start p-0 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground    rounded"
           >
             <X className="size-3.5" /> Clear status
           </Button>

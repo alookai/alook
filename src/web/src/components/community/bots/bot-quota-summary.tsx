@@ -223,7 +223,7 @@ export function MachineQuotaSummary({
             aria-expanded={open}
             aria-label={placeholder ? `Quota details: ${placeholder}` : `Quota details: ${summary}. ${limitCount} ${limitCount === 1 ? "limit" : "limits"}`}
             data-testid={tid.machineQuota(machineId)}
-            className="group flex min-h-11 max-w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md py-2 text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-7 sm:py-1"
+            className="group flex min-h-11 max-w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md py-2 text-left text-xs text-muted-foreground transition-colors hover:text-foreground    sm:min-h-7 sm:py-1"
           >
             {placeholder ? (
               <>

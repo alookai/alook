@@ -153,7 +153,7 @@ function SettingsOverview({ serverId, serverIcon, onUploadIcon, editor, captureS
           <Button variant="ghost" size="sm"
             type="button"
             onClick={onUploadIcon}
-            className="flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8"
+            className="flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground    sm:min-h-8"
           >
             <Camera className="size-3.5" /> Change icon
           </Button>
@@ -166,7 +166,7 @@ function SettingsOverview({ serverId, serverIcon, onUploadIcon, editor, captureS
             placeholder="Server name"
             aria-label="Server name"
             data-testid={tid.serverSettingsName}
-            className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-4 focus-visible:ring-offset-background sm:text-2xl"
+            className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground     sm:text-2xl"
           />
           <SlugHint {...namePreview} />
         </div>
@@ -177,7 +177,7 @@ function SettingsOverview({ serverId, serverIcon, onUploadIcon, editor, captureS
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
             placeholder="What's this server about?"
-            className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-sm leading-6 text-foreground shadow-none outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+            className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-sm leading-6 text-foreground shadow-none outline-none placeholder:text-muted-foreground    "
           />
         </div>
         <div className="flex items-center justify-start gap-2">
@@ -270,7 +270,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
           renderItem={(m) => (
             <div className="pb-2">
               <div className="flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/40">
-                <button onClick={(e) => onOpenProfile?.(m.name, e, undefined, m.userId)} className="grid size-11 shrink-0 place-items-center rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-8">
+                <button onClick={(e) => onOpenProfile?.(m.name, e, undefined, m.userId)} className="grid size-11 shrink-0 place-items-center rounded-full    sm:size-8">
                   <Avatar label={m.avatar} seed={m.userId} size={32} presence={m.status} ringColor="var(--background)" />
                 </button>
                 <div className="min-w-0 flex-1">

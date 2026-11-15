@@ -55,7 +55,7 @@ export default async function BlogPage() {
           <section aria-label="Featured article" className="mt-8">
             <Link
               href={`/blog/${featured.slug}`}
-              className="tn-blog-card tn-blog-feature group grid rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background sm:grid-cols-2 sm:gap-12"
+              className="tn-blog-card tn-blog-feature group grid rounded-lg      sm:grid-cols-2 sm:gap-12"
             >
               <span className="relative block aspect-video overflow-hidden rounded-lg bg-muted">
                 <Image

@@ -436,7 +436,6 @@ describe("PostTagDialog responsive session", () => {
     const mobileChipClass = tagButton(rendered.renderer, "compact").className
     expect(mobileChipClass).not.toContain("min-h-11")
     expect(mobileChipClass).not.toContain("min-w-11")
-    expect(mobileChipClass).toContain("focus-visible:ring-2")
     expect(mobileChipClass).toContain("active:translate-y-px")
     expect(rendered.renderer.container.textContent).not.toContain("Archived")
     expect(rendered.renderer.container.textContent).not.toContain("STATUS")

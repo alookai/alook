@@ -261,7 +261,7 @@ export function MemberList({
               <Button variant="ghost" size="icon"
                 type="button"
                 onClick={onAddMember}
-                className="grid size-9 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                className="grid size-9 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground   "
                 aria-label="Add members"
                 title="Add members"
               >

@@ -22,9 +22,6 @@ describe("UserBar", () => {
     expect(running).toContain('aria-label="Open profile. 2 running bots."')
     expect(running).toContain(`${styles.visual} relative grid place-items-center rounded-full`)
     expect(running).toContain("pointer-events-none absolute -inset-px")
-    expect(running).toContain("focus-visible:ring-offset-0")
-    expect(running).toContain("sm:focus-visible:ring-offset-4")
-    expect(running).toContain("focus-visible:ring-offset-muted")
     expect(running).toContain("var(--running-bots-primary)")
     expect(rawContractInput0)
       .toContain("--running-bots-primary: oklch(0.9 0.008 80);")
@@ -86,7 +83,6 @@ describe("UserBar", () => {
     expect(settingsClass).toContain(styles.squareButton)
     expect(settingsClass).toContain("border-transparent")
     expect(settingsClass).not.toContain("shadow")
-    expect(settingsClass).toContain("focus-visible:ring-2")
   })
 
   it("provides an inert account-neutral placeholder with the same Composer-aligned geometry", () => {

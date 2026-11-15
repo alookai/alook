@@ -56,7 +56,7 @@ function BotRow({ bot, onOpenBotAudit }: {
       data-testid={tid.profileRunningBotRow(bot.id)}
       onClick={() => onOpenBotAudit(bot.id)}
       aria-label={`Open ${bot.name} activity`}
-      className="flex min-h-11 w-full items-center gap-3 rounded-lg px-1 py-2 text-left transition-colors duration-150 hover:bg-accent active:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      className="flex min-h-11 w-full items-center gap-3 rounded-lg px-1 py-2 text-left transition-colors duration-150 hover:bg-accent active:bg-accent   "
     >
       {content}
     </button>

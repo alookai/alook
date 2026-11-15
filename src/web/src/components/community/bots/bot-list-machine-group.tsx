@@ -34,7 +34,7 @@ export function renderBotMachineGroup(
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="flex min-w-0 items-center gap-2 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            className="flex min-w-0 items-center gap-2 rounded-md text-left   "
             aria-expanded={!collapsed}
             aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
             onClick={() => {

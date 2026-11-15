@@ -88,7 +88,7 @@ function MarkdownImageAttempt({
           <Button variant="ghost" size="sm"
             type="button"
             onClick={retry}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 font-medium text-foreground transition-colors hover:bg-accent   "
           >
             Retry
           </Button>
@@ -101,7 +101,7 @@ function MarkdownImageAttempt({
             title="Download image"
             url={src}
             filename={src.split(/[?#]/)[0].split("/").pop() || alt || "image"}
-            className="absolute right-2 bottom-2 flex size-8 cursor-pointer items-center justify-center rounded-md border border-border bg-background/90 opacity-0 shadow-sm backdrop-blur-sm transition-all duration-200 hover:bg-background group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="absolute right-2 bottom-2 flex size-8 cursor-pointer items-center justify-center rounded-md border border-border bg-background/90 opacity-0 shadow-sm backdrop-blur-sm transition-all duration-200 hover:bg-background group-hover:opacity-100 focus-visible:opacity-100   "
           >
             <Download className="size-3.5" />
           </FileDownloadButton>

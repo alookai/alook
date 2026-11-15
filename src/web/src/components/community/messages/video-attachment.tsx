@@ -196,14 +196,14 @@ export function VideoAttachment({ attachment }: { attachment: FileAttachment }) 
         onPlay={event => event.currentTarget.pause()} onError={() => setPreviewStatus("error")} />}
       {mode === "preview" && <button type="button" data-testid={tid.mediaPlay(attachment.name)} aria-label={`Play ${attachment.name}`}
         onClick={() => flushSync(() => setPlayback({ mode: "inline", initial: { ...initialPlayback, playing: true } }))}
-        className="absolute inset-0 flex size-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+        className="absolute inset-0 flex size-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg    ">
         <span className="flex size-11 items-center justify-center rounded-full bg-background/90 text-foreground"><Play className="size-5 fill-current" /></span>
         {previewStatus === "error" && <span className="rounded-md bg-background/90 px-2 py-1 text-xs text-foreground">Video preview unavailable</span>}
         <span className="sr-only">{attachment.name}</span>
       </button>}
     </div>
     <Dialog open={open} onOpenChange={value => { if (!value) transition("inline") }}>
-      <DialogContent aria-label={`Video preview: ${attachment.name}`} data-testid={tid.videoDialog(attachment.name)}
+      <DialogContent aria-label={`Video preview: ${attachment.name}`} data-testid={tid.videoDialog(attachment.name)} data-media-preview=""
         showCloseButton={false} initialFocus={shrinkRef} finalFocus={expandRef}
         className="top-4 right-4 left-4 flex h-[calc(100%-2rem)] w-auto max-w-none translate-x-0 translate-y-0 flex-col gap-2 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-none">
         {open && <VideoPlayback key={attachment.url} attachment={attachment} initial={playback.initial} playerRef={playerRef}

@@ -141,11 +141,6 @@
   text-decoration: underline;
 }
 
-.page a:focus-visible {
-  outline: 2px solid var(--landing-accent);
-  outline-offset: 5px;
-}
-
 @media (max-width: 959px) {
   .groups {
     grid-template-columns: 1fr;

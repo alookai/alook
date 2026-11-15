@@ -114,7 +114,7 @@ export function HeroSection({
 
       <div className="hero-content relative z-10 mx-auto flex w-full max-w-4xl flex-col items-center px-4 sm:px-6 py-8 max-h-full">
         {/* Brand */}
-        <Link href="/" aria-label="Alook home" className="hero-brand mb-6 flex min-h-11 shrink-0 items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-current">
+        <Link href="/" aria-label="Alook home" className="hero-brand mb-6 flex min-h-11 shrink-0 items-center gap-2   ">
           <AnimatedAlookLogo className="size-8" />
           <span
             className="text-2xl tracking-tight"

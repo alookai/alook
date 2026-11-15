@@ -20,7 +20,7 @@ export function BotActiveSummary({ summary, isFounder = false, onViewPlan }: { s
             data-testid={tid.myBotsPlanSummary}
             disabled={!summary}
             aria-label={summary ? `Active Bots: ${active} of ${summary.limit} allowed, ${total} owned, ${isFounder ? "Founder" : summary.plan.displayName} plan` : "Active Bots loading"}
-            className="flex min-h-11 w-fit items-center gap-2 rounded-sm text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-6"
+            className="flex min-h-11 w-fit items-center gap-2 rounded-sm text-sm text-muted-foreground hover:text-foreground    sm:min-h-6"
           >
             Active Bots
             <svg aria-hidden="true" className="size-4 -rotate-90" viewBox="0 0 20 20" fill="none">

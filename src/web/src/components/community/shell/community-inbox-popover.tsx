@@ -198,7 +198,7 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onO
                   <button
                     data-testid={tid.inboxFriendRequestOpen(request.id)}
                     onClick={onOpenFriendRequests}
-                    className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-md text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-0"
+                    className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-md text-left text-sm outline-none   sm:min-h-0"
                   >
                     <Avatar label={profile.avatar} seed={request.userId} size={28} />
                     <span className="min-w-0 flex-1">

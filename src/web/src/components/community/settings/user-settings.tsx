@@ -243,7 +243,7 @@ export function UserSettings({ titleId, initialTab = "profile", billingReturn = 
                 <Button variant="ghost" size="sm"
                   type="button"
                   onClick={onUploadAvatar}
-                  className="flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8"
+                  className="flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground    sm:min-h-8"
                 >
                   <Camera className="size-3.5" /> Change photo
                 </Button>
@@ -255,7 +255,7 @@ export function UserSettings({ titleId, initialTab = "profile", billingReturn = 
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Your name"
                 aria-label="Display name"
-                className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-4 focus-visible:ring-offset-background sm:text-2xl"
+                className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground     sm:text-2xl"
               />
               {/* About — borderless auto-resizing textarea. */}
               <div className="space-y-2">
@@ -264,7 +264,7 @@ export function UserSettings({ titleId, initialTab = "profile", billingReturn = 
                   value={value}
                   onChange={(e) => setValue(e.target.value)}
                   placeholder="Add a bit about yourself…"
-                  className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-sm leading-6 text-foreground shadow-none outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+                  className="min-h-11 w-full rounded-sm border-0 bg-transparent px-0 py-1 text-sm leading-6 text-foreground shadow-none outline-none placeholder:text-muted-foreground    "
                 />
               </div>
               {/* Status — quiet label + a soft chip (more formed than a bare
@@ -272,7 +272,7 @@ export function UserSettings({ titleId, initialTab = "profile", billingReturn = 
               <div className="space-y-2">
                 <div className="text-xs text-muted-foreground">Status</div>
                 <StatusEditor emoji={status.emoji} text={status.text} onChange={(emoji, text) => setStatus({ emoji, text })}>
-                  <Button variant="ghost" size="sm" className="inline-flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-sm transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8">
+                  <Button variant="ghost" size="sm" className="inline-flex min-h-11 items-center gap-2 rounded-full border border-border/50 px-3 text-sm transition-colors hover:bg-accent    sm:min-h-8">
                     {hasStatus(status.emoji, status.text) ? (
                       <span>{status.emoji} {status.text}</span>
                     ) : (

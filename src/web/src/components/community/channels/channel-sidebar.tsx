@@ -245,7 +245,7 @@ function ChannelSidebarContent({
         <header className="relative flex h-12 items-center gap-1 border-b border-border/40 px-2">
           <OfficialServerBadge official={official} className="absolute left-1 top-0.5 z-1" />
           <DropdownMenu disabled={!onOpenSettings} actionsRef={headerMenuActionsRef}>
-            <DropdownMenuTrigger disabled={!onOpenSettings} className="flex h-11 min-w-0 max-w-full items-center gap-2 rounded-md px-2 enabled:hover:bg-accent disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-auto sm:py-1">
+            <DropdownMenuTrigger disabled={!onOpenSettings} className="flex h-11 min-w-0 max-w-full items-center gap-2 rounded-md px-2 enabled:hover:bg-accent disabled:cursor-not-allowed    sm:h-auto sm:py-1">
               <span data-slot="community-sidebar-server-name" className="min-w-0 truncate pr-1 font-brand text-[1.75rem] leading-none font-bold">{serverName || "\u00a0"}</span>
               <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
             </DropdownMenuTrigger>
@@ -263,7 +263,7 @@ function ChannelSidebarContent({
               <Button variant="ghost" size="icon"
                 onClick={() => onInvitePopoverOpenChange?.(true)}
                 disabled={!onInvitePopoverOpenChange}
-                className="ml-auto grid size-11 shrink-0 place-items-center rounded-md text-muted-foreground sm:size-7 enabled:hover:bg-accent enabled:hover:text-foreground disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                className="ml-auto grid size-11 shrink-0 place-items-center rounded-md text-muted-foreground sm:size-7 enabled:hover:bg-accent enabled:hover:text-foreground disabled:cursor-not-allowed   "
                 aria-label="Invite to server"
                 title="Invite to server"
               >
@@ -378,7 +378,7 @@ function ForumSidebarThreadRow({
       event.stopPropagation()
     },
     className: [
-      "relative ml-4 flex w-[calc(100%-1rem)] min-w-0 items-center rounded-md px-2 text-left text-xs font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+      "relative ml-4 flex w-[calc(100%-1rem)] min-w-0 items-center rounded-md px-2 text-left text-xs font-medium   ",
       active
         ? "bg-sidebar-accent text-foreground"
         : muted

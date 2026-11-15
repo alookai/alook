@@ -103,7 +103,7 @@ function ReactionChip({
       aria-pressed={reaction.me}
       aria-haspopup={hoverCapable ? undefined : "dialog"}
       className={[
-        "flex h-6 touch-pan-y select-none items-center gap-1 rounded-md px-2 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none [-webkit-touch-callout:none]",
+        "flex h-6 touch-pan-y select-none items-center gap-1 rounded-md px-2 text-sm    [-webkit-touch-callout:none]",
         reaction.me ? "border border-primary/50 bg-accent" : "bg-secondary",
       ].join(" ")}
       onPointerDown={(event) => {
@@ -246,7 +246,7 @@ function ReactionDetailsDialog({
                   data-testid={tid.reactionTab(reaction.emoji)}
                   aria-label={`${reaction.emoji}, ${reaction.count}`}
                   aria-controls={`${tid.reactionDialog(messageId)}-panel`}
-                  className="h-11! min-h-11 min-w-11 data-active:bg-accent! data-active:text-foreground! after:hidden focus-visible:ring-inset focus-visible:-outline-offset-1"
+                  className="h-11! min-h-11 min-w-11 data-active:bg-accent! data-active:text-foreground! after:hidden"
                 >
                   <span aria-hidden="true">{reaction.emoji}</span>
                   <span>{reaction.count}</span>
@@ -343,7 +343,7 @@ export function MessageReactions({
       <div
         ref={reactionGroupRef}
         data-testid={tid.reactionGroup(messageId)}
-        className="flex flex-wrap gap-1 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="flex flex-wrap gap-1   "
         tabIndex={-1}
         aria-label="Message reactions"
       >

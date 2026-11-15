@@ -8,6 +8,10 @@
 
 @custom-variant dark (&:is(.dark *));
 
+:focus {
+  outline: none !important;
+}
+
 @media (min-width: 640px) {
   html[data-community-shell-layout] [data-slot="community-shell-root"] [data-slot="resizable-panel-group"][data-testid="community-shell"] > [data-slot="resizable-panel"][data-testid="sidebar"] {
     flex-basis: var(--community-shell-prepaint-sidebar-width) !important;
@@ -1675,7 +1679,7 @@
   }
 
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
   }
 
   body {
@@ -1893,11 +1897,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.platform-link-badge:focus-visible {
-  outline: 2px solid var(--link);
-  outline-offset: 2px;
 }
 
 .platform-link-badge:active {

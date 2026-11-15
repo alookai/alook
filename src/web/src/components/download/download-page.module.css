@@ -1,5 +1,4 @@
 .page.page { min-height: 100svh; }
-.page a:focus-visible, .page summary:focus-visible { outline: 2px solid var(--landing-text); outline-offset: 5px; }
 .hero { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); align-items: center; gap: 32px; padding-block: 64px 80px; }
 .heroCopy { min-width: 0; }
 .eyebrow { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; color: var(--landing-text-muted); font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }

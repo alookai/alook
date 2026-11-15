@@ -387,7 +387,10 @@ describe("image-like native video", () => {
     await elapse(2_600)
     expect(toolbar).not.toHaveAttribute("data-visible")
     expect(player).toHaveFocus()
+    let inertBeforeDefault: boolean | undefined
+    player.addEventListener("keydown", () => { inertBeforeDefault = toolbar.hasAttribute("inert") }, { once: true })
     await notify(() => fireEvent.keyDown(player, { key: "Tab" }))
+    expect(inertBeforeDefault).toBe(false)
     const shrink = view.getByRole("button", { name: `Shrink ${attachment.name}` })
     act(() => shrink.focus())
     await elapse(5_000)

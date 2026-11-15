@@ -50,7 +50,7 @@ function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
       data-slot="message-notification"
       swipeDirection={["up", "left", "right"]}
       className={cn(
-        "group/message-notification pointer-events-auto absolute top-0 left-0 z-[calc(1000-var(--toast-index))] w-full origin-top rounded-xl border border-border bg-popover text-popover-foreground shadow-(--e2) outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+        "group/message-notification pointer-events-auto absolute top-0 left-0 z-[calc(1000-var(--toast-index))] w-full origin-top rounded-xl border border-border bg-popover text-popover-foreground shadow-(--e2) outline-none select-none   ",
         "[--gap:0.5rem] [--height:var(--toast-frontmost-height,var(--toast-height))] [--offset-y:calc(var(--toast-offset-y)+calc(var(--toast-index)*var(--gap))+var(--toast-swipe-movement-y))] [--peek:0.5rem] [--scale:calc(max(0,1-(var(--toast-index)*0.04)))] [--shrink:calc(1-var(--scale))]",
         "h-(--height) transform-[translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)+(var(--toast-index)*var(--peek))+(var(--shrink)*var(--height))))_scale(var(--scale))] [transition:transform_300ms_cubic-bezier(0.2,0.8,0.2,1),opacity_200ms,height_150ms] motion-reduce:transition-none",
         "after:absolute after:bottom-full after:left-0 after:h-[calc(var(--gap)+1px)] after:w-full after:content-['']",

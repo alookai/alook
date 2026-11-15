@@ -19,17 +19,20 @@
   object-fit: contain;
 }
 
+.alook-video-player[data-expanded] {
+  --media-frame-border: transparent;
+  background-color: transparent;
+}
+
 .alook-video-player .video-controls-content {
   flex-shrink: 0;
   bottom: 0;
   visibility: visible;
-  transition-property: filter, opacity, translate, visibility;
-  transition-delay: 0s;
+  transition-property: filter, opacity, translate;
 }
 
 .alook-video-player .video-controls-content:not([data-visible]) {
   visibility: hidden;
-  transition-delay: 0s, 0s, 0s, var(--media-duration-controls);
 }
 
 .alook-video-player .media-button,
@@ -61,11 +64,6 @@
 .alook-video-player,
 .alook-video-player :is(.media-button, .media-time-toggle, .media-slider-thumb, .media-menu-radio-item) {
   outline-color: transparent;
-}
-
-.alook-video-player:focus-visible,
-.alook-video-player :is(.media-button, .media-time-toggle, .media-slider-thumb, .media-menu-radio-item):focus-visible {
-  outline-color: var(--media-ring);
 }
 
 .alook-video-player .attachment-video-download-status {

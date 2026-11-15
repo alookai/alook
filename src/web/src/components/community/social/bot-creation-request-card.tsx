@@ -36,7 +36,7 @@ export function BotCreationRequestCard({ request, messageId, viewerUserId, onOpe
       aria-label="Bot creation request" data-testid={tid.botCreationRequestCard} data-request-status={request.status}>
       <ScrollArea.Root className={count > 1 ? "-ml-2 min-w-0 pb-4" : "-ml-2 min-w-0"} data-swipe-ignore="">
         <ScrollArea.Viewport role="group" aria-label="Proposed bots" tabIndex={0}
-          className="min-w-0 snap-x snap-mandatory scroll-px-2 overscroll-x-contain rounded-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+          className="min-w-0 snap-x snap-mandatory scroll-px-2 overscroll-x-contain rounded-sm   ">
           <ScrollArea.Content className="flex gap-4 p-2">
             {request.bots.map((bot) => <BotProposal key={bot.itemId} bot={bot} status={request.status} onOpenProfile={onOpenProfile} />)}
           </ScrollArea.Content>
@@ -99,13 +99,13 @@ function BotProposal({ bot, status, onOpenProfile }: { bot: BotCreationItem; sta
     </div>
     <div className="mx-1 mb-1 flex min-h-0 flex-1 flex-col rounded-lg bg-card p-3">
       {identity && onOpenProfile ? <button type="button" aria-label={`${name}#${discriminator}`} title={`${name}#${discriminator}`}
-        className="flex min-h-11 min-w-0 shrink-0 items-baseline text-left text-lg font-semibold leading-tight tracking-[-0.015em] underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:min-h-7"
+        className="flex min-h-11 min-w-0 shrink-0 items-baseline text-left text-lg font-semibold leading-tight tracking-[-0.015em] underline-offset-4 hover:underline    sm:min-h-7"
         onClick={(event) => onOpenProfile(name, event, discriminator, identity.id)}>{heading}</button>
         : <p title={name} className="flex min-w-0 shrink-0 items-baseline text-lg font-semibold leading-tight tracking-[-0.015em]">{heading}</p>}
-      <div tabIndex={0} aria-label={`${name} reason`} className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-y-contain rounded-sm pr-2 thin-scrollbar focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+      <div tabIndex={0} aria-label={`${name} reason`} className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-y-contain rounded-sm pr-2 thin-scrollbar   ">
         <p className="wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{bot.reason}</p>
       </div>
-      <div tabIndex={0} aria-label={`${name} configuration`} className="mt-3 flex max-h-12 shrink-0 flex-wrap items-start gap-1.5 overflow-y-auto overscroll-y-contain rounded-sm thin-scrollbar focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+      <div tabIndex={0} aria-label={`${name} configuration`} className="mt-3 flex max-h-12 shrink-0 flex-wrap items-start gap-1.5 overflow-y-auto overscroll-y-contain rounded-sm thin-scrollbar   ">
         <Badge variant="secondary" className={badgeClass} title={`Machine: ${bot.machineName}`}><Monitor aria-hidden className="shrink-0" /><span className="truncate">{bot.machineName}</span></Badge>
         {bot.model && <Badge variant="secondary" className={badgeClass} title={`Model: ${bot.model}`}><Box aria-hidden className="shrink-0" /><span className="truncate">{bot.model}</span></Badge>}
         {bot.reasoningEffort && <Badge variant="secondary" className={badgeClass} title={`Effort: ${bot.reasoningEffort}`}><Gauge aria-hidden className="shrink-0" /><span className="truncate">{bot.reasoningEffort}</span></Badge>}

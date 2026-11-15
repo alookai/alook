@@ -130,7 +130,7 @@ export default async function BlogPostPage({
                   <Link
                     key={relatedPost.slug}
                     href={`/blog/${relatedPost.slug}`}
-                    className="group grid grid-cols-[minmax(0,1fr)_auto] gap-x-6 py-6 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+                    className="group grid grid-cols-[minmax(0,1fr)_auto] gap-x-6 py-6   "
                   >
                     <span className="col-start-1 font-sans text-lg font-semibold leading-snug group-hover:underline underline-offset-4">
                       {relatedPost.title}

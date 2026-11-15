@@ -238,7 +238,7 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
         }
         if (!extension) closeInboxForAction()
         onOpenProfile?.(user.name, e, undefined, user.id)
-      }} className={cn(styles.target, "rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 focus-visible:ring-offset-muted focus-visible:outline-none sm:focus-visible:ring-offset-4")} aria-label={hasRunningBots
+      }} className={cn(styles.target, "rounded-full      ")} aria-label={hasRunningBots
         ? `Open profile. ${runningBotCount} running ${runningBotCount === 1 ? "bot" : "bots"}.`
         : "Open profile"} aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? extensionId : undefined}>
         <span className={cn(styles.visual, "relative grid place-items-center rounded-full")}>
@@ -268,7 +268,7 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
         }
         if (!extension) closeInboxForAction()
         onOpenProfile?.(user.name, e, undefined, user.id)
-      }} className={cn(styles.name, "min-w-0 flex-1 text-left rounded sm:@max-[224px]/user-bar:hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")} aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? extensionId : undefined}>
+      }} className={cn(styles.name, "min-w-0 flex-1 text-left rounded sm:@max-[224px]/user-bar:hidden   ")} aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? extensionId : undefined}>
         <div data-testid={tid.userBarName} className="truncate text-sm font-medium leading-tight">{user.name}</div>
       </button>
       <div className="flex shrink-0 items-center gap-1">
@@ -277,7 +277,7 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
             ref={updateBadgeRef}
             type="button"
             data-testid={tid.daemonUpdateBadge}
-            className={cn(styles.target, styles.squareButton, styles.update, "rounded-lg text-secondary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
+            className={cn(styles.target, styles.squareButton, styles.update, "rounded-lg text-secondary-foreground   ")}
             aria-label={updateBadgeLabel}
             onClick={() => {
               onRequestExtensionFocus("update")
@@ -299,7 +299,7 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
               styles.target,
               styles.squareButton,
               styles.inbox,
-              "rounded-lg text-muted-foreground aria-expanded:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              "rounded-lg text-muted-foreground aria-expanded:text-foreground   ",
               mobile && "active:text-foreground",
             )}
             aria-label={mobile ? (inboxOpen || inboxOpening ? "Close Inbox" : "Open Inbox") : "Inbox"}
@@ -331,7 +331,7 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
           className={cn(
             styles.target,
             styles.squareButton,
-            "rounded-lg text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+            "rounded-lg text-muted-foreground hover:text-foreground   ",
             mobile && "active:text-foreground",
           )}
           aria-label="User settings"

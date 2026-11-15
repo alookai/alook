@@ -129,7 +129,7 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
             <article key={post.slug}>
               <Link
                 href={`/blog/${post.slug}`}
-                className="tn-blog-card tn-blog-post group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+                className="tn-blog-card tn-blog-post group block rounded-lg     "
               >
                 <span className="relative block aspect-video overflow-hidden rounded-lg bg-muted">
                   <Image

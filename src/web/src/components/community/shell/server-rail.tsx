@@ -346,7 +346,7 @@ function ServerRailContent({
           navigationDisabled={dragSource !== null}
           aria-label="Home"
           data-testid={tid.homeButton}
-          className="group/alook grid size-10 shrink-0 place-items-center rounded-[20px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="group/alook grid size-10 shrink-0 place-items-center rounded-[20px]   "
         >
           <AnimatedAlookLogo className="size-10" characterOnly={characterOnly} />
         </CommunityNavigationLink>

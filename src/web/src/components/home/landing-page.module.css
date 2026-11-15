@@ -187,13 +187,6 @@
   color: var(--landing-text);
 }
 
-.nav a:focus-visible,
-.primaryAction:focus-visible,
-.secondaryAction:focus-visible {
-  outline: 2px solid var(--landing-text);
-  outline-offset: 4px;
-}
-
 .hero {
   --hero-stage-height: 380px;
 
@@ -1080,11 +1073,6 @@
   color: var(--landing-accent-dim);
 }
 
-.faqItem summary:focus-visible {
-  outline: 2px solid var(--landing-text);
-  outline-offset: 4px;
-}
-
 .faqMarker {
   display: grid;
   width: 44px;
@@ -1198,11 +1186,6 @@
   background: var(--landing-text);
   color: var(--landing-bg);
   transform: translateY(-2px);
-}
-
-.closingAction:focus-visible {
-  outline: 3px solid var(--landing-text);
-  outline-offset: 4px;
 }
 
 .closingCompanion {
@@ -1369,11 +1352,6 @@ main.page > .footer {
 .footerSocials a:hover {
   color: var(--landing-accent-dim);
   transform: translateY(-2px);
-}
-
-.footerSocials a:focus-visible {
-  outline: 2px solid var(--landing-text);
-  outline-offset: 2px;
 }
 
 @media (min-width: 640px) and (max-width: 1099px) {
@@ -1831,11 +1809,6 @@ main.page > .footer {
 
 .sectionCta:hover {
   opacity: 0.8;
-}
-
-.sectionCta:focus-visible {
-  outline: 3px solid var(--landing-accent);
-  outline-offset: 4px;
 }
 
 .paperBody > p + p {

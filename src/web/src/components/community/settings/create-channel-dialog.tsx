@@ -63,7 +63,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
                 placeholder="new-channel"
                 autoFocus
                 aria-label="Channel name"
-                className="w-full border-0 bg-transparent p-0 text-[30px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 focus-visible:ring-0"
+                className="w-full border-0 bg-transparent p-0 text-[30px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 "
               />
             </div>
             <div className="mt-1 pl-8">

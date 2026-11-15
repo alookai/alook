@@ -90,7 +90,7 @@ function RuntimeChip({ runtime }: { runtime: CommunityMachineRuntime }) {
               chipBase,
               unhealthy && "opacity-40 cursor-not-allowed",
               !unhealthy && "transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              "   "
             )}
           >
             {chipInner}

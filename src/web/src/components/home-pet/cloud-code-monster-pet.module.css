@@ -70,12 +70,6 @@
   cursor: pointer;
 }
 
-.button:focus-visible {
-  outline: 2px solid color-mix(in oklch, var(--primary) 55%, transparent);
-  outline-offset: 5px;
-  border-radius: 8px;
-}
-
 .petLayer :global(.cloud-code-monster-pet-svg) {
   display: block;
   width: 100%;

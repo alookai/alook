@@ -51,7 +51,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
     onKeyDownCapture: (event: React.KeyboardEvent) => { if (event.key === "Enter" || event.key === " " || isKeyboardContextMenu(event.nativeEvent)) resumeClick() },
     onClick: () => { if (hasChannels && !suppressClick()) onToggle() },
     onKeyDown: (event: React.KeyboardEvent) => { if (event.target === event.currentTarget && hasChannels && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); if (!suppressClick()) onToggle() } },
-    className: `group flex w-full touch-manipulation items-center gap-1 rounded px-1 py-1 text-xs font-semibold text-muted-foreground/80 select-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${placement === "append" ? "bg-primary/5 ring-1 ring-primary" : ""} ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`,
+    className: `group flex w-full touch-manipulation items-center gap-1 rounded px-1 py-1 text-xs font-semibold text-muted-foreground/80 select-none hover:text-foreground    ${placement === "append" ? "bg-primary/5 ring-1 ring-primary" : ""} ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`,
   }
   const headerInner = (
     <>

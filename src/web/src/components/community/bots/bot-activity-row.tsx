@@ -213,7 +213,7 @@ function TruncatedAuditLog({
     <button
       type="button"
       data-activity-tooltip-trigger
-      className="block min-h-11 w-full min-w-0 cursor-default rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 sm:min-h-0"
+      className="block min-h-11 w-full min-w-0 cursor-default rounded-sm text-left outline-none    sm:min-h-0"
     >
       <span
         className={`block truncate font-mono text-[13px] text-foreground ${className}`}

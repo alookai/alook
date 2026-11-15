@@ -1,5 +1,6 @@
 import { expect, test } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
+import { expectUnchangedFocusDecoration, readFocusAppearance } from "./_fixtures/focus-appearance"
 
 function motionCanvasGeometry(element: Element) {
   const canvas = element.firstElementChild
@@ -400,11 +401,13 @@ for (const width of [1440, 390]) {
     const apkBox = await page.getByRole("heading", { name: "Android APK", exact: true }).boundingBox()
     expect(betaBox!.y + betaBox!.height).toBeLessThanOrEqual(apkBox!.y)
 
+    const googlePlay = stores.getByRole("link", { name: "Google Play", exact: true })
+    const storeDefaultPaint = await readFocusAppearance(googlePlay)
     await stores.getByRole("link", { name: "App Store", exact: true }).focus()
     await page.keyboard.press("Tab")
-    const googlePlay = stores.getByRole("link", { name: "Google Play", exact: true })
     await expect(googlePlay).toBeFocused()
     expect(await googlePlay.evaluate(element => element.matches(":focus-visible"))).toBe(true)
+    await expectUnchangedFocusDecoration(googlePlay, storeDefaultPaint)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
     await page.screenshot({ path: testInfo.outputPath("download-shared-header.png"), fullPage: true })
     for (const destination of destinations) {

@@ -238,7 +238,7 @@ function PreviewFrame({ image, onClose, onNavigate, focusOnMount }: {
             type="button"
             data-testid={tid.imageLightboxRetry}
             onClick={retryOriginal}
-            className="h-12 min-w-12 rounded-md px-3 font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:min-w-0"
+            className="h-12 min-w-12 rounded-md px-3 font-medium text-foreground transition-colors hover:bg-accent    sm:h-9 sm:min-w-0"
           >
             Retry
           </Button>
@@ -283,6 +283,7 @@ export function ImageLightbox({ image, onClose }: { image: ImagePreview | null; 
       onOpenChangeComplete={(open) => { if (!open) setRetained(null) }}>
       <DialogContent
         ref={popupRef}
+        data-media-preview=""
         initialFocus={displayed.images && displayed.images.length > 1 ? () => popupRef.current?.querySelector<HTMLElement>(`[data-testid="${tid.imageLightbox}"]`) ?? false : undefined}
         aria-label={displayed.images && displayed.images.length > 1 ? "Image preview" : displayed.name}
         className="top-4 right-4 left-4 flex flex-col gap-2 h-[calc(100%-2rem)] w-auto max-w-none translate-x-0 translate-y-0 overflow-visible border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-none"

@@ -120,7 +120,7 @@ export function ThreadOpener({
         <Button variant="ghost" size="sm"
           type="button"
           onClick={onJump}
-          className="absolute right-0 top-0 flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none group-hover:opacity-100"
+          className="absolute right-0 top-0 flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100    group-hover:opacity-100"
           aria-label="Jump to message"
           title="Jump to message"
         >

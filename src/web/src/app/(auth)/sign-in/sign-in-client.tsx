@@ -617,7 +617,7 @@ function ProductGallery() {
             <Button variant="ghost" size="icon"
               key={item.scene}
               onClick={() => setActive(i)}
-              className="grid size-8 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="grid size-8 place-items-center rounded-full   "
               aria-label={`Show ${item.label}`}
               aria-pressed={i === active}
             >
