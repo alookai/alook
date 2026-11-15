@@ -58,6 +58,16 @@
   justify-content: center;
 }
 
+.alook-video-player,
+.alook-video-player :is(.media-button, .media-time-toggle, .media-slider-thumb, .media-menu-radio-item) {
+  outline-color: transparent;
+}
+
+.alook-video-player:focus-visible,
+.alook-video-player :is(.media-button, .media-time-toggle, .media-slider-thumb, .media-menu-radio-item):focus-visible {
+  outline-color: var(--media-ring);
+}
+
 .alook-video-player .attachment-video-download-status {
   flex-basis: 100%;
   margin: 0;

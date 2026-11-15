@@ -1722,6 +1722,28 @@ test("media attachments play, stop, recover and download through reachable mobil
   await expectMaskOnly()
   await expect.poll(async () => (await state(videoPlayer)).time).toBeGreaterThan(0.1)
   const playingToolbar = dialog.getByRole("toolbar", { name: `Video controls: ${videoName}`, exact: true })
+  const readOutlines = (controls: Locator) => controls.evaluateAll(elements => {
+    const canvas = document.createElement("canvas")
+    canvas.width = canvas.height = 1
+    const context = canvas.getContext("2d")
+    if (!context) throw new Error("Cannot measure computed outline color")
+    return elements.map(element => {
+      const style = getComputedStyle(element)
+      context.clearRect(0, 0, 1, 1)
+      context.fillStyle = style.outlineColor
+      context.fillRect(0, 0, 1, 1)
+      const alpha = context.getImageData(0, 0, 1, 1).data[3]
+      return { label: element.getAttribute("aria-label"), focusVisible: element.matches(":focus-visible"),
+        width: Number.parseFloat(style.outlineWidth), style: style.outlineStyle, color: style.outlineColor, alpha,
+        painted: Number.parseFloat(style.outlineWidth) > 0 && style.outlineStyle !== "none" && alpha > 0 && Number(style.opacity) > 0 }
+    })
+  })
+  const defaultOutlines = await readOutlines(playingToolbar.locator('button, [role="button"], [role="slider"]'))
+  expect(defaultOutlines.filter(control => !control.focusVisible).length).toBeGreaterThanOrEqual(5)
+  expect(defaultOutlines.filter(control => !control.focusVisible).every(control => !control.painted)).toBe(true)
+  const containerOutlines = await readOutlines(videoPlayer.locator(".."))
+  expect(containerOutlines).toHaveLength(1)
+  expect(containerOutlines.filter(control => !control.focusVisible).every(control => !control.painted)).toBe(true)
   const playingFrame = await boundingRect(videoPlayer)
   await expect(playingToolbar).toBeHidden()
   const hiddenPlayback = await state(videoPlayer)
@@ -1735,12 +1757,22 @@ test("media attachments play, stop, recover and download through reachable mobil
   await reachable(pauseVideo, dialog)
   await pauseVideo.tap()
   await expect.poll(async () => (await state(videoPlayer)).paused).toBe(true)
+  await videoPlayer.focus()
+  await page.keyboard.press("Tab")
+  const keyboardPlayback = dialog.getByRole("button", { name: `Play ${videoName}`, exact: true })
+  await expect(keyboardPlayback).toBeFocused()
+  const keyboardOutline = await readOutlines(keyboardPlayback)
+  expect(keyboardOutline).toHaveLength(1)
+  expect(keyboardOutline[0]).toMatchObject({ focusVisible: true, painted: true })
+  expect(keyboardOutline[0].width).toBeGreaterThanOrEqual(2)
   const seek = dialog.getByTestId(tid.videoSeek(videoName))
   await reachable(seek, dialog)
   const seekRect = await boundingRect(seek)
   const duration = await videoPlayer.evaluate((element: HTMLVideoElement) => element.duration)
   await seek.tap({ position: { x: seekRect.width * 0.4, y: seekRect.height / 2 } })
   await expect.poll(async () => Math.abs((await state(videoPlayer)).time - duration * 0.4)).toBeLessThan(0.25)
+  const pointerOutline = await readOutlines(keyboardPlayback)
+  expect(pointerOutline[0]).toMatchObject({ focusVisible: false, painted: false })
   const muteVideo = dialog.getByRole("button", { name: `Mute ${videoName}`, exact: true })
   await reachable(muteVideo, dialog)
   await muteVideo.tap()
@@ -1843,6 +1875,7 @@ test("media attachments play, stop, recover and download through reachable mobil
     wavBytes: wav.length, webmBytes: webm.length, badResponses,
     audio: await state(audioPlayer), completion, videoBeforeClose, inlineBeforeExpand, inlineFrame, hiddenPlayback, playingFrame,
     idleAudioHeight: idleRect.height, previewRect, previewMetadata, previewGeometry, activatedFrame, inlineGeometry, controlsRect,
+    defaultOutlines, containerOutlines, keyboardOutline, pointerOutline,
     input: "touchscreen taps on Alook video controls; timeline tap; keyboard volume and Space; masked expand/shrink/Escape; browser download; no native OS save or native-shell claim",
   }), contentType: "application/json" })
 })
