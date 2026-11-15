@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 338,
+    "composition": 339,
     "environment": 10,
     "nonvisual": 30,
     "direct": 40
@@ -3609,7 +3609,6 @@
       "source": "src/web/src/components/community/messages/video-attachment.tsx",
       "application": "Web",
       "candidates": [
-        "DownloadIcon",
         "VideoAttachment",
         "VideoPlayback"
       ],
@@ -3617,10 +3616,26 @@
       "examples": [
         {
           "story": "web-business-attachments-and-rich-content--unavailable-video",
-          "region": "Image-like native video preview; Play exposes an inline native player and unsupported-media recovery. Fullscreen opens the large Dialog; original download remains available."
+          "region": "Image-like native video preview; Play reveals Alook controls and unsupported-media recovery. The same bar expands into the masked Dialog and shrinks back; original download remains available, with no system-fullscreen action."
         }
       ],
       "reason": "The actual AttachmentCard mounts VideoAttachment in this missing-file story; its Play action reveals VideoPlayback. This declares the failure exposure only. Decoded-frame and successful playback evidence belongs to the actual browser/native media journeys."
+    },
+    {
+      "source": "src/web/src/components/community/messages/video-controls.tsx",
+      "application": "Web",
+      "candidates": [
+        "DownloadIcon",
+        "VideoControls"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-attachments-and-rich-content--unavailable-video",
+          "region": "VideoAttachment composes this original control bar for preview download/expansion and inline error recovery, with masked-preview shrink on the same bar."
+        }
+      ],
+      "reason": "The actual AttachmentCard mounts VideoAttachment and its VideoControls child in the missing-file story. This declares the unavailable-media composition only; successful transport, seek, volume and state transfer require actual browser/native QA."
     },
     {
       "source": "src/web/src/components/community/messages/virtual-cursor-list.tsx",
