@@ -1,10 +1,11 @@
 import { once } from "node:events";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir, release } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { createServer } from "node:net";
-import { execFileSync, type ChildProcess } from "node:child_process";
+import { execFile, execFileSync, type ChildProcess } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadPiSdkModule } from "../adapters/pi/sessionDeps.js";
 import { PiDriver } from "../adapters/pi/index.js";
@@ -17,6 +18,134 @@ import { probeCliRuntime, probeCommandOutput, probeCommandVersion, resolveClaude
 const roots: string[] = [];
 const children: ChildProcess[] = [];
 const diagnostics = new Map<ChildProcess, { binary: string; stdout: string; stderr: string }>();
+type InitPhase = { stage: string; pid: number; childPid?: number; clock: string; nanoseconds?: string; ticks?: string; frequency?: string; highResolution?: boolean };
+type InitEvidence = { directory: string; record(event: string, detail?: Record<string, unknown>): void; collect(event: string, child: ChildProcess): void; deadlineSnapshot(child: ChildProcess): void; finished(): Promise<void> };
+const initializationEvidence = new Map<ChildProcess, InitEvidence>();
+const initStages = ["ps-enter", "add-type-ready", "native-created", "native-resumed", "runner-enter", "target-spawn"] as const;
+
+function initializationTraceEnabled(binary: string, flag = process.env.ALOOK_WINDOWS_ACP_INITIALIZE_TRACE): boolean {
+  return binary === "agy_acp_server.exe" && flag === "1";
+}
+
+function bindInputBytes(path: string) {
+  try {
+    const before = statSync(path);
+    const bytes = readFileSync(path);
+    const after = statSync(path);
+    return { path, status: before.size === after.size && before.mtimeMs === after.mtimeMs ? "bound" : "changed-during-read",
+      bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"), mtimeMs: after.mtimeMs };
+  } catch (error) {
+    return { path, status: "unavailable", code: error && typeof error === "object" && "code" in error ? String(error.code) : "read-failed" };
+  }
+}
+
+function readInitPhase(directory: string, stage: string): InitPhase | undefined {
+  try {
+    const value = JSON.parse(readFileSync(join(directory, stage + ".json"), "utf8").replace(/^\uFEFF/, "")) as Record<string, unknown>;
+    if (value.stage !== stage || !Number.isSafeInteger(value.pid) || (value.pid as number) <= 0) return;
+    const phase: InitPhase = { stage, pid: value.pid as number, clock: String(value.clock) };
+    if (["native-created", "native-resumed", "target-spawn"].includes(stage) && value.childPid === undefined) return;
+    if (value.childPid !== undefined) {
+      if (!Number.isSafeInteger(value.childPid) || (value.childPid as number) < (stage === "add-type-ready" ? 0 : 1)) return;
+      phase.childPid = value.childPid as number;
+    }
+    if (value.clock === "node-hrtime" && typeof value.nanoseconds === "string" && /^\d+$/.test(value.nanoseconds)) phase.nanoseconds = value.nanoseconds;
+    else if (value.clock === "windows-qpc-stopwatch" && typeof value.ticks === "string" && /^\d+$/.test(value.ticks)
+      && typeof value.frequency === "string" && /^[1-9]\d*$/.test(value.frequency) && typeof value.highResolution === "boolean") {
+      phase.ticks = value.ticks; phase.frequency = value.frequency; phase.highResolution = value.highResolution;
+    } else return;
+    return phase;
+  } catch { return; }
+}
+
+function sameClockIntervalNs(from: InitPhase | undefined, to: InitPhase | undefined): string | null {
+  if (!from || !to || from.pid !== to.pid || from.clock !== to.clock) return null;
+  let delta: bigint;
+  if (from.clock === "node-hrtime" && from.nanoseconds && to.nanoseconds) delta = BigInt(to.nanoseconds) - BigInt(from.nanoseconds);
+  else if (from.clock === "windows-qpc-stopwatch" && from.highResolution && to.highResolution
+    && from.frequency && from.frequency === to.frequency && from.ticks && to.ticks) {
+    delta = (BigInt(to.ticks) - BigInt(from.ticks)) * 1_000_000_000n / BigInt(from.frequency);
+  } else return null;
+  return delta >= 0n ? delta.toString() : null;
+}
+
+function prepareInitEvidence(binary: string): InitEvidence | undefined {
+  if (!initializationTraceEnabled(binary)) return;
+  try {
+    const evidenceRoot = join(process.env.RUNNER_TEMP ?? tmpdir(), "Alook runtime evidence");
+    mkdirSync(evidenceRoot, { recursive: true });
+    const directory = mkdtempSync(join(evidenceRoot, "antigravity-initialize-"));
+    const executable = resolveSpawnSpec(binary, []).command;
+    const zip = process.env.ALOOK_WINDOWS_ACP_ZIP ?? join(process.env.RUNNER_TEMP ?? tmpdir(), "agy-acp-server.zip");
+    writeFileSync(join(directory, "inputs.json"), JSON.stringify({
+      schema: 1, binary, zip: bindInputBytes(zip), executable: bindInputBytes(executable),
+      node: process.version, abi: process.versions.modules, platform: process.platform, arch: process.arch,
+      checkout: process.env.GITHUB_SHA ?? null, runId: process.env.GITHUB_RUN_ID ?? null, attempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+      clocks: { parent: "node-hrtime nanoseconds; epochMs is separate wall time", native: "windows-qpc-stopwatch ticks/frequency", crossClockCorrelation: "UNQUALIFIED; no cross-process/domain subtraction" },
+    }, null, 2));
+    let pending = Promise.resolve();
+    let snapshotStarted = false;
+    const record = (event: string, detail: Record<string, unknown> = {}) => {
+      try {
+        appendFileSync(join(directory, "parent-events.jsonl"), JSON.stringify({
+          schema: 1, event, parentPid: process.pid, clock: "node-hrtime", unit: "ns",
+          nanoseconds: process.hrtime.bigint().toString(), epochMs: Date.now(), ...detail,
+        }) + "\n");
+      } catch {}
+    };
+    const collect = (event: string, child: ChildProcess) => {
+      try {
+        const phases = Object.fromEntries(initStages.map(stage => [stage, readInitPhase(directory, stage)])) as Record<string, InitPhase | undefined>;
+        const native = initStages.slice(0, 4).map(stage => phases[stage]);
+        record(event, {
+          supervisorPid: child.pid, runnerPid: phases["runner-enter"]?.pid ?? null, targetPid: phases["target-spawn"]?.childPid ?? null,
+          missing: initStages.filter(stage => !phases[stage]), phases,
+          associations: {
+            supervisor: native.every(phase => !!phase && phase.pid === child.pid),
+            createdRunner: !!phases["runner-enter"] && phases["native-created"]?.childPid === phases["runner-enter"]?.pid,
+            resumedRunner: !!phases["runner-enter"] && phases["native-resumed"]?.childPid === phases["runner-enter"]?.pid,
+            targetSpawner: !!phases["runner-enter"] && phases["runner-enter"]?.pid === phases["target-spawn"]?.pid,
+          },
+          intervalNs: {
+            psToAddType: sameClockIntervalNs(phases["ps-enter"], phases["add-type-ready"]),
+            nativePrepareCreate: sameClockIntervalNs(phases["add-type-ready"], phases["native-created"]),
+            assignResume: sameClockIntervalNs(phases["native-created"], phases["native-resumed"]),
+            runnerToTargetSpawn: sameClockIntervalNs(phases["runner-enter"], phases["target-spawn"]),
+            resumeToRunner: null, targetSpawnToParentOutput: null,
+          },
+          crossClockCorrelation: "UNQUALIFIED",
+        });
+      } catch {}
+    };
+    const deadlineSnapshot = (child: ChildProcess) => {
+      if (snapshotStarted || !child.pid) return;
+      snapshotStarted = true;
+      record("deadline-snapshot-requested", { supervisorPid: child.pid, timeoutMs: 1500 });
+      const script = "$all = @(Get-CimInstance Win32_Process | Where-Object { $_.CreationDate } | ForEach-Object { @{pid=[int]$_.ProcessId;parent=[int]$_.ParentProcessId;name=$_.Name;created=$_.CreationDate.ToUniversalTime().ToString('o')} }); ConvertTo-Json -InputObject $all -Compress";
+      pending = new Promise<void>(resolve => {
+        execFile("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+          { encoding: "utf8", timeout: 1500, windowsHide: true }, (error, stdout) => {
+            try {
+              if (error) record("deadline-snapshot-unavailable", { code: error.code ?? null });
+              else {
+                const processes = JSON.parse(stdout.replace(/^\uFEFF/, "")) as WindowsProcessIdentity[];
+                const owned = descendantsFromSnapshot(processes, child.pid!);
+                const root = processes.find(value => value.pid === child.pid);
+                record("deadline-snapshot-result", { supervisorPid: child.pid, root, descendants: owned.slice(0, 64), omitted: Math.max(0, owned.length - 64) });
+              }
+            } catch { record("deadline-snapshot-unavailable", { code: "invalid-or-missing-root" }); }
+            resolve();
+          });
+      }).catch(() => { record("deadline-snapshot-unavailable", { code: "observer-error" }); });
+    };
+    record("prepared", { executablePath: executable });
+    return { directory, record, collect, deadlineSnapshot, finished: () => pending };
+  } catch {
+    try { console.log(JSON.stringify({ stage: "initialize-evidence-unavailable", binary })); } catch {}
+    return;
+  }
+}
+
 
 function setPrefix(prefix: string) {
   const bin = process.platform === "win32" ? prefix : join(prefix, "bin");
@@ -33,11 +162,18 @@ function setPrefix(prefix: string) {
   vi.stubEnv("XDG_DATA_HOME", join(prefix, "data"));
 }
 
-function launch(binary: string, args: string[]) {
+function launch(binary: string, args: string[], evidence?: InitEvidence) {
   const spec = resolveSpawnSpec(binary, args);
   const child = spawnAgentProcess(spec.command, spec.args, {
     cwd: process.cwd(), env: process.env, shell: spec.shell,
+    ...(evidence ? { traceDirectory: evidence.directory } : {}),
   });
+  if (evidence) {
+    initializationEvidence.set(child, evidence);
+    evidence.record("launch-returned", { supervisorPid: child.pid, resolvedExecutable: spec.command });
+    child.once("spawn", () => evidence.record("supervisor-spawn", { supervisorPid: child.pid }));
+    child.once("close", (code, signal) => evidence.record("supervisor-close", { supervisorPid: child.pid, code, signal }));
+  }
   children.push(child);
   const trace = { binary, stdout: "", stderr: "" };
   diagnostics.set(child, trace);
@@ -46,16 +182,22 @@ function launch(binary: string, args: string[]) {
   return child;
 }
 
-function waitForLine(child: ChildProcess, matches: (line: string) => boolean, timeoutMs = 20_000): Promise<string> {
+function waitForLine(child: ChildProcess, matches: (line: string) => boolean, timeoutMs = 20_000, phase?: string): Promise<string> {
   const lines = createInterface({ input: child.stdout! });
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
+      const evidence = initializationEvidence.get(child);
+      evidence?.record("deadline-fired", { phase, timeoutMs });
       const trace = diagnostics.get(child);
       console.log(JSON.stringify({ stage: "readiness-timeout", binary: trace?.binary, pid: child.pid,
         alive: child.pid ? isAlive(child.pid) : false, stdout: scrubDriverErrorMessage(trace?.stdout ?? ""), stderr: scrubDriverErrorMessage(trace?.stderr ?? "") }));
       finish(new Error("runtime output timed out"));
+      evidence?.collect("deadline-phases", child);
+      if (phase === "initialize") evidence?.deadlineSnapshot(child);
     }, timeoutMs);
+    initializationEvidence.get(child)?.record("deadline-armed", { phase, timeoutMs });
     const onExit = (code: number | null, signal: string | null) => {
+      initializationEvidence.get(child)?.record("process-exit-before-line", { phase, code, signal });
       const trace = diagnostics.get(child);
       finish(new Error(`${trace?.binary} exited before readiness: code=${code}, signal=${signal}, stderr=${scrubDriverErrorMessage(trace?.stderr ?? "")}`));
     };
@@ -67,7 +209,14 @@ function waitForLine(child: ChildProcess, matches: (line: string) => boolean, ti
       if (error) reject(error);
       else resolve(line!);
     }
-    lines.on("line", (line) => { if (matches(line)) finish(undefined, line); });
+    lines.on("line", (line) => {
+      if (matches(line)) {
+        const evidence = initializationEvidence.get(child);
+        evidence?.record("matching-line", { phase });
+        finish(undefined, line);
+        evidence?.collect("matching-line-phases", child);
+      }
+    });
     child.once("exit", onExit);
     child.once("error", finish);
   });
@@ -90,6 +239,65 @@ function descendantsFromSnapshot(processes: WindowsProcessIdentity[], rootPid: n
   }
   return queue.slice(1);
 }
+
+
+describe("initialization evidence boundaries", () => {
+  it("binds exact file bytes and leaves unavailable inputs explicit", () => {
+    const directory = mkdtempSync(join(tmpdir(), "initialize-input-"));
+    roots.push(directory);
+    const file = join(directory, "input.bin");
+    writeFileSync(file, "abc");
+    expect(bindInputBytes(file)).toMatchObject({ status: "bound", bytes: 3, sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" });
+    expect(bindInputBytes(join(directory, "missing"))).toMatchObject({ status: "unavailable" });
+  });
+  it("only enables the exact Antigravity case and exact flag", () => {
+    expect(initializationTraceEnabled("agy_acp_server.exe", "1")).toBe(true);
+    expect(initializationTraceEnabled("agy_acp_server.exe", "true")).toBe(false);
+    expect(initializationTraceEnabled("cursor-agent", "1")).toBe(false);
+    expect(initializationTraceEnabled("grok", "1")).toBe(false);
+  });
+  it("refuses cross-process, cross-clock, changed-frequency and reversed intervals", () => {
+    const a: InitPhase = { stage: "a", pid: 1, clock: "windows-qpc-stopwatch", ticks: "10", frequency: "1000", highResolution: true };
+    const b: InitPhase = { ...a, stage: "b", ticks: "20" };
+    expect(sameClockIntervalNs(a, b)).toBe("10000000");
+    expect(sameClockIntervalNs(a, { ...b, pid: 2 })).toBeNull();
+    expect(sameClockIntervalNs(a, { ...b, frequency: "2000" })).toBeNull();
+    expect(sameClockIntervalNs(b, a)).toBeNull();
+    expect(sameClockIntervalNs(undefined, b)).toBeNull();
+    expect(sameClockIntervalNs({ stage: "a", pid: 3, clock: "node-hrtime", nanoseconds: "100" },
+      { stage: "b", pid: 3, clock: "node-hrtime", nanoseconds: "150" })).toBe("50");
+    expect(sameClockIntervalNs(a, { stage: "b", pid: 1, clock: "node-hrtime", nanoseconds: "150" })).toBeNull();
+  });
+  it("preserves the producer's add-type-ready zero sentinel without accepting zero child PIDs", () => {
+    const directory = mkdtempSync(join(tmpdir(), "initialize-no-child-"));
+    roots.push(directory);
+    const produced = { stage: "add-type-ready", pid: 10, childPid: 0, clock: "windows-qpc-stopwatch",
+      ticks: "100", frequency: "10000000", highResolution: true };
+    writeFileSync(join(directory, "add-type-ready.json"), JSON.stringify(produced));
+    const phase = readInitPhase(directory, "add-type-ready");
+    expect(phase).toEqual(produced);
+    expect(sameClockIntervalNs({ ...produced, stage: "ps-enter", ticks: "50" }, phase)).toBe("5000");
+    for (const stage of ["native-created", "native-resumed"]) {
+      writeFileSync(join(directory, stage + ".json"), JSON.stringify({ ...produced, stage, childPid: 12 }));
+      expect(readInitPhase(directory, stage)?.childPid).toBe(12);
+      writeFileSync(join(directory, stage + ".json"), JSON.stringify({ ...produced, stage }));
+      expect(readInitPhase(directory, stage)).toBeUndefined();
+    }
+    writeFileSync(join(directory, "target-spawn.json"), JSON.stringify({
+      stage: "target-spawn", pid: 12, childPid: 0, clock: "node-hrtime", nanoseconds: "150",
+    }));
+    expect(readInitPhase(directory, "target-spawn")).toBeUndefined();
+  });
+  it("does not export unknown phase payload fields or claim missing phases", () => {
+    const directory = mkdtempSync(join(tmpdir(), "initialize-phase-"));
+    roots.push(directory);
+    expect(readInitPhase(directory, "target-spawn")).toBeUndefined();
+    writeFileSync(join(directory, "target-spawn.json"), JSON.stringify({
+      stage: "target-spawn", pid: 3, childPid: 4, clock: "node-hrtime", nanoseconds: "150", environment: "private-payload",
+    }));
+    expect(readInitPhase(directory, "target-spawn")).toEqual({ stage: "target-spawn", pid: 3, childPid: 4, clock: "node-hrtime", nanoseconds: "150" });
+  });
+});
 
 describe("native process snapshot ownership", () => {
   const root: WindowsProcessIdentity = { pid: 10, parent: 0, name: "supervisor", created: "2026-10-09T01:00:00Z" };
@@ -133,6 +341,11 @@ afterEach(async () => {
   for (const child of children.splice(0)) {
     if (child.pid && isAlive(child.pid)) await killProcessTree(child.pid, { graceMs: 100 });
   }
+  for (const [child, evidence] of initializationEvidence) {
+    await evidence.finished();
+    evidence.collect("afterEach-phases", child);
+  }
+  initializationEvidence.clear();
   diagnostics.clear();
   vi.unstubAllEnvs();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
@@ -276,40 +489,51 @@ describe.skipIf(!nativePrefix)("real npm and native providers from an isolated p
     ["agy_acp_server.exe", []],
   ] as const)("initializes the real %s ACP process without a model request", async (binary, args) => {
     setPrefix(nativePrefix!);
+    const evidence = prepareInitEvidence(binary);
     const started = Date.now();
-    const child = launch(binary, [...args]);
+    evidence?.record("launch-requested");
+    const child = launch(binary, [...args], evidence);
     const initialized = waitForLine(child, line => {
       try { return JSON.parse(line).id === 1; } catch { return false; }
-    }, binary === "agy_acp_server.exe" ? 30_000 : 20_000);
+    }, binary === "agy_acp_server.exe" ? 30_000 : 20_000, evidence ? "initialize" : undefined);
+    evidence?.record("initialize-write-before", { requestId: 1 });
     child.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {
       protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: "alook-windows-qa", version: "1.0.0" },
     } }) + "\n");
+    evidence?.record("initialize-write-returned", { requestId: 1, meaning: "write-return-not-target-consumption" });
     let initializedLine: string;
     try {
       initializedLine = await initialized;
     } catch (error) {
+      evidence?.record("initialize-rejected");
       if (binary === "agy_acp_server.exe") {
         try {
           const late = await waitForLine(child, line => {
             try { return JSON.parse(line).id === 1; } catch { return false; }
-          });
+          }, undefined, evidence ? "late-initialize" : undefined);
           console.log(JSON.stringify({ binary, phase: "diagnostic-late-initialize", elapsedMs: Date.now() - started, responseKind: JSON.parse(late).result ? "result" : "error" }));
         } catch {}
       }
       throw error;
     }
     expect(JSON.parse(initializedLine)).toMatchObject({ result: { protocolVersion: 1 } });
+    evidence?.record("initialize-assertion-passed");
     console.log(JSON.stringify({ binary, phase: "initialize", elapsedMs: Date.now() - started }));
     if (binary === "agy_acp_server.exe") {
       const session = waitForLine(child, line => {
         try { return JSON.parse(line).id === 2; } catch { return false; }
-      });
+      }, undefined, evidence ? "session/new" : undefined);
+      evidence?.record("session-new-write-before", { requestId: 2 });
       child.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd: nativePrefix!, mcpServers: [] } }) + "\n");
+      evidence?.record("session-new-write-returned", { requestId: 2 });
       const reply = JSON.parse(await session);
       expect(reply.result !== undefined || reply.error !== undefined).toBe(true);
       console.log(JSON.stringify({ binary, phase: "session/new", elapsedMs: Date.now() - started, errorCode: reply.error?.code }));
     }
+    evidence?.record("stop-before");
     await stop(child);
+    evidence?.record("stop-returned");
+    evidence?.collect("case-complete-phases", child);
   }, 60_000);
 
   it("classifies real Grok authentication separately from installation", async () => {
