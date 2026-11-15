@@ -317,6 +317,9 @@ importers:
       '@alook/web':
         specifier: workspace:*
         version: link:../web
+      '@videojs/react':
+        specifier: 10.4.0
+        version: 10.4.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       next:
         specifier: 16.4.2
         version: 16.4.2(@opentelemetry/api@1.10.0)(@playwright/test@1.64.1)(@types/node@25.9.4)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)

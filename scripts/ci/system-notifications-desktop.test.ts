@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { readFileSync, readdirSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -19,6 +19,8 @@ const desktopCommands = [
   "desktop_system_notification_dismiss_conversation",
   "desktop_system_notification_unlisten",
 ]
+
+const mobileOrientationCommands = ["mobile_orientation_listen", "mobile_orientation_unlisten"]
 
 function startupSnapshot(source: string) {
   const snapshot = source.match(/#\[cfg\(all\(target_os = "macos", debug_assertions\)\)\]\npub\(crate\) fn diagnose_qa_main_snapshot\(window: &WebviewWindow\) \{[\s\S]*?\n\}/g) ?? []
@@ -51,12 +53,77 @@ describe("desktop system notification contract", () => {
       .filter((command) => !command.startsWith("native_oauth_")
         && !command.startsWith("mobile_share_image_")
         && !command.startsWith("mobile_system_notification_")
-        && !command.startsWith("file_save_"))
+        && !command.startsWith("file_save_")
+        && !mobileOrientationCommands.includes(command))
     const permissionCommands = quotedValues(
       read("permissions/desktop-commands.toml").match(/commands\.allow\s*=\s*\[[^\]]*\]/s)?.[0] ?? "",
     )
     expect(manifestCommands.toSorted()).toEqual([...desktopCommands, "native_geometry_snapshot"].toSorted())
     expect(permissionCommands).toEqual(desktopCommands)
+  })
+
+  it("keeps the orientation command allowlist exact and separate from desktop authority", () => {
+    const commands = applicationCommands(read("build.rs"))
+    expect(commands.filter(command => command.startsWith("mobile_orientation_"))).toEqual(mobileOrientationCommands)
+    const permission = read("permissions/mobile-orientation.toml")
+    expect(permission.match(/^\[\[permission\]\]$/gm)).toHaveLength(1)
+    expect(permission.match(/^identifier\s*=\s*"([^"]+)"/m)?.[1]).toBe("mobile-orientation")
+    expect(quotedValues(permission.match(/commands\.allow\s*=\s*\[[^\]]*\]/s)?.[0] ?? "")).toEqual(mobileOrientationCommands)
+  })
+
+  it("grants orientation only to the exact main mobile production document", () => {
+    const capabilities = readdirSync(resolve(root, "capabilities"))
+      .filter(name => name.endsWith(".json"))
+      .map(name => JSON.parse(read(`capabilities/${name}`)) as { identifier: string; permissions: string[] })
+    expect(capabilities.filter(capability => capability.permissions.includes("mobile-orientation"))
+      .map(capability => capability.identifier)).toEqual(["mobile-orientation-mobile"])
+    expect(JSON.parse(read("capabilities/mobile-orientation-mobile.json"))).toEqual({
+      $schema: "../gen/schemas/mobile-schema.json",
+      identifier: "mobile-orientation-mobile",
+      description: expect.any(String),
+      windows: ["main"],
+      platforms: ["android", "iOS"],
+      local: false,
+      remote: { urls: ["https://alook.ai"] },
+      permissions: ["mobile-orientation"],
+    })
+    const production = JSON.parse(read("tauri.conf.json")) as { app: { security: { capabilities: string[] } } }
+    expect(production.app.security.capabilities).toContain("mobile-orientation-mobile")
+    expect(production.app.security.capabilities).not.toContain("mobile-orientation-dev")
+  })
+
+  it("requires the trusted caller guard before either mobile orientation operation", () => {
+    const entry = read("src/lib.rs")
+    const mobileStart = entry.indexOf("fn run_mobile(")
+    const desktopStart = entry.indexOf("fn run_desktop(")
+    expect(mobileStart).toBeGreaterThan(-1)
+    expect(desktopStart).toBeGreaterThan(mobileStart)
+    expect(entry).toMatch(/#\[cfg\(mobile\)\]\s*mod mobile_orientation_runtime;/)
+    expect(entry).toMatch(/#\[cfg\(not\(desktop\)\)\]\s*fn run_mobile\(/)
+    const mobile = entry.slice(mobileStart, desktopStart)
+    const handlers = mobile.match(/tauri::generate_handler!\[([\s\S]*?)\]/)?.[1] ?? ""
+    expect(Array.from(handlers.matchAll(/mobile_orientation_runtime::([a-z_]+)/g), match => match[1]))
+      .toEqual(mobileOrientationCommands)
+    expect(mobile.match(/tauri_plugin_mobile_orientation::init\(\)/g)).toHaveLength(1)
+    expect(entry.slice(desktopStart)).not.toContain("mobile_orientation_runtime::")
+    expect(entry.slice(desktopStart)).not.toContain("tauri_plugin_mobile_orientation::")
+    const runtime = read("src/mobile_orientation_runtime.rs")
+    expect(runtime).toContain("use crate::native_command_guard::guard;")
+    const declarations = Array.from(runtime.matchAll(/#\[tauri::command\]\s*pub async fn ([a-z_]+)\(/g))
+    expect(declarations.map(match => match[1])).toEqual(mobileOrientationCommands)
+    for (const declaration of declarations) {
+      const body = runtime.slice(declaration.index).match(/\) -> Result<[^{}]+\{\s*([\s\S]*)/)?.[1] ?? ""
+      expect(body).toMatch(/^guard\(&window\)\.map_err\(str::to_owned\)\?;/)
+      expect(body.indexOf("guard(&window)")).toBeLessThan(body.indexOf(".mobile_orientation()"))
+    }
+    const guard = read("src/native_command_guard.rs")
+    expect(guard).toContain('label == "main"')
+    expect(guard).toContain('url.origin().ascii_serialization() == expected')
+    expect(guard).toContain('"https://alook.ai"')
+    expect(guard).toContain('"http://localhost:3000"')
+    expect(guard).toContain("url.username().is_empty()")
+    expect(guard).toContain("url.password().is_none()")
+    expect(guard).toContain('Err("untrusted_caller")')
   })
 
   it("preserves the existing narrow production capability and desktop scheme", () => {

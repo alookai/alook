@@ -1,12 +1,12 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
-import { useEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from "react"
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties, type ReactNode, type RefObject } from "react"
 import { flushSync } from "react-dom"
 import {
   BufferingIndicator, Container, Controls, Gesture, Hotkey, Menu, MuteButton, PlaybackRateRadioGroup,
-  PlayButton, StatusAnnouncer, Time, TimeSlider, VolumePopover, VolumeSlider,
-  createPlayer, useDoubleTapGesture, useHotkey,
+  PlayButton, StatusAnnouncer, Time, TimeSlider, VolumePopover, VolumeSlider, DEFAULT_SEEK_STEP,
+  createPlayer, useContainer, useDoubleTapGesture, useHotkey, useTapGesture,
 } from "@videojs/react"
 import { videoFeatures } from "@videojs/react/video"
 import {
@@ -16,6 +16,8 @@ import {
 import { CircleCheck, Download, LoaderCircle, RefreshCw } from "lucide-react"
 import { fileDownloadStatusText, type useFileDownload } from "@/lib/file-download"
 import { tid } from "@/lib/community/testids"
+import { playerPointerRegion, type PlayerRotation } from "./video-orientation"
+import { renderOrientedPopup, renderOrientedSlider } from "./video-orientation-controls"
 import "./videojs/neutral.css"
 import "./videojs/attachment.css"
 
@@ -25,6 +27,7 @@ const { Player, usePlayer } = createPlayer({
 })
 
 export const AttachmentVideoPlayer = Player
+export type VideoControlFocus = () => void
 
 function PlaybackButton({ name }: { name: string }) {
   return <PlayButton className="media-button media-play-button video-controls-play-button"
@@ -43,17 +46,19 @@ function subscribeHover(notify: () => void) {
 
 function readHover() { return window.matchMedia("(hover: hover)").matches }
 
-function SoundControls({ name }: { name: string }) {
+function SoundControls({ name, rotation }: { name: string; rotation: PlayerRotation }) {
   const canHover = useSyncExternalStore(subscribeHover, readHover, () => false)
-  return <VolumePopover.Root openOnHover={canHover} delay={200} closeDelay={100} side="right">
+  const content = <VolumePopover.Root openOnHover={canHover} delay={200} closeDelay={100} side={rotation === 90 ? "bottom" : rotation === -90 ? "top" : "right"}>
     <VolumePopover.Trigger render={<MuteButton className="media-button media-mute-button video-controls-volume-button"
       label={state => `${state.volumeLevel === "off" ? "Unmute" : "Mute"} ${name}`}>
       <VolumeHighIcon className="media-button-icon media-mute-button-high-icon" />
       <VolumeLowIcon className="media-button-icon media-mute-button-low-icon" />
       <VolumeOffIcon className="media-button-icon media-mute-button-off-icon" />
     </MuteButton>} />
-    <VolumePopover.Popup className="media-popup media-popup-safe-area media-popup-transition media-popup-surface media-volume-popover">
-      <VolumeSlider.Root className="media-slider media-volume-slider" orientation="horizontal" label={`Volume ${name}`}>
+    <VolumePopover.Popup className="media-popup media-popup-safe-area media-popup-transition media-popup-surface media-volume-popover"
+      render={props => renderOrientedPopup(props, rotation, "right")}>
+      <VolumeSlider.Root className="media-slider media-volume-slider" orientation="horizontal" label={`Volume ${name}`}
+        render={props => renderOrientedSlider(props, rotation)}>
         <VolumeSlider.Track className="media-slider-track">
           <VolumeSlider.Fill className="media-slider-fill" />
         </VolumeSlider.Track>
@@ -61,15 +66,17 @@ function SoundControls({ name }: { name: string }) {
       </VolumeSlider.Root>
     </VolumePopover.Popup>
   </VolumePopover.Root>
+  return <span className={rotation === 0 ? "inline-flex" : "relative inline-flex"}>{content}</span>
 }
 
-function PlaybackSettings({ name }: { name: string }) {
+function PlaybackSettings({ name, rotation }: { name: string; rotation: PlayerRotation }) {
   const volumeAvailability = usePlayer(state => state.volumeAvailability)
-  return <Menu.Root side="top" align="end">
+  const content = <Menu.Root side={rotation === 90 ? "right" : rotation === -90 ? "left" : "top"} align="end">
     <Menu.Trigger className="media-button media-settings-menu-trigger video-controls-settings-button" aria-label={`Video settings: ${name}`}>
       <GearIcon className="media-button-icon-base media-settings-menu-trigger-icon" />
     </Menu.Trigger>
-    <Menu.Popup className="media-popup media-popup-surface media-menu-popup media-menu-resizable-popup">
+    <Menu.Popup className="media-popup media-popup-surface media-menu-popup media-menu-resizable-popup"
+      render={props => renderOrientedPopup(props, rotation, "top")}>
       <Menu.Content className="media-menu-content">
         {volumeAvailability === "unsupported" && <p className="media-menu-group-label">Use your device’s volume buttons.</p>}
         <Menu.Group>
@@ -84,16 +91,32 @@ function PlaybackSettings({ name }: { name: string }) {
       </Menu.Content>
     </Menu.Popup>
   </Menu.Root>
+  return <span className={rotation === 0 ? "inline-flex" : "relative inline-flex"}>{content}</span>
 }
 
-function PlayerInputs({ onExpand }: { onExpand: () => void }) {
+function PlayerInputs({ onExpand, rotation }: { onExpand: () => void; rotation: PlayerRotation }) {
+  const container = useContainer()
+  const store = usePlayer()
+  const region = (event: PointerEvent) => container ? playerPointerRegion(event, container.getBoundingClientRect(), rotation) : "center"
   useHotkey({ keys: "f", repeatable: false, onActivate: onExpand })
-  useDoubleTapGesture(onExpand, { region: "center" })
+  useDoubleTapGesture(onExpand, { region: "center", disabled: rotation !== 0 })
+  useDoubleTapGesture(event => {
+    const part = region(event)
+    if (part === "center") onExpand()
+    else void store.seek(store.currentTime + (part === "left" ? -DEFAULT_SEEK_STEP : DEFAULT_SEEK_STEP))
+  }, { disabled: rotation === 0 })
+  useTapGesture(event => {
+    if (region(event) === "center") void (store.paused ? store.play() : store.pause())
+  }, { pointer: "mouse", disabled: rotation === 0 })
+  useTapGesture(() => store.toggleControls(), { pointer: "touch", disabled: rotation === 0 })
   return <>
+    {rotation !== 0 && <Gesture type="tap" action="togglePaused" disabled />}
+    {rotation === 0 && <>
     <Gesture type="tap" action="togglePaused" pointer="mouse" region="center" />
     <Gesture type="tap" action="toggleControls" pointer="touch" />
     <Gesture type="doubletap" action="seekStep" region="left" />
     <Gesture type="doubletap" action="seekStep" region="right" />
+    </>}
     <Hotkey keys="Space" action="togglePaused" />
     <Hotkey keys="k" action="togglePaused" />
     <Hotkey keys="m" action="toggleMuted" />
@@ -104,15 +127,17 @@ function PlayerInputs({ onExpand }: { onExpand: () => void }) {
   </>
 }
 
-export function VideoControls({ name, expanded, expandRef, playerRef, onExpand, download, forceVisible, children }: {
+export function VideoControls({ name, expanded, expandRef, controlFocusRef, playerRef, onExpand, download, forceVisible, children, rotation = 0 }: {
   name: string
   expanded: boolean
   expandRef: RefObject<HTMLButtonElement | null>
+  controlFocusRef?: RefObject<VideoControlFocus | null>
   playerRef: RefObject<HTMLVideoElement | null>
   onExpand: () => void
   download: ReturnType<typeof useFileDownload>
   forceVisible: boolean
   children: ReactNode
+  rotation?: PlayerRotation
 }) {
   const store = usePlayer()
   const controlsVisible = usePlayer(state => state.controlsVisible)
@@ -120,9 +145,22 @@ export function VideoControls({ name, expanded, expandRef, playerRef, onExpand, 
   const keyboardRef = useRef(false)
   const movingFocusRef = useRef(false)
   const [keyboardFocus, setKeyboardFocus] = useAtom(useCreateAtom(false))
-  const holdControls = forceVisible || keyboardFocus || download.state.status === "downloading" || download.state.status === "error"
+  const [focusPending, setFocusPending] = useAtom(useCreateAtom(false))
+  useImperativeHandle(controlFocusRef, () => () => {
+    keyboardRef.current = false
+    setKeyboardFocus(false)
+    store.toggleControls(true)
+    setFocusPending(true)
+  }, [setFocusPending, setKeyboardFocus, store])
+  const holdControls = focusPending || forceVisible || keyboardFocus || download.state.status === "downloading" || download.state.status === "error"
   useEffect(() => holdControls ? store.requestControlsLock() : undefined, [holdControls, store])
   const visible = holdControls || controlsVisible
+  useLayoutEffect(() => {
+    if (!focusPending) return
+    store.toggleControls(true)
+    expandRef.current?.focus({ preventScroll: true })
+    setFocusPending(false)
+  }, [expandRef, focusPending, setFocusPending, store])
   useEffect(() => {
     if (visible || !controlsRef.current?.contains(document.activeElement)) return
     movingFocusRef.current = true
@@ -135,7 +173,8 @@ export function VideoControls({ name, expanded, expandRef, playerRef, onExpand, 
     : download.state.status === "error" ? RefreshCw : Download
 
   return <Container className="media-skin media-container video-skin alook-video-player"
-    data-theme="neutral" data-preset="video" data-expanded={expanded ? "" : undefined} data-base-ui-swipe-ignore="" tabIndex={0}
+    data-theme="neutral" data-preset="video" data-expanded={expanded ? "" : undefined} data-player-rotation={rotation} data-base-ui-swipe-ignore="" tabIndex={0}
+    style={{ "--alook-player-rotation": `${rotation}deg` } as CSSProperties}
     onPointerDownCapture={() => { keyboardRef.current = false; setKeyboardFocus(false) }}
     onKeyDownCapture={event => {
       keyboardRef.current = true
@@ -155,10 +194,11 @@ export function VideoControls({ name, expanded, expandRef, playerRef, onExpand, 
         className="video-controls video-controls-content video-controls-wrap">
         <Controls.Group className="video-controls-start">
           <PlaybackButton name={name} />
-          <SoundControls name={name} />
+          <SoundControls name={name} rotation={rotation} />
         </Controls.Group>
         <Controls.Group className="video-time-slider-group">
-          <TimeSlider.Root className="media-slider media-time-slider" label={`Seek ${name}`} data-testid={tid.videoSeek(name)}>
+          <TimeSlider.Root className="media-slider media-time-slider" label={`Seek ${name}`} data-testid={tid.videoSeek(name)}
+            render={props => renderOrientedSlider(props, rotation)}>
             <TimeSlider.Track className="media-slider-track">
               <TimeSlider.Buffer className="media-slider-buffer" />
               <TimeSlider.Fill className="media-slider-fill" />
@@ -172,7 +212,7 @@ export function VideoControls({ name, expanded, expandRef, playerRef, onExpand, 
           </Time.Group>
         </Controls.Group>
         <Controls.Group className="video-controls-end">
-          <PlaybackSettings name={name} />
+          <PlaybackSettings name={name} rotation={rotation} />
           <Controls.Group className="video-controls-trailing">
             <button type="button" className="media-button" data-testid={tid.mediaDownload(name)}
               aria-label={`${download.state.status === "downloading" ? "Cancel download" : download.state.status === "error" ? "Retry download" : "Download"} ${name}`}
@@ -189,7 +229,7 @@ export function VideoControls({ name, expanded, expandRef, playerRef, onExpand, 
         {statusText && <p role={download.state.status === "error" ? "alert" : "status"} className="attachment-video-download-status">{statusText}</p>}
       </Controls.Content>
     </Controls.Root>
-    <PlayerInputs onExpand={onExpand} />
+    <PlayerInputs onExpand={onExpand} rotation={rotation} />
     <StatusAnnouncer className="media-status-announcer" />
   </Container>
 }

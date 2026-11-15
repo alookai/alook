@@ -2,6 +2,7 @@ import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 
 import { tid } from "./_fixtures/testids"
+import { focusEditorDuringContextMenuExit } from "./_fixtures/context-menu-exit-probe"
 
 async function observeNextContextMenu(page: import("@playwright/test").Page) {
   await page.evaluate(() => {
@@ -30,7 +31,7 @@ async function contextMenuProbe(page: import("@playwright/test").Page) {
   ).__contextMenuProbe)
 }
 
-test("message context menu preserves and copies selected text", async ({ caseActors }) => {
+test("message context menu preserves and copies selected text", async ({ caseActors, caseResources }, testInfo) => {
   const actors = await caseActors(["alice"])
   const { asUser } = actors
   const { seedChannel, seedMessage, seedServer } = actors.seed
@@ -138,16 +139,41 @@ test("message context menu preserves and copies selected text", async ({ caseAct
   const editorBox = await editor.boundingBox()
   if (!editorBox) throw new Error("composer has no visible bounds")
   await page.mouse.click(editorBox.x + editorBox.width / 2, editorBox.y + editorBox.height / 2)
-  const focusDuringExit = await editor.evaluate((element) => {
+  const naturalAfterClick = await editor.evaluate((element) => {
     const popup = document.querySelector('[data-slot="context-menu-content"]')
-    ;(element as HTMLElement).focus()
-    return {
-      popupMounted: popup?.isConnected === true,
-      popupClosing: popup?.hasAttribute("data-closed") === true,
-      editorFocused: document.activeElement === element,
-    }
+    return { popupMounted: popup?.isConnected === true, popupClosing: popup?.hasAttribute("data-closed") === true,
+      editorFocused: document.activeElement === element }
   })
-  expect(focusDuringExit).toEqual({ popupMounted: true, popupClosing: true, editorFocused: true })
   await expect(contextMenu).toHaveCount(0)
-  await expect(editor).toBeFocused()
+
+  const activeFocusDuringExits = []
+  for (const holdMs of [0, 150]) {
+    await page.mouse.click(points.selection.x, points.selection.y, { button: "right" })
+    await expect(openContextMenu).toBeVisible()
+    const activeExit = await focusEditorDuringContextMenuExit(page, editor)
+    const ownedExit = caseResources.own(activeExit, probe => probe.dispose())
+    const activeEditorBox = await editor.boundingBox()
+    if (!activeEditorBox) throw new Error("composer has no visible bounds")
+    const x = activeEditorBox.x + activeEditorBox.width / 2
+    const y = activeEditorBox.y + activeEditorBox.height / 2
+    if (holdMs) {
+      await page.mouse.move(x, y)
+      await page.mouse.down()
+      try {
+        await new Promise(resolve => setTimeout(resolve, holdMs))
+      } finally {
+        await page.mouse.up()
+      }
+    } else {
+      await page.mouse.click(x, y)
+    }
+    await expect(contextMenu).toHaveCount(0)
+    const sample = await activeExit.read()
+    expect(sample).toEqual({ popupMountedAtAction: true, popupClosingAtAction: true, editorFocusedAfterAction: true })
+    await expect(editor).toBeFocused()
+    await ownedExit.close()
+    activeFocusDuringExits.push({ holdMs, sample })
+  }
+  await testInfo.attach("context-menu-exit-focus.json", { body: JSON.stringify({ naturalAfterClick, activeFocusDuringExits,
+    phaseRecordReadAfterUnmount: true, input: "native outside click without focus intervention; separate active focus at actual data-closed transition after outside pointerdown, including a 150ms held press" }), contentType: "application/json" })
 })

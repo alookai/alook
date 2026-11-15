@@ -62,10 +62,15 @@ function spawnCli(args: string[], env: NodeJS.ProcessEnv = {}): ChildProcess {
   return child;
 }
 
-async function collect(child: ChildProcess): Promise<{ code: number | null; output: string }> {
+async function collect(child: ChildProcess, observeOutput?: (chunk: string) => void): Promise<{ code: number | null; output: string }> {
   let output = "";
-  child.stdout?.on("data", (chunk) => { output += String(chunk); });
-  child.stderr?.on("data", (chunk) => { output += String(chunk); });
+  const appendOutput = (chunk: unknown): void => {
+    const text = String(chunk);
+    output += text;
+    try { observeOutput?.(text); } catch {}
+  };
+  child.stdout?.on("data", appendOutput);
+  child.stderr?.on("data", appendOutput);
   return await new Promise((resolve, reject) => {
     child.once("error", reject);
     child.once("exit", (code) => {
@@ -102,6 +107,24 @@ function readCheckpoint(checkpointFile: string): { parentPid: number; childPid: 
   } catch {
     return undefined;
   }
+}
+
+function blockRunnerStartup(baseDir: string): { checkpointFile: string; env: NodeJS.ProcessEnv; release: () => void } {
+  const checkpointFile = path.join(baseDir, "checkpoint-runner-startup.json");
+  const preload = path.join(baseDir, "block-runner-startup.cjs");
+  fs.writeFileSync(preload, [
+    'if (process.argv.slice(2).join(" ") === "daemon run") {',
+    'const fs = require("node:fs");',
+    `fs.writeFileSync(${JSON.stringify(checkpointFile)}, JSON.stringify({ parentPid: process.ppid, childPid: process.pid }));`,
+    'const view = new Int32Array(new SharedArrayBuffer(4));',
+    `while (!fs.existsSync(${JSON.stringify(`${checkpointFile}.continue`)})) Atomics.wait(view, 0, 0, 25);`,
+    '}',
+  ].join("\n"));
+  return {
+    checkpointFile,
+    env: { NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require ${JSON.stringify(preload)}`].filter(Boolean).join(" ") },
+    release: () => fs.writeFileSync(`${checkpointFile}.continue`, ""),
+  };
 }
 
 function daemonLogRecords(baseDir: string): Array<{ message: string; fields: Record<string, unknown> }> {
@@ -146,6 +169,41 @@ function processDescription(pid: number): string {
     ], { encoding: "utf8" });
   }
   return execFileSync("ps", ["eww", "-p", String(pid), "-o", "command="], { encoding: "utf8" });
+}
+
+function reportDelayedShutdownFailure(baseDir: string, marker: string, parent: ChildProcess, output: string, elapsedMs: number): void {
+  try {
+    const ownerPath = pidfile(baseDir);
+    let ownerPid: number | null = null;
+    let ownerReadable = false;
+    try {
+      const owner = JSON.parse(fs.readFileSync(ownerPath, "utf8")) as { pid?: unknown };
+      if (Number.isSafeInteger(owner.pid)) ownerPid = owner.pid as number;
+      ownerReadable = true;
+    } catch {}
+    let messages: string[] = [];
+    let logReadable = false;
+    try { messages = daemonLogRecords(baseDir).map(record => record.message); logReadable = true; } catch {}
+    console.error("DAEMON_DELAYED_SHUTDOWN_OBSERVATION", JSON.stringify({
+      sampledAt: new Date().toISOString(), elapsedMs,
+      observerConfiguredInWorker: process.env.NODE_OPTIONS?.includes("llvm-phase-preload") ?? false,
+      worker: process.env.VITEST_WORKER_ID ?? null,
+      launcher: { pid: process.pid, execPath: process.execPath, node: process.version, platform: process.platform },
+      parent: { pid: parent.pid ?? null, exitCode: parent.exitCode, signalCode: parent.signalCode },
+      owner: { present: fs.existsSync(ownerPath), readable: ownerReadable, pid: ownerPid },
+      markerPresent: fs.existsSync(marker),
+      daemonLog: { present: fs.existsSync(path.join(path.dirname(ownerPath), "daemon.log")), readable: logReadable },
+      daemonPhases: {
+        startup: logReadable ? messages.includes("daemon startup") : null, up: logReadable ? messages.includes("daemon up") : null,
+        shutdown: logReadable ? messages.includes("shutting down…") : null, teardownFailed: logReadable ? messages.includes("daemon teardown failed") : null,
+      },
+      parentOutput: {
+        timedOut: output.includes("daemon start timed out"),
+        exitedBeforeReady: output.includes("daemon child exited before ready"),
+        invalidAcknowledgment: output.includes("invalid prepared acknowledgment"),
+      },
+    }));
+  } catch {}
 }
 
 async function stop(baseDir: string): Promise<void> {
@@ -324,21 +382,74 @@ describe("daemon lifecycle real processes", () => {
     await waitFor(() => !fs.existsSync(pidfile(foregroundBase)));
   }, 60_000);
 
-  it("keeps ownership until a timed-out child has actually exited", async () => {
+  it("cleans a timed-out child that has not installed its shutdown handlers", async () => {
     const baseDir = makeBaseDir();
-    const shutdownMarker = path.join(baseDir, "delayed-shutdown.marker");
+    const startup = blockRunnerStartup(baseDir);
+    const shutdownMarker = path.join(baseDir, "early-shutdown.marker");
     const first = spawnCli(cliArgs(baseDir), {
+      ...startup.env,
       NODE_ENV: "test",
       ALOOK_DAEMON_TEST_RECEIPT_TIMEOUT_MS: "1500",
-      ALOOK_DAEMON_TEST_SKIP_READY: "1",
       ALOOK_DAEMON_TEST_SHUTDOWN_DELAY_MS: "800",
       ALOOK_DAEMON_TEST_SHUTDOWN_MARKER: shutdownMarker,
     });
     const firstResult = collect(first);
-    await waitFor(() => process.platform === "win32"
-      ? fs.existsSync(pidfile(baseDir)) && alive(readOwner(baseDir).pid)
-      : fs.existsSync(shutdownMarker));
+    await waitFor(() => readCheckpoint(startup.checkpointFile) !== undefined);
+    const checkpoint = readCheckpoint(startup.checkpointFile)!;
+    expect(checkpoint.parentPid).toBe(first.pid);
+    const failedStart = await firstResult;
+    expect(failedStart.output).toContain("timed out");
+    expect(alive(checkpoint.childPid)).toBe(false);
+    expect(fs.existsSync(pidfile(baseDir))).toBe(false);
+    expect(fs.existsSync(shutdownMarker)).toBe(false);
+    expect(daemonIsReady(baseDir)).toBe(false);
+    const replacement = await runCli(cliArgs(baseDir));
+    expect(replacement.output).toContain("started in background");
+    const replacementOwner = readOwner(baseDir);
+    expect(replacementOwner.pid).not.toBe(checkpoint.childPid);
+    await stop(baseDir);
+    await waitFor(() => !alive(replacementOwner.pid) && !fs.existsSync(pidfile(baseDir)));
+  }, 60_000);
+
+  it("keeps ownership until a timed-out child has actually exited", async () => {
+    const baseDir = makeBaseDir();
+    const startup = blockRunnerStartup(baseDir);
+    const shutdownMarker = path.join(baseDir, "delayed-shutdown.marker");
+    const first = spawnCli(cliArgs(baseDir), {
+      ...startup.env,
+      NODE_ENV: "test",
+      ALOOK_DAEMON_TEST_RECEIPT_TIMEOUT_MS: "1500",
+      ALOOK_DAEMON_TEST_RECEIPT_TIMEOUT_AFTER_READY: "1",
+      ALOOK_DAEMON_TEST_SKIP_READY: "1",
+      ALOOK_DAEMON_TEST_SHUTDOWN_DELAY_MS: "800",
+      ALOOK_DAEMON_TEST_SHUTDOWN_MARKER: shutdownMarker,
+    });
+    let parentOutput = "";
+    const firstResult = collect(first, chunk => { parentOutput += chunk; });
+    await waitFor(() => readCheckpoint(startup.checkpointFile) !== undefined);
+    const checkpoint = readCheckpoint(startup.checkpointFile)!;
+    expect(checkpoint.parentPid).toBe(first.pid);
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    expect(first.exitCode).toBeNull();
+    expect(alive(checkpoint.childPid)).toBe(true);
+    expect(readOwner(baseDir).pid).toBe(checkpoint.childPid);
+    expect(fs.existsSync(shutdownMarker)).toBe(false);
+    startup.release();
+    await waitFor(() => daemonIsReady(baseDir));
+    const waitStarted = Date.now();
+    try {
+      await waitFor(() => process.platform === "win32"
+        ? fs.existsSync(pidfile(baseDir)) && alive(readOwner(baseDir).pid)
+        : fs.existsSync(shutdownMarker));
+    } catch (error) {
+      reportDelayedShutdownFailure(baseDir, shutdownMarker, first, parentOutput, Date.now() - waitStarted);
+      throw error;
+    }
     const oldOwner = readOwner(baseDir);
+    expect(oldOwner.pid).toBe(checkpoint.childPid);
+    if (process.platform !== "win32") {
+      expect(fs.readFileSync(shutdownMarker, "utf8")).toBe(String(oldOwner.pid));
+    }
     expect(alive(oldOwner.pid)).toBe(true);
 
     await expect(daemonStart({
@@ -355,7 +466,10 @@ describe("daemon lifecycle real processes", () => {
     await waitFor(() => !alive(oldOwner.pid) && !fs.existsSync(pidfile(baseDir)));
     const replacement = await runCli(cliArgs(baseDir));
     expect(replacement.output).toContain("started in background");
+    const replacementOwner = readOwner(baseDir);
+    expect(replacementOwner.pid).not.toBe(oldOwner.pid);
     await stop(baseDir);
+    await waitFor(() => !alive(replacementOwner.pid) && !fs.existsSync(pidfile(baseDir)));
   }, 60_000);
 
   it("exits and releases ownership exactly once when fatal teardown rejects", async () => {

@@ -4150,8 +4150,22 @@
       {
         "story": "web-business-attachments-and-rich-content--unavailable-video",
         "region": "After Play, VideoAttachment composes this one control bar for inline error recovery, original download and masked expand/shrink. It is absent from the idle preview."
+      },
+      {
+        "story": "web-business-attachments-and-rich-content--rotated-controls",
+        "region": "Actual control bar and oriented popup/slider adapters in both explicit ninety-degree directions; local audio transport, no phone sensor claim."
       }
     ],
     "reason": "The actual AttachmentCard mounts VideoAttachment and its VideoControls child in the missing-file story. This declares the unavailable-media composition only; successful transport, seek, volume and state transfer require actual browser/native QA."
+  },
+  "src/web/src/components/community/messages/video-orientation-controls.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-attachments-and-rich-content--rotated-controls",
+        "region": "Explicit left/right rotation of the actual VideoControls composition. Volume and speed controls open OrientedPopup through their public render interfaces; actual pointer/keyboard and native/browser sensor evidence remains separate."
+      }
+    ],
+    "reason": "The story composes the actual rotated render adapters and popup owner with local audio in a native video element. It declares a manual popup/coordinate exposure only, not device direction, movie pixels, permission or App acceptance."
   }
 }

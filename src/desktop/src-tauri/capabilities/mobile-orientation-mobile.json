@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile-orientation-mobile",
+  "description": "Physical device direction for the trusted main mobile WebView",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "local": false,
+  "remote": {
+    "urls": [
+      "https://alook.ai"
+    ]
+  },
+  "permissions": [
+    "mobile-orientation"
+  ]
+}

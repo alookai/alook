@@ -27,6 +27,8 @@ fn main() {
             "desktop_system_notification_dismiss",
             "desktop_system_notification_dismiss_conversation",
             "desktop_system_notification_unlisten",
+            "mobile_orientation_listen",
+            "mobile_orientation_unlisten",
             "mobile_share_image_copy",
             "mobile_share_image_save",
             "mobile_system_notification_check_permission",

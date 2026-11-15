@@ -1,8 +1,8 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
-import { useCallback, useEffect, useRef, useSyncExternalStore, type RefObject } from "react"
-import { flushSync } from "react-dom"
+import { useCallback, useEffect, useRef, useSyncExternalStore, type CSSProperties, type RefObject } from "react"
+import { createPortal, flushSync } from "react-dom"
 import { Play, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -11,7 +11,9 @@ import type { FileAttachment } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import { attachmentImageFrameStyle } from "./attachment-layout"
 import { Video } from "@videojs/react/video"
-import { AttachmentVideoPlayer, VideoControls } from "./video-controls"
+import { AttachmentVideoPlayer, VideoControls, type VideoControlFocus } from "./video-controls"
+import { useVideoOrientation } from "./use-video-orientation"
+import type { PlayerRotation } from "./video-orientation"
 
 type PlaybackStatus = "loading" | "ready" | "blocked" | "error"
 type PlaybackSnapshot = { time: number; playing: boolean; muted: boolean; volume: number; rate: number }
@@ -53,14 +55,16 @@ function releaseVideo(video: HTMLVideoElement): void {
   video.load()
 }
 
-function VideoPlayback({ attachment, initial, playerRef, expanded, expandRef, onExpand, download }: {
+function VideoPlayback({ attachment, initial, playerRef, expanded, expandRef, controlFocusRef, onExpand, download, rotation = 0 }: {
   attachment: FileAttachment
   initial: PlaybackSnapshot
   playerRef: RefObject<HTMLVideoElement | null>
   expanded: boolean
   expandRef: RefObject<HTMLButtonElement | null>
+  controlFocusRef: RefObject<VideoControlFocus | null>
   onExpand: () => void
   download: ReturnType<typeof useFileDownload>
+  rotation?: PlayerRotation
 }) {
   const [status, setStatus] = useAtom(useCreateAtom<PlaybackStatus>("loading"))
   const [attempt, setAttempt] = useAtom(useCreateAtom(0))
@@ -116,8 +120,8 @@ function VideoPlayback({ attachment, initial, playerRef, expanded, expandRef, on
   }, [attachment.url, play, playerRef, restorePosition])
 
   return <AttachmentVideoPlayer defaultPlaybackRates={[0.5, 1, 1.25, 1.5, 2]}>
-    <VideoControls name={attachment.name} expanded={expanded} expandRef={expandRef} playerRef={playerRef} onExpand={onExpand}
-      download={download} forceVisible={status !== "ready"}>
+    <VideoControls name={attachment.name} expanded={expanded} expandRef={expandRef} controlFocusRef={controlFocusRef} playerRef={playerRef} onExpand={onExpand}
+      download={download} rotation={rotation} forceVisible={status !== "ready"}>
       <Video key={attempt} ref={attach} src={attachment.url} fallback={null} controls={false} playsInline preload="metadata" tabIndex={0}
         aria-label={`Video ${attachment.name}`} data-testid={tid.mediaPlayer(attachment.name)}
         onLoadedMetadata={event => restorePosition(event.currentTarget)}
@@ -146,21 +150,51 @@ function VideoPlayback({ attachment, initial, playerRef, expanded, expandRef, on
 
 export function VideoAttachment({ attachment }: { attachment: FileAttachment }) {
   const [visible, setVisible] = useAtom(useCreateAtom(false))
-  const [playback, setPlayback] = useAtom(useCreateAtom<{ mode: "preview" | "inline" | "expanded"; initial: PlaybackSnapshot }>({
-    mode: "preview", initial: initialPlayback,
+  const [playback, setPlayback] = useAtom(useCreateAtom<{ mode: "preview" | "inline" | "expanded"; initial: PlaybackSnapshot; host: HTMLDivElement | null }>({
+    mode: "preview", initial: initialPlayback, host: null,
   }))
   const mode = playback.mode
   const [previewStatus, setPreviewStatus] = useAtom(useCreateAtom<"loading" | "ready" | "error">("loading"))
   const previewRef = useRef<HTMLDivElement>(null)
+  const inlineSlotRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<HTMLVideoElement>(null)
   const expandRef = useRef<HTMLButtonElement>(null)
-  const shrinkRef = useRef<HTMLButtonElement>(null)
+  const controlFocusRef = useRef<VideoControlFocus | null>(null)
+  const focusControls = useCallback(() => { controlFocusRef.current?.(); return false }, [])
   const transition = useCallback((next: "inline" | "expanded") => {
     const player = playerRef.current
     const initial = player ? playbackSnapshot(player) : playback.initial
-    flushSync(() => setPlayback({ mode: next, initial }))
+    flushSync(() => setPlayback(value => ({ ...value, mode: next, initial })))
   }, [playback.initial, setPlayback])
   const open = mode === "expanded"
+  const { rotation, prepare } = useVideoOrientation(open)
+  const expand = useCallback(() => { prepare(); transition("expanded") }, [prepare, transition])
+
+  const attachInlineSlot = useCallback((slot: HTMLDivElement) => {
+    inlineSlotRef.current = slot
+    if (playback.host) slot.appendChild(playback.host)
+    return () => { if (inlineSlotRef.current === slot) inlineSlotRef.current = null }
+  }, [playback.host])
+
+  const attachExpandedSlot = useCallback((slot: HTMLDivElement) => {
+    const host = playback.host
+    if (!host) return
+    slot.appendChild(host)
+    return () => { if (host.parentNode === slot) inlineSlotRef.current?.appendChild(host) }
+  }, [playback.host])
+
+  const attachStage = useCallback((stage: HTMLDivElement) => {
+    const measure = () => {
+      if (stage.clientWidth <= 0 || stage.clientHeight <= 0) return
+      stage.style.setProperty("--video-stage-width", `${stage.clientWidth}px`)
+      stage.style.setProperty("--video-stage-height", `${stage.clientHeight}px`)
+    }
+    measure()
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure)
+    observer?.observe(stage)
+    window.addEventListener("resize", measure)
+    return () => { observer?.disconnect(); window.removeEventListener("resize", measure) }
+  }, [])
   const download = useFileDownload(attachment)
 
   useEffect(() => {
@@ -187,28 +221,45 @@ export function VideoAttachment({ attachment }: { attachment: FileAttachment }) 
       data-preview-state={previewStatus}
       className="relative block max-w-full overflow-hidden rounded-lg border border-border bg-muted/30 [--attachment-image-max-height:200px] sm:[--attachment-image-max-height:240px]"
       style={attachmentImageFrameStyle(undefined, undefined)}>
-      {mode === "inline" && <div className="absolute inset-0 flex"><VideoPlayback attachment={attachment} initial={playback.initial} playerRef={playerRef}
-        expanded={false} expandRef={expandRef} onExpand={() => transition("expanded")} download={download} /></div>}
+      {mode !== "preview" && <div ref={attachInlineSlot} className="absolute inset-0 flex" />}
       {mode === "preview" && visible && <video key={attachment.url} ref={attachPreview} src={previewUrl}
         data-testid={tid.videoPreview(attachment.name)} aria-hidden tabIndex={-1}
         muted playsInline preload="auto" className="pointer-events-none size-full object-contain"
         onLoadedData={() => setPreviewStatus("ready")} onSeeked={() => setPreviewStatus("ready")}
         onPlay={event => event.currentTarget.pause()} onError={() => setPreviewStatus("error")} />}
       {mode === "preview" && <button type="button" data-testid={tid.mediaPlay(attachment.name)} aria-label={`Play ${attachment.name}`}
-        onClick={() => flushSync(() => setPlayback({ mode: "inline", initial: { ...initialPlayback, playing: true } }))}
+        onClick={() => {
+          const host = document.createElement("div")
+          host.className = "flex size-full min-h-0 min-w-0"
+          flushSync(() => setPlayback({ mode: "inline", initial: { ...initialPlayback, playing: true }, host }))
+        }}
         className="absolute inset-0 flex size-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg    ">
         <span className="flex size-11 items-center justify-center rounded-full bg-background/90 text-foreground"><Play className="size-5 fill-current" /></span>
         {previewStatus === "error" && <span className="rounded-md bg-background/90 px-2 py-1 text-xs text-foreground">Video preview unavailable</span>}
         <span className="sr-only">{attachment.name}</span>
       </button>}
     </div>
-    <Dialog open={open} onOpenChange={value => { if (!value) transition("inline") }}>
+    <Dialog open={open} onOpenChange={(value, details) => {
+      if (value) return
+      const popup = playerRef.current?.closest('[role="dialog"]')?.querySelector(".media-popup[data-open]")
+      if (details.reason === "escape-key" && (popup || details.event.defaultPrevented)) {
+        details.cancel()
+        details.allowPropagation()
+        return
+      }
+      transition("inline")
+    }}>
       <DialogContent aria-label={`Video preview: ${attachment.name}`} data-testid={tid.videoDialog(attachment.name)} data-media-preview=""
-        showCloseButton={false} initialFocus={shrinkRef} finalFocus={expandRef}
+        showCloseButton={false} initialFocus={focusControls} finalFocus={focusControls}
         className="top-4 right-4 left-4 flex h-[calc(100%-2rem)] w-auto max-w-none translate-x-0 translate-y-0 flex-col gap-2 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-none">
-        {open && <VideoPlayback key={attachment.url} attachment={attachment} initial={playback.initial} playerRef={playerRef}
-          expanded expandRef={shrinkRef} onExpand={() => transition("inline")} download={download} />}
+        {open && <div ref={attachStage} className="attachment-video-stage" data-player-stage="">
+          <div ref={attachExpandedSlot} className="attachment-video-surface" data-player-surface="" data-rotation={rotation}
+            style={{ "--alook-player-rotation": `${rotation}deg` } as CSSProperties} />
+        </div>}
       </DialogContent>
+      {playback.host && createPortal(<VideoPlayback attachment={attachment} initial={playback.initial} playerRef={playerRef}
+        expanded={open} expandRef={expandRef} controlFocusRef={controlFocusRef} onExpand={open ? () => transition("inline") : expand}
+        download={download} rotation={rotation} />, playback.host, attachment.url)}
     </Dialog>
   </>
 }

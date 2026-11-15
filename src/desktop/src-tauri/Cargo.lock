@@ -60,6 +60,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-file-save",
  "tauri-plugin-log",
+ "tauri-plugin-mobile-orientation",
  "tauri-plugin-mobile-push",
  "tauri-plugin-mobile-share-image",
  "tauri-plugin-notification",
@@ -4263,6 +4264,16 @@ dependencies = [
  "tauri-plugin",
  "thiserror 2.0.18",
  "time",
+]
+
+[[package]]
+name = "tauri-plugin-mobile-orientation"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

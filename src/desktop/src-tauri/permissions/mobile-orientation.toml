@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "mobile-orientation"
+description = "Coarse physical direction subscription for the trusted main mobile WebView"
+commands.allow = ["mobile_orientation_listen", "mobile_orientation_unlisten"]

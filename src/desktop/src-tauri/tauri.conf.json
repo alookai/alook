@@ -56,7 +56,8 @@
         "mobile-system-notification-mobile",
         "native-back-mobile",
         "window-lifecycle-mobile",
-        "file-save"
+        "file-save",
+        "mobile-orientation-mobile"
       ]
     }
   },

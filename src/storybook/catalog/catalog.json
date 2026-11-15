@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 339,
+    "composition": 340,
     "environment": 10,
     "nonvisual": 30,
     "direct": 40
@@ -3638,9 +3638,28 @@
         {
           "story": "web-business-attachments-and-rich-content--unavailable-video",
           "region": "After Play, VideoAttachment composes this one control bar for inline error recovery, original download and masked expand/shrink. It is absent from the idle preview."
+        },
+        {
+          "story": "web-business-attachments-and-rich-content--rotated-controls",
+          "region": "Actual control bar and oriented popup/slider adapters in both explicit ninety-degree directions; local audio transport, no phone sensor claim."
         }
       ],
       "reason": "The actual AttachmentCard mounts VideoAttachment and its VideoControls child in the missing-file story. This declares the unavailable-media composition only; successful transport, seek, volume and state transfer require actual browser/native QA."
+    },
+    {
+      "source": "src/web/src/components/community/messages/video-orientation-controls.tsx",
+      "application": "Web",
+      "candidates": [
+        "OrientedPopup"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-attachments-and-rich-content--rotated-controls",
+          "region": "Explicit left/right rotation of the actual VideoControls composition. Volume and speed controls open OrientedPopup through their public render interfaces; actual pointer/keyboard and native/browser sensor evidence remains separate."
+        }
+      ],
+      "reason": "The story composes the actual rotated render adapters and popup owner with local audio in a native video element. It declares a manual popup/coordinate exposure only, not device direction, movie pixels, permission or App acceptance."
     },
     {
       "source": "src/web/src/components/community/messages/virtual-cursor-list.tsx",
@@ -7020,6 +7039,12 @@
       "id": "web-business-attachments-and-rich-content--inline-content",
       "title": "Web/Business/Attachments and rich content",
       "name": "Inline Content",
+      "source": "src/storybook/stories/business/attachments.stories.tsx"
+    },
+    {
+      "id": "web-business-attachments-and-rich-content--rotated-controls",
+      "title": "Web/Business/Attachments and rich content",
+      "name": "Rotated Controls",
       "source": "src/storybook/stories/business/attachments.stories.tsx"
     },
     {

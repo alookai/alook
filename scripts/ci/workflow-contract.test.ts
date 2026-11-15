@@ -1234,6 +1234,15 @@ describe("Desktop image clipboard", () => {
     })
     expect(desktopDevConfig.app.security.capabilities).toEqual([
       "desktop-capability",
+      {
+        identifier: "mobile-orientation-dev",
+        description: expect.any(String),
+        windows: ["main"],
+        platforms: ["android", "iOS"],
+        local: true,
+        remote: { urls: ["http://localhost:3000"] },
+        permissions: ["mobile-orientation"],
+      },
       "native-geometry",
       "native-caption",
       "native-geometry-dev",

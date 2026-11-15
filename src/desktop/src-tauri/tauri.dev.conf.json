@@ -4,6 +4,15 @@
     "security": {
       "capabilities": [
         "desktop-capability",
+        {
+          "identifier": "mobile-orientation-dev",
+          "description": "Physical device direction for the trusted development mobile WebView",
+          "windows": ["main"],
+          "platforms": ["android", "iOS"],
+          "local": true,
+          "remote": { "urls": ["http://localhost:3000"] },
+          "permissions": ["mobile-orientation"]
+        },
         "native-geometry",
         "native-caption",
         "native-geometry-dev",

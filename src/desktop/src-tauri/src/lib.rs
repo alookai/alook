@@ -9,6 +9,8 @@ mod file_save_runtime;
 
 use tauri::Manager;
 
+#[cfg(mobile)]
+mod mobile_orientation_runtime;
 #[cfg(any(mobile, test))]
 mod mobile_share_image;
 #[cfg(mobile)]
@@ -101,6 +103,8 @@ pub fn run() {
 #[cfg(not(desktop))]
 fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
     builder = builder
+        .manage(mobile_orientation_runtime::MobileOrientationState::default())
+        .plugin(tauri_plugin_mobile_orientation::init())
         .manage(mobile_share_image::MobileShareImageState::default())
         .plugin(tauri_plugin_mobile_share_image::init())
         .plugin(tauri_plugin_file_save::init())
@@ -110,6 +114,8 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
         file_save_runtime::file_save_write_chunk,
         file_save_runtime::file_save_commit,
         file_save_runtime::file_save_cancel,
+        mobile_orientation_runtime::mobile_orientation_listen,
+        mobile_orientation_runtime::mobile_orientation_unlisten,
         mobile_share_image_runtime::mobile_share_image_copy,
         mobile_share_image_runtime::mobile_share_image_save,
         mobile_system_notification_runtime::mobile_system_notification_check_permission,
@@ -157,6 +163,7 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
         if webview.label() == "main"
             && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
         {
+            mobile_orientation_runtime::retire(webview.app_handle());
             native_oauth_runtime::retire_listener(webview.app_handle());
             file_save_runtime::retire(webview.app_handle());
         }

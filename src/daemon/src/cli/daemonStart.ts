@@ -666,6 +666,7 @@ function sendPrepared(child: ChildProcess, prepared: PreparedDaemon): Promise<vo
 
 function waitForReceipt(child: ChildProcess, prepared: PreparedDaemon): Promise<DaemonReadyReceipt> {
   return new Promise((resolve, reject) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     const settle = (error?: Error, receipt?: DaemonReadyReceipt): void => {
       clearTimeout(timeout);
       child.removeAllListeners("message");
@@ -680,10 +681,15 @@ function waitForReceipt(child: ChildProcess, prepared: PreparedDaemon): Promise<
     const receiptTimeoutMs = Number.isFinite(configuredTestTimeout) && configuredTestTimeout > 0
       ? configuredTestTimeout
       : START_RECEIPT_TIMEOUT_MS;
-    const timeout = setTimeout(
-      () => settle(new Error(`daemon start timed out; inspect ${path.join(prepared.daemonDir, "daemon.log")}`)),
-      receiptTimeoutMs,
-    );
+    const timeoutAfterTestReady = process.env.NODE_ENV === "test"
+      && process.env.ALOOK_DAEMON_TEST_RECEIPT_TIMEOUT_AFTER_READY === "1";
+    const startTimeout = (): void => {
+      timeout ??= setTimeout(
+        () => settle(new Error(`daemon start timed out; inspect ${path.join(prepared.daemonDir, "daemon.log")}`)),
+        receiptTimeoutMs,
+      );
+    };
+    if (!timeoutAfterTestReady) startTimeout();
     child.on("message", (message: unknown) => {
       const accepted = message as { type?: string; pid?: number; machineId?: string };
       if (accepted.type === "daemon:accepted") {
@@ -697,6 +703,10 @@ function waitForReceipt(child: ChildProcess, prepared: PreparedDaemon): Promise<
       const receipt = message as DaemonReadyReceipt;
       if (receipt?.pid !== child.pid || receipt.machineId !== prepared.machineId || receipt.startedAt !== prepared.startedAt) {
         settle(new Error("daemon child returned an invalid start receipt"));
+        return;
+      }
+      if (timeoutAfterTestReady && accepted.type === "daemon:test-ready") {
+        startTimeout();
         return;
       }
       settle(undefined, receipt);
@@ -798,7 +808,12 @@ export async function daemonRunFromIpc(ipc: typeof process = process): Promise<n
       void runPreparedDaemon(prepared, {
         foreground: false,
         onReady: (receipt) => {
-          if (process.env.NODE_ENV === "test" && process.env.ALOOK_DAEMON_TEST_SKIP_READY === "1") return;
+          if (process.env.NODE_ENV === "test" && process.env.ALOOK_DAEMON_TEST_SKIP_READY === "1") {
+            if (process.env.ALOOK_DAEMON_TEST_RECEIPT_TIMEOUT_AFTER_READY === "1") {
+              sendIpcBestEffort(ipc, { ...receipt, type: "daemon:test-ready" });
+            }
+            return;
+          }
           sendIpcBestEffort(ipc, receipt, true);
         },
         releaseOwnership: () => {
