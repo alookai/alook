@@ -3,9 +3,10 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef, type ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal, RotateCcw } from "lucide-react"
+import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal, RotateCcw, LogOut } from "lucide-react"
 import { NOTIF_LEVELS, USE_SERVER_DEFAULT, type NotifLevel } from "@alook/shared"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { avatarInitial } from "@/lib/community/avatar"
 import { Input } from "@/components/ui/input"
 import { onEnterSubmit } from "@/lib/ime"
@@ -85,7 +86,7 @@ export type ChannelNotifLevel = typeof USE_SERVER_DEFAULT | NotifLevel
 export function ChannelHeader({
   channel, rightPanel, onToggle, notifLevel, onSetNotifLevel,
   kind = "text", server, mobileBack, mobileBackDisplay = "viewport", onBack, tools,
-  onRename, endActions, compactActions, titleState = "ready", onRetryTitle, retryingTitle,
+  onRename, onLeave, endActions, compactActions, titleState = "ready", onRetryTitle, retryingTitle,
 }: {
   channel: string
   titleState?: MessageHeaderTitleState
@@ -97,6 +98,7 @@ export function ChannelHeader({
   notifLevel?: ChannelNotifLevel
   onSetNotifLevel?: (l: ChannelNotifLevel) => void
   onRename?: (name: string) => void | Promise<void>
+  onLeave?: () => void | Promise<void>
   server?: { id: string; name: string; icon: string | null }
   mobileBack?: () => void
   mobileBackDisplay?: "viewport" | "always"
@@ -155,12 +157,15 @@ export function ChannelHeader({
           {tools?.members !== false && tool("members", Users, "Member list")}
           <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
           <ChannelNotifDropdown level={notifLevel ?? USE_SERVER_DEFAULT} onSetLevel={onSetNotifLevel} />
-          {(tools?.threads !== false || tools?.pinned !== false) && (
+          {(tools?.threads !== false || tools?.pinned !== false || Boolean(onLeave)) && (
             <ChannelOverflowMenu
+              channel={channel}
+              kind={kind}
               rightPanel={rightPanel}
               onToggle={onToggle}
               showThreads={tools?.threads !== false}
               showPinned={tools?.pinned !== false}
+              onLeave={onLeave}
             />
           )}
         </span>
@@ -178,45 +183,95 @@ export function ChannelHeader({
 }
 
 function ChannelOverflowMenu({
-  rightPanel, onToggle, showThreads, showPinned,
+  channel, kind, rightPanel, onToggle, showThreads, showPinned, onLeave,
 }: {
+  channel: string
+  kind: EntityKind
   rightPanel: RightPanel
   onToggle: (k: Exclude<RightPanel, null>) => void
   showThreads: boolean
   showPinned: boolean
+  onLeave?: () => void | Promise<void>
 }) {
+  const [confirmTarget, setConfirmTarget] = useAtom(useCreateAtom<string | null>(null))
+  const [leaving, setLeaving] = useAtom(useCreateAtom(false))
+  const leavingRef = useRef(false)
+  const confirmOpen = confirmTarget === channel && Boolean(onLeave)
   const activeInside = (rightPanel === "threads" && showThreads) || (rightPanel === "pinned" && showPinned)
+
+  const confirmLeave = async () => {
+    if (!onLeave || leavingRef.current) return
+    leavingRef.current = true
+    setLeaving(true)
+    try {
+      await onLeave()
+      setConfirmTarget(null)
+    } catch {
+      // Caller surfaces toastApiError; keep dialog open so user can retry or cancel.
+    } finally {
+      leavingRef.current = false
+      setLeaving(false)
+    }
+  }
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="More channel options"
-            className={`${CHANNEL_OVERFLOW_GAP_CLASS_NAME} text-muted-foreground hover:text-foreground ${activeInside ? "bg-accent text-foreground" : ""}`}
-          />
-        }
-      >
-        <MoreHorizontal className="size-4" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
-        {showThreads && (
-          <DropdownMenuItem onClick={() => onToggle("threads")}>
-            <MessagesSquare className="size-4" />
-            <span className="flex-1">Threads</span>
-            {rightPanel === "threads" && <Check className="size-4 shrink-0 text-primary" />}
-          </DropdownMenuItem>
-        )}
-        {showPinned && (
-          <DropdownMenuItem onClick={() => onToggle("pinned")}>
-            <Pin className="size-4" />
-            <span className="flex-1">Pinned messages</span>
-            {rightPanel === "pinned" && <Check className="size-4 shrink-0 text-primary" />}
-          </DropdownMenuItem>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="More channel options"
+              className={`${CHANNEL_OVERFLOW_GAP_CLASS_NAME} text-muted-foreground hover:text-foreground ${activeInside ? "bg-accent text-foreground" : ""}`}
+            />
+          }
+        >
+          <MoreHorizontal className="size-4" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          {showThreads && (
+            <DropdownMenuItem onClick={() => onToggle("threads")}>
+              <MessagesSquare className="size-4" />
+              <span className="flex-1">Threads</span>
+              {rightPanel === "threads" && <Check className="size-4 shrink-0 text-primary" />}
+            </DropdownMenuItem>
+          )}
+          {showPinned && (
+            <DropdownMenuItem onClick={() => onToggle("pinned")}>
+              <Pin className="size-4" />
+              <span className="flex-1">Pinned messages</span>
+              {rightPanel === "pinned" && <Check className="size-4 shrink-0 text-primary" />}
+            </DropdownMenuItem>
+          )}
+          {onLeave && (showThreads || showPinned) && <DropdownMenuSeparator />}
+          {onLeave && (
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => setConfirmTarget(channel)}
+            >
+              <LogOut className="size-4" />
+              <span className="flex-1">Leave</span>
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {confirmOpen && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => { if (!open && !leaving) setConfirmTarget(null) }}
+          title={`Leave /${channel}?`}
+          description={kind === "thread"
+            ? "You'll stop receiving notifications for new replies."
+            : "You'll lose access until you're added back."}
+          confirmLabel="Leave"
+          loadingLabel="Leaving…"
+          loading={leaving}
+          confirmVariant="destructive"
+          onConfirm={() => { void confirmLeave() }}
+        />
+      )}
+    </>
   )
 }
 

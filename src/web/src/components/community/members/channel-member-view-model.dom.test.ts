@@ -621,4 +621,64 @@ describe("useChannelMemberViewModel", () => {
     }, expect.any(Object))
     expect(mocks.kickMember).toHaveBeenCalledWith({ serverId: "server_1", memberId: "member_alice", assertActive: expect.any(Function) })
   })
+
+  it("exposes onLeaveChannel only for private channels and joined threads", async () => {
+    const { toastApiError } = await import("@/lib/api/client")
+    let renderer!: ReturnType<typeof rtlRender>
+    act(() => { renderer = rtlRender(renderHarness(props())) })
+    expect(latestModel().onLeaveChannel).toBeUndefined()
+
+    mocks.channelMembers.set("channel_1", [member("viewer_1", "Viewer", { isCreator: true })])
+    act(() => {
+      renderer.rerender(renderHarness(props({
+        currentServer: { categories: [{ private: true, channels: [{ id: "channel_1" }] }] },
+      })))
+    })
+    expect(latestModel().onLeaveChannel).toEqual(expect.any(Function))
+    mocks.removeChannelMember.mockRejectedValueOnce(new Error("boom"))
+    await expect(latestModel().onLeaveChannel!()).rejects.toThrow("boom")
+    expect(toastApiError).toHaveBeenCalledWith(expect.any(Error), "Failed to leave", expect.any(Function))
+
+    mocks.channelMembers.set("thread_1", [member("alice_1", "Alice")])
+    act(() => {
+      renderer.rerender(renderHarness(props({
+        channelId: "thread_1", currentChannelMeta: { name: "t", parentChannelId: "channel_1" },
+        isChildChannel: true, isNotifyUnit: true,
+      })))
+    })
+    expect(latestModel().onLeaveChannel).toBeUndefined()
+
+    mocks.channelMembers.set("thread_1", [member("viewer_1", "Viewer", { isCreator: true })])
+    act(() => {
+      renderer.rerender(renderHarness(props({
+        channelId: "thread_1", currentChannelMeta: { name: "t", parentChannelId: "channel_1" },
+        isChildChannel: true, isNotifyUnit: true,
+      })))
+    })
+    mocks.removeThreadParticipant.mockResolvedValueOnce(undefined)
+    await latestModel().onLeaveChannel!()
+    expect(mocks.removeThreadParticipant).toHaveBeenCalledWith({ userId: "viewer_1", assertActive: expect.any(Function) })
+
+    mocks.channelMembers.set("channel_1", [member("viewer_1", "Viewer")])
+    const privProps = (accessAllowed: boolean, routeActive = true) => props({
+      accessAllowed,
+      routeActive,
+      currentServer: { categories: [{ private: true, channels: [{ id: "channel_1" }] }] },
+    })
+    act(() => { renderer.rerender(renderHarness(privProps(true, true))) })
+    mocks.removeChannelMember.mockImplementationOnce(async ({ assertActive }: { assertActive: () => void }) => {
+      assertActive()
+      act(() => { renderer.rerender(renderHarness(privProps(false, true))) })
+      assertActive()
+    })
+    await expect(latestModel().onLeaveChannel!()).resolves.toBeUndefined()
+
+    act(() => { renderer.rerender(renderHarness(privProps(true, true))) })
+    mocks.removeChannelMember.mockImplementationOnce(async ({ assertActive }: { assertActive: () => void }) => {
+      assertActive()
+      act(() => { renderer.rerender(renderHarness(privProps(false, false))) })
+      assertActive()
+    })
+    await expect(latestModel().onLeaveChannel!()).rejects.toMatchObject({ name: "AbortError" })
+  })
 })

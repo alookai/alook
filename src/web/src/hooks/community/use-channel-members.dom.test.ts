@@ -151,4 +151,108 @@ describe("useChannelMembers", () => {
         .toEqual(["Bob", "Carol", "Viewer"])
     },
   )
+
+  it("retires private channel reading on confirmed self-removal without aborting post-delete completion", async () => {
+    const { useRemoveChannelMember } = await import("./use-channel-members")
+    const { publishCommunityChannelMetadata, publishCommunityChannelMembersSnapshot, captureCommunityLiveSnapshotToken } = await import("@/lib/community-db/sync")
+    const owner = await createCommunityQueryOwner()
+    const token = captureCommunityLiveSnapshotToken(owner.client)
+    await publishCommunityChannelMetadata(owner.client, {
+      metadata: { categoryId: "cat_priv", topic: "", position: 0, messageCount: 1, createdAt: "2026-10-01T00:00:00Z", id: "private", serverId: "server", name: "secret", type: "text", parentChannelId: null, parentMessageId: null, creatorId: "bob", archived: false, lastMessageAt: null },
+      proof: { token },
+    })
+    await publishCommunityChannelMembersSnapshot(
+      owner.client,
+      "server",
+      "private",
+      "access",
+      [
+        relationRow("private", "viewer", "access", "explicit", "member", "m-viewer"),
+        relationRow("private", "bob", "access", "explicit", "member", "m-bob"),
+      ],
+      { token },
+      [profile("viewer", "Viewer"), profile("bob", "Bob")],
+    )
+    apiFetchMock.mockResolvedValue({ ok: true })
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client }, children)
+    const rendered = renderHook(() => useRemoveChannelMember("private", "server", "viewer"), { wrapper })
+    const onPeerSuccess = vi.fn()
+    const onSelfSuccess = vi.fn()
+    await act(async () => {
+      await expect(rendered.result.current.mutateAsync({ userId: "bob" }, { onSuccess: onPeerSuccess })).resolves.toBeUndefined()
+      await expect(rendered.result.current.mutateAsync({ userId: "viewer" }, { onSuccess: onSelfSuccess })).resolves.toBeUndefined()
+    })
+    expect(onPeerSuccess).toHaveBeenCalledOnce()
+    expect(onSelfSuccess).toHaveBeenCalledOnce()
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/private/members/viewer",
+      expect.objectContaining({ method: "DELETE" }),
+    )
+    expect(owner.registry.collections.channels.has("private")).toBe(false)
+    expect(owner.registry.collections.channelMemberships.has(channelMembershipKey("private", "viewer", "access"))).toBe(false)
+    expect(owner.registry.runtime.ws.actions.isChannelAccessRevoked("private", "server")).toBe(true)
+  })
+
+  it("completes self-removal when WS revocation arrives before HTTP DELETE resolves and fences callers after route exit", async () => {
+    const { useRemoveChannelMember } = await import("./use-channel-members")
+    const {
+      publishCommunityChannelMetadata,
+      publishCommunityChannelMembersSnapshot,
+      captureCommunityLiveSnapshotToken,
+      setCanonicalCommunityChannelMember,
+      retireCommunityChannelReading,
+    } = await import("@/lib/community-db/sync")
+    const owner = await createCommunityQueryOwner()
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client }, children)
+    const seedPrivate = async (id: string) => {
+      const token = captureCommunityLiveSnapshotToken(owner.client)
+      await publishCommunityChannelMetadata(owner.client, {
+        metadata: { categoryId: "cat_priv", topic: "", position: 0, messageCount: 1, createdAt: "2026-10-01T00:00:00Z", id, serverId: "server", name: id, type: "text", parentChannelId: null, parentMessageId: null, creatorId: "bob", archived: false, lastMessageAt: null },
+        proof: { token },
+      })
+      await publishCommunityChannelMembersSnapshot(
+        owner.client, "server", id, "access",
+        [relationRow(id, "viewer", "access", "explicit", "member", "m-viewer")],
+        { token }, [profile("viewer", "Viewer")],
+      )
+    }
+
+    // Order 2: WS revocation arrives while HTTP DELETE is still in flight; user stays on route.
+    await seedPrivate("ws-first")
+    let resolveDelete!: (value: unknown) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { resolveDelete = resolve }))
+    const wsFirst = renderHook(() => useRemoveChannelMember("ws-first", "server", "viewer"), { wrapper })
+    let pending!: Promise<void>
+    act(() => { pending = wsFirst.result.current.mutateAsync({ userId: "viewer" }) })
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    act(() => {
+      setCanonicalCommunityChannelMember(owner.client, "ws-first", "viewer", "access", false, { event: true })
+      retireCommunityChannelReading(owner.registry, "ws-first", { reason: "read-denied", serverId: "server" })
+    })
+    await act(async () => {
+      resolveDelete({ ok: true })
+      await expect(pending).resolves.toBeUndefined()
+    })
+    expect(owner.registry.runtime.ws.actions.isChannelAccessRevoked("ws-first", "server")).toBe(true)
+
+    // Order 3: User leaves the route while HTTP DELETE is in flight; old response retires DB but rejects caller with AbortError.
+    await seedPrivate("left-page")
+    let resolveStaleDelete!: (value: unknown) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { resolveStaleDelete = resolve }))
+    const leftPage = renderHook(() => useRemoveChannelMember("left-page", "server", "viewer"), { wrapper })
+    const routeController = new AbortController()
+    const assertRoute = Object.assign(() => {
+      if (routeController.signal.aborted) throw new DOMException("Left route", "AbortError")
+    }, { signal: routeController.signal })
+    let staleOutcome!: Promise<unknown>
+    act(() => { staleOutcome = leftPage.result.current.mutateAsync({ userId: "viewer", assertActive: assertRoute }).catch((error) => error) })
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
+    routeController.abort()
+    await act(async () => {
+      resolveStaleDelete({ ok: true })
+      expect(await staleOutcome).toMatchObject({ name: "AbortError" })
+    })
+    expect(owner.registry.collections.channels.has("left-page")).toBe(false)
+    expect(owner.registry.runtime.ws.actions.isChannelAccessRevoked("left-page", "server")).toBe(true)
+  })
 })

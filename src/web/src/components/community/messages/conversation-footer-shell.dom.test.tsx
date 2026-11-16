@@ -154,6 +154,7 @@ describe("ConversationFooterShell", () => {
 
     const footer = renderer.getByTestId("footer")
     expect(footer).toHaveClass("relative", "shrink-0")
+    expect(footer.className).not.toContain("before:")
     expect(footer).toHaveAttribute("data-slot", "community-conversation-footer")
     expect(footer).toHaveAttribute("data-selection-active", "false")
     expect(renderer.getByTestId("composer-editor").parentElement)

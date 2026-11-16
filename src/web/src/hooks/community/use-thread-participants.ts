@@ -14,7 +14,7 @@ export function useAddThreadParticipant(channelId: string, serverId?: string, vi
 
 export function useRemoveThreadParticipant(channelId: string, serverId?: string, viewerUserId?: string, forumSidebar = !!serverId) {
   const client = useQueryClient()
-  return useChannelMemberCommand(channelId, "remove", { endpoint: "participants", relation: "notify", onConfirmed: async (userId) => {
+  return useChannelMemberCommand(channelId, "remove", { endpoint: "participants", relation: "notify", selfRemoveUserId: viewerUserId, onConfirmed: async (userId) => {
     if (userId !== viewerUserId) return
     if (serverId && forumSidebar) await completeCommunityPublication(client, () => removeForumSidebarProjectionExact(client, serverId, channelId))
   } })

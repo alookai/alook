@@ -106,6 +106,7 @@ export function ThreadSplitParentSurface({
         viewer={viewer}
         viewerRole={members.myRole}
         onNavigateParent={onNavigateParent}
+        onLeaveChannel={members.onLeaveChannel}
         notificationLevel={notificationLevel}
         onSetNotificationLevel={setNotificationLevel}
         composerMembers={members.composerMembers}
@@ -130,6 +131,7 @@ export function ThreadSplitParentSurface({
       canManagePins={canManageServer(members.myRole)}
       anchorMessageId={null}
       onNavigateParent={onNavigateParent}
+      onLeaveChannel={members.onLeaveChannel}
       notificationLevel={notificationLevel}
       onSetNotificationLevel={setNotificationLevel}
       composerMembers={members.composerMembers}
