@@ -1457,11 +1457,21 @@ test("media attachments play, stop, recover and download through reachable mobil
     paused: element.paused, time: element.currentTime, ready: element.readyState,
     ended: element.ended, error: element.error?.code ?? null,
   }))
-  const reachable = async (control: Locator, block: Locator, expectedState: "enabled" | "disabled" = "enabled") => {
+  const reachable = async (
+    control: Locator,
+    block: Locator,
+    expectedState: "enabled" | "disabled" = "enabled",
+    appearance: "alook" | "neutral" = "alook",
+  ) => {
     await control.scrollIntoViewIfNeeded()
     const rect = await boundingRect(control)
-    expect(rect.width).toBeGreaterThanOrEqual(44)
-    expect(rect.height).toBeGreaterThanOrEqual(44)
+    if (appearance === "neutral") {
+      expect(rect.width).toBeCloseTo(36, 1)
+      expect(rect.height).toBeCloseTo(36, 1)
+    } else {
+      expect(rect.width).toBeGreaterThanOrEqual(44)
+      expect(rect.height).toBeGreaterThanOrEqual(44)
+    }
     expectWithinRect(rect, await boundingRect(block))
     expectWithinRect(rect, { x: 0, y: 0, width: 390, height: 844 })
     if (expectedState === "disabled") {
@@ -1543,62 +1553,88 @@ test("media attachments play, stop, recover and download through reachable mobil
   await expect(page.getByRole("menu")).toHaveCount(0)
 
   const videoName = "playback.webm"
-  const video = await upload(videoName, "video/webm", webm)
-  const videoPlay = video.block.getByTestId(tid.mediaPlay(videoName))
-  const videoStop = video.block.getByTestId(tid.mediaCollapse(videoName))
-  const videoDownload = video.block.getByTestId(tid.mediaDownload(videoName))
-  for (const control of [videoPlay, videoDownload]) await reachable(control, video.block)
-  await reachable(videoStop, video.block, "disabled")
   let corrupt = true
   let badResponses = 0
-  const videoPattern = (url: URL) => url.pathname === video.path
+  const videoPattern = (url: URL) => url.pathname.startsWith(`/api/community/channels/${channelId}/attachments/`)
+    && url.pathname.split("/").length === 7
   const corruptVideo = async (route: import("@playwright/test").Route) => {
-    if (corrupt) {
+    if (corrupt && route.request().method() === "GET") {
       badResponses += 1
       await route.fulfill({ status: 200, contentType: "video/webm", body: Buffer.from("invalid media bytes") })
     } else await route.continue()
   }
   await page.route(videoPattern, corruptVideo)
   const ownedRoute = caseResources.own(corruptVideo, async handler => { await page.unroute(videoPattern, handler) })
-  await videoPlay.tap()
+  const video = await upload(videoName, "video/webm", webm)
   const retry = video.block.getByRole("button", { name: `Retry ${videoName}`, exact: true })
   await expect(retry).toBeVisible()
   expect(badResponses).toBeGreaterThan(0)
   await expect(video.block.getByRole("alert")).toHaveText("Couldn’t play this file")
-  await expect(videoStop).toBeDisabled()
   await reachable(retry, video.block)
   await retry.tap()
   await expect.poll(() => badResponses).toBeGreaterThan(1)
   await expect(retry).toBeVisible()
   corrupt = false
+  const originalResponse = page.waitForResponse(response => new URL(response.url()).pathname === video.path && response.ok())
   await retry.tap()
+  expect([200, 206]).toContain((await originalResponse).status())
   const videoPlayer = video.block.locator("video")
-  await expect.poll(async () => (await state(videoPlayer)).time).toBeGreaterThan(0.1)
+  await expect.poll(async () => (await state(videoPlayer)).time).toBeCloseTo(0.1, 2)
+  await expect.poll(async () => (await state(videoPlayer)).ready).toBeGreaterThanOrEqual(2)
+  expect((await state(videoPlayer)).paused).toBe(true)
   expect(await videoPlayer.evaluate((element: HTMLVideoElement) => ({ width: element.videoWidth, height: element.videoHeight })))
     .toEqual({ width: 320, height: 180 })
-  await expect(videoPlay).toHaveAttribute("aria-label", `Pause ${videoName}`)
+  await expect(video.block.getByRole("button", { name: "Expand video" })).toHaveCount(0)
+  const initialPlay = video.block.getByRole("button", { name: `Play video ${videoName}` })
+  await reachable(initialPlay, video.block)
+  const assertPainted = async () => {
+    const rect = await boundingRect(videoPlayer)
+    const painted = await sharp(await page.screenshot({ clip: {
+      x: rect.x + rect.width / 4 - 2, y: rect.y + rect.height / 2 - 2, width: 4, height: 4,
+    } })).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+    for (let index = 0; index < painted.data.length; index += painted.info.channels) {
+      expect(Math.abs(painted.data[index]! - 30)).toBeLessThan(30)
+      expect(Math.abs(painted.data[index + 1]! - 170)).toBeLessThan(30)
+      expect(Math.abs(painted.data[index + 2]! - 80)).toBeLessThan(30)
+    }
+  }
+  await assertPainted()
+  const idleVideoRect = await boundingRect(videoPlayer)
+  await initialPlay.tap()
+  const videoPlay = video.block.getByTestId(tid.mediaPlay(videoName))
+  await expect.poll(async () => (await state(videoPlayer)).time).toBeGreaterThan(0.2)
   await videoPlay.tap()
   expect((await state(videoPlayer)).paused).toBe(true)
-  for (const control of [videoPlay, videoStop, videoDownload]) {
-    await reachable(control, video.block)
-    const frame = await boundingRect(videoPlayer)
-    expect((await boundingRect(control)).y).toBeGreaterThanOrEqual(frame.y + frame.height)
-  }
-  await videoPlayer.scrollIntoViewIfNeeded()
   const videoRect = await boundingRect(videoPlayer)
-  const painted = await sharp(await page.screenshot({ clip: {
-    x: videoRect.x + videoRect.width / 2 - 2, y: videoRect.y + videoRect.height / 2 - 2,
-    width: 4, height: 4,
-  } })).removeAlpha().raw().toBuffer({ resolveWithObject: true })
-  for (let index = 0; index < painted.data.length; index += painted.info.channels) {
-    expect(Math.abs(painted.data[index]! - 30)).toBeLessThan(30)
-    expect(Math.abs(painted.data[index + 1]! - 170)).toBeLessThan(30)
-    expect(Math.abs(painted.data[index + 2]! - 80)).toBeLessThan(30)
-  }
-  await videoStop.tap()
-  expect(await state(videoPlayer)).toMatchObject({ paused: true, time: 0, error: null })
-  await expect(videoStop).toBeDisabled()
-  await expect(videoPlay).toHaveAttribute("aria-label", `Play ${videoName}`)
+  expect(videoRect).toEqual(idleVideoRect)
+  await assertPainted()
+  await reachable(videoPlay, video.block, "enabled", "neutral")
+  const expand = video.block.getByRole("button", { name: "Expand video" })
+  await reachable(expand, video.block, "enabled", "neutral")
+  await videoPlayer.evaluate(element => element.setAttribute("data-retained-player", "original"))
+  const videoPausedAt = (await state(videoPlayer)).time
+  await expand.tap()
+  const mask = page.getByRole("dialog", { name: videoName })
+  const expandedVideo = mask.locator("video")
+  await expect(expandedVideo).toHaveAttribute("data-retained-player", "original")
+  expect((await state(expandedVideo)).paused).toBe(true)
+  expect((await state(expandedVideo)).time).toBeCloseTo(videoPausedAt, 2)
+  expectWithinRect(await boundingRect(expandedVideo), { x: 0, y: 0, width: 390, height: 844 })
+  await mask.getByRole("button", { name: "Shrink video" }).tap()
+  await expect(videoPlayer).toHaveAttribute("data-retained-player", "original")
+  expect((await state(videoPlayer)).time).toBeCloseTo(videoPausedAt, 2)
+  await video.block.getByRole("button", { name: "More", exact: true }).tap()
+  const videoDownload = page.getByTestId(tid.mediaDownload(videoName))
+  const videoDownloaded = page.waitForEvent("download")
+  await videoDownload.tap()
+  const videoFile = await videoDownloaded
+  expect(videoFile.suggestedFilename()).toBe(videoName)
+  expect(await videoFile.failure()).toBeNull()
+  const videoPath = await videoFile.path()
+  expect(videoPath).not.toBeNull()
+  expect(readFileSync(videoPath!)).toEqual(webm)
+  expect((await state(videoPlayer)).paused).toBe(true)
+  await expect(page.getByRole("menu")).toHaveCount(0)
   await ownedRoute.close()
   await testInfo.attach("media-playback.json", { body: JSON.stringify({ serverId, channelId,
     wavBytes: wav.length, webmBytes: webm.length, badResponses,

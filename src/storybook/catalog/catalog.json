@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 335,
+    "composition": 336,
     "environment": 10,
     "nonvisual": 31,
     "direct": 40
@@ -3193,7 +3193,7 @@
       "examples": [
         {
           "story": "web-business-attachments-and-rich-content--audio",
-          "region": "Local audio; missing video is the explicit error case"
+          "region": "Local audio through the original MediaAttachmentBlock"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -3589,6 +3589,23 @@
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/community/messages/video-attachment-block.tsx",
+      "application": "Web",
+      "candidates": [
+        "VideoAttachmentBlock",
+        "VideoAttachmentSession",
+        "VideoControls"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-attachments-and-rich-content--unavailable-video",
+          "region": "AttachmentCard routes the unavailable local video to VideoAttachmentBlock for its error and retry state"
+        }
+      ],
+      "reason": "The existing story mounts the actual video component through AttachmentCard. It covers the unavailable-file example; successful frame decoding, playback and mask behavior require separate runtime evidence."
     },
     {
       "source": "src/web/src/components/community/messages/virtual-cursor-list.tsx",
