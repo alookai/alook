@@ -312,8 +312,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   };
   const providerQuotaReader = opts.providerQuotaReader
     ?? (opts.sessionFactory ? async () => null : readBuiltinProviderQuota);
-  const providerQuotaByBackend = new Map<ProviderQuotaSnapshot["agentBackendId"], ProviderQuotaSnapshot>();
-  const providerQuotaReadAt = new Map<ProviderQuotaSnapshot["agentBackendId"], number>();
+  const providerQuotaByBackend = new Map<ProviderQuotaSnapshot["agentBackendId"], { snapshot: ProviderQuotaSnapshot; readAt: number }>();
   let requestReadyQuotaResend: (quotas?: ProviderQuotaSnapshot[]) => void = () => {};
   const recordProviderQuota = (
     backendId: ProviderQuotaSnapshot["agentBackendId"],
@@ -324,9 +323,8 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       agentBackendId: backendId,
       observation: structuredClone(quota) as ProviderQuotaSnapshot["observation"],
     };
-    providerQuotaByBackend.set(backendId, snapshot);
-    providerQuotaReadAt.set(backendId, Date.now());
-    if (previous && previous.observation.sourceEpoch !== quota.sourceEpoch) {
+    providerQuotaByBackend.set(backendId, { snapshot, readAt: Date.now() });
+    if (previous && previous.snapshot.observation.sourceEpoch !== quota.sourceEpoch) {
       requestReadyQuotaResend([structuredClone(snapshot)]);
     }
   };
@@ -353,9 +351,9 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const providerQuotaSnapshot = (backend: ProviderQuotaSnapshot["agentBackendId"]): ProviderQuotaSnapshot | undefined => {
     const saved = providerQuotaByBackend.get(backend);
     if (!saved) return undefined;
-    const snapshot = structuredClone(saved);
+    const snapshot = structuredClone(saved.snapshot);
     if (snapshot.observation.status === "available") {
-      snapshot.observation.freshForSeconds -= Math.floor(Math.max(0, Date.now() - (providerQuotaReadAt.get(backend) ?? 0)) / 1_000);
+      snapshot.observation.freshForSeconds -= Math.floor(Math.max(0, Date.now() - saved.readAt) / 1_000);
       if (snapshot.observation.freshForSeconds <= 0) return undefined;
     }
     return snapshot;
