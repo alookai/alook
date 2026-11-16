@@ -34,7 +34,7 @@ describe("Blog Worker entrypoint", () => {
 		worker = new BlogWorker({} as ExecutionContext, { ASSETS: {} as Fetcher });
 	});
 
-	it.each(["/blog", "/guides", "/guides/", "/tutorials", "/tutorials/", "/tutorials/codex-and-claude-code", "/tutorials/codex-and-claude-code/"])("finalizes public document headers for %s", async (path) => {
+	it.each(["/blog", "/tutorials", "/tutorials/", "/tutorials/codex-and-claude-code", "/tutorials/codex-and-claude-code/"])("finalizes public document headers for %s", async (path) => {
 		const response = await worker.fetch(new Request(`https://alook.ai${path}`));
 		expect(await response.text()).toBe("node-open-next");
 		expect(response.headers.get("Cache-Control")).toBe("public, max-age=0, must-revalidate");
@@ -68,6 +68,7 @@ describe("Blog Worker entrypoint", () => {
 
 	it.each([
 		"/blog/claude-code-and-codex-same-team",
+		"/guides",
 		"/blog/prevent-claude-code-codex-duplicating-work",
 		"/blog/prevent-codex-opencode-duplicating-work",
 		"/blog/prevent-claude-code-opencode-duplicating-work",

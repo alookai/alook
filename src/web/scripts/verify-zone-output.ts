@@ -43,7 +43,6 @@ export function verifyZoneManifests(args: {
   const blogRoutes = Object.keys(args.blogAppPaths)
   for (const required of [
     "/blog/(index)/page",
-    "/guides/page",
     "/tutorials/page",
     "/tutorials/[slug]/page",
     "/blog/[slug]/page",
@@ -55,7 +54,7 @@ export function verifyZoneManifests(args: {
   }
   assert(
     blogRoutes.every((route) => (
-      route === "/guides/page" || route === "/tutorials/page" || route === "/tutorials/[slug]/page" ||
+      route === "/tutorials/page" || route === "/tutorials/[slug]/page" ||
       route.startsWith("/blog") ||
       route.startsWith("/og/blog") ||
       route.startsWith("/internal/blog-discovery") ||

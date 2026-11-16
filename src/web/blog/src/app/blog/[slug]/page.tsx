@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import technostalgia from "@/components/brand/technostalgia.module.css";
 import { ArrowLeft, ArrowRight } from "lucide-react";
-import { isGuide } from "@blog/lib/blog/guides";
 import { getAllPosts, getPostBySlug } from "@blog/lib/blog/posts";
 import { buildBlogPostingJsonLd } from "@blog/lib/blog/json-ld";
 import {
@@ -47,7 +46,6 @@ export default async function BlogPostPage({
   const post = await getPostBySlug(slug);
   if (!post) notFound();
 
-  const directory = isGuide(post) ? "/guides" : "/blog";
   const posts = await getAllPosts();
   const topic = getBlogTopicBySlug(slug);
   const relatedPosts = getRelatedPosts(slug, posts);
@@ -79,11 +77,11 @@ export default async function BlogPostPage({
       )}
       <article className="blog-article mx-auto max-w-3xl px-6 py-12 sm:py-16">
         <Link
-          href={directory}
+          href="/blog"
           className="tn-blog-back inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8"
         >
           <ArrowLeft className="size-3.5" />
-          {isGuide(post) ? "All guides" : "All posts"}
+          All posts
         </Link>
 
         <header className="mb-10">
@@ -92,7 +90,7 @@ export default async function BlogPostPage({
           </h1>
           {topic && (
             <div className={`${technostalgia.theme} mt-4 w-fit`}>
-              <Badge variant="secondary" className="h-auto py-1 text-sm" render={<Link href={`${directory}#${topic.id}`} />}>
+              <Badge variant="secondary" className="h-auto py-1 text-sm" render={<Link href={`/blog#${topic.id}`} />}>
                 {topic.label}
               </Badge>
             </div>

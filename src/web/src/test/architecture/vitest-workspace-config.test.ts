@@ -30,7 +30,7 @@ describe("service test project ownership", () => {
       { project: "web-contracts", file: "src/web/src/test/architecture/react-dom-harness-contract.test.ts" },
       { project: "web-tooling", file: "src/web/app-store-capture/config.test.ts" },
       { project: "blog-node", file: "src/web/blog/src/lib/public-page-metadata.test.ts" },
-      { project: "blog-dom", file: "src/web/blog/src/app/guides/page.dom.test.tsx" },
+      { project: "blog-dom", file: "src/web/blog/src/app/tutorials/page.dom.test.tsx" },
       { project: "auth-node", file: "src/web/auth/index.test.ts" },
     ]))
     for (const project of ["web-runtime", "auth-runtime"]) {

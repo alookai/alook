@@ -1,15 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { isGuide, validBlogTags } from "./guides";
+import { validBlogTags } from "./tags";
 import { readBlogMetadata } from "./validate-assets";
 import { validateMetadata } from "./posts/validate-metadata";
 
 const post = { slug: "example", title: "Example", date: "2026-10-12", author: "Alook", excerpt: "Example", readingTime: "5 min read" };
 
-describe("Guides metadata", () => {
-  it("keeps legacy/other tags in the main Blog and recognizes the explicit tag", () => {
-    expect(isGuide({})).toBe(false);
-    expect(isGuide({ tags: ["coding"] })).toBe(false);
-    expect(isGuide({ tags: ["coding", "guides"] })).toBe(true);
+describe("Blog tags metadata", () => {
+  it("accepts missing and empty tags", () => {
     expect(validBlogTags(undefined)).toBe(true);
     expect(validBlogTags([])).toBe(true);
   });

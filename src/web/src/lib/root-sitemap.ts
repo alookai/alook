@@ -37,7 +37,6 @@ export function buildRootSitemap(manifest: BlogDiscoveryManifestV1 | null): Meta
 				priority: 0.8,
 			}]
 			: []),
-		...(manifest ? [{ url: `${SITE_URL}/guides`, changeFrequency: "weekly" as const, priority: 0.6 }] : []),
 		...(manifest ? [{ url: `${SITE_URL}/tutorials`, changeFrequency: "weekly" as const, priority: 0.6 }] : []),
 		...(manifest ? stepGuides.map((guide) => ({ url: `${SITE_URL}/tutorials/${guide.slug}`, changeFrequency: "monthly" as const, priority: 0.6 })) : []),
 		...blogEntries,

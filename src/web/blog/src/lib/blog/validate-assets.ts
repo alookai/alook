@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { extname, join } from "path";
 import { readStaticBlogMetadata, readBlogImageReferences } from "./source-grammar.mjs";
-import { validBlogTags } from "./guides";
+import { validBlogTags } from "./tags";
 
 export type BlogAssetError = string;
 

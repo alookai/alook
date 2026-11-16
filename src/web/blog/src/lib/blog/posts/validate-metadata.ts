@@ -1,4 +1,4 @@
-import { validBlogTags } from "../guides";
+import { validBlogTags } from "../tags";
 import type { BlogPost } from "../types";
 
 const REQUIRED_FIELDS: (keyof BlogPost)[] = [
