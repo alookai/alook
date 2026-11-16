@@ -2,7 +2,7 @@ import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse, 
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
 import { readFileSync } from "node:fs"
-import { CONTROL_HEARTBEAT_CAPABILITY, DEV_PASSWORD, HostReadyMessageSchema, CommunityConversationEntryReadSchema } from "@alook/shared"
+import { CONTROL_HEARTBEAT_CAPABILITY, DEV_PASSWORD, HostReadyMessageSchema, CommunityConversationEntryReadSchema, CommunityThreadsReadSchema } from "@alook/shared"
 import { HostCommandSchema } from "@alook/shared/community-cli-contract"
 import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
 import type { APIResponse, Page, Request, Route, TestInfo } from "@playwright/test"
@@ -87,6 +87,7 @@ async function persistedQueries(page: Page, viewerId: string): Promise<Persisted
 }
 
 function containsPersistedId(value: unknown, id: string): boolean {
+  if (value === id) return true
   if (Array.isArray(value)) return value.some((entry) => containsPersistedId(entry, id))
   if (!value || typeof value !== "object") return false
   const record = value as Record<string, unknown>
@@ -538,9 +539,28 @@ for (const surface of ["forum", "friends", "marked"] as const) for (const empty 
       await expect(region.getByText(surface === "forum" ? "No posts with this tag yet. Start one with New Post."
         : surface === "friends" ? "No friends yet. Add someone from the New tab." : "No marked messages")).toHaveCount(0)
       await failure.close()
-      const retry = page.waitForResponse(response => primary(new URL(response.url())) && response.ok())
+      const retry = page.waitForResponse(response => {
+        const url = new URL(response.url())
+        return response.request().method() === "GET" && response.ok() && (primary(url)
+          || surface === "forum" && url.pathname === `/api/community/channels/${channelId}/messages` && url.searchParams.get("entry") === "1")
+      })
       await region.getByRole("button", { name: "Retry", exact: true }).click()
-      expect((await confirmCommunityFixtureApiResponse(retry)).status()).toBe(200)
+      const recovered = await confirmCommunityFixtureApiResponse(retry)
+      expect(recovered.status()).toBe(200)
+      if (surface === "forum") {
+        const payload = await recovered.json()
+        const entry = new URL(recovered.url()).pathname === `/api/community/channels/${channelId}/messages`
+          ? CommunityConversationEntryReadSchema.parse(payload) : undefined
+        if (entry) {
+          expect(entry.viewerId).toBe(viewerId)
+          expect(entry.channelId).toBe(channelId)
+        }
+        const feed = entry ? entry.forumFeed : CommunityThreadsReadSchema.parse(payload)
+        expect(feed?.channelId).toBe(channelId)
+        expect(feed?.channel.serverId).toBe(serverId)
+        expect(feed?.threads.map(row => row.id)).toEqual(empty ? [] : [targetId])
+        if (!empty) expect(feed?.included.messages.some(row => row.channelId === targetId && row.content === body)).toBe(true)
+      }
       await assertCached()
     } finally { await failure.close() }
     if (surface === "marked" && !empty) {
