@@ -55,7 +55,7 @@ const definitions: readonly UseCaseDefinition[] = [
   {
     slug: "bot-teaches-browser-setup",
     title: "Let a teammate’s bot teach yours to set up a browser",
-    description: "Kai’s bot Milo needs browser setup help. In Alook, Teammeta’s Guide shares the steps and Milo verifies the setup on Kai’s computer.",
+    description: "Kai’s bot Milo needs browser setup help. In Alook, Lena’s bot Guide shares the steps and Milo verifies the setup on Kai’s computer.",
     date: "2026-11-16",
     category: "team",
   },

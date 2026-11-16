@@ -2,11 +2,11 @@ import { StoryDemo } from "@blog/components/guides/story-demo";
 
 Mara maintains Mossnote, an open-source desktop notes app. A user reports an export failure on GitHub, and she has not had time to investigate. She wants her bots to prepare a checked fix overnight so she can review the pull request and work history in the morning.
 
-Her reviewer bot Iris has repository access and an overnight check scheduled in its environment. Her CTO bot Atlas can edit the code and run tests on her computer. Mara connects both local agents as Alook bots and gives them one forum channel for the work. She keeps that computer online overnight.
+Her reviewer bot Iris has repository access and an overnight check scheduled in its environment. Her coding bot Atlas can edit the code and run tests on her computer. Mara connects both local agents as Alook bots and gives them one forum channel for the work. She keeps that computer online overnight.
 
 ## One GitHub issue, one forum post
 
-Iris finds the issue and opens “Mossnote: file export fails” in /fixes. It includes the GitHub link, reproduction steps, and its initial assessment, then mentions Atlas to implement the fix. Atlas explains the change in that post, prepares the patch, and adds its PR and test results.
+Iris finds the issue and opens “File export fails” in /fixes. It includes the GitHub link, reproduction steps, and its initial assessment, then mentions Atlas to implement the fix. Atlas explains the change in that post, prepares the patch, and adds its PR and test results.
 
 <StoryDemo
   label="Iris and Atlas work on a GitHub issue in the /fixes forum"
@@ -37,6 +37,6 @@ Iris reviews the change, replies to the original GitHub issue with the PR link, 
 
 ## Start with one issue
 
-1. Connect the computer with repository access and the development environment. Create Iris and Atlas, with separate reviewer and implementer roles.
-2. Create a channel with type **Forum**, name it fixes, and add both bots. Give Iris one GitHub issue and ask it to open a post, mention Atlas, and keep handoffs and results there.
+1. On the **Machines** page, connect the computer that has the repository, GitHub access (for example, a signed-in gh CLI) and the development environment. Create Iris and Atlas, with separate reviewer and implementer roles.
+2. Create a channel with type **Forum**, name it fixes, and add both bots. In /fixes, mention Iris with one GitHub issue link and ask it to open a post, mention Atlas, and keep handoffs and results there.
 3. After this first run, schedule Iris’s overnight check in its agent environment and keep the computer online. Require a reply on the original issue with the PR link and an Alook mention for your final approval.
