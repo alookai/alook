@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 import { VideoAttachmentBlock } from "./video-attachment-block"
+import { Message } from "./message"
 import { requestNativeBack } from "@/components/ui/native-back-layer"
 import type { FileAttachment } from "@/lib/community/models/message"
 
@@ -45,6 +46,28 @@ function setup() {
   return { screen, video }
 }
 
+function setupMessage() {
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} })
+  vi.stubGlobal("IntersectionObserver", class { observe() {} disconnect() {} unobserve() {} })
+  const onReply = vi.fn()
+  const screen = render(<Message m={{ id: "video-message", type: "chat", authorId: "author", authorName: "Alice",
+    content: "Video controls in a message", createdAt: new Date(0).toISOString(), grouped: false, attachments: [attachment] }}
+    hoverCapable={false} onReply={onReply} onCopy={vi.fn()} onOpenThread={vi.fn()} />)
+  mounted.push(screen)
+  return { screen, video: screen.container.querySelector("video")!, onReply }
+}
+
+async function touchTap(target: HTMLElement) {
+  await act(async () => {
+    const pointer = { pointerType: "touch", pointerId: 17, button: 0, clientX: 80, clientY: 100 }
+    fireEvent.pointerDown(target, pointer)
+    fireEvent.touchStart(target)
+    fireEvent.pointerUp(target, pointer)
+    fireEvent.touchEnd(target)
+    fireEvent.click(target, { button: 0, clientX: 80, clientY: 100 })
+  })
+}
+
 function metadata(video: HTMLVideoElement, duration = 10) {
   Object.defineProperties(video, {
     duration: { configurable: true, value: duration },
@@ -66,6 +89,46 @@ function fallbackMenus() {
 }
 
 describe("video attachment", () => {
+  it("keeps touch menu actions local while ordinary message body taps still open its menu", async () => {
+    fallbackMenus()
+    const fetch = vi.fn().mockRejectedValue(new Error("offline"))
+    vi.stubGlobal("fetch", fetch)
+    const { screen, video } = setupMessage()
+    metadata(video)
+    fireEvent.seeked(video)
+    await touchTap(screen.getByRole("button", { name: "Play video clip.mp4" }))
+    await touchTap(screen.getByRole("button", { name: "More" }))
+    await touchTap(await screen.findByRole("menuitem", { name: /^Speed/ }))
+    expect(document.querySelector("[data-message-touch-menu][data-open]")).toBeNull()
+    const rate = await screen.findByRole("menuitemradio", { name: "1.5×" })
+    await touchTap(rate)
+    await waitFor(() => expect(video.playbackRate).toBe(1.5))
+    expect(document.querySelector("[data-message-touch-menu][data-open]")).toBeNull()
+    await touchTap(screen.getByRole("menuitem", { name: "Download" }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(attachment.url, { credentials: "same-origin", signal: expect.any(AbortSignal) }))
+    expect(document.querySelector("[data-message-touch-menu][data-open]")).toBeNull()
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
+    await touchTap(screen.getByText("Video controls in a message", { exact: true }))
+    await waitFor(() => expect(document.querySelector("[data-message-touch-menu][data-open]")).not.toBeNull())
+    expect(screen.getByRole("menuitem", { name: "Reply" })).toBeVisible()
+    expect(play).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not start message reply swiping from a video menu item", async () => {
+    fallbackMenus()
+    const { screen, video, onReply } = setupMessage()
+    metadata(video)
+    await touchTap(screen.getByRole("button", { name: "Play video clip.mp4" }))
+    await touchTap(screen.getByRole("button", { name: "More" }))
+    const speed = await screen.findByRole("menuitem", { name: /^Speed/ })
+    await act(async () => {
+      fireEvent.pointerDown(speed, { pointerType: "touch", pointerId: 2, clientX: 80, clientY: 100 })
+      fireEvent.pointerMove(speed, { pointerType: "touch", pointerId: 2, clientX: 148, clientY: 102 })
+      fireEvent.pointerUp(speed, { pointerType: "touch", pointerId: 2, clientX: 148, clientY: 102 })
+    })
+    expect(onReply).not.toHaveBeenCalled()
+  })
+
   it.each([[10, 0.1], [0.05, 0.025]])("shows a paused frame for duration %s without starting playback", (duration, time) => {
     const { screen, video } = setup()
     metadata(video, duration)

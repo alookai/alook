@@ -82,7 +82,8 @@ function VideoControls({ attachment, download, expanded, onExpand }: {
         <Controls.Group className="video-controls-end">
           <Menu.Root side="top" align="end">
             <Menu.Trigger className="media-button" aria-label="More"><MoreHorizontal className="media-button-icon" /></Menu.Trigger>
-            <Menu.Popup className="media-popup media-menu-popup media-popup-surface media-menu-resizable-popup">
+            <Menu.Popup className="media-popup media-menu-popup media-popup-surface media-menu-resizable-popup"
+              onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
               <Menu.Content className="media-menu-content thin-scrollbar" aria-label="More">
                 <Menu.Item className="media-menu-trigger-item" data-testid={tid.mediaDownload(attachment.name)} onSelect={() => {
                   if (download.state.status === "downloading") download.cancel()
