@@ -261,6 +261,7 @@ function MessageImpl({
     pointerType: string | null
   } | null>(null)
   const keyboardLinkActivationRef = useRef(false)
+  const dismissTap = useRef<{ editor: HTMLElement | null; menu: boolean } | null>(null)
   const touchStartedAt = useRef<number | null>(null)
   const suppressLongPressClick = useRef(false)
   const swipeGestureRef = useRef<MobileReplyGesture | null>(null)
@@ -358,6 +359,7 @@ function MessageImpl({
   const activateFromKeyboard = interactive && !selectMode
     ? (event: React.KeyboardEvent<HTMLElement>) => {
         if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+        dismissTap.current = null
         if (
           (event.key === "Enter" || event.key === " ")
           && !shouldActivateMessageOverlays(event.target)
@@ -426,6 +428,13 @@ function MessageImpl({
             keyboardLinkActivationRef.current = false
             const target = messageExternalLinkTargetFromEventTarget(event.target)
             const pointerType = messageLinkPointerType(event.nativeEvent)
+            const active = document.activeElement
+            dismissTap.current = (pointerType === "touch" || pointerType === "pen") && (shouldActivateMessageOverlays(event.target) || !!target)
+              ? {
+                  editor: active instanceof HTMLElement && active.matches('[contenteditable="true"], textarea, input:not([type]), input[type="text"], input[type="search"]') ? active : null,
+                  menu: !!document.querySelector('[data-message-touch-menu][data-open]'),
+                }
+              : null
             if (shouldActivateMessageOverlays(event.target)) {
               if (pointerType === "mouse") setMenuInputModality("desktop")
               else if (pointerType === "touch" || pointerType === "pen") {
@@ -441,6 +450,7 @@ function MessageImpl({
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             linkPointerRef.current = null
+            dismissTap.current = null
           }
         : undefined}
       onPointerDown={swipePointerEnabled
@@ -587,6 +597,15 @@ function MessageImpl({
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             if (selectMode) {
               event.preventDefault()
+              return
+            }
+            const dismissal = dismissTap.current
+            dismissTap.current = null
+            if (dismissal && (dismissal.editor || dismissal.menu) && !suppressLongPressClick.current) {
+              event.preventDefault()
+              event.stopPropagation()
+              dismissal.editor?.blur()
+              setTouchMenuOpen(false)
               return
             }
             const target = messageExternalLinkTargetFromEventTarget(event.target)
@@ -1008,6 +1027,7 @@ function MessageImpl({
       </div>
       {touchMenuActive && (
         <DropdownMenuContent
+          data-message-touch-menu=""
           anchor={touchMenuAnchor ?? undefined}
           positionMethod="fixed"
           side="bottom"
