@@ -648,6 +648,7 @@ export function LandingShellMotion({
   dms,
   activeDm,
   previewServers,
+  previewChannels,
   userAvatar,
 }: {
   scene: LandingScene
@@ -658,6 +659,7 @@ export function LandingShellMotion({
   dms?: DM[]
   activeDm?: string
   previewServers?: Server[]
+  previewChannels?: Category[]
   userAvatar?: string
 }) {
   const [localBeat, setLocalBeat] = useAtom(useCreateAtom(0))
@@ -758,6 +760,7 @@ export function LandingShellMotion({
                   scene={scene}
                   userAvatar={userAvatar}
                   previewServers={previewServers}
+                  previewChannels={previewChannels}
                   dms={dms}
                   activeDm={activeDm}
                   snapshot={visualSnapshot}
@@ -873,6 +876,7 @@ function PrototypeShell({
   dms,
   activeDm,
   previewServers,
+  previewChannels,
   userAvatar,
 }: {
   scene: LandingScene
@@ -883,6 +887,7 @@ function PrototypeShell({
   dms?: DM[]
   activeDm?: string
   previewServers?: Server[]
+  previewChannels?: Category[]
   userAvatar?: string
 }) {
   const continuityRoom = scene === "continuity" && snapshot.beat >= 7
@@ -926,7 +931,7 @@ function PrototypeShell({
                   serverNameOverride={previewServers?.find(server => server.active)?.name}
                   treeScopeKey={channelTreeScopeKey}
                   channels={scene === "continuity" ? CONTINUITY_CHANNELS : SPACE_CHANNELS}
-                  rootChannels={overviewDetails && scene === "server" ? SPACE_CHANNELS.work : CHANNELS}
+                  rootChannels={previewChannels ?? (overviewDetails && scene === "server" ? SPACE_CHANNELS.work : CHANNELS)}
                 />
               ) : (
                 <PrototypeDmSidebar scene={scene} snapshot={snapshot} dms={dms} activeDm={activeDm} />
@@ -1104,7 +1109,7 @@ function PrototypeChannelSidebar({
   const serverName = serverNameOverride ?? (room
     ? SPACE_SERVERS.find((server) => server.id === room)?.name ?? ""
     : "Gus")
-  const activeChannel = categories[0]?.channels[0]?.id ?? "general"
+  const activeChannel = categories.flatMap((category) => category.channels).find((channel) => channel.active)?.id ?? categories[0]?.channels[0]?.id ?? "general"
   const sidebarRef = useRef<HTMLDivElement>(null)
 
   useLayoutEffect(() => {

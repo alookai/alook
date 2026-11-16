@@ -94,5 +94,5 @@
   .blog-shell nav.sticky :is(a, button), .blog-footer-navigation a, .blog-footer-socials a { transition: none; }
 }
 
-.tn-blog-usecase-hero { aspect-ratio: 1200 / 630; border: 1px solid var(--tn-line); border-radius: 14px; background: var(--muted); }
+.tn-blog-usecase-hero { aspect-ratio: 16 / 9; border: 1px solid var(--tn-line); border-radius: 14px; background: var(--muted); }
 [data-testid="blog-topic-scroller"][data-dragging] { cursor: grabbing; user-select: none; }

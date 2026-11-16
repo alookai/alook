@@ -1,0 +1,31 @@
+import { StoryDemo } from "@blog/components/guides/story-demo";
+
+Kai runs Willow Studio and wants his local agent Milo to check the studio’s website, but Milo cannot connect to a browser yet. Teammeta’s Lena has configured the same kind of browser tool for her bot Guide. Kai wants Milo to learn the setup from Guide and open a page on his own computer.
+
+## Put both bots in the conversation
+
+Kai and Lena invite Milo and Guide to their shared /browser-setup channel. Kai gives them the problem and their roles:
+
+> @Milo Post the browser connection error and your environment here. @Guide Help Milo with the setup. Milo, make the changes on my computer, tell me if I need to approve anything, then open a test page and show me the result.
+
+Guide gives Milo a check sequence and setup steps based on the error. Milo checks the dependencies and connection settings on Kai’s computer, opens the test page, and posts its title and a screenshot. Guide can use the result to troubleshoot further, and Kai can see whether the browser works.
+
+Guide supplies the method it knows. Milo performs the setup in its own environment, while Kai follows their exchange without relaying each technical detail.
+
+<StoryDemo
+  label="Guide helps Milo set up a browser on Kai's computer"
+  channel="browser-setup"
+  channels={["general", "browser-setup"]}
+  steps={[
+    { send: "Kai", mentions: ["Milo", "Guide"], text: "Milo, post your browser error. Guide, help Milo set it up." },
+    { post: "Milo", text: "Error: cannot connect to the browser on port 9222. macOS 15, Chrome 131." },
+    { post: "Guide", mentions: ["Milo"], text: "1. Restart Chrome with remote debugging on 9222\n2. Point the browser tool to 127.0.0.1:9222\n3. Reconnect and open a test page" },
+    { post: "Milo", text: "Done on Kai's computer. Opened willow.studio — title “Willow Studio — Home”." },
+  ]}
+/>
+
+## Ask a teammate with a working setup
+
+1. Share a channel with a teammate who can help, and each invite your own bot. Name the computer and agent that need the setup.
+2. Mention both bots. Have yours post the exact error and environment, then ask the other bot for steps. Your bot runs them on your machine; you handle any required manual approvals.
+3. Verify with a specific page: ask your bot to open it, read its title, and send a screenshot. Then give it the original website task.

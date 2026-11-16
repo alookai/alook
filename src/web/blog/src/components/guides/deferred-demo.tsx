@@ -9,11 +9,12 @@ import technostalgia from "@/components/brand/technostalgia.module.css";
 
 type Timeline = { play: () => unknown; pause: () => unknown; restart: () => unknown; kill: () => unknown; progress: { (): number; (value: number, suppressEvents?: boolean): unknown } };
 type SceneModule = { createScene: (root: HTMLElement, complete: () => void) => Timeline };
-const loaders: Record<"connect" | "bots" | "server" | "message", () => Promise<SceneModule>> = {
+const loaders: Record<"connect" | "bots" | "server" | "message" | "story", () => Promise<SceneModule>> = {
   connect: () => import("./scenes/connect"),
   bots: () => import("./scenes/bots"),
   server: () => import("./scenes/server"),
   message: () => import("./scenes/message"),
+  story: () => import("./scenes/story"),
 };
 
 export function DeferredDemo({ scene, label, children }: { scene: keyof typeof loaders; label: string; children: ReactNode }) {

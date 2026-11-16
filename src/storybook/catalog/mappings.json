@@ -4154,22 +4154,22 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
-  "src/web/blog/src/components/guides/conversation-demo.tsx": {
-    "kind": "composition",
-    "examples": [
-      {
-        "story": "blog-components--conversation",
-        "region": "Actual conversation figure with real Message components"
-      }
-    ],
-    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
-  },
   "src/web/src/app/brand-visual/blog-reading-specimen.tsx": {
     "kind": "composition",
     "examples": [
       {
         "story": "web-pages-design-references--brand-board",
         "region": "Original full brand reference board, including the Blog reading specimen"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/blog/src/components/guides/story-demo.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "blog-components--use-case-story",
+        "region": "Actual use case story scene with real Message, composer and mention components"
       }
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."

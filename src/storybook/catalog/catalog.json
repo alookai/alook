@@ -332,21 +332,6 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
-      "source": "src/web/blog/src/components/guides/conversation-demo.tsx",
-      "application": "Blog",
-      "candidates": [
-        "ConversationDemo"
-      ],
-      "kind": "composition",
-      "examples": [
-        {
-          "story": "blog-components--conversation",
-          "region": "Actual conversation figure with real Message components"
-        }
-      ],
-      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
-    },
-    {
       "source": "src/web/blog/src/components/guides/deferred-demo.tsx",
       "application": "Blog",
       "candidates": [
@@ -429,6 +414,23 @@
         {
           "story": "blog-components--server",
           "region": "Actual guide server scene and its shell"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/blog/src/components/guides/story-demo.tsx",
+      "application": "Blog",
+      "candidates": [
+        "StoryChannel",
+        "StoryDemo",
+        "StoryForum"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "blog-components--use-case-story",
+          "region": "Actual use case story scene with real Message, composer and mention components"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -6897,9 +6899,9 @@
       "source": "src/storybook/stories/blog/components.stories.tsx"
     },
     {
-      "id": "blog-components--conversation",
+      "id": "blog-components--use-case-story",
       "title": "Blog/Components",
-      "name": "Conversation",
+      "name": "Use Case Story",
       "source": "src/storybook/stories/blog/components.stories.tsx"
     },
     {

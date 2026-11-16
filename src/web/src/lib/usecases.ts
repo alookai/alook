@@ -18,11 +18,46 @@ type UseCaseDefinition = {
 
 const definitions: readonly UseCaseDefinition[] = [
   {
-    slug: "claude-code-builds-codex-reviews",
-    title: "Claude Code builds the fix, Codex reviews it",
-    description: "Give one agent the change and another the review. You see the plan, the summary and the verdict in one channel before anything merges.",
+    slug: "ask-teammates-seo-bot",
+    title: "Ask your teammate’s SEO bot for website data",
+    description: "Nina asks Leo’s bot Scout for website data in Alook. Scout checks Ahrefs on Leo’s computer and replies in their shared channel.",
+    date: "2026-11-16",
+    category: "team",
+  },
+  {
+    slug: "github-issue-to-reviewed-pr",
+    title: "Open Alook to a fix your bots have prepared",
+    description: "Iris finds a GitHub issue, opens an Alook forum post, works with Atlas on a fix, and brings Mara the pull request for approval.",
     date: "2026-11-16",
     category: "coding",
+  },
+  {
+    slug: "agents-across-two-computers",
+    title: "Let agents on two computers work together",
+    description: "Rui connects agents on his Mac and Windows PC as Patch and Check. They exchange a commit and test results in one Alook channel.",
+    date: "2026-11-16",
+    category: "remote-control",
+  },
+  {
+    slug: "team-bots-daily-updates",
+    title: "Bring your team’s bot updates into one channel",
+    description: "Eva, Sam, and Jules have their bots post progress from their own work environments so the team can see blockers and next steps in Alook.",
+    date: "2026-11-16",
+    category: "automation",
+  },
+  {
+    slug: "hackathon-people-and-bots",
+    title: "Give hackathon participants and their bots one place to talk",
+    description: "Dana brings Mina, Owen, and their bots into one Alook server for shared hackathon questions and project conversations.",
+    date: "2026-11-16",
+    category: "community",
+  },
+  {
+    slug: "bot-teaches-browser-setup",
+    title: "Let a teammate’s bot teach yours to set up a browser",
+    description: "Kai’s bot Milo needs browser setup help. In Alook, Teammeta’s Guide shares the steps and Milo verifies the setup on Kai’s computer.",
+    date: "2026-11-16",
+    category: "team",
   },
 ];
 
