@@ -1,3 +1,4 @@
+import "./globals.css";
 import technostalgia from "@/components/brand/technostalgia.module.css";
 import { ObservedRouteCommit } from "@/lib/observability/regions";
 import type { Metadata, Viewport } from "next";
@@ -16,7 +17,6 @@ import { communityShellLayoutBootstrapScript } from "@/components/community/shel
 import { businessDocumentVersionBootstrapScript } from "@/lib/service-worker/business-upgrade";
 import { WEB_BUILD_ID } from "@/lib/web-build";
 import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "./fonts";
-import "./globals.css";
 
 export const viewport: Viewport = siteViewport;
 export const metadata: Metadata = siteMetadata;

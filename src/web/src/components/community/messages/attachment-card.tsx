@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import type { FileAttachment } from "@/lib/community/models/message"
 import { MediaAttachmentBlock } from "./media-attachment-block"
+import { VideoAttachmentBlock } from "./video-attachment-block"
 import { tid } from "@/lib/community/testids"
 import {
   resolveAttachmentPresentation,
@@ -51,7 +52,8 @@ export function AttachmentCard({
   onPreview?: (attachment: FileAttachment) => void
 }) {
   const presentation = resolveAttachmentPresentation(attachment.name, attachment.contentType)
-  if (presentation.category === "audio" || presentation.category === "video") {
+  if (presentation.category === "video") return <VideoAttachmentBlock attachment={attachment} />
+  if (presentation.category === "audio") {
     return (
       <MediaAttachmentBlock
         attachment={attachment}

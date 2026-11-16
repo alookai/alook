@@ -425,10 +425,11 @@
   gap: 18px;
   padding: 28px;
 }
-/* The image viewer is a frameless full-viewport stage, not a card: its
- * toolbar sits on the dialog edge, so it keeps the app's p-0 / border-none. */
+/* Image and video viewers use a frameless stage; their controls own the frame. */
 .theme :is([data-slot="dialog-content"]):has([data-testid="community-image-lightbox"]),
-.theme:is([data-slot="dialog-content"]):has([data-testid="community-image-lightbox"]) {
+.theme:is([data-slot="dialog-content"]):has([data-testid="community-image-lightbox"]),
+.theme [data-slot="dialog-content"]:global(.alook-video-mask),
+.theme:is([data-slot="dialog-content"]):global(.alook-video-mask) {
   padding: 0;
   border-width: 0;
   background-color: transparent;

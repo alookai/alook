@@ -91,6 +91,7 @@
     "@tiptap/suggestion": "3.32.0",
     "@types/mdx": "^2.0.14",
     "@typesafe-ai/sdk": "0.7.0",
+    "@videojs/react": "10.4.0",
     "better-auth": "1.7.12",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

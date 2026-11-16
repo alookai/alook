@@ -32,7 +32,9 @@ export function MediaAttachmentBlock({
   const playbackActiveRef = useRef(false)
   const MediaIcon = mediaKind === "video" ? FileVideo : FileAudio
   const attachmentDownload = useFileDownload(attachment)
-  const downloadStatusText = fileDownloadStatusText(attachmentDownload.state)
+  const downloadStatusText = attachmentDownload.state.status === "downloading" || attachmentDownload.state.status === "error"
+    ? fileDownloadStatusText(attachmentDownload.state)
+    : null
   const DownloadIcon = attachmentDownload.state.status === "downloading"
     ? LoaderCircle
     : (attachmentDownload.state.status === "saved" || attachmentDownload.state.status === "started")

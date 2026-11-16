@@ -300,7 +300,7 @@ describe("ThreadOpener image attachment layout", () => {
     expect(onPreviewAttachment).toHaveBeenCalledWith(file)
   })
 
-  it("renders opener media through the shared progressive-disclosure block", () => {
+  it("routes opener video through its paused preview and original playback entry", async () => {
     const media = {
       kind: "file" as const,
       name: "clip.webm",
@@ -318,6 +318,12 @@ describe("ThreadOpener image attachment layout", () => {
         attachments: [media],
       },
     })
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function (this: HTMLMediaElement) {
+      this.dispatchEvent(new Event("play"))
+      return Promise.resolve()
+    })
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined)
+    const load = vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => undefined)
     let renderer: ReturnType<typeof render>
     act(() => {
       renderer = render(
@@ -329,9 +335,30 @@ describe("ThreadOpener image attachment layout", () => {
       )
     })
 
-    expect(renderer!.getByTestId("community-media-block-clip.webm"))
-      .toHaveAttribute("data-media-kind", "video")
-    expect(renderer!.container.querySelectorAll("video")).toHaveLength(0)
+    try {
+      expect(renderer!.getByTestId("community-media-block-clip.webm"))
+        .toHaveAttribute("data-media-kind", "video")
+      expect(renderer!.container.querySelectorAll("video")).toHaveLength(1)
+      const player = renderer!.container.querySelector("video")!
+      expect(player).toHaveAttribute("src", media.url)
+      expect(player.autoplay).toBe(false)
+      expect(player.paused).toBe(true)
+      Object.defineProperty(player, "duration", { configurable: true, value: 4 })
+      fireEvent.loadedMetadata(player)
+      fireEvent.seeked(player)
+      expect(player.currentTime).toBe(0.1)
+      expect(play).not.toHaveBeenCalled()
+      await act(async () => fireEvent.click(renderer!.getByRole("button", { name: "Play video clip.webm" })))
+      expect(play).toHaveBeenCalledOnce()
+      expect(play.mock.contexts[0]).toBe(player)
+      expect(renderer!.container.querySelector("video")).toBe(player)
+      expect(renderer!.getByRole("button", { name: "Expand video" })).toBeInTheDocument()
+    } finally {
+      renderer!.unmount()
+      play.mockRestore()
+      pause.mockRestore()
+      load.mockRestore()
+    }
   })
 
   it("uses the shared mobile avatar long press without leaking cancelled clicks to profile", async () => {
