@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -40,6 +40,20 @@ describe("owned SDK worker transport", () => {
     }, { modulePath, cwd, config: {}, probe: { includeModels: false } }, { ...process.env });
     lanes.push(lane);
     expect(await lane.probe()).toEqual({ status: "healthy" });
+  });
+
+  it("releases a native worker and its temporary files before stop completes", async () => {
+    const lane = worker(async () => ({ status: "healthy" }));
+    expect(await lane.probe()).toEqual({ status: "healthy" });
+    const owned = lane as unknown as { child: import("node:child_process").ChildProcess; directory: string };
+    let closed = false;
+    owned.child.once("close", () => { closed = true; });
+    await lane.stop({ forceAfterMs: 100 });
+    if (process.platform === "win32") expect(closed).toBe(true);
+    expect(existsSync(owned.directory)).toBe(false);
+    const cwd = roots[roots.length - 1]!;
+    rmSync(cwd, { recursive: true, force: true });
+    roots.splice(roots.indexOf(cwd), 1);
   });
 
   it("preserves UTF-8 text and stderr across individual byte boundaries", async () => {

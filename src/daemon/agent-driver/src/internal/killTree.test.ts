@@ -248,8 +248,11 @@ describe("killProcessTree", () => {
     expect(isAlive(proc.pid!)).toBe(true);
     expect(isAlive(childPid)).toBe(true);
 
+    let closed = false;
+    proc.once("close", () => { closed = true; });
     await killProcessTree(proc.pid!, { graceMs: 300 });
 
+    if (process.platform === "win32") expect(closed).toBe(true);
     expect(isAlive(proc.pid!)).toBe(false);
     expect(isAlive(childPid)).toBe(false);
     rmSync(cwd, { recursive: true, force: true });

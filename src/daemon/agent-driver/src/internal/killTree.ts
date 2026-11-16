@@ -48,6 +48,7 @@ const POSIX_TREE_CAPTURE_MAX_BUFFER = 1_048_576;
 export const SESSION_STOP_GRACE_MS = 2000;
 const DEFAULT_GRACE_MS = SESSION_STOP_GRACE_MS;
 const isPosix = process.platform !== "win32";
+const windowsProcesses = new Map<number, { closed: boolean }>();
 const WINDOWS_JOB_NODE_ENV = "ALOOK_WINDOWS_JOB_NODE";
 const WINDOWS_JOB_PAYLOAD_ENV = "ALOOK_WINDOWS_JOB_PAYLOAD";
 const WINDOWS_JOB_RUNNER_ENV = "ALOOK_WINDOWS_JOB_RUNNER";
@@ -582,6 +583,15 @@ export function spawnAgentProcess(command: string, args: string[], opts: AgentSp
     };
     proc.once("error", closeStdinBridge);
     proc.once("exit", closeStdinBridge);
+    if (proc.pid) {
+      const pid = proc.pid;
+      const completion = { closed: false };
+      windowsProcesses.set(pid, completion);
+      proc.once("close", () => {
+        completion.closed = true;
+        if (windowsProcesses.get(pid) === completion) windowsProcesses.delete(pid);
+      });
+    }
     return proc;
   }
   return spawn(command, args, {
@@ -735,34 +745,34 @@ function taskkillTree(pid: number): Promise<void> {
 }
 
 async function killWindowsProcessTree(pid: number): Promise<void> {
-  if (!isAlive(pid)) return;
+  const completion = windowsProcesses.get(pid);
+  if (!isAlive(pid) && !completion) return;
   // A single /T /F call snapshots and terminates the complete tree while the
   // wrapper pid is still alive. Killing the wrapper first would orphan the
   // actual runtime and make a later tree walk unable to discover it. Windows
   // has no safe recursive graceful-signal primitive, so start this immediately;
   // the controller separately owns the public force deadline.
   let terminationError: WindowsTreeExitError | undefined;
-  try {
-    await taskkillTree(pid);
-  } catch (error) {
-    if (!(error instanceof WindowsTreeExitError)) throw error;
-    terminationError = error;
+  if (isAlive(pid)) {
+    try {
+      await taskkillTree(pid);
+    } catch (error) {
+      if (!(error instanceof WindowsTreeExitError)) throw error;
+      terminationError = error;
+    }
   }
-  await waitForProcessExit(pid, FORCE_EXIT_WAIT_MS);
-  if (isAlive(pid)) throw terminationError ?? new Error(`Windows process tree ${pid} remained alive after taskkill completed`);
-}
-
-async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (isAlive(pid) && Date.now() < deadline) {
+  const deadline = Date.now() + FORCE_EXIT_WAIT_MS;
+  while ((isAlive(pid) || completion?.closed === false) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
+  if (isAlive(pid)) throw terminationError ?? new Error(`Windows process tree ${pid} remained alive after taskkill completed`);
+  if (completion?.closed === false) throw new Error(`Windows process tree ${pid} did not close within ${FORCE_EXIT_WAIT_MS}ms`);
 }
 
 /**
  * Terminate `pid` and its descendants: POSIX process-group signals with force
  * escalation after `graceMs`, or immediate Windows job-supervisor teardown.
- * A dead Windows supervisor has already closed its kill-on-close job.
+ * Owned Windows supervisors must also close their process and stdio handles.
  */
 export async function killProcessTree(
   pid: number,
@@ -770,7 +780,6 @@ export async function killProcessTree(
 ): Promise<void> {
   if (!pid || pid < 1) return;
   if (!isPosix) {
-    if (!isAlive(pid)) return;
     await killWindowsProcessTree(pid);
     return;
   }
