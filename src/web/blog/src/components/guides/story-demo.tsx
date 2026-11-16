@@ -4,6 +4,10 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { MousePointer2 } from "lucide-react";
 import { ChannelHeader } from "@/components/community/channels/channel-header";
 import { ForumView } from "@/components/community/channels/forum-view";
+import { LandingShellMotion } from "@/components/home/landing-shell-motion";
+import { CommunityPreviewNavigation } from "@/components/community/shell/community-preview-navigation";
+import { MachineCard } from "@/components/community/machines/machine-card";
+import type { CommunityMachineSummary } from "@alook/shared";
 import { MentionRow } from "@/components/community/messages/composer-suggestion-popups";
 import { ComposerPreview } from "@/components/community/messages/composer-preview";
 import { Message } from "@/components/community/messages/message";
@@ -17,9 +21,11 @@ import { DeferredDemo } from "./deferred-demo";
 import { TutorialServerShell } from "./server-demo";
 import styles from "./guide.module.css";
 
+type StoryImage = { url: string; name: string; width: number; height: number };
 export type StoryStep =
   | { send: string; mentions?: readonly string[]; text: string }
-  | { post: string; mentions?: readonly string[]; text: string };
+  | { post: string; mentions?: readonly string[]; text: string; image?: StoryImage };
+export type StoryMachine = { name: string; hostname: string; platform: "darwin" | "win32" | "linux"; runtimes: readonly string[] };
 
 type StoryState = { shown: number; typing: string | null; mentions: number; text: string; popup: number; posted: boolean };
 export type StoryForumPost = { title: string; author: string; preview: string; tags?: readonly string[] };
@@ -38,7 +44,7 @@ function messages(steps: readonly StoryStep[], directory: Map<string, CommunityP
   return steps.map((step, index) => {
     const person = directory.get(`story-${slug(authorOf(step))}`)!;
     const mentions = (step.mentions ?? []).map((name) => { const target = directory.get(`story-${slug(name)}`)!; return `@${target.name}#${target.discriminator} `; }).join("");
-    return { id: `story-${index}`, type: "chat", authorId: person.id, authorName: person.name, authorAvatar: person.avatar ?? undefined, content: `${mentions}${step.text}`, createdAt: new Date(start + index * 90_000).toISOString(), seq: index + 1, grouped: false };
+    return { id: `story-${index}`, type: "chat", authorId: person.id, authorName: person.name, authorAvatar: person.avatar ?? undefined, content: `${mentions}${step.text}`, ...("image" in step && step.image ? { attachments: [{ kind: "image" as const, name: step.image.name, url: step.image.url, contentType: "image/webp", width: step.image.width, height: step.image.height }] } : {}), createdAt: new Date(start + index * 90_000).toISOString(), seq: index + 1, grouped: false };
   });
 }
 
@@ -77,6 +83,20 @@ function StoryForum({ channel, channels, steps, post, earlier }: { channel: stri
       <ForumView forumChannelId={`story-${slug(channel)}`} members={members} posts={posts} tag="All" onTagChange={ignore} availableTags={[...new Set([post, ...earlier].flatMap((entry) => entry.tags ?? []))]} tagsKnown onOpenPost={ignore} />
     </div>
   </CommunityPreviewProfileOwner></TutorialServerShell>;
+}
+
+function StoryMachines({ machines }: { machines: readonly StoryMachine[] }) {
+  const summaries = machines.map((machine, index): CommunityMachineSummary => ({
+    id: `story-machine-${index}`, hostname: machine.hostname, displayName: machine.name, platform: machine.platform, arch: machine.platform === "darwin" ? "arm64" : "x64", osRelease: machine.platform === "darwin" ? "15.6" : "10.0.26100", daemonVersion: "0.1.69",
+    status: "online", lastSeenAt: "2026-11-16T02:00:00Z", createdAt: "2026-11-01T02:00:00Z", updatedAt: "2026-11-16T02:00:00Z",
+    availableRuntimes: machine.runtimes.map((id) => ({ id, status: "healthy" })),
+  }) as CommunityMachineSummary);
+  return <CommunityPreviewNavigation value={true}><LandingShellMotion userAvatar="avatar:beam:tutorial-gus" scene="machine" beat={0}>
+    <div className="flex flex-1 flex-col gap-6 p-6" data-story-machine-list>
+      <header className="text-xl font-medium">Machines</header>
+      <div className="grid gap-4">{summaries.map((machine) => <MachineCard key={machine.id} machine={machine} onDelete={ignore} onReconnect={ignore} />)}</div>
+    </div>
+  </LandingShellMotion></CommunityPreviewNavigation>;
 }
 
 function StoryChannel({ channel, channels, steps, title }: { channel: string; channels: readonly string[]; steps: readonly StoryStep[]; title?: string }) {
@@ -118,8 +138,9 @@ function StoryChannel({ channel, channels, steps, title }: { channel: string; ch
   </CommunityPreviewProfileOwner></TutorialServerShell>;
 }
 
-export function StoryDemo({ label, channel, channels = [channel], steps, forumPost, earlierPosts = [], openPost }: { label: string; channel: string; channels?: readonly string[]; steps: readonly StoryStep[]; forumPost?: StoryForumPost; earlierPosts?: readonly StoryForumPost[]; openPost?: string }) {
+export function StoryDemo({ label, channel, channels = [channel], steps, forumPost, earlierPosts = [], openPost, machines }: { label: string; channel: string; channels?: readonly string[]; steps: readonly StoryStep[]; forumPost?: StoryForumPost; earlierPosts?: readonly StoryForumPost[]; openPost?: string; machines?: readonly StoryMachine[] }) {
   return <DeferredDemo scene="story" label={label}>
+    {machines && <div data-demo-frame data-story-machines><StoryMachines machines={machines} /></div>}
     {forumPost && <div data-demo-frame data-story-list><StoryForum channel={channel} channels={channels} steps={steps} post={forumPost} earlier={earlierPosts} /></div>}
     <div data-demo-frame data-story-thread><StoryChannel channel={channel} channels={channels} steps={steps} title={forumPost?.title ?? openPost} /></div>
     <MousePointer2 className={styles.pointer} data-demo-pointer size={30} fill="var(--background)" />

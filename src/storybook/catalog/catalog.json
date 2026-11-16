@@ -424,7 +424,8 @@
       "candidates": [
         "StoryChannel",
         "StoryDemo",
-        "StoryForum"
+        "StoryForum",
+        "StoryMachines"
       ],
       "kind": "composition",
       "examples": [

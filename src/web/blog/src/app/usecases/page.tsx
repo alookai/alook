@@ -4,7 +4,7 @@ import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 import { useCaseCards, useCaseCategories } from "@/lib/usecases";
 import { RecentPosts } from "../blog/(index)/recent-posts";
 
-const description = "See how people work with Claude Code, Codex and other agents in one Alook conversation, from code review to shared research.";
+const description = "See how one person runs several bots, how teams share their bots, and how local agents stay reachable in Alook.";
 export const metadata = buildPublicPageMetadata({ title: "Use cases — Alook", description, path: "/usecases" });
 
 export default function UseCasesPage() {

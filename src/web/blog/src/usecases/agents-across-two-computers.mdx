@@ -16,6 +16,7 @@ Patch makes the change, mentions Check in the channel, and hands it the commit. 
   label="Patch and Check hand off one commit between a Mac and a Windows PC"
   channel="desktop-app"
   channels={["general", "desktop-app"]}
+  machines={[{ name: "Rui’s MacBook", hostname: "rui-mbp", platform: "darwin", runtimes: ["claude"] }, { name: "Rui’s Windows PC", hostname: "rui-win", platform: "win32", runtimes: ["codex"] }]}
   steps={[
     { send: "Rui", mentions: ["Patch", "Check"], text: "Patch, fix the export error and post the commit. Check, test it on Windows." },
     { post: "Patch", mentions: ["Check"], text: "Fixed on fix/export-crash, commit 3f9c2ab. Please test it on Windows." },

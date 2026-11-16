@@ -28,6 +28,16 @@ export function createScene(root: HTMLElement, complete: () => void) {
   gsap.set(frames, { transformOrigin: "top left" });
   timeline.call(() => update({ shown: 0, typing: null, mentions: 0, text: "", popup: -1 }), [], 0);
   let at = 0.6;
+  const machines = root.querySelector<HTMLElement>("[data-story-machines]");
+  if (machines) {
+    const listView = () => machines.querySelector("[data-story-machine-list]") ?? machines;
+    action("machines-online", at);
+    camera(at + 0.4, listView, machines, 1.15);
+    move(listView, at + 1.2);
+    camera(at + 3.2, null, machines);
+    frame([...frames].indexOf(machines), list ? [...frames].indexOf(list) : threadIndex, at + 3.6);
+    at += 4.2;
+  }
   if (list) {
     const forum = list.querySelector<HTMLElement>("[data-story-forum]")!;
     const card = () => list.querySelector('[data-testid="community-forum-post-story-post-0"]') ?? forum;
@@ -37,7 +47,7 @@ export function createScene(root: HTMLElement, complete: () => void) {
     camera(at + 0.8, card, list);
     click(card, at + 1.8);
     camera(at + 3, null, list);
-    frame(0, threadIndex, at + 3);
+    frame([...frames].indexOf(list), threadIndex, at + 3);
     at += 3.6;
   }
   for (const [index, step] of steps.entries()) {
