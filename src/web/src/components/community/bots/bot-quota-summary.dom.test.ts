@@ -180,10 +180,10 @@ describe("MachineQuotaSummary", () => {
     const renderer = render([pi, codex, claude, grok])
     const trigger = renderer.getByTestId("community-machine-quota-m1")
     expect(trigger).toHaveAttribute("aria-expanded", "false")
-    expect(text(trigger)).toBe("Quota·18%·65%")
+    expect(text(trigger)).toBe("Quota·Codex (automatic)18%·65%")
     expect(trigger).toHaveAttribute(
       "aria-label",
-      expect.stringContaining("Codex 18% left; Grok 65% left"),
+      expect.stringContaining("Codex (automatic) 18% left; Grok 65% left"),
     )
     expect([...trigger.querySelectorAll<HTMLElement>("[data-provider-logo]")]
       .map((node) => node.dataset.providerLogo))
@@ -215,8 +215,8 @@ describe("MachineQuotaSummary", () => {
   it("shows one limit's server-authored window and stale state", () => {
     const renderer = render([quotaEntry([limit({ usedPercent: 37.5 })], "stale")])
     const trigger = renderer.getByTestId("community-machine-quota-m1")
-    expect(text(trigger)).toBe("Quota·62.5%stale")
-    expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex 62.5% left, stale"))
+    expect(text(trigger)).toBe("Quota·Codex (automatic)62.5%stale")
+    expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex (automatic) 62.5% left, stale"))
   })
 
   it("exposes unavailable backend details alongside pending peers without inventing limits", () => {
@@ -227,12 +227,12 @@ describe("MachineQuotaSummary", () => {
     }
     const renderer = render([pending, unavailable])
     const trigger = renderer.getByTestId("community-machine-quota-m1")
-    expect(text(trigger)).toBe("Quota pending")
+    expect(text(trigger)).toBe("Codex (automatic)Quota pending")
     expect(trigger).toHaveAttribute("aria-expanded", "false")
     fireEvent.click(trigger)
     const detail = renderer.getByTestId("community-machine-quota-detail-m1")
     expect(text(detail.querySelector('[data-quota-backend="antigravity"]')!)).toBe("AntigravityUnavailable")
-    expect(text(detail.querySelector('[data-quota-backend="codex"]')!)).toBe("CodexPending")
+    expect(text(detail.querySelector('[data-quota-backend="codex"]')!)).toBe("Codex (automatic)Pending")
     expect(text(detail)).not.toMatch(/%|Resets|Updated/)
   })
 
@@ -267,16 +267,41 @@ describe("MachineQuotaSummary", () => {
   })
 })
 
-it("keeps Codex App and CLI quota observations separate under their picker names", () => {
+it("shows explicit Codex sources in the summary while retaining legacy details", () => {
   const renderer = render([
+    quotaEntry([limit({ usedPercent: 20 })], "available", "codex"),
     quotaEntry([limit({ usedPercent: 20 })], "available", "codex-app"),
     quotaEntry([limit({ usedPercent: 70 })], "available", "codex-cli"),
   ])
   const trigger = renderer.getByTestId("community-machine-quota-m1")
-  expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex 80% left"))
+  expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex App 80% left"))
   expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex CLI 30% left"))
+  expect(text(trigger)).not.toContain("Codex (automatic)")
+  expect(text(trigger)).toContain("Codex App80%")
+  expect(text(trigger)).toContain("Codex CLI30%")
   fireEvent.click(trigger)
   const detail = renderer.getByTestId("community-machine-quota-detail-m1")
-  expect(text(detail.querySelector('[data-quota-backend="codex-app"]')!)).toContain("Codex")
+  expect(text(detail.querySelector('[data-quota-backend="codex"]')!)).toContain("Codex (automatic)")
+  expect(text(detail.querySelector('[data-quota-backend="codex-app"]')!)).toContain("Codex App")
   expect(text(detail.querySelector('[data-quota-backend="codex-cli"]')!)).toContain("Codex CLI")
+})
+
+it("does not use legacy quota for pending or unavailable explicit Codex sources", () => {
+  const renderer = render([
+    quotaEntry([limit({ usedPercent: 20 })], "available", "codex"),
+    { ...quotaEntry([], "available", "codex-app"), snapshot: { status: "pending" } },
+    { ...quotaEntry([], "available", "codex-cli"), snapshot: { status: "error", code: "unavailable" } },
+  ])
+  const trigger = renderer.getByTestId("community-machine-quota-m1")
+  expect(text(trigger)).toContain("Codex App")
+  expect(text(trigger)).toContain("Codex CLI")
+  expect(text(trigger)).toContain("Quota pending")
+  expect(trigger).toHaveAttribute("aria-label", "Quota details: Codex App, Codex CLI. Quota pending")
+  expect(text(trigger)).not.toContain("%")
+  expect(text(trigger)).not.toContain("Codex (automatic)")
+  fireEvent.click(trigger)
+  const detail = renderer.getByTestId("community-machine-quota-detail-m1")
+  expect(text(detail.querySelector('[data-quota-backend="codex"]')!)).toContain("80% left")
+  expect(text(detail.querySelector('[data-quota-backend="codex-app"]')!)).toContain("Pending")
+  expect(text(detail.querySelector('[data-quota-backend="codex-cli"]')!)).toContain("Unavailable")
 })
