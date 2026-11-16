@@ -53,7 +53,30 @@ test("local history submission and passive remote append use distinct owners", a
     })
     const newAction = alice.page.getByTestId(tid.scrollToNew)
     await expect(newAction).toBeVisible()
+    const newTargetRequest = await holdNextRequest(actors, alice.page, `**/api/community/channels/${channelId}/messages**`,
+      url => url.searchParams.get("anchor") === newTarget!.id && !url.searchParams.has("entry"))
+    let newTargetGets = 0
+    const countNewTargetRequest = (request: import("@playwright/test").Request) => {
+      const url = new URL(request.url())
+      if (request.method() === "GET" && url.pathname === `/api/community/channels/${channelId}/messages`
+        && url.searchParams.get("anchor") === newTarget!.id && !url.searchParams.has("entry")) newTargetGets += 1
+    }
+    alice.page.on("request", countNewTargetRequest)
+    actors.onCleanup(async () => { alice.page.off("request", countNewTargetRequest) })
     await newAction.click()
+    await newTargetRequest.matched
+    await expect(newAction).toBeVisible()
+    await expect(newAction).toHaveText("New")
+    await expect(newAction).toHaveAccessibleName("Jump to New")
+    await expect(newAction).toHaveAttribute("aria-busy", "true")
+    await expect(newAction).toBeDisabled()
+    await expect(newAction.locator("svg")).toHaveClass(/animate-spin/)
+    await expect(alice.page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
+    await expect(alice.page.getByText("Loading messages…", { exact: true })).toHaveCount(0)
+    await newAction.evaluate(button => (button as HTMLButtonElement).click())
+    await alice.page.waitForTimeout(250)
+    expect(newTargetGets).toBe(1)
+    newTargetRequest.release()
     const history = await historyResponse
     expect(history.ok()).toBe(true)
     const historyPage = CommunityMessagesReadSchema.parse(await history.json())
@@ -63,6 +86,8 @@ test("local history submission and passive remote append use distinct owners", a
     await expect.poll(() => newDivider.evaluate((element, scrollerTestId) => Math.abs(element.getBoundingClientRect().top
       - element.closest(`[data-testid="${scrollerTestId}"]`)!.getBoundingClientRect().top), tid.messageScroller)).toBeLessThanOrEqual(1)
     await expect(newAction).toBeHidden()
+    expect(newTargetGets).toBe(1)
+    await newTargetRequest.dispose()
     await expect(scroller.locator('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
     let newestGets = 0
     alice.page.on("request", request => {

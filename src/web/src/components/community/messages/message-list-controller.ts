@@ -138,7 +138,6 @@ export function useMessageListController({
     readPositionReady,
     paginationEnabled,
     paginationRequestPending,
-    presentPositionPending,
     captureOlderPageAnchor,
     captureNewerPageAnchor,
     positionOutcome,
@@ -401,10 +400,9 @@ export function useMessageListController({
     pillCount,
     pillMode: jumpMode ? "jump" as const : "scroll" as const,
     pillOnClick,
-    pillPending: !!presentPending || presentPositionPending,
     pillError: !!presentError,
     retryOlder, retryNewer,
-    newJumpVisible: !!dividerTarget && !lookback.used && newDividerVisibility === "above"
+    newJumpVisible: lookback.pending || !!dividerTarget && !lookback.used && newDividerVisibility === "above"
       && (!!onLoadNewTarget || messages.some(message => message.id === dividerTarget)),
     newJumpPending: lookback.pending,
     jumpToNew,

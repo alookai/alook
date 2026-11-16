@@ -11,27 +11,29 @@ vi.mock("@/components/ui/number-ticker", () => ({
 }))
 
 describe("ComposerAccessoryRail geometry", () => {
-  it("keeps pending and failure feedback in the existing row and permits one retry after failure", () => {
+  it("keeps present repeatable without loading presentation and retains failure retry", () => {
     const onScroll = vi.fn(), onNew = vi.fn()
-    const view = (pending: boolean, error: boolean) => <ComposerAccessoryRail typingNames={[]}
-      scrollCount={0} scrollMode="scroll" onScroll={onScroll} scrollPending={pending} scrollError={error}
+    const view = (error: boolean, mode: "scroll" | "jump" = "jump") => <ComposerAccessoryRail typingNames={[]}
+      scrollCount={0} scrollMode={mode} onScroll={onScroll} scrollError={error}
       newVisible onNew={onNew} />
-    const renderer = render(view(true, false))
+    const renderer = render(view(false))
     const rail = renderer.getByTestId(tid.composerAccessoryRail)
-    const pending = renderer.getByRole("button", { name: "Loading messages" })
-    expect(pending).toBeDisabled()
-    expect(pending).toHaveAttribute("aria-busy", "true")
-    expect(renderer.getByRole("status")).toHaveTextContent("Loading messages…")
-    fireEvent.click(pending)
-    expect(onScroll).not.toHaveBeenCalled()
-    renderer.rerender(view(false, true))
+    const present = renderer.getByRole("button", { name: "Jump to present" })
+    expect(present).toBeEnabled()
+    expect(present).not.toHaveAttribute("aria-busy", "true")
+    expect(renderer.queryByRole("status")).toBeNull()
+    expect(present.querySelector("svg")).not.toHaveClass("animate-spin")
+    fireEvent.click(present)
+    fireEvent.click(present)
+    expect(onScroll).toHaveBeenCalledTimes(2)
+    renderer.rerender(view(true))
     expect(renderer.getByTestId(tid.composerAccessoryRail)).toBe(rail)
     expect(rail).toHaveStyle({ height: "32px" })
     fireEvent.click(renderer.getByRole("button", { name: "Could not load recent messages. Retry" }))
-    expect(onScroll).toHaveBeenCalledOnce()
+    expect(onScroll).toHaveBeenCalledTimes(3)
     fireEvent.click(renderer.getByRole("button", { name: "Jump to New" }))
     expect(onNew).toHaveBeenCalledOnce()
-    renderer.rerender(view(false, false))
+    renderer.rerender(view(false, "scroll"))
     expect(renderer.queryByTestId(tid.scrollToPresent)).toBeNull()
   })
 
@@ -55,11 +57,11 @@ describe("ComposerAccessoryRail geometry", () => {
     expect(renderer.getByRole("button", { name: "Jump to New" })).toBeDefined()
     renderer.rerender(view(0, true))
     expect(renderer.getByRole("status")).toBe(typing)
-    expect(renderer.queryByTestId(tid.scrollToNew)).toBeNull()
+    expect(renderer.getByTestId(tid.scrollToNew)).toBeDisabled()
     expect(onNew).toHaveBeenCalledOnce()
   })
 
-  it("shows New by itself, keeps the present action independent and hides an accepted pending jump", () => {
+  it("shows New by itself, keeps the present action independent and keeps an accepted pending jump visible without changing the center count", () => {
     const onNew = vi.fn(), onScroll = vi.fn()
     const view = (pending: boolean, count = 0) => <ComposerAccessoryRail typingNames={[]} scrollCount={count} scrollMode="scroll"
       onScroll={onScroll} newVisible newPending={pending} onNew={onNew} />
@@ -76,9 +78,40 @@ describe("ComposerAccessoryRail geometry", () => {
     expect(onScroll).toHaveBeenCalledOnce()
     expect(onNew).toHaveBeenCalledOnce()
     renderer.rerender(view(true, 8))
-    expect(renderer.queryByTestId(tid.scrollToNew)).toBeNull()
-    expect(renderer.getByTestId(tid.scrollToPresent)).toBeDefined()
+    const pendingNew = renderer.getByRole("button", { name: "Jump to New" })
+    expect(pendingNew).toBeDisabled()
+    expect(pendingNew).toHaveAttribute("aria-busy", "true")
+    expect(pendingNew).toHaveTextContent(/^New$/)
+    expect(pendingNew.querySelector("svg")).toHaveClass("animate-spin")
+    fireEvent.click(pendingNew)
+    expect(onNew).toHaveBeenCalledOnce()
+    expect(renderer.getByTestId(tid.scrollToPresent)).toHaveTextContent("8")
+    expect(renderer.getByTestId(tid.scrollToPresent)).not.toHaveAttribute("aria-busy", "true")
+    renderer.rerender(view(false, 8))
+    expect(pendingNew).toBeEnabled()
+    expect(pendingNew.querySelector("svg")).not.toHaveClass("animate-spin")
   })
+  it.each([0, 8])("keeps New transport loading out of the center with bottom count %i", count => {
+    const onNew = vi.fn(), onScroll = vi.fn()
+    const renderer = render(<ComposerAccessoryRail typingNames={[]} scrollCount={count} scrollMode="scroll"
+      onScroll={onScroll} newVisible newPending onNew={onNew} />)
+    const pendingNew = renderer.getByRole("button", { name: "Jump to New" })
+    expect(pendingNew).toBeDisabled()
+    expect(pendingNew).toHaveTextContent(/^New$/)
+    expect(pendingNew.querySelector("svg")).toHaveClass("animate-spin")
+    expect(renderer.queryByRole("button", { name: "Loading messages" })).toBeNull()
+    if (count === 0) expect(renderer.queryByTestId(tid.scrollToPresent)).toBeNull()
+    else {
+      const center = renderer.getByRole("button", { name: "Scroll to bottom, 8 more below" })
+      expect(center).toBeEnabled()
+      expect(center).not.toHaveAttribute("aria-busy", "true")
+      expect(center).toHaveTextContent("8")
+      expect(center.querySelector("svg")).not.toHaveClass("animate-spin")
+      fireEvent.click(center)
+      expect(onScroll).toHaveBeenCalledOnce()
+    }
+  })
+
   it("shares the composer's logical safe-area-aware inline edges", () => {
     function Accessory() {
       const target = useConversationFooterSlot()?.accessoryTarget

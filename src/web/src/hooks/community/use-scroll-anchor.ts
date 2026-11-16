@@ -162,6 +162,7 @@ export function useScrollAnchor({
     awaitingData: boolean
     viewport: { width: number; height: number }
     issued: boolean
+    endOffset?: number
     origin: { root: HTMLDivElement | null; offset: number } | null
   }
   type Geometry = {
@@ -794,6 +795,9 @@ export function useScrollAnchor({
       }
       if (!hasCommittedRows()) return
       if ((positionKind.get() === "initial") && !contextRef.current.initialScrollReady) return
+      const endOffset = Math.max(0, root.scrollHeight - root.clientHeight)
+      if (intent.type === "end" && intent.issued && positionKind.get() === "present"
+        && intent.endOffset !== endOffset && !native.isScrolling) intent.issued = false
       if (!intent.issued) {
         if (intent.origin && (intent.origin.root !== root || Math.abs(root.scrollTop - intent.origin.offset) > 1)) {
           releasePosition(true, "user-cancelled", "origin_changed")
@@ -806,6 +810,7 @@ export function useScrollAnchor({
           native.scrollToIndex(index, { align: intent.type === "unread" ? "start" : "center", behavior: intent.behavior })
         }
         intent.issued = true
+        if (intent.type === "end") intent.endOffset = endOffset
         intent.origin = null
       }
       const viewport = root.getBoundingClientRect()
@@ -885,6 +890,7 @@ export function useScrollAnchor({
 
   const startIntent = useCallback((type: Intent["type"], id: string | null, behavior: ScrollBehavior = "auto", notifyTarget = false, loadedTailPresent = false) => {
     const owner = positionOwnerRef.current
+    const root = scrollRef.current
     if (!owner.active || !contextRef.current.visible) return
     beginPosition(positionKind.get())
     const observation = positionObservationRef.current
@@ -897,17 +903,19 @@ export function useScrollAnchor({
     semanticIntentRef.current = {
       epoch: owner.epoch, type, id, index, behavior, notifyTarget, loadedTailPresent,
       awaitingData: positionKind.get() === "initial" ? !contextRef.current.initialScrollReady : (positionKind.get() === "target" ? contextRef.current.targetDataState : contextRef.current.dataState) === "pending",
-      viewport: { width: scrollRef.current?.clientWidth ?? 0, height: scrollRef.current?.clientHeight ?? 0 },
+      viewport: { width: root?.clientWidth ?? 0, height: root?.clientHeight ?? 0 },
       issued: false,
       origin: positionKind.get() === "initial" ? { root: scrollRef.current, offset: scrollRef.current?.scrollTop ?? 0 } : null,
     }
     if (semanticIntentRef.current.awaitingData) return
-    if (type === "end" && loadedTailPresent) {
+    if (type === "end" && loadedTailPresent && root && hasCommittedRows()) {
+      const endOffset = Math.max(0, root.scrollHeight - root.clientHeight)
       virtualizerRef.current?.scrollToEnd({ behavior })
       semanticIntentRef.current.issued = true
+      semanticIntentRef.current.endOffset = endOffset
     }
     scheduleInitialPositionSettled()
-  }, [beginPosition, positionKind, scheduleInitialPositionSettled])
+  }, [beginPosition, hasCommittedRows, positionKind, scheduleInitialPositionSettled])
 
   const requestPresentPosition = useCallback((request?: MessageRequest | void, userInitiated = true) => {
     if (!positionOwnerRef.current.active || !contextRef.current.visible) return
@@ -1817,7 +1825,7 @@ export function useScrollAnchor({
   const paginationRequestPending = paginationDirection !== null
   return {
     scrollRef, virtualizer, onRowsLayoutCommit, readPositionReady: active && visible && dataState !== "pending" && dataState !== "error" && resumeValidated && !entryChanged && readPositionReady, paginationEnabled: active && visible && dataState !== "pending" && dataState !== "error" && !entryChanged && ownerKind === "idle" && !awaitingTarget, belowCount,
-    paginationRequestPending, presentPositionPending: ownerKind === "present",
+    paginationRequestPending,
     positionOutcome,
     jumpToPresentVisible: !!hasMoreNewer && (dataState === "ready" || followSuspended || !!scrollToMessageId || !!initialPositionMessageId),
     scrollToBottom, requestPresentPosition, requestNewPosition, jumpTo, newDividerVisibility,

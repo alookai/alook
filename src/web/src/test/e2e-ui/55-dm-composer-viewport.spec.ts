@@ -120,23 +120,51 @@ test("DM composer clear preserves pinned and away viewport geometry", async ({ c
     expect(proxy.frames.flatMap(communityFrameEvents).filter((event) =>
       event.type === "community:message.create" && event.channelId === composerDmId)).toHaveLength(0)
 
-    await establishScrollDistancePrecondition(scroller, "dm-local-submit-away", 300)
-    const content = `dm local acceptance ${Date.now()}`
-    const post = alice.page.waitForResponse(response => response.request().method() === "POST"
-      && new URL(response.url()).pathname === `/api/community/channels/${composerDmId}/messages`
-      && response.request().postDataJSON().content === content)
-    await sendMessage(alice.page, content)
-    const response = await post
-    expect(response.status()).toBe(201)
-    const nonce = response.request().postDataJSON().nonce as string
-    expect(nonce.length).toBeGreaterThan(0)
-    const result = await response.json() as { message: PostedMessageIdentity }
-    expect(result.message).toMatchObject({ authorId: userId("alice"), channelId: composerDmId, content })
-    await expect.poll(() => messageCreateCount(proxy.frames, composerDmId, content)).toBe(1)
-    await expectMessageCreateIdentity(proxy.frames, composerDmId, result.message, nonce)
-    await expect(alice.page.getByTestId(tid.message(result.message.id))).toBeVisible()
-    await expect(alice.page.getByText(content, { exact: true })).toHaveCount(1)
-    await waitForStableTail(scroller, "dm-local-submit-ack")
-    expect(messagePosts).toBe(1)
+    for (const [index, mode] of ["away", "reduced-viewport-tail"].entries()) {
+      if (mode === "away") await establishScrollDistancePrecondition(scroller, "dm-local-submit-away", 300)
+      else {
+        await establishExactPinnedPrecondition(scroller, "dm-before-keyboard-viewport", 0)
+        await editable.click()
+        const beforeKeyboard = await waitForCommittedGeometry(scroller)
+        await alice.page.setViewportSize({ ...VIEWPORT, height: VIEWPORT.height - 180 })
+        await expect.poll(() => scroller.evaluate(element => element.clientHeight)).toBeLessThan(beforeKeyboard.clientHeight)
+        await waitForStableTail(scroller, "dm-keyboard-profile-open-at-tail")
+        await establishScrollDistancePrecondition(scroller, "dm-keyboard-profile-before-last-message", 300)
+        await alice.page.getByTestId(tid.scrollToPresent).click()
+        await waitForStableTail(scroller, "dm-keyboard-profile-after-last-message")
+        await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeHidden()
+      }
+      const content = mode === "away" ? `dm local acceptance ${Date.now()}` : `dm keyboard-profile acceptance ${Date.now()} ${"content ".repeat(80)}`.trim()
+      if (mode !== "away") {
+        await editable.fill(content)
+        await waitForStableTail(scroller, "dm-keyboard-profile-before-send")
+      }
+      const beforeSend = mode === "away" ? null : await waitForCommittedGeometry(scroller)
+      const post = alice.page.waitForResponse(response => response.request().method() === "POST"
+        && new URL(response.url()).pathname === `/api/community/channels/${composerDmId}/messages`
+        && response.request().postDataJSON().content === content)
+      if (mode === "away") await sendMessage(alice.page, content)
+      else {
+        await expect(editable).toHaveAttribute("enterkeyhint", "send")
+        await expect(editable).toBeFocused()
+        await alice.page.keyboard.press("Enter")
+      }
+      const response = await post
+      expect(response.status()).toBe(201)
+      const nonce = response.request().postDataJSON().nonce as string
+      expect(nonce.length).toBeGreaterThan(0)
+      const result = await response.json() as { message: PostedMessageIdentity }
+      expect(result.message).toMatchObject({ authorId: userId("alice"), channelId: composerDmId, content })
+      await expect.poll(() => messageCreateCount(proxy.frames, composerDmId, content)).toBe(1)
+      await expectMessageCreateIdentity(proxy.frames, composerDmId, result.message, nonce)
+      await expect(alice.page.getByTestId(tid.message(result.message.id))).toBeVisible()
+      await expect(alice.page.getByText(content, { exact: true })).toHaveCount(1)
+      await expect(editable).toHaveText("")
+      await waitForStableTail(scroller, `dm-local-submit-${mode}-ack`)
+      if (beforeSend) expect((await waitForCommittedGeometry(scroller)).clientHeight).toBeGreaterThan(beforeSend.clientHeight)
+      expect(messagePosts).toBe(index + 1)
+    }
+    await alice.page.setViewportSize(VIEWPORT)
+    await waitForStableTail(scroller, "dm-keyboard-profile-closed-after-send")
   })
 })
