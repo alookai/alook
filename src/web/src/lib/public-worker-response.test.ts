@@ -8,7 +8,7 @@ const html = (headers: Record<string, string> = {}, status = 200) => new Respons
 });
 
 describe("prerendered community response policy", () => {
-	it.each(["/c/me", "/c/me/bots?filter=active", "/c/%6de/bots", "/c/me/bots/"])("keeps %s private without buffering the body", async path => {
+	it.each(["/c/me", "/c/me/bots?filter=active", "/c/%6de/bots", "/c/me/bots/", "/c/me/machines", "/c/me/machines?filter=active", "/c/%6de/machines", "/c/me/machines/"])("keeps %s private without buffering the body", async path => {
 		const upstream = html({
 			"Cache-Control": "s-maxage=31536000",
 			"CDN-Cache-Control": "public, s-maxage=3600",
@@ -28,16 +28,26 @@ describe("prerendered community response policy", () => {
 		expect(await result.text()).toBe("public page");
 	});
 
-	it.each(["GET", "HEAD"])("protects %s Flight responses", method => {
-		const response = new Response(null, { headers: { "Content-Type": "text/x-component; charset=utf-8", "Cache-Control": "public, max-age=600" } });
-		const result = finalizeCommunityDocumentResponse(response, new Request("https://worker.test/c/me/bots?_rsc=entry", { method, headers: { RSC: "1" } }));
-		expect(result.headers.get("Cache-Control")).toContain("private");
-		expect(result.headers.get("Cache-Control")).toContain("no-store");
+	it.each(["/c/me/bots", "/c/me/machines"])("protects GET and HEAD Flight responses at %s", path => {
+		for (const method of ["GET", "HEAD"]) {
+			const response = new Response(null, { headers: { "Content-Type": "text/x-component; charset=utf-8", "Cache-Control": "public, max-age=600" } });
+			const result = finalizeCommunityDocumentResponse(response, new Request(`https://worker.test${path}?_rsc=entry`, { method, headers: { RSC: "1" } }));
+			expect(result.headers.get("Cache-Control")).toContain("private");
+			expect(result.headers.get("Cache-Control")).toContain("no-store");
+		}
 	});
 
-	it.each(["/c", "/pricing", "/api/community/bots", "/c/me/machines", "/c/me/bots-extra", "/c/invite/example", "/c/no-such-page", "/c/%ZZ"])("leaves %s policy untouched", path => {
+	it.each(["/c", "/pricing", "/api/community/bots", "/c/me/machines-extra", "/c/me/machines/unknown", "/c/me/bots-extra", "/c/invite/example", "/c/no-such-page", "/c/%ZZ"])("leaves %s policy untouched", path => {
 		const response = html({ "Cache-Control": "upstream" });
 		expect(finalizeCommunityDocumentResponse(response, new Request(`https://worker.test${path}`))).toBe(response);
+	});
+
+	it("keeps a HEAD machines document private without adding a body", () => {
+		const response = new Response(null, { headers: { "Content-Type": "text/html", "CDN-Cache-Control": "public" } });
+		const result = finalizeCommunityDocumentResponse(response, new Request("https://worker.test/c/me/machines", { method: "HEAD" }));
+		expect(result.headers.get("Cache-Control")).toContain("no-store");
+		expect(result.headers.has("CDN-Cache-Control")).toBe(false);
+		expect(result.body).toBeNull();
 	});
 
 	it.each([301, 304, 401, 403, 404, 500])("preserves status %s and its original policy", status => {
