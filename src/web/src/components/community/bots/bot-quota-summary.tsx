@@ -223,6 +223,7 @@ export function MachineQuotaSummary({
     return `${backendLabel(entry.scope.agentBackendId)} ${percentLabel(limit)}${stale}`
   }).join("; ")
   const sortedEntries = sortQuotaEntries(entries)
+  const disclosureIcon = <ChevronDown className="size-3 shrink-0 transition-transform group-data-popup-open:rotate-180" />
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -248,7 +249,10 @@ export function MachineQuotaSummary({
                     )}
                   </span>
                 ))}
-                <span className="truncate">{placeholder}</span>
+                <span className="inline-flex items-center gap-2">
+                  <span className="truncate">{placeholder}</span>
+                  {disclosureIcon}
+                </span>
               </>
             ) : (
               <>
@@ -278,11 +282,11 @@ export function MachineQuotaSummary({
                       {remainingPercent(limit)}%
                     </span>
                     {stale && <span className="text-[10px] text-warning">stale</span>}
+                    {index === backendSummaries.length - 1 && disclosureIcon}
                   </span>
                 </span>
               )
             })}
-            <ChevronDown className="size-3 shrink-0 transition-transform group-data-popup-open:rotate-180" />
           </button>
         }
       />
