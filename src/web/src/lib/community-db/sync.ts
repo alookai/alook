@@ -634,14 +634,18 @@ function pruneInboxCaches(
       !entry.channelId || !channelIds.has(entry.channelId)
     ) && (!serverId || entry.serverId !== serverId)),
   } : current)
-  queryClient.setQueryData<{
+  const markedKey = communityKeys.inboxMarked()
+  const markedQuery = queryClient.getQueryCache().find({ queryKey: markedKey, exact: true })
+  const marked = markedQuery?.state.data as {
     marked: Array<{ channelId: string; serverId: string | null }>
-  } | undefined>(communityKeys.inboxMarked(), (current) => current ? {
-    ...current,
-    marked: current.marked.filter((entry) => (
+  } | undefined
+  if (marked) {
+    const remaining = marked.marked.filter((entry) => (
       !channelIds.has(entry.channelId) && (!serverId || entry.serverId !== serverId)
-    )),
-  } : current)
+    ))
+    if (marked.marked.length > 0 && remaining.length === 0) markedQuery!.reset()
+    else queryClient.setQueryData(markedKey, { ...marked, marked: remaining })
+  }
   void queryClient.invalidateQueries({
     queryKey: communityKeys.inbox(),
     refetchType: "active",

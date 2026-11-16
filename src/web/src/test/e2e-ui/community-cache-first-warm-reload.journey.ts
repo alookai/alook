@@ -1,11 +1,11 @@
-import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse, currentCommunityFixtureError } from "./_fixtures/business-contract"
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
 import { readFileSync } from "node:fs"
 import { CONTROL_HEARTBEAT_CAPABILITY, DEV_PASSWORD, HostReadyMessageSchema, CommunityConversationEntryReadSchema } from "@alook/shared"
 import { HostCommandSchema } from "@alook/shared/community-cli-contract"
 import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
-import type { APIResponse, Page, Request, TestInfo } from "@playwright/test"
+import type { APIResponse, Page, Request, Route, TestInfo } from "@playwright/test"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { expectPublicCommunityDocument, expectUniqueSsrCommunityFrame } from "./_fixtures/community-ssr-frame"
 import { PERSIST_ACCOUNT_PREFIX, PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
@@ -33,6 +33,7 @@ type PersistedQuery = {
   queryKey: unknown[]
   data: unknown
 }
+type PersistedSnapshot = { timestamp: number; queries: PersistedQuery[] }
 
 const structuralLoadingSelectors = [
   '[aria-label="Loading community"]',
@@ -43,15 +44,15 @@ const structuralLoadingSelectors = [
   `[data-testid^="${tid.channelSidebarPending("")}"]`,
 ]
 
-async function persistedQueries(page: Page, viewerId: string): Promise<PersistedQuery[]> {
-  return page.evaluate((key) => new Promise<PersistedQuery[]>((resolve, reject) => {
+async function persistedSnapshot(page: Page, viewerId: string): Promise<PersistedSnapshot | undefined> {
+  return page.evaluate((key) => new Promise<PersistedSnapshot | undefined>((resolve, reject) => {
     const open = indexedDB.open("keyval-store")
     open.onerror = () => reject(open.error ?? new Error("failed to open query persister"))
     open.onsuccess = () => {
       const db = open.result
       if (!db.objectStoreNames.contains("keyval")) {
         db.close()
-        resolve([])
+        resolve(undefined)
         return
       }
       const request = db.transaction("keyval", "readonly").objectStore("keyval").get(key)
@@ -62,22 +63,27 @@ async function persistedQueries(page: Page, viewerId: string): Promise<Persisted
       request.onsuccess = () => {
         db.close()
         if (typeof request.result !== "string") {
-          resolve([])
+          resolve(undefined)
           return
         }
         const persisted = JSON.parse(request.result) as {
+          timestamp: number
           clientState?: {
             queries?: Array<{ queryKey?: unknown[]; state?: { data?: unknown } }>
           }
         }
-        resolve((persisted.clientState?.queries ?? []).flatMap((query) => (
+        resolve({ timestamp: persisted.timestamp, queries: (persisted.clientState?.queries ?? []).flatMap((query) => (
           Array.isArray(query.queryKey)
             ? [{ queryKey: query.queryKey, data: query.state?.data }]
             : []
-        )))
+        )) })
       }
     }
   }), `${PERSIST_CACHE_PREFIX}:${viewerId}:client`)
+}
+
+async function persistedQueries(page: Page, viewerId: string): Promise<PersistedQuery[]> {
+  return (await persistedSnapshot(page, viewerId))?.queries ?? []
 }
 
 function containsPersistedId(value: unknown, id: string): boolean {
@@ -125,8 +131,8 @@ async function expectPersistedClosure(
   await expect.poll(missingClosure, { timeout: 20_000 }).toEqual([])
 }
 
-async function clearQueryPersistence(page: Page) {
-  await page.evaluate(() => new Promise<void>((resolve, reject) => {
+async function clearQueryPersistence(page: Page, viewerId?: string) {
+  await page.evaluate((key) => new Promise<void>((resolve, reject) => {
     const open = indexedDB.open("keyval-store")
     open.onerror = () => reject(open.error ?? new Error("failed to open query persister"))
     open.onsuccess = () => {
@@ -139,15 +145,21 @@ async function clearQueryPersistence(page: Page) {
       const transaction = db.transaction("keyval", "readwrite")
       transaction.objectStore("keyval").clear()
       transaction.oncomplete = () => {
-        db.close()
-        resolve()
+        if (!key) { db.close(); resolve(); return }
+        const read = db.transaction("keyval", "readonly").objectStore("keyval").get(key)
+        read.onerror = () => { db.close(); reject(read.error ?? new Error("failed to verify cleared query persister")) }
+        read.onsuccess = () => {
+          db.close()
+          if (read.result === undefined) resolve()
+          else reject(new Error("account client blob still exists after clearing query persistence"))
+        }
       }
       transaction.onerror = () => {
         db.close()
         reject(transaction.error ?? new Error("failed to clear query persister"))
       }
     }
-  }))
+  }), viewerId ? `${PERSIST_CACHE_PREFIX}:${viewerId}:client` : undefined)
 }
 
 type ReloadTailTarget = { channelId: string; messageId: string }
@@ -354,6 +366,209 @@ async function expectCacheFirstReload(
       })
     }
   }
+}
+
+async function delayedPageListFailure(page: Page, matches: (url: URL) => boolean, primary: (url: URL) => boolean, resources: CaseResources) {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let held = 0
+  const failures: number[] = []
+  const handler = async (route: Route) => {
+    if (route.request().method() !== "GET") { await route.continue(); return }
+    held++
+    await gate
+    if (route.request().failure() || page.isClosed()) return
+    const at = await page.evaluate(() => Date.now())
+    await route.fulfill(currentCommunityFixtureError("Cold restoration refresh unavailable", 503))
+    if (primary(new URL(route.request().url()))) failures.push(at)
+  }
+  await page.route(matches, handler)
+  let closed = false
+  const close = async () => {
+    if (closed) return
+    closed = true
+    release()
+    await page.unroute(matches, handler)
+  }
+  resources.own(close, captured => captured())
+  return { release, close, held: () => held, failures }
+}
+
+async function expectPageListColdRecovery(options: {
+  page: Page; viewerId: string; href: string; expected: PersistedExpectation[]; resources: CaseResources
+  matches: (url: URL) => boolean; primary: (url: URL) => boolean
+  open: () => Promise<void>; assertCached: () => Promise<void>
+}) {
+  const { page, viewerId, href, expected, resources, matches, primary, open, assertCached } = options
+  await expectPersistedClosure(page, viewerId, expected)
+  const original = await persistedSnapshot(page, viewerId)
+  await page.routeWebSocket(url => url.pathname.endsWith("/user"), socket => { void socket.close({ code: 1012, reason: "page-list cold restore" }) })
+  const failure = await delayedPageListFailure(page, matches, primary, resources)
+  try {
+    await page.reload({ waitUntil: "commit" })
+    await open()
+    await expect.poll(failure.held).toBeGreaterThan(0)
+    await assertCached()
+    failure.release()
+    await expect.poll(() => failure.failures.length).toBeGreaterThanOrEqual(2)
+    const terminalResponseAt = failure.failures.at(-1)!
+    await assertCached()
+    await expect.poll(async () => (await persistedSnapshot(page, viewerId))?.timestamp ?? 0).toBeGreaterThanOrEqual(terminalResponseAt)
+    await expectPersistedClosure(page, viewerId, expected)
+    const afterFailure = await persistedSnapshot(page, viewerId)
+    expect(afterFailure!.timestamp).toBeGreaterThan(original!.timestamp)
+    await failure.close()
+    const next = await holdRoute(page, matches, resources)
+    try {
+      await page.reload({ waitUntil: "commit" })
+      await open()
+      await expect.poll(next.held).toBeGreaterThan(0)
+      await assertCached()
+      const response = page.waitForResponse(response => primary(new URL(response.url())) && response.request().method() === "GET" && response.ok())
+      await next.release()
+      expect((await confirmCommunityFixtureApiResponse(response)).status()).toBe(200)
+      await assertCached()
+      await test.info().attach("page-list-second-durable-save", {
+        body: JSON.stringify({ href, firstSavedAt: original!.timestamp, afterRefreshFailureSavedAt: afterFailure!.timestamp, terminalResponseAt, failedResponses: failure.failures.length, keys: expected.map(row => row.key) }),
+        contentType: "application/json",
+      })
+    } finally { await next.release() }
+  } finally { await failure.close() }
+}
+
+async function removePageListDependency(page: Page, viewerId: string, collection: string, id: string) {
+  await page.goto(`${WEB_URL}/api/health`)
+  await page.evaluate(({ key, collection, id }) => new Promise<void>((resolve, reject) => {
+    const open = indexedDB.open("keyval-store")
+    open.onerror = () => reject(open.error)
+    open.onsuccess = () => {
+      const db = open.result, transaction = db.transaction("keyval", "readwrite"), store = transaction.objectStore("keyval")
+      const request = store.get(key)
+      request.onsuccess = () => {
+        const blob = JSON.parse(request.result) as { clientState: { queries: Array<{ queryKey: unknown[]; state: { data: Array<{ id: string }> } }> } }
+        const query = blob.clientState.queries.find(row => row.queryKey[1] === "db" && row.queryKey[3] === collection)
+        if (!query || !query.state.data.some(row => row.id === id)) { transaction.abort(); return }
+        query.state.data = query.state.data.filter(row => row.id !== id)
+        store.put(JSON.stringify(blob), key)
+      }
+      transaction.oncomplete = () => { db.close(); resolve() }
+      transaction.onerror = transaction.onabort = () => { db.close(); reject(transaction.error ?? new Error("Missing dependency control did not commit")) }
+    }
+  }), { key: `${PERSIST_CACHE_PREFIX}:${viewerId}:client`, collection, id })
+}
+
+for (const surface of ["forum", "friends", "marked"] as const) for (const empty of [false, true]) {
+  test(`cold ${surface} ${empty ? "known-empty" : "rows"} survives refresh failure, a second save and another owner`, async ({ caseActors, caseResources }) => {
+    test.setTimeout(120_000)
+    const actors = await caseActors(["alice", "bob"]), viewerId = actors.userId("alice")
+    const serverId = surface === "friends" ? "" : await actors.seed.seedServer("alice", `Cold ${surface} ${Date.now()}`)
+    const channelId = surface === "friends" ? "" : await actors.seed.seedChannel("alice", serverId, `cold-${surface}`, surface === "forum" ? "forum" : "text")
+    const title = `Restored ${surface} ${Date.now()}`, body = `${title} first body`
+    const targetId = empty ? "" : surface === "forum" ? await actors.seed.seedForumThread("alice", channelId, title, body)
+      : surface === "marked" ? await actors.seed.seedMessage("alice", channelId, body) : await actors.seed.seedFriendship("alice", "bob", actors.userId("bob"))
+    if (surface === "marked" && !empty) await actors.seed.seedMark("alice", channelId, targetId)
+    const { page } = await actors.asUser("alice")
+    const href = surface === "forum" ? `/c/channels/${serverId}/${channelId}` : "/c/me/friends"
+    const key = surface === "forum" ? ["community", "channel", channelId, "threads", "feed", null]
+      : surface === "friends" ? ["community", "friends"] : ["community", "inbox", "marked"]
+    const primary = (url: URL) => url.pathname === (surface === "forum" ? `/api/community/channels/${channelId}/threads`
+      : surface === "friends" ? "/api/community/friends/accepted" : "/api/community/users/me/marks")
+    const matches = (url: URL) => primary(url) || (surface === "forum" ? url.pathname === `/api/community/channels/${channelId}/messages`
+      : surface === "friends" && /^\/api\/community\/friends\/(pending|blocked)$/.test(url.pathname))
+    const open = async () => {
+      if (surface !== "marked") return
+      await page.getByTestId(tid.inboxTrigger).click()
+      await page.getByRole("tab", { name: "Marked", exact: true }).click()
+    }
+    const assertCached = async () => {
+      if (surface === "forum") {
+        const list = page.getByTestId(tid.forumPostList)
+        if (empty) await expect(list.getByText("No posts with this tag yet. Start one with New Post.")).toBeVisible()
+        else { await expect(page.getByTestId(tid.forumThreadCard(targetId))).toBeVisible(); await expect(list.getByText(body, { exact: true })).toBeVisible() }
+      } else if (surface === "friends") {
+        if (empty) await expect(page.getByText("No friends yet. Add someone from the New tab.")).toBeVisible()
+        else await expect(page.getByRole("button").filter({ hasText: actors.userName("bob") })).toBeVisible()
+        await expect(page.getByText("Couldn't load friends")).toHaveCount(0)
+      } else {
+        const list = page.getByTestId(tid.inboxTabScroll("marked"))
+        await expect(list.getByText(empty ? "No marked messages" : body, { exact: true })).toBeVisible()
+        await expect(list.getByRole("alert")).toHaveCount(0)
+      }
+    }
+    const firstResponse = page.waitForResponse(response => response.ok() && (surface === "forum"
+      ? new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages` && new URL(response.url()).searchParams.get("entry") === "1"
+      : primary(new URL(response.url()))))
+    await page.goto(href)
+    await open()
+    const initial = await confirmCommunityFixtureApiResponse(firstResponse)
+    expect(initial.status()).toBe(200)
+    await assertCached()
+    const expected: PersistedExpectation[] = [{ key, ...(!empty ? { containsId: targetId } : {}) }]
+    if (!empty) {
+      if (surface === "forum") {
+        const entry = CommunityConversationEntryReadSchema.parse(await initial.json())
+        expect(entry.channelId).toBe(channelId)
+        const child = entry.forumFeed!.threads.find(row => row.id === targetId)!
+        const firstBody = entry.forumFeed!.included.messages.find(row => row.channelId === targetId)!
+        expect(firstBody.content).toBe(body)
+        expected.push({ key: ["community", "db", viewerId, "messages"], containsId: child.parentMessageId! },
+          { key: ["community", "db", viewerId, "messages"], containsId: firstBody.id })
+      } else expected.push({ key: ["community", "db", viewerId, surface === "friends" ? "friendships" : "messages"], containsId: targetId })
+    }
+    await expectPageListColdRecovery({ page, viewerId, href, expected, matches, primary, open, assertCached, resources: caseResources })
+    if (empty) {
+      await page.goto(`${WEB_URL}/api/health`)
+      await clearQueryPersistence(page, viewerId)
+    } else {
+      let dependencyId = targetId
+      if (surface === "forum") {
+        const channels = (await persistedQueries(page, viewerId)).find(row => row.queryKey[3] === "channels")?.data as Array<{ id: string; firstMessageId: string | null }>
+        dependencyId = channels.find(row => row.id === targetId)!.firstMessageId!
+      }
+      await removePageListDependency(page, viewerId, surface === "friends" ? "friendships" : "messages", dependencyId)
+    }
+    const failure = await delayedPageListFailure(page, matches, primary, caseResources)
+    failure.release()
+    try {
+      await page.goto(href)
+      await open()
+      const region = page.getByTestId(surface === "marked" ? tid.inboxTabScroll("marked") : tid.conversationLoadError)
+      await expect(region.getByRole("alert")).toBeVisible()
+      await expect(region.getByRole("button", { name: "Retry", exact: true })).toBeVisible()
+      await expect(region.getByText(surface === "forum" ? "No posts with this tag yet. Start one with New Post."
+        : surface === "friends" ? "No friends yet. Add someone from the New tab." : "No marked messages")).toHaveCount(0)
+      await failure.close()
+      const retry = page.waitForResponse(response => primary(new URL(response.url())) && response.ok())
+      await region.getByRole("button", { name: "Retry", exact: true }).click()
+      expect((await confirmCommunityFixtureApiResponse(retry)).status()).toBe(200)
+      await assertCached()
+    } finally { await failure.close() }
+    if (surface === "marked" && !empty) {
+      const list = page.getByTestId(tid.inboxTabScroll("marked"))
+      const failedRefresh = await delayedPageListFailure(page, matches, primary, caseResources)
+      failedRefresh.release()
+      try {
+        await list.getByText(body, { exact: true }).hover()
+        await list.getByRole("button", { name: "More", exact: true }).click()
+        const unmarked = page.waitForResponse(response => new URL(response.url()).pathname === `/api/community/messages/${targetId}/marks` && response.request().method() === "DELETE")
+        await page.getByRole("menuitem", { name: "Unmark", exact: true }).click()
+        expect((await confirmCommunityFixtureApiResponse(unmarked)).status()).toBe(200)
+        await expect(list.getByRole("alert")).toBeVisible()
+        await expect(list.getByText("No marked messages")).toHaveCount(0)
+        await expect(list.getByText(body, { exact: true })).toHaveCount(0)
+        await expect.poll(async () => (await persistedQueries(page, viewerId)).some(row => JSON.stringify(row.queryKey) === JSON.stringify(key))).toBe(false)
+        await page.reload({ waitUntil: "commit" })
+        await open()
+        await expect(list.getByRole("alert")).toBeVisible()
+        await expect(list.getByText("No marked messages")).toHaveCount(0)
+        await failedRefresh.close()
+        const refreshed = page.waitForResponse(response => primary(new URL(response.url())) && response.ok())
+        await list.getByRole("button", { name: "Retry", exact: true }).click()
+        expect((await confirmCommunityFixtureApiResponse(refreshed)).status()).toBe(200)
+        await expect(list.getByText("No marked messages")).toBeVisible()
+      } finally { await failedRefresh.close() }
+    }
+  })
 }
 
 test("a relationship-only friend retains cached identity and presence until confirmed fields replace them", async ({ caseActors, caseResources }, testInfo) => {

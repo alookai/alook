@@ -24,6 +24,8 @@ vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => nul
 const mocks = vi.hoisted(() => ({
   markedEnabled: [] as boolean[],
   refetchAttention: vi.fn(),
+  refetchMarked: vi.fn(),
+  markedError: false,
   markAll: vi.fn(),
   deleteMention: vi.fn(),
   unmark: vi.fn(),
@@ -106,7 +108,7 @@ vi.mock("@/hooks/community/use-inbox", () => ({
   }),
   useInboxMarked: (enabled: boolean) => {
     mocks.markedEnabled.push(enabled)
-    return { marked: [], isLoading: false }
+    return { marked: [], isDisplayReady: !mocks.markedError, isInitialError: mocks.markedError, refetch: mocks.refetchMarked }
   },
 }))
 vi.mock("@/hooks/community/use-inbox-auto-collapse", () => ({
@@ -217,6 +219,8 @@ describe("useShellInboxController", () => {
   beforeEach(() => {
     order.length = 0
     mocks.markedEnabled.length = 0
+    mocks.markedError = false
+    mocks.refetchMarked.mockReset()
     for (const mock of [
       mocks.markAll,
       mocks.refetchAttention,
@@ -261,6 +265,16 @@ describe("useShellInboxController", () => {
     mocks.warmup.mockReturnValue(99)
     mocks.accept.mockResolvedValue(undefined)
     mocks.reject.mockResolvedValue(undefined)
+  })
+
+  it("wires only the Marked failure and Retry to its own query", async () => {
+    mocks.markedError = true
+    const controller = await renderController()
+    expect(controller.current.popoverProps.markedError).toBe(true)
+    expect(controller.current.popoverProps.markedLoading).toBe(false)
+    controller.current.popoverProps.onRetryMarked?.()
+    expect(mocks.refetchMarked).toHaveBeenCalledOnce()
+    expect(mocks.refetchAttention).not.toHaveBeenCalled()
   })
 
   it("includes friend requests in the global dot while keeping navigation and actions read-neutral", async () => {

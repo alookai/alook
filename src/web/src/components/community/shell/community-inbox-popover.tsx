@@ -370,9 +370,11 @@ function MentionsTab({ mentions, loading, error, onRetry, onOpenMention, onDelet
   )
 }
 
-function MarkedTab({ marked, loading, onOpenMarked, onUnmark, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
+function MarkedTab({ marked, loading, error, onRetry, onOpenMarked, onUnmark, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
   marked: Marked[]
   loading?: boolean
+  error?: boolean
+  onRetry?: () => void
   onOpenMarked?: (m: Marked) => void
   onUnmark?: (messageId: string) => void
   profilesByUserId: ReadonlyMap<string, CommunityProfile>
@@ -382,7 +384,8 @@ function MarkedTab({ marked, loading, onOpenMarked, onUnmark, profilesByUserId, 
   return (
     <InboxScrollBody tab="marked" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && marked.length === 0 && <InboxRowsSkeleton />}
-      {!loading && marked.length === 0 && <EmptyState icon={Bookmark} label="No marked messages" />}
+      {error && <AttentionLoadError onRetry={onRetry} />}
+      {!loading && !error && marked.length === 0 && <EmptyState icon={Bookmark} label="No marked messages" />}
       {marked.map((mk) => {
         const author = readCommunityProfile(
           mk.m.authorId ? profilesByUserId.get(mk.m.authorId) : undefined,
@@ -433,6 +436,8 @@ export function InboxPopover({
   mentions,
   marked,
   markedLoading,
+  markedError,
+  onRetryMarked,
   loading,
   attentionError,
   onRetryAttention,
@@ -464,6 +469,8 @@ export function InboxPopover({
   mentions: Mention[]
   marked: Marked[]
   markedLoading?: boolean
+  markedError?: boolean
+  onRetryMarked?: () => void
   loading?: boolean
   attentionError?: boolean
   onRetryAttention?: () => void
@@ -567,7 +574,7 @@ export function InboxPopover({
         <MentionsTab mentions={mentions} loading={loading} error={attentionError} onRetry={onRetryAttention} onOpenMention={onOpenMention} onDeleteMention={onDeleteMention} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
       </TabsContent>
       <TabsContent value="marked" className="min-h-0 flex-1">
-        <MarkedTab marked={marked} loading={markedLoading} onOpenMarked={onOpenMarked} onUnmark={onUnmark} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
+        <MarkedTab marked={marked} loading={markedLoading} error={markedError} onRetry={onRetryMarked} onOpenMarked={onOpenMarked} onUnmark={onUnmark} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
       </TabsContent>
     </Tabs>
   )
