@@ -56,7 +56,7 @@ vi.mock("@/lib/api/client", async () => {
 function createMigratedSqliteD1() {
   const sqlite = new DatabaseSync(":memory:")
   sqlite.exec("PRAGMA foreign_keys = ON;")
-  const migrationsDir = resolve(process.cwd(), "migrations")
+  const migrationsDir = resolve(import.meta.dirname, "../../../../migrations")
   for (const file of readdirSync(migrationsDir).filter((name) => name.endsWith(".sql")).sort()) {
     sqlite.exec(readFileSync(join(migrationsDir, file), "utf8"))
   }
@@ -166,14 +166,32 @@ describe("Channel & Thread Leave — real SQLite + Next DELETE route + UI closed
     }
 
     const deleteStatuses: Array<{ path: string; status: number }> = []
+    let lastDeleteSignal: AbortSignal | undefined
     let failNextDelete = false
     let gateNextDelete: Promise<void> | null = null
-    apiFetchMock.mockImplementation(async (path: string, init?: { method?: string }) => {
+    apiFetchMock.mockImplementation(async (path: string, init?: { method?: string; signal?: AbortSignal; assertActive?: () => void }) => {
+      const qualify = () => {
+        init?.assertActive?.()
+        if (init?.signal?.aborted) throw new DOMException("Cancelled request", "AbortError")
+      }
+      qualify()
       if (init?.method === "DELETE") {
+        lastDeleteSignal = init.signal
         if (gateNextDelete) {
           const waitGate = gateNextDelete
           gateNextDelete = null
-          await waitGate
+          await new Promise<void>((resolve, reject) => {
+            const onAbort = () => {
+              try { qualify() } catch (err) { reject(err); return }
+              reject(new DOMException("Cancelled request", "AbortError"))
+            }
+            init.signal?.addEventListener("abort", onAbort, { once: true })
+            void waitGate.then(() => {
+              init.signal?.removeEventListener("abort", onAbort)
+              resolve()
+            })
+          })
+          qualify()
         }
         if (failNextDelete) {
           failNextDelete = false
@@ -185,6 +203,7 @@ describe("Channel & Thread Leave — real SQLite + Next DELETE route + UI closed
           const [, id, userId] = memberMatch
           const res = await deleteMemberRoute(new NextRequest(`http://localhost${path}`, { method: "DELETE" }), { params: { id, userId } })
           deleteStatuses.push({ path, status: res.status })
+          qualify()
           if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`)
           return undefined
         }
@@ -193,6 +212,7 @@ describe("Channel & Thread Leave — real SQLite + Next DELETE route + UI closed
           const [, id, userId] = partMatch
           const res = await deleteParticipantRoute(new NextRequest(`http://localhost${path}`, { method: "DELETE" }), { params: { id, userId } })
           deleteStatuses.push({ path, status: res.status })
+          qualify()
           if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`)
           return undefined
         }
@@ -340,10 +360,9 @@ describe("Channel & Thread Leave — real SQLite + Next DELETE route + UI closed
     expect(threadOwner.registry.collections.channelMemberships.has(channelMembershipKey("thread-1", "viewer", "notify"))).toBe(false)
     threadView.unmount()
 
-    // 4. User navigates away while DELETE is in flight: SQLite row is deleted & local channel retired, but old response does NOT pull new page back!
+    // 4. User navigates away while DELETE is in flight: signal aborts in-flight DELETE immediately, rolls back optimistic state without fake 204 confirmation, suppresses error toast, and never navigates!
     const staleOwner = await createSeededOwner("priv-stale", "text")
-    let releaseStale!: () => void
-    gateNextDelete = new Promise<void>((resolve) => { releaseStale = resolve })
+    gateNextDelete = new Promise<void>(() => {})
     const staleView = render(
       <CommunityTestProvider client={staleOwner.client}>
         <LiveSurface initialChannelId="priv-stale" kind="text" />
@@ -355,15 +374,18 @@ describe("Channel & Thread Leave — real SQLite + Next DELETE route + UI closed
     fireEvent.click(await screen.findByRole("button", { name: "Leave" }))
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/priv-stale/members/viewer",
-      expect.objectContaining({ method: "DELETE" }),
+      expect.objectContaining({ method: "DELETE", signal: expect.any(AbortSignal), assertActive: expect.any(Function) }),
     ))
-    act(() => {
+    expect(lastDeleteSignal?.aborted).toBe(false)
+    await act(async () => {
       ;((globalThis as Record<string, unknown>).__setRouteState as { setRouteActive: (v: boolean) => void }).setRouteActive(false)
     })
-    await act(async () => { releaseStale() })
-    await waitFor(() => expect(deleteStatuses).toContainEqual({ path: "/api/community/channels/priv-stale/members/viewer", status: 204 }))
-    expect(sqlite.prepare(`SELECT count(*) AS c FROM community_channel_member WHERE channel_id = 'priv-stale' AND user_id = 'viewer'`).get()).toEqual({ c: 0 })
-    await waitFor(() => expect(staleOwner.registry.collections.channels.has("priv-stale")).toBe(false))
+    expect(lastDeleteSignal?.aborted).toBe(true)
+    await waitFor(() => expect(staleOwner.registry.collections.channelMemberships.has(channelMembershipKey("priv-stale", "viewer", "access"))).toBe(true))
+    expect(staleOwner.registry.collections.channels.has("priv-stale")).toBe(true)
+    expect(staleOwner.registry.runtime.ws.actions.isChannelAccessRevoked("priv-stale", "s1")).toBe(false)
+    expect(deleteStatuses).not.toContainEqual(expect.objectContaining({ path: "/api/community/channels/priv-stale/members/viewer" }))
+    expect(toastApiErrorMock).toHaveBeenCalledTimes(1)
     expect(navigatedTo).toEqual(["/c/channels/s1", "/c/channels/s1", "/c/channels/s1/pub-text"])
     staleView.unmount()
 

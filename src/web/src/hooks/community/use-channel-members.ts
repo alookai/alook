@@ -162,8 +162,15 @@ export function useChannelMemberCommand(channelId: string, kind: "add" | "remove
         const endpoint = options?.endpoint ?? "members"
         const path = "/api/community/channels/" + encodeURIComponent(channelId) + "/" + endpoint + (kind === "remove" ? "/" + encodeURIComponent(userId) : "")
         if (selfRetire) {
-          await apiFetch(path, { method: "DELETE", ...communityRequestOptions(client, original, undefined, () => origin.assertOwner(original)) })
-          origin.assertOwner(original)
+          const ownerController = new AbortController()
+          const subscription = registry.runtime.lifecycle.subscribe(() => {
+            try { origin.assertOwner(original) } catch { ownerController.abort() }
+          })
+          const requestSignal = AbortSignal.any([ownerController.signal, assertPostSelf.signal])
+          try {
+            await apiFetch(path, { method: "DELETE", ...communityRequestOptions(client, original, requestSignal, assertPostSelf) })
+            assertPostSelf()
+          } finally { subscription.unsubscribe() }
           await completeCommunityPublication(client, () => setCanonicalCommunityChannelMember(client, channelId, userId, relation, false, { event: true }))
           confirmed = true
           return
@@ -178,10 +185,15 @@ export function useChannelMemberCommand(channelId: string, kind: "add" | "remove
           if (kind === "remove") { if (collection.has(id)) collection.delete(id) }
           else if (!collection.has(id)) collection.insert({ id, channelId, userId, relation, source: "explicit" })
         })
-        if (transaction.mutations.length) await transaction.commit()
-        else await persist()
+        try {
+          if (transaction.mutations.length) await transaction.commit()
+          else await persist()
+        } catch (error) {
+          ;(selfRetire ? assertPostSelf : assert)()
+          throw error
+        }
         if (confirmed) {
-          if (selfRetire) { origin.assertOwner(original); await options?.onConfirmed?.(userId, assertPostSelf) }
+          if (selfRetire) { assertPostSelf(); await options?.onConfirmed?.(userId, assertPostSelf) }
           else { assert(); await options?.onConfirmed?.(userId, assert) }
         }
         if (selfRetire) assertPostSelf()

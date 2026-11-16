@@ -173,12 +173,13 @@ describe("useChannelMembers", () => {
       { token },
       [profile("viewer", "Viewer"), profile("bob", "Bob")],
     )
-    apiFetchMock.mockResolvedValue({ ok: true })
+    apiFetchMock.mockRejectedValueOnce(new Error("peer remove failed")).mockResolvedValue({ ok: true })
     const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client }, children)
     const rendered = renderHook(() => useRemoveChannelMember("private", "server", "viewer"), { wrapper })
     const onPeerSuccess = vi.fn()
     const onSelfSuccess = vi.fn()
     await act(async () => {
+      await expect(rendered.result.current.mutateAsync({ userId: "bob" })).rejects.toThrow("peer remove failed")
       await expect(rendered.result.current.mutateAsync({ userId: "bob" }, { onSuccess: onPeerSuccess })).resolves.toBeUndefined()
       await expect(rendered.result.current.mutateAsync({ userId: "viewer" }, { onSuccess: onSelfSuccess })).resolves.toBeUndefined()
     })
@@ -186,15 +187,17 @@ describe("useChannelMembers", () => {
     expect(onSelfSuccess).toHaveBeenCalledOnce()
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/private/members/viewer",
-      expect.objectContaining({ method: "DELETE" }),
+      expect.objectContaining({ method: "DELETE", signal: expect.any(AbortSignal), assertActive: expect.any(Function) }),
     )
     expect(owner.registry.collections.channels.has("private")).toBe(false)
     expect(owner.registry.collections.channelMemberships.has(channelMembershipKey("private", "viewer", "access"))).toBe(false)
     expect(owner.registry.runtime.ws.actions.isChannelAccessRevoked("private", "server")).toBe(true)
   })
 
-  it("completes self-removal when WS revocation arrives before HTTP DELETE resolves and fences callers after route exit", async () => {
+  it("completes self-removal when WS revocation arrives before HTTP DELETE resolves and aborts in-flight DELETE on route exit or account retirement", async () => {
     const { useRemoveChannelMember } = await import("./use-channel-members")
+    const { retireCommunityAccount } = await import("@/lib/community/account-cache-lifecycle")
+    const { isAbortError } = await import("@/lib/errors")
     const {
       publishCommunityChannelMetadata,
       publishCommunityChannelMembersSnapshot,
@@ -217,28 +220,58 @@ describe("useChannelMembers", () => {
       )
     }
 
-    // Order 2: WS revocation arrives while HTTP DELETE is still in flight; user stays on route.
+    const controlledDelete = () => {
+      let resolveNetwork!: (value: unknown) => void
+      let observedSignal!: AbortSignal
+      let settled = false
+      const impl = (_url: string, options?: { signal?: AbortSignal; assertActive?: () => void }) => new Promise((resolve, reject) => {
+        const qualify = () => {
+          options?.assertActive?.()
+          if (options?.signal?.aborted) throw new DOMException("Cancelled request", "AbortError")
+        }
+        try { qualify() } catch (err) { reject(err); return }
+        observedSignal = options!.signal!
+        const onAbort = () => {
+          if (settled) return
+          settled = true
+          try { qualify() } catch (err) { reject(err); return }
+          reject(new DOMException("Cancelled request", "AbortError"))
+        }
+        observedSignal.addEventListener("abort", onAbort, { once: true })
+        resolveNetwork = (value) => {
+          if (settled) return
+          settled = true
+          observedSignal.removeEventListener("abort", onAbort)
+          try { qualify(); resolve(value) } catch (err) { reject(err) }
+        }
+      })
+      return { impl, get signal() { return observedSignal }, resolve: (value: unknown) => resolveNetwork(value) }
+    }
+
+    // Order 2: WS revocation arrives while HTTP DELETE is still in flight; signal does NOT abort and assertActive succeeds.
     await seedPrivate("ws-first")
-    let resolveDelete!: (value: unknown) => void
-    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { resolveDelete = resolve }))
+    const wsTransport = controlledDelete()
+    apiFetchMock.mockImplementationOnce(wsTransport.impl)
     const wsFirst = renderHook(() => useRemoveChannelMember("ws-first", "server", "viewer"), { wrapper })
     let pending!: Promise<void>
     act(() => { pending = wsFirst.result.current.mutateAsync({ userId: "viewer" }) })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    expect(wsTransport.signal.aborted).toBe(false)
     act(() => {
       setCanonicalCommunityChannelMember(owner.client, "ws-first", "viewer", "access", false, { event: true })
       retireCommunityChannelReading(owner.registry, "ws-first", { reason: "read-denied", serverId: "server" })
     })
+    expect(wsTransport.signal.aborted).toBe(false)
     await act(async () => {
-      resolveDelete({ ok: true })
+      wsTransport.resolve({ ok: true })
       await expect(pending).resolves.toBeUndefined()
     })
     expect(owner.registry.runtime.ws.actions.isChannelAccessRevoked("ws-first", "server")).toBe(true)
 
-    // Order 3: User leaves the route while HTTP DELETE is in flight; old response retires DB but rejects caller with AbortError.
+    // Order 3: User leaves the route while HTTP DELETE is in flight; signal aborts immediately without returning 204, rolling back optimistic state.
     await seedPrivate("left-page")
-    let resolveStaleDelete!: (value: unknown) => void
-    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { resolveStaleDelete = resolve }))
+    const routeTransport = controlledDelete()
+    apiFetchMock.mockImplementationOnce(routeTransport.impl)
     const leftPage = renderHook(() => useRemoveChannelMember("left-page", "server", "viewer"), { wrapper })
     const routeController = new AbortController()
     const assertRoute = Object.assign(() => {
@@ -247,12 +280,29 @@ describe("useChannelMembers", () => {
     let staleOutcome!: Promise<unknown>
     act(() => { staleOutcome = leftPage.result.current.mutateAsync({ userId: "viewer", assertActive: assertRoute }).catch((error) => error) })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
-    routeController.abort()
+    expect(routeTransport.signal.aborted).toBe(false)
     await act(async () => {
-      resolveStaleDelete({ ok: true })
-      expect(await staleOutcome).toMatchObject({ name: "AbortError" })
+      routeController.abort()
+      expect(routeTransport.signal.aborted).toBe(true)
+      expect(isAbortError(await staleOutcome)).toBe(true)
     })
-    expect(owner.registry.collections.channels.has("left-page")).toBe(false)
-    expect(owner.registry.runtime.ws.actions.isChannelAccessRevoked("left-page", "server")).toBe(true)
+    expect(owner.registry.collections.channels.has("left-page")).toBe(true)
+    expect(owner.registry.collections.channelMemberships.has(channelMembershipKey("left-page", "viewer", "access"))).toBe(true)
+    expect(owner.registry.runtime.ws.actions.isChannelAccessRevoked("left-page", "server")).toBe(false)
+
+    // Order 4: Account owner retires while HTTP DELETE is in flight; ownerController aborts signal immediately and rejects with AbortError.
+    await seedPrivate("retired-account")
+    const accountTransport = controlledDelete()
+    apiFetchMock.mockImplementationOnce(accountTransport.impl)
+    const accountExit = renderHook(() => useRemoveChannelMember("retired-account", "server", "viewer"), { wrapper })
+    let retiredOutcome!: Promise<unknown>
+    act(() => { retiredOutcome = accountExit.result.current.mutateAsync({ userId: "viewer" }).catch((error) => error) })
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(3))
+    expect(accountTransport.signal.aborted).toBe(false)
+    await act(async () => {
+      retireCommunityAccount(owner.registry)
+      expect(accountTransport.signal.aborted).toBe(true)
+      expect(isAbortError(await retiredOutcome)).toBe(true)
+    })
   })
 })
