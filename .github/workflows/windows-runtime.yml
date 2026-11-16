@@ -43,11 +43,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $sqliteVersion = '12.11.1'
+          $prebuilds = @(
+            @{ version = '12.11.1'; digest = '4ee5e653174d6ddd301605d351798cdae2613da06c4f37ecdce263021fcf1255' },
+            @{ version = '12.9.0'; digest = '013654a02283d9c6de7af62b8cdc51f91c9396a6a1dd3beb063b18c6a456c984' }
+          )
           $expectedAbi = '137'
-          $expectedDigest = '4ee5e653174d6ddd301605d351798cdae2613da06c4f37ecdce263021fcf1255'
           $lockVersions = @(Select-String -LiteralPath 'pnpm-lock.yaml' -Pattern '^  better-sqlite3@([^:\s]+):$' | ForEach-Object { $_.Matches[0].Groups[1].Value } | Sort-Object -Unique)
-          if ($lockVersions.Count -ne 1 -or $lockVersions[0] -ne $sqliteVersion) {
+          $expectedVersions = @($prebuilds | ForEach-Object { $_.version } | Sort-Object -Unique)
+          if ($lockVersions.Count -ne $expectedVersions.Count -or @(Compare-Object $lockVersions $expectedVersions).Count -ne 0) {
             throw 'SQLite prebuild version does not match the frozen lockfile'
           }
           $runtimeJson = node -p 'JSON.stringify({node:process.versions.node,abi:process.versions.modules,platform:process.platform,arch:process.arch})'
@@ -58,16 +61,17 @@ jobs:
           }
           $prebuildDirectory = Join-Path $env:RUNNER_TEMP 'Alook verified sqlite prebuilds'
           New-Item -ItemType Directory -Force $prebuildDirectory | Out-Null
-          $assetName = "better-sqlite3-v$sqliteVersion-node-v$expectedAbi-win32-x64.tar.gz"
-          gh release download "v$sqliteVersion" --repo WiseLibs/better-sqlite3 --pattern "$assetName" --dir "$prebuildDirectory" --clobber
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $archivePath = Join-Path $prebuildDirectory $assetName
-          $actualDigest = (Get-FileHash $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actualDigest -ne $expectedDigest) {
-            throw 'Official SQLite prebuild SHA256 mismatch'
+          foreach ($prebuild in $prebuilds) {
+            $sqliteVersion = $prebuild.version
+            $assetName = "better-sqlite3-v$sqliteVersion-node-v$expectedAbi-win32-x64.tar.gz"
+            gh release download "v$sqliteVersion" --repo WiseLibs/better-sqlite3 --pattern "$assetName" --dir "$prebuildDirectory" --clobber
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $archivePath = Join-Path $prebuildDirectory $assetName
+            $actualDigest = (Get-FileHash $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualDigest -ne $prebuild.digest) { throw 'Official SQLite prebuild SHA256 mismatch' }
+            Write-Output "Verified $assetName ($((Get-Item $archivePath).Length) bytes), SHA256 $actualDigest"
           }
           "directory=$prebuildDirectory" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Output "Verified $assetName ($((Get-Item $archivePath).Length) bytes), SHA256 $actualDigest"
       - run: pnpm install --frozen-lockfile
         env:
           npm_config_better_sqlite3_local_prebuilds: ${{ steps.sqlite_prebuild.outputs.directory }}
@@ -90,6 +94,52 @@ jobs:
           "ALOOK_NATIVE_CLI_PATH=$cliPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "ALOOK_NATIVE_BASH_PATH=C:/Program Files/Git/bin/bash.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Get-FileHash $archive, $cliPath -Algorithm SHA256 | Format-Table
+      - name: Exercise the packed agy adapter on Node 20.9.0
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidenceDir = Join-Path $env:RUNNER_TEMP 'Alook runtime evidence'
+          New-Item -ItemType Directory -Force $evidenceDir | Out-Null
+          $nodeZip = Join-Path $env:RUNNER_TEMP 'node-v20.9.0-win-x64.zip'
+          Invoke-WebRequest 'https://nodejs.org/dist/v20.9.0/node-v20.9.0-win-x64.zip' -OutFile $nodeZip
+          if ((Get-FileHash $nodeZip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '70d87dad2378c63216ff83d5a754c61d2886fc39d32ce0d2ea6de763a22d3780') {
+            throw 'Official Node20 archive SHA256 mismatch'
+          }
+          $nodeRoot = Join-Path $env:RUNNER_TEMP 'Alook Node20 runtime'
+          Expand-Archive -LiteralPath $nodeZip -DestinationPath $nodeRoot -Force
+          $nodeHome = Join-Path $nodeRoot 'node-v20.9.0-win-x64'
+          $node20 = Join-Path $nodeHome 'node.exe'
+          $runtimeJson = & $node20 -p 'JSON.stringify({node:process.versions.node,abi:process.versions.modules,platform:process.platform,arch:process.arch})'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $runtime = $runtimeJson | ConvertFrom-Json
+          if ($runtime.node -ne '20.9.0' -or $runtime.abi -ne '115' -or $runtime.platform -ne 'win32' -or $runtime.arch -ne 'x64') { throw 'Unexpected Node20 runtime target' }
+          $prebuildDirectory = '${{ steps.sqlite_prebuild.outputs.directory }}'
+          $assetName = 'better-sqlite3-v12.9.0-node-v115-win32-x64.tar.gz'
+          gh release download v12.9.0 --repo WiseLibs/better-sqlite3 --pattern $assetName --dir $prebuildDirectory --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((Get-FileHash (Join-Path $prebuildDirectory $assetName) -Algorithm SHA256).Hash.ToLowerInvariant() -ne '41f64f24bec4311723299fe287a7627039c12ffe8d180daa4865ae1b5f569a4b') { throw 'Official Node20 SQLite prebuild SHA256 mismatch' }
+          $archives = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'Alook candidate pack') -Filter '*.tgz')
+          if ($archives.Count -ne 1) { throw 'Expected one exact candidate daemon package' }
+          $consumer = Join-Path $env:RUNNER_TEMP 'Alook Node20 consumer'
+          $previousPath = $env:PATH
+          $env:PATH = "$nodeHome;$previousPath"
+          $env:npm_config_better_sqlite3_local_prebuilds = $prebuildDirectory
+          try {
+            & $node20 (Join-Path $nodeHome 'node_modules/npm/bin/npm-cli.js') install --no-audit --no-fund --prefix $consumer $archives[0].FullName 2>&1 | Tee-Object -FilePath (Join-Path $evidenceDir 'agy-node20-install.log')
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $modulePath = Join-Path $consumer 'node_modules/@alook/daemon/dist/index.js'
+            $moduleUrl = & $node20 --input-type=module -e 'import {pathToFileURL} from "node:url"; console.log(pathToFileURL(process.argv[1]).href)' $modulePath
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $node20 src/daemon/agent-driver/scripts/test-bundled-agy.mjs $moduleUrl 2>&1 | Tee-Object -FilePath (Join-Path $evidenceDir 'agy-node20-runtime.log')
+            $runtimeExit = $LASTEXITCODE
+            @{ exitCode = $runtimeExit; checkout = $env:GITHUB_SHA; runtime = $runtime; archiveSHA256 = (Get-FileHash $archives[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() } | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $evidenceDir 'agy-node20-terminal.json') -Encoding utf8
+            if ($runtimeExit -ne 0) { exit $runtimeExit }
+          } finally {
+            $env:PATH = $previousPath
+            Remove-Item Env:npm_config_better_sqlite3_local_prebuilds -ErrorAction SilentlyContinue
+          }
       - name: Exercise the native agent callback CLI
         run: pnpm --filter @alook/agent-driver exec vitest run src/internal/cliLink.windows.test.ts --no-file-parallelism
       - name: Install isolated native providers in a space-containing prefix
@@ -132,17 +182,17 @@ jobs:
           Invoke-WebRequest 'https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.3.0-windows-x86_64.zip' -OutFile $agyZip
           Expand-Archive $agyZip -DestinationPath $env:ALOOK_NATIVE_NPM_PREFIX -Force
           if (-not (Test-Path (Join-Path $env:ALOOK_NATIVE_NPM_PREFIX 'agy_acp_server.exe'))) { throw 'Missing Antigravity ACP entry' }
-      - name: Fetch the official Antigravity CLI 1.3.4
+      - name: Fetch the official Antigravity CLI 1.5.9
         shell: pwsh
         run: |
-          $nativeAgy = Join-Path $env:RUNNER_TEMP 'agy-1.3.4.exe'
-          $url = 'https://storage.googleapis.com/antigravity-public/antigravity-cli/1.3.4-5524158944247808/windows-x64/cli_windows_x64.exe'
-          $expected = '21ac62deb74acce6e7ce3f5fd32411ddaf5e860319cc80857a85ddce1563d08d6a5042aa913d7211175fbcde8e4ee5d527ed3f84dcd2b7f0ac3a4c4e8d2008eb'
+          $nativeAgy = Join-Path $env:RUNNER_TEMP 'agy-1.5.9.exe'
+          $url = 'https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.9-4515810895593472/windows-x64/cli_windows_x64.exe'
+          $expected = '539a9415a686d9ec45f5c59fe7d32c485c6fa9abaea50208ae8ede4ed3622b9fb2bfd6680c87dc52344981172a96ddacb261ff4231276b5572fb5b62a9b0221e'
           Invoke-WebRequest $url -OutFile $nativeAgy
           $actual = (Get-FileHash $nativeAgy -Algorithm SHA512).Hash.ToLower()
           if ($actual -ne $expected) { throw 'Antigravity CLI SHA512 mismatch' }
           "ALOOK_NATIVE_AGY_PATH=$nativeAgy" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Output "Antigravity CLI 1.3.4 SHA512: $actual"
+          Write-Output "Antigravity CLI 1.5.9 SHA512: $actual"
       - name: Verify actual Windows Antigravity CLI discovery
         shell: pwsh
         run: |

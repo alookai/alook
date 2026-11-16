@@ -1,0 +1,82 @@
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { agyStateHome, NativeExecutionReader, openNativeExecutionDatabase, parseNativeExecution, queryExecutionRows } from "./execution.js";
+
+const roots: string[] = [];
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+const payload = (reason: number, id: string, error?: string) => Buffer.concat([
+  Buffer.from([8, reason, 74, Buffer.byteLength(id)]), Buffer.from(id),
+  ...(error ? [Buffer.from([98, Buffer.byteLength(error)]), Buffer.from(error)] : []),
+]);
+const row = (idx: number, reason: number, id: string, error?: string) => ({ idx, has_children: 0, data: payload(reason, id, error).toString("hex") });
+
+describe("agy persisted execution outcome", () => {
+  it("keeps failed history out of later successful and resumed roots", async () => {
+    let rows: ReturnType<typeof row>[] = [];
+    const read = async (_path: string, after?: number) => after === undefined ? rows.slice(-1) : rows.filter(value => value.idx > after);
+    const reader = new NativeExecutionReader("/isolated", "native", read);
+    const first = await reader.checkpoint();
+    rows.push(row(0, 1, "failure", "private provider failure"));
+    expect(await reader.terminal(first)).toBe("failed");
+    const second = await reader.checkpoint();
+    rows.push(row(1, 4, "recovered"));
+    expect(await reader.terminal(second)).toBe("success");
+    const resumed = new NativeExecutionReader("/isolated", "native", read);
+    const third = await resumed.checkpoint();
+    rows.push(row(2, 1, "resume-failure", "private provider failure"));
+    expect(await resumed.terminal(third)).toBe("failed");
+    const fourth = await resumed.checkpoint();
+    rows.push(row(3, 4, "resume-recovered"));
+    expect(await resumed.terminal(fourth)).toBe("success");
+    rows = [];
+    await expect(resumed.terminal(fourth)).rejects.toThrow("unavailable");
+  });
+
+  it.each([[], [row(0, 4, "one"), row(1, 4, "two")], [row(2, 4, "gap")], [row(0, 4, "old")]].map(rows => ({ rows })))("rejects missing, multiple, skipped or reused execution identities", async ({ rows }) => {
+    const reader = new NativeExecutionReader("/isolated", "native", async () => rows);
+    await expect(reader.terminal({ index: -1, executionId: "old", lastStepIndex: -1 })).rejects.toThrow();
+  });
+
+  it.each([[1, "failed"], [2, "interrupted"], [3, "failed"], [4, "success"], [11, "failed"]] as const)("maps native reason %s without assistant-text or usage inference", async (reason, outcome) => {
+    const reader = new NativeExecutionReader("/isolated", "native", async () => [row(0, reason, "new")]);
+    expect(await reader.terminal({ index: -1, executionId: null, lastStepIndex: -1 })).toBe(outcome);
+  });
+
+  it("retains a native error even with an otherwise successful reason", async () => {
+    const reader = new NativeExecutionReader("/isolated", "native", async () => [row(0, 4, "new", "private")]);
+    expect(await reader.terminal({ index: -1, executionId: null, lastStepIndex: -1 })).toBe("failed");
+  });
+
+  it("rejects malformed records and traversal identities", () => {
+    for (const data of [Buffer.from([8, 1, 74, 99]), payload(0, "new"), payload(12, "new"), payload(4, "../bad")]) expect(() => parseNativeExecution(data)).toThrow();
+    expect(() => new NativeExecutionReader("/isolated", "../bad")).toThrow();
+    const home = join(tmpdir(), "agy-isolated-home");
+    const cwd = join(tmpdir(), "agy-isolated-cwd");
+    expect(agyStateHome({ HOME: home, GEMINI_HOME: "~/custom" }, cwd)).toBe(join(home, "custom"));
+    expect(agyStateHome({ HOME: home, GEMINI_HOME: "relative" }, cwd)).toBe(join(cwd, "relative"));
+  });
+
+  it.skipIf(Number(process.versions.node.split(".")[0]) < 22)("reads actual SQLite terminal records and fails closed when the database is unavailable", async () => {
+    const module = "node:sqlite";
+    const { DatabaseSync } = await import(module);
+    const root = mkdtempSync(join(tmpdir(), "agy-execution-")); roots.push(root);
+    const directory = join(root, "antigravity-cli", "conversations"); mkdirSync(directory, { recursive: true });
+    const path = join(directory, "native.db");
+    const db = new DatabaseSync(path);
+    try {
+      db.exec("CREATE TABLE executor_metadata(idx INTEGER PRIMARY KEY,data BLOB); CREATE TABLE steps(idx INTEGER PRIMARY KEY,has_subtrajectory INTEGER)");
+      const reader = new NativeExecutionReader(root, "native");
+      const checkpoint = await reader.checkpoint();
+      db.prepare("INSERT INTO executor_metadata(idx,data) VALUES(?,?)").run(0, payload(1, "actual", "native failure"));
+      expect(await reader.terminal(checkpoint)).toBe("failed");
+      expect(await queryExecutionRows(path, 0, -1, path => openNativeExecutionDatabase(path, async () => { throw new Error("Node20"); }))).toEqual([]);
+      db.prepare("INSERT INTO steps(idx,has_subtrajectory) VALUES(?,?)").run(0, 1);
+      await expect(reader.terminal(checkpoint)).rejects.toThrow("subtrajectory");
+      expect((await queryExecutionRows(path)).map(value => ({ ...value, data: value.data.toLowerCase() }))).toEqual([row(0, 1, "actual", "native failure")]);
+    } finally { db.close(); }
+    await expect(new NativeExecutionReader(root, "missing").checkpoint()).rejects.toThrow();
+    await expect(queryExecutionRows(path, -2)).rejects.toThrow();
+  });
+});

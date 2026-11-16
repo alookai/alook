@@ -36,17 +36,17 @@ describe("official agy entry", () => {
     expect(agySpawnSpec(undefined, { homeDir: home, which: () => "C:\\path\\agy.exe" }, "win32")).toMatchObject({ command: "C:\\path\\agy.exe" });
     expect(agySpawnSpec("C:\\custom cli\\agy.cmd", {}, "win32")).toMatchObject({ shell: true });
   });
-  it.skipIf(process.platform === "win32")("requires actual stream flags and captures native stderr help", async () => {
+  it.skipIf(process.platform === "win32")("requires actual ACP flags and captures native stderr help", async () => {
     const file = join(directory(), "agy");
     const script = (help: string, hang = false) => `#!${process.execPath}\nif(process.argv.includes('--version')){console.log('1.3.4')}else{process.stderr.write(${JSON.stringify(help)});${hang ? "setInterval(()=>{},1000);" : ""}}\n`;
-    writeFileSync(file, script("--input-format --output-format stream-json --conversation"), { mode: 0o755 });
+    writeFileSync(file, script("ACP --process-per-session --stdio"), { mode: 0o755 });
     expect(await probeAgy(file)).toEqual({ status: "healthy", version: "1.3.4" });
     writeFileSync(file, script("ordinary CLI"), { mode: 0o755 });
-    expect(await probeAgy(file)).toMatchObject({ status: "unhealthy", lastError: "agy_stream_incompatible" });
+    expect(await probeAgy(file)).toMatchObject({ status: "unhealthy", lastError: "agy_acp_incompatible" });
     writeFileSync(file, script("x".repeat(65537)), { mode: 0o755 });
-    expect(await probeAgy(file)).toMatchObject({ status: "unhealthy", lastError: "agy_stream_probe_failed" });
+    expect(await probeAgy(file)).toMatchObject({ status: "unhealthy", lastError: "agy_acp_probe_failed" });
     writeFileSync(file, script("", true), { mode: 0o755 });
-    expect(await probeAgy(file)).toMatchObject({ status: "unhealthy", lastError: "agy_stream_probe_failed" });
+    expect(await probeAgy(file)).toMatchObject({ status: "unhealthy", lastError: "agy_acp_probe_failed" });
     expect(await probeAgy(join(directory(), "missing"))).toMatchObject({ status: "unhealthy" });
   });
 });
@@ -55,19 +55,19 @@ describe("official agy entry", () => {
 describe("AGY on-demand native catalog", () => {
   it.skipIf(process.platform === "win32")("rejects a successful native command with no usable model rows", async () => {
     const command = join(directory(), "agy");
-    writeFileSync(command, `#!${process.execPath}\nif(process.argv.includes('--version'))console.log('1.3.5');else if(process.argv.includes('--help'))console.error('--input-format --output-format stream-json --conversation models');else console.log('No available models');\n`, { mode: 0o755 });
+    writeFileSync(command, `#!${process.execPath}\nif(process.argv.includes('--version'))console.log('1.3.5');else if(process.argv.includes('--help'))console.error('ACP --process-per-session --stdio models');else console.log('No available models');\n`, { mode: 0o755 });
     expect(await createAgentDriverSdk().probe({ backend: "agy", command })).toMatchObject({ status: "unhealthy", error: { code: "agy_model_catalog_invalid" } });
   });
   it.skipIf(process.platform === "win32")("keeps installation healthy when the native catalog requires authentication", async () => {
     const root = directory();
     const command = join(root, "agy");
     const calls = join(root, "calls");
-    writeFileSync(command, `#!${process.execPath}\nconst fs=require('node:fs');fs.appendFileSync(${JSON.stringify(calls)},process.argv[2]+String.fromCharCode(10));if(process.argv.includes('--version'))console.log('1.3.4');else if(process.argv.includes('--help'))console.error('--input-format --output-format stream-json --conversation models');else{console.error('Please sign in to view available models');process.exit(1);}\n`, { mode: 0o755 });
+    writeFileSync(command, `#!${process.execPath}\nconst fs=require('node:fs');fs.appendFileSync(${JSON.stringify(calls)},process.argv[2]+String.fromCharCode(10));if(process.argv.includes('--version'))console.log('1.3.4');else if(process.argv.includes('--help'))console.error('ACP --process-per-session --stdio models');else{console.error('Please sign in to view available models');process.exit(1);}\n`, { mode: 0o755 });
     const sdk = createAgentDriverSdk();
     expect(await sdk.probe({ backend: "agy", command, includeModels: false })).toMatchObject({ status: "healthy", version: "1.3.4" });
-    expect(readFileSync(calls, "utf8")).toBe("--version\n--help\n");
+    expect(readFileSync(calls, "utf8")).toBe("--version\nacp\n");
     expect(await sdk.probe({ backend: "agy", command })).toMatchObject({ status: "unhealthy", error: { code: "agy_model_probe_failed" } });
-    expect(readFileSync(calls, "utf8")).toBe("--version\n--help\n--version\n--help\nmodels\n");
+    expect(readFileSync(calls, "utf8")).toBe("--version\nacp\n--version\nacp\nmodels\n");
     expect(await sdk.probe({ backend: "agy", command, includeModels: false })).toMatchObject({ status: "healthy", version: "1.3.4" });
   });
   it("reads TSV output, rejects diagnostics, deduplicates and bounds models", () => {
@@ -82,10 +82,10 @@ describe("AGY on-demand native catalog", () => {
     const root = directory();
     const file = join(root, "agy");
     const calls = join(root, "calls");
-    writeFileSync(file, `#!${process.execPath}\nconst fs=require('node:fs');fs.appendFileSync(${JSON.stringify(calls)},process.argv[2]+String.fromCharCode(10));if(process.argv.includes('--version'))console.log('1.3.5');else if(process.argv.includes('--help'))console.error('--input-format --output-format stream-json --conversation models');else if(process.argv.includes('models')){console.error('Fetching models...');console.log('native-model\tNative Model');}\n`, { mode: 0o755 });
+    writeFileSync(file, `#!${process.execPath}\nconst fs=require('node:fs');fs.appendFileSync(${JSON.stringify(calls)},process.argv[2]+String.fromCharCode(10));if(process.argv.includes('--version'))console.log('1.3.5');else if(process.argv.includes('--help'))console.error('ACP --process-per-session --stdio models');else if(process.argv.includes('models')){console.error('Fetching models...');console.log('native-model\tNative Model');}\n`, { mode: 0o755 });
     expect(await probeAgy(file, false)).toEqual({ status: "healthy", version: "1.3.5" });
-    expect(readFileSync(calls, "utf8")).toBe("--version\n--help\n");
+    expect(readFileSync(calls, "utf8")).toBe("--version\nacp\n");
     expect(await probeAgy(file, true)).toMatchObject({ status: "healthy", reasoning: { models: [{ id: "native-model", displayName: "Native Model" }] } });
-    expect(readFileSync(calls, "utf8")).toBe("--version\n--help\n--version\n--help\nmodels\n");
+    expect(readFileSync(calls, "utf8")).toBe("--version\nacp\n--version\nacp\nmodels\n");
   });
 })

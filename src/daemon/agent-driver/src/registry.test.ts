@@ -17,7 +17,7 @@ const EXPECTED: Record<BuiltinBackendId, BackendCapabilities> = {
   copilot: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
   "cursor-sdk": { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: false, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
   "pi-durable": { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: false, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
-  agy: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: false },
+  agy: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
   antigravity: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: true },
   claude: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true, disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
   codex: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
@@ -42,7 +42,7 @@ describe("driver.capabilities", () => {
       "copilot": { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "copilot.sdk-worker.v1" }, wakeStart: "immediate", terminalOwnership: "prompt_invocation" },
       "cursor-sdk": { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "cursor-sdk.sdk-worker.v1" }, wakeStart: "immediate", terminalOwnership: "prompt_invocation" },
       "pi-durable": { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "pi-durable.sdk-worker.v1" }, wakeStart: "immediate", terminalOwnership: "prompt_invocation" },
-      agy: { lifetime: "session", transport: { kind: "stdio_stream", protocol: "agy.stream-json.v1" }, wakeStart: "immediate", terminalOwnership: "vendor_message" },
+      agy: { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "agy.acp.v1" }, wakeStart: "immediate", terminalOwnership: "transport_request" },
       antigravity: { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "antigravity.acp.v1" }, wakeStart: "immediate", terminalOwnership: "transport_request" },
       claude: {
         lifetime: "session",

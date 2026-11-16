@@ -133,7 +133,7 @@ export type FixedCapabilities<
 };
 
 export type AntigravityCapabilities = FixedCapabilities<false, true, false, false, true, "next_turn_queue", "persistent">;
-export type AgyCapabilities = Omit<AntigravityCapabilities, "interrupt"> & { readonly interrupt: false };
+export type AgyCapabilities = FixedCapabilities<false, true, false, false, true, "steer", "persistent">;
 export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "steer", "persistent">;
 export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "steer", "persistent">;
 export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "steer", "persistent">;

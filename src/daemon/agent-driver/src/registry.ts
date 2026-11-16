@@ -216,7 +216,7 @@ const capabilities = {
   },
   agy: {
     modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false,
-    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: false,
+    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
   },
   antigravity: {
     modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false,
