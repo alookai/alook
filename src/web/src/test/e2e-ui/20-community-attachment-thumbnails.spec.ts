@@ -1606,7 +1606,7 @@ test("media attachments play, stop, recover and download through reachable mobil
     return { height: element.getBoundingClientRect().height, radius: style.borderTopLeftRadius, maxHeight: style.getPropertyValue("--attachment-image-max-height").trim() }
   })
   expect(thumbnail.height).toBeLessThanOrEqual(200)
-  expect(thumbnail.radius).toBe("10px")
+  expect(thumbnail.radius).toBe("12px")
   expect(thumbnail.maxHeight).toBe("200px")
   expect(idleVideoRect.width / idleVideoRect.height).toBeCloseTo(320 / 180, 1)
   await initialPlay.tap()
@@ -1636,6 +1636,10 @@ test("media attachments play, stop, recover and download through reachable mobil
   const expandedControls = mask.getByRole("toolbar", { name: "Video controls" })
   await expect(expandedControls).toBeVisible()
   const maskRect = await boundingRect(mask)
+  expect(await mask.evaluate(element => {
+    const style = getComputedStyle(element)
+    return { border: style.borderWidth, padding: style.padding, background: style.backgroundColor }
+  })).toEqual({ border: "0px", padding: "0px", background: "rgba(0, 0, 0, 0)" })
   const expandedRect = await boundingRect(expandedVideo)
   const controlsRect = await boundingRect(expandedControls)
   expectWithinRect(controlsRect, maskRect)
