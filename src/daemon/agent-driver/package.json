@@ -55,5 +55,8 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.0",
     "vitest": "5.1.0"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "12.9.0"
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "@alook/daemon",
   "version": "0.1.69",
-  "description": "Alook agent daemon — host-side runtime backend, process manager, credential proxy, and control plane.",
+  "description": "Alook agent daemon \u2014 host-side runtime backend, process manager, credential proxy, and control plane.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/alookai/alook#readme",
   "repository": {
@@ -37,7 +37,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external ws --external sharp --external quickjs-emscripten && bun build src/cli/index.ts --outdir dist/cli --target node --format esm --external commander --external ws --external sharp --external quickjs-emscripten && node scripts/prepare-dist.mjs",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --external better-sqlite3 --external commander --external ws --external sharp --external quickjs-emscripten && bun build src/cli/index.ts --outdir dist/cli --target node --format esm --external better-sqlite3 --external commander --external ws --external sharp --external quickjs-emscripten && node scripts/prepare-dist.mjs",
     "prepack": "node ../../scripts/ci/run-turbo.mjs run @alook/daemon#build",
     "typecheck": "tsc --noEmit",
     "test": "pnpm test:unit && pnpm test:packed",
@@ -66,5 +66,8 @@
     "typescript-eslint": "^8.72.0",
     "vitest": "5.1.0",
     "zod": "^4.6.7"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "12.9.0"
   }
 }

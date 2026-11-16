@@ -250,6 +250,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     isNotifyUnit,
     currentUser,
     accessAllowed: presented && !resolvingParent && routeCommitted && routeModel.routeLifecycle === "ready",
+    routeActive: active,
     roleDisplayAllowed: presented && !resolvingParent && routeModel.routeLifecycle === "ready"
       && (routeCommitted || resume && isForum && routeModel.routeHydrated),
   })
@@ -260,6 +261,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     manageMembersDialog,
     resolveUserName,
     myRole,
+    onLeaveChannel,
   } = memberViewModel
 
   // `/`-autocomplete candidates for both Composer call sites below — single
@@ -364,6 +366,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
               routeLifecycle={routeCommitted && routeModel.windowReady ? routeModel.routeLifecycle : "pending"}
               canRenameThread={canManageServer(myRole)}
               onNavigateParent={navigateParent}
+              onLeaveChannel={onLeaveChannel}
               notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
               onSetNotificationLevel={setNotificationLevel}
               composerMembers={composerMembers}
@@ -411,6 +414,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
           viewer={currentUser}
           viewerRole={myRole}
           onNavigateParent={navigateServerRoot}
+          onLeaveChannel={onLeaveChannel}
           notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
           onSetNotificationLevel={setNotificationLevel}
           composerMembers={composerMembers}
@@ -434,6 +438,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
         canManagePins={canManageServer(myRole)}
         anchorMessageId={currentAnchorMessageId}
         onNavigateParent={navigateServerRoot}
+        onLeaveChannel={onLeaveChannel}
         notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
         onSetNotificationLevel={setNotificationLevel}
         composerMembers={composerMembers}

@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button"
 import { DateDivider, NewDivider } from "../dividers"
+import { EntityIcon } from "../entity-icon"
 import { tid } from "@/lib/community/testids"
-import { ChannelIcon } from "../channels/channel-icon"
 import { MessageRow } from "./message-row"
 import { MESSAGE_ROW_VERTICAL_PADDING_PX, type FlatItem } from "@/lib/community/message-list-items"
 import type { MessageListController } from "./message-list-controller"
@@ -11,7 +11,10 @@ export function renderMessageListHero(props: ResolvedMessageListProps) {
   return props.hero ?? (
     <>
       <div data-slot="message-list-hero-icon" className="mt-4 mb-2 grid size-12 place-items-center rounded-full bg-muted/60">
-        <ChannelIcon className="text-xl text-muted-foreground" />
+        <EntityIcon
+          kind={props.kind}
+          className={props.kind === "thread" ? "size-5 text-muted-foreground" : "text-xl text-muted-foreground"}
+        />
       </div>
       <h2 className="text-2xl font-semibold leading-tight">{props.channel}</h2>
       <p className="mt-1 text-sm text-muted-foreground">

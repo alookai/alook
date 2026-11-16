@@ -46,6 +46,7 @@ describe("MessageList loading-to-loaded mount identity", () => {
     const view = render(scene(true, false))
     resize()
     const root = view.getByTestId(tid.messageScroller)
+    expect(root).toHaveClass("supports-[animation-timeline:scroll()]:scroll-fade-b")
     view.rerender(scene(false, false))
     resize()
     const partial = [...rows, ...Array.from({ length: 60 }, (_, index) => ({ ...rows[0], id: `partial${index}` }))]
@@ -83,6 +84,7 @@ describe("MessageList loading-to-loaded mount identity", () => {
     const view = render(scene(true, false))
     resize()
     const root = view.getByTestId(tid.messageScroller)
+    expect(root).toHaveClass("supports-[animation-timeline:scroll()]:scroll-fade-b")
     expect(root.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
     view.rerender(scene(false, false))
     resize()

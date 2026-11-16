@@ -272,4 +272,13 @@ describe("ForumChannelSurface ownership", () => {
     expect(mockedChannelHeader.mock.calls.at(-1)![0].rightPanel).toBeNull()
     expect(mockedCommunityPanel.mock.calls.at(-1)![0]).toEqual(expect.objectContaining({ kind: null, open: false }))
   })
+
+  it("navigates to parent after leaving a private forum channel", async () => {
+    const onLeaveChannel = vi.fn().mockResolvedValue(undefined)
+    const props = surfaceProps({ onLeaveChannel })
+    act(() => { render(React.createElement(ForumChannelSurface, props)) })
+    await mockedChannelHeader.mock.calls.at(-1)![0].onLeave?.()
+    expect(onLeaveChannel).toHaveBeenCalledOnce()
+    expect(props.onNavigateParent).toHaveBeenCalledOnce()
+  })
 })

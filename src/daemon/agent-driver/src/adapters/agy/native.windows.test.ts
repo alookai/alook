@@ -14,7 +14,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 });
 
-describe.skipIf(process.platform !== "win32" || !native)("official Windows agy 1.3.4", () => {
+describe.skipIf(process.platform !== "win32" || !native)("official Windows agy 1.5.9", () => {
   it.each(["PATH", "standard", "redirected", "explicit"])("discovers the real binary through %s", async (mode) => {
     const root = mkdtempSync(join(tmpdir(), "Alook agy native QA "));
     roots.push(root);
@@ -41,8 +41,8 @@ describe.skipIf(process.platform !== "win32" || !native)("official Windows agy 1
     const sdk = createAgentDriverSdk();
     const result = await sdk.probe({ backend: "agy", includeModels: false, ...(command ? { command } : {}) });
     console.log(JSON.stringify({ mode, status: result.status, version: result.status === "healthy" ? result.version : undefined, errorCode: result.status === "unhealthy" ? result.error.code : undefined }));
-    expect(result).toMatchObject({ status: "healthy", version: "1.3.4" });
+    expect(result).toMatchObject({ status: "healthy", version: "1.5.9" });
     console.log(JSON.stringify({ backend: "agy", mode, os: release(), node: process.version,
-      sha512: createHash("sha512").update(readFileSync(entry)).digest("hex"), version: "1.3.4", probe: "healthy", includeModels: false }));
+      sha512: createHash("sha512").update(readFileSync(entry)).digest("hex"), version: "1.5.9", probe: "healthy", includeModels: false }));
   }, 60_000);
 });

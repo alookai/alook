@@ -261,4 +261,14 @@ describe("renderMessageListRow", () => {
       expect(parseFloat(getComputedStyle(leading).paddingBlock) + parseFloat(getComputedStyle(nextRow).paddingBlock)).toBe(24)
     })
   })
+
+  it("renders # in the default thread hero and / in ordinary channels", () => {
+    const channelHero = render(renderMessageListRow({ kind: "leading", key: "leading" }, { ...props, historyStartKnown: true }, controller, 0))
+    expect(channelHero.container.querySelector(".lucide-hash")).toBeNull()
+    channelHero.unmount()
+
+    const threadHero = render(renderMessageListRow({ kind: "leading", key: "leading" }, { ...props, kind: "thread", historyStartKnown: true }, controller, 0))
+    expect(threadHero.container.querySelector(".lucide-hash")).not.toBeNull()
+    threadHero.unmount()
+  })
 })
