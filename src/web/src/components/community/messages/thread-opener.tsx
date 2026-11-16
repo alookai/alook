@@ -2,7 +2,7 @@
 
 import { withImageGallery } from "./image-preview-gallery"
 
-import { MessagesSquare, ArrowUpRight } from "lucide-react"
+import { Hash, ArrowUpRight } from "lucide-react"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
 import { selectHtmlPreviews } from "@/lib/community/html-preview-markdown"
@@ -90,7 +90,7 @@ export function ThreadOpener({
     return (
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-          <MessagesSquare className="size-3.5" />
+          <Hash className="size-3.5" />
           <span>Thread started from a message</span>
         </div>
         <p className="text-sm italic text-muted-foreground">Original message is unavailable.</p>
@@ -112,7 +112,7 @@ export function ThreadOpener({
   return (
     <div data-thread-opener className="group relative flex flex-col gap-2">
       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        <MessagesSquare className="size-3.5" />
+        <Hash className="size-3.5" />
         <span>Thread started from</span>
       </div>
 

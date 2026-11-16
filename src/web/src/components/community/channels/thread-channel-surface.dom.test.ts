@@ -540,3 +540,20 @@ it.each([false, true])("retains the held child composer shell while qualifying i
   }
   view!.unmount()
 })
+
+it("forwards onLeaveChannel in full thread view and omits it in compact split mode", async () => {
+  const onLeaveChannel = vi.fn().mockResolvedValue(undefined)
+  const onNavigateParent = vi.fn()
+  const view = render(renderSurface({ onLeaveChannel, onNavigateParent }))
+  await mockedChannelHeader.mock.calls.at(-1)![0].onLeave?.()
+  expect(onLeaveChannel).toHaveBeenCalledOnce()
+  expect(onNavigateParent).toHaveBeenCalledOnce()
+
+  view.rerender(renderSurface({
+    onLeaveChannel,
+    onNavigateParent,
+    splitActions: { onFullscreen: vi.fn(), onClose: vi.fn() },
+  }))
+  expect(mockedChannelHeader.mock.calls.at(-1)![0].onLeave).toBeUndefined()
+  view.unmount()
+})

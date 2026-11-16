@@ -30,6 +30,7 @@ export function ForumChannelSurface({
   viewer,
   viewerRole,
   onNavigateParent,
+  onLeaveChannel,
   notificationLevel,
   onSetNotificationLevel,
   composerMembers,
@@ -49,6 +50,7 @@ export function ForumChannelSurface({
   viewer: { id: string }
   viewerRole: Role | undefined
   onNavigateParent?: () => void
+  onLeaveChannel?: () => Promise<void>
   notificationLevel: ChannelNotifLevel
   onSetNotificationLevel: (level: ChannelNotifLevel) => void
   composerMembers: Member[]
@@ -115,6 +117,7 @@ export function ForumChannelSurface({
           onSetNotifLevel={onSetNotificationLevel}
           mobileBack={onNavigateParent}
           tools={{ threads: false, pinned: false }}
+          onLeave={onLeaveChannel ? async () => { await onLeaveChannel(); onNavigateParent?.() } : undefined}
         />
       )}
 {(

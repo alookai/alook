@@ -3,6 +3,7 @@ import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/m
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { MessageNeighborhood, MessagePositionState, MessageRequest } from "@/lib/community/message-position"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
+import type { EntityKind } from "@/lib/community/models/navigation"
 import type { CommunityConversationEntryRead } from "@alook/shared"
 
 export type MessageListProps = {
@@ -51,6 +52,7 @@ export type MessageListProps = {
   active?: boolean
   positioningActive?: boolean
   hero?: ReactNode
+  kind?: EntityKind
   variant?: "channel" | "dm"
   onScrollRoot?: (el: HTMLDivElement | null) => void
   viewerUserId?: string

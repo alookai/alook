@@ -74,7 +74,7 @@ export function ConversationFooterShell({
       {...props}
       data-slot="community-conversation-footer"
       data-selection-active={selectionActive ? "true" : "false"}
-      className={`relative z-20 shrink-0 before:pointer-events-none before:absolute before:inset-x-0 before:-top-12 before:bottom-0 before:-z-10 before:bg-[linear-gradient(to_bottom,transparent,var(--background)_32px)] before:content-['']${className ? ` ${className}` : ""}`}
+      className={`relative z-20 shrink-0${className ? ` ${className}` : ""}`}
       style={{
         ...style,
         ...(presented && keyboard

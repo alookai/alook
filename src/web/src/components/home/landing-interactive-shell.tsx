@@ -85,14 +85,19 @@ function InteractiveShell() {
   const [membersOpen, setMembersOpen] = useState(false)
   const [marked, setMarked] = useState<Marked[]>([])
   const [notification, setNotification] = useState<NotifLevel | "Use Server Default">("All Messages")
+  const [leftChannelIds, setLeftChannelIds] = useState<string[]>([])
   const [thread, setThread] = useState<Msg | null>(null)
   const [threadMessages, setThreadMessages] = useState<Record<string, Msg[]>>({})
   const fileUrls = useRef<string[]>([])
   useEffect(() => () => { fileUrls.current.forEach((url) => URL.revokeObjectURL(url)) }, [])
   const direct = homePage === "dm"
   const server = DEMO_SERVERS.find((item) => item.id === serverId)!
-  const categories = DEMO_CHANNELS[serverId]
-  const channel = categories.flatMap((item) => item.channels).find((item) => item.id === conversation)
+  const categories = DEMO_CHANNELS[serverId].map((group) => ({
+    ...group,
+    channels: group.channels.filter((item) => !leftChannelIds.includes(item.id)),
+  })).filter((group) => group.channels.length > 0)
+  const activeGroup = categories.find((item) => item.channels.some((room) => room.id === conversation))
+  const channel = activeGroup?.channels.find((item) => item.id === conversation)
   const dm = DEMO_DMS.find((item) => item.id === conversation) ?? DEMO_DMS[0]
   const allRows = messages[conversation] ?? []
   const pending = unread[conversation] ?? 0
@@ -146,7 +151,7 @@ function InteractiveShell() {
   const sidebar = homePage ? <DmSidebar dms={DEMO_DMS} activeDm={direct ? conversation : null} onPickDm={pickDm} onShowFriends={() => showHome("friends")} onShowBots={() => showHome("bots")} onShowMachines={() => showHome("machines")} friendsActive={homePage === "friends"} botsActive={homePage === "bots"} machinesActive={homePage === "machines"} />
     : <ChannelSidebarTreeOwner key={serverId} scopeKey={`landing:${serverId}`} categories={categories.map((group) => ({ ...group, channels: group.channels.map((item) => ({ ...item, active: item.id === conversation, unread: (unread[item.id] ?? 0) > 0 })) }))} serverName={server.name} activeChannel={conversation} setActiveChannel={pickConversation} isAdmin={false} currentUserId="demo-gus" />
   const conversationView = <>
-    {direct ? <DmHeader dm={dm} titleAs="div" onBack={() => setSurface("list")} /> : <ChannelHeader channel={channel?.name ?? "general"} rightPanel={membersOpen ? "members" : null} onToggle={() => setMembersOpen((open) => !open)} mobileBack={() => setSurface("list")} tools={{ threads: false, pinned: false }} notifLevel={notification} onSetNotifLevel={setNotification} />}
+    {direct ? <DmHeader dm={dm} titleAs="div" onBack={() => setSurface("list")} /> : <ChannelHeader channel={channel?.name ?? "general"} rightPanel={membersOpen ? "members" : null} onToggle={() => setMembersOpen((open) => !open)} mobileBack={() => setSurface("list")} tools={{ threads: false, pinned: false }} notifLevel={notification} onSetNotifLevel={setNotification} onLeave={activeGroup?.private ? () => { const fallback = categories[0]?.channels[0]?.id ?? "demo-general"; setLeftChannelIds((ids) => [...ids, conversation]); setConversation(fallback); if (breakpoint === "mobile") setSurface("list") } : undefined} />}
     <main data-slot="community-conversation-surface" className={`${styles.messageSurface} flex min-h-0 flex-1 flex-col`}>
       <ConversationFooterSlotProvider>
         <MessageList key={conversation} channel={direct ? dm.name : channel?.name ?? "general"} variant={direct ? "dm" : "channel"} messages={rows} typingUsers={conversation === "demo-general" ? ["Alli"] : []}
@@ -173,6 +178,6 @@ function InteractiveShell() {
         onMessage={(id, text) => { messagePerson(id); if (text.trim()) setMessages((items) => { const target = DEMO_DMS.find((item) => item.userId === id)?.id ?? `demo-dm-${id.slice(5)}`; return { ...items, [target]: [...(items[target] ?? []), { id: crypto.randomUUID(), type: "chat", authorId: "demo-gus", content: text, createdAt: new Date().toISOString() }] } }); setProfile(null) }}
         onOpenOwnerProfile={(owner) => setProfile({ ...profile, id: owner.id })} />}
       <Sheet open={membersOpen} onOpenChange={setMembersOpen}><SheetContent><SheetHeader><SheetTitle>Members</SheetTitle></SheetHeader><MemberList members={members} onOpenProfile={openProfile} /></SheetContent></Sheet>
-      <Sheet open={!!thread} onOpenChange={(open) => { if (!open) setThread(null) }}><SheetContent className="flex flex-col p-0"><SheetHeader className="p-4"><SheetTitle>Thread</SheetTitle></SheetHeader>{thread && <ConversationFooterSlotProvider><MessageList channel="Thread" messages={[thread, ...(threadMessages[thread.id] ?? [])]} onOpenThread={() => {}} onOpenProfile={openProfile} viewerUserId="demo-gus" /><ConversationFooterShell><Composer channel="Thread" context="channel" members={members} sendContract="accepted" autoFocus={false} onAcceptSend={(text) => { if (!text.trim()) return false; setThreadMessages((items) => ({ ...items, [thread.id]: [...(items[thread.id] ?? []), { id: crypto.randomUUID(), type: "chat", authorId: "demo-gus", content: text, createdAt: new Date().toISOString() }] })); return true }} /></ConversationFooterShell></ConversationFooterSlotProvider>}</SheetContent></Sheet>
+      <Sheet open={!!thread} onOpenChange={(open) => { if (!open) setThread(null) }}><SheetContent className="flex flex-col p-0"><SheetHeader className="p-4"><SheetTitle>Thread</SheetTitle></SheetHeader>{thread && <ConversationFooterSlotProvider><MessageList channel="Thread" kind="thread" messages={[thread, ...(threadMessages[thread.id] ?? [])]} onOpenThread={() => {}} onOpenProfile={openProfile} viewerUserId="demo-gus" /><ConversationFooterShell><Composer channel="Thread" context="channel" members={members} sendContract="accepted" autoFocus={false} onAcceptSend={(text) => { if (!text.trim()) return false; setThreadMessages((items) => ({ ...items, [thread.id]: [...(items[thread.id] ?? []), { id: crypto.randomUUID(), type: "chat", authorId: "demo-gus", content: text, createdAt: new Date().toISOString() }] })); return true }} /></ConversationFooterShell></ConversationFooterSlotProvider>}</SheetContent></Sheet>
     </>} />
 }

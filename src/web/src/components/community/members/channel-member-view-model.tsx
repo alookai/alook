@@ -12,6 +12,7 @@ import type { CommunityPanel } from "@/components/community/shell/community-pane
 import type { Member } from "@/lib/community/models/people"
 import type { ComposerProps } from "@/components/community/messages/composer"
 import { toastApiError } from "@/lib/api/client"
+import { isAbortError } from "@/lib/errors"
 import { makeUserNameResolver } from "@/lib/community/display-name"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
@@ -70,6 +71,7 @@ export function useChannelMemberViewModel({
   isNotifyUnit,
   currentUser,
   accessAllowed = true,
+  routeActive = true,
   roleDisplayAllowed = accessAllowed,
 }: {
   serverId: string
@@ -82,6 +84,7 @@ export function useChannelMemberViewModel({
   isNotifyUnit: boolean
   currentUser: { id: string }
   accessAllowed?: boolean
+  routeActive?: boolean
   roleDisplayAllowed?: boolean
 }): {
   composerMembers: Member[]
@@ -90,14 +93,20 @@ export function useChannelMemberViewModel({
   manageMembersDialog: ReactNode
   resolveUserName: (userId: string) => string
   myRole: Role | undefined
+  onLeaveChannel?: () => Promise<void>
 } {
   const membersHook = useServerMembers(accessAllowed && currentServer ? serverId : null)
   const myRole = useViewerServerRole(roleDisplayAllowed && currentServer ? serverId : null, currentUser.id)
   const source = useCommunityViewSource(`channel-members:${serverId}:${channelId}`, accessAllowed)
+  const leaveSource = useCommunityViewSource(`channel-leave:${serverId}:${channelId}`, routeActive)
   const originalView = useCallback((caller?: MemberOriginalView) => {
     const local = source.capture()
     return Object.assign(() => { local(); caller?.() }, { signal: caller?.signal ?? local.signal })
   }, [source])
+  const leaveView = useCallback((caller?: MemberOriginalView) => {
+    const local = leaveSource.capture()
+    return Object.assign(() => { local.assertOwner(); caller?.() }, { signal: caller?.signal ?? local.signal })
+  }, [leaveSource])
   const members = membersHook.members
   const [memberUi, setMemberUi] = useAtom(useCreateAtom({ channelId, query: "", dialogOpen: false }))
   const memberQuery = memberUi.channelId === channelId ? memberUi.query : ""
@@ -175,7 +184,7 @@ export function useChannelMemberViewModel({
     refetch: refetchAddableMembers,
   } = addableChannelMembers
   const addChannelMemberMut = useAddChannelMember(channelId)
-  const removeChannelMemberMut = useRemoveChannelMember(channelId)
+  const removeChannelMemberMut = useRemoveChannelMember(channelId, serverId, currentUser.id)
   const parentChannel = currentChannelMeta?.parentChannelId
     ? currentServer?.categories
       ?.flatMap((category) => category.channels)
@@ -319,12 +328,29 @@ export function useChannelMemberViewModel({
   const viewerIsUnitCreator = !!unitCreatorId && unitCreatorId === currentUser.id
   const scopedDrawer = isNotifyUnit || currentChannelPrivate
   const removeMember = isNotifyUnit ? removeThreadParticipantMut : removeChannelMemberMut
+  const viewerInNotifyRoster = isNotifyUnit && channelMembersHook.members.some((member) => member.userId === currentUser.id)
+  const canLeaveChannel = accessAllowed && (isNotifyUnit ? viewerInNotifyRoster : currentChannelPrivate)
+  const onLeaveChannel = useMemo(() => {
+    if (!canLeaveChannel) return undefined
+    return async () => {
+      const local = leaveSource.capture()
+      const assert = Object.assign(() => local.assertOwner(), { signal: local.signal })
+      try {
+        assert()
+        await removeMember.mutateAsync({ userId: currentUser.id, assertActive: assert })
+        assert()
+      } catch (error) {
+        if (!isAbortError(error)) toastApiError(error, "Failed to leave", assert)
+        throw error
+      }
+    }
+  }, [canLeaveChannel, currentUser.id, leaveSource, removeMember])
   const manageContext = scopedDrawer
     ? {
         viewerUserId: currentUser.id,
         viewerIsCreator: viewerIsUnitCreator,
         unitLabel: currentChannelMeta?.name ?? channelName,
-        onLeave: (userId: string, caller?: MemberOriginalView) => removeMember.mutateAsync({ userId, assertActive: originalView(caller) }),
+        onLeave: (userId: string, caller?: MemberOriginalView) => removeMember.mutateAsync({ userId, assertActive: leaveView(caller) }),
         onRemove: (userId: string, caller?: MemberOriginalView) => removeMember.mutateAsync({ userId, assertActive: originalView(caller) }),
       }
     : undefined
@@ -429,5 +455,6 @@ export function useChannelMemberViewModel({
     manageMembersDialog,
     resolveUserName,
     myRole,
+    onLeaveChannel,
   }
 }
