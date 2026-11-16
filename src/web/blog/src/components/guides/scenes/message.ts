@@ -9,28 +9,27 @@ export function createScene(root: HTMLElement, complete: () => void) {
   const update = (detail: object) => channel.dispatchEvent(new CustomEvent("tutorial-draft", { detail }));
   timeline.call(() => update({ mentions: 0, text: "", popup: -1 }), [], 0);
   action("open-channel", 0);
-  click(frames[0].querySelector('[data-testid="community-channel-row-general"]')!, 0.4);
+  click(frames[0].querySelector(`[data-testid="community-channel-row-${channel.dataset.messageChannelName ?? "general"}"]`) ?? editor, 0.4);
   zoom(0, 1.5, editor);
   click(editor, 2.4);
-  action("mention-milo", 3.7);
-  for (const [index, text] of ["@", "@M", "@Mi"].entries()) timeline.call(() => update({ text }), [], 3.8 + index * 0.2);
-  timeline.call(() => update({ popup: 0 }), [], 4.5);
-  zoom(0, 4.7, choice(0));
-  click(choice(0), 5.6);
-  timeline.call(() => update({ mentions: 1, text: "", popup: -1 }), [], 6.9);
-  zoom(0, 7.1, editor);
-  move(editor, 7.9);
-  action("mention-nova", 8);
-  for (const [index, text] of ["@", "@N", "@No"].entries()) timeline.call(() => update({ text }), [], 8 + index * 0.2);
-  timeline.call(() => update({ popup: 1 }), [], 8.7);
-  zoom(0, 8.9, choice(1));
-  click(choice(1), 9.8);
-  timeline.call(() => update({ mentions: 2, text: "", popup: -1 }), [], 11.1);
-  zoom(0, 11.3, editor);
-  move(editor, 12.1);
-  action("write-task", 12.2);
-  for (let count = 1; count <= task.length; count++) timeline.call(() => update({ text: task.slice(0, count) }), [], 12.2 + count * 0.07);
-  const after = 12.2 + task.length * 0.07 + 0.44;
+  const names = [...frames[0].querySelectorAll<HTMLElement>("[data-mention-choice]")].map((node) => node.dataset.mentionName ?? "");
+  let at = 3.7;
+  for (const [index, name] of names.entries()) {
+    if (index > 0) { zoom(0, at - 0.9, editor); move(editor, at - 0.1); }
+    action(`mention-${name.toLowerCase()}`, at);
+    for (const [step, text] of ["@", `@${name.slice(0, 1)}`, `@${name.slice(0, 2)}`].entries()) timeline.call(() => update({ text }), [], at + 0.1 + step * 0.2);
+    timeline.call(() => update({ popup: index }), [], at + 0.8);
+    zoom(0, at + 1, choice(index));
+    click(choice(index), at + 1.9);
+    timeline.call(() => update({ mentions: index + 1, text: "", popup: -1 }), [], at + 3.2);
+    at += 4.3;
+  }
+  const typeAt = at - 0.1;
+  zoom(0, typeAt - 0.9, editor);
+  move(editor, typeAt - 0.1);
+  action("write-task", typeAt);
+  for (let count = 1; count <= task.length; count++) timeline.call(() => update({ text: task.slice(0, count) }), [], typeAt + count * 0.07);
+  const after = typeAt + task.length * 0.07 + 0.44;
   const sendTarget = frames[0].querySelector('[data-message-composer]')!;
   const send = () => sendTarget.querySelector('[aria-label="Send message"]')!;
   zoom(0, after, send);

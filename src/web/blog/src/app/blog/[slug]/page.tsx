@@ -121,7 +121,7 @@ export default async function BlogPostPage({
 
         <section className={`${technostalgia.theme} mt-12 flex flex-wrap items-center gap-6 border-t border-border pt-8`} aria-label="Continue in Alook">
           <ZoneLink href="/c" zone="blog" data-variant="default" data-size="lg" className={cn(buttonVariants({ size: "lg" }), "h-11 gap-4 px-6")}>Open Alook<ArrowRight size={16} /></ZoneLink>
-          <Link href={directory} className="text-sm text-muted-foreground transition-colors hover:text-foreground">More blogs</Link>
+          <Link href="/blog" className="text-sm text-muted-foreground transition-colors hover:text-foreground">More blogs</Link>
         </section>
       </article>
     </>

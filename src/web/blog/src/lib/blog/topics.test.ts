@@ -9,7 +9,6 @@ import {
   getBlogTopicBySlug,
   getNextTopicBridge,
   getPostsForTopic,
-  getRelatedPosts,
 } from "./topics";
 
 const post = (slug: string): BlogPost => ({
@@ -199,44 +198,6 @@ describe("topic discovery", () => {
       "run-ai-agent-team-that-stays-on-track",
       "paperclip-alternatives",
     ]);
-  });
-
-  it("recommends support articles in order from a pillar", () => {
-    expect(
-      getRelatedPosts("ai-agent-orchestration", allPosts).map(
-        (candidate) => candidate.slug
-      )
-    ).toEqual([
-      "ai-agent-vs-chatbot",
-      "grok-bot-vs-meta-muse-vs-manus-cue",
-      "personal-agents-vs-coding-agents",
-    ]);
-  });
-
-  it("prioritizes the pillar, then nearby support articles", () => {
-    expect(
-      getRelatedPosts("ai-agent-collaboration-platforms", allPosts).map(
-        (candidate) => candidate.slug
-      )
-    ).toEqual([
-      "ai-agent-orchestration",
-      "multi-agent-workflow-patterns",
-      "how-to-delegate-tasks-to-ai-agents",
-    ]);
-  });
-
-  it("never returns the current article or missing metadata", () => {
-    const available = allPosts.filter(
-      (candidate) => candidate.slug !== "ai-agent-orchestration"
-    );
-    const related = getRelatedPosts("ai-agent-vs-chatbot", available);
-
-    expect(related.map((candidate) => candidate.slug)).not.toContain(
-      "ai-agent-vs-chatbot"
-    );
-    expect(related.map((candidate) => candidate.slug)).not.toContain(
-      "ai-agent-orchestration"
-    );
   });
 
   it("bridges to the next topic pillar and wraps to the first topic", () => {

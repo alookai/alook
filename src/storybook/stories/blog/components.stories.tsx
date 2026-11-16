@@ -23,7 +23,7 @@ export const Connect: Story = { render: () => <ConnectDemo /> }
 export const Bots: Story = { render: () => <BotsDemo runtime="codex" /> }
 export const Server: Story = { render: () => <ServerDemo /> }
 export const Message: Story = { render: () => <MessageDemo /> }
-export const Conversation: Story = { render: () => <ConversationDemo label="Builder and reviewer" lines={[["milo", "Ready for review: two files changed."], ["nova", "Review passed. All tests pass."]]} /> }
+export const Conversation: Story = { render: () => <ConversationDemo label="Builder and reviewer" lines={[["Milo", "Ready for review: two files changed."], ["Nova", "Review passed. All tests pass."]]} /> }
 export const Requirements: Story = { render: () => <Prerequisites><p>A local machine and an available coding agent.</p></Prerequisites> }
 export const Byline: Story = { render: () => <BlogPostByline post={{ author: "Alook Team", date: "2026-09-10", dateModified: "2026-11-05", readingTime: "7 min read" }} /> }
 export const NotFound: Story = { render: () => <BlogNotFound /> }

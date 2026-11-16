@@ -44,6 +44,7 @@ export function PublicLayout({
   zone = "main",
   maxWidth = "5xl",
   breadcrumb,
+  breadcrumbHref,
   leftSlot,
   centerSlot,
   rightSlot,
@@ -55,6 +56,7 @@ export function PublicLayout({
   zone?: PublicZone;
   maxWidth?: "4xl" | "5xl";
   breadcrumb?: string;
+  breadcrumbHref?: string;
   leftSlot?: React.ReactNode;
   centerSlot?: React.ReactNode;
   rightSlot?: React.ReactNode;
@@ -86,7 +88,7 @@ export function PublicLayout({
                 <>
                   <span className="text-muted-foreground/50 text-sm">/</span>
                   <ZoneLink
-                    href={`/${breadcrumb.toLowerCase()}`}
+                    href={breadcrumbHref ?? `/${breadcrumb.toLowerCase()}`}
                     zone={zone}
                     className="text-sm font-medium text-foreground hover:text-muted-foreground transition-colors"
                   >

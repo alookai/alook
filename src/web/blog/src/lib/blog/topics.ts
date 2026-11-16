@@ -1,6 +1,6 @@
 import type { BlogPost } from "./types";
 
-export type BlogTopicEntry = {
+type BlogTopicEntry = {
   slug: string;
   userJob: string;
 };
@@ -132,12 +132,6 @@ export function getBlogTopicBySlug(slug: string): BlogTopic | undefined {
   );
 }
 
-export function getBlogTopicEntryBySlug(
-  slug: string
-): BlogTopicEntry | undefined {
-  return getBlogTopicBySlug(slug)?.entries.find((entry) => entry.slug === slug);
-}
-
 export function getPostsForTopic(
   topic: BlogTopic,
   posts: readonly BlogPost[]
@@ -147,40 +141,6 @@ export function getPostsForTopic(
     const post = postsBySlug.get(entry.slug);
     return post ? [post] : [];
   });
-}
-
-export function getRelatedPosts(
-  slug: string,
-  posts: readonly BlogPost[],
-  limit = 3
-): BlogPost[] {
-  const topic = getBlogTopicBySlug(slug);
-  if (!topic || limit <= 0) return [];
-
-  const currentIndex = topic.entries.findIndex((entry) => entry.slug === slug);
-  const pillar = topic.entries.find((entry) => entry.slug === topic.pillarSlug);
-  const candidates = topic.entries
-    .filter((entry) => entry.slug !== slug && entry.slug !== topic.pillarSlug)
-    .sort((a, b) => {
-      if (slug === topic.pillarSlug) return 0;
-      const aIndex = topic.entries.indexOf(a);
-      const bIndex = topic.entries.indexOf(b);
-      return (
-        Math.abs(aIndex - currentIndex) - Math.abs(bIndex - currentIndex) ||
-        aIndex - bIndex
-      );
-    });
-
-  const orderedEntries =
-    slug === topic.pillarSlug || !pillar ? candidates : [pillar, ...candidates];
-  const postsBySlug = new Map(posts.map((post) => [post.slug, post]));
-
-  return orderedEntries
-    .flatMap((entry) => {
-      const post = postsBySlug.get(entry.slug);
-      return post ? [post] : [];
-    })
-    .slice(0, limit);
 }
 
 export function getNextTopicBridge(

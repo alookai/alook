@@ -1,11 +1,12 @@
 export const useCaseCategories = [
   { id: "community", label: "Community" },
+  { id: "team", label: "Team" },
   { id: "coding", label: "Coding" },
   { id: "automation", label: "Automation" },
   { id: "remote-control", label: "Remote Control" },
 ] as const;
 
-export type UseCaseCategoryId = (typeof useCaseCategories)[number]["id"];
+type UseCaseCategoryId = (typeof useCaseCategories)[number]["id"];
 
 type UseCaseDefinition = {
   slug: string;
