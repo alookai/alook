@@ -22,7 +22,7 @@ type ClaudeCredentials = {
   };
 };
 
-export type QuotaReaderOptions = QuotaReadOptions;
+type QuotaReaderOptions = QuotaReadOptions;
 
 function parseCredentials(value: string): ClaudeCredentials | null {
   try {

@@ -7,6 +7,7 @@ import { buildSdkWorkerArtifact } from "../testing/sdk-worker-artifact.spec.js";
 import type { SdkQuotaResult } from "./sdk-quota-worker.js";
 
 const nativeRoot = process.env.ALOOK_NATIVE_SDK_ROOT;
+const qoderScenario = { backend: "qoder", packageName: "@qoder-ai/qoder-agent-sdk", fixture: "qoder-cli.mjs", plan: "Pro", used: 25 };
 let artifact: Awaited<ReturnType<typeof buildSdkWorkerArtifact>>;
 beforeAll(async () => { if (nativeRoot) artifact = await buildSdkWorkerArtifact(); });
 afterAll(() => artifact?.dispose());
@@ -14,7 +15,7 @@ afterAll(() => artifact?.dispose());
 describe.skipIf(!nativeRoot || process.platform === "win32")("official SDK machine quota contracts", () => {
   it.each([
     { backend: "copilot", packageName: "@github/copilot-sdk", fixture: "copilot-cli.mjs", plan: "pro", used: 20 },
-    { backend: "qoder", packageName: "@qoder-ai/qoder-agent-sdk", fixture: "qoder-cli.mjs", plan: "Pro", used: 25 },
+    qoderScenario,
   ])("reads $backend through the official SDK without creating a model session", async ({ packageName, fixture, plan, used }) => {
     const root = mkdtempSync(join(tmpdir(), "alook-native-quota-"));
     const require = createRequire(join(resolve(nativeRoot!), "fixture.cjs"));
@@ -33,9 +34,9 @@ describe.skipIf(!nativeRoot || process.platform === "win32")("official SDK machi
     const root = mkdtempSync(join(tmpdir(), "alook-native-quota-isolation-"));
     const botRoot = mkdtempSync(join(tmpdir(), "alook-native-bot-isolation-"));
     const require = createRequire(join(resolve(nativeRoot!), "fixture.cjs"));
-    const modulePath = require.resolve("@qoder-ai/qoder-agent-sdk");
+    const modulePath = require.resolve(qoderScenario.packageName);
     const command = join(root, "qoder.mjs");
-    writeFileSync(command, readFileSync(new URL("../testing/fixtures/sdk/qoder-cli.mjs", import.meta.url), "utf8").replace("#!/usr/bin/env node", `#!${process.execPath}`), { mode: 0o700 });
+    writeFileSync(command, readFileSync(new URL(`../testing/fixtures/sdk/${qoderScenario.fixture}`, import.meta.url), "utf8").replace("#!/usr/bin/env node", `#!${process.execPath}`), { mode: 0o700 });
     const env = { ...process.env, QODER_PERSONAL_ACCESS_TOKEN: "fixture-token", QODER_SERVICE_ACCOUNT_KEY: undefined, QODER_CONFIG_DIR: root };
     const bot = new artifact.SdkWorkerLane(artifact.qoderWorker, { modulePath, cwd: botRoot, config: { command, model: "native-fixture" } }, env);
     const quota = new artifact.SdkWorkerLane(artifact.sdkQuotaWorker, { modulePath, cwd: root, config: { command }, probe: { includeModels: false } }, { ...env, QUOTA_HANG: "1" });
