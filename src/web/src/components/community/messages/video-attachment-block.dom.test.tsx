@@ -54,6 +54,16 @@ function metadata(video: HTMLVideoElement, duration = 10) {
   fireEvent.loadedMetadata(video)
 }
 
+function fallbackMenus() {
+  vi.stubGlobal("CSS", { ...CSS, supports: () => false })
+  Reflect.deleteProperty(HTMLElement.prototype, "popover")
+  Reflect.deleteProperty(HTMLMediaElement.prototype, "audioTracks")
+  const style = document.createElement("style")
+  style.textContent = ".media-popup[data-open] { display: block !important }"
+  document.head.appendChild(style)
+  styles.push(style)
+}
+
 describe("video attachment", () => {
   it.each([[10, 0.1], [0.05, 0.025]])("shows a paused frame for duration %s without starting playback", (duration, time) => {
     const { screen, video } = setup()
@@ -147,13 +157,7 @@ describe("video attachment", () => {
   })
 
   it("keeps a failed download visible after the fallback menu closes and allows retry", async () => {
-    vi.stubGlobal("CSS", { ...CSS, supports: () => false })
-    Reflect.deleteProperty(HTMLElement.prototype, "popover")
-    Reflect.deleteProperty(HTMLMediaElement.prototype, "audioTracks")
-    const style = document.createElement("style")
-    style.textContent = ".media-popup[data-open] { display: block !important }"
-    document.head.appendChild(style)
-    styles.push(style)
+    fallbackMenus()
     const fetch = vi.fn().mockRejectedValue(new Error("offline"))
     vi.stubGlobal("fetch", fetch)
     const { screen, video } = setup()
@@ -171,5 +175,27 @@ describe("video attachment", () => {
     await act(async () => fireEvent.click(retryDownload))
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
     expect(play).toHaveBeenCalledTimes(1)
+  })
+
+  it("opens speed choices from More and returns to Download before selecting a rate", async () => {
+    fallbackMenus()
+    const { screen, video } = setup()
+    metadata(video)
+    fireEvent.seeked(video)
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Play video clip.mp4" })))
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "More" })))
+    const download = await screen.findByRole("menuitem", { name: "Download" })
+    const speed = screen.getByRole("menuitem", { name: /^Speed/ })
+    expect(download.compareDocumentPosition(speed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByRole("menuitemradio")).toBeNull()
+    await act(async () => fireEvent.click(speed))
+    await waitFor(() => expect(screen.getAllByRole("menuitemradio")).toHaveLength(7))
+    await act(async () => fireEvent.click(screen.getByRole("menuitem", { name: "Back to More" })))
+    expect(screen.getByRole("menuitem", { name: "Download" })).toBeVisible()
+    await act(async () => fireEvent.click(screen.getByRole("menuitem", { name: /^Speed/ })))
+    await act(async () => fireEvent.click(screen.getByRole("menuitemradio", { name: "1.5×" })))
+    await waitFor(() => expect(video.playbackRate).toBe(1.5))
+    expect(screen.getByRole("menu", { name: "More" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: /^Speed/ })).toHaveTextContent("1.5×")
   })
 })

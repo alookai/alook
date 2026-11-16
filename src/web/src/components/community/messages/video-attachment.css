@@ -1,6 +1,4 @@
 .alook-video-attachment {
-  width: 100%;
-  max-width: 400px;
   background: var(--muted);
 }
 
@@ -15,8 +13,17 @@
 
 .alook-video-player {
   --media-border-radius: 0;
+  --media-frame-border: transparent;
   --media-font-family: var(--font-sans);
   position: relative;
+}
+
+.alook-video-picture {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
 .alook-video-element {
@@ -43,13 +50,17 @@
   background: var(--media-controls);
 }
 
-.alook-video-notice,
 .alook-video-error {
   position: absolute;
-  top: 8px;
-  left: 8px;
-  right: 8px;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: auto;
   width: fit-content;
+  height: fit-content;
   max-width: calc(100% - 16px);
   padding: 4px 8px;
   border-radius: var(--radius);
@@ -59,28 +70,51 @@
   z-index: 2;
 }
 
-.alook-video-error button {
+.alook-video-error button,
+.alook-video-download-error button {
   text-decoration: underline;
   min-height: 44px;
 }
 
-.alook-video-mask .alook-video-player {
+.alook-video-player[data-expanded] {
+  --media-foreground: var(--foreground);
+  --media-controls-foreground: var(--foreground);
+  --media-controls: var(--background);
+  --media-popover: var(--popover);
+  --media-popover-foreground: var(--popover-foreground);
+  --media-border: var(--border);
+  --media-muted: var(--muted);
+  --media-muted-foreground: var(--muted-foreground);
+  --media-primary: var(--primary);
+  --media-primary-foreground: var(--primary-foreground);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 8px;
   background: transparent;
+  overflow: visible;
 }
 
-.alook-video-mask.alook-video-mask[data-slot="dialog-content"] {
-  inset: 0;
+.alook-video-mask .alook-video-slot {
+  flex: 1;
+}
+
+.alook-video-player[data-expanded] .video-controls-content {
+  position: relative;
+  inset: auto;
   width: 100%;
-  height: 100%;
-  max-width: none;
-  max-height: none;
-  display: block;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  transform: none;
-  translate: none;
-  overflow: visible;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  text-shadow: none;
+}
+
+.alook-video-download-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--foreground);
+  font-size: 12px;
 }

@@ -340,11 +340,12 @@ describe("MediaAttachmentBlock", () => {
       static createObjectURL = vi.fn(() => "blob:media")
       static revokeObjectURL = vi.fn()
     })
-    const { renderer, mediaNode } = renderMedia()
+    const item = attachmentFor("audio")
+    const { renderer, mediaNode } = renderMedia({ item, mediaKind: "audio" })
 
     const click = new MouseEvent("click", { bubbles: true })
     Object.defineProperty(click, "stopPropagation", { value: stopPropagation })
-    act(() => byTestId(renderer, tid.mediaDownload("clip.mp4")).dispatchEvent(click))
+    act(() => byTestId(renderer, tid.mediaDownload(item.name)).dispatchEvent(click))
     await act(async () => {
       await Promise.resolve()
       await Promise.resolve()
@@ -356,13 +357,14 @@ describe("MediaAttachmentBlock", () => {
       input instanceof Request ? input : new NativeURL(String(input), window.location.href),
       init,
     )
-    expect(effectiveRequest.url).toBe(new NativeURL("/attachments/video-1", window.location.href).href)
+    expect(effectiveRequest.url).toBe(new NativeURL(item.url, window.location.href).href)
     expect(effectiveRequest.credentials).toBe("same-origin")
     expect(init?.signal ?? (input instanceof Request ? input.signal : undefined)).toBeInstanceOf(AbortSignal)
-    expect(downloadClick.mock.contexts[0]).toEqual(expect.objectContaining({ href: "blob:media", download: "clip.mp4" }))
+    expect(downloadClick.mock.contexts[0]).toEqual(expect.objectContaining({ href: "blob:media", download: item.name }))
     expect(downloadClick).toHaveBeenCalledOnce()
-    expect(renderer.getByRole("status")).toHaveTextContent("Download started")
+    expect(renderer.queryByRole("status")).toBeNull()
+    expect(renderer.getByRole("button", { name: `Download ${item.name}` })).toBeEnabled()
     expect(mediaNode.play).not.toHaveBeenCalled()
-    expect(renderer.container.querySelectorAll("video")).toHaveLength(0)
+    expect(renderer.container.querySelectorAll("audio, video")).toHaveLength(0)
   })
 })

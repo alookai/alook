@@ -4,7 +4,7 @@ import type { Locator, Page, TestInfo } from "@playwright/test"
 import sharp from "sharp"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
-import { composerEditable, createServer, gotoAfterUserWsAuth } from "./_fixtures/actions"
+import { composerEditable, createServer, gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
 import { holdRoute } from "./_fixtures/held-route"
 import { solidPngFixture } from "../fixtures/media"
 import { REPO_ROOT } from "./_setup/paths"
@@ -1550,6 +1550,7 @@ test("media attachments play, stop, recover and download through reachable mobil
   expect(downloadPath).not.toBeNull()
   expect(readFileSync(downloadPath!)).toEqual(wav)
   expect((await state(audioPlayer)).paused).toBe(true)
+  await expect(audio.block.getByText(/Download started|Saved|Share sheet opened/)).toHaveCount(0)
   await expect(page.getByRole("menu")).toHaveCount(0)
 
   const videoName = "playback.webm"
@@ -1590,7 +1591,7 @@ test("media attachments play, stop, recover and download through reachable mobil
   const assertPainted = async () => {
     const rect = await boundingRect(videoPlayer)
     const painted = await sharp(await page.screenshot({ clip: {
-      x: rect.x + rect.width / 4 - 2, y: rect.y + rect.height / 2 - 2, width: 4, height: 4,
+      x: rect.x + rect.width / 4 - 2, y: rect.y + rect.height / 8 - 2, width: 4, height: 4,
     } })).removeAlpha().raw().toBuffer({ resolveWithObject: true })
     for (let index = 0; index < painted.data.length; index += painted.info.channels) {
       expect(Math.abs(painted.data[index]! - 30)).toBeLessThan(30)
@@ -1600,6 +1601,14 @@ test("media attachments play, stop, recover and download through reachable mobil
   }
   await assertPainted()
   const idleVideoRect = await boundingRect(videoPlayer)
+  const thumbnail = await video.block.evaluate(element => {
+    const style = getComputedStyle(element)
+    return { height: element.getBoundingClientRect().height, radius: style.borderTopLeftRadius, maxHeight: style.getPropertyValue("--attachment-image-max-height").trim() }
+  })
+  expect(thumbnail.height).toBeLessThanOrEqual(200)
+  expect(thumbnail.radius).toBe("10px")
+  expect(thumbnail.maxHeight).toBe("200px")
+  expect(idleVideoRect.width / idleVideoRect.height).toBeCloseTo(320 / 180, 1)
   await initialPlay.tap()
   const videoPlay = video.block.getByTestId(tid.mediaPlay(videoName))
   await expect.poll(async () => (await state(videoPlayer)).time).toBeGreaterThan(0.2)
@@ -1609,6 +1618,8 @@ test("media attachments play, stop, recover and download through reachable mobil
   expect(videoRect).toEqual(idleVideoRect)
   await assertPainted()
   await reachable(videoPlay, video.block, "enabled", "neutral")
+  expect(await video.block.locator(".media-time-slider-value").evaluate(element => Number(getComputedStyle(element.parentElement!).opacity))).toBe(0)
+  await expect(video.block.locator(".media-time-group")).toHaveCount(1)
   const expand = video.block.getByRole("button", { name: "Expand video" })
   await reachable(expand, video.block, "enabled", "neutral")
   await videoPlayer.evaluate(element => element.setAttribute("data-retained-player", "original"))
@@ -1617,22 +1628,41 @@ test("media attachments play, stop, recover and download through reachable mobil
   const mask = page.getByRole("dialog", { name: videoName })
   const expandedVideo = mask.locator("video")
   await expect(expandedVideo).toHaveAttribute("data-retained-player", "original")
+  await expect(mask).not.toHaveAttribute("data-starting-style", "")
+  await waitForElementMotion(mask)
   expect((await state(expandedVideo)).paused).toBe(true)
   expect((await state(expandedVideo)).time).toBeCloseTo(videoPausedAt, 2)
   expectWithinRect(await boundingRect(expandedVideo), { x: 0, y: 0, width: 390, height: 844 })
+  const expandedControls = mask.getByRole("toolbar", { name: "Video controls" })
+  await expect(expandedControls).toBeVisible()
+  const maskRect = await boundingRect(mask)
+  const expandedRect = await boundingRect(expandedVideo)
+  const controlsRect = await boundingRect(expandedControls)
+  expectWithinRect(controlsRect, maskRect)
+  expect(Math.abs(controlsRect.y + controlsRect.height - maskRect.y - maskRect.height)).toBeLessThanOrEqual(1)
+  expect(expandedRect.y + expandedRect.height).toBeLessThanOrEqual(controlsRect.y)
+  expect(Math.abs(expandedRect.x + expandedRect.width / 2 - maskRect.x - maskRect.width / 2)).toBeLessThanOrEqual(1)
+  expect(await expandedControls.evaluate(element => {
+    const style = getComputedStyle(element)
+    return { border: style.borderTopWidth, radius: style.borderTopLeftRadius }
+  })).toEqual({ border: "1px", radius: "10px" })
   await mask.getByRole("button", { name: "Shrink video" }).tap()
   await expect(videoPlayer).toHaveAttribute("data-retained-player", "original")
   expect((await state(videoPlayer)).time).toBeCloseTo(videoPausedAt, 2)
   await video.block.getByRole("button", { name: "More", exact: true }).tap()
   const videoDownload = page.getByTestId(tid.mediaDownload(videoName))
-  const videoMenu = page.getByRole("menu")
-  const rateOptions = videoMenu.getByRole("menuitemradio")
-  await expect(rateOptions).toHaveCount(7)
+  const videoMenu = page.getByRole("menu", { name: "More", exact: true })
+  const speed = videoMenu.getByRole("menuitem", { name: /^Speed/ })
+  await expect(videoMenu.getByRole("menuitemradio")).toHaveCount(0)
+  expect(await videoDownload.evaluate((element, speedText) => {
+    const sibling = [...element.parentElement!.querySelectorAll('[role="menuitem"]')].find(item => item.textContent?.startsWith(speedText))
+    return !!sibling && !!(element.compareDocumentPosition(sibling) & Node.DOCUMENT_POSITION_FOLLOWING)
+  }, "Speed")).toBe(true)
   await expect.poll(() => videoMenu.evaluate(element => element.getAnimations({ subtree: true }).some(animation => (
     Number.isFinite(animation.effect?.getComputedTiming().endTime)
     && (animation.pending || animation.playState === "running")
   )))).toBe(false)
-  for (const item of [...await rateOptions.all(), videoDownload]) {
+  const checkMenuItem = async (item: Locator, menu: Locator) => {
     await item.scrollIntoViewIfNeeded()
     await expect(item).toBeEnabled()
     expect(await item.evaluate(element => {
@@ -1642,7 +1672,7 @@ test("media attachments play, stop, recover and download through reachable mobil
     })).toEqual({ top: "6px", bottom: "6px", left: "8px", right: "8px", fontSize: "13px", lineHeight: "19.5px" })
     const itemRect = await boundingRect(item)
     expect(itemRect.height).toBeCloseTo(31.5, 1)
-    const menuRect = await boundingRect(videoMenu)
+    const menuRect = await boundingRect(menu)
     expectWithinRect(menuRect, { x: 0, y: 0, width: 390, height: 844 })
     expectWithinRect(itemRect, menuRect)
     await expect.poll(() => item.evaluate(element => {
@@ -1650,6 +1680,23 @@ test("media attachments play, stop, recover and download through reachable mobil
       return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
     })).toBe(true)
   }
+  await checkMenuItem(videoDownload, videoMenu)
+  await checkMenuItem(speed, videoMenu)
+  await speed.tap()
+  const speedMenu = page.getByRole("menu", { name: "Playback speed", exact: true })
+  const rateOptions = speedMenu.getByRole("menuitemradio")
+  await expect(rateOptions).toHaveCount(7)
+  await expect.poll(() => speedMenu.evaluate(element => element.getAnimations({ subtree: true }).some(animation => (
+    Number.isFinite(animation.effect?.getComputedTiming().endTime) && (animation.pending || animation.playState === "running")
+  )))).toBe(false)
+  for (const item of await rateOptions.all()) await checkMenuItem(item, speedMenu)
+  await speedMenu.getByRole("menuitem", { name: "Back to More", exact: true }).tap()
+  await expect(videoDownload).toBeVisible()
+  await speed.tap()
+  await speedMenu.getByRole("menuitemradio", { name: "1.25×", exact: true }).tap()
+  await expect.poll(() => videoPlayer.evaluate(element => (element as HTMLMediaElement).playbackRate)).toBe(1.25)
+  await expect(speed).toHaveText(/1\.25×/)
+  await expect(videoDownload).toBeVisible()
   const videoDownloaded = page.waitForEvent("download")
   await videoDownload.tap()
   const videoFile = await videoDownloaded
