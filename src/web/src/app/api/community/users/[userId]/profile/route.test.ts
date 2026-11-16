@@ -131,7 +131,9 @@ describe("GET /api/community/users/[userId]/profile", () => {
       ownedByViewer: true,
     }))
 
-    const runtimeReq = new NextRequest("http://localhost/api/community/users/b1/profile?runtime=1")
+    const runtimeReq = new NextRequest("http://localhost/api/community/users/b1/profile", {
+      headers: { "x-alook-profile-runtime": "1" },
+    })
     const res = await GET(runtimeReq, { params: { userId: "b1" } } as never)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual(expect.objectContaining({

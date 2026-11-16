@@ -26,7 +26,7 @@ export const userProfileQueryFn = (userId: string) => async (context: QueryFunct
   const presence = registry?.runtime.ws.actions.beginPresenceSnapshot()
   try {
     const profile = await loadAndSeedProfiles(
-    async origin => parseCommunityUserCardRead(await apiFetch<unknown>(`/api/community/users/${userId}/profile?runtime=1`, { ...origin, signal: context.signal }), userId, registry!.accountId!),
+    async origin => parseCommunityUserCardRead(await apiFetch<unknown>(`/api/community/users/${userId}/profile`, { ...origin, headers: { ...origin.headers, "x-alook-profile-runtime": "1" }, signal: context.signal }), userId, registry!.accountId!),
     (profile) => [{
       id: profile.id,
       identityAbout: {

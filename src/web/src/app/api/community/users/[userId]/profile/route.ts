@@ -26,7 +26,7 @@ export const GET = withAuth(humanAuthPolicy, async (req, ctx) => {
 
   const viewerSet = new Set(viewerServerIds)
   const mutualServers = targetServerIds.filter((sid) => viewerSet.has(sid)).length
-  const includeRuntime = req.nextUrl.searchParams.get("runtime") === "1"
+  const includeRuntime = req.headers.get("x-alook-profile-runtime") === "1"
   const identity = profile.identity.kind === "bot" && !includeRuntime
     ? { kind: "bot" as const, ownerProfile: profile.identity.ownerProfile, ownedByViewer: profile.identity.ownedByViewer }
     : profile.identity
